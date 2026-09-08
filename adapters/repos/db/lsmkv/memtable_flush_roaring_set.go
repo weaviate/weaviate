@@ -55,6 +55,11 @@ func (m *Memtable) flushDataRoaringSet(f *segmentindex.SegmentFile) ([]segmentin
 			return nil, fmt.Errorf("write node %d: %w", i, err)
 		}
 
+		// KeyIndexAndWriteTo returns a subslice of the node's serialization, so
+		// keeping it would hold the whole segment body until flush() writes the
+		// index. The tree's key has the same bytes and outlives the flush.
+		ki.Key = node.Key
+
 		keys[i] = ki
 		totalWritten = ki.ValueEnd
 	}
