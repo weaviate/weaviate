@@ -711,6 +711,10 @@ function run_aof_group() {
   if [[ -n "${AOF_GROUP_SKIP:-}" ]]; then
     echo "  -skip filter: $AOF_GROUP_SKIP"
   fi
+  local group_timeout="${AOF_GROUP_TIMEOUT:-20m}"
+  if [[ "$group_timeout" != "20m" ]]; then
+    echo "  -timeout: $group_timeout"
+  fi
 
   local -a extra_flags=()
   if [[ -n "${AOF_GROUP_RUN:-}" ]]; then
@@ -732,7 +736,7 @@ function run_aof_group() {
           testFailed=1
         fi
       else
-        if ! go test -count 1 -timeout=20m -race "${extra_flags[@]}" "$pkg"; then
+        if ! go test -count 1 -timeout="$group_timeout" -race "${extra_flags[@]}" "$pkg"; then
           echo "Test for $pkg failed" >&2
           testFailed=1
         fi
@@ -1169,7 +1173,8 @@ function run_acceptance_backups() {
 function run_acceptance_backup_dedupe() {
   build_weaviate_test_image
   echo_green "acceptance — backup-dedupe"
-  AOF_GROUP_RUN='^TestBackupDedupeReplicas$' \
+  # Worst-case waits in TestBackupDedupeReplicas sum to ~30m; the workflow job allots 45m.
+  AOF_GROUP_RUN='^TestBackupDedupeReplicas$' AOF_GROUP_TIMEOUT=40m \
     run_aof_group "backup-dedupe" test/acceptance/backup_dedupe_replicas
 }
 

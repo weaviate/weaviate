@@ -14,9 +14,12 @@ package backup_dedupe_replicas_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -25,6 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/client/backups"
 	entbackup "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/test/helper"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
@@ -47,9 +51,9 @@ func TestBackupCrossVersionRestore(t *testing.T) {
 	require.NoError(t, os.Setenv(envWeaviateImage, oldWeaviateImage))
 	restoreImageEnv := func() {
 		if hadImage {
-			_ = os.Setenv(envWeaviateImage, prevImage)
+			assert.NoError(t, os.Setenv(envWeaviateImage, prevImage))
 		} else {
-			_ = os.Unsetenv(envWeaviateImage)
+			assert.NoError(t, os.Unsetenv(envWeaviateImage))
 		}
 	}
 	defer restoreImageEnv()
@@ -77,6 +81,35 @@ func TestBackupCrossVersionRestore(t *testing.T) {
 
 	artifact := downloadBackupPrefix(t, minioClient(t, oldCompose.GetMinIO().URI()), backupID)
 	require.NotEmpty(t, artifact)
+
+	t.Run("old release refuses a replica-deduped artifact", func(t *testing.T) {
+		const refuseID = "cross-version-refuse"
+		oldMinio := minioClient(t, oldCompose.GetMinIO().URI())
+		globalKey := fmt.Sprintf("%s/%s", backupID, ubak.GlobalBackupFile)
+		for key, data := range artifact {
+			if key == globalKey {
+				var global map[string]any
+				require.NoError(t, json.Unmarshal(data, &global))
+				global["id"] = refuseID
+				global["version"] = "3.0"
+				rewritten, err := json.Marshal(global)
+				require.NoError(t, err)
+				data = rewritten
+			}
+			target := refuseID + strings.TrimPrefix(key, backupID)
+			_, err := oldMinio.PutObject(ctx, bucketName, target, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{})
+			require.NoError(t, err)
+		}
+		_, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backendS3, refuseID, nil, false)
+		require.Error(t, err)
+		var uerr *backups.BackupsRestoreUnprocessableEntity
+		require.True(t, errors.As(err, &uerr), "want 422, got %T: %v", err, err)
+		messages := make([]string, 0, len(uerr.Payload.Error))
+		for _, item := range uerr.Payload.Error {
+			messages = append(messages, item.Message)
+		}
+		require.Contains(t, strings.Join(messages, "; "), "higher version")
+	})
 
 	require.NoError(t, oldCompose.Terminate(ctx))
 	oldTerminated = true

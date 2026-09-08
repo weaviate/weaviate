@@ -143,15 +143,17 @@ func minioClient(t *testing.T, minioURI string) *minio.Client {
 	return client
 }
 
+// readJSONObject is false only for a missing key; any other read failure fails the test so holder maps never build from partial data.
 func readJSONObject(t *testing.T, client *minio.Client, key string, out any) bool {
 	t.Helper()
 	obj, err := client.GetObject(context.Background(), bucketName, key, minio.GetObjectOptions{})
 	require.NoError(t, err)
 	defer obj.Close()
 	raw, err := io.ReadAll(obj)
-	if err != nil {
+	if minio.ToErrorResponse(err).Code == "NoSuchKey" {
 		return false
 	}
+	require.NoError(t, err)
 	require.NoError(t, json.Unmarshal(raw, out))
 	return true
 }
@@ -505,8 +507,15 @@ func TestBackupDedupeReplicas(t *testing.T) {
 	t.Run("convergence timeout above the maximum is rejected", func(t *testing.T) {
 		cfg := dedupeBackupConfig()
 		cfg.DedupeConvergenceTimeoutSeconds = 601
-		_, err := helper.CreateBackup(t, cfg, className, backendS3, "dedupe-bad-timeout")
-		require.Error(t, err)
+		body, err := json.Marshal(map[string]any{"id": "dedupe-bad-timeout", "include": []string{className}, "config": cfg})
+		require.NoError(t, err)
+		resp, err := http.Post(fmt.Sprintf("http://%s/v1/backups/%s", host, backendS3), "application/json", bytes.NewReader(body))
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		raw, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode, "body: %s", raw)
+		require.Contains(t, string(raw), "dedupeConvergenceTimeoutSeconds")
 	})
 
 	t.Run("restored replicas survive a rolling cluster restart", func(t *testing.T) {
@@ -584,8 +593,7 @@ func TestBackupDedupeMultiTenantColdTenantFallback(t *testing.T) {
 	})
 
 	t.Run("cold tenant falls back to all replicas, hot tenant dedupes", func(t *testing.T) {
-		_, err := helper.CreateBackup(t, dedupeBackupConfig(), className, backendS3, backupID)
-		require.NoError(t, err)
+		require.NoError(t, createBackupWithTimeout(t, dedupeBackupConfig(), className, backupID, time.Minute))
 		helper.ExpectBackupEventuallyCreated(t, backupID, backendS3, nil, helper.WithDeadline(4*time.Minute))
 
 		holders, _ := shardHolders(t, minioC, backupID, className)

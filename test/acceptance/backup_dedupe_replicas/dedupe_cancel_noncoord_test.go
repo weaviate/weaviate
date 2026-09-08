@@ -52,11 +52,14 @@ func TestBackupDedupeCancelViaNonCoordinator(t *testing.T) {
 
 	errCh := make(chan error, 1)
 	go func() {
-		_, err := helper.CreateBackup(t, dedupeBackupConfig(), className, backendS3, backupID)
-		errCh <- err
+		errCh <- createBackupWithTimeout(t, dedupeBackupConfig(), className, backupID, time.Minute)
 	}()
 
-	time.Sleep(3 * time.Second)
+	// Planning holds the create for the 10s cutoff lead, so observing the booked op guarantees the cancel lands mid-planning.
+	require.Eventually(t, func() bool {
+		status, err := helper.CreateBackupStatus(t, backendS3, backupID, "", "")
+		return err == nil && status.Payload != nil && status.Payload.Status != nil
+	}, 15*time.Second, 200*time.Millisecond, "create never registered on the coordinator")
 	cancelURL := fmt.Sprintf("http://%s/v1/backups/%s/%s", compose.GetWeaviateNode(3).URI(), backendS3, backupID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, cancelURL, nil)
 	require.NoError(t, err)
