@@ -35,6 +35,7 @@ import (
 
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/batch"
+	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	entbackup "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -214,13 +215,31 @@ func seedObjects(t *testing.T, host, className string, n int) []strfmt.UUID {
 // requireOnEveryNode reads node-locally on all replicas right after restore, proving fan-out rather than async-rep healing.
 func requireOnEveryNode(t *testing.T, host, className string, ids []strfmt.UUID) {
 	t.Helper()
+	requireReadOnEveryNode(t, ids, func(node string, id strfmt.UUID) (*models.Object, error) {
+		return common.GetObjectFromNode(t, host, className, id, node)
+	})
+}
+
+// requireReadOnEveryNode retries transient read errors within a shared settle budget (restored shards load lazily), but a clean not-found fails immediately: retrying it would let async-rep healing mask a fan-out gap.
+func requireReadOnEveryNode(t *testing.T, ids []strfmt.UUID, read func(node string, id strfmt.UUID) (*models.Object, error)) {
+	t.Helper()
+	settleBy := time.Now().Add(2 * time.Minute)
 	for _, node := range nodeNames {
 		for _, id := range ids {
-			obj, err := common.GetObjectFromNode(t, host, className, id, node)
+			obj, err := read(node, id)
+			for err != nil && !isObjectNotFound(err) && time.Now().Before(settleBy) {
+				time.Sleep(time.Second)
+				obj, err = read(node, id)
+			}
 			require.NoError(t, err, "object %s missing on %s", id, node)
 			require.NotNil(t, obj)
 		}
 	}
+}
+
+func isObjectNotFound(err error) bool {
+	var notFound *objects.ObjectsClassGetNotFound
+	return errors.As(err, &notFound)
 }
 
 func restoreErrorMessage(err error) string {
@@ -612,13 +631,9 @@ func TestBackupDedupeMultiTenantColdTenantFallback(t *testing.T) {
 		require.NoError(t, err)
 		helper.ExpectBackupEventuallyRestored(t, backupID, backendS3, nil, helper.WithDeadline(4*time.Minute))
 
-		for _, node := range nodeNames {
-			for _, id := range tenantIDs[hotTenant] {
-				obj, err := common.GetTenantObjectFromNode(t, host, className, id, node, hotTenant)
-				require.NoError(t, err, "hot tenant object %s missing on %s", id, node)
-				require.NotNil(t, obj)
-			}
-		}
+		requireReadOnEveryNode(t, tenantIDs[hotTenant], func(node string, id strfmt.UUID) (*models.Object, error) {
+			return common.GetTenantObjectFromNode(t, host, className, id, node, hotTenant)
+		})
 
 		helper.UpdateTenants(t, className, []*models.Tenant{{Name: coldT, ActivityStatus: models.TenantActivityStatusHOT}})
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
