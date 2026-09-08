@@ -220,14 +220,21 @@ func TestBackupWithConcurrentDelete(t *testing.T) {
 	for i, name := range collectionNames {
 		h := c.Collections.Use(name, collections.WithTenant(tenantName))
 		b := h.Batch(ctx)
+		tasks := make([]*batch.Task, 0, i+1)
 		for range i + 1 {
-			_, err := b.Object(ctx, &data.Object{
+			task, err := b.Object(ctx, &data.Object{
 				Properties: map[string]any{
 					"num": string(rune(i)),
 				},
 			})
 			require.NoError(t, err, "add object to batch")
+			tasks = append(tasks, task)
 		}
 		require.NoError(t, b.Close(), "batch failed")
+
+		// This is required to catch any object-level errors, b.Close doesn't report them.
+		for _, task := range tasks {
+			require.NoError(t, task.Wait(), "wait for object to get inserted")
+		}
 	}
 }
