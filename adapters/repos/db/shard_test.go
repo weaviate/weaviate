@@ -1154,3 +1154,27 @@ func TestShard_OpensMetadataDBForEveryShard(t *testing.T) {
 	_, _, err = shardmeta.GetOffline(s.path(), dynamicindex.StateNamespace, []byte("upgraded"))
 	require.Error(t, err)
 }
+
+// TestEnsureDroppedVectorFilesRemoved_SkipsLoadedShard pins that the drop
+// task's completion sweep leaves a loaded shard alone: the shard was swept
+// by the drop itself or by its own load, and an offline open of its index.db
+// would only wait out the lock timeout per target.
+func TestEnsureDroppedVectorFilesRemoved_SkipsLoadedShard(t *testing.T) {
+	ctx := testCtx()
+	className := "SweepLoadedShard"
+	shd, idx := testShard(t, ctx, className)
+	s := shd.(*Shard)
+
+	state := s.metadataDB.Namespace(dynamicindex.StateNamespace)
+	require.NoError(t, state.Put([]byte("upgraded_gone"), []byte{1}))
+
+	db := &DB{logger: idx.logger, indices: map[string]*Index{idx.ID(): idx}}
+	start := time.Now()
+	require.NoError(t, db.EnsureDroppedVectorFilesRemoved(className, s.name, []string{"gone", "gone2"}))
+	// the offline route waits a second per target on the lock this shard holds
+	assert.Less(t, time.Since(start), time.Second)
+
+	v, err := state.Get([]byte("upgraded_gone"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte{1}, v, "a loaded shard's state is the shard's to manage")
+}

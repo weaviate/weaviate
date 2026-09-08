@@ -96,6 +96,14 @@ func (db *DB) EnsureDroppedVectorFilesRemoved(collection, shardName string, targ
 	if idx == nil {
 		return fmt.Errorf("index for collection %q not found", collection)
 	}
+	// A loaded shard has already been swept: by the marker apply's drop if it
+	// was loaded then, or by its own load, which removes a dropped vector's
+	// files before it opens anything. Sweeping it here by path would delete
+	// storage under a live shard, and wait out the lock on its index.db for
+	// every target. The offline route below is for cold shards only.
+	if loadedShard(idx.shards.Load(shardName)) != nil {
+		return nil
+	}
 	helper := newVectorDropIndexHelper()
 	class := idx.getClass()
 	for _, target := range targets {
@@ -206,4 +214,18 @@ func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Cont
 		return nil
 	}
 	return fmt.Errorf("drop-vector finalize: bounded retry exhausted: %w", lastErr)
+}
+
+// loadedShard returns the *Shard behind a ShardLike when it is loaded, and
+// nil for a missing or cold shard. It never loads one.
+func loadedShard(shard ShardLike) *Shard {
+	switch s := shard.(type) {
+	case *Shard:
+		return s
+	case *LazyLoadShard:
+		if s.isLoaded() {
+			return s.shard
+		}
+	}
+	return nil
 }
