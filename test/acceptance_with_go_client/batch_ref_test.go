@@ -43,8 +43,9 @@ func TestBatchReferenceCreateNoObjects(t *testing.T) {
 	c.Collections.Delete(ctx, collectionTo)
 	t.Cleanup(func() { c.Collections.Delete(context.Background(), collectionTo) })
 
-	_, err := c.Collections.Create(ctx, collections.Collection{Name: collectionTo})
+	to, err := c.Collections.Create(ctx, collections.Collection{Name: collectionTo})
 	require.NoError(t, err)
+	require.NotNilf(t, to, "%q collection handle", collectionTo)
 
 	from, err := c.Collections.Create(ctx, collections.Collection{
 		Name: collectionFrom,
