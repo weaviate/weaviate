@@ -19,9 +19,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate-go-client/v6/data"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate-go-client/v6/modules/selfprovided"
+	"github.com/weaviate/weaviate-go-client/v6/query"
+	"github.com/weaviate/weaviate-go-client/v6/query/filter"
 	"github.com/weaviate/weaviate/entities/modelsext"
 )
 
@@ -82,29 +83,29 @@ func TestAutoschemaCasingProps(t *testing.T) {
 		t.Run(tt.prop1+" "+tt.prop2, func(t *testing.T) {
 			c.Collections.Delete(ctx, className)
 
-			col := c.Collections.Use(className)
-			require.NotNil(t, col, "collection handle")
+			h := c.Collections.Use(className)
+			require.NotNil(t, h, "collection handle")
 
 			{
-				_, err := col.Data.Insert(ctx, nil)
+				_, err := h.Data.Insert(ctx, nil)
 				require.NoError(t, err, "insert first object")
 			}
 
 			{
-				_, err := col.Data.Insert(ctx, &data.Object{
+				_, err := h.Data.Insert(ctx, &data.Object{
 					Properties: map[string]any{tt.prop1: "something"},
 				})
 				require.NoError(t, err, "insert second object")
 			}
 
 			{
-				_, err := col.Data.Insert(ctx, &data.Object{
+				_, err := h.Data.Insert(ctx, &data.Object{
 					Properties: map[string]any{tt.prop2: "other value"},
 				})
 				require.NoError(t, err, "insert third object")
 			}
 
-			count, err := col.Count(ctx)
+			count, err := h.Count(ctx)
 			require.NoError(t, err)
 			require.EqualValues(t, count, 3)
 
@@ -265,42 +266,51 @@ func TestAutoschemaPanicOnUnregonizedDataType(t *testing.T) {
 // The new client will not support these features. Should we rewrite the test or
 // delete it?
 func TestAutoschemaPanicOnUnregonizedDataTypeWithBatch(t *testing.T) {
-	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
-	require.Nil(t, err)
+	ctx := t.Context()
+	c := wvhost.NewClient(t)
 
-	className := "Passage"
-	t.Run("should create object in batch without problems", func(t *testing.T) {
-		obj := &models.Object{
-			Class: className,
-			Properties: map[string]interface{}{
-				"stringProperty": "value",
-			},
-		}
-		resp, err := c.Batch().ObjectsBatcher().WithObjects(obj).Do(ctx)
-		require.Nil(t, err)
-		require.Len(t, resp, 1)
-		require.NotNil(t, resp[0].Result)
-		require.Nil(t, resp[0].Result.Errors)
-		require.NotNil(t, resp[0].Object)
-		// auto-schema creates a "default" named vector with the none vectorizer,
-		// so nothing is vectorized even though DEFAULT_VECTORIZER_MODULE is set
-		assert.Empty(t, resp[0].Object.Vector)
-		assert.Empty(t, resp[0].Object.Vectors)
-
-		class, err := c.Schema().ClassGetter().WithClassName(className).Do(ctx)
-		require.Nil(t, err)
-		assert.Empty(t, class.Vectorizer)
-		require.Len(t, class.VectorConfig, 1)
-		defaultVector, ok := class.VectorConfig[modelsext.DefaultNamedVectorName]
-		require.True(t, ok)
-		assert.Equal(t, map[string]interface{}{"none": map[string]interface{}{}}, defaultVector.Vectorizer)
-
-		objs, err := c.Data().ObjectsGetter().WithClassName(className).Do(ctx)
-		require.Nil(t, err)
-		require.Len(t, objs, 1)
-
-		err = c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
-		require.Nil(t, err)
+	id := uuid.New()
+	h := c.Collections.Use("Passage")
+	t.Cleanup(func() {
+		require.NoError(t, c.Collections.Delete(context.Background(), h.CollectionName()))
 	})
+
+	obj := &data.Object{
+		UUID: &id,
+		Properties: map[string]any{
+			"stringProperty": "value",
+		},
+	}
+	_, err := h.Data.Insert(ctx, obj)
+	require.NoError(t, err)
+
+	r, err := h.Query.OverAll(ctx, query.OverAll{
+		Filter: filter.Cond{
+			Target:   filter.UUID,
+			Operator: filter.Equal,
+			Value:    id,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, r, "query result")
+	require.Len(t, r.Objects, 1, "retrieved objects")
+
+	// auto-schema creates a "default" named vector with the none vectorizer,
+	// so nothing is vectorized even though DEFAULT_VECTORIZER_MODULE is set
+	assert.Empty(t, r.Objects[0].Vectors)
+
+	config, err := c.Collections.GetConfig(ctx, h.CollectionName())
+	require.NoError(t, err)
+	require.NotNil(t, config, "collection config")
+
+	if assert.Contains(t, config.Vectors, modelsext.DefaultNamedVectorName) {
+		require.Equal(t,
+			selfprovided.Vectorizer, config.Vectors[modelsext.DefaultNamedVectorName].Vectorizer,
+			"default vectorizer",
+		)
+	}
+
+	count, err := h.Count(ctx)
+	require.NoError(t, err)
+	require.EqualValues(t, count, 1)
 }
