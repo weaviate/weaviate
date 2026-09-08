@@ -551,56 +551,46 @@ func TestRestoreFailureKeepsSameClassStagingOfPriorAttempt(t *testing.T) {
 	assert.Equal(t, "a1", string(marker))
 }
 
-func TestOnCommitAttemptGate(t *testing.T) {
+// TestAttemptGates pins OnCommit and OnAbort attempt gating: only a foreign-attempt OnCommit errors, but neither op may signal for one.
+func TestAttemptGates(t *testing.T) {
 	t.Parallel()
-	tests := []struct {
-		name        string
-		slotAttempt string
-		reqAttempt  string
-		wantSignal  bool
+	ops := []struct {
+		name   string
+		invoke func(c *shardSyncChan, reqAttempt string) error
 	}{
-		{name: "same attempt commits", slotAttempt: "a1", reqAttempt: "a1", wantSignal: true},
-		{name: "foreign attempt is refused", slotAttempt: "a1", reqAttempt: "a2", wantSignal: false},
-		{name: "legacy commit without attempt", slotAttempt: "a1", reqAttempt: "", wantSignal: true},
-		{name: "legacy slot without attempt", slotAttempt: "", reqAttempt: "a2", wantSignal: true},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			c := shardSyncChan{coordChan: make(chan interface{}, 5), logger: logrus.New()}
-			require.Empty(t, c.lastOp.renew("1", tc.slotAttempt, "p", "", ""))
+		{name: "commit", invoke: func(c *shardSyncChan, reqAttempt string) error {
 			c.waitingForCoordinatorToCommit.Store(true)
-			err := c.OnCommit(context.Background(), &StatusRequest{ID: "1", AttemptID: tc.reqAttempt})
-			if tc.wantSignal {
-				require.NoError(t, err)
-			} else {
-				require.Error(t, err)
-			}
-			assert.Equal(t, tc.wantSignal, len(c.coordChan) == 1)
-		})
+			return c.OnCommit(context.Background(), &StatusRequest{ID: "1", AttemptID: reqAttempt})
+		}},
+		{name: "abort", invoke: func(c *shardSyncChan, reqAttempt string) error {
+			return c.OnAbort(context.Background(), &AbortRequest{ID: "1", AttemptID: reqAttempt})
+		}},
 	}
-}
-
-func TestOnAbortAttemptGate(t *testing.T) {
-	t.Parallel()
 	tests := []struct {
 		name        string
 		slotAttempt string
 		reqAttempt  string
 		wantSignal  bool
 	}{
-		{name: "same attempt aborts", slotAttempt: "a1", reqAttempt: "a1", wantSignal: true},
-		{name: "foreign attempt is ignored", slotAttempt: "a1", reqAttempt: "a2", wantSignal: false},
-		{name: "legacy abort without attempt", slotAttempt: "a1", reqAttempt: "", wantSignal: true},
+		{name: "same attempt passes", slotAttempt: "a1", reqAttempt: "a1", wantSignal: true},
+		{name: "foreign attempt never signals", slotAttempt: "a1", reqAttempt: "a2", wantSignal: false},
+		{name: "legacy request without attempt", slotAttempt: "a1", reqAttempt: "", wantSignal: true},
 		{name: "legacy slot without attempt", slotAttempt: "", reqAttempt: "a2", wantSignal: true},
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			c := shardSyncChan{coordChan: make(chan interface{}, 5), logger: logrus.New()}
-			require.Empty(t, c.lastOp.renew("1", tc.slotAttempt, "p", "", ""))
-			require.NoError(t, c.OnAbort(context.Background(), &AbortRequest{ID: "1", AttemptID: tc.reqAttempt}))
-			assert.Equal(t, tc.wantSignal, len(c.coordChan) == 1)
-		})
+	for _, op := range ops {
+		for _, tc := range tests {
+			t.Run(op.name+" "+tc.name, func(t *testing.T) {
+				t.Parallel()
+				c := shardSyncChan{coordChan: make(chan interface{}, 5), logger: logrus.New()}
+				require.Empty(t, c.lastOp.renew("1", tc.slotAttempt, "p", "", ""))
+				err := op.invoke(&c, tc.reqAttempt)
+				if op.name == "commit" && !tc.wantSignal {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+				assert.Equal(t, tc.wantSignal, len(c.coordChan) == 1)
+			})
+		}
 	}
 }

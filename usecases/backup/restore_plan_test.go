@@ -300,6 +300,21 @@ func TestBuildFanoutPlan(t *testing.T) {
 		return &restorer{node: "N2", logger: logger, backends: provider}
 	}
 
+	buildPlan := func(backend *fakeBackend, participant, schemaSource string) (*restorePlan, error) {
+		return newRestorer(backend).buildFanoutPlan(ctx, participant, &Request{
+			Method: OpRestore, ID: backupID, Backend: "s3", Classes: []string{class},
+			DedupeReplicas: true, SourceNodes: []string{"N1", "N2"}, SchemaSourceNode: schemaSource,
+		})
+	}
+
+	requireSingleSource := func(t *testing.T, plan *restorePlan, node string, shards int) {
+		t.Helper()
+		require.Len(t, plan.classes, 1)
+		require.Len(t, plan.classes[0].sources, 1)
+		assert.Equal(t, node, plan.classes[0].sources[0].node)
+		assert.Len(t, plan.classes[0].sources[0].desc.Shards, shards)
+	}
+
 	t.Run("fan-out target restores deduped shards from the archiving node", func(t *testing.T) {
 		backend := newFakeBackend()
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
@@ -313,11 +328,7 @@ func TestBuildFanoutPlan(t *testing.T) {
 
 		plan, err := r.buildFanoutPlan(ctx, "N2", req)
 		require.NoError(t, err)
-		require.Len(t, plan.classes, 1)
-		require.Len(t, plan.classes[0].sources, 1)
-		src := plan.classes[0].sources[0]
-		assert.Equal(t, "N1", src.node)
-		assert.Len(t, src.desc.Shards, 2)
+		requireSingleSource(t, plan, "N1", 2)
 	})
 
 	t.Run("node-mapped participant restores under its backup-time name", func(t *testing.T) {
@@ -334,10 +345,7 @@ func TestBuildFanoutPlan(t *testing.T) {
 
 		plan, err := r.buildFanoutPlan(ctx, originalNodeName("new-N2", req.NodeMapping), req)
 		require.NoError(t, err)
-		require.Len(t, plan.classes, 1)
-		require.Len(t, plan.classes[0].sources, 1)
-		assert.Equal(t, "N1", plan.classes[0].sources[0].node)
-		assert.Len(t, plan.classes[0].sources[0].desc.Shards, 2)
+		requireSingleSource(t, plan, "N1", 2)
 	})
 
 	t.Run("not-deduped source descriptor refused", func(t *testing.T) {
@@ -389,18 +397,9 @@ func TestBuildFanoutPlan(t *testing.T) {
 		backend.On("GetObject", mock.Anything, backupID+"/N2", BackupFile).
 			Return(nodeMetaWithState("N2", map[string][]string{"s1": {"N1"}, "s2": {"N1"}}), nil)
 
-		r := newRestorer(backend)
-		req := &Request{
-			Method: OpRestore, ID: backupID, Backend: "s3", Classes: []string{class},
-			DedupeReplicas: true, SourceNodes: []string{"N1", "N2"}, SchemaSourceNode: "N1",
-		}
-
-		plan, err := r.buildFanoutPlan(ctx, "N2", req)
+		plan, err := buildPlan(backend, "N2", "N1")
 		require.NoError(t, err)
-		require.Len(t, plan.classes, 1)
-		require.Len(t, plan.classes[0].sources, 1)
-		assert.Equal(t, "N1", plan.classes[0].sources[0].node)
-		assert.Len(t, plan.classes[0].sources[0].desc.Shards, 2)
+		requireSingleSource(t, plan, "N1", 2)
 	})
 
 	t.Run("expansion-enrolled participant follows the schema source, not the first prefix", func(t *testing.T) {
@@ -411,18 +410,9 @@ func TestBuildFanoutPlan(t *testing.T) {
 		backend.On("GetObject", mock.Anything, backupID+"/N2", BackupFile).
 			Return(nodeMetaWithState("N2", map[string][]string{"s1": {"N1", "N3"}}), nil)
 
-		r := newRestorer(backend)
-		req := &Request{
-			Method: OpRestore, ID: backupID, Backend: "s3", Classes: []string{class},
-			DedupeReplicas: true, SourceNodes: []string{"N1", "N2"}, SchemaSourceNode: "N2",
-		}
-
-		plan, err := r.buildFanoutPlan(ctx, "N3", req)
+		plan, err := buildPlan(backend, "N3", "N2")
 		require.NoError(t, err)
-		require.Len(t, plan.classes, 1)
-		require.Len(t, plan.classes[0].sources, 1)
-		assert.Equal(t, "N1", plan.classes[0].sources[0].node)
-		assert.Len(t, plan.classes[0].sources[0].desc.Shards, 1)
+		requireSingleSource(t, plan, "N1", 1)
 	})
 
 	classlessMeta := func() []byte {
@@ -442,18 +432,9 @@ func TestBuildFanoutPlan(t *testing.T) {
 		backend.On("GetObject", mock.Anything, backupID+"/N2", BackupFile).
 			Return(nodeMetaWithState("N2", map[string][]string{"s1": {"N1", "N2"}}, "s1"), nil)
 
-		r := newRestorer(backend)
-		req := &Request{
-			Method: OpRestore, ID: backupID, Backend: "s3", Classes: []string{class},
-			DedupeReplicas: true, SourceNodes: []string{"N1", "N2"}, SchemaSourceNode: "N1",
-		}
-
-		plan, err := r.buildFanoutPlan(ctx, "N2", req)
+		plan, err := buildPlan(backend, "N2", "N1")
 		require.NoError(t, err)
-		require.Len(t, plan.classes, 1)
-		require.Len(t, plan.classes[0].sources, 1)
-		assert.Equal(t, "N2", plan.classes[0].sources[0].node)
-		assert.Len(t, plan.classes[0].sources[0].desc.Shards, 1)
+		requireSingleSource(t, plan, "N2", 1)
 	})
 
 	t.Run("schema source and own both lacking fall back to the first source with the class", func(t *testing.T) {
@@ -463,18 +444,9 @@ func TestBuildFanoutPlan(t *testing.T) {
 		backend.On("GetObject", mock.Anything, backupID+"/N2", BackupFile).
 			Return(nodeMetaWithState("N2", map[string][]string{"s1": {"N2", "N3"}}, "s1"), nil)
 
-		r := newRestorer(backend)
-		req := &Request{
-			Method: OpRestore, ID: backupID, Backend: "s3", Classes: []string{class},
-			DedupeReplicas: true, SourceNodes: []string{"N1", "N2"}, SchemaSourceNode: "N1",
-		}
-
-		plan, err := r.buildFanoutPlan(ctx, "N3", req)
+		plan, err := buildPlan(backend, "N3", "N1")
 		require.NoError(t, err)
-		require.Len(t, plan.classes, 1)
-		require.Len(t, plan.classes[0].sources, 1)
-		assert.Equal(t, "N2", plan.classes[0].sources[0].node)
-		assert.Len(t, plan.classes[0].sources[0].desc.Shards, 1)
+		requireSingleSource(t, plan, "N2", 1)
 	})
 
 	t.Run("class in no source descriptor refused", func(t *testing.T) {
@@ -483,13 +455,7 @@ func TestBuildFanoutPlan(t *testing.T) {
 		backend.On("GetObject", mock.Anything, backupID+"/N1", BackupFile).Return(classlessMeta(), nil)
 		backend.On("GetObject", mock.Anything, backupID+"/N2", BackupFile).Return(classlessMeta(), nil)
 
-		r := newRestorer(backend)
-		req := &Request{
-			Method: OpRestore, ID: backupID, Backend: "s3", Classes: []string{class},
-			DedupeReplicas: true, SourceNodes: []string{"N1", "N2"}, SchemaSourceNode: "N1",
-		}
-
-		_, err := r.buildFanoutPlan(ctx, "N2", req)
+		_, err := buildPlan(backend, "N2", "N1")
 		require.ErrorContains(t, err, "not found in any source descriptor")
 	})
 }
