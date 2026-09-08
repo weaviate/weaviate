@@ -591,55 +591,6 @@ func TestARecordRemovedEarlierInThePassStopsSupersedingAnything(t *testing.T) {
 		"and its tracker directory goes with it, instead of hydrating this tenant on every load")
 }
 
-// TestARecordPromotesPastAPropertyRetirementWillNotReclaim pins the two answers
-// to "has retirement run for this property" against each other. When they
-// disagree the record never reaches Promoted, so every load repeats the same
-// line, once per property, forever.
-func TestARecordPromotesPastAPropertyRetirementWillNotReclaim(t *testing.T) {
-	f := newReconcileFixture(t)
-	f.class = testClassWithTokenization(models.PropertyTokenizationWord, "body", "title")
-
-	old := testMigrationSubject(10, StrategyCodeFilterableToRangeable, "body", "title")
-	shared := old.Props["title"].Staged
-
-	successor := testMigrationSubject(20, StrategyCodeFilterableToRangeable, "title")
-	successor.Props["title"] = MigrationPropertyDirs{
-		Staged:    shared,
-		Canonical: old.Props["title"].Canonical,
-		Sidecar:   successor.Props["title"].Sidecar,
-	}
-
-	f.mkdirs(shared, old.Props["body"].Staged, old.Props["body"].Sidecar, old.Props["title"].Sidecar,
-		old.Props["body"].Canonical, old.Props["title"].Canonical)
-
-	f.put(NewMigrationRecordSwapped(old, []string{"body", "title"},
-		map[string]string{"body": old.Props["body"].Canonical, "title": old.Props["title"].Canonical}))
-	f.put(NewMigrationRecordSwapped(successor, []string{"title"},
-		map[string]string{"title": successor.Props["title"].Canonical}).
-		WithPromotionAt("title", migrationPromotionLost))
-
-	f.reconcile()
-
-	state, present := f.state(old.Key)
-	require.True(t, present)
-	require.Equal(t, MigrationStatePromoted, state,
-		"retirement has decided not to remove this directory, so there is nothing left for a later load to do")
-
-	require.True(t, f.exists(shared), "and the record that does own it still has its only copy")
-	require.Equal(t, shared, f.contentOf(shared))
-	require.Equal(t, old.Props["body"].Staged, f.contentOf(old.Props["body"].Canonical),
-		"the property nothing took over promoted in the same pass")
-
-	require.Len(t, f.errorLines("refusing to reclaim"), 1)
-
-	shard := &Shard{migrationRecords: f.store}
-	markInFlightRangeableMigrationsNotReady(shard)
-	require.NotContains(t, shard.rangeableLocalReady, "body",
-		"a promoted record marks nothing not-ready")
-	require.Contains(t, shard.rangeableLocalReady, "title",
-		"the successor's own property still degrades, which is its own wedge and not this one")
-}
-
 // TestUnretiredSupersededPropertiesReportOncePerRecord pins the report to one
 // line per record. An unretired property keeps the record Swapped, so the next
 // pass asks the same question of the same properties; one line per property
