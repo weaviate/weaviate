@@ -24,7 +24,7 @@ import (
 // in the order they run: both must stay ahead of bucket loading, or a bucket
 // opens at a name one of them is about to move.
 func (s *Shard) settleMigrationDirectories(ctx context.Context, class *models.Class) {
-	FinalizeCompletedMigrations(s.pathLSM(), s.index.logger)
+	FinalizeCompletedMigrations(s.pathLSM(), class, s.index.logger)
 	s.reconcileMigrationRecords(ctx, class)
 }
 
