@@ -15,7 +15,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"os"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -201,4 +205,122 @@ func TestErrorGroupWrapperWithContext_DoesNotPanic(t *testing.T) {
 	err := eg.Wait()
 	assert.Nil(t, err)
 	assert.NotContains(t, buf.String(), "Recovered from panic")
+}
+
+// TestErrorGroupWrapperPanics pins that every recovered panic is drained with
+// its own localVars, where Wait reports one of them.
+func TestErrorGroupWrapperPanics(t *testing.T) {
+	dispatchers := []struct {
+		name string
+		// feedsWait is false for RunInline, which returns the panic to its
+		// caller instead of routing it through the group.
+		feedsWait bool
+		start     func(egw *ErrorGroupWrapper, f func() error, localVars ...interface{})
+	}{
+		{
+			name:      "Go",
+			feedsWait: true,
+			start: func(egw *ErrorGroupWrapper, f func() error, localVars ...interface{}) {
+				egw.Go(f, localVars...)
+			},
+		},
+		{
+			name:      "TryGo",
+			feedsWait: true,
+			start: func(egw *ErrorGroupWrapper, f func() error, localVars ...interface{}) {
+				require.True(t, egw.TryGo(f, localVars...), "the group has no limit, so it must start")
+			},
+		},
+		{
+			name: "RunInline",
+			start: func(egw *ErrorGroupWrapper, f func() error, localVars ...interface{}) {
+				_ = egw.RunInline(f, localVars...)
+			},
+		},
+	}
+	for _, d := range dispatchers {
+		t.Run(d.name, func(t *testing.T) {
+			// a panic is only drained where it is recovered
+			t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
+			log := logrus.New()
+			log.SetOutput(io.Discard)
+
+			eg := NewErrorGroupWrapper(log)
+
+			const panicking = 3
+			for i := 0; i < panicking; i++ {
+				shard := fmt.Sprintf("shard-%d", i)
+				d.start(eg, func() error { panic("boom on " + shard) }, shard)
+			}
+			d.start(eg, func() error { return nil }, "shard-clean")
+
+			waitErr := eg.Wait()
+			if d.feedsWait {
+				require.ErrorContains(t, waitErr, "panic occurred")
+			} else {
+				require.NoError(t, waitErr)
+			}
+
+			drained := eg.Panics()
+			require.Len(t, drained, panicking, "every panic is drained, not just the one Wait returns")
+			if d.feedsWait {
+				reported := 0
+				for i := 0; i < panicking; i++ {
+					if strings.Contains(waitErr.Error(), fmt.Sprintf("boom on shard-%d", i)) {
+						reported++
+					}
+				}
+				require.Equal(t, 1, reported,
+					"Wait reports one panic; the drain is what makes the other two reachable")
+			}
+			filed := map[string]error{}
+			for _, p := range drained {
+				require.Len(t, p.LocalVars, 1, "a panic carries the localVars of the call that raised it")
+				shard, ok := p.LocalVars[0].(string)
+				require.True(t, ok, "localVars are drained unchanged, got %T", p.LocalVars[0])
+				filed[shard] = p.Err
+			}
+			for i := 0; i < panicking; i++ {
+				shard := fmt.Sprintf("shard-%d", i)
+				require.ErrorContains(t, filed[shard], "boom on "+shard)
+			}
+			require.NotContains(t, filed, "shard-clean", "a call that returned cleanly drains nothing")
+		})
+	}
+}
+
+// TestErrorGroupWrapperRunInline pins that RunInline runs f on the calling
+// goroutine and leaves Wait's jobs_count alone.
+func TestErrorGroupWrapperRunInline(t *testing.T) {
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+	eg := NewErrorGroupWrapper(log)
+
+	caller := currentGoroutineID()
+	var ran uint64
+	require.NoError(t, eg.RunInline(func() error {
+		ran = currentGoroutineID()
+		return nil
+	}))
+	require.Equal(t, caller, ran, "RunInline must not start a goroutine")
+	require.Zero(t, eg.routineCounter.Load(), "a call that starts nothing is not counted")
+
+	err := eg.RunInline(func() error { panic("boom") }, "Books", "shard-1")
+	require.ErrorContains(t, err, "panic occurred: boom", "the panic is returned, as it is from Go")
+	require.Len(t, eg.Panics(), 1)
+	require.Equal(t, []interface{}{"Books", "shard-1"}, eg.Panics()[0].LocalVars)
+	require.NoError(t, eg.Wait())
+}
+
+// currentGoroutineID reads the id off the runtime's own stack header, so a test
+// can tell whether a call stayed on the goroutine that made it.
+func currentGoroutineID() uint64 {
+	var buf [64]byte
+	n := runtime.Stack(buf[:], false)
+	var id uint64
+	fmt.Sscanf(string(buf[:n]), "goroutine %d ", &id)
+	return id
 }
