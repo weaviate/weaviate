@@ -72,6 +72,9 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 		i, u := i, u
 
 		g.Go(func() error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			e.logger.WithField("index", u.Class.Class).Info("reload local index")
 			cs[i] = u.Class
 

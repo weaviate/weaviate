@@ -383,6 +383,25 @@ func TestExecutor(t *testing.T) {
 	})
 }
 
+// TestReloadLocalDBStopsOnCancel pins that the load is cancellable. It runs for
+// minutes to hours off the FSM goroutine, and Close waits for it, so without a
+// cancellation point shutdown is held open for the rest of the load.
+func TestReloadLocalDBStopsOnCancel(t *testing.T) {
+	cls := &models.Class{Class: "C", ReplicationConfig: &models.ReplicationConfig{Factor: 1}}
+	state := &sharding.State{Physical: map[string]sharding.Physical{"S0": {Name: "S0"}}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	migrator := &fakeMigrator{}
+	store := &fakeSchemaManager{}
+
+	err := newMockExecutor(migrator, store).ReloadLocalDB(ctx, []api.UpdateClassRequest{{Class: cls, State: state}})
+
+	require.ErrorIs(t, err, context.Canceled)
+	migrator.AssertNotCalled(t, "UpdateIndex", mock.Anything, mock.Anything)
+}
+
 // TestReloadLocalDBSkipsClassDeletedMidReload pins that a class deleted while a
 // reload is in flight does not fail the reload.
 //
