@@ -12,14 +12,10 @@
 package lsmkv
 
 import (
-	"bufio"
 	"fmt"
-	"io"
 	"os"
 	"runtime"
 	"testing"
-
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
 // The benchmark fixture's cardinalities, chosen to mirror a filterable inverted
@@ -149,8 +145,7 @@ func retainedByFlushKeys(b *testing.B, m *Memtable) uint64 {
 	b.Helper()
 
 	held := func() uint64 {
-		keys, err := m.flushDataRoaringSet(segmentindex.NewSegmentFile(
-			segmentindex.WithBufferedWriter(bufio.NewWriter(io.Discard))))
+		keys, err := m.flushDataRoaringSet(discardingSegmentFile())
 		if err != nil {
 			b.Fatal(err)
 		}
