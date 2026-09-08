@@ -188,3 +188,60 @@ func TestVectorIndexMapping_Initialize(t *testing.T) {
 		assert.Empty(t, records)
 	})
 }
+
+func TestVectorIndexMapping_Put(t *testing.T) {
+	t.Run("writes and overwrites one record", func(t *testing.T) {
+		m, _ := newTestVectorIndexMapping(t)
+		require.NoError(t, m.Initialize(nil))
+
+		creating := vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "creating"}
+		require.NoError(t, m.Put("title", creating))
+		records, _, err := m.Load()
+		require.NoError(t, err)
+		assert.Equal(t, map[string]vectorIndexRecord{"title": creating}, records)
+
+		ready := creating
+		ready.State = "ready"
+		require.NoError(t, m.Put("title", ready))
+		records, _, err = m.Load()
+		require.NoError(t, err)
+		assert.Equal(t, map[string]vectorIndexRecord{"title": ready}, records)
+
+		// the legacy vector is the empty name
+		legacy := vectorIndexRecord{PhysicalID: "main", IndexType: "hnsw", State: "ready"}
+		require.NoError(t, m.Put("", legacy))
+		records, _, err = m.Load()
+		require.NoError(t, err)
+		assert.Equal(t, map[string]vectorIndexRecord{"title": ready, "": legacy}, records)
+	})
+
+	t.Run("refuses an uninitialized mapping", func(t *testing.T) {
+		m, _ := newTestVectorIndexMapping(t)
+		err := m.Put("title", vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "ready"})
+		require.ErrorIs(t, err, errVectorIndexMappingUninitialized)
+		_, initialized, err := m.Load()
+		require.NoError(t, err)
+		assert.False(t, initialized)
+	})
+
+	tests := []struct {
+		name    string
+		rec     vectorIndexRecord
+		wantErr string
+	}{
+		{name: "unknown state", rec: vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "done"}, wantErr: `state "done"`},
+		{name: "empty physical id", rec: vectorIndexRecord{IndexType: "hnsw", State: "ready"}, wantErr: "physical id"},
+		{name: "empty index type", rec: vectorIndexRecord{PhysicalID: "vectors_title", State: "ready"}, wantErr: "index type"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m, _ := newTestVectorIndexMapping(t)
+			require.NoError(t, m.Initialize(nil))
+			err := m.Put("title", tt.rec)
+			require.ErrorContains(t, err, tt.wantErr)
+			records, _, err := m.Load()
+			require.NoError(t, err)
+			assert.Empty(t, records)
+		})
+	}
+}

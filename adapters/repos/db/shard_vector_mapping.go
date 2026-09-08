@@ -181,3 +181,30 @@ func putVectorIndexRecord(b *shardmeta.Batch, name string, rec vectorIndexRecord
 	}
 	return b.Put([]byte(vectorIndexMappingKey(name)), value)
 }
+
+// Put writes or overwrites name's record. The mapping must be initialized:
+// a record with no format version is what Load refuses.
+func (m *vectorIndexMapping) Put(name string, rec vectorIndexRecord) error {
+	err := m.ns.Update(func(b *shardmeta.Batch) error {
+		err := requireVectorIndexMappingInitialized(b)
+		if err != nil {
+			return err
+		}
+		return putVectorIndexRecord(b, name, rec)
+	})
+	if err != nil {
+		return fmt.Errorf("put vector index mapping record %q: %w", name, err)
+	}
+	return nil
+}
+
+func requireVectorIndexMappingInitialized(b *shardmeta.Batch) error {
+	v, err := b.Get([]byte(vectorIndexMappingFormatVersionKey))
+	if err != nil {
+		return err
+	}
+	if v == nil {
+		return errVectorIndexMappingUninitialized
+	}
+	return nil
+}
