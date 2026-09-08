@@ -28,43 +28,6 @@ import (
 	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 )
 
-// ConvertQueue converts a legacy in-memory queue to an on-disk queue.
-// It detects if the queue has a checkpoint then it enqueues all the
-// remaining vectors to the on-disk queue, then deletes the checkpoint.
-func (s *Shard) ConvertQueue(targetVector string) error {
-	if !s.index.AsyncIndexingEnabled {
-		return nil
-	}
-
-	// No store, no checkpoint to convert from. This runs on a goroutine, where
-	// a nil dereference takes down the process.
-	if s.indexCheckpoints == nil {
-		return nil
-	}
-
-	// load non-indexed vectors and add them to the queue
-	checkpoint, exists, err := s.indexCheckpoints.Get(s.ID(), targetVector)
-	if err != nil {
-		return errors.Wrap(err, "get last indexed id")
-	}
-	if !exists {
-		return nil
-	}
-
-	err = s.FillQueue(targetVector, checkpoint)
-	if err != nil {
-		return errors.WithStack(err)
-	}
-
-	// we can now safely remove the checkpoint
-	err = s.indexCheckpoints.Delete(s.ID(), targetVector)
-	if err != nil {
-		return errors.Wrap(err, "delete checkpoint")
-	}
-
-	return nil
-}
-
 // FillQueue is a helper function that enqueues all vectors from the
 // LSM store to the on-disk queue.
 func (s *Shard) FillQueue(targetVector string, from uint64) error {

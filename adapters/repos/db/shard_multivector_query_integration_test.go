@@ -33,7 +33,7 @@ func TestSingleVectorQueryOnMultiVectorIndexRejected(t *testing.T) {
 	uc.Multivector.Enabled = true
 	uc.Multivector.MuveraConfig.Enabled = true
 
-	shard, index := testShardWithSettings(t, ctx, &models.Class{Class: "MVQueryReject"}, uc, false, false, false)
+	shard, index := testShardWithSettings(t, ctx, &models.Class{Class: "MVQueryReject"}, uc, false, false)
 	defer func() {
 		require.NoError(t, index.drop())
 	}()

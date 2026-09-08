@@ -32,7 +32,7 @@ func TestVectorIndexQueueBatchSize(t *testing.T) {
 
 	ctx := context.Background()
 	className := "TestClass"
-	shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, hnsw.UserConfig{}, false, true, true)
+	shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, hnsw.UserConfig{}, false, true)
 
 	defer func(path string) {
 		err := os.RemoveAll(path)

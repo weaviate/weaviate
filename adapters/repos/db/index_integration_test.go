@@ -19,7 +19,6 @@ import (
 	"math/rand"
 	"os"
 	"path"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -29,7 +28,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -165,7 +163,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		ReplicationFactor:    1,
 		ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
+		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.Nil(t, err)
 
@@ -223,7 +221,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		ReplicationFactor:    1,
 		ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
+		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.Nil(t, err)
 
@@ -408,7 +406,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		ReplicationFactor:    1,
 		ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
+		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.Nil(t, err)
 
@@ -480,11 +478,6 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 		},
 	}
 
-	// create a checkpoint file
-	cpFile, err := indexcheckpoint.New(dirName, logger)
-	require.Nil(t, err)
-	defer cpFile.Close()
-
 	// create index
 	scheduler := queue.NewScheduler(queue.SchedulerOptions{
 		Logger:  logger,
@@ -505,35 +498,13 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 		RootPath:             dirName,
 		ClassName:            schema.ClassName(class.Class),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, memwatch.NewDummyMonitor(),
+		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), true, nil)
-	require.Nil(t, err)
-
-	// at this point the shard is not loaded yet.
-	// update the checkpoint file to simulate a previously loaded shard
-	var shardName string
-	for name := range shardState.Physical {
-		shardName = name
-		break
-	}
-	require.NotEmpty(t, shardName)
-	shardID := fmt.Sprintf("%s_%s", index.ID(), shardName)
-	err = cpFile.Update(shardID, "", 10)
 	require.Nil(t, err)
 
 	// drop the index before loading the shard
 	err = index.drop()
 	require.Nil(t, err)
-
-	// ensure the checkpoint file is not deleted
-	_, err = os.Stat(filepath.Join(dirName, "index.db"))
-	require.Nil(t, err)
-
-	// ensure the shard checkpoint is deleted
-	v, ok, err := cpFile.Get(shardID, "")
-	require.Nil(t, err)
-	require.False(t, ok)
-	require.Zero(t, v)
 }
 
 func TestIndex_DropLoadedShard(t *testing.T) {
@@ -563,10 +534,6 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 			},
 		},
 	}
-
-	cpFile, err := indexcheckpoint.New(dirName, logger)
-	require.Nil(t, err)
-	defer cpFile.Close()
 
 	// create index
 	scheduler := queue.NewScheduler(queue.SchedulerOptions{
@@ -605,7 +572,7 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 		ReplicationFactor:    1,
 		ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, memwatch.NewDummyMonitor(),
+		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.Nil(t, err)
 
@@ -642,10 +609,6 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 	// drop the index
 	err = index.drop()
 	require.Nil(t, err)
-
-	// ensure the checkpoint file is not deleted
-	_, err = os.Stat(filepath.Join(dirName, "index.db"))
-	require.Nil(t, err)
 }
 
 func emptyIdx(t *testing.T, rootDir string, class *models.Class, shardState *sharding.State) *Index {
@@ -672,7 +635,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class, shardState *sha
 		ReplicationFactor:    1,
 		ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(invertedConfig()),
-		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
+		hnsw.NewDefaultUserConfig(), nil, router, shardResolver, schemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.Nil(t, err)
 	return idx
@@ -706,7 +669,7 @@ func TestIndex_DebugResetVectorIndex(t *testing.T) {
 
 	ctx := context.Background()
 	class := &models.Class{Class: "reindextest"}
-	shard, index := testShardWithSettings(t, ctx, &models.Class{Class: class.Class}, hnsw.UserConfig{}, false, true, true)
+	shard, index := testShardWithSettings(t, ctx, &models.Class{Class: class.Class}, hnsw.UserConfig{}, false, true)
 
 	// unknown shard
 	err := index.DebugResetVectorIndex(ctx, "unknown", "")
@@ -786,7 +749,6 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 		&models.Class{Class: class.Class},
 		nil,
 		false,
-		true,
 		true,
 		func(i *Index) {
 			i.vectorIndexUserConfigs = make(map[string]schemaConfig.VectorIndexConfig)
@@ -886,7 +848,6 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 		cfg,
 		false,
 		true,
-		true,
 	)
 
 	// unknown shard
@@ -976,7 +937,6 @@ func TestIndex_DebugResetVectorIndexFlat(t *testing.T) {
 		flat.UserConfig{},
 		false,
 		true,
-		true,
 	)
 
 	err := index.DebugResetVectorIndex(ctx, shard.Name(), "")
@@ -993,124 +953,4 @@ func randVector(dim int) []float32 {
 	}
 
 	return vec
-}
-
-func TestIndex_ConvertQueue(t *testing.T) {
-	ctx := context.Background()
-	class := &models.Class{Class: "preloadtest"}
-	shard, index := testShardWithSettings(
-		t,
-		ctx,
-		&models.Class{Class: class.Class},
-		hnsw.UserConfig{},
-		false,
-		true,
-		true,
-	)
-	amount := 1000
-
-	var objs []*storobj.Object
-	for i := 0; i < amount; i++ {
-		obj := testObject("preloadtest")
-		obj.Vector = randVector(16)
-		objs = append(objs, obj)
-	}
-
-	errs := shard.PutObjectBatch(ctx, objs)
-	for _, err := range errs {
-		require.Nil(t, err)
-	}
-
-	// reset the queue
-	vidx, q := getVectorIndexAndQueue(t, shard, "")
-	q.ResetWith(vidx)
-	q.Resume()
-
-	err := shard.ConvertQueue("")
-	require.Nil(t, err)
-
-	// wait until the queue is empty
-	for i := 0; i < 200; i++ {
-		time.Sleep(500 * time.Millisecond)
-		if q.Size() == 0 {
-			break
-		}
-	}
-
-	// wait for the in-flight indexing to finish
-	require.NoError(t, q.Wait(t.Context()))
-
-	// make sure the index contains all the objects
-	for _, obj := range objs {
-		if !vidx.ContainsDoc(obj.DocID) {
-			t.Fatalf("node %d should be in the vector index", obj.DocID)
-		}
-	}
-
-	err = index.drop()
-	require.Nil(t, err)
-}
-
-func TestIndex_ConvertQueueTargetVector(t *testing.T) {
-	ctx := context.Background()
-	class := &models.Class{Class: "preloadtest"}
-	shard, index := testShardWithSettings(
-		t,
-		ctx,
-		&models.Class{Class: class.Class},
-		hnsw.UserConfig{},
-		false,
-		true,
-		true,
-		func(i *Index) {
-			i.vectorIndexUserConfigs = make(map[string]schemaConfig.VectorIndexConfig)
-			i.vectorIndexUserConfigs["foo"] = hnsw.UserConfig{}
-		},
-	)
-	amount := 1000
-
-	var objs []*storobj.Object
-	for i := 0; i < amount; i++ {
-		obj := testObject("preloadtest")
-		obj.Vectors = map[string][]float32{
-			"foo": {1, 2, 3},
-		}
-		objs = append(objs, obj)
-	}
-
-	errs := shard.PutObjectBatch(ctx, objs)
-	for _, err := range errs {
-		require.Nil(t, err)
-	}
-
-	vectorIndex, q := getVectorIndexAndQueue(t, shard, "foo")
-
-	// reset the queue
-	q.Pause(t.Context())
-	q.ResetWith(vectorIndex)
-	q.Resume()
-
-	err := shard.ConvertQueue("foo")
-	require.Nil(t, err)
-
-	// wait until the queue is empty
-	for i := 0; i < 200; i++ {
-		time.Sleep(500 * time.Millisecond)
-		if q.Size() == 0 {
-			break
-		}
-	}
-
-	// wait for the in-flight indexing to finish
-	require.NoError(t, q.Wait(t.Context()))
-
-	// make sure the index contains all the objects
-	for _, obj := range objs {
-		if !vectorIndex.ContainsDoc(obj.DocID) {
-			t.Fatalf("node %d should be in the vector index", obj.DocID)
-		}
-	}
-
-	err = index.drop()
-	require.Nil(t, err)
 }

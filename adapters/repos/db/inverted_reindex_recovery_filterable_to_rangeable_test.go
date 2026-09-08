@@ -235,7 +235,7 @@ func TestRecoveryConvergence_FilterableToRangeable_Baseline(t *testing.T) {
 	class := newFilterableToRangeableTestClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 
