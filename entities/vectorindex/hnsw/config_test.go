@@ -897,9 +897,10 @@ func Test_UserConfig(t *testing.T) {
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
 				RQ: RQConfig{
-					Enabled:      DefaultRQEnabled,
-					Bits:         DefaultRQBits,
-					RescoreLimit: DefaultRQRescoreLimit,
+					Enabled:       DefaultRQEnabled,
+					Bits:          DefaultRQBits,
+					RescoreLimit:  DefaultRQRescoreLimit,
+					TrainingLimit: DefaultRQTrainingLimit,
 				},
 				FilterStrategy: FilterStrategyPathseer,
 				Multivector: MultivectorConfig{
