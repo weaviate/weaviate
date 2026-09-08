@@ -36,7 +36,6 @@ import (
 	entinverted "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
-	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // Go-level A/B instrument for ContainsAny/ContainsAll fan-out cost.
@@ -192,8 +191,7 @@ func newContainsFixture(tb testing.TB, numDocs int) *containsFixture {
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false },
 		func(string) bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
-		WithBatchedContainsEnabled(configRuntime.NewDynamicValue(true))
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	return &containsFixture{searcher: searcher, store: store, numDocs: numDocs}
 }

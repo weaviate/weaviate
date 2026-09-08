@@ -1024,6 +1024,45 @@ replica_movement_cleanup_include_cancelled: true
 // A missing registration line leaves a nil *DynamicValue whose Get() returns the
 // zero value, so the runtime override would be accepted and ignored with every
 // other test still green.
+// TestQueryBatchedContainsEnabledRuntimeOverride pins the two static wiring
+// points the kill switch rests on: the yaml tag, which ParseRuntimeConfig would
+// otherwise ignore like any unknown key, and the field reaching the live value
+// through UpdateRuntimeConfig.
+func TestQueryBatchedContainsEnabledRuntimeOverride(t *testing.T) {
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	source := &WeaviateRuntimeConfig{
+		QueryBatchedContainsEnabled: runtime.NewDynamicValue(true),
+	}
+
+	parsed, err := ParseRuntimeConfig([]byte("query_batched_contains_enabled: false"))
+	require.NoError(t, err)
+	require.NotNil(t, parsed.QueryBatchedContainsEnabled)
+	require.False(t, parsed.QueryBatchedContainsEnabled.Get())
+
+	require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+	require.False(t, source.QueryBatchedContainsEnabled.Get())
+
+	// Removing the override reverts to the default.
+	parsed, err = ParseRuntimeConfig([]byte(""))
+	require.NoError(t, err)
+	require.Nil(t, parsed.QueryBatchedContainsEnabled)
+	require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+	require.True(t, source.QueryBatchedContainsEnabled.Get())
+}
+
+// TestBuildRegisteredRuntimeConfig_RegistersQueryBatchedContains pins the
+// registration entry. Get and SetValue are both nil-safe, so a missing entry
+// costs the override silently.
+func TestBuildRegisteredRuntimeConfig_RegistersQueryBatchedContains(t *testing.T) {
+	cfg := &Config{QueryBatchedContainsEnabled: runtime.NewDynamicValue(true)}
+
+	registered := BuildRegisteredRuntimeConfig(cfg)
+
+	require.Same(t, cfg.QueryBatchedContainsEnabled, registered.QueryBatchedContainsEnabled)
+}
+
 func TestBuildRegisteredRuntimeConfig_RegistersReplicaMovementCleanup(t *testing.T) {
 	cfg := &Config{}
 	cfg.Replication.ReplicaMovementEnabled = runtime.NewDynamicValue(true)
