@@ -242,6 +242,10 @@ type Store struct {
 	dbLoaded atomic.Bool
 
 	dbLoad dbLoader
+	// loadCtx bounds the background shard load; Close cancels it. Read it
+	// through Store.loadContext.
+	loadCtx    context.Context
+	cancelLoad context.CancelFunc
 
 	// raft implementation from external library
 	raft          *raft.Raft
@@ -422,9 +426,13 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		rbacLister = cfg.RBAC
 	}
 
+	loadCtx, cancelLoad := context.WithCancel(context.Background())
+
 	return Store{
 		cfg:          cfg,
 		log:          cfg.Logger,
+		loadCtx:      loadCtx,
+		cancelLoad:   cancelLoad,
 		candidates:   make(map[string]string, cfg.BootstrapExpect),
 		applyTimeout: time.Second * 20,
 		raftResolver: resolver.NewRaft(resolver.RaftConfig{
@@ -445,6 +453,16 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		distributedTasksManager: distributedTasksManager,
 		metrics:                 newStoreMetrics(cfg.NodeID, reg),
 	}
+}
+
+// loadContext bounds the shard load. Close cancels it, so a load of minutes to
+// hours cannot hold shutdown open, and a load cut short that way is reported as
+// a shutdown rather than as an incomplete one.
+func (st *Store) loadContext() context.Context {
+	if st.loadCtx == nil {
+		return context.Background()
+	}
+	return st.loadCtx
 }
 
 func (st *Store) IsVoter() bool { return st.cfg.Voter }
@@ -709,8 +727,11 @@ func (st *Store) Close(ctx context.Context) error {
 	st.open.Store(false)
 
 	// Only now that raft is down can the loader finish: while Apply still runs,
-	// deferred writes keep asking it for another pass. Wait before the DB is
-	// closed underneath it.
+	// deferred writes keep asking it for another pass. Cancel and wait before
+	// the DB is closed underneath it, or a shard load of hours holds shutdown.
+	if st.cancelLoad != nil {
+		st.cancelLoad()
+	}
 	st.dbLoad.wg.Wait()
 
 	// close log store after raft shutdown to persist final log entries
@@ -1055,7 +1076,7 @@ func (st *Store) reloadDBFromSchema() {
 		loaded = st.dropDeferredDeletes(deletes) && loaded
 		st.log.Info("applying schema changes that landed while the local DB loaded")
 	}
-	if !loaded {
+	if !loaded && st.loadContext().Err() == nil {
 		st.reportIncompleteLoad()
 	}
 	st.dbLoaded.Store(true)
@@ -1121,7 +1142,7 @@ func (st *Store) loadDBFromSchema() bool {
 	err := func() error {
 		stop := st.trackDBLoadProgress()
 		defer stop()
-		return st.schemaManager.ReloadDBFromSchema()
+		return st.schemaManager.ReloadDBFromSchema(st.loadContext())
 	}()
 	if err != nil {
 		st.log.Errorf("reload local DB from schema: %v", err)
@@ -1137,11 +1158,8 @@ func (st *Store) loadDBFromSchema() bool {
 func (st *Store) dropDeferredDeletes(deletes map[string]bool) bool {
 	ok := true
 	for class, hasFrozen := range deletes {
-		if st.schemaManager.NewSchemaReader().ClassInfo(class).Exists {
-			continue // re-added since; the pass covers it
-		}
 		if err := st.schemaManager.DeleteClassFromDB(class, hasFrozen); err != nil {
-			st.log.Errorf("dropping deferred delete of class %q: %v", class, err)
+			st.log.Errorf("dropping class %q deleted while the local DB loaded: %v", class, err)
 			ok = false
 		}
 	}
