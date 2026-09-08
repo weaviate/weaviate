@@ -90,13 +90,24 @@ func TestCompletionRetriesAfterASchemaEffectFailure(t *testing.T) {
 				return loaded.(*Shard)
 			}
 
-			post := reload(shard) // reconciliation promotes; the flag is still off
-			require.DirExists(t, filepath.Join(lsmPath, canonical),
-				"fixture: promotion must have renamed the staged directory onto the canonical name")
+			post := reload(shard) // promotion waits: the flag is still off
+			require.NoDirExists(t, filepath.Join(lsmPath, canonical),
+				"fixture: promotion must wait while the class turns the index off")
+			require.DirExists(t, filepath.Join(lsmPath, task.ingestBucketName(propName)),
+				"fixture: the rebuilt data must keep its staged name")
 			require.Nil(t, post.store.Bucket(canonical),
 				"fixture: the canonical bucket must be closed while the flag is off")
 
 			if test.destroyFirst {
+				// The one sequence that still empties the canonical name: the
+				// flag lands, a load promotes onto it, the flag goes away again,
+				// and the next load's sweep deletes what the promotion put there.
+				on := true
+				class.Properties[0].IndexRangeFilters = &on
+				post = reload(post)
+				require.DirExists(t, filepath.Join(lsmPath, canonical),
+					"fixture: the load after the flag lands must promote")
+				class.Properties[0].IndexRangeFilters = &off
 				post = reload(post)
 				require.NoDirExists(t, filepath.Join(lsmPath, canonical),
 					"fixture: the load must have deleted the promoted directory")

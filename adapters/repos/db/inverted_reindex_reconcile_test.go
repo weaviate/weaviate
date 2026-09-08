@@ -100,14 +100,18 @@ func (f *reconcileFixture) logged(want string) bool {
 	return false
 }
 
-func (f *reconcileFixture) errorLines(contains string) []string {
+func (f *reconcileFixture) linesAt(level logrus.Level, contains string) []string {
 	var lines []string
 	for _, entry := range f.logs.AllEntries() {
-		if entry.Level == logrus.ErrorLevel && strings.Contains(entry.Message, contains) {
+		if entry.Level == level && strings.Contains(entry.Message, contains) {
 			lines = append(lines, entry.Message)
 		}
 	}
 	return lines
+}
+
+func (f *reconcileFixture) errorLines(contains string) []string {
+	return f.linesAt(logrus.ErrorLevel, contains)
 }
 
 func manyMigrationProps(n int) []string {
@@ -649,10 +653,11 @@ func TestAbandonPromotionKeepsARenameThatAlreadyMoved(t *testing.T) {
 				require.NoError(t, os.WriteFile(
 					filepath.Join(f.lsmPath, "property_title_searchable"), []byte("not a directory"), 0o600))
 				r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
-				updated, promoted, err := r.promoteProperty(rec, "title",
+				updated, promoted, deferred, err := r.promoteProperty(rec, "title",
 					promotionDirs{staged: "property_title__g42_ingest", canonical: "property_title_searchable"})
 				require.Error(t, err, "fixture: the rename has to fail for there to be anything to take back")
 				require.False(t, promoted)
+				require.Empty(t, deferred)
 				return updated
 			},
 			stagedThere: true,
@@ -673,6 +678,7 @@ func TestAbandonPromotionKeepsARenameThatAlreadyMoved(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newReconcileFixture(t)
+			f.class = testClassWithTokenization(models.PropertyTokenizationWord, "title")
 			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
 			if tt.stagedThere {
 				f.mkdirs("property_title__g42_ingest")
@@ -1782,7 +1788,8 @@ func TestACancelledPassRemovesNothing(t *testing.T) {
 	require.Equal(t, "property_body__g50_ingest", f.contentOf("property_body__g50_ingest"),
 		"so the rename it would have run never ran")
 
-	require.ErrorIs(t, r.repromoteWhatTheRecordOutran(ctx, all, committing), context.Canceled,
+	_, outranErr := r.repromoteWhatTheRecordOutran(ctx, all, committing)
+	require.ErrorIs(t, outranErr, context.Canceled,
 		"and so does the sweep that re-runs a promotion the record outran")
 	require.Equal(t, "property_body__g50_ingest", f.contentOf("property_body__g50_ingest"))
 

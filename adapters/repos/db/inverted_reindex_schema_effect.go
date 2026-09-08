@@ -11,7 +11,11 @@
 
 package db
 
-import "github.com/weaviate/weaviate/entities/models"
+import (
+	"fmt"
+
+	"github.com/weaviate/weaviate/entities/models"
+)
 
 type migrationEffect int
 
@@ -107,6 +111,65 @@ func migrationEffectConfirmsCommit(class *models.Class, subject MigrationSubject
 func migrationPropertyEffectVisible(subject MigrationSubject, prop *models.Property) bool {
 	visible, _ := migrationEffectReader(subject.MigrationType)
 	return visible != nil && visible(subject, prop)
+}
+
+// migrationCanonicalIndexFlag reads the schema flag that owns the canonical
+// directory this strategy promotes onto, and names the field it read so a
+// refusal can say which flag it followed. Sibling of [sourceBucketNameFor]:
+// each arm answers for the bucket that one names, so the two stay in step. No
+// default arm, so the linter refuses a ninth code that names no flag here.
+func migrationCanonicalIndexFlag(code MigrationStrategyCode, prop *models.Property) (*bool, string) {
+	switch code {
+	case StrategyCodeSearchableMapToBlockmax, StrategyCodeEnableSearchable,
+		StrategyCodeRebuildSearchable, StrategyCodeSearchableRetokenize:
+		return prop.IndexSearchable, "indexSearchable"
+	case StrategyCodeFilterableToRangeable:
+		return prop.IndexRangeFilters, "indexRangeFilters"
+	case StrategyCodeFilterableRoaringsetRefresh, StrategyCodeFilterableRetokenize,
+		StrategyCodeEnableFilterable:
+		return prop.IndexFilterable, "indexFilterable"
+	}
+	return nil, ""
+}
+
+// migrationCanonicalSweptBySchema reports whether the load-time sweep would
+// delete what a promotion is about to rename onto the canonical name, and why.
+//
+// The schema flag is the only authority over a canonical property directory:
+// [propertyDeleteIndexHelper.ensureBucketsAreRemovedForNonExistentPropertyIndexes]
+// deletes one it finds under an index the collection turns off, and it runs
+// before the promotion on every load. The migrations that turn an index on run
+// with that flag off for their whole duration, so renaming before the
+// cluster-wide flip lands puts the rebuilt data exactly where the next load
+// deletes it.
+//
+// Deliberately not [migrationEffectStatus]: that answers whether the effect has
+// landed and reads an unset flag as not-enabled, which would defer every
+// retokenize and change-algorithm promotion. The hazard is only ever the
+// sweep's own rule, an explicit false.
+//
+// A property the collection does not list is equally unreached by the sweep,
+// which walks the collection's own properties, so there is nothing to wait for
+// and the rename goes ahead. A collection this node has not applied at all is
+// the one thing that cannot be answered: the sweep may well hold a false this
+// read cannot see, so that waits for a load that can read it.
+func migrationCanonicalSweptBySchema(class *models.Class, subject MigrationSubject,
+	prop string,
+) (swept bool, why string) {
+	if class == nil {
+		return true, fmt.Sprintf("property %q: the collection is not in the locally applied schema", prop)
+	}
+	for _, p := range class.Properties {
+		if p == nil || p.Name != prop {
+			continue
+		}
+		flag, field := migrationCanonicalIndexFlag(subject.Key.StrategyCode, p)
+		if propertyIndexRemoved(flag) {
+			return true, fmt.Sprintf("property %q: the collection sets %s to false", prop, field)
+		}
+		return false, ""
+	}
+	return false, ""
 }
 
 func propertyTokenizationAtTarget(prop *models.Property, target string) bool {

@@ -26,6 +26,14 @@ func newPropertyDeleteIndexHelper() *propertyDeleteIndexHelper {
 	return &propertyDeleteIndexHelper{}
 }
 
+// propertyIndexRemoved reports whether the collection turns a property index
+// off. The sweep below deletes what it names, and
+// [migrationCanonicalSweptBySchema] refuses to promote onto what it names; one
+// function, so the two cannot come to different answers about the same flag.
+func propertyIndexRemoved(propertyIndexSetting *bool) bool {
+	return propertyIndexSetting != nil && !*propertyIndexSetting
+}
+
 // ensureBucketsAreRemovedForNonExistentPropertyIndexes removes property buckets
 // for nonexistent property indexes which may be left on disk in two cases:
 // - tenant was inactive during drop property index operation hence their property buckets may still exist on disk
@@ -34,17 +42,17 @@ func (p *propertyDeleteIndexHelper) ensureBucketsAreRemovedForNonExistentPropert
 	indexPath, shardName string, class *models.Class,
 ) error {
 	for _, prop := range class.Properties {
-		if p.isPropertyIndexRemoved(prop.IndexFilterable) && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, helpers.BucketFromPropNameLSM(prop.Name)) {
+		if propertyIndexRemoved(prop.IndexFilterable) && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, helpers.BucketFromPropNameLSM(prop.Name)) {
 			if err := p.removePropertyIndexBucketFromDisk(indexPath, shardName, helpers.BucketFromPropNameLSM(prop.Name)); err != nil {
 				return fmt.Errorf("failed to remove unused bucket for filterable index: class %s property %s: %w", class.Class, prop.Name, err)
 			}
 		}
-		if p.isPropertyIndexRemoved(prop.IndexSearchable) && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, helpers.BucketSearchableFromPropNameLSM(prop.Name)) {
+		if propertyIndexRemoved(prop.IndexSearchable) && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, helpers.BucketSearchableFromPropNameLSM(prop.Name)) {
 			if err := p.removePropertyIndexBucketFromDisk(indexPath, shardName, helpers.BucketSearchableFromPropNameLSM(prop.Name)); err != nil {
 				return fmt.Errorf("failed to remove unused bucket for searchable index: class %s property %s: %w", class.Class, prop.Name, err)
 			}
 		}
-		if p.isPropertyIndexRemoved(prop.IndexRangeFilters) && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, helpers.BucketRangeableFromPropNameLSM(prop.Name)) {
+		if propertyIndexRemoved(prop.IndexRangeFilters) && p.propertyIndexBucketExistsOnDisk(indexPath, shardName, helpers.BucketRangeableFromPropNameLSM(prop.Name)) {
 			if err := p.removePropertyIndexBucketFromDisk(indexPath, shardName, helpers.BucketRangeableFromPropNameLSM(prop.Name)); err != nil {
 				return fmt.Errorf("failed to remove unused bucket for rangeFilters index: class %s property %s: %w", class.Class, prop.Name, err)
 			}
@@ -55,10 +63,6 @@ func (p *propertyDeleteIndexHelper) ensureBucketsAreRemovedForNonExistentPropert
 
 func (p *propertyDeleteIndexHelper) getPropertyIndexDir(indexPath, shardName, propertyIndexName string) string {
 	return filepath.Join(indexPath, shardName, "lsm", propertyIndexName)
-}
-
-func (p *propertyDeleteIndexHelper) isPropertyIndexRemoved(propertyIndexSetting *bool) bool {
-	return propertyIndexSetting != nil && !*propertyIndexSetting
 }
 
 func (p *propertyDeleteIndexHelper) propertyIndexBucketExistsOnDisk(indexPath, shardName, propertyIndexName string) bool {

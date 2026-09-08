@@ -498,7 +498,25 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		return fmt.Errorf("no props found for swap on shard %q", concreteShard.Name())
 	}
 
+	swapPending, err := t.swapStillToRun(logger, concreteShard, entry.rec, props)
+	if err != nil {
+		return err
+	}
+
 	switch {
+	case swapPending:
+		logger.WithField("props", props).Info(
+			"RunSwapOnShard: the flip decision stands but its data is still under the staged name; re-running the in-memory swap")
+		// The swap needs a bucket at the canonical name to point at the staged
+		// one; a load that left the promotion waiting on the schema opened none.
+		if err := t.ensureCanonicalBucketsOpen(ctx, shard, props); err != nil {
+			return err
+		}
+		if err := t.ensureReindexBucketsLoadedForSwap(ctx, logger, concreteShard, props); err != nil {
+			return fmt.Errorf("ensure buckets loaded: %w", err)
+		}
+		return t.runtimeSwap(ctx, logger, shard, props)
+
 	case entry.rec.FlipDecided():
 		logger.WithField("props", props).Info("RunSwapOnShard: flip already decided; running OnMigrationComplete only")
 		if err := t.requireCanonicalHoldsMigratedData(shard, entry.rec); err != nil {
@@ -609,7 +627,7 @@ func (t *ShardReindexTaskGeneric) ensureReindexBucketsLoadedForSwap(
 }
 
 func (t *ShardReindexTaskGeneric) stagedPropsStillOnDisk(logger logrus.FieldLogger,
-	shard *Shard, subject MigrationSubject, props []string,
+	shard ShardLike, subject MigrationSubject, props []string,
 ) ([]string, error) {
 	kept := make([]string, 0, len(props))
 	var promoted, misnamed []string
@@ -640,6 +658,29 @@ func (t *ShardReindexTaskGeneric) stagedPropsStillOnDisk(logger logrus.FieldLogg
 			"the record names a staged directory this task would not open, so it belongs to another generation; opening neither name")
 	}
 	return kept, nil
+}
+
+// swapStillToRun reports whether a record that carries the flip decision is
+// waiting for the in-memory swap rather than for its promotion.
+//
+// The decision is written before the first pointer moves, so a swapped record
+// with every staged directory still under its staged name is one whose flip
+// never reached the canonical name — the shape a restart leaves once the
+// promotion that renames them is deferred until the schema enables the index.
+// The in-memory swap is idempotent, so re-running it is what settles that
+// shape; a promoted record, or one whose staged data is gone, is not this and
+// must keep taking the completion path.
+func (t *ShardReindexTaskGeneric) swapStillToRun(logger logrus.FieldLogger, shard ShardLike,
+	rec MigrationRecord, props []string,
+) (bool, error) {
+	if rec.State() != MigrationStateSwapped {
+		return false, nil
+	}
+	staged, err := t.stagedPropsStillOnDisk(logger, shard, rec.Subject(), props)
+	if err != nil {
+		return false, err
+	}
+	return len(staged) == len(props), nil
 }
 
 // requireCanonicalHoldsMigratedData refuses to commit a migration's schema
@@ -993,6 +1034,27 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 	}
 
 	if hasRecord && rec.FlipDecided() {
+		var swapPending bool
+		if swapPending, err = t.swapStillToRun(logger, shard, rec, props); err != nil {
+			return zerotime, false, err
+		}
+		if swapPending {
+			var concrete *Shard
+			if concrete, err = unwrapShard(ctx, shard); err != nil {
+				return zerotime, false, err
+			}
+			// The swap needs a bucket at the canonical name to point at the
+			// staged one; a load that left the promotion waiting opened none.
+			if err = t.ensureCanonicalBucketsOpen(ctx, shard, props); err != nil {
+				return zerotime, false, err
+			}
+			if err = t.ensureReindexBucketsLoadedForSwap(ctx, logger, concrete, props); err != nil {
+				err = fmt.Errorf("ensure buckets loaded: %w", err)
+				return zerotime, false, err
+			}
+			err = t.runtimeSwap(ctx, logger, shard, props)
+			return zerotime, false, err
+		}
 		if err = t.requireCanonicalHoldsMigratedData(shard, rec); err != nil {
 			return zerotime, false, err
 		}
@@ -1280,18 +1342,24 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 
 	store := shard.Store()
 
-	displaced := make(map[string]string, len(props))
-	for _, propName := range props {
-		if bucket := store.Bucket(t.strategy.SourceBucketName(propName)); bucket != nil {
-			displaced[propName] = filepath.Base(bucket.GetDir())
-		}
-	}
 	subject, err := t.migrationSubjectNow(shard)
 	if err != nil {
 		return err
 	}
-	if err := t.putMigrationRecord(shard, NewMigrationRecordSwapped(subject, props, displaced)); err != nil {
-		return fmt.Errorf("recording the flip decision: %w", err)
+	// Read here rather than at the two call sites: a record that already carries
+	// the flip decision also carries the promotion marks of a rename that ran,
+	// and rewriting it would drop them and let a later pass run that rename
+	// again over the data it produced.
+	if rec, ok := t.migrationRecord(shard); !ok || !rec.FlipDecided() {
+		displaced := make(map[string]string, len(props))
+		for _, propName := range props {
+			if bucket := store.Bucket(t.strategy.SourceBucketName(propName)); bucket != nil {
+				displaced[propName] = filepath.Base(bucket.GetDir())
+			}
+		}
+		if err := t.putMigrationRecord(shard, NewMigrationRecordSwapped(subject, props, displaced)); err != nil {
+			return fmt.Errorf("recording the flip decision: %w", err)
+		}
 	}
 
 	oldMainBuckets := make(map[string]*lsmkv.Bucket, len(props))

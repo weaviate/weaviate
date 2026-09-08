@@ -123,6 +123,24 @@ func (r *migrationReconciler) wedged(subject MigrationSubject, remedy, format st
 		Errorf(format+" "+remedy, args...)
 }
 
+// Info, not the Debug this file gives a leave: this is the state of every shard
+// that finishes ahead of the cluster-wide schema flip, so an operator asking
+// why a shard is not promoted has to be able to find the answer. One line per
+// record per load bounds it.
+func (r *migrationReconciler) deferredBySchema(subject MigrationSubject,
+	deferring errorcompounder.ErrorCompounder,
+) {
+	reported := deferring.ToErrorLimited(maxReportedErrors)
+	if reported == nil {
+		return
+	}
+	r.logger.WithField("record", subject.Key.String()).
+		WithField("property_count", deferring.Len()).
+		Infof("%d propert(y/ies) keep their staged name: the schema does not enable the index they were "+
+			"rebuilt for, and promoting now would put their data where the next load's sweep deletes it: %v",
+			deferring.Len(), reported)
+}
+
 // Debug, not Info: a Leave repeats on every shard load for the life of the
 // record, and only one that never resolves is worth finding.
 func (r *migrationReconciler) leftStanding(subject MigrationSubject, why string) {
@@ -409,6 +427,7 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 	promoting := errorcompounder.New()
 	var noHandles []string
 	unretired := errorcompounder.New()
+	deferring := errorcompounder.New()
 
 	for _, prop := range subject.Properties() {
 		// Between Put(started) and the rename there is no check: those two are
@@ -432,12 +451,17 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 		}
 
 		displaced, _ := rec.DisplacedDir(prop)
-		updated, promoted, err := r.promoteProperty(rec, prop,
+		updated, promoted, deferred, err := r.promoteProperty(rec, prop,
 			promotionDirs{staged: staged, canonical: canonical, displaced: displaced})
 		rec = updated
 		if err != nil {
 			settled = false
 			promoting.AddWrapf(err, "promote property %q", prop)
+			continue
+		}
+		if deferred != "" {
+			settled = false
+			deferring.Addf("%s", deferred)
 			continue
 		}
 		if !promoted {
@@ -446,6 +470,8 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 		}
 		promotedAny = true
 	}
+
+	r.deferredBySchema(subject, deferring)
 
 	if len(noHandles) > 0 {
 		r.wedged(subject, migrationWedgeRemedyNoCanonical,
@@ -503,58 +529,72 @@ func (r *migrationReconciler) supersededPropertyIsRetired(all []MigrationRecord,
 
 // Directory presence can't prove a rename ran (canonical is pre-created
 // empty either way), so the record brackets it with a start/finish write.
+//
+// deferred names the schema reason this property is waiting rather than failing;
+// it and promoted are never both set, and neither being set means the promotion
+// was withheld.
 func (r *migrationReconciler) promoteProperty(rec MigrationRecordSwapped,
 	prop string, dirs promotionDirs,
-) (MigrationRecordSwapped, bool, error) {
+) (updated MigrationRecordSwapped, promoted bool, deferred string, err error) {
 	subject := rec.Subject()
 	staged, canonical, displaced := dirs.staged, dirs.canonical, dirs.displaced
+	// Above the schema gate: these three arms settle a rename that already ran,
+	// and no gate can un-run one.
 	switch rec.PromotionOf(prop) {
 	case migrationPromotionFinished:
-		return r.confirmPromotionSurvives(rec, prop, canonical)
+		updated, promoted, err = r.confirmPromotionSurvives(rec, prop, canonical)
+		return updated, promoted, "", err
 	case migrationPromotionLost:
 		r.wedged(subject, migrationWedgeRemedy,
 			"property %q was promoted onto %q and that directory is gone; preserving the record and promoting nothing.",
 			prop, canonical)
-		return rec, false, nil
+		return rec, false, "", nil
 	default:
 	}
 	stagedThere, err := r.dirExists(staged)
 	if err != nil {
-		return rec, false, err
+		return rec, false, "", err
 	}
 	if !stagedThere {
-		return r.settleInterruptedPromotion(rec, prop, staged, canonical)
+		updated, promoted, err = r.settleInterruptedPromotion(rec, prop, staged, canonical)
+		return updated, promoted, "", err
+	}
+
+	// Before clearForPromotion, not just before the rename: clearing removes the
+	// canonical and displaced directories, so a gate below it would still delete.
+	if swept, why := migrationCanonicalSweptBySchema(r.deps.Class(), subject, prop); swept {
+		return rec, false, why, nil
 	}
 
 	// Dormant here: every flip this build writes displaces the canonical name
 	// itself, and the cutover is what writes a different one.
 	if displaced != "" && displaced != canonical {
 		if cleared, err := r.clearForPromotion(subject, displaced, "the displaced directory"); err != nil || !cleared {
-			return rec, false, err
+			return rec, false, "", err
 		}
 	}
 	if cleared, err := r.clearForPromotion(subject, canonical, "the canonical directory"); err != nil || !cleared {
-		return rec, false, err
+		return rec, false, "", err
 	}
 
 	started := rec.WithPromotionAt(prop, migrationPromotionStarted)
 	if err := r.store.Put(started); err != nil {
-		return rec, false, fmt.Errorf(
+		return rec, false, "", fmt.Errorf(
 			"record the promotion of property %q before renaming %q onto %q: %w", prop, staged, canonical, err)
 	}
 	rec = started
 
 	if err := r.rename(staged, canonical); err != nil {
-		return r.abandonPromotion(rec, prop, staged), false, err
+		return r.abandonPromotion(rec, prop, staged), false, "", err
 	}
 
 	finished := rec.WithPromotionAt(prop, migrationPromotionFinished)
 	if err := r.store.Put(finished); err != nil {
 		r.logger.WithField("record", subject.Key.String()).Errorf(
 			"record the finished promotion of property %q: %v", prop, err)
-		return rec, true, nil
+		return rec, true, "", nil
 	}
-	return finished, true, nil
+	return finished, true, "", nil
 }
 
 func (r *migrationReconciler) clearForPromotion(subject MigrationSubject, dir, what string) (cleared bool, err error) {
@@ -682,8 +722,14 @@ func (r *migrationReconciler) reconcilePromotedSealed(ctx context.Context, rec M
 	subject := rec.Subject()
 	all := r.store.Records()
 
-	if err := r.repromoteWhatTheRecordOutran(ctx, all, subject); err != nil {
+	withheld, err := r.repromoteWhatTheRecordOutran(ctx, all, subject)
+	if err != nil {
 		return err
+	}
+	// The staged directory a withheld property is still waiting under is an
+	// owned dir, so reclaiming now would delete the very data the wait protects.
+	if len(withheld) > 0 {
+		return nil
 	}
 
 	remaining := r.reclaimOwnedDirs(ctx, subject)
@@ -718,10 +764,13 @@ func (r *migrationReconciler) reconcilePromotedSealed(ctx context.Context, rec M
 	return r.store.Remove(subject.Key)
 }
 
+// withheld names the properties the schema is not ready for; their staged
+// directory is the only copy of their data, so the caller must not reclaim it.
 func (r *migrationReconciler) repromoteWhatTheRecordOutran(ctx context.Context, all []MigrationRecord,
 	subject MigrationSubject,
-) error {
+) (withheld []string, err error) {
 	var ambiguous, repromoted []string
+	deferring := errorcompounder.New()
 	// One line per record, not one per property: this runs on every load of a
 	// promoted record, and one interrupted pass leaves every property behind.
 	// Deferred, so a rename that fails partway still reports what it ran.
@@ -737,7 +786,7 @@ func (r *migrationReconciler) repromoteWhatTheRecordOutran(ctx context.Context, 
 
 	for _, prop := range subject.Properties() {
 		if err := ctx.Err(); err != nil {
-			return err
+			return nil, err
 		}
 		staged, canonical := subject.Props[prop].Staged, subject.Props[prop].Canonical
 		if staged == "" || canonical == "" {
@@ -748,36 +797,42 @@ func (r *migrationReconciler) repromoteWhatTheRecordOutran(ctx context.Context, 
 		}
 		stagedThere, err := r.dirExists(staged)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if !stagedThere {
 			continue
 		}
 		canonicalThere, err := r.dirExists(canonical)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if canonicalThere {
 			ambiguous = append(ambiguous, prop)
 			continue
 		}
+		if swept, why := migrationCanonicalSweptBySchema(r.deps.Class(), subject, prop); swept {
+			withheld = append(withheld, prop)
+			deferring.Addf("%s", why)
+			continue
+		}
 
 		repromoted = append(repromoted, prop)
 		if err := r.rename(staged, canonical); err != nil {
-			return err
+			return nil, err
 		}
 	}
+	r.deferredBySchema(subject, deferring)
 	if len(ambiguous) > 0 {
 		r.wedged(subject, migrationWedgeRemedy,
 			"%d propert(y/ies) recorded as promoted hold a directory at both their staged and canonical names: %s; "+
 				"nothing here can tell which one the promotion produced, so the record and both directories are preserved.",
 			len(ambiguous), strings.Join(migrationReportedNames(ambiguous), ", "))
-		return fmt.Errorf(
+		return withheld, fmt.Errorf(
 			"%d property/properties hold a directory at both their staged and canonical names: %s; "+
 				"nothing here can tell which one the promotion produced, so the record and both directories are preserved",
 			len(ambiguous), strings.Join(migrationReportedNames(ambiguous), ", "))
 	}
-	return nil
+	return withheld, nil
 }
 
 const migrationTaskMapUnreadable = "this node's task map cannot be read yet"
