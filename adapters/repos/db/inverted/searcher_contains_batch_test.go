@@ -61,6 +61,11 @@ func newContainsBatchGateFixture(t *testing.T) *containsBatchGateFixture {
 	vTrue, vFalse := true, false
 	class := &models.Class{
 		Class: containsBatchTestClass,
+		// the length guards in readFromBucket and the classifier both read it;
+		// AddClass and RestoreClass fill it via setInvertedConfigDefaults, so
+		// the nil case below guards a dereference rather than a state a
+		// creation path produces
+		InvertedIndexConfig: &models.InvertedIndexConfig{IndexPropertyLength: true},
 		Properties: []*models.Property{
 			{Name: "prop-uuid", DataType: schema.DataTypeUUID.PropString(), IndexFilterable: &vTrue},
 			{Name: "prop-text-field", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationField, IndexFilterable: &vTrue},
@@ -74,6 +79,9 @@ func newContainsBatchGateFixture(t *testing.T) *containsBatchGateFixture {
 			{Name: "prop-not-filterable", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vFalse, IndexSearchable: &vTrue},
 			{Name: "prop-nonroaringset", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
 			{Name: "prop-no-bucket", DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
+			// a name only a restore or startup load can introduce: both
+			// creation paths reject the reserved suffix
+			{Name: "prop-restored" + filters.InternalPropertyLength, DataType: schema.DataTypeInt.PropString(), IndexFilterable: &vTrue},
 			{Name: "prop-ref", DataType: []string{"SomeOtherClass"}},
 			{Name: "prop-geo", DataType: schema.DataTypeGeoCoordinates.PropString()},
 			{Name: "prop-nested", DataType: schema.DataTypeObject.PropString()},
@@ -85,6 +93,9 @@ func newContainsBatchGateFixture(t *testing.T) *containsBatchGateFixture {
 		"prop-uuid", "prop-text-field", "prop-int", "prop-number", "prop-bool",
 		"prop-date", "prop-text-word", "prop-text-whitespace", "prop-fallback",
 		"prop-not-filterable",
+		// a bucket of its own, so the suffix guard is what declines it rather
+		// than the bucket probe one check later
+		"prop-restored" + filters.InternalPropertyLength,
 	}
 	for _, propName := range roaringProps {
 		require.NoError(t, store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(propName),
@@ -96,6 +107,12 @@ func newContainsBatchGateFixture(t *testing.T) *containsBatchGateFixture {
 	require.NoError(t, store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM("prop-nonroaringset"),
 		lsmkv.WithStrategy(lsmkv.StrategyMapCollection)))
 	// "prop-no-bucket" deliberately has no backing bucket at all
+
+	// only prop-text-field gets a length bucket, so the classifier's bucket
+	// probe has one property that passes it and several that do not
+	require.NoError(t, store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLengthLSM("prop-text-field"),
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop())))
 
 	f := &containsBatchGateFixture{class: class}
 	f.searcher = &Searcher{
@@ -195,6 +212,9 @@ func TestExtractContainsBatch_EligibleFamilies(t *testing.T) {
 		{"text FIELD", "prop-text-field", schema.DataTypeText, filters.ContainsAll, textValues, 3, textKey},
 		{"text FIELD []interface{}", "prop-text-field", schema.DataTypeText, filters.ContainsAll, []interface{}{"alpha", "beta", "gamma"}, 3, textKey},
 		{"int", "prop-int", schema.DataTypeInt, filters.ContainsAny, intValues, 3, intKey},
+		// the suffix guard declines this name only while lengths are unindexed;
+		// the fixture indexes them, so the batch still applies
+		{"int, name carries the length suffix", "prop-restored" + filters.InternalPropertyLength, schema.DataTypeInt, filters.ContainsAny, intValues, 3, intKey},
 		{"int ContainsNone", "prop-int", schema.DataTypeInt, filters.ContainsNone, intValues, 3, intKey},
 		{"text FIELD ContainsNone", "prop-text-field", schema.DataTypeText, filters.ContainsNone, textValues, 3, textKey},
 		// the API layers unmarshal numeric values as float64
@@ -286,10 +306,83 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 			wantReason: containsDeclinePropertyNotFound,
 		},
 		{
-			name: "property length meta-filter, len() spelling",
+			// not a length filter: a property whose own name carries the suffix
+			name: "property whose name carries the length suffix",
+			path: containsPath("prop-restored" + filters.InternalPropertyLength), propType: schema.DataTypeInt,
+			value: []int{1, 2}, operator: filters.ContainsAny,
+			setup: func(t *testing.T) {
+				f.class.InvertedIndexConfig.IndexPropertyLength = false
+				t.Cleanup(func() { f.class.InvertedIndexConfig.IndexPropertyLength = true })
+			},
+			wantReason: containsDeclineLengthNotIndexed,
+		},
+		{
+			// prop-int resolves, but the fixture builds no length bucket for
+			// it, so the length classifier declines on the bucket probe
+			name: "len() spelling with no length bucket",
 			path: containsPath("len(prop-int)"), propType: schema.DataTypeInt,
 			value: []int{1, 2}, operator: filters.ContainsAny,
-			wantReason: containsDeclineLengthFilter,
+			wantReason: containsDeclineNoRoaringSetBucket,
+		},
+		{
+			// a length is an int; the desugared leaf extractor rejects every
+			// other value type, so batching one would answer where it errors
+			name: "len() spelling with a non-int value type",
+			path: containsPath("len(prop-text-field)"), propType: schema.DataTypeText,
+			value: []string{"a", "b"}, operator: filters.ContainsAny,
+			wantErr:    true,
+			wantReason: containsDeclineValueTypeMismatch,
+		},
+		{
+			name: "len() spelling of a property that does not exist",
+			path: containsPath("len(prop-does-not-exist)"), propType: schema.DataTypeInt,
+			value: []int{1, 2}, operator: filters.ContainsAny,
+			wantErr:    true,
+			wantReason: containsDeclinePropertyNotFound,
+		},
+		{
+			// readFromBucket dereferences InvertedIndexConfig, so the
+			// classifier must decline rather than reach it — prop-text-field
+			// is the one property with a length bucket, so nothing later would
+			// have declined for it
+			name: "len() spelling with no inverted index config",
+			path: containsPath("len(prop-text-field)"), propType: schema.DataTypeInt,
+			value: []int{1, 2}, operator: filters.ContainsAny,
+			setup: func(t *testing.T) {
+				cfg := f.class.InvertedIndexConfig
+				f.class.InvertedIndexConfig = nil
+				t.Cleanup(func() { f.class.InvertedIndexConfig = cfg })
+			},
+			wantReason: containsDeclineLengthNotIndexed,
+		},
+		{
+			// the bucket is present; the schema saying lengths are unindexed
+			// is what withholds permission to read it
+			name: "len() spelling with lengths not indexed",
+			path: containsPath("len(prop-text-field)"), propType: schema.DataTypeInt,
+			value: []int{3, 5}, operator: filters.ContainsAny,
+			setup: func(t *testing.T) {
+				f.class.InvertedIndexConfig.IndexPropertyLength = false
+				t.Cleanup(func() { f.class.InvertedIndexConfig.IndexPropertyLength = true })
+			},
+			wantReason: containsDeclineLengthNotIndexed,
+		},
+		{
+			// createPropertyLengthIndex builds no bucket for a geo property,
+			// so this declines on the probe rather than on a type check the
+			// desugared path does not run either
+			name: "len() spelling of a geo property",
+			path: containsPath("len(prop-geo)"), propType: schema.DataTypeInt,
+			value: []int{1, 2}, operator: filters.ContainsAny,
+			wantReason: containsDeclineNoRoaringSetBucket,
+		},
+		{
+			// a reference property is not special-cased on either path: both
+			// read the length bucket, which for prop-ref does not exist
+			name: "len() spelling of a reference property",
+			path: containsPath("len(prop-ref)"), propType: schema.DataTypeInt,
+			value: []int{1, 2}, operator: filters.ContainsAny,
+			wantReason: containsDeclineNoRoaringSetBucket,
 		},
 		{
 			name: "property not found",
@@ -409,8 +502,33 @@ func TestExtractContainsBatch_Ineligible(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, pv)
 			require.Zero(t, pv.containsKeys.Len(), "shape must not resolve through the batched path")
+			require.NotEmpty(t, pv.children, "a declined shape must desugar per value")
 		})
 	}
+}
+
+// TestExtractContainsBatch_LengthSuffixParity resolves the pair the classifier
+// declined for a property whose own name carries the length suffix, and pins
+// the error the desugared path answers with.
+//
+// That error is itself wrong: readFromBucket decides a name is a length
+// pseudo-property from its suffix alone, so it refuses a real property whose
+// own bucket holds the values asked for. Declining keeps the batched path from
+// answering where every released version errors; it does not endorse the
+// error. Fixing the suffix test belongs to the path that owns it.
+func TestExtractContainsBatch_LengthSuffixParity(t *testing.T) {
+	f := newContainsBatchGateFixture(t)
+	f.class.InvertedIndexConfig.IndexPropertyLength = false
+
+	pv, err := f.searcher.extractContains(context.Background(),
+		containsPath("prop-restored"+filters.InternalPropertyLength), schema.DataTypeInt,
+		[]int{1, 2}, filters.ContainsAny, f.class)
+	require.NoError(t, err)
+	require.Zero(t, pv.containsKeys.Len(), "the classifier must decline this shape")
+
+	_, err = pv.resolveDocIDs(context.Background(), f.searcher, 0)
+	require.ErrorContains(t, err, "Property length must be indexed to be filterable",
+		"the desugared path refuses this filter, so a batch answering it would disagree")
 }
 
 // extractContainsDesugaredReason returns the reason of the single
@@ -491,7 +609,7 @@ func TestNewBatchedContainsPair_RejectsNoKeys(t *testing.T) {
 	f := newContainsBatchGateFixture(t)
 	prop := &models.Property{Name: "prop-int"}
 
-	_, err := newBatchedContainsPair(prop, filters.ContainsAny, f.class, entsInverted.SortedKeys{})
+	_, err := newBatchedContainsPair(prop.Name, filters.ContainsAny, f.class, entsInverted.SortedKeys{})
 	require.ErrorContains(t, err, "no keys")
 
 	for _, tc := range []struct {
@@ -502,11 +620,36 @@ func TestNewBatchedContainsPair_RejectsNoKeys(t *testing.T) {
 		{name: "two keys", keys: keysFrom(t, []byte("a"), []byte("b"))},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			pv, err := newBatchedContainsPair(prop, filters.ContainsAny, f.class, tc.keys)
+			pv, err := newBatchedContainsPair(prop.Name, filters.ContainsAny, f.class, tc.keys)
 			require.NoError(t, err)
 			require.Equal(t, tc.keys.Len(), pv.containsKeys.Len())
 		})
 	}
+}
+
+// TestExtractContainsBatch_Length pins that a len(prop) filter batches against
+// the length bucket. The leaf must carry the length property name, not the
+// property's own: both buckets exist for prop-text-field, so a leaf naming the
+// wrong one would still resolve, just against the wrong rows.
+func TestExtractContainsBatch_Length(t *testing.T) {
+	f := newContainsBatchGateFixture(t)
+
+	pv, err := f.searcher.extractContains(context.Background(),
+		containsPath("len(prop-text-field)"), schema.DataTypeInt,
+		[]int{3, 5, 8}, filters.ContainsAny, f.class)
+	require.NoError(t, err)
+	require.Equal(t, 3, pv.containsKeys.Len())
+	require.Empty(t, pv.children, "an indexed length must not desugar")
+	require.Equal(t, helpers.PropLength("prop-text-field"), pv.prop)
+	require.Equal(t, helpers.BucketFromPropNameLengthLSM("prop-text-field"), pv.getBucketName())
+
+	// the keys are the int encoding, so a length batch and an int batch over
+	// the same numbers differ only in the bucket they name
+	ints, err := f.searcher.extractContains(context.Background(),
+		containsPath("prop-int"), schema.DataTypeInt,
+		[]int{3, 5, 8}, filters.ContainsAny, f.class)
+	require.NoError(t, err)
+	require.Equal(t, collectKeys(ints.containsKeys), collectKeys(pv.containsKeys))
 }
 
 // TestExtractContainsBatch_DefaultOnGate pins that the batched resolution is
