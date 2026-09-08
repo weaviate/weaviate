@@ -524,52 +524,6 @@ func (_c *MockShardLike_CompareDigests_Call) RunAndReturn(run func(context.Conte
 	return _c
 }
 
-// ConvertQueue provides a mock function with given fields: targetVector
-func (_m *MockShardLike) ConvertQueue(targetVector string) error {
-	ret := _m.Called(targetVector)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ConvertQueue")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(string) error); ok {
-		r0 = rf(targetVector)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockShardLike_ConvertQueue_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ConvertQueue'
-type MockShardLike_ConvertQueue_Call struct {
-	*mock.Call
-}
-
-// ConvertQueue is a helper method to define mock.On call
-//   - targetVector string
-func (_e *MockShardLike_Expecter) ConvertQueue(targetVector interface{}) *MockShardLike_ConvertQueue_Call {
-	return &MockShardLike_ConvertQueue_Call{Call: _e.mock.On("ConvertQueue", targetVector)}
-}
-
-func (_c *MockShardLike_ConvertQueue_Call) Run(run func(targetVector string)) *MockShardLike_ConvertQueue_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_ConvertQueue_Call) Return(_a0 error) *MockShardLike_ConvertQueue_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_ConvertQueue_Call) RunAndReturn(run func(string) error) *MockShardLike_ConvertQueue_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // Counter provides a mock function with no fields
 func (_m *MockShardLike) Counter() *indexcounter.Counter {
 	ret := _m.Called()

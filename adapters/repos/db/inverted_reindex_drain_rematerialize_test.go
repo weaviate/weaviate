@@ -55,7 +55,7 @@ func TestModeADrainRematerialize(t *testing.T) {
 			class := newTestClassWithProps(className, []string{"title"})
 
 			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
+				false, false)
 			shard := shd.(*Shard)
 
 			idxPath := idx.path()

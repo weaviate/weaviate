@@ -72,7 +72,7 @@ func newRangeableFinalizeTestShard(t *testing.T, classNamePrefix string) (contex
 	class := newFilterableToRangeableTestClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false,
+		false, false,
 		func(idx *Index) { idx.Config.IndexRangeableInMemory = true })
 	shard := shd.(*Shard)
 	t.Cleanup(func() { shard.Shutdown(ctx) })

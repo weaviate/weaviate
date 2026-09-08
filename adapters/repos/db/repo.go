@@ -25,7 +25,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
@@ -62,7 +61,6 @@ type DB struct {
 	nodeResolver              cluster.NodeResolver
 	remoteNode                *sharding.RemoteNode
 	promMetrics               *monitoring.PrometheusMetrics
-	indexCheckpoints          *indexcheckpoint.Checkpoints
 	shutdown                  chan struct{}
 	shutdownOnce              sync.Once
 	startupComplete           atomic.Bool
@@ -647,10 +645,6 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	}
 
 	db.shutDownWg.Wait() // wait until job queue shutdown is completed
-
-	if db.AsyncIndexingEnabled {
-		db.indexCheckpoints.Close()
-	}
 
 	return ec.ToErrorLimited(maxReportedErrors)
 }

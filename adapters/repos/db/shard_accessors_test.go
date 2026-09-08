@@ -68,7 +68,7 @@ func TestShared_GetVectorIndexAndQueue(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			s, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "test"}, hnsw.UserConfig{}, false, true, false, tt.setup)
+			s, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "test"}, hnsw.UserConfig{}, false, false, tt.setup)
 
 			namedQueue, ok := s.GetVectorIndexQueue("named")
 			require.Equal(t, tt.wantNamedExists, ok)
@@ -140,7 +140,7 @@ func TestShard_ForEachVectorIndexAndQueue(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			shard, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "TestClass"}, hnsw.NewDefaultUserConfig(), false, true, false, tt.setConfigs)
+			shard, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "TestClass"}, hnsw.NewDefaultUserConfig(), false, false, tt.setConfigs)
 
 			capturedIndexes := make(map[string]any)
 			err := shard.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {

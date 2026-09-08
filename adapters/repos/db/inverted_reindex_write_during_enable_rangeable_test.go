@@ -75,7 +75,7 @@ func TestReindex_ConcurrentWriteDuringEnableRangeable_NotLost(t *testing.T) {
 	class := newNoLiveIndexRangeableTestClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 

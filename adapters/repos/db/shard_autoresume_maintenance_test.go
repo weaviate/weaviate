@@ -492,7 +492,6 @@ func TestShard_BackupPostFlushWritesAreLostWithoutLateFlush(t *testing.T) {
 
 		shd, idx := testShardWithSettings(t, ctx, class, hnswCfg,
 			false, // withStopwords
-			true,  // withCheckpoints (required for async indexing)
 			true,  // withAsyncIndexingEnabled
 		)
 		t.Cleanup(func() {

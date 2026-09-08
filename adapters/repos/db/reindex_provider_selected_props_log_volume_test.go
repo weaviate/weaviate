@@ -34,7 +34,7 @@ func TestPersistRecoveryRecordDoesNotWarnPerUnit(t *testing.T) {
 
 	shd, _ := testShardWithSettings(t, ctx,
 		newTestClassWithProps(className, props),
-		enthnsw.UserConfig{Skip: true}, false, false, false)
+		enthnsw.UserConfig{Skip: true}, false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 	lsm := shard.pathLSM()

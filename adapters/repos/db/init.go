@@ -21,7 +21,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
@@ -50,15 +49,6 @@ func (db *DB) init(ctx context.Context) error {
 	// over.
 	if err := db.migrateFileStructureIfNecessary(); err != nil {
 		return err
-	}
-
-	if db.AsyncIndexingEnabled {
-		// init the index checkpoint file
-		var err error
-		db.indexCheckpoints, err = indexcheckpoint.New(db.config.RootPath, db.logger)
-		if err != nil {
-			return errors.Wrap(err, "init index checkpoint")
-		}
 	}
 
 	objects := db.schemaGetter.GetSchemaSkipAuth().Objects
@@ -213,7 +203,7 @@ func (db *DB) init(ctx context.Context) error {
 				convertToVectorIndexConfig(class.VectorIndexConfig),
 				convertToVectorIndexConfigs(class.VectorConfig),
 				indexRouter, shardResolver, db.schemaGetter, db.schemaReader, db, db.logger, db.nodeResolver, db.remoteIndex,
-				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler, db.indexCheckpoints,
+				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler,
 				db.memMonitor, db.reindexer, db.bitmapBufPool, db.AsyncIndexingEnabled, db.tenantsManager)
 			if err != nil {
 				return errors.Wrap(err, "create index")

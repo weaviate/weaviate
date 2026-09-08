@@ -84,7 +84,7 @@ func TestReindexProgressCheckpointDurability(t *testing.T) {
 			className := "ReindexCheckpointDurability_" + uuid.NewString()[:8]
 			shd, idx := testShardWithSettings(t, ctx,
 				newTestClassWithProps(className, []string{durabilityProp}),
-				enthnsw.UserConfig{Skip: true}, false, false, false)
+				enthnsw.UserConfig{Skip: true}, false, false)
 			shard := shd.(*Shard)
 			defer shard.Shutdown(ctx)
 
