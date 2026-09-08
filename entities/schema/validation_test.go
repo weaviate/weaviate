@@ -169,6 +169,11 @@ func TestValidateReservedPropertyNameSuffix(t *testing.T) {
 		{name: "ok double underscore without a role word", input: "a__foo", wantErr: false},
 		{name: "ok role word not in trailing position", input: "a__reindex_foo", wantErr: false},
 		{name: "ok non-numeric tail after the role word", input: "a__reindex_v2", wantErr: false},
+
+		// A crashed bucket replacement parks property "a"'s displaced bucket at
+		// "property_a___del", and the reindex cleanup sweep deletes that dir on
+		// sight. Property "a___del" owns the same dir, so sweeping "a" wipes it.
+		{name: "reject replaced-bucket dir shape", input: "a___del", wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
