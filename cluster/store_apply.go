@@ -307,7 +307,7 @@ func (st *Store) Apply(l *raft.Log) any {
 				"raft_leader":     string(leaderID),
 				"raft_node_state": nodeState,
 			}).WithFields(enterrors.DocsLinkFields(ret.Error)).
-				Errorf("apply command: %v", ret.Error)
+				WithError(ret.Error).Error("apply command")
 			return
 		}
 

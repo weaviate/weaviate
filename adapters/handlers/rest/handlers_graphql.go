@@ -142,7 +142,6 @@ func setupGraphQLHandlers(
 			operationName, variables)
 
 		// Marshal the JSON
-		addDocsLinks(result)
 		resultJSON, jsonErr := json.Marshal(result)
 		if jsonErr != nil {
 			metricRequestsTotal.logUserError()
@@ -170,6 +169,7 @@ func setupGraphQLHandlers(
 		}
 
 		metricRequestsTotal.log(result)
+		addDocsLinks(result, graphQLResponse)
 		// Return the response
 		return graphql.NewGraphqlPostOK().WithPayload(graphQLResponse)
 	})
@@ -283,7 +283,6 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 		result := graphQL.Resolve(ctx, query, operationName, variables)
 
 		// Marshal the JSON
-		addDocsLinks(result)
 		resultJSON, jsonErr := json.Marshal(result)
 
 		// Return an unprocessable error if marshalling the result to JSON failed
@@ -316,6 +315,7 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 				}
 			} else {
 				metricRequestsTotal.log(result)
+				addDocsLinks(result, graphQLResponse)
 				// Return the GraphQL response
 				*requestResults <- gqlUnbatchedRequestResponse{
 					requestIndex,
@@ -488,14 +488,18 @@ func (e *graphqlRequestsTotal) getClassNameAndQueryType(data interface{}) (class
 	return className, queryType
 }
 
-// addDocsLinks appends the documenting page to a documented resolver error,
-// which a GraphQL response reports by message alone.
-func addDocsLinks(result *tailorincgraphql.Result) {
-	if result == nil {
+// addDocsLinks appends the documenting page to a documented resolver error in
+// the client-facing response. The resolved result stays pristine, so the
+// metrics logger observing it never puts the link into server log text.
+func addDocsLinks(result *tailorincgraphql.Result, response *models.GraphQLResponse) {
+	if result == nil || response == nil {
 		return
 	}
-	for i := range result.Errors {
-		result.Errors[i].Message = enterrors.AppendDocsLink(result.Errors[i].Message, resolverError(result.Errors[i]))
+	for i := range response.Errors {
+		if i >= len(result.Errors) || response.Errors[i] == nil {
+			continue
+		}
+		response.Errors[i].Message = enterrors.AppendDocsLink(response.Errors[i].Message, resolverError(result.Errors[i]))
 	}
 }
 
