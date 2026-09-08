@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -68,12 +69,34 @@ func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 	i.incomingDeleteObjectsExpired(mergedCtx, eg, ec, deleteOnPropName, ttlThreshold, deletionTime, countDeleted, schemaVersion)
 }
 
+// shardsToDelete lists the shards a round should dispatch, so the caller knows
+// which one is last. A shard with nothing to delete, or one that already failed
+// this sweep, is not among them.
+func shardsToDelete(shards2uuids map[string][]strfmt.UUID, failed map[string]struct{}) []string {
+	shards := make([]string, 0, len(shards2uuids))
+	for shard, uuids := range shards2uuids {
+		if _, skip := failed[shard]; skip {
+			continue
+		}
+		if len(uuids) > 0 {
+			shards = append(shards, shard)
+		}
+	}
+	return shards
+}
+
+// tenantsNeverReached reports how many tenants a cancelled dispatch never
+// visited. Whether one of them would have been skipped as lazily unloaded is
+// not knowable here, so the count says only that they were not looked at.
+func tenantsNeverReached(total, skipped, dispatched int) int {
+	return total - skipped - dispatched
+}
+
 func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
 	deleteOnPropName string, ttlThreshold, deletionTime time.Time, countDeleted func(int32), schemaVersion uint64,
 ) {
 	class := i.getClass()
-	if err := context.Cause(ctx); err != nil {
-		ec.AddGroups(err, class.Class)
+	if context.Cause(ctx) != nil {
 		return
 	}
 
@@ -104,9 +127,11 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 
 		autoActivationEnabled := schema.AutoTenantActivationEnabled(class)
 
+		dispatched, skipped := 0, 0
 		for _, tenant := range tenants {
 			// Don't force-load an idle tenant on every sweep; it's cleaned once it materializes.
 			if i.shardIsLazyUnloaded(tenant) {
+				skipped++
 				continue
 			}
 			eg.Go(func() error {
@@ -128,9 +153,12 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 						return tenants2uuids[tenant], nil
 					},
 					processBatch: func(ctx context.Context, uuids []strfmt.UUID) error {
+						// the caller files the error and ends the loop; the search
+						// cannot exclude a tenant that refuses its delete, so
+						// returning nil here would retry it every round forever
 						if err := i.incomingDeleteObjectsExpiredUuids(ctx, deletionTime, "", tenant,
 							uuids, countDeleted, replProps, schemaVersion); err != nil {
-							ec.AddGroups(fmt.Errorf("batch delete: %w", err), class.Class, tenant)
+							return fmt.Errorf("batch delete: %w", err)
 						}
 						processedBatches++
 						pauseEvery := i.Config.ObjectsTTLPauseEveryNoBatches.Get()
@@ -153,20 +181,41 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 				}
 				loop.run(ctx, ec)
 				return nil
-			})
-			if ctx.Err() != nil {
+			}, class.Class, tenant)
+			dispatched++
+
+			// a cancellation is not this class failing, so it is logged rather than
+			// filed: the sweep reads the stop off its own context
+			if cause := context.Cause(ctx); cause != nil {
+				if missed := tenantsNeverReached(len(tenants), skipped, dispatched); missed > 0 {
+					i.logger.WithFields(logrus.Fields{
+						"action":     "objects_ttl_deletion",
+						"collection": class.Class,
+					}).Debugf("stopped with %d of %d tenants never reached: %v",
+						missed, len(tenants), cause)
+				}
 				break
 			}
+		}
+		// only where the loop ran to the end: a cancellation leaves skipped
+		// counting what it visited, against a total it never fully saw.
+		if skipped > 0 && context.Cause(ctx) == nil {
+			i.logger.WithFields(logrus.Fields{
+				"action":     "objects_ttl_deletion",
+				"collection": class.Class,
+			}).Debugf("skipped %d of %d lazy-unloaded tenants", skipped, len(tenants))
 		}
 		return
 	}
 
 	eg.Go(func() error {
 		processedBatches := 0
+		// a shard whose delete failed is dropped from the rest of this sweep's
+		// dispatch; the next sweep retries it
+		failed := map[string]struct{}{}
 		// find uuids up to limit -> delete -> find uuids up to limit -> delete -> ... until no uuids left
 		for {
-			if err := context.Cause(ctx); err != nil {
-				ec.AddGroups(err, class.Class)
+			if context.Cause(ctx) != nil {
 				return nil
 			}
 
@@ -177,44 +226,81 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 				return nil
 			}
 
-			shardIdx := len(shards2uuids) - 1
-			anyUuidsFetched := false
+			shards := shardsToDelete(shards2uuids, failed)
+			if len(shards) == 0 {
+				return nil
+			}
 			wg := new(sync.WaitGroup)
+			var deletedThisRound atomic.Bool
+			var failedLock sync.Mutex
+			// the sweep's counter is cumulative, and the round only needs to know
+			// whether it made any progress. A batch that deleted nothing still
+			// reports its zero to the caller.
+			countRound := func(n int32) {
+				if n > 0 {
+					deletedThisRound.Store(true)
+				}
+				countDeleted(n)
+			}
 			f := func(shard string, uuids []strfmt.UUID) {
 				defer wg.Done()
-				if err := i.incomingDeleteObjectsExpiredUuids(ctx, deletionTime, shard, "",
-					uuids, countDeleted, replProps, schemaVersion); err != nil {
+				// one goroutine per call, so this needs no synchronisation
+				deletedHere := false
+				countShard := func(n int32) {
+					deletedHere = deletedHere || n > 0
+					countRound(n)
+				}
+				err := i.incomingDeleteObjectsExpiredUuids(ctx, deletionTime, shard, "",
+					uuids, countShard, replProps, schemaVersion)
+				if err != nil {
 					ec.AddGroups(fmt.Errorf("batch delete: %w", err), class.Class, shard)
 				}
+				if deletedHere {
+					// the shard deleted something, so the next round finds fewer there
+					// and it stays in the dispatch
+					return
+				}
+				if err == nil {
+					// dropping it silently would report the sweep as clean while the
+					// shard keeps its expired objects
+					ec.AddGroups(errors.New("no object deleted and no error reported"),
+						class.Class, shard)
+				}
+				// mark it failed whether or not err is nil, so the next round does
+				// not re-fetch the same uuids: a recovered panic in the fan-out can
+				// leave err nil with no response counted.
+				failedLock.Lock()
+				failed[shard] = struct{}{}
+				failedLock.Unlock()
 			}
 
-			for shard, uuids := range shards2uuids {
-				shardIdx--
+			for idx, shard := range shards {
+				uuids := shards2uuids[shard]
 
-				if len(uuids) == 0 {
-					continue
-				}
-
-				anyUuidsFetched = true
 				wg.Add(1)
-				isLastShard := shardIdx == 0
+				deleteShard := func() error {
+					f(shard, uuids)
+					return nil
+				}
+				isLastShard := idx == len(shards)-1
 				// if possible run in separate routine, if not run in current one
 				// always run last in current one (not to start other routine,
 				// while current one have to wait for the results anyway)
-				if isLastShard || !eg.TryGo(func() error {
-					f(shard, uuids)
-					return nil
-				}) {
-					f(shard, uuids)
+				if isLastShard || !eg.TryGo(deleteShard, class.Class, shard) {
+					_ = eg.RunInline(deleteShard, class.Class, shard)
 				}
 
-				if ctx.Err() != nil {
+				if context.Cause(ctx) != nil {
 					return nil
 				}
 			}
 			wg.Wait()
 
-			if !anyUuidsFetched {
+			// a round that deleted nothing makes no progress, and the next one
+			// searches the same shards for the same uuids
+			if !deletedThisRound.Load() {
+				ec.AddGroups(fmt.Errorf("no expired object deleted in any of the %d dispatched shards",
+					len(shards)), class.Class)
 				return nil
 			}
 
@@ -225,7 +311,6 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 				t1 := time.Now()
 				t2, err := sleepWithCtx(ctx, pauseDuration)
 				if err != nil {
-					ec.AddGroups(err, class.Class)
 					return nil
 				}
 				i.logger.WithFields(logrus.Fields{
@@ -235,7 +320,7 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 				processedBatches = 0
 			}
 		}
-	})
+	}, class.Class)
 }
 
 func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context,
@@ -353,8 +438,7 @@ func (l *tenantTTLLoop) run(ctx context.Context, ec errorcompounder.ErrorCompoun
 	defer l.ensureDeactivation(ec, &deactivate)
 
 	for {
-		if err := context.Cause(ctx); err != nil {
-			ec.AddGroups(err, l.class, l.tenant)
+		if context.Cause(ctx) != nil {
 			return
 		}
 
