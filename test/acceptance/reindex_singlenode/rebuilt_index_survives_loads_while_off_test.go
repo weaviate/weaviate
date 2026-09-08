@@ -36,7 +36,7 @@ const (
 )
 
 // Deleting an index while its tenant is inactive leaves the shard in the same
-// state as the promotion-deferral window: the rebuilt data must survive
+// state as the finalize-deferral window: the rebuilt data must survive
 // repeated shard loads under its staged name until the index is on again.
 func TestRebuiltIndexSurvivesShardLoadsWhileTheIndexIsOff(t *testing.T) {
 	ctx := context.Background()

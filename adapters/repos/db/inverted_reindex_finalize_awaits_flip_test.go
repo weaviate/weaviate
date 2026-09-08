@@ -28,16 +28,16 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Promotion must wait for the cluster-wide schema flip: every shard load in
+// Finalizing must wait for the cluster-wide schema flip: every shard load in
 // between must leave the migrated data staged, since the load-time sweep
-// deletes a promoted canonical directory it finds under a disabled index.
-func TestEnableFilterablePromotionWaitsForTheSchemaFlip(t *testing.T) {
+// deletes a canonical directory it finds under a disabled index.
+func TestEnableFilterableFinalizeWaitsForTheSchemaFlip(t *testing.T) {
 	const propName = "title"
 	const numObjects = 25
 	const token = "alpha"
 
 	ctx := testCtx()
-	className := "PromotionAwaitsFlip_" + uuid.NewString()[:8]
+	className := "FinalizeAwaitsFlip_" + uuid.NewString()[:8]
 	class := newEnableFilterableTestClass(className, propName)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
@@ -74,7 +74,7 @@ func TestEnableFilterablePromotionWaitsForTheSchemaFlip(t *testing.T) {
 		assert.DirExistsf(t, stagedDir,
 			"load %d: the migrated data must stay under its staged name until the flag lands", load)
 		assert.DirExistsf(t, trackerDir,
-			"load %d: the tracker outlives every load in the window, or nothing knows to promote later", load)
+			"load %d: the tracker outlives every load in the window, or nothing knows to finalize later", load)
 	}
 
 	// Simulates the cluster-wide flip landing.
@@ -83,15 +83,15 @@ func TestEnableFilterablePromotionWaitsForTheSchemaFlip(t *testing.T) {
 	defer current.Shutdown(ctx)
 
 	assert.DirExists(t, canonicalDir,
-		"the first load after the flip must promote the migrated data to the canonical name")
-	assert.NoDirExists(t, stagedDir, "a promoted migration leaves no staged directory")
-	assert.NoDirExists(t, trackerDir, "a promoted migration leaves no tracker")
+		"the first load after the flip must rename the migrated data to its canonical name")
+	assert.NoDirExists(t, stagedDir, "a finalized migration leaves no staged directory")
+	assert.NoDirExists(t, trackerDir, "a finalized migration leaves no tracker")
 
 	found, _, err := current.ObjectSearch(ctx, numObjects,
 		propEqualsFilter(className, propName, token), nil, nil, nil, additional.Properties{}, nil)
 	require.NoError(t, err)
 	assert.ElementsMatch(t, objectIDsHoldingToken(objects, propName, token), objectIDs(found),
-		"the promoted index must answer the filter with every object that holds the token")
+		"the finalized index must answer the filter with every object that holds the token")
 }
 
 func propEqualsFilter(className, propName, value string) *filters.LocalFilter {

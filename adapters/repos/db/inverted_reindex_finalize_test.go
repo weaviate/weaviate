@@ -85,7 +85,7 @@ func TestMigrationTrackerDirAbsentDoesNotReadAStatFailureAsAbsence(t *testing.T)
 		"a tracker dir whose stat fails must not read as one that is not there")
 }
 
-// classWithIndexedProps authorizes promotion for every migrated index, so
+// classWithIndexedProps authorizes finalization for every migrated index, so
 // callers can exercise generation/recovery logic without schema gating.
 func classWithIndexedProps(names ...string) *models.Class {
 	on := true
@@ -108,19 +108,19 @@ func touchSentinel(t *testing.T, path string) {
 	require.NoError(t, os.WriteFile(path, nil, 0o644))
 }
 
-// Promotion is refused only for a canonical dir the load-time sweep would
-// delete (an index explicitly turned off); every other schema state promotes.
-func TestFinalizeCompletedMigrations_PromotionFollowsTheSchemaFlag(t *testing.T) {
+// Finalizing is refused only for a canonical dir the load-time sweep would
+// delete (an index explicitly turned off); every other schema state finalizes.
+func TestFinalizeCompletedMigrations_FollowsTheSchemaFlag(t *testing.T) {
 	const propName = "text"
 	off, on := false, true
 
 	tests := []struct {
-		name         string
-		tracker      string
-		canonical    string
-		ingestSuffix string
-		props        []*models.Property
-		wantPromoted bool
+		name          string
+		tracker       string
+		canonical     string
+		ingestSuffix  string
+		props         []*models.Property
+		wantFinalized bool
 	}{
 		{
 			name:         "enable-filterable while the flag is still off",
@@ -130,27 +130,27 @@ func TestFinalizeCompletedMigrations_PromotionFollowsTheSchemaFlag(t *testing.T)
 			props:        []*models.Property{{Name: propName, IndexFilterable: &off}},
 		},
 		{
-			name:         "enable-filterable once the flag has landed",
-			tracker:      "enable_filterable_text_1",
-			canonical:    "property_text",
-			ingestSuffix: "__enable_filterable_ingest_1",
-			props:        []*models.Property{{Name: propName, IndexFilterable: &on}},
-			wantPromoted: true,
+			name:          "enable-filterable once the flag has landed",
+			tracker:       "enable_filterable_text_1",
+			canonical:     "property_text",
+			ingestSuffix:  "__enable_filterable_ingest_1",
+			props:         []*models.Property{{Name: propName, IndexFilterable: &on}},
+			wantFinalized: true,
 		},
 		{
-			name:         "a flag the class leaves unset",
-			tracker:      "enable_filterable_text_1",
-			canonical:    "property_text",
-			ingestSuffix: "__enable_filterable_ingest_1",
-			props:        []*models.Property{{Name: propName}},
-			wantPromoted: true,
+			name:          "a flag the class leaves unset",
+			tracker:       "enable_filterable_text_1",
+			canonical:     "property_text",
+			ingestSuffix:  "__enable_filterable_ingest_1",
+			props:         []*models.Property{{Name: propName}},
+			wantFinalized: true,
 		},
 		{
-			name:         "a property the class does not hold",
-			tracker:      "enable_filterable_text_1",
-			canonical:    "property_text",
-			ingestSuffix: "__enable_filterable_ingest_1",
-			wantPromoted: true,
+			name:          "a property the class does not hold",
+			tracker:       "enable_filterable_text_1",
+			canonical:     "property_text",
+			ingestSuffix:  "__enable_filterable_ingest_1",
+			wantFinalized: true,
 		},
 		{
 			name:         "enable-searchable while the flag is still off",
@@ -174,12 +174,12 @@ func TestFinalizeCompletedMigrations_PromotionFollowsTheSchemaFlag(t *testing.T)
 			props:        []*models.Property{{Name: propName, IndexSearchable: &off}},
 		},
 		{
-			name:         "rebuild-searchable, which flips no flag of its own",
-			tracker:      "rebuild_searchable_text_1",
-			canonical:    "property_text_searchable",
-			ingestSuffix: "__rebuild_searchable_ingest_1",
-			props:        []*models.Property{{Name: propName, IndexSearchable: &on}},
-			wantPromoted: true,
+			name:          "rebuild-searchable, which flips no flag of its own",
+			tracker:       "rebuild_searchable_text_1",
+			canonical:     "property_text_searchable",
+			ingestSuffix:  "__rebuild_searchable_ingest_1",
+			props:         []*models.Property{{Name: propName, IndexSearchable: &on}},
+			wantFinalized: true,
 		},
 	}
 
@@ -203,7 +203,7 @@ func TestFinalizeCompletedMigrations_PromotionFollowsTheSchemaFlag(t *testing.T)
 				&models.Class{Class: "Finalize", Properties: tc.props}, logger)
 
 			canonicalDir := filepath.Join(lsmPath, tc.canonical)
-			if tc.wantPromoted {
+			if tc.wantFinalized {
 				data, err := os.ReadFile(filepath.Join(canonicalDir, "segment.db"))
 				require.NoError(t, err, "the rebuilt data must reach the canonical name")
 				require.Equal(t, "rebuilt", string(data))
@@ -216,7 +216,7 @@ func TestFinalizeCompletedMigrations_PromotionFollowsTheSchemaFlag(t *testing.T)
 			require.FileExists(t, filepath.Join(stagedDir, "segment.db"),
 				"the rebuilt data must keep its staged name until the flag lands")
 			require.DirExists(t, trackerDir,
-				"the tracker must survive, or nothing knows to promote later")
+				"the tracker must survive, or nothing knows to finalize later")
 		})
 	}
 }

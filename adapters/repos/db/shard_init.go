@@ -262,7 +262,7 @@ func (s *Shard) NotifyReady() {
 // PreReindexHook hasn't fired yet on this replica.
 //
 // Properties that don't have a tracker dir, or whose dir has
-// `tidied.mig` (a completed migration, whose promotion
+// `tidied.mig` (a completed migration, whose finalization
 // FinalizeCompletedMigrations owns), are left untouched — the
 // default-true policy in [Shard.IsRangeableLocallyReady] applies to them.
 func markInFlightRangeableMigrationsNotReady(s *Shard) {
