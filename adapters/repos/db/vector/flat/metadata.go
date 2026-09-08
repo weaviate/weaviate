@@ -13,7 +13,6 @@ package flat
 
 import (
 	"encoding/binary"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync/atomic"
@@ -21,6 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/vmihailenco/msgpack/v5"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
@@ -28,7 +28,6 @@ import (
 )
 
 const (
-	metadataPrefix       = "meta"
 	vectorMetadataBucket = "vector"
 	quantizationKey      = "quantization"
 
@@ -68,13 +67,7 @@ type RQ8Data struct {
 }
 
 func (index *flat) getMetadataFile() string {
-	if index.targetVector != "" {
-		// This may be redundant as target vector is already validated in the schema
-		cleanTarget := filepath.Clean(index.targetVector)
-		cleanTarget = filepath.Base(cleanTarget)
-		return fmt.Sprintf("%s_%s.db", metadataPrefix, cleanTarget)
-	}
-	return fmt.Sprintf("%s.db", metadataPrefix)
+	return helpers.FlatMetadataFileNameForID(index.id)
 }
 
 func (index *flat) removeMetadataFile(keepFiles bool) error {

@@ -96,9 +96,7 @@ func TestReplicaSnapshotDefersWhileEditOpsPending(t *testing.T) {
 			require.ErrorIs(t, err, enterrors.ErrShardBusyStructuralOp,
 				"the refusal must defer the movement, not burn its error budget")
 
-			shard.haltForTransferMux.Lock()
-			halted := shard.haltForTransferCount
-			shard.haltForTransferMux.Unlock()
+			halted := shard.haltForTransferCount.Load()
 			require.Zero(t, halted,
 				"the deferral must leave the shard resumed: the halt suspends the cleanup that drains the rows, "+
 					"so holding it across the refusal would make a retry unable to ever succeed")

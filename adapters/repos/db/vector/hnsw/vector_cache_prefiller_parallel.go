@@ -14,7 +14,6 @@ package hnsw
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"runtime"
 	"sync"
@@ -91,7 +90,12 @@ func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 	if bucket == nil {
 		return fmt.Errorf("prefill cache: objects bucket %q not found", helpers.ObjectsBucketLSM)
 	}
-	targetVector := h.getTargetVector()
+	// startup only routes here when the shard bound a reader; a nil one
+	// means a direct caller skipped that gate
+	vectorFromObject := h.vectorFromObject
+	if vectorFromObject == nil {
+		return fmt.Errorf("prefill cache: no VectorFromObject configured for the objects-bucket scan")
+	}
 
 	var loaded atomic.Int64
 	onVector := func(id uint64, vec []float32) {
@@ -105,7 +109,7 @@ func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 		loaded.Add(1)
 	}
 
-	if err := scanObjectVectorsParallel(ctx, bucket, targetVector, onVector, h.logger); err != nil {
+	if err := scanObjectVectorsParallel(ctx, bucket, vectorFromObject, onVector, h.logger); err != nil {
 		return err
 	}
 
@@ -113,15 +117,18 @@ func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 		"action":   "hnsw_vector_cache_prefill",
 		"count":    loaded.Load(),
 		"took":     time.Since(before),
-		"index_id": h.id,
 		"parallel": true,
 	}).Info("prefilled vector cache")
 	return nil
 }
 
+// VectorFromObject reads the vector an index caches out of one stored object's
+// binary form. A nil vector means the object carries none, so the scan skips it.
+type VectorFromObject func(objectBytes []byte) ([]float32, error)
+
 // scanObjectVectorsParallel scans the objects bucket across GOMAXPROCS cursors over
 // disjoint key ranges. onVector must be safe for concurrent use.
-func scanObjectVectorsParallel(ctx context.Context, bucket *lsmkv.Bucket, targetVector string,
+func scanObjectVectorsParallel(ctx context.Context, bucket *lsmkv.Bucket, vectorFromObject VectorFromObject,
 	onVector func(id uint64, vec []float32), logger logrus.FieldLogger,
 ) error {
 	// 2x oversubscription: while one cursor blocks on a disk read another keeps a
@@ -160,7 +167,7 @@ func scanObjectVectorsParallel(ctx context.Context, bucket *lsmkv.Bucket, target
 		wg.Add(1)
 		enterrors.GoWrapper(func() {
 			defer wg.Done()
-			if err := scanObjectVectorsRange(scanCtx, bucket, r.start, r.end, targetVector, onVector, logger); err != nil {
+			if err := scanObjectVectorsRange(scanCtx, bucket, r.start, r.end, vectorFromObject, onVector, logger); err != nil {
 				e := err
 				if firstErr.CompareAndSwap(nil, &e) {
 					cancel()
@@ -177,7 +184,7 @@ func scanObjectVectorsParallel(ctx context.Context, bucket *lsmkv.Bucket, target
 }
 
 func scanObjectVectorsRange(ctx context.Context, bucket *lsmkv.Bucket, start, end []byte,
-	targetVector string, onVector func(id uint64, vec []float32), logger logrus.FieldLogger,
+	vectorFromObject VectorFromObject, onVector func(id uint64, vec []float32), logger logrus.FieldLogger,
 ) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -216,14 +223,8 @@ func scanObjectVectorsRange(ctx context.Context, bucket *lsmkv.Bucket, start, en
 			continue
 		}
 
-		// nil buffer forces a fresh allocation; a reused buffer would be aliased by
-		// VectorFromBinary across iterations and corrupt previously cached vectors.
-		vec, err := storobj.VectorFromBinary(v, nil, targetVector)
+		vec, err := vectorFromObject(v)
 		if err != nil {
-			var notFound storobj.ErrTargetVectorNotFound
-			if errors.As(err, &notFound) {
-				continue
-			}
 			logger.WithField("action", "hnsw_vector_cache_prefill").
 				Debugf("skipping doc id %d with undecodable vector: %v", id, err)
 			continue

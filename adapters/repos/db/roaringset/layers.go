@@ -42,6 +42,8 @@ type BitmapLayer struct {
 	Deletions *sroar.Bitmap
 }
 
+// Clone copies both sides, keeping an allocated-but-empty one allocated. Where
+// that distinction matters, see [BitmapLayer.CloneIfWithin].
 func (l *BitmapLayer) Clone() BitmapLayer {
 	clone := BitmapLayer{}
 	if l.Additions != nil {
@@ -51,6 +53,41 @@ func (l *BitmapLayer) Clone() BitmapLayer {
 		clone.Deletions = l.Deletions.Clone()
 	}
 	return clone
+}
+
+// LenInBytes is what copying this layer allocates. An allocated-but-empty side
+// costs nothing here, where [sroar.Bitmap.LenInBytes] counts the buffer it
+// allocated; the two agree only once a bitmap holds something.
+func (l *BitmapLayer) LenInBytes() int {
+	// ToBuffer is nil-safe, and nil exactly when the bitmap is empty.
+	return len(l.Additions.ToBuffer()) + len(l.Deletions.ToBuffer())
+}
+
+// CloneIfWithin clones the layer if it fits the budget, leaving an empty side
+// nil — [LayerMerger] treats nil and empty alike. The cost comes back either
+// way, and only ok separates a refusal from a layer holding nothing, since both
+// clone to a zero value.
+//
+// It repeats [BitmapLayer.Clone]'s body rather than calling it because of that
+// nil: Clone returns an allocated-but-empty side as non-nil, and a caller
+// testing a slot with Additions != nil || Deletions != nil would read a layer
+// holding nothing for the key as one holding something.
+//
+// A budget below zero refuses everything, an empty layer included: fitting is
+// cost against budget, not a question of whether there is anything to copy.
+func (l *BitmapLayer) CloneIfWithin(budget int) (BitmapLayer, int, bool) {
+	cost := l.LenInBytes()
+	if cost > budget {
+		return BitmapLayer{}, cost, false
+	}
+	clone := BitmapLayer{}
+	if adds := l.Additions.ToBuffer(); len(adds) > 0 {
+		clone.Additions = sroar.FromBufferWithCopy(adds)
+	}
+	if dels := l.Deletions.ToBuffer(); len(dels) > 0 {
+		clone.Deletions = sroar.FromBufferWithCopy(dels)
+	}
+	return clone, cost, true
 }
 
 // BitmapLayers are a helper type to perform operations on multiple layers,
@@ -91,9 +128,14 @@ func (bml BitmapLayers) Flatten(clone bool, maxConc int) *sroar.Bitmap {
 		return sroar.NewBitmap()
 	}
 
+	// A first layer that only deletes has nothing to fold into, and sroar's
+	// OrConc panics on a nil receiver. Clone answers with a bitmap either way.
 	merged := bml[0].Additions
-	if clone {
+	switch {
+	case clone:
 		merged = merged.Clone()
+	case merged == nil:
+		merged = sroar.NewBitmap()
 	}
 
 	for i := 1; i < len(bml); i++ {
@@ -118,8 +160,9 @@ type LayerMerger struct {
 
 // NewLayerMerger starts a fold from base, which becomes the accumulator and
 // is mutated in place by Add; pass clone=true when base must not be mutated.
-// A nil base means no layer yet: the first Add'd layer's additions are
-// adopted as the accumulator without a copy, as in Flatten.
+// A nil base means no layer yet: the first Add'd layer with non-nil additions
+// has them adopted as the accumulator without a copy, as in Flatten. One
+// holding only deletions is not that layer and leaves the fold unseeded.
 func NewLayerMerger(base *sroar.Bitmap, clone bool, maxConc int) LayerMerger {
 	if clone && base != nil {
 		base = base.Clone()

@@ -65,15 +65,18 @@ func firstErrorEntry(hook *test.Hook) *logrus.Entry {
 
 // newRangeableFinalizeTestShard builds a shard+index with the rangeable
 // in-memory knob enabled.
-func newRangeableFinalizeTestShard(t *testing.T, classNamePrefix string) (context.Context, *Shard, *Index, string) {
+// newRangeableFinalizeTestShard builds the shard; indexOpts run on the index
+// before the shard starts, which is where a test installs a log hook: the
+// shard's goroutines read index.logger, so a swap afterwards is a data race.
+func newRangeableFinalizeTestShard(t *testing.T, classNamePrefix string, indexOpts ...func(*Index)) (context.Context, *Shard, *Index, string) {
 	t.Helper()
 	ctx := testCtx()
 	className := classNamePrefix + uuid.NewString()[:8]
 	class := newFilterableToRangeableTestClass(className)
 
+	opts := append([]func(*Index){func(idx *Index) { idx.Config.IndexRangeableInMemory = true }}, indexOpts...)
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false,
-		func(idx *Index) { idx.Config.IndexRangeableInMemory = true })
+		false, false, false, opts...)
 	shard := shd.(*Shard)
 	t.Cleanup(func() { shard.Shutdown(ctx) })
 	return ctx, shard, idx, className
@@ -87,23 +90,11 @@ func putRangeableTestObjects(t *testing.T, ctx context.Context, shard *Shard, cl
 	}
 }
 
-// runReindexToCompletionOrError drives OnAfterLsmInit + OnAfterLsmInitAsync
-// to convergence, returning the first error encountered (nil if the
-// migration converged cleanly).
+// runReindexToCompletionOrError drives the full lifecycle, returning the
+// first error encountered (nil if the migration converged cleanly).
 func runReindexToCompletionOrError(t *testing.T, ctx context.Context, task *ShardReindexTaskGeneric, shard *Shard) error {
 	t.Helper()
-	if err := task.OnAfterLsmInit(ctx, shard); err != nil {
-		return err
-	}
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		if err != nil {
-			return err
-		}
-		if rerunAt.IsZero() {
-			return nil
-		}
-	}
+	return task.RunOnShard(ctx, shard)
 }
 
 // setupRangeableFinalizeDegradeFixture builds a shard, injects a
@@ -118,12 +109,11 @@ func setupRangeableFinalizeDegradeFixture(t *testing.T, classNamePrefix string) 
 	const numObjects = 25
 	propName := filterableToRangeablePropName
 
-	ctx, shard, idx, className := newRangeableFinalizeTestShard(t, classNamePrefix)
-
-	// The task captures idx.logger by value at construction, so swap in a
-	// hook-capturing logger first to assert on the ERROR log this fixture drives.
+	// the task captures idx.logger at construction, so the hook logger has to
+	// be the index's from the start to see the ERROR log this fixture drives
 	hookLogger, hook := test.NewNullLogger()
-	idx.logger = hookLogger
+	ctx, shard, idx, className := newRangeableFinalizeTestShard(t, classNamePrefix,
+		func(idx *Index) { idx.logger = hookLogger })
 
 	putRangeableTestObjects(t, ctx, shard, className, numObjects)
 
@@ -336,10 +326,9 @@ func TestRebuildRangeableInMemoryReps_NilBucketRoutesContextCancellation(t *test
 // migration.
 func TestRebuildRangeableInMemoryReps_NilBucketDegradesWithoutCancellation(t *testing.T) {
 	propName := filterableToRangeablePropName
-	ctx, shard, idx, className := newRangeableFinalizeTestShard(t, "RangeableNilBucketDegrade_")
-
 	hookLogger, hook := test.NewNullLogger()
-	idx.logger = hookLogger
+	ctx, shard, idx, className := newRangeableFinalizeTestShard(t, "RangeableNilBucketDegrade_",
+		func(idx *Index) { idx.logger = hookLogger })
 
 	putRangeableTestObjects(t, ctx, shard, className, 5)
 

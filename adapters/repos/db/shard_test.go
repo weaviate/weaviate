@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	hnswindex "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
@@ -370,6 +371,41 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 
 	require.Nil(t, idx.drop())
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+}
+
+// TestShard_DebugResetVectorIndex_Dynamic pins a bug where resetting a
+// dynamic index broke the shard: dynamic.Drop closed and deleted the
+// shard-SHARED index.db, and the re-init reused the shard's stale closed
+// handle, so the reset errored with bolt's "database not open" and every
+// sibling dynamic vector lost its state DB.
+func TestShard_DebugResetVectorIndex_Dynamic(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClass"
+	dist := distancer.NewL2SquaredProvider()
+	fuc := flat.UserConfig{}
+	fuc.SetDefaults()
+	uc := dynamic.UserConfig{
+		Threshold: 1_000_000,
+		Distance:  dist.Type(),
+		HnswUC:    hnsw.UserConfig{MaxConnections: 8, EFConstruction: 16, EF: 8, VectorCacheMaxObjects: 1000},
+		FlatUC:    fuc,
+	}
+	shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, uc,
+		false, true, true /* async indexing on: required by the dynamic index */)
+
+	defer func(path string) {
+		err := os.RemoveAll(path)
+		if err != nil {
+			fmt.Println(err)
+		}
+	}(shd.Index().Config.RootPath)
+
+	require.NoError(t, shd.DebugResetVectorIndex(ctx, ""))
+
+	// a second reset proves the first left the shard metadata DB usable
+	require.NoError(t, shd.DebugResetVectorIndex(ctx, ""))
+
+	require.Nil(t, idx.drop())
 }
 
 func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
@@ -877,7 +913,9 @@ func TestShard_UpgradeIndex(t *testing.T) {
 		}
 	}
 
-	q, ok := shd.GetVectorIndexQueue("")
+	q, release, ok := shd.AcquireVectorIndexQueue("")
+	require.True(t, ok)
+	defer release()
 	require.True(t, ok)
 
 	// wait for the queue to be empty
@@ -1085,8 +1123,14 @@ func TestShard_RequantizeIndex(t *testing.T) {
 }
 
 func getVectorIndexAndQueue(t *testing.T, shard ShardLike, targetVector string) (VectorIndex, *VectorIndexQueue) {
-	idx, vok := shard.GetVectorIndex(targetVector)
-	q, qok := shard.GetVectorIndexQueue(targetVector)
+	idx, releaseIdx, vok := shard.AcquireVectorIndex(targetVector)
+	if vok {
+		defer releaseIdx()
+	}
+	q, releaseQ, qok := shard.AcquireVectorIndexQueue(targetVector)
+	if qok {
+		defer releaseQ()
+	}
 	require.True(t, vok && qok)
 	return idx, q
 }

@@ -178,6 +178,33 @@ func (s *SchemaManager) TenantLimitEnforced() bool {
 	return s.tenantLimit != nil && s.tenantLimit() >= 0
 }
 
+// DeleteClassFromDB is the store half of a DELETE_CLASS.
+func (s *SchemaManager) DeleteClassFromDB(class string, hasFrozen bool) error {
+	if s.replicationFSM == nil {
+		return fmt.Errorf("replication deleter is not set, this should never happen")
+	} else if err := s.replicationFSM.DeleteReplicationsByCollection(class); err != nil {
+		// Logged, not returned: a stuck replication op must not block the
+		// delete.
+		s.log.WithField("class", class).Errorf("could not delete replication operations for deleted class: %v", err)
+	}
+	return s.db.DeleteClass(class, hasFrozen)
+}
+
+// HasFrozenTenants reports whether the class has tenants on cloud storage
+func (s *SchemaManager) HasFrozenTenants(class string) bool {
+	tenants, err := s.schema.getTenants(class, nil)
+	if err != nil {
+		return false
+	}
+	for _, t := range tenants {
+		if t.ActivityStatus == models.TenantActivityStatusFROZEN ||
+			t.ActivityStatus == models.TenantActivityStatusFREEZING {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *SchemaManager) NewSchemaReader() SchemaReader {
 	return NewSchemaReader(
 		s.schema,
@@ -225,7 +252,9 @@ func (s *SchemaManager) SchemaSnapshot() ([]byte, error) {
 func (s *SchemaManager) AliasSnapshot() ([]byte, error) {
 	var buf bytes.Buffer
 
-	err := json.NewEncoder(&buf).Encode(s.schema.aliases)
+	// Raft runs Persist concurrently with Apply, so the alias map must be
+	// copied under the schema read lock.
+	err := json.NewEncoder(&buf).Encode(s.schema.cloneAliases())
 	return buf.Bytes(), err
 }
 
@@ -626,19 +655,9 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 		}
 	}
 
-	var hasFrozen bool
-	tenants, err := s.schema.getTenants(cmd.Class, nil)
-	if err != nil {
-		hasFrozen = false
-	}
-
-	for _, t := range tenants {
-		if t.ActivityStatus == models.TenantActivityStatusFROZEN ||
-			t.ActivityStatus == models.TenantActivityStatusFREEZING {
-			hasFrozen = true
-			break
-		}
-	}
+	// Sampled here, not inside updateStore: apply() runs updateSchema (which
+	// drops the class from the schema)
+	hasFrozen := s.HasFrozenTenants(cmd.Class)
 
 	return s.apply(
 		applyOp{
@@ -651,21 +670,50 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 				// DELETE_CLASS apply MUST drop tasks the replay just
 				// re-added. weaviate/0-weaviate-issues#231.
 				s.cascadeDeleteDistributedTasks(cmd.Class)
+				// Same reasoning for the replication FSM: its ops must be
+				// flagged on every apply path, schemaOnly replay and
+				// MetadataOnlyVoters included. Otherwise ShouldConsumeOps(),
+				// and with it three schema gates, disagrees between nodes.
+				s.cascadeDeleteReplicationOps(cmd.Class)
 				return nil
 			},
 			updateStore: func() error {
-				if s.replicationFSM == nil {
-					return fmt.Errorf("replication deleter is not set, this should never happen")
-				} else if err := s.replicationFSM.DeleteReplicationsByCollection(cmd.Class); err != nil {
-					// If there is an error deleting the replications then we log it but make sure not to block the deletion of the class from a UX PoV
-					s.log.WithField("error", err).WithField("class", cmd.Class).Error("could not delete replication operations for deleted class")
-				}
 				return s.db.DeleteClass(cmd.Class, hasFrozen)
 			},
 			schemaOnly:           schemaOnly,
 			enableSchemaCallback: enableSchemaCallback,
 		},
 	)
+}
+
+// cascadeDeleteReplicationOps flags every replication op of class for deletion.
+// It logs and continues rather than returning an error: it runs inside
+// updateSchema, whose error aborts the whole apply, and a replication-FSM
+// hiccup must never block a class deletion.
+func (s *SchemaManager) cascadeDeleteReplicationOps(class string) {
+	if s.replicationFSM == nil {
+		s.log.WithField("class", class).
+			Debug("replication FSM not set; skipping cascade-delete on class delete")
+		return
+	}
+	if err := s.replicationFSM.DeleteReplicationsByCollection(class); err != nil {
+		s.log.WithField("class", class).
+			Errorf("could not delete replication operations for deleted class: %v", err)
+	}
+}
+
+// cascadeDeleteReplicationOpsForTenants is cascadeDeleteReplicationOps scoped to
+// the tenants a DELETE_TENANT apply removes.
+func (s *SchemaManager) cascadeDeleteReplicationOpsForTenants(class string, tenants []string) {
+	if s.replicationFSM == nil {
+		s.log.WithField("class", class).
+			Debug("replication FSM not set; skipping cascade-delete on tenant delete")
+		return
+	}
+	if err := s.replicationFSM.DeleteReplicationsByTenants(class, tenants); err != nil {
+		s.log.WithField("class", class).WithField("tenants", tenants).
+			Errorf("could not delete replication operations for deleted tenants: %v", err)
+	}
 }
 
 func (s *SchemaManager) cascadeDeleteDistributedTasks(class string) {
@@ -856,14 +904,19 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 		}
 	}
 
+	// apply() runs updateSchema before updateStore, so this is complete when the DB reads it
+	preFreezeStatuses := make(map[string]string)
+
 	return s.apply(
 		applyOp{
 			op: cmd.GetType().String(),
 			// updateSchema func will update the request's tenants and therefore we use it as a filter that is then sent
 			// to the updateStore function. This allows us to effectively use the schema update to narrow down work for
 			// the DB update.
-			updateSchema:          func() error { return s.schema.updateTenants(cmd.Class, cmd.Version, req, s.replicationFSM) },
-			updateStore:           func() error { return s.db.UpdateTenants(cmd.Class, req) },
+			updateSchema: func() error {
+				return s.schema.updateTenants(cmd.Class, cmd.Version, req, s.replicationFSM, preFreezeStatuses)
+			},
+			updateStore:           func() error { return s.db.UpdateTenants(cmd.Class, req, preFreezeStatuses) },
 			schemaOnly:            schemaOnly,
 			allowPartialSchemaErr: true,
 		},
@@ -900,15 +953,16 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 
 	return s.apply(
 		applyOp{
-			op:           cmd.GetType().String(),
-			updateSchema: func() error { return s.schema.deleteTenants(cmd.Class, cmd.Version, req) },
-			updateStore: func() error {
-				if s.replicationFSM == nil {
-					return fmt.Errorf("replication deleter is not set, this should never happen")
-				} else if err := s.replicationFSM.DeleteReplicationsByTenants(cmd.Class, req.Tenants); err != nil {
-					// If there is an error deleting the replications then we log it but make sure not to block the deletion of the class from a UX PoV
-					s.log.WithField("error", err).WithField("class", cmd.Class).WithField("tenants", tenants).Error("could not delete replication operations for deleted tenants")
+			op: cmd.GetType().String(),
+			updateSchema: func() error {
+				// In updateSchema so it also runs on schemaOnly applies; see deleteClass.
+				if err := s.schema.deleteTenants(cmd.Class, cmd.Version, req); err != nil {
+					return err
 				}
+				s.cascadeDeleteReplicationOpsForTenants(cmd.Class, req.Tenants)
+				return nil
+			},
+			updateStore: func() error {
 				return s.db.DeleteTenants(cmd.Class, tenants)
 			},
 			schemaOnly: schemaOnly,
@@ -950,7 +1004,7 @@ func (s *SchemaManager) ReplicationAddReplicaToShard(cmd *command.ApplyRequest, 
 			},
 			updateStore: func() error {
 				if req.TargetNode == s.schema.nodeID {
-					if err := s.db.AddReplicaToShard(req.Class, req.Shard, req.TargetNode); err != nil {
+					if err := s.db.AddReplicaToShardForMovement(req.Class, req.Shard, req.TargetNode); err != nil {
 						return err
 					}
 				}

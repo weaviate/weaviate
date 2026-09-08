@@ -12,6 +12,7 @@
 package schema
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync"
@@ -76,6 +77,14 @@ func TestConcurrentSchemaAccess(t *testing.T) {
 		{
 			name: "concurrent sharding state operations",
 			test: testConcurrentShardingStateOperations,
+		},
+		{
+			name: "concurrent alias snapshot and alias writes",
+			test: testConcurrentAliasSnapshot,
+		},
+		{
+			name: "concurrent sharding state copy and class update",
+			test: testConcurrentCopyShardingStateAndUpdate,
 		},
 	}
 
@@ -685,7 +694,7 @@ func testConcurrentTenantManagementOperations(t *testing.T, s *schema) {
 				}
 				fsm := NewMockreplicationFSM(t)
 				fsm.On("HasActiveReplicationForShard", mock.Anything, mock.Anything).Return(false).Maybe()
-				_ = s.updateTenants("TestClass", uint64(j), req, fsm)
+				_ = s.updateTenants("TestClass", uint64(j), req, fsm, map[string]string{})
 				time.Sleep(time.Microsecond)
 			}
 		}(i)
@@ -749,6 +758,66 @@ func testConcurrentShardingStateOperations(t *testing.T, s *schema) {
 	wg.Wait()
 }
 
+// AliasSnapshot runs while raft applies alias commands. Reading the alias map
+// without the lock is a concurrent map iteration and write, which crashes the
+// process. RestoreAlias is covered too: it replaces the map rather than
+// mutating it in place.
+func testConcurrentAliasSnapshot(t *testing.T, s *schema) {
+	class := &models.Class{Class: "TestClass"}
+	require.NoError(t, s.addClass(class, &sharding.State{}, 1))
+
+	sm := &SchemaManager{schema: s}
+
+	const numGoroutines = 10
+	const iterations = 100
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines * 3)
+
+	// Test concurrent AliasSnapshot calls
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				data, err := sm.AliasSnapshot()
+				if !assert.NoError(t, err) {
+					continue
+				}
+				var aliases map[string]string
+				if !assert.NoError(t, json.Unmarshal(data, &aliases)) {
+					continue
+				}
+				for alias, className := range aliases {
+					assert.Equal(t, "TestClass", className, "alias %q resolves to its class", alias)
+				}
+			}
+		}()
+	}
+
+	// Test concurrent alias creation while snapshotting
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				assert.NoError(t, s.createAlias("TestClass", fmt.Sprintf("Alias%d_%d", id, j)))
+			}
+		}(i)
+	}
+
+	// Test concurrent alias restores while snapshotting
+	restored := []byte(`{"RestoredAlias":"TestClass"}`)
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				assert.NoError(t, s.RestoreAlias(restored))
+			}
+		}()
+	}
+
+	wg.Wait()
+}
+
 // Additional mock for shard reader
 type mockShardReader struct{}
 
@@ -756,4 +825,80 @@ func (m *mockShardReader) GetShardsStatus(class, tenant string) (models.ShardSta
 	return models.ShardStatusList{
 		{Status: "HOT", Name: "shard1"},
 	}, nil
+}
+
+// testConcurrentCopyShardingStateAndUpdate reproduces the production pair that
+// raced: the RAFT FSM applying an UpdateClass while a gRPC QueryShardingState
+// copies the same class.
+//
+// CopyShardingState resolves the metaClass through metaClass(), which releases
+// the schema-map lock before returning the pointer — so reading Sharding and
+// ClassVersion afterwards is unsynchronised, while updateClass mutates exactly
+// those fields under the class lock. The sibling test above only drives
+// GetShardsStatus, which goes through a different reader, so it never covered
+// this path.
+//
+// Only meaningful under -race: without the class lock the detector reports the
+// write/read pair; the assertions alone would usually pass.
+func testConcurrentCopyShardingStateAndUpdate(t *testing.T, s *schema) {
+	class := &models.Class{
+		Class:      "TestClass",
+		Properties: []*models.Property{{Name: "prop1", DataType: []string{"string"}}},
+	}
+	shardState := &sharding.State{
+		Physical: map[string]sharding.Physical{
+			"shard1": {Name: "shard1", Status: "HOT"},
+		},
+	}
+	require.NoError(t, s.addClass(class, shardState, 1))
+
+	const numGoroutines = 8
+	const iterations = 200
+
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines * 2)
+
+	// Readers: what QueryShardingState does.
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				state, version := s.CopyShardingState("TestClass")
+				if state != nil {
+					// Touch the copy: a state handed out under no lock would be
+					// mutated underneath this read.
+					_ = len(state.Physical)
+					_ = version
+				}
+			}
+		}()
+	}
+
+	// Writers: what the FSM's UpdateClass does — replace the sharding state and
+	// bump the version, both under the class lock.
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < iterations; j++ {
+				_ = s.updateClass("TestClass", func(mc *metaClass) error {
+					mc.Sharding = sharding.State{
+						Physical: map[string]sharding.Physical{
+							fmt.Sprintf("shard%d_%d", id, j): {
+								Name:   fmt.Sprintf("shard%d_%d", id, j),
+								Status: "HOT",
+							},
+						},
+					}
+					mc.ClassVersion = uint64(j) + 2
+					return nil
+				})
+			}
+		}(i)
+	}
+
+	wg.Wait()
+
+	state, version := s.CopyShardingState("TestClass")
+	require.NotNil(t, state, "the class must still be readable after the churn")
+	assert.NotZero(t, version)
 }

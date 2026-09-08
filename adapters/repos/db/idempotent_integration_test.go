@@ -517,6 +517,102 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 			assert.Equal(t, 1, shardCount)
 		})
 	})
+
+	t.Run("single tenant, geo properties are not re-initialized", func(t *testing.T) {
+		var (
+			ctx          = context.Background()
+			iterations   = 3
+			locationProp = "someLocation"
+			homeProp     = "someHome"
+			geoDataType  = []string{string(schema.DataTypeGeoCoordinates)}
+			geoClass     = &models.Class{
+				Class: class1Name,
+				Properties: []*models.Property{
+					{Name: intProp, DataType: []string{"int"}},
+					{Name: locationProp, DataType: geoDataType},
+					{Name: homeProp, DataType: geoDataType},
+				},
+				InvertedIndexConfig: invertedConfig(),
+				VectorConfig:        vectorConfig,
+			}
+			ss       = singleTenantShardingState[missingDataClass1]
+			migrator = setupTestMigrator(t, t.TempDir(), ss, geoClass)
+		)
+
+		defer func() {
+			require.NoError(t, migrator.db.Shutdown(context.Background()))
+		}()
+
+		idx := migrator.db.GetIndex(schema.ClassName(class1Name))
+		require.NotNil(t, idx)
+
+		var shard *Shard
+		require.NoError(t, idx.ForEachShard(func(_ string, sl ShardLike) error {
+			shard = underlyingShard(t, sl)
+			return nil
+		}))
+
+		locationBefore, locationQueueBefore := geoIndexAndQueue(t, shard, locationProp)
+		homeBefore, _ := geoIndexAndQueue(t, shard, homeProp)
+
+		for i := 0; i < iterations; i++ {
+			require.NoError(t, migrator.UpdateIndex(ctx, geoClass, ss))
+		}
+
+		locationAfter, locationQueueAfter := geoIndexAndQueue(t, shard, locationProp)
+		homeAfter, _ := geoIndexAndQueue(t, shard, homeProp)
+
+		require.Same(t, locationBefore, locationAfter,
+			"UpdateIndex rebuilt the geo index, blocking on a full cache prefill")
+		require.Same(t, locationQueueBefore, locationQueueAfter,
+			"UpdateIndex rebuilt the geo queue, leaving the old one registered")
+		require.Same(t, homeBefore, homeAfter,
+			"UpdateIndex rebuilt the second geo index")
+	})
+
+	t.Run("single tenant, a geo property the shard lacks is still added", func(t *testing.T) {
+		var (
+			ctx          = context.Background()
+			locationProp = "someLocation"
+			geoDataType  = []string{string(schema.DataTypeGeoCoordinates)}
+			localClass   = &models.Class{
+				Class:               class1Name,
+				Properties:          []*models.Property{{Name: intProp, DataType: []string{"int"}}},
+				InvertedIndexConfig: invertedConfig(),
+				VectorConfig:        vectorConfig,
+			}
+			incomingClass = &models.Class{
+				Class: class1Name,
+				Properties: []*models.Property{
+					{Name: intProp, DataType: []string{"int"}},
+					{Name: locationProp, DataType: geoDataType},
+				},
+				InvertedIndexConfig: invertedConfig(),
+				VectorConfig:        vectorConfig,
+			}
+			ss       = singleTenantShardingState[missingDataClass1]
+			migrator = setupTestMigrator(t, t.TempDir(), ss, localClass)
+		)
+
+		defer func() {
+			require.NoError(t, migrator.db.Shutdown(context.Background()))
+		}()
+
+		idx := migrator.db.GetIndex(schema.ClassName(class1Name))
+		require.NotNil(t, idx)
+
+		var shard *Shard
+		require.NoError(t, idx.ForEachShard(func(_ string, sl ShardLike) error {
+			shard = underlyingShard(t, sl)
+			return nil
+		}))
+		require.False(t, shard.hasGeoIndexForProp(locationProp))
+
+		require.NoError(t, migrator.UpdateIndex(ctx, incomingClass, ss))
+
+		location, _ := geoIndexAndQueue(t, shard, locationProp)
+		require.NotNil(t, location, "a geo property missing from the shard must be added")
+	})
 }
 
 func setupTestMigrator(t *testing.T, rootDir string, shardState *sharding.State, classes ...*models.Class) *Migrator {
@@ -547,6 +643,7 @@ func setupTestMigrator(t *testing.T, rootDir string, shardState *sharding.State,
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: classes}).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
@@ -562,7 +659,7 @@ func setupTestMigrator(t *testing.T, rootDir string, shardState *sharding.State,
 		EnableLazyLoadShards:      boolPtr(true),
 	}, &FakeRemoteClient{}, mockNodeSelector,
 		&FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
-		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))

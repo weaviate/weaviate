@@ -78,10 +78,6 @@ func (s *MapToBlockmaxStrategy) WriteToReindexBucket(shard ShardLike, bucket *ls
 	return nil
 }
 
-func (s *MapToBlockmaxStrategy) ShouldProcessProperty(property *inverted.Property) bool {
-	return property.HasSearchableIndex
-}
-
 func (s *MapToBlockmaxStrategy) MakeAddCallback(bucketNamer func(string) string,
 	propsByName map[string]struct{}, forTargetStrategy bool,
 ) onAddToPropertyValueIndex {

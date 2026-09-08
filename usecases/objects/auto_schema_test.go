@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/test_utils"
 	"github.com/weaviate/weaviate/entities/search"
@@ -797,7 +798,7 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 	require.NotNil(t, schemaAfter.Objects)
 	assert.Equal(t, 1, len(schemaAfter.Objects.Classes))
 
-	class := (schemaAfter.Objects.Classes)[0]
+	class := schemaAfter.Objects.Classes[0]
 	assert.Equal(t, "Publication", class.Class)
 	assert.Equal(t, 5, len(class.Properties))
 	require.NotNil(t, getProperty(class.Properties, "name"))
@@ -815,9 +816,15 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 	require.NotNil(t, getProperty(class.Properties, "numberArray"))
 	assert.Equal(t, "numberArray", getProperty(class.Properties, "numberArray").Name)
 	assert.Equal(t, "number[]", getProperty(class.Properties, "numberArray").DataType[0])
-	assert.Equal(t, "hnsw", class.VectorIndexType)
-	assert.Equal(t, "none", class.Vectorizer)
-	assert.NotNil(t, class.VectorIndexConfig)
+	assert.Empty(t, class.VectorIndexType)
+	assert.Empty(t, class.Vectorizer)
+	assert.Nil(t, class.VectorIndexConfig)
+	require.Len(t, class.VectorConfig, 1)
+	defaultVector, ok := class.VectorConfig[modelsext.DefaultNamedVectorName]
+	require.True(t, ok)
+	assert.Equal(t, map[string]interface{}{"none": map[string]interface{}{}}, defaultVector.Vectorizer)
+	assert.Equal(t, "hnsw", defaultVector.VectorIndexType)
+	assert.NotNil(t, defaultVector.VectorIndexConfig)
 }
 
 func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
@@ -869,10 +876,10 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	schemaBefore := schemaManager.GetSchemaResponse
 	require.NotNil(t, schemaBefore.Objects)
 	assert.Equal(t, 1, len(schemaBefore.Objects.Classes))
-	assert.Equal(t, "Publication", (schemaBefore.Objects.Classes)[0].Class)
-	assert.Equal(t, 1, len((schemaBefore.Objects.Classes)[0].Properties))
-	assert.Equal(t, "age", (schemaBefore.Objects.Classes)[0].Properties[0].Name)
-	assert.Equal(t, "int", (schemaBefore.Objects.Classes)[0].Properties[0].DataType[0])
+	assert.Equal(t, "Publication", schemaBefore.Objects.Classes[0].Class)
+	assert.Equal(t, 1, len(schemaBefore.Objects.Classes[0].Properties))
+	assert.Equal(t, "age", schemaBefore.Objects.Classes[0].Properties[0].Name)
+	assert.Equal(t, "int", schemaBefore.Objects.Classes[0].Properties[0].DataType[0])
 
 	knownClasses := map[string]versioned.Class{
 		class.Class: {Version: 0, Class: class},
@@ -884,23 +891,23 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	schemaAfter := schemaManager.GetSchemaResponse
 	require.NotNil(t, schemaAfter.Objects)
 	assert.Equal(t, 1, len(schemaAfter.Objects.Classes))
-	assert.Equal(t, "Publication", (schemaAfter.Objects.Classes)[0].Class)
-	assert.Equal(t, 5, len((schemaAfter.Objects.Classes)[0].Properties))
-	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "age"))
-	assert.Equal(t, "age", getProperty((schemaAfter.Objects.Classes)[0].Properties, "age").Name)
-	assert.Equal(t, "int", getProperty((schemaAfter.Objects.Classes)[0].Properties, "age").DataType[0])
-	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "name"))
-	assert.Equal(t, "name", getProperty((schemaAfter.Objects.Classes)[0].Properties, "name").Name)
-	assert.Equal(t, "text", getProperty((schemaAfter.Objects.Classes)[0].Properties, "name").DataType[0])
-	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate"))
-	assert.Equal(t, "publicationDate", getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate").Name)
-	assert.Equal(t, "date", getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate").DataType[0])
-	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "textArray"))
-	assert.Equal(t, "textArray", getProperty((schemaAfter.Objects.Classes)[0].Properties, "textArray").Name)
-	assert.Equal(t, "text[]", getProperty((schemaAfter.Objects.Classes)[0].Properties, "textArray").DataType[0])
-	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "numberArray"))
-	assert.Equal(t, "numberArray", getProperty((schemaAfter.Objects.Classes)[0].Properties, "numberArray").Name)
-	assert.Equal(t, "int[]", getProperty((schemaAfter.Objects.Classes)[0].Properties, "numberArray").DataType[0])
+	assert.Equal(t, "Publication", schemaAfter.Objects.Classes[0].Class)
+	assert.Equal(t, 5, len(schemaAfter.Objects.Classes[0].Properties))
+	require.NotNil(t, getProperty(schemaAfter.Objects.Classes[0].Properties, "age"))
+	assert.Equal(t, "age", getProperty(schemaAfter.Objects.Classes[0].Properties, "age").Name)
+	assert.Equal(t, "int", getProperty(schemaAfter.Objects.Classes[0].Properties, "age").DataType[0])
+	require.NotNil(t, getProperty(schemaAfter.Objects.Classes[0].Properties, "name"))
+	assert.Equal(t, "name", getProperty(schemaAfter.Objects.Classes[0].Properties, "name").Name)
+	assert.Equal(t, "text", getProperty(schemaAfter.Objects.Classes[0].Properties, "name").DataType[0])
+	require.NotNil(t, getProperty(schemaAfter.Objects.Classes[0].Properties, "publicationDate"))
+	assert.Equal(t, "publicationDate", getProperty(schemaAfter.Objects.Classes[0].Properties, "publicationDate").Name)
+	assert.Equal(t, "date", getProperty(schemaAfter.Objects.Classes[0].Properties, "publicationDate").DataType[0])
+	require.NotNil(t, getProperty(schemaAfter.Objects.Classes[0].Properties, "textArray"))
+	assert.Equal(t, "textArray", getProperty(schemaAfter.Objects.Classes[0].Properties, "textArray").Name)
+	assert.Equal(t, "text[]", getProperty(schemaAfter.Objects.Classes[0].Properties, "textArray").DataType[0])
+	require.NotNil(t, getProperty(schemaAfter.Objects.Classes[0].Properties, "numberArray"))
+	assert.Equal(t, "numberArray", getProperty(schemaAfter.Objects.Classes[0].Properties, "numberArray").Name)
+	assert.Equal(t, "int[]", getProperty(schemaAfter.Objects.Classes[0].Properties, "numberArray").DataType[0])
 }
 
 func Test_autoSchemaManager_getProperties(t *testing.T) {

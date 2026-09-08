@@ -13,6 +13,7 @@ package batch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"slices"
@@ -198,6 +199,125 @@ func TestVectorizeBatchObjects(t *testing.T) {
 				assert.Equal(t, vec, res[i])
 			}
 		})
+	}
+}
+
+// A vectorizer that hands back fewer embeddings than it was given objects used
+// to make VectorizeBatchObjects index past the end of the result slice.
+func TestVectorizeBatchObjects_shortResult(t *testing.T) {
+	tests := []struct {
+		name       string
+		objs       int
+		batchSize  int
+		vectorizer batchObjectsVectorizer[[]float32]
+		errs       map[int]error
+	}{
+		{
+			name:       "no embeddings at all",
+			objs:       3,
+			batchSize:  10,
+			vectorizer: constantResultVectorizer(nil),
+			errs: map[int]error{
+				0: errors.New("vectorizer returned 0 embeddings for 3 objects"),
+				1: errors.New("vectorizer returned 0 embeddings for 3 objects"),
+				2: errors.New("vectorizer returned 0 embeddings for 3 objects"),
+			},
+		},
+		{
+			name:       "fewer embeddings than objects",
+			objs:       3,
+			batchSize:  10,
+			vectorizer: constantResultVectorizer([][]float32{{1, 2}}),
+			errs: map[int]error{
+				0: errors.New("vectorizer returned 1 embeddings for 3 objects"),
+				1: errors.New("vectorizer returned 1 embeddings for 3 objects"),
+				2: errors.New("vectorizer returned 1 embeddings for 3 objects"),
+			},
+		},
+		{
+			name:       "more embeddings than objects",
+			objs:       1,
+			batchSize:  10,
+			vectorizer: constantResultVectorizer([][]float32{{1, 2}, {3, 4}}),
+			errs: map[int]error{
+				0: errors.New("vectorizer returned 2 embeddings for 1 objects"),
+			},
+		},
+		{
+			name:       "short result only affects its own sub-batch",
+			objs:       4,
+			batchSize:  2,
+			vectorizer: shortOnSecondBatchVectorizer(),
+			errs: map[int]error{
+				2: errors.New("vectorizer returned 1 embeddings for 2 objects"),
+				3: errors.New("vectorizer returned 1 embeddings for 2 objects"),
+			},
+		},
+		{
+			// Real vectorizers return no embeddings next to their error, so the
+			// length check must not shadow what the provider actually said.
+			name:       "failing vectorizer keeps its own error",
+			objs:       2,
+			batchSize:  10,
+			vectorizer: failingVectorizer(errors.New("remote client vectorize: 429 rate limit exceeded")),
+			errs: map[int]error{
+				0: errors.New("remote client vectorize: 429 rate limit exceeded"),
+				1: errors.New("remote client vectorize: 429 rate limit exceeded"),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l, _ := test.NewNullLogger()
+			sb := NewBatchSimple[[]float32](l, 0)
+
+			res, _, errs := sb.VectorizeBatchObjects(context.Background(),
+				generateObjects(tt.objs), generateSkipObjects(tt.objs), nil, tt.vectorizer, tt.batchSize)
+
+			require.Len(t, errs, len(tt.errs))
+			for index, want := range tt.errs {
+				err, ok := errs[index]
+				require.True(t, ok)
+				assert.EqualError(t, err, want.Error())
+				assert.Empty(t, res[index])
+			}
+			for i := range tt.objs {
+				if _, failed := tt.errs[i]; !failed {
+					assert.NotEmpty(t, res[i])
+				}
+			}
+		})
+	}
+}
+
+func constantResultVectorizer(res [][]float32) batchObjectsVectorizer[[]float32] {
+	return func(ctx context.Context, objs []*models.Object, cfg moduletools.ClassConfig,
+	) ([][]float32, models.AdditionalProperties, error) {
+		return res, nil, nil
+	}
+}
+
+func failingVectorizer(err error) batchObjectsVectorizer[[]float32] {
+	return func(ctx context.Context, objs []*models.Object, cfg moduletools.ClassConfig,
+	) ([][]float32, models.AdditionalProperties, error) {
+		return nil, nil, err
+	}
+}
+
+// Returns a full result for the batch starting at object "0" and a short one
+// for every other batch.
+func shortOnSecondBatchVectorizer() batchObjectsVectorizer[[]float32] {
+	return func(ctx context.Context, objs []*models.Object, cfg moduletools.ClassConfig,
+	) ([][]float32, models.AdditionalProperties, error) {
+		if objs[0].ID == "0" {
+			vecs := make([][]float32, len(objs))
+			for i := range vecs {
+				vecs[i] = []float32{1, 2}
+			}
+			return vecs, nil, nil
+		}
+		return [][]float32{{1, 2}}, nil, nil
 	}
 }
 

@@ -64,7 +64,7 @@ func (g *grouper) Do(ctx context.Context) ([]group, error) {
 }
 
 func (g *grouper) groupAll(ctx context.Context) ([]group, error) {
-	err := ScanAllLSM(ctx, g.store, func(prop *models.PropertySchema, docID uint64) error {
+	err := ScanAllLSM(ctx, g.store, func(_ context.Context, prop *models.PropertySchema, docID uint64) error {
 		return g.addElementById(prop, docID)
 	}, &storobj.PropertyExtraction{
 		PropertyPaths: [][]string{{g.params.GroupBy.Property.String()}},
@@ -82,8 +82,11 @@ func (g *grouper) groupFiltered(ctx context.Context) ([]group, error) {
 		return nil, err
 	}
 
-	if err := docid.ScanObjectsLSM(g.store, ids,
-		func(prop *models.PropertySchema, docID uint64) error {
+	if err := docid.ScanObjectsLSM(ctx, g.store, ids,
+		func(ctx context.Context, prop *models.PropertySchema, docID uint64) error {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
 			return g.addElementById(prop, docID)
 		}, []string{g.params.GroupBy.Property.String()}, g.logger); err != nil {
 		return nil, err
@@ -124,18 +127,15 @@ func (g *grouper) fetchDocIDs(ctx context.Context) (ids []uint64, err error) {
 }
 
 func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList, modules *modules.Provider) ([]uint64, error) {
+	g.setDefaultObjectLimit()
+
 	sparseSearch := func() ([]*storobj.Object, []float32, error) {
 		kw, err := g.buildHybridKeywordRanking()
 		if err != nil {
 			return nil, nil, fmt.Errorf("build hybrid keyword ranking: %w", err)
 		}
 
-		if g.params.ObjectLimit == nil {
-			limit := int(g.defaultLimit)
-			g.params.ObjectLimit = &limit
-		}
-
-		sparse, dists, err := g.bm25Objects(ctx, kw)
+		sparse, dists, err := g.bm25Objects(ctx, kw, allowList)
 		if err != nil {
 			return nil, nil, fmt.Errorf("aggregate sparse search: %w", err)
 		}
@@ -288,7 +288,7 @@ func ScanAllLSM(ctx context.Context, store *lsmkv.Store, scan docid.ObjectScanFn
 		return fmt.Errorf("objects bucket not found")
 	}
 
-	c := b.Cursor()
+	c := b.CursorReplaceReusable()
 	defer c.Close()
 
 	className, err := b.ClassName()
@@ -306,9 +306,8 @@ func ScanAllLSM(ctx context.Context, store *lsmkv.Store, scan docid.ObjectScanFn
 				return errors.Wrapf(err, "unmarshal data object")
 			}
 
-			// scanAll has no abort, so we can ignore the first arg
 			properties := elem.Properties()
-			if err := scan(&properties, elem.DocID); err != nil {
+			if err := scan(ctx, &properties, elem.DocID); err != nil {
 				return err
 			}
 		}

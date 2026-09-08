@@ -116,7 +116,7 @@ func (g GraphQLResult) Get(paths ...string) *GraphQLResult {
 	current := g.Result
 	for _, path := range paths {
 		var ok bool
-		currentAsMap, ok := (current.(map[string]interface{}))
+		currentAsMap, ok := current.(map[string]interface{})
 		if !ok {
 			panic(fmt.Sprintf("Cannot get element %s in %#v; result: %#v", path, paths, g.Result))
 		}

@@ -12,11 +12,11 @@
 package grpc_tests
 
 import (
+	"acceptance_tests_with_client/fixtures"
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"testing"
 	"time"
-
-	"acceptance_tests_with_client/fixtures"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -25,8 +25,6 @@ import (
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/grpc"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
-
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestGRPC_Batch(t *testing.T) {

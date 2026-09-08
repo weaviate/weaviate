@@ -60,6 +60,9 @@ func startGCS(ctx context.Context, networkName string) (*DockerContainer, error)
 	envSettings["GOOGLE_CLOUD_PROJECT"] = projectID
 	envSettings["STORAGE_EMULATOR_HOST"] = fmt.Sprintf("%s:%s", GCS, port.Port())
 	envSettings["BACKUP_GCS_USE_AUTH"] = "false"
+	// The emulator serves the JSON API only, so it cannot answer the gRPC
+	// transport the module otherwise defaults to.
+	envSettings["GCS_MODULE_TRANSPORT"] = "http"
 	endpoints := make(map[EndpointName]endpoint)
 	endpoints[HTTP] = endpoint{port, uri}
 	return &DockerContainer{GCS, endpoints, container, envSettings}, nil

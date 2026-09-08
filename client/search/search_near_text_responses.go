@@ -82,12 +82,6 @@ func (o *SearchNearTextReader) ReadResponse(response runtime.ClientResponse, con
 			return nil, err
 		}
 		return nil, result
-	case 502:
-		result := NewSearchNearTextBadGateway()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
 	case 503:
 		result := NewSearchNearTextServiceUnavailable()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -583,7 +577,7 @@ func NewSearchNearTextInternalServerError() *SearchNearTextInternalServerError {
 /*
 SearchNearTextInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error has occurred while trying to fulfill the request, including a failure of the embedding provider to vectorize the query. Most likely the ErrorResponse will contain more information about the error.
 */
 type SearchNearTextInternalServerError struct {
 	Payload *models.ErrorResponse
@@ -632,74 +626,6 @@ func (o *SearchNearTextInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchNearTextInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ErrorResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewSearchNearTextBadGateway creates a SearchNearTextBadGateway with default headers values
-func NewSearchNearTextBadGateway() *SearchNearTextBadGateway {
-	return &SearchNearTextBadGateway{}
-}
-
-/*
-SearchNearTextBadGateway describes a response with status code 502, with default header values.
-
-The embedding provider failed to vectorize the query; the search cannot run.
-*/
-type SearchNearTextBadGateway struct {
-	Payload *models.ErrorResponse
-}
-
-// IsSuccess returns true when this search near text bad gateway response has a 2xx status code
-func (o *SearchNearTextBadGateway) IsSuccess() bool {
-	return false
-}
-
-// IsRedirect returns true when this search near text bad gateway response has a 3xx status code
-func (o *SearchNearTextBadGateway) IsRedirect() bool {
-	return false
-}
-
-// IsClientError returns true when this search near text bad gateway response has a 4xx status code
-func (o *SearchNearTextBadGateway) IsClientError() bool {
-	return false
-}
-
-// IsServerError returns true when this search near text bad gateway response has a 5xx status code
-func (o *SearchNearTextBadGateway) IsServerError() bool {
-	return true
-}
-
-// IsCode returns true when this search near text bad gateway response a status code equal to that given
-func (o *SearchNearTextBadGateway) IsCode(code int) bool {
-	return code == 502
-}
-
-// Code gets the status code for the search near text bad gateway response
-func (o *SearchNearTextBadGateway) Code() int {
-	return 502
-}
-
-func (o *SearchNearTextBadGateway) Error() string {
-	return fmt.Sprintf("[POST /search/{collection}/near-text][%d] searchNearTextBadGateway  %+v", 502, o.Payload)
-}
-
-func (o *SearchNearTextBadGateway) String() string {
-	return fmt.Sprintf("[POST /search/{collection}/near-text][%d] searchNearTextBadGateway  %+v", 502, o.Payload)
-}
-
-func (o *SearchNearTextBadGateway) GetPayload() *models.ErrorResponse {
-	return o.Payload
-}
-
-func (o *SearchNearTextBadGateway) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

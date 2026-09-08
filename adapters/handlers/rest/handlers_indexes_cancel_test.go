@@ -33,8 +33,10 @@ import (
 )
 
 // TestFindCancelTargetTask_IsActive pins that cancel matches every in-flight
-// status (STARTED/PREPARING/SWAPPING), not just STARTED.
+// status (STARTED/PREPARING/SWAPPING), not just STARTED. Whether a match is
+// then cancelled or refused is [indexesHandlers.cancelPreflight]'s call.
 func TestFindCancelTargetTask_IsActive(t *testing.T) {
+	logger := logrus.New()
 	mk := func(status distributedtask.TaskStatus) *distributedtask.Task {
 		return activeReindexTask("C:enable-filterable:p:aaaa", "C",
 			db.ReindexTypeEnableFilterable, "", status, "p")
@@ -46,8 +48,8 @@ func TestFindCancelTargetTask_IsActive(t *testing.T) {
 		distributedtask.TaskStatusSwapping,
 	} {
 		t.Run(status.String()+" is a cancel target", func(t *testing.T) {
-			target, payload := findCancelTargetTask(
-				[]*distributedtask.Task{mk(status)}, "C", "p", "filterable")
+			target, payload := findCancelTarget(
+				[]*distributedtask.Task{mk(status)}, "C", "p", "filterable", logger)
 			require.NotNil(t, target, "%s task must be a cancel target", status)
 			assert.Equal(t, "C:enable-filterable:p:aaaa", target.ID)
 			assert.Equal(t, db.ReindexTypeEnableFilterable, payload.MigrationType)
@@ -60,15 +62,15 @@ func TestFindCancelTargetTask_IsActive(t *testing.T) {
 		distributedtask.TaskStatusCancelled,
 	} {
 		t.Run(status.String()+" is NOT a cancel target", func(t *testing.T) {
-			target, _ := findCancelTargetTask(
-				[]*distributedtask.Task{mk(status)}, "C", "p", "filterable")
+			target, _ := findCancelTarget(
+				[]*distributedtask.Task{mk(status)}, "C", "p", "filterable", logger)
 			require.Nil(t, target, "terminal %s task must not be a cancel target", status)
 		})
 	}
 
 	t.Run("wrong index type is not a target", func(t *testing.T) {
-		target, _ := findCancelTargetTask(
-			[]*distributedtask.Task{mk(distributedtask.TaskStatusStarted)}, "C", "p", "searchable")
+		target, _ := findCancelTarget(
+			[]*distributedtask.Task{mk(distributedtask.TaskStatusStarted)}, "C", "p", "searchable", logger)
 		require.Nil(t, target, "enable-filterable does not target the searchable index")
 	})
 }
@@ -137,29 +139,31 @@ func seedReindexTask(t *testing.T, mgr *distributedtask.Manager, id, collection,
 	require.Equal(t, target, tasks[db.ReindexNamespace][0].Status, "FSM must reach %s", target)
 }
 
-// cancelResponse renders a cancel responder and returns (code, Status).
-func cancelResponse(t *testing.T, resp middleware.Responder) (int, string) {
+// cancelResponse renders a cancel responder and returns (code, Status, body).
+func cancelResponse(t *testing.T, resp middleware.Responder) (int, string, string) {
 	t.Helper()
 	require.NotNil(t, resp)
 	rec := httptest.NewRecorder()
 	resp.WriteResponse(rec, runtime.JSONProducer())
 	var body models.IndexUpdateResponse
 	if rec.Body.Len() > 0 {
-		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
+		_ = json.Unmarshal(rec.Body.Bytes(), &body)
 	}
-	return rec.Code, body.Status
+	return rec.Code, body.Status, rec.Body.String()
 }
 
-// TestCancelReindexTask_NonStartedTaskIsNoOp pins that a PREPARING/SWAPPING
-// target rejected by the FSM (ErrTaskNotRunning) maps to 202 NO_OP, not 500.
-func TestCancelReindexTask_NonStartedTaskIsNoOp(t *testing.T) {
+// TestCancelReindexTask_CoordinationPhaseIsConflict pins that a
+// PREPARING/SWAPPING target is refused with 409 against the real FSM: the
+// cancel is past the point where stopping it is safe, so the pre-flight
+// answers before the apply and never reports the request as a no-op.
+func TestCancelReindexTask_CoordinationPhaseIsConflict(t *testing.T) {
 	principal := &models.Principal{Username: "tester"}
 	for _, tc := range []struct {
 		name   string
 		target distributedtask.TaskStatus
 	}{
-		{"SWAPPING is NO_OP", distributedtask.TaskStatusSwapping},
-		{"PREPARING is NO_OP", distributedtask.TaskStatusPreparing},
+		{"SWAPPING is refused", distributedtask.TaskStatusSwapping},
+		{"PREPARING is refused", distributedtask.TaskStatusPreparing},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			mgr := distributedtask.NewManager(distributedtask.ManagerParameters{Logger: logrus.New()})
@@ -170,9 +174,10 @@ func TestCancelReindexTask_NonStartedTaskIsNoOp(t *testing.T) {
 			resp := h.cancelReindexTask(context.Background(), realFSMCanceller{mgr},
 				"C", "p", "filterable", principal)
 
-			code, status := cancelResponse(t, resp)
-			require.Equal(t, http.StatusAccepted, code, "non-STARTED cancel must be 202, not 500")
-			assert.Equal(t, reindexCancelStatusNoOp, status)
+			code, status, body := cancelResponse(t, resp)
+			require.Equal(t, http.StatusConflict, code, "coordination-phase cancel must be 409")
+			assert.NotEqual(t, reindexCancelStatusNoOp, status, "a refused cancel is not a no-op")
+			assert.Contains(t, body, "wait for it to reach a terminal state")
 		})
 	}
 }
@@ -188,7 +193,7 @@ func TestCancelReindexTask_StartedTaskCancels(t *testing.T) {
 	resp := h.cancelReindexTask(context.Background(), realFSMCanceller{mgr},
 		"C", "p", "filterable", &models.Principal{Username: "tester"})
 
-	code, status := cancelResponse(t, resp)
+	code, status, _ := cancelResponse(t, resp)
 	require.Equal(t, http.StatusAccepted, code)
 	assert.Equal(t, "CANCELLED", status)
 }

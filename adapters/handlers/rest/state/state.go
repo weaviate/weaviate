@@ -12,7 +12,6 @@
 package state
 
 import (
-	"context"
 	"net/http"
 	"sync"
 
@@ -26,7 +25,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
-	"github.com/weaviate/weaviate/cluster/fsm"
 	grpcconn "github.com/weaviate/weaviate/grpc/conn"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
@@ -54,15 +52,14 @@ import (
 // NOTE: This is not true yet, see gh-723
 // TODO: remove dependencies to anything that's not an ent or uc
 type State struct {
-	OIDC             *oidc.Client
-	AnonymousAccess  *anonymous.Client
-	APIKey           *apikey.ApiKey
-	APIKeyRemote     *apikey.RemoteApiKey
-	Authorizer       authorization.Authorizer
-	AuthzController  authorization.Controller
-	AuthzSnapshotter fsm.Snapshotter
-	RBAC             *rbac.Manager
-	Crons            *cron.Crons
+	OIDC            *oidc.Client
+	AnonymousAccess *anonymous.Client
+	APIKey          *apikey.ApiKey
+	APIKeyRemote    *apikey.RemoteApiKey
+	Authorizer      authorization.Authorizer
+	AuthzController authorization.Controller
+	RBAC            *rbac.Manager
+	Crons           *cron.Crons
 
 	ServerConfig  *config.WeaviateConfig
 	LDIntegration *configRuntime.LDIntegration
@@ -89,7 +86,6 @@ type State struct {
 	BatchManager       *objects.BatchManager
 	AutoSchemaManager  *objects.AutoSchemaManager
 	ClusterHttpClient  *http.Client
-	ReindexCtxCancel   context.CancelCauseFunc
 	MemWatch           *memwatch.Monitor
 
 	ClusterService       *rCluster.Service
@@ -101,7 +97,6 @@ type State struct {
 	ObjectTTLLocalStatus *objectttl.LocalStatus
 
 	DistributedTaskScheduler *distributedtask.Scheduler
-	Migrator                 *db.Migrator
 
 	// ReindexProvider is the local handle for the runtime-reindex
 	// distributed-task provider. Exposed here so the REST cancel handler
@@ -141,11 +136,6 @@ type State struct {
 	// authoritative defense; this lock just collapses the local
 	// single-node race window that any realistic UI/CLI flow can hit.
 	ReindexSubmitLocks *ReindexSubmitLocks
-
-	// ReindexDeleteMarkers lets GET /v1/schema/{class}/indexes suppress the
-	// finalize-window bleed for a just-deleted index. Shared between the
-	// DELETE handler (records) and GET-indexes (reads); see its godoc.
-	ReindexDeleteMarkers *ReindexDeleteMarkers
 
 	// UsageLimits gates the object-count cap only. Collections/tenants/
 	// shards caps are read directly at the schema-handler use sites.

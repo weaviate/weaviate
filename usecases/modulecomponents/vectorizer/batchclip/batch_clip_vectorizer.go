@@ -185,14 +185,19 @@ func (v *BatchCLIPVectorizer[T]) objects(ctx context.Context, objects []*models.
 		batchObjects = append(batchObjects, batchObject)
 	}
 
-	var result []T
+	// One entry per input object, always. Objects without any vectorizable
+	// property keep a nil entry: callers map the result back positionally and
+	// panic on a short slice.
+	result := make([]T, len(batchObjects))
 	if len(texts) > 0 || len(images) > 0 {
 		res, err := v.client.Vectorize(ctx, texts, images, cfg)
 		if err != nil {
 			return nil, err
 		}
-		result = make([]T, len(batchObjects))
 		for objIndex, batchObj := range batchObjects {
+			if len(batchObj.textIndexes) == 0 && len(batchObj.imageIndexes) == 0 {
+				continue
+			}
 			vectors := []T{}
 			for _, textIndex := range batchObj.textIndexes {
 				vec, ok := v.getVector(res.TextVectors, textIndex)

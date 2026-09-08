@@ -2717,6 +2717,85 @@ func TestGRPCSearchRequest(t *testing.T) {
 			error: false,
 		},
 		{
+			name: "per-target vectors without targets message",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					TargetVectors:    []string{"custom"},
+					VectorForTargets: []*pb.VectorForTarget{{Name: "custom", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{1, 2, 3})}}}},
+				},
+			},
+			out: dto.GetParams{
+				ClassName:               multiVecClass,
+				Pagination:              defaultPagination,
+				Properties:              search.SelectProperties{},
+				AdditionalProperties:    additional.Properties{Vectors: []string{"custom", "first", "second"}, Vector: true, NoProps: true},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0}},
+				NearVector:              &searchparams.NearVector{Vectors: []models.Vector{[]float32{1, 2, 3}}, TargetVectors: []string{"custom"}},
+			},
+			error: false,
+		},
+		{
+			name: "two per-target vectors without targets message",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				NearVector: &pb.NearVector{
+					TargetVectors: []string{"custom"},
+					VectorForTargets: []*pb.VectorForTarget{{Name: "custom", Vectors: []*pb.Vectors{
+						{VectorBytes: byteVector([]float32{1, 2, 3})},
+						{VectorBytes: byteVector([]float32{2, 3, 4})},
+					}}},
+				},
+			},
+			out: dto.GetParams{
+				ClassName:               multiVecClass,
+				Pagination:              defaultPagination,
+				Properties:              search.SelectProperties{},
+				AdditionalProperties:    additional.Properties{Vectors: []string{"custom", "first", "second"}, Vector: true, NoProps: true},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0, 0}},
+				NearVector:              &searchparams.NearVector{Vectors: []models.Vector{[]float32{1, 2, 3}, []float32{2, 3, 4}}, TargetVectors: []string{"custom", "custom"}},
+			},
+			error: false,
+		},
+		{
+			name: "hybrid per-target vectors without targets message",
+			req: &pb.SearchRequest{
+				Collection: multiVecClass,
+				Metadata:   &pb.MetadataRequest{Vector: true},
+				Properties: &pb.PropertiesRequest{},
+				HybridSearch: &pb.Hybrid{
+					Alpha: 1.0,
+					Query: "nearvecquery",
+					NearVector: &pb.NearVector{
+						VectorForTargets: []*pb.VectorForTarget{{Name: "custom", Vectors: []*pb.Vectors{{VectorBytes: byteVector([]float32{1, 2, 3})}}}},
+					},
+					TargetVectors: []string{"custom"},
+				},
+			},
+			out: dto.GetParams{
+				ClassName:               multiVecClass,
+				Pagination:              defaultPagination,
+				Properties:              search.SelectProperties{},
+				AdditionalProperties:    additional.Properties{Vectors: []string{"custom", "first", "second"}, Vector: true, NoProps: true},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0}},
+				HybridSearch: &searchparams.HybridSearch{
+					Alpha:           1.0,
+					Query:           "nearvecquery",
+					FusionAlgorithm: 1,
+					NearVectorParams: &searchparams.NearVector{
+						Vectors:       []models.Vector{[]float32{1, 2, 3}},
+						TargetVectors: []string{"custom"},
+					},
+					TargetVectors: []string{"custom"},
+				},
+			},
+			error: false,
+		},
+		{
 			name: "mixed vector input near vector targeting legacy vector",
 			req: &pb.SearchRequest{
 				Collection: mixedVectorsClass,

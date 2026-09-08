@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // Builder provides a builder for creating router instances based on configuration.
@@ -240,18 +241,31 @@ func (r *singleTenantRouter) getReadReplicasLocation(collection string, tenant s
 		return types.ReadReplicaSet{}, err
 	}
 
-	var replicas []types.Replica
+	readReplicas, _, err := r.readReplicasForShards(collection, tenant, targetShards)
+	return readReplicas, err
+}
 
-	for _, shardName := range targetShards {
+// readReplicasForShards gathers the read replicas of every shard in shards into one set,
+// and names the shards that have none: they leave no trace in the set itself.
+func (r *singleTenantRouter) readReplicasForShards(collection, tenant string, shards []string) (types.ReadReplicaSet, []string, error) {
+	var replicas []types.Replica
+	var shardsWithoutReplicas []string
+
+	for _, shardName := range shards {
 		readReplica, err := r.readReplicasForShard(collection, tenant, shardName)
 		if err != nil {
-			return types.ReadReplicaSet{}, err
+			return types.ReadReplicaSet{}, nil, err
+		}
+
+		if len(readReplica) == 0 {
+			shardsWithoutReplicas = append(shardsWithoutReplicas, shardName)
+			continue
 		}
 
 		replicas = append(replicas, readReplica...)
 	}
 
-	return types.ReadReplicaSet{Replicas: replicas}, nil
+	return types.ReadReplicaSet{Replicas: replicas}, shardsWithoutReplicas, nil
 }
 
 // getWriteReplicasLocation returns only write replicas for single-tenant collections.
@@ -277,20 +291,18 @@ func (r *singleTenantRouter) getWriteReplicasLocation(collection string, tenant 
 
 // targetShards returns either all shards or a single one, depending on the value of the shard parameter.
 func (r *singleTenantRouter) targetShards(collection, shardName string) ([]string, error) {
-	shards, err := r.schemaReader.Shards(collection)
-	if err != nil {
-		return nil, err
-	}
 	if shardName == "" {
-		return shards, nil
+		return r.schemaReader.Shards(collection)
 	}
 
+	// Membership check only — avoids Shards' sorted copy of the full shard list on every routing-plan build.
 	found := false
-	for _, shard := range shards {
-		if shard == shardName {
-			found = true
-			break
-		}
+	err := r.schemaReader.Read(collection, true, func(_ *models.Class, state *sharding.State) error {
+		_, found = state.Physical[shardName]
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	if !found {
 		return nil, fmt.Errorf("error while trying to find shard: %s in collection: %s", shardName, collection)
@@ -330,9 +342,21 @@ func (r *singleTenantRouter) BuildReadRoutingPlan(params types.RoutingPlanBuildO
 
 // buildReadRoutingPlan constructs a read routing plan for single-tenant collections.
 func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
-	readReplicas, err := r.getReadReplicasLocation(r.collection, params.Tenant, params.Shard)
+	targetShards, err := r.targetShards(r.collection, params.Shard)
 	if err != nil {
 		return types.ReadRoutingPlan{}, err
+	}
+
+	readReplicas, shardsWithoutReplicas, err := r.readReplicasForShards(r.collection, params.Tenant, targetShards)
+	if err != nil {
+		return types.ReadRoutingPlan{}, err
+	}
+
+	// A shard with no read replica fails the plan rather than dropping out of it:
+	// callers read every shard the plan holds, so a missing one reads short and reports success.
+	if len(shardsWithoutReplicas) > 0 {
+		return types.ReadRoutingPlan{}, fmt.Errorf("collection %q: no read replica found for shards %q",
+			r.collection, shardsWithoutReplicas)
 	}
 
 	if len(readReplicas.Replicas) == 0 {

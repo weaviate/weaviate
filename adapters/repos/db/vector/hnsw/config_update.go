@@ -76,6 +76,12 @@ func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
 			initialParsed.RQ.Bits, updatedParsed.RQ.Bits)
 	}
 
+	if initialParsed.RQ.Enabled && updatedParsed.RQ.Enabled &&
+		initialParsed.RQ.Centering != updatedParsed.RQ.Centering {
+		return errors.Errorf("rq centering is immutable: attempted change from \"%v\" to \"%v\"",
+			initialParsed.RQ.Centering, updatedParsed.RQ.Centering)
+	}
+
 	return nil
 }
 
@@ -126,6 +132,11 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 			return errors.Errorf("rq bits is immutable: attempted change from \"%v\" to \"%v\"",
 				h.rqConfig.Bits, parsed.RQ.Bits)
 		}
+		if parsed.RQ.Centering != h.rqConfig.Centering {
+			callback()
+			return errors.Errorf("rq centering is immutable: attempted change from \"%v\" to \"%v\"",
+				h.rqConfig.Centering, parsed.RQ.Centering)
+		}
 	}
 
 	h.compressActionLock.Lock()
@@ -156,10 +167,9 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 
 func (h *hnsw) Upgrade(callback func()) error {
 	h.logger.WithFields(logrus.Fields{
-		"action":       "compress",
-		"shard":        h.shardName,
-		"collection":   h.className,
-		"targetVector": h.getTargetVector(),
+		"action":     "compress",
+		"shard":      h.shardName,
+		"collection": h.className,
 	}).Info("switching to compressed vectors")
 
 	err := ent.ValidatePQConfig(h.pqConfig)
@@ -192,17 +202,15 @@ func (h *hnsw) compressThenCallback(callback func()) {
 	}
 	if err := h.compress(uc); err != nil {
 		h.logger.WithFields(logrus.Fields{
-			"action":       "compress",
-			"shard":        h.shardName,
-			"collection":   h.className,
-			"targetVector": h.getTargetVector(),
+			"action":     "compress",
+			"shard":      h.shardName,
+			"collection": h.className,
 		}).WithError(err).Error("vector compression failed")
 		return
 	}
 	h.logger.WithFields(logrus.Fields{
-		"action":       "compress",
-		"shard":        h.shardName,
-		"collection":   h.className,
-		"targetVector": h.getTargetVector(),
+		"action":     "compress",
+		"shard":      h.shardName,
+		"collection": h.className,
 	}).Info("vector compression complete")
 }

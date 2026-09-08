@@ -16,7 +16,6 @@ import (
 	"fmt"
 
 	"github.com/pkg/errors"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 )
 
 // IMPORTANT:
@@ -29,12 +28,16 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		return fmt.Errorf("async indexing is not enabled")
 	}
 
-	vidx, vok := s.GetVectorIndex(targetVector)
-	q, qok := s.GetVectorIndexQueue(targetVector)
-
-	if !(vok && qok) {
+	vidx, releaseIndex, vok := s.AcquireVectorIndex(targetVector)
+	if !vok {
 		return fmt.Errorf("vector index %q not found", targetVector)
 	}
+	defer releaseIndex()
+	q, releaseQueue, qok := s.AcquireVectorIndexQueue(targetVector)
+	if !qok {
+		return fmt.Errorf("vector index %q not found", targetVector)
+	}
+	defer releaseQueue()
 
 	if err := q.Pause(ctx); err != nil {
 		return errors.Wrap(err, "pause vector index")
@@ -45,12 +48,7 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		return errors.Wrap(err, "drop vector index")
 	}
 
-	var newConfig schemaConfig.VectorIndexConfig
-	if targetVector == "" {
-		newConfig = s.index.vectorIndexUserConfig
-	} else {
-		newConfig = s.index.vectorIndexUserConfigs[targetVector]
-	}
+	newConfig := s.index.GetVectorIndexConfig(targetVector)
 
 	vidx, err = s.initVectorIndex(ctx, targetVector, newConfig, false)
 	if err != nil {

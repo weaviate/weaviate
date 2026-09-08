@@ -38,8 +38,10 @@ import (
 	modgenerativecohere "github.com/weaviate/weaviate/modules/generative-cohere"
 	modgenerativecontextualai "github.com/weaviate/weaviate/modules/generative-contextualai"
 	modgenerativedeepseek "github.com/weaviate/weaviate/modules/generative-deepseek"
+	modgenerativedigitalocean "github.com/weaviate/weaviate/modules/generative-digitalocean"
 	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
 	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
+	modgenerativemeta "github.com/weaviate/weaviate/modules/generative-meta"
 	modgenerativenvidia "github.com/weaviate/weaviate/modules/generative-nvidia"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
@@ -417,6 +419,18 @@ func (d *Compose) WithGenerativeXAI(apiKey string) *Compose {
 	return d
 }
 
+func (d *Compose) WithGenerativeDigitalOcean(apiKey string) *Compose {
+	d.weaviateEnvs["DIGITALOCEAN_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modgenerativedigitalocean.Name)
+	return d
+}
+
+func (d *Compose) WithGenerativeMeta(apiKey string) *Compose {
+	d.weaviateEnvs["META_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modgenerativemeta.Name)
+	return d
+}
+
 func (d *Compose) WithGenerativeDeepseek(apiKey string) *Compose {
 	d.weaviateEnvs["DEEPSEEK_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modgenerativedeepseek.Name)
@@ -565,6 +579,14 @@ func (d *Compose) WithWeaviateWithAllPorts() *Compose {
 
 func (d *Compose) WithWeaviateWithGRPC() *Compose {
 	d.With1NodeCluster()
+	d.withWeaviateExposeGRPCPort = true
+	return d
+}
+
+// WithWeaviateExposeGRPCPort publishes the gRPC port on a cluster that is sized
+// separately, which the WithGRPC helpers above cannot do because they pick the
+// node count themselves.
+func (d *Compose) WithWeaviateExposeGRPCPort() *Compose {
 	d.withWeaviateExposeGRPCPort = true
 	return d
 }

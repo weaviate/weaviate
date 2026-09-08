@@ -20,25 +20,48 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func (s *Shard) initGeoProp(prop *models.Property) error {
+	// Building one index at a time keeps a prop's commit log directory to a
+	// single writer. A second index there prunes the empty raw file the first
+	// one holds open, so the surviving index appends to an unlinked inode and
+	// loses everything it logs, and a startup scan running at the same time
+	// fails on the file that just vanished. The check below cannot prevent
+	// this: it only sees indexes that are already registered, not the ones
+	// other callers are still building.
+	s.geoInitLock.Lock()
+	defer s.geoInitLock.Unlock()
+
+	// replacing a live index would leave its commit logger and queue registered,
+	// putting two writers on the same files
+	if s.hasGeoIndexForProp(prop.Name) {
+		return nil
+	}
+
 	// starts geo props cycles if actual geo property is present
 	// (safe to start multiple times)
 	s.index.cycleCallbacks.geoPropsCommitLoggerCycle.Start()
 	s.index.cycleCallbacks.geoPropsTombstoneCleanupCycle.Start()
 
 	idx, err := geo.NewIndex(geo.Config{
-		ID:                 geoPropID(prop.Name),
-		RootPath:           s.path(),
-		CoordinatesForID:   s.makeCoordinatesForID(prop.Name),
-		DisablePersistence: false,
-		Logger:             s.index.logger,
-		HNSWEF:             s.index.Config.HNSWGeoIndexEF,
-		AllocChecker:       s.index.allocChecker,
+		ID:                    geoPropID(prop.Name),
+		RootPath:              s.path(),
+		CoordinatesForID:      s.makeCoordinatesForID(prop.Name),
+		Store:                 s.store,
+		CoordinatesFromObject: s.makeCoordinatesFromObject(prop.Name),
+		WaitForCachePrefill:   s.index.Config.HNSWWaitForCachePrefill,
+		DisablePersistence:    false,
+		Logger:                s.index.logger,
+		ClassName:             s.index.Config.ClassName.String(),
+		ShardName:             s.name,
+		HNSWEF:                s.index.Config.HNSWGeoIndexEF,
+		AllocChecker:          s.index.allocChecker,
 	},
 		s.cycleCallbacks.geoPropsCommitLoggerCallbacks,
 		s.cycleCallbacks.geoPropsTombstoneCleanupCallbacks,
@@ -61,7 +84,16 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 	if underlyingVI, ok := idx.UnderlyingVectorIndex().(VectorIndex); ok {
 		geoQueue, err := NewGeoIndexQueue(s, prop.Name, underlyingVI)
 		if err != nil {
-			return errors.Wrapf(err, "create geo index queue for prop %q", prop.Name)
+			// the guard at the top would skip the retry, leaving the prop with an
+			// index but no queue until the shard is reloaded
+			s.propertyIndicesLock.Lock()
+			delete(s.propertyIndices, prop.Name)
+			s.propertyIndicesLock.Unlock()
+
+			ec := errorcompounder.New()
+			ec.AddWrapf(err, "create geo index queue for prop %q", prop.Name)
+			ec.AddWrapf(idx.Shutdown(s.shutCtx), "shutdown geo index for prop %q", prop.Name)
+			return ec.ToError()
 		}
 		s.propertyIndicesLock.Lock()
 		s.geoQueues[prop.Name] = geoQueue
@@ -72,31 +104,70 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 }
 
 func (s *Shard) makeCoordinatesForID(propName string) geo.CoordinatesForID {
+	// read-only once built, so all lookups can share it
+	propExtraction := storobj.NewPropExtraction().Add(propName)
+
 	return func(ctx context.Context, id uint64) (*models.GeoCoordinates, error) {
-		obj, err := s.objectByIndexID(ctx, id, true)
+		obj, err := s.objectByIndexIDWithProps(ctx, id, propExtraction)
 		if err != nil {
-			return nil, storobj.NewErrNotFoundf(id, "retrieve object")
+			// reporting a read or decode failure as a not-found would make the
+			// geo index tombstone a doc that is still there
+			return nil, err
 		}
 
-		if obj.Properties() == nil {
-			return nil, storobj.NewErrNotFoundf(id,
-				"object has no properties")
+		coordinates, err := geoCoordinatesOfProp(obj, propName)
+		if err != nil {
+			return nil, err
 		}
-
-		prop, ok := obj.Properties().(map[string]interface{})[propName]
-		if !ok {
+		if coordinates == nil {
 			return nil, storobj.NewErrNotFoundf(id,
 				"object has no property %q", propName)
 		}
 
-		geoProp, ok := prop.(*models.GeoCoordinates)
-		if !ok {
-			return nil, fmt.Errorf("expected property to be of type %T, got: %T",
-				&models.GeoCoordinates{}, prop)
+		return coordinates, nil
+	}
+}
+
+// makeCoordinatesFromObject reads a coordinate straight out of an object's
+// stored bytes, so the geo cache prefill can scan the objects bucket in storage
+// order instead of seeking once per doc ID. The class name comes from the
+// schema because objects may be written without it on disk.
+func (s *Shard) makeCoordinatesFromObject(propName string) geo.CoordinatesFromObject {
+	// read-only once built, so all lookups can share it
+	propExtraction := storobj.NewPropExtraction().Add(propName)
+	className := s.index.Config.ClassName.String()
+
+	return func(objectBytes []byte) (*models.GeoCoordinates, error) {
+		obj, err := storobj.FromBinaryOptionalDisk(objectBytes, className,
+			additional.Properties{}, propExtraction)
+		if err != nil {
+			return nil, err
 		}
 
-		return geoProp, nil
+		return geoCoordinatesOfProp(obj, propName)
 	}
+}
+
+// geoCoordinatesOfProp returns propName's coordinates, or nil if the object
+// carries no such property.
+func geoCoordinatesOfProp(obj *storobj.Object, propName string) (*models.GeoCoordinates, error) {
+	props, ok := obj.Properties().(map[string]interface{})
+	if !ok {
+		return nil, nil
+	}
+
+	prop, ok := props[propName]
+	if !ok {
+		return nil, nil
+	}
+
+	geoProp, ok := prop.(*models.GeoCoordinates)
+	if !ok {
+		return nil, fmt.Errorf("expected property to be of type %T, got: %T",
+			&models.GeoCoordinates{}, prop)
+	}
+
+	return geoProp, nil
 }
 
 func geoPropID(propName string) string {

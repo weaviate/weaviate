@@ -161,6 +161,7 @@ type RuntimeOverrides struct {
 // Config outline of the config file
 type Config struct {
 	Backup                           Backup                   `json:"backup" yaml:"backup"`
+	BackupGCS                        BackupGCS                `json:"backup_gcs" yaml:"backup_gcs"`
 	Name                             string                   `json:"name" yaml:"name"`
 	Debug                            bool                     `json:"debug" yaml:"debug"`
 	QueryDefaults                    QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
@@ -198,17 +199,25 @@ type Config struct {
 	// EnableLazyLoadShards controls lazy shard loading.
 	// nil = auto-detect based on thresholds, true = always lazy-load, false = always eager-load.
 	// DISABLE_LAZY_LOAD_SHARDS=true sets this to false for backward compatibility.
-	EnableLazyLoadShards                *bool                          `json:"enable_lazy_load_shards" yaml:"enable_lazy_load_shards"`
-	LazyLoadShardCountThreshold         int                            `json:"lazy_load_shard_count_threshold" yaml:"lazy_load_shard_count_threshold"`
-	LazyLoadShardSizeThresholdGB        float64                        `json:"lazy_load_shard_size_threshold_gb" yaml:"lazy_load_shard_size_threshold_gb"`
+	EnableLazyLoadShards         *bool   `json:"enable_lazy_load_shards" yaml:"enable_lazy_load_shards"`
+	LazyLoadShardCountThreshold  int     `json:"lazy_load_shard_count_threshold" yaml:"lazy_load_shard_count_threshold"`
+	LazyLoadShardSizeThresholdGB float64 `json:"lazy_load_shard_size_threshold_gb" yaml:"lazy_load_shard_size_threshold_gb"`
+	// LazyLoadShardWarmupMinObjects gates the background sweep that loads lazy
+	// shards after startup, one per second. Negative sweeps nothing, zero sweeps
+	// every shard ever written to, and a positive value sweeps only shards holding
+	// strictly more than that many objects, counted from flushed segments. An eager
+	// collection runs no sweep.
+	//
+	// A HOT tenant left out and never touched stays unloaded, and every path that
+	// reads only loaded shards under-reports or skips it: TTL keeps its expired
+	// objects, async replication leaves a stale replica unrepaired, and
+	// MAXIMUM_ALLOWED_OBJECTS_COUNT stops counting it.
+	LazyLoadShardWarmupMinObjects       int64                          `json:"lazy_load_shard_warmup_min_objects" yaml:"lazy_load_shard_warmup_min_objects"`
 	ForceFullReplicasSearch             bool                           `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
 	TransferInactivityTimeout           time.Duration                  `json:"transfer_inactivity_timeout" yaml:"transfer_inactivity_timeout"`
 	HaltForTransferTimeout              time.Duration                  `json:"halt_for_transfer_timeout" yaml:"halt_for_transfer_timeout"`
 	RecountPropertiesAtStartup          bool                           `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
 	ReindexSetToRoaringsetAtStartup     bool                           `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
-	ReindexerGoroutinesFactor           float64                        `json:"reindexer_goroutines_factor" yaml:"reindexer_goroutines_factor"`
-	ReindexMapToBlockmaxAtStartup       bool                           `json:"reindex_map_to_blockmax_at_startup" yaml:"reindex_map_to_blockmax_at_startup"`
-	ReindexMapToBlockmaxConfig          MapToBlockamaxConfig           `json:"reindex_map_to_blockmax_config" yaml:"reindex_map_to_blockmax_config"`
 	IndexMissingTextFilterableAtStartup bool                           `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
 	DisableGraphQL                      *runtime.DynamicValue[bool]    `json:"disable_graphql" yaml:"disable_graphql"`
 	ExperimentalRESTSearchEnabled       *runtime.DynamicValue[bool]    `json:"rest_search_enabled" yaml:"rest_search_enabled"`
@@ -232,7 +241,6 @@ type Config struct {
 	DistributedTasks                    DistributedTasksConfig         `json:"distributed_tasks" yaml:"distributed_tasks"`
 	ReplicationEngineMaxWorkers         int                            `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
 	ReplicationEngineFileCopyWorkers    int                            `json:"replication_engine_file_copy_workers" yaml:"replication_engine_file_copy_workers"`
-	HFreshEnabled                       bool                           `json:"hfresh_enabled" yaml:"hfresh_enabled"`
 	ReplicationEngineFileCopyChunkSize  int                            `json:"replication_engine_file_copy_chunk_size" yaml:"replication_engine_file_copy_chunk_size"`
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
@@ -352,19 +360,6 @@ type Config struct {
 	DisableDimensionMetrics *runtime.DynamicValue[bool] `json:"disable_dimension_metrics" yaml:"disable_dimension_metrics"`
 }
 
-type MapToBlockamaxConfig struct {
-	SwapBuckets                bool                     `json:"swap_buckets" yaml:"swap_buckets"`
-	UnswapBuckets              bool                     `json:"unswap_buckets" yaml:"unswap_buckets"`
-	TidyBuckets                bool                     `json:"tidy_buckets" yaml:"tidy_buckets"`
-	ReloadShards               bool                     `json:"reload_shards" yaml:"reload_shards"`
-	Rollback                   bool                     `json:"rollback" yaml:"rollback"`
-	ConditionalStart           bool                     `json:"conditional_start" yaml:"conditional_start"`
-	ProcessingDurationSeconds  int                      `json:"processing_duration_seconds" yaml:"processing_duration_seconds"`
-	PauseDurationSeconds       int                      `json:"pause_duration_seconds" yaml:"pause_duration_seconds"`
-	PerObjectDelayMilliseconds int                      `json:"per_object_delay_milliseconds" yaml:"per_object_delay_milliseconds"`
-	Selected                   []CollectionPropsTenants `json:"selected" yaml:"selected"`
-}
-
 type CollectionPropsTenants struct {
 	Collection string   `json:"collection" yaml:"collection"`
 	Props      []string `json:"props" yaml:"props"`
@@ -416,6 +411,10 @@ func (c *Config) Validate() error {
 	}
 
 	if err := c.Raft.Validate(); err != nil {
+		return configErr(err)
+	}
+
+	if err := c.BackupGCS.Validate(); err != nil {
 		return configErr(err)
 	}
 
@@ -882,6 +881,50 @@ type Backup struct {
 	SkipAccessCheck bool `json:"skip_access_check" yaml:"skip_access_check"`
 }
 
+const (
+	// DefaultBackupGCSGRPCConnPool is higher than the SDK's default of one
+	// channel, which caps throughput wherever DirectPath does not apply.
+	DefaultBackupGCSGRPCConnPool = 4
+
+	// MaxBackupGCSGRPCConnPool bounds the pool because every channel is a
+	// connection held for the process lifetime, and the GCS module builds one
+	// client for backups and one for exports.
+	MaxBackupGCSGRPCConnPool = 64
+)
+
+// BackupGCS configures which GCS API the backup-gcs module talks to. The
+// GCS_MODULE_ prefix marks it as covering both clients that module builds, the
+// backup one and the export one, unlike the backup-only BACKUP_GCS_BUCKET.
+type BackupGCS struct {
+	// UseGRPC picks the gRPC API over the JSON/HTTP API. The throughput gRPC
+	// adds comes from DirectPath, which only applies inside GCP, and from
+	// spreading requests over GRPCConnPool channels. Nil means unset and falls
+	// back to gRPC; set it to false to go back to HTTP.
+	// Env: GCS_MODULE_TRANSPORT (http or grpc).
+	UseGRPC *bool `json:"use_grpc" yaml:"use_grpc"`
+
+	// GRPCConnPool is how many gRPC channels each client opens. Zero means
+	// unset and falls back to DefaultBackupGCSGRPCConnPool.
+	// Env: GCS_MODULE_GRPC_CONN_POOL.
+	GRPCConnPool int `json:"grpc_conn_pool" yaml:"grpc_conn_pool"`
+}
+
+// UseGRPCOrDefault reports whether the module talks to GCS over gRPC,
+// defaulting to true.
+func (b BackupGCS) UseGRPCOrDefault() bool {
+	return b.UseGRPC == nil || *b.UseGRPC
+}
+
+// Validate bounds a connection pool that came from the config file. Values from
+// GCS_MODULE_GRPC_CONN_POOL are already bounded when parsed. A negative pool
+// would panic the gRPC client on its first call.
+func (b BackupGCS) Validate() error {
+	if b.GRPCConnPool == 0 {
+		return nil
+	}
+	return validateBackupGCSConnPool(b.GRPCConnPool, "backup_gcs.grpc_conn_pool")
+}
+
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided
 const (
 	DefaultQueryDefaultsLimit        int64 = 10
@@ -986,10 +1029,6 @@ const DefaultPersistenceLSMSegmentsCleanupIntervalSeconds = 0
 const DefaultPersistenceLSMCycleManagerRoutinesFactor = 2
 
 const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
-
-const (
-	DefaultReindexerGoroutinesFactor = 0.5
-)
 
 // MetadataServer is experimental.
 type MetadataServer struct {
@@ -1104,14 +1143,17 @@ type Namespaces struct {
 	Enabled bool `json:"enabled" yaml:"enabled"`
 
 	// CleanupInterval drives the deleting-namespace sweep on the leader.
-	// NAMESPACE_CLEANUP_INTERVAL; <= 0 disables.
+	// NAMESPACE_CLEANUP_INTERVAL. Get() reports the configured value, while
+	// newCronsNamespaceCleanup applies DefaultNamespaceCleanupInterval at or
+	// below zero. No value of this field stops the sweep — a very long
+	// interval parks it, and Enabled above turns it off.
 	CleanupInterval *runtime.DynamicValue[time.Duration] `json:"cleanup_interval" yaml:"cleanup_interval"`
 }
 
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Weaviate-Client, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key, X-Deepseek-Baseurl, X-Deepseek-Api-Key, X-Twelvelabs-Baseurl, X-Twelvelabs-Api-Key"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Weaviate-Client, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key, X-Meta-Baseurl, X-Meta-Api-Key, X-Deepseek-Baseurl, X-Deepseek-Api-Key, X-Twelvelabs-Baseurl, X-Twelvelabs-Api-Key"
 )
 
 func (r ResourceUsage) Validate() error {

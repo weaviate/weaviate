@@ -211,14 +211,24 @@ func NewManagerNoop() CycleManager {
 }
 
 type cycleManagerNoop struct {
+	// Start may be called concurrently, so running needs a lock even though
+	// the cycle itself does nothing
+	sync.Mutex
+
 	running bool
 }
 
 func (c *cycleManagerNoop) Start() {
+	c.Lock()
+	defer c.Unlock()
+
 	c.running = true
 }
 
 func (c *cycleManagerNoop) Stop(ctx context.Context) chan bool {
+	c.Lock()
+	defer c.Unlock()
+
 	if !c.running {
 		return c.closedChan(true)
 	}
@@ -238,6 +248,9 @@ func (c *cycleManagerNoop) StopAndWait(ctx context.Context) error {
 }
 
 func (c *cycleManagerNoop) Running() bool {
+	c.Lock()
+	defer c.Unlock()
+
 	return c.running
 }
 

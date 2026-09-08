@@ -24,8 +24,9 @@ type AuthZReq struct {
 }
 
 type FakeAuthorizer struct {
-	err      error
-	requests []AuthZReq
+	err          error
+	allowedCalls int
+	requests     []AuthZReq
 }
 
 func NewMockAuthorizer() *FakeAuthorizer {
@@ -36,10 +37,17 @@ func (a *FakeAuthorizer) SetErr(err error) {
 	a.err = err
 }
 
+// SetErrAfter allows the first n Authorize calls and returns err from the rest,
+// so a test can observe a check that only runs once an earlier one passes.
+func (a *FakeAuthorizer) SetErrAfter(n int, err error) {
+	a.allowedCalls = n
+	a.err = err
+}
+
 // Authorize provides a mock function with given fields: principal, verb, resource
 func (a *FakeAuthorizer) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
 	a.requests = append(a.requests, AuthZReq{principal, verb, resources})
-	if a.err != nil {
+	if a.err != nil && len(a.requests) > a.allowedCalls {
 		return a.err
 	}
 	return nil

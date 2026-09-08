@@ -676,6 +676,7 @@ func makeReplicationDetailsResponse(op *ShardReplicationOp, status *ShardReplica
 		SourceNodeId:       op.SourceShard.NodeId,
 		TargetNodeId:       op.TargetShard.NodeId,
 		TransferType:       op.TransferType.String(),
+		StartTimeUnixMs:    op.StartTimeUnixMs,
 		Uncancelable:       status.UnCancellable,
 		ScheduledForCancel: status.ShouldCancel,
 		ScheduledForDelete: status.ShouldDelete,
@@ -799,4 +800,13 @@ func (m *Manager) ForceDeleteByUuid(c *cmd.ApplyRequest) error {
 	}
 
 	return m.replicationFSM.ForceDeleteByUuid(req.Uuid)
+}
+
+func (m *Manager) ForceDeleteByIds(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationForceDeleteByIdsRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return m.replicationFSM.ForceDeleteByIds(req.Ids)
 }

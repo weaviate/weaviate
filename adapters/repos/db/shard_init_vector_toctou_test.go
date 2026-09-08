@@ -18,12 +18,15 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -41,16 +44,14 @@ func TestInitTargetVector_Idempotent_DoesNotOrphanQueue(t *testing.T) {
 	cfg := enthnsw.UserConfig{Skip: true}
 
 	require.NoError(t, shard.initTargetVector(ctx, "v1", cfg, false))
-	shard.vectorIndexMu.RLock()
-	q1 := shard.queues["v1"]
-	shard.vectorIndexMu.RUnlock()
+	q1, releaseQ1, _ := shard.AcquireVectorIndexQueue("v1")
+	defer releaseQ1()
 	require.NotNil(t, q1)
 
 	require.NoError(t, shard.initTargetVector(ctx, "v1", cfg, false))
 
-	shard.vectorIndexMu.RLock()
-	q2 := shard.queues["v1"]
-	shard.vectorIndexMu.RUnlock()
+	q2, releaseQ2, _ := shard.AcquireVectorIndexQueue("v1")
+	defer releaseQ2()
 
 	assert.Same(t, q1, q2,
 		"re-initialising an existing target vector must not silently replace and "+
@@ -82,8 +83,7 @@ func TestInitTargetVector_ShutsDownIndexWhenQueueCreationFails(t *testing.T) {
 			shardLike, index := testShard(t, context.Background(), "VecQueueOrphan")
 			s := underlyingShard(t, shardLike)
 			// enable async only after NewShard: it makes NewVectorIndexQueue call
-			// q.Init(), but at creation it would spawn a ConvertQueue goroutine that
-			// nil-derefs the test harness's (absent) indexCheckpoints.
+			// q.Init(), but at creation the harness would also need a checkpoint store.
 			index.AsyncIndexingEnabled = true
 
 			const target = "orphanTarget"
@@ -108,9 +108,7 @@ func TestInitTargetVector_ShutsDownIndexWhenQueueCreationFails(t *testing.T) {
 			require.Error(t, err)
 			require.ErrorContains(t, err, "cannot create index queue")
 
-			s.vectorIndexMu.RLock()
-			_, stored := s.vectorIndexes[target]
-			s.vectorIndexMu.RUnlock()
+			_, stored := s.vectors.get(target)
 			require.False(t, stored, "orphaned index must not be stored")
 
 			require.Eventually(t, func() bool { return watchers() <= baseline }, 5*time.Second, 20*time.Millisecond,
@@ -141,6 +139,51 @@ func TestUpdateVectorIndexConfigs_FailedInitRestoresStatus(t *testing.T) {
 		"shard left read-only after a failed vector index creation")
 }
 
+// Shard init must snapshot the index vector configs under
+// vectorIndexUserConfigLock. Ranging the live vectorIndexUserConfigs map while
+// updateVectorIndexConfigs writes it aborts the process with "concurrent map
+// read and map write" — a fatal error no recover can catch.
+func TestInitShardVectors_ConcurrentConfigUpdate(t *testing.T) {
+	ctx := context.Background()
+	shardLike, idx := testShard(t, ctx, "VectorConfigRace")
+	shard := underlyingShard(t, shardLike)
+
+	stop := make(chan struct{})
+	writerDone := make(chan struct{})
+	var applied atomic.Int64
+	go func() {
+		defer close(writerDone)
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			// UpdateVectorIndexConfigs flips the shard read-only and restores it
+			// asynchronously, so back-to-back calls legitimately bounce off it.
+			// Only the calls that get through reach the map write we care about.
+			if err := idx.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{
+				fmt.Sprintf("v%d", i%4): enthnsw.UserConfig{Skip: true},
+			}); err == nil {
+				applied.Add(1)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}()
+
+	// initShardVectors finds its slots in place after the first call and
+	// returns at once, so a fixed number of iterations can finish before the
+	// writer lands a single update; keep reading until one has.
+	deadline := time.Now().Add(5 * time.Second)
+	for i := 0; i < 200 || (applied.Load() == 0 && time.Now().Before(deadline)); i++ {
+		require.NoError(t, shard.initShardVectors(ctx))
+	}
+
+	close(stop)
+	<-writerDone
+	require.NotZero(t, applied.Load(), "no config update ever landed, so nothing raced the reads")
+}
+
 // underlyingShard returns the concrete *Shard behind a ShardLike, loading it if
 // the test helper handed back a lazy-load wrapper (the default differs across
 // release branches, so handle both).
@@ -156,4 +199,51 @@ func underlyingShard(t *testing.T, sl ShardLike) *Shard {
 		t.Fatalf("unexpected ShardLike type %T", sl)
 		return nil
 	}
+}
+
+// TestDropVectorIndex_FailedTeardownKeepsTheIndexForCleanup pins that a drop
+// whose index teardown fails leaves the shard owning the index: a retried
+// drop and the shard's own shutdown still reach it through the slots. With
+// the old maps each entry stayed until its own teardown succeeded.
+func TestDropVectorIndex_FailedTeardownKeepsTheIndexForCleanup(t *testing.T) {
+	ctx := context.Background()
+	shardLike, _ := testShardWithSettings(t, ctx, &models.Class{Class: "test"}, enthnsw.UserConfig{}, false, true, false, func(idx *Index) {
+		idx.vectorIndexUserConfig = nil
+		idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+			"named": enthnsw.NewDefaultUserConfig(),
+		}
+	})
+	shard := underlyingShard(t, shardLike)
+
+	// swap a mock in for the real index, which the test shuts down itself
+	real, release, ok := shard.AcquireVectorIndex("named")
+	require.True(t, ok)
+	release()
+	t.Cleanup(func() { real.Shutdown(ctx) })
+
+	failing := NewMockVectorIndex(t)
+	failing.On("Drop", mock.Anything, false).Return(assert.AnError).Once()
+	failing.On("Drop", mock.Anything, false).Return(nil).Once()
+	require.True(t, shard.vectors.Replace("named", failing))
+
+	err := shard.DropVectorIndex(ctx, "named")
+	require.ErrorIs(t, err, assert.AnError)
+
+	var owned []VectorIndex
+	require.NoError(t, shard.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
+		if targetVector == "named" {
+			owned = append(owned, index)
+		}
+		return nil
+	}))
+	require.Len(t, owned, 1, "the index whose teardown failed must stay reachable for cleanup")
+	assert.Same(t, failing, owned[0])
+
+	require.NoError(t, shard.DropVectorIndex(ctx, "named"), "a retried drop tears the same index down")
+	owned = nil
+	require.NoError(t, shard.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
+		owned = append(owned, index)
+		return nil
+	}))
+	assert.Empty(t, owned)
 }

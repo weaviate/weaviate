@@ -35,13 +35,17 @@ func newCompressedVectorsMigrator(logger logrus.FieldLogger) compressedVectorsMi
 	return compressedVectorsMigrator{logger: logger.WithField("action", "compressed_vector_migration")}
 }
 
-func (m compressedVectorsMigrator) do(s *Shard) error {
+// do runs the compressed-vectors layout migration. legacy and targets are
+// caller-held snapshots, never the live index fields.
+func (m compressedVectorsMigrator) do(s *Shard, legacy schemaConfig.VectorIndexConfig,
+	targets map[string]schemaConfig.VectorIndexConfig,
+) error {
 	lsmDir := s.store.GetDir()
-	totalVectors := len(s.index.vectorIndexUserConfigs)
-	if s.index.vectorIndexUserConfig != nil {
+	totalVectors := len(targets)
+	if legacy != nil {
 		totalVectors++
 	}
-	hasOnly1NamedVector := s.index.vectorIndexUserConfig == nil && len(s.index.vectorIndexUserConfigs) == 1
+	hasOnly1NamedVector := legacy == nil && len(targets) == 1
 
 	if m.isMigrationDone(lsmDir, hasOnly1NamedVector) {
 		// migration was performed, nothing to do
@@ -54,8 +58,8 @@ func (m compressedVectorsMigrator) do(s *Shard) error {
 		case 0:
 			// do nothing
 		case 1:
-			if len(s.index.vectorIndexUserConfigs) > 0 {
-				for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
+			if len(targets) > 0 {
+				for targetVector, vectorIndexConfig := range targets {
 					// rename old bucket to new target vector bucket
 					if err := m.migrate(targetVector, vectorIndexConfig, lsmDir, true); err != nil {
 						return fmt.Errorf("failed to rename old compressed vector bucket for target vector %s: %w", targetVector, err)
@@ -67,12 +71,12 @@ func (m compressedVectorsMigrator) do(s *Shard) error {
 			}
 		default:
 			// copy old buckets to new target vector buckets
-			for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
+			for targetVector, vectorIndexConfig := range targets {
 				if err := m.migrate(targetVector, vectorIndexConfig, lsmDir, false); err != nil {
 					return fmt.Errorf("failed to copy from old compressed vector bucket to new bucket for target vector: %s: %w", targetVector, err)
 				}
 			}
-			if s.index.vectorIndexUserConfig == nil {
+			if legacy == nil {
 				// remove the old bucket directory after all copies are complete, only if was not defined for legacy vector
 				if err := os.RemoveAll(vectorsCompressedPath); err != nil {
 					return fmt.Errorf("failed to remove old bucket directory after copying all target vectors: %w", err)
@@ -86,14 +90,14 @@ func (m compressedVectorsMigrator) do(s *Shard) error {
 			}
 		}
 	} else {
-		if s.index.vectorIndexUserConfig != nil && m.isQuantizationEnabled(s.index.vectorIndexUserConfig) {
+		if legacy != nil && m.isQuantizationEnabled(legacy) {
 			// a new legacy vector config was created, quantization is enabled but we didn't create the vectors_compressed
 			// folder yet but we need to mark that the migration was done in order for it to not be trigered on healthy vector indexes
 			if err := m.markMigrationDone(lsmDir); err != nil {
 				return fmt.Errorf("failed to mark migration as done: %w", err)
 			}
 		} else if hasOnly1NamedVector {
-			if err := m.tryToCreateVectorCompressedFolder(lsmDir, s.index.vectorIndexUserConfigs); err != nil {
+			if err := m.tryToCreateVectorCompressedFolder(lsmDir, targets); err != nil {
 				return fmt.Errorf("create 1 named vector config: %w", err)
 			}
 		}
@@ -101,9 +105,11 @@ func (m compressedVectorsMigrator) do(s *Shard) error {
 	return nil
 }
 
-func (m compressedVectorsMigrator) doUpdate(s *Shard, updated map[string]schemaConfig.VectorIndexConfig) error {
+func (m compressedVectorsMigrator) doUpdate(s *Shard, legacy schemaConfig.VectorIndexConfig,
+	targets map[string]schemaConfig.VectorIndexConfig, updated map[string]schemaConfig.VectorIndexConfig,
+) error {
 	lsmDir := s.store.GetDir()
-	hasOnly1NamedVector := s.index.vectorIndexUserConfig == nil && len(s.index.vectorIndexUserConfigs) == 1
+	hasOnly1NamedVector := legacy == nil && len(targets) == 1
 	if hasOnly1NamedVector && !m.isMigrationDone(lsmDir, hasOnly1NamedVector) && len(updated) == 1 {
 		if err := m.tryToCreateVectorCompressedFolder(lsmDir, updated); err != nil {
 			return fmt.Errorf("update vector config: %w", err)

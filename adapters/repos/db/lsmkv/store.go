@@ -115,6 +115,30 @@ func (s *Store) AcquireBucketForRead(name string) (*Bucket, func()) {
 	return b, b.lifetimeLock.RUnlock
 }
 
+// AcquireBucketConsistentViewForRead returns a consistent view of the named
+// bucket with the bucket itself pinned for the view's whole lifetime:
+// [BucketConsistentView.ReleaseView] drops the segment references and the
+// lifetime pin together, so a concurrent [Bucket.Shutdown] cannot unmap the
+// segments the view still points at.
+//
+// A name the store no longer holds yields the zero view. Its Bucket field is
+// nil — callers that need to report the miss check it — and releasing it is a
+// no-op.
+func (s *Store) AcquireBucketConsistentViewForRead(name string) BucketConsistentView {
+	bucket, release := s.AcquireBucketForRead(name)
+	if bucket == nil {
+		return BucketConsistentView{}
+	}
+
+	view := bucket.GetConsistentView()
+	releaseSegments := view.release
+	view.release = func() {
+		releaseSegments()
+		release()
+	}
+	return view
+}
+
 func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) error {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
@@ -384,6 +408,12 @@ func (s *Store) listMigrationFiles(basePath string) ([]string, error) {
 		if d == nil || d.IsDir() {
 			return nil
 		}
+		// A crash mid-rename leaves the tracker's scratch file behind, and
+		// nothing under .migrations ever sweeps it. Copying it would carry it
+		// into every later backup and restore.
+		if filepath.Ext(d.Name()) == ".tmp" {
+			return nil
+		}
 
 		relPath, err := filepath.Rel(basePath, path)
 		if err != nil {
@@ -510,6 +540,11 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 	return nil
 }
 
+// ReplacedBucketDirSuffix names the dir the displaced bucket sits at between
+// [Store.ReplaceBuckets]' two renames. A crash in that window leaves it on
+// disk, where only the per-property cleanup sweep in package db picks it up.
+const ReplacedBucketDirSuffix = "___del"
+
 // replaceBucket drains the displaced bucket and swaps the two directories on
 // disk. Caller must hold replacementBucket.flushLock (flushLock OUTER →
 // maintenanceLock INNER, same order as the flush path).
@@ -518,7 +553,7 @@ func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, re
 	defer replacementBucket.disk.maintenanceLock.Unlock()
 
 	currBucketDir := bucket.dir
-	newBucketDir := bucket.dir + "___del"
+	newBucketDir := bucket.dir + ReplacedBucketDirSuffix
 	currReplacementBucketDir := replacementBucket.dir
 	newReplacementBucketDir := currBucketDir
 

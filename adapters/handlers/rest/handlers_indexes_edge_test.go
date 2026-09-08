@@ -19,11 +19,18 @@ package rest
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/go-openapi/runtime"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
@@ -80,7 +87,7 @@ func TestMergeReindexStatus_UnitInProgressZeroProgress_ShowsIndexing(t *testing.
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
+	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
 	require.Equal(t, "indexing", idx.Status,
 		"unit IN_PROGRESS without a checkpoint must surface as 'indexing', not 'pending' — work has started")
@@ -109,7 +116,7 @@ func TestMergeReindexStatus_OneUnitInProgressAmongPending_ShowsIndexing(t *testi
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
+	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
 	require.Equal(t, "indexing", idx.Status)
 }
@@ -134,9 +141,31 @@ func TestMergeReindexStatus_StartedNoProgress_ShowsPending(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
+	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
 	require.Equal(t, "pending", idx.Status, "STARTED task with zero progress should show pending")
+	require.Equal(t, float32(0), idx.Progress)
+}
+
+// Pins: an unrecognized status reads as "indexing", not "pending", at zero progress.
+func TestMergeReindexStatus_UnknownStatusNoProgress_ShowsIndexing(t *testing.T) {
+	task := buildTask(t, "C:enable-filterable:foo:abcd",
+		unknownFutureStatus,
+		db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeEnableFilterable,
+			Collection:    "C",
+			Properties:    []string{"foo"},
+		},
+		map[string]*distributedtask.Unit{
+			"unit1": {ID: "unit1", Status: distributedtask.UnitStatusPending, Progress: 0},
+			"unit2": {ID: "unit2", Status: distributedtask.UnitStatusPending, Progress: 0},
+		},
+	)
+
+	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
+	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
+
+	require.Equal(t, "indexing", idx.Status)
 	require.Equal(t, float32(0), idx.Progress)
 }
 
@@ -163,7 +192,7 @@ func TestMergeReindexStatus_StaleStartedTask_StillShowsPending(t *testing.T) {
 	task.StartedAt = staleTime
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
+	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
 	// A 72h-old STARTED task that has not made a byte of progress is
 	// reported as "pending" — same as a brand-new task. There is no
@@ -189,7 +218,7 @@ func TestMergeReindexStatus_StaleIndexing_StillShowsIndexing(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
+	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
 	require.Equal(t, "indexing", idx.Status)
 	require.InDelta(t, 0.4, idx.Progress, 0.0001)
@@ -212,7 +241,7 @@ func TestMergeReindexStatus_FailedTask_ShowsFailedEntry(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
+	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
 	require.Equal(t, "failed", idx.Status,
 		"FAILED task must surface as the 'failed' synthetic status; "+
@@ -236,93 +265,12 @@ func TestMergeReindexStatus_CancelledTask_ShowsCancelledEntry(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
+	mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
 	require.Equal(t, "cancelled", idx.Status,
 		"CANCELLED task must surface as the 'cancelled' synthetic status")
 	require.InDelta(t, 0.5, idx.Progress, 0.0001,
 		"progress recorded before cancellation is preserved")
-}
-
-// Edge case 5: Task moved to FINISHED but the schema flag flip
-// (IndexFilterable=true) hasn't propagated yet. Real-life cause: the DTM
-// transitions a semantic task to FINISHED once every unit is COMPLETED,
-// but OnGroupCompleted's swap+schema-flip runs after that on each node.
-// During the gap, the schema flag is still false on this node.
-//
-// Pre-fix this case produced no entry at all (idx stayed "ready" but
-// flagOn=false meant the caller dropped it), so the UI rendered "None"
-// for a few ms. The fix here emits "indexing@1.0" until the flag flips,
-// closing the visible gap. Once flagOn flips to true, the base "ready"
-// override wins (verified by the second sub-test below).
-func TestMergeReindexStatus_FinishedBeforeSchemaFlip_KeepsFinalizingEntry(t *testing.T) {
-	mkTask := func() *distributedtask.Task {
-		task := buildTask(t, "C:enable-filterable:foo:abcd",
-			distributedtask.TaskStatusFinished,
-			db.ReindexTaskPayload{
-				MigrationType: db.ReindexTypeEnableFilterable,
-				Collection:    "C",
-				Properties:    []string{"foo"},
-			},
-			map[string]*distributedtask.Unit{
-				"unit1": {ID: "unit1", Status: distributedtask.UnitStatusCompleted, Progress: 1.0},
-			},
-		)
-		// FinishedAt must be inside the finalize window for the override
-		// to fire. The bug fix (https://github.com/weaviate/weaviate/issues/10675, 2026-05-14)
-		// added a recency bound so stale FINISHED tasks (whose flag has
-		// since been DELETE-flipped back off) don't bleed an
-		// "indexing(1)" pill across cycles. Set FinishedAt to "just
-		// now" so this test exercises the legitimate finalize window.
-		task.FinishedAt = time.Now()
-		return task
-	}
-
-	t.Run("flag-off (swap not propagated yet)", func(t *testing.T) {
-		idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-		mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(mkTask()), time.Hour, nil)
-
-		// "indexing@100%" so the caller emits a synthetic entry while the
-		// flag is still false — without this the GET response goes empty
-		// during the brief OnGroupCompleted finalize window.
-		require.Equal(t, "indexing", idx.Status)
-		require.InDelta(t, 1.0, idx.Progress, 0.0001)
-	})
-
-	t.Run("flag-on (schema already caught up)", func(t *testing.T) {
-		idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-		mergeReindexStatus(idx, "C", "foo", "filterable", true, tasksMap(mkTask()), time.Hour, nil)
-
-		// Base case wins — stale FINISHED task must not override the
-		// post-flip "ready" state.
-		require.Equal(t, "ready", idx.Status)
-		require.Equal(t, float32(0), idx.Progress)
-	})
-
-	t.Run("flag-off but FinishedAt older than finalize window — stale, must not bleed", func(t *testing.T) {
-		task := mkTask()
-		task.FinishedAt = time.Now().Add(-time.Hour) // outside any reasonable window
-		idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-		// Window is 5s; the task finished an hour ago — the override
-		// must NOT fire. This is the post-DELETE bleed (weaviate#10675):
-		// the flag was flipped on by this task, DELETE flipped it back
-		// to false much later, and the "still finalizing" override
-		// would otherwise mis-classify it as in-progress.
-		mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), 5*time.Second, nil)
-
-		require.Equal(t, "ready", idx.Status,
-			"stale FINISHED task with flag-off must not be classified as still finalizing — that's the indexing(1) bleed bug")
-		require.Equal(t, float32(0), idx.Progress)
-	})
-
-	t.Run("finalize window disabled (zero) — override never fires", func(t *testing.T) {
-		task := mkTask() // FinishedAt = now (legitimate window)
-		idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-		mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), 0, nil)
-
-		require.Equal(t, "ready", idx.Status,
-			"finalize window of 0 must disable the override unconditionally")
-	})
 }
 
 // Edge case 6: Two overlapping STARTED tasks targeting the same property.
@@ -379,8 +327,7 @@ func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
 	} {
 		t.Run(order.name, func(t *testing.T) {
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", "filterable", false,
-				parseReindexTasks(order.tasks), time.Hour, nil)
+			mergeReindexStatus(idx, "C", "foo", "filterable", parseReindexTasks(order.tasks), nil)
 
 			require.InDelta(t, 0.9, idx.Progress, 0.0001,
 				"newest STARTED task (change-tokenization) must win regardless of slice order")
@@ -390,121 +337,123 @@ func TestMergeReindexStatus_OverlappingStartedTasks_NewestWins(t *testing.T) {
 	}
 }
 
-// A retried migration produces two tasks for the same (collection,
-// prop, indexType): the old FAILED attempt and the new STARTED one
-// (terminal tasks deliberately do not block fresh submits). The
-// in-flight STARTED task wins regardless of slice order — otherwise
-// the user who just retried would see "failed" on alternate polls.
-func TestMergeReindexStatus_StartedBeatsTerminal(t *testing.T) {
+// taskAttempt is one of the two tasks a row of
+// TestMergeReindexStatus_PicksTheAttemptToSurface puts on the same
+// (collection, property, index type). Each has a single unit.
+type taskAttempt struct {
+	status   distributedtask.TaskStatus
+	unit     distributedtask.UnitStatus
+	progress float32
+}
+
+// Two matching tasks, and which one the entry reports. The merge loop ranks
+// on two rules and the rows hold them apart:
+//
+//   - an in-flight task beats a terminal one, whichever started first;
+//   - between two of equal standing, the later StartedAt wins.
+//
+// Every row runs the list both ways round, because the merge loop must not
+// rank on slice position.
+//
+// FINISHED and CANCELLED are in here as winners because that is why terminal
+// tasks stay in the merge loop at all: drop them and an older FAILED attempt
+// reports "failed" after the retry has already rebuilt the index. What a
+// FINISHED winner surfaces is nothing — the schema flag alone decides whether
+// an entry is emitted, so its row is the one that wants an empty task ID.
+//
+// Terminal attempts carry the FinishedAt the FSM stamps on them. Without it
+// the FINISHED rows pass against a build that still reports a
+// FINISHED-but-flag-off entry as indexing@100% inside a freshness window.
+func TestMergeReindexStatus_PicksTheAttemptToSurface(t *testing.T) {
 	now := time.Now()
+	live := func(p float32) taskAttempt {
+		return taskAttempt{distributedtask.TaskStatusStarted, distributedtask.UnitStatusInProgress, p}
+	}
+	// A live task in a status this build cannot classify.
+	unrecognized := func(p float32) taskAttempt {
+		return taskAttempt{unknownFutureStatus, distributedtask.UnitStatusInProgress, p}
+	}
+	failed := func(p float32) taskAttempt {
+		return taskAttempt{distributedtask.TaskStatusFailed, distributedtask.UnitStatusFailed, p}
+	}
+	cancelled := func(p float32) taskAttempt {
+		return taskAttempt{distributedtask.TaskStatusCancelled, distributedtask.UnitStatusCompleted, p}
+	}
+	done := func(p float32) taskAttempt {
+		return taskAttempt{distributedtask.TaskStatusFinished, distributedtask.UnitStatusCompleted, p}
+	}
 
-	failedAttempt := buildTask(t, "C:enable-filterable:foo:0001",
-		distributedtask.TaskStatusFailed,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
-			Collection:    "C",
-			Properties:    []string{"foo"},
-		},
-		map[string]*distributedtask.Unit{
-			"u": {ID: "u", Status: distributedtask.UnitStatusFailed, Progress: 0.4, Error: "disk full"},
-		},
+	const (
+		olderID = "C:enable-filterable:foo:0001"
+		newerID = "C:enable-filterable:foo:0002"
 	)
-	failedAttempt.StartedAt = now.Add(-2 * time.Hour)
 
-	startedRetry := buildTask(t, "C:enable-filterable:foo:0002",
-		distributedtask.TaskStatusStarted,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
-			Collection:    "C",
-			Properties:    []string{"foo"},
-		},
-		map[string]*distributedtask.Unit{
-			"u": {ID: "u", Status: distributedtask.UnitStatusInProgress, Progress: 0.1},
-		},
-	)
-	startedRetry.StartedAt = now
-
-	for _, order := range []struct {
-		name  string
-		tasks []*distributedtask.Task
+	for _, tt := range []struct {
+		name         string
+		older, newer taskAttempt
+		wantStatus   string
+		wantProgress float32
+		// wantTaskID is the attempt the entry names, empty when it names none.
+		wantTaskID string
 	}{
-		{"failed-first", []*distributedtask.Task{failedAttempt, startedRetry}},
-		{"started-first", []*distributedtask.Task{startedRetry, failedAttempt}},
+		{"a live retry beats the attempt it retries", failed(0.4), live(0.1), "indexing", 0.1, newerID},
+		{"a retry this build cannot name beats it too", failed(0.4), unrecognized(0.1), "indexing", 0.1, newerID},
+		{"a live retry beats a completed migration", done(0.4), live(0.1), "indexing", 0.1, newerID},
+		{"so does one this build cannot name", done(0.4), unrecognized(0.1), "indexing", 0.1, newerID},
+		// Standing decides, not recency: on recency alone the newer terminal
+		// task would win and report an outcome a running task has superseded.
+		{"a live task started earlier beats a newer failure", live(0.4), failed(0.7), "indexing", 0.4, olderID},
+		{"one this build cannot name beats a newer completed migration", unrecognized(0.4), done(0.7), "indexing", 0.4, olderID},
+		// CANCELLED shares its rank with FAILED and FINISHED, so recency is
+		// the only thing separating it from either.
+		{"the newer of two failures is the one reported", failed(0.4), failed(0.7), "failed", 0.7, newerID},
+		{"a completed migration outranks the failure before it", failed(0.4), done(0.7), "ready", 0, ""},
+		{"a completed migration outranks the cancel before it", cancelled(0.4), done(0.7), "ready", 0, ""},
+		{"the newer cancel is the one reported", done(0.4), cancelled(0.7), "cancelled", 0.7, newerID},
 	} {
-		t.Run(order.name, func(t *testing.T) {
-			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", "filterable", false,
-				parseReindexTasks(order.tasks), time.Hour, nil)
+		t.Run(tt.name, func(t *testing.T) {
+			build := func(id string, a taskAttempt, startedAt time.Time) *distributedtask.Task {
+				task := buildTask(t, id, a.status,
+					db.ReindexTaskPayload{
+						MigrationType: db.ReindexTypeEnableFilterable,
+						Collection:    "C",
+						Properties:    []string{"foo"},
+					},
+					map[string]*distributedtask.Unit{"u": {ID: "u", Status: a.unit, Progress: a.progress}},
+				)
+				task.StartedAt = startedAt
+				if a.status.IsTerminal() {
+					task.FinishedAt = now
+				}
+				return task
+			}
+			older := build(olderID, tt.older, now.Add(-2*time.Hour))
+			newer := build(newerID, tt.newer, now)
 
-			require.Equal(t, "indexing", idx.Status,
-				"STARTED retry must beat older FAILED attempt regardless of slice order")
-			require.InDelta(t, 0.1, idx.Progress, 0.0001)
+			for _, order := range [][]*distributedtask.Task{{older, newer}, {newer, older}} {
+				idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
+				mergeReindexStatus(idx, "C", "foo", "filterable", parseReindexTasks(order), nil)
+
+				require.Equal(t, tt.wantStatus, idx.Status, "list starting at %s", order[0].ID)
+				require.InDelta(t, tt.wantProgress, idx.Progress, 0.0001,
+					"the losing attempt's progress must not surface (list starting at %s)", order[0].ID)
+				require.Equal(t, tt.wantTaskID, idx.TaskID,
+					"the entry must name the attempt it reports, and none when it reports the schema (list starting at %s)", order[0].ID)
+			}
 		})
 	}
 }
 
-// Two FAILED attempts for the same (collection, prop, indexType) can
-// coexist if a user retried after the first failure and the second
-// retry also failed. The newer attempt is the more useful one to
-// surface (its error is the latest the user saw) so it must win the
-// tiebreak regardless of slice order.
-func TestMergeReindexStatus_TwoFailedTasks_NewestWins(t *testing.T) {
-	now := time.Now()
-
-	oldFail := buildTask(t, "C:enable-filterable:foo:0001",
-		distributedtask.TaskStatusFailed,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
-			Collection:    "C",
-			Properties:    []string{"foo"},
-		},
-		map[string]*distributedtask.Unit{
-			"u": {ID: "u", Status: distributedtask.UnitStatusFailed, Progress: 0.3, Error: "old: disk full"},
-		},
-	)
-	oldFail.StartedAt = now.Add(-2 * time.Hour)
-
-	newFail := buildTask(t, "C:enable-filterable:foo:0002",
-		distributedtask.TaskStatusFailed,
-		db.ReindexTaskPayload{
-			MigrationType: db.ReindexTypeEnableFilterable,
-			Collection:    "C",
-			Properties:    []string{"foo"},
-		},
-		map[string]*distributedtask.Unit{
-			"u": {ID: "u", Status: distributedtask.UnitStatusFailed, Progress: 0.7, Error: "new: permission denied"},
-		},
-	)
-	newFail.StartedAt = now
-
-	for _, order := range []struct {
-		name  string
-		tasks []*distributedtask.Task
-	}{
-		{"old-first", []*distributedtask.Task{oldFail, newFail}},
-		{"new-first", []*distributedtask.Task{newFail, oldFail}},
-	} {
-		t.Run(order.name, func(t *testing.T) {
-			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", "filterable", false,
-				parseReindexTasks(order.tasks), time.Hour, nil)
-
-			require.Equal(t, "failed", idx.Status)
-			require.InDelta(t, 0.7, idx.Progress, 0.0001,
-				"newer FAILED attempt must win the tiebreak regardless of slice order")
-		})
-	}
-}
-
-// Edge case 7: A task whose payload.Properties is empty.
-// Previously this branch was asymmetric: repair-* matched every property
-// in the collection (fan-out: a single payload could mark dozens of
-// properties "indexing"), while enable-* and change-tokenization matched
-// nothing. After the fix every migration type rejects empty Properties
-// consistently — the task is treated as targeting nothing, producing no
-// synthetic entry. The current REST handler always populates Properties
-// with exactly one entry, so the empty-means-all branch was only
-// reachable via direct cluster payload authoring.
+// Edge case 7: A task whose payload.Properties is empty. Every migration
+// type treats it as targeting nothing, so no synthetic entry appears. The
+// current REST handler always populates Properties with exactly one entry,
+// so an empty list only arrives via direct cluster payload authoring.
+//
+// This agrees across migration types but deliberately disagrees with
+// db.ReindexPropsOverlap, which reads the same empty list as "all
+// properties" (see TestPropsOverlap_EmptyMeansAllProperties). Making the
+// two agree fans a synthetic "indexing" entry across the whole collection
+// for a task that does no work on any property.
 //
 // Test split into two parts to assert symmetry:
 //
@@ -525,7 +474,7 @@ func TestMergeReindexStatus_EmptyProperties_EnableDoesNothing(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "C", "anyprop", "filterable", false, tasksMap(task), time.Hour, nil)
+	mergeReindexStatus(idx, "C", "anyprop", "filterable", tasksMap(task), nil)
 
 	require.Equal(t, "ready", idx.Status,
 		"empty Properties is treated uniformly as 'match nothing'")
@@ -548,7 +497,7 @@ func TestMergeReindexStatus_EmptyProperties_RepairAlsoMatchesNothing(t *testing.
 	// Previously repair-* matched every property in the collection.
 	for _, propName := range []string{"alpha", "beta", "gamma"} {
 		idx := &models.IndexStatus{Type: "searchable", Status: "ready"}
-		mergeReindexStatus(idx, "C", propName, "searchable", false, tasksMap(task), time.Hour, nil)
+		mergeReindexStatus(idx, "C", propName, "searchable", tasksMap(task), nil)
 		require.Equal(t, "ready", idx.Status,
 			"empty Properties + repair-searchable must match no property (here: %s)", propName)
 		require.Equal(t, float32(0), idx.Progress)
@@ -572,7 +521,7 @@ func TestMergeReindexStatus_CollectionCaseInsensitive(t *testing.T) {
 	)
 
 	idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-	mergeReindexStatus(idx, "myclass", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
+	mergeReindexStatus(idx, "myclass", "foo", "filterable", tasksMap(task), nil)
 
 	require.Equal(t, "indexing", idx.Status, "collection name match is case-insensitive")
 }
@@ -652,7 +601,7 @@ func TestMergeReindexStatus_RepairSearchable_SetsTargetAlgorithm(t *testing.T) {
 			)
 
 			idx := &models.IndexStatus{Type: "searchable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", "searchable", false, tasksMap(task), time.Hour, nil)
+			mergeReindexStatus(idx, "C", "foo", "searchable", tasksMap(task), nil)
 
 			require.Equal(t, tt.expectStatus, idx.Status)
 			require.InDelta(t, tt.expectProgress, idx.Progress, 0.0001)
@@ -699,7 +648,7 @@ func TestMergeReindexStatus_NonSearchableTypes_DoNotSetTargetAlgorithm(t *testin
 			)
 
 			idx := &models.IndexStatus{Type: tt.indexType, Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", tt.indexType, false, tasksMap(task), time.Hour, nil)
+			mergeReindexStatus(idx, "C", "foo", tt.indexType, tasksMap(task), nil)
 
 			require.Empty(t, idx.TargetAlgorithm,
 				"%s must not set TargetAlgorithm — algorithm is a searchable-only concept", tt.migrationType)
@@ -728,6 +677,8 @@ func TestMergeReindexStatus_PreparingAndSwappingSurfaceAsIndexing(t *testing.T) 
 	}{
 		{"PREPARING", distributedtask.TaskStatusPreparing},
 		{"SWAPPING", distributedtask.TaskStatusSwapping},
+		// An unrecognized status must land here too.
+		{"UNKNOWN", unknownFutureStatus},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			task := buildTask(t, "C:change-tokenization:foo:"+tt.name,
@@ -746,7 +697,7 @@ func TestMergeReindexStatus_PreparingAndSwappingSurfaceAsIndexing(t *testing.T) 
 			)
 
 			idx := &models.IndexStatus{Type: "filterable", Status: "ready"}
-			mergeReindexStatus(idx, "C", "foo", "filterable", false, tasksMap(task), time.Hour, nil)
+			mergeReindexStatus(idx, "C", "foo", "filterable", tasksMap(task), nil)
 
 			require.Equal(t, "indexing", idx.Status,
 				"%s must surface as 'indexing' — the cluster-wide post-completion barrier is still gating the schema flip", tt.name)
@@ -758,12 +709,8 @@ func TestMergeReindexStatus_PreparingAndSwappingSurfaceAsIndexing(t *testing.T) 
 	}
 }
 
-// Status-priority ranking: PREPARING and SWAPPING both rank alongside
-// STARTED (priority=2), so a fresh in-flight task surfaces ahead of an
-// older FAILED attempt's terminal entry. Without PREPARING in the
-// switch, the priority would fall through to the default (priority=0)
-// and an older FAILED attempt with priority=1 would win the tiebreak —
-// the user would see the stale failure instead of the live PREP barrier.
+// Pins: every non-terminal status, including an unrecognized one, ranks
+// above every terminal status.
 func TestTaskStatusPriority_InFlightStatesRankAboveTerminal(t *testing.T) {
 	mkTask := func(status distributedtask.TaskStatus) *distributedtask.Task {
 		return &distributedtask.Task{
@@ -779,6 +726,7 @@ func TestTaskStatusPriority_InFlightStatesRankAboveTerminal(t *testing.T) {
 		{"STARTED", distributedtask.TaskStatusStarted, 2},
 		{"PREPARING", distributedtask.TaskStatusPreparing, 2},
 		{"SWAPPING", distributedtask.TaskStatusSwapping, 2},
+		{"unrecognized", unknownFutureStatus, 2},
 		{"FAILED", distributedtask.TaskStatusFailed, 1},
 		{"CANCELLED", distributedtask.TaskStatusCancelled, 1},
 		{"FINISHED", distributedtask.TaskStatusFinished, 1},
@@ -788,4 +736,304 @@ func TestTaskStatusPriority_InFlightStatesRankAboveTerminal(t *testing.T) {
 				"status %s must rank at priority %d", tt.status, tt.want)
 		})
 	}
+}
+
+// unknownFutureStatus simulates a status a newer node introduced that this
+// build doesn't recognize. Deliberately not a capitalised present
+// participle, so it can never collide with a real status name.
+//
+// A const is fine outside cluster/distributedtask. Inside it, the
+// exhaustive linter reads every TaskStatus const in the package as an
+// enum member, so the copy there is a var.
+const unknownFutureStatus distributedtask.TaskStatus = "UNKNOWN_FUTURE_STATE"
+
+// Pins the wire response of every cancel arm: the apply is reached for
+// STARTED alone, 409 for the coordination phases and for a status this
+// build cannot name, 202 NO_OP when nothing matches. Each arm's audit
+// line is pinned with it, and the two 409 conditions are held apart:
+// they need different bodies because only one of them can honestly tell
+// the operator to wait.
+func TestCancelPreflight_WireResponsePerStatus(t *testing.T) {
+	payload := db.ReindexTaskPayload{
+		MigrationType: db.ReindexTypeEnableFilterable,
+		Collection:    "C",
+		Properties:    []string{"foo"},
+	}
+
+	for _, tc := range []struct {
+		name       string
+		status     distributedtask.TaskStatus
+		properties []string
+		wantCode   int
+		wantReason string
+	}{
+		{"STARTED", distributedtask.TaskStatusStarted, payload.Properties, 0, ""},
+		// Refused, not proposed: only a build that can name the status
+		// knows whether stopping is safe, so the FSM refuses it on every
+		// node and REST must not spend a RAFT apply finding that out.
+		// "Wait for it to reach a terminal state" is the wrong advice
+		// here — nothing on this node advances a status it cannot name.
+		{
+			"unrecognized", unknownFutureStatus, payload.Properties,
+			http.StatusConflict, "cannot classify that status",
+		},
+		{
+			"PREPARING", distributedtask.TaskStatusPreparing, payload.Properties,
+			http.StatusConflict, "wait for it to reach a terminal state",
+		},
+		{
+			"SWAPPING", distributedtask.TaskStatusSwapping, payload.Properties,
+			http.StatusConflict, "wait for it to reach a terminal state",
+		},
+		// The three terminal rows never reach the refusal logic: they
+		// are filtered out as cancel targets, so what they pin is that a
+		// finished task is a NO_OP rather than a 409.
+		{"FINISHED", distributedtask.TaskStatusFinished, payload.Properties, http.StatusAccepted, ""},
+		{"FAILED", distributedtask.TaskStatusFailed, payload.Properties, http.StatusAccepted, ""},
+		{"CANCELLED", distributedtask.TaskStatusCancelled, payload.Properties, http.StatusAccepted, ""},
+		// Empty Properties is the reserved whole-collection form; it has
+		// to match the queried property or the operator gets no cancel
+		// target for a task that blocks their mutation.
+		{"empty properties", distributedtask.TaskStatusStarted, nil, 0, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			h := &indexesHandlers{appState: &state.State{Logger: logger}}
+
+			tcPayload := payload
+			tcPayload.Properties = tc.properties
+			task := buildTask(t, "T1", tc.status, tcPayload, nil)
+
+			target, gotPayload := findCancelTarget(
+				[]*distributedtask.Task{task}, "C", "foo", "filterable", logger)
+			resp := h.cancelPreflight(target, "C", "foo", "filterable", nil)
+
+			if tc.wantCode == 0 {
+				require.Nil(t, resp, "%q must reach the cancel apply", tc.status)
+				require.Equal(t, "T1", target.ID)
+				require.Equal(t, db.ReindexTypeEnableFilterable, gotPayload.MigrationType)
+				return
+			}
+
+			require.NotNil(t, resp, "%q must be answered before the cancel apply", tc.status)
+			rec := httptest.NewRecorder()
+			resp.WriteResponse(rec, runtime.JSONProducer())
+			require.Equal(t, tc.wantCode, rec.Code)
+
+			if tc.wantCode == http.StatusAccepted {
+				require.Contains(t, rec.Body.String(), reindexCancelStatusNoOp)
+				require.Equal(t, "reindex_task_cancel_noop", auditEvent(t, hook))
+				return
+			}
+
+			body := rec.Body.String()
+			// Nothing on this node advances a status it cannot name, so
+			// the coordination-phase advice must not leak onto that arm.
+			// Asserted first on purpose: a Contains failing ahead of it
+			// would abort the subtest and leave the advice unchecked on
+			// exactly the arm that leaked it.
+			if !tc.status.IsRecognized() {
+				require.NotContains(t, body, "wait for it to reach a terminal state")
+			}
+			require.Contains(t, body, "T1", "the refusal must name the task it refuses")
+			require.Contains(t, body, string(tc.status), "the refusal must name the phase")
+			require.Contains(t, body, tc.wantReason)
+			require.Equal(t, "reindex_task_cancel_refused", auditEvent(t, hook))
+		})
+	}
+}
+
+// auditEvent returns the audit_event field of the single audit line the
+// hook captured.
+func auditEvent(t *testing.T, hook *logrustest.Hook) string {
+	t.Helper()
+	var events []string
+	for _, e := range hook.AllEntries() {
+		if v, ok := e.Data["audit_event"]; ok {
+			events = append(events, v.(string))
+		}
+	}
+	require.Len(t, events, 1, "the cancel arm must emit exactly one audit line")
+	return events[0]
+}
+
+// Pins: a cancel refused at apply time answers with the pre-flight's status
+// code, not a 500 that leaked the sentinel's internal marker.
+func TestCancelApplyFailureResponder_MapsFSMRejections(t *testing.T) {
+	target := buildTask(t, "T1", distributedtask.TaskStatusStarted,
+		db.ReindexTaskPayload{
+			MigrationType: db.ReindexTypeEnableFilterable,
+			Collection:    "C",
+			Properties:    []string{"foo"},
+		}, nil)
+
+	// The target still reads STARTED — the pre-flight would not have let the
+	// request reach the apply otherwise — and the apply has just proved it is
+	// not STARTED any more. The raced arm cannot tell which status it moved
+	// to, so it must name none of them.
+	var everyStatus []string
+	for _, status := range []distributedtask.TaskStatus{
+		distributedtask.TaskStatusStarted,
+		distributedtask.TaskStatusPreparing,
+		distributedtask.TaskStatusSwapping,
+		distributedtask.TaskStatusFinished,
+		distributedtask.TaskStatusFailed,
+		distributedtask.TaskStatusCancelled,
+	} {
+		everyStatus = append(everyStatus, status.String())
+	}
+	// The coordination-phase advice is wrong on the raced arm for the same
+	// reason: the task may have raced to the very terminal state that advice
+	// tells the operator to wait for. cancelRefusalReason is where it comes
+	// from, so a refactor routing this arm through it must fail here.
+	racedAbsent := append([]string{"wait for it to reach a terminal state"}, everyStatus...)
+
+	for _, tc := range []struct {
+		name      string
+		err       error
+		wantCode  int
+		wantAudit string
+		wantBody  string
+		// wantAbsent is text the body must not carry, for the arms
+		// where the obvious wording would be wrong.
+		wantAbsent []string
+		// wantStatusAtRead is the audit line's record of the status the
+		// list read saw, under a name that says it is stale.
+		wantStatusAtRead string
+	}{
+		{
+			// The FSM stamps the on-wire marker into the message, and it
+			// survives the gRPC round trip, so the error this arm really
+			// receives carries one. Built with it here, otherwise the
+			// "no marker in the body" assertion below has nothing to
+			// leak.
+			name: "task is no longer running",
+			err: fmt.Errorf("executing command: %w",
+				fmt.Errorf("[dtm-perm/task-not-running] task reindex/T1/1 is no longer running: %w",
+					distributedtask.ErrTaskNotRunning)),
+			wantCode:         http.StatusConflict,
+			wantAudit:        "reindex_task_cancel_raced",
+			wantBody:         "T1",
+			wantAbsent:       racedAbsent,
+			wantStatusAtRead: "STARTED",
+		},
+		{
+			// Same arm reached by a sentinel no marker was stamped on, since
+			// the switch classifies on errors.Is alone.
+			name:             "task is no longer running, unmarked",
+			err:              fmt.Errorf("executing command: %w", distributedtask.ErrTaskNotRunning),
+			wantCode:         http.StatusConflict,
+			wantAudit:        "reindex_task_cancel_raced",
+			wantBody:         "T1",
+			wantAbsent:       racedAbsent,
+			wantStatusAtRead: "STARTED",
+		},
+		{
+			name: "task does not exist",
+			err: fmt.Errorf("executing command: %w",
+				fmt.Errorf("[dtm-perm/task-not-exist] task reindex/T1/1 does not exist: %w",
+					distributedtask.ErrTaskDoesNotExist)),
+			wantCode:  http.StatusAccepted,
+			wantAudit: "reindex_task_cancel_noop",
+			wantBody:  reindexCancelStatusNoOp,
+		},
+		{
+			name:     "anything else",
+			err:      errors.New("raft unavailable"),
+			wantCode: http.StatusInternalServerError,
+			wantBody: "raft unavailable",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			h := &indexesHandlers{appState: &state.State{Logger: logger}}
+
+			rec := httptest.NewRecorder()
+			h.cancelApplyFailureResponder(tc.err, target, "C", "foo", "filterable", nil).
+				WriteResponse(rec, runtime.JSONProducer())
+
+			// Asserted first on purpose: a status assertion failing
+			// ahead of it would abort the subtest and leave the marker
+			// unchecked on exactly the arm that leaked it.
+			require.NotContains(t, rec.Body.String(), "dtm-perm/",
+				"the sentinel's internal marker is not user-facing")
+			require.Equal(t, tc.wantCode, rec.Code)
+			require.Contains(t, rec.Body.String(), tc.wantBody)
+			for _, absent := range tc.wantAbsent {
+				require.NotContains(t, rec.Body.String(), absent)
+			}
+			if tc.wantAudit == "" {
+				return
+			}
+			require.Equal(t, tc.wantAudit, auditEvent(t, hook))
+			if tc.wantStatusAtRead != "" {
+				require.Equal(t, tc.wantStatusAtRead, hook.LastEntry().Data["status_at_read"],
+					"the audit line keeps the status the read saw, under a name that says it is stale")
+			}
+		})
+	}
+}
+
+// Pins the selection policy when several in-flight tasks match: a
+// cancellable one wins, so the operator never gets a 409 while a task
+// the FSM would have cancelled sits further down the list. With none
+// cancellable the first match is reported, so the refusal names a task
+// they can look up.
+func TestFindCancelTarget_PrefersACancellableTask(t *testing.T) {
+	logger, _ := logrustest.NewNullLogger()
+	payload := db.ReindexTaskPayload{
+		MigrationType: db.ReindexTypeEnableFilterable,
+		Collection:    "C",
+		Properties:    []string{"foo"},
+	}
+	task := func(id string, status distributedtask.TaskStatus) *distributedtask.Task {
+		return buildTask(t, id, status, payload, nil)
+	}
+
+	for _, tc := range []struct {
+		name   string
+		tasks  []*distributedtask.Task
+		wantID string
+	}{
+		{
+			name: "a cancellable task behind a coordination phase",
+			tasks: []*distributedtask.Task{
+				task("swapping", distributedtask.TaskStatusSwapping),
+				task("started", distributedtask.TaskStatusStarted),
+			},
+			wantID: "started",
+		},
+		{
+			name: "none cancellable, so the first match is refused",
+			tasks: []*distributedtask.Task{
+				task("swapping", distributedtask.TaskStatusSwapping),
+				task("preparing", distributedtask.TaskStatusPreparing),
+			},
+			wantID: "swapping",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			target, _ := findCancelTarget(tc.tasks, "C", "foo", "filterable", logger)
+			require.NotNil(t, target)
+			require.Equal(t, tc.wantID, target.ID)
+		})
+	}
+}
+
+// Pins: an in-flight task whose payload will not decode is logged rather
+// than skipped in silence. It may be the very task the operator is trying
+// to cancel, and the answer they get is a NO_OP.
+func TestFindCancelTarget_LogsUndecodablePayload(t *testing.T) {
+	logger, hook := logrustest.NewNullLogger()
+
+	target, _ := findCancelTarget([]*distributedtask.Task{{
+		Namespace:      db.ReindexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_bad", Version: 1},
+		Status:         distributedtask.TaskStatusStarted,
+		Payload:        []byte("not json"),
+	}}, "C", "foo", "filterable", logger)
+
+	require.Nil(t, target)
+	require.Len(t, hook.AllEntries(), 1)
+	require.Equal(t, "T_bad", hook.AllEntries()[0].Data["task_id"])
 }

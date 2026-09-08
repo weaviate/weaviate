@@ -648,6 +648,12 @@ func (h *indexesHandlers) validateTenantScope(ctx context.Context, principal *mo
 // task. Returns 202 STARTED or the mapped error, reusing the caller's RAFT
 // snapshot (reindexTasks) so check-and-submit sees one consistent view.
 func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *models.Principal, class *models.Class, collection, propertyName string, plan upsertPlan, tenants []string, reindexTasks []*distributedtask.Task) middleware.Responder {
+	// The one funnel both upsert and rebuild reach to start a task. A NO_OP
+	// returns before this and is deliberately not refused: it starts nothing.
+	if err := validateNoSidecarShapedProperties(class); err != nil {
+		return jsonResponder(http.StatusBadRequest, errorResponse(principal, err.Error()))
+	}
+
 	if h.appState.ClusterService == nil {
 		return jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
 			"cluster service unavailable; cannot submit reindex task"))
@@ -758,16 +764,21 @@ func buildReindexPayload(class *models.Class, collection string, properties []st
 	}
 }
 
-// stalePartialStateCleaner scrubs a property's partial reindex sidecar dirs
-// for one index type. *db.DB satisfies it.
+// stalePartialStateCleaner opens a sweep over a property's partial reindex
+// sidecar dirs. *db.DB satisfies it.
 type stalePartialStateCleaner interface {
-	CleanStalePartialReindexState(ctx context.Context, collection, propertyName, indexType string) error
+	NewStalePartialReindexSweep() db.StalePartialReindexSweep
 }
 
 // cleanStalePartialStateOrFail scrubs pre-submit stale state for every index
 // type migrationType touches, returning a terminal responder or nil to
 // proceed. Guards CANCEL→retry resuming stale state as a false success; fails
 // closed on an unknown type or a scrub error rather than skip silently.
+//
+// A truncated sweep is the one exception: it means shards went unvisited, so
+// their state is unverified rather than known stale, and a healthy node
+// produces that from a tenant leaving the shard map mid-walk. Refusing the
+// submit on it would turn ordinary tenant movement into a 500.
 func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, principal *models.Principal,
 	cleaner stalePartialStateCleaner, collection, propertyName string, migrationType db.ReindexMigrationType,
 ) middleware.Responder {
@@ -781,17 +792,26 @@ func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, prin
 		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 			"internal error: unknown migration type; refusing submit (would skip stale-state cleanup)"))
 	}
+	// One sweep across the loop: every index type asks the same unloaded shards.
+	sweep := cleaner.NewStalePartialReindexSweep()
 	for _, it := range indexTypesForCleanup {
-		if err := cleaner.CleanStalePartialReindexState(ctx, collection, propertyName, it); err != nil {
-			h.appState.Logger.WithFields(logrus.Fields{
-				"collection":     collection,
-				"property":       propertyName,
-				"migration_type": migrationType,
-				"index_type":     it,
-			}).Errorf("submit: pre-submit cleanup of stale partial reindex state failed, refusing submit: %v", err)
-			return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
-				"pre-submit cleanup of stale partial reindex state failed; refusing to submit to avoid a task that short-circuits on stale state and reports a false success — operator inspection of the migration state is required"))
+		err := sweep(ctx, collection, propertyName, it)
+		if err == nil {
+			continue
 		}
+		entry := h.appState.Logger.WithFields(logrus.Fields{
+			"collection":     collection,
+			"property":       propertyName,
+			"migration_type": migrationType,
+			"index_type":     it,
+		})
+		if errors.Is(err, db.ErrCleanupSweepTruncated) {
+			entry.Warnf("submit: pre-submit cleanup did not reach every shard; proceeding with the submit, the unvisited shards are unverified rather than known stale: %v", err)
+			continue
+		}
+		entry.Errorf("submit: pre-submit cleanup of stale partial reindex state failed, refusing submit: %v", err)
+		return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
+			"pre-submit cleanup of stale partial reindex state failed; refusing to submit to avoid a task that short-circuits on stale state and reports a false success — operator inspection of the migration state is required"))
 	}
 	return nil
 }

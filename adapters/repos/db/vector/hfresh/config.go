@@ -12,7 +12,6 @@
 package hfresh
 
 import (
-	"io"
 	"math"
 
 	"github.com/pkg/errors"
@@ -40,7 +39,6 @@ type Config struct {
 	DistanceProvider             distancer.Provider
 	RootPath                     string
 	ID                           string
-	TargetVector                 string
 	ShardName                    string
 	ClassName                    string
 	PrometheusMetrics            *monitoring.PrometheusMetrics
@@ -50,7 +48,8 @@ type Config struct {
 	Store                        StoreConfig                             `json:"store"`                               // Configuration for the underlying LSMKV store
 	Centroids                    CentroidConfig                          `json:"centroids"`                           // Configuration for the centroid index
 	TombstoneCallbacks           cyclemanager.CycleCallbackGroup         // Callbacks for handling tombstones
-	VectorForIDThunk             common.VectorForID[float32]             `json:"vectorForIDThunk,omitempty"` // Function to get a vector by index ID
+	VectorForIDThunk             common.VectorForID[float32]             `json:"vectorForIDThunk,omitempty"`      // Function to get a vector by index ID
+	MultiVectorForIDThunk        common.VectorForID[[]float32]           `json:"multiVectorForIDThunk,omitempty"` // Function to get a multi-vector by index ID
 	TempVectorForIDWithViewThunk common.TempVectorForIDWithView[float32] `json:"-"`
 }
 
@@ -69,11 +68,7 @@ const (
 )
 
 func (c *Config) Validate() error {
-	if c.Logger == nil {
-		logger := logrus.New()
-		logger.Out = io.Discard
-		c.Logger = logger
-	}
+	c.Logger = common.LoggerOrDiscard(c.Logger)
 
 	if c.InternalPostingCandidates <= 0 {
 		c.InternalPostingCandidates = DefaultInternalPostingCandidates
@@ -87,6 +82,10 @@ func (c *Config) Validate() error {
 
 	if c.TempVectorForIDWithViewThunk == nil {
 		return errors.New("tempVectorForIDWithViewThunk cannot be nil")
+	}
+
+	if c.VectorForIDThunk == nil {
+		return errors.New("vectorForIDThunk cannot be nil")
 	}
 
 	return nil
@@ -122,6 +121,10 @@ func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
 		{
 			name:     "replicas",
 			accessor: func(c ent.UserConfig) interface{} { return c.Replicas },
+		},
+		{
+			name:     "multivector.muvera.enabled",
+			accessor: func(c ent.UserConfig) interface{} { return c.Multivector.MuveraConfig.Enabled },
 		},
 	}
 

@@ -71,18 +71,21 @@ func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
 
 	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
 
-	// Wrap the ingest-window registration to land the gap writes at exactly
-	// the markStarted→register seam #11688 is about — right before callbacks
-	// arm, so only the fixed markStarted ordering keeps them.
+	// Land the gap writes at the markStarted→register seam #11688 is about,
+	// right before callbacks arm. Guarded to fire once: RunOnShard's
+	// re-entry has callbacks already live, which would double-write them
+	// regardless of the ordering fix.
 	gapWritesDone := false
 	origRegister := task.registerDoubleWriteCallbacksFn
 	task.registerDoubleWriteCallbacksFn = func(shard *Shard, props []string,
 		bucketNamer func(string) string, forTargetStrategy bool,
 	) func() {
-		for i := 0; i < numGapUpdates; i++ {
-			update(i, gapValueBase+int64(i))
+		if !gapWritesDone {
+			for i := 0; i < numGapUpdates; i++ {
+				update(i, gapValueBase+int64(i))
+			}
+			gapWritesDone = true
 		}
-		gapWritesDone = true
 		return origRegister(shard, props, bucketNamer, forTargetStrategy)
 	}
 
@@ -95,13 +98,7 @@ func TestReindex_ConcurrentWriteInRegistrationGap_NotLost(t *testing.T) {
 		update(i, postValueBase+int64(i))
 	}
 
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	require.NoError(t, task.RunOnShard(ctx, shard))
 	require.True(t, wrapped.migrationCompleted, "migration must complete")
 
 	rangeBucket := shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName))

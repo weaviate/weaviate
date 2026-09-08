@@ -17,7 +17,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -34,34 +33,39 @@ func (s *Shard) MergeObject(ctx context.Context, merge objects.MergeDocument) er
 
 	for targetVector, vector := range merge.Vectors {
 		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
-		vectorIndex, ok := s.GetVectorIndex(targetVector)
-		if !ok {
+		found, err := s.WithVectorIndex(targetVector, func(vectorIndex VectorIndex) error {
+			switch v := vector.(type) {
+			case []float32:
+				err := vectorIndex.ValidateBeforeInsert(v)
+				if err != nil {
+					return errors.Wrapf(err, "validate vector index for update of %v for target vector %s", merge.ID, targetVector)
+				}
+			case [][]float32:
+				err := vectorIndex.(VectorIndexMulti).ValidateMultiBeforeInsert(v)
+				if err != nil {
+					return errors.Wrapf(err, "validate multi vector index for update of %v for target vector %s", merge.ID, targetVector)
+				}
+			default:
+				return errors.Errorf("validate vector index for update of %v for target vector %s: unrecongnized vector type: %T", merge.ID, targetVector, vector)
+			}
+			return nil
+		})
+		if !found {
 			return errors.Errorf("validate vector index for update of %v for target vector %s: vector index not found", merge.ID, targetVector)
 		}
-		switch v := vector.(type) {
-		case []float32:
-			err := vectorIndex.ValidateBeforeInsert(v)
-			if err != nil {
-				return errors.Wrapf(err, "validate vector index for update of %v for target vector %s", merge.ID, targetVector)
-			}
-		case [][]float32:
-			err := vectorIndex.(VectorIndexMulti).ValidateMultiBeforeInsert(v)
-			if err != nil {
-				return errors.Wrapf(err, "validate multi vector index for update of %v for target vector %s", merge.ID, targetVector)
-			}
-		default:
-			return errors.Errorf("validate vector index for update of %v for target vector %s: unrecongnized vector type: %T", merge.ID, targetVector, vector)
+		if err != nil {
+			return err
 		}
 	}
 
 	if len(merge.Vector) > 0 {
-		vectorIndex, ok := s.GetVectorIndex("")
-		if !ok {
+		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
+		found, err := s.WithVectorIndex("", func(vectorIndex VectorIndex) error {
+			return vectorIndex.ValidateBeforeInsert(merge.Vector)
+		})
+		if !found {
 			return errors.Errorf("validate vector index for update of %v for vector: vector index not found", merge.ID)
 		}
-
-		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
-		err := vectorIndex.ValidateBeforeInsert(merge.Vector)
 		if err != nil {
 			return errors.Wrapf(err, "validate vector index for update of %v", merge.ID)
 		}
@@ -138,7 +142,11 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDocument,
 	idBytes []byte, class *models.Class,
 ) (*storobj.Object, objectInsertStatus, error) {
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return nil, objectInsertStatus{}, err
+	}
+	defer release()
 
 	var prevObj, obj *storobj.Object
 	var status objectInsertStatus
@@ -241,8 +249,13 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 func (s *Shard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDocument,
 	idBytes []byte,
 ) (mutableMergeResult, error) {
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	out := mutableMergeResult{}
+
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return out, err
+	}
+	defer release()
 
 	// Wait outside the RLock; see shard_write_put.go (calling it under RLock is a recursive read-lock deadlock).
 	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {

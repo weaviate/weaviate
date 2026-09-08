@@ -174,7 +174,7 @@ type shards interface {
 	DigestObjects(ctx context.Context, indexName, shardName string,
 		ids []strfmt.UUID) (result []types.RepairResponse, err error)
 	DigestObjectsInRange(ctx context.Context, indexName, shardName string,
-		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error)
+		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairDigest, err error)
 	HashTreeLevel(ctx context.Context, indexName, shardName string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 

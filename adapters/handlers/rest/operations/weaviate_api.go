@@ -32,12 +32,14 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/aggregate"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/backups"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/classifications"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/cluster"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/distributed_tasks"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/experimental"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/export"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/mcp"
@@ -88,6 +90,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		AuthzAddPermissionsHandler: authz.AddPermissionsHandlerFunc(func(params authz.AddPermissionsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.AddPermissions has not yet been implemented")
+		}),
+		AggregateAggregateHandler: aggregate.AggregateHandlerFunc(func(params aggregate.AggregateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation aggregate.Aggregate has not yet been implemented")
 		}),
 		SchemaAliasesCreateHandler: schema.AliasesCreateHandlerFunc(func(params schema.AliasesCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.AliasesCreate has not yet been implemented")
@@ -194,6 +199,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ExportExportStatusHandler: export.ExportStatusHandlerFunc(func(params export.ExportStatusParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation export.ExportStatus has not yet been implemented")
 		}),
+		ExperimentalExportUsersHandler: experimental.ExportUsersHandlerFunc(func(params experimental.ExportUsersParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation experimental.ExportUsers has not yet been implemented")
+		}),
 		ReplicationForceDeleteReplicationsHandler: replication.ForceDeleteReplicationsHandlerFunc(func(params replication.ForceDeleteReplicationsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.ForceDeleteReplications has not yet been implemented")
 		}),
@@ -248,6 +256,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		AuthzHasPermissionHandler: authz.HasPermissionHandlerFunc(func(params authz.HasPermissionParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.HasPermission has not yet been implemented")
 		}),
+		ExperimentalImportUsersHandler: experimental.ImportUsersHandlerFunc(func(params experimental.ImportUsersParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation experimental.ImportUsers has not yet been implemented")
+		}),
 		UsersListAllUsersHandler: users.ListAllUsersHandlerFunc(func(params users.ListAllUsersParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation users.ListAllUsers has not yet been implemented")
 		}),
@@ -259,9 +270,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		McpMcpDeleteHandler: mcp.McpDeleteHandlerFunc(func(params mcp.McpDeleteParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation mcp.McpDelete has not yet been implemented")
-		}),
-		McpMcpGetHandler: mcp.McpGetHandlerFunc(func(params mcp.McpGetParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation mcp.McpGet has not yet been implemented")
 		}),
 		McpMcpPostHandler: mcp.McpPostHandlerFunc(func(params mcp.McpPostParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation mcp.McpPost has not yet been implemented")
@@ -398,6 +406,15 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaSchemaObjectsVectorsDeleteHandler: schema.SchemaObjectsVectorsDeleteHandlerFunc(func(params schema.SchemaObjectsVectorsDeleteParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsVectorsDelete has not yet been implemented")
 		}),
+		SearchSearchBm25Handler: search.SearchBm25HandlerFunc(func(params search.SearchBm25Params, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation search.SearchBm25 has not yet been implemented")
+		}),
+		SearchSearchHybridHandler: search.SearchHybridHandlerFunc(func(params search.SearchHybridParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation search.SearchHybrid has not yet been implemented")
+		}),
+		SearchSearchNearObjectHandler: search.SearchNearObjectHandlerFunc(func(params search.SearchNearObjectParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation search.SearchNearObject has not yet been implemented")
+		}),
 		SearchSearchNearTextHandler: search.SearchNearTextHandlerFunc(func(params search.SearchNearTextParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation search.SearchNearText has not yet been implemented")
 		}),
@@ -498,6 +515,8 @@ type WeaviateAPI struct {
 	UsersActivateUserHandler users.ActivateUserHandler
 	// AuthzAddPermissionsHandler sets the operation handler for the add permissions operation
 	AuthzAddPermissionsHandler authz.AddPermissionsHandler
+	// AggregateAggregateHandler sets the operation handler for the aggregate operation
+	AggregateAggregateHandler aggregate.AggregateHandler
 	// SchemaAliasesCreateHandler sets the operation handler for the aliases create operation
 	SchemaAliasesCreateHandler schema.AliasesCreateHandler
 	// SchemaAliasesDeleteHandler sets the operation handler for the aliases delete operation
@@ -568,6 +587,8 @@ type WeaviateAPI struct {
 	ExportExportCreateHandler export.ExportCreateHandler
 	// ExportExportStatusHandler sets the operation handler for the export status operation
 	ExportExportStatusHandler export.ExportStatusHandler
+	// ExperimentalExportUsersHandler sets the operation handler for the export users operation
+	ExperimentalExportUsersHandler experimental.ExportUsersHandler
 	// ReplicationForceDeleteReplicationsHandler sets the operation handler for the force delete replications operation
 	ReplicationForceDeleteReplicationsHandler replication.ForceDeleteReplicationsHandler
 	// ReplicationGetCollectionShardingStateHandler sets the operation handler for the get collection sharding state operation
@@ -604,6 +625,8 @@ type WeaviateAPI struct {
 	GraphqlGraphqlPostHandler graphql.GraphqlPostHandler
 	// AuthzHasPermissionHandler sets the operation handler for the has permission operation
 	AuthzHasPermissionHandler authz.HasPermissionHandler
+	// ExperimentalImportUsersHandler sets the operation handler for the import users operation
+	ExperimentalImportUsersHandler experimental.ImportUsersHandler
 	// UsersListAllUsersHandler sets the operation handler for the list all users operation
 	UsersListAllUsersHandler users.ListAllUsersHandler
 	// NamespacesListNamespacesHandler sets the operation handler for the list namespaces operation
@@ -612,8 +635,6 @@ type WeaviateAPI struct {
 	ReplicationListReplicationHandler replication.ListReplicationHandler
 	// McpMcpDeleteHandler sets the operation handler for the mcp delete operation
 	McpMcpDeleteHandler mcp.McpDeleteHandler
-	// McpMcpGetHandler sets the operation handler for the mcp get operation
-	McpMcpGetHandler mcp.McpGetHandler
 	// McpMcpPostHandler sets the operation handler for the mcp post operation
 	McpMcpPostHandler mcp.McpPostHandler
 	// MetaMetaGetHandler sets the operation handler for the meta get operation
@@ -704,6 +725,12 @@ type WeaviateAPI struct {
 	SchemaSchemaObjectsUpdateHandler schema.SchemaObjectsUpdateHandler
 	// SchemaSchemaObjectsVectorsDeleteHandler sets the operation handler for the schema objects vectors delete operation
 	SchemaSchemaObjectsVectorsDeleteHandler schema.SchemaObjectsVectorsDeleteHandler
+	// SearchSearchBm25Handler sets the operation handler for the search bm25 operation
+	SearchSearchBm25Handler search.SearchBm25Handler
+	// SearchSearchHybridHandler sets the operation handler for the search hybrid operation
+	SearchSearchHybridHandler search.SearchHybridHandler
+	// SearchSearchNearObjectHandler sets the operation handler for the search near object operation
+	SearchSearchNearObjectHandler search.SearchNearObjectHandler
 	// SearchSearchNearTextHandler sets the operation handler for the search near text operation
 	SearchSearchNearTextHandler search.SearchNearTextHandler
 	// NamespacesSuspendNamespaceHandler sets the operation handler for the suspend namespace operation
@@ -826,6 +853,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.AuthzAddPermissionsHandler == nil {
 		unregistered = append(unregistered, "authz.AddPermissionsHandler")
 	}
+	if o.AggregateAggregateHandler == nil {
+		unregistered = append(unregistered, "aggregate.AggregateHandler")
+	}
 	if o.SchemaAliasesCreateHandler == nil {
 		unregistered = append(unregistered, "schema.AliasesCreateHandler")
 	}
@@ -931,6 +961,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.ExportExportStatusHandler == nil {
 		unregistered = append(unregistered, "export.ExportStatusHandler")
 	}
+	if o.ExperimentalExportUsersHandler == nil {
+		unregistered = append(unregistered, "experimental.ExportUsersHandler")
+	}
 	if o.ReplicationForceDeleteReplicationsHandler == nil {
 		unregistered = append(unregistered, "replication.ForceDeleteReplicationsHandler")
 	}
@@ -985,6 +1018,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.AuthzHasPermissionHandler == nil {
 		unregistered = append(unregistered, "authz.HasPermissionHandler")
 	}
+	if o.ExperimentalImportUsersHandler == nil {
+		unregistered = append(unregistered, "experimental.ImportUsersHandler")
+	}
 	if o.UsersListAllUsersHandler == nil {
 		unregistered = append(unregistered, "users.ListAllUsersHandler")
 	}
@@ -996,9 +1032,6 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.McpMcpDeleteHandler == nil {
 		unregistered = append(unregistered, "mcp.McpDeleteHandler")
-	}
-	if o.McpMcpGetHandler == nil {
-		unregistered = append(unregistered, "mcp.McpGetHandler")
 	}
 	if o.McpMcpPostHandler == nil {
 		unregistered = append(unregistered, "mcp.McpPostHandler")
@@ -1134,6 +1167,15 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SchemaSchemaObjectsVectorsDeleteHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsVectorsDeleteHandler")
+	}
+	if o.SearchSearchBm25Handler == nil {
+		unregistered = append(unregistered, "search.SearchBm25Handler")
+	}
+	if o.SearchSearchHybridHandler == nil {
+		unregistered = append(unregistered, "search.SearchHybridHandler")
+	}
+	if o.SearchSearchNearObjectHandler == nil {
+		unregistered = append(unregistered, "search.SearchNearObjectHandler")
 	}
 	if o.SearchSearchNearTextHandler == nil {
 		unregistered = append(unregistered, "search.SearchNearTextHandler")
@@ -1291,6 +1333,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
+	o.handlers["POST"]["/aggregate/{collection}"] = aggregate.NewAggregate(o.context, o.AggregateAggregateHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
 	o.handlers["POST"]["/aliases"] = schema.NewAliasesCreate(o.context, o.SchemaAliasesCreateHandler)
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
@@ -1431,6 +1477,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
+	o.handlers["POST"]["/experimental/export-db-users"] = experimental.NewExportUsers(o.context, o.ExperimentalExportUsersHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
 	o.handlers["POST"]["/replication/replicate/force-delete"] = replication.NewForceDeleteReplications(o.context, o.ReplicationForceDeleteReplicationsHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
@@ -1500,6 +1550,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/authz/roles/{id}/has-permission"] = authz.NewHasPermission(o.context, o.AuthzHasPermissionHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/experimental/import-db-users"] = experimental.NewImportUsers(o.context, o.ExperimentalImportUsersHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
@@ -1516,10 +1570,6 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/mcp"] = mcp.NewMcpDelete(o.context, o.McpMcpDeleteHandler)
-	if o.handlers["GET"] == nil {
-		o.handlers["GET"] = make(map[string]http.Handler)
-	}
-	o.handlers["GET"]["/mcp"] = mcp.NewMcpGet(o.context, o.McpMcpGetHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
@@ -1700,6 +1750,18 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/schema/{className}/vectors/{vectorIndexName}/index"] = schema.NewSchemaObjectsVectorsDelete(o.context, o.SchemaSchemaObjectsVectorsDeleteHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/search/{collection}/bm25"] = search.NewSearchBm25(o.context, o.SearchSearchBm25Handler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/search/{collection}/hybrid"] = search.NewSearchHybrid(o.context, o.SearchSearchHybridHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/search/{collection}/near-object"] = search.NewSearchNearObject(o.context, o.SearchSearchNearObjectHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}

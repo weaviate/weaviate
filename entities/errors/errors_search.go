@@ -68,3 +68,42 @@ func (e ErrCertaintyIncompatible) Unwrap() error {
 func NewErrCertaintyIncompatible(err error) ErrCertaintyIncompatible {
 	return ErrCertaintyIncompatible{err}
 }
+
+// ErrSourceObjectNotFound: the object a near-object search derives its
+// vector from does not exist (a bad client-supplied id). Check it before
+// ErrQueryVectorization — it surfaces wrapped inside that one.
+type ErrSourceObjectNotFound struct {
+	err error
+}
+
+func (e ErrSourceObjectNotFound) Error() string {
+	return e.err.Error()
+}
+
+func (e ErrSourceObjectNotFound) Unwrap() error {
+	return e.err
+}
+
+func NewErrSourceObjectNotFound(err error) ErrSourceObjectNotFound {
+	return ErrSourceObjectNotFound{err}
+}
+
+// ErrSourceObjectNoVector: the source object of a near-object search exists
+// but carries no stored vector usable for the (target) vector searched.
+// Check it before ErrQueryVectorization — it surfaces wrapped inside that
+// one.
+type ErrSourceObjectNoVector struct {
+	err error
+}
+
+func (e ErrSourceObjectNoVector) Error() string {
+	return e.err.Error()
+}
+
+func (e ErrSourceObjectNoVector) Unwrap() error {
+	return e.err
+}
+
+func NewErrSourceObjectNoVector(err error) ErrSourceObjectNoVector {
+	return ErrSourceObjectNoVector{err}
+}

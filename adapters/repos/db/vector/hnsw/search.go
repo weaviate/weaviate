@@ -297,6 +297,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	var sliceConnectionsReusable *common.VectorUint64Slice
 	var slicePendingNextRound *common.VectorUint64Slice
 	var slicePendingThisRound *common.VectorUint64Slice
+	var sliceNeighborConnections *common.VectorUint64Slice
 
 	if allowList == nil {
 		strategy = SWEEPING
@@ -306,6 +307,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		sliceConnectionsReusable = h.pools.tempVectorsUint64.Get(8 * h.maximumConnectionsLayerZero)
 		slicePendingNextRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
 		slicePendingThisRound = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
+		sliceNeighborConnections = h.pools.tempVectorsUint64.Get(h.maximumConnectionsLayerZero)
 	} else {
 		connectionsReusable = make([]uint64, h.maximumConnectionsLayerZero)
 		if strategy == PATHSEER && level == 0 {
@@ -368,12 +370,19 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			continue
 		}
 
+		candidateLocked := true
+		var lockedNeighbor *vertex
 		func() {
-			// ensure we unlock the node even if we panic while
-			// accessing its connections
+			// a restored layer can advertise more entries than it stores, so
+			// the decode below panics on corrupt data while a vertex is held
 			defer func() {
 				if err := recover(); err != nil {
-					candidateNode.Unlock()
+					if lockedNeighbor != nil {
+						lockedNeighbor.Unlock()
+					}
+					if candidateLocked {
+						candidateNode.Unlock()
+					}
 					panic(errors.Errorf("shard: %s, collection: %s, vectorIndex: %s, panic: %v", h.shardName, h.className, h.id, err))
 				}
 			}()
@@ -396,16 +405,26 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					connectionsReusable = connectionsReusable[:candidateNode.connections.LenAtLayer(uint8(level))]
 				}
 				connectionsReusable = candidateNode.connections.CopyLayer(connectionsReusable, uint8(level))
+				candidateNode.Unlock()
+				candidateLocked = false
 			} else {
 				connectionsReusable = sliceConnectionsReusable.Slice
 				pendingNextRound := slicePendingNextRound.Slice
 				pendingThisRound := slicePendingThisRound.Slice
+				neighborConnections := sliceNeighborConnections.Slice
 
 				realLen := 0
 				index := 0
 
 				pendingNextRound = pendingNextRound[:candidateNode.connections.LenAtLayer(uint8(level))]
 				pendingNextRound = candidateNode.connections.CopyLayer(pendingNextRound, uint8(level))
+
+				// Release before the expansion, which locks each neighbor on
+				// its own: two searches expanding each other's vertices would
+				// deadlock if either held a second vertex mutex.
+				candidateNode.Unlock()
+				candidateLocked = false
+
 				hop := 1
 				maxHops := 2
 				for hop <= maxHops && realLen < 8*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
@@ -456,9 +475,12 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 						if node == nil {
 							continue
 						}
-						iterator := node.connections.ElementIterator(uint8(level))
-						for iterator.Next() {
-							_, expId := iterator.Current()
+						node.Lock()
+						lockedNeighbor = node
+						neighborConnections = node.connections.CopyLayer(neighborConnections[:0], uint8(level))
+						lockedNeighbor = nil
+						node.Unlock()
+						for _, expId := range neighborConnections {
 							if visitedExp.CheckAndVisit(expId) {
 								continue
 							}
@@ -496,11 +518,10 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					hop++
 				}
 				slicePendingNextRound.Slice = pendingNextRound
+				sliceNeighborConnections.Slice = neighborConnections
 				connectionsReusable = connectionsReusable[:realLen]
 			}
 		}()
-
-		candidateNode.Unlock()
 
 		// PathSeer skips distance computation for a one-hop neighbor when neither the neighbor nor the candidate satisfies the predicate, improving performance on negatively correlated workloads.
 		candidatePasses := true
@@ -685,6 +706,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		h.pools.tempVectorsUint64.Put(sliceConnectionsReusable)
 		h.pools.tempVectorsUint64.Put(slicePendingNextRound)
 		h.pools.tempVectorsUint64.Put(slicePendingThisRound)
+		h.pools.tempVectorsUint64.Put(sliceNeighborConnections)
 	}
 	if sliceSecondOrder != nil {
 		h.pools.tempVectorsUint64.Put(sliceSecondOrder)
@@ -1085,10 +1107,20 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 			strategy = RRE
 		} else {
 			counter := float32(0)
-			entryPointNode.Lock()
-			if entryPointNode.connections.Layers() < 1 {
-				strategy = ACORN
-			} else {
+			var hasLayers bool
+			var connectionCount int
+			func() {
+				entryPointNode.Lock()
+				// deferred because the decode below panics on a restored layer
+				// that advertises more entries than it stores
+				defer entryPointNode.Unlock()
+
+				hasLayers = entryPointNode.connections.Layers() >= 1
+				connectionCount = entryPointNode.connections.LenAtLayer(0)
+				if !hasLayers {
+					return
+				}
+
 				iterator := entryPointNode.connections.ElementIterator(0)
 				for iterator.Next() {
 					_, value := iterator.Current()
@@ -1103,12 +1135,12 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 						counter++
 					}
 				}
-				entryPointNode.Unlock()
-				if counter/float32(h.nodes[entryPointID].connections.LenAtLayer(0)) > float32(h.acornFilterRatio) {
-					strategy = RRE
-				} else {
-					strategy = ACORN
-				}
+			}()
+
+			if hasLayers && counter/float32(connectionCount) > float32(h.acornFilterRatio) {
+				strategy = RRE
+			} else {
+				strategy = ACORN
 			}
 		}
 	} else {
@@ -1214,9 +1246,14 @@ func (h *hnsw) computeLateInteraction(ctx context.Context, queryVectors [][]floa
 		ids = append(ids, docID)
 	}
 
+	useCache := !h.compressed.Load() && !h.muvera.Load()
+
 	// Acquire a single consistent view for all disk reads to avoid per-candidate flushLock acquisitions.
-	view := h.GetViewThunk()
-	defer view.ReleaseView()
+	var view common.BucketView
+	if !useCache {
+		view = h.GetViewThunk()
+		defer view.ReleaseView()
+	}
 
 	resultsQueue := priorityqueue.NewMax[any](k)
 	mu := sync.Mutex{}
@@ -1239,15 +1276,24 @@ func (h *hnsw) computeLateInteraction(ctx context.Context, queryVectors [][]floa
 	for workerID := 0; workerID < workers; workerID++ {
 		workerID := workerID
 		eg.Go(func() error {
-			slice := h.pools.tempVectors.Get(int(h.dims.Load()))
-			defer h.pools.tempVectors.Put(slice)
+			var slice *common.VectorSlice
+			if !useCache {
+				slice = h.pools.tempVectors.Get(int(h.dims.Load()))
+				defer h.pools.tempVectors.Put(slice)
+			}
 
 			for idPos := workerID; idPos < len(ids); idPos += workers {
 				if err := ctx.Err(); err != nil {
 					return fmt.Errorf("computeLateInteraction: %w", err)
 				}
 				docID := ids[idPos]
-				sim, err := h.computeScoreWithView(ctx, queryVectors, docID, slice, view)
+				var sim float32
+				var err error
+				if useCache {
+					sim, err = h.computeScore(queryVectors, docID)
+				} else {
+					sim, err = h.computeScoreWithView(ctx, queryVectors, docID, slice, view)
+				}
 				if err != nil {
 					h.logger.
 						WithField("action", "computeLateInteraction").

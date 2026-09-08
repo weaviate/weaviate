@@ -63,10 +63,6 @@ func (p *BitmapBufPoolTrackingForTests) CloneBytesToBuf(src []byte) (cloned *sro
 	return cloneBytesToBuf(p, src)
 }
 
-func (p *BitmapBufPoolTrackingForTests) CloneBytesToBufBounded(src []byte) (cloned *sroar.Bitmap, put func()) {
-	return cloneBytesToBufBounded(p, src)
-}
-
 func (p *BitmapBufPoolTrackingForTests) AccumulatorToBuf(acc *sroar.Accumulator) (bm *sroar.Bitmap, put func()) {
 	return accumulatorToBuf(p, acc)
 }

@@ -82,7 +82,7 @@ func TestReplicaSnapshotFallbackInactivityTimerIsReset(t *testing.T) {
 
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
 
-	index, err := NewIndex(context.Background(), IndexConfig{
+	index, err := NewIndex(context.Background(), nil, IndexConfig{
 		ClassName:                 schema.ClassName("TestClass"),
 		RootPath:                  t.TempDir(),
 		ReplicationFactor:         1,
@@ -93,10 +93,12 @@ func TestReplicaSnapshotFallbackInactivityTimerIsReset(t *testing.T) {
 		nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
+	shutdownIndexOnCleanup(t, index)
 	index.db = stubDBWithNoLiveReindex()
 
 	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
-		NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop())
+		NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop(),
+		monitoring.ShardRegistrationEager)
 	require.NoError(t, err)
 	index.shards.Store("shard1", shard)
 
@@ -123,7 +125,7 @@ func TestReplicaSnapshotFallbackInactivityTimerIsReset(t *testing.T) {
 
 	// Sanity: the test must actually be exercising fallback mode.
 	shard.haltForTransferMux.Lock()
-	require.Greater(t, shard.haltForTransferCount, 0,
+	require.Greater(t, shard.haltForTransferCount.Load(), int64(0),
 		"shard must be halted in fallback mode after IncomingCreateReplicaSnapshot")
 	shard.haltForTransferMux.Unlock()
 
@@ -148,13 +150,13 @@ func TestReplicaSnapshotFallbackInactivityTimerIsReset(t *testing.T) {
 	time.Sleep(activeWindow)
 
 	shard.haltForTransferMux.Lock()
-	haltCount := shard.haltForTransferCount
+	haltCount := shard.haltForTransferCount.Load()
 	shard.haltForTransferMux.Unlock()
 
 	close(stop)
 	require.Eventually(t, done.Load, 200*time.Millisecond, 10*time.Millisecond)
 
-	require.Greaterf(t, haltCount, 0,
+	require.Greaterf(t, haltCount, int64(0),
 		"haltForTransferCount fell to 0 during active transfer — the watchdog fired "+
 			"because the read RPCs did not reset the timer")
 
@@ -163,7 +165,7 @@ func TestReplicaSnapshotFallbackInactivityTimerIsReset(t *testing.T) {
 	require.Eventually(t, func() bool {
 		shard.haltForTransferMux.Lock()
 		defer shard.haltForTransferMux.Unlock()
-		return shard.haltForTransferCount == 0
+		return shard.haltForTransferCount.Load() == 0
 	}, 3*inactivityTimeout, 20*time.Millisecond,
 		"watchdog never fired after activity stopped — test mechanism is broken")
 }

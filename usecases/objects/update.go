@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/go-openapi/strfmt"
@@ -24,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -92,6 +94,11 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 
 	autoSchemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClasses, updates)
 	if err != nil {
+		// Extending the collection needs its own permission; reporting a denial
+		// as invalid input would hide the missing grant behind a 422.
+		if errors.As(err, &authzerrs.Forbidden{}) {
+			return nil, err
+		}
 		return nil, NewErrInvalidUserInput("invalid object: %v", err)
 	}
 
@@ -119,7 +126,7 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 
 	err = m.modulesProvider.UpdateVector(ctx, updates, class, m.findObject, m.logger)
 	if err != nil {
-		return nil, NewErrInternal("update object: %v", err)
+		return nil, NewErrInternal("update object: %w", err)
 	}
 
 	schema.HashBlobHashProperties(class, updates)

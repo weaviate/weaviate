@@ -654,6 +654,52 @@ func TestController_RestoreRejectsUnknownState(t *testing.T) {
 	}
 }
 
+// TestController_RestoreEmptyLeavesControllerWritable covers every snapshot
+// that carries no namespaces. "null" is the one Snapshot emits for a nil map,
+// and it decodes to a nil map rather than an empty one, so restoring it must
+// still leave a map the next Create can write into.
+func TestController_RestoreEmptyLeavesControllerWritable(t *testing.T) {
+	tests := []struct {
+		name string
+		snap []byte
+	}{
+		{name: "null", snap: []byte("null")},
+		{name: "empty object", snap: []byte("{}")},
+		{name: "empty snapshot", snap: []byte{}},
+		{name: "nil snapshot", snap: nil},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			c := newTestController(t)
+			require.NoError(t, c.Create(cmd.Namespace{Name: "stale", HomeNodes: []string{"node-1"}}, createIndex))
+
+			require.NoError(t, c.Restore(tc.snap))
+			assert.Equal(t, 0, c.Count())
+
+			require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}, createIndex))
+			assert.Equal(t, 1, c.Count())
+			assert.True(t, nsExists(c, "customer1"))
+		})
+	}
+}
+
+// TestController_SnapshotRestoreRoundTripAfterNull pins the propagation path:
+// a controller that restored "null" must not emit a snapshot that installs a
+// nil map on the next node to restore it.
+func TestController_SnapshotRestoreRoundTripAfterNull(t *testing.T) {
+	c := newTestController(t)
+	require.NoError(t, c.Restore([]byte("null")))
+
+	snap, err := c.Snapshot()
+	require.NoError(t, err)
+
+	other := newTestController(t)
+	require.NoError(t, other.Restore(snap))
+	require.NoError(t, other.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}, createIndex))
+	assert.Equal(t, 1, other.Count())
+}
+
 func TestController_Get(t *testing.T) {
 	c := newTestController(t)
 	require.NoError(t, c.Create(cmd.Namespace{Name: "customer1", HomeNodes: []string{"node-1"}}, createIndex))
@@ -771,29 +817,46 @@ func TestController_Restore(t *testing.T) {
 			wantNames: []string{"customer1"},
 		},
 		{
-			name:    "malformed JSON returns an error",
-			snap:    []byte("not-json"),
-			wantErr: true,
+			// Every rejected snapshot leaves the previous state in place:
+			// validation runs on the decoded map before it is swapped in.
+			name:      "malformed JSON returns an error",
+			seed:      []string{"stale"},
+			snap:      []byte("not-json"),
+			wantErr:   true,
+			wantNames: []string{"stale"},
 		},
 		{
 			// Pre-home_node snapshots have no migration path; rather than
 			// loading a broken entry that would fail at first placement
 			// attempt, Restore rejects up front.
-			name:    "missing HomeNodes is rejected",
-			snap:    []byte(`{"customer1":{"Name":"customer1","State":"active"}}`),
-			wantErr: true,
+			name:      "missing HomeNodes is rejected",
+			seed:      []string{"stale"},
+			snap:      []byte(`{"customer1":{"Name":"customer1","State":"active"}}`),
+			wantErr:   true,
+			wantNames: []string{"stale"},
 		},
 		{
-			name:    "empty HomeNodes entry is rejected",
-			snap:    []byte(`{"customer1":{"Name":"customer1","HomeNodes":[""],"State":"active"}}`),
-			wantErr: true,
+			name:      "empty HomeNodes entry is rejected",
+			seed:      []string{"stale"},
+			snap:      []byte(`{"customer1":{"Name":"customer1","HomeNodes":[""],"State":"active"}}`),
+			wantErr:   true,
+			wantNames: []string{"stale"},
 		},
 		{
 			// A truncated or hand-edited snapshot unmarshals a null entry to
 			// a nil pointer; it must be rejected rather than dereferenced.
-			name:    "null entry is rejected",
-			snap:    []byte(`{"customer1":null}`),
-			wantErr: true,
+			name:      "null entry is rejected",
+			seed:      []string{"stale"},
+			snap:      []byte(`{"customer1":null}`),
+			wantErr:   true,
+			wantNames: []string{"stale"},
+		},
+		{
+			name:      "unknown state is rejected",
+			seed:      []string{"stale"},
+			snap:      []byte(`{"customer1":{"Name":"customer1","HomeNodes":["node-1"],"State":"exploding"}}`),
+			wantErr:   true,
+			wantNames: []string{"stale"},
 		},
 	}
 
@@ -806,9 +869,9 @@ func TestController_Restore(t *testing.T) {
 			err := c.Restore(tc.snap)
 			if tc.wantErr {
 				require.Error(t, err)
-				return
+			} else {
+				require.NoError(t, err)
 			}
-			require.NoError(t, err)
 			assert.ElementsMatch(t, tc.wantNames, namesOf(c.List()))
 		})
 	}

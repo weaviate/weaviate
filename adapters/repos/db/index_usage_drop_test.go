@@ -105,6 +105,7 @@ func runUsageScanTeardown(t *testing.T, nodeName, className, shardName string,
 	mockSchemaReader.EXPECT().LocalShards(mock.Anything).Return([]string{shardName}, nil).Maybe()
 	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(1, nil).Maybe()
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{nodeName}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
 	mockSchemaGetter.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
@@ -125,7 +126,7 @@ func runUsageScanTeardown(t *testing.T, nodeName, className, shardName string,
 		RootPath:                  t.TempDir(),
 		MaxImportGoroutinesFactor: 1,
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil,
-		memwatch.NewDummyMonitor(), mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
+		memwatch.NewDummyMonitor(), mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.NoError(t, err)
 	repo.SetSchemaGetter(mockSchemaGetter)
 	require.NoError(t, repo.WaitForStartup(ctx))

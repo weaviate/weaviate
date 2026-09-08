@@ -12,7 +12,6 @@
 package db
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -116,10 +115,11 @@ func (s *Shard) updateVectorIndexIgnoreDelete(ctx context.Context, vector []floa
 		return nil
 	}
 
-	if queue, ok := s.GetVectorIndexQueue(""); ok {
-		if err := queue.Insert(ctx, &common.Vector[[]float32]{ID: status.docID, Vector: vector}); err != nil {
-			return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
-		}
+	_, err := s.WithVectorIndexQueue("", func(queue *VectorIndexQueue) error {
+		return queue.Insert(ctx, &common.Vector[[]float32]{ID: status.docID, Vector: vector})
+	})
+	if err != nil {
+		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
 	}
 
 	return nil
@@ -145,10 +145,11 @@ func (s *Shard) updateVectorIndexesIgnoreDelete(ctx context.Context,
 	}
 
 	for targetVector, vector := range vectors {
-		if q, ok := s.GetVectorIndexQueue(targetVector); ok {
-			if err := q.Insert(ctx, &common.Vector[[]float32]{ID: status.docID, Vector: vector}); err != nil {
-				return errors.Wrapf(err, "insert doc id %d to vector index for target vector %s", status.docID, targetVector)
-			}
+		_, err := s.WithVectorIndexQueue(targetVector, func(q *VectorIndexQueue) error {
+			return q.Insert(ctx, &common.Vector[[]float32]{ID: status.docID, Vector: vector})
+		})
+		if err != nil {
+			return errors.Wrapf(err, "insert doc id %d to vector index for target vector %s", status.docID, targetVector)
 		}
 	}
 
@@ -174,10 +175,11 @@ func (s *Shard) updateMultiVectorIndexesIgnoreDelete(ctx context.Context,
 	}
 
 	for targetVector, vector := range multiVectors {
-		if q, ok := s.GetVectorIndexQueue(targetVector); ok {
-			if err := q.Insert(ctx, &common.Vector[[][]float32]{ID: status.docID, Vector: vector}); err != nil {
-				return errors.Wrapf(err, "insert doc id %d to multi vector index for target vector %s", status.docID, targetVector)
-			}
+		_, err := s.WithVectorIndexQueue(targetVector, func(q *VectorIndexQueue) error {
+			return q.Insert(ctx, &common.Vector[[][]float32]{ID: status.docID, Vector: vector})
+		})
+		if err != nil {
+			return errors.Wrapf(err, "insert doc id %d to multi vector index for target vector %s", status.docID, targetVector)
 		}
 	}
 
@@ -241,31 +243,38 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 	defer s.metrics.PutObject(before)
 
 	for targetVector, vector := range obj.Vectors {
-		if vectorIndex, ok := s.GetVectorIndex(targetVector); ok {
-			if err := vectorIndex.ValidateBeforeInsert(vector); err != nil {
-				return status, errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, obj.ID())
-			}
+		_, err := s.WithVectorIndex(targetVector, func(vectorIndex VectorIndex) error {
+			return vectorIndex.ValidateBeforeInsert(vector)
+		})
+		if err != nil {
+			return status, errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, obj.ID())
 		}
 	}
 
 	for targetVector, vector := range obj.MultiVectors {
-		if vectorIndex, ok := s.GetVectorIndex(targetVector); ok {
-			if err := vectorIndex.(VectorIndexMulti).ValidateMultiBeforeInsert(vector); err != nil {
-				return status, errors.Wrapf(err, "Validate vector index %s for target multi vector %s", targetVector, obj.ID())
-			}
+		_, err := s.WithVectorIndex(targetVector, func(vectorIndex VectorIndex) error {
+			return vectorIndex.(VectorIndexMulti).ValidateMultiBeforeInsert(vector)
+		})
+		if err != nil {
+			return status, errors.Wrapf(err, "Validate vector index %s for target multi vector %s", targetVector, obj.ID())
 		}
 	}
 
 	if len(obj.Vector) > 0 && s.hasLegacyVectorIndex() {
 		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
-		if index, ok := s.GetVectorIndex(""); ok {
-			if err = index.ValidateBeforeInsert(obj.Vector); err != nil {
-				return status, errors.Wrapf(err, "Validate vector index for %s", obj.ID())
-			}
+		_, err = s.WithVectorIndex("", func(index VectorIndex) error {
+			return index.ValidateBeforeInsert(obj.Vector)
+		})
+		if err != nil {
+			return status, errors.Wrapf(err, "Validate vector index for %s", obj.ID())
 		}
 	}
 
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return status, err
+	}
+	defer release()
 	var prevObj *storobj.Object
 
 	// First the object bucket is checked if an object with the same uuid is alreadypresent,
@@ -520,12 +529,8 @@ func (s *Shard) determineMutableInsertStatus(previous, next *storobj.Object) (ob
 func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte,
 	docID uint64,
 ) error {
-	keyBuf := bytes.NewBuffer(nil)
-	err := binary.Write(keyBuf, binary.LittleEndian, &docID)
-	if err != nil {
-		return fmt.Errorf("write doc id to buffer: %w", err)
-	}
-	docIDBytes := keyBuf.Bytes()
+	docIDBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(docIDBytes, docID)
 
 	return bucket.Put(id, data,
 		lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes),
@@ -859,10 +864,11 @@ func propsEqual(prevProps, nextProps map[string]interface{}) bool {
 func updateVectorInVectorIndex[T dto.Embedding](ctx context.Context, shard *Shard, targetVector string, vector T,
 	status objectInsertStatus,
 ) error {
-	queue, ok := shard.GetVectorIndexQueue(targetVector)
+	queue, release, ok := shard.AcquireVectorIndexQueue(targetVector)
 	if !ok {
 		return fmt.Errorf("vector index not found for %s", targetVector)
 	}
+	defer release()
 
 	// even if no vector is provided in an update, we still need
 	// to delete the previous vector from the index, if it

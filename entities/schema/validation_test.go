@@ -154,6 +154,21 @@ func TestValidateReservedPropertyNameSuffix(t *testing.T) {
 		{name: "reject _nullState", input: "foo_nullState", wantErr: true},
 		{name: "reject when suffix is the whole prefix of name", input: "bar_temp", wantErr: true},
 		{name: "reject name equal to suffix only", input: "_temp", wantErr: true},
+
+		// A migration on property "a" works in directories called
+		// "property_a__<strategy>_<role>_<gen>". A property whose own main
+		// bucket has that shape would share the directory.
+		{name: "reject sidecar shape", input: "a__reindex", wantErr: true},
+		{name: "reject sidecar shape with generation tail", input: "a__reindex_2", wantErr: true},
+		{name: "reject sidecar shape with multi-word strategy", input: "a__foo_reindex", wantErr: true},
+		{name: "reject real derived name", input: "title__enable_filterable_ingest_3", wantErr: true},
+		{name: "reject map role word", input: "a__blockmax_map_1", wantErr: true},
+		{name: "reject backup role word", input: "a__roaringset_backup", wantErr: true},
+		{name: "ok role word without the double underscore", input: "myreindex", wantErr: false},
+		{name: "ok role word as a plain suffix", input: "a_reindex", wantErr: false},
+		{name: "ok double underscore without a role word", input: "a__foo", wantErr: false},
+		{name: "ok role word not in trailing position", input: "a__reindex_foo", wantErr: false},
+		{name: "ok non-numeric tail after the role word", input: "a__reindex_v2", wantErr: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

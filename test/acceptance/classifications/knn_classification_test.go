@@ -36,7 +36,11 @@ func knnClassification(t *testing.T) {
 				shardStatus, err := helper.Client(t).Schema.SchemaObjectsShardsGet(schema.NewSchemaObjectsShardsGetParams().WithClassName("Recipe"), nil)
 				require.Nil(t, err)
 				require.GreaterOrEqual(t, len(shardStatus.Payload), 1)
-				return shardStatus.Payload[0].Status
+
+				for _, status := range shardStatus.Payload[0].PerNodeStatus {
+					return status
+				}
+				return ""
 			}, 250*time.Millisecond, 15*time.Second)
 	})
 

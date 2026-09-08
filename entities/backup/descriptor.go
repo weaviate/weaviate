@@ -56,6 +56,7 @@ type DistributedBackupDescriptor struct {
 	CompressionType         CompressionType            `json:"compressionType"`
 	BaseBackupID            string                     `json:"baseBackupId"`
 	Users                   []string                   `json:"users,omitempty"`
+	Roles                   []string                   `json:"roles,omitempty"`
 }
 
 // Len returns how many nodes exist in d
@@ -177,21 +178,6 @@ func (d *DistributedBackupDescriptor) ToOriginalNodeName(nodeName string) string
 		}
 	}
 	return nodeName
-}
-
-// ApplyNodeMapping applies d.NodeMapping translation to d.Nodes. If a node in d.Nodes is not translated by d.NodeMapping, it will remain
-// unchanged.
-func (d *DistributedBackupDescriptor) ApplyNodeMapping() {
-	if len(d.NodeMapping) == 0 {
-		return
-	}
-
-	for k, v := range d.NodeMapping {
-		if nodeDescriptor, ok := d.Nodes[k]; !ok {
-			d.Nodes[v] = nodeDescriptor
-			delete(d.Nodes, k)
-		}
-	}
 }
 
 // AllExist checks if all classes exist in d.

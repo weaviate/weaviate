@@ -417,12 +417,28 @@ func TestAsyncRepairMultiTenancyRuntimeToggle(t *testing.T) {
 	})
 
 	t.Run("async replication is registered on hot tenant shards", func(t *testing.T) {
+		// Gate on a healthy cluster and allow >1 hashbeat frequency (30s): a first cycle before peers are reachable errors and only repopulates asyncReplicationStatus a full frequency later.
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			verbose := verbosity.OutputVerbose
+			params := nodes.NewNodesGetClassParams().
+				WithClassName(paragraphClass.Class).WithOutput(&verbose)
+			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
+			require.NoError(ct, clientErr)
+			require.NotNil(ct, body.Payload)
+			require.Len(ct, body.Payload.Nodes, clusterSize)
+			shards := 0
+			for _, node := range body.Payload.Nodes {
+				require.NotNil(ct, node.Status)
+				require.Equal(ct, "HEALTHY", *node.Status)
+				shards += len(node.Shards)
+			}
+			require.Greater(ct, shards, 0, "tenant shards not reported yet")
+
 			n, err := shardsAsyncReplicationLen(t, paragraphClass.Class)
 			require.NoError(ct, err)
 			require.Greater(ct, n, 0,
 				"asyncReplicationStatus must be populated on hot tenant shards at boot")
-		}, 30*time.Second, 500*time.Millisecond)
+		}, 90*time.Second, 1*time.Second)
 	})
 
 	t.Run("admin disables async replication via the runtime-overrides file", func(t *testing.T) {

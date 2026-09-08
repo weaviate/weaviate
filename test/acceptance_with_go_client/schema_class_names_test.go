@@ -12,6 +12,7 @@
 package acceptance_with_go_client
 
 import (
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"fmt"
 	"testing"
@@ -24,8 +25,6 @@ import (
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/grpc"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestSchemaClassNames(t *testing.T) {

@@ -9,7 +9,7 @@ body:
         #### Before you get started
         * Check to make sure someone hasn't already opened a similar [issue](https://github.com/weaviate/weaviate-io/issues).
         * Check this example of a [good bug report](https://github.com/weaviate/weaviate/issues/3762).
-        * Read the [Contributor Guide](https://weaviate.io/developers/contributor-guide) and [Code of Conduct](https://weaviate.io/service/code-of-conduct).
+        * Read the [Contributor Guide](https://docs.weaviate.io/contributor-guide) and [Code of Conduct](https://weaviate.io/service/code-of-conduct).
 
   - type: textarea
     id: how_to_reproduce
@@ -74,5 +74,5 @@ body:
       label: Code of Conduct
       description: This project has a Code of Conduct. All participants are expected to understand and follow the CoC.
       options:
-        - label: I have read and agree to the Weaviate's [Contributor Guide](https://weaviate.io/developers/contributor-guide) and [Code of Conduct](https://weaviate.io/service/code-of-conduct)
+        - label: I have read and agree to the Weaviate's [Contributor Guide](https://docs.weaviate.io/contributor-guide) and [Code of Conduct](https://weaviate.io/service/code-of-conduct)
           required: true

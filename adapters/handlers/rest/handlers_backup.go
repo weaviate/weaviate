@@ -132,6 +132,7 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 		Include:      params.Body.Include,
 		Exclude:      params.Body.Exclude,
 		IncludeUsers: params.Body.IncludeUsers,
+		IncludeRoles: params.Body.IncludeRoles,
 		Compression:  compressionFromBCfg(params.Body.Config),
 		BaseBackupID: baseBackupID,
 	})

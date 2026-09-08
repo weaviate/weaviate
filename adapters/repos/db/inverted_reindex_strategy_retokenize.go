@@ -93,10 +93,6 @@ func (s *SearchableRetokenizeStrategy) WriteToReindexBucket(shard ShardLike, buc
 	return nil
 }
 
-func (s *SearchableRetokenizeStrategy) ShouldProcessProperty(property *inverted.Property) bool {
-	return property.HasSearchableIndex && property.Name == s.propName
-}
-
 // MakeAddCallback returns a callback for adding documents to the searchable index.
 // forTargetStrategy controls which tokenization is used: true uses the new target
 // tokenization (for the reindex bucket), false uses the existing tokenization

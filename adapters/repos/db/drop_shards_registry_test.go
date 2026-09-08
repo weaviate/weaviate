@@ -72,7 +72,7 @@ func newEmptyMTIndex(t *testing.T) *Index {
 	scheduler := queue.NewScheduler(queue.SchedulerOptions{Logger: logger, Workers: 1})
 	shardResolver := resolver.NewShardResolver(class.Class, true, mockSchemaGetter)
 
-	index, err := NewIndex(context.Background(), IndexConfig{
+	index, err := NewIndex(context.Background(), nil, IndexConfig{
 		ClassName:         schema.ClassName("TestClass"),
 		RootPath:          rootPath,
 		ReplicationFactor: 1,

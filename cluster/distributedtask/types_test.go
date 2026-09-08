@@ -30,13 +30,14 @@ func TestTaskStatus_IsTerminal(t *testing.T) {
 		terminal bool
 	}{
 		{TaskStatusStarted, false},
+		{TaskStatusPreparing, false},
 		{TaskStatusSwapping, false},
 		{TaskStatusFinished, true},
 		{TaskStatusFailed, true},
 		{TaskStatusCancelled, true},
 		// Unknown / future statuses default to non-terminal so providers
 		// don't accidentally skip work they're meant to do.
-		{TaskStatus("UNKNOWN_FUTURE_STATE"), false},
+		{unknownFutureStatus, false},
 		{TaskStatus(""), false},
 	}
 	for _, tc := range tests {

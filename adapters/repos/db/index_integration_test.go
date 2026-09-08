@@ -158,7 +158,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		schema: fakeSchema, shardState: shardState,
 	}
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
-	index, err := NewIndex(testCtx(), IndexConfig{
+	index, err := NewIndex(testCtx(), nil, IndexConfig{
 		EnableLazyLoadShards: true,
 		RootPath:             dirName,
 		ClassName:            schema.ClassName(class.Class),
@@ -216,7 +216,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 	indexFilesAfterDelete, err := getIndexFilenames(dirName, class.Class)
 	require.Nil(t, err)
 	// recreate the index
-	index, err = NewIndex(testCtx(), IndexConfig{
+	index, err = NewIndex(testCtx(), nil, IndexConfig{
 		EnableLazyLoadShards: true,
 		RootPath:             dirName,
 		ClassName:            schema.ClassName(class.Class),
@@ -236,7 +236,8 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 
 	// A cold shard materializes its directory at load, not on add-property;
 	// force-load it before comparing on-disk files.
-	require.NoError(t, index.LoadLocalShard(context.TODO(), shardName, false))
+	require.NoError(t, index.initLocalShardWithForcedLoading(context.TODO(), index.getClass(),
+		shardName, true, false, callerUserRequest))
 
 	indexFilesAfterRecreate, err := getIndexFilenames(dirName, class.Class)
 	require.Nil(t, err)
@@ -300,7 +301,10 @@ func TestIndex_AddNewVectorIndex(t *testing.T) {
 		shard, index = testShard(t, ctx, initialClass.Class)
 	)
 
-	_, ok := shard.GetVectorIndex("new_index")
+	_, release, ok := shard.AcquireVectorIndex("new_index")
+	if ok {
+		release()
+	}
 	require.False(t, ok)
 
 	require.NoError(t, index.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{
@@ -309,8 +313,9 @@ func TestIndex_AddNewVectorIndex(t *testing.T) {
 		},
 	}))
 
-	vectorIndex, ok := shard.GetVectorIndex("new_index")
+	vectorIndex, release, ok := shard.AcquireVectorIndex("new_index")
 	require.True(t, ok)
+	defer release()
 	require.NotNil(t, vectorIndex)
 }
 
@@ -396,7 +401,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		schema: fakeSchema, shardState: shardState,
 	}
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
-	index, err := NewIndex(ctx, IndexConfig{
+	index, err := NewIndex(ctx, nil, IndexConfig{
 		EnableLazyLoadShards: true,
 		RootPath:             dirName,
 		ClassName:            schema.ClassName(class.Class),
@@ -495,7 +500,7 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 		schema: fakeSchema, shardState: shardState,
 	}
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
-	index, err := NewIndex(testCtx(), IndexConfig{
+	index, err := NewIndex(testCtx(), nil, IndexConfig{
 		EnableLazyLoadShards: true,
 		RootPath:             dirName,
 		ClassName:            schema.ClassName(class.Class),
@@ -593,7 +598,7 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 		schema: fakeSchema, shardState: shardState,
 	}
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
-	index, err := NewIndex(testCtx(), IndexConfig{
+	index, err := NewIndex(testCtx(), nil, IndexConfig{
 		EnableLazyLoadShards: true,
 		RootPath:             dirName,
 		ClassName:            schema.ClassName(class.Class),
@@ -660,7 +665,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class, shardState *sha
 		shardState: shardState,
 	}
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, schemaGetter)
-	idx, err := NewIndex(testCtx(), IndexConfig{
+	idx, err := NewIndex(testCtx(), nil, IndexConfig{
 		RootPath:             rootDir,
 		ClassName:            schema.ClassName(class.Class),
 		EnableLazyLoadShards: false,

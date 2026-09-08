@@ -257,6 +257,59 @@ func TestConfigParsing(t *testing.T) {
 		assert.ElementsMatch(t, []string{"api-key-1", "api-key-2", "api-key-3"}, config.Authentication.APIKey.AllowedKeys)
 		assert.ElementsMatch(t, []string{"user1@weaviate.io", "user2@weaviate.io"}, config.Authentication.APIKey.Users)
 	})
+
+	t.Run("parse backup_gcs config and survive the env pass - yaml", func(t *testing.T) {
+		for _, key := range []string{"GCS_MODULE_TRANSPORT", "GCS_MODULE_GRPC_CONN_POOL"} {
+			t.Setenv(key, "")
+		}
+
+		configFileName := "config.yaml"
+		configYaml := `backup_gcs:
+  use_grpc: true
+  grpc_conn_pool: 32
+`
+
+		filepath := fmt.Sprintf("%s/%s", t.TempDir(), configFileName)
+		require.NoError(t, os.WriteFile(filepath, []byte(configYaml), 0o600))
+
+		file, err := os.ReadFile(filepath)
+		require.NoError(t, err)
+		weaviateConfig := &WeaviateConfig{}
+		config, err := weaviateConfig.parseConfigFile(file, configFileName)
+		require.NoError(t, err)
+		require.Equal(t, BackupGCS{UseGRPC: new(true), GRPCConnPool: 32}, config.BackupGCS)
+
+		// LoadConfig reads the file before the environment, so an unset variable
+		// has to leave the parsed value alone.
+		require.NoError(t, FromEnv(&config))
+		assert.Equal(t, BackupGCS{UseGRPC: new(true), GRPCConnPool: 32}, config.BackupGCS)
+	})
+
+	t.Run("parse backup_gcs http config and survive the env pass - yaml", func(t *testing.T) {
+		for _, key := range []string{"GCS_MODULE_TRANSPORT", "GCS_MODULE_GRPC_CONN_POOL"} {
+			t.Setenv(key, "")
+		}
+
+		configFileName := "config.yaml"
+		configYaml := `backup_gcs:
+  use_grpc: false
+`
+
+		filepath := fmt.Sprintf("%s/%s", t.TempDir(), configFileName)
+		require.NoError(t, os.WriteFile(filepath, []byte(configYaml), 0o600))
+
+		file, err := os.ReadFile(filepath)
+		require.NoError(t, err)
+		weaviateConfig := &WeaviateConfig{}
+		config, err := weaviateConfig.parseConfigFile(file, configFileName)
+		require.NoError(t, err)
+
+		// gRPC is the default, so an explicit false has to be distinguishable
+		// from an absent key or this config file silently changes transport.
+		require.NoError(t, FromEnv(&config))
+		require.NotNil(t, config.BackupGCS.UseGRPC)
+		assert.False(t, config.BackupGCS.UseGRPCOrDefault())
+	})
 }
 
 func TestConfigValidation(t *testing.T) {
@@ -280,6 +333,11 @@ func TestConfigValidation(t *testing.T) {
 			},
 			expected: true,
 		},
+		{
+			name:     "backup gcs connection pool out of range",
+			config:   &Config{BackupGCS: BackupGCS{GRPCConnPool: 100}},
+			expected: true,
+		},
 	}
 
 	for _, test := range tests {
@@ -290,6 +348,38 @@ func TestConfigValidation(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestBackupGCSValidate(t *testing.T) {
+	tests := []struct {
+		name     string
+		connPool int
+		wantErr  string
+	}{
+		{name: "unset takes the default", connPool: 0},
+		{name: "at the cap", connPool: MaxBackupGCSGRPCConnPool},
+		{
+			name:     "past the cap",
+			connPool: MaxBackupGCSGRPCConnPool + 1,
+			wantErr:  "backup_gcs.grpc_conn_pool must be an integer between 1 and 64. Got: 65",
+		},
+		{
+			name:     "negative",
+			connPool: -1,
+			wantErr:  "backup_gcs.grpc_conn_pool must be an integer between 1 and 64. Got: -1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := BackupGCS{GRPCConnPool: tt.connPool}.Validate()
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
 }
@@ -460,6 +550,24 @@ func TestConfigValidation_Namespaces(t *testing.T) {
 				assert.NotContains(t, err.Error(), "NAMESPACES_ENABLED=true requires DISABLE_GRAPHQL=true")
 				assert.NotContains(t, err.Error(), "NAMESPACES_ENABLED=true requires RBAC to be enabled")
 			}
+		})
+	}
+}
+
+func TestBackupGCSUseGRPCOrDefault(t *testing.T) {
+	tests := []struct {
+		name    string
+		useGRPC *bool
+		want    bool
+	}{
+		{name: "unset defaults to grpc", useGRPC: nil, want: true},
+		{name: "explicit false selects http", useGRPC: new(false), want: false},
+		{name: "explicit true selects grpc", useGRPC: new(true), want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, BackupGCS{UseGRPC: tt.useGRPC}.UseGRPCOrDefault())
 		})
 	}
 }

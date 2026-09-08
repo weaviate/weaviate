@@ -137,7 +137,12 @@ func configureOIDC(appState *state.State) *oidc.Client {
 }
 
 func configureCrons(appState *state.State, serverShutdownCtx context.Context) *cron.Crons {
-	return cron.NewCrons(serverShutdownCtx, appState.Logger, func() config.Config { return appState.ServerConfig.Config })
+	c, err := cron.NewCrons(serverShutdownCtx, appState.Logger, func() config.Config { return appState.ServerConfig.Config })
+	if err != nil {
+		appState.Logger.WithField("action", "crons_init").Fatalf("crons could not start up: %v", err)
+	}
+
+	return c
 }
 
 func configureAPIKey(appState *state.State) *apikey.ApiKey {
@@ -164,13 +169,13 @@ func configureAuthorizer(appState *state.State) error {
 			filepath.Join(appState.ServerConfig.Config.Persistence.DataPath, config.DefaultRaftDir),
 			appState.ServerConfig.Config.Authorization.Rbac, appState.ServerConfig.Config.Authentication,
 			appState.ServerConfig.Config.Namespaces.Enabled,
+			appState.NamespacesController,
 			appState.Logger)
 		if err != nil {
 			return fmt.Errorf("can't init casbin %w", err)
 		}
 
 		appState.AuthzController = rbacController
-		appState.AuthzSnapshotter = rbacController
 		appState.RBAC = rbacController
 		appState.Authorizer = rbacController
 	} else if appState.ServerConfig.Config.Authorization.AdminList.Enabled {

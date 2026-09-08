@@ -14,6 +14,8 @@ package lsmkv
 import (
 	"context"
 	"errors"
+	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -535,4 +537,53 @@ func TestSegmentEditOps_Recover_StaleCacheDoesNotDeleteLiveOp(t *testing.T) {
 	pending, err := s.Pending("opX")
 	require.NoError(t, err)
 	require.ElementsMatch(t, []string{"100"}, pending, "the live op stays armed")
+}
+
+// failingTransformer errors on the first value it is handed, which fails the
+// rewrite after the .tmp file exists — the shape ENOSPC produces.
+func failingTransformer(className string, ops []ActiveOp) func([]byte) ([]byte, error) {
+	return func(v []byte) ([]byte, error) { return nil, errors.New("no space left on device") }
+}
+
+// TestSegmentCleanerEditOps_FailedRewriteLeavesNoPartial pins the cleanup of the
+// .tmp file a failed rewrite leaves behind. The caller gets no path back on the
+// error paths, so it cannot compensate — and the failure most likely to put us
+// there is ENOSPC, where the orphan is as large as the space that ran out and
+// the retry needs it back.
+func TestSegmentCleanerEditOps_FailedRewriteLeavesNoPartial(t *testing.T) {
+	bucket, editOps := newReplaceBucketWithEditOps(t, failingTransformer)
+
+	require.NoError(t, bucket.Put([]byte("k1"), []byte("v1")))
+	require.NoError(t, bucket.FlushAndSwitch())
+	require.NoError(t, bucket.Put([]byte("k2"), []byte("v2")))
+	require.NoError(t, bucket.FlushAndSwitch())
+
+	require.NoError(t, editOps.RegisterOp("op1", OpDescriptor{Type: "remove_target_vectors", CreatedAt: 1}))
+	require.NoError(t, editOps.SnapshotSegments("op1", segIDsOf(bucket)))
+
+	tmpBefore := countTmpSegments(t, bucket.disk.dir)
+
+	_, err := bucket.disk.segmentCleaner.cleanupOnce(func() bool { return false })
+	require.NoError(t, err, "a failed rewrite is recorded on the row, not returned")
+
+	pending, perr := editOps.AllPending()
+	require.NoError(t, perr)
+	require.NotEmpty(t, pending, "the rewrite failed, so the segment stays owed")
+	require.Positive(t, pending[0].Attempts, "and the failure was counted against its budget")
+
+	require.Equal(t, tmpBefore, countTmpSegments(t, bucket.disk.dir),
+		"a rewrite that did not complete must not leave its partial segment behind")
+}
+
+func countTmpSegments(t *testing.T, dir string) int {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	n := 0
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			n++
+		}
+	}
+	return n
 }

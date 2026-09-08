@@ -468,7 +468,7 @@ func (a *Client) SchemaObjectsGet(params *SchemaObjectsGetParams, authInfo runti
 /*
 SchemaObjectsIndexCancel cancels the in flight reindex task on a property s inverted index
 
-Cancels the in-flight reindex task targeting this property's index. No request body. Idempotent: succeeds whether or not a task was in flight (a `202` with `{"status":"NO_OP"}` is returned when there is nothing to cancel). `indexName` accepts `rangeable` as an alias for `rangeFilters`.
+Cancels the in-flight reindex task targeting this property's index. No request body. Idempotent: succeeds whether or not a task was in flight (a `202` with `{"status":"NO_OP"}` is returned when there is nothing to cancel). A task that is in flight but no longer cancellable is refused with `409`. `indexName` accepts `rangeable` as an alias for `rangeFilters`.
 */
 func (a *Client) SchemaObjectsIndexCancel(params *SchemaObjectsIndexCancelParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsIndexCancelAccepted, error) {
 	// TODO: Validate the params before sending
@@ -592,7 +592,7 @@ func (a *Client) SchemaObjectsIndexUpsert(params *SchemaObjectsIndexUpsertParams
 /*
 SchemaObjectsIndexesGet gets index status for all properties of a collection
 
-Returns per-property index state including active reindex progress. This powers the UI to show live migration status.
+Returns per-property index state including active reindex progress. This powers the UI to show live migration status. The response reflects the state of the node that answered, which may briefly omit the entry for a just-submitted migration or still report its pre-migration state.
 */
 func (a *Client) SchemaObjectsIndexesGet(params *SchemaObjectsIndexesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsIndexesGetOK, error) {
 	// TODO: Validate the params before sending

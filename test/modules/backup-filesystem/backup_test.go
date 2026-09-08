@@ -52,6 +52,40 @@ func TestFilesystemBackup_MultiTenant(t *testing.T) {
 	backuptest.RunFilesystemBackupTests(t, compose, backuptest.MultiTenantTestCase())
 }
 
+// TestFilesystemBackup_MultiTenant_WithDynamicIndex tests filesystem backup/restore of
+// multi-tenant class whose tenants are INACTIVE while their dynamic index has already
+// upgraded to hnsw — the upgrade drops the flat vectors, so the backup has to carry
+// everything the upgraded index needs or the restored tenants search against nothing.
+func TestFilesystemBackup_MultiTenant_WithDynamicIndex(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	compose := GetSharedCompose()
+	if compose == nil {
+		t.Fatal("shared compose not available - TestMain may have failed")
+	}
+
+	backuptest.RunFilesystemBackupTests(t, compose, backuptest.MultiTenantWithDynamicIndexTestCase())
+}
+
+// TestFilesystemBackup_MultiTenant_WithFlatIndex tests filesystem backup/restore of a
+// multi-tenant class on the flat index, whose metadata file lives at the shard root
+// instead of a vector index subdirectory — the cold backup path has to list it there
+// or the restored tenants come back without it.
+func TestFilesystemBackup_MultiTenant_WithFlatIndex(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	compose := GetSharedCompose()
+	if compose == nil {
+		t.Fatal("shared compose not available - TestMain may have failed")
+	}
+
+	backuptest.RunFilesystemBackupTests(t, compose, backuptest.MultiTenantWithFlatIndexTestCase())
+}
+
 // TestFilesystemBackup_MultiTenant_WithMidBackupActivations tests filesystem backup/restore with multi-tenant class and tenant activations during backup.
 func TestFilesystemBackup_MultiTenant_WithMidBackupActivations(t *testing.T) {
 	if testing.Short() {

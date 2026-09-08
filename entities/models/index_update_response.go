@@ -28,7 +28,7 @@ import (
 // swagger:model IndexUpdateResponse
 type IndexUpdateResponse struct {
 
-	// status
+	// What the server did. `STARTED`: a reindex task was submitted and `taskId` names it. `CANCELLED`: a cancel stopped the in-flight task named by `taskId`. `NO_OP`: a cancel found nothing in flight, and `taskId` is absent. Not a closed set: a newer server may answer with a value this client does not know, so report an unrecognized status rather than rejecting the response.
 	Status string `json:"status,omitempty"`
 
 	// task Id

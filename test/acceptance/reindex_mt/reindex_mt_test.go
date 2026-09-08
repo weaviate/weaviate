@@ -84,6 +84,16 @@ func TestMultiTenant_ReindexSuite(t *testing.T) {
 		testValidation(t, restURI)
 	})
 
+	// Cancel → deactivate → restart → re-submit, across the three tenant
+	// populations the cleanup sweep answers differently. Runs on its own
+	// compose (needs forced-lazy loading; the rest of this suite needs
+	// eager loading for its own coverage) and restores the suite's client
+	// afterward.
+	t.Run("ColdAndUnhydratedTenantCancel", func(t *testing.T) {
+		testColdAndUnhydratedTenantCancel(t)
+		helper.SetupClient(restURI)
+	})
+
 	t.Run("TenantScopedRebuildCancel", func(t *testing.T) {
 		testTenantScopedRebuildCancel(t, restURI)
 	})

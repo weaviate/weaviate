@@ -38,14 +38,14 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 	objectByClass := make(map[string]batchQueue)
 	indexByClass := make(map[string]*Index)
 
-	// Only check memory if async indexing is disabled. If async indexing is
-	// enabled, the allocation (and therefore the decision on whether enough
-	// memory is available) is deferred until the dequeue step. This way, pushing
-	// onto the queue is not blocked, and dequeing does not accidentally run OOM
-	// because enqueuing was too fast.
+	// Only check memory here if async indexing is disabled. With async indexing,
+	// hnsw.AddBatch checks the allocation for single-vector HNSW indexes when the
+	// queue worker inserts the batch. Enqueuing is therefore not blocked by the
+	// index's memory demand. Everything else this call allocates is unchecked on
+	// that path.
 	if !db.AsyncIndexingEnabled {
 		if err := db.memMonitor.CheckAlloc(estimateBatchMemory(objs)); err != nil {
-			db.logger.WithError(err).Errorf("memory pressure: cannot process batch")
+			db.logger.Errorf("memory pressure: cannot process batch: %v", err)
 			return nil, fmt.Errorf("cannot process batch: %w", err)
 		}
 	}
@@ -63,6 +63,10 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 		queue.objects = append(queue.objects, storobj.FromObject(item.Object, item.Object.Vector, vectors, multiVectors))
 		queue.originalIndex = append(queue.originalIndex, item.OriginalIndex)
 		objectByClass[item.Object.Class] = queue
+	}
+
+	if err := db.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return nil, err
 	}
 
 	// wrapped by func to acquire and safely release indexLock only for duration of loop
@@ -133,6 +137,10 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 		refByClass[item.From.Class] = append(refByClass[item.From.Class], item)
 	}
 
+	if err := db.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return nil, err
+	}
+
 	// wrapped by func to acquire and safely release indexLock only for duration of loop
 	func() {
 		db.indexLock.RLock()
@@ -179,6 +187,10 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDeleteParams,
 	deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) (objects.BatchDeleteResult, error) {
+	if err := db.schemaReader.WaitForUpdate(ctx, schemaVersion); err != nil {
+		return objects.BatchDeleteResult{}, err
+	}
+
 	start := time.Now()
 	// get index for a given class
 	className := params.ClassName
@@ -219,7 +231,7 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 	}).Debugf("batch delete: identified %v objects to delete", matches)
 
 	if err := db.memMonitor.CheckAlloc(memwatch.EstimateObjectDeleteMemory() * matches); err != nil {
-		db.logger.WithError(err).Errorf("memory pressure: cannot process batch delete object")
+		db.logger.Errorf("memory pressure: cannot process batch delete object: %v", err)
 		return objects.BatchDeleteResult{}, fmt.Errorf("cannot process batch delete object: %w", err)
 	}
 

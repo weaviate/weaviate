@@ -12,6 +12,8 @@
 package db
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -23,19 +25,29 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
+	mock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func TestIndex_aggregateCount(t *testing.T) {
@@ -52,6 +64,10 @@ func TestIndex_aggregateCount(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			groups := shardRegex.FindStringSubmatch(r.URL.Path)
 			count := shards[groups[1]]
+			if count < 0 { // sentinel: this replica cannot serve that shard
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
 			io.WriteString(w, strconv.Itoa(count))
 		}))
 		t.Cleanup(srv.Close)
@@ -83,7 +99,11 @@ func TestIndex_aggregateCount(t *testing.T) {
 		shards []string         // Complete list of shards in collection.
 		tenant string
 
-		want int // Expected aggregated count
+		planErr error         // Error the collection-wide routing plan build fails with.
+		timeout time.Duration // Caller deadline; zero for none.
+
+		want    int    // Expected aggregated count
+		wantErr string // Substring the aggregation must fail with; empty if it must succeed
 	}{
 		{
 			name:   "consistent count",
@@ -121,6 +141,47 @@ func TestIndex_aggregateCount(t *testing.T) {
 			want: 3,
 		},
 		{
+			name: "counts above MaxInt32",
+			nodes: []map[string]int{
+				{"abc": 1200000000, "xyz": 1000000000},
+				{"abc": 1200000000, "xyz": 1000000000},
+			},
+			want: 2200000000,
+		},
+		{
+			name: "a failing routing plan",
+			nodes: []map[string]int{
+				{"abc": 1, "xyz": 2},
+				{"abc": 1, "xyz": 2},
+			},
+			planErr: errors.New("no read replica found"),
+			wantErr: "no read replica found",
+		},
+		{
+			// ShardPlans exists to resolve a level per shard, which a
+			// collection-wide plan of unequal width cannot carry.
+			name:   "shards with different replica counts",
+			shards: []string{"abc", "xyz"},
+			nodes: []map[string]int{
+				{"abc": 1, "xyz": 2},
+				{"xyz": 2},
+				{"xyz": 2},
+			},
+			want: 3,
+		},
+		{
+			// The reachable shard must not be reported on its own: a count is
+			// either complete or an error.
+			name:   "a shard no replica can count",
+			shards: []string{"abc", "xyz"},
+			nodes: []map[string]int{
+				{"abc": 1, "xyz": -1},
+				{"abc": 1, "xyz": -1},
+			},
+			timeout: time.Second,
+			wantErr: `shard "xyz"`,
+		},
+		{
 			name:   "one tenant",
 			shards: []string{"john_doe", "jane_doe"},
 			nodes: []map[string]int{
@@ -155,6 +216,7 @@ func TestIndex_aggregateCount(t *testing.T) {
 			})
 
 			router := &fakeRouter{
+				planErr: tt.planErr,
 				readPlan: types.ReadRoutingPlan{
 					IntConsistencyLevel: len(tt.counts) + len(tt.nodes),
 					ConsistencyLevel:    types.ConsistencyLevelAll,
@@ -187,15 +249,31 @@ func TestIndex_aggregateCount(t *testing.T) {
 			}
 
 			// Act
-			res, err := index.aggregate(t.Context(), nil, aggregation.Params{
+			ctx := t.Context()
+			if tt.timeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, tt.timeout)
+				defer cancel()
+			}
+			start := time.Now()
+			res, err := index.aggregate(ctx, nil, aggregation.Params{
 				IncludeMetaCount: true,
 				Tenant:           tt.tenant,
 			}, nil)
 
 			// Assert
-			require.NoError(t, err, "aggregate")
-			require.Len(t, res.Groups, 1, "number of groups")
-			require.Equal(t, tt.want, res.Groups[0].Count, "object count")
+			if tt.timeout > 0 {
+				// CountObjects retries a failing replica for a minute of its own;
+				// the caller's deadline has to cut that short.
+				require.Less(t, time.Since(start), 5*time.Second, "aggregate outlived the caller deadline")
+			}
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr, "aggregate")
+			} else {
+				require.NoError(t, err, "aggregate")
+				require.Len(t, res.Groups, 1, "number of groups")
+				require.Equal(t, tt.want, res.Groups[0].Count, "object count")
+			}
 		})
 	}
 }
@@ -207,6 +285,7 @@ type fakeRouter struct {
 	writePlan types.WriteRoutingPlan
 	readSet   types.ReadReplicaSet
 	writeSet  types.WriteReplicaSet
+	planErr   error
 }
 
 // AllHostnames implements [types.Router].
@@ -217,6 +296,10 @@ func (f *fakeRouter) AllHostnames() []string {
 var _ types.Router = (*fakeRouter)(nil)
 
 func (f *fakeRouter) BuildReadRoutingPlan(opt types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
+	if f.planErr != nil {
+		return types.ReadRoutingPlan{}, f.planErr
+	}
+
 	readPlan := f.readPlan
 	readPlan.Shard = opt.Shard
 	readPlan.Tenant = opt.Tenant
@@ -234,7 +317,9 @@ func (f *fakeRouter) BuildReadRoutingPlan(opt types.RoutingPlanBuildOptions) (ty
 }
 
 func (f *fakeRouter) BuildRoutingPlanOptions(tenant, shard string, cl types.ConsistencyLevel, directCandidate string) types.RoutingPlanBuildOptions {
-	return f.options
+	opt := f.options
+	opt.Shard = shard
+	return opt
 }
 
 func (f *fakeRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
@@ -256,6 +341,130 @@ func (f *fakeRouter) GetWriteReplicasLocation(collection, tenant, shard string) 
 func (f *fakeRouter) NodeHostname(nodeName string) (string, bool) {
 	host, ok := f.hostnames[nodeName]
 	return host, ok
+}
+
+func TestIndex_getShardsStatus(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	clusterNodes := []string{"node-0", "node-1", "node-2"}
+	targetNode := clusterNodes[0]
+	shardReplicas := map[string][]string{
+		"shard_local":          clusterNodes,
+		"shard_not_local":      clusterNodes[1:],
+		"remote_not_reachable": clusterNodes,
+	}
+	shardStatus := map[string]map[string]string{
+		"shard_local": {
+			"node-0": storagestate.StatusReady.String(),
+			"node-1": storagestate.StatusLazyLoading.String(),
+			"node-2": storagestate.StatusIndexing.String(),
+		},
+		"shard_not_local": {
+			"node-1": storagestate.StatusIndexing.String(),
+			"node-2": storagestate.StatusIndexing.String(),
+		},
+		"remote_not_reachable": {
+			"node-0": storagestate.StatusReady.String(),
+			"node-1": storagestate.StatusReady.String(),
+			"node-2": NodeUnresponsive, // Remote replica failed to report status.
+		},
+	}
+
+	// NodeUnresponsive should not be in the final response.
+	want := maps.Clone(shardStatus)
+	want["remote_not_reachable"] = maps.Clone(want["remote_not_reachable"])
+	delete(want["remote_not_reachable"], "node-2")
+
+	wantLegacy := map[string]string{
+		"shard_local":          storagestate.StatusReady.String(),
+		"shard_not_local":      storagestate.StatusIndexing.String(),
+		"remote_not_reachable": storagestate.StatusReady.String(),
+	}
+
+	var replicas []types.Replica
+	for shard, nodes := range shardReplicas {
+		for _, node := range nodes {
+			replicas = append(replicas, types.Replica{
+				ShardName: shard,
+				NodeName:  node,
+				HostAddr:  node,
+			})
+		}
+	}
+
+	router := &fakeRouter{
+		readSet: types.ReadReplicaSet{
+			Replicas: replicas,
+		},
+	}
+
+	replicator := &replica.Replicator{
+		Finder: replica.NewFinder(
+			"Songs", nil, nil,
+			targetNode, nil, nil,
+			logger, nil,
+		),
+	}
+
+	// Arrange
+	schemaReader := schemaUC.NewMockSchemaReader(t)
+	schemaReader.EXPECT().
+		Shards("Songs").
+		RunAndReturn(func(collectionName string) (shards []string, _ error) {
+			for s := range shardReplicas {
+				shards = append(shards, s)
+			}
+			return
+		}).Maybe()
+	schemaReader.EXPECT().
+		ShardReplicas("Songs", mock.Anything).
+		RunAndReturn(func(collectionName, shardName string) ([]string, error) {
+			assert.Contains(t, shardReplicas, shardName)
+			return shardReplicas[shardName], nil
+		}).Maybe()
+
+	nodeResolver := cluster.NewMockNodeResolver(t)
+	nodeResolver.EXPECT().
+		NodeHostname(mock.Anything).
+		RunAndReturn(func(s string) (string, bool) { return s, true }).Maybe()
+
+	index := Index{
+		Config:           IndexConfig{ClassName: schema.ClassName("Songs")},
+		getSchema:        &fakeSchemaGetter{nodeName: targetNode},
+		schemaReader:     schemaReader,
+		shardCreateLocks: esync.NewKeyRWLocker(),
+		router:           router,
+		replicator:       replicator,
+		logger:           logger,
+	}
+
+	index.remote = sharding.NewRemoteIndex(
+		"Songs",
+		index.getSchema,
+		nodeResolver,
+		&FakeRemoteClient{shardStatus: shardStatus},
+	)
+
+	for shardName, statusByNode := range shardStatus {
+		mockShard := NewMockShardLike(t)
+		mockShard.EXPECT().
+			preventShutdown().
+			Return(func() {}, nil).Maybe()
+		mockShard.EXPECT().
+			Name().
+			Return(shardName).Maybe()
+		mockShard.EXPECT().
+			GetStatus().
+			Return(storagestate.Status(statusByNode[targetNode])).Maybe()
+		index.shards.Store(shardName, mockShard)
+	}
+
+	// Act
+	got, gotLegacy, err := index.getShardsStatus(t.Context(), "")
+
+	// Assert
+	assert.NoError(t, err)
+	require.Equal(t, want, got, "shard statuses")
+	require.Equal(t, wantLegacy, gotLegacy, "legacy statuses")
 }
 
 // TestIndex_ShardHasMultipleReplicasWrite_RoutesThroughReplicatorDuringMovement pins the
@@ -329,10 +538,10 @@ func TestIndex_ShardHasMultipleReplicasWrite_RoutesThroughReplicatorDuringMoveme
 			// test — proving the call short-circuited before consulting the router.
 
 			idx := &Index{
-				Config:               IndexConfig{ClassName: schema.ClassName(className), ReplicationFactor: tt.replicationF},
-				replicationFSMReader: fsm,
-				router:               mockRouter,
+				Config: IndexConfig{ClassName: schema.ClassName(className), ReplicationFactor: tt.replicationF},
+				router: mockRouter,
 			}
+			idx.SetReplicationFSMReader(fsm)
 
 			got := idx.shardHasMultipleReplicasWrite(tenant, shardName)
 			require.Equal(t, tt.want, got)
@@ -416,4 +625,88 @@ func TestIndexDropLocalShard(t *testing.T) {
 		}
 		require.True(t, sawNamedDropLog, "expected a drop_shard error log naming the shard")
 	})
+}
+
+// addProperty and updateProperty only schedule the bucket work onto an error
+// group, so the pins must outlive the walk and drop after eg.Wait().
+//
+// Two shards because shardMap.Range is sequential: the second callback firing
+// proves the first returned, which is when a per-shard release would happen.
+func TestPropertyWorkPinsShardAgainstTeardown(t *testing.T) {
+	prop := &models.Property{
+		Name:         "pinned",
+		DataType:     schema.DataTypeText.PropString(),
+		Tokenization: models.PropertyTokenizationWord,
+	}
+
+	const shardCount = 2
+
+	tests := []struct {
+		name   string
+		expect func(shard *MockShardLike, schedule func(*enterrors.ErrorGroupWrapper))
+		run    func(idx *Index) error
+	}{
+		{
+			name: "addProperty",
+			expect: func(shard *MockShardLike, schedule func(*enterrors.ErrorGroupWrapper)) {
+				shard.EXPECT().initPropertyBuckets(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Run(func(_ context.Context, eg *enterrors.ErrorGroupWrapper, _ bool, _ ...*models.Property) {
+						schedule(eg)
+					})
+			},
+			run: func(idx *Index) error { return idx.addProperty(context.Background(), prop) },
+		},
+		{
+			name: "updateProperty",
+			expect: func(shard *MockShardLike, schedule func(*enterrors.ErrorGroupWrapper)) {
+				shard.EXPECT().updatePropertyBuckets(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Run(func(_ context.Context, eg *enterrors.ErrorGroupWrapper, _ *models.Property, _ *atomic.Int64) {
+						schedule(eg)
+					})
+			},
+			run: func(idx *Index) error { return idx.updateProperty(context.Background(), prop) },
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx, _ := newDropTestIndex(t)
+
+			var (
+				activePins atomic.Int32
+				remaining  atomic.Int32
+				allWalked  = make(chan struct{})
+			)
+			remaining.Store(shardCount)
+
+			schedule := func(eg *enterrors.ErrorGroupWrapper) {
+				eg.Go(func() error {
+					<-allWalked
+					if pins := activePins.Load(); pins != shardCount {
+						return fmt.Errorf("%d of %d pins released before the scheduled bucket work ran",
+							shardCount-pins, shardCount)
+					}
+					return nil
+				})
+			}
+
+			for i := range shardCount {
+				shard := NewMockShardLike(t)
+				shard.EXPECT().preventShutdown().RunAndReturn(func() (func(), error) {
+					activePins.Add(1)
+					return func() { activePins.Add(-1) }, nil
+				})
+				tt.expect(shard, func(eg *enterrors.ErrorGroupWrapper) {
+					schedule(eg)
+					if remaining.Add(-1) == 0 {
+						close(allWalked)
+					}
+				})
+				idx.shards.Store(fmt.Sprintf("t%d", i), shard)
+			}
+
+			require.NoError(t, tt.run(idx))
+			require.Zero(t, activePins.Load(), "%s leaked a pin", tt.name)
+		})
+	}
 }

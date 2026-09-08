@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"sync/atomic"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+
 	"github.com/pkg/errors"
 	"github.com/vmihailenco/msgpack/v5"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -28,6 +30,7 @@ const (
 	quantizationKey    = "quantization"
 	dimensionsKey      = "dimensions"
 	postingSequenceKey = "posting_seq"
+	muveraKey          = "muvera"
 )
 
 // The shared bucket is used to store various metadata. It is used by multiple stores
@@ -58,27 +61,32 @@ var (
 
 // NewSharedBucket creates a shared lsmkv bucket for the HFresh index.
 // This bucket is used to store metadata in namespaced regions of the bucket.
-func NewSharedBucket(store *lsmkv.Store, indexID string, cfg StoreConfig) (*lsmkv.Bucket, error) {
+func NewSharedBucket(store *lsmkv.Store, indexID string, cfg StoreConfig) (bucketRef, error) {
 	bName := sharedBucketName(indexID)
 	err := store.CreateOrLoadBucket(context.Background(),
 		bName,
 		cfg.MakeBucketOptions(lsmkv.StrategyReplace, lsmkv.WithForceCompaction(true))...,
 	)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create or load bucket %s", bName)
+		return bucketRef{}, errors.Wrapf(err, "failed to create or load bucket %s", bName)
 	}
 
-	bucket := store.Bucket(bName)
-	err = cleanupLegacyReassignBucket(bucket)
+	ref := newBucketRef(store, bName)
+	bucket, release, err := ref.acquire()
 	if err != nil {
-		return nil, err
+		return bucketRef{}, err
+	}
+	defer release()
+
+	if err := cleanupLegacyReassignBucket(bucket); err != nil {
+		return bucketRef{}, err
 	}
 
-	return bucket, nil
+	return ref, nil
 }
 
 func sharedBucketName(id string) string {
-	return fmt.Sprintf("hfresh_shared_%s", id)
+	return helpers.HFreshSharedBucketName(id)
 }
 
 func cleanupLegacyReassignBucket(bucket *lsmkv.Bucket) error {
@@ -99,10 +107,10 @@ func cleanupLegacyReassignBucket(bucket *lsmkv.Bucket) error {
 
 // IndexMetadataStore manages metadata for the index, such as dimensions and quantization data.
 type IndexMetadataStore struct {
-	bucket *lsmkv.Bucket
+	bucket bucketRef
 }
 
-func NewIndexMetadataStore(bucket *lsmkv.Bucket) *IndexMetadataStore {
+func NewIndexMetadataStore(bucket bucketRef) *IndexMetadataStore {
 	return &IndexMetadataStore{
 		bucket: bucket,
 	}
@@ -118,11 +126,23 @@ func (i *IndexMetadataStore) key(suffix string) []byte {
 func (i *IndexMetadataStore) SetDimensions(dimensions uint32) error {
 	buf := make([]byte, 4)
 	binary.LittleEndian.PutUint32(buf, dimensions)
-	return i.bucket.Put(i.key(dimensionsKey), buf)
+	bucket, release, err := i.bucket.acquire()
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	return bucket.Put(i.key(dimensionsKey), buf)
 }
 
 func (i *IndexMetadataStore) GetDimensions() (uint32, error) {
-	data, err := i.bucket.Get(i.key(dimensionsKey))
+	bucket, release, err := i.bucket.acquire()
+	if err != nil {
+		return 0, err
+	}
+	defer release()
+
+	data, err := bucket.Get(i.key(dimensionsKey))
 	if err != nil {
 		return 0, err
 	}
@@ -142,11 +162,23 @@ func (i *IndexMetadataStore) SetQuantizationData(data *QuantizationData) error {
 		return errors.Wrap(err, "marshal quantization data")
 	}
 
-	return i.bucket.Put(i.key(quantizationKey), serialized)
+	bucket, release, err := i.bucket.acquire()
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	return bucket.Put(i.key(quantizationKey), serialized)
 }
 
 func (i *IndexMetadataStore) GetQuantizationData() (*QuantizationData, error) {
-	data, err := i.bucket.Get(i.key(quantizationKey))
+	bucket, release, err := i.bucket.acquire()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
+	data, err := bucket.Get(i.key(quantizationKey))
 	if err != nil {
 		return nil, errors.Wrap(err, "get quantization data")
 	}
@@ -167,6 +199,42 @@ type QuantizationData struct {
 	RQ compression.RQData `msgpack:"rq"`
 }
 
+func (i *IndexMetadataStore) SetMuveraData(data *compression.MuveraData) error {
+	serialized, err := msgpack.Marshal(data)
+	if err != nil {
+		return errors.Wrap(err, "marshal muvera data")
+	}
+	bucket, release, err := i.bucket.acquire()
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	return bucket.Put(i.key(muveraKey), serialized)
+}
+
+func (i *IndexMetadataStore) GetMuveraData() (*compression.MuveraData, error) {
+	bucket, release, err := i.bucket.acquire()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
+	data, err := bucket.Get(i.key(muveraKey))
+	if err != nil {
+		return nil, errors.Wrap(err, "get muvera data")
+	}
+	if data == nil {
+		return nil, nil
+	}
+
+	var muveraData compression.MuveraData
+	if err = msgpack.Unmarshal(data, &muveraData); err != nil {
+		return nil, errors.Wrap(err, "unmarshal muvera data")
+	}
+	return &muveraData, nil
+}
+
 func (h *HFresh) restoreMetadata() error {
 	dims, err := h.IndexMetadata.GetDimensions()
 	if err != nil || dims == 0 {
@@ -175,6 +243,18 @@ func (h *HFresh) restoreMetadata() error {
 
 	if err := h.restoreDimensions(dims); err != nil {
 		return err
+	}
+
+	if h.muvera.Load() {
+		muveraData, err := h.IndexMetadata.GetMuveraData()
+		if err != nil {
+			return err
+		}
+		if muveraData != nil {
+			h.trackMuveraOnce.Do(func() {
+				h.muveraEncoder.LoadMuveraConfig(*muveraData)
+			})
+		}
 	}
 
 	if err := migratePostingMapV1ToV2(h.ctx, h.PostingMap.bucket.bucket, h.logger); err != nil {
@@ -223,7 +303,6 @@ func (h *HFresh) restoreDimensions(dims uint32) error {
 			return errors.Wrap(err, "could not create quantizer")
 		}
 		h.quantizer = quantizer
-		h.Centroids.SetQuantizer(h.quantizer)
 		h.distancer = NewDistancer(h.quantizer, h.config.DistanceProvider)
 		if err := h.persistQuantizationData(); err != nil {
 			return errors.Wrap(err, "could not persist RQ data")
@@ -280,7 +359,6 @@ func (h *HFresh) restoreQuantizationData(rqData *compression.RQData) error {
 	}
 
 	h.quantizer = rq
-	h.Centroids.SetQuantizer(rq)
 	h.distancer = NewDistancer(rq, h.config.DistanceProvider)
 
 	return nil
@@ -288,11 +366,11 @@ func (h *HFresh) restoreQuantizationData(rqData *compression.RQData) error {
 
 // BucketStore is a SequenceStore implementation that uses the LSM store as the backend.
 type BucketStore struct {
-	bucket *lsmkv.Bucket
+	bucket bucketRef
 	key    []byte
 }
 
-func NewBucketStore(bucket *lsmkv.Bucket) *BucketStore {
+func NewBucketStore(bucket bucketRef) *BucketStore {
 	return &BucketStore{
 		bucket: bucket,
 		key:    []byte(postingSequenceKey),
@@ -303,11 +381,23 @@ func (s *BucketStore) Store(upperBound uint64) error {
 	var buf [8]byte
 	binary.LittleEndian.PutUint64(buf[:], upperBound)
 
-	return s.bucket.Put(s.key, buf[:])
+	bucket, release, err := s.bucket.acquire()
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	return bucket.Put(s.key, buf[:])
 }
 
 func (s *BucketStore) Load() (uint64, error) {
-	v, err := s.bucket.Get(s.key)
+	bucket, release, err := s.bucket.acquire()
+	if err != nil {
+		return 0, err
+	}
+	defer release()
+
+	v, err := bucket.Get(s.key)
 	if err != nil {
 		return 0, err
 	}

@@ -25,17 +25,27 @@ type VectorIndexConfig interface {
 	IsMultiVector() bool
 }
 
+// ExtractVectorConfigs returns every vector config of the class keyed by target vector,
+// with a legacy class-level vector index under the empty key. A class can carry both —
+// named vectors added to a class created with a legacy vector — so the two sources are
+// merged rather than treated as mutually exclusive.
 func ExtractVectorConfigs(class *models.Class) (map[string]models.VectorConfig, error) {
-	if len(class.VectorConfig) == 0 && modelsext.ClassHasLegacyVectorIndex(class) {
-		vectorIndexConfig, ok := class.VectorIndexConfig.(VectorIndexConfig)
-		if !ok {
-			return nil, fmt.Errorf("class '%s' vector index: config is not schema.VectorIndexConfig: %T",
-				class.Class, class.VectorIndexConfig)
-		}
-		return map[string]models.VectorConfig{"": {Vectorizer: class.Vectorizer, VectorIndexConfig: vectorIndexConfig, VectorIndexType: class.VectorIndexType}}, nil
+	if !modelsext.ClassHasLegacyVectorIndex(class) {
+		return class.VectorConfig, nil
 	}
 
-	return class.VectorConfig, nil
+	vectorIndexConfig, ok := class.VectorIndexConfig.(VectorIndexConfig)
+	if !ok {
+		return nil, fmt.Errorf("class '%s' vector index: config is not schema.VectorIndexConfig: %T",
+			class.Class, class.VectorIndexConfig)
+	}
+
+	configs := make(map[string]models.VectorConfig, len(class.VectorConfig)+1)
+	for targetVector, cfg := range class.VectorConfig {
+		configs[targetVector] = cfg
+	}
+	configs[""] = models.VectorConfig{Vectorizer: class.Vectorizer, VectorIndexConfig: vectorIndexConfig, VectorIndexType: class.VectorIndexType}
+	return configs, nil
 }
 
 func TypeAssertVectorIndex(class *models.Class, targetVectors []string) ([]VectorIndexConfig, error) {

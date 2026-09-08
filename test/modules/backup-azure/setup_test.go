@@ -140,6 +140,7 @@ func setupSharedCluster(ctx context.Context) (*docker.DockerCompose, error) {
 		WithBackendAzure(azureContainerName).
 		WithText2VecContextionary().
 		WithWeaviateCluster(3).
+		WithWeaviateExposeGRPCPort().
 		Start(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to start docker compose")

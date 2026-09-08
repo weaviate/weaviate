@@ -21,12 +21,14 @@ import (
 	httptransport "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
 
+	"github.com/weaviate/weaviate/client/aggregate"
 	"github.com/weaviate/weaviate/client/authz"
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/classifications"
 	"github.com/weaviate/weaviate/client/cluster"
 	"github.com/weaviate/weaviate/client/distributed_tasks"
+	"github.com/weaviate/weaviate/client/experimental"
 	"github.com/weaviate/weaviate/client/export"
 	"github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/client/mcp"
@@ -85,12 +87,14 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *Weaviate {
 
 	cli := new(Weaviate)
 	cli.Transport = transport
+	cli.Aggregate = aggregate.New(transport, formats)
 	cli.Authz = authz.New(transport, formats)
 	cli.Backups = backups.New(transport, formats)
 	cli.Batch = batch.New(transport, formats)
 	cli.Classifications = classifications.New(transport, formats)
 	cli.Cluster = cluster.New(transport, formats)
 	cli.DistributedTasks = distributed_tasks.New(transport, formats)
+	cli.Experimental = experimental.New(transport, formats)
 	cli.Export = export.New(transport, formats)
 	cli.Graphql = graphql.New(transport, formats)
 	cli.Mcp = mcp.New(transport, formats)
@@ -149,6 +153,8 @@ func (cfg *TransportConfig) WithSchemes(schemes []string) *TransportConfig {
 
 // Weaviate is a client for weaviate
 type Weaviate struct {
+	Aggregate aggregate.ClientService
+
 	Authz authz.ClientService
 
 	Backups backups.ClientService
@@ -160,6 +166,8 @@ type Weaviate struct {
 	Cluster cluster.ClientService
 
 	DistributedTasks distributed_tasks.ClientService
+
+	Experimental experimental.ClientService
 
 	Export export.ClientService
 
@@ -195,12 +203,14 @@ type Weaviate struct {
 // SetTransport changes the transport on the client and all its subresources
 func (c *Weaviate) SetTransport(transport runtime.ClientTransport) {
 	c.Transport = transport
+	c.Aggregate.SetTransport(transport)
 	c.Authz.SetTransport(transport)
 	c.Backups.SetTransport(transport)
 	c.Batch.SetTransport(transport)
 	c.Classifications.SetTransport(transport)
 	c.Cluster.SetTransport(transport)
 	c.DistributedTasks.SetTransport(transport)
+	c.Experimental.SetTransport(transport)
 	c.Export.SetTransport(transport)
 	c.Graphql.SetTransport(transport)
 	c.Mcp.SetTransport(transport)

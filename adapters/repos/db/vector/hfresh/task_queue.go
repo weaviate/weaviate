@@ -20,7 +20,6 @@ import (
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
@@ -61,7 +60,7 @@ type TaskQueue struct {
 	reassignList *common.PagedBitset // Prevents duplicate reassign operations
 }
 
-func NewTaskQueue(index *HFresh, _ *lsmkv.Bucket) (*TaskQueue, error) {
+func NewTaskQueue(index *HFresh, _ bucketRef) (*TaskQueue, error) {
 	var err error
 
 	tq := TaskQueue{

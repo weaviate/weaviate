@@ -12,12 +12,12 @@
 package multi_tenancy_tests
 
 import (
+	"acceptance_tests_with_client/fixtures"
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"fmt"
 	"testing"
 	"time"
-
-	"acceptance_tests_with_client/fixtures"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,8 +25,6 @@ import (
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/fault"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
-
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestActivationDeactivation(t *testing.T) {

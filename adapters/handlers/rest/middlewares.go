@@ -58,7 +58,7 @@ func addHandleRoot(next http.Handler) http.Handler {
 			w.Header().Add("Location", "/v1")
 			w.WriteHeader(http.StatusMovedPermanently)
 			w.Write([]byte(`{"links":{"href":"/v1","name":"api v1","documentationHref":` +
-				`"https://weaviate.io/developers/weaviate/current/"}}`))
+				`"https://docs.weaviate.io/weaviate"}}`))
 			return
 		}
 
@@ -263,8 +263,9 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 
 func addOperationalMode(state *state.State, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// search requests are POSTs (an HTTP write method) but are semantically reads
-		isSearch := restsearch.IsSearchRoute(r.URL.Path)
+		// search and aggregate requests are POSTs (an HTTP write method) but
+		// are semantically reads
+		isSearch := restsearch.IsSearchRoute(r.URL.Path) || restsearch.IsAggregateRoute(r.URL.Path)
 		searchReadAllowed := isSearch && state.ServerConfig.Config.ExperimentalRESTSearchEnabled.Get()
 		switch state.ServerConfig.Config.OperationalMode.Get() {
 		case config.READ_ONLY:

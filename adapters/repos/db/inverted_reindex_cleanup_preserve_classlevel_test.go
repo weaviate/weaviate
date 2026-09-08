@@ -12,6 +12,8 @@
 package db
 
 import (
+	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -31,11 +33,33 @@ func mkTrackerDir(t *testing.T, lsmPath, name string, sentinels ...string) {
 	}
 }
 
+// mkRecoveryPayload writes the payload.mig a task persists before it starts,
+// which is what says whose properties a tracker dir belongs to.
+func mkRecoveryPayload(t *testing.T, lsmPath, trackerName string, props ...string) {
+	t.Helper()
+	payload, err := json.Marshal(map[string]any{
+		"payload": map[string]any{"properties": props},
+	})
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(
+		filepath.Join(lsmPath, ".migrations", trackerName, reindexRecoveryPayloadFile),
+		payload, 0o644))
+}
+
 func mkSidecarDir(t *testing.T, lsmPath, name string) {
 	t.Helper()
 	dir := filepath.Join(lsmPath, name)
 	require.NoError(t, os.MkdirAll(dir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "segment-0.db"), []byte("x"), 0o644))
+}
+
+// cleanSweep runs one shard's partial-reindex sweep, requires it to succeed,
+// and hands back the tracker payloads it read.
+func cleanSweep(t *testing.T, ctx context.Context, shard *Shard, propName, indexType string) int {
+	t.Helper()
+	reads, err := shard.CleanStalePartialReindexState(ctx, propName, indexType)
+	require.NoError(t, err)
+	return reads
 }
 
 func dirExistsAt(t *testing.T, lsmPath, name string) bool {
@@ -115,8 +139,7 @@ func TestCleanStalePartialReindexState_PreservesClassLevelDeferredFinalize(t *te
 			mkTrackerDir(t, lsm, tc.staleTracker, "started.mig")
 			mkSidecarDir(t, lsm, tc.staleSidecar)
 
-			require.NoError(t,
-				shard.CleanStalePartialReindexState(ctx, tc.propName, tc.indexType))
+			cleanSweep(t, ctx, shard, tc.propName, tc.indexType)
 
 			require.True(t, dirExistsAt(t, lsm, tc.liveSidecar),
 				"live class-level deferred-finalize ingest dir %s must survive cleanup; "+
@@ -191,8 +214,7 @@ func TestCleanStalePartialReindexState_GenCollisionAcrossStrategies(t *testing.T
 			mkTrackerDir(t, lsm, tc.staleTracker, "started.mig")
 			mkSidecarDir(t, lsm, tc.staleSidecar)
 
-			require.NoError(t,
-				shard.CleanStalePartialReindexState(ctx, "category", "filterable"))
+			cleanSweep(t, ctx, shard, "category", "filterable")
 
 			require.True(t, dirExistsAt(t, lsm, tc.liveSidecar),
 				"live completed-migration sidecar must survive")
@@ -226,8 +248,7 @@ func TestCleanStalePartialReindexState_ShutdownSkipKeyedBySuffix(t *testing.T) {
 	require.NoError(t, shard.store.CreateOrLoadBucket(ctx, staleName,
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
 
-	require.NoError(t,
-		shard.CleanStalePartialReindexState(ctx, "category", "filterable"))
+	cleanSweep(t, ctx, shard, "category", "filterable")
 
 	require.NotNil(t, shard.store.Bucket(liveName),
 		"live deferred-finalize sidecar bucket must not be shut down")
@@ -238,4 +259,73 @@ func TestCleanStalePartialReindexState_ShutdownSkipKeyedBySuffix(t *testing.T) {
 			"the completed class-level migration")
 	require.False(t, dirExistsAt(t, lsm, staleName),
 		"stale sidecar dir must be wiped")
+}
+
+// Pins that "__" in a property name (e.g. "category__extra") is not
+// misread as a sidecar of "category" and shut down as one.
+func TestCleanStalePartialReindexState_ShutdownSkipsOtherPropertiesBuckets(t *testing.T) {
+	tests := []struct {
+		name string
+		// bucket is loaded in the store before the sweep runs.
+		bucket string
+		// wantShutDown is whether the sweep must disconnect it from the store.
+		wantShutDown bool
+		reason       string
+	}{
+		{
+			// Guards the outer rule: whatever decides a sidecar, the main
+			// bucket is never one.
+			name:   "the swept property's own main bucket",
+			bucket: "property_category",
+			reason: "the sweep's job is the sidecars around the main bucket, never the " +
+				"main bucket itself",
+		},
+		{
+			name:   "another property whose name carries the sidecar separator",
+			bucket: "property_category__extra",
+			reason: "property \"category__extra\"'s main bucket shares this sweep's " +
+				"prefix but carries no sidecar role word",
+		},
+		{
+			name:   "another property whose name ends in a role word and a non-numeric tail",
+			bucket: "property_category__ingest_x",
+			reason: "\"ingest_x\" is not a role word plus a generation, so this is " +
+				"property \"category__ingest_x\"'s main bucket",
+		},
+		{
+			name:         "a sidecar a cancelled run left behind",
+			bucket:       "property_category__enable_filterable_ingest_1",
+			wantShutDown: true,
+			reason:       "a real sidecar with no completed tracker behind it is what the sweep is for",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "CleanupShutdownScope_" + uuid.NewString()[:8]
+			class := newTestClassWithProps(className, []string{"category"})
+			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			shard := shd.(*Shard)
+			defer shard.Shutdown(ctx)
+			lsm := shard.pathLSM()
+
+			// The main bucket is already loaded from the class schema.
+			if shard.store.Bucket(tc.bucket) == nil {
+				require.NoError(t, shard.store.CreateOrLoadBucket(ctx, tc.bucket,
+					lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
+			}
+
+			cleanSweep(t, ctx, shard, "category", "filterable")
+
+			if tc.wantShutDown {
+				require.Nil(t, shard.store.Bucket(tc.bucket), tc.reason)
+				require.False(t, dirExistsAt(t, lsm, tc.bucket), tc.reason)
+				return
+			}
+			require.NotNil(t, shard.store.Bucket(tc.bucket), tc.reason)
+			require.True(t, dirExistsAt(t, lsm, tc.bucket), tc.reason)
+		})
+	}
 }

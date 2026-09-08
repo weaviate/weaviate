@@ -101,6 +101,10 @@ func (f *fakeDB) AddReplicaToShard(class string, shard string, targetNode string
 	return nil
 }
 
+func (f *fakeDB) AddReplicaToShardForMovement(class string, shard string, targetNode string) error {
+	return nil
+}
+
 func (f *fakeDB) DeleteReplicaFromShard(class string, shard string, targetNode string) error {
 	return nil
 }
@@ -143,7 +147,7 @@ func (f *fakeDB) AddTenants(class string, cmd *command.AddTenantsRequest) error 
 	return nil
 }
 
-func (f *fakeDB) UpdateTenants(class string, cmd *command.UpdateTenantsRequest) error {
+func (f *fakeDB) UpdateTenants(class string, cmd *command.UpdateTenantsRequest, preFreezeStatuses map[string]string) error {
 	return nil
 }
 
@@ -316,7 +320,12 @@ func (f *fakeMigrator) UpdateProperty(ctx context.Context, className string, pro
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) LoadShard(ctx context.Context, class string, shard string) error {
+func (f *fakeMigrator) LoadShardForMovement(ctx context.Context, class string, shard string) error {
+	args := f.Called(ctx, class, shard)
+	return args.Error(0)
+}
+
+func (f *fakeMigrator) LoadShardForNewReplica(ctx context.Context, class string, shard string) error {
 	args := f.Called(ctx, class, shard)
 	return args.Error(0)
 }
@@ -346,14 +355,19 @@ func (f *fakeMigrator) UpdateTenants(ctx context.Context, class *models.Class, u
 	return args.Error(0)
 }
 
+func (f *fakeMigrator) UpdateTenantsForProcess(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload) error {
+	args := f.Called(ctx, class, updates)
+	return args.Error(0)
+}
+
 func (f *fakeMigrator) DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error {
 	args := f.Called(ctx, class, tenants)
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
+func (f *fakeMigrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]map[string]string, map[string]string, error) {
 	args := f.Called(ctx, className, tenant)
-	return args.Get(0).(map[string]string), args.Error(1)
+	return args.Get(0).(map[string]map[string]string), args.Get(1).(map[string]string), args.Error(2)
 }
 
 func (f *fakeMigrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string, schemaVersion uint64) error {

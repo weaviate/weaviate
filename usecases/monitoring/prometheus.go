@@ -75,6 +75,8 @@ type PrometheusMetrics struct {
 
 	// Reindex metrics
 	RangeableInMemoryRebuildDegraded *prometheus.CounterVec
+	MigrationRecordsWedged           prometheus.Counter
+	MigrationRecordsNotUnderstood    prometheus.Counter
 
 	// Backup/Restore metrics
 	BackupRestoreDurations            *prometheus.SummaryVec
@@ -131,6 +133,13 @@ type PrometheusMetrics struct {
 	ShardsUnloaded  prometheus.Gauge
 	ShardsLoading   prometheus.Gauge
 	ShardsUnloading prometheus.Gauge
+
+	// Shards supersedes the four gauges above: summing its states reproduces
+	// each of them, and the registration label splits them into the shards
+	// opened at creation and the ones a lazy collection opened on access.
+	Shards *prometheus.GaugeVec
+
+	LazyShardWarmupDecisions *prometheus.CounterVec
 
 	// ShardHaltForTransferForceResume: non-zero means a transfer was
 	// force-resumed mid-stream — compaction may have raced the transfer.
@@ -591,6 +600,14 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "rangeable_inmemory_rebuild_degraded_total",
 			Help: "Number of times the rangeable in-memory rebuild at reindex finalize degraded to disk serving instead of activating in-memory acceleration",
 		}, []string{"class_name", "shard_name", "property"}),
+		MigrationRecordsWedged: promauto.NewCounter(prometheus.CounterOpts{
+			Name: "migration_records_wedged_total",
+			Help: "Reindex migration records a reconciliation pass left standing, either wedged for a reason no later load can change or with a reconciliation that errored. A shard load counts every one it found, and a periodic pass counts only the ones it newly wedged, so the total is a sum of diagnoses rather than a count of distinct records; the log line for each names the record and the shard.",
+		}),
+		MigrationRecordsNotUnderstood: promauto.NewCounter(prometheus.CounterOpts{
+			Name: "migration_records_not_understood_total",
+			Help: "Reindex migration records a shard load could not place: one it could not stat or read, one over the size bound, one it could not decode, one whose content names a different file, records naming more than one migration unit, or a records directory it could not read at all. Each withholds every promoting and destructive reindex action on its shard; the log line names the file and the reason.",
+		}),
 
 		// Queue metrics
 		QueueSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
@@ -793,6 +810,15 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "shards_unloading",
 			Help: "Number of shards in process of unloading",
 		}),
+		Shards: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "weaviate_shards",
+			Help: "Number of shards the node holds, by lifecycle state and by whether the collection opens its shards eagerly at creation or lazily on first access",
+		}, []string{"state", "registration"}),
+
+		LazyShardWarmupDecisions: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "weaviate_lazy_shard_warmup_decisions_total",
+			Help: "Number of shards the startup warmup sweep considered, by what it did with each",
+		}, []string{"outcome"}),
 
 		ShardHaltForTransferForceResume: promauto.NewCounterVec(prometheus.CounterOpts{
 			Name: "shard_halt_for_transfer_force_resume_total",
@@ -967,6 +993,8 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		panic(err)
 	}
 
+	InitGaugeVec(m.Shards, AllShardLabels())
+
 	return m
 }
 
@@ -1030,6 +1058,22 @@ func (m *PrometheusMetrics) initObjectsTtl() error {
 	}
 
 	return nil
+}
+
+// Node-wide and unlabelled: class and shard names are user-chosen, so a
+// per-shard series is one series per tenant, which the metricsCount acceptance
+// test forbids. Counters, not gauges: an unlabelled gauge no healed shard can
+// reset would report its last non-zero value forever.
+func (m *PrometheusMetrics) AddMigrationRecordsWedged(wedged, notUnderstood int) {
+	if m == nil {
+		return
+	}
+	if wedged > 0 {
+		m.MigrationRecordsWedged.Add(float64(wedged))
+	}
+	if notUnderstood > 0 {
+		m.MigrationRecordsNotUnderstood.Add(float64(notUnderstood))
+	}
 }
 
 func (m *PrometheusMetrics) IncRangeableInMemoryRebuildDegraded(className, shardName, propName string) {

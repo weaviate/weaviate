@@ -23,8 +23,14 @@ import (
 )
 
 func TestIllegalHashTree(t *testing.T) {
-	_, err := NewHashTree(-1)
-	require.ErrorIs(t, err, ErrIllegalArguments)
+	for _, height := range []int{-1, MaxHeight + 1, 62, 63} {
+		_, err := NewHashTree(height)
+		require.ErrorIs(t, err, ErrIllegalArguments, "height %d", height)
+	}
+
+	ht, err := NewHashTree(MaxHeight)
+	require.NoError(t, err)
+	require.Equal(t, MaxHeight, ht.Height())
 }
 
 func TestSmallestHashTree(t *testing.T) {

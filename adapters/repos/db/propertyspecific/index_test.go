@@ -65,25 +65,9 @@ func TestShutdownGeoIndices(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			indices := Indices{}
-			for _, propName := range test.geoProps {
-				indices[propName] = Index{
-					Name:     propName,
-					Type:     schema.DataTypeGeoCoordinates,
-					GeoIndex: newGeoIndex(t, propName),
-				}
-			}
-			if test.otherProp {
-				indices["name"] = Index{Name: "name", Type: schema.DataTypeText}
-			}
+			indices := newIndices(t, test.geoProps, test.otherProp)
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			if test.cancelled {
-				cancel()
-			}
-
-			err := indices.ShutdownGeoIndices(ctx)
+			err := indices.ShutdownGeoIndices(testContext(t, test.cancelled))
 
 			if len(test.wantErrs) == 0 {
 				require.NoError(t, err)
@@ -95,6 +79,131 @@ func TestShutdownGeoIndices(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDropAll(t *testing.T) {
+	tests := []struct {
+		name      string
+		geoProps  []string
+		otherProp bool
+		// a cancelled context makes every geo index fail to drop
+		cancelled     bool
+		repeat        int
+		wantErrs      []string
+		wantRemaining []string
+	}{
+		{
+			name: "no properties",
+		},
+		{
+			name:     "single geo property is dropped",
+			geoProps: []string{"location"},
+		},
+		{
+			name:     "every geo property is dropped",
+			geoProps: []string{"location", "home", "work"},
+		},
+		{
+			name:          "unsupported property type is reported and stays registered",
+			otherProp:     true,
+			wantErrs:      []string{"no implementation to delete property name"},
+			wantRemaining: []string{"name"},
+		},
+		{
+			// map iteration order is random, so a single run can pass even when
+			// the loop aborts at the unsupported property
+			name:          "unsupported property type does not strand the geo indices",
+			geoProps:      []string{"location", "home", "work"},
+			otherProp:     true,
+			repeat:        20,
+			wantErrs:      []string{"no implementation to delete property name"},
+			wantRemaining: []string{"name"},
+		},
+		{
+			name:          "single geo property fails and stays registered",
+			geoProps:      []string{"location"},
+			cancelled:     true,
+			wantErrs:      []string{"drop property location"},
+			wantRemaining: []string{"location"},
+		},
+		{
+			name:      "every failing geo property is reported, not just the first",
+			geoProps:  []string{"location", "home", "work"},
+			cancelled: true,
+			wantErrs: []string{
+				"drop property location",
+				"drop property home",
+				"drop property work",
+			},
+			wantRemaining: []string{"location", "home", "work"},
+		},
+		{
+			name:      "failing drops and an unsupported type are all reported",
+			geoProps:  []string{"location", "home", "work"},
+			otherProp: true,
+			cancelled: true,
+			wantErrs: []string{
+				"drop property location",
+				"drop property home",
+				"drop property work",
+				"no implementation to delete property name",
+			},
+			wantRemaining: []string{"location", "home", "work", "name"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			for i := 0; i < max(test.repeat, 1); i++ {
+				indices := newIndices(t, test.geoProps, test.otherProp)
+
+				err := indices.DropAll(testContext(t, test.cancelled), false)
+
+				if len(test.wantErrs) == 0 {
+					require.NoError(t, err)
+				} else {
+					require.Error(t, err)
+					for _, want := range test.wantErrs {
+						require.ErrorContains(t, err, want)
+					}
+				}
+
+				remaining := make([]string, 0, len(indices))
+				for propName := range indices {
+					remaining = append(remaining, propName)
+				}
+				require.ElementsMatch(t, test.wantRemaining, remaining)
+			}
+		})
+	}
+}
+
+func newIndices(t *testing.T, geoProps []string, otherProp bool) Indices {
+	t.Helper()
+
+	indices := Indices{}
+	for _, propName := range geoProps {
+		indices[propName] = Index{
+			Name:     propName,
+			Type:     schema.DataTypeGeoCoordinates,
+			GeoIndex: newGeoIndex(t, propName),
+		}
+	}
+	if otherProp {
+		indices["name"] = Index{Name: "name", Type: schema.DataTypeText}
+	}
+	return indices
+}
+
+func testContext(t *testing.T, cancelled bool) context.Context {
+	t.Helper()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	if cancelled {
+		cancel()
+	}
+	return ctx
 }
 
 func newGeoIndex(t *testing.T, id string) *geo.Index {
