@@ -26,6 +26,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
@@ -354,6 +355,36 @@ func (s *SchemaManager) ReloadDBFromSchema(ctx context.Context) error {
 	s.db.TriggerSchemaUpdateCallbacks()
 	s.log.Info("reload local db: update schema ...")
 	return s.db.ReloadLocalDB(ctx, cs)
+}
+
+// ResumeShardProcesses restarts the offloads this node registered and never
+// reported on.
+func (s *SchemaManager) ResumeShardProcesses() error {
+	var errs error
+	for class, byAction := range s.schema.pendingShardProcesses() {
+		for action, tenants := range byAction {
+			status := types.TenantActivityStatusFREEZING
+			if action == command.TenantProcessRequest_ACTION_UNFREEZING {
+				status = types.TenantActivityStatusUNFREEZING
+			}
+
+			req := &command.UpdateTenantsRequest{Tenants: make([]*command.Tenant, len(tenants))}
+			for i, tenant := range tenants {
+				req.Tenants[i] = &command.Tenant{Name: tenant, Status: status}
+			}
+
+			s.log.WithFields(logrus.Fields{
+				"class":   class,
+				"tenants": tenants,
+				"status":  status,
+			}).Info("resuming a tenant offload this node registered but never ran")
+
+			if err := s.db.UpdateTenants(class, req, nil); err != nil {
+				errs = errors.Join(errs, fmt.Errorf("resume %s for class %q: %w", status, class, err))
+			}
+		}
+	}
+	return errs
 }
 
 func (s *SchemaManager) Close(ctx context.Context) (err error) {

@@ -593,6 +593,48 @@ func (m *metaClass) RLockGuard(reader func(*models.Class, *sharding.State) error
 	return reader(&m.Class, &m.Sharding)
 }
 
+// pendingShardProcesses returns, per action, the tenants this node registered a
+// process for and has not reported on.
+//
+// The registration is the only record that the work is owed. The command that
+// created it is long applied, and every other replica reporting done is not
+// enough: allShardProcessExecuted waits for all of them.
+func (m *metaClass) pendingShardProcesses(nodeID string) map[command.TenantProcessRequest_Action][]string {
+	m.RLock()
+	defer m.RUnlock()
+
+	var pending map[command.TenantProcessRequest_Action][]string
+	for id, processes := range m.ShardProcesses {
+		process, ok := processes[nodeID]
+		if !ok || process.GetOp() != command.TenantsProcess_OP_START || process.GetTenant() == nil {
+			continue
+		}
+		action, ok := shardProcessAction(id)
+		if !ok {
+			continue
+		}
+		if pending == nil {
+			pending = map[command.TenantProcessRequest_Action][]string{}
+		}
+		pending[action] = append(pending[action], process.GetTenant().GetName())
+	}
+	return pending
+}
+
+// shardProcessAction recovers the action from a key shardProcessID built. It
+// matches on the suffix because a tenant name may itself contain the separator.
+func shardProcessAction(id string) (command.TenantProcessRequest_Action, bool) {
+	for _, action := range []command.TenantProcessRequest_Action{
+		command.TenantProcessRequest_ACTION_FREEZING,
+		command.TenantProcessRequest_ACTION_UNFREEZING,
+	} {
+		if strings.HasSuffix(id, "-"+action.String()) {
+			return action, true
+		}
+	}
+	return command.TenantProcessRequest_ACTION_UNSPECIFIED, false
+}
+
 func shardProcessID(name string, action command.TenantProcessRequest_Action) string {
 	return fmt.Sprintf("%s-%s", name, action)
 }
