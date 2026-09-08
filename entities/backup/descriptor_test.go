@@ -1129,7 +1129,9 @@ func TestDedupeReplicasRoundTrip(t *testing.T) {
 
 		raw, err := json.Marshal(DistributedBackupDescriptor{ID: "x", Version: "2.1"})
 		require.NoError(t, err)
-		assert.NotContains(t, string(raw), "dedupeReplicas")
+		for _, key := range []string{"dedupeReplicas", "dedupeDesignatedShards", "dedupeFallbackShards", "dedupeCutoffsMs"} {
+			assert.NotContains(t, string(raw), key)
+		}
 
 		raw, err = json.Marshal(DistributedBackupDescriptor{ID: "x", Version: "3.0", DedupeReplicas: true})
 		require.NoError(t, err)
