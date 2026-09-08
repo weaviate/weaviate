@@ -212,8 +212,13 @@ func (b *Batch) Get(key []byte) ([]byte, error) {
 	return out, nil
 }
 
+// Put stores value under key. The value is copied: bolt keeps what it is
+// handed until the transaction commits, and the callback runs on after Put
+// returns, so a caller may reuse its buffer.
 func (b *Batch) Put(key, value []byte) error {
-	return b.bucket.Put(key, value)
+	stored := make([]byte, len(value))
+	copy(stored, value)
+	return b.bucket.Put(key, stored)
 }
 
 func (b *Batch) Delete(key []byte) error {

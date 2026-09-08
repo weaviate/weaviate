@@ -287,6 +287,31 @@ func TestNamespace_Update(t *testing.T) {
 	assert.Nil(t, v)
 }
 
+// TestNamespace_Update_CopiesValues pins that a batch does not keep the
+// caller's buffer: bolt retains a Put value until the transaction commits,
+// and the callback keeps running in between.
+func TestNamespace_Update_CopiesValues(t *testing.T) {
+	db := openTestDB(t, t.TempDir())
+	ns := db.Namespace("mapping")
+
+	err := ns.Update(func(b *Batch) error {
+		buf := []byte{1}
+		if err := b.Put([]byte("a"), buf); err != nil {
+			return err
+		}
+		buf[0] = 2
+		return b.Put([]byte("b"), buf)
+	})
+	require.NoError(t, err)
+
+	a, err := ns.Get([]byte("a"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte{1}, a)
+	b, err := ns.Get([]byte("b"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte{2}, b)
+}
+
 func TestNamespace_ForEach(t *testing.T) {
 	db := openTestDB(t, t.TempDir())
 	ns := db.Namespace("mapping")
