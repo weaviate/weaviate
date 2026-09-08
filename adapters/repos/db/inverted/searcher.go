@@ -82,9 +82,9 @@ type Searcher struct {
 	// in-flight migration).
 	tokResolver TokenizationResolver
 	// batchedContainsEnabled gates the batched flat Contains resolution.
-	// Runtime-overridable; nil (the default) means disabled, so the
-	// feature is opt-in and callers that don't wire it keep the
-	// desugared per-value path.
+	// Runtime-overridable. Read it through batchedContainsEnabledOrDefault, never
+	// directly: nil means on, so a construction site that omits the gate
+	// keeps the fast path rather than silently losing it.
 	batchedContainsEnabled *runtime.DynamicValue[bool]
 }
 
@@ -105,14 +105,23 @@ func (s *Searcher) WithTokenizationResolver(r TokenizationResolver) *Searcher {
 }
 
 // WithBatchedContainsEnabled attaches the runtime-overridable gate for the
-// batched flat ContainsAny/ContainsAll/ContainsNone resolution. Returns the
-// receiver for fluent chaining at construction sites.
+// batched flat ContainsAny/ContainsAll/ContainsNone resolution.
 //
-// Nil (the default) means disabled: every Contains filter takes the
-// desugared per-value path, so the batched fast path is strictly opt-in.
+// Nil (the default) reads as on, so a gate holding true changes exactly one
+// thing: the searcher then honours a later SetValue on that gate. One holding
+// false sends every Contains filter down the desugared per-value path.
 func (s *Searcher) WithBatchedContainsEnabled(v *runtime.DynamicValue[bool]) *Searcher {
 	s.batchedContainsEnabled = v
 	return s
+}
+
+// batchedContainsEnabledOrDefault reports whether the batched Contains resolution applies.
+// An unwired gate reads as on: Get would answer false for it, which would
+// turn a forgotten construction-site option into a silently slower query. A
+// wired gate must come from [runtime.NewDynamicValue] or config, since a
+// zero-value DynamicValue reads as off.
+func (s *Searcher) batchedContainsEnabledOrDefault() bool {
+	return s.batchedContainsEnabled == nil || s.batchedContainsEnabled.Get()
 }
 
 // hasUsableRangeableIndex combines the schema-level [HasRangeableIndex] check
@@ -1074,7 +1083,7 @@ func (s *Searcher) classifyContainsBatch(path *filters.Path, propType schema.Dat
 	if !operator.IsContains() {
 		return nil, containsNotBatchable, containsDeclineNonContainsOperator
 	}
-	if !s.batchedContainsEnabled.Get() {
+	if !s.batchedContainsEnabledOrDefault() {
 		return nil, containsNotBatchable, containsDeclineNotEnabled
 	}
 
