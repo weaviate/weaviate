@@ -285,14 +285,100 @@ func slice(from, to uint64) []uint64 {
 	return s
 }
 
+func TestDocIDCount(t *testing.T) {
+	// The shard wires its index counter straight in, so the getter reports how
+	// many doc IDs have been allocated. Exclusive, so zero is a shard holding
+	// nothing rather than one holding doc ID 0 — see TestBitmapFactoryUniverse
+	// for why that distinction is load-bearing.
+	tests := []struct {
+		name  string
+		count uint64
+		// wantPrefilled pins what NewBitmapFactory built from the same getter
+		wantPrefilled uint64
+	}{
+		{name: "a shard holding nothing", count: 0, wantPrefilled: defaultIdIncrement},
+		{name: "one object, doc ID 0", count: 1, wantPrefilled: 1 + defaultIdIncrement},
+		{name: "a written shard", count: 5001, wantPrefilled: 5001 + defaultIdIncrement},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			bmf := NewBitmapFactory(NewBitmapBufPoolNoop(), func() uint64 { return tc.count })
+
+			assert.Equal(t, tc.count, bmf.DocIDCount())
+			assert.Equal(t, tc.wantPrefilled, bmf.prefilledMaxId)
+		})
+	}
+
+	t.Run("tracks the getter rather than the prefilled ceiling", func(t *testing.T) {
+		count := uint64(11)
+		bmf := NewBitmapFactory(NewBitmapBufPoolNoop(), func() uint64 { return count })
+
+		assert.Equal(t, uint64(11), bmf.DocIDCount())
+		count = 5001
+		assert.Equal(t, uint64(5001), bmf.DocIDCount())
+	})
+}
+
+// TestBitmapFactoryUniverse pins what a deny-list filter is inverted against.
+// The universe is the half-open range [0, count), so a shard that has allocated
+// no doc ID answers with nothing.
+//
+// The distinction is load-bearing twice over. A phantom ID reaches the caller as
+// a matching document — filteredAggregator reports len(allowList) as the meta
+// count without looking an object up — and it does not stay a read-only error:
+// objectsByDocID finds no object for it, classifies it deleted, and prunes it
+// from the shared prefilled bitmap, which FillUp never restores. The shard's
+// first real object would then be missing from every deny-list filter for the
+// life of the process.
+func TestBitmapFactoryUniverse(t *testing.T) {
+	universe := func(t *testing.T, bmf *BitmapFactory) []uint64 {
+		t.Helper()
+		bm, release := bmf.GetBitmap()
+		defer release()
+		return bm.ToArray()
+	}
+
+	t.Run("a shard that has allocated no doc ID has an empty universe", func(t *testing.T) {
+		bmf := NewBitmapFactory(NewBitmapBufPoolNoop(), func() uint64 { return 0 })
+
+		assert.Empty(t, universe(t, bmf),
+			"nothing has been written, so no doc ID exists to deny")
+	})
+
+	t.Run("one object is doc ID 0", func(t *testing.T) {
+		bmf := NewBitmapFactory(NewBitmapBufPoolNoop(), func() uint64 { return 1 })
+
+		assert.Equal(t, []uint64{0}, universe(t, bmf))
+	})
+
+	t.Run("the first object survives a query against the empty shard", func(t *testing.T) {
+		count := uint64(0)
+		bmf := NewBitmapFactory(NewBitmapBufPoolNoop(), func() uint64 { return count })
+
+		// a deny-list filter runs before anything is written. Whatever it
+		// returns, objectsByDocID prunes every ID it cannot resolve.
+		for _, id := range universe(t, bmf) {
+			bmf.RemoveIds(id)
+		}
+
+		count = 1
+		assert.Equal(t, []uint64{0}, universe(t, bmf),
+			"the shard's first object must not have been pruned before it existed")
+
+		count = 2
+		assert.Equal(t, []uint64{0, 1}, universe(t, bmf))
+	})
+}
+
 func TestBitmapFactory(t *testing.T) {
-	maxId := uint64(10)
-	maxIdGetter := func() uint64 { return maxId }
-	bmf := NewBitmapFactory(NewBitmapBufPoolNoop(), maxIdGetter)
+	count := uint64(11) // doc IDs 0..10
+	countGetter := func() uint64 { return count }
+	bmf := NewBitmapFactory(NewBitmapBufPoolNoop(), countGetter)
 
 	t.Run("prefilled bitmap includes increment", func(t *testing.T) {
-		expPrefilledMaxId := maxId + defaultIdIncrement
-		expPrefilledCardinality := int(maxId + defaultIdIncrement + 1)
+		expPrefilledMaxId := count + defaultIdIncrement
+		expPrefilledCardinality := int(count + defaultIdIncrement + 1)
 
 		bm, release := bmf.GetBitmap()
 		defer release()
@@ -300,37 +386,37 @@ func TestBitmapFactory(t *testing.T) {
 		require.NotNil(t, bm)
 		assert.Equal(t, expPrefilledMaxId, bmf.prefilled.Maximum())
 		assert.Equal(t, expPrefilledCardinality, bmf.prefilled.GetCardinality())
-		assert.Equal(t, maxId, bm.Maximum())
-		assert.Equal(t, int(maxId)+1, bm.GetCardinality())
+		assert.Equal(t, count-1, bm.Maximum())
+		assert.Equal(t, int(count), bm.GetCardinality())
 	})
 
-	t.Run("maxId increased up to increment threshold does not change internal bitmap", func(t *testing.T) {
+	t.Run("count increased up to increment threshold does not change internal bitmap", func(t *testing.T) {
 		expPrefilledMaxId := bmf.prefilled.Maximum()
 
-		maxId += 10
+		count += 10
 		bm1, release1 := bmf.GetBitmap()
 		defer release1()
 
 		require.NotNil(t, bm1)
 		assert.Equal(t, expPrefilledMaxId, bmf.prefilled.Maximum())
 		assert.Equal(t, int(expPrefilledMaxId)+1, bmf.prefilled.GetCardinality())
-		assert.Equal(t, maxId, bm1.Maximum())
-		assert.Equal(t, int(maxId)+1, bm1.GetCardinality())
+		assert.Equal(t, count-1, bm1.Maximum())
+		assert.Equal(t, int(count), bm1.GetCardinality())
 
-		maxId += (defaultIdIncrement - 10)
+		count += (defaultIdIncrement - 10)
 		bm2, release2 := bmf.GetBitmap()
 		defer release2()
 
 		require.NotNil(t, bm2)
 		assert.Equal(t, expPrefilledMaxId, bmf.prefilled.Maximum())
 		assert.Equal(t, int(expPrefilledMaxId)+1, bmf.prefilled.GetCardinality())
-		assert.Equal(t, maxId, bm2.Maximum())
-		assert.Equal(t, int(maxId)+1, bm2.GetCardinality())
+		assert.Equal(t, count-1, bm2.Maximum())
+		assert.Equal(t, int(count), bm2.GetCardinality())
 	})
 
-	t.Run("maxId surpasses increment threshold changes internal bitmap", func(t *testing.T) {
-		maxId += 1
-		expPrefilledMaxId := maxId + defaultIdIncrement
+	t.Run("count surpasses increment threshold changes internal bitmap", func(t *testing.T) {
+		count += 1
+		expPrefilledMaxId := count + defaultIdIncrement
 
 		bm, release := bmf.GetBitmap()
 		defer release()
@@ -338,11 +424,14 @@ func TestBitmapFactory(t *testing.T) {
 		require.NotNil(t, bm)
 		assert.Equal(t, expPrefilledMaxId, bmf.prefilled.Maximum())
 		assert.Equal(t, int(expPrefilledMaxId)+1, bmf.prefilled.GetCardinality())
-		assert.Equal(t, maxId, bm.Maximum())
-		assert.Equal(t, int(maxId)+1, bm.GetCardinality())
+		assert.Equal(t, count-1, bm.Maximum())
+		assert.Equal(t, int(count), bm.GetCardinality())
 	})
 }
 
+// TestIterator covers roaringset's own iterator wrapper, whose Next reports a
+// zero value and exhaustion separately — the "bitmap with only 0" case is what
+// tells the two apart.
 func TestIterator(t *testing.T) {
 	testCases := []struct {
 		name string
