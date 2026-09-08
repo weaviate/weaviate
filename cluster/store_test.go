@@ -1699,9 +1699,10 @@ func TestStoreWaitToRestoreDBAnnouncesOnce(t *testing.T) {
 }
 
 // TestStoreApplyDoesNotBlockOnShardLoad pins that the shard load no longer runs
-// on raft's FSM goroutine. Inline, it applies nothing else for minutes to
-// hours, configuration entries included, so on a cold start every bootstrap
-// join queues behind the leader's own load until RAFT_BOOTSTRAP_TIMEOUT.
+// on raft's FSM goroutine. Inline, it applies nothing else for the duration,
+// configuration entries included, so a cold start dies on
+// RAFT_BOOTSTRAP_TIMEOUT with every node's join queued behind the leader's own
+// load.
 func TestStoreApplyDoesNotBlockOnShardLoad(t *testing.T) {
 	t.Parallel()
 
@@ -1792,9 +1793,8 @@ func TestStoreApplyIsSchemaOnlyWhileLoading(t *testing.T) {
 }
 
 // TestStoreRestorePathStaysSynchronous pins that only the Apply call site moved
-// off-thread. Restore runs inside raft.NewRaft, where the lastAppliedIndexToDB
-// bookkeeping must be in place before it returns, and raft requires Restore not
-// to overlap other commands.
+// off-thread. Raft requires Restore not to overlap other commands, so it keeps
+// loading inline.
 func TestStoreRestorePathStaysSynchronous(t *testing.T) {
 	source := NewMockStore(t, "restore-sync-source", utils.MustGetFreeTCPPort())
 	setupTestSchema(t, source)
@@ -1903,11 +1903,10 @@ func TestStoreDBLoadHandoverUnderStress(t *testing.T) {
 }
 
 // TestStoreDeferredDeleteThenReAddDropsTheOldData pins the case the deferral
-// makes reachable for the first time: with the load off the FSM goroutine, a
-// class can be dropped and re-created under the same name while it runs. Both
-// commands are deferred, so the schema ends the pass listing the class again
-// and the DB still holds the old one's shards. Dropping only what the schema
-// has stopped listing would hand those shards to the new class.
+// makes reachable for the first time: a class dropped and re-created under the
+// same name while the load runs. Both commands defer, so the pass ends with the
+// schema listing the class again and the DB still holding the old one's shards.
+// Dropping only what the schema has stopped listing would hand them over.
 func TestStoreDeferredDeleteThenReAddDropsTheOldData(t *testing.T) {
 	t.Parallel()
 
@@ -1995,7 +1994,6 @@ func TestStoreDeferredDeleteClassReachesTheDB(t *testing.T) {
 			ms.indexer.On("DeleteClass", mock.Anything, mock.Anything).Return(nil)
 			ms.replicationFSM.On("DeleteReplicationsByCollection", mock.Anything).Return(nil)
 
-			// The class exists before the load starts.
 			st.Apply(&raft.Log{Index: 1, Type: raft.LogCommand, Data: cmdAsBytes("C",
 				cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil)})
 

@@ -261,8 +261,8 @@ func TestStore_Apply_CatchingUp(t *testing.T) {
 func TestStore_Apply_ReloadDB(t *testing.T) {
 	// runFirstApplyTriggeringReload: shared phase-1 setup. Seeds the store
 	// with lastAppliedIndexToDB=100, then applies at index 150 to trigger
-	// the DB-reload path. That path leaves lastAppliedIndexToDB alone: the
-	// index bookkeeping belongs to Restore, which runs before raft exists.
+	// the DB-reload path. Open seeds that index once and nothing recomputes
+	// it, so the reload must leave it where it is.
 	runFirstApplyTriggeringReload := func(t *testing.T) (MockStore, *raft.Log) {
 		t.Helper()
 		ms, log := setupApplyTest(t)
@@ -277,7 +277,7 @@ func TestStore_Apply_ReloadDB(t *testing.T) {
 		resp, ok := result.(Response)
 		assert.True(t, ok)
 		assert.NoError(t, resp.Error)
-		// Untouched by the Apply path; only Restore recomputes it.
+		// Seeded by Open, untouched by the reload.
 		assert.Equal(t, uint64(100), ms.store.lastAppliedIndexToDB.Load())
 		return ms, log
 	}
@@ -328,7 +328,7 @@ func TestStore_Apply_ReloadDB(t *testing.T) {
 		assert.True(t, ok)
 		assert.NoError(t, resp.Error)
 
-		// Still untouched: the Apply path never recomputes it.
+		// Still untouched by the second reload.
 		assert.Equal(t, uint64(100), ms.store.lastAppliedIndexToDB.Load())
 
 		// Verify all mock expectations

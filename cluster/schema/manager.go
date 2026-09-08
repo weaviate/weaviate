@@ -339,8 +339,8 @@ func (s *SchemaManager) Load(ctx context.Context, nodeID string) error {
 	return nil
 }
 
-// ReloadDBFromSchema rebuilds the local DB from the schema. ctx bounds a load
-// that runs for minutes to hours, so shutdown can cut it short.
+// ReloadDBFromSchema rebuilds the local DB from the schema. ctx lets shutdown
+// cut a load short.
 func (s *SchemaManager) ReloadDBFromSchema(ctx context.Context) error {
 	classes := s.schema.MetaClasses()
 

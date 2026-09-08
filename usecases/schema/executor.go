@@ -72,6 +72,8 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 		i, u := i, u
 
 		g.Go(func() error {
+			// The load queues class by class behind the limiter, so the queue
+			// is where a cancelled ctx has to land.
 			if err := ctx.Err(); err != nil {
 				return err
 			}

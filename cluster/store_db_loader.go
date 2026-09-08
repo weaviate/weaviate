@@ -41,8 +41,7 @@ type dbLoader struct {
 }
 
 // start runs load in the background unless a load has already run, and reports
-// whether it did. Scheduling lives here so that load itself has one body and
-// the call site is what says how it runs.
+// whether it did.
 func (l *dbLoader) start(load func(), log logrus.FieldLogger) bool {
 	if !l.begin() {
 		return false

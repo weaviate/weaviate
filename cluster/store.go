@@ -242,8 +242,7 @@ type Store struct {
 	dbLoaded atomic.Bool
 
 	dbLoad dbLoader
-	// loadCtx bounds the background shard load; Close cancels it. Read it
-	// through Store.loadContext.
+	// Bounds the background shard load. Read it through Store.loadContext.
 	loadCtx    context.Context
 	cancelLoad context.CancelFunc
 
@@ -455,9 +454,9 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 	}
 }
 
-// loadContext bounds the shard load. Close cancels it, so a load of minutes to
-// hours cannot hold shutdown open, and a load cut short that way is reported as
-// a shutdown rather than as an incomplete one.
+// loadContext bounds the shard load. Close cancels it so a load cannot hold
+// shutdown open, and a load cut short that way is reported as a shutdown rather
+// than as an incomplete one.
 func (st *Store) loadContext() context.Context {
 	if st.loadCtx == nil {
 		return context.Background()
@@ -728,7 +727,7 @@ func (st *Store) Close(ctx context.Context) error {
 
 	// Only now that raft is down can the loader finish: while Apply still runs,
 	// deferred writes keep asking it for another pass. Cancel and wait before
-	// the DB is closed underneath it, or a shard load of hours holds shutdown.
+	// the DB is closed underneath it.
 	if st.cancelLoad != nil {
 		st.cancelLoad()
 	}
@@ -1058,12 +1057,10 @@ func (st *Store) openDatabase(ctx context.Context) {
 // reloadDBFromSchema makes the local DB match the schema, repeating while
 // commands keep deferring their DB writes to it.
 //
-// The caller chooses how to run it. Restore calls it directly, since raft
-// requires it not to overlap other commands. Apply hands it to dbLoad.start,
-// because Apply is raft's
-// FSM goroutine and a load of minutes to hours there stalls every other
-// command, bootstrap joins included, so a cold start times out and kills the
-// node.
+// Restore calls it directly, since raft requires it not to overlap other
+// commands. Apply hands it to dbLoad.start: Apply is raft's FSM goroutine, and
+// a load of minutes to hours there stalls every other command, bootstrap joins
+// included, so a cold start times out and kills the node.
 func (st *Store) reloadDBFromSchema() {
 	loaded := true
 	for {
@@ -1121,24 +1118,22 @@ func (st *Store) fsmCaughtUpForTerm(term uint64) bool {
 // reportIncompleteLoad records that the DB does not match the schema.
 //
 // The node goes ready regardless and serves what it did open, as it did before
-// the load moved off the FSM goroutine. Refusing to go ready is the safer end
-// state, but WaitUntilDBRestored has no timeout of its own, so that turns a
-// partial load into a node hung at startup. Measure it first, then decide.
+// the load moved off the FSM goroutine. Refusing to go ready is safer, but
+// WaitUntilDBRestored has no timeout of its own, so that turns a partial load
+// into a node hung at startup. Measure it first, then decide.
 func (st *Store) reportIncompleteLoad() {
 	st.metrics.localDBLoadFailures.Inc()
 	st.log.Error("local DB did not load fully; going ready anyway, some data may be missing")
 }
 
-// loadDBFromSchema opens the local shards the schema names and reports whether
-// the DB now matches it.
 func (st *Store) loadDBFromSchema() bool {
 	if st.cfg.MetadataOnlyVoters {
 		st.log.Info("skipping reload DB from schema as the node is metadata only")
 		return true
 	}
-	// Progress is the only sign of life during a load of minutes to hours, and
-	// now that it runs off the FSM goroutine nothing else reports on it. Stop
-	// the ticker before the final line so it cannot interleave with it.
+	// Progress is the only sign of life during a load, and nothing else reports
+	// on it now that it runs off the FSM goroutine. The ticker stops before the
+	// summary line so the two cannot interleave.
 	err := func() error {
 		stop := st.trackDBLoadProgress()
 		defer stop()
@@ -1153,8 +1148,9 @@ func (st *Store) loadDBFromSchema() bool {
 	return true
 }
 
-// dropDeferredDeletes removes from the DB the classes a deferred command
-// deleted, and reports whether all of them went.
+// dropDeferredDeletes applies the deletes a pass skipped. A class re-added
+// since is dropped all the same and the next pass rebuilds it empty; leaving it
+// would hand the new class the old one's shards.
 func (st *Store) dropDeferredDeletes(deletes map[string]bool) bool {
 	ok := true
 	for class, hasFrozen := range deletes {
@@ -1167,8 +1163,8 @@ func (st *Store) dropDeferredDeletes(deletes map[string]bool) bool {
 }
 
 // deferDBWrite reports whether cmd must skip its DB write because the local DB
-// is still loading. hasFrozen is read here because only now does the schema
-// still hold the tenants that answer it.
+// is still loading. hasFrozen is sampled here, the last point at which the
+// schema still lists the tenants that answer it.
 func (st *Store) deferDBWrite(cmd *api.ApplyRequest) bool {
 	if !st.dbLoad.inFlight.Load() {
 		return false
