@@ -12,6 +12,7 @@
 package rest
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -26,6 +27,7 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
+	"github.com/go-openapi/strfmt"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -699,6 +701,142 @@ func setupDebugHandlers(appState *state.State) {
 
 		reassignLogger.Info("reassign-all enqueue started")
 		w.WriteHeader(http.StatusAccepted)
+	}))
+
+	// Read-only dumps of one shard's hfresh index for offline placement and
+	// routing analysis, streamed as JSON lines. Call via something like:
+	// curl "localhost:6060/debug/index/hfresh/centroids?collection=Foo&shard=abc123&vector=default"
+	// curl "localhost:6060/debug/index/hfresh/postings?collection=Foo&shard=abc123&vector=default"
+	// centroids: one line per posting, {"id": <postingID>, "vector": [...]}
+	// postings:  one line per posting, {"id": <postingID>, "entries": [{"id", "version", "live"[, "uuid"]}, ...]}
+	//            add &uuids=true to resolve each entry's doc id to its object uuid
+	dumpHFresh := func(w http.ResponseWriter, r *http.Request, dump func(h hfreshDumper, resolve uuidByIndexID, emit func(v any) error) error) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed, use GET", http.StatusMethodNotAllowed)
+			return
+		}
+
+		colName := r.URL.Query().Get("collection")
+		shardName := r.URL.Query().Get("shard")
+		targetVector := r.URL.Query().Get("vector")
+
+		if colName == "" || shardName == "" {
+			http.Error(w, "collection and shard are required", http.StatusBadRequest)
+			return
+		}
+
+		idx := appState.DB.GetIndex(schema.ClassName(colName))
+		if idx == nil {
+			http.Error(w, "collection not found", http.StatusNotFound)
+			return
+		}
+
+		shard, release, err := idx.GetShard(r.Context(), shardName)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+		if shard == nil {
+			release()
+			http.Error(w, "shard not found", http.StatusNotFound)
+			return
+		}
+		// unlike the reassign-all endpoint, the dump streams synchronously,
+		// so the shard reference is held for the duration of the response
+		defer release()
+
+		vidx, ok := shard.GetVectorIndex(targetVector)
+		if !ok {
+			http.Error(w, "vector index not found", http.StatusNotFound)
+			return
+		}
+		h, ok := vidx.(hfreshDumper)
+		if !ok {
+			http.Error(w, "not an hfresh index", http.StatusBadRequest)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		bw := bufio.NewWriterSize(w, 1<<20)
+		enc := json.NewEncoder(bw)
+		flusher, _ := w.(http.Flusher)
+		lines := 0
+		emit := func(v any) error {
+			err := enc.Encode(v)
+			if err != nil {
+				return err
+			}
+			lines++
+			if lines%1000 == 0 {
+				err = bw.Flush()
+				if err != nil {
+					return err
+				}
+				if flusher != nil {
+					flusher.Flush()
+				}
+			}
+			return nil
+		}
+
+		var resolve uuidByIndexID
+		if resolver, ok := shard.(interface {
+			UUIDByIndexID(indexID uint64) (strfmt.UUID, error)
+		}); ok {
+			resolve = resolver.UUIDByIndexID
+		}
+
+		// the caller's context ends the scan if the client goes away
+		err = dump(h, resolve, emit)
+		if err != nil {
+			// headers may already be out: report the failure on the stream
+			logger.WithField("collection", colName).WithField("shard", shardName).
+				Errorf("hfresh dump failed: %v", err)
+			_ = enc.Encode(map[string]string{"error": err.Error()})
+		}
+		_ = bw.Flush()
+	}
+
+	http.HandleFunc("/debug/index/hfresh/centroids", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		dumpHFresh(w, r, func(h hfreshDumper, _ uuidByIndexID, emit func(v any) error) error {
+			return h.DumpCentroids(r.Context(), func(postingID uint64, centroid []float32) error {
+				return emit(hfreshCentroidLine{ID: postingID, Vector: centroid})
+			})
+		})
+	}))
+
+	// With uuids=true every entry also carries the object's UUID: posting
+	// entries are keyed by internal doc id, which is assigned in insertion
+	// order and is not something a client can map back to its own objects.
+	// Each distinct doc id is resolved once per dump.
+	http.HandleFunc("/debug/index/hfresh/postings", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		withUUIDs := r.URL.Query().Get("uuids") == "true"
+		dumpHFresh(w, r, func(h hfreshDumper, resolve uuidByIndexID, emit func(v any) error) error {
+			if withUUIDs && resolve == nil {
+				return fmt.Errorf("this shard cannot resolve doc ids to uuids")
+			}
+			uuids := map[uint64]string{}
+			return h.DumpPostings(r.Context(), func(postingID uint64, entries []hfresh.PostingEntry) error {
+				line := hfreshPostingLine{ID: postingID, Entries: make([]hfreshPostingEntry, 0, len(entries))}
+				for _, e := range entries {
+					out := hfreshPostingEntry{ID: e.ID, Version: e.Version, Live: e.Live}
+					if withUUIDs {
+						u, ok := uuids[e.ID]
+						if !ok {
+							id, err := resolve(e.ID)
+							if err != nil {
+								return fmt.Errorf("resolve uuid of doc id %d: %w", e.ID, err)
+							}
+							u = id.String()
+							uuids[e.ID] = u
+						}
+						out.UUID = u
+					}
+					line.Entries = append(line.Entries, out)
+				}
+				return emit(line)
+			})
+		})
 	}))
 
 	http.HandleFunc("/debug/stats/collection/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1386,6 +1524,30 @@ type hnswStats interface {
 type hfreshReassignAller interface {
 	EnqueueReassignAll(ctx context.Context) (hfresh.ReassignAllStats, error)
 }
+
+type hfreshDumper interface {
+	DumpCentroids(ctx context.Context, fn func(postingID uint64, centroid []float32) error) error
+	DumpPostings(ctx context.Context, fn func(postingID uint64, entries []hfresh.PostingEntry) error) error
+}
+
+type hfreshCentroidLine struct {
+	ID     uint64    `json:"id"`
+	Vector []float32 `json:"vector"`
+}
+
+type hfreshPostingEntry struct {
+	ID      uint64 `json:"id"`
+	Version uint8  `json:"version"`
+	Live    bool   `json:"live"`
+	UUID    string `json:"uuid,omitempty"`
+}
+
+type hfreshPostingLine struct {
+	ID      uint64               `json:"id"`
+	Entries []hfreshPostingEntry `json:"entries"`
+}
+
+type uuidByIndexID func(indexID uint64) (strfmt.UUID, error)
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	jsonBytes, err := json.Marshal(v)

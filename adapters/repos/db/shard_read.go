@@ -991,6 +991,13 @@ func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter
 	return list, nil
 }
 
+// UUIDByIndexID resolves an internal doc id (the id vector indexes store)
+// to the object's UUID. It exists for the debug API, which reports vector
+// index internals keyed by doc id and needs them mapped back to objects.
+func (s *Shard) UUIDByIndexID(indexID uint64) (strfmt.UUID, error) {
+	return s.uuidFromDocID(indexID)
+}
+
 func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
 	bucket, release, err := s.objectsBucket()
 	if err != nil {

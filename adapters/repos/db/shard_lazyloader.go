@@ -749,6 +749,11 @@ func (l *LazyLoadShard) GetVectorIndexQueue(targetVector string) (*VectorIndexQu
 	return l.shard.GetVectorIndexQueue(targetVector)
 }
 
+func (l *LazyLoadShard) UUIDByIndexID(indexID uint64) (strfmt.UUID, error) {
+	l.mustLoad()
+	return l.shard.UUIDByIndexID(indexID)
+}
+
 func (l *LazyLoadShard) GetVectorIndex(targetVector string) (VectorIndex, bool) {
 	l.mustLoad()
 	return l.shard.GetVectorIndex(targetVector)
