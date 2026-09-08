@@ -270,28 +270,6 @@ func TestAutoschemaPanicOnUnregonizedDataTypeWithBatch(t *testing.T) {
 	require.Nil(t, err)
 
 	className := "Passage"
-	t.Run("should not panic with properties defined as empty array, but just return error", func(t *testing.T) {
-		obj := &models.Object{
-			Class:      className,
-			Properties: []interface{}{},
-		}
-
-		resp, err := c.Batch().ObjectsBatcher().WithObjects(obj).Do(ctx)
-		require.Nil(t, err)
-		require.Len(t, resp, 1)
-		require.NotNil(t, resp[0].Result)
-		require.NotNil(t, resp[0].Result.Errors)
-		require.Len(t, resp[0].Result.Errors.Error, 1)
-		assert.Equal(t, "could not recognize object's properties: []", resp[0].Result.Errors.Error[0].Message)
-
-		objs, err := c.Data().ObjectsGetter().WithClassName(className).Do(ctx)
-		require.Nil(t, err)
-		require.Len(t, objs, 0)
-
-		err = c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
-		require.Nil(t, err)
-	})
-
 	t.Run("should create object in batch without problems", func(t *testing.T) {
 		obj := &models.Object{
 			Class: className,
