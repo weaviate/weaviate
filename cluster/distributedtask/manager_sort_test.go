@@ -161,15 +161,22 @@ func TestManager_ListDistributedTasks_OrderIsStable(t *testing.T) {
 	h := newTestHarness(t).init(t)
 	now := h.clock.Now().Truncate(time.Millisecond)
 
-	// Three STARTED tasks plus two terminal ones, mixed insertion order.
+	// STARTED, coordination-phase and terminal tasks, mixed insertion order.
 	// All in the same namespace to force the sort path to run.
 	for i, payload := range []*cmd.AddDistributedTaskRequest{
 		{Namespace: "ns", Id: "started-c", SubmittedAtUnixMillis: now.UnixMilli(), UnitIds: []string{"u-1"}},
 		{Namespace: "ns", Id: "started-a", SubmittedAtUnixMillis: now.Add(2 * time.Minute).UnixMilli(), UnitIds: []string{"u-1"}},
 		{Namespace: "ns", Id: "started-b", SubmittedAtUnixMillis: now.Add(time.Minute).UnixMilli(), UnitIds: []string{"u-1"}},
+		{Namespace: "ns", Id: "swap-a", SubmittedAtUnixMillis: now.Add(10 * time.Minute).UnixMilli(), UnitIds: []string{"u-1"}},
+		{Namespace: "ns", Id: "swap-b", SubmittedAtUnixMillis: now.Add(20 * time.Minute).UnixMilli(), UnitIds: []string{"u-1"}},
 	} {
 		require.NoError(t, h.manager.AddTask(toCmd(t, payload), uint64(10+i)))
 	}
+
+	// Units done, cutover still pending: SWAPPING carries no finish stamp,
+	// so these sort by submission time like any other in-flight task.
+	completeUnit(t, h, "ns", "swap-a", 13, "n1", "u-1")
+	completeUnit(t, h, "ns", "swap-b", 14, "n1", "u-1")
 
 	// Cancel two of them so we have terminal tasks too.
 	require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
@@ -190,16 +197,16 @@ func TestManager_ListDistributedTasks_OrderIsStable(t *testing.T) {
 	first, err := h.manager.ListDistributedTasks(context.Background())
 	require.NoError(t, err)
 	firstIDs := ids(first["ns"])
-	require.Len(t, firstIDs, 3)
+	require.Len(t, firstIDs, 5)
 	for i := 0; i < 50; i++ {
 		next, err := h.manager.ListDistributedTasks(context.Background())
 		require.NoError(t, err)
 		assert.Equal(t, firstIDs, ids(next["ns"]), "list call %d returned different order", i)
 	}
 
-	// And confirm the order is sensible: the lone remaining STARTED
-	// (started-a) is first, then the two terminals by FinishedAt DESC.
-	require.Equal(t, []string{"started-a", "started-c", "started-b"}, firstIDs)
+	// And confirm the order is sensible: the in-flight tasks first by
+	// submission time DESC, then the two terminals by FinishedAt DESC.
+	require.Equal(t, []string{"swap-b", "swap-a", "started-a", "started-c", "started-b"}, firstIDs)
 }
 
 func ids(tasks []*Task) []string {

@@ -218,13 +218,47 @@ Per-property, per-index-type snapshot:
 ```
 
 Status values: `ready`, `pending`, `indexing`, `failed`, `cancelled`.
-The status is synthesized in `mergeReindexStatus` from a snapshot of
-the active DTM task list crossed with the live schema flags. A short
-**finalize-window override** lets a FINISHED-but-schema-not-yet-flipped
-entry render as `indexing@100%` for up to 10s (the bound, see
-`finalizeWindowMax`); without that override the UI would briefly show
-"None" between task FINISHED and the schema-flag flip, which was the
-user-visible face of weaviate/weaviate#10675.
+The status is synthesized in `mergeReindexStatus` from the DTM task
+list crossed with the schema flags. Both values are read from the
+node serving the request, and the task list is read first, so the
+schema is never the older of the two: a class read at a later applied
+index carries every flag flip the tasks it is compared against have
+already committed. A FINISHED task surfaces nothing of its own — the
+schema flag alone decides whether an entry is emitted.
+
+#### The apply edge
+
+`PUT .../index/{indexType}` returns `202` as soon as the **leader** applied
+the add-task entry (`Raft.Execute`). On a follower the call does not wait for
+that node's own apply; a leader-served PUT has already applied locally when
+the `202` returns. Cancel works the same way: it decides on the leader-routed
+task list and applies through `Raft.Execute`.
+
+A GET against a lagging follower right after that `202` finds no task and
+answers from the flags alone, in one of two shapes:
+
+- `enable-*`, flag still off: the entry is dropped. The `indexes` array reads
+  `null` only when every applicable type on the property is off; with
+  `indexFilterable` still on you get a non-null array that is merely missing
+  one entry.
+- `change-tokenization` / `change-algorithm`, flag already on at submit time:
+  the entry emits as `ready` with the pre-migration tokenization, reporting
+  the property done and unchanged.
+
+For a client pinned to one node the window is bounded by that node's
+replication lag, and the entry does not flap. It is left open deliberately:
+closing it means blocking a mutation on a local apply, which turns a `202`
+into a latency-bound call that can hang on a partitioned follower, to remove
+a transient polling artifact.
+
+A client that round-robins across nodes does see it flap. Nodes that have
+applied the add-task entry and nodes that have not answer differently, so the
+pill alternates between `indexing` and no entry at all, and `algorithm`
+between `blockmax` and `wand` for a property whose stamp only one of them has.
+
+This endpoint is node-local while `GET /v1/tasks` is leader-routed, so a UI
+polling both against a lagging follower can render the task FINISHED and the
+index pill `indexing` at the same moment.
 
 ### RBAC
 
@@ -318,9 +352,12 @@ preceding a transition on the per-task field. Annotations
         │     (per unit: PENDING → IN_PROGRESS → COMPLETED on success)  │
         │   • Build ShardReindexTaskGeneric per (strategy, unit)        │
         │   • persistRecoveryRecord (payload.mig)                       │
-        │   • RunReindexOnlyOnShard — iterate objects, write to         │
-        │     __reindex_<N>/ bucket; install double-write callbacks     │
-        │   • markReindexed → UnitStatus = COMPLETED  ← per-Unit status │
+        │   • Semantic: RunReindexOnlyOnShard — iterate objects, write  │
+        │     to __reindex_<N>/ bucket; install double-write callbacks; │
+        │     stop at markReindexed (the swap waits for the barrier)    │
+        │   • Format-only: RunOnShard — the same iteration, then prep   │
+        │     and swap, all locally                                     │
+        │   • UnitStatus = COMPLETED  ← per-Unit status                 │
         └──────────────────────────────────┬─────────────────────────────┘
                               All units terminal across the cluster
                                            │
@@ -357,10 +394,10 @@ preceding a transition on the per-task field. Annotations
         │    + OnMigrationComplete (per-strategy hook)                  │
         │   RecordPostCompletionAck(success bool) — RAFT (per node)     │
         │                                                                │
-        │  (Format-only path: Provider.OnGroupCompleted runs the       │
-        │   inline PREP+OVERLAY+SWAP body in a single callback; no      │
-        │   PreparationCompleteAck barrier; SWAPPING fires directly from       │
-        │   AllUnitsTerminal.)                                          │
+        │  (Format-only path: neither callback does swap work —        │
+        │   RunOnShard already finished PREP+SWAP on the node during    │
+        │   StartTask. No PreparationCompleteAck barrier; SWAPPING      │
+        │   fires directly from AllUnitsTerminal.)                      │
         └──────────────────────────────────┬─────────────────────────────┘
               Every node's PostCompletionAck landed (success on all)
                                            │
@@ -387,9 +424,13 @@ preceding a transition on the per-task field. Annotations
 
 Format-only migrations (`enable-rangeable`, `repair-filterable`,
 `repair-rangeable`, `rebuild-searchable`) skip the OnGroupCompleted
-barrier — each shard
-runs the full lifecycle inside its own `RunOnShard` and there is no
-cluster-wide schema flip. The flow is otherwise identical.
+barrier. Each shard runs the full lifecycle inside its own `RunOnShard`,
+which sequences `RunReindexOnlyOnShard` → `RunPrepareOnShard` →
+`RunSwapOnShard` against the sentinels on disk, and there is no
+cluster-wide schema flip. Because every phase dispatches on persisted
+state, a task relaunched after a restart resumes from wherever the
+previous run stopped rather than reporting the unit COMPLETED with the
+swap still outstanding. The flow is otherwise identical.
 
 ### What goes through RAFT vs. what is local-only
 
@@ -773,11 +814,11 @@ own scheduled completion flip still works. Class-wide
   this node's local units, hands them to `processUnits`. Bounded
   concurrency via `ConcurrencyLimiter`.
 - `processOneUnit` → per-(unit, shard) bootstrap. Constructs the
-  strategy instance(s) at the right per-node generation
-  (`nextMigrationGeneration`), writes the recovery payload, runs the
-  reindex iteration via `ShardReindexTaskGeneric`. For semantic
-  migrations it stops at `markReindexed` (barrier); for format-only
-  it runs the full lifecycle including the swap.
+  strategy instance(s) at the submission's task version, writes the
+  recovery payload, runs the reindex iteration via
+  `ShardReindexTaskGeneric`. For semantic migrations it stops at
+  `markReindexed` (barrier); for format-only it runs the full
+  lifecycle including the swap.
 - `OnGroupCompleted` (semantic only) → the swap phase, per local
   shard. Three-phase: PREP → OVERLAY SET → ATOMIC SWAP. See §6.
 - `OnTaskCompleted` (semantic only) → `flipSemanticMigrationSchema`
@@ -828,10 +869,10 @@ shard's sweep always reads the filesystem directly and never acts on the
 cached snapshot.
 
 **`inverted_reindex_finalize.go`** — startup-time deferred dir rename
-(see §9), `nextMigrationGeneration`, `maxMigrationGeneration`,
-`completedMigrationGens` (`parseMigrationDirName` lives in
-`inverted_reindex_strategy_dir_names.go`). The finalize
-algorithm handles every shape defensively: tidied / merged-but-not-
+(see §9), `migrationTrackerDirExists`, `completedMigrationGens`
+(`parseMigrationDirName` lives in
+`inverted_reindex_strategy_dir_names.go`). The finalize algorithm
+handles every shape defensively: tidied / merged-but-not-
 tidied / lower-gen sidecars / in-flight gens left alone for
 `DiscoverInFlightReindexTasks` to pick up.
 
@@ -1027,8 +1068,9 @@ The post-completion barrier is split into two phases.
    `completedCallbackFired` is unset.
 
 **Format-only migrations (NeedsPreparationBarrier=false):** PHASE A is
-skipped; the FSM goes `STARTED → SWAPPING` directly. `OnGroupCompleted`
-runs the inline PREP+OVERLAY+SWAP body and the scheduler emits
+skipped; the FSM goes `STARTED → SWAPPING` directly. PREP and SWAP have
+already run locally inside `RunOnShard` during `StartTask`, so
+`OnGroupCompleted` is a no-op and the scheduler emits
 `RecordPostCompletionAck`. SWAPPING → FINISHED is gated on the
 PostCompletionAck barrier only.
 
@@ -1212,8 +1254,8 @@ The original design problem this section answers:
 > them produces `ENOENT` on the next write).
 
 The solution has two parts: defer the rename to next startup, and
-give every migration a per-node generation suffix so back-to-back
-migrations on the same property don't collide.
+give every migration a generation suffix so back-to-back migrations
+on the same property don't collide.
 
 ### 9.1 Why the rename is deferred
 
@@ -1267,19 +1309,32 @@ T_(N+1) on prop=text:
 ```
 
 No path collision with the gen-N state still on disk. `T_(N+1)`'s
-`runtimeSwap` replaces the gen-N pointer with the gen-N+1 one; the
-old gen-N bucket is shut down and renamed to its gen-N+1 backup.
+`runtimeSwap` replaces the gen-N pointer with its own; the old gen-N
+bucket is shut down and renamed to the later migration's backup dir.
+`N` and `N+1` here label two successive submissions, whose generations
+rise but need not be consecutive (§9.3).
 
-### 9.3 Generation is per-node, not in the RAFT payload
+### 9.3 The generation is the submission's task version
 
-Each node computes its own gen by scanning its own disk. The RAFT
-payload does NOT carry the gen. Different nodes may use different
-gens for the same RAFT task — and that's correct: gen is purely a
-per-node implementation detail of the deferred-finalize. A node that
-restarted between `T_N` and `T_(N+1)` will have promoted gen N to
-canonical at startup, so on that node `T_(N+1)` picks gen 1; a node
-that didn't restart picks gen N+1. The cluster-wide logical state
-still converges via the regular swap-then-flip pipeline.
+The generation is `TaskDescriptor.Version` — the version RAFT assigns
+the submission, once, cluster-wide. Every node derives the same
+directory names, and every later submission gets a strictly higher
+number, so two migrations can never derive one name whatever each
+node's disk happens to hold.
+
+The generation used to be a per-node counter, `max(existing on disk) +
+1`. That made the name's correctness depend on the listing being
+complete, and the listing only ever covered the tracker directories
+under `.migrations/` — never the bucket working copies in the shard's
+LSM root. A cleanup that removed a tracker but failed to remove its
+working copies therefore handed the next migration a number already
+taken, and that migration opened its working copy on top of the
+previous one's files.
+
+The number is a RAFT log index, so it is large and non-contiguous.
+Nothing reads it as small or dense: `parseMigrationDirName` accepts any
+integer ≥ 1, and every consumer compares generations rather than
+counting them.
 
 ### 9.4 Trim at end of swap keeps depth bounded
 
@@ -1325,11 +1380,11 @@ Per namespace (strategy-prefix + props-suffix):
   (POSIX unlink-while-open) and can serve reads from cached pages,
   but new segment writes will land in a missing dir and silently
   lose data. weaviate/weaviate#10675 is exactly this failure mode.
-- **Do not** put the gen in the RAFT payload. The whole point of the
-  deferred-finalize design is that each node's on-disk state is its
-  own — forcing cluster-wide agreement on a per-node implementation
-  detail would re-introduce the collisions the per-node gen was
-  created to avoid.
+- **Do not** derive the gen from a disk scan again. The number has to
+  be settled before any directory is inspected; a scan can only see
+  the tracker directories, so a cleanup that removed a tracker but
+  left its bucket working copies would hand out a number already
+  taken (§9.3).
 
 ## 10. Per-shard tokenization overlay
 
@@ -1561,7 +1616,7 @@ already GC'd) resolves as WAND on the older binary until a re-migration.
 - [`adapters/repos/db/inverted_reindex_strategy_*.go`](../adapters/repos/db/) — one per strategy.
 - [`adapters/repos/db/inverted_reindex_strategy_dir_names.go`](../adapters/repos/db/inverted_reindex_strategy_dir_names.go) — `genSuffix`, `parseMigrationDirName`, strategy dir prefix constants.
 - [`adapters/repos/db/inverted_reindex_task_generic.go`](../adapters/repos/db/inverted_reindex_task_generic.go) — `ShardReindexTaskGeneric`, the **phase-contract godoc** at the top of the file is the authoritative spec.
-- [`adapters/repos/db/inverted_reindex_finalize.go`](../adapters/repos/db/inverted_reindex_finalize.go) — `FinalizeCompletedMigrations`, `nextMigrationGeneration`, `maxMigrationGeneration`, `completedMigrationGens`.
+- [`adapters/repos/db/inverted_reindex_finalize.go`](../adapters/repos/db/inverted_reindex_finalize.go) — `FinalizeCompletedMigrations`, `migrationTrackerDirExists`, `completedMigrationGens`.
 
 **LSM primitives**
 
@@ -1603,8 +1658,7 @@ with the modern testcontainer style.
   `roaring_set_test`).
 - `delete_then_reenable_test` / `delete_reenable_multicycle_test` /
   `delete_reenable_indexing_bleed_test` / `delete_reenable_shortcircuit_test`
-  — the #10675 family + the `mergeReindexStatus` finalize-window
-  override bound test.
+  — the #10675 family.
 - `change_tok_delete_journeys_test` — the cross-strategy clobber +
   `cleanStaleMigrationDirs` family.
 - `cancel_test` / `cancel_then_retry_test` — cancel + the
@@ -1680,9 +1734,8 @@ test packages.
 - `failUnit` and recovery — `reindex_provider_failunit_test.go`,
   `reindex_provider_recovery_test.go`,
   `reindex_provider_repair_guidance_test.go`.
-- `parseMigrationDirName`, `nextMigrationGeneration`, multi-gen
-  `FinalizeCompletedMigrations` paths —
-  `inverted_reindex_finalize_test.go`.
+- `parseMigrationDirName`, multi-gen `FinalizeCompletedMigrations`
+  paths — `inverted_reindex_finalize_test.go`.
 - `OnGroupCompleted` cache + rehydrate —
   `reindex_provider_on_group_completed_test.go`.
 - Tokenization overlay set/clear/self-clear —

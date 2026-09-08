@@ -209,10 +209,10 @@ func TestShardReplicationFSM_FilterOneReplica_Coexistence(t *testing.T) {
 			wantWrite: []string{"node2"},
 		},
 		{
-			name:      "CANCELLED only ⇒ excluded",
+			name:      "CANCELLED only ⇒ inert, replica stays routable",
 			ops:       []struct{ srcNode, state string }{{"node1", string(api.CANCELLED)}},
-			wantRead:  []string{},
-			wantWrite: []string{},
+			wantRead:  []string{"node2"},
+			wantWrite: []string{"node2"},
 		},
 		{
 			name:      "single active INTEGRATING op ⇒ routable (single-op behaviour unchanged)",

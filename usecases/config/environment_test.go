@@ -201,6 +201,41 @@ func TestEnvironmentDropVectorReconcileInterval(t *testing.T) {
 	}
 }
 
+func TestEnvironmentBannerInterval(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       []string
+		preset      time.Duration // as the config file would set it
+		expected    time.Duration
+		expectedErr bool
+	}{
+		{name: "valid", value: []string{"48h"}, expected: 48 * time.Hour},
+		// Zero means "not set" to the repeater, which falls back to its default.
+		{name: "not given", value: []string{}, expected: 0},
+		{name: "below the floor is clamped", value: []string{"1m"}, expected: time.Hour},
+		{name: "config file value below the floor is clamped", preset: time.Minute, expected: time.Hour},
+		{name: "config file value above the floor is kept", preset: 2 * time.Hour, expected: 2 * time.Hour},
+		{name: "env wins over the config file", value: []string{"48h"}, preset: time.Minute, expected: 48 * time.Hour},
+		{name: "not parsable", value: []string{"garbage"}, expected: -1, expectedErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("BANNER_INTERVAL", tt.value[0])
+			}
+			conf := Config{BannerInterval: tt.preset}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, conf.BannerInterval)
+			}
+		})
+	}
+}
+
 // TestEnvironmentDistributedTasksIntervals pins the caps on the two sibling
 // DTM knobs: unchecked, seconds*time.Second (hours*time.Hour) overflows into
 // a negative duration — the tick interval panics time.NewTicker after boot,
@@ -745,6 +780,48 @@ func TestEnvironmentLazyLoadShardSizeThreshold(t *testing.T) {
 				require.NoError(t, err)
 				assert.Equal(t, tt.expected, conf.LazyLoadShardSizeThresholdGB)
 			}
+		})
+	}
+}
+
+func TestEnvironmentLazyLoadShardWarmupMinObjects(t *testing.T) {
+	tests := []struct {
+		name string
+		// preset mirrors a value coming from the config file, which is parsed
+		// before FromEnv runs.
+		preset      int64
+		value       string
+		expected    int64
+		expectedErr bool
+	}{
+		{name: "unset keeps the zero value", value: "", expected: 0},
+		{name: "negative turns the sweep off", value: "-1", expected: -1},
+		{name: "zero sweeps every non-empty shard", value: "0", expected: 0},
+		{name: "positive sets a threshold", value: "1000", expected: 1000},
+		{name: "unparsable value is rejected", value: "not-an-int", expectedErr: true},
+		{name: "config file value survives an unset env var", preset: 500, value: "", expected: 500},
+		{name: "env var overrides the config file", preset: 500, value: "-1", expected: -1},
+		{name: "zero overrides a config-file threshold", preset: 500, value: "0", expected: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Ensure hermetic behavior regardless of outer environment
+			t.Setenv("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS", "")
+
+			if tt.value != "" {
+				t.Setenv("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS", tt.value)
+			}
+
+			conf := Config{LazyLoadShardWarmupMinObjects: tt.preset}
+			err := FromEnv(&conf)
+			if tt.expectedErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, conf.LazyLoadShardWarmupMinObjects)
 		})
 	}
 }
@@ -2167,6 +2244,127 @@ func TestEnvironmentAsyncIndexing(t *testing.T) {
 	}
 }
 
+func TestEnvironmentReplicaMovementCleanup(t *testing.T) {
+	tests := []struct {
+		name                 string
+		env                  map[string]string
+		errContains          string
+		wantEnabled          bool
+		wantMaxAge           time.Duration
+		wantInterval         time.Duration
+		wantIncludeCancelled bool
+	}{
+		{
+			name:         "defaults: off, 7 days, hourly, READY only",
+			wantEnabled:  false,
+			wantMaxAge:   DefaultReplicaMovementCleanupMaxAge,
+			wantInterval: DefaultReplicaMovementCleanupInterval,
+		},
+		{
+			name: "explicit values are parsed",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_ENABLED":           "true",
+				"REPLICA_MOVEMENT_CLEANUP_MAX_AGE":           "24h",
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL":          "5m",
+				"REPLICA_MOVEMENT_CLEANUP_INCLUDE_CANCELLED": "true",
+			},
+			wantEnabled:          true,
+			wantMaxAge:           24 * time.Hour,
+			wantInterval:         5 * time.Minute,
+			wantIncludeCancelled: true,
+		},
+		{
+			// Zero passes the >= 0 validator and is the only disable sentinel.
+			// The sweeper reads it as "off", never as "delete every READY op".
+			name: "zero max age is accepted and handled downstream",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_MAX_AGE": "0s",
+			},
+			wantMaxAge:   0,
+			wantInterval: DefaultReplicaMovementCleanupInterval,
+		},
+		{
+			name: "zero interval is accepted and handled downstream",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "0s",
+			},
+			wantMaxAge:   DefaultReplicaMovementCleanupMaxAge,
+			wantInterval: 0,
+		},
+		{
+			// A negative duration fails startup rather than coercing to zero.
+			// Both rows go red if the parse-time validators are dropped.
+			name: "negative max age fails startup, naming the variable",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_MAX_AGE": "-1h",
+			},
+			errContains: "REPLICA_MOVEMENT_CLEANUP_MAX_AGE",
+		},
+		{
+			name: "negative interval fails startup, naming the variable",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "-1s",
+			},
+			errContains: "REPLICA_MOVEMENT_CLEANUP_INTERVAL",
+		},
+		{
+			// Below the floor a sweep hammers the leader with full-FSM scans.
+			name: "interval below the 1m floor fails startup",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "1ms",
+			},
+			errContains: "REPLICA_MOVEMENT_CLEANUP_INTERVAL",
+		},
+		{
+			// Above the ceiling the sweep silently never runs; 0 is the only
+			// sanctioned way to disable it.
+			name: "interval above the 168h ceiling fails startup",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "169h",
+			},
+			errContains: "REPLICA_MOVEMENT_CLEANUP_INTERVAL",
+		},
+		{
+			name: "interval bounds are inclusive",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "1m",
+			},
+			wantMaxAge:   DefaultReplicaMovementCleanupMaxAge,
+			wantInterval: time.Minute,
+		},
+		{
+			name: "interval ceiling is inclusive",
+			env: map[string]string{
+				"REPLICA_MOVEMENT_CLEANUP_INTERVAL": "168h",
+			},
+			wantMaxAge:   DefaultReplicaMovementCleanupMaxAge,
+			wantInterval: 168 * time.Hour,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for k, v := range tt.env {
+				t.Setenv(k, v)
+			}
+
+			conf := Config{}
+			err := FromEnv(&conf)
+			if tt.errContains != "" {
+				require.ErrorContains(t, err, tt.errContains,
+					"a rejected value must tell the operator which variable to fix")
+				return
+			}
+			require.NoError(t, err)
+
+			require.Equal(t, tt.wantEnabled, conf.Replication.ReplicaMovementCleanupEnabled.Get())
+			require.Equal(t, tt.wantMaxAge, conf.Replication.ReplicaMovementCleanupMaxAge.Get())
+			require.Equal(t, tt.wantInterval, conf.Replication.ReplicaMovementCleanupInterval.Get())
+			require.Equal(t, tt.wantIncludeCancelled, conf.Replication.ReplicaMovementCleanupIncludeCancelled.Get())
+		})
+	}
+}
+
 // TestEnvironmentRuntimeReindexEnabled pins the kill switch's precedence:
 // the env var wins when set, and an absent one leaves a config-file value
 // alone. Getting the absent case wrong silently forces every
@@ -2228,4 +2426,46 @@ func TestEnvironmentAsyncReplicationGlobalSentinels(t *testing.T) {
 			require.Equal(t, tt.wantFreq, conf.Replication.AsyncReplicationFrequency.Get())
 		})
 	}
+}
+
+func TestNamespaceCleanupIntervalValidation(t *testing.T) {
+	tests := []struct {
+		name    string
+		env     string
+		wantErr string
+		wantGet time.Duration
+	}{
+		{name: "a sub-second interval fails the boot", env: "500ms", wantErr: "NAMESPACE_CLEANUP_INTERVAL"},
+		{name: "unset yields the default", wantGet: DefaultNamespaceCleanupInterval},
+		// newCronsNamespaceCleanup substitutes the default; Get() keeps the 0 the
+		// operator wrote, and /debug/config omits a zero interval entirely.
+		{name: "a value at or below zero is kept as configured", env: "0"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.env != "" {
+				t.Setenv("NAMESPACE_CLEANUP_INTERVAL", tt.env)
+			}
+			var conf Config
+
+			err := FromEnv(&conf)
+
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantGet, conf.Namespaces.CleanupInterval.Get())
+		})
+	}
+
+	t.Run("a sub-second runtime push is refused and the interval stands", func(t *testing.T) {
+		t.Setenv("NAMESPACE_CLEANUP_INTERVAL", "1m")
+		var conf Config
+		require.NoError(t, FromEnv(&conf))
+
+		require.Error(t, conf.Namespaces.CleanupInterval.SetValue(500*time.Millisecond))
+		assert.Equal(t, time.Minute, conf.Namespaces.CleanupInterval.Get(),
+			"a refused push must leave the previous interval in place")
+	})
 }

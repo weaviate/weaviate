@@ -327,7 +327,7 @@ func TestRestoreAllCancellation(t *testing.T) {
 		backend.On("SourceDataPath").Return(t.TempDir())
 		backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("test/path")
 
-		restorer := newRestorer("node1", nil, sourcer, nil, nil, &fakeBackupBackendProvider{backend: backend}, false)
+		restorer := newRestorer("node1", nil, sourcer, &fakeBackupBackendProvider{backend: backend}, false)
 		restorer.lastOp.set(backup.Transferring)
 
 		desc := &backup.BackupDescriptor{
@@ -346,59 +346,12 @@ func TestRestoreAllCancellation(t *testing.T) {
 
 		err := restorer.restoreAll(cancelledCtx, desc, 50, nodeStore{
 			objectStore: objectStore{backend: backend, backupId: backupID},
-		}, "", "", models.RestoreConfigRolesOptionsNoRestore, models.RestoreConfigUsersOptionsNoRestore, false)
+		}, "", "", false)
 
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "restore cancelled")
 		assert.Equal(t, backup.Cancelled, restorer.lastOp.get().Status)
 	})
-}
-
-// recordingRbacRestorer captures the stripNamespaces flag restoreAll forwards.
-type recordingRbacRestorer struct {
-	called bool
-	strip  bool
-}
-
-func (r *recordingRbacRestorer) Snapshot(roles ...string) ([]byte, error) { return nil, nil }
-
-func (r *recordingRbacRestorer) Restore(_ []byte, stripNamespaces bool) error {
-	r.called = true
-	r.strip = stripNamespaces
-	return nil
-}
-
-// TestRestoreThreadsRbacStripFlag covers restoreAll passing its stripNamespaces
-// argument, which each node derives as !namespacesEnabled, through to the RBAC
-// sourcer. Dropping it would skip the strip entirely and no other test would
-// notice.
-func TestRestoreThreadsRbacStripFlag(t *testing.T) {
-	t.Parallel()
-	for _, strip := range []bool{true, false} {
-		t.Run(map[bool]string{true: "strip", false: "no-strip"}[strip], func(t *testing.T) {
-			backend := newFakeBackend()
-			backend.On("SourceDataPath").Return(t.TempDir())
-			rec := &recordingRbacRestorer{}
-			restorer := newRestorer("node1", nil, &fakeSourcer{}, rec, nil, &fakeBackupBackendProvider{backend: backend}, !strip)
-			restorer.lastOp.set(backup.Transferring)
-
-			desc := &backup.BackupDescriptor{
-				ID:            "rbac-strip",
-				ServerVersion: "1.23",
-				Version:       "1",
-				StartedAt:     time.Now().UTC(),
-				RbacBackups:   []byte(`{"version":1}`),
-			}
-
-			err := restorer.restoreAll(context.Background(), desc, 50, nodeStore{
-				objectStore: objectStore{backend: backend, backupId: desc.ID},
-			}, "", "", "", "", strip)
-
-			assert.NoError(t, err)
-			assert.True(t, rec.called, "rbac restore must be invoked")
-			assert.Equal(t, strip, rec.strip)
-		})
-	}
 }
 
 func TestWithCancellation(t *testing.T) {

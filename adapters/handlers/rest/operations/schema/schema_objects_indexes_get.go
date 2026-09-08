@@ -47,7 +47,7 @@ func NewSchemaObjectsIndexesGet(ctx *middleware.Context, handler SchemaObjectsIn
 
 # Get index status for all properties of a collection
 
-Returns per-property index state including active reindex progress. This powers the UI to show live migration status.
+Returns per-property index state including active reindex progress. This powers the UI to show live migration status. The response reflects the state of the node that answered, which may briefly omit the entry for a just-submitted migration or still report its pre-migration state.
 */
 type SchemaObjectsIndexesGet struct {
 	Context *middleware.Context

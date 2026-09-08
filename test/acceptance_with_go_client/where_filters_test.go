@@ -12,6 +12,7 @@
 package acceptance_with_go_client
 
 import (
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"testing"
 
@@ -24,8 +25,6 @@ import (
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/filters"
 
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
-
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestCorrectErrorForIsNullFilter(t *testing.T) {

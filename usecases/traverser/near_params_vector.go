@@ -266,7 +266,7 @@ func (v *nearParamsVector) classFindVector(ctx context.Context, className string
 		return nil, "", err
 	}
 	if res == nil {
-		return nil, "", enterrors.NewErrSourceObjectNotFound(errors.New("vector not found"))
+		return nil, "", enterrors.NewErrSourceObjectNotFound(fmt.Errorf("nearObject search-object with id %v not found", id))
 	}
 	if targetVector != "" {
 		if targetVector == modelsext.DefaultNamedVectorName && len(res.Vector) > 0 {
@@ -313,7 +313,7 @@ func (v *nearParamsVector) classFindMultiVector(ctx context.Context, className s
 		return nil, "", err
 	}
 	if res == nil {
-		return nil, "", enterrors.NewErrSourceObjectNotFound(errors.New("vector not found"))
+		return nil, "", enterrors.NewErrSourceObjectNotFound(fmt.Errorf("nearObject search-object with id %v not found", id))
 	}
 	if targetVector != "" {
 		if len(res.Vectors) == 0 || res.Vectors[targetVector] == nil {

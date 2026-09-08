@@ -322,11 +322,11 @@ func TestPropertiesMigration(t *testing.T) {
 
 	// Check
 	require.NotNil(t, class.Properties[0].IndexRangeFilters)
-	require.False(t, *(class.Properties[0].IndexRangeFilters))
+	require.False(t, *class.Properties[0].IndexRangeFilters)
 	require.NotNil(t, class.Properties[0].NestedProperties[0].IndexRangeFilters)
-	require.False(t, *(class.Properties[0].NestedProperties[0].IndexRangeFilters))
+	require.False(t, *class.Properties[0].NestedProperties[0].IndexRangeFilters)
 	require.NotNil(t, class.Properties[0].NestedProperties[0].NestedProperties[0].IndexRangeFilters)
-	require.False(t, *(class.Properties[0].NestedProperties[0].NestedProperties[0].IndexRangeFilters))
+	require.False(t, *class.Properties[0].NestedProperties[0].NestedProperties[0].IndexRangeFilters)
 }
 
 // TestApplyPartialSchemaErr verifies that apply() respects the partialSchemaErr flag:

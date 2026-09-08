@@ -343,7 +343,7 @@ func (o *SearchNearTextTooManyRequests) WriteResponse(rw http.ResponseWriter, pr
 const SearchNearTextInternalServerErrorCode int = 500
 
 /*
-SearchNearTextInternalServerError An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+SearchNearTextInternalServerError An error has occurred while trying to fulfill the request, including a failure of the embedding provider to vectorize the query. Most likely the ErrorResponse will contain more information about the error.
 
 swagger:response searchNearTextInternalServerError
 */
@@ -376,51 +376,6 @@ func (o *SearchNearTextInternalServerError) SetPayload(payload *models.ErrorResp
 func (o *SearchNearTextInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(500)
-	if o.Payload != nil {
-		payload := o.Payload
-		if err := producer.Produce(rw, payload); err != nil {
-			panic(err) // let the recovery middleware deal with this
-		}
-	}
-}
-
-// SearchNearTextBadGatewayCode is the HTTP code returned for type SearchNearTextBadGateway
-const SearchNearTextBadGatewayCode int = 502
-
-/*
-SearchNearTextBadGateway The embedding provider failed to vectorize the query; the search cannot run.
-
-swagger:response searchNearTextBadGateway
-*/
-type SearchNearTextBadGateway struct {
-
-	/*
-	  In: Body
-	*/
-	Payload *models.ErrorResponse `json:"body,omitempty"`
-}
-
-// NewSearchNearTextBadGateway creates SearchNearTextBadGateway with default headers values
-func NewSearchNearTextBadGateway() *SearchNearTextBadGateway {
-
-	return &SearchNearTextBadGateway{}
-}
-
-// WithPayload adds the payload to the search near text bad gateway response
-func (o *SearchNearTextBadGateway) WithPayload(payload *models.ErrorResponse) *SearchNearTextBadGateway {
-	o.Payload = payload
-	return o
-}
-
-// SetPayload sets the payload to the search near text bad gateway response
-func (o *SearchNearTextBadGateway) SetPayload(payload *models.ErrorResponse) {
-	o.Payload = payload
-}
-
-// WriteResponse to the client
-func (o *SearchNearTextBadGateway) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.WriteHeader(502)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

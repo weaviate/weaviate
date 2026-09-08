@@ -137,7 +137,12 @@ func configureOIDC(appState *state.State) *oidc.Client {
 }
 
 func configureCrons(appState *state.State, serverShutdownCtx context.Context) *cron.Crons {
-	return cron.NewCrons(serverShutdownCtx, appState.Logger, func() config.Config { return appState.ServerConfig.Config })
+	c, err := cron.NewCrons(serverShutdownCtx, appState.Logger, func() config.Config { return appState.ServerConfig.Config })
+	if err != nil {
+		appState.Logger.WithField("action", "crons_init").Fatalf("crons could not start up: %v", err)
+	}
+
+	return c
 }
 
 func configureAPIKey(appState *state.State) *apikey.ApiKey {

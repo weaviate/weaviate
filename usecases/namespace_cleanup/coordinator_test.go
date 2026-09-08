@@ -35,6 +35,17 @@ type stubNamespaces struct{ deleting []string }
 
 func (s stubNamespaces) ListDeleting() []string { return s.deleting }
 
+// countingNamespaces records how many times the deleting list was read.
+type countingNamespaces struct {
+	deleting []string
+	calls    *int
+}
+
+func (c countingNamespaces) ListDeleting() []string {
+	*c.calls++
+	return c.deleting
+}
+
 // stubSchema returns the configured per-namespace residuals.
 type stubSchema struct {
 	classes    map[string][]string
@@ -897,4 +908,33 @@ func opsOf(calls []recordedCall) []string {
 		out = append(out, c.op)
 	}
 	return out
+}
+
+// TestCoordinator_Tick_FollowerReadsNothing pins Tick's own leadership check.
+// The guards below it already keep raftExecutor untouched on a follower, so a
+// test asserting only on raft calls stays green with that check deleted. The
+// list read is the first thing the check actually prevents.
+func TestCoordinator_Tick_FollowerReadsNothing(t *testing.T) {
+	tests := []struct {
+		name      string
+		isLeader  func() bool
+		wantCalls int
+	}{
+		{name: "a follower never reads the deleting list", isLeader: func() bool { return false }},
+		{name: "a leader reads it once per tick", isLeader: alwaysLeader, wantCalls: 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var calls int
+			ns := countingNamespaces{deleting: []string{"alpha"}, calls: &calls}
+			logger, _ := test.NewNullLogger()
+
+			c := NewCoordinator(ns, stubSchema{}, stubUsers{}, newStubRaft(), nil, tt.isLeader, logger)
+
+			require.NoError(t, c.Tick(context.Background()))
+
+			assert.Equal(t, tt.wantCalls, calls,
+				"Tick must not reach the deleting list unless this node leads")
+		})
+	}
 }

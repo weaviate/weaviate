@@ -102,8 +102,8 @@ func (f *fakeReplicator) DigestObjects(ctx context.Context, class, shardName str
 	return []types.RepairResponse{}, nil
 }
 
-func (f *fakeReplicator) DigestObjectsInRange(ctx context.Context, class, shardName string, initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error) {
-	return []types.RepairResponse{}, nil
+func (f *fakeReplicator) DigestObjectsInRange(ctx context.Context, class, shardName string, initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairDigest, err error) {
+	return []types.RepairDigest{}, nil
 }
 
 func (f *fakeReplicator) HashTreeLevel(ctx context.Context, index, shard string, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
@@ -114,7 +114,7 @@ func (f *fakeReplicator) CountObjects(ctx context.Context, index, shard string) 
 	return 0, nil
 }
 
-func (f *fakeReplicator) CompareDigests(ctx context.Context, className, shardName string, digests []types.RepairResponse) ([]types.RepairResponse, error) {
+func (f *fakeReplicator) CompareDigests(ctx context.Context, className, shardName string, digests []types.RepairDigest) ([]types.RepairDigest, error) {
 	return nil, nil
 }
 

@@ -71,33 +71,38 @@ type HandlerConfig struct {
 	NamespacesEnabled bool
 	DefaultLimit      int64
 	MaximumResults    int64
-	Enabled           *runtime.DynamicValue[bool]
-	Logger            logrus.FieldLogger
+	// CrossRefDepthLimit is QUERY_CROSS_REFERENCE_DEPTH_LIMIT; the handler
+	// rejects deeper returnReferences nesting than the traverser would.
+	CrossRefDepthLimit int
+	Enabled            *runtime.DynamicValue[bool]
+	Logger             logrus.FieldLogger
 }
 
 // Handler implements the search endpoints. The caller is authenticated in
 // the swagger security layer; the handler receives the resulting principal.
 type Handler struct {
-	traverser         classSearcher
-	schemaReader      schemaReader
-	authorizer        authorization.Authorizer
-	namespacesEnabled bool
-	defaultLimit      int64
-	maximumResults    int64
-	enabled           *runtime.DynamicValue[bool]
-	logger            logrus.FieldLogger
+	traverser          classSearcher
+	schemaReader       schemaReader
+	authorizer         authorization.Authorizer
+	namespacesEnabled  bool
+	defaultLimit       int64
+	maximumResults     int64
+	crossRefDepthLimit int
+	enabled            *runtime.DynamicValue[bool]
+	logger             logrus.FieldLogger
 }
 
 func NewHandler(cfg HandlerConfig) *Handler {
 	return &Handler{
-		traverser:         cfg.Traverser,
-		schemaReader:      cfg.SchemaReader,
-		authorizer:        cfg.Authorizer,
-		namespacesEnabled: cfg.NamespacesEnabled,
-		defaultLimit:      cfg.DefaultLimit,
-		maximumResults:    cfg.MaximumResults,
-		enabled:           cfg.Enabled,
-		logger:            cfg.Logger,
+		traverser:          cfg.Traverser,
+		schemaReader:       cfg.SchemaReader,
+		authorizer:         cfg.Authorizer,
+		namespacesEnabled:  cfg.NamespacesEnabled,
+		defaultLimit:       cfg.DefaultLimit,
+		maximumResults:     cfg.MaximumResults,
+		crossRefDepthLimit: cfg.CrossRefDepthLimit,
+		enabled:            cfg.Enabled,
+		logger:             cfg.Logger,
 	}
 }
 
@@ -205,7 +210,7 @@ func (h *Handler) execute(ctx context.Context, principal *models.Principal,
 		return nil, strip(statusFromError(err))
 	}
 
-	reply, err := buildResponse(res, params, time.Since(before))
+	reply, err := buildResponse(res, params, principal, time.Since(before))
 	if err != nil {
 		return nil, strip(&APIError{Status: http.StatusInternalServerError, Err: err})
 	}
@@ -270,14 +275,7 @@ func (h *Handler) NearObject(ctx context.Context, principal *models.Principal,
 	paramsBuilder := func(class *models.Class, className string, getClass classGetterFunc) (dto.GetParams, *APIError) {
 		return h.buildNearObjectParams(class, className, body, getClass, principal)
 	}
-	payload, apiErr := h.execute(ctx, principal, collection, body.Tenant, &body.SearchCommon, paramsBuilder)
-	if apiErr != nil && apiErr.Status == http.StatusBadGateway {
-		// near-object calls no embedding provider, so it declares no 502. The
-		// explorer wraps every source-object failure in ErrQueryVectorization,
-		// so whatever statusFromError did not type lands on the 502 arm.
-		apiErr.Status = http.StatusInternalServerError
-	}
-	return payload, apiErr
+	return h.execute(ctx, principal, collection, body.Tenant, &body.SearchCommon, paramsBuilder)
 }
 
 // Hybrid executes a hybrid (keyword + vector) search over collection,
@@ -340,7 +338,7 @@ const errClassNotFoundMarker = "could not find class"
 //
 // ORDERING: ErrNoVectorizerModule (422), ErrSourceObjectNotFound (400),
 // ErrSourceObjectNoVector (422) and ErrDirtyReadOfDeletedObject (400) must
-// precede ErrQueryVectorization (502) — each arrives wrapped inside the
+// precede ErrQueryVectorization (500) — each arrives wrapped inside the
 // latter.
 func statusFromError(err error) *APIError {
 	var forbidden autherrs.Forbidden
@@ -383,8 +381,10 @@ func statusFromError(err error) *APIError {
 		// filter on a property whose inverted index is disabled
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.As(err, &enterrors.ErrQueryVectorization{}):
-		// embedding provider failure
-		return &APIError{Status: http.StatusBadGateway, Err: err}
+		// embedding provider failure — deliberately 500, not 502: Weaviate is
+		// not acting as a gateway (review decision on #12248); distinguishable
+		// from other 500s only by message
+		return &APIError{Status: http.StatusInternalServerError, Err: err}
 	}
 
 	msg := err.Error()

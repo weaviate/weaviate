@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -165,7 +166,7 @@ func (db *DB) DigestObjects(ctx context.Context, className, shardName string, id
 	return index.DigestObjects(ctx, shardName, ids)
 }
 
-func (db *DB) DigestObjectsInRange(ctx context.Context, className, shardName string, initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error) {
+func (db *DB) DigestObjectsInRange(ctx context.Context, className, shardName string, initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairDigest, err error) {
 	index, pr := db.replicatedIndex(className)
 	if pr != nil {
 		return nil, pr.FirstError()
@@ -173,7 +174,7 @@ func (db *DB) DigestObjectsInRange(ctx context.Context, className, shardName str
 	return index.DigestObjectsInRange(ctx, shardName, initialUUID, finalUUID, limit)
 }
 
-func (db *DB) CompareDigests(ctx context.Context, className, shardName string, digests []types.RepairResponse) ([]types.RepairResponse, error) {
+func (db *DB) CompareDigests(ctx context.Context, className, shardName string, digests []types.RepairDigest) ([]types.RepairDigest, error) {
 	index, pr := db.replicatedIndex(className)
 	if pr != nil {
 		return nil, pr.FirstError()
@@ -480,7 +481,7 @@ func (i *Index) IncomingReinitShard(ctx context.Context, shardName string) error
 
 		shard, ok := i.shards.LoadAndDelete(shardName)
 		if ok {
-			if err := shutdownOrRestoreShard(ctx, &i.shards, shardName, shard, i.logger); err != nil &&
+			if err := shutdownOrRestoreShard(ctx, i, shardName, shard); err != nil &&
 				!errors.Is(err, errAlreadyShutdown) {
 				return err
 			}
@@ -831,7 +832,12 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 		if rawObj != nil {
 			updateBatch = append(updateBatch, rawObj)
 		} else {
-			updateBatch = append(updateBatch, storobj.FromObject(incomingObj, u.Vector, u.Vectors, u.MultiVectors))
+			cp := *incomingObj
+			// The object is shared with goroutines that read it concurrently; give FromObject a private copy to write on.
+			if props, ok := cp.Properties.(map[string]interface{}); ok {
+				cp.Properties = maps.Clone(props)
+			}
+			updateBatch = append(updateBatch, storobj.FromObject(&cp, u.Vector, u.Vectors, u.MultiVectors))
 		}
 	}
 
@@ -1052,7 +1058,7 @@ func (i *Index) IncomingDigestObjects(ctx context.Context,
 
 func (i *Index) DigestObjectsInRange(ctx context.Context,
 	shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
-) (result []types.RepairResponse, err error) {
+) (result []types.RepairDigest, err error) {
 	// Never load from async replication; empty success for unloaded would invite full propagation.
 	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {
@@ -1068,13 +1074,13 @@ func (i *Index) DigestObjectsInRange(ctx context.Context,
 
 func (i *Index) IncomingDigestObjectsInRange(ctx context.Context,
 	shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
-) (result []types.RepairResponse, err error) {
+) (result []types.RepairDigest, err error) {
 	return i.DigestObjectsInRange(ctx, shardName, initialUUID, finalUUID, limit)
 }
 
 func (i *Index) CompareDigests(ctx context.Context,
-	shardName string, sourceDigests []types.RepairResponse,
-) ([]types.RepairResponse, error) {
+	shardName string, sourceDigests []types.RepairDigest,
+) ([]types.RepairDigest, error) {
 	// Never load from async replication's propagation pre-check.
 	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {

@@ -203,10 +203,7 @@ func (z *zip) CloseWithError(err error) error {
 		}
 		z.zstdEncoder = nil
 	}
-	if err1 != nil || err2 != nil || err3 != nil {
-		return fmt.Errorf("tar: %w, gzip: %w, pw: %w", err1, err2, err3)
-	}
-	return nil
+	return errors.Join(labelErr("tar", err1), labelErr("gzip", err2), labelErr("pw", err3))
 }
 
 // WriteShard writes shard internal files including in memory files stored in sd
@@ -580,11 +577,7 @@ func (u *unzip) Close() (err error) {
 	if u.gzr != nil {
 		err2 = u.gzr.Close()
 	}
-	if err1 != nil || err2 != nil {
-		return fmt.Errorf("close pr: %w, gunzip: %w", err1, err2)
-	}
-
-	return nil
+	return errors.Join(labelErr("close pr", err1), labelErr("gunzip", err2))
 }
 
 func (u *unzip) ReadChunk() (written int64, err error) {

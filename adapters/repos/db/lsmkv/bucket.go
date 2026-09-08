@@ -800,6 +800,7 @@ func (b *Bucket) SetMemtableThreshold(size uint64) {
 }
 
 type BucketConsistentView struct {
+	// Active is always set; Flushing is nil unless a flush is in flight.
 	Active   memtable
 	Flushing memtable
 	Disk     []Segment
@@ -807,8 +808,57 @@ type BucketConsistentView struct {
 	Bucket   *Bucket
 }
 
+// ReleaseView is a no-op on the zero view, which the query paths hand out
+// when the store no longer holds the bucket.
 func (cv BucketConsistentView) ReleaseView() {
+	if cv.release == nil {
+		return
+	}
 	cv.release()
+}
+
+// NarrowedConsistentView is a [BucketConsistentView] whose empty active
+// memtable has been dropped, for a caller opening several readers that must
+// agree on which memtables took part.
+//
+// It holds a [BucketConsistentView] in an unexported field rather than
+// embedding one, so it has no ReleaseView of its own — a narrowed view borrows
+// the original's segments and the original owns their release — and the replace
+// paths, which read memtable index 0 as the active one, cannot reach the view
+// inside to be handed it.
+type NarrowedConsistentView struct {
+	// held whole rather than copied field by field, so a field added to
+	// BucketConsistentView arrives here with nothing to remember
+	view BucketConsistentView
+}
+
+// WithoutEmptyActiveMemtable returns a view with an active memtable that has
+// taken no writes dropped.
+//
+// Size only ever rises, so a zero read proves the memtable held nothing at that
+// instant, and a racing write is one this view legitimately predates. Callers
+// opening several readers want that decision made once, up front, or readers
+// disagree when a write lands between two of them.
+func (cv BucketConsistentView) WithoutEmptyActiveMemtable() NarrowedConsistentView {
+	if cv.Active != nil && cv.Active.Size() == 0 {
+		cv.Active = nil
+	}
+	return NarrowedConsistentView{view: cv}
+}
+
+// memtablesOldestFirst orders this view's memtables as [viewMemtablesOldestFirst]
+// does, and for the same reason. That function cannot serve a narrowed view: a
+// dropped active memtable leaves a hole its callers read positionally.
+func (nv NarrowedConsistentView) memtablesOldestFirst() ([2]memtable, int) {
+	switch {
+	case nv.view.Active != nil && nv.view.Flushing != nil:
+		return [2]memtable{nv.view.Flushing, nv.view.Active}, 2
+	case nv.view.Active != nil:
+		return [2]memtable{nv.view.Active, nil}, 1
+	case nv.view.Flushing != nil:
+		return [2]memtable{nv.view.Flushing, nil}, 1
+	}
+	return [2]memtable{}, 0
 }
 
 // GetConsistentView returns a consistent view of the bucket that can be used
@@ -843,6 +893,22 @@ func viewMemtables(view BucketConsistentView) ([2]memtable, int) {
 		return [2]memtable{view.Active, view.Flushing}, 2
 	}
 	return [2]memtable{view.Active, nil}, 1
+}
+
+// viewMemtablesOldestFirst orders them the way a layer fold has to replay them:
+// flushing before active. The other way round the active memtable's re-add is
+// applied before the flushing one's deletion, and a document deleted while
+// flushing and re-added after comes back deleted — no error, just a wrong row.
+//
+// The replace paths want the opposite and take viewMemtables directly. They
+// stop at the first memtable holding the key, so newest first is what makes
+// that first hit the answer.
+func viewMemtablesOldestFirst(view BucketConsistentView) ([2]memtable, int) {
+	mts, count := viewMemtables(view)
+	if count == 2 {
+		mts[0], mts[1] = mts[1], mts[0]
+	}
+	return mts, count
 }
 
 // Get retrieves the single value for the given key.
@@ -1636,6 +1702,13 @@ func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 		Tombstone: true,
 	}
 
+	// The doc-tombstone bitmap must never lead the WAL: replay reconstructs it
+	// from the persisted pair (commitlogger_parser_collection.go), so a failed
+	// append must leave no bitmap change.
+	if err := active.appendMapSorted(rowKey, pair); err != nil {
+		return err
+	}
+
 	if active.getStrategy() == StrategyInverted {
 		docID := binary.BigEndian.Uint64(mapKey)
 		if err := active.SetTombstone(docID); err != nil {
@@ -1643,7 +1716,7 @@ func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 		}
 	}
 
-	return active.appendMapSorted(rowKey, pair)
+	return nil
 }
 
 // Delete removes the given row. Note that LSM stores are append only, thus
@@ -1780,9 +1853,9 @@ func (b *Bucket) CountAsync() int {
 	return b.disk.count()
 }
 
-// CountApproximate is a cheap O(#segments) alternative to Count: exact
-// per-segment counts plus each memtable's approximate counter (see
-// Memtable.netCountAdditions for the drift bounds).
+// CountApproximate is a cheap O(#segments) alternative to Count. It can drift:
+// the memtable counter approximates (see Memtable.netCountAdditions), and an
+// unreadable lower segment makes a key count as new.
 func (b *Bucket) CountApproximate() (int, error) {
 	if err := CheckExpectedStrategy(b.strategy, StrategyReplace); err != nil {
 		return 0, fmt.Errorf("Bucket::CountApproximate(): %w", err)

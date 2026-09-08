@@ -12,6 +12,7 @@
 package aggregator
 
 import (
+	"encoding/json"
 	"math"
 	"sort"
 	"sync"
@@ -43,12 +44,13 @@ func addNumericalAggregations(prop *aggregation.Property,
 
 	// when combining the results from different shards, we need the raw numbers to recompute the mode, mean and median.
 	// Therefore we add a reference later which needs to be cleared out before returning the results to a user
-loop:
 	for _, aProp := range aggs {
 		switch aProp {
-		case aggregation.ModeAggregator, aggregation.MedianAggregator, aggregation.MeanAggregator:
+		case aggregation.ModeAggregator, aggregation.MedianAggregator:
+			agg.serializePairs = true
 			prop.NumericalAggregations["_numericalAggregator"] = agg
-			break loop
+		case aggregation.MeanAggregator:
+			prop.NumericalAggregations["_numericalAggregator"] = agg
 		}
 	}
 
@@ -93,11 +95,124 @@ type numericalAggregator struct {
 	mode         float64
 	pairs        []floatCountPair   // for row-based median calculation
 	valueCounter map[float64]uint64 // for individual median calculation
+
+	// mode/median need the full distribution on the wire; mean only count and sum
+	serializePairs bool
 }
 
 type floatCountPair struct {
 	value float64
 	count uint64
+}
+
+type numericalPairJSON struct {
+	Value float64 `json:"value"`
+	Count uint64  `json:"count"`
+}
+
+type numericalAggregatorJSON struct {
+	Count uint64              `json:"count"`
+	Sum   float64             `json:"sum"`
+	Pairs []numericalPairJSON `json:"pairs,omitempty"`
+}
+
+// MarshalJSON is the cluster-internal wire form of the merge state. It runs on
+// the request-scoped aggregator after aggregation finished, so no locking; pair
+// order on the wire is irrelevant, the decoder rebuilds and re-sorts.
+func (a *numericalAggregator) MarshalJSON() ([]byte, error) {
+	out := numericalAggregatorJSON{Count: a.count, Sum: a.sum}
+	if a.serializePairs {
+		out.Pairs = make([]numericalPairJSON, 0, len(a.valueCounter))
+		for value, count := range a.valueCounter {
+			out.Pairs = append(out.Pairs, numericalPairJSON{Value: value, Count: count})
+		}
+	}
+	return json.Marshal(out)
+}
+
+// wireCount validates a count decoded from a cluster-internal JSON payload:
+// negative or non-integral counts are malformed, and a count >= 2^53 may
+// already differ from what the remote node sent (float64 decoding).
+func wireCount(f float64) (uint64, error) {
+	if f < 0 || f != math.Trunc(f) || f >= 1<<53 {
+		return 0, errors.Errorf("invalid count %v in remote shard result", f)
+	}
+	return uint64(f), nil
+}
+
+// numericalAggregatorFromJSON rebuilds the wire form from the generic map
+// json.Unmarshal produces for an interface{} target.
+func numericalAggregatorFromJSON(raw map[string]interface{}) (*numericalAggregator, error) {
+	count, okCount := raw["count"].(float64)
+	sum, okSum := raw["sum"].(float64)
+	if !okCount || !okSum {
+		return nil, errors.New("numerical aggregator state missing from remote shard result, " +
+			"the remote node likely runs an older version")
+	}
+
+	agg := newNumericalAggregator()
+	rawPairs, hasPairs := raw["pairs"]
+	if !hasPairs || rawPairs == nil {
+		// mean-only wire form
+		restored, err := wireCount(count)
+		if err != nil {
+			return nil, err
+		}
+		agg.count = restored
+		agg.sum = sum
+		return agg, nil
+	}
+
+	pairs, ok := rawPairs.([]interface{})
+	if !ok {
+		return nil, errors.New("malformed numerical aggregator pairs in remote shard result")
+	}
+	agg.serializePairs = true
+	for _, pair := range pairs {
+		pairMap, ok := pair.(map[string]interface{})
+		if !ok {
+			return nil, errors.New("malformed numerical aggregator pair in remote shard result")
+		}
+		value, okValue := pairMap["value"].(float64)
+		pairCount, okPairCount := pairMap["count"].(float64)
+		if !okValue || !okPairCount {
+			return nil, errors.New("malformed numerical aggregator pair in remote shard result")
+		}
+		restored, err := wireCount(pairCount)
+		if err != nil {
+			return nil, err
+		}
+		agg.AddNumberRow(value, restored)
+	}
+	agg.buildPairsFromCounts()
+	return agg, nil
+}
+
+// hasCompleteDistribution reports whether the value pairs account for every
+// counted element; mode/median recomputation relies on that.
+func (a *numericalAggregator) hasCompleteDistribution() bool {
+	if a.count == 0 {
+		return false
+	}
+	var total uint64
+	for _, pair := range a.pairs {
+		total += pair.count
+	}
+	return total == a.count
+}
+
+// absorb adds other's distribution; an aggregator restored from a mean-only
+// wire payload carries just count and sum.
+func (a *numericalAggregator) absorb(other *numericalAggregator) {
+	if len(other.valueCounter) == 0 && len(other.pairs) == 0 {
+		a.count += other.count
+		a.sum += other.sum
+		return
+	}
+	for _, pair := range other.pairs {
+		a.AddNumberRow(pair.value, pair.count)
+	}
+	a.buildPairsFromCounts()
 }
 
 func (a *numericalAggregator) AddFloat64(value float64) error {

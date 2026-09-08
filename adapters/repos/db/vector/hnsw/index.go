@@ -301,6 +301,13 @@ func New(cfg Config, uc ent.UserConfig,
 
 	cfg.Logger = common.LoggerOrDiscard(cfg.Logger)
 
+	if cfg.AllocChecker == nil {
+		// Insert paths call CheckAlloc unconditionally; a caller that does not
+		// wire a checker (tests, tools) gets the no-op monitor instead of a
+		// nil-pointer panic on the first batch.
+		cfg.AllocChecker = memwatch.NewDummyMonitor()
+	}
+
 	normalizeOnRead := cfg.DistanceProvider.Type() == "cosine-dot"
 
 	var vectorCache cache.Cache[float32]
@@ -314,14 +321,14 @@ func New(cfg Config, uc ent.UserConfig,
 			muveraEncoder = multivector.NewMuveraEncoder(uc.Multivector.MuveraConfig, store)
 			err := store.CreateOrLoadBucket(
 				context.Background(),
-				cfg.ID+"_muvera_vectors",
+				helpers.MuveraBucketName(cfg.ID),
 				cfg.MakeBucketOptions(lsmkv.StrategyReplace)...,
 			)
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (muvera store)")
 			}
 			muveraVectorForID := func(ctx context.Context, id uint64) ([]float32, error) {
-				return muveraEncoder.GetMuveraVectorForID(id, cfg.ID+"_muvera_vectors")
+				return muveraEncoder.GetMuveraVectorForID(id, helpers.MuveraBucketName(cfg.ID))
 			}
 			vectorCache = cache.NewShardedFloat32LockCache(
 				muveraVectorForID, cfg.MultiVectorForIDThunk, uc.VectorCacheMaxObjects, 1, cfg.Logger,
@@ -431,7 +438,9 @@ func New(cfg Config, uc ent.UserConfig,
 		index.cache = nil
 	}
 
-	if uc.RQ.Enabled {
+	if uc.RQ.Enabled && !uc.RQ.Centering {
+		// Centered RQ needs a training pass to fit the mean, so it activates
+		// via the deferred (PQ/SQ-style) upgrade path
 		index.rqActive.Store(true)
 	}
 
@@ -440,7 +449,7 @@ func New(cfg Config, uc ent.UserConfig,
 		if !uc.Multivector.MuveraEnabled() {
 			err := index.store.CreateOrLoadBucket(
 				context.Background(),
-				cfg.ID+"_mv_mappings",
+				helpers.MVMappingsBucketName(cfg.ID),
 				cfg.MakeBucketOptions(lsmkv.StrategyReplace)...,
 			)
 			if err != nil {
@@ -913,6 +922,9 @@ func (h *hnsw) ShouldUpgrade() (bool, int) {
 		return h.sqConfig.Enabled, h.sqConfig.TrainingLimit
 	}
 	if h.rqConfig.Enabled {
+		if h.rqConfig.Centering {
+			return true, h.rqConfig.TrainingLimit
+		}
 		return h.rqConfig.Enabled, 1
 	}
 	return h.pqConfig.Enabled, h.pqConfig.TrainingLimit
@@ -924,6 +936,9 @@ func (h *hnsw) ShouldCompressFromConfig(config config.VectorIndexConfig) (bool, 
 		return hnswConfig.SQ.Enabled, hnswConfig.SQ.TrainingLimit
 	}
 	if hnswConfig.RQ.Enabled {
+		if hnswConfig.RQ.Centering {
+			return true, hnswConfig.RQ.TrainingLimit
+		}
 		return hnswConfig.RQ.Enabled, 1
 	}
 	return hnswConfig.PQ.Enabled, hnswConfig.PQ.TrainingLimit
@@ -1141,6 +1156,48 @@ func (h *hnsw) Stats() (*HnswStats, error) {
 	stats.CompressionType = stats.CompressorStats.CompressionType()
 
 	return &stats, nil
+}
+
+// getBucket returns the named bucket pinned for the caller's operation, or an
+// error if the store no longer holds it. A shard teardown deregisters every
+// bucket up front and drains in-flight requests afterwards, so an operation
+// that is already running finds no bucket under the name it resolved.
+//
+// The release closure is always non-nil and must be called exactly once. It
+// holds off the bucket's Shutdown for the operation's duration, so a teardown
+// racing a lookup that already succeeded cannot unmap the segments underneath
+// it. Prefer [hnsw.putInBucket] / [hnsw.deleteFromBucket], which pair the pin
+// with its release for a single operation.
+func (h *hnsw) getBucket(name string) (*lsmkv.Bucket, func(), error) {
+	bucket, release := h.store.AcquireBucketForRead(name)
+	if bucket == nil {
+		return nil, release, fmt.Errorf("hnsw index %q: bucket %q: %w", h.id, name, lsmkv.ErrBucketNotFound)
+	}
+	return bucket, release, nil
+}
+
+// putInBucket writes one entry to the named bucket under a lifetime pin held
+// for exactly that write. Callers write inside per-vector loops, where a
+// deferred release would pile pins up until the whole batch is done.
+func (h *hnsw) putInBucket(name string, key, value []byte) error {
+	bucket, release, err := h.getBucket(name)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	return bucket.Put(key, value)
+}
+
+// deleteFromBucket is [hnsw.putInBucket]'s counterpart for removals.
+func (h *hnsw) deleteFromBucket(name string, key []byte) error {
+	bucket, release, err := h.getBucket(name)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	return bucket.Delete(key)
 }
 
 func (h *hnsw) Type() common.IndexType {

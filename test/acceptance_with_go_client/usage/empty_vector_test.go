@@ -12,6 +12,7 @@
 package usage
 
 import (
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"testing"
 	"time"
@@ -23,8 +24,6 @@ import (
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 // TestUsageOfConfiguredVectorWithoutData pins that a configured, never-written

@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +28,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
@@ -834,8 +836,8 @@ func TestSchedulerRestoration(t *testing.T) {
 			}
 		}
 
-		// Verify node mapping was applied to meta descriptor
-		// The meta should have new node names after ApplyNodeMapping
+		// The descriptor keeps the backup's own node names and carries the
+		// mapping alongside; every consumer resolves the new name itself.
 		assert.Equal(t, fs.backend.glMeta.Status, backup.Success)
 		assert.Equal(t, fs.backend.glMeta.NodeMapping, nodeMapping)
 		assert.Equal(t, nodeMapping, fs.schema.lastNodeMapping)
@@ -1280,6 +1282,12 @@ type fakeScheduler struct {
 	// staticAPIKeyUsers is what the cluster configures in
 	// AUTHENTICATION_APIKEY_USERS.
 	staticAPIKeyUsers []string
+	// nilListers builds the scheduler with genuinely nil UserLister and
+	// RoleLister interfaces, the shape of a cluster with dynamic users and RBAC
+	// turned off.
+	nilListers    bool
+	rolesAndUsers rolesAndUsersRestorer
+	namespaces    namespaces.Exister
 }
 
 // fakeUserLister is a static UserLister for scheduler tests.
@@ -1314,8 +1322,13 @@ func newFakeScheduler(resolver NodeResolver) *fakeScheduler {
 
 func (f *fakeScheduler) scheduler() *Scheduler {
 	provider := &fakeBackupBackendProvider{f.backend, f.backendErr}
-	c := NewScheduler(f.auth, &f.client, &f.selector, &f.userLister, &f.roleLister, provider,
-		f.nodeResolver, &f.schema, f.staticAPIKeyUsers, f.log)
+	var userLister UserLister
+	var roleLister RoleLister
+	if !f.nilListers {
+		userLister, roleLister = &f.userLister, &f.roleLister
+	}
+	c := NewScheduler(f.auth, &f.client, &f.selector, userLister, roleLister, provider,
+		f.nodeResolver, &f.schema, f.staticAPIKeyUsers, f.rolesAndUsers, f.namespaces, f.log)
 	c.backupper.timeoutNextRound = time.Millisecond * 200
 	c.restorer.timeoutNextRound = time.Millisecond * 200
 	return c
@@ -2208,8 +2221,8 @@ func TestValidateNamespaceStripping(t *testing.T) {
 		name              string
 		descriptors       func(t *testing.T) []backup.ClassDescriptor
 		selected          []string
-		userBlobs         [][]byte
-		rbacBlobs         [][]byte
+		userBlob          []byte
+		rbacBlob          []byte
 		liveEntities      []string // live class/alias names served by the fake's ClassEqual
 		liveClasses       []string // nil means ListClasses must not be called (it only serves stripped aliases)
 		namespacesEnabled bool
@@ -2428,30 +2441,24 @@ func TestValidateNamespaceStripping(t *testing.T) {
 			// The user snapshot is validated by dry-running the apply-time
 			// strip, so implicit whole-cluster snapshots are covered even
 			// though no user ids appear in any descriptor.
-			name:      "UserSnapshotCollisionRejects",
-			userBlobs: [][]byte{collidingUsers},
-			wantErr:   []string{"dynamic users:", `"alice"`},
+			name:     "UserSnapshotCollisionRejects",
+			userBlob: collidingUsers,
+			wantErr:  []string{"dynamic users:", `"alice"`},
 		},
 		{
-			name:      "CleanUserSnapshotPasses",
-			userBlobs: [][]byte{cleanUsers},
-		},
-		{
-			name:      "EachUserSnapshotValidated",
-			userBlobs: [][]byte{cleanUsers, collidingUsers},
-			wantErr:   []string{"dynamic users:"},
+			name:     "CleanUserSnapshotPasses",
+			userBlob: cleanUsers,
 		},
 		{
 			name:              "UserOptOutSkipsUserCheck",
-			userBlobs:         [][]byte{collidingUsers},
+			userBlob:          collidingUsers,
 			userRestoreOption: models.RestoreConfigUsersOptionsNoRestore,
 		},
 		{
-			// Participants apply a present user snapshot even when dynamic
-			// users are disabled on the target (userLister nil), so the
-			// collision must still fail fast.
+			// The user check runs whether or not userLister is set, unlike the role
+			// check below, so a colliding snapshot still fails fast here.
 			name:          "NilUserListerStillValidates",
-			userBlobs:     [][]byte{collidingUsers},
+			userBlob:      collidingUsers,
 			nilUserLister: true,
 			wantErr:       []string{"dynamic users:", `"alice"`},
 		},
@@ -2460,29 +2467,24 @@ func TestValidateNamespaceStripping(t *testing.T) {
 			descriptors: func(t *testing.T) []backup.ClassDescriptor {
 				return []backup.ClassDescriptor{classDesc(t, "ns1:Movies"), classDesc(t, "ns2:Movies")}
 			},
-			selected:  []string{"ns1:Movies", "ns2:Movies"},
-			userBlobs: [][]byte{collidingUsers},
-			wantErr:   []string{`"Movies"`, `"alice"`},
+			selected: []string{"ns1:Movies", "ns2:Movies"},
+			userBlob: collidingUsers,
+			wantErr:  []string{`"Movies"`, `"alice"`},
 		},
 		{
 			// casbin merges colliding roles without reporting anything, so this
 			// dry-run is the only place the merge is caught before it happens.
-			name:      "RoleSnapshotCollisionRejects",
-			rbacBlobs: [][]byte{collidingRoles},
-			wantErr:   []string{"roles:", `"editor"`},
+			name:     "RoleSnapshotCollisionRejects",
+			rbacBlob: collidingRoles,
+			wantErr:  []string{"roles:", `"editor"`},
 		},
 		{
-			name:      "CleanRoleSnapshotPasses",
-			rbacBlobs: [][]byte{cleanRoles},
-		},
-		{
-			name:      "EachRoleSnapshotValidated",
-			rbacBlobs: [][]byte{cleanRoles, collidingRoles},
-			wantErr:   []string{"roles:"},
+			name:     "CleanRoleSnapshotPasses",
+			rbacBlob: cleanRoles,
 		},
 		{
 			name:              "RoleOptOutSkipsRoleCheck",
-			rbacBlobs:         [][]byte{collidingRoles},
+			rbacBlob:          collidingRoles,
 			rbacRestoreOption: models.RestoreConfigRolesOptionsNoRestore,
 		},
 		{
@@ -2490,39 +2492,39 @@ func TestValidateNamespaceStripping(t *testing.T) {
 			// key users, the same list the nodes strip with. With "svc:reporting"
 			// configured the two subjects stay distinct.
 			name:              "ConfiguredStaticUserKeepsSubjectsDistinct",
-			rbacBlobs:         [][]byte{staticUserRoles},
+			rbacBlob:          staticUserRoles,
 			staticAPIKeyUsers: []string{"svc:reporting"},
 		},
 		{
 			// Without it configured, "svc:reporting" can only be a namespaced
 			// dynamic user, so it strips onto the other subject and collides.
-			name:      "UnconfiguredStaticUserCollides",
-			rbacBlobs: [][]byte{staticUserRoles},
-			wantErr:   []string{"roles:", `"db:reporting"`},
+			name:     "UnconfiguredStaticUserCollides",
+			rbacBlob: staticUserRoles,
+			wantErr:  []string{"roles:", `"db:reporting"`},
 		},
 		{
 			// RBAC is off on the target, so no node applies the blob. Rejecting
 			// here would fail the class data over roles nothing would restore.
 			name:          "NilRoleListerSkipsRoleCheck",
-			rbacBlobs:     [][]byte{collidingRoles},
+			rbacBlob:      collidingRoles,
 			nilRoleLister: true,
 		},
 		{
 			// The two listers must not be nil-checked alike: a nil userLister
 			// still leaves a node that applies the user blob.
 			name:          "NilRoleListerLeavesUserCheckAlone",
-			userBlobs:     [][]byte{collidingUsers},
-			rbacBlobs:     [][]byte{collidingRoles},
+			userBlob:      collidingUsers,
+			rbacBlob:      collidingRoles,
 			nilRoleLister: true,
 			wantErr:       []string{"dynamic users:", `"alice"`},
 			wantNotErr:    []string{"roles:"},
 		},
 		{
 			// Users and roles collisions are reported together in one aggregate.
-			name:      "UserAndRoleCollisionsBothReported",
-			userBlobs: [][]byte{collidingUsers},
-			rbacBlobs: [][]byte{collidingRoles},
-			wantErr:   []string{"dynamic users:", "roles:"},
+			name:     "UserAndRoleCollisionsBothReported",
+			userBlob: collidingUsers,
+			rbacBlob: collidingRoles,
+			wantErr:  []string{"dynamic users:", "roles:"},
 		},
 	}
 	for _, tc := range tests {
@@ -2546,7 +2548,7 @@ func TestValidateNamespaceStripping(t *testing.T) {
 				descriptors = tc.descriptors(t)
 			}
 
-			err := s.validateNamespaceStripping(ctx, descriptors, tc.userBlobs, tc.rbacBlobs, tc.selected, tc.userRestoreOption, tc.rbacRestoreOption)
+			err := s.validateNamespaceStripping(ctx, descriptors, tc.userBlob, tc.rbacBlob, tc.selected, tc.userRestoreOption, tc.rbacRestoreOption)
 
 			if len(tc.wantErr) == 0 {
 				assert.NoError(t, err)
@@ -2688,7 +2690,7 @@ func TestFetchSchemaFailsClosed(t *testing.T) {
 	meta := backup.DistributedBackupDescriptor{
 		ID:     backupID,
 		Status: backup.Success,
-		// No Leader: the pre-RAFT union path reads every node's meta.
+		// No Leader is recorded, so fetchSchema reads every node's descriptor instead of the leader's alone.
 		Nodes: map[string]*backup.NodeDescriptor{
 			nodeA: {Classes: []string{"ClassA"}},
 			nodeB: {Classes: []string{"ClassB"}},
@@ -2712,43 +2714,87 @@ func TestFetchSchemaFailsClosed(t *testing.T) {
 	fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
 
 	s := fs.scheduler()
-	schema, userBlobs, rbacBlobs, err := s.fetchSchema(ctx, "gcs", "", "", &meta)
+	schema, userBlob, rbacBlob, err := s.fetchSchema(ctx, "gcs", "", "", &meta)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "fetch meta of node")
 	assert.Nil(t, schema)
-	assert.Nil(t, userBlobs)
-	assert.Nil(t, rbacBlobs)
+	assert.Nil(t, userBlob)
+	assert.Nil(t, rbacBlob)
 }
 
-// TestFetchSchemaCollectsRbacBlobs covers fetchSchema gathering the per-node RBAC
-// blob on both the leader path and the union path, deduping identical blobs on
-// the union path the same way it does for user blobs. If it did not, the
-// coordinator dry-run would see nothing and a collision would only show up
-// mid-restore on a node.
-func TestFetchSchemaCollectsRbacBlobs(t *testing.T) {
+// TestFetchSchemaReturnsAuthSnapshots covers fetchSchema returning the leader's
+// RBAC and user snapshots, and returning none at all from the union over nodes
+// that runs when no leader is recorded. A descriptor without a leader predates
+// both snapshot fields, so the union can never carry them. Reading them there
+// would be dead code the strip and namespace validators would still have to
+// defend against.
+func TestFetchSchemaReturnsAuthSnapshots(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
 	rbacBlob := []byte(`{"version":1,"roles_policies":[["role:ns1:editor","*","R","*"]]}`)
+	userBlob := []byte(`{"Version":0,"Data":{"Users":{"alice":{"Id":"alice"}}}}`)
 
-	t.Run("UnionDedupesSharedBlob", func(t *testing.T) {
-		backupID := "fetch-rbac-union"
+	leaderTests := []struct {
+		name     string
+		rbacBlob []byte
+		userBlob []byte
+	}{
+		{name: "LeaderPathReturnsBothSnapshots", rbacBlob: rbacBlob, userBlob: userBlob},
+		{name: "LeaderWithoutSnapshotsReturnsNone"},
+	}
+	for _, tt := range leaderTests {
+		t.Run(tt.name, func(t *testing.T) {
+			backupID := "fetch-auth-" + tt.name
+			nodeName := "Node-A"
+			meta := backup.DistributedBackupDescriptor{
+				ID: backupID, Status: backup.Success, Leader: nodeName,
+				Nodes: map[string]*backup.NodeDescriptor{nodeName: {Classes: []string{"ClassA"}}},
+			}
+			nodeMeta, err := json.Marshal(backup.BackupDescriptor{
+				ID: backupID, Status: backup.Success,
+				Classes:     []backup.ClassDescriptor{{Name: "ClassA"}},
+				RbacBackups: tt.rbacBlob,
+				UserBackups: tt.userBlob,
+			})
+			require.NoError(t, err)
+
+			fs := newFakeScheduler(newFakeNodeResolver([]string{nodeName}))
+			fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+			fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+			fs.backend.On("GetObject", ctx, backupID+"/"+nodeName, BackupFile).Return(nodeMeta, nil)
+
+			_, gotUsers, gotRoles, err := fs.scheduler().fetchSchema(ctx, "gcs", "", "", &meta)
+			require.NoError(t, err)
+			if len(tt.rbacBlob) > 0 {
+				assert.Equal(t, tt.rbacBlob, gotRoles)
+			} else {
+				assert.Empty(t, gotRoles)
+			}
+			if len(tt.userBlob) > 0 {
+				assert.Equal(t, tt.userBlob, gotUsers)
+			} else {
+				assert.Empty(t, gotUsers)
+			}
+		})
+	}
+
+	t.Run("UnionUnionsClassesAndCarriesNoSnapshots", func(t *testing.T) {
+		backupID := "fetch-auth-union"
 		nodeA, nodeB := "Node-A", "Node-B"
 		meta := backup.DistributedBackupDescriptor{
 			ID:     backupID,
 			Status: backup.Success,
-			// No Leader: the union path reads every node's meta.
+			// No Leader is recorded, so fetchSchema reads every node's descriptor instead of the leader's alone.
 			Nodes: map[string]*backup.NodeDescriptor{
 				nodeA: {Classes: []string{"ClassA"}},
 				nodeB: {Classes: []string{"ClassB"}},
 			},
 		}
-		// RAFT replicates RBAC, so both nodes carry the same blob and it dedupes to one.
 		mkNode := func(cls string) []byte {
 			b, err := json.Marshal(backup.BackupDescriptor{
 				ID: backupID, Status: backup.Success,
-				Classes:     []backup.ClassDescriptor{{Name: cls}},
-				RbacBackups: rbacBlob,
+				Classes: []backup.ClassDescriptor{{Name: cls}},
 			})
 			require.NoError(t, err)
 			return b
@@ -2760,34 +2806,275 @@ func TestFetchSchemaCollectsRbacBlobs(t *testing.T) {
 		fs.backend.On("GetObject", ctx, backupID+"/"+nodeA, BackupFile).Return(mkNode("ClassA"), nil)
 		fs.backend.On("GetObject", ctx, backupID+"/"+nodeB, BackupFile).Return(mkNode("ClassB"), nil)
 
-		_, _, rbacBlobs, err := fs.scheduler().fetchSchema(ctx, "gcs", "", "", &meta)
+		classes, gotUsers, gotRoles, err := fs.scheduler().fetchSchema(ctx, "gcs", "", "", &meta)
 		require.NoError(t, err)
-		require.Len(t, rbacBlobs, 1, "identical per-node RBAC blobs must dedupe")
-		assert.Equal(t, rbacBlob, rbacBlobs[0])
+		assert.Len(t, classes, 2, "the union still merges every node's classes")
+		assert.Empty(t, gotRoles)
+		assert.Empty(t, gotUsers)
 	})
+}
 
-	t.Run("LeaderPathReturnsBlob", func(t *testing.T) {
-		backupID := "fetch-rbac-leader"
-		nodeName := "Node-A"
-		meta := backup.DistributedBackupDescriptor{
-			ID: backupID, Status: backup.Success, Leader: nodeName,
-			Nodes: map[string]*backup.NodeDescriptor{nodeName: {Classes: []string{"ClassA"}}},
-		}
-		nodeMeta, err := json.Marshal(backup.BackupDescriptor{
-			ID: backupID, Status: backup.Success,
-			Classes:     []backup.ClassDescriptor{{Name: "ClassA"}},
-			RbacBackups: rbacBlob,
+// TestRestoreRejectsInactiveNamespaceRefs pins the half of the fail-closed
+// namespace check that runs at request time: a blob naming a namespace this
+// cluster is missing or deleting is rejected before any node stages data, and
+// the message names it. Suspended and resuming namespaces pass.
+func TestRestoreRejectsInactiveNamespaceRefs(t *testing.T) {
+	ctx := context.Background()
+	// The blob's namespaces list is how a roles blob names its namespaces.
+	rbacBlob := []byte(`{"version":1,"namespaces":["ns1"],"roles_policies":[["role:ns1:editor","*","R","*"]]}`)
+	// The only mention of ns3 is the role assignment. The role name is global and
+	// the blob lists its namespaces, so nothing else here carries ns3.
+	rbacBlobDBSubject := []byte(`{"version":1,"namespaces":["ns1"],"roles_policies":[["role:ns1:editor","*","R","*"]],"grouping_policies":[["db:ns3:bob","role:viewer"]]}`)
+	userBlob := []byte(`{"Version":0,"Data":{"Users":{"ns2:alice":{"Id":"ns2:alice","Namespace":"ns2"}}}}`)
+
+	tests := []struct {
+		name       string
+		rbacBlob   []byte
+		userBlob   []byte
+		states     map[string]cmd.NamespaceState
+		options    func(req *BackupRequest)
+		wantErr    []string
+		wantNotErr []string
+	}{
+		{
+			name:     "missing namespace in the roles blob is named",
+			rbacBlob: rbacBlob,
+			states:   map[string]cmd.NamespaceState{},
+			wantErr:  []string{"roles", "ns1"},
+		},
+		{
+			name:     "deleting namespace in the users blob is named",
+			userBlob: userBlob,
+			states:   map[string]cmd.NamespaceState{"ns2": cmd.NamespaceStateDeleting},
+			wantErr:  []string{"dynamic users", "ns2"},
+		},
+		{
+			name:     "active and suspended namespaces pass",
+			rbacBlob: rbacBlob,
+			userBlob: userBlob,
+			states: map[string]cmd.NamespaceState{
+				"ns1": cmd.NamespaceStateActive,
+				"ns2": cmd.NamespaceStateSuspended,
+			},
+		},
+		{
+			name:     "noRestore skips the check for the artefact it turns off",
+			rbacBlob: rbacBlob,
+			states:   map[string]cmd.NamespaceState{},
+			options: func(req *BackupRequest) {
+				req.RbacRestoreOption = models.RestoreConfigRolesOptionsNoRestore
+			},
+		},
+		{
+			// usersOptions=noRestore turns off the users-blob check, so the roles blob
+			// has to catch ns3 on its own. Otherwise the grouping row lands
+			// cluster-wide with no namespace to belong to.
+			name:     "a namespace named only by a role assignment is caught with users off",
+			rbacBlob: rbacBlobDBSubject,
+			userBlob: userBlob,
+			states:   map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateActive},
+			options: func(req *BackupRequest) {
+				req.UserRestoreOption = models.RestoreConfigUsersOptionsNoRestore
+			},
+			wantErr:    []string{"roles", "ns3"},
+			wantNotErr: []string{"ns2"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			backupID := "ns-refs"
+			nodeName := "Node-A"
+			meta := backup.DistributedBackupDescriptor{
+				ID: backupID, StartedAt: time.Now().UTC(), Version: Version,
+				ServerVersion: "1.23", Status: backup.Success, Leader: nodeName,
+				Nodes: map[string]*backup.NodeDescriptor{nodeName: {Classes: []string{"Movies"}}},
+			}
+			nodeMeta, err := json.Marshal(backup.BackupDescriptor{
+				ID: backupID, Status: backup.Success,
+				Classes:     []backup.ClassDescriptor{{Name: "Movies"}},
+				RbacBackups: tt.rbacBlob,
+				UserBackups: tt.userBlob,
+			})
+			require.NoError(t, err)
+
+			fs := newFakeScheduler(newFakeNodeResolver([]string{nodeName}))
+			fs.schema.namespacesEnabled = true
+			fs.namespaces = namespaces.NewMockExisterInState(t, tt.states)
+			fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+			fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+			fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+			fs.backend.On("GetObject", ctx, backupID+"/"+nodeName, BackupFile).Return(nodeMeta, nil)
+			fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+			fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.Anything).Return(nil).Maybe()
+			fs.client.On("CanCommit", mock.Anything, mock.Anything, mock.Anything).
+				Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}, nil).Maybe()
+			fs.client.On("Commit", mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+			fs.client.On("Status", mock.Anything, mock.Anything, mock.Anything).
+				Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil).Maybe()
+
+			req := &BackupRequest{ID: backupID, Backend: "gcs", Include: []string{"Movies"}}
+			if tt.options != nil {
+				tt.options(req)
+			}
+			s := fs.scheduler()
+			_, err = s.Restore(ctx, nil, req, false)
+
+			if len(tt.wantErr) == 0 {
+				require.NoError(t, err)
+				// An accepted restore runs on its own goroutine and keeps using the
+				// mocks. Waiting here stops it touching them after the test ends.
+				require.Eventually(t, func() bool { return s.restorer.lastOp.get().Status == "" },
+					10*time.Second, 10*time.Millisecond, "restore did not finish")
+				return
+			}
+			require.Error(t, err)
+			assert.IsType(t, backup.ErrUnprocessable{}, err)
+			for _, want := range tt.wantErr {
+				assert.Contains(t, err.Error(), want)
+			}
+			for _, unwanted := range tt.wantNotErr {
+				assert.NotContains(t, err.Error(), unwanted)
+			}
+			fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
 		})
-		require.NoError(t, err)
+	}
+}
 
-		fs := newFakeScheduler(newFakeNodeResolver([]string{nodeName}))
+// TestRestoreSelectsLeaderBlob pins which snapshots the cluster-wide entry
+// carries: the leader's, and none at all when the subsystem is disabled here.
+func TestRestoreSelectsLeaderBlob(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	blobA := []byte(`{"version":1,"roles_policies":[["role:a","*","R","*"]]}`)
+	blobB := []byte(`{"version":1,"roles_policies":[["role:b","*","R","*"]]}`)
+	userBlob := []byte(`{"Version":0,"Data":{"Users":{"alice":{"Id":"alice"}}}}`)
+
+	// nodeBlobs maps a node name to the RBAC blob its own descriptor carries.
+	drive := func(t *testing.T, leader string, nodeBlobs map[string][]byte, nilListers bool) []rolesAndUsersCall {
+		t.Helper()
+		backupID := "pick-blob"
+		nodes := make([]string, 0, len(nodeBlobs))
+		for node := range nodeBlobs {
+			nodes = append(nodes, node)
+		}
+		slices.Sort(nodes)
+
+		descNodes := make(map[string]*backup.NodeDescriptor, len(nodes))
+		for _, node := range nodes {
+			descNodes[node] = &backup.NodeDescriptor{Classes: []string{"Movies"}}
+		}
+		meta := backup.DistributedBackupDescriptor{
+			ID: backupID, StartedAt: time.Now().UTC(), Version: Version,
+			ServerVersion: "1.23", Status: backup.Success, Leader: leader, Nodes: descNodes,
+		}
+
+		fs := newFakeScheduler(newFakeNodeResolver(nodes))
+		fs.nilListers = nilListers
+		rec := &recordingRolesAndUsersRestorer{}
+		fs.rolesAndUsers = rec
 		fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+		fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+		for _, node := range nodes {
+			nodeMeta, err := json.Marshal(backup.BackupDescriptor{
+				ID: backupID, Status: backup.Success,
+				Classes:     []backup.ClassDescriptor{{Name: "Movies"}},
+				RbacBackups: nodeBlobs[node],
+				UserBackups: userBlob,
+			})
+			require.NoError(t, err)
+			fs.backend.On("GetObject", ctx, backupID+"/"+node, BackupFile).Return(nodeMeta, nil)
+		}
 		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
-		fs.backend.On("GetObject", ctx, backupID+"/"+nodeName, BackupFile).Return(nodeMeta, nil)
+		fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.Anything).Return(nil)
+		fs.client.On("CanCommit", mock.Anything, mock.Anything, mock.Anything).
+			Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}, nil)
+		fs.client.On("Commit", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		fs.client.On("Status", mock.Anything, mock.Anything, mock.Anything).
+			Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil)
 
-		_, _, rbacBlobs, err := fs.scheduler().fetchSchema(ctx, "gcs", "", "", &meta)
+		s := fs.scheduler()
+		_, err := s.Restore(ctx, nil, &BackupRequest{
+			ID: backupID, Backend: "gcs", Include: []string{"Movies"},
+		}, false)
 		require.NoError(t, err)
-		require.Len(t, rbacBlobs, 1)
-		assert.Equal(t, rbacBlob, rbacBlobs[0])
+		require.Eventually(t, func() bool { return s.restorer.lastOp.get().Status == "" },
+			10*time.Second, 10*time.Millisecond, "restore did not finish")
+		return rec.recorded()
+	}
+
+	t.Run("the leader's snapshots are the ones applied", func(t *testing.T) {
+		calls := drive(t, "Node-B", map[string][]byte{"Node-A": blobA, "Node-B": blobB}, false)
+		require.Len(t, calls, 1)
+		assert.Equal(t, blobB, calls[0].roles)
+		assert.Equal(t, userBlob, calls[0].users)
 	})
+
+	t.Run("subsystems disabled: no blob and no entry", func(t *testing.T) {
+		calls := drive(t, "Node-A", map[string][]byte{"Node-A": blobA}, true)
+		assert.Empty(t, calls, "a nil lister means the subsystem is off on this cluster")
+	})
+}
+
+// TestRestoreIgnoresNodeMappingForUnknownNode pins that a nodeMapping entry
+// naming a node the backup does not contain is simply unused. If the entry were
+// applied, it would inject a nil descriptor under the new name; canCommit
+// dereferences that when the descriptor records a leader, and fetchSchema trips
+// over it when it does not.
+func TestRestoreIgnoresNodeMappingForUnknownNode(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	tests := []struct {
+		name   string
+		leader string
+	}{
+		{name: "leader stamped, the shape every current server produces", leader: "Node-A"},
+		{name: "no leader, the legacy shape", leader: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			backupID := "ghost-mapping"
+			nodeName := "Node-A"
+			newNode := "new-node"
+			meta := backup.DistributedBackupDescriptor{
+				ID: backupID, StartedAt: time.Now().UTC(), Version: Version,
+				ServerVersion: "1.23", Status: backup.Success, Leader: tt.leader,
+				Nodes: map[string]*backup.NodeDescriptor{nodeName: {Classes: []string{"Movies"}}},
+			}
+			nodeMeta, err := json.Marshal(backup.BackupDescriptor{
+				ID: backupID, Status: backup.Success,
+				Classes: []backup.ClassDescriptor{{Name: "Movies"}},
+			})
+			require.NoError(t, err)
+
+			fs := newFakeScheduler(newFakeNodeResolver([]string{nodeName, newNode}))
+			fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
+			fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+			fs.backend.On("GetObject", ctx, backupID, GlobalRestoreFile).Return(nil, backup.ErrNotFound{})
+			fs.backend.On("GetObject", ctx, backupID+"/"+nodeName, BackupFile).Return(nodeMeta, nil)
+			fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
+			fs.backend.On("PutObject", mock.Anything, mock.Anything, GlobalRestoreFile, mock.Anything).Return(nil)
+			fs.client.On("CanCommit", mock.Anything, nodeName, mock.Anything).
+				Return(&CanCommitResponse{Method: OpRestore, ID: backupID, Timeout: 1}, nil)
+			fs.client.On("Commit", mock.Anything, nodeName, mock.Anything).Return(nil)
+			fs.client.On("Status", mock.Anything, nodeName, mock.Anything).
+				Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}, nil)
+
+			s := fs.scheduler()
+			_, err = s.Restore(ctx, nil, &BackupRequest{
+				ID: backupID, Backend: "gcs", Include: []string{"Movies"},
+				// "ghost" is not in the backup.
+				NodeMapping: map[string]string{"ghost": newNode},
+			}, false)
+			require.NoError(t, err)
+			require.Eventually(t, func() bool { return s.restorer.lastOp.get().Status == "" },
+				10*time.Second, 10*time.Millisecond, "restore did not finish")
+
+			assert.Equal(t, backup.Success, fs.backend.glMeta.Status)
+			fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, newNode, mock.Anything)
+		})
+	}
 }

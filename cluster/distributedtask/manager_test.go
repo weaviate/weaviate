@@ -559,15 +559,10 @@ func ingestSampleTasks(t *testing.T, m *Manager, now time.Time) map[string][]*Ta
 					Version: 13,
 				},
 				Payload: []byte("test2"),
-				// Manager.RecordUnitCompletion alone takes a successful
-				// task to FINALIZING; the FINISHED transition is committed
-				// by [Manager.MarkTaskFinalized] which the [Scheduler]
-				// issues after every node's [Provider.OnTaskCompleted]
-				// returns. This helper exercises RecordUnitCompletion in
-				// isolation, so FINALIZING is the expected end state.
-				Status:     TaskStatusSwapping,
-				StartedAt:  now,
-				FinishedAt: now.Add(time.Minute),
+				// RecordUnitCompletion alone lands a successful task in
+				// SWAPPING, not FINISHED, so this fixture carries no FinishedAt.
+				Status:    TaskStatusSwapping,
+				StartedAt: now,
 				Units: map[string]*Unit{
 					"su-1": {ID: "su-1", Status: UnitStatusCompleted, Progress: 1.0},
 				},
@@ -1216,14 +1211,7 @@ func TestManager_RecordPostCompletionAck_Success(t *testing.T) {
 	require.Equal(t, TaskStatusSwapping, tasks["ns"][0].Status)
 
 	for _, n := range []string{"node-1", "node-2", "node-3"} {
-		require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
-			Namespace:         "ns",
-			Id:                "task1",
-			Version:           version,
-			NodeId:            n,
-			Success:           true,
-			AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-		})))
+		ackSwap(t, h, "ns", "task1", version, n, true)
 	}
 
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
@@ -1264,14 +1252,7 @@ func TestManager_RecordPostCompletionAck_FailureTransitionsToFailed(t *testing.T
 	}
 
 	// node-1 acks success.
-	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
-		Namespace:         "ns",
-		Id:                "task1",
-		Version:           version,
-		NodeId:            "node-1",
-		Success:           true,
-		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	ackSwap(t, h, "ns", "task1", version, "node-1", true)
 
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
 	require.Equal(t, TaskStatusSwapping, tasks["ns"][0].Status)
@@ -1318,29 +1299,14 @@ func TestManager_RecordPostCompletionAck_Idempotent(t *testing.T) {
 	})))
 
 	// First ack: success.
-	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
-		Namespace:         "ns",
-		Id:                "task1",
-		Version:           version,
-		NodeId:            "node-1",
-		Success:           true,
-		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	ackSwap(t, h, "ns", "task1", version, "node-1", true)
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
 	require.True(t, tasks["ns"][0].PostCompletionAcks["node-1"].Success)
 	require.Equal(t, TaskStatusSwapping, tasks["ns"][0].Status)
 
 	// Duplicate ack from same node with FAILURE — must be ignored, the
 	// status MUST stay FINALIZING (not flip to FAILED).
-	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
-		Namespace:         "ns",
-		Id:                "task1",
-		Version:           version,
-		NodeId:            "node-1",
-		Success:           false,
-		Error:             "stale retry that must NOT flip success",
-		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	ackSwap(t, h, "ns", "task1", version, "node-1", false)
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
 	require.True(t, tasks["ns"][0].PostCompletionAcks["node-1"].Success,
 		"first ack wins — duplicate must not flip success to failure")
@@ -1368,14 +1334,7 @@ func TestManager_RecordPostCompletionAck_DropsAcksForTerminalStatus(t *testing.T
 	})))
 
 	// Drive the task to FINISHED via MarkTaskFinalized.
-	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
-		Namespace:         "ns",
-		Id:                "task1",
-		Version:           version,
-		NodeId:            "node-1",
-		Success:           true,
-		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	ackSwap(t, h, "ns", "task1", version, "node-1", true)
 	require.NoError(t, h.manager.MarkTaskFinalized(toCmd(t, &cmd.MarkTaskFinalizedRequest{
 		Namespace:             "ns",
 		Id:                    "task1",
@@ -1390,15 +1349,7 @@ func TestManager_RecordPostCompletionAck_DropsAcksForTerminalStatus(t *testing.T
 	// A stale retry from "node-2" arrives — there's no node-2 unit in
 	// this task, but real cluster retries can hit FINISHED tasks. The
 	// apply must silently no-op (no error returned, no map mutation).
-	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
-		Namespace:         "ns",
-		Id:                "task1",
-		Version:           version,
-		NodeId:            "node-2",
-		Success:           false,
-		Error:             "stale ack after FINISHED",
-		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	ackSwap(t, h, "ns", "task1", version, "node-2", false)
 
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
 	require.Equal(t, TaskStatusFinished, tasks["ns"][0].Status,
@@ -1428,16 +1379,17 @@ func TestManager_MarkTaskFailed(t *testing.T) {
 
 		tasks, _ := h.manager.ListDistributedTasks(context.Background())
 		require.Equal(t, TaskStatusSwapping, tasks["ns"][0].Status)
-		finishedAt := tasks["ns"][0].FinishedAt
 
+		h.clock.Advance(time.Minute)
+		failedAt := h.clock.Now()
 		require.NoError(t, markFailed(t, h, "ns", "task1", version, "schema flip failed at finalize"))
 
 		tasks, _ = h.manager.ListDistributedTasks(context.Background())
 		task := tasks["ns"][0]
 		require.Equal(t, TaskStatusFailed, task.Status)
 		require.Contains(t, task.Error, "schema flip failed at finalize")
-		require.Equal(t, finishedAt, task.FinishedAt,
-			"FinishedAt must stay at the AllUnitsTerminal moment, matching other FAILED paths")
+		require.Equal(t, failedAt.UnixMilli(), task.FinishedAt.UnixMilli(),
+			"FinishedAt must be the failure moment, not the earlier AllUnitsTerminal one")
 	})
 
 	t.Run("is idempotent: second call on FAILED is a no-op", func(t *testing.T) {
@@ -1498,14 +1450,7 @@ func TestManager_SnapshotRestore_WithPostCompletionAcks(t *testing.T) {
 			FinishedAtUnixMillis: h.clock.Now().UnixMilli(),
 		})))
 	}
-	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
-		Namespace:         "ns",
-		Id:                "task1",
-		Version:           version,
-		NodeId:            "node-1",
-		Success:           true,
-		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	ackSwap(t, h, "ns", "task1", version, "node-1", true)
 
 	snap, err := h.manager.Snapshot()
 	require.NoError(t, err)
@@ -2058,6 +2003,42 @@ func drivePreparing(t *testing.T, h *testHarness, ns, id string, version uint64,
 		"barrier task with all units terminal MUST land in PREPARING (not SWAPPING)")
 }
 
+// ackPrep records one node's PREP-phase ack through the FSM.
+func ackPrep(t *testing.T, h *testHarness, ns, id string, version uint64, node string, success bool) {
+	t.Helper()
+	require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
+		Namespace:         ns,
+		Id:                id,
+		Version:           version,
+		NodeId:            node,
+		Success:           success,
+		Error:             errIfFailed(success),
+		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+}
+
+// ackSwap records one node's SWAP-phase ack through the FSM.
+func ackSwap(t *testing.T, h *testHarness, ns, id string, version uint64, node string, success bool) {
+	t.Helper()
+	require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
+		Namespace:         ns,
+		Id:                id,
+		Version:           version,
+		NodeId:            node,
+		Success:           success,
+		Error:             errIfFailed(success),
+		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
+	})))
+}
+
+// errIfFailed returns a fixed error string on failure, or empty on success.
+func errIfFailed(success bool) string {
+	if success {
+		return ""
+	}
+	return "boom"
+}
+
 // TestManager_RecordPreparationCompleteAck_Success pins the core PREP barrier
 // invariant: PREPARING → SWAPPING happens only after EVERY expected
 // node ack lands with Success=true. Until the last ack arrives, the
@@ -2073,28 +2054,14 @@ func TestManager_RecordPreparationCompleteAck_Success(t *testing.T) {
 	// lifted yet (load-bearing property; the third node must NOT see
 	// SWAPPING and prematurely fire its OnSwapRequested).
 	for _, n := range nodes[:2] {
-		require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
-			Namespace:         "ns",
-			Id:                "task1",
-			Version:           version,
-			NodeId:            n,
-			Success:           true,
-			AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-		})))
+		ackPrep(t, h, "ns", "task1", version, n, true)
 		tasks, _ := h.manager.ListDistributedTasks(context.Background())
 		require.Equal(t, TaskStatusPreparing, tasks["ns"][0].Status,
 			"PREPARING → SWAPPING must NOT fire until EVERY expected node has acked")
 	}
 
 	// Third ack lifts the barrier.
-	require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
-		Namespace:         "ns",
-		Id:                "task1",
-		Version:           version,
-		NodeId:            "node-3",
-		Success:           true,
-		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	ackPrep(t, h, "ns", "task1", version, "node-3", true)
 
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
 	task := tasks["ns"][0]
@@ -2122,14 +2089,7 @@ func TestManager_RecordPreparationCompleteAck_FailureTransitionsToFailed(t *test
 	drivePreparing(t, h, "ns", "task1", version, nodes)
 
 	// node-1 acks success.
-	require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
-		Namespace:         "ns",
-		Id:                "task1",
-		Version:           version,
-		NodeId:            "node-1",
-		Success:           true,
-		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	ackPrep(t, h, "ns", "task1", version, "node-1", true)
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
 	require.Equal(t, TaskStatusPreparing, tasks["ns"][0].Status,
 		"one success ack does not lift the barrier — both nodes still owe an ack")
@@ -2165,14 +2125,7 @@ func TestManager_RecordPreparationCompleteAck_Idempotent(t *testing.T) {
 	drivePreparing(t, h, "ns", "task1", version, []string{"node-1"})
 
 	// First ack: success → barrier lifts (single-node).
-	require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
-		Namespace:         "ns",
-		Id:                "task1",
-		Version:           version,
-		NodeId:            "node-1",
-		Success:           true,
-		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	ackPrep(t, h, "ns", "task1", version, "node-1", true)
 	tasks, _ := h.manager.ListDistributedTasks(context.Background())
 	require.True(t, tasks["ns"][0].PreparationCompletionAcks["node-1"].Success)
 	require.Equal(t, TaskStatusSwapping, tasks["ns"][0].Status)
@@ -2180,15 +2133,7 @@ func TestManager_RecordPreparationCompleteAck_Idempotent(t *testing.T) {
 	// Duplicate ack with Success=false: must be silently dropped.
 	// If the duplicate took effect it would flip Success→false in the
 	// recorded ack AND flip SWAPPING → FAILED, both of which are wrong.
-	require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
-		Namespace:         "ns",
-		Id:                "task1",
-		Version:           version,
-		NodeId:            "node-1",
-		Success:           false,
-		Error:             "this must be ignored",
-		AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-	})))
+	ackPrep(t, h, "ns", "task1", version, "node-1", false)
 	tasks, _ = h.manager.ListDistributedTasks(context.Background())
 	require.True(t, tasks["ns"][0].PreparationCompletionAcks["node-1"].Success,
 		"duplicate ack must not flip recorded success → failure")
@@ -2216,14 +2161,7 @@ func TestManager_RecordPreparationCompleteAck_AckOrderCommutativity(t *testing.T
 			drivePreparing(t, h, "ns", "task1", version, nodes)
 
 			for _, n := range perm {
-				require.NoError(t, h.manager.RecordPreparationCompleteAck(toCmd(t, &cmd.RecordDistributedTaskPreparationCompleteAckRequest{
-					Namespace:         "ns",
-					Id:                "task1",
-					Version:           version,
-					NodeId:            n,
-					Success:           true,
-					AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-				})))
+				ackPrep(t, h, "ns", "task1", version, n, true)
 			}
 
 			tasks, _ := h.manager.ListDistributedTasks(context.Background())
@@ -2271,14 +2209,7 @@ func fixtureInStatus(t *testing.T, h *testHarness, status TaskStatus) (string, s
 	case TaskStatusFinished:
 		addTaskWithUnits(t, h, ns, id, version, []string{"u-n1"})
 		completeUnit(t, h, ns, id, version, "n1", "u-n1")
-		require.NoError(t, h.manager.RecordPostCompletionAck(toCmd(t, &cmd.RecordDistributedTaskPostCompletionAckRequest{
-			Namespace:         ns,
-			Id:                id,
-			Version:           version,
-			NodeId:            "n1",
-			Success:           true,
-			AckedAtUnixMillis: h.clock.Now().UnixMilli(),
-		})))
+		ackSwap(t, h, ns, id, version, "n1", true)
 		require.NoError(t, h.manager.MarkTaskFinalized(toCmd(t, &cmd.MarkTaskFinalizedRequest{
 			Namespace:             ns,
 			Id:                    id,

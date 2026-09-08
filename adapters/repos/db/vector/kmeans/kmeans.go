@@ -496,19 +496,31 @@ func (m *KMeans) Fit(data [][]float32) error {
 	return nil
 }
 
-type pair struct {
-	distance float32
-	index    uint32
-}
-
+// FitBalanced clusters the data into exactly two groups whose sizes both hold
+// at least ceil(n/4) of the points, so a posting split always makes bounded
+// progress: neither child receives more than n - ceil(n/4) entries.
+//
+// It runs Lloyd's algorithm with a size-constrained assignment step: whenever
+// plain nearest-centroid assignment already satisfies the floor, it is used
+// unchanged; otherwise the points with the smallest relative preference are
+// moved across the boundary (see balancedAssignment). Because the constraint
+// lives inside the loop, centroids are recomputed from the constrained
+// membership and adapt to it. For the squared-L2 objective, each constrained
+// assignment minimizes WCSS for fixed centers under the size constraint and
+// each center recomputation minimizes WCSS for fixed membership, so the
+// constrained objective is non-increasing across iterations; ties can
+// plateau, which the iteration threshold bounds.
+//
+// The returned centers are always the means of the returned membership. The
+// returned membership is NOT guaranteed to be nearest-centroid with respect
+// to the returned centers: the floor violates that by design, and any run can
+// end one recomputation after its last assignment.
 func (m *KMeans) FitBalanced(data [][]float32) ([]uint32, error) {
+	if m.K != 2 {
+		return nil, errors.New("balanced k-means requires exactly 2 clusters")
+	}
 	if len(data) < m.K {
 		return nil, errors.New("not enough data to fit k-means")
-	}
-
-	if m.K == 1 {
-		m.computeCentroid(data)
-		return nil, nil
 	}
 
 	n := len(data)
@@ -517,32 +529,44 @@ func (m *KMeans) FitBalanced(data [][]float32) ([]uint32, error) {
 	m.Metrics.Termination = MaxIterations
 
 	result := make([]uint32, n)
-	centroidAssignments := make([][]pair, m.K)
-	for i := range m.K {
-		centroidAssignments[i] = make([]pair, 0, n/m.K)
-	}
-	for m.Metrics.Iterations < m.IterationThreshold {
-		for i := range m.K {
-			centroidAssignments[i] = centroidAssignments[i][:0]
-		}
-		var metrics IterationMetrics
-		if m.Assignment == GraphPruning {
-			m.updateCenterNeighbors()
-			metrics.computations += m.K * m.K / 2
-		}
-		for i, x := range data {
-			prevCenterIdx := m.tmp.assignment[i]
-			nearest := m.nearest(x, prevCenterIdx)
-			if nearest.index != prevCenterIdx {
-				metrics.changes++
-				m.tmp.assignment[i] = nearest.index
-			}
-			centroidAssignments[nearest.index] = append(centroidAssignments[nearest.index], pair{distance: nearest.distance, index: uint32(i)})
-			metrics.wcss += float64(nearest.distance)
-			metrics.computations += nearest.computations
-		}
+	deltas := make([]float32, n)
+	rightDists := make([]float32, n)
+	offsets := make([]int, n)
+	minCount := (n + 3) / 4
 
-		result = m.balanceAssignments(centroidAssignments)
+	// Unlike Fit, FitBalanced returns memberships: the size floor and the
+	// centers-match-membership guarantees require at least one constrained
+	// assignment and center update, even when the iteration threshold is
+	// consumed by initialization alone.
+	iterationThreshold := max(m.IterationThreshold, m.Metrics.Iterations+1)
+	for m.Metrics.Iterations < iterationThreshold {
+		var metrics IterationMetrics
+
+		// The assignment needs both distances for every point, so the
+		// GraphPruning machinery (which exists to avoid computing the second
+		// distance) does not apply here.
+		for i, x := range data {
+			p := m.seg(x)
+			d0 := m.l2squared(p, m.Centers[0])
+			d1 := m.l2squared(p, m.Centers[1])
+			deltas[i] = d0 - d1
+			rightDists[i] = d1
+		}
+		metrics.computations += 2 * n
+
+		balancedAssignment(deltas, minCount, offsets, result)
+
+		for i := range data {
+			if result[i] != m.tmp.assignment[i] {
+				metrics.changes++
+				m.tmp.assignment[i] = result[i]
+			}
+			if result[i] == 0 {
+				metrics.wcss += float64(deltas[i] + rightDists[i])
+			} else {
+				metrics.wcss += float64(rightDists[i])
+			}
+		}
 
 		m.Metrics.update(metrics)
 		m.updateCenters(data)
@@ -555,36 +579,58 @@ func (m *KMeans) FitBalanced(data [][]float32) ([]uint32, error) {
 	return result, nil
 }
 
-func (m *KMeans) balanceAssignments(centroidAssignments [][]pair) []uint32 {
-	slices.SortFunc(centroidAssignments[0], func(a, b pair) int {
-		return cmp.Compare(b.distance, a.distance)
+// balancedAssignment assigns each point to the closer of two centers, subject
+// to each side holding at least minCount points. deltas[i] is the point's
+// distance to the left center minus its distance to the right center. When
+// plain nearest-centroid assignment (delta < 0 goes left) already satisfies
+// the floor, it is returned unchanged. Otherwise the points are stable-sorted
+// by delta and the sorted order is cut at the clamped boundary — for fixed
+// centers this is the minimum-WCSS assignment satisfying the size constraint,
+// and the points that cross the boundary are those with the smallest regret.
+// Ties keep input order via the stable sort, which makes degenerate inputs
+// (all deltas equal) deterministic. offsets and labels are caller-provided
+// buffers of length len(deltas).
+func balancedAssignment(deltas []float32, minCount int, offsets []int, labels []uint32) {
+	n := len(deltas)
+
+	naturalLeft := 0
+	for _, delta := range deltas {
+		if delta < 0 {
+			naturalLeft++
+		}
+	}
+
+	if naturalLeft >= minCount && n-naturalLeft >= minCount {
+		for i, delta := range deltas {
+			if delta < 0 {
+				labels[i] = 0
+			} else {
+				labels[i] = 1
+			}
+		}
+		return
+	}
+
+	leftCount := naturalLeft
+	if leftCount < minCount {
+		leftCount = minCount
+	} else {
+		leftCount = n - minCount
+	}
+
+	for i := range offsets {
+		offsets[i] = i
+	}
+	slices.SortStableFunc(offsets, func(a, b int) int {
+		return cmp.Compare(deltas[a], deltas[b])
 	})
-	slices.SortFunc(centroidAssignments[1], func(a, b pair) int {
-		return cmp.Compare(b.distance, a.distance)
-	})
-	threshold := 10
-
-	// balance the assignments, if the difference between the two clusters is greater than the threshold,
-	// we need to move some points from the larger cluster to the smaller cluster starting from the
-	// furthest point in the larger cluster.
-
-	for len(centroidAssignments[0])-len(centroidAssignments[1]) > threshold {
-		centroidAssignments[1] = append(centroidAssignments[1], centroidAssignments[0][0])
-		centroidAssignments[0] = centroidAssignments[0][1:]
+	for i, offset := range offsets {
+		if i < leftCount {
+			labels[offset] = 0
+		} else {
+			labels[offset] = 1
+		}
 	}
-
-	for len(centroidAssignments[1])-len(centroidAssignments[0]) > threshold {
-		centroidAssignments[0] = append(centroidAssignments[0], centroidAssignments[1][0])
-		centroidAssignments[1] = centroidAssignments[1][1:]
-	}
-	result := make([]uint32, len(centroidAssignments[0])+len(centroidAssignments[1]))
-	for _, v := range centroidAssignments[0] {
-		result[v.index] = 0
-	}
-	for _, v := range centroidAssignments[1] {
-		result[v.index] = 1
-	}
-	return result
 }
 
 func (m *KMeans) DisableDeltaThreshold() {

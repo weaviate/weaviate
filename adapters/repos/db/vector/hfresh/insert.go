@@ -119,7 +119,6 @@ func (h *HFresh) initDimensions(vector []float32) error {
 		return errors.Wrap(err, "could not create quantizer")
 	}
 	h.quantizer = quantizer
-	h.Centroids.SetQuantizer(h.quantizer)
 
 	if err := h.persistQuantizationData(); err != nil {
 		return errors.Wrap(err, "could not persist RQ data")

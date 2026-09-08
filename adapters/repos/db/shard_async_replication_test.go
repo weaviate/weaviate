@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -86,37 +87,37 @@ func testObjWithTime(class string, id strfmt.UUID, updateTime int64) *storobj.Ob
 // CompareDigests protocol.
 type fixedDigestsClient struct {
 	FakeReplicationClient
-	digests          []routerTypes.RepairResponse
+	digests          []routerTypes.RepairDigest
 	compareDigestErr error // if non-nil, CompareDigests returns this error instead of comparing
 }
 
 func (c *fixedDigestsClient) DigestObjectsInRange(
 	_ context.Context, _, _, _ string, _, _ strfmt.UUID, _ int,
-) ([]routerTypes.RepairResponse, error) {
+) ([]routerTypes.RepairDigest, error) {
 	return c.digests, nil
 }
 
 func (c *fixedDigestsClient) CompareDigests(
-	_ context.Context, _, _, _ string, source []routerTypes.RepairResponse,
-) ([]routerTypes.RepairResponse, error) {
+	_ context.Context, _, _, _ string, source []routerTypes.RepairDigest,
+) ([]routerTypes.RepairDigest, error) {
 	if c.compareDigestErr != nil {
 		return nil, c.compareDigestErr
 	}
-	remote := make(map[string]int64, len(c.digests))
+	remote := make(map[uuid.UUID]int64, len(c.digests))
 	for _, d := range c.digests {
 		remote[d.ID] = d.UpdateTime
 	}
-	out := make([]routerTypes.RepairResponse, 0, len(source))
+	out := make([]routerTypes.RepairDigest, 0, len(source))
 	for _, s := range source {
 		rt, ok := remote[s.ID]
 		if !ok {
 			// Missing on remote.
-			out = append(out, routerTypes.RepairResponse{ID: s.ID, UpdateTime: 0})
+			out = append(out, routerTypes.RepairDigest{ID: s.ID, UpdateTime: 0})
 			continue
 		}
 		if s.UpdateTime > rt {
 			// Source is strictly newer than remote — stale on target.
-			out = append(out, routerTypes.RepairResponse{ID: s.ID, UpdateTime: rt})
+			out = append(out, routerTypes.RepairDigest{ID: s.ID, UpdateTime: rt})
 		}
 		// Equal or remote-newer → no action needed.
 	}
@@ -130,8 +131,8 @@ type countingDigestsClient struct {
 }
 
 func (c *countingDigestsClient) CompareDigests(
-	ctx context.Context, index, shard, host string, source []routerTypes.RepairResponse,
-) ([]routerTypes.RepairResponse, error) {
+	ctx context.Context, index, shard, host string, source []routerTypes.RepairDigest,
+) ([]routerTypes.RepairDigest, error) {
 	c.compareCalls.Add(1)
 	return c.fixedDigestsClient.CompareDigests(ctx, index, shard, host, source)
 }
@@ -247,7 +248,7 @@ func withAsyncScheduler(t *testing.T) func(*Index) {
 // concreteShard unwraps the *Shard from a ShardLike returned by testShard.
 // testShard passes EnableLazyLoadShards=true which causes initShard to create
 // a real *Shard directly (not a LazyLoadShard wrapper).
-func concreteShard(t *testing.T, sl ShardLike) *Shard {
+func concreteShard(t testing.TB, sl ShardLike) *Shard {
 	t.Helper()
 	s, ok := sl.(*Shard)
 	require.True(t, ok, "expected *Shard from testShard (EnableLazyLoadShards=true)")
@@ -322,9 +323,9 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 	// objects with equal or newer timestamps, so nothing should be propagated.
 	t.Run("SourceBehindRemote", func(t *testing.T) {
 		// Pre-configure the remote to return the same digests as local.
-		remoteDigests := []routerTypes.RepairResponse{
-			{ID: string(uuidLow), UpdateTime: tsFarPast},
-			{ID: string(uuidHigh), UpdateTime: tsFarPast},
+		remoteDigests := []routerTypes.RepairDigest{
+			{ID: uuid.MustParse(string(uuidLow)), UpdateTime: tsFarPast},
+			{ID: uuid.MustParse(string(uuidHigh)), UpdateTime: tsFarPast},
 		}
 		sl, idx := testShard(t, ctx, class, withReplicationClient(t, &fixedDigestsClient{digests: remoteDigests}))
 		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, tsFarPast)))
@@ -374,10 +375,10 @@ func TestObjectsToPropagateWithinRange(t *testing.T) {
 	// and limit=1, the whole leaf must be scanned in a single CompareDigests RPC
 	// (diffBatchSize=100), not one round-trip per object.
 	t.Run("FetchBatchDecoupledFromBudget", func(t *testing.T) {
-		remoteDigests := []routerTypes.RepairResponse{
-			{ID: string(uuidLow), UpdateTime: tsFarPast},
-			{ID: string(uuidMid), UpdateTime: tsFarPast},
-			{ID: string(uuidHigh), UpdateTime: tsFarPast},
+		remoteDigests := []routerTypes.RepairDigest{
+			{ID: uuid.MustParse(string(uuidLow)), UpdateTime: tsFarPast},
+			{ID: uuid.MustParse(string(uuidMid)), UpdateTime: tsFarPast},
+			{ID: uuid.MustParse(string(uuidHigh)), UpdateTime: tsFarPast},
 		}
 		client := &countingDigestsClient{fixedDigestsClient: &fixedDigestsClient{digests: remoteDigests}}
 		sl, idx := testShard(t, ctx, class, withReplicationClient(t, client))
@@ -883,7 +884,7 @@ func TestRepairEndpointsDoNotForceLoadUnloadedShard(t *testing.T) {
 	})
 
 	t.Run("CompareDigests", func(t *testing.T) {
-		_, err := idx.CompareDigests(ctx, lazyName, []routerTypes.RepairResponse{{ID: string(uuidLow)}})
+		_, err := idx.CompareDigests(ctx, lazyName, []routerTypes.RepairDigest{{ID: uuid.MustParse(string(uuidLow))}})
 		require.ErrorIs(t, err, errAsyncReplicationNotActive)
 		require.False(t, lazy.isLoaded(), "CompareDigests must not force-load an unloaded shard")
 	})
@@ -2809,9 +2810,10 @@ func TestPerformShutdownSkipsDumpWhenStoreShutdownFails(t *testing.T) {
 	}
 	enableAndAwaitAsync(t, ctx, s)
 
-	cancelledCtx, cancel := context.WithCancel(ctx)
-	cancel()
-	require.ErrorContains(t, s.performShutdown(cancelledCtx), "stop lsmkv store",
+	// the store is closed first to make its shutdown fail. The teardown itself
+	// runs to completion whatever the caller's context does
+	require.NoError(t, s.store.Shutdown(ctx))
+	require.ErrorContains(t, s.performShutdown(ctx), "stop lsmkv store",
 		"the store flush itself must have failed for this test to be meaningful")
 	require.Empty(t, htFilesInDir(t, s.pathHashTree()),
 		"no snapshot may be published when the store flush did not complete")

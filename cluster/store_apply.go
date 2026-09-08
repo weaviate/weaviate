@@ -450,6 +450,13 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.authZManager.RevokeRolesForUser(&cmd)
 		}
+	case api.ApplyRequest_TYPE_RESTORE_ROLES_AND_USERS:
+		// The payload replaces both stores in full, so checking namespaces row by
+		// row would drop rows silently. applyRestoreRolesAndUsers rejects the
+		// whole entry instead.
+		f = func() {
+			ret.Error = applyRestoreRolesAndUsers(&cmd, st.authZManager, st.dynUserManager, st.namespaceManager)
+		}
 
 	case api.ApplyRequest_TYPE_UPSERT_USER:
 		f = func() {
@@ -568,6 +575,10 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_UUID:
 		f = func() {
 			ret.Error = st.replicationManager.ForceDeleteByUuid(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_IDS:
+		f = func() {
+			ret.Error = st.replicationManager.ForceDeleteByIds(&cmd)
 		}
 
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:

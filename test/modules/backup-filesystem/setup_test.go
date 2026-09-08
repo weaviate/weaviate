@@ -76,6 +76,7 @@ func TestMain(m *testing.M) {
 // - Single-node Weaviate (filesystem backup only works on single-node clusters)
 // - Filesystem backup module with BACKUP_FILESYSTEM_PATH=/tmp/backups
 // - text2vec-contextionary vectorizer (for tests that need vectorization)
+// - Async indexing and a debug port, which the dynamic index test needs
 func setupSharedCluster(ctx context.Context) (*docker.DockerCompose, error) {
 	// PERSISTENCE_LSM_MAX_SEGMENT_SIZE=1024 effectively disables LSM compaction:
 	// the compactor only merges a pair of segments if their combined size is <= this cap,
@@ -83,12 +84,19 @@ func setupSharedCluster(ctx context.Context) (*docker.DockerCompose, error) {
 	// stable across backups so the incremental backup assertions (which rely on
 	// unchanged-file detection via size+mtime, and on monotonic pre-compression size
 	// growth) are not perturbed by background segment rewrites.
+	//
+	// ASYNC_INDEXING is required by the dynamic index, which only upgrades to hnsw
+	// off the async queue. ASYNC_INDEXING_STALE_TIMEOUT keeps a partially filled
+	// queue chunk from sitting unindexed for the default interval.
 	compose, err := docker.New().
 		WithBackendFilesystem().
 		WithText2VecContextionary().
 		WithWeaviateEnv("PERSISTENCE_LSM_MAX_SEGMENT_SIZE", "1024").
+		WithWeaviateEnv("ASYNC_INDEXING", "true").
+		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "1s").
 		With1NodeCluster().
 		WithWeaviateExposeGRPCPort().
+		WithWeaviateWithDebugPort().
 		Start(ctx)
 	if err != nil {
 		return nil, errors.Wrap(err, "failed to start docker compose")

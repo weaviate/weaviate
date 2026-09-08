@@ -134,11 +134,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		if err != nil {
 			return fmt.Errorf("get local shards count for class %q: %w", class.Class, err)
 		}
-		// Only calculate shard sizes if the shard-count condition alone wouldn't
-		// already trigger lazy-loading. This avoids walking all shard directories
-		// on large MT setups where the count exceeds the threshold.
-		if localActiveShardsCount <= m.db.config.LazyLoadShardCountThreshold &&
-			m.db.config.LazyLoadShardSizeThresholdGB > 0 {
+		if shouldComputeShardSizes(m.db.config.EnableLazyLoadShards, localActiveShardsCount,
+			m.db.config.LazyLoadShardCountThreshold, m.db.config.LazyLoadShardSizeThresholdGB) {
 			// we do need to calculate shard size if it's MT to be able to decide
 			// to enable lazy load shards based on total size
 			localShards, err := m.db.schemaReader.LocalShards(class.Class)
@@ -151,7 +148,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	}
 
 	var lazyLoadShardEnabled bool
-	idx, err = NewIndex(ctx,
+	idx, err = NewIndex(ctx, m.db,
 		IndexConfig{
 			ClassName:                      schema.ClassName(class.Class),
 			RootPath:                       m.db.config.RootPath,
@@ -185,7 +182,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 				// If explicitly set (true = always lazy, false = always eager),
 				// skip auto-detection entirely.
 				if m.db.config.EnableLazyLoadShards != nil {
-					return *m.db.config.EnableLazyLoadShards
+					lazyLoadShardEnabled = *m.db.config.EnableLazyLoadShards
+					return lazyLoadShardEnabled
 				}
 
 				lazyLoadShardEnabled = shouldAutoLazyLoadShards(
@@ -197,6 +195,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 				)
 				return lazyLoadShardEnabled
 			}(),
+			LazyLoadShardWarmupMinObjects:       m.db.config.LazyLoadShardWarmupMinObjects,
 			ForceFullReplicasSearch:             m.db.config.ForceFullReplicasSearch,
 			TransferInactivityTimeout:           m.db.config.TransferInactivityTimeout,
 			HaltForTransferTimeout:              m.db.config.HaltForTransferTimeout,
@@ -244,11 +243,16 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	}
 
 	idx.usageLimits = m.db.usageLimits
-	idx.db = m.db
 	idx.SetReplicationFSMReader(m.db.replicationFSM)
 	m.db.indexLock.Lock()
 	m.db.indices[idx.ID()] = idx
 	m.db.indexLock.Unlock()
+
+	// Shards built inside NewIndex read the read-only flag as they come up, but
+	// a transition landing after that read reaches them through neither path -
+	// the sweep cannot see an index that is not in db.indices yet. Settle them
+	// against the flag now that it can.
+	m.db.reconcileIndexResourcePressure(idx)
 
 	// NewIndex loaded shards reading the live AsyncReplicationDisabled flag, but
 	// the index was not yet in db.indices, so a concurrent runtime flag toggle's
@@ -277,11 +281,14 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		"action":                  "lazy_shard_auto_detection",
 		"class":                   class.Class,
 		"enable_lazy_load_shards": lazyLoadShardEnabled,
+		"background_warmup":       idx.Config.backgroundWarmupEnabled(),
+		"warmup_min_objects":      m.db.config.LazyLoadShardWarmupMinObjects,
+		"auto_detected":           m.db.config.EnableLazyLoadShards == nil,
 		"local_shard_count":       localActiveShardsCount,
 		"total_shard_size_bytes":  totalShardSizeBytes,
 		"count_threshold":         m.db.config.LazyLoadShardCountThreshold,
 		"size_threshold_gb":       m.db.config.LazyLoadShardSizeThresholdGB,
-	}).Info("lazy load shard auto-detection result")
+	}).Warn("lazy load shard auto-detection result")
 	return nil
 }
 
@@ -360,7 +367,7 @@ func (m *Migrator) ShutdownShard(ctx context.Context, class, shard string) error
 	if !ok {
 		return fmt.Errorf("could not find shard %s", shard)
 	}
-	if err := shutdownOrRestoreShard(ctx, &idx.shards, shard, shardLike, idx.logger); err != nil {
+	if err := shutdownOrRestoreShard(ctx, idx, shard, shardLike); err != nil {
 		if !errors.Is(err, errAlreadyShutdown) {
 			return errors.Wrapf(err, "shutdown shard %q", shard)
 		}
@@ -763,7 +770,7 @@ func (m *Migrator) updateTenants(ctx context.Context, class *models.Class, updat
 
 				m.logger.WithField("shard", name).Debug("starting shutdown")
 
-				if err := shutdownOrRestoreShard(ctx, &idx.shards, name, shard, idx.logger); err != nil {
+				if err := shutdownOrRestoreShard(ctx, idx, name, shard); err != nil {
 					if errors.Is(err, errAlreadyShutdown) {
 						m.logger.WithField("shard", shard.Name()).Debug("already shut down or dropped")
 					} else {

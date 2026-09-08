@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -322,6 +323,15 @@ func (p *ReindexProvider) claimActiveWorker(desc distributedtask.TaskDescriptor,
 	return true
 }
 
+// ReindexUnitSeal reserves one (task, unit) for teardown. It reports false
+// while a worker still holds the unit; otherwise the caller must call the
+// returned func to release it.
+type ReindexUnitSeal func(desc distributedtask.TaskDescriptor, unitID string) (func(), bool)
+
+// ReindexUnitSealBuilder returns the current seal, or nil where the provider
+// has none. Called per seal rather than held.
+type ReindexUnitSealBuilder func() ReindexUnitSeal
+
 func (p *ReindexProvider) releaseActiveWorker(desc distributedtask.TaskDescriptor, unitID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -462,10 +472,8 @@ func (p *ReindexProvider) processOneUnit(
 		return
 	}
 
-	// Unwrap up front: the lsmPath is needed by createReindexTasks to
-	// pick the per-shard generation suffix for this migration's
-	// sidecar dirs. We also need the concrete shard for persistRecoveryRecord
-	// below.
+	// Unwrap up front: createReindexTasks needs the lsmPath, and
+	// persistRecoveryRecord below needs the concrete shard.
 	concreteShard, unwrapErr := unwrapShard(ctx, shard)
 	if unwrapErr != nil {
 		p.failUnit(ctx, task, unitID, recorder,
@@ -473,9 +481,9 @@ func (p *ReindexProvider) processOneUnit(
 		return
 	}
 
-	// For semantic migrations (change-tokenization, enable-rangeable), use
+	// For semantic migrations (change-tokenization, enable-filterable), use
 	// two-phase execution: reindex only, then swap after all units complete.
-	// For format-only migrations, run the full lifecycle per shard.
+	// For format-only migrations, RunOnShard runs the full lifecycle per shard.
 	semantic := IsSemanticMigration(payload.MigrationType)
 
 	// Re-entry guard. The DTM scheduler can relaunch our task handle a
@@ -486,18 +494,6 @@ func (p *ReindexProvider) processOneUnit(
 	// next scheduler tick. We've observed the two "starting unit" logs
 	// ~70ms apart on the same unit in CI (acceptance large
 	// reindex-multinode-aj, MultiRoundRobin round 1).
-	//
-	// Without this guard, the relaunched processOneUnit calls
-	// createReindexTasks(rehydrate=false), which picks
-	// nextMigrationGeneration = max(existing)+1 = N+1 — a different
-	// generation than the previous, in-flight run at gen N. The new
-	// tasks (gen N+1) get written into p.reindexTasks[desc][unitID],
-	// clobbering the gen-N task instances that OnGroupCompleted relies
-	// on. When OnGroupCompleted then calls RunSwapOnShard on the
-	// cached gen N+1 task, its tracker points at the (just-mkdir'd)
-	// .migrations/<dir>_N+1/ which has no reindexed.mig → "shard is
-	// not in reindexed state" → swap fails → migration is half-applied
-	// on this replica → #10675-shape per-replica data divergence.
 	//
 	// Guard signal is `activeWorkers` (per-unit "a goroutine is inside
 	// the iteration body right now"), NOT the `reindexTasks` cache.
@@ -518,9 +514,8 @@ func (p *ReindexProvider) processOneUnit(
 
 	// Use cached task instances when present. Two populating paths land
 	// here: (a) post-restart [SeedReindexTaskCache] for callback-preserving
-	// resume; (b) the FSM-lag re-entry case where the previous worker
-	// cached gen-N tasks before exiting — reusing them avoids the gen-N+1
-	// clobber the old guard existed to prevent.
+	// resume; (b) the FSM-lag re-entry case, where the cached instances
+	// still carry the registered double-write callbacks.
 	var (
 		tasks  []*ShardReindexTaskGeneric
 		cached bool
@@ -531,7 +526,7 @@ func (p *ReindexProvider) processOneUnit(
 	}
 	if !cached {
 		var createErr error
-		tasks, createErr = p.createReindexTasks(payload, concreteShard.pathLSM(), false)
+		tasks, createErr = p.createReindexTasks(task.TaskDescriptor, payload, concreteShard.pathLSM(), false)
 		if createErr != nil {
 			p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("creating reindex tasks: %v", createErr))
 			return
@@ -632,22 +627,10 @@ func (p *ReindexProvider) processOneUnit(
 const maxReindexPropertiesPerTask = 1024
 
 // createReindexTasks constructs the strategy/task instances for a payload.
-// Each per-strategy bucket-sidecar dir and the migration tracker dir carry
-// a per-node generation suffix `_<N>` so back-to-back in-process
-// migrations on the same property don't collide on dir paths.
-//
-// lsmPath is required because the generation is computed per-shard from
-// the shard's local on-disk state. When rehydrate is true (called from
-// [OnGroupCompleted]'s rehydrate path after a process restart lost the
-// in-memory task cache), the generation is the highest existing
-// in-flight one on disk — we want to reconstruct the SAME strategy
-// instance the original processOneUnit constructed. When rehydrate is
-// false (the fresh-task path from processOneUnit), the generation is
-// `max(existing) + 1`.
-//
-// See `docs/runtime-reindex.md` for the deferred-finalize + per-migration-
-// generation design rationale.
-func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPath string, rehydrate bool) ([]*ShardReindexTaskGeneric, error) {
+// See `docs/runtime-reindex.md` for the deferred-finalize design rationale.
+func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor,
+	payload *ReindexTaskPayload, lsmPath string, rehydrate bool,
+) ([]*ShardReindexTaskGeneric, error) {
 	// Every migration type requires at least one property — repair-* / enable-*
 	// because they're per-property migrations, change-tokenization because it
 	// needs exactly one property. Check up front so each arm only deals with
@@ -660,33 +643,22 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPat
 			payload.MigrationType, len(payload.Properties), maxReindexPropertiesPerTask)
 	}
 
-	// genFor returns the generation suffix N to use for this migration on
-	// this shard, given the strategy's dir prefix and its props suffix
-	// (e.g. "_text" or sorted-joined "_p1_p2", or "" for class-level
-	// strategies). The ok return is always true on the normal path
-	// (rehydrate=false). On rehydrate=true, ok=false means there is no
-	// in-flight migration for this strategy on disk — every prior
-	// generation's tracker dir was already cleaned up by either
-	// `FinalizeCompletedMigrations` (at startup) or the end-of-swap trim
-	// (in-process). The caller MUST skip task instantiation in that case;
-	// instantiating with a fabricated gen would later try to swap from
-	// reindex bucket dirs that no longer exist.
-	genFor := func(prefix, propSuffix string) (int, bool) {
-		if rehydrate {
-			if gen := maxMigrationGeneration(lsmPath, prefix, propSuffix); gen > 0 {
-				return gen, true
-			}
-			return 0, false
-		}
-		return nextMigrationGeneration(lsmPath, prefix, propSuffix), true
+	// genSuffix reserves 0 for the post-finalize bucket; a version outside
+	// [1, MaxInt] would name a dir FinalizeCompletedMigrations never
+	// promotes, so the rebuild would silently never go live.
+	if desc.Version < 1 || desc.Version > math.MaxInt {
+		return nil, fmt.Errorf("task version %d cannot name a migration generation (must be 1..%d); a migration named from it would never be promoted to its canonical bucket",
+			desc.Version, math.MaxInt)
 	}
 
-	// On the normal path (rehydrate=false) genFor always returns ok=true.
-	// On rehydrate (post-restart) ok=false means the strategy has no
-	// in-flight on-disk state — `FinalizeCompletedMigrations` at startup
-	// or the end-of-swap trim already cleaned up. Re-instantiating with
-	// a fabricated gen would fail at runtimeSwap with "reindex bucket
-	// not found", so callers skip task instantiation in that case.
+	gen := int(desc.Version)
+	genFor := func(prefix, propSuffix string) (int, bool) {
+		if rehydrate && migrationTrackerDirAbsent(lsmPath, prefix+propSuffix+genSuffix(gen)) {
+			return 0, false
+		}
+		return gen, true
+	}
+
 	switch payload.MigrationType {
 	case ReindexTypeChangeAlgorithm:
 		gen, ok := genFor(MigrationDirSearchableMapToBlockmax, "")
@@ -819,8 +791,7 @@ func (p *ReindexProvider) createReindexTasks(payload *ReindexTaskPayload, lsmPat
 // migrationDirWithProps appends after a strategy prefix. Returns "" for
 // empty prop slices. Kept in sync with [migrationDirWithProps] — must
 // produce the same suffix string the strategy's MigrationDirName() will
-// emit, so [nextMigrationGeneration] / [maxMigrationGeneration] scan
-// against the same target.
+// emit, or the rehydrate stat looks at a name no strategy ever wrote.
 func propsSuffix(propNames []string) string {
 	if len(propNames) == 0 {
 		return ""
@@ -1174,7 +1145,7 @@ func (p *ReindexProvider) resolveUnitForPhase(
 			SawContextCanceled: errors.Is(unwrapErr, context.Canceled),
 		}
 	}
-	fresh, err := p.createReindexTasks(payload, concreteShard.pathLSM(), true)
+	fresh, err := p.createReindexTasks(task.TaskDescriptor, payload, concreteShard.pathLSM(), true)
 	if err != nil {
 		logger.WithField("unit", unitID).
 			Errorf("reindex provider: resolveUnitForPhase: creating reindex tasks: %v", err)
@@ -2412,7 +2383,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		missing, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
 			[]string{api.PropertyFieldTokenization},
 			func(prop *models.Property) bool {
-				if prop.Tokenization == payload.TargetTokenization {
+				if propertyTokenizationAtTarget(prop, payload.TargetTokenization) {
 					return false
 				}
 				prop.Tokenization = payload.TargetTokenization
@@ -2436,7 +2407,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
 			[]string{api.PropertyFieldIndexFilterable},
 			func(prop *models.Property) bool {
-				if prop.IndexFilterable != nil && *prop.IndexFilterable {
+				if propertyFilterableEnabled(prop) {
 					return false
 				}
 				prop.IndexFilterable = &trueVal
@@ -2460,9 +2431,7 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, payload.Collection, payload.Properties,
 			[]string{api.PropertyFieldIndexSearchable, api.PropertyFieldTokenization, api.PropertyFieldSearchableBlockmax},
 			func(prop *models.Property) bool {
-				if prop.IndexSearchable != nil && *prop.IndexSearchable &&
-					prop.Tokenization == payload.TargetTokenization &&
-					prop.SearchableBlockmax != nil && *prop.SearchableBlockmax {
+				if propertySearchableAtTarget(prop, payload.TargetTokenization) {
 					return false
 				}
 				prop.IndexSearchable = &trueVal
@@ -2487,6 +2456,12 @@ func (p *ReindexProvider) flipSemanticMigrationSchema(
 		// Defer the cluster-wide class-flag flip until every local searchable
 		// bucket is blockmax — submit is per-property, so the class may still
 		// have map buckets.
+		//
+		// This is the one schema flip that may land after the task reaches
+		// FINISHED, and only when shouldDeferBlockmaxFlip says so. GET
+		// /v1/schema/{class}/indexes never reads it: it resolves
+		// models.IndexStatus.Algorithm from the per-property
+		// SearchableBlockmax stamp written above, which lands before FINISHED.
 		if defer_, err := p.shouldDeferBlockmaxFlip(ctx, payload, logger); err != nil {
 			return err
 		} else if defer_ {
@@ -2513,7 +2488,7 @@ func (p *ReindexProvider) stampSearchableBlockmax(ctx context.Context, collectio
 	_, err := applyPerPropertySchemaUpdate(ctx, p.schemaManager, collection, propNames,
 		[]string{api.PropertyFieldSearchableBlockmax},
 		func(prop *models.Property) bool {
-			if prop.SearchableBlockmax != nil && *prop.SearchableBlockmax {
+			if propertyBlockmaxStamped(prop) {
 				return false
 			}
 			prop.SearchableBlockmax = &trueVal

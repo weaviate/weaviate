@@ -17,7 +17,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -138,7 +137,11 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDocument,
 	idBytes []byte, class *models.Class,
 ) (*storobj.Object, objectInsertStatus, error) {
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return nil, objectInsertStatus{}, err
+	}
+	defer release()
 
 	var prevObj, obj *storobj.Object
 	var status objectInsertStatus
@@ -241,8 +244,13 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 func (s *Shard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDocument,
 	idBytes []byte,
 ) (mutableMergeResult, error) {
-	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	out := mutableMergeResult{}
+
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return out, err
+	}
+	defer release()
 
 	// Wait outside the RLock; see shard_write_put.go (calling it under RLock is a recursive read-lock deadlock).
 	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {

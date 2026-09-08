@@ -19,11 +19,11 @@ import (
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
-	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // shardKnownShut reports whether a map entry points at a shard that CLEANLY
@@ -44,6 +44,32 @@ func shardKnownShut(s ShardLike) bool {
 		return sh.loaded && sh.shard.shut.Load() && sh.shard.teardownError() == nil
 	default:
 		return false
+	}
+}
+
+// shardRegistration reports which weaviate_shards series a shard counts
+// against. A LazyLoadShard is lazy whether or not it currently holds a loaded
+// shard; a bare Shard carries the value it was built with.
+func shardRegistration(s ShardLike) monitoring.ShardRegistration {
+	switch sh := s.(type) {
+	case *LazyLoadShard:
+		return monitoring.ShardRegistrationLazy
+	case *Shard:
+		return sh.registration
+	default:
+		// Unknown wrapper: eager is the value a shard gets when nothing made
+		// it lazy, so an unrecognized one lands where a plain shard would.
+		return monitoring.ShardRegistrationEager
+	}
+}
+
+// evictShutShard takes a cleanly-shut entry out of the shard map and stops
+// counting it, so the shard that replaces it is the only one counted. A
+// completed shutdown leaves the shard counted as unloaded, which holds only
+// while it stays in the map. Callers hold the shard's create lock.
+func (i *Index) evictShutShard(shardName string) {
+	if shard, ok := i.shards.LoadAndDelete(shardName); ok {
+		i.metrics.baseMetrics.DeleteUnloadedShard(shardRegistration(shard))
 	}
 }
 
@@ -143,9 +169,17 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 // leaving a live instance out of the map lets a later (re)load double-open
 // the directory. Callers hold the shard's create lock and classify
 // errAlreadyShutdown themselves (terminal, not a failure).
-func shutdownOrRestoreShard(ctx context.Context, shards *shardMap, name string, shard ShardLike, logger logrus.FieldLogger) error {
+//
+// A shard that stays out of the map stops being counted. Shutdown alone only
+// moves it from loaded to unloaded, which is right while it stays in the map;
+// counted after removal, every tenant deactivation raises shards_unloaded for a
+// shard the node no longer holds.
+func shutdownOrRestoreShard(ctx context.Context, idx *Index, name string, shard ShardLike) error {
+	shards, logger := &idx.shards, idx.logger
+
 	err := shard.Shutdown(ctx)
 	if err == nil || errors.Is(err, errAlreadyShutdown) {
+		idx.metrics.baseMetrics.DeleteUnloadedShard(shardRegistration(shard))
 		return err
 	}
 	if restoreShardIfStillAlive(shards, name, shard) {
@@ -166,6 +200,7 @@ func shutdownOrRestoreShard(ctx context.Context, shards *shardMap, name string, 
 	// outcome the caller asked for happened. Report it as the benign
 	// already-shut case, not a failure (a cold-tenant batch would otherwise
 	// fail whole on one racy tenant).
+	idx.metrics.baseMetrics.DeleteUnloadedShard(shardRegistration(shard))
 	return errAlreadyShutdown
 }
 
@@ -242,11 +277,23 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	s.shutdownRequested.Store(false)
 	s.shutCtxCancel(fmt.Errorf("shutdown %q", s.ID()))
 
+	// The teardown below cannot be abandoned: every step of it consumes ctx.
+	// Stopping after s.shut is set leaves buckets unflushed and registry entries
+	// uncleared on a shard that already reads as shut. Only the cancellation is
+	// dropped, so the caller's deadline still bounds it.
+	if deadline, ok := ctx.Deadline(); ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithDeadline(context.WithoutCancel(ctx), deadline)
+		defer cancel()
+	} else {
+		ctx = context.WithoutCancel(ctx)
+	}
+
 	// Track shard unloading: loaded -> unloading
 	// Only update metrics if the shard was properly registered (prevents double-counting
 	// during partial initialization cleanup)
 	if s.metricsRegistered.Load() {
-		s.metrics.baseMetrics.StartUnloadingShard()
+		s.metrics.baseMetrics.StartUnloadingShard(s.registration)
 	}
 
 	start := time.Now()
@@ -351,10 +398,27 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 
 	// Track shard unloaded: unloading -> unloaded
 	if s.metricsRegistered.Load() {
-		s.metrics.baseMetrics.FinishUnloadingShard()
+		s.metrics.baseMetrics.FinishUnloadingShard(s.registration)
 	}
 
 	return ec.ToError()
+}
+
+// drainRefsForDrop blocks new pins and waits for the in-flight ones to finish,
+// so a drop does not tear the store down underneath a running request.
+// Note: this will keep drainRefsForDrop running for 30 seconds.
+func (s *Shard) drainRefsForDrop() error {
+	s.dropRequested.Store(true)
+
+	return backoff.Retry(func() error {
+		s.shutdownLock.Lock()
+		defer s.shutdownLock.Unlock()
+
+		if inUse := s.inUseCounter.Load(); inUse > 0 {
+			return fmt.Errorf("shard %q holds %d reference(s): %w", s.name, inUse, errShardStillInUse)
+		}
+		return nil
+	}, backoff.WithMaxRetries(backoff.NewConstantBackOff(300*time.Millisecond), 100)) // 30 seconds
 }
 
 const msgReleasedMoreThanOnce = "shard reference released more than once per acquire"
@@ -372,6 +436,10 @@ func (s *Shard) preventShutdown() (release func(), err error) {
 	}
 	s.shutdownLock.RLock()
 	defer s.shutdownLock.RUnlock()
+
+	if s.dropRequested.Load() {
+		return func() {}, errDropInProgress
+	}
 
 	if s.shut.Load() {
 		return func() {}, errAlreadyShutdown
