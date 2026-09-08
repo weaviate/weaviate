@@ -1663,7 +1663,7 @@ what destroys the data**. Upgrade again instead and let reconciliation promote.
 - [`adapters/repos/db/inverted_reindex_strategy_*.go`](../adapters/repos/db/) — one per strategy.
 - [`adapters/repos/db/inverted_reindex_strategy_dir_names.go`](../adapters/repos/db/inverted_reindex_strategy_dir_names.go) — `genSuffix`, `parseMigrationDirName`, strategy dir prefix constants.
 - [`adapters/repos/db/inverted_reindex_task_generic.go`](../adapters/repos/db/inverted_reindex_task_generic.go) — `ShardReindexTaskGeneric`, the **phase-contract godoc** at the top of the file is the authoritative spec.
-- [`adapters/repos/db/inverted_reindex_finalize.go`](../adapters/repos/db/inverted_reindex_finalize.go) — `nextMigrationGeneration`, `maxMigrationGeneration`, `migrationSuffixes`.
+- [`adapters/repos/db/inverted_reindex_finalize.go`](../adapters/repos/db/inverted_reindex_finalize.go) — `migrationTrackerDirAbsent`, `migrationSuffixes`.
 - [`adapters/repos/db/inverted_reindex_record.go`](../adapters/repos/db/inverted_reindex_record.go) — `MigrationRecord` and its five variants, `MigrationStrategyCode`.
 - [`adapters/repos/db/inverted_reindex_reconcile.go`](../adapters/repos/db/inverted_reindex_reconcile.go) — `migrationReconciler`, the load-time owner of every state transition.
 

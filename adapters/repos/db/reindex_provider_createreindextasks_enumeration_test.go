@@ -202,7 +202,7 @@ func TestCreateReindexTasks_EnumerationExhaustive(t *testing.T) {
 // enumerationCase would fail with the unknown-type error string.
 func TestCreateReindexTasks_AllKnownTypesDispatched(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	tmpLsmPath := t.TempDir() // empty dir → all generations resolve to 1
+	tmpLsmPath := t.TempDir()
 
 	// Build a minimal provider literal. createReindexTasks references
 	// p.logger and p.schemaManager only; nil schemaManager is OK

@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -536,10 +537,8 @@ func (p *ReindexProvider) processOneUnit(
 		return
 	}
 
-	// Unwrap up front: the lsmPath is needed by createReindexTasks to
-	// pick the per-shard generation suffix for this migration's
-	// sidecar dirs. We also need the concrete shard for persistRecoveryRecord
-	// below.
+	// Unwrap up front: createReindexTasks needs the lsmPath, and
+	// persistRecoveryRecord below needs the concrete shard.
 	concreteShard, unwrapErr := unwrapShard(ctx, shard)
 	if unwrapErr != nil {
 		p.failUnit(ctx, task, unitID, recorder,
@@ -581,18 +580,6 @@ func (p *ReindexProvider) processOneUnit(
 	// ~70ms apart on the same unit in CI (acceptance large
 	// reindex-multinode-aj, MultiRoundRobin round 1).
 	//
-	// Without this guard, the relaunched processOneUnit calls
-	// createReindexTasks(rehydrate=false), which picks
-	// nextMigrationGeneration = max(existing)+1 = N+1 — a different
-	// generation than the previous, in-flight run at gen N. The new
-	// tasks (gen N+1) get written into p.reindexTasks[desc][unitID],
-	// clobbering the gen-N task instances that OnGroupCompleted relies
-	// on. When OnGroupCompleted then calls RunSwapOnShard on the
-	// cached gen N+1 task, its tracker points at the (just-mkdir'd)
-	// .migrations/<dir>_N+1/ whose record has no complete rebuild → "shard is
-	// not in reindexed state" → swap fails → migration is half-applied
-	// on this replica → #10675-shape per-replica data divergence.
-	//
 	// Guard signal is `activeWorkers` (per-unit "a goroutine is inside
 	// the iteration body right now"), NOT the `reindexTasks` cache.
 	// weaviate/0-weaviate-issues#239 Mode 2: post-restart recovery
@@ -612,9 +599,8 @@ func (p *ReindexProvider) processOneUnit(
 
 	// Use cached task instances when present. Two populating paths land
 	// here: (a) post-restart [SeedReindexTaskCache] for callback-preserving
-	// resume; (b) the FSM-lag re-entry case where the previous worker
-	// cached gen-N tasks before exiting — reusing them avoids the gen-N+1
-	// clobber the old guard existed to prevent.
+	// resume; (b) the FSM-lag re-entry case, where the cached instances
+	// still carry the registered double-write callbacks.
 	var (
 		tasks  []*ShardReindexTaskGeneric
 		cached bool
@@ -758,24 +744,11 @@ const migrationUnitContentionWindow = time.Minute
 const maxReindexPropertiesPerTask = 1024
 
 // createReindexTasks constructs the strategy/task instances for a payload.
-// Each per-strategy bucket-sidecar dir and the migration tracker dir carry
-// a per-node generation suffix `_<N>` so back-to-back in-process
-// migrations on the same property don't collide on dir paths.
-//
-// lsmPath is required because the generation is computed per-shard, from
-// the shard's tracker directories and the records that claim one. If
-// rehydrate is true (called from [OnGroupCompleted]'s rehydrate path after a
-// restart lost the in-memory task cache), the generation is the highest
-// already claimed, reconstructing the same strategy instance processOneUnit
-// built. If false (the fresh-task path from processOneUnit), it's one past
-// that.
-//
-// See `docs/runtime-reindex.md` for the deferred-finalize + per-migration-
-// generation design rationale.
+// See `docs/runtime-reindex.md` for the deferred-finalize design rationale.
 func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor, unitID string,
 	payload *ReindexTaskPayload, lsmPath string, rehydrate bool,
 ) ([]*ShardReindexTaskGeneric, error) {
-	tasks, err := p.buildReindexTasks(payload, lsmPath, rehydrate)
+	tasks, err := p.buildReindexTasks(desc, payload, lsmPath, rehydrate)
 	if err != nil {
 		return nil, err
 	}
@@ -785,7 +758,9 @@ func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor
 	return tasks, nil
 }
 
-func (p *ReindexProvider) buildReindexTasks(payload *ReindexTaskPayload, lsmPath string, rehydrate bool) ([]*ShardReindexTaskGeneric, error) {
+func (p *ReindexProvider) buildReindexTasks(desc distributedtask.TaskDescriptor,
+	payload *ReindexTaskPayload, lsmPath string, rehydrate bool,
+) ([]*ShardReindexTaskGeneric, error) {
 	// Every migration type requires at least one property — repair-* / enable-*
 	// because they're per-property migrations, change-tokenization because it
 	// needs exactly one property. Check up front so each arm only deals with
@@ -798,46 +773,22 @@ func (p *ReindexProvider) buildReindexTasks(payload *ReindexTaskPayload, lsmPath
 			payload.MigrationType, len(payload.Properties), maxReindexPropertiesPerTask)
 	}
 
-	records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(lsmPath, p.logger)
-	if someRecordsUnreadable || recordSetUnreadable {
-		return nil, fmt.Errorf("migration records at %s could not all be read, "+
-			"so the generations they claim are invisible; refusing to start %s",
-			lsmPath, payload.MigrationType)
-	}
-	trackerDirs, trackerDirsVisible := migrationTrackerDirNames(lsmPath)
-	if !trackerDirsVisible {
-		return nil, fmt.Errorf("the migration directory under %s could not be listed, "+
-			"so the generations its directories claim are invisible; refusing to start %s",
-			lsmPath, payload.MigrationType)
+	// genSuffix reserves 0 for the post-finalize bucket; a version outside
+	// [1, MaxInt] would name a dir reconciliation never promotes, so the
+	// rebuild would silently never go live.
+	if desc.Version < 1 || desc.Version > math.MaxInt {
+		return nil, fmt.Errorf("task version %d cannot name a migration generation (must be 1..%d); a migration named from it would never be promoted to its canonical bucket",
+			desc.Version, math.MaxInt)
 	}
 
-	// genFor returns the generation suffix N to use for this migration on
-	// this shard, given the strategy's dir prefix and its props suffix
-	// (e.g. "_text" or sorted-joined "_p1_p2", or "" for class-level
-	// strategies). The ok return is always true on the normal path
-	// (rehydrate=false). On rehydrate=true, ok=false means there is no
-	// in-flight migration for this strategy on this shard — every prior
-	// generation's tracker dir was already cleaned up by either
-	// reconciliation (at shard load) or the end-of-swap trim
-	// (in-process), and no record claims one. The caller MUST skip task
-	// instantiation in that case; instantiating with a fabricated gen would
-	// later try to swap from reindex bucket dirs that no longer exist.
+	gen := int(desc.Version)
 	genFor := func(prefix, propSuffix string) (int, bool) {
-		if rehydrate {
-			if gen := highestMigrationGeneration(trackerDirs, prefix, propSuffix, records); gen > 0 {
-				return gen, true
-			}
+		if rehydrate && migrationTrackerDirAbsent(lsmPath, prefix+propSuffix+genSuffix(gen)) {
 			return 0, false
 		}
-		return nextMigrationGeneration(trackerDirs, prefix, propSuffix, records), true
+		return gen, true
 	}
 
-	// On the normal path (rehydrate=false) genFor always returns ok=true.
-	// On rehydrate (post-restart) ok=false means the strategy has no
-	// in-flight on-disk state — reconciliation at shard load
-	// or the end-of-swap trim already cleaned up. Re-instantiating with
-	// a fabricated gen would fail at runtimeSwap with "reindex bucket
-	// not found", so callers skip task instantiation in that case.
 	switch payload.MigrationType {
 	case ReindexTypeChangeAlgorithm:
 		gen, ok := genFor(MigrationDirSearchableMapToBlockmax, "")
@@ -970,8 +921,7 @@ func (p *ReindexProvider) buildReindexTasks(payload *ReindexTaskPayload, lsmPath
 // migrationDirWithProps appends after a strategy prefix. Returns "" for
 // empty prop slices. Kept in sync with [migrationDirWithProps] — must
 // produce the same suffix string the strategy's MigrationDirName() will
-// emit, so [nextMigrationGeneration] / [maxMigrationGeneration] scan
-// against the same target.
+// emit, or the rehydrate stat looks at a name no strategy ever wrote.
 func propsSuffix(propNames []string) string {
 	if len(propNames) == 0 {
 		return ""

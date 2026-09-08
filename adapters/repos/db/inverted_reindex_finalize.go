@@ -17,81 +17,15 @@ import (
 	"strings"
 )
 
-func migrationTrackerDirNames(lsmPath string) (names []string, visible bool) {
-	entries, err := os.ReadDir(filepath.Join(lsmPath, migrationsDir))
+// migrationTrackerDirAbsent reports whether a migration's tracker dir is
+// provably missing. A stat error must not be read as absence, or a pending
+// migration gets marked complete without its index ever rebuilt.
+func migrationTrackerDirAbsent(lsmPath, dirName string) bool {
+	info, err := os.Stat(filepath.Join(lsmPath, migrationsDir, dirName))
 	if err != nil {
-		return nil, os.IsNotExist(err)
+		return os.IsNotExist(err)
 	}
-	names = make([]string, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() {
-			names = append(names, entry.Name())
-		}
-	}
-	return names, true
-}
-
-// nextMigrationGeneration returns the per-node generation `N` a new
-// migration on (migrationDirPrefix, propNamesSuffix) should use on this
-// shard's LSM directory. The new migration writes to dirs suffixed
-// `_<N>`; older generations (if any) still live alongside the
-// canonical main bucket until reconciliation promotes them at the next
-// shard load.
-//
-// `migrationDirPrefix` is one of the constants in
-// inverted_reindex_strategy_dir_names.go (e.g. `searchable_retokenize`
-// or `searchable_map_to_blockmax`). `propNamesSuffix` is the
-// strategy-specific per-property tail (e.g. `_text` for the per-property
-// retokenize strategies, or the sorted-joined "_p1_p2" for multi-property
-// strategies — pass "" for class-level strategies). The full dir name
-// pattern matched is `<migrationDirPrefix><propNamesSuffix>_<N>`.
-//
-// Both trackerDirs and records must be the complete set the caller
-// established: a generation claimed only by a record nobody could read, or
-// only by a directory nobody could list, is invisible here, and handing it
-// out again collides with the very directories that claim it.
-//
-// Called from [ReindexProvider.buildReindexTasks] before constructing the
-// strategy instance, once per shard / prop / indexType tuple. Computed
-// per-node — different nodes may pick different generations for the
-// same RAFT task and that's correct: generation is purely a per-node
-// on-disk implementation detail of the deferred-finalize design.
-func nextMigrationGeneration(trackerDirs []string, migrationDirPrefix, propNamesSuffix string,
-	records []MigrationRecord,
-) int {
-	return highestMigrationGeneration(trackerDirs, migrationDirPrefix, propNamesSuffix, records) + 1
-}
-
-func highestMigrationGeneration(trackerDirs []string, migrationDirPrefix, propNamesSuffix string,
-	records []MigrationRecord,
-) int {
-	highest := maxMigrationGeneration(trackerDirs, migrationDirPrefix, propNamesSuffix)
-	target := migrationDirPrefix + propNamesSuffix
-	for _, rec := range records {
-		prefix, gen, ok := parseMigrationDirName(rec.Subject().TrackerDir)
-		if ok && prefix == target && gen > highest {
-			highest = gen
-		}
-	}
-	return highest
-}
-
-func maxMigrationGeneration(trackerDirs []string, migrationDirPrefix, propNamesSuffix string) int {
-	target := migrationDirPrefix + propNamesSuffix
-	highest := 0
-	for _, name := range trackerDirs {
-		prefix, gen, ok := parseMigrationDirName(name)
-		if !ok {
-			continue
-		}
-		if prefix != target {
-			continue
-		}
-		if gen > highest {
-			highest = gen
-		}
-	}
-	return highest
+	return !info.IsDir()
 }
 
 func reindexSuffixFor(namespace string) string {

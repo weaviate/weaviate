@@ -84,8 +84,8 @@ func migrationStrategyCodeOfRecordFile(name string) (MigrationStrategyCode, bool
 	return "", false
 }
 
-// TaskVersion is not the generation: that's a separate per-node counter
-// nodes routinely disagree on.
+// TaskVersion is also the generation the migration's directory names carry, so
+// a record and the directories it names are found under the same number.
 type MigrationRecordKey struct {
 	TaskVersion  uint64                `json:"taskVersion"`
 	StrategyCode MigrationStrategyCode `json:"strategyCode"`

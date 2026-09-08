@@ -886,19 +886,16 @@ func TestAuditOrphanReindexTrackersReclaimsSidecarsNamedByPayload(t *testing.T) 
 		wantStatus   AuditOutcomeStatus
 		wantTracker  bool
 		wantSidecars bool
-		wantReissued int
 	}{
 		{
-			name:         "a payload names the properties the missing record cannot",
-			payload:      `{"payload":{"properties":["title"],"migrationType":"enable-filterable"}}`,
-			wantStatus:   AuditStatusOrphansFound,
-			wantReissued: 1,
+			name:       "a payload names the properties the missing record cannot",
+			payload:    `{"payload":{"properties":["title"],"migrationType":"enable-filterable"}}`,
+			wantStatus: AuditStatusOrphansFound,
 		},
 		{
 			name:         "a tracker with no payload removes only itself",
 			wantStatus:   AuditStatusOrphansFound,
 			wantSidecars: true,
-			wantReissued: 1,
 		},
 		{
 			name:         "a payload nobody can read reclaims nothing",
@@ -906,7 +903,6 @@ func TestAuditOrphanReindexTrackersReclaimsSidecarsNamedByPayload(t *testing.T) 
 			wantStatus:   AuditStatusRan,
 			wantTracker:  true,
 			wantSidecars: true,
-			wantReissued: 2,
 		},
 		{
 			name:         "a payload naming a property that escapes the shard is not read as a property list",
@@ -915,7 +911,6 @@ func TestAuditOrphanReindexTrackersReclaimsSidecarsNamedByPayload(t *testing.T) 
 			wantStatus:   AuditStatusRan,
 			wantTracker:  true,
 			wantSidecars: true,
-			wantReissued: 2,
 		},
 	}
 
@@ -976,10 +971,6 @@ func TestAuditOrphanReindexTrackersReclaimsSidecarsNamedByPayload(t *testing.T) 
 			for _, path := range escapees {
 				assert.True(t, dirExists(t, path), "a directory outside the shard: %s", path)
 			}
-			assert.Equal(t, tt.wantReissued,
-				nextGenerationAt(t, lsmPath, "enable_filterable_", propName,
-					testRecordsAt(t, lsmPath)),
-				"the generation the next migration on this property claims")
 		})
 	}
 }

@@ -106,19 +106,11 @@ func migrationDirWithProps(prefix string, propNames []string) string {
 	return prefix + "_" + strings.Join(sorted, "_")
 }
 
-// genSuffix returns the per-migration generation suffix, e.g. "_2".
-// Every concrete strategy's MigrationDirName / ReindexSuffix / IngestSuffix
-// appends this so back-to-back in-process migrations on the
-// same (prop, indexType) tuple don't collide on dir paths. Generation is
-// computed per-node at task start by [nextMigrationGeneration]; the
-// previous live main bucket lives at `…_ingest_<N-1>` (the in-memory
-// pointer was already swapped to it; the on-disk rename onto the canonical
-// name is deferred to the next load's finalize), and the new migration
-// writes to `…_ingest_<N>`.
-//
-// Generation 0 is reserved for the canonical (post-promotion) bucket at
-// `property_<prop>_<index>`, which has no suffix. Live migrations always
-// use generation ≥ 1.
+// genSuffix returns the migration's generation suffix, e.g. "_2". Generation
+// is the RAFT task version: monotonic, so migrations never collide on a dir
+// name and reconciliation's "higher generation wins" check stays valid.
+// Generation 0 (no suffix) is the canonical post-promotion bucket; live
+// migrations use ≥ 1.
 func genSuffix(generation int) string {
 	return "_" + strconv.Itoa(generation)
 }

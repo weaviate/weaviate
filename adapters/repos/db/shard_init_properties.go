@@ -422,8 +422,8 @@ func cleanStaleMigrationDirsIn(ctx context.Context, scope migrationDirScope,
 //
 //  3. The .migrations/<dir>/ tracker for this (prop, indexType) tuple is
 //     removed, taking its payload.mig with it. The record in
-//     .migrations/records/ deliberately survives, so a retry cannot be
-//     handed the generation the abandoned run still claims.
+//     .migrations/records/ deliberately survives: it is what still names the
+//     directories the abandoned run owns, for reconciliation to settle.
 //
 // Failures to remove an individual directory at steps 2/3 are logged but not
 // propagated: the caller (cancel handler / submit handler) cannot meaningfully

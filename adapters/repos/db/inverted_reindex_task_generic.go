@@ -1624,30 +1624,14 @@ func (t *ShardReindexTaskGeneric) migrationRecordKey() MigrationRecordKey {
 	}
 }
 
-// The record key deliberately omits the generation, so a retried unit that
-// minted a new one finds the abandoned generation's record under its own key.
-// Adopting it would resume the rebuild at a checkpoint for directories this
-// task no longer writes, and flip onto directories the record does not name.
+// The key carries the task version, which is also the generation, so a record
+// stored under it names the directories this task writes.
 func (t *ShardReindexTaskGeneric) migrationRecord(shard ShardLike) (MigrationRecord, bool) {
 	store := shard.migrationRecordStore()
 	if store == nil {
 		return nil, false
 	}
-	rec, ok := store.Get(t.migrationRecordKey())
-	if !ok {
-		return nil, false
-	}
-	if !t.recordIsThisGeneration(rec) {
-		return nil, false
-	}
-	return rec, true
-}
-
-// An empty tracker dir names no generation at all, so it cannot be told apart
-// from this one and is left to the caller that wrote it.
-func (t *ShardReindexTaskGeneric) recordIsThisGeneration(rec MigrationRecord) bool {
-	tracker := rec.Subject().TrackerDir
-	return tracker == "" || tracker == t.strategy.MigrationDirName()
+	return store.Get(t.migrationRecordKey())
 }
 
 func migrationRecordsOf(shard ShardLike) []MigrationRecord {
