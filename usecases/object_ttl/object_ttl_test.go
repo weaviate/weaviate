@@ -13,13 +13,16 @@ package objectttl
 
 import (
 	"context"
-	"errors"
+	"fmt"
+	"io"
 	"sync"
 	"sync/atomic"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func TestLocalState(t *testing.T) {
@@ -67,84 +70,71 @@ func TestLocalState(t *testing.T) {
 		assert.True(t, s.IsRunning(), "should still be running after failed SetRunning")
 	})
 
-	t.Run("ResetRunning succeeds when running and cancels context", func(t *testing.T) {
+	t.Run("Finished cancels the context with its cause", func(t *testing.T) {
 		s := NewLocalStatus()
-		ok, ctx := s.SetRunning()
-		require.True(t, ok)
-		require.NotNil(t, ctx)
+		_, ctx := s.SetRunning()
 
-		aborted := s.ResetRunning("finished")
+		s.Finished()
 
-		assert.True(t, aborted)
-		assert.False(t, s.IsRunning())
-
-		// context must be cancelled
-		select {
-		case <-ctx.Done():
-			// expected
-		default:
-			t.Fatal("context should be done after ResetRunning")
-		}
-	})
-
-	t.Run("ResetRunning sets context error to context.Canceled", func(t *testing.T) {
-		s := NewLocalStatus()
-		ok, ctx := s.SetRunning()
-		require.True(t, ok)
-
-		s.ResetRunning("finished")
-
-		assert.ErrorIs(t, ctx.Err(), context.Canceled)
-	})
-
-	t.Run("ResetRunning cause contains the provided reason", func(t *testing.T) {
-		s := NewLocalStatus()
-		ok, ctx := s.SetRunning()
-		require.True(t, ok)
-
-		s.ResetRunning("aborted")
-
-		cause := context.Cause(ctx)
-		require.NotNil(t, cause)
-		assert.ErrorIs(t, cause, context.Canceled)
-		assert.Contains(t, cause.Error(), "aborted")
-	})
-
-	t.Run("ResetRunning fails when not running", func(t *testing.T) {
-		s := NewLocalStatus()
-
-		aborted := s.ResetRunning("aborted")
-
-		assert.False(t, aborted)
+		require.ErrorIs(t, ctx.Err(), context.Canceled)
+		assert.ErrorIs(t, context.Cause(ctx), ErrFinished)
 		assert.False(t, s.IsRunning())
 	})
 
-	t.Run("ResetRunning on fresh LocalStatus returns false", func(t *testing.T) {
+	t.Run("Abort cancels the context but keeps the slot reserved", func(t *testing.T) {
 		s := NewLocalStatus()
+		_, ctx := s.SetRunning()
 
-		result := s.ResetRunning("some cause")
+		require.True(t, s.Abort())
 
-		assert.False(t, result)
+		require.ErrorIs(t, ctx.Err(), context.Canceled)
+		assert.ErrorIs(t, context.Cause(ctx), ErrAborted)
+		assert.True(t, s.IsRunning(),
+			"the deletion observes the cancellation with a delay, so the slot stays reserved")
 	})
 
-	t.Run("second ResetRunning after first returns false", func(t *testing.T) {
+	t.Run("no deletion starts while an aborted one is still draining", func(t *testing.T) {
 		s := NewLocalStatus()
-		ok, _ := s.SetRunning()
-		require.True(t, ok)
+		_, ctx1 := s.SetRunning()
+		require.True(t, s.Abort())
 
-		first := s.ResetRunning("finished")
-		second := s.ResetRunning("finished again")
+		ok, ctx2 := s.SetRunning()
 
-		assert.True(t, first)
-		assert.False(t, second)
+		assert.False(t, ok, "a successor must not start on top of a draining deletion")
+		assert.Nil(t, ctx2)
+
+		// the draining deletion finally returns; its cleanup can only reach its
+		// own context, because no other was ever created
+		s.Finished()
+		assert.ErrorIs(t, context.Cause(ctx1), ErrAborted,
+			"the cause it was aborted with outranks the cleanup's")
+		assert.NotErrorIs(t, context.Cause(ctx1), ErrFinished)
+		assert.False(t, s.IsRunning())
 	})
 
-	t.Run("SetRunning can be called again after ResetRunning", func(t *testing.T) {
+	t.Run("Abort reports whether a deletion was running", func(t *testing.T) {
+		s := NewLocalStatus()
+		assert.False(t, s.Abort(), "nothing to abort")
+
+		s.SetRunning()
+		assert.True(t, s.Abort())
+
+		s.Finished()
+		assert.False(t, s.Abort(), "nothing to abort once it finished")
+	})
+
+	t.Run("Finished on a status that is not running does nothing", func(t *testing.T) {
+		s := NewLocalStatus()
+		s.Finished()
+		assert.False(t, s.IsRunning())
+	})
+
+	t.Run("SetRunning can be called again after Finished", func(t *testing.T) {
 		s := NewLocalStatus()
 
 		ok1, ctx1 := s.SetRunning()
 		require.True(t, ok1)
-		s.ResetRunning("finished")
+		s.Finished()
 
 		ok2, ctx2 := s.SetRunning()
 
@@ -162,7 +152,7 @@ func TestLocalState(t *testing.T) {
 
 		ok1, ctx1 := s.SetRunning()
 		require.True(t, ok1)
-		s.ResetRunning("round 1")
+		s.Finished()
 
 		ok2, ctx2 := s.SetRunning()
 		require.True(t, ok2)
@@ -171,7 +161,7 @@ func TestLocalState(t *testing.T) {
 		assert.ErrorIs(t, ctx1.Err(), context.Canceled)
 		assert.NoError(t, ctx2.Err())
 
-		s.ResetRunning("round 2")
+		s.Finished()
 
 		assert.ErrorIs(t, ctx2.Err(), context.Canceled)
 	})
@@ -199,7 +189,7 @@ func TestLocalState(t *testing.T) {
 		assert.True(t, s.IsRunning())
 	})
 
-	t.Run("concurrent ResetRunning calls: only one succeeds", func(t *testing.T) {
+	t.Run("concurrent Abort calls all report the running deletion", func(t *testing.T) {
 		s := NewLocalStatus()
 		ok, _ := s.SetRunning()
 		require.True(t, ok)
@@ -212,18 +202,19 @@ func TestLocalState(t *testing.T) {
 		for range goroutines {
 			go func() {
 				defer wg.Done()
-				if s.ResetRunning("aborted") {
+				if s.Abort() {
 					successCount.Add(1)
 				}
 			}()
 		}
 		wg.Wait()
 
-		assert.Equal(t, int32(1), successCount.Load(), "exactly one goroutine should win ResetRunning")
-		assert.False(t, s.IsRunning())
+		assert.Equal(t, int32(goroutines), successCount.Load(),
+			"Abort does not release the slot, so every caller sees the deletion")
+		assert.True(t, s.IsRunning(), "the slot is released by Finished, not by Abort")
 	})
 
-	t.Run("concurrent SetRunning and ResetRunning: consistent state", func(t *testing.T) {
+	t.Run("concurrent SetRunning and Abort: consistent state", func(t *testing.T) {
 		s := NewLocalStatus()
 		// prime with a running state
 		ok, _ := s.SetRunning()
@@ -237,7 +228,7 @@ func TestLocalState(t *testing.T) {
 		for range goroutines {
 			go func() {
 				defer wg.Done()
-				s.ResetRunning("aborted")
+				s.Abort()
 			}()
 			go func() {
 				defer wg.Done()
@@ -252,7 +243,7 @@ func TestLocalState(t *testing.T) {
 		assert.IsType(t, false, running) // bool type assertion
 	})
 
-	t.Run("context cancelled by ResetRunning is propagated to child contexts", func(t *testing.T) {
+	t.Run("context cancelled by Abort is propagated to child contexts", func(t *testing.T) {
 		s := NewLocalStatus()
 		ok, parentCtx := s.SetRunning()
 		require.True(t, ok)
@@ -260,11 +251,13 @@ func TestLocalState(t *testing.T) {
 		childCtx, cancel := context.WithCancel(parentCtx)
 		defer cancel()
 
-		s.ResetRunning("aborted")
+		s.Abort()
 
 		select {
 		case <-childCtx.Done():
-			assert.ErrorIs(t, errors.Unwrap(context.Cause(childCtx)), context.Canceled)
+			assert.ErrorIs(t, context.Cause(childCtx), context.Canceled)
+			assert.ErrorIs(t, context.Cause(childCtx), ErrAborted,
+				"the reason reaches a child context too")
 		default:
 			t.Fatal("child context should be done after parent is cancelled")
 		}
@@ -279,8 +272,8 @@ func TestLocalState(t *testing.T) {
 		require.True(t, ok)
 		assert.True(t, s.IsRunning(), "running after SetRunning")
 
-		s.ResetRunning("finished")
-		assert.False(t, s.IsRunning(), "not running after ResetRunning")
+		s.Finished()
+		assert.False(t, s.IsRunning(), "not running after Finished")
 
 		ok2, _ := s.SetRunning()
 		require.True(t, ok2)
@@ -296,10 +289,50 @@ func TestLocalState(t *testing.T) {
 			require.NotNil(t, ctx)
 			assert.NoError(t, ctx.Err())
 
-			result := s.ResetRunning("finished")
-			assert.True(t, result, "cycle %d: ResetRunning should succeed", i)
+			s.Finished()
+			assert.False(t, s.IsRunning(), "cycle %d: the slot is released", i)
 			assert.ErrorIs(t, ctx.Err(), context.Canceled)
 			assert.False(t, s.IsRunning())
 		}
 	})
+}
+
+// TestDeletedCountersToLogFieldsTotal guards that every collection's deletes
+// reach the total the sweep logs.
+func TestDeletedCountersToLogFieldsTotal(t *testing.T) {
+	cases := []struct {
+		name        string
+		collections int
+	}{
+		{name: "two collections", collections: 2},
+		{name: "many collections", collections: 32},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			log := logrus.New()
+			log.SetOutput(io.Discard)
+
+			counters := make(DeletedCounters, tt.collections)
+			eg := enterrors.NewErrorGroupWrapper(log)
+
+			for i := 0; i < tt.collections; i++ {
+				name := fmt.Sprintf("Collection%d", i)
+				counter := &atomic.Int32{}
+				counters[name] = counter
+				countDeleted := func(count int32) { counter.Add(count) }
+
+				eg.Go(func() error {
+					for j := 0; j < 500; j++ {
+						countDeleted(1)
+					}
+					return nil
+				})
+			}
+			require.NoError(t, eg.Wait())
+
+			_, total := counters.ToLogFields(16)
+			require.Equal(t, int32(tt.collections*500), total,
+				"every collection's deletes are counted")
+		})
+	}
 }

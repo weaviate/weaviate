@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -33,6 +34,13 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+)
+
+var (
+	// ErrAborted is the cause LocalStatus.Abort cancels with.
+	ErrAborted = errors.New("aborted")
+	// ErrFinished is the cause LocalStatus.Finished cancels with.
+	ErrFinished = errors.New("finished")
 )
 
 type objectTTLAndVersion struct {
@@ -153,7 +161,7 @@ func (c *Coordinator) Abort(ctx context.Context, targetOwnNode bool) (bool, erro
 		}
 	}
 
-	localAborted := c.localStatus.ResetRunning("aborted")
+	localAborted := c.localStatus.Abort()
 
 	// abort just on local node
 	if targetOwnNode || len(remoteNodes) == 0 {
@@ -186,9 +194,14 @@ func (c *Coordinator) Abort(ctx context.Context, targetOwnNode bool) (bool, erro
 			abortedNodes[nodeName] = aborted
 			abortedLock.Unlock()
 			return nil
-		})
+		}, nodeName)
 	}
+	// every closure returns nil, so the only error Wait could report is a recovered
+	// panic, and Panics carries all of them including that one
 	eg.Wait()
+	for _, p := range eg.Panics() {
+		ec.AddGroups(p.Err, errorcompounder.AsGroups(p.LocalVars...)...)
+	}
 	err := ec.ToError()
 
 	l := c.logger.WithFields(logrus.Fields{
@@ -211,7 +224,7 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 	if !ok {
 		return fmt.Errorf("another request is still being processed")
 	}
-	defer c.localStatus.ResetRunning("finished")
+	defer c.localStatus.Finished()
 
 	started := time.Now()
 
@@ -248,7 +261,7 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 		if err != nil {
 			metrics.IncObjectsTtlFailureCount()
 
-			logger.WithError(err).Error("ttl deletion on local node failed")
+			logger.Errorf("ttl deletion on local node failed: %v", err)
 			return
 		}
 		logger.Debug("ttl deletion on local node finished")
@@ -262,13 +275,22 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 		if err := ctx.Err(); err != nil {
 			break
 		}
-		objsDeletedCounters[name] = &atomic.Int32{}
-		countDeleted := func(count int32) { objsDeletedCounters[name].Add(count) }
+		// the closure holds the counter, not the key: a delete goroutine indexing
+		// the map would race the next iteration writing to it, which is fatal and
+		// unrecoverable
+		counter := &atomic.Int32{}
+		objsDeletedCounters[name] = counter
+		countDeleted := func(count int32) { counter.Add(count) }
 		deleteOnPropName, ttlThreshold := c.extractTtlDataFromCollection(collection.ttlConfig, ttlTime)
 		c.db.DeleteExpiredObjects(ttlCtx, eg, ec, name, deleteOnPropName, ttlThreshold, deletionTime, countDeleted, collection.version)
 	}
 
-	eg.Wait() // ignore errors from eg as they are already collected in ec
+	// every closure returns nil, so the only error Wait could report is a recovered
+	// panic, and Panics carries all of them including that one
+	eg.Wait()
+	for _, p := range eg.Panics() {
+		ec.AddGroups(p.Err, errorcompounder.AsGroups(p.LocalVars...)...)
+	}
 
 	if err := ec.ToError(); err != nil {
 		return fmt.Errorf("deletion of expired objects on local node: %w", err)
@@ -289,7 +311,7 @@ func (c *Coordinator) triggerDeletionObjectsExpiredRemoteNode(ctx context.Contex
 	defer func() {
 		l = l.WithField("took", time.Since(started))
 		if err != nil {
-			l.WithError(err).Error("ttl deletion on remote node failed")
+			l.Errorf("ttl deletion on remote node failed: %v", err)
 			return
 		}
 		l.Debug("ttl deletion on remote node finished")
@@ -523,7 +545,10 @@ func (s *LocalStatus) SetRunning() (success bool, ctx context.Context) {
 	return true, s.runningCtx
 }
 
-func (s *LocalStatus) ResetRunning(cause string) (success bool) {
+// Abort cancels the running deletion and reports whether there was one. The
+// slot stays reserved until that deletion finishes, because it observes the
+// cancellation only between batches.
+func (s *LocalStatus) Abort() (aborted bool) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -531,9 +556,23 @@ func (s *LocalStatus) ResetRunning(cause string) (success bool) {
 		return false
 	}
 
-	s.runningCancel(enterrors.NewCanceledCause(cause))
+	s.runningCancel(enterrors.NewCanceledCause(ErrAborted))
+	return true
+}
+
+// Finished releases the slot for the next deletion. Cancelling is what stops a
+// deletion still reading the context; an already-cancelled one keeps the cause
+// it was cancelled with.
+func (s *LocalStatus) Finished() {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	if !s.isRunning {
+		return
+	}
+
+	s.runningCancel(enterrors.NewCanceledCause(ErrFinished))
 
 	s.isRunning = false
 	s.runningCtx, s.runningCancel = nil, nil
-	return true
 }
