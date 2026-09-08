@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -85,6 +86,51 @@ func serveShardSearch(t *testing.T, searchErr error) *httptest.ResponseRecorder 
 	req := httptest.NewRequest(http.MethodPost,
 		"/indices/MyClass/shards/myshard/objects/_search", bytes.NewReader(body))
 	shared.IndicesPayloads.SearchParams.SetContentTypeHeaderReq(req)
+
+	rec := httptest.NewRecorder()
+	idx.Indices().ServeHTTP(rec, req)
+	return rec
+}
+
+func (o overloadedShards) Aggregate(context.Context, string, string,
+	aggregation.Params,
+) (*aggregation.Result, error) {
+	return nil, o.err
+}
+
+// TestAggregateErrorStatusMapping verifies a shed surfacing from a shard
+// aggregation (a ref filter's nested search is admitted) maps to HTTP 429,
+// so the coordinator's retryClient backs off as it does for _search.
+func TestAggregateErrorStatusMapping(t *testing.T) {
+	tests := []struct {
+		name     string
+		aggErr   error
+		wantCode int
+	}{
+		{"shed maps to 429", queryadmission.ErrOverloaded, http.StatusTooManyRequests},
+		{"generic error maps to 500", io.ErrUnexpectedEOF, http.StatusInternalServerError},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := serveShardAggregate(t, tt.aggErr)
+			require.Equal(t, tt.wantCode, rec.Code, "body: %s", rec.Body.String())
+		})
+	}
+}
+
+func serveShardAggregate(t *testing.T, aggErr error) *httptest.ResponseRecorder {
+	t.Helper()
+	logger := logrus.New()
+	logger.SetOutput(&bytes.Buffer{})
+	idx := NewIndices(overloadedShards{err: aggErr}, startedDB{},
+		NewNoopAuthHandler(), func() bool { return false }, logger)
+
+	body, err := shared.IndicesPayloads.AggregationParams.Marshal(aggregation.Params{})
+	require.NoError(t, err)
+
+	req := httptest.NewRequest(http.MethodPost,
+		"/indices/MyClass/shards/myshard/objects/_aggregations", bytes.NewReader(body))
+	shared.IndicesPayloads.AggregationParams.SetContentTypeHeaderReq(req)
 
 	rec := httptest.NewRecorder()
 	idx.Indices().ServeHTTP(rec, req)

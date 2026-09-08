@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -554,4 +555,88 @@ func TestPureVectorSearchIsAdmitted(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return readAdmissionGauge(reg, "query_admission_used_budget") == 0
 	}, 2*time.Second, 5*time.Millisecond, "used budget did not drain to zero")
+}
+
+// TestQueryAdmissionAggregateRefFilterSheds pins that an aggregation is
+// reachable by admission through a cross-reference filter: resolving the
+// reference runs a nested object search that takes a grant, so under
+// saturation the aggregation itself surfaces ErrOverloaded (the ingress
+// mappings depend on this identity). A plain-filter aggregation never
+// touches the gate, pinning the documented "aggregations are not gated"
+// scope.
+func TestQueryAdmissionAggregateRefFilterSheds(t *testing.T) {
+	const (
+		budget     = 1
+		maxQueue   = 1
+		numAuthors = 200
+		numQueries = 32
+	)
+
+	ctx := context.Background()
+	repo, _, reg := setupRefAdmissionRepo(t, budget, maxQueue, numAuthors)
+	defer repo.Shutdown(ctx)
+
+	plainFilter := &filters.LocalFilter{Root: &filters.Clause{
+		Operator: filters.OperatorLike,
+		On:       &filters.Path{Class: "Article", Property: "title"},
+		Value:    &filters.Value{Value: "*", Type: schema.DataTypeText},
+	}}
+
+	tests := []struct {
+		name     string
+		filter   *filters.LocalFilter
+		wantShed bool
+	}{
+		{"ref filter reaches admission and sheds", articleRefNameLike("*a*"), true},
+		{"plain filter never touches admission", plainFilter, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := aggregation.Params{
+				ClassName:        "Article",
+				Filters:          tt.filter,
+				IncludeMetaCount: true,
+			}
+
+			var (
+				wg      sync.WaitGroup
+				shed    atomic.Int64
+				ok      atomic.Int64
+				otherMu sync.Mutex
+				other   []string
+			)
+			for i := 0; i < numQueries; i++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
+					defer cancel()
+					_, err := repo.Aggregate(cctx, params, nil)
+					switch {
+					case err == nil:
+						ok.Add(1)
+					case errors.Is(err, queryadmission.ErrOverloaded):
+						shed.Add(1)
+					default:
+						otherMu.Lock()
+						other = append(other, err.Error())
+						otherMu.Unlock()
+					}
+				}()
+			}
+			wg.Wait()
+
+			require.Empty(t, other, "aggregations must succeed or shed, nothing else")
+			require.Positive(t, ok.Load(), "at least one aggregation must drain through the budget")
+			if tt.wantShed {
+				require.Positive(t, shed.Load(),
+					"a ref-filtered aggregation must surface ErrOverloaded under budget=1/queue=1 at %d concurrent", numQueries)
+			} else {
+				require.Zero(t, shed.Load(), "a plain-filtered aggregation is not gated and must never shed")
+			}
+			require.Eventually(t, func() bool {
+				return readAdmissionGauge(reg, "query_admission_used_budget") == 0
+			}, 5*time.Second, 10*time.Millisecond, "used budget did not drain to zero")
+		})
+	}
 }

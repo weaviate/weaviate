@@ -447,6 +447,14 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
 	// send request
 	resp := &aggregateResp{}
 	err = c.doWithCustomMarshaller(c.timeoutUnit*QUERY_TIMEOUT_VALUE, req, body, resp.decode, successCode, MAX_RETRIES)
+	if err != nil {
+		// Rehydrate the shed's identity (429) past retry exhaustion, as in
+		// SearchShard, so it reaches the ingress mapping.
+		var sce *statusCodeError
+		if errors.As(err, &sce) && sce.StatusCode() == http.StatusTooManyRequests {
+			err = fmt.Errorf("%w: %w", queryadmission.ErrOverloaded, err)
+		}
+	}
 	return resp.Result, err
 }
 

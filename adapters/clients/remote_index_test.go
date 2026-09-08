@@ -37,6 +37,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
+	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/usecases/queryadmission"
 )
 
@@ -424,6 +425,51 @@ func TestRemoteIndexSearchShardNon429NotOverloaded(t *testing.T) {
 
 	_, _, _, err := client.SearchShard(ctx, fs.host, "C1", "S1",
 		nil, nil, 0, 10, nil, nil, nil, nil, nil, additional.Properties{}, nil, nil, nil)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, queryadmission.ErrOverloaded)
+}
+
+// TestRemoteIndexAggregateShedRehydratesOverloaded mirrors the SearchShard
+// case: a remote aggregation shed (429) surviving retry exhaustion must carry
+// ErrOverloaded so the ingress maps it, not collapse to a generic error.
+func TestRemoteIndexAggregateShedRehydratesOverloaded(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	path := "/indices/C1/shards/S1/objects/_aggregations"
+	fs := newFakeRemoteIndexServer(t, http.MethodPost, path)
+	ts := fs.server(t)
+	defer ts.Close()
+	client := newRemoteIndex(ts.Client())
+
+	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = w.Write([]byte("node overloaded, request shed"))
+	}
+
+	_, err := client.Aggregate(ctx, fs.host, "C1", "S1", aggregation.Params{})
+	require.Error(t, err)
+	require.ErrorIs(t, err, queryadmission.ErrOverloaded,
+		"a cross-node aggregation shed (429) surviving retry exhaustion must carry ErrOverloaded, got: %v", err)
+	require.Contains(t, err.Error(), "429")
+}
+
+func TestRemoteIndexAggregateNon429NotOverloaded(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	path := "/indices/C1/shards/S1/objects/_aggregations"
+	fs := newFakeRemoteIndexServer(t, http.MethodPost, path)
+	ts := fs.server(t)
+	defer ts.Close()
+	client := newRemoteIndex(ts.Client())
+
+	fs.doAfter = func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte("boom"))
+	}
+
+	_, err := client.Aggregate(ctx, fs.host, "C1", "S1", aggregation.Params{})
 	require.Error(t, err)
 	require.NotErrorIs(t, err, queryadmission.ErrOverloaded)
 }

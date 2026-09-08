@@ -941,6 +941,12 @@ func (i *indices) postAggregateObjects() http.Handler {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
+		if errors.Is(err, queryadmission.ErrOverloaded) {
+			// A ref filter's nested search was shed; 429 so the coordinator's
+			// retryClient backs off, as for _search.
+			http.Error(w, err.Error(), http.StatusTooManyRequests)
+			return
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

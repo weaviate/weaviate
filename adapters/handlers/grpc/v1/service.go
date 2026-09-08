@@ -98,6 +98,12 @@ func (s *Service) Aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 		return nil, err
 	}
 
+	// Aggregations are not admitted themselves, but a cross-reference in the
+	// where filter runs a nested object search that is.
+	if grpcErr := admissionToGRPCError(errInner); grpcErr != nil {
+		return nil, grpcErr
+	}
+
 	return result, errInner
 }
 
