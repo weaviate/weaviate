@@ -71,6 +71,25 @@ func driveToMigrationState(t *testing.T, ctx context.Context, shard *Shard,
 	}
 }
 
+// seedConvergenceObjects and checkConvergenceTokensIndexed are the seed and the
+// baseline guard every matrix over a text property shares: a clean run has to
+// have indexed each token the dictionary writes, or a defect that indexes
+// nothing would sit in the baseline and every row would agree with it.
+func seedConvergenceObjects(t *testing.T, ctx context.Context, shard *Shard, className string) {
+	t.Helper()
+	for _, obj := range makeConvergenceTestObjects(t, migrationRestartObjects, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+}
+
+func checkConvergenceTokensIndexed(t *testing.T, fingerprint map[string][]uint64) {
+	t.Helper()
+	for _, token := range convergenceTokens {
+		require.NotEmptyf(t, fingerprint[token],
+			"a clean run must index token %q, which the fixture writes", token)
+	}
+}
+
 // migrationRestartFixture holds the one shard under test and the schema the
 // cluster would hold for it. The class is a pointer the migration writes back
 // into, because a restart reads the schema, not the record, to decide whether to

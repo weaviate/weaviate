@@ -199,11 +199,7 @@ func TestRecoveryConvergence_RebuildSearchable_FromEachState(t *testing.T) {
 		buildClass: func(className string) *models.Class {
 			return newRebuildSearchableTestClass(className, []string{propName})
 		},
-		seedObjects: func(t *testing.T, ctx context.Context, shard *Shard, className string) {
-			for _, obj := range makeConvergenceTestObjects(t, migrationRestartObjects, className) {
-				require.NoError(t, shard.PutObject(ctx, obj))
-			}
-		},
+		seedObjects: seedConvergenceObjects,
 		buildTask: func(t *testing.T, f *migrationRestartFixture) (*ShardReindexTaskGeneric, func() bool) {
 			task, wrapped := newRebuildSearchableTask(t, f.idx, f.class.Class, propName,
 				testMigrationUnitFor(f.idx, f.shardName))
@@ -213,11 +209,6 @@ func TestRecoveryConvergence_RebuildSearchable_FromEachState(t *testing.T) {
 		wantStrategy:          lsmkv.StrategyInverted,
 		servesBeforeMigration: true,
 		fingerprint:           fingerprintInvertedBucket,
-		checkBaseline: func(t *testing.T, fingerprint map[string][]uint64) {
-			for _, token := range convergenceTokens {
-				require.NotEmptyf(t, fingerprint[token],
-					"a clean run must index token %q, which the fixture writes", token)
-			}
-		},
+		checkBaseline:         checkConvergenceTokensIndexed,
 	}.run(t)
 }
