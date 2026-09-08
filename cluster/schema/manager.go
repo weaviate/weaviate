@@ -414,7 +414,9 @@ func (s *SchemaManager) Load(ctx context.Context, nodeID string) error {
 	return nil
 }
 
-func (s *SchemaManager) ReloadDBFromSchema() error {
+// ReloadDBFromSchema rebuilds the local DB from the schema. ctx bounds a load
+// that runs for minutes to hours, so shutdown can cut it short.
+func (s *SchemaManager) ReloadDBFromSchema(ctx context.Context) error {
 	classes := s.schema.MetaClasses()
 
 	cs := make([]command.UpdateClassRequest, len(classes))
@@ -431,7 +433,7 @@ func (s *SchemaManager) ReloadDBFromSchema() error {
 
 	// ReloadLocalDB only opens classes the schema still names.
 	s.dropOrphanedClasses()
-	return s.db.ReloadLocalDB(context.Background(), cs)
+	return s.db.ReloadLocalDB(ctx, cs)
 }
 
 func (s *SchemaManager) Close(ctx context.Context) (err error) {
