@@ -49,14 +49,7 @@ func TestPromotionNeverRenamesAStagedDirTheLoadCreated(t *testing.T) {
 	task := newTestTask(idx.logger,
 		&testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}},
 		shard.migrationUnit())
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	require.NoError(t, task.RunOnShard(ctx, shard))
 
 	disableSearchableIndexOnProp(t, ctx, shard, "subtitle")
 
@@ -145,7 +138,7 @@ func TestCompletionRefusesARecordNoPromotionSettled(t *testing.T) {
 		{
 			name: "the load path picks the migration up again",
 			reenter: func(_ *testing.T, ctx context.Context, task *ShardReindexTaskGeneric, shard *Shard) error {
-				_, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+				_, err := task.OnAfterLsmInitAsync(ctx, shard)
 				return err
 			},
 		},

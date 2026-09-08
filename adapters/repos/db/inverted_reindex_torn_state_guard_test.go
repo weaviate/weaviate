@@ -47,15 +47,8 @@ func runTornStateMigrationToIterated(t *testing.T, ctx context.Context,
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
-	task.skipSwapOnFinish.Store(true) // halt at a complete rebuild, BEFORE the swap
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	// Halt at a complete rebuild, BEFORE the swap.
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 
 	require.Equal(t, MigrationStateIterated, tornGuardStateOf(t, shard, task),
 		"precondition: the rebuild must be recorded complete and no further")
@@ -111,13 +104,7 @@ func TestTornState_RebuiltDataGone_ReiteratesToBaseline(t *testing.T) {
 	require.Equal(t, MigrationCheckpoint{}, rec.(MigrationRecordIterating).Checkpoint(),
 		"the checkpoint has to clear with the state, or the rebuild resumes past data it never wrote")
 
-	for {
-		rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	require.NoError(t, task2.RunOnShard(ctx, shard2))
 
 	bucket := shard2.store.Bucket(helpers.BucketSearchableFromPropNameLSM(tornGuardPropName))
 	require.NotNil(t, bucket)

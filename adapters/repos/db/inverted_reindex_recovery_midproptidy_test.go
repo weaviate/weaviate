@@ -85,15 +85,7 @@ func TestRecoveryConvergence_MidPropSwap_HaltMatrix(t *testing.T) {
 			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 			task := newTestTask(idx.logger, strategy, shard.migrationUnit())
 
-			task.skipSwapOnFinish.Store(true)
-			require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-			for {
-				rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-				require.NoError(t, err)
-				if rerunAt.IsZero() {
-					break
-				}
-			}
+			require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 			rec, ok := task.migrationRecord(shard)
 			require.True(t, ok, "the rebuild must have left a record")
 			props := rec.Subject().Properties()
@@ -141,7 +133,6 @@ func TestRecoveryConvergence_MidPropSwap_HaltMatrix(t *testing.T) {
 
 			strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 			task2 := newTestTask(idx.logger, strategy2, testMigrationUnitFor(idx, shardName))
-			task2.skipSwapOnFinish.Store(false)
 			idx.shardReindexer = &testShardReindexer{task: task2}
 
 			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
@@ -150,14 +141,8 @@ func TestRecoveryConvergence_MidPropSwap_HaltMatrix(t *testing.T) {
 			defer shard2.Shutdown(ctx)
 			idx.shards.Store(shardName, shd2)
 
-			for {
-				rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
-				require.NoErrorf(t, err,
-					"mid-prop-swap recovery OnAfterLsmInitAsync (haltAfter=%d)", haltAfter)
-				if rerunAt.IsZero() {
-					break
-				}
-			}
+			require.NoErrorf(t, task2.RunOnShard(ctx, shard2),
+				"mid-prop-swap recovery relaunch (haltAfter=%d)", haltAfter)
 
 			for _, propName := range propNames {
 				bucketName := helpers.BucketSearchableFromPropNameLSM(propName)

@@ -170,14 +170,7 @@ func TestRecoveryConvergence_Baseline(t *testing.T) {
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	require.NoError(t, task.RunOnShard(ctx, shard))
 	require.True(t, strategy.migrationCompleted)
 
 	postBucket := shard.store.Bucket(bucketName)
@@ -221,18 +214,54 @@ func computeBaselineFingerprint(t *testing.T, propName string, numObjects int) m
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	require.NoError(t, task.RunOnShard(ctx, shard))
 	require.True(t, strategy.migrationCompleted)
 
 	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
 	return fingerprintInvertedBucket(t, shard.store.Bucket(bucketName))
+}
+
+// TestRunOnShardSwapsARebuildThatIsAlreadyComplete covers the relaunch of a
+// task on a shard whose rebuild the previous run already finished. The
+// iteration has nothing left to do there, so unless RunOnShard sequences the
+// swap after it, the unit reports success on an index that was never swapped.
+func TestRunOnShardSwapsARebuildThatIsAlreadyComplete(t *testing.T) {
+	const propName = "title"
+	const numObjects = 25
+
+	ctx := testCtx()
+	className := "RelaunchAfterRebuild_" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{propName})
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(ctx)
+
+	for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
+	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
+
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	rec, ok := task.migrationRecord(shard)
+	require.True(t, ok, "the rebuild must leave a record")
+	require.Equal(t, MigrationStateIterated, rec.State(),
+		"fixture: the rebuild must be complete and the swap still pending")
+	require.False(t, strategy.migrationCompleted)
+
+	require.NoError(t, task.RunOnShard(ctx, shard))
+
+	rec, ok = task.migrationRecord(shard)
+	require.True(t, ok)
+	require.Equal(t, MigrationStateSwapped, rec.State(),
+		"a relaunch on a complete rebuild must reach the swap, not report success without it")
+	require.True(t, strategy.migrationCompleted)
+	require.Equal(t, lsmkv.StrategyInverted,
+		shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)).Strategy(),
+		"the canonical bucket must serve the rebuilt data after the relaunch")
 }
 
 // recoveryConvergenceCase: drive the shard to a specific recorded state,

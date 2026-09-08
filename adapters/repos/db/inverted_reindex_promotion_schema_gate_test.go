@@ -59,7 +59,7 @@ func promotionGateClass(field propertyIndexField, flag *bool) *models.Class {
 // load-time sweep deletes that directory whenever the collection turns its
 // index off. Promotion therefore waits for exactly what the sweep spares: an
 // explicit false defers, an unset flag and a true one promote. A collection
-// this node cannot read the property out of defers too — nothing there can
+// this node cannot read the property out of defers too, because nothing there can
 // authorize the rename.
 func TestPromotionFollowsTheSchemaFlagThatOwnsTheCanonicalName(t *testing.T) {
 	off, on := false, true

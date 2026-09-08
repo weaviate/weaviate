@@ -88,7 +88,7 @@ func TestReindexBucketPinHoldsOffTeardown(t *testing.T) {
 
 	iterated := make(chan error, 1)
 	enterrors.GoWrapper(func() {
-		_, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+		_, err := task.OnAfterLsmInitAsync(ctx, shard)
 		iterated <- err
 	}, idx.logger)
 
@@ -129,7 +129,7 @@ func TestReindexIterationFailsOnDeregisteredReindexBucket(t *testing.T) {
 
 	require.NoError(t, shard.store.ShutdownBucket(ctx, pinTestReindexBucketName()))
 
-	_, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+	_, err := task.OnAfterLsmInitAsync(ctx, shard)
 	require.ErrorIs(t, err, lsmkv.ErrBucketNotFound)
 }
 

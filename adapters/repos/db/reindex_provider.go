@@ -567,9 +567,9 @@ func (p *ReindexProvider) processOneUnit(
 		return
 	}
 
-	// For semantic migrations (change-tokenization, enable-rangeable), use
+	// For semantic migrations (change-tokenization, enable-filterable), use
 	// two-phase execution: reindex only, then swap after all units complete.
-	// For format-only migrations, run the full lifecycle per shard.
+	// For format-only migrations, RunOnShard runs the full lifecycle per shard.
 	semantic := IsSemanticMigration(payload.MigrationType)
 
 	// Re-entry guard. The DTM scheduler can relaunch our task handle a

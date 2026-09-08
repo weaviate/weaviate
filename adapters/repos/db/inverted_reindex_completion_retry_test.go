@@ -29,7 +29,7 @@ func TestCompletionRetriesAfterASchemaEffectFailure(t *testing.T) {
 		return task.RunSwapOnShard(ctx, shard)
 	}
 	viaLoad := func(ctx context.Context, task *ShardReindexTaskGeneric, shard *Shard) error {
-		_, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+		_, err := task.OnAfterLsmInitAsync(ctx, shard)
 		return err
 	}
 

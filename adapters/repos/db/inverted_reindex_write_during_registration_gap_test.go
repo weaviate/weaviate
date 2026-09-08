@@ -124,13 +124,7 @@ func testRegistrationGapWritesSurvive(t *testing.T,
 		disrupt(t, ctx, shard, task, class, propName)
 	}
 
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	require.NoError(t, task.RunOnShard(ctx, shard))
 	require.True(t, wrapped.migrationCompleted, "migration must complete")
 
 	rangeBucket := shard.store.Bucket(helpers.BucketRangeableFromPropNameLSM(propName))

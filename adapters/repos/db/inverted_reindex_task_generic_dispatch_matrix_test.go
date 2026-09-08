@@ -44,7 +44,6 @@ var dispatchMatrixStates = []MigrationState{
 // stringifying the lex key for matrix-wide assertion uniformity).
 type dispatchMatrixStrategyCase struct {
 	strategyName string
-	path         dispatchMatrixPath
 	// buildClass returns the class fixture this strategy operates on
 	// (and the property name to migrate — same for every cell).
 	buildClass func(className string) (*models.Class, string)
@@ -63,26 +62,11 @@ type dispatchMatrixStrategyCase struct {
 	fingerprint func(t *testing.T, shard *Shard, bucketName string) map[string][]uint64
 }
 
-// dispatchMatrixPath distinguishes the trio (semantic) drive primitives
-// from the inline (non-semantic) ones. Inline strategies don't expose
-// RunPrepareOnShard / RunSwapOnShard as their normal production
-// invocation route — they're driven inline by OnAfterLsmInitAsync — but
-// the trio methods are still well-defined and callable. The dispatch
-// matrix uses the production-natural primitives for each path: trio
-// methods for semantic strategies, OnAfterLsmInit+loop for inline.
-type dispatchMatrixPath int
-
-const (
-	dispatchMatrixPathInline dispatchMatrixPath = iota // OnAfterLsmInit + async loop
-	dispatchMatrixPathTrio                             // RunReindexOnlyOnShard + RunPrepareOnShard
-)
-
 // dispatchMatrixStrategyCases enumerates all 8 strategy structs.
 func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 	return []dispatchMatrixStrategyCase{
 		{
 			strategyName: "MapToBlockmax",
-			path:         dispatchMatrixPathInline,
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
@@ -99,7 +83,6 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 		},
 		{
 			strategyName: "RebuildSearchable",
-			path:         dispatchMatrixPathTrio,
 			buildClass: func(className string) (*models.Class, string) {
 				return newRebuildSearchableTestClass(className, []string{"title"}), "title"
 			},
@@ -114,7 +97,6 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 		},
 		{
 			strategyName: "RoaringSetRefresh",
-			path:         dispatchMatrixPathInline,
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
@@ -129,7 +111,6 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 		},
 		{
 			strategyName: "FilterableToRangeable",
-			path:         dispatchMatrixPathInline,
 			buildClass: func(className string) (*models.Class, string) {
 				return newFilterableToRangeableTestClass(className), filterableToRangeablePropName
 			},
@@ -151,7 +132,6 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 		},
 		{
 			strategyName: "EnableFilterable",
-			path:         dispatchMatrixPathTrio,
 			buildClass: func(className string) (*models.Class, string) {
 				return newEnableFilterableTestClass(className, "title"), "title"
 			},
@@ -166,7 +146,6 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 		},
 		{
 			strategyName: "EnableSearchable",
-			path:         dispatchMatrixPathTrio,
 			buildClass: func(className string) (*models.Class, string) {
 				return newEnableSearchableTestClass(className, []string{"title"}), "title"
 			},
@@ -182,7 +161,6 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 		},
 		{
 			strategyName: "FilterableRetokenize",
-			path:         dispatchMatrixPathTrio,
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
@@ -198,7 +176,6 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 		},
 		{
 			strategyName: "SearchableRetokenize",
-			path:         dispatchMatrixPathTrio,
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
@@ -257,65 +234,21 @@ func dispatchMatrixRangeableFingerprintAsString(t *testing.T, b *lsmkv.Bucket) m
 
 func dispatchMatrixDriveCell(
 	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
-	path dispatchMatrixPath, state MigrationState,
+	state MigrationState,
 ) {
 	t.Helper()
 	switch state {
 	case MigrationStateIterating:
 		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 	case MigrationStateIterated:
-		dispatchMatrixDriveToIterated(t, ctx, shard, task, path)
+		require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	case MigrationStateMerged:
-		dispatchMatrixDriveToIterated(t, ctx, shard, task, path)
+		require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 		require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 	case MigrationStateSwapped:
-		dispatchMatrixDriveToSwapped(t, ctx, shard, task, path)
+		require.NoError(t, task.RunOnShard(ctx, shard))
 	default:
 		t.Fatalf("dispatchMatrix: no drive for state %q", state)
-	}
-}
-
-func dispatchMatrixDriveToIterated(
-	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
-	path dispatchMatrixPath,
-) {
-	t.Helper()
-	switch path {
-	case dispatchMatrixPathTrio:
-		require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	case dispatchMatrixPathInline:
-		task.skipSwapOnFinish.Store(true)
-		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-		for {
-			rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-			require.NoError(t, err)
-			if rerunAt.IsZero() {
-				break
-			}
-		}
-		task.skipSwapOnFinish.Store(false)
-	}
-}
-
-func dispatchMatrixDriveToSwapped(
-	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
-	path dispatchMatrixPath,
-) {
-	t.Helper()
-	switch path {
-	case dispatchMatrixPathTrio:
-		require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-		require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-		require.NoError(t, task.RunSwapOnShard(ctx, shard))
-	case dispatchMatrixPathInline:
-		require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-		for {
-			rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-			require.NoError(t, err)
-			if rerunAt.IsZero() {
-				break
-			}
-		}
 	}
 }
 
@@ -346,7 +279,7 @@ func dispatchMatrixComputeBaseline(
 	dispatchMatrixSeedObjects(t, ctx, shard, sc, className, numObjects)
 
 	task := sc.buildTask(t, idx, className, propName, shard.migrationUnit())
-	dispatchMatrixDriveToSwapped(t, ctx, shard, task, sc.path)
+	dispatchMatrixDriveCell(t, ctx, shard, task, MigrationStateSwapped)
 
 	rec := dispatchMatrixRecordOf(t, shard, task)
 	require.Equal(t, MigrationStateSwapped, rec.State())
@@ -418,7 +351,7 @@ func dispatchMatrixRunCell(
 
 	task := sc.buildTask(t, idx, className, propName, shard.migrationUnit())
 
-	dispatchMatrixDriveCell(t, ctx, shard, task, sc.path, state)
+	dispatchMatrixDriveCell(t, ctx, shard, task, state)
 
 	require.Equalf(t, state, dispatchMatrixRecordOf(t, shard, task).State(),
 		"the drive landed somewhere other than the state this cell dispatches from (strategy=%s)",

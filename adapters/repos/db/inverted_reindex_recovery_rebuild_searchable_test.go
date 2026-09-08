@@ -292,13 +292,8 @@ func TestRecoveryConvergence_RebuildSearchable_FromEachState(t *testing.T) {
 			defer shard2.Shutdown(ctx)
 			idx.shards.Store(shardName, shd2)
 
-			for {
-				rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
-				require.NoErrorf(t, err, "recovery OnAfterLsmInitAsync must not error (case %q)", tc.name)
-				if rerunAt.IsZero() {
-					break
-				}
-			}
+			require.NoErrorf(t, task2.RunOnShard(ctx, shard2),
+				"recovery relaunch must not error (case %q)", tc.name)
 
 			rec2, ok := task2.migrationRecord(shard2)
 			require.Truef(t, ok, "post-recovery record must exist (case %q)", tc.name)

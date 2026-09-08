@@ -162,7 +162,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 		require.NoError(t, shard.PutObject(ctx, initialObjects[i]))
 	}
 
-	// Start migration (reloadShards=false → runtime swap)
+	// Start migration on the live shard.
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
 
@@ -184,15 +184,8 @@ func TestMapToBlockmaxMigration_RuntimeSwap(t *testing.T) {
 		require.NoError(t, shard.PutObject(ctx, doubleWriteObjects[i]))
 	}
 
-	// Run async reindex — this will also perform the runtime swap when done.
-	for {
-		rerunAt, reloadShard, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		require.False(t, reloadShard, "runtime swap should not request reload")
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	// Run the rest of the lifecycle: iteration, prep, swap.
+	require.NoError(t, task.RunOnShard(ctx, shard))
 
 	rec, ok := shard.migrationRecords.Get(task.migrationRecordKey())
 	require.True(t, ok, "the migration should have left a record")
@@ -259,15 +252,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	require.NoError(t, task.RunOnShard(ctx, shard))
 	require.True(t, strategy.migrationCompleted)
 
 	// Restart — shard should load cleanly, OnMigrationComplete called again
@@ -427,16 +412,9 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 
 	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 
-	// Run the iteration → swap path inline. The hook will fire once per
-	// prop inside runtimeSwap's Phase 2a tight loop.
-	for {
-		rerunAt, reloadShard, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		require.False(t, reloadShard, "runtime swap should not request reload")
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	// Run iteration → prep → swap. The hook fires once per prop inside
+	// runtimeSwap's Phase 2a tight loop.
+	require.NoError(t, task.RunOnShard(ctx, shard))
 
 	hookMu.Lock()
 	defer hookMu.Unlock()

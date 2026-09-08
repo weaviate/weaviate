@@ -62,7 +62,7 @@ func barrierIntegrationProvider(t *testing.T) (*ReindexProvider, *logrustest.Hoo
 }
 
 // barrierIntegrationDrivenToReindexed halts iteration at the Iterated record
-// (the FINALIZING-barrier handoff) via skipSwapOnFinish=true.
+// (the FINALIZING-barrier handoff).
 func barrierIntegrationDrivenToReindexed(
 	t *testing.T,
 	ctx context.Context,
@@ -72,24 +72,17 @@ func barrierIntegrationDrivenToReindexed(
 	t.Helper()
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task := newTestTask(logger, strategy, shard.migrationUnit())
-	task.skipSwapOnFinish.Store(true)
 
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+
 	// Sanity: iteration must have halted at the barrier (the Iterated record
 	// written, runtimePrepare NOT called).
 	rec, ok := task.migrationRecord(shard)
 	require.True(t, ok, "helper precondition: iteration must leave a record")
 	require.Equal(t, MigrationStateIterated, rec.State(),
-		"helper precondition: iteration must reach Iterated under skipSwapOnFinish=true")
+		"helper precondition: RunReindexOnlyOnShard must reach Iterated")
 	require.False(t, rec.StagedDataComplete(),
-		"helper precondition: runtimePrepare must NOT run under skipSwapOnFinish=true")
+		"helper precondition: RunReindexOnlyOnShard must NOT run runtimePrepare")
 	return task, strategy
 }
 

@@ -33,7 +33,7 @@ func TestModeADrainRematerialize(t *testing.T) {
 		{
 			name: "worker drain via OnAfterLsmInitAsync",
 			drive: func(ctx context.Context, task *ShardReindexTaskGeneric, shard *Shard) error {
-				_, _, err := task.OnAfterLsmInitAsync(ctx, shard)
+				_, err := task.OnAfterLsmInitAsync(ctx, shard)
 				return err
 			},
 		},

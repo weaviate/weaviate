@@ -266,14 +266,7 @@ func TestRecoveryConvergence_FilterableToRangeable_Baseline(t *testing.T) {
 		"pre-migration rangeable bucket must NOT exist (IndexRangeFilters defaults to false)")
 
 	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	require.NoError(t, task.RunOnShard(ctx, shard))
 	require.True(t, wrapped.migrationCompleted,
 		"OnMigrationComplete must fire post-migration")
 
