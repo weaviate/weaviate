@@ -3306,21 +3306,25 @@ func TestValidateBackupRequestBaseChainFloor(t *testing.T) {
 		ctx = context.Background()
 		id  = "chain-floor-1"
 	)
+	designations := map[string]map[string]string{cls: {"s1": "N2"}, "Unselected": {"s9": "N1"}}
 	for _, tc := range []struct {
-		name          string
-		baseVersion   string
-		baseDedupe    bool
-		baseStatus    backup.Status
-		noCompression bool
-		missingBase   bool
-		want          bool
-		wantErr       string
+		name             string
+		baseVersion      string
+		baseDedupe       bool
+		baseStatus       backup.Status
+		baseDesignations map[string]map[string]string
+		noCompression    bool
+		missingBase      bool
+		want             bool
+		wantDesignations map[string]map[string]string
+		wantErr          string
 	}{
 		{name: "deduped base pins the floor", baseVersion: "3.0", baseDedupe: true, want: true},
 		{name: "legacy base keeps the legacy floor", baseVersion: "2.1", want: false},
 		{name: "pre-zstd base without compression field resolves as gzip", baseVersion: "2.0", noCompression: true, want: false},
 		{name: "missing base refused", missingBase: true, wantErr: "could not fetch base backup"},
 		{name: "unsuccessful base refused", baseVersion: "2.1", baseStatus: backup.Started, wantErr: `has status "STARTED"`},
+		{name: "deduped base designations captured verbatim", baseVersion: "3.0", baseDedupe: true, baseDesignations: designations, want: true, wantDesignations: designations},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -3340,6 +3344,7 @@ func TestValidateBackupRequestBaseChainFloor(t *testing.T) {
 				baseMeta := backup.DistributedBackupDescriptor{
 					ID: "base-1", StartedAt: time.Now().Add(-time.Hour), Status: status,
 					Version: tc.baseVersion, ServerVersion: "1.35", DedupeReplicas: tc.baseDedupe,
+					DedupeDesignations: tc.baseDesignations,
 				}
 				if !tc.noCompression {
 					baseMeta.CompressionType = backup.CompressionGZIP
@@ -3358,6 +3363,7 @@ func TestValidateBackupRequestBaseChainFloor(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, sel.baseChainDeduped)
+			assert.Equal(t, tc.wantDesignations, sel.baseDesignations)
 		})
 	}
 }
