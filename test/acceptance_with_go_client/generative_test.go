@@ -37,6 +37,8 @@ func TestGenerative(t *testing.T) {
 	classCreator := c.Schema().ClassCreator()
 	class := models.Class{
 		Class: className,
+		// objects are created with their own vectors
+		Vectorizer: "none",
 		Properties: []*models.Property{
 			{
 				Name:     "first",

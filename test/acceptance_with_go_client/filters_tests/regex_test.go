@@ -42,7 +42,8 @@ func TestWhereFilter_Regex(t *testing.T) {
 		className := "Regex"
 
 		class := &models.Class{
-			Class: className,
+			Class:      className,
+			Vectorizer: vectorizer,
 			Properties: []*models.Property{
 				{
 					Name:         "summary",
