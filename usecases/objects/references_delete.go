@@ -58,10 +58,10 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 
 	// We are fetching the existing object and get to know if the UUID exists
 	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.READ, input.Class, authorization.ShardsData(input.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+		return gateErr(err)
 	}
 	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, input.Class, authorization.ShardsData(input.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+		return gateErr(err)
 	}
 
 	// Parse + prefix-validate AFTER authz so unauthorized callers get 403

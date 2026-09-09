@@ -80,7 +80,7 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 	}
 
 	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.READ, class, authorization.CollectionsData(class)...); err != nil {
-		return nil, &Error{err.Error(), StatusForbidden, err}
+		return nil, gateErr(err)
 	}
 
 	m.metrics.GetObjectInc()

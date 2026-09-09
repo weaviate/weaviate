@@ -37,8 +37,11 @@ func objectPath(class string, id strfmt.UUID) string {
 // endpoints in Mode B, against the node holding the shard. Stopping a node tells
 // nothing apart here, because the shard guard refuses these verbs either way.
 //
-// Most rows here are refusal coverage. The two that discriminate say so on
-// themselves: the cross-node read, and the root REST batch.
+// Every row here discriminates. The six that pin 422 do it on the status, since
+// the shard guard never answers 422; validate does it by reading no shard at
+// all; and the last two do it on the message and on the shape of the failure.
+// The verbs whose refusal the shard guard renders the same way are left to
+// suspend_shards_test.go, which pins POST against both node roles.
 func TestNamespaces_SuspendedNamespaceRefusesObjectRequests(t *testing.T) {
 	t.Parallel()
 	pair := newGatePair(t, modeBNode, modeBNode)
@@ -62,49 +65,37 @@ func TestNamespaces_SuspendedNamespaceRefusesObjectRequests(t *testing.T) {
 		assert.Equal(t, string(gatedObjectID), body["id"])
 	})
 
-	// Step 3a extends this row with a status assertion. It asserts none here,
-	// because the gate wraps into 403 today and 3a moves it to 422 one commit
-	// later.
-	t.Run("HEAD is refused", func(t *testing.T) {
+	// A HEAD response carries no body, so this row checks the status alone.
+	t.Run("HEAD is refused with 422", func(t *testing.T) {
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
 			status, _ := requestJSON(t, http.MethodHead, restURI, suspended, adminKey, nil)
-			assert.NotEqual(c, http.StatusOK, status)
-			assert.NotEqual(c, http.StatusNotFound, status,
-				"a not-found would mean the request reached the lookup rather than the gate")
+			assert.Equal(c, http.StatusUnprocessableEntity, status)
 		}, 30*time.Second, 200*time.Millisecond, "the refusal never reached the node the request went to")
 	})
 
-	// Step 3a extends this row with a status assertion.
-	t.Run("PATCH is refused", func(t *testing.T) {
-		requireRESTRefused(t, func() (int, map[string]any) {
+	t.Run("PATCH is refused with 422", func(t *testing.T) {
+		requireRESTRefusedAs(t, http.StatusUnprocessableEntity, func() (int, map[string]any) {
 			return requestJSON(t, http.MethodPatch, restURI, suspended, adminKey,
 				map[string]any{"class": pair.suspendedClass, "properties": map[string]any{"title": "patched"}})
 		})
 	})
 
-	t.Run("POST is refused", func(t *testing.T) {
-		requireRESTRefused(t, func() (int, map[string]any) {
-			return requestJSON(t, http.MethodPost, restURI, "/v1/objects", adminKey,
-				map[string]any{"class": pair.suspendedClass, "properties": map[string]any{"title": "created"}})
-		})
+	// Validation reads only the schema, so no shard guard refuses here and a
+	// reverted gate lets the suspended class validate. The first request shows the
+	// same body validating against the active namespace.
+	t.Run("validate is refused", func(t *testing.T) {
+		validate := func(class string) (int, map[string]any) {
+			return requestJSON(t, http.MethodPost, restURI, "/v1/objects/validate", adminKey,
+				map[string]any{"id": gatedObjectID, "class": class, "properties": map[string]any{"title": "validated"}})
+		}
+		status, body := validate(pair.activeClass)
+		require.Equal(t, http.StatusOK, status, "%v", body)
+
+		requireRESTRefused(t, func() (int, map[string]any) { return validate(pair.suspendedClass) })
 	})
 
-	t.Run("PUT is refused", func(t *testing.T) {
-		requireRESTRefused(t, func() (int, map[string]any) {
-			return requestJSON(t, http.MethodPut, restURI, suspended, adminKey,
-				map[string]any{"class": pair.suspendedClass, "properties": map[string]any{"title": "replaced"}})
-		})
-	})
-
-	t.Run("DELETE is refused", func(t *testing.T) {
-		requireRESTRefused(t, func() (int, map[string]any) {
-			return requestJSON(t, http.MethodDelete, restURI, suspended, adminKey, nil)
-		})
-	})
-
-	// Step 3a extends this row with a status assertion.
-	t.Run("the object list is refused", func(t *testing.T) {
-		requireRESTRefused(t, func() (int, map[string]any) {
+	t.Run("the object list is refused with 422", func(t *testing.T) {
+		requireRESTRefusedAs(t, http.StatusUnprocessableEntity, func() (int, map[string]any) {
 			return requestJSON(t, http.MethodGet, restURI,
 				"/v1/objects?class="+pair.suspendedClass, adminKey, nil)
 		})
@@ -117,62 +108,52 @@ func TestNamespaces_SuspendedNamespaceRefusesObjectRequests(t *testing.T) {
 		"beacon": "weaviate://localhost/" + pair.suspendedClass + "/" + string(gatedObjectID),
 	}
 
-	// Step 3a extends this row with a status assertion.
-	t.Run("adding a reference is refused", func(t *testing.T) {
-		requireRESTRefused(t, func() (int, map[string]any) {
+	t.Run("adding a reference is refused with 422", func(t *testing.T) {
+		requireRESTRefusedAs(t, http.StatusUnprocessableEntity, func() (int, map[string]any) {
 			return requestJSON(t, http.MethodPost, restURI, refPath, adminKey, someBeacon)
 		})
 	})
 
 	// PUT replaces the whole list, so its body is an array where POST and DELETE
 	// take one beacon. A single object fails body parsing before the handler.
-	t.Run("replacing a reference is refused", func(t *testing.T) {
-		requireRESTRefused(t, func() (int, map[string]any) {
+	t.Run("replacing a reference is refused with 422", func(t *testing.T) {
+		requireRESTRefusedAs(t, http.StatusUnprocessableEntity, func() (int, map[string]any) {
 			return requestJSON(t, http.MethodPut, restURI, refPath, adminKey,
 				[]map[string]any{someBeacon})
 		})
 	})
 
-	t.Run("deleting a reference is refused", func(t *testing.T) {
-		requireRESTRefused(t, func() (int, map[string]any) {
+	t.Run("deleting a reference is refused with 422", func(t *testing.T) {
+		requireRESTRefusedAs(t, http.StatusUnprocessableEntity, func() (int, map[string]any) {
 			return requestJSON(t, http.MethodDelete, restURI, refPath, adminKey, someBeacon)
 		})
 	})
-}
 
-// TestNamespaces_SuspendedNamespaceRefusesCrossNodeRead is one of step 3's two
-// discriminating rows. It sends the read to a node that does not hold the shard,
-// which is where the answer without this gate comes from Index.FetchObject and
-// reads "shard does not exist locally" rather than naming the namespace. The row
-// therefore fails on the message alone if the gate is not there.
-func TestNamespaces_SuspendedNamespaceRefusesCrossNodeRead(t *testing.T) {
-	t.Parallel()
-	pair := newGatePair(t, modeBNode, modeBNode)
-	otherURI, _ := nodeURIs(t, modeARequestNode)
+	// The read below goes to a node that does not hold the shard, which is where
+	// the answer without this gate comes from Index.FetchObject and reads "shard
+	// does not exist locally" rather than naming the namespace. It therefore fails
+	// on the message alone if the gate is not there.
+	t.Run("a read on a node that does not hold the shard is refused", func(t *testing.T) {
+		otherURI, _ := nodeURIs(t, modeARequestNode)
 
-	requireRESTRefused(t, func() (int, map[string]any) {
-		return requestJSON(t, http.MethodGet, otherURI,
-			objectPath(pair.suspendedClass, gatedObjectID), adminKey, nil)
+		requireRESTRefused(t, func() (int, map[string]any) {
+			return requestJSON(t, http.MethodGet, otherURI,
+				objectPath(pair.suspendedClass, gatedObjectID), adminKey, nil)
+		})
 	})
-}
 
-// TestNamespaces_SuspendedNamespaceRefusesRESTBatch is step 3's second
-// discriminating row. Without the gate a batch reports per-object failures
-// inside a 200, so a row asserting only that something went wrong passes either
-// way. With the gate the whole request is refused before any object is written.
-func TestNamespaces_SuspendedNamespaceRefusesRESTBatch(t *testing.T) {
-	t.Parallel()
-	pair := newGatePair(t, modeBNode, modeBNode)
-	restURI, _ := nodeURIs(t, modeBNode)
-
-	// Two classes, one of them suspended. The refusal must take the whole batch
-	// rather than the offending object. Which class the error names is not
-	// asserted: batch_add.go ranges a map, so the one reported first varies.
-	requireRESTRefused(t, func() (int, map[string]any) {
-		return requestJSON(t, http.MethodPost, restURI, "/v1/batch/objects", adminKey,
-			map[string]any{"objects": []map[string]any{
-				{"class": pair.activeClass, "properties": map[string]any{"title": "first"}},
-				{"class": pair.suspendedClass, "properties": map[string]any{"title": "second"}},
-			}})
+	// Two classes, one of them suspended. Without the gate a batch reports
+	// per-object failures inside a 200, so a row asserting only that something
+	// went wrong passes either way. With the gate the whole request is refused
+	// before any object is written. Which class the error names is not asserted:
+	// batch_add.go ranges a map, so the one reported first varies.
+	t.Run("a REST batch naming the suspended class is refused as a whole", func(t *testing.T) {
+		requireRESTRefused(t, func() (int, map[string]any) {
+			return requestJSON(t, http.MethodPost, restURI, "/v1/batch/objects", adminKey,
+				map[string]any{"objects": []map[string]any{
+					{"class": pair.activeClass, "properties": map[string]any{"title": "first"}},
+					{"class": pair.suspendedClass, "properties": map[string]any{"title": "second"}},
+				}})
+		})
 	})
 }

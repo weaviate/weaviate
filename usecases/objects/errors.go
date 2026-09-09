@@ -45,6 +45,17 @@ func (e *Error) Unwrap() error {
 	return e.Err
 }
 
+// gateErr renders a non-nil error from AuthorizeAndRequireActiveNamespace. An
+// autherrs.Forbidden answers 403, everything else 422. It cannot test the
+// namespace sentinel instead, because usecases/namespaces imports this package.
+func gateErr(err error) *Error {
+	code := StatusUnprocessableEntity
+	if errors.As(err, &autherrs.Forbidden{}) {
+		code = StatusForbidden
+	}
+	return &Error{err.Error(), code, err}
+}
+
 func (e *Error) NotFound() bool {
 	return e.Code == StatusNotFound
 }

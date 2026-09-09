@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 func TestQuery(t *testing.T) {
@@ -60,10 +61,19 @@ func TestQuery(t *testing.T) {
 			wantQueryInput: inputs,
 		},
 		{
-			name:           "forbidden",
+			// errAny is not a Forbidden, so gateErr renders it 422 rather than 403.
+			name:           "a non-permission authorizer error",
 			class:          cls,
 			param:          params,
 			authErr:        errAny,
+			wantCode:       StatusUnprocessableEntity,
+			wantQueryInput: inputs,
+		},
+		{
+			name:           "forbidden",
+			class:          cls,
+			param:          params,
+			authErr:        authzerrs.NewForbidden(nil, "R", "data/collections/MyClass"),
 			wantCode:       StatusForbidden,
 			wantQueryInput: inputs,
 		},

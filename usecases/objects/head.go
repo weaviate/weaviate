@@ -31,7 +31,7 @@ func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, c
 		return false, resolverError(err)
 	}
 	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.READ, className, authorization.Objects(className, tenant)); err != nil {
-		return false, &Error{err.Error(), StatusForbidden, err}
+		return false, gateErr(err)
 	}
 
 	m.metrics.HeadObjectInc()

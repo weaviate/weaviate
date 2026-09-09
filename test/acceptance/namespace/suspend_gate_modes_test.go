@@ -204,6 +204,19 @@ func requireRefused(t *testing.T, call func() error, alsoContains ...string) {
 	}, 30*time.Second, 200*time.Millisecond, "the refusal never reached the node the request went to")
 }
 
+// requireRESTRefusedAs is requireRESTRefused with the status pinned. Use it where
+// the status is what separates this gate's refusal from another layer's.
+func requireRESTRefusedAs(t *testing.T, wantStatus int, call func() (int, map[string]any)) {
+	t.Helper()
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		status, body := call()
+		if !assert.Equal(c, wantStatus, status, "body: %v", body) {
+			return
+		}
+		assert.Contains(c, restErrMessage(body), "suspended")
+	}, 30*time.Second, 200*time.Millisecond, "the refusal never reached the node the request went to")
+}
+
 // requireRESTRefused is requireRefused for the raw-HTTP rows, which carry their
 // refusal in the status and body rather than in a returned error.
 func requireRESTRefused(t *testing.T, call func() (int, map[string]any)) {
