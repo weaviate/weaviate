@@ -172,8 +172,11 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err
 	}
-	view := h.objectsBucketView()
-	defer view.ReleaseView()
+	view, releaseView, err := h.objectsBucketView()
+	if err != nil {
+		return nil, nil, err
+	}
+	defer releaseView()
 
 	// Workers compute distances in parallel; results are inserted after,
 	// in candidate order, so ties resolve the same way on every run.
@@ -238,10 +241,26 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 }
 
 // objectsBucketView returns a consistent view of the objects bucket, valid
-// until ReleaseView. A missing objects bucket is a wiring bug — the shard
-// creates it before any vector index — and panics rather than degrading.
-func (h *HFresh) objectsBucketView() common.BucketView {
-	return h.store.Bucket(helpers.ObjectsBucketLSM).GetConsistentView()
+// until the returned release is called.
+//
+// The objects bucket belongs to the shard, not to this index, and a shard
+// teardown deregisters it while queries are still in flight — Store.Bucket
+// then returns nil by design. Dereferencing that nil to take a view crashes
+// the node, so a missing bucket is reported as [lsmkv.ErrBucketNotFound] and
+// the query fails on its own. The bucket is pinned for the life of the view:
+// the view refcounts segments against compaction, but only a pin holds off
+// the teardown that frees them.
+func (h *HFresh) objectsBucketView() (common.BucketView, func(), error) {
+	bucket, releaseBucket, err := newBucketRef(h.store, helpers.ObjectsBucketLSM).acquire()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	view := bucket.GetConsistentView()
+	return view, func() {
+		view.ReleaseView()
+		releaseBucket()
+	}, nil
 }
 
 // fetchNormalizedVector reads the full vector for id into the pooled slice

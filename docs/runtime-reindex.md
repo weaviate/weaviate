@@ -137,13 +137,10 @@ cancelled), `409` for every other in-flight status — a coordination phase
 Query parameters (PUT and rebuild):
 
 - `?tenants=t1,t2` — scope to named tenants on a multi-tenant class.
-  Rejected on single-tenant classes. On PUT, allowed only when the
-  operation is format-only (`rangeFilters` creation); rebuild allows it
-  for every index type. Rejected on every semantic migration
-  (`IsSemanticMigration`: `enable-searchable`, `enable-filterable`,
-  `change-tokenization`, `change-tokenization-filterable`,
-  `change-algorithm`) because the cluster-wide schema flip cannot be
-  sub-scoped — all tenants must migrate together.
+  Rejected on single-tenant classes. Rebuild allows it for every index
+  type; PUT rejects it outright, because every migration PUT can submit
+  is semantic (`IsSemanticMigration`) and the cluster-wide schema flip
+  cannot be sub-scoped — all tenants must migrate together.
 
 Cancel takes no query parameters; a `tenants` value on the URL is silently
 ignored. Cancel targets the task itself, which already carries the tenant
@@ -300,14 +297,15 @@ surfaces** — keep the distinction in mind reading top-to-bottom:
   the submit handler; full mechanics in §6.3):
   - **Semantic migrations** (`change-tokenization`,
     `change-tokenization-filterable`, `enable-filterable`,
-    `enable-searchable`, `change-algorithm`):
+    `enable-searchable`, `enable-rangeable`,
+    `change-algorithm`):
     `STARTED → PREPARING → SWAPPING → FINISHED`.
     `PREPARING` and `SWAPPING` are both reached only after every
     unit across the cluster is at terminal status. The FSM gates
     `PREPARING → SWAPPING` on every node's `PreparationCompleteAck`
     landing successfully, and gates `SWAPPING → FINISHED` on
     every node's `PostCompletionAck` landing successfully.
-  - **Format-only migrations** (`enable-rangeable`, `repair-filterable`,
+  - **Format-only migrations** (`repair-filterable`,
     `repair-rangeable`, `rebuild-searchable`):
     `STARTED → SWAPPING → FINISHED`.
     `PREPARING` is skipped because there is no cross-replica
@@ -352,9 +350,12 @@ preceding a transition on the per-task field. Annotations
         │     (per unit: PENDING → IN_PROGRESS → COMPLETED on success)  │
         │   • Build ShardReindexTaskGeneric per (strategy, unit)        │
         │   • persistRecoveryRecord (payload.mig)                       │
-        │   • RunReindexOnlyOnShard — iterate objects, write to         │
-        │     __reindex_<N>/ bucket; install double-write callbacks     │
-        │   • markReindexed → UnitStatus = COMPLETED  ← per-Unit status │
+        │   • Semantic: RunReindexOnlyOnShard — iterate objects, write  │
+        │     to __reindex_<N>/ bucket; install double-write callbacks; │
+        │     stop at markReindexed (the swap waits for the barrier)    │
+        │   • Format-only: RunOnShard — the same iteration, then prep   │
+        │     and swap, all locally                                     │
+        │   • UnitStatus = COMPLETED  ← per-Unit status                 │
         └──────────────────────────────────┬─────────────────────────────┘
                               All units terminal across the cluster
                                            │
@@ -391,10 +392,10 @@ preceding a transition on the per-task field. Annotations
         │    + OnMigrationComplete (per-strategy hook)                  │
         │   RecordPostCompletionAck(success bool) — RAFT (per node)     │
         │                                                                │
-        │  (Format-only path: Provider.OnGroupCompleted runs the       │
-        │   inline PREP+OVERLAY+SWAP body in a single callback; no      │
-        │   PreparationCompleteAck barrier; SWAPPING fires directly from       │
-        │   AllUnitsTerminal.)                                          │
+        │  (Format-only path: neither callback does swap work —        │
+        │   RunOnShard already finished PREP+SWAP on the node during    │
+        │   StartTask. No PreparationCompleteAck barrier; SWAPPING      │
+        │   fires directly from AllUnitsTerminal.)                      │
         └──────────────────────────────────┬─────────────────────────────┘
               Every node's PostCompletionAck landed (success on all)
                                            │
@@ -419,11 +420,15 @@ preceding a transition on the per-task field. Annotations
         └────────────────────────────────────────────────────────────────┘
 ```
 
-Format-only migrations (`enable-rangeable`, `repair-filterable`,
+Format-only migrations (`repair-filterable`,
 `repair-rangeable`, `rebuild-searchable`) skip the OnGroupCompleted
-barrier — each shard
-runs the full lifecycle inside its own `RunOnShard` and there is no
-cluster-wide schema flip. The flow is otherwise identical.
+barrier. Each shard runs the full lifecycle inside its own `RunOnShard`,
+which sequences `RunReindexOnlyOnShard` → `RunPrepareOnShard` →
+`RunSwapOnShard` against the sentinels on disk, and there is no
+cluster-wide schema flip. Because every phase dispatches on persisted
+state, a task relaunched after a restart resumes from wherever the
+previous run stopped rather than reporting the unit COMPLETED with the
+swap still outstanding. The flow is otherwise identical.
 
 ### What goes through RAFT vs. what is local-only
 
@@ -807,11 +812,11 @@ own scheduled completion flip still works. Class-wide
   this node's local units, hands them to `processUnits`. Bounded
   concurrency via `ConcurrencyLimiter`.
 - `processOneUnit` → per-(unit, shard) bootstrap. Constructs the
-  strategy instance(s) at the right per-node generation
-  (`nextMigrationGeneration`), writes the recovery payload, runs the
-  reindex iteration via `ShardReindexTaskGeneric`. For semantic
-  migrations it stops at `markReindexed` (barrier); for format-only
-  it runs the full lifecycle including the swap.
+  strategy instance(s) at the submission's task version, writes the
+  recovery payload, runs the reindex iteration via
+  `ShardReindexTaskGeneric`. For semantic migrations it stops at
+  `markReindexed` (barrier); for format-only it runs the full
+  lifecycle including the swap.
 - `OnGroupCompleted` (semantic only) → the swap phase, per local
   shard. Three-phase: PREP → OVERLAY SET → ATOMIC SWAP. See §6.
 - `OnTaskCompleted` (semantic only) → `flipSemanticMigrationSchema`
@@ -862,10 +867,10 @@ shard's sweep always reads the filesystem directly and never acts on the
 cached snapshot.
 
 **`inverted_reindex_finalize.go`** — startup-time deferred dir rename
-(see §9), `nextMigrationGeneration`, `maxMigrationGeneration`,
-`completedMigrationGens` (`parseMigrationDirName` lives in
-`inverted_reindex_strategy_dir_names.go`). The finalize
-algorithm handles every shape defensively: tidied / merged-but-not-
+(see §9), `migrationTrackerDirExists`, `completedMigrationGens`
+(`parseMigrationDirName` lives in
+`inverted_reindex_strategy_dir_names.go`). The finalize algorithm
+handles every shape defensively: tidied / merged-but-not-
 tidied / lower-gen sidecars / in-flight gens left alone for
 `DiscoverInFlightReindexTasks` to pick up.
 
@@ -878,7 +883,7 @@ Eight strategy implementations, one file each:
 | `MapToBlockmaxStrategy` | `change-algorithm` | `searchable` (MapCollection) | `searchable` (Inverted/Blockmax) | No-op; the class-level `UsingBlockMaxWAND` flip is cluster-wide from `OnTaskCompleted`. |
 | `RebuildSearchableStrategy` | `rebuild-searchable` | `searchable` (Inverted/Blockmax) | `searchable` (Inverted/Blockmax) | No-op; the property was already searchable + BlockMax, so no schema flag moves. Format-only. |
 | `RoaringSetRefreshStrategy` | `repair-filterable` | `filterable` (RoaringSet) | `filterable` (RoaringSet) | No-op (format unchanged). |
-| `FilterableToRangeableStrategy` | `enable-rangeable` / `repair-rangeable` | objects → builds RoaringSetRange | `rangeFilters` (RoaringSetRange) | Per-shard `setRangeableLocallyReady` so this shard's queries observe ready=true at the same moment as the RAFT flip; per-prop `IndexRangeFilters=true` via `UpdatePropertyInternalFromMigration`. Format-only. |
+| `FilterableToRangeableStrategy` | `enable-rangeable` / `repair-rangeable` | objects → builds RoaringSetRange | `rangeFilters` (RoaringSetRange) | Per-shard `setRangeableLocallyReady` only. `enable-rangeable` is semantic, so cluster-wide `IndexRangeFilters=true` flips from `OnTaskCompleted`; `repair-rangeable` arrives with the flag already true. |
 | `EnableFilterableStrategy` | `enable-filterable` | objects → builds RoaringSet | `filterable` (RoaringSet) | No-op; cluster-wide `IndexFilterable=true` flips from `OnTaskCompleted` to avoid the first-shard-flips-wins-the-cluster race. |
 | `EnableSearchableStrategy` | `enable-searchable` | objects → builds Blockmax | `searchable` (Blockmax) | No-op; cluster-wide flip from `OnTaskCompleted`. |
 | `SearchableRetokenizeStrategy` | `change-tokenization` (searchable half) | `searchable` | `searchable` (new tokenization) | No-op; `Tokenization` flip from `OnTaskCompleted`. |
@@ -908,19 +913,21 @@ a new strategy.
 
 **Semantic vs format-only.** `IsSemanticMigration` is the predicate:
 `change-tokenization`, `change-tokenization-filterable`,
-`enable-filterable`, `enable-searchable`, and `change-algorithm` are
-semantic. Every shard must reindex before any shard swaps (Journey 3
-barrier), and the schema flip happens cluster-wide from
-`OnTaskCompleted`. The rest are format-only: each shard runs the full
-lifecycle independently (Journey 2), with no cluster-wide schema
-dependency.
+`enable-filterable`, `enable-searchable`, `enable-rangeable`, and
+`change-algorithm` are semantic. Every shard must reindex before any
+shard swaps (Journey 3 barrier), and the schema flip happens
+cluster-wide from `OnTaskCompleted`. The rest are format-only: each
+shard runs the full lifecycle independently (Journey 2), with no
+cluster-wide schema dependency.
 
-**`enable-rangeable` is intentionally format-only.** Range queries'
-correctness during the migration is gated by the per-shard
-`rangeableLocalReady` flag — falling back to the filterable bucket
-walk on shards that haven't completed locally is slow but correct.
-The barrier dance would be over-engineering for a journey that has a
-correct (if slow) per-shard fallback.
+**Why `enable-rangeable` is semantic.** It turns an index on, so its
+flag is the cluster's statement that every shard can serve range
+queries. Flipping it per-shard made that statement from the first
+shard to swap, and a task that then stopped left the flag on over
+shards holding an empty bucket
+([0-weaviate-issues#464](https://github.com/weaviate/0-weaviate-issues/issues/464)).
+`repair-rangeable` stays format-only: its flag is already true at
+submit, so it has no cutover to coordinate.
 
 ### 4.6 LSM primitives — `adapters/repos/db/lsmkv/store.go`
 
@@ -968,14 +975,14 @@ change-tokenization-filterable   ✓              ✓
 enable-filterable                ✓                              ✓
 enable-searchable                ✓                              ✓
 change-algorithm                 ✓
-enable-rangeable                                                ✓
+enable-rangeable                 ✓                              ✓
 repair-rangeable                                                ✓
 repair-filterable
 rebuild-searchable
 ```
 
-The five semantic migrations take the cluster-wide barrier and the
-cluster-wide schema flip; the four format-only ones take neither. The
+The six semantic migrations take the cluster-wide barrier and the
+cluster-wide schema flip; the three format-only ones take neither. The
 two overlay columns are independent of that split. The tokenization
 overlay covers the per-shard window on a migration that changes
 tokenization (`IsTokenizationChangingMigration`); the analyzer overlay
@@ -1061,8 +1068,9 @@ The post-completion barrier is split into two phases.
    `completedCallbackFired` is unset.
 
 **Format-only migrations (NeedsPreparationBarrier=false):** PHASE A is
-skipped; the FSM goes `STARTED → SWAPPING` directly. `OnGroupCompleted`
-runs the inline PREP+OVERLAY+SWAP body and the scheduler emits
+skipped; the FSM goes `STARTED → SWAPPING` directly. PREP and SWAP have
+already run locally inside `RunOnShard` during `StartTask`, so
+`OnGroupCompleted` is a no-op and the scheduler emits
 `RecordPostCompletionAck`. SWAPPING → FINISHED is gated on the
 PostCompletionAck barrier only.
 
@@ -1224,6 +1232,10 @@ Per-tenant unit groups (Journey 4 from the DTM doc): one
 as each tenant's replicas all finish. Tenant A starts serving new
 data immediately even while tenant B is still reindexing.
 
+That holds for format-only migrations. A semantic migration's schema
+flag is collection-wide, so no tenant sees the flipped behavior until
+the last tenant's replicas have all swapped.
+
 Status after cancelling a tenant-scoped task is reported at the
 collection level: `GET /v1/schema/{className}/indexes` renders
 `cancelled` for the property as a whole. The task is the unit of
@@ -1246,8 +1258,8 @@ The original design problem this section answers:
 > them produces `ENOENT` on the next write).
 
 The solution has two parts: defer the rename to next startup, and
-give every migration a per-node generation suffix so back-to-back
-migrations on the same property don't collide.
+give every migration a generation suffix so back-to-back migrations
+on the same property don't collide.
 
 ### 9.1 Why the rename is deferred
 
@@ -1301,19 +1313,32 @@ T_(N+1) on prop=text:
 ```
 
 No path collision with the gen-N state still on disk. `T_(N+1)`'s
-`runtimeSwap` replaces the gen-N pointer with the gen-N+1 one; the
-old gen-N bucket is shut down and renamed to its gen-N+1 backup.
+`runtimeSwap` replaces the gen-N pointer with its own; the old gen-N
+bucket is shut down and renamed to the later migration's backup dir.
+`N` and `N+1` here label two successive submissions, whose generations
+rise but need not be consecutive (§9.3).
 
-### 9.3 Generation is per-node, not in the RAFT payload
+### 9.3 The generation is the submission's task version
 
-Each node computes its own gen by scanning its own disk. The RAFT
-payload does NOT carry the gen. Different nodes may use different
-gens for the same RAFT task — and that's correct: gen is purely a
-per-node implementation detail of the deferred-finalize. A node that
-restarted between `T_N` and `T_(N+1)` will have promoted gen N to
-canonical at startup, so on that node `T_(N+1)` picks gen 1; a node
-that didn't restart picks gen N+1. The cluster-wide logical state
-still converges via the regular swap-then-flip pipeline.
+The generation is `TaskDescriptor.Version` — the version RAFT assigns
+the submission, once, cluster-wide. Every node derives the same
+directory names, and every later submission gets a strictly higher
+number, so two migrations can never derive one name whatever each
+node's disk happens to hold.
+
+The generation used to be a per-node counter, `max(existing on disk) +
+1`. That made the name's correctness depend on the listing being
+complete, and the listing only ever covered the tracker directories
+under `.migrations/` — never the bucket working copies in the shard's
+LSM root. A cleanup that removed a tracker but failed to remove its
+working copies therefore handed the next migration a number already
+taken, and that migration opened its working copy on top of the
+previous one's files.
+
+The number is a RAFT log index, so it is large and non-contiguous.
+Nothing reads it as small or dense: `parseMigrationDirName` accepts any
+integer ≥ 1, and every consumer compares generations rather than
+counting them.
 
 ### 9.4 Trim at end of swap keeps depth bounded
 
@@ -1359,11 +1384,11 @@ Per namespace (strategy-prefix + props-suffix):
   (POSIX unlink-while-open) and can serve reads from cached pages,
   but new segment writes will land in a missing dir and silently
   lose data. weaviate/weaviate#10675 is exactly this failure mode.
-- **Do not** put the gen in the RAFT payload. The whole point of the
-  deferred-finalize design is that each node's on-disk state is its
-  own — forcing cluster-wide agreement on a per-node implementation
-  detail would re-introduce the collisions the per-node gen was
-  created to avoid.
+- **Do not** derive the gen from a disk scan again. The number has to
+  be settled before any directory is inspected; a scan can only see
+  the tracker directories, so a cleanup that removed a tracker but
+  left its bucket working copies would hand out a number already
+  taken (§9.3).
 
 ## 10. Per-shard tokenization overlay
 
@@ -1411,11 +1436,28 @@ Lifecycle:
    — the next query touching the prop after the schema eventually
    catches up will lazily clean up.
 
-For migrations that DON'T change tokenization (the
-`AnalyzerOverlay`-driven `enable-filterable` etc., or format-only
-`enable-rangeable` / `repair-*`), no tokenization overlay is needed
-— the per-shard local-ready flag and the `OnMigrationComplete`
-hook handle the gap.
+For migrations that DON'T change tokenization no tokenization overlay
+is needed, but `enable-filterable`, `enable-searchable` and
+`enable-rangeable` all leave one window uncovered. Their double-write
+callbacks come down when `runtimeSwap` returns; the cluster-wide
+schema flip lands one RAFT round later. A write in between is acked
+and durable in the objects bucket, but nothing rescans afterwards, so
+it stays missing from the new index. This affects every migration
+that takes the cluster-wide flip, so the remedy belongs to the family
+rather than to one type; it is fixed generically in
+[weaviate/weaviate#13001](https://github.com/weaviate/weaviate/pull/13001).
+
+Range queries stay in their pre-migration state for the whole window.
+`HasRangeableIndex` is false on every shard until the flip, which is
+exactly the pre-migration state, so queries fall back to the
+filterable bucket walk cluster-wide. A shard serving from its new
+bucket while its siblings have not swapped would reintroduce the
+first-shard-wins inconsistency the cluster-wide flip removes. Slower
+for the length of the window, not wrong.
+
+`repair-*` and `rebuild-*` need neither overlay: their flags are
+already true, so the ordinary write path covers the property
+throughout.
 
 ## 11. The analyzer overlay
 
@@ -1595,7 +1637,7 @@ already GC'd) resolves as WAND on the older binary until a re-migration.
 - [`adapters/repos/db/inverted_reindex_strategy_*.go`](../adapters/repos/db/) — one per strategy.
 - [`adapters/repos/db/inverted_reindex_strategy_dir_names.go`](../adapters/repos/db/inverted_reindex_strategy_dir_names.go) — `genSuffix`, `parseMigrationDirName`, strategy dir prefix constants.
 - [`adapters/repos/db/inverted_reindex_task_generic.go`](../adapters/repos/db/inverted_reindex_task_generic.go) — `ShardReindexTaskGeneric`, the **phase-contract godoc** at the top of the file is the authoritative spec.
-- [`adapters/repos/db/inverted_reindex_finalize.go`](../adapters/repos/db/inverted_reindex_finalize.go) — `FinalizeCompletedMigrations`, `nextMigrationGeneration`, `maxMigrationGeneration`, `completedMigrationGens`.
+- [`adapters/repos/db/inverted_reindex_finalize.go`](../adapters/repos/db/inverted_reindex_finalize.go) — `FinalizeCompletedMigrations`, `migrationTrackerDirExists`, `completedMigrationGens`.
 
 **LSM primitives**
 
@@ -1689,7 +1731,11 @@ with the modern testcontainer style.
 **Acceptance — rangeable** ([`test/acceptance/reindex_rangeable/`](../test/acceptance/reindex_rangeable/)):
 
 - `concurrent_writes_test` — writes landing during an
-  `enable-rangeable` build.
+  `enable-rangeable` build. Smoke coverage, as is
+  `reindex_multinode/enable_rangeable_concurrent_updates_test`: this
+  storm ends before the reindex does and the multinode one re-PATCHes
+  every object after the flip, so neither pins §10's uncovered write
+  window.
 
 **Distributed task framework** ([`test/acceptance/distributed_tasks/`](../test/acceptance/distributed_tasks/)):
 
@@ -1713,9 +1759,8 @@ test packages.
 - `failUnit` and recovery — `reindex_provider_failunit_test.go`,
   `reindex_provider_recovery_test.go`,
   `reindex_provider_repair_guidance_test.go`.
-- `parseMigrationDirName`, `nextMigrationGeneration`, multi-gen
-  `FinalizeCompletedMigrations` paths —
-  `inverted_reindex_finalize_test.go`.
+- `parseMigrationDirName`, multi-gen `FinalizeCompletedMigrations`
+  paths — `inverted_reindex_finalize_test.go`.
 - `OnGroupCompleted` cache + rehydrate —
   `reindex_provider_on_group_completed_test.go`.
 - Tokenization overlay set/clear/self-clear —

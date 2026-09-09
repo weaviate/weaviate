@@ -508,3 +508,17 @@ func (m *MockExecutor) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.Q
 	}
 	return &cmd.QueryResponse{}, nil
 }
+
+// A leader whose FSM has not caught up is transient.
+var applyRetryableCodes = []codes.Code{codes.Aborted, codes.ResourceExhausted, codes.Unavailable}
+
+func TestToRPCError_FSMNotCaughtUpIsRetryable(t *testing.T) {
+	wrapped := fmt.Errorf("waiting for leader FSM: %w", types.ErrFSMNotCaughtUp)
+
+	st, ok := status.FromError(toRPCError(wrapped))
+	assert.True(t, ok)
+	assert.NotEqual(t, codes.Internal, st.Code(),
+		"Internal is not retried by the Apply retry policy")
+	assert.Contains(t, applyRetryableCodes, st.Code(),
+		"must map to a code Apply's retryPolicy retries")
+}

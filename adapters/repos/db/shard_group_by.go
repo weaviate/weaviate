@@ -17,7 +17,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
@@ -30,7 +29,12 @@ func (s *Shard) groupResults(ctx context.Context, ids []uint64,
 	dists []float32, groupBy *searchparams.GroupBy,
 	additional additional.Properties, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	objsBucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	objsBucket, release, err := s.objectsBucket()
+	if err != nil {
+		return nil, nil, err
+	}
+	defer release()
+
 	className := s.index.Config.ClassName
 	class := s.index.getSchema.ReadOnlyClass(className.String())
 	if class == nil {

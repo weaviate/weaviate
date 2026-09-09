@@ -79,9 +79,10 @@ func PropertyHasSearchableIndex(class *models.Class, tentativePropertyName strin
 
 // GetPropertyByName returns the class by its name
 func GetPropertyByName(c *models.Class, propName string) (*models.Property, error) {
+	// a nested property is addressed by its first dot-notation segment
+	root, _, _ := strings.Cut(propName, ".")
 	for _, prop := range c.Properties {
-		// Check if the name of the property is the given name, that's the property we need
-		if prop.Name == strings.Split(propName, ".")[0] {
+		if prop.Name == root {
 			return prop, nil
 		}
 	}

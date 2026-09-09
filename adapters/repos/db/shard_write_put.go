@@ -12,7 +12,6 @@
 package db
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"fmt"
@@ -265,10 +264,11 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 		}
 	}
 
-	bucket, err := s.objectsBucket()
+	bucket, release, err := s.objectsBucket()
 	if err != nil {
 		return status, err
 	}
+	defer release()
 	var prevObj *storobj.Object
 
 	// First the object bucket is checked if an object with the same uuid is alreadypresent,
@@ -523,12 +523,8 @@ func (s *Shard) determineMutableInsertStatus(previous, next *storobj.Object) (ob
 func (s *Shard) upsertObjectDataLSM(bucket *lsmkv.Bucket, id []byte, data []byte,
 	docID uint64,
 ) error {
-	keyBuf := bytes.NewBuffer(nil)
-	err := binary.Write(keyBuf, binary.LittleEndian, &docID)
-	if err != nil {
-		return fmt.Errorf("write doc id to buffer: %w", err)
-	}
-	docIDBytes := keyBuf.Bytes()
+	docIDBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(docIDBytes, docID)
 
 	return bucket.Put(id, data,
 		lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes),

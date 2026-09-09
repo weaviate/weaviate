@@ -234,7 +234,7 @@ func (s *Shard) cleanStaleMigrationDirs(ctx context.Context, propName, indexType
 // [Shard.cleanStaleMigrationDirs]: takes an explicit lsmPath + logger so the
 // preservation logic can be unit-tested without standing up a Shard.
 //
-// Every migration tracker dir on disk carries a per-node generation
+// Every migration tracker dir on disk carries a generation
 // suffix (`_<N>`); a single (prop, indexType) tuple can have multiple
 // generations on disk simultaneously when the last migration's trim
 // hasn't run (e.g. crash before markTidied → next-restart finalize
@@ -657,7 +657,13 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			return err
 		}
 
-		if actualStrategy := s.store.Bucket(bucketName).Strategy(); actualStrategy == lsmkv.StrategyInverted {
+		bucket, release := s.store.AcquireBucketForRead(bucketName)
+		if bucket == nil {
+			return fmt.Errorf("searchable bucket %q of shard %q: %w", bucketName, s.name, lsmkv.ErrBucketNotFound)
+		}
+		actualStrategy := bucket.Strategy()
+		release()
+		if actualStrategy == lsmkv.StrategyInverted {
 			s.markSearchableBlockmaxProperties(prop.Name)
 		}
 	}

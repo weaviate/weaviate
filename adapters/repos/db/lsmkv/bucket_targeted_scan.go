@@ -16,7 +16,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -353,14 +352,14 @@ type segmentNodeRange struct {
 // which this deliberately does not read. Callers that cannot tolerate it should
 // run with checksum validation on.
 func (s *segment) scanIndexNodes(from, to int, fn func(n segmentNodeRange) error) error {
-	return s.index.ForEachNodeInRange(from, to, func(key []byte, start, end uint64) error {
+	return s.reportIndexErr(s.index.ForEachNodeInRange(from, to, func(key []byte, start, end uint64) error {
 		// ordered so the subtraction cannot wrap on end < start
 		if end <= start || end-start < 9 || start < s.dataStartPos || end > s.dataEndPos {
 			return fmt.Errorf("targeted scan: node [%d,%d) outside data bounds [%d,%d) or smaller than its header",
 				start, end, s.dataStartPos, s.dataEndPos)
 		}
 		return fn(segmentNodeRange{Key: key, Start: start, End: end})
-	})
+	}))
 }
 
 func (s *segment) indexNodeSplits(parts int) [][2]int {
@@ -383,25 +382,15 @@ func (s *segment) readRange(offset nodeOffset, operation string, buf *[]byte) ([
 	if s.readFromMemory {
 		return s.contents[offset.start:offset.end:offset.end], nil
 	}
-	if s.contentFile == nil {
-		return nil, fmt.Errorf("targeted scan: nil contentFile for segment at %s", s.path)
-	}
-
 	need := offset.end - offset.start
 	if uint64(cap(*buf)) < need {
 		*buf = make([]byte, need)
 	}
 	b := (*buf)[:need:need]
 
-	// ReadAt reports an error whenever it returns short, so it carries io.ReadFull's
-	// guarantee without the wrapper
-	observe := readObserver.GetOrCreate(readMetricName(operation), s.metrics)
-	start := time.Now()
-	n, err := s.contentFile.ReadAt(b, int64(offset.start))
-	if err != nil {
-		return nil, errors.Wrap(err, "targeted scan: read range")
+	if err := s.preadInto(b, offset.start, operation); err != nil {
+		return nil, err
 	}
-	observe(int64(n), time.Since(start).Nanoseconds())
 	return b, nil
 }
 

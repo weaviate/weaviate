@@ -88,6 +88,20 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/[^/]+$`, authorization.NamespacesDomain),
 }
 
+// resourcePatterns and VALID_VERBS are fixed at init, so compile them once.
+// validResource runs per policy on every role read and permission conversion;
+// recompiling there dominated those paths.
+var (
+	compiledResourcePatterns = func() []*regexp.Regexp {
+		out := make([]*regexp.Regexp, len(resourcePatterns))
+		for i, pattern := range resourcePatterns {
+			out[i] = regexp.MustCompile(pattern)
+		}
+		return out
+	}()
+	compiledValidVerbs = regexp.MustCompile(VALID_VERBS)
+)
+
 func newPolicy(policy []string) *authorization.Policy {
 	return &authorization.Policy{
 		Resource: fromCasbinResource(policy[1]),
@@ -607,12 +621,8 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 }
 
 func validResource(input string) bool {
-	for _, pattern := range resourcePatterns {
-		matched, err := regexp.MatchString(pattern, input)
-		if err != nil {
-			return false
-		}
-		if matched {
+	for _, re := range compiledResourcePatterns {
+		if re.MatchString(input) {
 			return true
 		}
 	}
@@ -620,7 +630,7 @@ func validResource(input string) bool {
 }
 
 func validVerb(input string) bool {
-	return regexp.MustCompile(VALID_VERBS).MatchString(input)
+	return compiledValidVerbs.MatchString(input)
 }
 
 func PrefixRoleName(name string) string {

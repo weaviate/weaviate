@@ -1063,6 +1063,7 @@ func FromEnv(config *Config) error {
 
 	config.DisableGraphQL = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL")))
 	config.ExperimentalRESTSearchEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("EXPERIMENTAL_REST_SEARCH_ENABLED")))
+	config.WeaviateLicense = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("WEAVIATE_LICENSE")))
 
 	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
 	if config.Namespaces.Enabled {
@@ -1297,6 +1298,19 @@ func FromEnv(config *Config) error {
 			return fmt.Errorf("parse TELEMETRY_PUSH_INTERVAL as duration: %w", err)
 		}
 		config.TelemetryPushInterval = interval
+	}
+
+	if v := os.Getenv("BANNER_INTERVAL"); v != "" {
+		interval, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse BANNER_INTERVAL as duration: %w", err)
+		}
+		config.BannerInterval = interval
+	}
+	// Each repeat logs a banner and fetches its art from the website; a value
+	// below an hour, from the env var or the config file, is raised to it.
+	if config.BannerInterval > 0 && config.BannerInterval < time.Hour {
+		config.BannerInterval = time.Hour
 	}
 
 	{

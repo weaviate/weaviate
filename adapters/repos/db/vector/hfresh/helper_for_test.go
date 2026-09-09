@@ -12,6 +12,9 @@
 package hfresh
 
 import (
+	"context"
+	"fmt"
+	"sync"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -29,9 +32,33 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
+// testVectorStore backs VectorForIDThunk in tests: splitPosting and
+// doReassign require every posting entry's full-precision vector to be
+// fetchable. Test helpers that create vectors record them here.
+type testVectorStore struct {
+	mu sync.RWMutex
+	m  map[uint64][]float32
+}
+
+func (s *testVectorStore) put(id uint64, v []float32) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.m[id] = v
+}
+
+func (s *testVectorStore) get(_ context.Context, id uint64) ([]float32, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if v, ok := s.m[id]; ok {
+		return v, nil
+	}
+	return nil, fmt.Errorf("vector %d not stored in this test", id)
+}
+
 type TestHFresh struct {
-	Index *HFresh
-	Logs  *test.Hook
+	Index   *HFresh
+	Logs    *test.Hook
+	Vectors *testVectorStore
 }
 
 func createHFreshIndex(t *testing.T) TestHFresh {
@@ -70,6 +97,8 @@ func createHFreshIndex(t *testing.T) TestHFresh {
 	})
 
 	setDelegatingTempThunk(cfg)
+	vectors := &testVectorStore{m: make(map[uint64][]float32)}
+	cfg.VectorForIDThunk = vectors.get
 
 	uc := ent.NewDefaultUserConfig()
 	store := testinghelpers.NewDummyStore(t)
@@ -79,8 +108,9 @@ func createHFreshIndex(t *testing.T) TestHFresh {
 	require.NoError(t, err)
 
 	return TestHFresh{
-		Index: index,
-		Logs:  hook,
+		Index:   index,
+		Logs:    hook,
+		Vectors: vectors,
 	}
 }
 
@@ -100,6 +130,7 @@ func createTestVectors(dims int, count int) [][]float32 {
 // addVectorToIndex initializes dimensions if needed and adds a vector to the index
 func addVectorToIndex(t *testing.T, tf *TestHFresh, vectorID uint64, vector []float32) {
 	t.Helper()
+	tf.Vectors.put(vectorID, vector)
 	err := tf.Index.Add(t.Context(), vectorID, vector)
 	require.NoError(t, err)
 }
@@ -141,6 +172,7 @@ func createPostingWithVectors(t *testing.T, tf *TestHFresh, vectors [][]float32,
 		vectorID := startID + uint64(i)
 		version := VectorVersion(1)
 
+		tf.Vectors.put(vectorID, vec)
 		err := tf.Index.VersionMap.store.Set(t.Context(), vectorID, version)
 		require.NoError(t, err)
 

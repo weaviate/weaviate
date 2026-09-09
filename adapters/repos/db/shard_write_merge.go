@@ -137,10 +137,11 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDocument,
 	idBytes []byte, class *models.Class,
 ) (*storobj.Object, objectInsertStatus, error) {
-	bucket, err := s.objectsBucket()
+	bucket, release, err := s.objectsBucket()
 	if err != nil {
 		return nil, objectInsertStatus{}, err
 	}
+	defer release()
 
 	var prevObj, obj *storobj.Object
 	var status objectInsertStatus
@@ -245,10 +246,11 @@ func (s *Shard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDo
 ) (mutableMergeResult, error) {
 	out := mutableMergeResult{}
 
-	bucket, err := s.objectsBucket()
+	bucket, release, err := s.objectsBucket()
 	if err != nil {
 		return out, err
 	}
+	defer release()
 
 	// Wait outside the RLock; see shard_write_put.go (calling it under RLock is a recursive read-lock deadlock).
 	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
