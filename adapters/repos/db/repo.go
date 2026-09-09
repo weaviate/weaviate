@@ -45,6 +45,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/namespaces"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -107,6 +108,10 @@ type DB struct {
 
 	shardLoadLimiter  *loadlimiter.LoadLimiter
 	bucketLoadLimiter *loadlimiter.LoadLimiter
+
+	// queryAdmission bounds aggregate search fan-out concurrency on this node,
+	// covering both local and coordinator ingress.
+	queryAdmission *queryadmission.Limiter
 
 	reindexer      ShardReindexerV3
 	nodeSelector   cluster.NodeSelector
@@ -355,6 +360,11 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		bitmapBufPool:             roaringset.NewBitmapBufPoolNoop(),
 		bitmapBufPoolClose:        func() {},
 		AsyncIndexingEnabled:      config.AsyncIndexingEnabled,
+		queryAdmission: queryadmission.New(metricsRegisterer, queryadmission.Config{
+			Capacity: config.QueryAdmissionBudget,
+			MaxQueue: config.QueryAdmissionMaxQueue,
+			Disabled: config.QueryAdmissionControlDisabled,
+		}),
 	}
 
 	if db.maxNumberGoroutines == 0 {
@@ -431,6 +441,9 @@ type Config struct {
 	Replication                         replication.GlobalConfig
 	MaximumConcurrentShardLoads         int
 	MaximumConcurrentBucketLoads        int
+	QueryAdmissionBudget                int
+	QueryAdmissionMaxQueue              int
+	QueryAdmissionControlDisabled       *configRuntime.DynamicValue[bool]
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
 	ObjectsTTLBatchSize                 *configRuntime.DynamicValue[int]
