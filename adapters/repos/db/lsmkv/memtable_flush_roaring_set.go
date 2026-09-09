@@ -78,6 +78,13 @@ func (m *Memtable) writeRoaringSetNodes(f *segmentindex.SegmentFile) ([]segmenti
 	cursor := roaringset.NewBinarySearchTreeCursorNoCopy(m.roaringSet)
 
 	totalWritten := segmentindex.HeaderSize
+	// Scratch for the node under construction, grown when one needs more and
+	// reused by the next. Safe because the node is written out before the loop
+	// comes round again, and because keys[i].Key does not alias this buffer.
+	var (
+		nodeBuf []byte
+		sn      *roaringset.SegmentNode
+	)
 	// A nil key is the end of the walk; a zero-length one is a node the tree can
 	// hold, so length cannot tell the two apart.
 	for key, layer, err := cursor.First(); ; key, layer, err = cursor.Next() {
@@ -88,10 +95,10 @@ func (m *Memtable) writeRoaringSetNodes(f *segmentindex.SegmentFile) ([]segmenti
 			break
 		}
 
-		// The segment must carry no slack: Compacted sizes the copy from the
-		// source's container headers and allocates it once.
-		sn, err := roaringset.NewSegmentNode(key,
-			layer.Additions.Compacted(), layer.Deletions.Compacted())
+		// The segment must carry no slack, so the bitmaps are compacted straight
+		// into the node buffer.
+		sn, nodeBuf, err = roaringset.NewSegmentNodeCompacted(key,
+			layer.Additions, layer.Deletions, nodeBuf)
 		if err != nil {
 			return nil, fmt.Errorf("create segment node: %w", err)
 		}
