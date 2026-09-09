@@ -385,8 +385,7 @@ func TestAggregateHandlerTenantAuthorization(t *testing.T) {
 }
 
 func TestAggregateHandlerResolvesAliases(t *testing.T) {
-	deps := newTestHandler(t)
-	deps.schemaReader.aliases = map[string]string{"Films": "Movie"}
+	deps := newTestHandlerWithAliases(t, map[string]string{"Films": "Movie"})
 	deps.searcher.aggregateRes = ungroupedCount(1)
 
 	_, apiErr := doAggregate(t, deps, nil, "Films", `{}`)
@@ -637,11 +636,12 @@ func TestGroupValueBeaconStrip(t *testing.T) {
 // the reply builder strips beacon namespaces; a non-ref groupBy is not
 // flagged. Exercised through the full handler with a namespaced principal.
 func TestAggregateGroupByRefDetection(t *testing.T) {
-	deps := newTestHandler(t)
+	// the namespaced schema stores the qualified class name
+	qualified := movieClass()
+	qualified.Class = "ns1:Movie"
+	deps := newTestHandlerWithClass(t, qualified)
 	deps.handler.namespacesEnabled = true
 	principal := &models.Principal{Username: "someone", Namespace: "ns1"}
-	// the namespaced schema stores the qualified class name
-	deps.schemaReader.classes["ns1:Movie"] = movieClass()
 	deps.searcher.aggregateRes = &aggregation.Result{Groups: []aggregation.Group{
 		{
 			GroupedBy: &aggregation.GroupedBy{
