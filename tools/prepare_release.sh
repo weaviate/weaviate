@@ -8,7 +8,6 @@ IMAGE_BASE="semitechnologies/weaviate:"
 MSG=${1:-""}
 REQUIRED_TOOLS="jq git"
 
-
 for tool in $REQUIRED_TOOLS; do
   if ! hash "$tool" 2>/dev/null; then
     echo "This script requires '$tool', but it is not installed."
