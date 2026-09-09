@@ -179,6 +179,11 @@ func setupAdmissionRepo(t *testing.T, className string, budget, maxQueue int,
 	}, className, class)
 }
 
+// importAdmissionObjects imports count objects. Nothing here searches their
+// vectors, but they still have to be distinct and non-collinear (see
+// admissionObjectVector): identical vectors collapse the HNSW graph into a
+// near-complete graph, and building that graph then dominates the runtime of
+// the whole adapters/repos/db integration suite.
 func importAdmissionObjects(t *testing.T, repo *DB, className string, count int) {
 	t.Helper()
 	const chunk = 2000
@@ -197,7 +202,7 @@ func importAdmissionObjects(t *testing.T, repo *DB, className string, count int)
 						"body":     fmt.Sprintf("alpha beta gamma object number %d", i),
 						"category": int64(i % 10),
 					},
-					Vector: []float32{0.1, 0.2, 0.3},
+					Vector: admissionObjectVector(i),
 				},
 			})
 		}
