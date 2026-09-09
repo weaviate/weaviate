@@ -19,15 +19,14 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate-go-client/v6/collections"
 	"github.com/weaviate/weaviate-go-client/v6/data"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate-go-client/v6/tenant"
 )
 
 const (
 	UUID1 = "10523cdd-15a2-42f4-81fa-267fe92f7cd6"
-	UUID2 = ("5b6a08ba-1d46-43aa-89cc-8b070790c6f2")
+	UUID2 = "5b6a08ba-1d46-43aa-89cc-8b070790c6f2"
 )
 
 func TestBatchReferenceCreateNoObjects(t *testing.T) {
@@ -44,9 +43,8 @@ func TestBatchReferenceCreateNoObjects(t *testing.T) {
 	c.Collections.Delete(ctx, collectionTo)
 	t.Cleanup(func() { c.Collections.Delete(context.Background(), collectionTo) })
 
-	to, err := c.Collections.Create(ctx, collections.Collection{Name: collectionTo})
+	_, err := c.Collections.Create(ctx, collections.Collection{Name: collectionTo})
 	require.NoError(t, err)
-	require.NotNilf(t, to, "%q collection handle", collectionTo)
 
 	from, err := c.Collections.Create(ctx, collections.Collection{
 		Name: collectionFrom,
@@ -75,60 +73,56 @@ func TestBatchReferenceCreateNoObjects(t *testing.T) {
 }
 
 func TestBatchReferenceTargetIsMT(t *testing.T) {
-	client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: wvhost.REST()})
-	require.Nil(t, err)
+	ctx := t.Context()
+	c := wvhost.NewClient(t)
 
-	classNameFrom := "RedTeddyFlowerFrom"
-	classNameTo := "RedTeddyFlowerTo"
+	collectionFrom := "RedTeddyFlowerFrom"
+	collectionTo := "RedTeddyFlowerTo"
+	uuid1, uuid2 := uuid.MustParse(UUID1), uuid.MustParse(UUID2)
 
 	// delete class if exists and cleanup after test
-	client.Schema().ClassDeleter().WithClassName(classNameFrom).Do(ctx)
-	defer client.Schema().ClassDeleter().WithClassName(classNameFrom).Do(ctx)
-	client.Schema().ClassDeleter().WithClassName(classNameTo).Do(ctx)
-	defer client.Schema().ClassDeleter().WithClassName(classNameTo).Do(ctx)
+	c.Collections.Delete(ctx, collectionFrom)
+	t.Cleanup(func() { c.Collections.Delete(context.Background(), collectionFrom) })
+	c.Collections.Delete(ctx, collectionTo)
+	t.Cleanup(func() { c.Collections.Delete(context.Background(), collectionTo) })
 
-	classTo := &models.Class{Class: classNameTo, Vectorizer: "none", MultiTenancyConfig: &models.MultiTenancyConfig{
-		Enabled: true,
-	}}
-	require.Nil(t, client.Schema().ClassCreator().WithClass(classTo).Do(ctx))
-	require.Nil(t, client.Schema().TenantsCreator().
-		WithClassName(classNameTo).
-		WithTenants(models.Tenant{Name: "Tenant"}).
-		Do(context.Background()))
+	to, err := c.Collections.Create(ctx, collections.Collection{
+		Name:         collectionTo,
+		MultiTenancy: &collections.MultiTenancyConfig{Enabled: true},
+	})
+	require.NoError(t, err)
+	require.NotNilf(t, to, "%q collection handle", collectionTo)
+	require.NoError(t, to.Tenants.Create(ctx, tenant.Tenant{Name: "john_doe"}))
 
-	require.Nil(t, err)
-	classFrom := &models.Class{
-		Class: classNameFrom,
-		Properties: []*models.Property{
-			{Name: "ref", DataType: []string{classNameTo}},
+	from, err := c.Collections.Create(ctx, collections.Collection{
+		Name: collectionFrom,
+		References: []collections.Reference{
+			{Name: "ref", Collections: []string{collectionTo}},
 		},
-		Vectorizer: "none",
-	}
-	require.Nil(t, client.Schema().ClassCreator().WithClass(classFrom).Do(ctx))
+	})
+	require.NoError(t, err)
+	require.NotNilf(t, from, "%q collection handle", collectionFrom)
 
 	// add object to target and source class
-	_, err = client.Data().Creator().WithClassName(classNameTo).WithID(UUID1).WithTenant("Tenant").WithProperties(map[string]interface{}{}).Do(ctx)
-	require.Nil(t, err)
-	_, err = client.Data().Creator().WithClassName(classNameFrom).WithID(UUID2).WithProperties(map[string]interface{}{}).Do(ctx)
-	require.Nil(t, err)
+	to = to.WithOptions(collections.WithTenant("john_doe"))
+	_, err = to.Data.Insert(ctx, &data.Object{UUID: &uuid1})
+	require.NoError(t, err)
 
-	rpb := client.Batch().ReferencePayloadBuilder().
-		WithFromClassName(classNameFrom).
-		WithFromRefProp("ref").
-		WithFromID(UUID2).
-		WithToID(UUID1) // no to class supplied, will be auto-detected
-	references := []*models.BatchReference{rpb.Payload()}
+	_, err = from.Data.Insert(ctx, &data.Object{UUID: &uuid2})
+	require.NoError(t, err)
 
-	resp, err := client.Batch().ReferencesBatcher().
-		WithReferences(references...).
-		Do(context.Background())
-	require.Nil(t, err)
-	require.NotNil(t, resp)
-	assert.Len(t, resp, len(references))
-	for i := range resp {
-		require.NotNil(t, resp[i].Result)
-		require.NotNil(t, resp[i].Result.Status)
-		assert.Equal(t, "FAILED", *resp[i].Result.Status)
-		assert.NotNil(t, resp[i].Result.Errors)
+	ref := data.Reference{
+		Origin: data.ObjectPath{
+			Property: "ref",
+			UUID:     uuid2,
+		},
+		UUID: uuid1,
+	}
+	_, err = from.Data.AddReferences(ctx, ref)
+
+	var partial data.AddReferencesError
+	if assert.ErrorAs(t, err, &partial) {
+		require.Len(t, partial.Errors, 1, "number of failed inserts")
+		require.Contains(t, partial.Errors, ref, "add-reference from %+v must fail", ref)
 	}
 }
