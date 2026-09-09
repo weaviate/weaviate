@@ -187,6 +187,7 @@ func (db *DB) init(ctx context.Context) error {
 				StartupShards:                       &db.startupShards,
 				BucketLoadLimiter:                   db.bucketLoadLimiter,
 				NamespacesExister:                   db.namespacesExister,
+				QueryAdmission:                      db.queryAdmission,
 				HNSWMaxLogSize:                      db.config.HNSWMaxLogSize,
 				HNSWWaitForCachePrefill: func() bool {
 					// don't wait if lazy load shard is enabled
