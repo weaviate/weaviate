@@ -1,10 +1,12 @@
-size 5550
+size 14490
 header version 1
-index start 5337
+index start 14159
 node 0 key "" len 204 additions 8 deletions 0
-node 1 key "additions" len 2133 additions 1000 deletions 0
-node 2 key "both" len 2304 additions 20 deletions 980
-node 3 key "deletions" len 341 additions 0 deletions 64
-node 4 key "emptied" len 339 additions 0 deletions 64
-index entries 5
-sha256 3de86aee57653637d18e635a37c5c540f8a1eb9f6c9e65859f8d63b0c505ceaa
+node 1 key "additions" len 2093 additions 1000 deletions 0
+node 2 key "both" len 2224 additions 20 deletions 980
+node 3 key "deletions" len 221 additions 0 deletions 64
+node 4 key "emptied" len 219 additions 0 deletions 64
+node 5 key "emptied a high container" len 628 additions 10 deletions 100
+node 6 key "was a bitmap container" len 8554 additions 100 deletions 4900
+index entries 7
+sha256 4ab9678f52ec40236d0d4d06d1212fb0915b14defad94fc3d9586118abeef333

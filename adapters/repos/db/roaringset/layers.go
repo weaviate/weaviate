@@ -55,6 +55,25 @@ func (l *BitmapLayer) Clone() BitmapLayer {
 	return clone
 }
 
+// Compacted copies both sides with their container slack reclaimed, so the copy
+// holds what its values need rather than what the source grew to. It keeps a nil
+// side nil, which [sroar.Bitmap.Compacted] on its own does not — that returns an
+// allocated empty bitmap for a nil receiver.
+//
+// It repeats [BitmapLayer.Clone]'s per-side shape rather than factoring it out:
+// the three copies here differ only in the sroar call, and folding them costs a
+// func-valued parameter for six lines.
+func (l *BitmapLayer) Compacted() BitmapLayer {
+	compacted := BitmapLayer{}
+	if l.Additions != nil {
+		compacted.Additions = l.Additions.Compacted()
+	}
+	if l.Deletions != nil {
+		compacted.Deletions = l.Deletions.Compacted()
+	}
+	return compacted
+}
+
 // LenInBytes is what copying this layer allocates. An allocated-but-empty side
 // costs nothing here, where [sroar.Bitmap.LenInBytes] counts the buffer it
 // allocated; the two agree only once a bitmap holds something.
