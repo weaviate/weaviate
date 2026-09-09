@@ -64,6 +64,8 @@ func (t *BinarySearchTree) Get(key []byte) (BitmapLayer, error) {
 
 // FlattenInOrder creates list of ordered copies of bst nodes
 // Only Key and Value fields are populated
+// The copies carry the source bitmaps' layout, so a caller serializing them
+// must pass them through [Condense] itself.
 func (t *BinarySearchTree) FlattenInOrder() []*BinarySearchNode {
 	if t.root == nil {
 		return nil
@@ -275,11 +277,11 @@ func (n *BinarySearchNode) flattenInOrder() []*BinarySearchNode {
 }
 
 func (n *BinarySearchNode) shallowCopy() *BinarySearchNode {
+	// Clone copies the buffer, so the copy carries whatever slack the source has.
+	// Only read cursors reach this, and none of them writes a segment, so the
+	// compacted layout Condense produces would buy them no smaller file.
 	return &BinarySearchNode{
-		Key: n.Key,
-		Value: BitmapLayer{
-			Additions: Condense(n.Value.Additions),
-			Deletions: Condense(n.Value.Deletions),
-		},
+		Key:   n.Key,
+		Value: n.Value.Clone(),
 	}
 }
