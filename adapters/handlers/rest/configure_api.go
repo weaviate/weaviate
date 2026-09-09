@@ -753,6 +753,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	schemaManager, err := schema.NewManager(migrator,
 		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
+		executor,
 		schemaRepo,
 		appState.Logger, appState.Authorizer, &appState.ServerConfig.Config.SchemaHandlerConfig, appState.ServerConfig.Config,
 		vectorIndex.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
