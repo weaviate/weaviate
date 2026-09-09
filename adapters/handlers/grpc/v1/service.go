@@ -13,13 +13,18 @@ package v1
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/schema"
 
 	"github.com/sirupsen/logrus"
@@ -91,6 +96,12 @@ func (s *Service) Aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 		result, errInner = s.aggregate(ctx, req)
 	}, s.logger); err != nil {
 		return nil, err
+	}
+
+	// Aggregations are not admitted themselves, but a cross-reference in the
+	// where filter runs a nested object search that is.
+	if grpcErr := admissionToGRPCError(errInner); grpcErr != nil {
+		return nil, grpcErr
 	}
 
 	return result, errInner
@@ -276,7 +287,23 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 		return nil, err
 	}
 
+	if grpcErr := admissionToGRPCError(errInner); grpcErr != nil {
+		return nil, grpcErr
+	}
+
 	return result, errInner
+}
+
+// admissionToGRPCError maps an admission shed to gRPC ResourceExhausted. This
+// is the public API, so the error reaches the client directly; our clients do
+// not retry ResourceExhausted, so under sustained saturation the caller sees
+// it as an error. Cross-node sheds are retried on the internal cluster path
+// (adapters/clients), before reaching this handler.
+func admissionToGRPCError(err error) error {
+	if errors.Is(err, queryadmission.ErrOverloaded) {
+		return status.Error(codes.ResourceExhausted, err.Error())
+	}
+	return nil
 }
 
 func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {

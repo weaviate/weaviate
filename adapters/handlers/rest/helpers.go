@@ -13,6 +13,10 @@ package rest
 
 import (
 	"fmt"
+	"net/http"
+
+	"github.com/go-openapi/runtime"
+	middleware "github.com/go-openapi/runtime/middleware"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -36,4 +40,15 @@ func errPayloadFromSingleErr(err error) *models.ErrorResponse {
 	return &models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{
 		Message: fmt.Sprintf("%s", err),
 	}}}
+}
+
+// tooManyRequestsResponder writes an HTTP 429 with the standard error
+// payload; the generated go-swagger operations declare no 429 response.
+func tooManyRequestsResponder(err error) middleware.Responder {
+	return middleware.ResponderFunc(func(rw http.ResponseWriter, producer runtime.Producer) {
+		rw.WriteHeader(http.StatusTooManyRequests)
+		if perr := producer.Produce(rw, errPayloadFromSingleErr(err)); perr != nil {
+			panic(perr) // let the recovery middleware deal with this
+		}
+	})
 }

@@ -42,6 +42,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
@@ -818,6 +819,11 @@ func (i *indices) postSearchObjects() http.Handler {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
 			return
 		}
+		if errors.Is(err, queryadmission.ErrOverloaded) {
+			// The coordinator's retryClient retries 429 with bounded backoff.
+			http.Error(w, err.Error(), http.StatusTooManyRequests)
+			return
+		}
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -933,6 +939,12 @@ func (i *indices) postAggregateObjects() http.Handler {
 
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
 			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			return
+		}
+		if errors.Is(err, queryadmission.ErrOverloaded) {
+			// A ref filter's nested search was shed; 429 so the coordinator's
+			// retryClient backs off, as for _search.
+			http.Error(w, err.Error(), http.StatusTooManyRequests)
 			return
 		}
 		if err != nil {

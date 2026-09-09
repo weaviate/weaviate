@@ -194,6 +194,12 @@ type Config struct {
 	TrackVectorDimensions            bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 	TrackVectorDimensionsInterval    time.Duration            `json:"track_vector_dimensions_interval" yaml:"track_vector_dimensions_interval"`
 	ReindexVectorDimensionsAtStartup bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
+	// QueryAdmissionBudget / QueryAdmissionMaxQueue size the node-level query
+	// admission limiter. 0 means auto (16x / 10x GOMAXPROCS respectively).
+	// QueryAdmissionControlDisabled is a runtime kill switch; enabled by default.
+	QueryAdmissionBudget          int                         `json:"query_admission_budget" yaml:"query_admission_budget"`
+	QueryAdmissionMaxQueue        int                         `json:"query_admission_max_queue" yaml:"query_admission_max_queue"`
+	QueryAdmissionControlDisabled *runtime.DynamicValue[bool] `json:"query_admission_control_disabled" yaml:"query_admission_control_disabled"`
 	// EnableLazyLoadShards controls lazy shard loading.
 	// nil = auto-detect based on thresholds, true = always lazy-load, false = always eager-load.
 	// DISABLE_LAZY_LOAD_SHARDS=true sets this to false for backward compatibility.

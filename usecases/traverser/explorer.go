@@ -193,7 +193,8 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 		if errors.As(err, &e) {
 			return nil, e
 		}
-		return nil, errors.Errorf("explorer: get class: vector search: %v", err)
+		// %w preserves the admission shed's identity (ErrOverloaded) through wrapping.
+		return nil, fmt.Errorf("explorer: get class: vector search: %w", err)
 	}
 
 	if e.modulesProvider != nil {
@@ -276,7 +277,8 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 
 	res, err := e.searcher.VectorSearch(ctx, params, targetVectors, searchVectors)
 	if err != nil {
-		return nil, nil, errors.Errorf("explorer: get class: vector search: %v", err)
+		// %w preserves the admission shed's identity (ErrOverloaded) through wrapping.
+		return nil, nil, fmt.Errorf("explorer: get class: vector search: %w", err)
 	}
 
 	if params.Pagination.Autocut > 0 {
@@ -636,7 +638,8 @@ func (e *Explorer) CrossClassVectorSearch(ctx context.Context,
 
 	res, err := e.searcher.CrossClassVectorSearch(ctx, vector, targetVector, params.Offset, params.Limit, nil)
 	if err != nil {
-		return nil, errors.Errorf("vector search: %v", err)
+		// %w preserves the admission shed's identity (ErrOverloaded) through wrapping.
+		return nil, fmt.Errorf("vector search: %w", err)
 	}
 
 	e.trackUsageExplore(res, params)
