@@ -1195,8 +1195,41 @@ func TestSchedulerList(t *testing.T) {
 			"an empty listing must not reach the authorizer: rbac rejects a filter carrying zero resources")
 	})
 
+	t.Run("AuthorizesTheWholeListingAtOnceForABlanketReader", func(t *testing.T) {
+		authorizer := mocks.NewMockAuthorizer()
+		fs := newFakeScheduler(nil)
+		fs.auth = authorizer
+		fs.backend.On("AllBackups", mock.Anything).Return([]*backup.DistributedBackupDescriptor{
+			{
+				ID:     backupID1,
+				Status: backup.Success,
+				Nodes:  map[string]*backup.NodeDescriptor{"node1": {Classes: []string{cls1, cls2}}},
+			},
+			{
+				ID:     backupID2,
+				Status: backup.Success,
+				Nodes:  map[string]*backup.NodeDescriptor{"node1": {Classes: []string{cls1, cls2}}},
+			},
+		}, nil)
+
+		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
+		require.NoError(t, err)
+		require.Len(t, *resp, 2)
+
+		calls := authorizer.Calls()
+		require.Len(t, calls, 2, "blanket backup READ covers the listing, so no collection is authorized on its own")
+		for _, call := range calls {
+			assert.Equal(t, authorization.READ, call.Verb)
+			assert.Equal(t, authorization.Backups(), call.Resources)
+		}
+		assert.True(t, calls[0].Silent, "the probe must not log a denial for callers who hold no blanket READ")
+		assert.False(t, calls[1].Silent,
+			"nothing else authorizes this endpoint, so the grant must reach the audit log")
+	})
+
 	t.Run("AuthorizesEachCollectionOnceForTheWholeListing", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
+		authorizer.Deny(authorization.Backups()...)
 		fs := newFakeScheduler(nil)
 		fs.auth = authorizer
 		backups := []*backup.DistributedBackupDescriptor{
@@ -1218,14 +1251,15 @@ func TestSchedulerList(t *testing.T) {
 		require.Len(t, *resp, 2)
 
 		calls := authorizer.Calls()
-		require.Len(t, calls, 1, "both backups name the same collections, so one authorizer call covers the listing")
-		assert.Equal(t, authorization.READ, calls[0].Verb)
-		assert.ElementsMatch(t, authorization.Backups(cls1, cls2), calls[0].Resources)
+		require.Len(t, calls, 2, "the blanket probe, then one call covering the collections both backups name")
+		assert.Equal(t, authorization.Backups(), calls[0].Resources)
+		assert.Equal(t, authorization.READ, calls[1].Verb)
+		assert.ElementsMatch(t, authorization.Backups(cls1, cls2), calls[1].Resources)
 	})
 
 	t.Run("AuthorizesEachCollectionOnceForADeniedCaller", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
-		authorizer.Deny(authorization.Backups(cls1, cls2)...)
+		authorizer.Deny(append(authorization.Backups(cls1, cls2), authorization.Backups()...)...)
 		fs := newFakeScheduler(nil)
 		fs.auth = authorizer
 		backups := []*backup.DistributedBackupDescriptor{
@@ -1245,7 +1279,7 @@ func TestSchedulerList(t *testing.T) {
 		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
 		require.NoError(t, err)
 		require.Len(t, *resp, 0)
-		require.Len(t, authorizer.Calls(), 1, "a caller who may read nothing still costs one authorizer call")
+		require.Len(t, authorizer.Calls(), 2, "a caller who may read nothing still costs the blanket probe and one filter")
 	})
 
 	t.Run("FiltersByReadPermission", func(t *testing.T) {
@@ -1265,12 +1299,14 @@ func TestSchedulerList(t *testing.T) {
 				wantIDs: []string{withTwoClasses, withOneClass, withoutClasses},
 			},
 			{
+				// A caller denied cls2 holds no blanket READ either, so deny
+				// both. The wildcard authorizes the backup naming no collection.
 				name:    "one denied collection hides every backup naming it",
-				denied:  authorization.Backups(cls2),
-				wantIDs: []string{withOneClass, withoutClasses},
+				denied:  append(authorization.Backups(cls2), authorization.Backups()...),
+				wantIDs: []string{withOneClass},
 			},
 			{
-				name:    "denying the wildcard hides the backup naming no collection",
+				name:    "denying only the wildcard hides the backup naming no collection",
 				denied:  authorization.Backups(),
 				wantIDs: []string{withTwoClasses, withOneClass},
 			},
