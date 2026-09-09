@@ -1217,6 +1217,36 @@ func TestEnvironmentExperimentalRESTSearchEnabled(t *testing.T) {
 	}
 }
 
+func TestEnvironmentWeaviateLicense(t *testing.T) {
+	factors := []struct {
+		name     string
+		value    []string
+		expected bool
+	}{
+		{"Valid: true", []string{"true"}, true},
+		{"Valid: on", []string{"on"}, true},
+		{"Valid: enabled", []string{"enabled"}, true},
+		{"Valid: 1", []string{"1"}, true},
+		{"Valid: false", []string{"false"}, false},
+		{"Valid: off", []string{"off"}, false},
+		{"Valid: 0", []string{"0"}, false},
+		{"Unrecognized value counts as off", []string{"yes"}, false},
+		{"Empty value counts as off", []string{""}, false},
+		{"not given", []string{}, false},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("WEAVIATE_LICENSE", tt.value[0])
+			}
+			conf := Config{}
+			require.NoError(t, FromEnv(&conf))
+
+			require.Equal(t, tt.expected, conf.WeaviateLicense.Get())
+		})
+	}
+}
+
 func TestEnvironmentCORS_Headers(t *testing.T) {
 	factors := []struct {
 		name        string
@@ -2473,4 +2503,76 @@ func TestNamespaceCleanupIntervalValidation(t *testing.T) {
 		assert.Equal(t, time.Minute, conf.Namespaces.CleanupInterval.Get(),
 			"a refused push must leave the previous interval in place")
 	})
+}
+
+func TestEnvironmentQueryAdmissionBudget(t *testing.T) {
+	assertNonNegativeIntEnv(t, "QUERY_ADMISSION_BUDGET",
+		func(c *Config) int { return c.QueryAdmissionBudget })
+}
+
+func TestEnvironmentQueryAdmissionMaxQueue(t *testing.T) {
+	assertNonNegativeIntEnv(t, "QUERY_ADMISSION_MAX_QUEUE",
+		func(c *Config) int { return c.QueryAdmissionMaxQueue })
+}
+
+// assertNonNegativeIntEnv checks: positive value taken, unset/0 means "auto",
+// negative/garbage rejected.
+func assertNonNegativeIntEnv(t *testing.T, envName string, get func(*Config) int) {
+	t.Helper()
+	factors := []struct {
+		name        string
+		value       []string
+		expected    int
+		expectedErr bool
+	}{
+		{"Valid", []string{"512"}, 512, false},
+		{"not given defaults to auto", []string{}, 0, false},
+		{"explicit zero means auto", []string{"0"}, 0, false},
+		{"negative rejected", []string{"-1"}, 0, true},
+		{"not parsable", []string{"nope"}, 0, true},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			conf, err := setEnvAndParse(t, envName, tt.value)
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Nil(t, err)
+				require.Equal(t, tt.expected, get(&conf))
+			}
+		})
+	}
+}
+
+// setEnvAndParse sets envName when value has exactly one element (empty/nil
+// models "unset"), then parses a fresh Config and returns it with any error.
+func setEnvAndParse(t *testing.T, envName string, value []string) (Config, error) {
+	t.Helper()
+	if len(value) == 1 {
+		t.Setenv(envName, value[0])
+	}
+	conf := Config{}
+	return conf, FromEnv(&conf)
+}
+
+func TestEnvironmentQueryAdmissionControlDisabled(t *testing.T) {
+	factors := []struct {
+		name     string
+		value    []string
+		expected bool
+	}{
+		{"Valid: true", []string{"true"}, true},
+		{"Valid: false", []string{"false"}, false},
+		{"Valid: 1", []string{"1"}, true},
+		{"Valid: 0", []string{"0"}, false},
+		{"not given defaults to enabled (not disabled)", []string{}, false},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			conf, err := setEnvAndParse(t, "QUERY_ADMISSION_CONTROL_DISABLED", tt.value)
+			require.Nil(t, err)
+			require.NotNil(t, conf.QueryAdmissionControlDisabled)
+			require.Equal(t, tt.expected, conf.QueryAdmissionControlDisabled.Get())
+		})
+	}
 }

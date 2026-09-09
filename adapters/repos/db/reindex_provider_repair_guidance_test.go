@@ -134,6 +134,14 @@ func TestRepairCommandsForFailedMigration_EnableAndAlgorithmUsePut(t *testing.T)
 			wantCommand: `PUT /v1/schema/Products/properties/name/index/filterable -d '{}'`,
 		},
 		{
+			name: "enable-rangeable -> PUT re-enable with empty body",
+			payload: &ReindexTaskPayload{
+				Collection: "Products", MigrationType: ReindexTypeEnableRangeable,
+				Properties: []string{"name"},
+			},
+			wantCommand: `PUT /v1/schema/Products/properties/name/index/rangeFilters -d '{}'`,
+		},
+		{
 			name: "change-algorithm -> PUT re-run with algorithm body",
 			payload: &ReindexTaskPayload{
 				Collection: "Products", MigrationType: ReindexTypeChangeAlgorithm,

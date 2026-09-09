@@ -158,13 +158,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	s.settleMigrationDirectories(ctx, class)
 
 	// Pessimistically mark any in-flight enable-rangeable / repair-rangeable
-	// migration's target property as "not locally ready" on this shard.
-	// Without this, a post-restart shard whose recovery hasn't finished
-	// the local swap yet would serve range queries from an empty
-	// PreReindexHook'd bucket as soon as the cluster-wide schema flag
-	// flips on another node. See [Shard.rangeableLocalReady] for the
-	// full rationale. Props not found in this scan default to "ready"
-	// (no migration ever ran, or every prior migration already tidied).
+	// migration's target property "not locally ready": repair-rangeable runs
+	// with the schema flag already true, so nothing else would stop a shard
+	// whose recovery has not finished the swap from serving range queries off
+	// an empty PreReindexHook'd bucket. Props not in this scan default to
+	// ready. Full rationale on [Shard.rangeableLocalReady].
 	markInFlightRangeableMigrationsNotReady(s)
 
 	if err := s.initNonVector(ctx, class); err != nil {
