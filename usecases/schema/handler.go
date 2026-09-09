@@ -383,7 +383,7 @@ func (h *Handler) ShardsStatus(ctx context.Context,
 		return nil, err
 	}
 
-	return h.indexer.GetShardsStatus(ctx, class, shard)
+	return h.indexer.GetShardsStorageStatus(ctx, class, shard)
 }
 
 // JoinNode adds the given node to the cluster.

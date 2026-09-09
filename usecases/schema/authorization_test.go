@@ -309,7 +309,7 @@ func Test_Schema_Authorization_AliasResolution(t *testing.T) {
 				Status: "READY",
 			},
 		}
-		db.On("GetShardsStatus", mock.Anything, resolvedClassName, shardName).Return(expectedStatus, nil)
+		db.On("GetShardsStorageStatus", mock.Anything, resolvedClassName, shardName).Return(expectedStatus, nil)
 
 		// Create custom schema manager with alias resolution
 		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{
@@ -346,7 +346,7 @@ func Test_Schema_Authorization_AliasResolution(t *testing.T) {
 		expectedStatus := models.ShardStatusList{
 			&models.ShardStatusGetResponse{Name: shardName, Status: "READY"},
 		}
-		db.On("GetShardsStatus", mock.Anything, qualifiedClass, shardName).Return(expectedStatus, nil)
+		db.On("GetShardsStorageStatus", mock.Anything, qualifiedClass, shardName).Return(expectedStatus, nil)
 
 		handler.schemaReader = &fakeSchemaManagerWithAlias{
 			fakeSchemaManager: fakeSchemaManager,

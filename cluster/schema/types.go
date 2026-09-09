@@ -51,7 +51,7 @@ type Indexer interface {
 	ReconcileAsyncReplicationForShard(class, shard string) error
 	LoadShard(class, shard string)     // is a no-op
 	ShutdownShard(class, shard string) // is a no-op
-	GetShardsStatus(ctx context.Context, class, tenant string) (models.ShardStatusList, error)
+	GetShardsStorageStatus(ctx context.Context, class, tenant string) (models.ShardStatusList, error)
 
 	TriggerSchemaUpdateCallbacks()
 

@@ -781,7 +781,7 @@ func testConcurrentAliasSnapshot(t *testing.T, s *schema) {
 // the schema-map lock before returning the pointer — so reading Sharding and
 // ClassVersion afterwards is unsynchronised, while updateClass mutates exactly
 // those fields under the class lock. The sibling test above only drives
-// GetShardsStatus, which goes through a different reader, so it never covered
+// GetShardsStorageStatus, which goes through a different reader, so it never covered
 // this path.
 //
 // Only meaningful under -race: without the class lock the detector reports the

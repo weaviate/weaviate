@@ -4213,7 +4213,7 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 	return size, nil
 }
 
-// getShardsStatus returns the status of the collection's shards on each of its
+// getShardsStorageStatus returns the status of the collection's shards on each of its
 // replica nodes. Example:
 //
 //	map[string]map[string]string{
@@ -4224,7 +4224,7 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 // The second return value are shard statuses mirroring the legacy implementation,
 // where the status is returned based on the first replica to contain the shard,
 // preferably local.
-func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]map[string]string, map[string]string, error) {
+func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[string]map[string]string, map[string]string, error) {
 	thisNode := i.getSchema.NodeName()
 	className := i.Config.ClassName.String()
 	shardNames, err := i.schemaReader.Shards(className)
