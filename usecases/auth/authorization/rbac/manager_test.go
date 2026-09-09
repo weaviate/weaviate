@@ -15,7 +15,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
@@ -1293,6 +1295,93 @@ func TestRestoreEmptyData(t *testing.T) {
 	policies, err = m.casbin.GetPolicy()
 	require.NoError(t, err)
 	require.Len(t, policies, 5)
+}
+
+// TestGetRolesForUserOrGroupDuringRestore pins that a role lookup keeps making
+// progress while Restore runs. A second read acquisition inside the lookup parks
+// both goroutines once Restore is queued for the write lock.
+func TestGetRolesForUserOrGroupDuringRestore(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	m, err := setupTestManager(t, logger)
+	require.NoError(t, err)
+
+	require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
+		"restore-role": {{Resource: authorization.Collections("Movies")[0], Verb: authorization.READ, Domain: authorization.SchemaDomain}},
+	}))
+	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("restore-user", authentication.AuthTypeDb), []string{"restore-role"}))
+
+	// a user holding no role returns before the nested lookup and never nests
+	roles, err := m.GetRolesForUserOrGroup("restore-user", authentication.AuthTypeDb, false)
+	require.NoError(t, err)
+	require.Len(t, roles, 1)
+
+	blob, err := m.Snapshot()
+	require.NoError(t, err)
+
+	stop := make(chan struct{})
+	defer close(stop)
+	errs := make(chan error, 2)
+	var lookups, restores atomic.Int64
+
+	// listUsers makes one lookup per listed user
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if _, err := m.GetRolesForUserOrGroup("restore-user", authentication.AuthTypeDb, false); err != nil {
+				errs <- err
+				return
+			}
+			lookups.Add(1)
+		}
+	}()
+
+	// applyRestoreRolesAndUsers reaches Restore on the FSM apply goroutine
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if err := m.Restore(blob, false); err != nil {
+				errs <- err
+				return
+			}
+			restores.Add(1)
+		}
+	}()
+
+	const (
+		runFor       = 5 * time.Second
+		poll         = 200 * time.Millisecond
+		stallsToFail = 10
+	)
+	deadline := time.Now().Add(runFor)
+	var last int64
+	stalls := 0
+	for time.Now().Before(deadline) {
+		time.Sleep(poll)
+		done := lookups.Load() + restores.Load()
+		if done == last {
+			stalls++
+		} else {
+			stalls = 0
+		}
+		require.Less(t, stalls, stallsToFail, "lookup and restore both stopped making progress")
+		last = done
+	}
+
+	select {
+	case err := <-errs:
+		require.NoError(t, err)
+	default:
+	}
+	require.Positive(t, lookups.Load())
+	require.Positive(t, restores.Load())
 }
 
 // TestRestoreInvalidatesEnforceCache verifies that Restore() properly

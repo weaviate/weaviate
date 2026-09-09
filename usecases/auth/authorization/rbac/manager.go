@@ -160,6 +160,13 @@ func (m *Manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
+	return m.getRoles(names...)
+}
+
+// getRoles is GetRoles for a caller that already holds restoreLock for reading.
+// Taking that read lock twice on one goroutine parks it forever once Restore is
+// queued for the write lock.
+func (m *Manager) getRoles(names ...string) (map[string][]authorization.Policy, error) {
 	var (
 		casbinStoragePolicies    [][][]string
 		casbinStoragePoliciesMap = make(map[string]struct{})
@@ -409,7 +416,7 @@ func (m *Manager) GetRolesForUserOrGroup(userName string, authType authenticatio
 	if len(rolesNames) == 0 {
 		return map[string][]authorization.Policy{}, err
 	}
-	roles, err := m.GetRoles(rolesNames...)
+	roles, err := m.getRoles(rolesNames...)
 	if err != nil {
 		return nil, fmt.Errorf("GetRoles: %w", err)
 	}
