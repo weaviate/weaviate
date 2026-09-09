@@ -209,6 +209,29 @@ func TestBSTRoaringSet_Flatten(t *testing.T) {
 			}
 		})
 	})
+
+	t.Run("the flattened copy keeps the source bitmap's slack", func(t *testing.T) {
+		// A range mostly removed again leaves the container sized for what it
+		// held, which tells a buffer copy apart from a rebuild through a union.
+		// 1000 keeps the container array-backed, and Condense leaves a
+		// bitmap-backed one at its full size.
+		bst := new(BinarySearchTree)
+		bst.Insert([]byte("key"), Insert{Additions: slice(0, 1000)})
+		bst.Insert([]byte("key"), Insert{Deletions: slice(10, 1000)})
+
+		flat := bst.FlattenInOrder()
+		require.Len(t, flat, 1)
+
+		source := bst.root.Value.Additions.ToBuffer()
+		copied := flat[0].Value.Additions.ToBuffer()
+		condensed := Condense(bst.root.Value.Additions).ToBuffer()
+
+		require.Greater(t, len(source), len(condensed),
+			"the fixture no longer carries slack Condense can reclaim; sroar's array/bitmap container threshold may have moved")
+		assert.Equal(t, source, copied, "the copy must be the source buffer, byte for byte")
+		assert.Greater(t, len(copied), len(condensed),
+			"a copy the size of a condensed bitmap means the values were rebuilt, not copied")
+	})
 }
 
 func TestBinarySearchTreeCountsDistinctKeys(t *testing.T) {
@@ -343,9 +366,46 @@ func BenchmarkBinarySearchTreeFlatten(b *testing.B) {
 		m.Insert(keys[value], insert)
 	}
 
+	b.ReportAllocs()
+	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		m.FlattenInOrder()
 	}
+}
+
+// BenchmarkBinarySearchTreeFlattenWithSlack flattens bitmaps carrying container
+// slack, which BenchmarkBinarySearchTreeFlatten's single-value nodes have none
+// of. Copying a buffer keeps that slack, so a cursor opened here holds more
+// bytes than a rebuild through a union would leave it.
+//
+// retained-B is that held size. B/op cannot stand in for it: it also counts
+// sroar's buffer slop beyond what ToBuffer reports, which understates the
+// difference between the two copies.
+func BenchmarkBinarySearchTreeFlattenWithSlack(b *testing.B) {
+	const keys = 200
+
+	bst := new(BinarySearchTree)
+	for i := 0; i < keys; i++ {
+		key := []byte(fmt.Sprintf("key-%05d", i))
+		bst.Insert(key, Insert{Additions: slice(0, 1000)})
+		bst.Insert(key, Insert{Deletions: slice(10, 1000)})
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	var retained int
+	for i := 0; i < b.N; i++ {
+		flat := bst.FlattenInOrder()
+
+		retained = 0
+		for _, node := range flat {
+			retained += node.Value.LenInBytes()
+		}
+	}
+
+	b.ReportMetric(float64(retained), "retained-B")
 }
 
 func lexicographicallySortableFloat64(in float64) ([]byte, error) {
