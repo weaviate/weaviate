@@ -236,7 +236,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		for node := range groups {
 			participants[node] = struct{}{}
 		}
-		plan = c.planDesignatedShards(ctx, req.Classes, budget, participants)
+		plan = c.planDesignatedShards(ctx, req.Classes, budget, participants, req.BaseDedupeDesignations)
 	}
 	// Stamp from the planning outcome: a zero-dedupe artifact is physically legacy and stays restorable on pre-3.0 releases, unless its base chain traverses a deduped artifact.
 	dedupeEffective := plan != nil && plan.designated() > 0
@@ -263,7 +263,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	if plan != nil {
 		c.descriptor.DedupeDesignatedShards = plan.designated()
 		c.descriptor.DedupeFallbackShards = plan.fallback()
-		// Copied, not aliased; cancelled/failed artifacts carry the map harmlessly since chain validation refuses non-Success bases.
+		// copied, not aliased; non-Success artifacts carry the map harmlessly (chain validation refuses them)
 		for class, shards := range plan.designations {
 			if len(shards) == 0 {
 				continue

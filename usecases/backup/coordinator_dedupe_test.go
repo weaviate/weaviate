@@ -257,18 +257,43 @@ func TestAssignDesignations(t *testing.T) {
 
 	all := parts("n1", "n2", "n3", "n9")
 	loads := map[string]int{}
-	got := assignDesignations(shardReplicas, loads, all)
+	got, sticky := assignDesignations(shardReplicas, loads, all, nil)
+	assert.Zero(t, sticky)
 	assert.Equal(t, map[string]string{"s1": "n1", "s2": "n2", "s3": "n1", "s4": "n3"}, got)
 	assert.Equal(t, map[string]int{"n1": 2, "n2": 1, "n3": 1}, loads)
 
-	again := assignDesignations(shardReplicas, map[string]int{}, all)
+	again, _ := assignDesignations(shardReplicas, map[string]int{}, all, nil)
 	assert.Equal(t, got, again)
 
-	crossClass := assignDesignations(map[string][]string{"t1": {"n1", "n9"}}, loads, all)
+	crossClass, _ := assignDesignations(map[string][]string{"t1": {"n1", "n9"}}, loads, all, nil)
 	assert.Equal(t, map[string]string{"t1": "n9"}, crossClass)
 
-	onlyParticipants := assignDesignations(map[string][]string{"u1": {"n1", "n2", "x"}, "u2": {"n1", "x"}}, map[string]int{"n1": 9}, parts("n1", "n2"))
+	onlyParticipants, _ := assignDesignations(map[string][]string{"u1": {"n1", "n2", "x"}, "u2": {"n1", "x"}}, map[string]int{"n1": 9}, parts("n1", "n2"), nil)
 	assert.Equal(t, map[string]string{"u1": "n2"}, onlyParticipants)
+
+	t.Run("preferred designee outranks load and seeds it", func(t *testing.T) {
+		loads := map[string]int{"n1": 9}
+		got, sticky := assignDesignations(shardReplicas, loads, all, map[string]string{"s1": "n1", "s2": "n1"})
+		assert.Equal(t, 2, sticky)
+		assert.Equal(t, map[string]string{"s1": "n1", "s2": "n1", "s3": "n2", "s4": "n3"}, got)
+		assert.Equal(t, map[string]int{"n1": 11, "n2": 1, "n3": 1}, loads)
+	})
+
+	t.Run("ineligible preferences fall back", func(t *testing.T) {
+		got, sticky := assignDesignations(
+			map[string][]string{"s1": {"n1", "n2", "n3"}, "s2": {"n1", "n2"}, "lone": {"n1", "x"}},
+			map[string]int{}, parts("n1", "n2"),
+			map[string]string{"s1": "n3", "s2": "ghost", "lone": "n1"})
+		assert.Zero(t, sticky)
+		assert.Equal(t, map[string]string{"s1": "n1", "s2": "n2"}, got)
+	})
+
+	t.Run("tenant-named shards stick", func(t *testing.T) {
+		reps := map[string][]string{"tenant-a": {"n1", "n2"}, "tenant-b": {"n1", "n2"}}
+		got, sticky := assignDesignations(reps, map[string]int{}, parts("n1", "n2"), map[string]string{"tenant-b": "n2"})
+		assert.Equal(t, 1, sticky)
+		assert.Equal(t, map[string]string{"tenant-a": "n1", "tenant-b": "n2"}, got)
+	})
 }
 
 func parts(nodes ...string) map[string]struct{} {
@@ -316,13 +341,29 @@ func TestPlanDesignatedShards(t *testing.T) {
 		f.converge["C1/s2"] = true
 		c := newDedupeCoordinator(f)
 
-		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"))
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"), nil)
 		require.NotNil(t, plan)
 		assert.Equal(t, 2, plan.designated())
 		assert.Len(t, plan.designations["C1"], 2)
 		assert.NotContains(t, plan.designations["C1"], "solo")
 		assert.Equal(t, []string{"C1"}, f.createCalls)
 		assert.Equal(t, []string{"C1"}, f.deleteCalls)
+	})
+
+	t.Run("base designations stick per class", func(t *testing.T) {
+		f := newFakeCheckpointer()
+		f.shardReplicas["C1"] = map[string][]string{
+			"s1": {"n1", "n2", "n3"},
+			"s2": {"n1", "n2", "n3"},
+		}
+		f.converge["C1/s1"] = true
+		f.converge["C1/s2"] = true
+		c := newDedupeCoordinator(f)
+
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"),
+			map[string]map[string]string{"C1": {"s2": "n3"}, "C9": {"x": "n1"}})
+		require.NotNil(t, plan)
+		assert.Equal(t, map[string]map[string]string{"C1": {"s1": "n1", "s2": "n3"}}, plan.designations)
 	})
 
 	t.Run("partial convergence", func(t *testing.T) {
@@ -336,7 +377,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		c := newDedupeCoordinator(f)
 		c.dedupeConvergenceBudget = 40 * time.Millisecond
 
-		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"))
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"), nil)
 		assert.Equal(t, map[string]map[string]string{"C1": {"s1": plan.designations["C1"]["s1"]}}, plan.designations)
 		assert.Equal(t, []string{"C1"}, f.deleteCalls)
 	})
@@ -347,7 +388,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		f.shardReplicas["C1"] = map[string][]string{"s1": {"n1", "n2"}}
 		c := newDedupeCoordinator(f)
 
-		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"))
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"), nil)
 		assert.Equal(t, 0, plan.designated())
 		assert.Empty(t, f.createCalls)
 		assert.Empty(t, f.deleteCalls)
@@ -359,7 +400,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		f.shardReplicas["C1"] = map[string][]string{"s1": {"n1"}, "s2": {"n2"}}
 		c := newDedupeCoordinator(f)
 
-		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"))
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"), nil)
 		assert.Equal(t, 0, plan.designated())
 		assert.Empty(t, f.createCalls)
 	})
@@ -374,7 +415,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 
 		reasonBefore := dedupeFallbackCount("create_rpc_failed")
 		designatedBefore, fallbackBefore := dedupeShardOutcomeCount("designated"), dedupeShardOutcomeCount("fallback")
-		plan := c.planDesignatedShards(ctx, []string{"C1", "C2"}, 0, parts("n1", "n2", "n3"))
+		plan := c.planDesignatedShards(ctx, []string{"C1", "C2"}, 0, parts("n1", "n2", "n3"), nil)
 		assert.NotContains(t, plan.designations, "C1")
 		assert.Len(t, plan.designations["C2"], 1)
 		assert.Equal(t, []string{"C2"}, f.deleteCalls)
@@ -392,7 +433,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		c.dedupeConvergenceBudget = 5 * time.Second
 
 		start := time.Now()
-		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"))
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"), nil)
 		assert.Equal(t, 0, plan.designated())
 		assert.Less(t, time.Since(start), 2*time.Second)
 		assert.Equal(t, 1, f.statusCalls["C1"])
@@ -407,7 +448,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		c.dedupeConvergenceBudget = 5 * time.Second
 
 		start := time.Now()
-		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"))
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"), nil)
 		assert.Equal(t, 0, plan.designated())
 		assert.Less(t, time.Since(start), 2*time.Second)
 		assert.Equal(t, 1, f.statusCalls["C1"])
@@ -421,7 +462,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		c := newDedupeCoordinator(f)
 
 		reasonBefore := dedupeFallbackCount("status_failed")
-		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"))
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"), nil)
 		assert.Equal(t, 0, plan.designated())
 		assert.Equal(t, []string{"C1"}, f.deleteCalls)
 		assert.Equal(t, 2.0, dedupeFallbackCount("status_failed")-reasonBefore, "status_failed counts shards, not classes")
@@ -437,7 +478,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		fallbackBefore := dedupeShardOutcomeCount("fallback")
 		deadlineCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 		defer cancel()
-		plan := c.planDesignatedShards(deadlineCtx, []string{"C1"}, 0, parts("n1", "n2", "n3"))
+		plan := c.planDesignatedShards(deadlineCtx, []string{"C1"}, 0, parts("n1", "n2", "n3"), nil)
 		assert.Equal(t, 0, plan.designated())
 		assert.Equal(t, 2, plan.fallback())
 		assert.Equal(t, []string{"C1"}, f.deleteCalls, "checkpoints must be deleted even on deadline expiry")
@@ -454,7 +495,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		cancelCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
 		defer cancel()
 
-		plan := c.planDesignatedShards(cancelCtx, []string{"C1"}, 0, parts("n1", "n2", "n3"))
+		plan := c.planDesignatedShards(cancelCtx, []string{"C1"}, 0, parts("n1", "n2", "n3"), nil)
 		assert.Equal(t, 0, plan.designated())
 		assert.Equal(t, []string{"C1"}, f.deleteCalls)
 	})
@@ -467,7 +508,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		c.dedupeConvergenceBudget = 5 * time.Second
 
 		start := time.Now()
-		plan := c.planDesignatedShards(ctx, []string{"C1"}, 40*time.Millisecond, parts("n1", "n2", "n3"))
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 40*time.Millisecond, parts("n1", "n2", "n3"), nil)
 		assert.Equal(t, 0, plan.designated())
 		assert.Less(t, time.Since(start), 2*time.Second)
 		assert.GreaterOrEqual(t, f.statusCalls["C1"], 2)
@@ -478,7 +519,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		f.replicasErr["C1"] = assert.AnError
 		c := newDedupeCoordinator(f)
 
-		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"))
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2", "n3"), nil)
 		assert.Equal(t, 0, plan.designated())
 		assert.Empty(t, f.createCalls)
 	})
@@ -490,7 +531,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		f.convergeAfter["C1/s1"] = 2
 		c := newDedupeCoordinator(f)
 
-		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2"))
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2"), nil)
 		assert.Equal(t, 1, plan.designated())
 		assert.GreaterOrEqual(t, f.statusCalls["C1"], 3)
 		assert.Equal(t, []string{"C1"}, f.deleteCalls)
@@ -505,7 +546,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		c.dedupePlanningSlack = 50 * time.Millisecond
 
 		begin := time.Now()
-		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2"))
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2"), nil)
 		assert.Less(t, time.Since(begin), 5*time.Second)
 		assert.Equal(t, 0, plan.designated())
 		assert.Equal(t, []string{"C1"}, f.deleteCalls)
@@ -518,7 +559,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		f.createPanic["B1"] = true
 		c := newDedupeCoordinator(f)
 
-		require.Panics(t, func() { c.planDesignatedShards(ctx, []string{"A1", "B1"}, 0, parts("n1", "n2")) })
+		require.Panics(t, func() { c.planDesignatedShards(ctx, []string{"A1", "B1"}, 0, parts("n1", "n2"), nil) })
 		assert.Equal(t, []string{"A1"}, f.deleteCalls)
 	})
 
@@ -531,7 +572,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 		c.lastOp.set(backup.Cancelled)
 
 		begin := time.Now()
-		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2"))
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2"), nil)
 		assert.Less(t, time.Since(begin), 5*time.Second)
 		assert.Equal(t, 0, plan.designated())
 		assert.Equal(t, []string{"C1"}, f.deleteCalls)
@@ -547,7 +588,7 @@ func TestPlanDesignatedShards(t *testing.T) {
 
 		done := make(chan *dedupePlan, 1)
 		enterrors.GoWrapper(func() {
-			done <- c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2"))
+			done <- c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2"), nil)
 		}, c.log)
 		require.Eventually(t, func() bool {
 			f.mu.Lock()
@@ -737,6 +778,25 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		assert.Equal(t, VersionDedupeReplicas, got.Version)
 		assert.False(t, got.DedupeReplicas)
 		assert.Zero(t, got.DedupeDesignatedShards)
+	})
+
+	t.Run("base designations stick end to end", func(t *testing.T) {
+		t.Parallel()
+		wantDesignations := map[string]map[string]string{"Class-A": {"s1": "N2"}}
+		match := mock.MatchedBy(func(r *Request) bool {
+			return r.Method == OpCreate && r.ID == backupID && r.DedupeReplicas &&
+				assert.ObjectsAreEqual(wantDesignations, r.ShardDesignations)
+		})
+		nodeMeta := backup.BackupDescriptor{Status: backup.Success, Classes: []backup.ClassDescriptor{
+			{Name: "Class-A", Shards: []*backup.ShardDescriptor{{Name: "s1", Node: "N2"}}},
+		}}
+		fc, _, c := runCommittedDedupeBackup(t, nodeMeta, match, nil, nil,
+			func(r *Request) { r.BaseDedupeDesignations = wantDesignations })
+
+		require.Eventually(t, func() bool { return c.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+		got := fc.backend.glMeta
+		assert.Equal(t, backup.Success, got.Status)
+		assert.Equal(t, wantDesignations, got.DedupeDesignations)
 	})
 
 	t.Run("coverage verify re-reads only nodes commit could not", func(t *testing.T) {

@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"time"
 
@@ -73,7 +74,7 @@ func (p *dedupePlan) fallback() int {
 
 // planDesignatedShards designates one archiving node per convergence-proven shard; failures only downgrade shards to all-replica fallback, and checkpoints are deleted before returning (archiving needs no live checkpoint).
 // Designations only ever name members of participants: a designated non-participant would archive nothing while every replica skips.
-func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string, budget time.Duration, participants map[string]struct{}) *dedupePlan {
+func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string, budget time.Duration, participants map[string]struct{}, preferred map[string]map[string]string) *dedupePlan {
 	defer func(begin time.Time) {
 		monitoring.GetMetrics().BackupDedupePlanningDurations.Observe(float64(time.Since(begin).Milliseconds()))
 	}(time.Now())
@@ -212,10 +213,12 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 	}
 	sort.Strings(classNames)
 	for _, class := range classNames {
-		plan.designations[class] = assignDesignations(converged[class], loads, participants)
+		designations, sticky := assignDesignations(converged[class], loads, participants, preferred[class])
+		plan.designations[class] = designations
 		c.log.WithField("action", OpCreate).WithField("class", class).
-			WithField("designated", len(plan.designations[class])).
-			WithField("fallback", len(candidates[class])-len(plan.designations[class])).
+			WithField("designated", len(designations)).
+			WithField("sticky", sticky).
+			WithField("fallback", len(candidates[class])-len(designations)).
 			Info("replica dedupe: planning complete")
 	}
 	monitoring.GetMetrics().BackupDedupeShards.WithLabelValues("designated").Add(float64(plan.designated()))
@@ -354,16 +357,16 @@ func replicaSetCompleteAtCutoff(entries []replica.AsyncCheckpointNodeStatus, rep
 	return true
 }
 
-// assignDesignations picks the least-loaded participant replica per shard (sorted order, lexicographic ties); loads is shared across classes.
+// assignDesignations picks one archiving node per shard: an eligible preferred (base) designee outranks balance since only it can skip unchanged files, the rest go least-loaded (lexicographic ties, loads shared across classes).
 // Shards with fewer than two participant replicas get no designation: naming a non-participant would orphan the shard, and a lone participant gains nothing.
-func assignDesignations(shardReplicas map[string][]string, loads map[string]int, participants map[string]struct{}) map[string]string {
+func assignDesignations(shardReplicas map[string][]string, loads map[string]int, participants map[string]struct{}, preferred map[string]string) (map[string]string, int) {
 	shards := make([]string, 0, len(shardReplicas))
 	for shard := range shardReplicas {
 		shards = append(shards, shard)
 	}
 	sort.Strings(shards)
 
-	out := make(map[string]string, len(shards))
+	eligible := make(map[string][]string, len(shards))
 	for _, shard := range shards {
 		nodes := make([]string, 0, len(shardReplicas[shard]))
 		for node := range uniqueNonEmpty(shardReplicas[shard]) {
@@ -375,6 +378,29 @@ func assignDesignations(shardReplicas map[string][]string, loads map[string]int,
 			continue
 		}
 		sort.Strings(nodes)
+		eligible[shard] = nodes
+	}
+
+	out := make(map[string]string, len(shards))
+	sticky := 0
+	// sticky picks first so the least-loaded picks see their load
+	for _, shard := range shards {
+		want := preferred[shard]
+		if want == "" || !slices.Contains(eligible[shard], want) {
+			continue
+		}
+		loads[want]++
+		out[shard] = want
+		sticky++
+	}
+	for _, shard := range shards {
+		nodes := eligible[shard]
+		if nodes == nil {
+			continue
+		}
+		if _, done := out[shard]; done {
+			continue
+		}
 		best := nodes[0]
 		for _, node := range nodes[1:] {
 			if loads[node] < loads[best] {
@@ -384,7 +410,7 @@ func assignDesignations(shardReplicas map[string][]string, loads map[string]int,
 		loads[best]++
 		out[shard] = best
 	}
-	return out
+	return out, sticky
 }
 
 // projectDesignations returns the entries for shards the node replicates; nil when none apply.
