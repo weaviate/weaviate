@@ -585,11 +585,26 @@ func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) sharding.R
 	return index
 }
 
+// dropIndexData removes a class's files without going through an Index.
+func (db *DB) dropIndexData(className schema.ClassName) error {
+	deleted, err := renameForAsyncDelete(
+		filepath.Join(db.config.RootPath, indexID(className)), db.logger)
+	if err != nil {
+		return fmt.Errorf("rename index for async delete: %w", err)
+	}
+	if deleted != "" {
+		spawnAsyncDelete(deleted, db.logger)
+	}
+	return nil
+}
+
 // DeleteIndex deletes the index
 func (db *DB) DeleteIndex(className schema.ClassName) error {
 	index := db.GetIndex(className)
 	if index == nil {
-		return nil
+		// The class can still have data with no index built for it. Only
+		// index.drop removes the directory, so returning here strands it.
+		return db.dropIndexData(className)
 	}
 
 	// a reader holding dropIndex would block the drop below while db.indexLock is held

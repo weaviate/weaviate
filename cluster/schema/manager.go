@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -54,6 +55,11 @@ type SchemaManager struct {
 	tenantLimit func() int
 	// tenantLimitErrTemplate resolves the cap-exceeded message (empty = default).
 	tenantLimitErrTemplate func() string
+
+	orphansMu sync.Mutex
+	// orphanedClasses maps classes dropped from the schema while the store went
+	// untouched to whether they held frozen tenants.
+	orphanedClasses map[string]bool
 }
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
@@ -123,8 +129,69 @@ func (s *SchemaManager) AliasSnapshot() ([]byte, error) {
 	return buf.Bytes(), err
 }
 
+// Restore installs a snapshot's schema. Nothing replays the DELETE_CLASS that
+// dropped a class the snapshot no longer names, so this diff is the only
+// signal the store gets that its data should go.
 func (s *SchemaManager) Restore(data []byte, parser Parser) error {
-	return s.schema.Restore(data, parser)
+	before := s.schema.classNames()
+	if err := s.schema.Restore(data, parser); err != nil {
+		return err
+	}
+	s.recordOrphansSince(before)
+	return nil
+}
+
+// recordOrphansSince marks every class present before an operation and absent
+// after it. Frozen tenants are unknowable by now, so cloud cleanup is left to
+// the delete path that still has that state.
+func (s *SchemaManager) recordOrphansSince(before map[string]struct{}) {
+	after := s.schema.classNames()
+
+	s.orphansMu.Lock()
+	defer s.orphansMu.Unlock()
+	for name := range before {
+		if _, stillThere := after[name]; !stillThere {
+			if s.orphanedClasses == nil {
+				s.orphanedClasses = map[string]bool{}
+			}
+			if _, seen := s.orphanedClasses[name]; !seen {
+				s.orphanedClasses[name] = false
+			}
+		}
+	}
+}
+
+// recordOrphan marks one class whose data the store was not told to remove.
+func (s *SchemaManager) recordOrphan(class string, hasFrozen bool) {
+	s.orphansMu.Lock()
+	defer s.orphansMu.Unlock()
+	if s.orphanedClasses == nil {
+		s.orphanedClasses = map[string]bool{}
+	}
+	// OR, never overwrite: deleted frozen, re-added, deleted hot still leaves
+	// the first incarnation's cloud data.
+	s.orphanedClasses[class] = s.orphanedClasses[class] || hasFrozen
+}
+
+// dropOrphanedClasses removes the recorded classes' data, skipping any the
+// schema names again: catching up over [DELETE_CLASS C, ADD_CLASS C] records C
+// on the way past, and dropping it here would destroy what the re-add created.
+func (s *SchemaManager) dropOrphanedClasses() {
+	s.orphansMu.Lock()
+	orphans := s.orphanedClasses
+	s.orphanedClasses = nil
+	s.orphansMu.Unlock()
+
+	present := s.schema.classNames()
+	for class, hasFrozen := range orphans {
+		if _, revived := present[class]; revived {
+			continue
+		}
+		if err := s.db.DeleteClass(class, hasFrozen); err != nil {
+			s.log.WithField("class", class).
+				Errorf("drop data of class the schema no longer names: %v", err)
+		}
+	}
 }
 
 func (s *SchemaManager) RestoreAliases(data []byte) error {
@@ -207,6 +274,9 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	s.db.TriggerSchemaUpdateCallbacks()
 	s.log.Info("reload local db: update schema ...")
 	s.db.ReloadLocalDB(context.Background(), cs)
+
+	// ReloadLocalDB only opens classes the schema still names.
+	s.dropOrphanedClasses()
 }
 
 func (s *SchemaManager) Close(ctx context.Context) (err error) {
@@ -392,6 +462,13 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 			hasFrozen = true
 			break
 		}
+	}
+
+	if schemaOnly {
+		// The store is not updated here, so the data outlives the schema entry
+		// naming it. The reload drops it, once a re-add can no longer make that
+		// data loss.
+		s.recordOrphan(cmd.Class, hasFrozen)
 	}
 
 	return s.apply(

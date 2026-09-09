@@ -314,6 +314,18 @@ type shardReader interface {
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 }
 
+// classNames returns the names the schema holds, without MetaClasses' deep copy.
+func (s *schema) classNames() map[string]struct{} {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	names := make(map[string]struct{}, len(s.classes))
+	for name := range s.classes {
+		names[name] = struct{}{}
+	}
+	return names
+}
+
 func (s *schema) len() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
