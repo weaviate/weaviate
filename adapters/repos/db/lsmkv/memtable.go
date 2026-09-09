@@ -111,7 +111,7 @@ type memtable interface {
 	flushDataMap(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
 	flushDataCollection(f *segmentindex.SegmentFile, flat []*binarySearchNodeMulti) ([]segmentindex.Key, error)
 	flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.MeteredWriter, bufw *bufio.Writer) ([]segmentindex.Key, *sroar.Bitmap, error)
-	flushDataRoaringSet(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
+	flushDataRoaringSet(f *segmentindex.SegmentFile) ([]segmentindex.KeyRedux, error)
 	flushDataRoaringSetRange(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
 
 	incWriterCount()
