@@ -164,7 +164,7 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 						h.store,
 						h.makeBucketOptions,
 						h.allocChecker,
-						h.getTargetVector(),
+						h.compressedBucketName(),
 						h.vectorForID,
 					)
 				} else {
@@ -178,7 +178,7 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 						h.store,
 						h.makeBucketOptions,
 						h.allocChecker,
-						h.getTargetVector(),
+						h.compressedBucketName(),
 						h.multiVectorForNodeID,
 					)
 				}
@@ -199,7 +199,7 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 					h.store,
 					h.makeBucketOptions,
 					h.allocChecker,
-					h.getTargetVector(),
+					h.compressedBucketName(),
 					h.vectorForID,
 				)
 			} else {
@@ -213,7 +213,7 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 					h.store,
 					h.makeBucketOptions,
 					h.allocChecker,
-					h.getTargetVector(),
+					h.compressedBucketName(),
 					h.multiVectorForNodeID,
 				)
 			}
@@ -289,7 +289,7 @@ func (h *hnsw) restoreRotationalQuantization(data *ent.RQData) error {
 				h.store,
 				h.allocChecker,
 				h.makeBucketOptions,
-				h.getTargetVector(),
+				h.compressedBucketName(),
 				h.vectorForID,
 			)
 		})
@@ -311,7 +311,7 @@ func (h *hnsw) restoreRotationalQuantization(data *ent.RQData) error {
 				h.store,
 				h.allocChecker,
 				h.makeBucketOptions,
-				h.getTargetVector(),
+				h.compressedBucketName(),
 				h.multiVectorForNodeID,
 			)
 		})
@@ -339,7 +339,7 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *ent.BRQData) error {
 				h.store,
 				h.allocChecker,
 				h.makeBucketOptions,
-				h.getTargetVector(),
+				h.compressedBucketName(),
 				h.vectorForID,
 			)
 		})
@@ -359,7 +359,7 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *ent.BRQData) error {
 				h.store,
 				h.allocChecker,
 				h.makeBucketOptions,
-				h.getTargetVector(),
+				h.compressedBucketName(),
 				h.multiVectorForNodeID,
 			)
 		})
@@ -562,7 +562,10 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 			} else {
 				h.compressor.PrefillMultiCache(ctx, h.docIDVectors)
 			}
-		} else if h.useParallelPrefill() {
+		} else if h.vectorFromObject != nil && h.useParallelPrefill() {
+			// only an index the shard bound an object-vector reader for can
+			// scan the objects bucket; hfresh's centroid graph has none and
+			// always takes the serial, VectorForIDThunk-based path below
 			// Unbounded uncompressed cache: scan the objects bucket with a parallel
 			// cursor instead of looking up every vector by id (disk-seek bound).
 			err = h.prefillCacheParallel(ctx)

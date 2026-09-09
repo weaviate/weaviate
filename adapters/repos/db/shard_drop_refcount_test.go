@@ -32,7 +32,9 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
+	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -145,11 +147,9 @@ func TestShardDropDrainsRealBatchWrite(t *testing.T) {
 // bounded on purpose, so a reference held past the window must not wedge the
 // delete, and must be logged. Runs for the full drain window (~30s).
 func TestShardDropProceedsWhenDrainTimesOut(t *testing.T) {
-	index, cleanup := initIndexAndPopulate(t, t.TempDir())
-	defer cleanup()
-
 	logger, hook := test.NewNullLogger()
-	index.logger = logger
+	index, cleanup := initIndexAndPopulateWithLogger(t, t.TempDir(), logger)
+	defer cleanup()
 
 	start := time.Now()
 	_, release, dropped := dropTestShard(t, index) // pin is never released
@@ -269,11 +269,9 @@ func TestObjectReadsAfterStoreTeardownReturnErrors(t *testing.T) {
 // outliving the drain must fail on the deregistered bucket rather than
 // dereference nil, and must be reported once.
 func TestObjectWritesAfterStoreTeardownReturnErrors(t *testing.T) {
-	index, cleanup := initIndexAndPopulate(t, t.TempDir())
-	defer cleanup()
-
 	logger, hook := test.NewNullLogger()
-	index.logger = logger
+	index, cleanup := initIndexAndPopulateWithLogger(t, t.TempDir(), logger)
+	defer cleanup()
 
 	_, shard := loadTestShard(t, index)
 	// the state a teardown that outran its drain leaves behind
@@ -372,4 +370,54 @@ func TestInFlightObjectReadHoldsOffBucketTeardown(t *testing.T) {
 	case <-time.After(time.Minute):
 		t.Fatal("teardown never completed after the read released its pin")
 	}
+}
+
+// TestDropVectorIndexWaitsForALease pins the RFC's deletion step 3 at the
+// shard level: a drop of one named vector waits for a caller that holds
+// its index, and a drop of another vector does not.
+func TestDropVectorIndexWaitsForALease(t *testing.T) {
+	shd, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "test"}, hnswent.UserConfig{}, false, false, func(idx *Index) {
+		idx.vectorIndexUserConfig = nil
+		idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+			"held":  hnswent.NewDefaultUserConfig(),
+			"other": hnswent.NewDefaultUserConfig(),
+		}
+	})
+	s := shd.(*Shard)
+
+	_, release, ok := s.AcquireVectorIndex("held")
+	require.True(t, ok)
+
+	otherDropped := make(chan error, 1)
+	go func() { otherDropped <- s.DropVectorIndex(context.Background(), "other") }()
+	select {
+	case err := <-otherDropped:
+		require.NoError(t, err, "a drop of an unrelated vector must not wait for this lease")
+	case <-time.After(10 * time.Second):
+		t.Fatal("dropping the other vector waited for a lease on the held one")
+	}
+
+	heldDropped := make(chan error, 1)
+	go func() { heldDropped <- s.DropVectorIndex(context.Background(), "held") }()
+	select {
+	case <-heldDropped:
+		t.Fatal("the drop completed while the index was leased")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	_, _, ok = s.AcquireVectorIndex("held")
+	require.False(t, ok, "no new lease once the drop has started")
+
+	release()
+	select {
+	case err := <-heldDropped:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the drop did not complete after the lease was released")
+	}
+
+	_, _, ok = s.AcquireVectorIndex("held")
+	require.False(t, ok)
+	_, _, ok = s.AcquireVectorIndex("other")
+	require.False(t, ok)
 }

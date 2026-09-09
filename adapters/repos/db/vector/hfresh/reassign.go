@@ -15,6 +15,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+
 	"github.com/pkg/errors"
 )
 
@@ -45,7 +47,7 @@ func (h *HFresh) doReassign(ctx context.Context, op reassignOperation) error {
 
 	var q []float32
 	if h.muvera.Load() {
-		q, err = h.muveraEncoder.GetMuveraVectorForID(op.VectorID, h.id+"_muvera_vectors")
+		q, err = h.muveraEncoder.GetMuveraVectorForID(op.VectorID, helpers.MuveraBucketName(h.id))
 	} else {
 		q, err = h.config.VectorForIDThunk(ctx, op.VectorID)
 	}

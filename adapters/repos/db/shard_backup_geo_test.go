@@ -90,7 +90,7 @@ func TestShardListBackupFilesCoversGeoIndex(t *testing.T) {
 			}
 
 			shardLike, index := testShardWithSettings(t, ctx, class,
-				enthnsw.UserConfig{Skip: true}, false, false, false)
+				enthnsw.UserConfig{Skip: true}, false, false)
 			shard := shardLike.(*Shard)
 
 			indexedPerProp := map[string]int{}

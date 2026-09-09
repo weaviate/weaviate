@@ -109,6 +109,17 @@ type CompareHashTreeRootsMultiClassResp struct {
 	Error           string   `json:"error,omitempty"`
 }
 
+// CompareRootsSession issues cross-class root compares reusing its request assembly; single-goroutine use only.
+type CompareRootsSession interface {
+	CompareHashTreeRootsMulti(ctx context.Context, host string,
+		classes map[string]map[string]hashtree.Digest) (*CompareHashTreeRootsMultiResp, error)
+}
+
+// CompareRootsSessionFactory creates independent CompareRootsSessions, one per calling goroutine.
+type CompareRootsSessionFactory interface {
+	NewCompareRootsSession() CompareRootsSession
+}
+
 // WClient is the client used to write to replicas
 type WClient interface {
 	PutObject(ctx context.Context, host, index, shard, requestID string,

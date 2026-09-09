@@ -14,7 +14,6 @@ package hnsw
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"runtime"
 	"sync"
@@ -91,9 +90,11 @@ func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 	if bucket == nil {
 		return fmt.Errorf("prefill cache: objects bucket %q not found", helpers.ObjectsBucketLSM)
 	}
+	// startup only routes here when the shard bound a reader; a nil one
+	// means a direct caller skipped that gate
 	vectorFromObject := h.vectorFromObject
 	if vectorFromObject == nil {
-		vectorFromObject = targetVectorFromObject(h.getTargetVector())
+		return fmt.Errorf("prefill cache: no VectorFromObject configured for the objects-bucket scan")
 	}
 
 	var loaded atomic.Int64
@@ -124,24 +125,6 @@ func (h *hnsw) prefillCacheParallel(ctx context.Context) error {
 // VectorFromObject reads the vector an index caches out of one stored object's
 // binary form. A nil vector means the object carries none, so the scan skips it.
 type VectorFromObject func(objectBytes []byte) ([]float32, error)
-
-// targetVectorFromObject reads the named (or, for an empty name, legacy) vector
-// an index was built on.
-func targetVectorFromObject(targetVector string) VectorFromObject {
-	return func(objectBytes []byte) ([]float32, error) {
-		// nil buffer forces a fresh allocation; a reused buffer would be aliased by
-		// VectorFromBinary across iterations and corrupt previously cached vectors.
-		vec, err := storobj.VectorFromBinary(objectBytes, nil, targetVector)
-		if err != nil {
-			var notFound storobj.ErrTargetVectorNotFound
-			if errors.As(err, &notFound) {
-				return nil, nil
-			}
-			return nil, err
-		}
-		return vec, nil
-	}
-}
 
 // scanObjectVectorsParallel scans the objects bucket across GOMAXPROCS cursors over
 // disjoint key ranges. onVector must be safe for concurrent use.

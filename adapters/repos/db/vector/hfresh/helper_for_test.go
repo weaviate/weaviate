@@ -305,7 +305,7 @@ func createMuveraHFreshIndexWithConfig(t *testing.T, searchProbe, rescoreLimit i
 func createHFreshIndexWithVectorStore(t *testing.T, vectors [][]float32) TestHFresh {
 	t.Helper()
 	return createHFreshIndex(t, func(cfg *Config) {
-		cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector,
+		cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk("",
 			func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
 				if int(indexID) < len(vectors) {
 					return vectors[indexID], nil

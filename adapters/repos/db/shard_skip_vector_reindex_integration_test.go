@@ -538,8 +538,10 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 
 	createShard := func(t *testing.T, asyncIndexingEnabled bool) (ShardLike, *VectorIndexQueue) {
 		vectorIndexConfig := hnsw.UserConfig{Distance: common.DefaultDistanceMetric}
-		shard, _ := testShardWithSettings(t, ctx, class, vectorIndexConfig, true, true, asyncIndexingEnabled)
-		queue, ok := shard.GetVectorIndexQueue("")
+		shard, _ := testShardWithSettings(t, ctx, class, vectorIndexConfig, true, asyncIndexingEnabled)
+		queue, release, ok := shard.AcquireVectorIndexQueue("")
+		require.True(t, ok)
+		defer release()
 		require.True(t, ok)
 		return shard, queue
 	}

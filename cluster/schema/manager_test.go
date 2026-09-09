@@ -57,7 +57,7 @@ func TestResolveAlais(t *testing.T) {
 func TestVersionedSchemaReaderShardReplicas(t *testing.T) {
 	var (
 		ctx = context.Background()
-		sc  = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+		sc  = NewSchema(t.Name(), prometheus.NewPedanticRegistry())
 		vsc = VersionedSchemaReader{
 			schema:        sc,
 			WaitForUpdate: func(ctx context.Context, version uint64) error { return nil },
@@ -89,7 +89,7 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 		retErr error
 		f      = func(ctx context.Context, version uint64) error { return retErr }
 		nodes  = []string{"N1", "N2"}
-		s      = NewSchema(t.Name(), &MockShardReader{}, prometheus.NewPedanticRegistry())
+		s      = NewSchema(t.Name(), prometheus.NewPedanticRegistry())
 		sc     = VersionedSchemaReader{s, f}
 	)
 
@@ -185,8 +185,8 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 }
 
 func TestSchemaReaderShardReplicas(t *testing.T) {
-	sc := NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
-	rsc := SchemaReader{sc, VersionedSchemaReader{}}
+	sc := NewSchema(t.Name(), prometheus.NewPedanticRegistry())
+	rsc := SchemaReader{schema: sc}
 	// class not found
 	_, _, err := sc.ShardReplicas("C", "S")
 	assert.ErrorIs(t, err, ErrClassNotFound)
@@ -210,8 +210,8 @@ func TestSchemaReaderShardReplicas(t *testing.T) {
 func TestSchemaReaderClass(t *testing.T) {
 	var (
 		nodes = []string{"N1", "N2"}
-		s     = NewSchema(t.Name(), &MockShardReader{}, prometheus.NewPedanticRegistry())
-		sc    = SchemaReader{s, VersionedSchemaReader{}}
+		s     = NewSchema(t.Name(), prometheus.NewPedanticRegistry())
+		sc    = SchemaReader{schema: s}
 	)
 
 	// class not found
@@ -266,9 +266,6 @@ func TestSchemaReaderClass(t *testing.T) {
 	shard, _ := sc.TenantsShards("C", "S2")
 	assert.Empty(t, shard)
 	assert.Empty(t, sc.ShardFromUUID("Cx", nil))
-
-	_, err = sc.GetShardsStatus("C", "")
-	assert.Nil(t, err)
 
 	// Add Multi Tenant Class (PartitioningEnabled: true)
 	cls2 := &models.Class{Class: "D", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
@@ -465,15 +462,6 @@ func TestApplyPartialSchemaErr(t *testing.T) {
 			}
 		})
 	}
-}
-
-type MockShardReader struct {
-	lst models.ShardStatusList
-	err error
-}
-
-func (m *MockShardReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
-	return m.lst, m.err
 }
 
 // fakeReplicationFSM stands in for the real FSM here because importing

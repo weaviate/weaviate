@@ -30,13 +30,13 @@ import (
 
 type Config struct {
 	ID                           string
-	TargetVector                 string
 	Logger                       logrus.FieldLogger
 	RootPath                     string
 	ShardName                    string
 	ClassName                    string
 	PrometheusMetrics            *monitoring.PrometheusMetrics
 	VectorForIDThunk             common.VectorForID[float32]
+	VectorFromObject             hnsw.VectorFromObject // forwarded to the inner hnsw
 	GetViewThunk                 common.GetViewThunk
 	TempVectorForIDWithViewThunk common.TempVectorForIDWithView[float32]
 	DistanceProvider             distancer.Provider

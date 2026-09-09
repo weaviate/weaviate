@@ -343,7 +343,7 @@ func (f *fakeRouter) NodeHostname(nodeName string) (string, bool) {
 	return host, ok
 }
 
-func TestIndex_getShardsStatus(t *testing.T) {
+func TestIndex_getShardsStorageStatus(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	clusterNodes := []string{"node-0", "node-1", "node-2"}
 	targetNode := clusterNodes[0]
@@ -459,7 +459,7 @@ func TestIndex_getShardsStatus(t *testing.T) {
 	}
 
 	// Act
-	got, gotLegacy, err := index.getShardsStatus(t.Context(), "")
+	got, gotLegacy, err := index.getShardsStorageStatus(t.Context(), "")
 
 	// Assert
 	assert.NoError(t, err)

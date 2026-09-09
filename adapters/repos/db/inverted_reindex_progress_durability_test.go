@@ -84,7 +84,7 @@ func TestReindexProgressCheckpointDurability(t *testing.T) {
 			className := "ReindexCheckpointDurability_" + uuid.NewString()[:8]
 			shd, idx := testShardWithSettings(t, ctx,
 				newTestClassWithProps(className, []string{durabilityProp}),
-				enthnsw.UserConfig{Skip: true}, false, false, false)
+				enthnsw.UserConfig{Skip: true}, false, false)
 			shard := shd.(*Shard)
 			defer shard.Shutdown(ctx)
 
@@ -114,7 +114,7 @@ func TestReindexProgressCheckpointDurability(t *testing.T) {
 				&UuidKeyParser{}, uuidObjectsIteratorAsync)
 
 			require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-			_, _, err := task.OnAfterLsmInitAsync(runCtx, shard)
+			_, err := task.OnAfterLsmInitAsync(runCtx, shard)
 			require.Equal(t, tt.cancelAfter > 0, err != nil, "unexpected run outcome: %v", err)
 			require.Equal(t, durabilityCheckpointAt, strategy.writes,
 				"the site under test must be reached after exactly %d objects", durabilityCheckpointAt)

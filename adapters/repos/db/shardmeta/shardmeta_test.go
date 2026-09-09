@@ -12,6 +12,7 @@
 package shardmeta
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -213,4 +214,140 @@ func TestDeleteOffline(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, []byte{1}, v, "the loaded owner's state must be untouched")
 	})
+}
+
+func TestNamespace_Update(t *testing.T) {
+	db := openTestDB(t, t.TempDir())
+	ns := db.Namespace("mapping")
+
+	// all writes of one Update land together
+	err := ns.Update(func(b *Batch) error {
+		if err := b.Put([]byte("a"), []byte{1}); err != nil {
+			return err
+		}
+		return b.Put([]byte("b"), []byte{2})
+	})
+	require.NoError(t, err)
+	a, err := ns.Get([]byte("a"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte{1}, a)
+	b, err := ns.Get([]byte("b"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte{2}, b)
+
+	// a batch sees its own writes and the state before it
+	err = ns.Update(func(b *Batch) error {
+		v, err := b.Get([]byte("a"))
+		if err != nil {
+			return err
+		}
+		assert.Equal(t, []byte{1}, v)
+		if err := b.Put([]byte("c"), []byte{3}); err != nil {
+			return err
+		}
+		v, err = b.Get([]byte("c"))
+		if err != nil {
+			return err
+		}
+		assert.Equal(t, []byte{3}, v)
+		missing, err := b.Get([]byte("nope"))
+		if err != nil {
+			return err
+		}
+		assert.Nil(t, missing)
+		return b.Delete([]byte("b"))
+	})
+	require.NoError(t, err)
+	b, err = ns.Get([]byte("b"))
+	require.NoError(t, err)
+	assert.Nil(t, b)
+
+	// an error from the callback rolls every write of the batch back
+	boom := errors.New("boom")
+	err = ns.Update(func(b *Batch) error {
+		if err := b.Put([]byte("d"), []byte{4}); err != nil {
+			return err
+		}
+		if err := b.Delete([]byte("a")); err != nil {
+			return err
+		}
+		return boom
+	})
+	require.ErrorIs(t, err, boom)
+	d, err := ns.Get([]byte("d"))
+	require.NoError(t, err)
+	assert.Nil(t, d)
+	a, err = ns.Get([]byte("a"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte{1}, a)
+
+	// other namespaces are untouched
+	v, err := db.Namespace("other").Get([]byte("a"))
+	require.NoError(t, err)
+	assert.Nil(t, v)
+}
+
+// TestNamespace_Update_CopiesValues pins that a batch does not keep the
+// caller's buffer: bolt retains a Put value until the transaction commits,
+// and the callback keeps running in between.
+func TestNamespace_Update_CopiesValues(t *testing.T) {
+	db := openTestDB(t, t.TempDir())
+	ns := db.Namespace("mapping")
+
+	err := ns.Update(func(b *Batch) error {
+		buf := []byte{1}
+		if err := b.Put([]byte("a"), buf); err != nil {
+			return err
+		}
+		buf[0] = 2
+		return b.Put([]byte("b"), buf)
+	})
+	require.NoError(t, err)
+
+	a, err := ns.Get([]byte("a"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte{1}, a)
+	b, err := ns.Get([]byte("b"))
+	require.NoError(t, err)
+	assert.Equal(t, []byte{2}, b)
+}
+
+func TestNamespace_ForEach(t *testing.T) {
+	db := openTestDB(t, t.TempDir())
+	ns := db.Namespace("mapping")
+
+	// a namespace never written iterates nothing
+	calls := 0
+	err := ns.ForEach(func(key, value []byte) error {
+		calls++
+		return nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0, calls)
+
+	require.NoError(t, ns.Put([]byte("b"), []byte{2}))
+	require.NoError(t, ns.Put([]byte("a"), []byte{1}))
+	require.NoError(t, db.Namespace("other").Put([]byte("z"), []byte{9}))
+
+	// keys come in byte order, copies survive the call, other namespaces are not visited
+	var keys []string
+	var values [][]byte
+	err = ns.ForEach(func(key, value []byte) error {
+		keys = append(keys, string(key))
+		values = append(values, value)
+		return nil
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a", "b"}, keys)
+	assert.Equal(t, [][]byte{{1}, {2}}, values)
+
+	// the callback's error stops the walk and is returned
+	boom := errors.New("boom")
+	calls = 0
+	err = ns.ForEach(func(key, value []byte) error {
+		calls++
+		return boom
+	})
+	require.ErrorIs(t, err, boom)
+	assert.Equal(t, 1, calls)
 }

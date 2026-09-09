@@ -74,7 +74,6 @@ func TestRestoreUpgradedLegacyDynamic(t *testing.T) {
 			AllocChecker:     memwatch.NewDummyMonitor(),
 			RootPath:         root,
 			ID:               indexID,
-			TargetVector:     "", // legacy / default vector — the bug's trigger
 			Logger:           logger,
 			DistanceProvider: dp,
 			MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {

@@ -75,7 +75,7 @@ func newTestHandlerWithNamespaces(t *testing.T, enabled bool) (*Handler, *fakeSc
 	// Tests that exercise placement should set handler.namespacesExister
 	// directly to override this default.
 	handler, err := NewHandler(
-		schemaManager, schemaManager, fakeValidator, logger, mocks.NewMockAuthorizer(),
+		schemaManager, schemaManager, &fakeDB{}, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil,
 		fakeNamespacesExister{defaultHomeNode: "node-1"}, nil)

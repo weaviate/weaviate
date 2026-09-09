@@ -18,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 )
 
@@ -92,6 +93,15 @@ func (ic *classSettings) Validate(class *models.Class) error {
 
 	apiEndpoint := ic.ApiEndpoint()
 	projectID := ic.ProjectID()
+	if err := modulecomponents.ValidateGoogleApiEndpoint(apiEndpoint); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
+	if err := modulecomponents.ValidateGoogleLocation(regionProperty, ic.Region()); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
+	if err := modulecomponents.ValidateGoogleLocation(locationProperty, ic.Location()); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
 	if apiEndpoint != DefaulGenerativeAIApiEndpoint && projectID == "" {
 		errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", projectIDProperty))
 	}

@@ -67,7 +67,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "custom values",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"apiEndpoint": "google.com",
+					"apiEndpoint": "europe-west4-aiplatform.googleapis.com",
 					"projectId":   "cloud-project",
 					"modelId":     "model-id",
 					"temperature": 0.25,
@@ -76,7 +76,7 @@ func Test_classSettings_Validate(t *testing.T) {
 					"topP":        0.97,
 				},
 			},
-			wantApiEndpoint: "google.com",
+			wantApiEndpoint: "europe-west4-aiplatform.googleapis.com",
 			wantProjectID:   "cloud-project",
 			wantModelID:     "model-id",
 			wantTemperature: ptr(0.25),
@@ -84,6 +84,26 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantTopK:        ptr(30),
 			wantTopP:        ptr(0.97),
 			wantErr:         nil,
+		},
+		{
+			name: "apiEndpoint outside the Google API domain",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"apiEndpoint": "attacker.example.com",
+					"projectId":   "cloud-project",
+				},
+			},
+			wantErr: errors.Errorf("apiEndpoint must be a Google API host ending in .googleapis.com, got \"attacker.example.com\""),
+		},
+		{
+			name: "region carrying a host",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"projectId": "cloud-project",
+					"region":    "attacker.example.com/",
+				},
+			},
+			wantErr: errors.Errorf("region must be a Google region name, got \"attacker.example.com/\""),
 		},
 		{
 			name: "wrong temperature",

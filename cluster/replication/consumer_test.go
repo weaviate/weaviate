@@ -1151,13 +1151,13 @@ func TestConsumerOpDuplication(t *testing.T) {
 	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "shard1", api.COPY)
 	status := replication.NewShardReplicationStatus(api.FINALIZING)
 
-	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
 	completionWg.Add(1)
+	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
 
 	// Send the same operation again to make sure it isn't reprocessed after a state change
 	// as mocked in the above expectations
-	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
 	completionWg.Add(1)
+	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
 
 	waitChan := make(chan struct{})
 	go func() {
@@ -1282,12 +1282,12 @@ func TestConsumerOpSkip(t *testing.T) {
 	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "shard1", api.COPY)
 	status := replication.NewShardReplicationStatus(api.FINALIZING)
 
-	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
 	completionWg.Add(1)
+	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
 
 	// Send the same operation again twice to make sure it is skipped
-	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
 	completionWg.Add(1)
+	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
 
 	waitChan := make(chan struct{})
 	go func() {
@@ -1393,8 +1393,8 @@ func TestConsumerShutdown(t *testing.T) {
 			Return(api.HYDRATING, nil)
 		op := replication.NewShardReplicationOp(uint64(i), "node1", "node2", "TestCollection", "test-shard", api.COPY)
 		status := replication.NewShardReplicationStatus(api.HYDRATING)
-		opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
 		completionWg.Add(1)
+		opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
 	}
 	// Wait for a second for the ops to start processing
 	time.Sleep(1 * time.Second)
