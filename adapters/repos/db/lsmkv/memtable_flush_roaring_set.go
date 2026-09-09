@@ -18,7 +18,15 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
-func (m *Memtable) flushDataRoaringSet(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
+func (m *Memtable) flushDataRoaringSet(f *segmentindex.SegmentFile) ([]segmentindex.KeyRedux, error) {
+	// The header below pins SecondaryIndices to 0, so a non-zero count would only
+	// add an offset table the reader does not skip, leaving the primary index
+	// unparseable.
+	if m.secondaryIndices != 0 {
+		return nil, fmt.Errorf("roaring set flush cannot write %d secondary indexes",
+			m.secondaryIndices)
+	}
+
 	// FlattenInOrder reads every node's bitmaps, which the roaringSet* writers
 	// mutate under m.Lock().
 	m.RLock()
@@ -40,7 +48,14 @@ func (m *Memtable) flushDataRoaringSet(f *segmentindex.SegmentFile) ([]segmentin
 		return nil, err
 	}
 	headerSize := int(n)
-	keys := make([]segmentindex.Key, len(flat))
+	// flush() marshals the index from segmentindex.HeaderSize, so a short header
+	// write would lay the nodes at an offset no index entry names.
+	if headerSize != segmentindex.HeaderSize {
+		return nil, fmt.Errorf("header write returned %d bytes, want %d",
+			headerSize, segmentindex.HeaderSize)
+	}
+
+	keys := make([]segmentindex.KeyRedux, len(flat))
 
 	totalWritten := headerSize
 	for i, node := range flat {
@@ -55,12 +70,10 @@ func (m *Memtable) flushDataRoaringSet(f *segmentindex.SegmentFile) ([]segmentin
 			return nil, fmt.Errorf("write node %d: %w", i, err)
 		}
 
-		// KeyIndexAndWriteTo returns a subslice of the node's serialization, so
-		// keeping it would hold the whole segment body until flush() writes the
-		// index. The tree's key has the same bytes and outlives the flush.
-		ki.Key = node.Key
-
-		keys[i] = ki
+		// ki.Key is a subslice of the node's serialization, so keeping it would
+		// hold the whole segment body until flush() writes the index. The tree's
+		// key has the same bytes and outlives the flush.
+		keys[i] = segmentindex.KeyRedux{Key: node.Key, ValueEnd: ki.ValueEnd}
 		totalWritten = ki.ValueEnd
 	}
 
