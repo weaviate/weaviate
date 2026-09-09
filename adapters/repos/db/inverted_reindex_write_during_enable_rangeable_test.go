@@ -61,27 +61,36 @@ func readRangeableIDs(t *testing.T, b *lsmkv.Bucket, v int64) []uint64 {
 	return bm.ToArray()
 }
 
+// rangeableMigrationCorpusSize covers every value
+// makeFilterableToRangeableTestObjects cycles through, so value 0 is a
+// populated posting list rather than a single document.
+const rangeableMigrationCorpusSize = 5 * filterableToRangeableNumDistinctValues
+
+// newRangeableMigrationShard builds a shard holding the corpus with the
+// property not yet rangeable. Shutdown stays with the caller.
+func newRangeableMigrationShard(t *testing.T, ctx context.Context, class *models.Class) (*Shard, *Index) {
+	t.Helper()
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	shard := shd.(*Shard)
+	for _, obj := range makeFilterableToRangeableTestObjects(t, rangeableMigrationCorpusSize, class.Class) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+	return shard, idx
+}
+
 // TestReindex_ConcurrentWriteDuringEnableRangeable_NotLost pins
 // weaviate/0-weaviate-issues#298: a write to a no-live-index property during
 // an enable-rangeable migration must survive the swap via the double-write.
 func TestReindex_ConcurrentWriteDuringEnableRangeable_NotLost(t *testing.T) {
 	ctx := testCtx()
 	const propName = filterableToRangeablePropName
-	const numObjects = 25
 	// Outside the corpus so its posting list is unambiguously this write.
 	const concurrentValue = int64(4242)
 
 	className := "EnableRangeableConc_" + uuid.NewString()[:8]
-	class := newNoLiveIndexRangeableTestClass(className)
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
+	shard, idx := newRangeableMigrationShard(t, ctx, newNoLiveIndexRangeableTestClass(className))
 	defer shard.Shutdown(ctx)
-
-	for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
 
 	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
 

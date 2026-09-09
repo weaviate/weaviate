@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // NewRuntimeFilterableToRangeableTask creates a ShardReindexTaskGeneric configured
@@ -23,15 +22,13 @@ import (
 // indexes from existing data, enabling indexRangeFilters on numeric properties.
 func NewRuntimeFilterableToRangeableTask(
 	logger logrus.FieldLogger,
-	schemaManager *schema.Manager,
 	propNames []string,
 	collectionName string,
 	generation int,
 ) *ShardReindexTaskGeneric {
 	strategy := &FilterableToRangeableStrategy{
-		schemaManager: schemaManager,
-		propNames:     propNames,
-		generation:    generation,
+		propNames:  propNames,
+		generation: generation,
 	}
 
 	selectedProps := make(map[string]struct{}, len(propNames))
