@@ -86,7 +86,7 @@ func TestFilteredAggregateMetaCountSkipsDeletedIDs(t *testing.T) {
 				}},
 			}
 			shardLike, _ := testShardWithSettings(t, ctx, class,
-				hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false, false)
+				hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false)
 			s := concreteShard(t, shardLike)
 
 			ids := make([]strfmt.UUID, total)
@@ -189,7 +189,7 @@ func TestGroupedAggregateCountSkipsDeletedIDs(t *testing.T) {
 				}},
 			}
 			shardLike, _ := testShardWithSettings(t, ctx, class,
-				hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false, false)
+				hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false)
 			s := concreteShard(t, shardLike)
 
 			put := func(category string) strfmt.UUID {
