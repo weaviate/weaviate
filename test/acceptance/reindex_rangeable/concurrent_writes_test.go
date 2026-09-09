@@ -109,11 +109,6 @@ func TestEnableRangeable_ConcurrentWrites(t *testing.T) {
 	})
 
 	t.Run("enable-rangeable migration with concurrent writes", func(t *testing.T) {
-		// Expected and accepted: enable-rangeable is now a semantic migration, so it
-		// inherits the swap-to-flip window in which acked writes are never indexed.
-		// weaviate/weaviate#13001 closes that window generically; the skip goes with it.
-		t.Skip("enable-rangeable inherits the semantic-migration window between a shard's swap and the cluster-wide schema flip, in which acked writes are never indexed (weaviate/etienne-claude-issues#449); unskip when the generic fix weaviate/weaviate#13001 lands")
-
 		className := "F10RangeableMig"
 		ids := setupClassWithObjects(t, className, false)
 
