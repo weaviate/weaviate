@@ -559,8 +559,8 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 //     store's bucket map without advancing the record, and the
 //     cancellation can leave compaction callbacks unregistered
 //     partway through the unhook sequence.
-//   - On restart, the shard-registered recovery task's OnAfterLsmInit
-//     (see [shardReindexerV3RecoveryOnly]) is the only re-load hook.
+//   - On restart, the recovered task's OnAfterLsmInit (see
+//     [Shard.runRecoveredReindexTasks]) is the only re-load hook.
 //     If for any reason the bucket name lookup in
 //     [runtimePrepare]'s first iteration misses (lsm store re-init,
 //     concurrent bucket shutdown, cached-task vs fresh-task pointer

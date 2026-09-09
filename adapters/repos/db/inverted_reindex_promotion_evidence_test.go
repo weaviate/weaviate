@@ -64,7 +64,7 @@ func TestPromotionNeverRenamesAStagedDirTheLoadCreated(t *testing.T) {
 		next := newTestTask(idx.logger,
 			&testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}},
 			testMigrationUnitFor(idx, shardName))
-		idx.shardReindexer = &testShardReindexer{task: next}
+		idx.recoveredReindexTasks = []*ShardReindexTaskGeneric{next}
 		loaded, err := idx.initShard(ctx, shardName, class, nil, true, true)
 		require.NoError(t, err)
 		idx.shards.Store(shardName, loaded)
@@ -162,7 +162,7 @@ func TestCompletionRefusesARecordNoPromotionSettled(t *testing.T) {
 
 			require.NoError(t, cold.Shutdown(ctx))
 			simulateProcessRestartBucketCleanup(t, lsmPath)
-			idx.shardReindexer = &noRecoveryTaskReindexer{}
+			idx.recoveredReindexTasks = nil
 			loaded, err := idx.initShard(ctx, shardName, class, nil, true, true)
 			require.NoError(t, err)
 			post := loaded.(*Shard)
@@ -207,7 +207,7 @@ func aColdShardWithMergedStagedData(t *testing.T, ctx context.Context, class *mo
 	shardName, lsmPath := shard.Name(), shard.pathLSM()
 	require.NoError(t, shard.Shutdown(ctx))
 	simulateProcessRestartBucketCleanup(t, lsmPath)
-	idx.shardReindexer = &noRecoveryTaskReindexer{}
+	idx.recoveredReindexTasks = nil
 	loaded, err := idx.initShard(ctx, shardName, class, nil, true, true)
 	require.NoError(t, err)
 	cold := loaded.(*Shard)
@@ -217,7 +217,3 @@ func aColdShardWithMergedStagedData(t *testing.T, ctx context.Context, class *mo
 		"fixture: the staged bucket must not be loaded")
 	return idx, cold, preStrategy
 }
-
-type noRecoveryTaskReindexer struct{}
-
-func (r *noRecoveryTaskReindexer) RunAfterLsmInit(context.Context, *Shard) error { return nil }

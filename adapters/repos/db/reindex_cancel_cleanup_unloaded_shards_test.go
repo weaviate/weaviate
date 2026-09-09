@@ -139,7 +139,7 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 				mkTrackerDir(t, unloadedLSM, tracker)
 			}
 			unloaded := NewLazyLoadShard(setupCtx, nil, unloadedShard, idx, class, idx.centralJobQueue,
-				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.recoveredReindexTasks,
 				false, idx.bitmapBufPool)
 			idx.shards.Store(unloadedShard, unloaded)
 			defer func() {
@@ -261,7 +261,7 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 			for _, name := range []string{residueTenant, cleanTenant} {
 				lazy := NewLazyLoadShard(ctx, nil, name, idx, class, idx.centralJobQueue,
 					idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter,
-					idx.shardReindexer, false, idx.bitmapBufPool)
+					idx.recoveredReindexTasks, false, idx.bitmapBufPool)
 				idx.shards.Store(name, lazy)
 				tenants[name] = lazy
 			}
@@ -1022,7 +1022,7 @@ func TestIndexCleanStalePartialReindexStateSweepsALoadedShardUnconditionally(t *
 	defer shd.Shutdown(context.Background())
 
 	lazy := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.recoveredReindexTasks,
 		false, idx.bitmapBufPool)
 	idx.shards.Store(tenant, lazy)
 	_, err := lazy.Unwrap(ctx)
@@ -1178,7 +1178,7 @@ func TestLazyLoadShardCanSkipUnloadedSweep(t *testing.T) {
 			}
 
 			lazy := NewLazyLoadShard(ctx, nil, gateShard, idx, class, idx.centralJobQueue,
-				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.recoveredReindexTasks,
 				false, idx.bitmapBufPool)
 			idx.shards.Store(gateShard, lazy)
 			defer func() {
@@ -1370,7 +1370,7 @@ func TestIndexCleanStalePartialReindexStateRefusesAnUnknownIndexType(t *testing.
 	defer shd.Shutdown(context.Background())
 
 	unloaded := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.recoveredReindexTasks,
 		false, idx.bitmapBufPool)
 	idx.shards.Store(tenant, unloaded)
 
@@ -1514,7 +1514,7 @@ func TestIndexCleanStalePartialReindexStateLogsGateSkippedShards(t *testing.T) {
 	defer shd.Shutdown(context.Background())
 
 	lazy := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.recoveredReindexTasks,
 		false, idx.bitmapBufPool)
 	idx.shards.Store(tenant, lazy)
 	defer func() {

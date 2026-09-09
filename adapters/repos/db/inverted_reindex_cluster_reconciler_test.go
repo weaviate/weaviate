@@ -194,7 +194,7 @@ func TestTheClusterPassDoesNotRebuildAShardTornDownUnderIt(t *testing.T) {
 	defer hot.Shutdown(context.Background())
 
 	cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.recoveredReindexTasks,
 		false, idx.bitmapBufPool)
 	require.NoError(t, cold.Load(ctx))
 	idx.shards.Store(tenant, cold)

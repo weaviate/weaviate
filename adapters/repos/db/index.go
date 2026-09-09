@@ -368,7 +368,7 @@ type Index struct {
 	// instead of holding closeLock across teardown.
 	inflight sync.WaitGroup
 
-	shardReindexer ShardReindexerV3
+	recoveredReindexTasks []*ShardReindexTaskGeneric
 
 	router         routerTypes.Router
 	shardResolver  *resolver.ShardResolver
@@ -440,7 +440,7 @@ func NewIndex(
 	scheduler *queue.Scheduler,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
 	allocChecker memwatch.AllocChecker,
-	shardReindexer ShardReindexerV3,
+	recoveredReindexTasks []*ShardReindexTaskGeneric,
 	bitmapBufPool roaringset.BitmapBufPool,
 	asyncIndexingEnabled bool,
 	tenantsManager schemaUC.TenantsActivityManager,
@@ -500,7 +500,7 @@ func NewIndex(
 		bucketLoadLimiter:       cfg.BucketLoadLimiter,
 		namespacesExister:       cfg.NamespacesExister,
 		namespace:               namespacing.NamespaceFromQualified(string(cfg.ClassName)),
-		shardReindexer:          shardReindexer,
+		recoveredReindexTasks:   recoveredReindexTasks,
 		router:                  router,
 		shardResolver:           shardResolver,
 		bitmapBufPool:           bitmapBufPool,
@@ -629,7 +629,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 			switch {
 			case i.Config.EnableLazyLoadShards:
 				lazyShard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
-					i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true, i.bitmapBufPool)
+					i.allocChecker, i.shardLoadLimiter, i.recoveredReindexTasks, true, i.bitmapBufPool)
 				i.shards.Store(shardName, lazyShard)
 				startupShards.lazy.Add(1)
 				return nil
@@ -638,7 +638,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
 					i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
 						i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter,
-						i.shardReindexer, false, i.bitmapBufPool))
+						i.recoveredReindexTasks, false, i.bitmapBufPool))
 					startupShards.lazy.Add(1)
 					return nil
 				}
@@ -649,7 +649,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				defer i.shardLoadLimiter.Release()
 
 				newShard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
-					i.indexCheckpoints, i.shardReindexer, false, i.bitmapBufPool,
+					i.indexCheckpoints, i.recoveredReindexTasks, false, i.bitmapBufPool,
 					monitoring.ShardRegistrationEager)
 				if err != nil {
 					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
@@ -912,7 +912,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 		defer i.shardLoadLimiter.Release()
 
 		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
-			i.indexCheckpoints, i.shardReindexer, false, i.bitmapBufPool,
+			i.indexCheckpoints, i.recoveredReindexTasks, false, i.bitmapBufPool,
 			monitoring.ShardRegistrationEager)
 		if err != nil {
 			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
@@ -924,7 +924,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 	}
 
 	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
-		i.allocChecker, i.shardLoadLimiter, i.shardReindexer, implicitShardLoading, i.bitmapBufPool)
+		i.allocChecker, i.shardLoadLimiter, i.recoveredReindexTasks, implicitShardLoading, i.bitmapBufPool)
 	return shard, nil
 }
 

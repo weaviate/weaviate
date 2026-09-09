@@ -110,7 +110,10 @@ type DB struct {
 	shardLoadLimiter  *loadlimiter.LoadLimiter
 	bucketLoadLimiter *loadlimiter.LoadLimiter
 
-	reindexer      ShardReindexerV3
+	// recoveredReindexTasks holds the in-flight reindex tasks that startup
+	// recovery reconstructed from disk. Empty on a clean start.
+	recoveredReindexTasks []*ShardReindexTaskGeneric
+
 	nodeSelector   cluster.NodeSelector
 	schemaReader   schemaUC.SchemaReader
 	replicationFSM types.ReplicationFSMReader
@@ -346,7 +349,6 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		memMonitor:                memMonitor,
 		shardLoadLimiter:          loadlimiter.NewLoadLimiter(metricsRegisterer, "database_shards", config.MaximumConcurrentShardLoads),
 		bucketLoadLimiter:         loadlimiter.NewLoadLimiter(metricsRegisterer, "database_buckets", config.MaximumConcurrentBucketLoads),
-		reindexer:                 NewShardReindexerV3Noop(),
 		nodeSelector:              nodeSelector,
 		schemaReader:              schemaReader,
 		replicationFSM:            replicationFSM,
@@ -696,8 +698,16 @@ func (db *DB) batchWorker(first bool) {
 	}
 }
 
-func (db *DB) SetReindexer(reindexer ShardReindexerV3) {
-	db.reindexer = reindexer
+// SetRecoveredReindexTasks hands the DB the reindex tasks that startup
+// recovery reconstructed from disk. Every shard fires their
+// OnAfterLsmInit hook while loading, which re-installs the double-write
+// callbacks before any post-restart write can reach the shard.
+func (db *DB) SetRecoveredReindexTasks(recovered []RecoveredReindex) {
+	var tasks []*ShardReindexTaskGeneric
+	for _, rr := range recovered {
+		tasks = append(tasks, rr.Tasks...)
+	}
+	db.recoveredReindexTasks = tasks
 }
 
 func (db *DB) SetNodeSelector(nodeSelector cluster.NodeSelector) {

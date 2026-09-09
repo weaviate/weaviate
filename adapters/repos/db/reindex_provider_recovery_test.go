@@ -233,7 +233,7 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 				plantUnreadableRecord(t, recordStoreDirOf(t, tenantLSM))
 			}
 			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.recoveredReindexTasks,
 				false, idx.bitmapBufPool)
 			if !tc.absentFromShardMap {
 				idx.shards.Store(tenant, cold)
@@ -408,7 +408,7 @@ func TestLocalCallbacksDoneReadsEachShardsRecordsOnce(t *testing.T) {
 			}
 
 			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.recoveredReindexTasks,
 				false, idx.bitmapBufPool)
 			idx.shards.Store(tenant, cold)
 			defer func() {

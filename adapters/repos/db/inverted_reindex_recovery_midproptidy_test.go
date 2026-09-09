@@ -133,7 +133,7 @@ func TestRecoveryConvergence_MidPropSwap_HaltMatrix(t *testing.T) {
 
 			strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 			task2 := newTestTask(idx.logger, strategy2, testMigrationUnitFor(idx, shardName))
-			idx.shardReindexer = &testShardReindexer{task: task2}
+			idx.recoveredReindexTasks = []*ShardReindexTaskGeneric{task2}
 
 			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
 			require.NoErrorf(t, err, "mid-prop-swap shard re-init (haltAfter=%d)", haltAfter)

@@ -576,7 +576,7 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 					"T_probe", 1, "u1__n1", recordType, tc.state, prop)
 			}
 			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.recoveredReindexTasks,
 				false, idx.bitmapBufPool)
 			if !tc.absentFromShardMap {
 				idx.shards.Store(tenant, cold)
