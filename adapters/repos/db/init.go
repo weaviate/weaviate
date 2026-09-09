@@ -377,7 +377,7 @@ func (db *DB) migrateToHierarchicalFS() error {
 	for _, class := range schema.Classes {
 		shards, err := db.schemaReader.Shards(class.Class)
 		if err != nil {
-			return fmt.Errorf("unable to retrieve shards for class %s", class.Class)
+			return fmt.Errorf("unable to retrieve shards for class %q: %w", class.Class, err)
 		}
 		collections = append(collections, migratefs.ClassShards{Class: class, Shards: shards})
 	}
