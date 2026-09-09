@@ -125,6 +125,8 @@ func createSchemaRequest(url string, class string, multiTenantcy bool) *http.Req
 	classObj := &models.Class{
 		Class:       class,
 		Description: "Dummy class for benchmarking purposes",
+		// objects are imported with their own vectors
+		Vectorizer: "none",
 		MultiTenancyConfig: &models.MultiTenancyConfig{
 			Enabled: multiTenantcy,
 		},

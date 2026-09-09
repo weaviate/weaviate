@@ -316,18 +316,25 @@ func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *c
 	}
 
 	var err error
-	if !hasTargetVectors(class) || class.VectorIndexType != "" {
-		class.VectorIndexConfig, err = setDefaultQuantization(class.VectorIndexType, class.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
+	// A vector-less class carries no parsed config to quantize, and a class
+	// whose named vector was dropped carries none for that entry. Both reach
+	// here as a nil interface, so every assertion has to be checked.
+	if cfg, ok := class.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+		class.VectorIndexConfig, err = setDefaultQuantization(class.VectorIndexType, cfg, compression)
 		if err != nil {
-			h.logger.WithField("error", err).Error("error while setting default quantization")
+			h.logger.Errorf("error while setting default quantization: %v", err)
 		}
 	}
 
 	for k, vectorConfig := range class.VectorConfig {
-		vectorConfig.VectorIndexConfig, err = setDefaultQuantization(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
+		cfg, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+		if !ok {
+			continue
+		}
+		vectorConfig.VectorIndexConfig, err = setDefaultQuantization(vectorConfig.VectorIndexType, cfg, compression)
 		class.VectorConfig[k] = vectorConfig
 		if err != nil {
-			h.logger.WithField("error", err).Error("error while setting default quantization")
+			h.logger.Errorf("error while setting default quantization: %v", err)
 		}
 	}
 }
@@ -539,6 +546,18 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 // bypass the auth check for internal class update requests
 func UpdateClassInternal(h *Handler, ctx context.Context, className string, updated *models.Class,
 ) error {
+	cur := h.schemaReader.ReadOnlyClass(className)
+
+	// An update body that omits the legacy vector fields is still validated
+	// against a stored class that has them, so it needs those defaults filled
+	// in even though the body alone no longer asks for a legacy index. The
+	// stored class decides: an omitting body passes when the defaults match
+	// what is stored and trips the immutability check when they don't, which
+	// is what it has always done.
+	if cur != nil && !hasTargetVectors(updated) && modelsext.ClassHasLegacyVectorIndex(cur) {
+		h.setLegacyVectorDefaults(updated)
+	}
+
 	// make sure unset optionals on 'updated' don't lead to an error, as all
 	// optionals would have been set with defaults on the initial already
 	if err := h.setClassDefaults(updated, h.config.Replication); err != nil {
@@ -550,7 +569,7 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 	// above just filled them into the body (they cannot know better) —
 	// re-clear, so the update that reaches the parser and the RAFT apply is
 	// exactly the stored shape and no synthetic vectorizer can ever land.
-	if cur := h.schemaReader.ReadOnlyClass(className); cur != nil && modelsext.IsVectorlessUpdate(cur, updated) {
+	if cur != nil && modelsext.IsVectorlessUpdate(cur, updated) {
 		updated.Vectorizer = ""
 		updated.VectorIndexType = ""
 		updated.VectorIndexConfig = nil
@@ -746,30 +765,38 @@ func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication
 	return nil
 }
 
+// setLegacyVectorDefaults fills the class-level vector fields from the global
+// defaults. Whether a class is entitled to a legacy index at all is the
+// caller's decision — this never creates one for a class that asked for none.
+func (h *Handler) setLegacyVectorDefaults(class *models.Class) {
+	if class.Vectorizer == "" {
+		class.Vectorizer = h.config.DefaultVectorizerModule
+	}
+
+	if class.VectorIndexType == "" {
+		if v := h.config.DefaultVectorIndexType.Get(); v != "" {
+			class.VectorIndexType = v
+		} else {
+			class.VectorIndexType = vectorindex.DefaultVectorIndexType
+		}
+	}
+
+	if h.config.DefaultVectorDistanceMetric != "" {
+		if class.VectorIndexConfig == nil {
+			class.VectorIndexConfig = map[string]interface{}{"distance": h.config.DefaultVectorDistanceMetric}
+		} else if vIdxCfgMap, ok := class.VectorIndexConfig.(map[string]interface{}); ok && vIdxCfgMap["distance"] == nil {
+			class.VectorIndexConfig.(map[string]interface{})["distance"] = h.config.DefaultVectorDistanceMetric
+		}
+	}
+}
+
 func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {
-	// set legacy vector index defaults only when:
-	// 	- no target vectors are configured
-	//  - OR, there are target vectors configured AND there is a legacy vector configured
-	if !hasTargetVectors(class) || modelsext.ClassHasLegacyVectorIndex(class) {
-		if class.Vectorizer == "" {
-			class.Vectorizer = h.config.DefaultVectorizerModule
-		}
-
-		if class.VectorIndexType == "" {
-			if v := h.config.DefaultVectorIndexType.Get(); v != "" {
-				class.VectorIndexType = v
-			} else {
-				class.VectorIndexType = vectorindex.DefaultVectorIndexType
-			}
-		}
-
-		if h.config.DefaultVectorDistanceMetric != "" {
-			if class.VectorIndexConfig == nil {
-				class.VectorIndexConfig = map[string]interface{}{"distance": h.config.DefaultVectorDistanceMetric}
-			} else if vIdxCfgMap, ok := class.VectorIndexConfig.(map[string]interface{}); ok && vIdxCfgMap["distance"] == nil {
-				class.VectorIndexConfig.(map[string]interface{})["distance"] = h.config.DefaultVectorDistanceMetric
-			}
-		}
+	// Legacy vector index defaults apply only to a class that already asks for
+	// a legacy index by setting one of vectorizer, vectorIndexType or
+	// vectorIndexConfig. A class that configures no vector at all stays
+	// vector-less: the defaults must never be what creates the index.
+	if modelsext.ClassHasLegacyVectorIndex(class) {
+		h.setLegacyVectorDefaults(class)
 	}
 
 	// apply default vector index type to named vectors

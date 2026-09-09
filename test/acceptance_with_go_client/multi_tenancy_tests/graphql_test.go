@@ -420,7 +420,10 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 		}
 
 		t.Run("add data", func(t *testing.T) {
-			fixtures.CreateSchemaPizzaForTenants(t, client)
+			// the assertion below is the error the vector search path raises for
+			// a multi-tenant class queried without a tenant, so this class needs
+			// a vectorizer module rather than its own vectors
+			fixtures.CreateSchemaPizzaForTenantsWithVectorizer(t, client, "text2vec-contextionary")
 			fixtures.CreateTenantsPizza(t, client, tenant1, tenant2)
 			fixtures.CreateDataPizzaQuattroFormaggiForTenants(t, client, tenant1.Name)
 			fixtures.CreateDataPizzaFruttiDiMareForTenants(t, client, tenant1.Name)

@@ -119,6 +119,9 @@ func (suite *ReplicationTestSuite) TestImmediateReplicaCRUD() {
 	helper.SetupClient(compose.ContainerURI(1))
 	paragraphClass := articles.ParagraphsClass()
 	articleClass := articles.ArticlesClass()
+	// the PatchObjectVector* cases below assert that the title is vectorized by
+	// a module, so this class needs a real vectorizer rather than its own vectors
+	articleClass.Vectorizer = "text2vec-contextionary"
 
 	t.Run("CreateSchema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{

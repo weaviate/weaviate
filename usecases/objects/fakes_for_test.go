@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -154,11 +155,17 @@ func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Prin
 	if f.GetSchemaResponse.Objects == nil {
 		f.GetSchemaResponse.Objects = schema.Empty().Objects
 	}
-	// mimic the parts of (*schema.Handler).setClassDefaults that callers care about
-	if len(class.VectorConfig) == 0 {
+	// mimic the parts of (*schema.Handler).setClassDefaults that callers care
+	// about: the legacy defaults land only on a class that asked for a legacy
+	// index, never on one that configured no vector at all
+	if len(class.VectorConfig) == 0 && modelsext.ClassHasLegacyVectorIndex(class) {
 		class.VectorIndexConfig = hnsw.UserConfig{}
-		class.VectorIndexType = "hnsw"
-		class.Vectorizer = "none"
+		if class.VectorIndexType == "" {
+			class.VectorIndexType = "hnsw"
+		}
+		if class.Vectorizer == "" {
+			class.Vectorizer = "none"
+		}
 	}
 	for targetVector, vectorConfig := range class.VectorConfig {
 		if vectorConfig.VectorIndexType == "" {

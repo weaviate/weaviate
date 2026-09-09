@@ -219,7 +219,8 @@ func addTestSchema(t *testing.T, host string) {
 	cities.CreateCountryCityAirportSchema(t, host)
 
 	createObjectClass(t, &models.Class{
-		Class: "Company",
+		Class:      "Company",
+		Vectorizer: "text2vec-contextionary",
 		ModuleConfig: map[string]interface{}{
 			"text2vec-contextionary": map[string]interface{}{
 				"vectorizeClassName": false,
@@ -249,7 +250,8 @@ func addTestSchema(t *testing.T, host string) {
 	})
 
 	createObjectClass(t, &models.Class{
-		Class: "CompanyGroup",
+		Class:      "CompanyGroup",
+		Vectorizer: "text2vec-contextionary",
 		ModuleConfig: map[string]interface{}{
 			"text2vec-contextionary": map[string]interface{}{
 				"vectorizeClassName": false,
@@ -284,7 +286,8 @@ func addTestSchema(t *testing.T, host string) {
 	})
 
 	createObjectClass(t, &models.Class{
-		Class: "Person",
+		Class:      "Person",
+		Vectorizer: "text2vec-contextionary",
 		ModuleConfig: map[string]interface{}{
 			"text2vec-contextionary": map[string]interface{}{
 				"vectorizeClassName": false,
@@ -334,7 +337,8 @@ func addTestSchema(t *testing.T, host string) {
 	})
 
 	createObjectClass(t, &models.Class{
-		Class: "Pizza",
+		Class:      "Pizza",
+		Vectorizer: "text2vec-contextionary",
 		ModuleConfig: map[string]interface{}{
 			"text2vec-contextionary": map[string]interface{}{
 				"vectorizeClassName": false,
@@ -386,7 +390,8 @@ func addTestSchema(t *testing.T, host string) {
 	createObjectClass(t, multishard.ClassContextionaryVectorizer())
 
 	createObjectClass(t, &models.Class{
-		Class: "HasDateField",
+		Class:      "HasDateField",
+		Vectorizer: "text2vec-contextionary",
 		ModuleConfig: map[string]interface{}{
 			"text2vec-contextionary": map[string]interface{}{
 				"vectorizeClassName": true,
@@ -801,7 +806,8 @@ func addTestDataNearObjectSearch(t *testing.T) {
 
 	for _, className := range classNames {
 		createObjectClass(t, &models.Class{
-			Class: className,
+			Class:      className,
+			Vectorizer: "text2vec-contextionary",
 			ModuleConfig: map[string]interface{}{
 				"text2vec-contextionary": map[string]interface{}{
 					"vectorizeClassName": true,
@@ -889,7 +895,8 @@ func addTestDataCursorSearch(t *testing.T) {
 	}
 
 	createObjectClass(t, &models.Class{
-		Class: className,
+		Class:      className,
+		Vectorizer: "text2vec-contextionary",
 		ModuleConfig: map[string]interface{}{
 			"text2vec-contextionary": map[string]interface{}{
 				"vectorizeClassName": true,
