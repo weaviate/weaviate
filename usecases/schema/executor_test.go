@@ -355,7 +355,7 @@ func TestExecutor(t *testing.T) {
 		legacy := map[string]string{"A": "C"}
 		migrator.On("GetShardsStatus", Anything, "A", "").Return(status, legacy, nil)
 		x := newMockExecutor(migrator, store)
-		statusList, err := x.GetShardsStatus("A", "")
+		statusList, err := x.GetShardsStatus(ctx, "A", "")
 		assert.NoError(t, err)
 		assert.Len(t, statusList, 1, "number of shards in the status list")
 		statusList0 := statusList[0]
@@ -369,7 +369,7 @@ func TestExecutor(t *testing.T) {
 		legacy := map[string]string{"A": "C"}
 		migrator.On("GetShardsStatus", Anything, "A", "").Return(status, legacy, ErrAny)
 		x := newMockExecutor(migrator, store)
-		_, err := x.GetShardsStatus("A", "")
+		_, err := x.GetShardsStatus(ctx, "A", "")
 		assert.ErrorIs(t, err, ErrAny)
 	})
 	t.Run("UpdateShardStatus", func(t *testing.T) {

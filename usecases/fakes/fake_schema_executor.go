@@ -120,8 +120,8 @@ func (m *MockSchemaExecutor) UpdateShardStatus(req *cmd.UpdateShardStatusRequest
 	return args.Error(0)
 }
 
-func (m *MockSchemaExecutor) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
-	args := m.Called(class, tenant)
+func (m *MockSchemaExecutor) GetShardsStatus(ctx context.Context, class, tenant string) (models.ShardStatusList, error) {
+	args := m.Called(ctx, class, tenant)
 	return models.ShardStatusList{}, args.Error(1)
 }
 

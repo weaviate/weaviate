@@ -384,8 +384,7 @@ func (e *executor) UpdateShardStatus(req *api.UpdateShardStatusRequest) error {
 	return e.migrator.UpdateShardStatus(ctx, req.Class, req.Shard, req.Status, req.SchemaVersion)
 }
 
-func (e *executor) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
-	ctx := context.Background()
+func (e *executor) GetShardsStatus(ctx context.Context, class, tenant string) (models.ShardStatusList, error) {
 	shardsStatus, legacyStatus, err := e.migrator.GetShardsStatus(ctx, class, tenant)
 	if err != nil {
 		return nil, err

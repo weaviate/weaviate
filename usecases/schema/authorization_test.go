@@ -203,7 +203,8 @@ func Test_Schema_Authorization(t *testing.T) {
 			t.Run(test.methodName, func(t *testing.T) {
 				authorizer := mocks.NewMockAuthorizer()
 				authorizer.SetErr(errors.New("just a test fake"))
-				handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
+				db := &fakeDB{}
+				handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, db, authorizer)
 				fakeSchemaManager.On("ReadOnlySchema").Return(models.Schema{})
 				fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return(models.Class{})
 				fakeSchemaManager.On("GetAliases", mock.Anything, mock.Anything, mock.Anything).Return([]*models.Alias{{}}, nil)
@@ -269,7 +270,8 @@ func Test_Schema_Authorization_AliasResolution(t *testing.T) {
 
 	t.Run("GetConsistentClass - authorization uses resolved class name, not alias", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
-		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
+		db := &fakeDB{}
+		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, db, authorizer)
 
 		// Mock class retrieval
 		fakeSchemaManager.On("ReadOnlyClassWithVersion", mock.Anything, resolvedClassName, mock.Anything).Return(&models.Class{Class: resolvedClassName}, nil)
@@ -297,7 +299,8 @@ func Test_Schema_Authorization_AliasResolution(t *testing.T) {
 
 	t.Run("ShardsStatus - authorization uses resolved class name, not alias", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
-		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
+		db := &fakeDB{}
+		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, db, authorizer)
 
 		// Mock shard status retrieval
 		expectedStatus := models.ShardStatusList{
@@ -306,7 +309,7 @@ func Test_Schema_Authorization_AliasResolution(t *testing.T) {
 				Status: "READY",
 			},
 		}
-		fakeSchemaManager.On("GetShardsStatus", resolvedClassName, shardName).Return(expectedStatus, nil)
+		db.On("GetShardsStatus", mock.Anything, resolvedClassName, shardName).Return(expectedStatus, nil)
 
 		// Create custom schema manager with alias resolution
 		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{
@@ -331,7 +334,8 @@ func Test_Schema_Authorization_AliasResolution(t *testing.T) {
 
 	t.Run("ShardsStatus - NS-enabled authorization uses namespace-qualified resolved class name", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
-		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
+		db := &fakeDB{}
+		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, db, authorizer)
 		handler.config.Namespaces.Enabled = true
 
 		nsPrincipal := &models.Principal{Username: "u1", Namespace: "customer1"}
@@ -342,7 +346,7 @@ func Test_Schema_Authorization_AliasResolution(t *testing.T) {
 		expectedStatus := models.ShardStatusList{
 			&models.ShardStatusGetResponse{Name: shardName, Status: "READY"},
 		}
-		fakeSchemaManager.On("GetShardsStatus", qualifiedClass, shardName).Return(expectedStatus, nil)
+		db.On("GetShardsStatus", mock.Anything, qualifiedClass, shardName).Return(expectedStatus, nil)
 
 		handler.schemaReader = &fakeSchemaManagerWithAlias{
 			fakeSchemaManager: fakeSchemaManager,
@@ -364,7 +368,8 @@ func Test_Schema_Authorization_AliasResolution(t *testing.T) {
 
 	t.Run("GetConsistentClass - authorization uses original class name when no alias resolution", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
-		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
+		db := &fakeDB{}
+		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, db, authorizer)
 
 		className := "DirectClassName"
 
@@ -394,7 +399,8 @@ func Test_Schema_Authorization_AliasResolution(t *testing.T) {
 
 	t.Run("ShardsStatus - authorization uses original class name when no alias resolution", func(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
-		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
+		db := &fakeDB{}
+		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, db, authorizer)
 
 		className := "DirectClassName"
 
@@ -405,7 +411,7 @@ func Test_Schema_Authorization_AliasResolution(t *testing.T) {
 				Status: "READY",
 			},
 		}
-		fakeSchemaManager.On("GetShardsStatus", className, shardName).Return(expectedStatus, nil)
+		db.On("GetShardsStatus", mock.Anything, className, shardName).Return(expectedStatus, nil)
 
 		// Create custom schema manager without alias resolution
 		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{

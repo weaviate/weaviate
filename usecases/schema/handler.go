@@ -131,7 +131,6 @@ type SchemaReader interface {
 	Shards(class string) ([]string, error)
 	LocalShards(class string) ([]string, error)
 	LocalActiveShardsCount(class string) (int, error)
-	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 	ResolveAlias(alias string) string
 	GetAliasesForClass(class string) []*models.Alias
 
@@ -161,6 +160,9 @@ type validator interface {
 type Handler struct {
 	schemaManager SchemaManager
 	schemaReader  SchemaReader
+	// indexer answers ShardsStatus, which reports each local index's
+	// READY/READONLY/INDEXING state.
+	indexer clusterSchema.Indexer
 
 	// dropVectorEnqueuer submits the background cleanup task when a named vector is
 	// dropped. nil when the distributed-task machinery is not wired.
@@ -260,6 +262,7 @@ func normalizeAllowList(in []string, isValid func(string) bool) []string {
 func NewHandler(
 	schemaReader SchemaReader,
 	schemaManager SchemaManager,
+	indexer clusterSchema.Indexer,
 	validator validator,
 	logger logrus.FieldLogger, authorizer authorization.Authorizer, schemaConfig *config.SchemaHandlerConfig,
 	config config.Config,
@@ -276,6 +279,7 @@ func NewHandler(
 		schemaConfig:            schemaConfig,
 		schemaReader:            schemaReader,
 		schemaManager:           schemaManager,
+		indexer:                 indexer,
 		parser:                  parser,
 		validator:               validator,
 		logger:                  logger,
@@ -379,7 +383,7 @@ func (h *Handler) ShardsStatus(ctx context.Context,
 		return nil, err
 	}
 
-	return h.schemaReader.GetShardsStatus(class, shard)
+	return h.indexer.GetShardsStatus(ctx, class, shard)
 }
 
 // JoinNode adds the given node to the cluster.

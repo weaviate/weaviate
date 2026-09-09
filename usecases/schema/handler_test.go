@@ -454,7 +454,9 @@ func TestShardsStatus(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			handler, fakeSchemaManager := newTestHandlerWithNamespaces(t, tc.namespacesEnabled)
-			fakeSchemaManager.On("GetShardsStatus", tc.resolvedClass, shardName).Return(expectedStatus, nil)
+			db := &fakeDB{}
+			db.On("GetShardsStatus", mock.Anything, tc.resolvedClass, shardName).Return(expectedStatus, nil)
+			handler.indexer = db
 			handler.schemaReader = &fakeSchemaManagerWithAlias{
 				fakeSchemaManager: fakeSchemaManager,
 				aliasMap:          tc.aliasMap,
