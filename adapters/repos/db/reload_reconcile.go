@@ -76,6 +76,8 @@ func (db *DB) dropOrphanedIndexDirectories(keepClasses []string) error {
 		if os.IsNotExist(err) {
 			return nil
 		}
+		err = fmt.Errorf("list data root %q for orphan class directories: %w", db.config.RootPath, err)
+		db.logger.WithField("action", "reconcile_orphan_index_dir").Error(err)
 		return err
 	}
 

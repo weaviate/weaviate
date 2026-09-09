@@ -99,6 +99,12 @@ func TestReloadLocalDBReconcilesOrphanClassDirectories(t *testing.T) {
 				_, err := os.Stat(orphanDir)
 				return os.IsNotExist(err)
 			}, 10*time.Second, 20*time.Millisecond, "reload left the orphan class directory on disk")
+			// A cycle manager of a still-running index would recreate the path on
+			// its next write; DeleteIndex must have stopped them before the rename.
+			require.Never(t, func() bool {
+				_, err := os.Stat(orphanDir)
+				return err == nil
+			}, 2*time.Second, 50*time.Millisecond, "orphan class directory reappeared after the reload")
 
 			db.indexLock.RLock()
 			_, stillLoaded := db.indices[indexID(orphanClass)]
