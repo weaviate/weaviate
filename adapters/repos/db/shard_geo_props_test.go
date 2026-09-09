@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -558,6 +559,67 @@ func TestInitGeoPropConcurrent(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, []uint64{1}, found)
+}
+
+// TestDeleteRemovesFromGeoIndex pins that every delete path removes the object
+// from the shard's geo indexes, not only from its vector indexes. A path that
+// skips the geo queues leaves deleted doc IDs served by geo filters until an
+// unrelated write to the same prop happens to tombstone them.
+func TestDeleteRemovesFromGeoIndex(t *testing.T) {
+	tests := []struct {
+		name   string
+		delete func(t *testing.T, ctx context.Context, s *Shard, id strfmt.UUID)
+	}{
+		{
+			name: "single-object delete",
+			delete: func(t *testing.T, ctx context.Context, s *Shard, id strfmt.UUID) {
+				require.NoError(t, s.DeleteObject(ctx, id, time.Time{}))
+			},
+		},
+		{
+			name: "batch delete",
+			delete: func(t *testing.T, ctx context.Context, s *Shard, id strfmt.UUID) {
+				for _, result := range s.DeleteObjectBatch(ctx, []strfmt.UUID{id}, time.Time{}, false) {
+					require.NoError(t, result.Err)
+				}
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			s := testGeoPropShard(t, ctx)
+
+			obj := &storobj.Object{
+				MarshallerVersion: 1,
+				Object: models.Object{
+					ID:         strfmt.UUID(uuid.NewString()),
+					Class:      geoPropClass,
+					Properties: map[string]interface{}{"location": munichCoordinates()},
+				},
+				Vector: []float32{1, 2, 3},
+			}
+			require.NoError(t, s.PutObject(ctx, obj))
+
+			idx, _ := geoIndexAndQueue(t, s, "location")
+			withinRange := func() []uint64 {
+				found, err := idx.WithinRange(ctx, filters.GeoRange{
+					GeoCoordinates: munichCoordinates(),
+					Distance:       10000,
+				})
+				require.NoError(t, err)
+				return found
+			}
+			require.Equal(t, []uint64{obj.DocID}, withinRange(),
+				"sanity: the object must be geo-indexed before the delete")
+
+			test.delete(t, ctx, s, obj.Object.ID)
+
+			require.Empty(t, withinRange(),
+				"the deleted object must be gone from the geo index")
+		})
+	}
 }
 
 // blockGeoQueueDir puts a regular file where propName's queue directory belongs,
