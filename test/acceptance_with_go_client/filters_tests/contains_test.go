@@ -41,6 +41,9 @@ func testContains(string) func(t *testing.T) {
 		var err error
 
 		require.NoError(t, c.Collections.DeleteAll(t.Context()))
+		t.Cleanup(func() {
+			require.NoError(t, c.Collections.DeleteAll(context.Background()))
+		})
 		t.Run("create class", func(t *testing.T) {
 			h, err = c.Collections.Create(t.Context(), collections.Collection{
 				Name: collectionName,
