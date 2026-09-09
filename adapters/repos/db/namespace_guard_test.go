@@ -309,193 +309,12 @@ func coldPhysical(name string) sharding.Physical {
 	return p
 }
 
-// The shared read decides three things for its callers: which states enumerate
-// shards at all, which are refused outright, and which state the caller is
-// handed back to act on.
-func TestReadDesiredOpenLocalShards(t *testing.T) {
-	const class = "alpha:Product"
-
-	// One local HOT shard beside a local COLD one, so a row wanting the whole set
-	// cannot pass on a walk that yielded nothing.
-	shards := map[string]sharding.Physical{
-		"hot1": localPhysical("hot1"), "cold1": coldPhysical("cold1"),
-	}
-
-	// dbFor serves the fixture above to the read under test.
-	dbFor := func(t *testing.T, state api.NamespaceState) *DB {
-		t.Helper()
-		return dbForDesiredOpen(t, class, existerWithState(t, state), shards)
-	}
-
-	// collect is the callback every row drives, so a row that must not enumerate
-	// is caught by what it left behind rather than by a mock expectation.
-	collect := func(walked *[]string) func(*sharding.State) error {
-		return func(ss *sharding.State) error {
-			for name, physical := range ss.Physical {
-				if ss.IsLocalOpenPhysical(physical) {
-					*walked = append(*walked, name)
-				}
-			}
-			return nil
-		}
-	}
-
-	tests := []struct {
-		name      string
-		state     api.NamespaceState
-		wantOpen  []string
-		wantState api.NamespaceState
-		wantErr   error
-	}{
-		{
-			name: "active enumerates the open shards", state: api.NamespaceStateActive,
-			wantOpen: []string{"hot1"}, wantState: api.NamespaceStateActive,
-		},
-		{
-			// Red for a read comparing against active alone: the shards have to be
-			// enumerated for the resume to reopen them.
-			name: "resuming enumerates the open shards", state: api.NamespaceStateResuming,
-			wantOpen: []string{"hot1"}, wantState: api.NamespaceStateResuming,
-		},
-		{
-			name: "suspended enumerates nothing", state: api.NamespaceStateSuspended,
-			wantState: api.NamespaceStateSuspended,
-		},
-		{
-			name: "deleting enumerates nothing", state: api.NamespaceStateDeleting,
-			wantState: api.NamespaceStateDeleting,
-		},
-		{name: "an empty stored state is refused", state: "", wantErr: errUnknownNamespaceState},
-		{
-			name:  "a stored state this binary does not know is refused",
-			state: api.NamespaceState("bogus"), wantErr: errUnknownNamespaceState,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			var walked []string
-			state, err := dbFor(t, tc.state).readDesiredOpenLocalShards(class, true, collect(&walked))
-
-			if tc.wantErr != nil {
-				require.ErrorIs(t, err, tc.wantErr)
-				assert.Empty(t, state, "a refused read must hand back no state to act on")
-				assert.Nil(t, walked)
-				return
-			}
-			require.NoError(t, err)
-			assert.Equal(t, tc.wantState, state)
-			sort.Strings(walked)
-			assert.Equal(t, tc.wantOpen, walked)
-		})
-	}
-
-	// A second lookup for the gate could read a different state than the one
-	// returned, so the answer and the gate would disagree.
-	t.Run("the namespace is looked up once", func(t *testing.T) {
-		e := namespaces.NewMockExister(t)
-		e.EXPECT().GetNamespace("alpha").
-			Return(api.Namespace{Name: "alpha", State: api.NamespaceStateActive}, true).Once()
-		db := dbForDesiredOpen(t, class, e, shards)
-
-		state, err := db.readDesiredOpenLocalShards(class, true, func(*sharding.State) error { return nil })
-		require.NoError(t, err)
-		assert.Equal(t, api.NamespaceStateActive, state)
-	})
-
-	// The refusal carries errNoShardingState rather than a bare string, so a
-	// caller can tell this fault from a class that went away under it.
-	t.Run("an absent sharding state is refused as a fault", func(t *testing.T) {
-		logger, _ := logrustest.NewNullLogger()
-		reader := schemaUC.NewMockSchemaReader(t)
-		reader.EXPECT().Read(class, mock.Anything, mock.Anything).
-			RunAndReturn(func(_ string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
-				return readFunc(&models.Class{Class: class}, nil)
-			})
-		db := &DB{
-			logger: logger, schemaReader: reader,
-			namespacesExister: existerWithState(t, api.NamespaceStateActive),
-		}
-
-		state, err := db.readDesiredOpenLocalShards(class, true, func(*sharding.State) error { return nil })
-		require.ErrorIs(t, err, errNoShardingState)
-		assert.Empty(t, state)
-	})
-
-	// use is the one arm that fails after the state was read, so it is where a
-	// state could come back beside an error for a caller to act on. How often use
-	// ran is SchemaReader.Read's retry and not visible through the mock.
-	t.Run("a failing use returns no state", func(t *testing.T) {
-		errUseFailed := errors.New("use failed")
-
-		state, err := dbFor(t, api.NamespaceStateActive).readDesiredOpenLocalShards(class, true,
-			func(*sharding.State) error { return errUseFailed })
-
-		require.ErrorIs(t, err, errUseFailed)
-		assert.Empty(t, state)
-	})
-
-	// localShardsToLoad reaches this read once per class per startup tick and
-	// discards the error, so the level is its call rather than this read's.
-	t.Run("a refusal is returned without logging", func(t *testing.T) {
-		logger, hook := logrustest.NewNullLogger()
-		logger.SetLevel(logrus.DebugLevel)
-		db := &DB{
-			logger: logger, schemaReader: readerForShards(t, class, shards),
-			namespacesExister: existerWithState(t, api.NamespaceState("bogus")),
-		}
-
-		_, err := db.readDesiredOpenLocalShards(class, true, func(*sharding.State) error { return nil })
-		require.ErrorIs(t, err, errUnknownNamespaceState)
-		assert.Nil(t, hook.LastEntry(), "the shared read must leave the level to its caller")
-	})
-
-	// The lookup's own two arms leave the read the same way. The row above cannot
-	// show it: its exister answers, so the lookup never refuses.
-	for _, tc := range namespaceLookupRefusals() {
-		t.Run(tc.name+" is returned without logging", func(t *testing.T) {
-			logger, hook := logrustest.NewNullLogger()
-			logger.SetLevel(logrus.DebugLevel)
-			db := &DB{
-				logger: logger, schemaReader: readerForShards(t, class, shards),
-				namespacesExister: tc.exister(t),
-			}
-
-			_, err := db.readDesiredOpenLocalShards(class, true, func(*sharding.State) error { return nil })
-			require.ErrorIs(t, err, tc.wantErr)
-			assert.Nil(t, hook.LastEntry(), "the shared read must leave the level to its caller")
-		})
-	}
-
-	// SchemaReader.Read retries a class it cannot find when the flag is set, so
-	// the choice is the caller's. A read hardcoding it passes every row above,
-	// since none of them drops the class.
-	retries := []struct {
-		name  string
-		retry bool
-	}{
-		{name: "retrying is passed to the schema read", retry: true},
-		{name: "not retrying is passed to the schema read", retry: false},
-	}
-	for _, tc := range retries {
-		t.Run(tc.name, func(t *testing.T) {
-			logger, _ := logrustest.NewNullLogger()
-			var got bool
-			reader := schemaUC.NewMockSchemaReader(t)
-			reader.EXPECT().Read(class, mock.Anything, mock.Anything).
-				RunAndReturn(func(_ string, retry bool, readFunc func(*models.Class, *sharding.State) error) error {
-					got = retry
-					return readFunc(&models.Class{Class: class}, reloadState(false, shards))
-				})
-			db := &DB{
-				logger: logger, schemaReader: reader,
-				namespacesExister: existerWithState(t, api.NamespaceStateActive),
-			}
-
-			_, err := db.readDesiredOpenLocalShards(class, tc.retry, func(*sharding.State) error { return nil })
-			require.NoError(t, err)
-			assert.Equal(t, tc.retry, got)
-		})
+// remotePhysical is a HOT shard on another node, for rows that test locality.
+func remotePhysical(name string) sharding.Physical {
+	return sharding.Physical{
+		Name:           name,
+		BelongsToNodes: []string{"node2"},
+		Status:         models.TenantActivityStatusHOT,
 	}
 }
 
@@ -2078,9 +1897,11 @@ func TestGuardBoot(t *testing.T) {
 	const class = "alpha:Product"
 	ctx := context.Background()
 
-	// empty1 pins that a tenant with no status counts as HOT on boot.
+	// empty1 pins that a tenant with no status counts as HOT on boot, remote1 that
+	// the boot filter still tests locality.
 	mixed := map[string]sharding.Physical{
-		"hot1": hotPhysical("hot1"), "empty1": localPhysical("empty1"), "cold1": coldPhysical("cold1"),
+		"hot1": hotPhysical("hot1"), "empty1": localPhysical("empty1"),
+		"cold1": coldPhysical("cold1"), "remote1": remotePhysical("remote1"),
 	}
 
 	// Red if the filter is the request-path check, which rejects resuming.
@@ -2090,20 +1911,39 @@ func TestGuardBoot(t *testing.T) {
 			if tc.wantLoad {
 				want = []string{"empty1", "hot1"}
 			}
-			idx, _ := indexForBootTest(t, tc.className, tc.exister(t),
+			idx, hook := indexForBootTest(t, tc.className, tc.exister(t),
 				readerForShards(t, tc.className, mixed))
 
 			require.NoError(t, idx.initAndStoreShards(ctx, &models.Class{Class: tc.className}, nil))
 			assert.Equal(t, want, registeredShards(t, idx))
 
-			if !tc.wantLoad {
-				// An index with nothing to load is ready. Left false, it would stop
-				// the node-wide object count for every other index too.
-				assert.True(t, idx.allShardsReady.Load(),
-					"a class that registers no shards must still report ready")
+			if tc.wantLoad {
+				assert.Empty(t, hook.AllEntries(),
+					"a class that opens shards must not report registering none")
+				return
 			}
+			// An index with nothing to load is ready. Left false, it would stop
+			// the node-wide object count for every other index too.
+			assert.True(t, idx.allShardsReady.Load(),
+				"a class that registers no shards must still report ready")
 		})
 	}
+
+	// The lazy arm stores that flag from a background goroutine, which no row
+	// above reaches with an empty list. Left unstored it silences the node-wide
+	// object count for every index on the node.
+	t.Run("an admitting namespace with no open shards still reports ready", func(t *testing.T) {
+		closed := map[string]sharding.Physical{
+			"cold1": coldPhysical("cold1"), "remote1": remotePhysical("remote1"),
+		}
+		idx, _ := indexForBootTest(t, class, existerWithState(t, api.NamespaceStateActive),
+			readerForShards(t, class, closed))
+
+		require.NoError(t, idx.initAndStoreShards(ctx, &models.Class{Class: class}, nil))
+		assert.Empty(t, registeredShards(t, idx))
+		require.Eventually(t, idx.allShardsReady.Load, 5*time.Second, 10*time.Millisecond,
+			"an index with nothing to load must still report ready")
+	})
 
 	// A state that cannot be read is not a namespace keeping its shards closed:
 	// the class may hold data on disk, so boot must refuse rather than register
@@ -2122,15 +1962,26 @@ func TestGuardBoot(t *testing.T) {
 		})
 	}
 
-	// Registering no Read expectation asserts the sharding state is never read:
-	// when nothing may be open, boot must not walk every tenant to learn that.
-	t.Run("a suspended class is decided without reading the sharding state", func(t *testing.T) {
-		idx, _ := indexForBootTest(t, class, existerWithState(t, api.NamespaceStateSuspended),
-			schemaUC.NewMockSchemaReader(t))
+	// No Read expectation is registered, so the test fails if boot walks the
+	// tenants when nothing may be open.
+	for _, state := range []api.NamespaceState{
+		api.NamespaceStateSuspended, api.NamespaceStateDeleting,
+	} {
+		t.Run("a "+string(state)+" class is decided without reading the sharding state", func(t *testing.T) {
+			idx, hook := indexForBootTest(t, class, existerWithState(t, state),
+				schemaUC.NewMockSchemaReader(t))
 
-		require.NoError(t, idx.initAndStoreShards(ctx, &models.Class{Class: class}, nil))
-		assert.Empty(t, registeredShards(t, idx))
-	})
+			require.NoError(t, idx.initAndStoreShards(ctx, &models.Class{Class: class}, nil))
+			assert.Empty(t, registeredShards(t, idx))
+
+			entries := hook.AllEntries()
+			require.Len(t, entries, 1, "the skip must be logged exactly once")
+			assert.Equal(t, logrus.InfoLevel, entries[0].Level)
+			assert.Equal(t, class, entries[0].Data["class"])
+			assert.Equal(t, "alpha", entries[0].Data["namespace"])
+			assert.Equal(t, state, entries[0].Data["state"])
+		})
+	}
 }
 
 // initAndStoreShards hands its shard names to a loop that loads them one per

@@ -163,11 +163,7 @@ func (db *DB) readDesiredOpenLocalShards(className string, retryIfClassNotFound 
 // than unload everything this omits.
 func (db *DB) forEachDesiredOpenLocalShard(className string, fn func(name string)) error {
 	_, err := db.readDesiredOpenLocalShards(className, true, func(shardingState *sharding.State) error {
-		for name, physical := range shardingState.Physical {
-			if shardingState.IsLocalOpenPhysical(physical) {
-				fn(name)
-			}
-		}
+		shardingState.ForEachLocalOpenPhysical(fn)
 		return nil
 	})
 	return err
