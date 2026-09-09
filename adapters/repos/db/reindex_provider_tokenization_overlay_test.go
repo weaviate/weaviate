@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -191,7 +192,10 @@ func TestMaybeWirePerPropOverlaySet_NilTaskInSlice_Skipped(t *testing.T) {
 // The overlay is in-memory state the swap hook set on shards this node
 // loaded to run the migration on. A shard that is not loaded holds none,
 // so reaching into one to clear nothing loads a cold tenant on the success
-// path of every semantic migration.
+// path of every semantic migration. Which entries the walk then retires
+// depends on the arm: SWAPPING applied the flip here so it clears
+// unconditionally, while an arm keyed off the leader's view of the task
+// clears only what this node's own schema already provides.
 func TestOnTaskCompletedOverlayClearLeavesUnloadedShardsAlone(t *testing.T) {
 	const (
 		prop   = "title"
@@ -203,20 +207,60 @@ func TestOnTaskCompletedOverlayClearLeavesUnloadedShardsAlone(t *testing.T) {
 		status    distributedtask.TaskStatus
 		migration ReindexMigrationType
 		overlay   inverted.PropertyOverlay
+		// liveSchema shapes the property this node's schema reader
+		// returns, which is what decides whether the overlay is still
+		// load-bearing here.
+		liveSchema  func(*models.Property)
+		wantCleared bool
 	}{
 		{
-			name:      "swapping: this node commits the cluster-wide schema flip",
-			status:    distributedtask.TaskStatusSwapping,
-			migration: ReindexTypeChangeTokenization,
-			overlay:   inverted.PropertyOverlay{Tokenization: "field"},
+			name:        "swapping: this node commits the cluster-wide schema flip",
+			status:      distributedtask.TaskStatusSwapping,
+			migration:   ReindexTypeChangeTokenization,
+			overlay:     inverted.PropertyOverlay{Tokenization: "field"},
+			wantCleared: true,
 		},
 		{
 			// Another node committed the flip in the same tick, so this
 			// node's first sight of the task is already FINISHED.
-			name:      "finished: another node committed the flip first",
+			name:        "finished: this node's schema already carries the flip",
+			status:      distributedtask.TaskStatusFinished,
+			migration:   ReindexTypeEnableFilterable,
+			overlay:     inverted.PropertyOverlay{ForceFilterable: true},
+			wantCleared: true,
+		},
+		{
+			// FINISHED is read from the leader, so it says the flip
+			// committed there, not that this node applied it.
+			name:      "finished: this node's schema has not applied the flip yet",
 			status:    distributedtask.TaskStatusFinished,
 			migration: ReindexTypeEnableFilterable,
 			overlay:   inverted.PropertyOverlay{ForceFilterable: true},
+			liveSchema: func(prop *models.Property) {
+				prop.IndexFilterable = boolPtr(false)
+			},
+		},
+		{
+			// A terminal task never flips the schema, so the overlay is
+			// the only thing placing writes into the swapped bucket.
+			name:      "failed: the partial swap's overlay stays",
+			status:    distributedtask.TaskStatusFailed,
+			migration: ReindexTypeEnableFilterable,
+			overlay:   inverted.PropertyOverlay{ForceFilterable: true},
+			liveSchema: func(prop *models.Property) {
+				prop.IndexFilterable = boolPtr(false)
+			},
+		},
+		{
+			// Same for the other terminal arm, which reaches the same
+			// answer past an extra local-post-merge probe.
+			name:      "cancelled: the partial swap's overlay stays",
+			status:    distributedtask.TaskStatusCancelled,
+			migration: ReindexTypeEnableFilterable,
+			overlay:   inverted.PropertyOverlay{ForceFilterable: true},
+			liveSchema: func(prop *models.Property) {
+				prop.IndexFilterable = boolPtr(false)
+			},
 		},
 	}
 
@@ -225,6 +269,9 @@ func TestOnTaskCompletedOverlayClearLeavesUnloadedShardsAlone(t *testing.T) {
 			ctx := testCtx()
 			className := "OverlayClear_" + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, []string{prop})
+			if tc.liveSchema != nil {
+				tc.liveSchema(class.Properties[0])
+			}
 			hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
 				false, false, false)
 			defer hot.Shutdown(context.Background())
@@ -264,8 +311,14 @@ func TestOnTaskCompletedOverlayClearLeavesUnloadedShardsAlone(t *testing.T) {
 				Payload:        payload,
 			}))
 
-			assert.Nil(t, loaded.SnapshotPropertyOverlay([]string{prop}),
-				"the shard the migration ran on holds the overlay, so its clear is the point of the walk")
+			if tc.wantCleared {
+				assert.Nil(t, loaded.SnapshotPropertyOverlay([]string{prop}),
+					"the shard the migration ran on holds the overlay, so its clear is the point of the walk")
+			} else {
+				assert.Equal(t, tc.overlay, loaded.SnapshotPropertyOverlay([]string{prop})[prop],
+					"this node's schema does not yet provide what the overlay overrides, so dropping "+
+						"it here indexes the next write nowhere")
+			}
 			require.False(t, cold.isLoaded(),
 				"an unloaded shard holds no in-memory overlay; loading one to clear nothing is "+
 					"what the cutover path cannot afford")

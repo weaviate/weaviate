@@ -1450,7 +1450,12 @@ Lifecycle:
    queries and writes hit the right answer via the regular
    schema-lookup path. A node whose first sight of the task is already
    FINISHED (another node committed the flip in the same tick) never
-   runs that commit, so it clears on the FINISHED arm instead.
+   runs that commit, so it clears on the FINISHED arm instead. It
+   clears only the entries its own schema already carries, since
+   FINISHED reports the leader's applied state, not this node's. An
+   entry left behind is inert once the schema arrives: both readers
+   drop whatever `PropertyOverlay.BeyondLiveSchema` reports as caught
+   up.
 
 A property the overlay forced on has no property-length and no
 null-state bucket — shard init skips creating those for a property with
@@ -1661,7 +1666,7 @@ already GC'd) resolves as WAND on the older binary until a re-migration.
 
 - [`adapters/repos/db/inverted/tokenization.go`](../adapters/repos/db/inverted/tokenization.go) — `TokenizationResolver`, `ResolveTokenization`.
 - [`adapters/repos/db/inverted/analyzer.go`](../adapters/repos/db/inverted/analyzer.go) — `PropertyOverlay`, `BeyondLiveSchema`, `Property.OverlayForcedOnly`.
-- [`adapters/repos/db/shard.go`](../adapters/repos/db/shard.go) — `SetPropertyOverlay`, `ClearPropertyOverlay`, `SnapshotPropertyOverlay`, `TokenizationFor`.
+- [`adapters/repos/db/shard.go`](../adapters/repos/db/shard.go) — `SetPropertyOverlay`, `ClearPropertyOverlay`, `ClearPropertyOverlayIfCaughtUp`, `SnapshotPropertyOverlay`, `TokenizationFor`.
 - [`adapters/repos/db/shard_write_inverted.go`](../adapters/repos/db/shard_write_inverted.go) — `writePathAnalyzerOverlay`, the write path's read of the overlay.
 
 **DTM**

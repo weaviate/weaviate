@@ -1614,7 +1614,9 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				// Another node committed the schema flip in the same tick,
 				// so this node never runs the SWAPPING arm below and nothing
 				// else would retire its overlays.
-				p.clearOverlaysOnLoadedShards(p.serverCtx, payload, logger)
+				if IsSemanticMigration(payload.MigrationType) {
+					p.clearCaughtUpOverlaysOnLoadedShards(p.serverCtx, payload, logger)
+				}
 			case distributedtask.TaskStatusStarted,
 				distributedtask.TaskStatusPreparing,
 				distributedtask.TaskStatusSwapping:
@@ -1660,6 +1662,45 @@ func (p *ReindexProvider) clearOverlaysOnLoadedShards(
 			shard.ClearPropertyOverlay(propName)
 		}
 	})
+}
+
+// clearCaughtUpOverlaysOnLoadedShards retires only the overlay entries this
+// node's own schema already provides. Its caller learned the task finished
+// from the leader, which says nothing about what this node applied, and an
+// entry cleared ahead of the schema loses the writes it was placing. Leaving
+// one is cheap: both readers already drop whatever
+// [inverted.PropertyOverlay.BeyondLiveSchema] reports as caught up.
+func (p *ReindexProvider) clearCaughtUpOverlaysOnLoadedShards(
+	ctx context.Context, payload *ReindexTaskPayload, logger logrus.FieldLogger,
+) {
+	live := p.livePropertiesByName(payload.Collection)
+	p.forEachLoadedShardConcrete(ctx, payload.Collection, logger, func(shard *Shard) {
+		for _, propName := range payload.Properties {
+			shard.ClearPropertyOverlayIfCaughtUp(propName, live[propName])
+		}
+	})
+}
+
+// livePropertiesByName reads the collection's properties from this node's
+// schema. Read once per walk: every shard answers to the same schema, and
+// each read clones the class.
+func (p *ReindexProvider) livePropertiesByName(collection string) map[string]*models.Property {
+	if p.db == nil {
+		return nil
+	}
+	idx := p.db.GetIndex(entschema.ClassName(collection))
+	if idx == nil || idx.getSchema == nil {
+		return nil
+	}
+	class := idx.getSchema.ReadOnlyClass(collection)
+	if class == nil {
+		return nil
+	}
+	live := make(map[string]*models.Property, len(class.Properties))
+	for _, prop := range class.Properties {
+		live[prop.Name] = prop
+	}
+	return live
 }
 
 // forEachLoadedShardConcrete runs fn on every loaded shard of the collection.

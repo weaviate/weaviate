@@ -459,8 +459,11 @@ type Shard struct {
 	//   2. CLEAR: once flipSemanticMigrationSchema commits the
 	//      cluster-wide schema flip, OnTaskCompleted clears the overlay
 	//      per-shard so the steady-state map is empty. A node whose
-	//      first sight of the task is FINISHED clears it there instead,
-	//      because it never runs the flip itself.
+	//      first sight of the task is FINISHED never runs the flip
+	//      itself, and FINISHED is the leader's view rather than this
+	//      node's, so it clears only the entries its own schema already
+	//      carries. One left behind is inert: both readers strip
+	//      whatever the live schema has caught up on.
 	//
 	// Read on every query and every write that touches the affected
 	// property, so kept under a fast RWMutex rather than a sync.Map
@@ -901,6 +904,25 @@ func (s *Shard) ClearPropertyOverlay(propName string) {
 	s.propertyOverlayMu.Lock()
 	defer s.propertyOverlayMu.Unlock()
 	if s.propertyOverlay == nil {
+		return
+	}
+	delete(s.propertyOverlay, propName)
+}
+
+// ClearPropertyOverlayIfCaughtUp removes propName's overlay entry only when
+// live already provides everything the entry overrides. For callers that
+// learned the migration finished from another node: this node's schema may
+// still be behind, and an entry dropped before it arrives leaves the next
+// write on this property indexed nowhere. A nil live property counts as
+// not caught up.
+func (s *Shard) ClearPropertyOverlayIfCaughtUp(propName string, live *models.Property) {
+	if propName == "" {
+		return
+	}
+	s.propertyOverlayMu.Lock()
+	defer s.propertyOverlayMu.Unlock()
+	overlay, ok := s.propertyOverlay[propName]
+	if !ok || !overlay.BeyondLiveSchema(live).Empty() {
 		return
 	}
 	delete(s.propertyOverlay, propName)
