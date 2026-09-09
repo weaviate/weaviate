@@ -27,6 +27,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -104,7 +105,7 @@ type DiskQueue struct {
 	scheduler        *Scheduler
 	id               string
 	dir              string
-	onBatchProcessed func()
+	onBatchProcessed func() error
 	metrics          *Metrics
 	chunkSize        uint64
 
@@ -137,7 +138,7 @@ type DiskQueueOptions struct {
 	StaleTimeout     time.Duration
 	InactivityPeriod time.Duration
 	ChunkSize        uint64
-	OnBatchProcessed func()
+	OnBatchProcessed func() error
 	Metrics          *Metrics
 }
 
@@ -455,13 +456,27 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 	}
 
 	doneFn := func() {
+		// flush the index (e.g. the HNSW commit log) BEFORE removing the
+		// chunk: once the chunk is gone the queue no longer holds these
+		// ops, so a crash between removal and flush would lose them.
+		// Flushing first makes chunk removal imply durability.
+		if q.onBatchProcessed != nil {
+			if err := q.onBatchProcessed(); err != nil {
+				q.Logger.WithField("file", c.path).
+					Errorf("failed to flush after batch, keeping chunk for replay: %v", err)
+				// the batch is applied but not durable: put the chunk back so
+				// the next DequeueBatch replays it (replay is idempotent)
+				// rather than deleting the only copy of these ops
+				if corruptChunkErr == nil {
+					q.r.RequeueChunk(c)
+				}
+				return
+			}
+		}
 		// a quarantined chunk is already renamed and removed from the
 		// queue's accounting
 		if corruptChunkErr == nil {
 			q.removeChunk(c)
-		}
-		if q.onBatchProcessed != nil {
-			q.onBatchProcessed()
 		}
 	}
 
@@ -1476,6 +1491,24 @@ func (r *chunkReader) ReleaseChunk(c *chunk) {
 	r.m.Lock()
 	defer r.m.Unlock()
 	delete(r.chunks, c.path)
+}
+
+// RequeueChunk puts a fully read chunk back into the reader's list so a later
+// ReadChunk returns it again. The list is otherwise consumed exactly once per
+// entry, so a chunk kept on disk after processing would not be scheduled again
+// until the queue is re-initialized.
+func (r *chunkReader) RequeueChunk(c *chunk) {
+	_ = c.Close()
+	r.m.Lock()
+	defer r.m.Unlock()
+	// drop any cached open file so the next read reopens the chunk from its
+	// path: the cached handle was already closed and consumed by DequeueBatch
+	delete(r.chunks, c.path)
+	// insert at the cursor, not the tail: the chunks behind the cursor hold
+	// ops newer than this one, and replaying an old chunk after them would
+	// re-apply stale ops on top of newer ones for the same key. Replay is
+	// idempotent under re-application, not under re-ordering.
+	r.chunkList = slices.Insert(r.chunkList, r.cursor, c.path)
 }
 
 func (r *chunkReader) RemoveChunk(c *chunk) (bool, error) {

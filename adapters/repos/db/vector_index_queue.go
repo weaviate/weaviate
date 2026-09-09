@@ -268,11 +268,10 @@ func (iq *VectorIndexQueue) BeforeSchedule() (skip bool) {
 	return iq.checkCompressionSettings()
 }
 
-// Flush the vector index after a batch is processed.
-func (iq *VectorIndexQueue) OnBatchProcessed() {
-	if err := iq.vectorIndex.Flush(); err != nil {
-		iq.Logger.WithError(err).Error("failed to flush vector index")
-	}
+// Flush the vector index after a batch is processed. A non-nil error keeps
+// the processed chunk on disk so the queue replays it on a later cycle.
+func (iq *VectorIndexQueue) OnBatchProcessed() error {
+	return iq.vectorIndex.Flush()
 }
 
 type upgradableIndexer interface {
