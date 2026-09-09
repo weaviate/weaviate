@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -418,7 +419,7 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Principal, backend, backupID, overrideBucket, overridePath string,
 ) (_ *Status, err error) {
 	defer func(begin time.Time) {
-		logOperation(s.logger, "restoration_status", backupID, backend, time.Now(), err)
+		logOperation(s.logger, "restoration_status", backupID, backend, begin, err)
 	}(time.Now())
 	store, err := coordBackend(s.backends, backend, backupID, overrideBucket, overridePath)
 	if err != nil {
@@ -607,7 +608,7 @@ func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Princip
 func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backend string, sortingOrder *string, includeBaseBackupID bool) (*models.BackupListResponse, error) {
 	var err error
 	defer func(begin time.Time) {
-		logOperation(s.logger, "list_backup", "", backend, time.Now(), err)
+		logOperation(s.logger, "list_backup", "", backend, begin, err)
 	}(time.Now())
 
 	backupBackend, err := s.backends.BackupBackend(backend, modulecapabilities.BackendUseCaseBackup)
@@ -623,18 +624,23 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 
 	slices.SortFunc(backups, sortBackups(AllBackupsOrder(*sortingOrder)))
 
+	classes := make([][]string, len(backups))
+	for i, b := range backups {
+		classes[i] = b.Classes()
+	}
+	readable, err := s.canReadBackups(ctx, principal, classes)
+	if err != nil {
+		return nil, err
+	}
+
 	response := make(models.BackupListResponse, 0, len(backups))
-	for _, b := range backups {
-		classes := b.Classes()
-		if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups(classes...)...); err != nil {
-			if errors.As(err, &authzerrors.Forbidden{}) {
-				continue
-			}
-			return nil, err
+	for i, b := range backups {
+		if !readable[i] {
+			continue
 		}
 		item := &models.BackupListResponseItems0{
 			ID:          b.ID,
-			Classes:     classes,
+			Classes:     classes[i],
 			Status:      string(b.Status),
 			StartedAt:   strfmt.DateTime(b.StartedAt.UTC()),
 			CompletedAt: strfmt.DateTime(b.CompletedAt.UTC()),
@@ -649,6 +655,52 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 	}
 
 	return &response, nil
+}
+
+// canReadBackups reports for each backup whether the caller may READ every
+// collection it names, uppercasing those names in place as authorization.Backups
+// does. Authorizing each distinct name once per listing rather than once per
+// backup drops the first-denial exit and the per-denial audit record.
+func (s *Scheduler) canReadBackups(ctx context.Context, principal *models.Principal, backupClasses [][]string) ([]bool, error) {
+	named := make(map[string]struct{})
+	for _, classes := range backupClasses {
+		for _, resource := range authorization.Backups(classes...) {
+			named[resource] = struct{}{}
+		}
+	}
+
+	readable := make([]bool, len(backupClasses))
+	// rbac.Manager.FilterAuthorizedResources rejects a call carrying no
+	// resources, so a listing with no backups must not make one.
+	if len(named) == 0 {
+		return readable, nil
+	}
+
+	// The adminlist authorizer answers a denied filter with Forbidden rather
+	// than an empty result. Both mean the caller sees no backup at all.
+	granted, err := s.authorizer.FilterAuthorizedResources(ctx, principal, authorization.READ,
+		slices.Sorted(maps.Keys(named))...)
+	if err != nil {
+		if !errors.As(err, &authzerrors.Forbidden{}) {
+			return nil, err
+		}
+		return readable, nil
+	}
+	mayRead := make(map[string]struct{}, len(granted))
+	for _, resource := range granted {
+		mayRead[resource] = struct{}{}
+	}
+
+	for i, classes := range backupClasses {
+		readable[i] = true
+		for _, resource := range authorization.Backups(classes...) {
+			if _, ok := mayRead[resource]; !ok {
+				readable[i] = false
+				break
+			}
+		}
+	}
+	return readable, nil
 }
 
 func sortBackups(order AllBackupsOrder) func(a, b *backup.DistributedBackupDescriptor) int {
