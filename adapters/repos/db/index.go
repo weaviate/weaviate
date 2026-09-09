@@ -575,12 +575,7 @@ func NewIndex(
 func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	promMetrics *monitoring.PrometheusMetrics,
 ) error {
-	type shardInfo struct {
-		name           string
-		activityStatus string
-	}
-
-	var localShards []shardInfo
+	var openLocalShards []string
 	className := i.Config.ClassName.String()
 
 	state, err := i.namespaceState()
@@ -590,6 +585,12 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return err
 	}
 	if !namespaces.ShardsShouldBeOpen(state) {
+		// A namespace keeping no shards open is configured rather than broken, so
+		// this reports at Info. Nothing else names the class, since
+		// scanStartupProgress counts none of its shards into a node-wide total.
+		i.logger.WithFields(logrus.Fields{
+			"class": className, "namespace": i.namespace, "state": state,
+		}).Info("registering no shards: this namespace keeps none open")
 		// Nothing loads, and leaving the flag false suppresses the node-wide
 		// object count for every index on this node.
 		i.allShardsReady.Store(true)
@@ -601,14 +602,9 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 			return fmt.Errorf("unable to retrieve sharding state for class %s", className)
 		}
 
-		for shardName, physical := range shardingState.Physical {
-			if shardingState.IsLocalShard(shardName) {
-				localShards = append(localShards, shardInfo{
-					name:           shardName,
-					activityStatus: physical.ActivityStatus(),
-				})
-			}
-		}
+		shardingState.ForEachLocalOpenPhysical(func(name string) {
+			openLocalShards = append(openLocalShards, name)
+		})
 
 		return nil
 	})
@@ -623,17 +619,10 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		startupShards = &startupShardCounters{}
 	}
 
-	hotShardNames := make([]string, 0, len(localShards))
-
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 
-	for _, shard := range localShards {
-		if shard.activityStatus != models.TenantActivityStatusHOT {
-			continue
-		}
-		hotShardNames = append(hotShardNames, shard.name)
-		shardName := shard.name
+	for _, shardName := range openLocalShards {
 		eg.Go(func() error {
 			switch {
 			case i.Config.EnableLazyLoadShards:
@@ -690,7 +679,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		i.logger.WithFields(logrus.Fields{
 			"action":     "skip_load_all_shards",
 			"class":      i.Config.ClassName.String(),
-			"hot_shards": len(hotShardNames),
+			"hot_shards": len(openLocalShards),
 		}).Debug("background warmup disabled; lazy shards will load on first access")
 		return nil
 	}
@@ -725,7 +714,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 			promMetrics.RecordWarmupOutcome(outcome)
 		}
 
-		for _, shardName := range hotShardNames {
+		for _, shardName := range openLocalShards {
 			if abortIfClosing() {
 				return
 			}
@@ -3409,9 +3398,9 @@ func (i *Index) LoadLocalShardForTenantProcess(ctx context.Context, shardName st
 // loadLocalShardForReload opens a shard for the reload replaying committed
 // schema. A namespace that keeps no shards open opens none and returns nil: an
 // error here would skip the tenant drops and property adds the same reload
-// owes, and nothing re-runs a reload. The skip is silent, like
-// initAndStoreShards', since a suspended namespace reaches this once per
-// tenant. mustLoad preserves the eager load each call site did before.
+// owes, and nothing re-runs a reload. The skip is silent, since a suspended
+// namespace reaches this once per tenant. mustLoad preserves the eager load
+// each call site did before.
 func (i *Index) loadLocalShardForReload(ctx context.Context, shardName string, mustLoad bool) error {
 	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, false, callerReload)
 	if stderrors.Is(err, errShardNamespaceClosed) {

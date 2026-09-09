@@ -311,6 +311,16 @@ func coldPhysical(name string) sharding.Physical {
 	return p
 }
 
+// remotePhysical is HOT and belongs to another node, which is the locality half
+// of the open-shard rule.
+func remotePhysical(name string) sharding.Physical {
+	return sharding.Physical{
+		Name:           name,
+		BelongsToNodes: []string{"node2"},
+		Status:         models.TenantActivityStatusHOT,
+	}
+}
+
 // The shared read decides three things for its callers: which states enumerate
 // shards at all, which are refused outright, and which state the caller is
 // handed back to act on.
@@ -2200,9 +2210,11 @@ func TestGuardBoot(t *testing.T) {
 	const class = "alpha:Product"
 	ctx := context.Background()
 
-	// empty1 pins that a tenant with no status counts as HOT on boot.
+	// empty1 pins that a tenant with no status counts as HOT on boot, remote1 that
+	// the boot filter still tests locality.
 	mixed := map[string]sharding.Physical{
-		"hot1": hotPhysical("hot1"), "empty1": localPhysical("empty1"), "cold1": coldPhysical("cold1"),
+		"hot1": hotPhysical("hot1"), "empty1": localPhysical("empty1"),
+		"cold1": coldPhysical("cold1"), "remote1": remotePhysical("remote1"),
 	}
 
 	// Red if the filter is the request-path check, which rejects resuming.
@@ -2212,20 +2224,39 @@ func TestGuardBoot(t *testing.T) {
 			if tc.wantLoad {
 				want = []string{"empty1", "hot1"}
 			}
-			idx, _ := indexForBootTest(t, tc.className, tc.exister(t),
+			idx, hook := indexForBootTest(t, tc.className, tc.exister(t),
 				readerForShards(t, tc.className, mixed))
 
 			require.NoError(t, idx.initAndStoreShards(ctx, &models.Class{Class: tc.className}, nil))
 			assert.Equal(t, want, registeredShards(t, idx))
 
-			if !tc.wantLoad {
-				// An index with nothing to load is ready. Left false, it would stop
-				// the node-wide object count for every other index too.
-				assert.True(t, idx.allShardsReady.Load(),
-					"a class that registers no shards must still report ready")
+			if tc.wantLoad {
+				assert.Empty(t, hook.AllEntries(),
+					"a class that opens shards must not report registering none")
+				return
 			}
+			// An index with nothing to load is ready. Left false, it would stop
+			// the node-wide object count for every other index too.
+			assert.True(t, idx.allShardsReady.Load(),
+				"a class that registers no shards must still report ready")
 		})
 	}
+
+	// The lazy arm stores that flag from a background goroutine, which no row
+	// above reaches with an empty list. Left unstored it silences the node-wide
+	// object count for every index on the node.
+	t.Run("an admitting namespace with no open shards still reports ready", func(t *testing.T) {
+		closed := map[string]sharding.Physical{
+			"cold1": coldPhysical("cold1"), "remote1": remotePhysical("remote1"),
+		}
+		idx, _ := indexForBootTest(t, class, existerWithState(t, api.NamespaceStateActive),
+			readerForShards(t, class, closed))
+
+		require.NoError(t, idx.initAndStoreShards(ctx, &models.Class{Class: class}, nil))
+		assert.Empty(t, registeredShards(t, idx))
+		require.Eventually(t, idx.allShardsReady.Load, 5*time.Second, 10*time.Millisecond,
+			"an index with nothing to load must still report ready")
+	})
 
 	// A state that cannot be read is not a namespace keeping its shards closed:
 	// the class may hold data on disk, so boot must refuse rather than register
@@ -2246,13 +2277,30 @@ func TestGuardBoot(t *testing.T) {
 
 	// Registering no Read expectation asserts the sharding state is never read:
 	// when nothing may be open, boot must not walk every tenant to learn that.
-	t.Run("a suspended class is decided without reading the sharding state", func(t *testing.T) {
-		idx, _ := indexForBootTest(t, class, existerWithState(t, api.NamespaceStateSuspended),
-			schemaUC.NewMockSchemaReader(t))
+	//
+	// Only the two configured refusals are named. shardsShouldBeOpenStates has a
+	// third, a state this binary has no case for, which is not a configured
+	// outcome for this line to report.
+	for _, state := range []api.NamespaceState{
+		api.NamespaceStateSuspended, api.NamespaceStateDeleting,
+	} {
+		t.Run("a "+string(state)+" class is decided without reading the sharding state", func(t *testing.T) {
+			idx, hook := indexForBootTest(t, class, existerWithState(t, state),
+				schemaUC.NewMockSchemaReader(t))
 
-		require.NoError(t, idx.initAndStoreShards(ctx, &models.Class{Class: class}, nil))
-		assert.Empty(t, registeredShards(t, idx))
-	})
+			require.NoError(t, idx.initAndStoreShards(ctx, &models.Class{Class: class}, nil))
+			assert.Empty(t, registeredShards(t, idx))
+
+			// The whole hook is counted rather than the last entry read, since a
+			// second line here would mean the skip is reported twice.
+			entries := hook.AllEntries()
+			require.Len(t, entries, 1, "the skip must be logged exactly once")
+			assert.Equal(t, logrus.InfoLevel, entries[0].Level)
+			assert.Equal(t, class, entries[0].Data["class"])
+			assert.Equal(t, "alpha", entries[0].Data["namespace"])
+			assert.Equal(t, state, entries[0].Data["state"])
+		})
+	}
 }
 
 // initAndStoreShards hands its shard names to a loop that loads them one per

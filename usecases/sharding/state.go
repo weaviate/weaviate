@@ -396,18 +396,27 @@ func (s *State) AllLocalPhysicalShards() []string {
 	return names
 }
 
+// ForEachLocalOpenPhysical calls fn with the Physical map key of every shard
+// IsLocalOpenPhysical admits, in map order. It yields the key rather than
+// Physical.Name, so a caller diffing this against the shards it holds keys both
+// halves alike.
+func (s *State) ForEachLocalOpenPhysical(fn func(name string)) {
+	for name, physical := range s.Physical {
+		if s.IsLocalOpenPhysical(physical) {
+			fn(name)
+		}
+	}
+}
+
 // AllLocalOpenPhysicalShards returns the Physical map keys IsLocalOpenPhysical
 // admits. An empty result is a non-nil slice, and the order is the map's: a
 // caller sorts the diff it computes, which is O(changes), rather than this set,
-// which is O(tenants). It yields the key rather than Physical.Name so a caller
-// diffing this against the shards it holds keys both halves alike.
+// which is O(tenants).
 func (s *State) AllLocalOpenPhysicalShards() []string {
 	names := make([]string, 0, len(s.Physical))
-	for name, physical := range s.Physical {
-		if s.IsLocalOpenPhysical(physical) {
-			names = append(names, name)
-		}
-	}
+	s.ForEachLocalOpenPhysical(func(name string) {
+		names = append(names, name)
+	})
 	return names
 }
 
