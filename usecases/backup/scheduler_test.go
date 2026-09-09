@@ -3307,13 +3307,20 @@ func TestValidateBackupRequestBaseChainFloor(t *testing.T) {
 		id  = "chain-floor-1"
 	)
 	for _, tc := range []struct {
-		name        string
-		baseVersion string
-		baseDedupe  bool
-		want        bool
+		name          string
+		baseVersion   string
+		baseDedupe    bool
+		baseStatus    backup.Status
+		noCompression bool
+		missingBase   bool
+		want          bool
+		wantErr       string
 	}{
 		{name: "deduped base pins the floor", baseVersion: "3.0", baseDedupe: true, want: true},
 		{name: "legacy base keeps the legacy floor", baseVersion: "2.1", want: false},
+		{name: "pre-zstd base without compression field resolves as gzip", baseVersion: "2.0", noCompression: true, want: false},
+		{name: "missing base refused", missingBase: true, wantErr: "could not fetch base backup"},
+		{name: "unsuccessful base refused", baseVersion: "2.1", baseStatus: backup.Started, wantErr: `has status "STARTED"`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -3323,18 +3330,32 @@ func TestValidateBackupRequestBaseChainFloor(t *testing.T) {
 			fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("root/" + id)
 			fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
 			fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
-			baseMeta := backup.DistributedBackupDescriptor{
-				ID: "base-1", StartedAt: time.Now().Add(-time.Hour), Status: backup.Success,
-				Version: tc.baseVersion, ServerVersion: "1.35", DedupeReplicas: tc.baseDedupe,
-				CompressionType: backup.CompressionGZIP,
+			if tc.missingBase {
+				fs.backend.On("GetObject", ctx, "base-1", GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+			} else {
+				status := tc.baseStatus
+				if status == "" {
+					status = backup.Success
+				}
+				baseMeta := backup.DistributedBackupDescriptor{
+					ID: "base-1", StartedAt: time.Now().Add(-time.Hour), Status: status,
+					Version: tc.baseVersion, ServerVersion: "1.35", DedupeReplicas: tc.baseDedupe,
+				}
+				if !tc.noCompression {
+					baseMeta.CompressionType = backup.CompressionGZIP
+				}
+				fs.backend.On("GetObject", ctx, "base-1", GlobalBackupFile).Return(marshalCoordinatorMeta(baseMeta), nil)
 			}
-			fs.backend.On("GetObject", ctx, "base-1", GlobalBackupFile).Return(marshalCoordinatorMeta(baseMeta), nil)
 
 			s := fs.scheduler()
 			store := coordStore{objectStore{fs.backend, id, "", "", ""}}
 			sel, err := s.validateBackupRequest(ctx, store, &BackupRequest{
 				ID: id, Backend: "s3", Include: []string{cls}, BaseBackupID: "base-1",
 			})
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, sel.baseChainDeduped)
 		})

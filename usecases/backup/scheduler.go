@@ -790,7 +790,7 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	if err != nil {
 		return selections, fmt.Errorf("get compression type: %w", err)
 	}
-	chain, err := resolveBaseBackupChain(ctx, req.BaseBackupID, time.Now().UTC(), req.Bucket, req.Path, compressionType, store.MetaForBackupID)
+	chain, err := resolveBaseBackupChain(ctx, req.BaseBackupID, time.Now().UTC(), req.Bucket, req.Path, compressionType, store.GlobalMetaForBackupID)
 	if err != nil {
 		return selections, fmt.Errorf("resolve base backup chain: %w", err)
 	}

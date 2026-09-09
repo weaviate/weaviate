@@ -191,6 +191,21 @@ func (s *coordStore) Meta(ctx context.Context, filename, overrideBucket, overrid
 	return &result, err
 }
 
+// GlobalMetaForBackupID reads backupID's global descriptor with its distributed-only fields
+// (nodes, dedupe designations) intact; MetaForBackupID drops them via the per-node decode type.
+func (s *coordStore) GlobalMetaForBackupID(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.DistributedBackupDescriptor, error) {
+	var result *backup.DistributedBackupDescriptor
+
+	cs := &coordStore{objectStore{s.backend, backupID, overrideBucket, overridePath, ""}}
+	if err := cs.meta(ctx, GlobalBackupFile, overrideBucket, overridePath, &result); err != nil {
+		return nil, err
+	}
+	if result == nil {
+		return nil, fmt.Errorf("no global backup descriptor found in %s", backupID)
+	}
+	return result, nil
+}
+
 func (s *coordStore) MetaForBackupID(ctx context.Context, backupID, overrideBucket, overridePath string) (*backup.BackupDescriptor, error) {
 	var result *backup.BackupDescriptor
 

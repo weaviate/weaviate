@@ -255,6 +255,10 @@ func (d *DistributedBackupDescriptor) GetServerVersion() string {
 }
 
 func (d *DistributedBackupDescriptor) GetCompressionType() CompressionType {
+	// pre-zstd global descriptors lack the field and default to gzip
+	if d.CompressionType == "" {
+		return CompressionGZIP
+	}
 	return d.CompressionType
 }
 
