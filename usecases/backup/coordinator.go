@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
@@ -262,6 +263,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	if plan != nil {
 		c.descriptor.DedupeDesignatedShards = plan.designated()
 		c.descriptor.DedupeFallbackShards = plan.fallback()
+		// Copied, not aliased; cancelled/failed artifacts carry the map harmlessly since chain validation refuses non-Success bases.
 		for class, shards := range plan.designations {
 			if len(shards) == 0 {
 				continue
@@ -270,6 +272,10 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 				c.descriptor.DedupeCutoffsMs = make(map[string]int64, len(plan.designations))
 			}
 			c.descriptor.DedupeCutoffsMs[class] = plan.cutoffs[class]
+			if c.descriptor.DedupeDesignations == nil {
+				c.descriptor.DedupeDesignations = make(map[string]map[string]string, len(plan.designations))
+			}
+			c.descriptor.DedupeDesignations[class] = maps.Clone(shards)
 		}
 	}
 

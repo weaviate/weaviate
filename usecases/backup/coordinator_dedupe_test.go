@@ -691,6 +691,7 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		assert.True(t, got.DedupeReplicas)
 		assert.Equal(t, 1, got.DedupeDesignatedShards)
 		assert.Equal(t, 0, got.DedupeFallbackShards)
+		assert.Equal(t, wantDesignations, got.DedupeDesignations)
 		require.Len(t, got.DedupeCutoffsMs, 1)
 		assert.Positive(t, got.DedupeCutoffsMs["Class-A"])
 		assert.Equal(t, []string{"Class-A"}, f.deleteCalls)
@@ -716,6 +717,7 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		assert.Zero(t, got.DedupeDesignatedShards)
 		assert.Zero(t, got.DedupeFallbackShards)
 		assert.Nil(t, got.DedupeCutoffsMs)
+		assert.Nil(t, got.DedupeDesignations)
 	})
 
 	t.Run("deduped base pins the version stamp with zero designations", func(t *testing.T) {
