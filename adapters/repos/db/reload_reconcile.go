@@ -39,6 +39,30 @@ func isIndexDirName(name string) bool {
 	return indexDirNameRegex.MatchString(name) && name != config.DefaultRaftDir
 }
 
+// hasShardStore reports whether indexPath holds at least one shard store, the
+// <shard>/lsm directory every shard creates when it initializes. The name
+// pattern alone also admits directories Weaviate does not own at the data
+// root: BACKUP_FILESYSTEM_PATH accepts any absolute path, so
+// <RootPath>/backups is a valid setup. A filesystem backup stores each class
+// as compressed chunk files under the backup id, never as an lsm directory,
+// so it does not match here.
+func hasShardStore(indexPath string) (bool, error) {
+	entries, err := os.ReadDir(indexPath)
+	if err != nil {
+		return false, err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		info, err := os.Stat(shardPathLSM(indexPath, entry.Name()))
+		if err == nil && info.IsDir() {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // dropOrphanedIndexDirectories removes class directories under the data root
 // that the reloaded schema no longer names. Two RAFT paths delete a class from
 // the schema without dropping its index directory, and nothing else in the
@@ -50,6 +74,12 @@ func isIndexDirName(name string) bool {
 //     (0-weaviate-issues#651).
 //
 // keepClasses is the set of classes in the reloaded schema.
+//
+// A directory is only dropped once it is positively an index: either its
+// *Index is loaded in db.indices, or it holds a shard store (hasShardStore).
+// A name-shaped directory with neither is left alone, which also leaves an
+// index directory whose shards all live on other nodes; that leftover is
+// empty.
 //
 // A snapshot install on an already-running node (Store.reloadDBFromSchema with
 // st.raft != nil) leaves the deleted class's *Index loaded in memory, so an
@@ -99,12 +129,25 @@ func (db *DB) dropOrphanedIndexDirectories(keepClasses []string) error {
 			"class":  name,
 			"path":   path,
 		})
-		log.Info("dropping class directory absent from the schema after reload")
 
 		// db.indices is keyed by indexID, which is also the directory name.
 		db.indexLock.RLock()
 		liveIndex, loaded := db.indices[name]
 		db.indexLock.RUnlock()
+
+		if !loaded {
+			isIndex, err := hasShardStore(path)
+			if err != nil {
+				err = fmt.Errorf("inspect directory absent from the schema: %w", err)
+				log.Error(err)
+				ec.Add(err)
+				continue
+			}
+			if !isIndex {
+				continue
+			}
+		}
+		log.Info("dropping class directory absent from the schema after reload")
 
 		if loaded {
 			if err := db.DeleteIndex(liveIndex.Config.ClassName); err != nil {

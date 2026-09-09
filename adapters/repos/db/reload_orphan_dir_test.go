@@ -120,8 +120,11 @@ func TestReloadLocalDBReconcilesOrphanClassDirectories(t *testing.T) {
 // TestDropOrphanedIndexDirectoriesPreservesReservedEntries pins what the
 // reconcile must never touch: a class still in the schema, the raft directory,
 // the backup framework's marked, staging and restore-temp directories, a
-// directory already pending async delete, a mount point's lost+found, and
-// files at the data root.
+// directory already pending async delete, a mount point's lost+found, files at
+// the data root, and two directories whose name alone passes as a class: a
+// filesystem backup root colocated under the data root
+// (BACKUP_FILESYSTEM_PATH=<RootPath>/backups) and an index directory with no
+// shard store on this node.
 func TestDropOrphanedIndexDirectoriesPreservesReservedEntries(t *testing.T) {
 	root := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -136,8 +139,10 @@ func TestDropOrphanedIndexDirectoriesPreservesReservedEntries(t *testing.T) {
 		filepath.Join(root, ubak.TempDirectory, indexID("RestoringClass")),
 		filepath.Join(root, "gone.123.abcd"+asyncDeleteSuffix),
 		filepath.Join(root, "lost+found"),
+		filepath.Join(root, "backups", "backup-1", "node1", indexID("BackedUpClass")),
+		filepath.Join(root, indexID("ShardlessClass")),
 	}
-	for _, d := range append(preserved, orphanDir) {
+	for _, d := range append(preserved, filepath.Join(orphanDir, "shard1", "lsm")) {
 		require.NoError(t, os.MkdirAll(d, 0o755))
 	}
 	schemaFile := filepath.Join(root, "schema.db")
