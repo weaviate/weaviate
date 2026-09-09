@@ -25,7 +25,7 @@ import (
 )
 
 // discardingSegmentFile writes a flush nowhere, so a test can call
-// flushDataRoaringSet without producing a segment to read back.
+// writeRoaringSetNodes without producing a segment to read back.
 func discardingSegmentFile() *segmentindex.SegmentFile {
 	return segmentindex.NewSegmentFile(
 		segmentindex.WithBufferedWriter(bufio.NewWriter(io.Discard)))
@@ -44,13 +44,13 @@ func TestFlushRoaringSetBlocksOnMemtableWriteLock(t *testing.T) {
 
 	flushed := make(chan error, 1)
 	enterrors.GoWrapper(func() {
-		_, err := m.flushDataRoaringSet(discardingSegmentFile())
+		_, err := m.writeRoaringSetNodes(discardingSegmentFile())
 		flushed <- err
 	}, logger)
 
 	select {
 	case <-flushed:
-		t.Fatal("flushDataRoaringSet read the memtable while a writer held its lock")
+		t.Fatal("writeRoaringSetNodes read the memtable while a writer held its lock")
 	case <-time.After(100 * time.Millisecond):
 	}
 
@@ -60,7 +60,7 @@ func TestFlushRoaringSetBlocksOnMemtableWriteLock(t *testing.T) {
 	case err := <-flushed:
 		require.NoError(t, err)
 	case <-time.After(time.Second):
-		t.Fatal("flushDataRoaringSet did not finish after the writer released the lock")
+		t.Fatal("writeRoaringSetNodes did not finish after the writer released the lock")
 	}
 }
 
@@ -83,7 +83,7 @@ func TestFlushRoaringSetConcurrentWrite(t *testing.T) {
 		written <- nil
 	}, logger)
 
-	_, err := m.flushDataRoaringSet(discardingSegmentFile())
+	_, err := m.writeRoaringSetNodes(discardingSegmentFile())
 	require.NoError(t, err)
 
 	select {
