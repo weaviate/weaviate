@@ -60,11 +60,13 @@ func TestQuery(t *testing.T) {
 			wantQueryInput: inputs,
 		},
 		{
-			name:           "forbidden",
+			// errAny is not a Forbidden, so gateErr renders it 422 rather than 403.
+			// Test_GateRefusal_RendersUnprocessable pins this site's 403 case.
+			name:           "a non-permission authorizer error",
 			class:          cls,
 			param:          params,
 			authErr:        errAny,
-			wantCode:       StatusForbidden,
+			wantCode:       StatusUnprocessableEntity,
 			wantQueryInput: inputs,
 		},
 		{

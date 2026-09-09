@@ -12,7 +12,10 @@
 package objects
 
 import (
+	"errors"
 	"fmt"
+
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 // objects status code
@@ -40,6 +43,17 @@ func (e *Error) Error() string {
 // Unwrap underlying error
 func (e *Error) Unwrap() error {
 	return e.Err
+}
+
+// gateErr renders a non-nil error from AuthorizeAndRequireActiveNamespace. An
+// authzerrs.Forbidden answers 403, everything else 422. It cannot test the
+// namespace sentinel instead, because usecases/namespaces imports this package.
+func gateErr(err error) *Error {
+	code := StatusUnprocessableEntity
+	if errors.As(err, &authzerrs.Forbidden{}) {
+		code = StatusForbidden
+	}
+	return &Error{err.Error(), code, err}
 }
 
 func (e *Error) NotFound() bool {

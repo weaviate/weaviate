@@ -59,10 +59,12 @@ func Test_HeadObject(t *testing.T) {
 			wantCode:  StatusInternalServerError,
 		},
 		{
-			class:    cls,
-			authErr:  errAny,
-			wantOK:   false,
-			wantCode: StatusForbidden,
+			class:   cls,
+			authErr: errAny,
+			wantOK:  false,
+			// errAny is not a Forbidden, so gateErr renders it 422 rather than 403.
+			// Test_GateRefusal_RendersUnprocessable pins this site's 403 case.
+			wantCode: StatusUnprocessableEntity,
 		},
 	}
 	for i, tc := range tests {

@@ -182,7 +182,9 @@ func Test_ReferenceAdd(t *testing.T) {
 	}{
 		{
 			Name: "authorization", Req: req, Stage: 0,
-			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr,
+			// anyErr is not a Forbidden, so gateErr renders it 422 rather than 403.
+			// Test_GateRefusal_RendersUnprocessable pins this site's 403 case.
+			WantCode: StatusUnprocessableEntity, WantErr: anyErr, ErrAuth: anyErr,
 		},
 		{
 			Name: "get schema",
@@ -336,7 +338,9 @@ func Test_ReferenceUpdate(t *testing.T) {
 		},
 		{
 			Name: "authorization", Req: req,
-			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr,
+			// anyErr is not a Forbidden, so gateErr renders it 422 rather than 403.
+			// Test_GateRefusal_RendersUnprocessable pins this site's 403 case.
+			WantCode: StatusUnprocessableEntity, WantErr: anyErr, ErrAuth: anyErr,
 			Stage: 0,
 		},
 		{
@@ -493,7 +497,9 @@ func Test_ReferenceDelete(t *testing.T) {
 		},
 		{
 			Name: "authorization", Req: req,
-			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr, Stage: 1,
+			// anyErr is not a Forbidden, so gateErr renders it 422 rather than 403.
+			// Test_GateRefusal_RendersUnprocessable pins this site's 403 case.
+			WantCode: StatusUnprocessableEntity, WantErr: anyErr, ErrAuth: anyErr, Stage: 1,
 		},
 		{
 			Name: "get schema",

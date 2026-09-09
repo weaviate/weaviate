@@ -56,7 +56,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	updates.Class = className
 	cls, id := updates.Class, updates.ID
 	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, className, authorization.Objects(className, updates.Tenant)); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+		return gateErr(err)
 	}
 
 	ctx = classcache.ContextWithClassCache(ctx)

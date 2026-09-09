@@ -50,7 +50,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	}
 
 	if err := m.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, input.Class, authorization.ShardsData(input.Class, tenant)...); err != nil {
-		return &Error{err.Error(), StatusForbidden, err}
+		return gateErr(err)
 	}
 
 	deprecatedEndpoint := input.Class == ""
