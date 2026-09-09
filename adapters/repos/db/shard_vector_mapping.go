@@ -225,3 +225,15 @@ func (m *vectorIndexMapping) Delete(name string) error {
 	}
 	return nil
 }
+
+// deleteVectorIndexRecordOffline removes name's record from an UNLOADED
+// shard's mapping, opening the file briefly. A missing file, a missing
+// namespace, or a file locked by a loaded shard is success: nothing was
+// recorded, or the loaded owner deletes through its own handle.
+func deleteVectorIndexRecordOffline(shardDir, name string) error {
+	err := shardmeta.DeleteOffline(shardDir, vectorIndexMappingNamespace, []byte(vectorIndexMappingKey(name)))
+	if err != nil {
+		return fmt.Errorf("delete vector index mapping record %q: %w", name, err)
+	}
+	return nil
+}
