@@ -5,16 +5,9 @@ set -euo pipefail
 VERSION="$(jq -r '.info.version' openapi-specs/schema.json)"
 LANGUAGES="en nl de cs it"
 IMAGE_BASE="semitechnologies/weaviate:"
+MSG=${1:-""}
 REQUIRED_TOOLS="jq git"
-MSG=""
-PUBLISH_PROTOS=false
 
-for arg in "$@"; do
-    case "$arg" in
-        --protos) PUBLISH_PROTOS=true ;;
-        *) MSG="$arg" ;;
-    esac
-done
 
 for tool in $REQUIRED_TOOLS; do
   if ! hash "$tool" 2>/dev/null; then
@@ -33,10 +26,6 @@ tools/gen-code-from-swagger.sh
 git commit -a -m "prepare release v$VERSION"
 
 git tag -a "v$VERSION" -m "release v$VERSION - $MSG"
-
-if [[ "$PUBLISH_PROTOS" == true ]]; then
-    git tag -a "grpc/generated/protocol/v$VERSION" -m "release grpc/generated/protocol v$VERSION"
-fi
 
 echo "You can use the following template for the release notes, copy/paste below the line"
 echo "----------------------------"
