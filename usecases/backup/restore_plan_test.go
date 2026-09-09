@@ -12,6 +12,7 @@
 package backup
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -521,6 +522,69 @@ func TestRestoreFanoutStagesFromMultipleSources(t *testing.T) {
 
 	classTempDir := filepath.Join(restoreDir, TempDirectory, e.className)
 	e.verify(classTempDir, []string{"s1/segment-1.db", "s2/segment-1.db"})
+}
+
+func TestRestoreFanoutFetchesBaseChunksFromSourcePrefix(t *testing.T) {
+	e := newIncrementalTestEnv(t, config.Backup{ChunkTargetSize: 512, MinChunkSize: 500, SplitFileSize: 256})
+	e.writeFile("s1/big-segment.db", bytes.Repeat([]byte{'B'}, 600))
+	e.writeFile("s1/changed.db", []byte("v1"))
+	const baseID = "fanout-incr-base"
+	const incrID = "fanout-incr"
+
+	upload := func(prefix string, sd *backup.ShardDescriptor) map[int32][]string {
+		mockBackend := modulecapabilities.NewMockBackupBackend(t)
+		mockBackend.EXPECT().SourceDataPath().Return(e.sourceDir)
+		mockBackend.EXPECT().Write(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(e.storeWriterFn(prefix))
+		u := &uploader{
+			cfg:       e.cfg,
+			backend:   nodeStore{objectStore{backend: mockBackend, backupId: prefix}},
+			zipConfig: zipConfig{Level: int(NoCompression), GoPoolSize: 1},
+			log:       logrus.New(),
+		}
+		var lastChunk atomic.Int32
+		chunks := map[int32][]string{}
+		results, err := u.processShard(context.Background(), sd, e.className, &lastChunk, "", "", u.backend.SourceDataPath())
+		require.NoError(t, err)
+		for _, res := range results {
+			chunks[res.chunk] = res.shards
+		}
+		return chunks
+	}
+
+	baseSd := e.makeShardDesc("s1", []string{"s1/big-segment.db", "s1/changed.db"})
+	baseSd.Node = "nodeA"
+	upload(baseID+"/nodeA", baseSd)
+	require.Contains(t, baseSd.BigFilesChunk, "s1/big-segment.db")
+
+	e.writeFile("s1/changed.db", []byte("v2-longer-content"))
+	incrSd := e.makeShardDesc("s1", nil)
+	incrSd.Node = "nodeA"
+	require.NoError(t, incrSd.FillFileInfo([]string{"s1/big-segment.db", "s1/changed.db"},
+		[]backup.ShardAndID{{ShardDesc: baseSd, BackupID: baseID}}, e.sourceDir))
+	require.Equal(t, []string{"s1/changed.db"}, incrSd.Files)
+	require.NotEmpty(t, incrSd.IncrementalBackupInfo.FilesPerBackup[baseID])
+	incrChunks := upload(incrID+"/nodeA", incrSd)
+
+	restoreDir := t.TempDir()
+	restoreMock := modulecapabilities.NewMockBackupBackend(t)
+	restoreMock.EXPECT().SourceDataPath().Return(restoreDir)
+	restoreMock.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(e.serveReaderFn())
+
+	cp := classPlan{name: e.className, sources: []classSource{{
+		node:  "nodeA",
+		store: nodeStore{objectStore{backend: restoreMock, backupId: incrID + "/nodeA", node: "nodeA"}},
+		desc:  &backup.ClassDescriptor{Name: e.className, Shards: []*backup.ShardDescriptor{incrSd}, Chunks: incrChunks},
+	}}}
+
+	logger, _ := test.NewNullLogger()
+	r := &restorer{node: "nodeB", logger: logger, namespacesEnabled: true}
+	ownStore := nodeStore{objectStore{backend: restoreMock, backupId: incrID + "/nodeB", node: "nodeB"}}
+	require.NoError(t, r.restoreOneFanout(context.Background(), cp, ownStore, backup.CompressionNone, &Request{Compression: Compression{CPUPercentage: 1}}, &stagedDirs{}))
+
+	classTempDir := filepath.Join(restoreDir, TempDirectory, e.className)
+	e.verify(classTempDir, []string{"s1/big-segment.db", "s1/changed.db"})
 }
 
 func TestRestoreOneFanoutZeroShardsResetsStaging(t *testing.T) {

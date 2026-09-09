@@ -12,6 +12,8 @@
 package db
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -76,6 +78,33 @@ func TestCollectShardBaseDescrsSkipsShardlessBases(t *testing.T) {
 	got := idx.collectShardBaseDescrs("s2", base)
 	require.Len(t, got, 1)
 	assert.Equal(t, "base-2", got[0].BackupID)
+}
+
+func TestCollectedBaseDescrsFeedSkipEntries(t *testing.T) {
+	dir := t.TempDir()
+	relPath := "s2/segment-1.db"
+	abs := filepath.Join(dir, relPath)
+	require.NoError(t, os.MkdirAll(filepath.Dir(abs), 0o755))
+	require.NoError(t, os.WriteFile(abs, []byte("unchanged"), 0o644))
+	info, err := os.Stat(abs)
+	require.NoError(t, err)
+
+	idx := &Index{}
+	base := []*backup.ClassDescriptor{
+		{BackupID: "base-1", Shards: []*backup.ShardDescriptor{{Name: "s1", Node: "n1"}}},
+		{BackupID: "base-2", Shards: []*backup.ShardDescriptor{{
+			Name: "s2", Node: "n1",
+			BigFilesChunk: map[string]backup.BigFileInfo{relPath: {
+				Size: info.Size(), ModifiedAt: info.ModTime(), ChunkKeys: []string{"chunk-7"},
+			}},
+		}}},
+	}
+
+	var sd backup.ShardDescriptor
+	require.NoError(t, sd.FillFileInfo([]string{relPath}, idx.collectShardBaseDescrs("s2", base), dir))
+	assert.Empty(t, sd.Files)
+	assert.Equal(t, []backup.IncrementalBackupInfo{{File: relPath, ChunkKeys: []string{"chunk-7"}}},
+		sd.IncrementalBackupInfo.FilesPerBackup["base-2"])
 }
 
 func TestVerifyDesignatedLocalShards(t *testing.T) {
