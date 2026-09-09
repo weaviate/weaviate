@@ -210,11 +210,12 @@ func TestBSTRoaringSet_Flatten(t *testing.T) {
 		})
 	})
 
-	t.Run("the flattened copy keeps the source bitmap's slack", func(t *testing.T) {
+	t.Run("the flattened copy sheds the source bitmap's slack", func(t *testing.T) {
 		// A range mostly removed again leaves the container sized for what it
-		// held, which tells a buffer copy apart from a rebuild through a union.
-		// 1000 keeps the container array-backed, and Condense leaves a
-		// bitmap-backed one at its full size.
+		// held, so a copy that keeps the source's size is a buffer copy and one
+		// that shrinks reclaimed the slack. 1000 keeps the container
+		// array-backed, which is the shape a cursor over a memtable that has
+		// seen deletes actually holds.
 		bst := new(BinarySearchTree)
 		bst.Insert([]byte("key"), Insert{Additions: slice(0, 1000)})
 		bst.Insert([]byte("key"), Insert{Deletions: slice(10, 1000)})
@@ -224,13 +225,26 @@ func TestBSTRoaringSet_Flatten(t *testing.T) {
 
 		source := bst.root.Value.Additions.ToBuffer()
 		copied := flat[0].Value.Additions.ToBuffer()
-		condensed := Condense(bst.root.Value.Additions).ToBuffer()
 
-		require.Greater(t, len(source), len(condensed),
-			"the fixture no longer carries slack Condense can reclaim; sroar's array/bitmap container threshold may have moved")
-		assert.Equal(t, source, copied, "the copy must be the source buffer, byte for byte")
-		assert.Greater(t, len(copied), len(condensed),
-			"a copy the size of a condensed bitmap means the values were rebuilt, not copied")
+		require.Greater(t, len(source), len(bst.root.Value.Additions.Compacted().ToBuffer()),
+			"the fixture no longer carries slack to reclaim; sroar's array/bitmap container threshold may have moved")
+		assert.Less(t, len(copied), len(source),
+			"a copy the size of the source means the buffer was copied, slack and all")
+		assert.ElementsMatch(t, slice(0, 10), flat[0].Value.Additions.ToArray(),
+			"shedding slack must not shed values")
+	})
+
+	t.Run("the flattened copy keeps a nil side nil", func(t *testing.T) {
+		// sroar's Compacted returns an allocated empty bitmap for a nil
+		// receiver, so the per-side guard is what stops a nil side coming back
+		// as one holding nothing.
+		bst := new(BinarySearchTree)
+		bst.Insert([]byte("key"), Insert{Additions: slice(0, 4)})
+		bst.root.Value.Deletions = nil
+
+		flat := bst.FlattenInOrder()
+		require.Len(t, flat, 1)
+		assert.Nil(t, flat[0].Value.Deletions)
 	})
 }
 
@@ -374,15 +388,17 @@ func BenchmarkBinarySearchTreeFlatten(b *testing.B) {
 	}
 }
 
-// BenchmarkBinarySearchTreeFlattenWithSlack flattens bitmaps carrying container
-// slack, which BenchmarkBinarySearchTreeFlatten's single-value nodes have none
-// of. Copying a buffer keeps that slack, so a cursor opened here holds more
-// bytes than a rebuild through a union would leave it.
+// BenchmarkBinarySearchTreeCopyWithSlack sweeps the per-node copy shallowCopy
+// could use, over bitmaps carrying container slack that
+// BenchmarkBinarySearchTreeFlatten's single-value nodes have none of: a buffer copy keeps the slack,
+// a union rebuilds the values, and a compacted copy sizes each container to what
+// it holds. Reading the three together is what says which one a cursor should
+// pay for.
 //
-// retained-B is that held size. B/op cannot stand in for it: it also counts
+// retained-B is the held size. B/op cannot stand in for it: it also counts
 // sroar's buffer slop beyond what ToBuffer reports, which understates the
-// difference between the two copies.
-func BenchmarkBinarySearchTreeFlattenWithSlack(b *testing.B) {
+// difference between the copies.
+func BenchmarkBinarySearchTreeCopyWithSlack(b *testing.B) {
 	const keys = 200
 
 	bst := new(BinarySearchTree)
@@ -392,20 +408,42 @@ func BenchmarkBinarySearchTreeFlattenWithSlack(b *testing.B) {
 		bst.Insert(key, Insert{Deletions: slice(10, 1000)})
 	}
 
-	b.ReportAllocs()
-	b.ResetTimer()
-
-	var retained int
-	for i := 0; i < b.N; i++ {
-		flat := bst.FlattenInOrder()
-
-		retained = 0
-		for _, node := range flat {
-			retained += node.Value.LenInBytes()
-		}
+	copies := []struct {
+		name string
+		copy func(BitmapLayer) BitmapLayer
+	}{
+		{"compacted", func(l BitmapLayer) BitmapLayer { return l.Compacted() }},
+		{"clone", func(l BitmapLayer) BitmapLayer { return l.Clone() }},
+		{"condense", func(l BitmapLayer) BitmapLayer {
+			return BitmapLayer{Additions: Condense(l.Additions), Deletions: Condense(l.Deletions)}
+		}},
 	}
 
-	b.ReportMetric(float64(retained), "retained-B")
+	// The tree's own nodes, not FlattenInOrder's output: that output is already a
+	// copy, so copying it again would measure every candidate against the one
+	// shallowCopy chose rather than against the source.
+	var walk func(*BinarySearchNode, func(BitmapLayer) BitmapLayer) int
+	walk = func(n *BinarySearchNode, candidate func(BitmapLayer) BitmapLayer) int {
+		if n == nil {
+			return 0
+		}
+		copied := candidate(n.Value)
+		return walk(n.left, candidate) + copied.LenInBytes() + walk(n.right, candidate)
+	}
+
+	for _, cp := range copies {
+		b.Run(cp.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			var retained int
+			for i := 0; i < b.N; i++ {
+				retained = walk(bst.root, cp.copy)
+			}
+
+			b.ReportMetric(float64(retained), "retained-B")
+		})
+	}
 }
 
 func lexicographicallySortableFloat64(in float64) ([]byte, error) {

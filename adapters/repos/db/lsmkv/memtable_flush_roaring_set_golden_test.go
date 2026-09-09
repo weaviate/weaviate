@@ -33,8 +33,8 @@ var updateRoaringSetGolden = flag.Bool("update-roaringset-golden", false,
 
 // fixtureShape is one memtable key: the doc IDs added under it, then the doc
 // IDs removed. Removing IDs that were added grows the memtable's additions
-// bitmap past its contents; Condense reclaims that before the flush serializes
-// it, so it shows in the memtable and never in the recorded bytes.
+// bitmap past its contents; the flush compacts that away as it serializes, so
+// it shows in the memtable and never in the recorded bytes.
 type fixtureShape struct {
 	key    []byte
 	add    []uint64
@@ -101,6 +101,12 @@ func docIDRange(from, to uint64) []uint64 {
 // and is here for the memtable state, a grown but empty additions bitmap.
 // The zero-length key tells a nil-key loop termination apart from a
 // length-based one. Keys are distinct, so the node count equals the shape count.
+//
+// The last two shapes reach container arms the others cannot. A key holding
+// more than 2048 values is stored as a bitmap container, and emptying it back
+// down is what makes the flush rewrite it as an array; a key whose only values
+// sit above 65536 leaves an empty container at a non-zero key once they are
+// removed, which is dropped rather than written.
 func goldenFixtureShapes() []fixtureShape {
 	return []fixtureShape{
 		{key: []byte{}, add: docIDRange(0, 8)},
@@ -108,11 +114,27 @@ func goldenFixtureShapes() []fixtureShape {
 		{key: []byte("both"), add: docIDRange(1200, 2200), remove: docIDRange(1220, 2200)},
 		{key: []byte("deletions"), remove: docIDRange(2300, 2364)},
 		{key: []byte("emptied"), add: docIDRange(2400, 2464), remove: docIDRange(2400, 2464)},
+		{
+			key:    []byte("was a bitmap container"),
+			add:    docIDRange(3000, 8000),
+			remove: docIDRange(3100, 8000),
+		},
+		{
+			key:    []byte("emptied a high container"),
+			add:    append(docIDRange(10, 20), docIDRange(65536, 65636)...),
+			remove: docIDRange(65536, 65636),
+		},
 	}
 }
 
-func TestFlushRoaringSetGolden(t *testing.T) {
-	tests := []struct {
+// goldenFixtures are the fixtures whose bytes are recorded. The round trip
+// walks the same list, so a regeneration that keeps every cardinality cannot
+// hide a value that moved.
+func goldenFixtures() []struct {
+	name   string
+	shapes []fixtureShape
+} {
+	return []struct {
 		name   string
 		shapes []fixtureShape
 	}{
@@ -120,8 +142,10 @@ func TestFlushRoaringSetGolden(t *testing.T) {
 		{name: "single node", shapes: []fixtureShape{{key: []byte("only"), add: docIDRange(0, 512)}}},
 		{name: "empty", shapes: nil},
 	}
+}
 
-	for _, tt := range tests {
+func TestFlushRoaringSetGolden(t *testing.T) {
+	for _, tt := range goldenFixtures() {
 		for _, checksums := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/checksums=%t", tt.name, checksums), func(t *testing.T) {
 				m := newRoaringSetFlushFixture(t, tt.shapes, checksums)
@@ -174,30 +198,35 @@ func TestFlushRoaringSetGolden(t *testing.T) {
 // whose values are wrong. This is the assertion that regenerating cannot
 // launder, which is why it has to exist before any step regenerates.
 func TestFlushRoaringSetRoundTrip(t *testing.T) {
-	for _, checksums := range []bool{false, true} {
-		t.Run(fmt.Sprintf("checksums=%t", checksums), func(t *testing.T) {
-			shapes := goldenFixtureShapes()
-			m := newRoaringSetFlushFixture(t, shapes, checksums)
+	for _, tt := range goldenFixtures() {
+		if len(tt.shapes) == 0 {
+			continue
+		}
+		for _, checksums := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/checksums=%t", tt.name, checksums), func(t *testing.T) {
+				shapes := tt.shapes
+				m := newRoaringSetFlushFixture(t, shapes, checksums)
 
-			segmentPath, err := m.flush()
-			require.NoError(t, err)
+				segmentPath, err := m.flush()
+				require.NoError(t, err)
 
-			data, err := os.ReadFile(segmentPath)
-			require.NoError(t, err)
+				data, err := os.ReadFile(segmentPath)
+				require.NoError(t, err)
 
-			header, err := segmentindex.ParseHeader(data[:segmentindex.HeaderSize])
-			require.NoError(t, err)
+				header, err := segmentindex.ParseHeader(data[:segmentindex.HeaderSize])
+				require.NoError(t, err)
 
-			offset := segmentindex.HeaderSize
-			for i := range shapes {
-				require.Less(t, offset, int(header.IndexStart),
-					"the body ran out after %d of %d nodes", i, len(shapes))
-				node := roaringset.NewSegmentNodeFromBuffer(data[offset:])
-				assertNodeMatchesShape(t, shapes, node)
-				offset += int(node.Len())
-			}
-			require.Equal(t, int(header.IndexStart), offset)
-		})
+				offset := segmentindex.HeaderSize
+				for i := range shapes {
+					require.Less(t, offset, int(header.IndexStart),
+						"the body ran out after %d of %d nodes", i, len(shapes))
+					node := roaringset.NewSegmentNodeFromBuffer(data[offset:])
+					assertNodeMatchesShape(t, shapes, node)
+					offset += int(node.Len())
+				}
+				require.Equal(t, int(header.IndexStart), offset)
+			})
+		}
 	}
 }
 
