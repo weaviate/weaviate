@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 // A component-test like test suite that makes sure that every available UC is
@@ -42,6 +43,9 @@ func Test_Authorization(t *testing.T) {
 		expectedVerb     string
 		expectedResource string
 		ignoreAuthZ      bool
+		// filtersResources marks a method that calls FilterAuthorizedResources
+		// instead of Authorize.
+		filtersResources bool
 	}
 
 	// The expected verb/resource below is the *first* authz call made by the
@@ -101,15 +105,15 @@ func Test_Authorization(t *testing.T) {
 			classes:          []string{"ABC"},
 		},
 		{
-			// List authorizes per-backup READ against its resolved classes
-			// ("backups/collections/ABC") and filters the response to what
-			// the caller is permitted to see. Args: backend, sortingOrder,
-			// includeBaseBackupID.
+			// List calls FilterAuthorizedResources once for the whole listing
+			// and lists a backup only when every class it names came back. Its
+			// additional args are backend, sortingOrder and includeBaseBackupID.
 			methodName:       "List",
 			additionalArgs:   []interface{}{"filesystem", func(s string) *string { return &s }("desc"), false},
 			expectedVerb:     authorization.READ,
 			expectedResource: authorization.Backups("ABC")[0],
 			classes:          []string{"ABC"},
+			filtersResources: true,
 		},
 	}
 
@@ -194,7 +198,17 @@ func Test_Authorization(t *testing.T) {
 				require.NotNil(t, s)
 
 				if !test.ignoreAuthZ {
-					authorizer.On("Authorize", mock.Anything, mock.Anything, test.expectedVerb, test.expectedResource).Return(nil).Once()
+					if test.filtersResources {
+						// Denying the blanket probe sends List on to the
+						// per-resource authorization asserted on here.
+						blanket := authorization.Backups()[0]
+						authorizer.On("AuthorizeSilent", mock.Anything, mock.Anything, test.expectedVerb, blanket).
+							Return(authzerrors.NewForbidden(&models.Principal{}, test.expectedVerb, blanket)).Once()
+						authorizer.On("FilterAuthorizedResources", mock.Anything, mock.Anything, test.expectedVerb, test.expectedResource).
+							Return([]string{test.expectedResource}, nil).Once()
+					} else {
+						authorizer.On("Authorize", mock.Anything, mock.Anything, test.expectedVerb, test.expectedResource).Return(nil).Once()
+					}
 					// Subsequent fine-grained authz calls (e.g. Backup/Restore
 					// re-authorizing on resolved classes, Cancel re-authorizing
 					// on meta classes) are allowed but not required.
