@@ -120,7 +120,8 @@ func TestReloadLocalDBReconcilesOrphanClassDirectories(t *testing.T) {
 // TestDropOrphanedIndexDirectoriesPreservesReservedEntries pins what the
 // reconcile must never touch: a class still in the schema, the raft directory,
 // the backup framework's marked, staging and restore-temp directories, a
-// directory already pending async delete, and files at the data root.
+// directory already pending async delete, a mount point's lost+found, and
+// files at the data root.
 func TestDropOrphanedIndexDirectoriesPreservesReservedEntries(t *testing.T) {
 	root := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -134,6 +135,7 @@ func TestDropOrphanedIndexDirectoriesPreservesReservedEntries(t *testing.T) {
 		filepath.Join(root, backup.BackupStagingPrefix+"backup-1-"+indexID("StagedClass")),
 		filepath.Join(root, ubak.TempDirectory, indexID("RestoringClass")),
 		filepath.Join(root, "gone.123.abcd"+asyncDeleteSuffix),
+		filepath.Join(root, "lost+found"),
 	}
 	for _, d := range append(preserved, orphanDir) {
 		require.NoError(t, os.MkdirAll(d, 0o755))

@@ -15,29 +15,28 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
+	"regexp"
 
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// isReservedDataRootDir reports whether a directory at the data root is not a
-// class index directory. Index.path() is RootPath/<lowercased class>, a class
-// name starts with a letter, and a class named "raft" is rejected at parse
-// time (usecases/schema/parser.go). So a class directory never starts with a
-// dot and is never "raft". Dot-prefixed directories are the backup framework's
-// staging (.backup-staging-*) and restore temp (.backup.tmp) directories; the
-// __DELETE_ME_AFTER_BACKUP__ prefix marks an index kept for a running backup;
-// .deleteme directories are already pending async removal.
-func isReservedDataRootDir(name string) bool {
-	return name == config.DefaultRaftDir ||
-		strings.HasPrefix(name, ".") ||
-		strings.HasSuffix(name, asyncDeleteSuffix) ||
-		strings.HasPrefix(name, backup.DeleteMarker)
+// indexDirNameRegex is schema.ClassNameRegexCore lowercased: Index.path() is
+// RootPath/<indexID>, and indexID lowercases the validated class name.
+var indexDirNameRegex = regexp.MustCompile(`^[a-z][_0-9a-z]{0,254}$`)
+
+// isIndexDirName reports whether a data-root directory name can be a class
+// index directory, so that anything else there is left alone: the backup
+// framework's .backup-staging-* and .backup.tmp directories, an index renamed
+// to __DELETE_ME_AFTER_BACKUP__* while a backup still reads it, .deleteme
+// directories pending async removal, and operator-owned entries such as a
+// mount point's lost+found. The raft directory matches the class pattern, but
+// a class named "raft" is rejected at parse time (usecases/schema/parser.go).
+func isIndexDirName(name string) bool {
+	return indexDirNameRegex.MatchString(name) && name != config.DefaultRaftDir
 }
 
 // dropOrphanedIndexDirectories removes class directories under the data root
@@ -87,7 +86,7 @@ func (db *DB) dropOrphanedIndexDirectories(keepClasses []string) error {
 			continue
 		}
 		name := entry.Name()
-		if isReservedDataRootDir(name) {
+		if !isIndexDirName(name) {
 			continue
 		}
 		if _, ok := keep[name]; ok {
@@ -110,6 +109,15 @@ func (db *DB) dropOrphanedIndexDirectories(keepClasses []string) error {
 		if loaded {
 			if err := db.DeleteIndex(liveIndex.Config.ClassName); err != nil {
 				err = fmt.Errorf("drop loaded orphan index: %w", err)
+				log.Error(err)
+				ec.Add(err)
+				continue
+			}
+			// DeleteIndex logs a failed Index.drop and still returns nil (the
+			// schema removal must not fail on a partial drop), so a surviving
+			// directory is the only signal that the drop did not rename it.
+			if _, statErr := os.Stat(path); statErr == nil {
+				err := fmt.Errorf("drop loaded orphan index %q left its directory in place", name)
 				log.Error(err)
 				ec.Add(err)
 			}
