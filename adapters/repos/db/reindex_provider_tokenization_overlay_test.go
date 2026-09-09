@@ -61,55 +61,35 @@ func fireAllPropHooks(tasks []*ShardReindexTaskGeneric, props []string) int {
 	return fired
 }
 
-func TestMaybeWirePerPropOverlaySet_TokenizationChange_WiresAndSets(t *testing.T) {
-	s := &Shard{}
-	tasks := overlayTasks(&SearchableRetokenizeStrategy{})
-	payload := &ReindexTaskPayload{
-		MigrationType:      ReindexTypeChangeTokenization,
-		TargetTokenization: "field",
-		Properties:         []string{"name", "description"},
-	}
-	require.True(t, maybeWirePerPropOverlaySet(s, payload, tasks),
-		"change-tokenization migration with non-empty target must wire the per-prop hook")
-
-	// Wiring alone must NOT set the overlay; it is established only when
-	// the hook fires. Setting it before the flip is the bug being fixed.
-	assert.Equal(t, "word", s.TokenizationFor("name", "word"),
-		"wiring must not pre-set the overlay; that's the bug being fixed")
-
-	require.Equal(t, len(payload.Properties), fireAllPropHooks(tasks, payload.Properties),
-		"hook must be wired on the task")
-	assert.Equal(t, "field", s.TokenizationFor("name", "word"),
-		"after the per-prop hook fires, the overlay overrides the live schema value")
-	assert.Equal(t, "field", s.TokenizationFor("description", "word"))
-}
-
-func TestMaybeWirePerPropOverlaySet_FilterableVariant_WiresAndSets(t *testing.T) {
-	s := &Shard{}
-	tasks := overlayTasks(&FilterableRetokenizeStrategy{})
-	payload := &ReindexTaskPayload{
-		MigrationType:      ReindexTypeChangeTokenizationFilterable,
-		TargetTokenization: "word",
-		Properties:         []string{"name"},
-	}
-	require.True(t, maybeWirePerPropOverlaySet(s, payload, tasks),
-		"change-tokenization-filterable migration must also wire the hook")
-	fireAllPropHooks(tasks, payload.Properties)
-	assert.Equal(t, "word", s.TokenizationFor("name", "field"))
-}
-
 // The overlay a task installs comes from its strategy, so membership of the
-// [IsSemanticMigration] family is the whole gate. enable-rangeable is not in
-// that family yet (weaviate/weaviate#12700 adds it); when it is, its
-// ForceRangeable overlay arms here with no change to this wiring.
+// [IsSemanticMigration] family is the whole gate: a new member arms here with
+// no wiring change. Tokenization is the one part no strategy carries, so it
+// comes off the payload.
 func TestMaybeWirePerPropOverlaySet_SemanticFamilyCoverage(t *testing.T) {
 	tests := []struct {
-		name        string
-		migration   ReindexMigrationType
-		strategy    MigrationStrategy
-		wantWired   bool
-		wantOverlay inverted.PropertyOverlay
+		name         string
+		migration    ReindexMigrationType
+		strategy     MigrationStrategy
+		tokenization string
+		wantWired    bool
+		wantOverlay  inverted.PropertyOverlay
 	}{
+		{
+			name:         "change-tokenization moves the tokenization only",
+			migration:    ReindexTypeChangeTokenization,
+			strategy:     &SearchableRetokenizeStrategy{},
+			tokenization: "field",
+			wantWired:    true,
+			wantOverlay:  inverted.PropertyOverlay{Tokenization: "field"},
+		},
+		{
+			name:         "change-tokenization-filterable does the same on the filterable bucket",
+			migration:    ReindexTypeChangeTokenizationFilterable,
+			strategy:     &FilterableRetokenizeStrategy{},
+			tokenization: "word",
+			wantWired:    true,
+			wantOverlay:  inverted.PropertyOverlay{Tokenization: "word"},
+		},
 		{
 			name:        "enable-filterable forces the filterable flag",
 			migration:   ReindexTypeEnableFilterable,
@@ -125,13 +105,10 @@ func TestMaybeWirePerPropOverlaySet_SemanticFamilyCoverage(t *testing.T) {
 			wantOverlay: inverted.PropertyOverlay{ForceSearchable: true, Tokenization: "field"},
 		},
 		{
-			// weaviate/weaviate#12700 moves enable-rangeable into the family.
-			// Deriving the expectation from the predicate is what makes the two
-			// PRs independent of merge order.
-			name:        "enable-rangeable follows the predicate",
+			name:        "enable-rangeable forces the rangeable flag",
 			migration:   ReindexTypeEnableRangeable,
 			strategy:    &FilterableToRangeableStrategy{},
-			wantWired:   IsSemanticMigration(ReindexTypeEnableRangeable),
+			wantWired:   true,
 			wantOverlay: inverted.PropertyOverlay{ForceRangeable: true},
 		},
 		{
@@ -142,13 +119,16 @@ func TestMaybeWirePerPropOverlaySet_SemanticFamilyCoverage(t *testing.T) {
 		},
 	}
 
+	covered := map[ReindexMigrationType]bool{}
 	for _, tc := range tests {
+		covered[tc.migration] = true
 		t.Run(tc.name, func(t *testing.T) {
 			s := &Shard{}
 			tasks := overlayTasks(tc.strategy)
 			payload := &ReindexTaskPayload{
-				MigrationType: tc.migration,
-				Properties:    []string{"name"},
+				MigrationType:      tc.migration,
+				TargetTokenization: tc.tokenization,
+				Properties:         []string{"name"},
 			}
 			require.Equal(t, tc.wantWired, maybeWirePerPropOverlaySet(s, payload, tasks))
 			if !tc.wantWired {
@@ -162,6 +142,12 @@ func TestMaybeWirePerPropOverlaySet_SemanticFamilyCoverage(t *testing.T) {
 			fireAllPropHooks(tasks, payload.Properties)
 			assert.Equal(t, tc.wantOverlay, s.SnapshotPropertyOverlay([]string{"name"})["name"])
 		})
+	}
+
+	for _, mt := range allReindexMigrationTypesForTest {
+		if IsSemanticMigration(mt) {
+			assert.Truef(t, covered[mt], "semantic migration %q has no row saying what overlay it installs", mt)
+		}
 	}
 }
 

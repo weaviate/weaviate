@@ -15,12 +15,15 @@ import (
 	"context"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -41,10 +44,35 @@ const semanticWindowSeedObjects = 25
 // hit on it can only come from the object written inside the window.
 const semanticWindowToken = "zulu"
 
+// semanticWindowScore is above every value makeFilterableToRangeableTestObjects
+// cycles through, so a range query over the corpus can only hit the object
+// written inside the window.
+const semanticWindowScore = int64(1000)
+
+// seedText returns the corpus to import plus the object to write once the shard
+// is inside the window.
+func seedText(t *testing.T, className string) ([]*storobj.Object, *storobj.Object) {
+	return makeConvergenceTestObjects(t, semanticWindowSeedObjects, className),
+		createTestObjectWithText(className, semanticWindowToken)
+}
+
+// seedRangeable is the numeric sibling of seedText.
+func seedRangeable(t *testing.T, className string) ([]*storobj.Object, *storobj.Object) {
+	return makeFilterableToRangeableTestObjects(t, semanticWindowSeedObjects, className),
+		&storobj.Object{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID:         strfmt.UUID(uuid.NewString()),
+				Class:      className,
+				Properties: map[string]any{filterableToRangeablePropName: semanticWindowScore},
+			},
+		}
+}
+
 // enterSemanticSwapWindow seeds a shard, runs the migration through its bucket flip,
 // and stops before the schema flip — the state the window's writes land in.
 func enterSemanticSwapWindow(t *testing.T, ctx context.Context, class *models.Class, propName string,
-	migration ReindexMigrationType,
+	corpus []*storobj.Object, migration ReindexMigrationType,
 	newTask func(*testing.T, *Index, string, string) *ShardReindexTaskGeneric,
 ) *Shard {
 	t.Helper()
@@ -54,7 +82,7 @@ func enterSemanticSwapWindow(t *testing.T, ctx context.Context, class *models.Cl
 	shard := shd.(*Shard)
 	t.Cleanup(func() { shard.Shutdown(context.Background()) })
 
-	for _, obj := range makeConvergenceTestObjects(t, semanticWindowSeedObjects, class.Class) {
+	for _, obj := range corpus {
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
 
@@ -84,11 +112,12 @@ func noIndexAtAllClass(className, propName string) *models.Class {
 }
 
 func TestWriteDuringSemanticMigrationSwapWindow(t *testing.T) {
-	const propName = "title"
+	const textPropName = "title"
 
 	tests := []struct {
 		name      string
 		newClass  func(className, propName string) *models.Class
+		seed      func(*testing.T, string) ([]*storobj.Object, *storobj.Object)
 		migration ReindexMigrationType
 		newTask   func(*testing.T, *Index, string, string) *ShardReindexTaskGeneric
 		flip      func(prop *models.Property)
@@ -97,6 +126,7 @@ func TestWriteDuringSemanticMigrationSwapWindow(t *testing.T) {
 		{
 			name:      "enable-filterable",
 			newClass:  newEnableFilterableTestClass,
+			seed:      seedText,
 			migration: ReindexTypeEnableFilterable,
 			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
 				task, _ := newEnableFilterableTask(t, idx, className, propName)
@@ -108,6 +138,7 @@ func TestWriteDuringSemanticMigrationSwapWindow(t *testing.T) {
 		{
 			name:      "enable-filterable on a property with no inverted index at all",
 			newClass:  noIndexAtAllClass,
+			seed:      seedText,
 			migration: ReindexTypeEnableFilterable,
 			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
 				task, _ := newEnableFilterableTask(t, idx, className, propName)
@@ -121,6 +152,7 @@ func TestWriteDuringSemanticMigrationSwapWindow(t *testing.T) {
 			newClass: func(className, propName string) *models.Class {
 				return newEnableSearchableTestClass(className, []string{propName})
 			},
+			seed:      seedText,
 			migration: ReindexTypeEnableSearchable,
 			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
 				task, _ := newEnableSearchableTask(t, idx, className, propName,
@@ -130,16 +162,33 @@ func TestWriteDuringSemanticMigrationSwapWindow(t *testing.T) {
 			flip: func(prop *models.Property) { prop.IndexSearchable = boolPtr(true) },
 			find: findByBM25,
 		},
+		{
+			name: "enable-rangeable",
+			newClass: func(className, _ string) *models.Class {
+				return newNoLiveIndexRangeableTestClass(className)
+			},
+			seed:      seedRangeable,
+			migration: ReindexTypeEnableRangeable,
+			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+				// The production strategy, whose OnMigrationComplete is what
+				// makes the swapped bucket queryable on this shard.
+				return newFilterableToRangeableTaskWithStrategy(t, idx, className, propName,
+					&FilterableToRangeableStrategy{propNames: []string{propName}, generation: 1})
+			},
+			flip: func(prop *models.Property) { prop.IndexRangeFilters = boolPtr(true) },
+			find: findByGreaterThanFilter,
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := testCtx()
 			className := "SemanticWindow_" + uuid.NewString()[:8]
-			class := tc.newClass(className, propName)
-			shard := enterSemanticSwapWindow(t, ctx, class, propName, tc.migration, tc.newTask)
+			class := tc.newClass(className, textPropName)
+			propName := class.Properties[0].Name
+			corpus, windowObj := tc.seed(t, className)
+			shard := enterSemanticSwapWindow(t, ctx, class, propName, corpus, tc.migration, tc.newTask)
 
-			windowObj := createTestObjectWithText(className, semanticWindowToken)
 			require.NoError(t, shard.PutObject(ctx, windowObj),
 				"a write in the swap window must be accepted")
 
@@ -169,7 +218,8 @@ func TestWriteDuringSwapWindowSkipsAbsentLengthAndNullBuckets(t *testing.T) {
 	require.True(t, class.InvertedIndexConfig.IndexPropertyLength)
 	require.True(t, class.InvertedIndexConfig.IndexNullState)
 
-	shard := enterSemanticSwapWindow(t, ctx, class, propName, ReindexTypeEnableFilterable,
+	corpus, _ := seedText(t, className)
+	shard := enterSemanticSwapWindow(t, ctx, class, propName, corpus, ReindexTypeEnableFilterable,
 		func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
 			task, _ := newEnableFilterableTask(t, idx, className, propName)
 			return task
@@ -203,6 +253,23 @@ func findByEqualFilter(t *testing.T, ctx context.Context, shard *Shard,
 	found, _, err := shard.ObjectSearch(ctx, semanticWindowSeedObjects,
 		propEqualsFilter(className, propName, semanticWindowToken), nil, nil, nil,
 		additional.Properties{}, nil)
+	require.NoError(t, err)
+	return found
+}
+
+func findByGreaterThanFilter(t *testing.T, ctx context.Context, shard *Shard,
+	className, propName string,
+) []*storobj.Object {
+	t.Helper()
+	found, _, err := shard.ObjectSearch(ctx, semanticWindowSeedObjects,
+		&filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorGreaterThan,
+			On: &filters.Path{
+				Class:    schema.ClassName(className),
+				Property: schema.PropertyName(propName),
+			},
+			Value: &filters.Value{Value: int(semanticWindowScore) - 1, Type: schema.DataTypeInt},
+		}}, nil, nil, nil, additional.Properties{}, nil)
 	require.NoError(t, err)
 	return found
 }
