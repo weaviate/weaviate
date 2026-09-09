@@ -1139,6 +1139,11 @@ func setupDebugHandlers(appState *state.State) {
 		}
 
 		w.WriteHeader(http.StatusAccepted)
+		// a sweep that ran to completion answers a bodiless 202, so the body is
+		// what tells an operator this one did not
+		if err != nil {
+			fmt.Fprintf(w, "%v\n", err)
+		}
 	}))
 
 	http.HandleFunc("/debug/ttl/abort", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1155,7 +1160,13 @@ func setupDebugHandlers(appState *state.State) {
 		if err != nil {
 			errMsg = err.Error()
 		}
-		resp := map[string]any{"aborted": aborted, "error": errMsg}
+		// aborted is ORed across every node unless targetOwnNode was set;
+		// local_running is this node's own idle-vs-draining state.
+		resp := map[string]any{
+			"aborted":       aborted,
+			"local_running": appState.ObjectTTLCoordinator.IsRunning(),
+			"error":         errMsg,
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
