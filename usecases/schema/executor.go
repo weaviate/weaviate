@@ -62,6 +62,9 @@ func (e *executor) Open(ctx context.Context) error {
 func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassRequest) error {
 	cs := make([]*models.Class, len(all))
 
+	// The error group cancels the context it returns as soon as Wait returns,
+	// so the reconcile after the group needs the caller's context.
+	reconcileCtx := ctx
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(e.logger, ctx)
 	g.SetLimit(_NUMCPU * 2)
 
@@ -90,7 +93,21 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 	if err := g.Wait(); err != nil {
 		return err
 	}
-	return errList
+	if errList != nil {
+		return errList
+	}
+
+	// Every class the schema still names has been loaded above; drop the index
+	// directories of classes it no longer names. A class delete can reach the
+	// schema without dropping its index directory: a schema-only DELETE_CLASS
+	// replay on restart (0-weaviate-issues#652) or a snapshot install on rejoin
+	// (0-weaviate-issues#651). This reload is the only place the data directory
+	// is reconciled against the schema.
+	keepClasses := make([]string, len(all))
+	for i, u := range all {
+		keepClasses[i] = u.Class.Class
+	}
+	return e.migrator.DropOrphanedIndexDirectories(reconcileCtx, keepClasses)
 }
 
 func (e *executor) Close(ctx context.Context) error {

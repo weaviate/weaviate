@@ -362,6 +362,10 @@ func (*fakeMigrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]sc
 	return nil
 }
 
+func (f *fakeMigrator) DropOrphanedIndexDirectories(ctx context.Context, keepClasses []string) error {
+	return nil
+}
+
 func (*fakeMigrator) UpdateVectorIndexConfigs(ctx context.Context, className string,
 	updated map[string]schemaConfig.VectorIndexConfig,
 ) error {

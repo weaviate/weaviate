@@ -280,6 +280,14 @@ func (m *Migrator) DropClass(ctx context.Context, className string, hasFrozen bo
 	return nil
 }
 
+// DropOrphanedIndexDirectories removes class directories on disk that the
+// reloaded schema no longer names. See DB.dropOrphanedIndexDirectories for why
+// the reload path needs this. ctx is part of the Migrator contract; the removal
+// itself is asynchronous and outlives the call.
+func (m *Migrator) DropOrphanedIndexDirectories(ctx context.Context, keepClasses []string) error {
+	return m.db.dropOrphanedIndexDirectories(keepClasses)
+}
+
 func (m *Migrator) UpdateClass(ctx context.Context, className string, newClassName *string) error {
 	if newClassName != nil {
 		return errors.New("weaviate does not support renaming of classes")
