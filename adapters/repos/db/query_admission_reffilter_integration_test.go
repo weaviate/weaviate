@@ -338,7 +338,14 @@ func importRefAdmissionObjects(t *testing.T, repo *DB, numAuthors int) {
 	const importDeadline = 5 * time.Minute
 
 	done := make(chan error, 1)
-	go func() { done <- writeRefAdmissionObjects(repo, numAuthors) }()
+	go func() {
+		// A failed mock expectation inside the import calls t.FailNow, which
+		// kills this goroutine without a send. The deferred send keeps that
+		// from being reported as the import deadline below.
+		err := errors.New("import goroutine exited before finishing")
+		defer func() { done <- err }()
+		err = writeRefAdmissionObjects(repo, numAuthors)
+	}()
 
 	select {
 	case err := <-done:
