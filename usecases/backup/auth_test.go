@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 // A component-test like test suite that makes sure that every available UC is
@@ -198,6 +199,11 @@ func Test_Authorization(t *testing.T) {
 
 				if !test.ignoreAuthZ {
 					if test.filtersResources {
+						// Denying the blanket probe sends List on to the
+						// per-resource authorization asserted on here.
+						blanket := authorization.Backups()[0]
+						authorizer.On("AuthorizeSilent", mock.Anything, mock.Anything, test.expectedVerb, blanket).
+							Return(authzerrors.NewForbidden(&models.Principal{}, test.expectedVerb, blanket)).Once()
 						authorizer.On("FilterAuthorizedResources", mock.Anything, mock.Anything, test.expectedVerb, test.expectedResource).
 							Return([]string{test.expectedResource}, nil).Once()
 					} else {

@@ -22,6 +22,9 @@ type AuthZReq struct {
 	Principal *models.Principal
 	Verb      string
 	Resources []string
+	// Silent marks a check made through AuthorizeSilent, which writes no
+	// audit record.
+	Silent bool
 }
 
 type FakeAuthorizer struct {
@@ -60,7 +63,15 @@ func (a *FakeAuthorizer) Deny(resources ...string) {
 
 // Authorize provides a mock function with given fields: principal, verb, resource
 func (a *FakeAuthorizer) Authorize(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
-	a.requests = append(a.requests, AuthZReq{principal, verb, resources})
+	return a.record(principal, verb, false, resources)
+}
+
+func (a *FakeAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
+	return a.record(principal, verb, true, resources)
+}
+
+func (a *FakeAuthorizer) record(principal *models.Principal, verb string, silent bool, resources []string) error {
+	a.requests = append(a.requests, AuthZReq{principal, verb, resources, silent})
 	if a.err != nil && len(a.requests) > a.allowedCalls {
 		return a.err
 	}
@@ -72,12 +83,8 @@ func (a *FakeAuthorizer) Authorize(ctx context.Context, principal *models.Princi
 	return nil
 }
 
-func (a *FakeAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
-	return a.Authorize(ctx, principal, verb, resources...)
-}
-
 func (a *FakeAuthorizer) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
-	a.requests = append(a.requests, AuthZReq{principal, verb, resources})
+	a.requests = append(a.requests, AuthZReq{principal, verb, resources, false})
 	if a.err != nil && len(a.requests) > a.allowedCalls {
 		return nil, a.err
 	}

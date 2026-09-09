@@ -662,18 +662,34 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 // does. Authorizing each distinct name once per listing rather than once per
 // backup drops the first-denial exit and the per-denial audit record.
 func (s *Scheduler) canReadBackups(ctx context.Context, principal *models.Principal, backupClasses [][]string) ([]bool, error) {
+	readable := make([]bool, len(backupClasses))
+	// rbac.Manager rejects a call carrying no resources, so a listing with no
+	// backups must not make one.
+	if len(backupClasses) == 0 {
+		return readable, nil
+	}
+
+	// rbac.Manager enforces one resource at a time, so check for a caller
+	// holding backup READ outright before naming thousands of collections.
+	// Silent because a denial here is the ordinary route to the per-collection
+	// check below, which re-raises any other error.
+	if err := s.authorizer.AuthorizeSilent(ctx, principal, authorization.READ, authorization.Backups()...); err == nil {
+		// AuthorizeSilent writes no audit record and nothing else authorizes
+		// this endpoint. Record the grant that permitted the whole listing.
+		if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups()...); err != nil {
+			return nil, err
+		}
+		for i := range readable {
+			readable[i] = true
+		}
+		return readable, nil
+	}
+
 	named := make(map[string]struct{})
 	for _, classes := range backupClasses {
 		for _, resource := range authorization.Backups(classes...) {
 			named[resource] = struct{}{}
 		}
-	}
-
-	readable := make([]bool, len(backupClasses))
-	// rbac.Manager.FilterAuthorizedResources rejects a call carrying no
-	// resources, so a listing with no backups must not make one.
-	if len(named) == 0 {
-		return readable, nil
 	}
 
 	// The adminlist authorizer answers a denied filter with Forbidden rather

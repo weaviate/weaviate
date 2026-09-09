@@ -1049,3 +1049,87 @@ func TestNarrowedViewerVsReadOnly_ClusterReadDenied(t *testing.T) {
 		})
 	}
 }
+
+// TestBackupsWildcardProbeRequiresBlanketGrant pins what backup listing relies
+// on. Only a grant covering every collection answers a request for the backups
+// wildcard, because KeyMatch5 expands wildcards in the policy and never in the
+// request. If that changed, one collection's grant would list every backup.
+func TestBackupsWildcardProbeRequiresBlanketGrant(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	m, err := setupTestManager(t, logger)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		// Exactly one of resource and builtInRole grants the subject its access.
+		resource    string
+		builtInRole string
+		// alsoReads is a resource the grant covers, so a subject denied the
+		// wildcard is denied for that reason and not for holding nothing.
+		alsoReads    string
+		wantWildcard bool
+	}{
+		{
+			name:         "a single collection does not answer the wildcard",
+			resource:     authorization.Backups("ABC")[0],
+			alsoReads:    authorization.Backups("ABC")[0],
+			wantWildcard: false,
+		},
+		{
+			name:         "a collection prefix does not answer the wildcard",
+			resource:     "backups/collections/Movies.*",
+			alsoReads:    authorization.Backups("MoviesEU")[0],
+			wantWildcard: false,
+		},
+		{
+			name:         "blanket backup READ answers the wildcard",
+			resource:     authorization.Backups()[0],
+			alsoReads:    authorization.Backups("ABC")[0],
+			wantWildcard: true,
+		},
+		{
+			name:         "built-in root answers the wildcard",
+			builtInRole:  authorization.Root,
+			alsoReads:    authorization.Backups("ABC")[0],
+			wantWildcard: true,
+		},
+		{
+			name:         "built-in viewer answers the wildcard",
+			builtInRole:  authorization.Viewer,
+			alsoReads:    authorization.Backups("ABC")[0],
+			wantWildcard: true,
+		},
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			subject := fmt.Sprintf("probe-user-%d", i)
+			role := tt.builtInRole
+			if role == "" {
+				role = fmt.Sprintf("probe-role-%d", i)
+				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName(role),
+					tt.resource, authorization.READ, authorization.BackupsDomain)
+				require.NoError(t, err)
+			}
+			_, err := m.casbin.AddRoleForUser(
+				conv.UserNameWithTypeFromId(subject, authentication.AuthTypeDb),
+				conv.PrefixRoleName(role))
+			require.NoError(t, err)
+			m.casbin.InvalidateCache()
+
+			principal := &models.Principal{Username: subject, UserType: models.UserTypeInputDb}
+			ctx := context.Background()
+
+			require.NoError(t, m.AuthorizeSilent(ctx, principal, authorization.READ, tt.alsoReads),
+				"the grant must cover %s, otherwise the wildcard result below proves nothing", tt.alsoReads)
+
+			err = m.AuthorizeSilent(ctx, principal, authorization.READ, authorization.Backups()...)
+			if tt.wantWildcard {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.ErrorAs(t, err, new(authzErrors.Forbidden))
+		})
+	}
+}
