@@ -88,8 +88,10 @@ func (m *Memtable) writeRoaringSetNodes(f *segmentindex.SegmentFile) ([]segmenti
 			break
 		}
 
+		// The segment must carry no slack: Compacted sizes the copy from the
+		// source's container headers and allocates it once.
 		sn, err := roaringset.NewSegmentNode(key,
-			roaringset.Condense(layer.Additions), roaringset.Condense(layer.Deletions))
+			layer.Additions.Compacted(), layer.Deletions.Compacted())
 		if err != nil {
 			return nil, fmt.Errorf("create segment node: %w", err)
 		}

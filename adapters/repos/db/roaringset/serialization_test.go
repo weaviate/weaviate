@@ -18,6 +18,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/sroar"
 )
 
 func TestSerialization_HappyPath(t *testing.T) {
@@ -86,6 +87,42 @@ func TestSerialization_EmptyBitmapsReturnNil(t *testing.T) {
 		assert.Nil(t, newSN.Additions())
 		require.NotNil(t, newSN.Deletions())
 		assert.True(t, newSN.Deletions().Contains(5))
+	})
+
+	// The flush hands NewSegmentNode Compacted() bitmaps. Compacted keeps key 0's
+	// container, so the copy still occupies bytes while ToBuffer reports it empty,
+	// and that empty buffer is the zero length indicator Additions returns nil for.
+	t.Run("a compacted empty bitmap still writes a zero length indicator", func(t *testing.T) {
+		grownThenEmptied := NewBitmap(slice(0, 1000)...)
+		for _, value := range slice(0, 1000) {
+			grownThenEmptied.Remove(value)
+		}
+
+		empties := []struct {
+			name string
+			bm   *sroar.Bitmap
+		}{
+			{name: "never written to", bm: NewBitmap()},
+			{name: "grown then emptied", bm: grownThenEmptied},
+		}
+
+		for _, tt := range empties {
+			t.Run(tt.name, func(t *testing.T) {
+				compacted := tt.bm.Compacted()
+				require.Greater(t, compacted.LenInBytes(), 0,
+					"Compacted keeps key 0's container, so the copy is not zero bytes")
+				require.Empty(t, compacted.ToBuffer(),
+					"a non-empty buffer here would serialize as a non-zero length indicator")
+
+				sn, err := NewSegmentNode(key, compacted, compacted)
+				require.NoError(t, err)
+
+				newSN := NewSegmentNodeFromBuffer(sn.ToBuffer())
+				assert.Nil(t, newSN.Additions())
+				assert.Nil(t, newSN.Deletions())
+				assert.Equal(t, key, newSN.PrimaryKey())
+			})
+		}
 	})
 }
 
