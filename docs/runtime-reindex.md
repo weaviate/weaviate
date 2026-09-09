@@ -894,7 +894,7 @@ Eight strategy implementations, one file each:
 `change-tokenization` spawns TWO strategy instances per unit
 (`SearchableRetokenizeStrategy` + `FilterableRetokenizeStrategy`) so
 the searchable + filterable buckets retokenize in lock-step, with
-their per-shard swaps inside the same tokenization-overlay window.
+their per-shard swaps inside the same property-overlay window.
 Per-shard cleanup (`indexTypesFromMigrationType`) must wipe BOTH
 tracker dirs — see §4.1.
 
@@ -908,8 +908,8 @@ The strategy interface itself documents the per-method contract; see
 Of particular note is `OnMigrationComplete`'s phase contract — it
 fires in Phase 2c, AFTER the per-prop `SwapBucketPointer` tight loop
 and AFTER the inline `oldMain.Shutdown` + `oldMain → backup` rename
-loop, but still INSIDE the per-shard tokenization-overlay window for
-migrations that use one. The godoc enumerates what's allowed and
+loop, but still INSIDE the per-shard property-overlay window on a
+semantic migration. The godoc enumerates what's allowed and
 forbidden in that position and is the authoritative spec for adding
 a new strategy.
 
@@ -1784,9 +1784,14 @@ test packages.
   paths — `inverted_reindex_finalize_test.go`.
 - `OnGroupCompleted` cache + rehydrate —
   `reindex_provider_on_group_completed_test.go`.
-- Tokenization overlay set/clear/self-clear —
-  `reindex_provider_tokenization_overlay_test.go`,
+- Property overlay set/clear/self-clear and the per-migration-type
+  wiring — `reindex_provider_tokenization_overlay_test.go`,
   `shard_tokenization_overlay_test.go`.
+- The overlay's effect on the analyzer, and what
+  `BeyondLiveSchema` leaves for it to do —
+  `inverted/objects_test.go` (`TestIndexInverted`).
+- A write landing in the swap window of each migration that enables an
+  index type — `inverted_reindex_semantic_swap_window_test.go`.
 - Shard CoW callbacks — `shard_callbacks_test.go`.
 - DTM finalizing + ack barrier — `cluster/distributedtask/manager_test.go`,
   `scheduler_multinode_test.go`, `errors_test.go`.
