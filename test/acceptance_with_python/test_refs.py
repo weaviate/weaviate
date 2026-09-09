@@ -1,5 +1,7 @@
 import pytest
+
 import weaviate.classes as wvc
+from weaviate.collections.classes.internal import ReferenceToMulti
 
 from .conftest import CollectionFactory
 
@@ -118,3 +120,52 @@ def test_return_metadata_ref(collection_factory: CollectionFactory) -> None:
     )
 
     assert res.objects[0].references["ref"].objects[0].vector["bringYourOwn1"] == [1, 2, 3]
+
+
+def test_multi_target_ref_request(collection_factory: CollectionFactory) -> None:
+    none_vectorizer = wvc.config.Configure.Vectorizer.none()
+    carbs = collection_factory(name="Carbs", vectorizer_config=none_vectorizer)
+    fats = collection_factory(name="Fats", vectorizer_config=none_vectorizer)
+    proteins = collection_factory(name="Proteins", vectorizer_config=none_vectorizer)
+
+    foods = collection_factory(
+        name="Foods",
+        references=[
+            wvc.config.ReferenceProperty.MultiTarget(
+                name="ingredients", target_collections=[carbs.name, fats.name, proteins.name]
+            )
+        ],
+        vectorizer_config=none_vectorizer,
+    )
+
+    carb_1 = carbs.data.insert({})
+    fat_1 = fats.data.insert({})
+    protein_1 = proteins.data.insert({})
+
+    # Create a food object with 3 ingredients
+    food_1 = foods.data.insert({}, references={"ingredients": [carb_1, fat_1, protein_1]})
+
+    # Request all ingredients this food has
+    result = foods.query.fetch_object_by_id(
+        uuid=food_1,
+        return_references=[
+            wvc.query.QueryReference.MultiTarget(
+                link_on="ingredients", target_collection=carbs.name
+            ),
+            wvc.query.QueryReference.MultiTarget(
+                link_on="ingredients", target_collection=fats.name
+            ),
+            wvc.query.QueryReference.MultiTarget(
+                link_on="ingredients", target_collection=proteins.name
+            ),
+        ],
+    )
+
+    ingredients = result.references.get("ingredients")
+    assert ingredients is not None
+
+    # Since we requested references for all 3 ingredient kinds above
+    # we expect that all 3 will appear in the result set.
+    kinds = {i.collection for i in ingredients.objects}
+    want = {carbs.name, fats.name, proteins.name}
+    assert kinds == want, f"wrong ingredients\nwant:\n\t{want}\ngot:\n\t{kinds}"
