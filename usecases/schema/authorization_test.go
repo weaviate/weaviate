@@ -411,7 +411,7 @@ func Test_Schema_Authorization_AliasResolution(t *testing.T) {
 				Status: "READY",
 			},
 		}
-		db.On("GetShardsStatus", mock.Anything, className, shardName).Return(expectedStatus, nil)
+		db.On("GetShardsStorageStatus", mock.Anything, className, shardName).Return(expectedStatus, nil)
 
 		// Create custom schema manager without alias resolution
 		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{
