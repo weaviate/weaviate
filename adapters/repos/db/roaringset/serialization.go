@@ -186,9 +186,7 @@ func NewSegmentNode(
 
 	rw := byteops.NewReadWriter(sn.data)
 
-	// reserve the first 8 bytes for the offset, which we will write at the very
-	// end
-	rw.MoveBufferPositionForward(8)
+	rw.WriteUint64(uint64(expectedSize))
 	if err := rw.CopyBytesToBufferWithUint64LengthIndicator(additionsBuf); err != nil {
 		return nil, err
 	}
@@ -201,11 +199,87 @@ func NewSegmentNode(
 		return nil, err
 	}
 
-	offset := rw.Position
-	rw.MoveBufferToAbsolutePosition(0)
-	rw.WriteUint64(uint64(offset))
-
 	return &sn, nil
+}
+
+// NewSegmentNodeCompacted builds the node into buf, which it grows and returns
+// for the next call. Both the node and the segmentindex.Key a write of it
+// returns alias buf, so nothing may hold either past the next call.
+func NewSegmentNodeCompacted(
+	key []byte, additions, deletions *sroar.Bitmap, buf []byte,
+) (*SegmentNode, []byte, error) {
+	// Ahead of the callbacks below, so none of them sizes a node around a key
+	// length the node cannot record.
+	if len(key) > math.MaxUint32 {
+		return nil, buf, fmt.Errorf("key too long, max length is %d", math.MaxUint32)
+	}
+
+	// offset + 2*uint64 length indicators + uint32 length indicator
+	const overhead = 8 + 8 + 8 + 4
+
+	var aSize, dSize int
+	// IsEmpty walks every container until it finds a non-empty one, so an emptied
+	// bitmap pays a full walk; the switch below would ask twice.
+	addEmpty, delEmpty := additions.IsEmpty(), deletions.IsEmpty()
+
+	// An empty bitmap serializes as a zero length indicator, and CompactedToBuf
+	// would instead hand back a region and fill every byte of it. Skipping the
+	// call is what keeps the two encoders agreeing, not an optimization.
+	//
+	// Where both sides are present the calls nest, because the additions region
+	// starts at a fixed offset while the deletions region starts after it: the
+	// inner callback is the first point at which both sizes are known, so it is
+	// the one that sizes the node and grows buf.
+	writeAdditions := func() {
+		additions.CompactedToBuf(func(size int) []byte {
+			aSize = size
+			buf = growTo(buf, overhead+aSize+dSize+len(key))
+			// CompactedToBuf adopts the region to its capacity, so the cap keeps a
+			// future over-run inside it rather than in the deletions region.
+			return buf[16 : 16+aSize : 16+aSize]
+		})
+	}
+
+	switch {
+	case !addEmpty && !delEmpty:
+		deletions.CompactedToBuf(func(size int) []byte {
+			dSize = size
+			writeAdditions()
+			return buf[24+aSize : 24+aSize+dSize : 24+aSize+dSize]
+		})
+	case !addEmpty:
+		writeAdditions()
+	case !delEmpty:
+		deletions.CompactedToBuf(func(size int) []byte {
+			dSize = size
+			buf = growTo(buf, overhead+dSize+len(key))
+			return buf[24 : 24+dSize : 24+dSize]
+		})
+	default:
+		buf = growTo(buf, overhead+len(key))
+	}
+
+	// The payloads are already in place; this writes every remaining byte, which
+	// buf needs because CompactedToBuf may hand back a dirty one.
+	rw := byteops.NewReadWriter(buf)
+	rw.WriteUint64(uint64(len(buf)))
+	rw.WriteUint64(uint64(aSize))
+	rw.MoveBufferToAbsolutePosition(uint64(16 + aSize))
+	rw.WriteUint64(uint64(dSize))
+	rw.MoveBufferToAbsolutePosition(uint64(24 + aSize + dSize))
+	if err := rw.CopyBytesToBufferWithUint32LengthIndicator(key); err != nil {
+		return nil, buf, err
+	}
+
+	return &SegmentNode{data: buf}, buf, nil
+}
+
+// growTo returns buf sized to size, reallocating only when it does not fit.
+func growTo(buf []byte, size int) []byte {
+	if cap(buf) < size {
+		return make([]byte, size)
+	}
+	return buf[:size]
 }
 
 // ToBuffer returns the internal buffer without copying data. Only use this,
