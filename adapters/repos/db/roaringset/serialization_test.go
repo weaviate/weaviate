@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"math"
 	"testing"
+	"unsafe"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -242,4 +243,151 @@ func TestSerialization_KeyIndexAndWriteTo(t *testing.T) {
 	assert.False(t, newDeletions.Contains(4))
 	assert.True(t, newDeletions.Contains(5))
 	assert.Equal(t, []byte("my-key"), newSN.PrimaryKey())
+}
+
+// TestNewSegmentNodeCompactedMatchesNewSegmentNode is the only thing comparing
+// the two encoders, so without it they drift apart silently. Both are fed the
+// same compacted bitmaps: the claim is about how the bytes are built, never
+// which bytes.
+func TestNewSegmentNodeCompactedMatchesNewSegmentNode(t *testing.T) {
+	tests := []struct {
+		name      string
+		key       []byte
+		additions []uint64
+		deletions []uint64
+	}{
+		{name: "both empty", key: []byte("k")},
+		{name: "additions only", key: []byte("k"), additions: slice(0, 100)},
+		{name: "deletions only", key: []byte("k"), deletions: slice(0, 100)},
+		{
+			name:      "both present",
+			key:       []byte("k"),
+			additions: slice(0, 100),
+			deletions: slice(200, 300),
+		},
+		{
+			// Above the array container threshold on one side only, so the two
+			// container types meet in one node.
+			name:      "a bitmap container beside an array one",
+			key:       []byte("k"),
+			additions: slice(0, 5000),
+			deletions: slice(70000, 70010),
+		},
+		{name: "zero-length key", key: []byte{}, additions: slice(0, 10)},
+		{name: "long key", key: bytes.Repeat([]byte("k"), 1024), additions: slice(0, 10)},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			additions := NewBitmap(tt.additions...).Compacted()
+			deletions := NewBitmap(tt.deletions...).Compacted()
+
+			want, err := NewSegmentNode(tt.key, additions, deletions)
+			require.NoError(t, err)
+
+			got, _, err := NewSegmentNodeCompacted(tt.key, additions, deletions, nil)
+			require.NoError(t, err)
+
+			require.Equal(t, want.ToBuffer(), got.ToBuffer())
+			require.Equal(t, want.Len(), got.Len())
+
+			// Read back through the accessors, since equal bytes that no reader
+			// can parse would still pass the comparison above.
+			readBack := NewSegmentNodeFromBuffer(got.ToBuffer())
+			require.Equal(t, tt.key, readBack.PrimaryKey())
+			if len(tt.additions) == 0 {
+				require.Nil(t, readBack.Additions())
+			} else {
+				require.Equal(t, tt.additions, readBack.Additions().ToArray())
+			}
+			if len(tt.deletions) == 0 {
+				require.Nil(t, readBack.Deletions())
+			} else {
+				require.Equal(t, tt.deletions, readBack.Deletions().ToArray())
+			}
+		})
+	}
+
+	t.Run("a key over uint32 is refused before any buffer is sized", func(t *testing.T) {
+		// The guard has to run ahead of the callbacks, or one of them sizes a node
+		// around a key length the node cannot record.
+		_, _, err := NewSegmentNodeCompacted(make([]byte, math.MaxUint32+1),
+			NewBitmap(1), NewBitmap(), nil)
+		require.ErrorContains(t, err, "key too long")
+	})
+}
+
+// TestNewSegmentNodeCompactedReusesTheBuffer pins what the encoder is for. Byte
+// equality alone would pass for an encoder that built each bitmap beside the
+// node and copied it in.
+func TestNewSegmentNodeCompactedReusesTheBuffer(t *testing.T) {
+	t.Run("the node aliases the buffer it was given", func(t *testing.T) {
+		buf := make([]byte, 4096)
+		node, out, err := NewSegmentNodeCompacted([]byte("k"),
+			NewBitmap(slice(0, 100)...).Compacted(), NewBitmap(), buf)
+		require.NoError(t, err)
+
+		require.Same(t, unsafe.SliceData(buf), unsafe.SliceData(out))
+		require.Same(t, unsafe.SliceData(buf), unsafe.SliceData(node.ToBuffer()))
+	})
+
+	t.Run("encoding into the returned buffer costs less than one node's payload", func(t *testing.T) {
+		additions := NewBitmap(slice(0, 1000)...).Compacted()
+
+		var buf []byte
+		res := testing.Benchmark(func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				node, out, err := NewSegmentNodeCompacted([]byte("k"), additions, NewBitmap(), buf)
+				if err != nil || node == nil {
+					b.Fatal(err)
+				}
+				buf = out
+			}
+		})
+
+		// Bytes, not a count: an encoder building each bitmap beside the node and
+		// copying it in also allocates fewer times with the buffer carried forward
+		// than without, so only the size separates the two.
+		require.Less(t, res.AllocedBytesPerOp(), int64(len(additions.ToBuffer())),
+			"one node's payload must not be allocated per node")
+	})
+
+	t.Run("a smaller node after a larger one leaves none of it behind", func(t *testing.T) {
+		// The shrink direction is where a leak lands: growing allocates fresh
+		// zeroed memory and hides it. The 0xFF fill is what a dirty buffer looks
+		// like to the second encode.
+		buf := bytes.Repeat([]byte{0xFF}, 8192)
+
+		_, buf, err := NewSegmentNodeCompacted([]byte("large"),
+			NewBitmap(slice(0, 5000)...).Compacted(), NewBitmap(slice(0, 5000)...).Compacted(), buf)
+		require.NoError(t, err)
+
+		small := NewBitmap(slice(0, 3)...).Compacted()
+		got, _, err := NewSegmentNodeCompacted([]byte("k"), small, NewBitmap(), buf)
+		require.NoError(t, err)
+
+		want, err := NewSegmentNode([]byte("k"), small, NewBitmap())
+		require.NoError(t, err)
+		require.Equal(t, want.ToBuffer(), got.ToBuffer())
+	})
+}
+
+// TestCompactedToBufCallsGetOnceWithTheExactSize pins sroar's contract where it
+// lives. NewSegmentNodeCompacted builds its callbacks internally, so no caller
+// of it can observe them, and a sroar bump that changed the arity would surface
+// inside the encoder rather than here.
+func TestCompactedToBufCallsGetOnceWithTheExactSize(t *testing.T) {
+	bm := NewBitmap(slice(0, 5000)...)
+
+	calls := 0
+	var handed int
+	bm.CompactedToBuf(func(sizeBytes int) []byte {
+		calls++
+		handed = sizeBytes
+		return make([]byte, sizeBytes)
+	})
+
+	require.Equal(t, 1, calls)
+	require.Equal(t, len(bm.Compacted().ToBuffer()), handed)
 }
