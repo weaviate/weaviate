@@ -835,6 +835,8 @@ jobs:
             test: "--acceptance-backup-dedupe"
           - name: "cross-version"
             test: "--acceptance-backup-dedupe-cross-version"
+          - name: "incremental"
+            test: "--acceptance-backup-dedupe-incremental"
           - name: "misc"
             test: "--acceptance-backup-dedupe-misc"
     steps:

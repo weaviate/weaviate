@@ -30,6 +30,7 @@ import (
 
 	"github.com/weaviate/weaviate/client/backups"
 	entbackup "github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/helper"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 )
@@ -132,6 +133,26 @@ func TestBackupCrossVersionRestore(t *testing.T) {
 		assert.NotEqual(t, ubak.VersionDedupeReplicas, global.Version)
 
 		restoreAndVerify(t, host, className, backupID, ids)
+	})
+
+	t.Run("deduped incremental continues the pre-dedupe chain", func(t *testing.T) {
+		const incrID = "cross-version-incr"
+		shards := common.DiscoverShards(t, host, className)
+		require.NotEmpty(t, shards)
+		waitForCheckpointCapability(t, newCompose, className, shards)
+
+		ids = append(ids, seedObjects(t, host, className, 100)...)
+		_, err := helper.CreateBackupWithBase(t, dedupeBackupConfig(), className, backendS3, incrID, backupID)
+		require.NoError(t, err)
+		helper.ExpectBackupEventuallyCreated(t, incrID, backendS3, nil, helper.WithDeadline(4*time.Minute))
+
+		global := readGlobalMeta(t, newMinio, incrID)
+		assert.Equal(t, ubak.VersionDedupeReplicas, global.Version)
+		assert.True(t, global.DedupeReplicas)
+		assert.Equal(t, backupID, global.BaseBackupID)
+
+		helper.DeleteClass(t, className)
+		restoreAndVerify(t, host, className, incrID, ids)
 	})
 }
 

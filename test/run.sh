@@ -69,6 +69,7 @@ function main() {
   run_acceptance_backups=false
   run_acceptance_backup_dedupe=false
   run_acceptance_backup_dedupe_cross_version=false
+  run_acceptance_backup_dedupe_incremental=false
   run_acceptance_backup_dedupe_misc=false
 
   while [[ "$#" -gt 0 ]]; do
@@ -138,6 +139,7 @@ function main() {
           --acceptance-backups|-ab) run_all_tests=false; run_acceptance_backups=true;;
           --acceptance-backup-dedupe|-abd) run_all_tests=false; run_acceptance_backup_dedupe=true;;
           --acceptance-backup-dedupe-cross-version|-abdcv) run_all_tests=false; run_acceptance_backup_dedupe_cross_version=true;;
+          --acceptance-backup-dedupe-incremental|-abdi) run_all_tests=false; run_acceptance_backup_dedupe_incremental=true;;
           --acceptance-backup-dedupe-misc|-abdm) run_all_tests=false; run_acceptance_backup_dedupe_misc=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
@@ -190,6 +192,7 @@ function main() {
               "--acceptance-backups | -ab"\
               "--acceptance-backup-dedupe | -abd"\
               "--acceptance-backup-dedupe-cross-version | -abdcv"\
+              "--acceptance-backup-dedupe-incremental | -abdi"\
               "--acceptance-backup-dedupe-misc | -abdm"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
@@ -486,6 +489,11 @@ function main() {
   if $run_acceptance_backup_dedupe_cross_version; then
     echo "running backup dedupe cross-version acceptance tests"
     run_acceptance_backup_dedupe_cross_version
+  fi
+
+  if $run_acceptance_backup_dedupe_incremental; then
+    echo "running backup dedupe incremental acceptance tests"
+    run_acceptance_backup_dedupe_incremental
   fi
 
   if $run_acceptance_backup_dedupe_misc; then
@@ -1181,15 +1189,22 @@ function run_acceptance_backup_dedupe() {
 function run_acceptance_backup_dedupe_cross_version() {
   build_weaviate_test_image
   echo_green "acceptance — backup-dedupe-cross-version"
-  AOF_GROUP_RUN='^TestBackupCrossVersionRestore$' \
+  AOF_GROUP_RUN='^TestBackupCrossVersionRestore$' AOF_GROUP_TIMEOUT=30m \
     run_aof_group "backup-dedupe-cross-version" test/acceptance/backup_dedupe_replicas
+}
+
+function run_acceptance_backup_dedupe_incremental() {
+  build_weaviate_test_image
+  echo_green "acceptance — backup-dedupe-incremental"
+  AOF_GROUP_RUN='^TestBackupDedupeIncremental$' AOF_GROUP_TIMEOUT=40m \
+    run_aof_group "backup-dedupe-incremental" test/acceptance/backup_dedupe_replicas
 }
 
 # Catch-all shard: when adding a sub-shard above, add its test prefix to the SKIP regex so it isn't double-run.
 function run_acceptance_backup_dedupe_misc() {
   build_weaviate_test_image
   echo_green "acceptance — backup-dedupe-misc"
-  AOF_GROUP_SKIP='^(TestBackupDedupeReplicas|TestBackupCrossVersionRestore)$' \
+  AOF_GROUP_SKIP='^(TestBackupDedupeReplicas|TestBackupCrossVersionRestore|TestBackupDedupeIncremental)$' \
     run_aof_group "backup-dedupe-misc" test/acceptance/backup_dedupe_replicas
 }
 
