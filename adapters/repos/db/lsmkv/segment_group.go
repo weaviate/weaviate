@@ -27,6 +27,7 @@ import (
 	"github.com/sirupsen/logrus"
 	bolterrors "go.etcd.io/bbolt/errors"
 
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/editops"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -757,7 +758,7 @@ func (sg *SegmentGroup) makeExistsOn(segments []Segment) existsOnLowerSegmentsFn
 			// any key in this segment is previously unseen.
 			return false, nil
 		}
-		if _, err := sg.getWithSegmentList(key, segments); err != nil {
+		if err := sg.existsWithSegmentList(key, segments); err != nil {
 			if !errors.Is(err, lsmkv.Deleted) && !errors.Is(err, lsmkv.NotFound) {
 				return false, fmt.Errorf("check exists on segments: %w", err)
 			}
@@ -907,16 +908,30 @@ func (sg *SegmentGroup) currentSegmentIDsLocked() []string {
 
 func (sg *SegmentGroup) getConsistentViewOfSegments() (segments []Segment, release func()) {
 	sg.maintenanceLock.RLock()
+	defer sg.maintenanceLock.RUnlock()
+
 	segments = make([]Segment, len(sg.segments))
 	copy(segments, sg.segments)
 
 	// incRef under the RLock so the refs are taken before any compaction (which
 	// holds the write lock) can swap these segments out. refCount is atomic, so no
 	// separate refcount lock is needed.
+	//
+	// A lazy segment loads here, and a failed load panics. Shutdown waits for the
+	// count to reach zero, so the refs already taken have to go back.
+	taken := 0
+	defer func() {
+		if taken == len(segments) {
+			return
+		}
+		for _, seg := range segments[:taken] {
+			seg.decRef()
+		}
+	}()
 	for _, seg := range segments {
 		seg.incRef()
+		taken++
 	}
-	sg.maintenanceLock.RUnlock()
 
 	return segments, func() {
 		for _, seg := range segments {
@@ -1059,7 +1074,7 @@ func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, 
 				continue
 			}
 
-			return nil, err
+			return nil, fmt.Errorf("SegmentGroup::getCollection() %q: %w", segment.getPath(), err)
 		}
 
 		if len(out) == 0 {
@@ -1083,7 +1098,7 @@ func (sg *SegmentGroup) getCollectionBytes(key []byte, segments []Segment) ([][]
 				continue
 			}
 
-			return nil, err
+			return nil, fmt.Errorf("SegmentGroup::getCollectionBytes() %q: %w", segment.getPath(), err)
 		}
 
 		if len(out) == 0 {
@@ -1109,7 +1124,8 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 		v, err := segment.getCollection(key)
 		if err != nil {
 			if !errors.Is(err, lsmkv.NotFound) {
-				return nil, nil, err
+				return nil, nil, fmt.Errorf("SegmentGroup::getCollectionAndSegments() %q: %w",
+					segment.getPath(), err)
 			}
 			// inverted segments need to be loaded anyway, even if they don't have
 			// the key, as we need to know if they have tombstones
@@ -1126,34 +1142,35 @@ func (sg *SegmentGroup) getCollectionAndSegments(ctx context.Context, key []byte
 	return out[:i], outSegments[:i], nil
 }
 
-// roaringSetGet folds all disk segments holding key into a single BitmapLayer:
-// the first segment with the key becomes the base (additions cloned into a
-// pooled buffer with headroom), every later segment merges into it in place.
-// If no segment has the key, a zero BitmapLayer and noop release are returned.
-// Only Additions is fully folded; Deletions is the first segment's deletions,
-// retained solely so its buffer gets released — not the flattened deletions.
-func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc int) (out roaringset.BitmapLayer, release func(), err error) {
+// roaringSetGet folds all disk segments holding key into a single additions
+// bitmap: the first segment with the key becomes the base (additions cloned
+// into a pooled buffer with headroom), every later segment applies its
+// deletions and additions onto it in place. Disk reads produce additions
+// only — the base segment's own deletions are never read, as they cannot
+// mask anything older. If no segment has the key, a nil bitmap and noop
+// release are returned.
+func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc int) (bm *sroar.Bitmap, release func(), err error) {
 	ln := len(segments)
 	if ln == 0 {
-		return out, noopRelease, nil
+		return nil, noopRelease, nil
 	}
 
 	// acquired (not the named return, which error paths overwrite with
 	// noopRelease) is what the defer frees, so a mid-merge disk read error
-	// can't leak the first layer's pooled buffer.
+	// can't leak the base bitmap's pooled buffer.
 	acquired := noopRelease
 
 	i := 0
 	for ; i < ln; i++ {
-		layer, layerRelease, getErr := segments[i].roaringSetGet(key, sg.bitmapBufPoolWithHeadroom)
+		baseBM, baseRelease, getErr := segments[i].roaringSetGet(key, sg.bitmapBufPoolWithHeadroom)
 		if getErr == nil {
-			out = layer
-			acquired = layerRelease
+			bm = baseBM
+			acquired = baseRelease
 			i++
 			break
 		}
 		if !errors.Is(getErr, lsmkv.NotFound) {
-			return roaringset.BitmapLayer{}, noopRelease, getErr
+			return nil, noopRelease, getErr
 		}
 	}
 	defer func() {
@@ -1163,13 +1180,13 @@ func (sg *SegmentGroup) roaringSetGet(key []byte, segments []Segment, maxConc in
 	}()
 
 	for ; i < ln; i++ {
-		if mergeErr := segments[i].roaringSetMergeWith(key, out, sg.bitmapBufPool, maxConc); mergeErr != nil {
+		if mergeErr := segments[i].roaringSetMergeWith(key, bm, sg.bitmapBufPool, maxConc); mergeErr != nil {
 			err = mergeErr
-			return roaringset.BitmapLayer{}, noopRelease, err
+			return nil, noopRelease, err
 		}
 	}
 
-	return out, acquired, nil
+	return bm, acquired, nil
 }
 
 func (sg *SegmentGroup) count() int {

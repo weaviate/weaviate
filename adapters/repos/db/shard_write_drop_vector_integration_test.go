@@ -58,7 +58,7 @@ func setupDropVectorShard(t *testing.T, ctx context.Context) (*Shard, *models.Cl
 		},
 	}
 	vic := hnsw.UserConfig{Distance: common.DefaultDistanceMetric}
-	shardLike, _ := testShardWithSettings(t, ctx, class, vic, false, true, false, func(i *Index) {
+	shardLike, _ := testShardWithSettings(t, ctx, class, vic, false, false, func(i *Index) {
 		i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
 			"foo": hnsw.NewDefaultUserConfig(),
 			"mv":  hnsw.NewDefaultMultiVectorUserConfig(),

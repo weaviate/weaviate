@@ -12,8 +12,11 @@
 package hfresh
 
 import (
+	"context"
+	"errors"
 	"math"
 	"math/rand"
+	"sync/atomic"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -357,4 +360,172 @@ func TestCentroidDistanceQuantizerMismatch(t *testing.T) {
 	// the own centroid ranks closer. Before the fix these were 0/200, 50/200.
 	require.GreaterOrEqual(t, float64(prodOK)/float64(total), 0.95)
 	require.GreaterOrEqual(t, float64(prodOrder)/float64(total), 0.95)
+}
+
+// TestSplitClustersOnFullPrecisionVectors pins the data source of the split's
+// clustering: the centroids a split returns must be the means of its members'
+// REAL vectors, fetched through VectorForIDThunk. A regression to clustering
+// on the posting's 1-bit reconstructions would return centroids whose
+// coordinates all collapse to the same magnitude (±‖x‖/√dims), nowhere near
+// these means — the vectors below carry strong per-coordinate magnitude
+// structure precisely so that any such regression fails loudly.
+func TestSplitClustersOnFullPrecisionVectors(t *testing.T) {
+	tf := createHFreshIndex(t)
+	defer tf.Index.Shutdown(t.Context())
+
+	const perGroup = 8
+	groups := [2][]float32{
+		{8.0, 2.0, 0.5, 0.1},
+		{0.1, 0.5, 2.0, 8.0},
+	}
+	vectors := make([][]float32, 0, 2*perGroup)
+	for g := range groups {
+		for i := range perGroup {
+			v := make([]float32, len(groups[g]))
+			for j := range v {
+				v[j] = groups[g][j] + float32(i)*0.01
+			}
+			vectors = append(vectors, v)
+		}
+	}
+
+	_, posting := createPostingWithVectors(t, &tf, vectors, 300)
+
+	results, err := tf.Index.splitPosting(t.Context(), posting)
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+
+	// Whatever membership the clustering settles on, each child's centroid
+	// must be the mean of its members' real vectors. (Membership itself is
+	// not asserted: initialization is randomized, so the exact grouping may
+	// vary — the data-source pin does not depend on it.)
+	for _, result := range results {
+		require.NotEmpty(t, result.Posting)
+
+		mean := make([]float32, len(groups[0]))
+		for _, v := range result.Posting {
+			for j, x := range vectors[v.ID()-300] {
+				mean[j] += x
+			}
+		}
+		for j := range mean {
+			mean[j] /= float32(len(result.Posting))
+			require.InDelta(t, mean[j], result.Uncompressed[j], 1e-3,
+				"centroid coordinate %d must be the mean of the members' full-precision vectors", j)
+		}
+	}
+}
+
+// A vector deleted between the split's garbage-collection pass and its
+// full-precision fetch fails that attempt; doSplit must retry, filter the
+// now-deleted entry, and complete the split without it.
+func TestSplitRetriesWhenVectorDeletedDuringSplit(t *testing.T) {
+	tf := createHFreshIndex(t)
+	defer tf.Index.Shutdown(t.Context())
+
+	vectors := createTestVectors(4, 15)
+	postingID, posting := createPostingWithVectors(t, &tf, vectors, 400)
+
+	uncompressed := []float32{1.0, 0.0, 0.0, 0.0}
+	compressed := tf.Index.quantizer.CompressedBytes(tf.Index.quantizer.Encode(uncompressed))
+	err := tf.Index.Centroids.Insert(postingID, &Centroid{
+		Uncompressed: uncompressed,
+		Compressed:   compressed,
+		Deleted:      false,
+	})
+	require.NoError(t, err)
+
+	err = tf.Index.PostingStore.Put(t.Context(), postingID, posting)
+	require.NoError(t, err)
+	err = tf.Index.setPostingVectorIDs(t.Context(), postingID, posting)
+	require.NoError(t, err)
+
+	originalMax := tf.Index.maxPostingSize
+	tf.Index.maxPostingSize = 10
+	defer func() { tf.Index.maxPostingSize = originalMax }()
+
+	// vector 405 is deleted concurrently: its first fetch fails, and the
+	// deletion becomes visible in the version map right after — the retry's
+	// garbage collection must filter it
+	const deletedID = uint64(405)
+	var tripped atomic.Bool
+	base := tf.Index.config.VectorForIDThunk
+	tf.Index.config.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
+		if id == deletedID && tripped.CompareAndSwap(false, true) {
+			_, err := tf.Index.VersionMap.MarkDeleted(ctx, deletedID)
+			require.NoError(t, err)
+			return nil, errors.New("deleted concurrently")
+		}
+		return base(ctx, id)
+	}
+
+	err = tf.Index.doSplit(t.Context(), postingID, false)
+	require.NoError(t, err)
+	require.True(t, tripped.Load(), "the failing fetch must have been exercised")
+
+	require.False(t, tf.Index.Centroids.Exists(postingID))
+	require.True(t, tf.Index.Centroids.Exists(postingID+1))
+	require.True(t, tf.Index.Centroids.Exists(postingID+2))
+
+	var total int
+	for _, id := range []uint64{postingID + 1, postingID + 2} {
+		p, err := tf.Index.PostingStore.Get(t.Context(), id)
+		require.NoError(t, err)
+		total += len(p)
+		for _, v := range p {
+			require.NotEqual(t, deletedID, v.ID(), "the deleted vector must not survive the retry")
+		}
+	}
+	require.Equal(t, 14, total)
+}
+
+// A muvera index routes on the encoded FDE, which is stored in the muvera
+// bucket rather than in the object store the single-vector path reads. The
+// split must cluster on those stored FDEs: reading the object store instead
+// fails every fetch, and on the synchronous split path that failure is
+// returned to the insert which triggered the split.
+func TestSplitMuveraPostingClustersOnStoredFDEs(t *testing.T) {
+	tf := createMuveraHFreshIndex(t)
+	defer tf.Index.Shutdown(t.Context())
+
+	const docs = 16
+	rng := rand.New(rand.NewSource(42))
+	for i := range docs {
+		addMultiVectorToIndex(t, &tf, uint64(i), randomMultiVector(rng, 2, 16))
+	}
+
+	var postingIDs []uint64
+	for id := range tf.Index.PostingMap.Iter() {
+		postingIDs = append(postingIDs, id)
+	}
+	require.Len(t, postingIDs, 1, "the corpus must stay in one posting so the split input is known")
+
+	posting, err := tf.Index.PostingStore.Get(t.Context(), postingIDs[0])
+	require.NoError(t, err)
+	require.Len(t, posting, docs)
+
+	results, err := tf.Index.splitPosting(t.Context(), posting)
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+
+	// Whatever membership the clustering settles on, each child's centroid
+	// must be the mean of its members' stored FDEs. (Membership itself is not
+	// asserted: initialization is randomized, so the exact grouping may vary.)
+	for _, result := range results {
+		require.NotEmpty(t, result.Posting)
+
+		mean := make([]float32, len(result.Uncompressed))
+		for _, v := range result.Posting {
+			fde, err := tf.Index.muveraEncoder.GetMuveraVectorForID(v.ID(), tf.Index.id+"_muvera_vectors")
+			require.NoError(t, err)
+			for j, x := range tf.Index.normalizeVec(fde) {
+				mean[j] += x
+			}
+		}
+		for j := range mean {
+			mean[j] /= float32(len(result.Posting))
+			require.InDelta(t, mean[j], result.Uncompressed[j], 1e-3,
+				"centroid coordinate %d must be the mean of the members' stored FDEs", j)
+		}
+	}
 }

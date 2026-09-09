@@ -245,7 +245,7 @@ func TestAsyncCheckpoint_MergeJourney(t *testing.T) {
 		}
 	}
 	setup := func(t *testing.T) (ShardLike, *Shard, hashtree.Digest) {
-		sl, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, true, false, false, withAsyncScheduler(t))
+		sl, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, true, false, withAsyncScheduler(t))
 		s := concreteShard(t, sl)
 		return sl, s, ckSetup(t, ctx, sl, s, []*storobj.Object{seedObj()})
 	}

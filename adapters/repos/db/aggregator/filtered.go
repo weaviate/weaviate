@@ -132,7 +132,7 @@ func (fa *filteredAggregator) properties(ctx context.Context,
 		return nil, errors.Wrap(err, "prepare aggregators for props")
 	}
 
-	scan := func(properties *models.PropertySchema, docID uint64) error {
+	scan := func(ctx context.Context, properties *models.PropertySchema, docID uint64) error {
 		if err := fa.AnalyzeObject(ctx, properties, propAggs); err != nil {
 			return errors.Wrapf(err, "analyze object %d", docID)
 		}
@@ -143,7 +143,7 @@ func (fa *filteredAggregator) properties(ctx context.Context,
 		propertyNames = append(propertyNames, k)
 	}
 
-	err = docid.ScanObjectsLSM(fa.store, ids, scan, propertyNames, fa.logger)
+	err = docid.ScanObjectsLSM(ctx, fa.store, ids, scan, propertyNames, fa.logger)
 	if err != nil {
 		return nil, errors.Wrap(err, "properties view tx")
 	}

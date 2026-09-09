@@ -239,7 +239,7 @@ func (s *FilterableToRangeableStrategy) OnMigrationComplete(ctx context.Context,
 	_, err := applyPerPropertySchemaUpdate(ctx, s.schemaManager, className, s.propNames,
 		[]string{api.PropertyFieldIndexRangeFilters},
 		func(prop *models.Property) bool {
-			if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
+			if propertyRangeableEnabled(prop) {
 				return false // already enabled
 			}
 			prop.IndexRangeFilters = &trueVal

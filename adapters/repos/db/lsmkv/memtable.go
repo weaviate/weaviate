@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -76,6 +77,12 @@ type memtable interface {
 	newCursorWithSecondaryIndex(pos int) innerCursorReplace
 	newCollectionCursor() innerCursorCollection
 	newRoaringSetCursor() roaringset.InnerCursor
+	// roaringSetGetWindow reads a window of a sorted batch in one pass, stopping
+	// once it has copied budget bytes and reporting where it stopped and what it
+	// spent. Absence is the zero layer rather than lsmkv.NotFound, and on error
+	// no slot is meaningful. See (*Memtable).roaringSetGetWindow for the
+	// contract.
+	roaringSetGetWindow(keys inverted.SortedKeys, from, to int, dst []roaringset.BitmapLayer, budget int) (windowFill, error)
 	newRoaringSetRangeReader() roaringsetrange.InnerReader
 	newMapCursor() innerCursorMap
 
@@ -125,9 +132,9 @@ type Memtable struct {
 	size            uint64
 	// netCountAdditions approximates the net live keys this memtable adds on
 	// top of the rest of the LSM tree. Whether a key already exists further
-	// down is unknown at write time: updates of flushed keys over-count,
-	// deletes of never-written keys under-count, and the drift is corrected by
-	// the exact per-segment count at flush. StrategyReplace only.
+	// down is unknown at write time: updates of flushed keys over-count, deletes
+	// of never-written keys under-count, and flushing replaces the drift with the
+	// segment's own count. StrategyReplace only.
 	netCountAdditions  int
 	path               string
 	strategy           string

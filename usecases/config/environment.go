@@ -657,8 +657,6 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultShardingCount = configRuntime.NewDynamicValue(defaultShardingCount)
 
-	config.HFreshEnabled = true
-
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true
 	}
@@ -1297,6 +1295,19 @@ func FromEnv(config *Config) error {
 			return fmt.Errorf("parse TELEMETRY_PUSH_INTERVAL as duration: %w", err)
 		}
 		config.TelemetryPushInterval = interval
+	}
+
+	if v := os.Getenv("BANNER_INTERVAL"); v != "" {
+		interval, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse BANNER_INTERVAL as duration: %w", err)
+		}
+		config.BannerInterval = interval
+	}
+	// Each repeat logs a banner and fetches its art from the website; a value
+	// below an hour, from the env var or the config file, is raised to it.
+	if config.BannerInterval > 0 && config.BannerInterval < time.Hour {
+		config.BannerInterval = time.Hour
 	}
 
 	{

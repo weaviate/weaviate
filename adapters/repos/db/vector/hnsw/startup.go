@@ -17,11 +17,10 @@ import (
 	"os"
 	"time"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
@@ -165,7 +164,7 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 						h.store,
 						h.makeBucketOptions,
 						h.allocChecker,
-						h.getTargetVector(),
+						h.compressedBucketName(),
 						h.vectorForID,
 					)
 				} else {
@@ -179,7 +178,7 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 						h.store,
 						h.makeBucketOptions,
 						h.allocChecker,
-						h.getTargetVector(),
+						h.compressedBucketName(),
 						h.multiVectorForNodeID,
 					)
 				}
@@ -200,7 +199,7 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 					h.store,
 					h.makeBucketOptions,
 					h.allocChecker,
-					h.getTargetVector(),
+					h.compressedBucketName(),
 					h.vectorForID,
 				)
 			} else {
@@ -214,7 +213,7 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 					h.store,
 					h.makeBucketOptions,
 					h.allocChecker,
-					h.getTargetVector(),
+					h.compressedBucketName(),
 					h.multiVectorForNodeID,
 				)
 			}
@@ -290,7 +289,7 @@ func (h *hnsw) restoreRotationalQuantization(data *ent.RQData) error {
 				h.store,
 				h.allocChecker,
 				h.makeBucketOptions,
-				h.getTargetVector(),
+				h.compressedBucketName(),
 				h.vectorForID,
 			)
 		})
@@ -312,7 +311,7 @@ func (h *hnsw) restoreRotationalQuantization(data *ent.RQData) error {
 				h.store,
 				h.allocChecker,
 				h.makeBucketOptions,
-				h.getTargetVector(),
+				h.compressedBucketName(),
 				h.multiVectorForNodeID,
 			)
 		})
@@ -340,7 +339,7 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *ent.BRQData) error {
 				h.store,
 				h.allocChecker,
 				h.makeBucketOptions,
-				h.getTargetVector(),
+				h.compressedBucketName(),
 				h.vectorForID,
 			)
 		})
@@ -360,7 +359,7 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *ent.BRQData) error {
 				h.store,
 				h.allocChecker,
 				h.makeBucketOptions,
-				h.getTargetVector(),
+				h.compressedBucketName(),
 				h.multiVectorForNodeID,
 			)
 		})
@@ -375,14 +374,15 @@ func (h *hnsw) restoreDocMappings() error {
 	maxDocID := uint64(0)
 	buf := make([]byte, 8)
 
-	// Get the mappings bucket - handle case where it might be nil
-	bucket := h.store.Bucket(helpers.MVMappingsBucketName(h.id))
-	if bucket == nil {
-		err := errors.New("multivector mappings bucket not found")
+	// pinned for the whole scan below: without it a teardown racing this
+	// lookup could unmap the segments the Gets read from
+	bucket, release, err := h.getBucket(helpers.MVMappingsBucketName(h.id))
+	if err != nil {
 		h.logger.WithField("action", "restore_doc_mappings").
-			WithError(err)
-		return err
+			Errorf("multivector mappings bucket not found: %v", err)
+		return errors.Wrap(err, "multivector mappings bucket not found")
 	}
+	defer release()
 
 	for _, node := range h.nodes {
 		if node == nil {
@@ -562,7 +562,10 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 			} else {
 				h.compressor.PrefillMultiCache(ctx, h.docIDVectors)
 			}
-		} else if h.useParallelPrefill() {
+		} else if h.vectorFromObject != nil && h.useParallelPrefill() {
+			// only an index the shard bound an object-vector reader for can
+			// scan the objects bucket; hfresh's centroid graph has none and
+			// always takes the serial, VectorForIDThunk-based path below
 			// Unbounded uncompressed cache: scan the objects bucket with a parallel
 			// cursor instead of looking up every vector by id (disk-seek bound).
 			err = h.prefillCacheParallel(ctx)

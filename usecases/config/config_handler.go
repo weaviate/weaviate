@@ -226,6 +226,7 @@ type Config struct {
 	DisableTelemetry                    bool                           `json:"disable_telemetry" yaml:"disable_telemetry"`
 	TelemetryURL                        string                         `json:"telemetry_url" yaml:"telemetry_url"`
 	TelemetryPushInterval               time.Duration                  `json:"telemetry_push_interval" yaml:"telemetry_push_interval"`
+	BannerInterval                      time.Duration                  `json:"banner_interval" yaml:"banner_interval"`
 	HNSWStartupWaitForVectorCache       bool                           `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
 	HNSWVisitedListPoolMaxSize          int                            `json:"hnsw_visited_list_pool_max_size" yaml:"hnsw_visited_list_pool_max_size"`
 	HNSWFlatSearchConcurrency           int                            `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
@@ -241,7 +242,6 @@ type Config struct {
 	DistributedTasks                    DistributedTasksConfig         `json:"distributed_tasks" yaml:"distributed_tasks"`
 	ReplicationEngineMaxWorkers         int                            `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
 	ReplicationEngineFileCopyWorkers    int                            `json:"replication_engine_file_copy_workers" yaml:"replication_engine_file_copy_workers"`
-	HFreshEnabled                       bool                           `json:"hfresh_enabled" yaml:"hfresh_enabled"`
 	ReplicationEngineFileCopyChunkSize  int                            `json:"replication_engine_file_copy_chunk_size" yaml:"replication_engine_file_copy_chunk_size"`
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?

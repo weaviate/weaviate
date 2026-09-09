@@ -12,6 +12,8 @@
 package hfresh
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -31,6 +33,9 @@ func TestTaskQueueRegisterIsExplicit(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.ID = "hfresh"
 	cfg.ShardName = "shard"
+	cfg.VectorForIDThunk = func(context.Context, uint64) ([]float32, error) {
+		return nil, fmt.Errorf("no vector store wired in this test")
+	}
 	cfg.RootPath = t.TempDir()
 	cfg.Logger = logger
 	cfg.Scheduler = scheduler

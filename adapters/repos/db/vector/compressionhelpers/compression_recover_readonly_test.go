@@ -51,11 +51,11 @@ func newTestSQCompressor(t *testing.T, vectorForID func(ctx context.Context, id 
 	sq, err := RestoreScalarQuantizer(1.0, -1.0, 2, distancer.NewCosineDistanceProvider())
 	require.NoError(t, err)
 	return &quantizedVectorsCompressor[byte]{
-		quantizer:    sq,
-		logger:       logrus.New(),
-		targetVector: "test-vector",
-		storeId:      binary.LittleEndian.PutUint64,
-		vectorForID:  vectorForID,
+		quantizer:   sq,
+		logger:      logrus.New(),
+		bucketName:  "vectors_compressed_test-vector",
+		storeId:     binary.LittleEndian.PutUint64,
+		vectorForID: vectorForID,
 	}
 }
 
