@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"testing"
 	"time"
@@ -128,27 +129,44 @@ func grpcTo(t *testing.T, grpcURI string) pb.WeaviateClient {
 	return helper.CreateGrpcWeaviateClient(conn)
 }
 
-// postJSON sends an authenticated POST to one node and returns the status and the
-// decoded body. Raw HTTP rather than the generated client, because the status these
-// endpoints give a namespace refusal is expected to change, and a typed response
-// would bind every row to today's.
-func postJSON(t *testing.T, uri, path, key string, body map[string]any) (int, map[string]any) {
+// requestJSON sends an authenticated request to one node and returns the status
+// and the decoded body, a nil map when the body is empty or not a JSON object.
+func requestJSON(t *testing.T, method, uri, path, key string, body any) (int, map[string]any) {
 	t.Helper()
-	payload, err := json.Marshal(body)
-	require.NoError(t, err)
+	var payload io.Reader
+	if body != nil {
+		encoded, err := json.Marshal(body)
+		require.NoError(t, err)
+		payload = bytes.NewReader(encoded)
+	}
 
-	req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("http://%s%s", uri, path), bytes.NewReader(payload))
+	req, err := http.NewRequest(method, fmt.Sprintf("http://%s%s", uri, path), payload)
 	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	req.Header.Set("Authorization", "Bearer "+key)
 
 	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 
-	var out map[string]any
-	require.NoError(t, json.NewDecoder(resp.Body).Decode(&out))
+	raw, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	var decoded any
+	if len(raw) > 0 {
+		require.NoError(t, json.Unmarshal(raw, &decoded))
+	}
+	// A successful batch answers with an array, which a polling row sees until
+	// the suspend reaches the node. A nil map keeps that row polling.
+	out, _ := decoded.(map[string]any)
 	return resp.StatusCode, out
+}
+
+// postJSON is requestJSON for the POST rows, which are most of them.
+func postJSON(t *testing.T, uri, path, key string, body map[string]any) (int, map[string]any) {
+	t.Helper()
+	return requestJSON(t, http.MethodPost, uri, path, key, body)
 }
 
 // restSearch runs POST /v1/search/<collection>/bm25 against one node. bm25 needs
