@@ -14,6 +14,7 @@ package roaringset
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"math/rand"
 	"testing"
 	"time"
@@ -208,6 +209,84 @@ func TestBSTRoaringSet_Flatten(t *testing.T) {
 			}
 		})
 	})
+}
+
+func TestBinarySearchTreeCountsDistinctKeys(t *testing.T) {
+	ascendingKeys := func(n int) [][]byte {
+		keys := make([][]byte, n)
+		for i := range keys {
+			keys[i] = []byte(fmt.Sprintf("key-%05d", i))
+		}
+		return keys
+	}
+
+	tests := []struct {
+		name    string
+		inserts [][]byte
+		values  Insert
+		want    int
+	}{
+		{name: "no inserts", values: Insert{Additions: []uint64{1}}, want: 0},
+		{
+			name:    "one key",
+			inserts: [][]byte{[]byte("a")},
+			values:  Insert{Additions: []uint64{1}},
+			want:    1,
+		},
+		{
+			name:    "the same key twice merges",
+			inserts: [][]byte{[]byte("a"), []byte("a")},
+			values:  Insert{Additions: []uint64{1}},
+			want:    1,
+		},
+		{
+			name:    "the same key twice, not adjacent",
+			inserts: [][]byte{[]byte("b"), []byte("a"), []byte("b")},
+			values:  Insert{Additions: []uint64{1}},
+			want:    2,
+		},
+		{
+			// Ascending keys rebalance, so the root moves and insert returns a new
+			// one on rows a nil return would have counted as a merge.
+			name:    "ascending keys rebalance and still count once each",
+			inserts: ascendingKeys(64),
+			values:  Insert{Additions: []uint64{1}},
+			want:    64,
+		},
+		{
+			// The duplicate lands below the root, where insert relays the subtree's
+			// answer rather than deciding it.
+			name:    "a key re-inserted below the root merges",
+			inserts: [][]byte{[]byte("b"), []byte("a"), []byte("c"), []byte("c")},
+			values:  Insert{Additions: []uint64{1}},
+			want:    3,
+		},
+		{
+			name:    "a zero-length key is a key",
+			inserts: [][]byte{{}, []byte("a")},
+			values:  Insert{Additions: []uint64{1}},
+			want:    2,
+		},
+		{
+			name:    "a key carrying only deletions is a key",
+			inserts: [][]byte{[]byte("deleted")},
+			values:  Insert{Deletions: []uint64{7}},
+			want:    1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := new(BinarySearchTree)
+			for _, key := range tt.inserts {
+				tree.Insert(key, tt.values)
+			}
+
+			require.Equal(t, tt.want, tree.Count())
+			require.Len(t, tree.FlattenInOrder(), tt.want,
+				"Count must match the nodes a walk of the tree yields")
+		})
+	}
 }
 
 func BenchmarkBinarySearchTreeInsert(b *testing.B) {
