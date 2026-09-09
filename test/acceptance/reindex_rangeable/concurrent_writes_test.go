@@ -108,6 +108,13 @@ func TestEnableRangeable_ConcurrentWrites(t *testing.T) {
 			"control: all %d updated objects must be served at >= %d", numUpdates, mark)
 	})
 
+	// Only this type gets an end-to-end run: the swap window it exercises is
+	// generic across semantic migrations, and the rest of the family is
+	// pinned a layer down. TestWriteDuringSemanticMigrationSwapWindow replays
+	// this journey per type at shard level,
+	// TestMaybeWirePerPropOverlaySet_SemanticFamilyCoverage fails if a type
+	// joins the family without an overlay, and TestIndexInverted's overlay
+	// table pins what that overlay makes the analyzer emit.
 	t.Run("enable-rangeable migration with concurrent writes", func(t *testing.T) {
 		className := "F10RangeableMig"
 		ids := setupClassWithObjects(t, className, false)
