@@ -42,6 +42,15 @@ func drain(c InnerCursor) []cursorEntry {
 	return out
 }
 
+// keyNames returns n ascending keys, the shape every test in this file inserts.
+func keyNames(n int) []string {
+	keys := make([]string, n)
+	for i := range keys {
+		keys[i] = fmt.Sprintf("key_%05d", i)
+	}
+	return keys
+}
+
 func treeWith(t *testing.T, keys []string) *BinarySearchTree {
 	t.Helper()
 	bst := &BinarySearchTree{}
@@ -67,10 +76,7 @@ func TestCursorNoCopyMatchesCopyingCursor(t *testing.T) {
 		t.Run(fmt.Sprintf("keys=%d", n), func(t *testing.T) {
 			t.Parallel()
 
-			keys := make([]string, n)
-			for i := range keys {
-				keys[i] = fmt.Sprintf("key_%05d", i)
-			}
+			keys := keyNames(n)
 			// insert out of order so the tree actually has to rebalance
 			rnd := rand.New(rand.NewSource(int64(n)))
 			rnd.Shuffle(len(keys), func(i, j int) { keys[i], keys[j] = keys[j], keys[i] })
@@ -293,4 +299,54 @@ func TestCursorNoCopyWalksARebalancedTree(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCursorNoCopyAllocatesPerWalkNotPerNode is what lets a caller walk a
+// memtable without materializing it: draining the cursor costs the same
+// whatever the tree holds, where NewBinarySearchTreeCursor allocates a node per
+// key up front through FlattenInOrder.
+//
+// The two counts are compared to each other rather than to a recorded number,
+// so the assertion holds whatever a node costs to build. It walks inline rather
+// than through drain, which allocates an entry per key itself.
+func TestCursorNoCopyAllocatesPerWalkNotPerNode(t *testing.T) {
+	const keys = 64
+
+	// walkAllocs reports what one full walk costs, and fails rather than
+	// returning if the walk stopped early — every allocation claim below also
+	// holds for a walk that yields nothing.
+	walkAllocs := func(n int) float64 {
+		bst := treeWith(t, keyNames(n))
+		return testing.AllocsPerRun(3, func() {
+			cursor := NewBinarySearchTreeCursorNoCopy(bst)
+			seen := 0
+			for k, _, err := cursor.First(); k != nil; k, _, err = cursor.Next() {
+				require.NoError(t, err)
+				seen++
+			}
+			require.Equal(t, n, seen, "the walk did not yield every key")
+		})
+	}
+
+	single := walkAllocs(keys)
+	double := walkAllocs(keys * 2)
+
+	require.Equal(t, single, double,
+		"twice the keys cost %.0f more allocations, so the walk is building something per key",
+		double-single)
+}
+
+// TestCursorCopiesPerNode is the other half of that comparison: it pins that
+// the copying cursor does scale, so the equality above is a property of
+// NewBinarySearchTreeCursorNoCopy rather than of AllocsPerRun.
+func TestCursorCopiesPerNode(t *testing.T) {
+	const keys = 64
+
+	bst := treeWith(t, keyNames(keys))
+	allocs := testing.AllocsPerRun(3, func() {
+		NewBinarySearchTreeCursor(bst)
+	})
+
+	require.Greater(t, allocs, float64(keys),
+		"the copying cursor must allocate at least once per key it copies")
 }

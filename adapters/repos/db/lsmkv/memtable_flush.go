@@ -113,7 +113,6 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 	)
 
 	var keys []segmentindex.Key
-	var keysRedux []segmentindex.KeyRedux
 	skipIndices := false
 
 	switch m.strategy {
@@ -128,14 +127,8 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 		}
 
 	case StrategyRoaringSet:
-		if keysRedux, err = m.flushDataRoaringSet(segmentFile); err != nil {
+		if err = m.flushDataRoaringSet(segmentFile, meteredF, bufw); err != nil {
 			return "", err
-		}
-		// MarshalSortedKeys derives each key's start from the previous key's end,
-		// so the flush's sequential node writes are what let it take KeyRedux.
-		if _, err := segmentindex.MarshalSortedKeys(segmentFile.BodyWriter(),
-			keysRedux, segmentindex.HeaderSize); err != nil {
-			return "", fmt.Errorf("write roaring set index: %w", err)
 		}
 		skipIndices = true
 
