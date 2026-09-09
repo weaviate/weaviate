@@ -77,7 +77,7 @@ func TestReloadLocalDBReconcilesOrphanClassDirectories(t *testing.T) {
 				idx := newTestIndexOnDisk(t, db, orphanClass, logger)
 				db.indices[idx.ID()] = idx
 			} else {
-				require.NoError(t, os.MkdirAll(filepath.Join(orphanDir, "shard1", "lsm"), 0o755))
+				writeShardSignature(t, orphanDir, "shard1")
 			}
 			_, err := os.Stat(orphanDir)
 			require.NoError(t, err, "precondition: orphan directory exists before the reload")
@@ -123,8 +123,9 @@ func TestReloadLocalDBReconcilesOrphanClassDirectories(t *testing.T) {
 // directory already pending async delete, a mount point's lost+found, files at
 // the data root, and two directories whose name alone passes as a class: a
 // filesystem backup root colocated under the data root
-// (BACKUP_FILESYSTEM_PATH=<RootPath>/backups) and an index directory with no
-// shard store on this node.
+// (BACKUP_FILESYSTEM_PATH=<RootPath>/backups, laid out as
+// <backupID>/<node>/<class>/chunk-N, once with a node named lsm) and an index
+// directory with no shard store on this node.
 func TestDropOrphanedIndexDirectoriesPreservesReservedEntries(t *testing.T) {
 	root := t.TempDir()
 	logger, _ := test.NewNullLogger()
@@ -140,11 +141,13 @@ func TestDropOrphanedIndexDirectoriesPreservesReservedEntries(t *testing.T) {
 		filepath.Join(root, "gone.123.abcd"+asyncDeleteSuffix),
 		filepath.Join(root, "lost+found"),
 		filepath.Join(root, "backups", "backup-1", "node1", indexID("BackedUpClass")),
+		filepath.Join(root, "backups", "backup-2", "lsm", indexID("BackedUpClass")),
 		filepath.Join(root, indexID("ShardlessClass")),
 	}
-	for _, d := range append(preserved, filepath.Join(orphanDir, "shard1", "lsm")) {
+	for _, d := range preserved {
 		require.NoError(t, os.MkdirAll(d, 0o755))
 	}
+	writeShardSignature(t, orphanDir, "shard1")
 	schemaFile := filepath.Join(root, "schema.db")
 	require.NoError(t, os.WriteFile(schemaFile, []byte("x"), 0o644))
 	preserved = append(preserved, schemaFile)
@@ -161,6 +164,15 @@ func TestDropOrphanedIndexDirectoriesPreservesReservedEntries(t *testing.T) {
 		_, err := os.Stat(keep)
 		require.NoError(t, err, "reconcile removed %s, which it must preserve", keep)
 	}
+}
+
+// writeShardSignature creates what hasShardStore looks for in a shard
+// directory that no index has opened: the lsm store directory and the version
+// file.
+func writeShardSignature(t *testing.T, indexDir, shard string) {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(filepath.Join(indexDir, shard, "lsm"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(indexDir, shard, "version"), []byte{1, 0}, 0o644))
 }
 
 // newTestIndexOnDisk builds a real single-shard index under db's root, the

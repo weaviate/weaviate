@@ -39,13 +39,16 @@ func isIndexDirName(name string) bool {
 	return indexDirNameRegex.MatchString(name) && name != config.DefaultRaftDir
 }
 
-// hasShardStore reports whether indexPath holds at least one shard store, the
-// <shard>/lsm directory every shard creates when it initializes. The name
-// pattern alone also admits directories Weaviate does not own at the data
-// root: BACKUP_FILESYSTEM_PATH accepts any absolute path, so
-// <RootPath>/backups is a valid setup. A filesystem backup stores each class
-// as compressed chunk files under the backup id, never as an lsm directory,
-// so it does not match here.
+// hasShardStore reports whether indexPath holds at least one shard directory:
+// a child with the lsm store directory and the version file every shard
+// creates when it initializes (shard_init_lsm.go). The name pattern alone also
+// admits directories Weaviate does not own at the data root:
+// BACKUP_FILESYSTEM_PATH accepts any absolute path, so <RootPath>/backups is
+// a valid setup. A filesystem backup is laid out as
+// <backupID>/<node>/<class>/chunk-N, with one file name per level
+// (backup_config.json, backup.json, chunk-N) and node and class names as
+// directories, so a regular file named version two levels down cannot come
+// from a backup, whatever the node or class is called.
 func hasShardStore(indexPath string) (bool, error) {
 	entries, err := os.ReadDir(indexPath)
 	if err != nil {
@@ -55,8 +58,21 @@ func hasShardStore(indexPath string) (bool, error) {
 		if !entry.IsDir() {
 			continue
 		}
-		info, err := os.Stat(shardPathLSM(indexPath, entry.Name()))
-		if err == nil && info.IsDir() {
+		lsm, err := os.Stat(shardPathLSM(indexPath, entry.Name()))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return false, err
+		}
+		version, err := os.Stat(filepath.Join(shardPath(indexPath, entry.Name()), "version"))
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return false, err
+		}
+		if lsm.IsDir() && version.Mode().IsRegular() {
 			return true, nil
 		}
 	}
@@ -159,8 +175,14 @@ func (db *DB) dropOrphanedIndexDirectories(keepClasses []string) error {
 			// DeleteIndex logs a failed Index.drop and still returns nil (the
 			// schema removal must not fail on a partial drop), so a surviving
 			// directory is the only signal that the drop did not rename it.
-			if _, statErr := os.Stat(path); statErr == nil {
+			_, statErr := os.Stat(path)
+			switch {
+			case statErr == nil:
 				err := fmt.Errorf("drop loaded orphan index %q left its directory in place", name)
+				log.Error(err)
+				ec.Add(err)
+			case !os.IsNotExist(statErr):
+				err := fmt.Errorf("confirm drop of loaded orphan index %q: %w", name, statErr)
 				log.Error(err)
 				ec.Add(err)
 			}
