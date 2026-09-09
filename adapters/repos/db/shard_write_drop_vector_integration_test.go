@@ -285,3 +285,41 @@ func TestDropVectorIndex_CompletionSweepRetriesThroughLoadedShard(t *testing.T) 
 	require.NoError(t, err)
 	assert.True(t, found)
 }
+
+// TestDropVectorIndex_DeletesTheMappingRecord pins that a loaded drop
+// removes the vector's record after its files, and leaves the siblings'.
+func TestDropVectorIndex_DeletesTheMappingRecord(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+
+	foo := vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}
+	mv := vectorIndexRecord{PhysicalID: "vectors_mv", IndexType: "hnsw", State: "ready"}
+	require.NoError(t, shard.mapping.Initialize(map[string]vectorIndexRecord{"foo": foo, "mv": mv}))
+
+	markDropped(class, "foo")
+	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+
+	records, initialized, err := shard.mapping.Load()
+	require.NoError(t, err)
+	assert.True(t, initialized)
+	assert.Equal(t, map[string]vectorIndexRecord{"mv": mv}, records)
+
+	// a retried drop has nothing left to delete and still succeeds
+	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+}
+
+// TestDropVectorIndex_UninitializedMapping pins that a drop on a shard
+// whose mapping was never written (every shard before slice 4b, and a
+// shard restored from an older backup) succeeds and writes no record.
+func TestDropVectorIndex_UninitializedMapping(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+
+	markDropped(class, "foo")
+	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+
+	records, initialized, err := shard.mapping.Load()
+	require.NoError(t, err)
+	assert.False(t, initialized)
+	assert.Empty(t, records)
+}
