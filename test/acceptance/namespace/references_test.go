@@ -1450,6 +1450,79 @@ func TestNamespaces_References(t *testing.T) {
 			"namespaced PUT with foreign-NS qualified target must be rejected")
 	})
 
+	// The two rows the reference endpoints owe. The object-create rows above
+	// cover an inline beacon; these cover the dedicated reference verbs, where a
+	// global operator names a target in a namespace the source class does not
+	// belong to. QualifyRefTarget compares the target's namespace against the
+	// source class's, so both must be turned away.
+	t.Run("admin POST reference with a foreign-namespace target is rejected", func(t *testing.T) {
+		zooID, foreignAnimalID := newID(), newID()
+		createIn(t, user1Key, "Zoo", zooID, map[string]any{"name": "z-ref-post-foreign"})
+		createIn(t, user2Key, "Animal", foreignAnimalID, map[string]any{"name": "foreign"})
+
+		_, err := helper.AddReferenceReturn(t,
+			&models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + ns2 + ":Animal/" + string(foreignAnimalID))},
+			zooID, ns1+":Zoo", "hasAnimals", "", helper.CreateAuth(adminKey))
+
+		require.Error(t, err, "a target in another namespace must not attach")
+	})
+
+	t.Run("admin PUT reference with a foreign-namespace target is rejected", func(t *testing.T) {
+		zooID, foreignAnimalID := newID(), newID()
+		createIn(t, user1Key, "Zoo", zooID, map[string]any{"name": "z-ref-put-foreign"})
+		createIn(t, user2Key, "Animal", foreignAnimalID, map[string]any{"name": "foreign"})
+
+		_, err := helper.ReplaceReferencesReturn(t,
+			[]*models.SingleRef{{Beacon: strfmt.URI("weaviate://localhost/" + ns2 + ":Animal/" + string(foreignAnimalID))}},
+			zooID, ns1+":Zoo", "hasAnimals", "", helper.CreateAuth(adminKey))
+
+		require.Error(t, err, "a target in another namespace must not replace into the list")
+	})
+
+	t.Run("admin gRPC BatchObjects with a foreign-namespace multi-target reference fails that object", func(t *testing.T) {
+		const src = "GrpcForeignMTSrc"
+		const a = "GrpcForeignMTA"
+		const b = "GrpcForeignMTB"
+		for _, target := range []string{a, b} {
+			helper.CreateClassAuth(t, &models.Class{
+				Class:      target,
+				Properties: []*models.Property{{Name: "name", DataType: []string{"text"}}},
+			}, user1Key)
+		}
+		helper.CreateClassAuth(t, &models.Class{
+			Class: src,
+			Properties: []*models.Property{
+				{Name: "name", DataType: []string{"text"}},
+				{Name: "linkedTo", DataType: []string{a, b}},
+			},
+		}, user1Key)
+		t.Cleanup(func() {
+			helper.DeleteClassAuth(t, ns1+":"+src, adminKey)
+			helper.DeleteClassAuth(t, ns1+":"+a, adminKey)
+			helper.DeleteClassAuth(t, ns1+":"+b, adminKey)
+		})
+
+		grpcClient, conn := newGrpcClient(t)
+		defer conn.Close()
+
+		resp, err := grpcClient.BatchObjects(authCtx(adminKey), &pb.BatchObjectsRequest{
+			Objects: []*pb.BatchObject{{
+				Uuid:       newID().String(),
+				Collection: ns1 + ":" + src,
+				Properties: &pb.BatchObject_Properties{
+					MultiTargetRefProps: []*pb.BatchObject_MultiTargetRefProps{{
+						PropName:         "linkedTo",
+						TargetCollection: ns2 + ":" + a,
+						Uuids:            []string{newID().String()},
+					}},
+				},
+			}},
+		})
+		require.NoError(t, err)
+		require.Len(t, resp.Errors, 1)
+		assert.Equal(t, "'"+ns2+":"+a+"' is not a valid class name", resp.Errors[0].Error)
+	})
+
 	t.Run("gRPC BatchObjects with MultiTargetRefProps on NS cluster", func(t *testing.T) {
 		// Mirror of the SingleTargetRefProps subtest but exercising
 		// the MultiTargetRefProps branch in extractMultiRefTarget. In
