@@ -138,9 +138,7 @@ func (s *Shard) writePathAnalyzerOverlay(props []*models.Property) map[string]in
 	for name, o := range snap {
 		pending := o.BeyondLiveSchema(live[name])
 		if pending.Empty() {
-			// Live schema has caught up. The authoritative clear happens via
-			// ClearPropertyOverlay at migration completion; the query path's
-			// self-clear is a secondary nicety.
+			// Live schema has caught up, so there is nothing left to override.
 			continue
 		}
 		if out == nil {

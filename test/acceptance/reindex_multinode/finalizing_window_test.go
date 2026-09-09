@@ -72,9 +72,8 @@ func partialWindowBudget() time.Duration {
 //     bounds this to microseconds; query returns OLD baseline).
 //   - Post-swap: overlay=NEW, bucket=NEW → query returns NEW
 //     expectedAfter.
-//   - Post-flip: overlay self-clears or is explicitly cleared by
-//     OnTaskCompleted; live schema=NEW matches bucket=NEW → query
-//     still returns NEW expectedAfter.
+//   - Post-flip: OnTaskCompleted clears the overlay; live schema=NEW
+//     matches bucket=NEW → query still returns NEW expectedAfter.
 //
 // In-range partials ARE still expected — the cluster-wide cutover
 // has a real cross-shard spread (every node's reactive

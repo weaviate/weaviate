@@ -1610,12 +1610,16 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				if tornLocally {
 					logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
 				}
+			case distributedtask.TaskStatusFinished:
+				// Another node committed the schema flip in the same tick,
+				// so this node never runs the SWAPPING arm below and nothing
+				// else would retire its overlays.
+				p.clearOverlaysOnLoadedShards(p.serverCtx, payload, logger)
 			case distributedtask.TaskStatusStarted,
 				distributedtask.TaskStatusPreparing,
-				distributedtask.TaskStatusSwapping,
-				distributedtask.TaskStatusFinished:
+				distributedtask.TaskStatusSwapping:
 				// SWAPPING handled below; STARTED/PREPARING never reach
-				// OnTaskCompleted; FINISHED tidies via the swap pipeline.
+				// OnTaskCompleted.
 			}
 		}
 		return nil
@@ -1636,18 +1640,26 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	if err := p.flipSemanticMigrationSchema(ctx, payload, logger); err != nil {
 		logger.Errorf("reindex provider: task-completion: schema flip failed; migration result is half-applied (bucket swapped on every node, schema still reflects pre-migration state): %v", err)
 		// Leave the overlay in place: buckets are NEW-tokenized but the
-		// schema is still pre-flip on this node — the overlay keeps queries
-		// aligned until either a retry lands or TokenizationFor self-clears.
+		// schema is still pre-flip on this node, so the overlay keeps
+		// queries aligned until a retry lands.
 		return fmt.Errorf("schema flip: %w", err)
 	}
 
+	p.clearOverlaysOnLoadedShards(ctx, payload, logger)
+
+	return nil
+}
+
+// clearOverlaysOnLoadedShards retires the payload's property overlays on
+// every shard this node has loaded, which is every shard that can hold one.
+func (p *ReindexProvider) clearOverlaysOnLoadedShards(
+	ctx context.Context, payload *ReindexTaskPayload, logger logrus.FieldLogger,
+) {
 	p.forEachLoadedShardConcrete(ctx, payload.Collection, logger, func(shard *Shard) {
 		for _, propName := range payload.Properties {
 			shard.ClearPropertyOverlay(propName)
 		}
 	})
-
-	return nil
 }
 
 // forEachLoadedShardConcrete runs fn on every loaded shard of the collection.
@@ -1665,9 +1677,7 @@ func (p *ReindexProvider) forEachLoadedShardConcrete(
 	}
 	idx.ForEachLoadedShard(func(shardName string, sh ShardLike) error {
 		// Unwrap so fn reaches the concrete shard holding the state; a
-		// *LazyLoadShard would otherwise hide it. On failure the
-		// tokenization overlay self-clears on the next read
-		// (TokenizationFor).
+		// *LazyLoadShard would otherwise hide it.
 		concreteShard, err := unwrapShard(ctx, sh)
 		if err != nil {
 			logger.WithField("shard", shardName).
@@ -2597,8 +2607,7 @@ func IsTokenizationChangingMigration(mt ReindexMigrationType) bool {
 // the flip. Setting the overlay before the loop exposes overlay=NEW /
 // bucket=OLD for that whole window, so a BM25 query returns a wrong
 // count (0 for reverse field→word). Per-flip wiring collapses it to one
-// map write; a swap that fails before any flip never sets it, keeping
-// the all-failed path clean.
+// map write, and a swap that fails before any flip never sets it at all.
 func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks []*ShardReindexTaskGeneric) {
 	if shard == nil || payload == nil {
 		return

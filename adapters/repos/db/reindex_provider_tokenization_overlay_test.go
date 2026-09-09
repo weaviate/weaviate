@@ -191,58 +191,84 @@ func TestMaybeWirePerPropOverlaySet_NilTaskInSlice_Skipped(t *testing.T) {
 // The overlay is in-memory state the swap hook set on shards this node
 // loaded to run the migration on. A shard that is not loaded holds none,
 // so reaching into one to clear nothing loads a cold tenant on the success
-// path of every change-tokenization migration.
+// path of every semantic migration.
 func TestOnTaskCompletedOverlayClearLeavesUnloadedShardsAlone(t *testing.T) {
 	const (
 		prop   = "title"
 		tenant = "cold-tenant"
 	)
 
-	ctx := testCtx()
-	className := "OverlayClear_" + uuid.NewString()[:8]
-	class := newTestClassWithProps(className, []string{prop})
-	hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	defer hot.Shutdown(context.Background())
+	tests := []struct {
+		name      string
+		status    distributedtask.TaskStatus
+		migration ReindexMigrationType
+		overlay   inverted.PropertyOverlay
+	}{
+		{
+			name:      "swapping: this node commits the cluster-wide schema flip",
+			status:    distributedtask.TaskStatusSwapping,
+			migration: ReindexTypeChangeTokenization,
+			overlay:   inverted.PropertyOverlay{Tokenization: "field"},
+		},
+		{
+			// Another node committed the flip in the same tick, so this
+			// node's first sight of the task is already FINISHED.
+			name:      "finished: another node committed the flip first",
+			status:    distributedtask.TaskStatusFinished,
+			migration: ReindexTypeEnableFilterable,
+			overlay:   inverted.PropertyOverlay{ForceFilterable: true},
+		},
+	}
 
-	loaded, err := unwrapShard(ctx, hot)
-	require.NoError(t, err)
-	loaded.SetPropertyOverlay(prop, inverted.PropertyOverlay{Tokenization: "field"})
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "OverlayClear_" + uuid.NewString()[:8]
+			class := newTestClassWithProps(className, []string{prop})
+			hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			defer hot.Shutdown(context.Background())
 
-	cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
-		false, idx.bitmapBufPool)
-	idx.shards.Store(tenant, cold)
-	defer func() {
-		if cold.isLoaded() {
-			require.NoError(t, cold.Shutdown(context.Background()))
-		}
-	}()
+			loaded, err := unwrapShard(ctx, hot)
+			require.NoError(t, err)
+			loaded.SetPropertyOverlay(prop, tc.overlay)
 
-	payload, err := json.Marshal(ReindexTaskPayload{
-		Collection:         className,
-		MigrationType:      ReindexTypeChangeTokenization,
-		TargetTokenization: "field",
-		Properties:         []string{prop},
-		UnitToShard:        map[string]string{"u1": hot.Name()},
-	})
-	require.NoError(t, err)
+			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
+				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+				false, idx.bitmapBufPool)
+			idx.shards.Store(tenant, cold)
+			defer func() {
+				if cold.isLoaded() {
+					require.NoError(t, cold.Shutdown(context.Background()))
+				}
+			}()
 
-	logger, _ := logrustest.NewNullLogger()
-	p := NewReindexProvider(
-		&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
-		nil, nil, logger, "n1", nil, ctx)
+			payload, err := json.Marshal(ReindexTaskPayload{
+				Collection:         className,
+				MigrationType:      tc.migration,
+				TargetTokenization: tc.overlay.Tokenization,
+				Properties:         []string{prop},
+				UnitToShard:        map[string]string{"u1": hot.Name()},
+			})
+			require.NoError(t, err)
 
-	require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
-		Namespace:      ReindexNamespace,
-		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_swap", Version: 1},
-		Status:         distributedtask.TaskStatusSwapping,
-		Payload:        payload,
-	}))
+			logger, _ := logrustest.NewNullLogger()
+			p := NewReindexProvider(
+				&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
+				nil, nil, logger, "n1", nil, ctx)
 
-	assert.Equal(t, "word", loaded.TokenizationFor(prop, "word"),
-		"the shard the migration ran on holds the overlay, so its clear is the point of the walk")
-	require.False(t, cold.isLoaded(),
-		"an unloaded shard holds no in-memory overlay; loading one to clear nothing is "+
-			"what the cutover path cannot afford")
+			require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
+				Namespace:      ReindexNamespace,
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_swap", Version: 1},
+				Status:         tc.status,
+				Payload:        payload,
+			}))
+
+			assert.Nil(t, loaded.SnapshotPropertyOverlay([]string{prop}),
+				"the shard the migration ran on holds the overlay, so its clear is the point of the walk")
+			require.False(t, cold.isLoaded(),
+				"an unloaded shard holds no in-memory overlay; loading one to clear nothing is "+
+					"what the cutover path cannot afford")
+		})
+	}
 }

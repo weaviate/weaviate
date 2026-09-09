@@ -1448,15 +1448,9 @@ Lifecycle:
    shard AFTER `flipSemanticMigrationSchema`'s RAFT commit succeeds.
    The live schema now carries the migrated state, so subsequent
    queries and writes hit the right answer via the regular
-   schema-lookup path.
-4. **Self-clear backstop** — `Shard.dropCaughtUpTokenization` removes
-   the tokenization half once the live schema carries the same value,
-   and the whole entry once nothing else is pending. It fires from both
-   query-path readers, `TokenizationFor` and
-   `PinTokenizationAndSearchableBucket`, so the next query touching the
-   prop cleans up if the explicit clear in (3) was skipped (schema-flip
-   failure). It is deliberately narrower than that clear: the forced
-   index flags are not something a query can safely retire.
+   schema-lookup path. A node whose first sight of the task is already
+   FINISHED (another node committed the flip in the same tick) never
+   runs that commit, so it clears on the FINISHED arm instead.
 
 A property the overlay forced on has no property-length and no
 null-state bucket — shard init skips creating those for a property with
@@ -1667,7 +1661,7 @@ already GC'd) resolves as WAND on the older binary until a re-migration.
 
 - [`adapters/repos/db/inverted/tokenization.go`](../adapters/repos/db/inverted/tokenization.go) — `TokenizationResolver`, `ResolveTokenization`.
 - [`adapters/repos/db/inverted/analyzer.go`](../adapters/repos/db/inverted/analyzer.go) — `PropertyOverlay`, `BeyondLiveSchema`, `Property.OverlayForcedOnly`.
-- [`adapters/repos/db/shard.go`](../adapters/repos/db/shard.go) — `SetPropertyOverlay`, `ClearPropertyOverlay`, `SnapshotPropertyOverlay`, `TokenizationFor` (with `dropCaughtUpTokenization` as the self-clear backstop).
+- [`adapters/repos/db/shard.go`](../adapters/repos/db/shard.go) — `SetPropertyOverlay`, `ClearPropertyOverlay`, `SnapshotPropertyOverlay`, `TokenizationFor`.
 - [`adapters/repos/db/shard_write_inverted.go`](../adapters/repos/db/shard_write_inverted.go) — `writePathAnalyzerOverlay`, the write path's read of the overlay.
 
 **DTM**
@@ -1784,7 +1778,7 @@ test packages.
   paths — `inverted_reindex_finalize_test.go`.
 - `OnGroupCompleted` cache + rehydrate —
   `reindex_provider_on_group_completed_test.go`.
-- Property overlay set/clear/self-clear and the per-migration-type
+- Property overlay set/clear and the per-migration-type
   wiring — `reindex_provider_tokenization_overlay_test.go`,
   `shard_tokenization_overlay_test.go`.
 - The overlay's effect on the analyzer, and what

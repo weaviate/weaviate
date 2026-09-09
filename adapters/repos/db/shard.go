@@ -456,13 +456,11 @@ type Shard struct {
 	//      hook), so the overlay≠bucket window is one in-memory map write.
 	//      See maybeWirePerPropOverlaySet for why setting it once up front
 	//      was a correctness bug.
-	//   2. CLEAR (success path): once flipSemanticMigrationSchema
-	//      commits the cluster-wide schema flip, OnTaskCompleted clears
-	//      the overlay per-shard so the steady-state map is empty.
-	//   3. CLEAR (self-clear backstop): TokenizationFor below clears
-	//      the entry on the next read where the live schema has caught
-	//      up to the overlay value — defensive against any callback-
-	//      ordering edge case.
+	//   2. CLEAR: once flipSemanticMigrationSchema commits the
+	//      cluster-wide schema flip, OnTaskCompleted clears the overlay
+	//      per-shard so the steady-state map is empty. A node whose
+	//      first sight of the task is FINISHED clears it there instead,
+	//      because it never runs the flip itself.
 	//
 	// Read on every query and every write that touches the affected
 	// property, so kept under a fast RWMutex rather than a sync.Map
@@ -815,9 +813,7 @@ func (s *Shard) setRangeableLocallyReady(propName string, ready bool) {
 // should be `o` instead of the schema-stored one until the live schema
 // catches up. Set per property, atomically with that property's bucket
 // flip, by the migration's swap hook (reindex_provider.OnGroupCompleted).
-// The overlay is cleared explicitly by
-// OnTaskCompleted after the cluster-wide schema flip commits, with
-// [TokenizationFor]'s self-clear-on-catchup branch as a backstop. See the
+// The overlay is cleared explicitly by OnTaskCompleted. See the
 // [propertyOverlay] field godoc for the full rationale and lifecycle.
 //
 // An empty overlay is a no-op — used by the migration cleanup path to
@@ -839,9 +835,10 @@ func (s *Shard) SetPropertyOverlay(propName string, o inverted.PropertyOverlay) 
 // [Shard.PinTokenizationAndSearchableBucket]), so no query sees a mixed pair.
 //
 // CONTRACT: flip must not call Bucket.Shutdown or take lifetimeLock — a
-// pinned query may need propertyOverlayMu next (self-clear path), so
-// draining here would invert lock order and deadlock. Phase-2b teardown
-// must happen strictly after this method returns.
+// multi-property query holds one property's pin while it takes
+// propertyOverlayMu for the next, so draining here would invert lock order
+// and deadlock. Phase-2b teardown must happen strictly after this method
+// returns.
 func (s *Shard) SwapBucketAndSetOverlay(propName string, o inverted.PropertyOverlay,
 	flip func() (*lsmkv.Bucket, error),
 ) (*lsmkv.Bucket, error) {
@@ -891,30 +888,7 @@ func (s *Shard) PinTokenizationAndSearchableBucket(propName, liveTokenization st
 	if overlay.Tokenization == "" {
 		return liveTokenization, bucket, release
 	}
-	if overlay.Tokenization == liveTokenization {
-		s.dropCaughtUpTokenization(propName, liveTokenization)
-		return liveTokenization, bucket, release
-	}
 	return overlay.Tokenization, bucket, release
-}
-
-// dropCaughtUpTokenization retires the tokenization half of propName's
-// overlay once the live schema carries the same value, and the whole entry
-// once nothing else is pending. Defensive against callback-ordering edge
-// cases; the authoritative clear is [Shard.ClearPropertyOverlay].
-func (s *Shard) dropCaughtUpTokenization(propName, liveTokenization string) {
-	s.propertyOverlayMu.Lock()
-	defer s.propertyOverlayMu.Unlock()
-	current, ok := s.propertyOverlay[propName]
-	if !ok || current.Tokenization != liveTokenization {
-		return
-	}
-	current.Tokenization = ""
-	if current.Empty() {
-		delete(s.propertyOverlay, propName)
-		return
-	}
-	s.propertyOverlay[propName] = current
 }
 
 // ClearPropertyOverlay removes any overlay entry for propName. Idempotent —
@@ -933,11 +907,7 @@ func (s *Shard) ClearPropertyOverlay(propName string) {
 }
 
 // TokenizationFor returns the active query-time tokenization for propName
-// on this shard. Consults the overlay first; if the overlay's value
-// matches the live schema's `liveTokenization` the overlay is self-
-// cleared (defensive against schema-update-callback ordering) and the
-// live value is returned. Otherwise the overlay value is returned if
-// present, else liveTokenization.
+// on this shard: the overlay value when one is set, else liveTokenization.
 //
 // liveTokenization is the value the caller would have used in the
 // absence of any overlay — typically `prop.Tokenization`. Passing the
@@ -955,10 +925,6 @@ func (s *Shard) TokenizationFor(propName, liveTokenization string) string {
 	}
 	s.propertyOverlayMu.RUnlock()
 	if overlay.Tokenization == "" {
-		return liveTokenization
-	}
-	if overlay.Tokenization == liveTokenization {
-		s.dropCaughtUpTokenization(propName, liveTokenization)
 		return liveTokenization
 	}
 	return overlay.Tokenization

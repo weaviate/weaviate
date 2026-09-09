@@ -79,29 +79,6 @@ func TestShard_TokenizationOverlay_ClearUnsetIsNoOp(t *testing.T) {
 	assert.Equal(t, "word", s.TokenizationFor("name", "word"))
 }
 
-func TestShard_TokenizationOverlay_SelfClearOnSchemaCatchup(t *testing.T) {
-	// This is the defensive branch — if the schema-update callback hasn't
-	// fired yet but the live schema has already caught up to the overlay's
-	// target, the next TokenizationFor call self-clears the overlay and
-	// returns the live value.
-	s := &Shard{}
-	s.SetPropertyOverlay("name", inverted.PropertyOverlay{Tokenization: "field"})
-
-	// First call: live schema still has the OLD value → overlay wins.
-	assert.Equal(t, "field", s.TokenizationFor("name", "word"))
-
-	// Live schema catches up to the overlay's target.
-	got := s.TokenizationFor("name", "field")
-	assert.Equal(t, "field", got, "live should match overlay → return overlay value")
-
-	// The self-clear should have fired; subsequent calls take the fast
-	// path and return whatever live the caller passes — even if it's
-	// changed back (operator did a downstream migration). Verifies the
-	// overlay is actually removed, not just shadowed.
-	assert.Equal(t, "word", s.TokenizationFor("name", "word"),
-		"after self-clear, overlay must no longer override")
-}
-
 func TestShard_TokenizationOverlay_SnapshotEmpty(t *testing.T) {
 	s := &Shard{}
 	// No overlay → nil snapshot regardless of how many props requested.
