@@ -456,18 +456,10 @@ type Shard struct {
 	//      hook), so the overlay≠bucket window is one in-memory map write.
 	//      See maybeWirePerPropOverlaySet for why setting it once up front
 	//      was a correctness bug.
-	//   2. CLEAR (defensive, all-failed path): if every per-task swap on
-	//      this shard fails before flipping its bucket pointer (e.g.
-	//      ctx.Canceled during graceful shutdown), the post-loop branch
-	//      clears the overlay. Without this, an all-failed swap path
-	//      would leave overlay=NEW against unchanged OLD buckets —
-	//      permanent misalignment because the FAILED transition skips
-	//      the cluster-wide schema flip and the explicit clear hook
-	//      never runs.
-	//   3. CLEAR (success path): once flipSemanticMigrationSchema
+	//   2. CLEAR (success path): once flipSemanticMigrationSchema
 	//      commits the cluster-wide schema flip, OnTaskCompleted clears
 	//      the overlay per-shard so the steady-state map is empty.
-	//   4. CLEAR (self-clear backstop): TokenizationFor below clears
+	//   3. CLEAR (self-clear backstop): TokenizationFor below clears
 	//      the entry on the next read where the live schema has caught
 	//      up to the overlay value — defensive against any callback-
 	//      ordering edge case.
@@ -823,9 +815,7 @@ func (s *Shard) setRangeableLocallyReady(propName string, ready bool) {
 // should be `o` instead of the schema-stored one until the live schema
 // catches up. Set per property, atomically with that property's bucket
 // flip, by the migration's swap hook (reindex_provider.OnGroupCompleted).
-// The same caller clears the overlay if every per-task swap failed
-// (defensive: no bucket flipped → overlay must not stay set against
-// unchanged buckets). On success, the overlay is cleared explicitly by
+// The overlay is cleared explicitly by
 // OnTaskCompleted after the cluster-wide schema flip commits, with
 // [TokenizationFor]'s self-clear-on-catchup branch as a backstop. See the
 // [propertyOverlay] field godoc for the full rationale and lifecycle.

@@ -92,7 +92,8 @@ func runAtomicOverlaySwapProof(t *testing.T, nonAtomic bool) (sawBadOut bool, de
 		Properties:         []string{fieldProp},
 		TargetTokenization: models.PropertyTokenizationWord,
 	}
-	require.True(t, maybeWirePerPropOverlaySet(shard, payload, []*ShardReindexTaskGeneric{task}),
+	maybeWirePerPropOverlaySet(shard, payload, []*ShardReindexTaskGeneric{task})
+	require.NotNil(t, task.swapPropAtomic,
 		"overlay wiring must be active for a tokenization-changing migration")
 
 	// Widen the flip↔overlay window so the race is deterministically observable.

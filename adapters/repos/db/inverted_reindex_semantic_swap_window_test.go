@@ -13,10 +13,13 @@ package db
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -71,9 +74,11 @@ func seedRangeable(t *testing.T, className string) ([]*storobj.Object, *storobj.
 
 // enterSemanticSwapWindow seeds a shard, runs the migration through its bucket flip,
 // and stops before the schema flip — the state the window's writes land in.
+// failAfterFlip breaks the swap after the flip instead of letting it finish.
 func enterSemanticSwapWindow(t *testing.T, ctx context.Context, class *models.Class, propName string,
 	corpus []*storobj.Object, migration ReindexMigrationType,
 	newTask func(*testing.T, *Index, string, string) *ShardReindexTaskGeneric,
+	failAfterFlip bool,
 ) *Shard {
 	t.Helper()
 
@@ -90,13 +95,27 @@ func enterSemanticSwapWindow(t *testing.T, ctx context.Context, class *models.Cl
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 
-	// The same two steps runShardSwapPhase runs, in the same order.
-	maybeWirePerPropOverlaySet(shard, &ReindexTaskPayload{
+	if failAfterFlip {
+		// rename(2) refuses to replace a non-empty directory, and the swap
+		// renames the displaced bucket onto this path only after it has
+		// flipped the bucket pointer.
+		occupied := filepath.Join(shard.pathLSM(), task.backupBucketName(propName))
+		require.NoError(t, os.MkdirAll(occupied, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(occupied, "blocker"), nil, 0o644))
+	}
+
+	logger, _ := logrustest.NewNullLogger()
+	p := &ReindexProvider{logger: logger, localNode: "node1", serverCtx: ctx}
+	res := p.runShardSwapPhase(ctx, &ReindexTaskPayload{
 		MigrationType: migration,
 		Collection:    class.Class,
 		Properties:    []string{propName},
-	}, []*ShardReindexTaskGeneric{task})
-	require.NoError(t, task.RunSwapOnShard(ctx, shard))
+	}, "unit-1", shard.Name(), shard, []*ShardReindexTaskGeneric{task}, logger)
+	if failAfterFlip {
+		require.NotEmpty(t, res.Errs, "the swap has to fail, or this row proves nothing")
+	} else {
+		require.Empty(t, res.Errs)
+	}
 
 	return shard
 }
@@ -115,13 +134,14 @@ func TestWriteDuringSemanticMigrationSwapWindow(t *testing.T) {
 	const textPropName = "title"
 
 	tests := []struct {
-		name      string
-		newClass  func(className, propName string) *models.Class
-		seed      func(*testing.T, string) ([]*storobj.Object, *storobj.Object)
-		migration ReindexMigrationType
-		newTask   func(*testing.T, *Index, string, string) *ShardReindexTaskGeneric
-		flip      func(prop *models.Property)
-		find      func(*testing.T, context.Context, *Shard, string, string) []*storobj.Object
+		name          string
+		newClass      func(className, propName string) *models.Class
+		seed          func(*testing.T, string) ([]*storobj.Object, *storobj.Object)
+		migration     ReindexMigrationType
+		newTask       func(*testing.T, *Index, string, string) *ShardReindexTaskGeneric
+		flip          func(prop *models.Property)
+		find          func(*testing.T, context.Context, *Shard, string, string) []*storobj.Object
+		failAfterFlip bool
 	}{
 		{
 			name:      "enable-filterable",
@@ -178,6 +198,22 @@ func TestWriteDuringSemanticMigrationSwapWindow(t *testing.T) {
 			flip: func(prop *models.Property) { prop.IndexRangeFilters = boolPtr(true) },
 			find: findByGreaterThanFilter,
 		},
+		{
+			// The bucket pointer is already flipped when the swap gives up,
+			// so the overlay is the only thing routing the window's writes
+			// to the bucket that now holds the property.
+			name:      "enable-filterable where the swap fails after the bucket flip",
+			newClass:  newEnableFilterableTestClass,
+			seed:      seedText,
+			migration: ReindexTypeEnableFilterable,
+			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+				task, _ := newEnableFilterableTask(t, idx, className, propName)
+				return task
+			},
+			flip:          func(prop *models.Property) { prop.IndexFilterable = boolPtr(true) },
+			find:          findByEqualFilter,
+			failAfterFlip: true,
+		},
 	}
 
 	for _, tc := range tests {
@@ -187,7 +223,11 @@ func TestWriteDuringSemanticMigrationSwapWindow(t *testing.T) {
 			class := tc.newClass(className, textPropName)
 			propName := class.Properties[0].Name
 			corpus, windowObj := tc.seed(t, className)
-			shard := enterSemanticSwapWindow(t, ctx, class, propName, corpus, tc.migration, tc.newTask)
+			shard := enterSemanticSwapWindow(t, ctx, class, propName, corpus, tc.migration,
+				tc.newTask, tc.failAfterFlip)
+
+			require.NotEmpty(t, shard.SnapshotPropertyOverlay([]string{propName}),
+				"the bucket pointer is flipped, so the overlay must outlive the swap phase")
 
 			require.NoError(t, shard.PutObject(ctx, windowObj),
 				"a write in the swap window must be accepted")
@@ -223,7 +263,7 @@ func TestWriteDuringSwapWindowSkipsAbsentLengthAndNullBuckets(t *testing.T) {
 		func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
 			task, _ := newEnableFilterableTask(t, idx, className, propName)
 			return task
-		})
+		}, false)
 
 	require.Nil(t, shard.store.Bucket(helpers.BucketFromPropNameLengthLSM(propName)),
 		"precondition: the property-length bucket must be absent, or this test proves nothing")
