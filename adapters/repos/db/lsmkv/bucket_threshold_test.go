@@ -193,6 +193,57 @@ func TestMemtableThreshold_Replace(t *testing.T) {
 	})
 }
 
+// TestMemtableThreshold_RoaringSet writes keys whose cost is per-key structure
+// rather than doc IDs, so 1000 of them have to cross a 64 KB threshold.
+func TestMemtableThreshold_RoaringSet(t *testing.T) {
+	amount := 1000
+	memtableThreshold := uint64(65536)
+	tolerance := 4.
+
+	keys := make([][]byte, amount)
+	for i := range keys {
+		n, err := json.Marshal(i)
+		require.NoError(t, err)
+		keys[i] = n
+	}
+
+	synctest.Test(t, func(t *testing.T) {
+		bucket := newTestBucketWithFlushCycle(t,
+			WithStrategy(StrategyRoaringSet),
+			WithMemtableThreshold(memtableThreshold),
+			WithMinWalThreshold(0),
+		)
+
+		bucket.flushLock.RLock()
+		initialPath := bucket.active.Path()
+		bucket.flushLock.RUnlock()
+
+		var sizeBeforeFlush uint64
+		flushed := false
+		for i := 0; i < amount; i++ {
+			require.NoError(t, bucket.RoaringSetAddOne(keys[i], uint64(i)))
+			time.Sleep(800 * time.Microsecond)
+
+			bucket.flushLock.RLock()
+			currentPath := bucket.active.Path()
+			currentSize := bucket.active.Size()
+			bucket.flushLock.RUnlock()
+
+			if currentPath != initialPath {
+				flushed = true
+				break
+			}
+			sizeBeforeFlush = currentSize
+		}
+
+		require.Truef(t, flushed,
+			"Memtable was never flushed; last observed size was (%d)", sizeBeforeFlush)
+		require.Truef(t, isSizeWithinTolerance(t, sizeBeforeFlush, memtableThreshold, tolerance),
+			"Memtable size (%d) was allowed to increase beyond threshold (%d) with tolerance of (%f)%%",
+			sizeBeforeFlush, memtableThreshold, tolerance*100)
+	})
+}
+
 func isSizeWithinTolerance(t *testing.T, detectedSize uint64, threshold uint64, tolerance float64) bool {
 	return detectedSize > 0 && float64(detectedSize) <= float64(threshold)*(tolerance+1)
 }
