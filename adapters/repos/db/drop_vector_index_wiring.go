@@ -96,13 +96,17 @@ func (db *DB) EnsureDroppedVectorFilesRemoved(collection, shardName string, targ
 	if idx == nil {
 		return fmt.Errorf("index for collection %q not found", collection)
 	}
-	// A loaded shard has already been swept: by the marker apply's drop if it
-	// was loaded then, or by its own load, which removes a dropped vector's
-	// files before it opens anything. Sweeping it here by path would delete
-	// storage under a live shard, and wait out the lock on its index.db for
-	// every target. The offline route below is for cold shards only.
-	if loadedShard(idx.shards.Load(shardName)) != nil {
-		return nil
+	// A loaded shard owns its files, so its drop is retried through the shard
+	// rather than swept by path: the retry is idempotent (a slot, bucket or
+	// directory already gone costs a lookup), it finishes a drop that failed
+	// part-way, and it never opens index.db offline against the shard's own
+	// lock. The offline route below is for cold shards, and for a shard
+	// caught shutting down, whose handle is going away.
+	if loaded := loadedShard(idx.shards.Load(shardName)); loaded != nil {
+		done, err := loaded.retryDroppedVectorIndexes(targets)
+		if done || err != nil {
+			return err
+		}
 	}
 	helper := newVectorDropIndexHelper()
 	class := idx.getClass()
@@ -214,6 +218,24 @@ func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Cont
 		return nil
 	}
 	return fmt.Errorf("drop-vector finalize: bounded retry exhausted: %w", lastErr)
+}
+
+// retryDroppedVectorIndexes re-runs the shard's own drop for each target, held
+// against shutdown for the duration. done is false when the shard is already
+// shutting down, and the caller takes the offline route instead.
+func (s *Shard) retryDroppedVectorIndexes(targets []string) (done bool, err error) {
+	release, err := s.preventShutdown()
+	if err != nil {
+		return false, nil
+	}
+	defer release()
+	for _, target := range targets {
+		err := s.DropVectorIndex(context.Background(), target)
+		if err != nil {
+			return true, fmt.Errorf("retry drop of vector %q on loaded shard: %w", target, err)
+		}
+	}
+	return true, nil
 }
 
 // loadedShard returns the *Shard behind a ShardLike when it is loaded, and
