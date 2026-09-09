@@ -580,17 +580,16 @@ func sidecarRoleWord(suffix string) string {
 }
 
 func (s *Shard) removeBucket(ctx context.Context, bucketName string) error {
-	bucket := s.store.Bucket(bucketName)
-	if bucket == nil {
-		return nil // bucket doesn't exist, nothing to remove
-	}
 	// Shutdown the bucket first - after this point, the bucket cannot be used
-	if err := s.store.ShutdownBucket(ctx, bucketName); err != nil {
-		return fmt.Errorf("failed to shutdown bucket %s: %w", bucketName, err)
+	if s.store.Bucket(bucketName) != nil {
+		if err := s.store.ShutdownBucket(ctx, bucketName); err != nil {
+			return fmt.Errorf("failed to shutdown bucket %s: %w", bucketName, err)
+		}
 	}
-	// Remove the bucket's directory from disk
-	// If this fails after successful shutdown, we're in an inconsistent state:
-	// the bucket is removed from the store but its data remains on disk
+	// Remove the bucket's directory from disk. A bucket the store no longer
+	// knows can still have one: a removal that failed right here left the
+	// files behind after the shutdown, and the retry must not stop at the
+	// registry lookup.
 	if err := s.removeDirIfExists(s.pathLSM(), bucketName); err != nil {
 		return fmt.Errorf("bucket %s shut down successfully but directory removal failed: %w", bucketName, err)
 	}

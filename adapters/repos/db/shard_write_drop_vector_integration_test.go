@@ -262,9 +262,15 @@ func TestDropVectorIndex_CompletionSweepRetriesThroughLoadedShard(t *testing.T) 
 	markDropped(class, "foo")
 	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
 
-	// a removal that failed part-way leaves a directory behind
-	leftover := filepath.Join(shard.path(), helpers.GetHNSWCommitLogDirName("foo"))
-	require.NoError(t, os.MkdirAll(leftover, 0o755))
+	// a removal that failed part-way leaves directories behind: the hnsw
+	// commit log, and a bucket the store already shut down and forgot
+	leftovers := []string{
+		filepath.Join(shard.path(), helpers.GetHNSWCommitLogDirName("foo")),
+		filepath.Join(shard.pathLSM(), helpers.GetVectorsBucketName("foo")),
+	}
+	for _, dir := range leftovers {
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+	}
 
 	db := &DB{logger: shard.index.logger, indices: map[string]*Index{shard.index.ID(): shard.index}}
 	start := time.Now()
@@ -272,8 +278,10 @@ func TestDropVectorIndex_CompletionSweepRetriesThroughLoadedShard(t *testing.T) 
 	// the offline route would wait a second on the lock this shard holds
 	assert.Less(t, time.Since(start), time.Second)
 
-	_, err := os.Stat(leftover)
-	assert.True(t, os.IsNotExist(err), "the sweep finished the drop")
+	for _, dir := range leftovers {
+		_, err := os.Stat(dir)
+		assert.True(t, os.IsNotExist(err), "the sweep finished the drop: %s", dir)
+	}
 
 	// the sibling vector is untouched
 	found, err := shard.WithVectorIndex("mv", func(VectorIndex) error { return nil })
