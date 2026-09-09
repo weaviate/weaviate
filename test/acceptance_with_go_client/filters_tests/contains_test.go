@@ -18,20 +18,12 @@ import (
 	"testing"
 	"time"
 
-	acceptance_with_go_client "acceptance_tests_with_client"
-
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
-	"github.com/weaviate/weaviate-go-client/v5/weaviate/filters"
-	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate-go-client/v6/collections"
 	"github.com/weaviate/weaviate-go-client/v6/data"
 	"github.com/weaviate/weaviate-go-client/v6/query"
 	"github.com/weaviate/weaviate-go-client/v6/query/filter"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 )
 
 // FIXME(dyma): connect to host passed in the function
@@ -789,7 +781,7 @@ func testContains(string) func(t *testing.T) {
 				}
 
 				h := c.Collections.Use(collectionName)
-				require.NotNil(t, h, "%q collection handle", collectionName)
+				require.NotNilf(t, h, "%q collection handle", collectionName)
 				for _, tt := range tests {
 					t.Run(tt.name, func(t *testing.T) {
 						nt := query.NearText{Concepts: []string{"Pit Vipers"}}
@@ -815,99 +807,99 @@ func testContains(string) func(t *testing.T) {
 	}
 }
 
-func testContainsMovies(host string) func(t *testing.T) {
+// FIXME(dyma): connect to host passed in the function
+func testContainsMovies(string) func(t *testing.T) {
 	return func(t *testing.T) {
-		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: host})
-		require.NoError(t, err)
+		c := wvhost.NewClient(t)
 
 		collectionName := "Movies"
 		movies := []struct {
-			id        string
+			id        uuid.UUID
 			title     string
 			director  string
 			languages []string
 		}{
 			{
-				id:        "00000000-0000-0000-0000-000000000000",
+				id:        uuid.MustParse("00000000-0000-0000-0000-000000000000"),
 				title:     "Braveheart",
 				director:  "Mel Gibson",
 				languages: []string{"English", "French", "Latin", "Scottish Gaelic"},
 			},
 			{
-				id:        "00000000-0000-0000-0000-000000000001",
+				id:        uuid.MustParse("00000000-0000-0000-0000-000000000001"),
 				title:     "A Prophet",
 				director:  "Mel Gibson",
 				languages: []string{"French", "Arabic", "Corsican"},
 			},
 			{
-				id:        "00000000-0000-0000-0000-000000000002",
+				id:        uuid.MustParse("00000000-0000-0000-0000-000000000002"),
 				title:     "Avatar",
 				director:  "James Cameron",
 				languages: []string{"Portugese", "Czech", "Romanian", "German"},
 			},
 			{
-				id:        "00000000-0000-0000-0000-000000000003",
+				id:        uuid.MustParse("00000000-0000-0000-0000-000000000003"),
 				title:     "Spectre",
 				director:  "Sam Mendes",
 				languages: []string{"Spanish", "Finnish", "Polish"},
 			},
 			{
-				id:        "00000000-0000-0000-0000-000000000004",
+				id:        uuid.MustParse("00000000-0000-0000-0000-000000000004"),
 				title:     "The Dark Knight Rises",
 				director:  "Christopher Nolan",
 				languages: []string{"English", "German", "Dutch", "Swedish"},
 			},
 			{
-				id:        "00000000-0000-0000-0000-000000000005",
+				id:        uuid.MustParse("00000000-0000-0000-0000-000000000005"),
 				title:     "Incendies",
 				director:  "Denis Villeneuve",
 				languages: []string{"English", "French", "Polish", "Arabic"},
 			},
 		}
 
-		cleanup := func() {
-			err := client.Schema().AllDeleter().Do(context.Background())
-			require.Nil(t, err)
-		}
-		defer cleanup()
+		var h *collections.Handle
+		var err error
 
+		require.NoError(t, c.Collections.DeleteAll(t.Context()))
+		t.Cleanup(func() {
+			require.NoError(t, c.Collections.DeleteAll(context.Background()))
+		})
 		t.Run("create and populate collection", func(t *testing.T) {
-			cleanup()
-			class := &models.Class{
-				Class: collectionName,
-				Properties: []*models.Property{
+			h, err = c.Collections.Create(t.Context(), collections.Collection{
+				Name: collectionName,
+				Properties: []collections.Property{
 					{
 						Name:         "title",
-						DataType:     schema.DataTypeText.PropString(),
-						Tokenization: models.PropertyTokenizationField,
+						DataType:     collections.DataTypeText,
+						Tokenization: collections.TokenizationField,
 					},
 					{
 						Name:         "director",
-						DataType:     schema.DataTypeText.PropString(),
-						Tokenization: models.PropertyTokenizationField,
+						DataType:     collections.DataTypeText,
+						Tokenization: collections.TokenizationField,
 					},
 					{
 						Name:         "languages",
-						DataType:     schema.DataTypeTextArray.PropString(),
-						Tokenization: models.PropertyTokenizationField,
+						DataType:     collections.DataTypeTextArray,
+						Tokenization: collections.TokenizationField,
 					},
 				},
-			}
-			err := client.Schema().ClassCreator().WithClass(class).Do(context.Background())
+			})
 			require.NoError(t, err)
+			require.NotNilf(t, "%q collection handle", h.CollectionName())
+
 			// Give time for the schema to replicate and graphql to rebuild it for it's queries
 			time.Sleep(3 * time.Second)
 
 			for i := range movies {
-				_, err := client.Data().Creator().
-					WithClassName(collectionName).
-					WithID(movies[i].id).
-					WithProperties(map[string]interface{}{
+				_, err := h.Data.Insert(t.Context(), &data.Object{
+					UUID: &movies[i].id,
+					Properties: map[string]interface{}{
 						"title":     movies[i].title,
 						"director":  movies[i].director,
 						"languages": movies[i].languages,
-					}).
-					Do(context.Background())
+					},
+				})
 				require.NoError(t, err)
 			}
 		})
@@ -915,108 +907,116 @@ func testContainsMovies(host string) func(t *testing.T) {
 		t.Run("contains", func(t *testing.T) {
 			tests := []struct {
 				name        string
-				where       *filters.WhereBuilder
+				where       filter.Expr
 				property    string
-				expectedIds []string
+				expectedIDs []uuid.UUID
 			}{
 				{
 					name: "contains any languages (1)",
-					where: filters.Where().
-						WithPath([]string{"languages"}).
-						WithOperator(filters.ContainsAny).
-						WithValueString("English", "German"),
+					where: filter.Cond{
+						Target:   "languages",
+						Operator: filter.ContainsAny,
+						Value:    []string{"English", "German"},
+					},
 					property:    "languages",
-					expectedIds: []string{movies[0].id, movies[2].id, movies[4].id, movies[5].id},
+					expectedIDs: []uuid.UUID{movies[0].id, movies[2].id, movies[4].id, movies[5].id},
 				},
 				{
 					name: "contains all languages (1)",
-					where: filters.Where().
-						WithPath([]string{"languages"}).
-						WithOperator(filters.ContainsAll).
-						WithValueString("English", "German"),
+					where: filter.Cond{
+						Target:   "languages",
+						Operator: filter.ContainsAll,
+						Value:    []string{"English", "German"},
+					},
 					property:    "languages",
-					expectedIds: []string{movies[4].id},
+					expectedIDs: []uuid.UUID{movies[4].id},
 				},
 				{
 					name: "contains none languages (1)",
-					where: filters.Where().
-						WithPath([]string{"languages"}).
-						WithOperator(filters.ContainsNone).
-						WithValueString("English", "German"),
+					where: filter.Cond{
+						Target:   "languages",
+						Operator: filter.ContainsNone,
+						Value:    []string{"English", "German"},
+					},
 					property:    "languages",
-					expectedIds: []string{movies[1].id, movies[3].id},
+					expectedIDs: []uuid.UUID{movies[1].id, movies[3].id},
 				},
 
 				{
 					name: "contains any languages (2)",
-					where: filters.Where().
-						WithPath([]string{"languages"}).
-						WithOperator(filters.ContainsAny).
-						WithValueString("French", "Polish"),
+					where: filter.Cond{
+						Target:   "languages",
+						Operator: filter.ContainsAny,
+						Value:    []string{"French", "Polish"},
+					},
 					property:    "languages",
-					expectedIds: []string{movies[0].id, movies[1].id, movies[3].id, movies[5].id},
+					expectedIDs: []uuid.UUID{movies[0].id, movies[1].id, movies[3].id, movies[5].id},
 				},
 				{
 					name: "contains all languages (2)",
-					where: filters.Where().
-						WithPath([]string{"languages"}).
-						WithOperator(filters.ContainsAll).
-						WithValueString("French", "Polish"),
+					where: filter.Cond{
+						Target:   "languages",
+						Operator: filter.ContainsAll,
+						Value:    []string{"French", "Polish"},
+					},
 					property:    "languages",
-					expectedIds: []string{movies[5].id},
+					expectedIDs: []uuid.UUID{movies[5].id},
 				},
 				{
 					name: "contains none languages (2)",
-					where: filters.Where().
-						WithPath([]string{"languages"}).
-						WithOperator(filters.ContainsNone).
-						WithValueString("French", "Polish"),
+					where: filter.Cond{
+						Target:   "languages",
+						Operator: filter.ContainsNone,
+						Value:    []string{"French", "Polish"},
+					},
 					property:    "languages",
-					expectedIds: []string{movies[2].id, movies[4].id},
+					expectedIDs: []uuid.UUID{movies[2].id, movies[4].id},
 				},
 
 				{
 					name: "contains any languages (3)",
-					where: filters.Where().
-						WithPath([]string{"languages"}).
-						WithOperator(filters.ContainsAny).
-						WithValueString("Portugese", "Czech", "Romanian", "German"),
+					where: filter.Cond{
+						Target:   "languages",
+						Operator: filter.ContainsAny,
+						Value:    []string{"Portugese", "Czech", "Romanian", "German"},
+					},
 					property:    "languages",
-					expectedIds: []string{movies[2].id, movies[4].id},
+					expectedIDs: []uuid.UUID{movies[2].id, movies[4].id},
 				},
 				{
 					name: "contains all languages (3)",
-					where: filters.Where().
-						WithPath([]string{"languages"}).
-						WithOperator(filters.ContainsAll).
-						WithValueString("Portugese", "Czech", "Romanian", "German"),
+					where: filter.Cond{
+						Target:   "languages",
+						Operator: filter.ContainsAll,
+						Value:    []string{"Portugese", "Czech", "Romanian", "German"},
+					},
 					property:    "languages",
-					expectedIds: []string{movies[2].id},
+					expectedIDs: []uuid.UUID{movies[2].id},
 				},
 				{
 					name: "contains none languages (3)",
-					where: filters.Where().
-						WithPath([]string{"languages"}).
-						WithOperator(filters.ContainsNone).
-						WithValueString("Portugese", "Czech", "Romanian", "German"),
+					where: filter.Cond{
+						Target:   "languages",
+						Operator: filter.ContainsNone,
+						Value:    []string{"Portugese", "Czech", "Romanian", "German"},
+					},
 					property:    "languages",
-					expectedIds: []string{movies[0].id, movies[1].id, movies[3].id, movies[5].id},
+					expectedIDs: []uuid.UUID{movies[0].id, movies[1].id, movies[3].id, movies[5].id},
 				},
 			}
 			for _, tt := range tests {
 				t.Run(tt.name, func(t *testing.T) {
-					fields := []graphql.Field{
-						{Name: tt.property},
-						{Name: "_additional", Fields: []graphql.Field{{Name: "id"}}},
-					}
-					resp, err := client.GraphQL().Get().
-						WithClassName(collectionName).
-						WithWhere(tt.where).
-						WithFields(fields...).
-						Do(context.Background())
+					r, err := h.Query.OverAll(t.Context(), query.OverAll{
+						Filter: tt.where,
+					})
 					require.NoError(t, err)
-					resultIds := acceptance_with_go_client.GetIds(t, resp, collectionName)
-					assert.ElementsMatch(t, resultIds, tt.expectedIds)
+					require.NotNil(t, r, "query response")
+
+					var got []uuid.UUID
+					for i := range r.Objects {
+						got = append(got, r.Objects[i].UUID)
+					}
+					require.ElementsMatch(t, tt.expectedIDs, got)
 				})
 			}
 		})
