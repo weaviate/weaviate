@@ -89,6 +89,8 @@ type WeaviateRuntimeConfig struct {
 	ReplicaMovementCleanupInterval         *runtime.DynamicValue[time.Duration] `json:"replica_movement_cleanup_interval" yaml:"replica_movement_cleanup_interval"`
 	ReplicaMovementCleanupIncludeCancelled *runtime.DynamicValue[bool]          `json:"replica_movement_cleanup_include_cancelled" yaml:"replica_movement_cleanup_include_cancelled"`
 
+	QueryAdmissionControlDisabled *runtime.DynamicValue[bool] `json:"query_admission_control_disabled" yaml:"query_admission_control_disabled"`
+
 	ObjectsTTLDeleteSchedule      *runtime.DynamicValue[string]        `json:"objects_ttl_delete_schedule" yaml:"objects_ttl_delete_schedule"`
 	ObjectsTTLBatchSize           *runtime.DynamicValue[int]           `json:"objects_ttl_batch_size" yaml:"objects_ttl_batch_size"`
 	ObjectsTTLPauseEveryNoBatches *runtime.DynamicValue[int]           `json:"objects_ttl_pause_every_no_batches" yaml:"objects_ttl_pause_every_no_batches"`
@@ -453,6 +455,7 @@ func BuildRegisteredRuntimeConfig(cfg *Config) *WeaviateRuntimeConfig {
 	registered.QueryBatchedContainsEnabled = cfg.QueryBatchedContainsEnabled
 	registered.LazyPropertyLengthsEnabled = cfg.LazyPropertyLengthsEnabled
 	registered.BM25FilterTombMergeGateRatio = cfg.BM25FilterTombMergeGateRatio
+	registered.QueryAdmissionControlDisabled = cfg.QueryAdmissionControlDisabled
 	registered.DefaultQuantization = cfg.DefaultQuantization
 	registered.DefaultVectorIndexType = cfg.DefaultVectorIndexType
 	registered.DefaultShardingCount = cfg.DefaultShardingCount
