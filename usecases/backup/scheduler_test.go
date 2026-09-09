@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
@@ -1181,13 +1182,176 @@ func TestSchedulerList(t *testing.T) {
 	})
 
 	t.Run("EmptyList", func(t *testing.T) {
+		authorizer := mocks.NewMockAuthorizer()
 		fs := newFakeScheduler(nil)
+		fs.auth = authorizer
 		fs.backend.On("AllBackups", mock.Anything).Return([]*backup.DistributedBackupDescriptor{}, nil)
 
 		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
 		assert.Nil(t, err)
 		assert.NotNil(t, resp)
 		assert.Len(t, *resp, 0)
+		assert.Empty(t, authorizer.Calls(),
+			"an empty listing must not reach the authorizer: rbac rejects a filter carrying zero resources")
+	})
+
+	t.Run("AuthorizesEachCollectionOnceForTheWholeListing", func(t *testing.T) {
+		authorizer := mocks.NewMockAuthorizer()
+		fs := newFakeScheduler(nil)
+		fs.auth = authorizer
+		backups := []*backup.DistributedBackupDescriptor{
+			{
+				ID:     backupID1,
+				Status: backup.Success,
+				Nodes:  map[string]*backup.NodeDescriptor{"node1": {Classes: []string{cls1, cls2}}},
+			},
+			{
+				ID:     backupID2,
+				Status: backup.Success,
+				Nodes:  map[string]*backup.NodeDescriptor{"node1": {Classes: []string{cls1, cls2}}},
+			},
+		}
+		fs.backend.On("AllBackups", mock.Anything).Return(backups, nil)
+
+		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
+		require.NoError(t, err)
+		require.Len(t, *resp, 2)
+
+		calls := authorizer.Calls()
+		require.Len(t, calls, 1, "both backups name the same collections, so one authorizer call covers the listing")
+		assert.Equal(t, authorization.READ, calls[0].Verb)
+		assert.ElementsMatch(t, authorization.Backups(cls1, cls2), calls[0].Resources)
+	})
+
+	t.Run("AuthorizesEachCollectionOnceForADeniedCaller", func(t *testing.T) {
+		authorizer := mocks.NewMockAuthorizer()
+		authorizer.Deny(authorization.Backups(cls1, cls2)...)
+		fs := newFakeScheduler(nil)
+		fs.auth = authorizer
+		backups := []*backup.DistributedBackupDescriptor{
+			{
+				ID:     backupID1,
+				Status: backup.Success,
+				Nodes:  map[string]*backup.NodeDescriptor{"node1": {Classes: []string{cls1, cls2}}},
+			},
+			{
+				ID:     backupID2,
+				Status: backup.Success,
+				Nodes:  map[string]*backup.NodeDescriptor{"node1": {Classes: []string{cls1, cls2}}},
+			},
+		}
+		fs.backend.On("AllBackups", mock.Anything).Return(backups, nil)
+
+		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
+		require.NoError(t, err)
+		require.Len(t, *resp, 0)
+		require.Len(t, authorizer.Calls(), 1, "a caller who may read nothing still costs one authorizer call")
+	})
+
+	t.Run("FiltersByReadPermission", func(t *testing.T) {
+		var (
+			withoutClasses = "backup-without-classes"
+			withOneClass   = "backup-with-one-class"
+			withTwoClasses = "backup-with-two-classes"
+			timestamp      = time.Now()
+		)
+		tests := []struct {
+			name    string
+			denied  []string
+			wantIDs []string
+		}{
+			{
+				name:    "nothing denied lists every backup",
+				wantIDs: []string{withTwoClasses, withOneClass, withoutClasses},
+			},
+			{
+				name:    "one denied collection hides every backup naming it",
+				denied:  authorization.Backups(cls2),
+				wantIDs: []string{withOneClass, withoutClasses},
+			},
+			{
+				name:    "denying the wildcard hides the backup naming no collection",
+				denied:  authorization.Backups(),
+				wantIDs: []string{withTwoClasses, withOneClass},
+			},
+			{
+				name:    "denying everything lists nothing",
+				denied:  append(authorization.Backups(cls1, cls2), authorization.Backups()...),
+				wantIDs: []string{},
+			},
+		}
+
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				authorizer := mocks.NewMockAuthorizer()
+				authorizer.Deny(test.denied...)
+				fs := newFakeScheduler(nil)
+				fs.auth = authorizer
+				backups := []*backup.DistributedBackupDescriptor{
+					{
+						ID:        withoutClasses,
+						Status:    backup.Success,
+						StartedAt: timestamp.Add(-3 * time.Minute),
+					},
+					{
+						ID:        withOneClass,
+						Status:    backup.Success,
+						StartedAt: timestamp.Add(-2 * time.Minute),
+						Nodes:     map[string]*backup.NodeDescriptor{"node1": {Classes: []string{cls1}}},
+					},
+					{
+						ID:        withTwoClasses,
+						Status:    backup.Success,
+						StartedAt: timestamp.Add(-1 * time.Minute),
+						Nodes:     map[string]*backup.NodeDescriptor{"node1": {Classes: []string{cls1, cls2}}},
+					},
+				}
+				fs.backend.On("AllBackups", mock.Anything).Return(backups, nil)
+
+				resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
+				require.NoError(t, err)
+				gotIDs := make([]string, 0, len(*resp))
+				for _, item := range *resp {
+					gotIDs = append(gotIDs, item.ID)
+				}
+				assert.Equal(t, test.wantIDs, gotIDs)
+			})
+		}
+	})
+
+	t.Run("ForbiddenFilterListsNothing", func(t *testing.T) {
+		authorizer := mocks.NewMockAuthorizer()
+		authorizer.SetErr(authzerrors.NewForbidden(&models.Principal{}, authorization.READ, authorization.Backups(cls1)...))
+		fs := newFakeScheduler(nil)
+		fs.auth = authorizer
+		fs.backend.On("AllBackups", mock.Anything).Return([]*backup.DistributedBackupDescriptor{
+			{
+				ID:     backupID1,
+				Status: backup.Success,
+				Nodes:  map[string]*backup.NodeDescriptor{"node1": {Classes: []string{cls1}}},
+			},
+		}, nil)
+
+		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
+		require.NoError(t, err)
+		assert.Len(t, *resp, 0)
+	})
+
+	t.Run("AuthorizerErrorFailsTheListing", func(t *testing.T) {
+		authorizer := mocks.NewMockAuthorizer()
+		authorizer.SetErr(ErrAny)
+		fs := newFakeScheduler(nil)
+		fs.auth = authorizer
+		fs.backend.On("AllBackups", mock.Anything).Return([]*backup.DistributedBackupDescriptor{
+			{
+				ID:     backupID1,
+				Status: backup.Success,
+				Nodes:  map[string]*backup.NodeDescriptor{"node1": {Classes: []string{cls1}}},
+			},
+		}, nil)
+
+		_, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
+		require.ErrorIs(t, err, ErrAny)
 	})
 
 	t.Run("SortedList", func(t *testing.T) {
@@ -1266,6 +1430,72 @@ func TestSchedulerList(t *testing.T) {
 			}
 		})
 	})
+}
+
+func TestSchedulerLogsOperationDuration(t *testing.T) {
+	t.Parallel()
+	const (
+		backendName = "s3"
+		backupID    = "backup-1"
+		delay       = 50 * time.Millisecond
+	)
+	ctx := context.Background()
+
+	tests := []struct {
+		name   string
+		action string
+		// slowCall is the backend method the scheduler waits on, delayed so the
+		// logged duration has something to cover.
+		slowCall func(fs *fakeScheduler)
+		invoke   func(s *Scheduler) error
+	}{
+		{
+			name:   "list",
+			action: "list_backup",
+			slowCall: func(fs *fakeScheduler) {
+				fs.backend.On("AllBackups", mock.Anything).
+					Return([]*backup.DistributedBackupDescriptor{}, nil).
+					Run(func(mock.Arguments) { time.Sleep(delay) })
+			},
+			invoke: func(s *Scheduler) error {
+				_, err := s.List(ctx, nil, backendName, func(o string) *string { return &o }("desc"), false)
+				return err
+			},
+		},
+		{
+			name:   "restoration status",
+			action: "restoration_status",
+			slowCall: func(fs *fakeScheduler) {
+				fs.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Return(nil, ErrAny).
+					Run(func(mock.Arguments) { time.Sleep(delay) })
+			},
+			invoke: func(s *Scheduler) error {
+				_, err := s.RestorationStatus(ctx, nil, backendName, backupID, "", "")
+				return err
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := test.NewNullLogger()
+			fs := newFakeScheduler(nil)
+			fs.log = logger
+			tc.slowCall(fs)
+
+			tc.invoke(fs.scheduler())
+
+			var took time.Duration
+			for _, entry := range hook.AllEntries() {
+				if entry.Data["action"] == tc.action {
+					took, _ = entry.Data["took"].(time.Duration)
+				}
+			}
+			require.GreaterOrEqual(t, took, delay,
+				"took must measure the whole operation, not the instant it finished")
+		})
+	}
 }
 
 type fakeScheduler struct {
