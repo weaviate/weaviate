@@ -176,7 +176,7 @@ func runRecallTest(t *testing.T, testCfg testConfig) {
 		idToIndex[id] = i
 	}
 
-	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector, func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
+	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk("", func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
 		if idx, ok := idToIndex[indexID]; ok {
 			return vectors[idx], nil
 		}

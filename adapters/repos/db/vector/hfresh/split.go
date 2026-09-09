@@ -16,6 +16,8 @@ import (
 	"slices"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
@@ -273,7 +275,7 @@ func (h *HFresh) splitPosting(ctx context.Context, posting Posting) ([]SplitResu
 // source doReassign uses.
 func (h *HFresh) clusteringVector(ctx context.Context, id uint64, slice *common.VectorSlice, view common.BucketView) ([]float32, error) {
 	if h.muvera.Load() {
-		fde, err := h.muveraEncoder.GetMuveraVectorForID(id, h.id+"_muvera_vectors")
+		fde, err := h.muveraEncoder.GetMuveraVectorForID(id, helpers.MuveraBucketName(h.id))
 		if err != nil {
 			return nil, err
 		}

@@ -31,9 +31,9 @@ func (s *segment) getCollection(key []byte) ([]value, error) {
 		return nil, lsmkv.NotFound
 	}
 
-	node, err := s.index.Get(key)
+	start, end, err := s.index.GetOffsets(key)
 	if err != nil {
-		return nil, err
+		return nil, s.reportIndexErr(err)
 	}
 
 	// We need to copy the data we read from the segment exactly once in this
@@ -49,8 +49,8 @@ func (s *segment) getCollection(key []byte) ([]value, error) {
 	// active/flushing memtable), not against removing the disk segment. If a
 	// compaction completes and the old segment is removed, we would be accessing
 	// invalid memory without the copy, thus leading to a SEGFAULT.
-	contentsCopy := make([]byte, node.End-node.Start)
-	if err = s.copyNode(contentsCopy, nodeOffset{node.Start, node.End}); err != nil {
+	contentsCopy := make([]byte, end-start)
+	if err = s.copyNode(contentsCopy, nodeOffset{start, end}); err != nil {
 		return nil, err
 	}
 	if s.strategy == segmentindex.StrategyInverted {
@@ -70,9 +70,9 @@ func (s *segment) getCollectionBytes(key []byte) ([][]byte, error) {
 		return nil, lsmkv.NotFound
 	}
 
-	node, err := s.index.Get(key)
+	start, end, err := s.index.GetOffsets(key)
 	if err != nil {
-		return nil, err
+		return nil, s.reportIndexErr(err)
 	}
 
 	// We need to copy the data we read from the segment exactly once in this
@@ -88,8 +88,8 @@ func (s *segment) getCollectionBytes(key []byte) ([][]byte, error) {
 	// active/flushing memtable), not against removing the disk segment. If a
 	// compaction completes and the old segment is removed, we would be accessing
 	// invalid memory without the copy, thus leading to a SEGFAULT.
-	contentsCopy := make([]byte, node.End-node.Start)
-	if err = s.copyNode(contentsCopy, nodeOffset{node.Start, node.End}); err != nil {
+	contentsCopy := make([]byte, end-start)
+	if err = s.copyNode(contentsCopy, nodeOffset{start, end}); err != nil {
 		return nil, err
 	}
 	return s.collectionStratParseDataBytes(contentsCopy)

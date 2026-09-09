@@ -23,9 +23,11 @@ import (
 // size — rather than a [][]byte, whose 24-byte headers would outweigh the
 // 8-to-16-byte keys they describe.
 //
-// Only a builder's Build returns one, so callers can trust the order and the
-// absence of duplicates without re-checking. The zero value is a valid empty
-// list.
+// Only a builder's Build and [SortedKeys.Sub] return one, so the order and the
+// absence of duplicates need no re-checking; dropping duplicates means a list
+// can be shorter than what was appended.
+//
+// The zero value is a valid empty list.
 type SortedKeys struct {
 	slab []byte
 	// offs has one entry per key plus a terminator, and is nil when the keys
@@ -114,6 +116,25 @@ func (k SortedKeys) All() iter.Seq2[int, []byte] {
 			}
 		}
 	}
+}
+
+// Sub returns the keys in [from, to) as a list of their own, aliasing this
+// one's storage rather than copying it. 0 <= from <= to <= Len().
+//
+// The check exists because the slice expressions would otherwise panic with a
+// bare bounds error — and because a zero-width layout slices to an empty list
+// at any index, where they would not panic at all.
+func (k SortedKeys) Sub(from, to int) SortedKeys {
+	if from < 0 || to < from || to > k.Len() {
+		panic(fmt.Errorf("%w: range [%d,%d) is not within a list of %d keys",
+			ErrInternal, from, to, k.Len()))
+	}
+	// Len treats offs without a terminator as empty, so route that shape to the
+	// width arm, which yields an empty list.
+	if len(k.offs) == 0 {
+		return SortedKeys{slab: k.slab[from*k.w : to*k.w : to*k.w], w: k.w}
+	}
+	return SortedKeys{slab: k.slab, offs: k.offs[from : to+1 : to+1]}
 }
 
 // FirstAtOrAfter returns the first position in [from, to) whose key is at or

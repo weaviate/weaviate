@@ -44,7 +44,6 @@ func newDynamicForDrop(t *testing.T, meta *shardmeta.DB, rootPath, targetVector 
 
 	idx, err := New(Config{
 		AllocChecker:          memwatch.NewDummyMonitor(),
-		TargetVector:          targetVector,
 		RootPath:              rootPath,
 		ID:                    "vectors_" + targetVector,
 		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
