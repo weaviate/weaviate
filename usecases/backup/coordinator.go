@@ -501,8 +501,11 @@ func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *Statu
 		filename = GlobalRestoreFile
 	}
 
-	// The backup might have been already created.
-	meta, err := store.Meta(ctx, filename, store.bucket, store.path)
+	// The backup might have been already created. Bounded read: a status poll
+	// must not hang for as long as the backend is unreachable.
+	readCtx, cancel := context.WithTimeout(ctx, metaReadTimeout)
+	defer cancel()
+	meta, err := store.Meta(readCtx, filename, store.bucket, store.path)
 	if err != nil {
 		path := st.Path
 		if errors.As(err, &backup.ErrNotFound{}) {

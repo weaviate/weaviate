@@ -735,11 +735,11 @@ func TestSchedulerBackupStatusServesTheReasonOfAFailedBackup(t *testing.T) {
 	fs.client.On("Abort", mock.Anything, node, mock.Anything).Return(nil)
 	fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("bucket/" + backupID)
 	fs.backend.On("Initialize", ctx, backupID).Return(nil)
-	fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
+	fs.backend.On("GetObject", mock.Anything, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
 	// No backup under this id yet, then the descriptor written when the
 	// operation started, which is all the failed write leaves behind.
-	fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(nil, backup.ErrNotFound{}).Once()
-	fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).
+	fs.backend.On("GetObject", mock.Anything, backupID, GlobalBackupFile).Return(nil, backup.ErrNotFound{}).Once()
+	fs.backend.On("GetObject", mock.Anything, backupID, GlobalBackupFile).
 		Return(marshalCoordinatorMeta(backup.DistributedBackupDescriptor{
 			ID: backupID, Status: backup.Started,
 		}), nil)
