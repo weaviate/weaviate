@@ -16,12 +16,14 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/rand"
+	"runtime"
 	"testing"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 func TestBSTRoaringSet(t *testing.T) {
@@ -324,6 +326,311 @@ func TestBinarySearchTreeCountsDistinctKeys(t *testing.T) {
 				"Count must match the nodes a walk of the tree yields")
 		})
 	}
+}
+
+// TestBSTRoaringSetSizeInBytes pins the size model against the shapes a
+// per-entry estimate reads backwards.
+func TestBSTRoaringSetSizeInBytes(t *testing.T) {
+	emptyBitmapBytes := NewBitmap().LenInBytes()
+
+	key := func(i int) []byte {
+		k := make([]byte, 8)
+		binary.BigEndian.PutUint64(k, uint64(i))
+		return k
+	}
+	docIDs := func(count int, stride uint64) []uint64 {
+		ids := make([]uint64, count)
+		for i := range ids {
+			ids[i] = uint64(i) * stride
+		}
+		return ids
+	}
+	// one doc ID per container, so each needs its own allocation
+	const sparseStride = 1 << 16
+
+	shapes := []struct {
+		name  string
+		keys  int
+		build func(bst *BinarySearchTree)
+	}{
+		{"1000 keys of one doc ID each", 1000, func(bst *BinarySearchTree) {
+			for i := 0; i < 1000; i++ {
+				bst.Insert(key(i), Insert{Additions: []uint64{uint64(i)}})
+			}
+		}},
+		{"one key of 65536 dense doc IDs", 1, func(bst *BinarySearchTree) {
+			bst.Insert(key(0), Insert{Additions: docIDs(65536, 1)})
+		}},
+		{"one key of 1000 dense doc IDs", 1, func(bst *BinarySearchTree) {
+			bst.Insert(key(0), Insert{Additions: docIDs(1000, 1)})
+		}},
+		{"one key of 1000 sparse doc IDs", 1, func(bst *BinarySearchTree) {
+			bst.Insert(key(0), Insert{Additions: docIDs(1000, sparseStride)})
+		}},
+		{"one key of 1000 sparse doc IDs written 100 times", 1, func(bst *BinarySearchTree) {
+			for i := 0; i < 100; i++ {
+				bst.Insert(key(0), Insert{Additions: docIDs(1000, sparseStride)})
+			}
+		}},
+	}
+
+	// filled outside the subtests, so -run on one comparison still finds them
+	sizes := map[string]uint64{}
+	for _, shape := range shapes {
+		bst := &BinarySearchTree{}
+		shape.build(bst)
+		sizes[shape.name] = bst.SizeInBytes()
+
+		t.Run(shape.name, func(t *testing.T) {
+			require.Len(t, bst.FlattenInOrder(), shape.keys)
+			require.GreaterOrEqual(t, bst.SizeInBytes(),
+				uint64(shape.keys*(nodeFixedSizeInBytes+2*emptyBitmapBytes+len(key(0)))),
+				"a key costs its node on top of its own bytes and its two bitmap buffers")
+		})
+	}
+
+	t.Run("a thousand single-doc-ID keys outweigh one key of 65536 doc IDs", func(t *testing.T) {
+		require.Greater(t, sizes["1000 keys of one doc ID each"],
+			sizes["one key of 65536 dense doc IDs"],
+			"per-key structure dominates, though this shape carries 65x fewer doc IDs")
+	})
+
+	t.Run("sparse doc IDs outweigh the same count packed densely", func(t *testing.T) {
+		require.Greater(t, sizes["one key of 1000 sparse doc IDs"],
+			sizes["one key of 1000 dense doc IDs"])
+	})
+
+	t.Run("an allocated but empty bitmap side is charged", func(t *testing.T) {
+		additionsOnly := &BinarySearchTree{}
+		additionsOnly.Insert(key(0), Insert{Additions: []uint64{1}})
+
+		bothSides := &BinarySearchTree{}
+		bothSides.Insert(key(0), Insert{Additions: []uint64{1}, Deletions: []uint64{2}})
+
+		require.Equal(t, bothSides.SizeInBytes(), additionsOnly.SizeInBytes(),
+			"an empty deletions side already holds a buffer, so filling it costs no more")
+		// spelled out, so dropping the deletions term fails here too
+		require.Equal(t, uint64(nodeFixedSizeInBytes+len(key(0))+
+			NewBitmap(1).LenInBytes()+emptyBitmapBytes),
+			additionsOnly.SizeInBytes())
+	})
+
+	t.Run("a longer key costs the bytes it adds", func(t *testing.T) {
+		longKey := make([]byte, 512)
+		copy(longKey, key(0))
+
+		short := &BinarySearchTree{}
+		short.Insert(key(0), Insert{Additions: docIDs(1000, 1)})
+
+		long := &BinarySearchTree{}
+		long.Insert(longKey, Insert{Additions: docIDs(1000, 1)})
+
+		// a >= b + delta, since the unsigned subtraction form would wrap and pass
+		require.GreaterOrEqual(t, long.SizeInBytes(),
+			short.SizeInBytes()+uint64(len(longKey)-len(key(0))),
+			"the key's own bytes are part of what the node holds")
+	})
+
+	t.Run("adding doc IDs under a key already in the tree grows the total", func(t *testing.T) {
+		bst := &BinarySearchTree{}
+		bst.Insert(key(0), Insert{Additions: docIDs(1000, sparseStride)})
+		afterFirstWrite := bst.SizeInBytes()
+
+		bst.Insert(key(0), Insert{Additions: docIDs(2000, sparseStride)})
+
+		require.Greater(t, bst.SizeInBytes(), afterFirstWrite,
+			"a thousand further containers allocate, and the merge has to charge them")
+	})
+
+	t.Run("deleting doc IDs under a key already in the tree grows the total", func(t *testing.T) {
+		bst := &BinarySearchTree{}
+		bst.Insert(key(0), Insert{Additions: []uint64{1, 2}, Deletions: []uint64{7, 8}})
+		afterFirstWrite := bst.SizeInBytes()
+
+		bst.Insert(key(0), Insert{Deletions: docIDs(1000, sparseStride)})
+
+		require.Greater(t, bst.SizeInBytes(), afterFirstWrite,
+			"the deletions side grows on a delete, and it has to be charged too")
+	})
+
+	t.Run("rewriting doc IDs already present does not grow the total", func(t *testing.T) {
+		written := sizes["one key of 1000 sparse doc IDs written 100 times"]
+		require.NotZero(t, written, "the shape name must match the table")
+		require.Equal(t, sizes["one key of 1000 sparse doc IDs"], written)
+	})
+}
+
+// TestBSTRoaringSetHeapRatio scores SizeInBytes against a measured heap delta,
+// so the bound its godoc states can be re-derived rather than trusted. It runs
+// the shape production writes take, one doc ID per Insert, because that is what
+// leaves sroar's buffer half empty.
+func TestBSTRoaringSetHeapRatio(t *testing.T) {
+	heapAlloc := func() uint64 {
+		var ms runtime.MemStats
+		runtime.GC()
+		runtime.GC()
+		runtime.ReadMemStats(&ms)
+		return ms.HeapAlloc
+	}
+
+	shapes := []struct {
+		name string
+		keys int
+		// perKey doc IDs are inserted one at a time, each a stride apart
+		perKey   int
+		stride   uint64
+		minRatio float64
+		maxRatio float64
+	}{
+		// One write per key leaves no room to grow into, so there is no slack to
+		// hide in and the model is scored against heap almost directly. This is
+		// the row that pins nodeFixedSizeInBytes: every other assertion in this
+		// package puts that constant on both sides of the comparison.
+		{"1000 keys of one doc ID each", 1000, 1, 1, 1.0, 1.1},
+		// doubling bounds the slack at 2x, so none of these may reach it
+		{"one key grown to 200k sequential doc IDs", 1, 200_000, 1, 1.2, 2.0},
+		{"one key grown to 200k doc IDs at stride 1024", 1, 200_000, 1024, 1.2, 2.0},
+		{"one key grown to 200k doc IDs at stride 8", 1, 200_000, 8, 1.7, 2.0},
+	}
+
+	for _, shape := range shapes {
+		t.Run(shape.name, func(t *testing.T) {
+			before := heapAlloc()
+
+			bst := &BinarySearchTree{}
+			buf := make([]uint64, 1)
+			for k := 0; k < shape.keys; k++ {
+				key := make([]byte, 8)
+				binary.BigEndian.PutUint64(key, uint64(k))
+				for d := 0; d < shape.perKey; d++ {
+					buf[0] = uint64(d) * shape.stride
+					bst.Insert(key, Insert{Additions: buf})
+				}
+			}
+
+			held := heapAlloc() - before
+			runtime.KeepAlive(bst)
+
+			model := bst.SizeInBytes()
+			ratio := float64(held) / float64(model)
+			t.Logf("held %d, model %d, held/model %.3f", held, model, ratio)
+
+			require.LessOrEqual(t, model, held,
+				"every allocation rounds up to a size class, so the model cannot exceed the heap")
+			require.GreaterOrEqual(t, ratio, shape.minRatio,
+				"the len-to-cap slack this shape leaves is what the model does not count")
+			require.LessOrEqual(t, ratio, shape.maxRatio,
+				"a term missing from the model shows up here as heap it cannot account for")
+		})
+	}
+}
+
+// TestBSTRoaringSetSizeAcrossInsertArms drives the two arms of insert that an
+// ascending fixture never reaches: it descends right every time, and it merges
+// only into a single-node tree. Each subtest asserts it landed on its arm before
+// checking what the arm computed.
+func TestBSTRoaringSetSizeAcrossInsertArms(t *testing.T) {
+	// Walks the tree's own nodes rather than FlattenInOrder's copies, which are
+	// compacted and so hold fewer bytes than the nodes the total is charged for.
+	sumOverNodes := func(t *testing.T, bst *BinarySearchTree) uint64 {
+		var total, visited int
+		stack := []*BinarySearchNode{bst.root}
+		for len(stack) > 0 {
+			n := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			if n == nil {
+				continue
+			}
+			visited++
+			require.LessOrEqual(t, visited, bst.Count(),
+				"the walk reached more nodes than the tree counts, so its links form a cycle")
+			total += n.sizeInBytes()
+			stack = append(stack, n.left, n.right)
+		}
+		return uint64(total)
+	}
+	sparse := func(count int) []uint64 {
+		ids := make([]uint64, count)
+		for i := range ids {
+			ids[i] = uint64(i) << 16
+		}
+		return ids
+	}
+
+	t.Run("creating a left child charges what the node holds", func(t *testing.T) {
+		bst := &BinarySearchTree{}
+		bst.Insert([]byte("b"), Insert{Additions: []uint64{1}})
+		bst.Insert([]byte("a"), Insert{Additions: []uint64{2}})
+
+		require.NotNil(t, bst.root.left, "the second key must arrive as a left child")
+		require.Equal(t, []byte("a"), bst.root.left.Key)
+		require.Equal(t, sumOverNodes(t, bst), bst.SizeInBytes())
+	})
+
+	t.Run("merging below the root grows the total", func(t *testing.T) {
+		bst := &BinarySearchTree{}
+		bst.Insert([]byte("b"), Insert{Additions: []uint64{1}})
+		bst.Insert([]byte("a"), Insert{Additions: []uint64{2}})
+		bst.Insert([]byte("c"), Insert{Additions: []uint64{3}})
+		require.Equal(t, []byte("b"), bst.root.Key, "the merge target must sit below the root")
+		require.Equal(t, []byte("a"), bst.root.left.Key)
+		before := bst.SizeInBytes()
+
+		bst.Insert([]byte("a"), Insert{Additions: sparse(1000)})
+
+		require.Len(t, bst.FlattenInOrder(), 3, "a merge must not add a node")
+		require.Greater(t, bst.SizeInBytes(), before)
+		require.Equal(t, sumOverNodes(t, bst), bst.SizeInBytes())
+	})
+
+	t.Run("deleting does not drift the total from what the nodes hold", func(t *testing.T) {
+		bst := &BinarySearchTree{}
+		ids := sparse(1024)
+		bst.Insert([]byte("k"), Insert{Additions: ids})
+		bst.Insert([]byte("k"), Insert{Deletions: ids[1:]})
+		bst.Insert([]byte("k"), Insert{Deletions: ids[:1]})
+		bst.Insert([]byte("k"), Insert{Additions: ids[:1]})
+
+		// Monotonicity holds by construction and cannot catch a merge that shrank a
+		// bitmap, leaving the running total above what the nodes account for; this
+		// equality can.
+		require.Equal(t, sumOverNodes(t, bst), bst.SizeInBytes())
+	})
+}
+
+// TestBSTRoaringSetEmptyInsert pins that a write with nothing in it leaves no
+// node behind: such a node is charged its own structure and reaches a segment.
+func TestBSTRoaringSetEmptyInsert(t *testing.T) {
+	key := []byte("my-key")
+
+	t.Run("a write with no values creates no node", func(t *testing.T) {
+		for _, values := range []Insert{
+			{},
+			{Additions: []uint64{}, Deletions: []uint64{}},
+		} {
+			bst := &BinarySearchTree{}
+			bst.Insert(key, values)
+
+			assert.Empty(t, bst.FlattenInOrder())
+			assert.Zero(t, bst.SizeInBytes())
+
+			_, err := bst.Get(key)
+			assert.ErrorIs(t, err, lsmkv.NotFound)
+		}
+	})
+
+	t.Run("a write with no values leaves an existing key untouched", func(t *testing.T) {
+		bst := &BinarySearchTree{}
+		bst.Insert(key, Insert{Additions: []uint64{7}})
+		sizeBefore := bst.SizeInBytes()
+
+		bst.Insert(key, Insert{})
+
+		assert.Equal(t, sizeBefore, bst.SizeInBytes())
+		res, err := bst.Get(key)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []uint64{7}, res.Additions.ToArray())
+	})
 }
 
 func BenchmarkBinarySearchTreeInsert(b *testing.B) {
