@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -395,6 +396,10 @@ func stringVal(val interface{}) (string, error) {
 	typed, ok := val.(string)
 	if !ok {
 		return "", fmt.Errorf("not a string, but %T", val)
+	}
+
+	if strings.Contains(typed, "\x00") {
+		return "", fmt.Errorf("contains invalid NUL byte")
 	}
 
 	return typed, nil
