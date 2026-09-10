@@ -58,8 +58,8 @@ func (e *executor) Open(ctx context.Context) error {
 	return e.migrator.WaitForStartup(ctx)
 }
 
-// DropOrphanedClass returns its error, unlike DeleteClass, so a failed drop
-// can be retried by the next reload.
+// DropOrphanedClass returns its error, unlike DeleteClass, so the next reload
+// can retry a failed drop.
 func (e *executor) DropOrphanedClass(ctx context.Context, cls string, hasFrozen bool) error {
 	return e.migrator.DropOrphanedClass(ctx, cls, hasFrozen)
 }

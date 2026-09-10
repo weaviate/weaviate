@@ -136,6 +136,17 @@ func TestReloadDropsClassesTheSchemaNoLongerNames(t *testing.T) {
 			wantDeleted: []string{"Orphan"},
 		},
 		{
+			name: "deleting a class that never existed records nothing",
+			seed: func(t *testing.T, sm *SchemaManager) {
+				addClass(t, sm, "Kept")
+				// Accepted and replayed even though neither exists. "Raft" is
+				// the dangerous one: its index id is the RAFT work directory.
+				deleteClassSchemaOnly(t, sm, "Raft")
+				deleteClassSchemaOnly(t, sm, "NeverExisted")
+			},
+			wantDeleted: nil,
+		},
+		{
 			name: "a class the schema still names is never dropped",
 			seed: func(t *testing.T, sm *SchemaManager) {
 				addClass(t, sm, "Kept")
@@ -160,9 +171,8 @@ func TestReloadDropsClassesTheSchemaNoLongerNames(t *testing.T) {
 }
 
 // TestMetadataOnlyNodesRecordNoOrphans pins that a node holding no class data
-// does not accumulate orphans. schemaOnly is true for every command on such a
-// node, and it never reloads, so anything recorded would sit in the map for
-// the process lifetime.
+// accumulates none: schemaOnly is true for its every command, and it never
+// reloads, so a record would sit there for the process lifetime.
 func TestMetadataOnlyNodesRecordNoOrphans(t *testing.T) {
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)
@@ -179,9 +189,8 @@ func TestMetadataOnlyNodesRecordNoOrphans(t *testing.T) {
 	require.Empty(t, sm.orphanedClasses, "metadata-only node recorded orphans nothing drains")
 }
 
-// TestFailedDropIsRetriedOnTheNextReload pins that a drop that fails is not
-// lost: the entry goes back so a later reload tries again, since nothing else
-// would ever name that data.
+// TestFailedDropIsRetriedOnTheNextReload pins that a failed drop goes back on
+// the pending set, since nothing else would name that data again.
 func TestFailedDropIsRetriedOnTheNextReload(t *testing.T) {
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)

@@ -56,8 +56,8 @@ type SchemaManager struct {
 	// tenantLimitErrTemplate resolves the cap-exceeded message (empty = default).
 	tenantLimitErrTemplate func() string
 
-	// metadataOnly nodes hold no class data and never reload, so recording
-	// orphans for them would grow a map nothing ever drains.
+	// metadataOnly nodes hold no class data and never reload, so anything
+	// recorded for them would sit in a map nothing drains.
 	metadataOnly bool
 
 	orphansMu sync.Mutex
@@ -203,14 +203,12 @@ func (s *SchemaManager) dropOrphanedClasses() {
 		if _, revived := present[class]; revived {
 			continue
 		}
-		// DropOrphanedClass, not DeleteClass: the class is gone from the
-		// schema, so the data has to go even with no index loaded, and that is
-		// only safe for a class the schema really held.
+		// DropOrphanedClass, not DeleteClass: the data has to go with no index
+		// loaded, which is only safe for a class the schema really held.
 		if err := s.db.DropOrphanedClass(context.Background(), class, hasFrozen); err != nil {
 			s.log.WithField("class", class).
 				Errorf("drop data of class the schema no longer names: %v", err)
-			// Put it back: a reload that fails here is the only thing standing
-			// between the data and living on disk forever.
+			// Put it back; nothing else would name this data again.
 			s.recordOrphan(class, hasFrozen)
 		}
 	}
@@ -220,7 +218,7 @@ func (s *SchemaManager) RestoreAliases(data []byte) error {
 	return s.schema.RestoreAlias(data)
 }
 
-// RestoreLegacy installs an old-format snapshot. It drops classes just as
+// RestoreLegacy installs an old-format snapshot, dropping classes just as
 // Restore does, so it needs the same diff.
 func (s *SchemaManager) RestoreLegacy(data []byte, parser Parser) error {
 	before := s.schema.classNames()
@@ -493,17 +491,20 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 		}
 	}
 
-	if schemaOnly {
-		// The store is not updated here, so the data outlives the schema entry
-		// naming it. The reload drops it, once a re-add can no longer make that
-		// data loss.
-		s.recordOrphan(cmd.Class, hasFrozen)
-	}
-
 	return s.apply(
 		applyOp{
-			op:           cmd.GetType().String(),
-			updateSchema: func() error { s.schema.deleteClass(cmd.Class); return nil },
+			op: cmd.GetType().String(),
+			updateSchema: func() error {
+				// Only a delete that removed an entry leaves data behind.
+				// DeleteClass does not check existence, so recording any name a
+				// caller passed would hand it to the orphan path, which removes
+				// files with no index: a replayed DELETE /v1/schema/raft would
+				// take out <root>/raft.
+				if s.schema.deleteClass(cmd.Class) && schemaOnly {
+					s.recordOrphan(cmd.Class, hasFrozen)
+				}
+				return nil
+			},
 			updateStore: func() error {
 				if s.replicationFSM == nil {
 					return fmt.Errorf("replication deleter is not set, this should never happen")

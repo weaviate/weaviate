@@ -63,10 +63,9 @@ func TestDropOrphanedClassRemovesDataWithNoLoadedIndex(t *testing.T) {
 }
 
 // TestDeleteIndexNeverRemovesFilesWithoutAnIndex pins the blast radius of
-// DeleteClass on a class that never existed: DeleteClass does not check, so the
-// store is asked to delete anything a caller names. DELETE /v1/schema/raft
-// uppercases to "Raft", whose index id is "raft" — the live RAFT work
-// directory. DeleteIndex must not touch files it has no index for.
+// deleting a class that never existed: DeleteClass does not check, so the store
+// is asked to delete whatever a caller names. DELETE /v1/schema/raft uppercases
+// to "Raft", whose index id is the live RAFT work directory.
 func TestDeleteIndexNeverRemovesFilesWithoutAnIndex(t *testing.T) {
 	for _, class := range []string{"Raft", "Backups", "NeverExisted"} {
 		t.Run(class, func(t *testing.T) {
@@ -86,4 +85,26 @@ func TestDeleteIndexNeverRemovesFilesWithoutAnIndex(t *testing.T) {
 				"DeleteIndex removed %s with no index loaded", dir)
 		})
 	}
+}
+
+// TestDropOrphanedClassReportsAFailedDrop pins the retry contract: a drop that
+// leaves the files in place must not report success, or dropOrphanedClasses
+// discards the pending entry for good. Covers the no-index branch; the loaded
+// branch relies on the same dropIndexData call.
+func TestDropOrphanedClassReportsAFailedDrop(t *testing.T) {
+	root := t.TempDir()
+	logger, _ := test.NewNullLogger()
+	db := &DB{config: Config{RootPath: root}, logger: logger, indices: map[string]*Index{}}
+
+	const class = "OrphanClass"
+	dir := filepath.Join(root, indexID(schema.ClassName(class)))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "shard1", "lsm"), 0o755))
+
+	// A read-only data root makes the rename fail the way a full or
+	// permission-denied volume would.
+	require.NoError(t, os.Chmod(root, 0o555))
+	t.Cleanup(func() { os.Chmod(root, 0o755) })
+
+	err := db.DropOrphanedClass(schema.ClassName(class))
+	require.Error(t, err, "a drop that left the files in place must not report success")
 }

@@ -24,8 +24,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/loadlimiter"
-
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -40,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -585,15 +584,16 @@ func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) sharding.R
 	return index
 }
 
-// DropOrphanedClass removes the data of a class the schema has already
-// dropped. Unlike DeleteIndex it removes files even with no index loaded,
-// which is the state a delete applied schema-only leaves behind, so callers
-// must know the class existed.
+// DropOrphanedClass removes the data of a class the schema already dropped.
+// Unlike DeleteIndex it removes files with no index loaded, the state a
+// schema-only delete leaves behind, so callers must know the class existed.
 func (db *DB) DropOrphanedClass(className schema.ClassName) error {
 	if idx := db.GetIndex(className); idx != nil {
 		// Stop the cycle managers first: renaming underneath a running index
 		// lets its next write recreate the path.
-		return db.DeleteIndex(className)
+		if err := db.DeleteIndex(className); err != nil {
+			return err
+		}
 	}
 	return db.dropIndexData(className)
 }
@@ -615,11 +615,6 @@ func (db *DB) dropIndexData(className schema.ClassName) error {
 func (db *DB) DeleteIndex(className schema.ClassName) error {
 	index := db.GetIndex(className)
 	if index == nil {
-		// Deleting a class that never existed reaches here — DeleteClass does
-		// not check — so this must stay a no-op. Removing files by name would
-		// let DELETE /v1/schema/raft rename the RAFT work directory. Orphan
-		// removal goes through DropOrphanedClass, which is only ever called
-		// for a class the schema really held.
 		return nil
 	}
 
