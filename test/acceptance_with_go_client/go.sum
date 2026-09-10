@@ -622,6 +622,8 @@ github.com/weaviate/weaviate-go-client/v6 v6.0.0-beta.2.0.20260910064528-239d35f
 github.com/weaviate/weaviate-go-client/v6 v6.0.0-beta.2.0.20260910064528-239d35fbebf9/go.mod h1:8ZJeez2D0ePagj+gN6Djfg25rnu3yeOZ0pwIfTH7PfI=
 github.com/weaviate/weaviate-go-client/v6 v6.0.0-beta.2.0.20260910065530-8a98c5932fdb h1:8LS2nkO0PRV0bTeRE6Dd3tBmQn051TZQim9gXslmQ9g=
 github.com/weaviate/weaviate-go-client/v6 v6.0.0-beta.2.0.20260910065530-8a98c5932fdb/go.mod h1:8ZJeez2D0ePagj+gN6Djfg25rnu3yeOZ0pwIfTH7PfI=
+github.com/weaviate/weaviate-go-client/v6 v6.0.0-beta.2.0.20260910152802-228b6704d91f h1:02H7tPRwYDaKkKIWrvhlLspKJz3FYVpwwlaQ2TsMIos=
+github.com/weaviate/weaviate-go-client/v6 v6.0.0-beta.2.0.20260910152802-228b6704d91f/go.mod h1:8ZJeez2D0ePagj+gN6Djfg25rnu3yeOZ0pwIfTH7PfI=
 github.com/willf/bitset v1.1.11 h1:N7Z7E9UvjW+sGsEl7k/SJrvY2reP1A07MrGuCjIOjRE=
 github.com/willf/bitset v1.1.11/go.mod h1:83CECat5yLh5zVOf4P1ErAgKA5UDvKtgyUABdr3+MjI=
 github.com/wk8/go-ordered-map/v2 v2.1.8 h1:5h/BUHu93oj4gIdvHHHGsScSTMijfx5PeYkE/fJgbpc=
