@@ -63,6 +63,10 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 		}
 	}
 
+	if verbosityString != verbosity.OutputVerbose {
+		className, shardName = "", ""
+	}
+
 	status, err := m.db.GetNodeStatus(ctxWithTimeout, className, shardName, verbosityString)
 	if err != nil {
 		return nil, err
