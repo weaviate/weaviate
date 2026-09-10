@@ -3403,29 +3403,27 @@ func (i *Index) LoadLocalShardForTenantProcess(ctx context.Context, shardName st
 }
 
 // loadLocalShardForReload opens a shard for the reload replaying committed
-// schema. A namespace that keeps no shards open opens none and returns nil: an
-// error here would skip the tenant drops and property adds the same reload
-// owes, and nothing re-runs a reload. The skip is silent, since a suspended
-// namespace reaches this once per tenant. mustLoad preserves the eager load
-// each call site did before.
+// schema. A namespace that keeps no shards open, and a state no case covers,
+// both open none and return nil. An error here would skip the tenant drops and
+// property adds the same reload owes, and nothing re-runs a reload. A suspended
+// namespace's skip is silent. namespaceState logs a state no case covers at
+// Error. mustLoad preserves the eager load each call site did before.
 func (i *Index) loadLocalShardForReload(ctx context.Context, shardName string, mustLoad bool) error {
 	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, false, callerReload)
-	if stderrors.Is(err, errShardNamespaceClosed) {
+	if namespaceRefusedShardLoad(err) {
 		return nil
 	}
 	return err
 }
 
 // loadLocalShardUnlessNamespaceClosed loads a shard for an apply whose schema half
-// has already committed. A namespace whose state refuses this caller loads none
-// and returns nil rather than erroring. The schema change stands either way, and
-// the shard is materialized by whatever next loads it. A state that cannot be read
-// still errors.
+// has already committed. A namespace refusal loads none and returns nil, and
+// whatever next loads the shard materializes it. A failed namespace lookup still errors.
 func (i *Index) loadLocalShardUnlessNamespaceClosed(ctx context.Context, shardName string,
 	mustLoad, implicitShardLoading bool, caller shardLoadCaller, change string,
 ) error {
 	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, implicitShardLoading, caller)
-	if stderrors.Is(err, errShardNamespaceClosed) {
+	if namespaceRefusedShardLoad(err) {
 		i.logger.WithFields(logrus.Fields{
 			"class": i.Config.ClassName.String(), "namespace": i.namespace, "shard": shardName,
 		}).Infof("%s without loading the shard: %v", change, err)

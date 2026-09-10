@@ -219,6 +219,35 @@ func TestNamespaceGuard(t *testing.T) {
 		require.ErrorIs(t, err, errUnknownShardLoadCaller)
 		require.NotErrorIs(t, err, errShardNamespaceClosed)
 	})
+
+	// stateForShardDecision refuses the state before the switch, so every caller
+	// gets errUnknownNamespaceState rather than errShardNamespaceClosed.
+	t.Run("a state with no case is refused as unknown by every caller", func(t *testing.T) {
+		callers := []struct {
+			name   string
+			caller shardLoadCaller
+		}{
+			{name: "a user request", caller: callerUserRequest},
+			{name: "a resume", caller: callerResume},
+			{name: "a reload", caller: callerReload},
+			{name: "a movement", caller: callerMovement},
+			{name: "a new replica", caller: callerNewReplica},
+			{name: "a tenant add", caller: callerTenantAdd},
+			{name: "a tenant activation", caller: callerTenantActivation},
+			{name: "a tenant process", caller: callerTenantProcess},
+		}
+
+		for _, tc := range callers {
+			t.Run(tc.name, func(t *testing.T) {
+				idx, _ := indexForNamespace(t, namespacedClass,
+					existerWithState(t, api.NamespaceState("gone")))
+
+				err := idx.requireNamespaceAllowsShardLoad(tc.caller)
+				require.ErrorIs(t, err, errUnknownNamespaceState)
+				require.NotErrorIs(t, err, errShardNamespaceClosed)
+			})
+		}
+	})
 }
 
 // The guard adapters read two fields NewIndex populates from its config. Built
@@ -414,10 +443,9 @@ func TestDesiredOpenLocalShardCount(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			db := dbForDesiredOpen(t, tc.className, tc.exister(t), mixed)
 
-			// The unqualified row carries no state and is decided as active without
-			// a lookup, so only a namespaced row is refused here. A refusal placed
-			// after the ShardsShouldBeOpen gate would read as zero shards instead.
-			if tc.className != unqualifiedClass && !namespaces.IsKnownState(tc.state) {
+			// A refusal placed after the ShardsShouldBeOpen gate would read as
+			// zero shards instead.
+			if tc.refusedAsUnknownState() {
 				assertDesiredOpenRefused(t, db, tc.className, errUnknownNamespaceState)
 				return
 			}
@@ -589,7 +617,7 @@ func TestDesiredOpenLocalShardNames(t *testing.T) {
 
 				names, state, err := db.DesiredOpenLocalShardNames(tc.className)
 
-				if tc.className != unqualifiedClass && !namespaces.IsKnownState(tc.state) {
+				if tc.refusedAsUnknownState() {
 					require.ErrorIs(t, err, errUnknownNamespaceState)
 					assert.Nil(t, names, "a refusal must not read as an empty set")
 					assert.Empty(t, state)
@@ -643,32 +671,6 @@ func TestDesiredOpenLocalShardNames(t *testing.T) {
 
 // The DB has no schema reader, so any arm that reaches for the class panics.
 func TestNamespaceStateForClass(t *testing.T) {
-	// shardsShouldBeOpenStates lists every state an entry point must handle.
-	for _, tc := range shardsShouldBeOpenStates() {
-		t.Run(tc.name, func(t *testing.T) {
-			logger, hook := logrustest.NewNullLogger()
-			logger.SetLevel(logrus.DebugLevel)
-			db := &DB{logger: logger, namespacesExister: tc.exister(t)}
-
-			got, err := db.NamespaceStateForClass(tc.className)
-
-			switch {
-			case tc.className == unqualifiedClass:
-				require.NoError(t, err)
-				assert.Equal(t, api.NamespaceStateActive, got)
-			case !namespaces.IsKnownState(tc.state):
-				require.ErrorIs(t, err, errUnknownNamespaceState)
-				assert.Empty(t, got, "a refusal must not carry a state")
-			default:
-				require.NoError(t, err)
-				assert.Equal(t, tc.state, got)
-			}
-
-			// The sweep calls this per class per tick, so its caller picks the log level.
-			assert.Empty(t, hook.AllEntries(), "a read-only accessor logs nothing")
-		})
-	}
-
 	// Each fail-closed refusal carries its own sentinel and not the other's.
 	for _, tc := range namespaceLookupRefusals() {
 		t.Run(tc.name, func(t *testing.T) {
@@ -688,16 +690,6 @@ func TestNamespaceStateForClass(t *testing.T) {
 			assert.Empty(t, hook.AllEntries(), "a read-only accessor logs nothing")
 		})
 	}
-
-	// The lookup keys on the namespace, not the class, so no name is a not-found.
-	t.Run("a qualified name whose class does not exist answers its namespace's state", func(t *testing.T) {
-		logger, _ := logrustest.NewNullLogger()
-		db := &DB{logger: logger, namespacesExister: existerWithState(t, api.NamespaceStateSuspended)}
-
-		got, err := db.NamespaceStateForClass("alpha:NoSuchClass")
-		require.NoError(t, err)
-		assert.Equal(t, api.NamespaceStateSuspended, got)
-	})
 
 	// Restore normalizes an unwritten state to active on the way in, so
 	// normalizing here too would hide the record rather than report it.
@@ -1034,6 +1026,13 @@ func (s namespaceLoadState) exister(t *testing.T) namespaces.Exister {
 	return existerWithState(t, s.state)
 }
 
+// refusedAsUnknownState reports whether this row's state is one no case covers,
+// which stateForShardDecision refuses rather than reading as a closed namespace.
+// The unqualified row is decided as active without a lookup, so it is never one.
+func (s namespaceLoadState) refusedAsUnknownState() bool {
+	return s.className != unqualifiedClass && !namespaces.IsKnownState(s.state)
+}
+
 // shardsShouldBeOpenStates is the state space of the check that decides whether
 // a load is entered at all: two states open shards, three open none, and a class
 // in no namespace — every class on a cluster running with namespaces off — always
@@ -1350,6 +1349,12 @@ func TestTenantApplyShardLoadAdmission(t *testing.T) {
 		for _, tc := range appliedChangeStates() {
 			t.Run(c.name+"/"+tc.name, func(t *testing.T) {
 				idx, err := newIndexForNamespaceTest(t, tc.className, tc.exister(t))
+				// Boot refuses a state no case covers before an index exists, so
+				// this row has no admission to reach.
+				if tc.refusedAsUnknownState() {
+					require.ErrorIs(t, err, errUnknownNamespaceState)
+					return
+				}
 				require.NoError(t, err)
 
 				err = idx.requireNamespaceAllowsShardLoad(c.caller)
@@ -1904,9 +1909,30 @@ func TestGuardBoot(t *testing.T) {
 		"cold1": coldPhysical("cold1"), "remote1": remotePhysical("remote1"),
 	}
 
+	// A state boot cannot decide about is not a namespace keeping its shards
+	// closed. The class may hold data on disk, so boot refuses rather than
+	// registering nothing and reporting the class ready.
+	assertBootRefuses := func(t *testing.T, className string, e namespaces.Exister, wantErr error) {
+		t.Helper()
+
+		idx, hook := indexForBootTest(t, className, e, readerForShards(t, className, mixed))
+
+		err := idx.initAndStoreShards(ctx, &models.Class{Class: className}, nil)
+		require.ErrorIs(t, err, wantErr)
+		assert.Empty(t, registeredShards(t, idx))
+		assert.False(t, idx.allShardsReady.Load(),
+			"a class whose shards were never enumerated must not report ready")
+		assertRefusedMaterializationLogged(t, hook, className, "alpha", wantErr)
+	}
+
 	// Red if the filter is the request-path check, which rejects resuming.
 	for _, tc := range shardsShouldBeOpenStates() {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.refusedAsUnknownState() {
+				assertBootRefuses(t, tc.className, tc.exister(t), errUnknownNamespaceState)
+				return
+			}
+
 			var want []string
 			if tc.wantLoad {
 				want = []string{"empty1", "hot1"}
@@ -1945,20 +1971,9 @@ func TestGuardBoot(t *testing.T) {
 			"an index with nothing to load must still report ready")
 	})
 
-	// A state that cannot be read is not a namespace keeping its shards closed:
-	// the class may hold data on disk, so boot must refuse rather than register
-	// nothing and report the class ready.
 	for _, tc := range namespaceLookupRefusals() {
 		t.Run(tc.name+" returns an error instead of reporting the class ready", func(t *testing.T) {
-			idx, hook := indexForBootTest(t, class, tc.exister(t), readerForShards(t, class, mixed))
-
-			err := idx.initAndStoreShards(ctx, &models.Class{Class: class}, nil)
-			require.ErrorIs(t, err, tc.wantErr)
-			assert.Empty(t, registeredShards(t, idx))
-			assert.False(t, idx.allShardsReady.Load(),
-				"a class whose shards were never enumerated must not report ready")
-
-			assertRefusedMaterializationLogged(t, hook, class, "alpha", tc.wantErr)
+			assertBootRefuses(t, class, tc.exister(t), tc.wantErr)
 		})
 	}
 
@@ -2325,6 +2340,13 @@ func TestReopenShard(t *testing.T) {
 			err := db.ReopenShard(ctx, tc.className, "t1")
 			if tc.wantLoad {
 				require.NoError(t, err)
+				return
+			}
+			// A stale reopen against a state no case covers is told which it hit,
+			// rather than reading as a namespace deliberately keeping shards closed.
+			if tc.refusedAsUnknownState() {
+				require.ErrorIs(t, err, errUnknownNamespaceState)
+				require.NotErrorIs(t, err, errShardNamespaceClosed)
 				return
 			}
 			// errShardNamespaceClosed rather than ErrNamespaceSuspended is what
