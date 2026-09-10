@@ -162,7 +162,7 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get distributed task list: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_DISTRIBUTED_TASK_GET:
-		payload, err = st.distributedTasksManager.GetDistributedTaskPayload(context.Background(), req.SubCommand)
+		payload, err = st.distributedTasksManager.GetDistributedTaskPayload(req.SubCommand)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get distributed task: %w", err)
 		}

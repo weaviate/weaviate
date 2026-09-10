@@ -12,7 +12,6 @@
 package distributedtask
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"testing"
@@ -73,7 +72,7 @@ func TestForceTerminateTask(t *testing.T) {
 		err := forceTerminate(t, m, 1, string(TaskStatusCancelled))
 		require.NoError(t, err)
 
-		task := m.GetDistributedTask(context.Background(), ns, taskID)
+		task := m.GetDistributedTask(ns, taskID)
 		assert.Equal(t, TaskStatusCancelled, task.Status)
 		assert.Contains(t, task.Error, "test reason")
 	})
@@ -94,7 +93,7 @@ func TestForceTerminateTask(t *testing.T) {
 		err := forceTerminate(t, m, 1, string(TaskStatusFailed))
 		require.NoError(t, err)
 
-		got := m.GetDistributedTask(context.Background(), ns, taskID)
+		got := m.GetDistributedTask(ns, taskID)
 		assert.Equal(t, TaskStatusFailed, got.Status)
 	})
 
@@ -114,7 +113,7 @@ func TestForceTerminateTask(t *testing.T) {
 		err := forceTerminate(t, m, 1, string(TaskStatusCancelled))
 		require.NoError(t, err)
 
-		got := m.GetDistributedTask(context.Background(), ns, taskID)
+		got := m.GetDistributedTask(ns, taskID)
 		assert.Equal(t, TaskStatusCancelled, got.Status)
 	})
 
@@ -139,7 +138,7 @@ func TestForceTerminateTask(t *testing.T) {
 		assert.True(t, errors.Is(err, ErrForceTerminateRefused))
 		assert.True(t, errors.Is(err, ErrPermanentRejection))
 
-		got := m.GetDistributedTask(context.Background(), ns, taskID)
+		got := m.GetDistributedTask(ns, taskID)
 		assert.Equal(t, TaskStatusSwapping, got.Status)
 	})
 
@@ -167,7 +166,7 @@ func TestForceTerminateTask(t *testing.T) {
 		err = forceTerminate(t, m, 1, string(TaskStatusFailed))
 		require.NoError(t, err)
 
-		got := m.GetDistributedTask(context.Background(), ns, taskID)
+		got := m.GetDistributedTask(ns, taskID)
 		assert.Equal(t, TaskStatusCancelled, got.Status)
 	})
 
@@ -178,7 +177,7 @@ func TestForceTerminateTask(t *testing.T) {
 		err := forceTerminate(t, m, 1, string(TaskStatusFailed))
 		require.NoError(t, err)
 
-		got := m.GetDistributedTask(context.Background(), ns, taskID)
+		got := m.GetDistributedTask(ns, taskID)
 		assert.Equal(t, TaskStatusFailed, got.Status)
 		assert.Contains(t, got.Error, "test reason")
 	})
@@ -265,7 +264,7 @@ func TestRecordUnitCompletionRetry(t *testing.T) {
 		err := recordRetryableFailure(t, m)
 		require.NoError(t, err)
 
-		task := m.GetDistributedTask(context.Background(), ns, taskID)
+		task := m.GetDistributedTask(ns, taskID)
 		require.Equal(t, TaskStatusStarted, task.Status)
 		u := task.Units[unitID]
 		assert.Equal(t, UnitStatusPending, u.Status)
@@ -279,7 +278,7 @@ func TestRecordUnitCompletionRetry(t *testing.T) {
 
 		err := recordRetryableFailure(t, m)
 		require.NoError(t, err)
-		task := m.GetDistributedTask(context.Background(), ns, taskID)
+		task := m.GetDistributedTask(ns, taskID)
 		assert.Equal(t, TaskStatusStarted, task.Status)
 
 		// Re-claim after re-open.
@@ -292,7 +291,7 @@ func TestRecordUnitCompletionRetry(t *testing.T) {
 
 		err = recordRetryableFailure(t, m)
 		require.NoError(t, err)
-		task = m.GetDistributedTask(context.Background(), ns, taskID)
+		task = m.GetDistributedTask(ns, taskID)
 		assert.Equal(t, TaskStatusFailed, task.Status)
 	})
 
@@ -303,7 +302,7 @@ func TestRecordUnitCompletionRetry(t *testing.T) {
 		err := recordRetryableFailure(t, m)
 		require.NoError(t, err)
 
-		task := m.GetDistributedTask(context.Background(), ns, taskID)
+		task := m.GetDistributedTask(ns, taskID)
 		assert.Equal(t, TaskStatusFailed, task.Status)
 	})
 
@@ -414,7 +413,7 @@ func TestTaskAlreadyRunningSentinel(t *testing.T) {
 		}), 2)
 		require.NoError(t, err)
 
-		task := m.GetDistributedTask(context.Background(), ns, taskID)
+		task := m.GetDistributedTask(ns, taskID)
 		assert.Equal(t, TaskStatusStarted, task.Status)
 		assert.Equal(t, uint64(2), task.Version)
 	})
@@ -548,7 +547,7 @@ func TestTaskWireCompat(t *testing.T) {
 		}), 1)
 		require.NoError(t, err)
 
-		task := m.GetDistributedTask(context.Background(), "test", "t1")
+		task := m.GetDistributedTask("test", "t1")
 		assert.Equal(t, int32(1), task.FormatVersion)
 	})
 
@@ -614,7 +613,7 @@ func TestGetDistributedTaskAccessor(t *testing.T) {
 	t.Run("not-found through real Manager path returns nil nil", func(t *testing.T) {
 		mgr := newMgr(t)
 
-		_, fsmErr := mgr.GetDistributedTaskPayload(context.Background(), getReq(t, "ns", "nonexistent"))
+		_, fsmErr := mgr.GetDistributedTaskPayload(getReq(t, "ns", "nonexistent"))
 		require.Error(t, fsmErr)
 
 		// In-process path: the %w chain preserves the sentinel.
@@ -628,7 +627,7 @@ func TestGetDistributedTaskAccessor(t *testing.T) {
 	t.Run("not-found from gRPC-collapsed error rehydrates correctly", func(t *testing.T) {
 		mgr := newMgr(t)
 
-		_, fsmErr := mgr.GetDistributedTaskPayload(context.Background(), getReq(t, "ns", "nonexistent"))
+		_, fsmErr := mgr.GetDistributedTaskPayload(getReq(t, "ns", "nonexistent"))
 		require.Error(t, fsmErr)
 
 		// Simulate gRPC round-trip: ToRPCError flattens the chain,
@@ -674,7 +673,7 @@ func TestGetDistributedTaskAccessor(t *testing.T) {
 		}))
 		require.NoError(t, err)
 
-		respBytes, err := mgr.GetDistributedTaskPayload(context.Background(), getReq(t, "ns", "task-1"))
+		respBytes, err := mgr.GetDistributedTaskPayload(getReq(t, "ns", "task-1"))
 		require.NoError(t, err)
 
 		var resp GetDistributedTaskResponse
@@ -699,7 +698,7 @@ func TestGetDistributedTaskAccessor(t *testing.T) {
 
 		// Feed malformed JSON to trigger an unmarshal error (not
 		// ErrTaskDoesNotExist).
-		_, fsmErr := mgr.GetDistributedTaskPayload(context.Background(), []byte(`{invalid`))
+		_, fsmErr := mgr.GetDistributedTaskPayload([]byte(`{invalid`))
 		require.Error(t, fsmErr)
 		assert.False(t, errors.Is(fsmErr, ErrTaskDoesNotExist),
 			"the error must NOT be classifiable as task-not-found")

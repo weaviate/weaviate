@@ -1174,7 +1174,7 @@ func (m *Manager) ListDistributedTasksPayload(ctx context.Context) ([]byte, erro
 
 // GetDistributedTask returns a cloned snapshot of a single task by
 // namespace and ID, or nil if no such task exists.
-func (m *Manager) GetDistributedTask(_ context.Context, namespace, taskID string) *Task {
+func (m *Manager) GetDistributedTask(namespace, taskID string) *Task {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -1188,7 +1188,7 @@ func (m *Manager) GetDistributedTask(_ context.Context, namespace, taskID string
 // GetDistributedTaskPayload returns the JSON-marshaled by-id response
 // for the TYPE_DISTRIBUTED_TASK_GET query. Returns a typed not-found
 // when the task does not exist.
-func (m *Manager) GetDistributedTaskPayload(_ context.Context, subCommand []byte) ([]byte, error) {
+func (m *Manager) GetDistributedTaskPayload(subCommand []byte) ([]byte, error) {
 	var r api.GetDistributedTaskRequest
 	if err := json.Unmarshal(subCommand, &r); err != nil {
 		return nil, fmt.Errorf("unmarshal get task request: %w", err)

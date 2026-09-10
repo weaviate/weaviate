@@ -693,7 +693,7 @@ func TestTerminalCleanupRefire(t *testing.T) {
 		assert.False(t, markFailedCalled,
 			"MarkDistributedTaskFailed must never be proposed on the terminal re-fire path")
 
-		task := manager.GetDistributedTask(context.Background(), "ns", "task-1")
+		task := manager.GetDistributedTask("ns", "task-1")
 		assert.Equal(t, TaskStatusCancelled, task.Status)
 	})
 
