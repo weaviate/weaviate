@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 var (
@@ -49,15 +50,11 @@ type Provider struct {
 	vectorsLock               sync.RWMutex
 	registered                map[string]modulecapabilities.Module
 	altNames                  map[string]string
-	schemaGetter              schemaGetter
+	schemaGetter              schemaUC.SchemaGetter
 	hasMultipleVectorizers    bool
 	targetVectorNameValidator *regexp.Regexp
 	logger                    logrus.FieldLogger
 	cfg                       config.Config
-}
-
-type schemaGetter interface {
-	ReadOnlyClass(name string) *models.Class
 }
 
 func NewProvider(logger logrus.FieldLogger, cfg config.Config) *Provider {
@@ -141,7 +138,7 @@ func (p *Provider) Close() error {
 	return nil
 }
 
-func (p *Provider) SetSchemaGetter(sg schemaGetter) {
+func (p *Provider) SetSchemaGetter(sg schemaUC.SchemaGetter) {
 	p.schemaGetter = sg
 }
 
