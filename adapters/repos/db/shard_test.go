@@ -371,6 +371,14 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 		}
 	}
 
+	// the reset rebuilt at the recorded ID: record ready, storage present
+	s := underlyingShard(t, shd)
+	rec, ok, err := s.mapping.Get("")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, vectorIndexRecord{PhysicalID: "main", IndexType: "hnsw", State: "ready"}, rec)
+	assert.True(t, storageExistsFor(t, s, rec))
+
 	require.Nil(t, idx.drop())
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
 }
