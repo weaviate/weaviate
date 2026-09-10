@@ -120,11 +120,11 @@ func (h *hnsw) checkAndCompress() error {
 			if singleVector {
 				h.compressor, err = compressionhelpers.NewRQCompressor(
 					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, h.makeBucketOptions,
-					int(h.rqConfig.Bits), int(h.dims.Load()), h.getTargetVector(), h.vectorForID)
+					int(h.rqConfig.Bits), int(h.dims.Load()), h.compressedBucketName(), h.vectorForID)
 			} else {
 				h.compressor, err = compressionhelpers.NewRQMultiCompressor(
 					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, h.makeBucketOptions,
-					int(h.rqConfig.Bits), int(h.dims.Load()), h.getTargetVector(), h.multiVectorForNodeID)
+					int(h.rqConfig.Bits), int(h.dims.Load()), h.compressedBucketName(), h.multiVectorForNodeID)
 			}
 
 			if err == nil {
@@ -302,8 +302,9 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			docIDBytes := make([]byte, 8)
 			binary.BigEndian.PutUint64(docIDBytes, docIDs[i])
 			muveraBytes := multivector.MuveraBytesFromFloat32(processedVectors[i])
-			if err := h.store.Bucket(helpers.MuveraBucketName(h.id)).Put(docIDBytes, muveraBytes); err != nil {
-				return errors.Wrap(err, fmt.Sprintf("failed to put %s_muvera_vectors into the bucket", h.id))
+			muveraVectors := helpers.MuveraBucketName(h.id)
+			if err := h.putInBucket(muveraVectors, docIDBytes, muveraBytes); err != nil {
+				return errors.Wrapf(err, "failed to put into the %s bucket", muveraVectors)
 			}
 		}
 		// Replace original vectors with processed ones
@@ -424,12 +425,12 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			binary.BigEndian.PutUint64(nodeIDBytes, nodeId)
 			docIDBytes := make([]byte, 8)
 			binary.BigEndian.PutUint64(docIDBytes, docID)
-			err := h.store.Bucket(helpers.MVMappingsBucketName(h.id)).Put(nodeIDBytes, docIDBytes)
-			if err != nil {
-				return errors.Wrap(err, fmt.Sprintf("failed to put %s_mv_mappings into the bucket", h.id))
+			mappings := helpers.MVMappingsBucketName(h.id)
+			if err := h.putInBucket(mappings, nodeIDBytes, docIDBytes); err != nil {
+				return errors.Wrapf(err, "failed to put into the %s bucket", mappings)
 			}
 
-			err = h.addOne(ctx, vector, node)
+			err := h.addOne(ctx, vector, node)
 			if err != nil {
 				return err
 			}

@@ -85,9 +85,9 @@ func newVectorIndexQueueWithID(
 	}
 	viq.vectorIndex = index
 
-	logger := shard.index.logger.WithField("component", "vector_index_queue").
-		WithField("shard_id", shard.ID()).
-		WithField("target_vector", logLabel)
+	logger := shard.vectorIndexLogger(logLabel, indexID).
+		WithField("component", "vector_index_queue").
+		WithField("shard_id", shard.ID())
 
 	staleTimeout, _ := time.ParseDuration(os.Getenv("ASYNC_INDEXING_STALE_TIMEOUT"))
 	batchSize, _ := strconv.Atoi(os.Getenv("ASYNC_INDEXING_BATCH_SIZE"))
@@ -268,11 +268,10 @@ func (iq *VectorIndexQueue) BeforeSchedule() (skip bool) {
 	return iq.checkCompressionSettings()
 }
 
-// Flush the vector index after a batch is processed.
-func (iq *VectorIndexQueue) OnBatchProcessed() {
-	if err := iq.vectorIndex.Flush(); err != nil {
-		iq.Logger.WithError(err).Error("failed to flush vector index")
-	}
+// Flush the vector index after a batch is processed. A non-nil error keeps
+// the processed chunk on disk so the queue replays it on a later cycle.
+func (iq *VectorIndexQueue) OnBatchProcessed() error {
+	return iq.vectorIndex.Flush()
 }
 
 type upgradableIndexer interface {

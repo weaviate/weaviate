@@ -188,3 +188,71 @@ func TestGetNestedPropertyDataType_QualifiedRef(t *testing.T) {
 	require.NotNil(t, gotPrim)
 	assert.Equal(t, DataTypeText, *gotPrim)
 }
+
+func TestGetPropertyByName_DotNotation(t *testing.T) {
+	class := &models.Class{
+		Class: "Test",
+		Properties: []*models.Property{
+			{Name: "plain"},
+			{Name: "nested"},
+		},
+	}
+
+	tests := []struct {
+		propName string
+		want     string
+		wantErr  bool
+	}{
+		{propName: "plain", want: "plain"},
+		{propName: "nested", want: "nested"},
+		{propName: "nested.inner", want: "nested"},
+		{propName: "nested.inner.deep", want: "nested"},
+		{propName: "missing", wantErr: true},
+		{propName: "missing.inner", wantErr: true},
+		{propName: "", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.propName, func(t *testing.T) {
+			got, err := GetPropertyByName(class, tt.propName)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got.Name)
+		})
+	}
+}
+
+func TestGetNestedPropertyByName_DotNotation(t *testing.T) {
+	p := fakeNestedProperty{
+		name: "outer",
+		nested: []*models.NestedProperty{
+			{Name: "plain"},
+			{Name: "nested"},
+		},
+	}
+
+	tests := []struct {
+		propName string
+		want     string
+		wantErr  bool
+	}{
+		{propName: "plain", want: "plain"},
+		{propName: "nested.inner", want: "nested"},
+		{propName: "missing.inner", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.propName, func(t *testing.T) {
+			got, err := GetNestedPropertyByName(p, tt.propName)
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got.Name)
+		})
+	}
+}

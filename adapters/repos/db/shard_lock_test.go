@@ -14,6 +14,7 @@
 package db
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -114,6 +115,9 @@ func TestShardLock_DocIdDeadlock(t *testing.T) {
 
 // this method tests the bucket_lock_debug.go methods using a real shard
 // it is set here instead of lsmkv to reuse shard creation methods dependencies
+//
+// Only publishing a segment takes the maintenance lock, so the flushes the
+// assertion needs are forced rather than left to background maintenance.
 func TestShardLock_ObjectsMaintenanceLock(t *testing.T) {
 	amount := 1000
 	ctx := testCtx()
@@ -121,22 +125,52 @@ func TestShardLock_ObjectsMaintenanceLock(t *testing.T) {
 	shd, _ := testShard(t, ctx, className)
 
 	ids := createDataForLockTests(t, shd, className, amount)
+	objectsBucket := shd.Store().Bucket(helpers.ObjectsBucketLSM)
+	require.NotNil(t, objectsBucket)
+
 	eg := enterrors.NewErrorGroupWrapper(logrus.New())
+
+	// set by the poller once it samples the lock held
+	var observed atomic.Bool
 
 	finished := make(chan struct{})
 	eg.Go(func() error {
-		t.Run("delete data from shard", func(t *testing.T) {
-			deleteDataForLockTests(t, shd, ids)
-		})
-		close(finished)
+		defer close(finished)
+
+		const flushEvery = 100
+		for i, id := range ids {
+			require.NoError(t, shd.batchDeleteObject(ctx, id, time.Now()))
+			if i%flushEvery == flushEvery-1 {
+				require.NoError(t, objectsBucket.FlushAndSwitch())
+			}
+		}
+
+		objs, err := shd.ObjectList(ctx, len(ids), nil, nil, additional.Properties{},
+			shd.Index().Config.ClassName)
+		require.NoError(t, err)
+		require.Equal(t, 0, len(objs))
+
+		// the poller is not synchronised with the flushes above; keep publishing
+		// segments, bounded, until one is actually observed
+		deadline := time.Now().Add(30 * time.Second)
+		for !observed.Load() && time.Now().Before(deadline) {
+			require.NoError(t, shd.PutObject(ctx, testObject(className)))
+			require.NoError(t, objectsBucket.FlushAndSwitch())
+		}
 		return nil
 	})
 
 	changes := 0
 	timeLocked := 0
-	objectsBucket := shd.Store().Bucket(helpers.ObjectsBucketLSM)
+	sampleLock := func() (bool, error) {
+		locked, err := objectsBucket.DebugGetSegmentGroupLockStatus()
+		if locked {
+			observed.Store(true)
+		}
+		return locked, err
+	}
 	eg.Go(func() error {
-		timeLocked, changes = testLock(t, finished, objectsBucket.DebugGetSegmentGroupLockStatus)
+		timeLocked, changes = testLock(t, finished, sampleLock)
 		return nil
 	})
 

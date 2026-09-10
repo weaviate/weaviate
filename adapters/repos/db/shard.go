@@ -24,10 +24,8 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -35,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
@@ -137,7 +136,6 @@ type ShardLike interface {
 	HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 	HashTreeRoot() (root hashtree.Digest, ok bool)
 	VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targets []string) ([]float32, error)
-	ConvertQueue(targetVector string) error
 	FillQueue(targetVector string, from uint64) error
 	Shutdown(context.Context) error // Shutdown the shard
 	// preventShutdown blocks shutdown until release is called; release is never nil, including on error.
@@ -147,8 +145,10 @@ type ShardLike interface {
 	ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor,
 		additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) // Search and return objects
 	WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time, error) // Check if an object was deleted
-	GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool)
-	GetVectorIndex(targetVector string) (VectorIndex, bool)
+	WithVectorIndex(targetVector string, f func(index VectorIndex) error) (found bool, err error)
+	WithVectorIndexQueue(targetVector string, f func(queue *VectorIndexQueue) error) (found bool, err error)
+	AcquireVectorIndex(targetVector string) (index VectorIndex, release func(), ok bool)
+	AcquireVectorIndexQueue(targetVector string) (queue *VectorIndexQueue, release func(), ok bool)
 	ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error
 	ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error
 	ForEachGeoQueue(f func(propName string, queue *VectorIndexQueue) error) error
@@ -157,6 +157,7 @@ type ShardLike interface {
 
 	isReadOnly() error
 	pathLSM() string
+	migrationRecordStore() *MigrationRecordStore
 
 	commitReplication(context.Context, string) interface{}
 	abortReplication(context.Context, string) replica.SimpleResponse
@@ -248,7 +249,6 @@ type Shard struct {
 	name              string
 	store             *lsmkv.Store
 	counter           *indexcounter.Counter
-	indexCheckpoints  *indexcheckpoint.Checkpoints
 	metrics           *Metrics
 	promMetrics       *monitoring.PrometheusMetrics
 	slowQueryReporter helpers.SlowQueryReporter
@@ -256,11 +256,9 @@ type Shard struct {
 	propLenTracker    *inverted.JsonShardMetaData
 	versioner         *shardVersioner
 
-	vectorIndexMu sync.RWMutex
-	vectorIndex   VectorIndex
-	queue         *VectorIndexQueue
-	vectorIndexes map[string]VectorIndex
-	queues        map[string]*VectorIndexQueue
+	// vectors owns the vector indexes and their queues, one slot per logical
+	// vector; see shard_vector_slots.go
+	vectors vectorIndexSlots
 
 	geoQueues map[string]*VectorIndexQueue
 
@@ -469,9 +467,10 @@ type Shard struct {
 	activityTrackerRead  atomic.Int32
 	activityTrackerWrite atomic.Int32
 
-	// shared bolt database for dynamic vector indexes.
-	// nil if there is no configured dynamic vector index
-	dynamicVectorIndexDB *bbolt.DB
+	// metadataDB is the shard-owned metadata database (<shard>/index.db).
+	// Lazily opened (today only dynamic vector indexes store state in it),
+	// closed by shutdown and by drop, snapshotted by backup.
+	metadataDB *shardmeta.DB
 
 	// indicates whether shard is shut down or dropped (or ongoing)
 	shut atomic.Bool
@@ -493,6 +492,8 @@ type Shard struct {
 	// path; registration/arm/disarm publish a fresh copy under the mutex.
 	propValueIndexState           atomic.Value // *propValueIndexState
 	propertyValueIndexCallbacksMu sync.Mutex
+
+	migrationRecords *MigrationRecordStore
 	// stores names of properties that are searchable and use buckets of
 	// inverted strategy. for such properties delta analyzer should avoid
 	// computing delta between previous and current values of properties
@@ -505,8 +506,6 @@ type Shard struct {
 	shutdownRequested atomic.Bool
 	// dropRequested marks shard as requested for drop.
 	dropRequested atomic.Bool
-
-	HFreshEnabled bool
 
 	lazySegmentLoadingEnabled bool
 
@@ -549,10 +548,7 @@ func (s *Shard) vectorIndexID(targetVector string) string {
 // vectorIndexID names the files a target vector's index owns inside the shard
 // directory. Unloaded shards need it too, so it does not hang off [Shard].
 func vectorIndexID(targetVector string) string {
-	if targetVector != "" {
-		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, targetVector)
-	}
-	return "main"
+	return helpers.VectorIndexIDForTarget(targetVector)
 }
 
 // uuidToIdLockPoolId computes a lock pool id for a given uuid. The lock pool
@@ -585,12 +581,10 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 	// collection that dropped its last vector carries an inert legacy config in
 	// the schema, but its shards were built without a legacy index and there is
 	// nothing to reconfigure.
-	index, ok := s.GetVectorIndex("")
-	if !ok {
-		return nil
-	}
-
-	return index.UpdateUserConfig(updated, noopCallback)
+	_, err := s.WithVectorIndex("", func(index VectorIndex) error {
+		return index.UpdateUserConfig(updated, noopCallback)
+	})
+	return err
 }
 
 func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
@@ -610,8 +604,12 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 
 	var err error
 	for targetVector, targetCfg := range updated {
-		if index, ok := s.GetVectorIndex(targetVector); ok {
-			if err = index.UpdateUserConfig(targetCfg, noopCallback); err != nil {
+		var found bool
+		found, err = s.WithVectorIndex(targetVector, func(index VectorIndex) error {
+			return index.UpdateUserConfig(targetCfg, noopCallback)
+		})
+		if found {
+			if err != nil {
 				break
 			}
 		} else {
@@ -629,16 +627,19 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 	return err
 }
 
-// objectsBucket returns the shard's objects bucket, or an error once the store
-// is torn down
-func (s *Shard) objectsBucket() (*lsmkv.Bucket, error) {
-	b := s.store.Bucket(helpers.ObjectsBucketLSM)
+// objectsBucket returns the shard's objects bucket pinned for the caller's
+// operation, or an error once the store is torn down. The release closure is
+// always non-nil and must be called exactly once: it drops the lifetime pin
+// that keeps a concurrent [lsmkv.Bucket.Shutdown] from unmapping the segments
+// the operation is reading.
+func (s *Shard) objectsBucket() (*lsmkv.Bucket, func(), error) {
+	b, release := s.store.AcquireBucketForRead(helpers.ObjectsBucketLSM)
 	if b == nil {
 		err := fmt.Errorf("objects bucket of shard %q: %w", s.name, lsmkv.ErrBucketNotFound)
 		s.reportTornStoreAccess(err)
-		return nil, err
+		return nil, release, err
 	}
-	return b, nil
+	return b, release, nil
 }
 
 // reportTornStoreAccess makes an outrun drain visible
@@ -650,7 +651,7 @@ func (s *Shard) reportTornStoreAccess(err error) {
 		"action": "objects_bucket_missing",
 		"class":  s.index.Config.ClassName.String(),
 		"shard":  s.name,
-	}).Warnf("mutation reached a torn-down store, a teardown drain was outrun, %v", err)
+	}).Warnf("request reached a torn-down store, a teardown drain was outrun, %v", err)
 }
 
 // ObjectCount returns the exact count at any moment

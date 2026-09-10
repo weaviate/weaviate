@@ -18,6 +18,8 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 // Tests for the per-migration generation helpers added for
@@ -63,17 +65,40 @@ func TestGenSuffix(t *testing.T) {
 	require.Equal(t, "_0", genSuffix(0)) // 0 is reserved (canonical) but genSuffix still emits — callers don't pass 0
 }
 
-// fakeMigrationsDir creates a temp .migrations/ tree with the given dir
-// names and returns the parent lsmPath.
-func fakeMigrationsDir(t *testing.T, dirs []string) string {
-	t.Helper()
+// A stat failure must not read as absence: that would retire an in-flight
+// migration and record it complete without ever rebuilding the index.
+func TestMigrationTrackerDirAbsentDoesNotReadAStatFailureAsAbsence(t *testing.T) {
 	lsmPath := t.TempDir()
-	migsDir := filepath.Join(lsmPath, ".migrations")
-	require.NoError(t, os.MkdirAll(migsDir, 0o755))
-	for _, d := range dirs {
-		require.NoError(t, os.MkdirAll(filepath.Join(migsDir, d), 0o755))
+	require.NoError(t, os.Mkdir(filepath.Join(lsmPath, ".migrations"), 0o755))
+	const dirName = MigrationDirSearchableMapToBlockmax + "_1"
+	dirPath := filepath.Join(lsmPath, ".migrations", dirName)
+
+	require.True(t, migrationTrackerDirAbsent(lsmPath, dirName))
+	require.NoError(t, os.Mkdir(dirPath, 0o755))
+	require.False(t, migrationTrackerDirAbsent(lsmPath, dirName))
+
+	// A symlink loop stands in for the stat failures a unit test cannot
+	// produce (EIO, EACCES, no descriptors left), as in [breakSentinelRead].
+	require.NoError(t, os.Remove(dirPath))
+	require.NoError(t, os.Symlink(dirName, dirPath))
+	require.False(t, migrationTrackerDirAbsent(lsmPath, dirName),
+		"a tracker dir whose stat fails must not read as one that is not there")
+}
+
+// classWithIndexedProps authorizes finalization for every migrated index, so
+// callers can exercise generation/recovery logic without schema gating.
+func classWithIndexedProps(names ...string) *models.Class {
+	on := true
+	class := &models.Class{Class: "Finalize"}
+	for _, name := range names {
+		class.Properties = append(class.Properties, &models.Property{
+			Name:              name,
+			IndexFilterable:   &on,
+			IndexSearchable:   &on,
+			IndexRangeFilters: &on,
+		})
 	}
-	return lsmPath
+	return class
 }
 
 // touchSentinel creates an empty file at the given path. Used to
@@ -83,69 +108,117 @@ func touchSentinel(t *testing.T, path string) {
 	require.NoError(t, os.WriteFile(path, nil, 0o644))
 }
 
-func TestNextMigrationGeneration_EmptyDisk(t *testing.T) {
-	lsmPath := fakeMigrationsDir(t, nil)
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text")
-	require.Equal(t, 1, got, "fresh disk should pick gen 1")
-}
+// Finalizing is refused only for a canonical dir the load-time sweep would
+// delete (an index explicitly turned off); every other schema state finalizes.
+func TestFinalizeCompletedMigrations_FollowsTheSchemaFlag(t *testing.T) {
+	const propName = "text"
+	off, on := false, true
 
-func TestNextMigrationGeneration_NoMatchingPrefix(t *testing.T) {
-	// Existing dirs for a DIFFERENT prop / strategy don't bump the
-	// counter for ours.
-	lsmPath := fakeMigrationsDir(t, []string{
-		"searchable_retokenize_otherprop_1",
-		"filterable_retokenize_text_2",
-		"enable_filterable_text_5",
-	})
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text")
-	require.Equal(t, 1, got, "no matching prefix means fresh gen 1")
-}
+	tests := []struct {
+		name          string
+		tracker       string
+		canonical     string
+		ingestSuffix  string
+		props         []*models.Property
+		wantFinalized bool
+	}{
+		{
+			name:         "enable-filterable while the flag is still off",
+			tracker:      "enable_filterable_text_1",
+			canonical:    "property_text",
+			ingestSuffix: "__enable_filterable_ingest_1",
+			props:        []*models.Property{{Name: propName, IndexFilterable: &off}},
+		},
+		{
+			name:          "enable-filterable once the flag has landed",
+			tracker:       "enable_filterable_text_1",
+			canonical:     "property_text",
+			ingestSuffix:  "__enable_filterable_ingest_1",
+			props:         []*models.Property{{Name: propName, IndexFilterable: &on}},
+			wantFinalized: true,
+		},
+		{
+			name:          "a flag the class leaves unset",
+			tracker:       "enable_filterable_text_1",
+			canonical:     "property_text",
+			ingestSuffix:  "__enable_filterable_ingest_1",
+			props:         []*models.Property{{Name: propName}},
+			wantFinalized: true,
+		},
+		{
+			name:          "a property the class does not hold",
+			tracker:       "enable_filterable_text_1",
+			canonical:     "property_text",
+			ingestSuffix:  "__enable_filterable_ingest_1",
+			wantFinalized: true,
+		},
+		{
+			name:         "enable-searchable while the flag is still off",
+			tracker:      "enable_searchable_text_1",
+			canonical:    "property_text_searchable",
+			ingestSuffix: "__enable_searchable_ingest_1",
+			props:        []*models.Property{{Name: propName, IndexSearchable: &off}},
+		},
+		{
+			name:         "filterable-to-rangeable while the flag is still off",
+			tracker:      "filterable_to_rangeable_text_1",
+			canonical:    "property_text_rangeable",
+			ingestSuffix: "__rangeable_ingest_1",
+			props:        []*models.Property{{Name: propName, IndexRangeFilters: &off}},
+		},
+		{
+			name:         "a retokenize onto a searchable index the class turns off",
+			tracker:      "searchable_retokenize_text_1",
+			canonical:    "property_text_searchable",
+			ingestSuffix: "__retokenize_ingest_1",
+			props:        []*models.Property{{Name: propName, IndexSearchable: &off}},
+		},
+		{
+			name:          "rebuild-searchable, which flips no flag of its own",
+			tracker:       "rebuild_searchable_text_1",
+			canonical:     "property_text_searchable",
+			ingestSuffix:  "__rebuild_searchable_ingest_1",
+			props:         []*models.Property{{Name: propName, IndexSearchable: &on}},
+			wantFinalized: true,
+		},
+	}
 
-func TestNextMigrationGeneration_ContiguousGens(t *testing.T) {
-	lsmPath := fakeMigrationsDir(t, []string{
-		"searchable_retokenize_text_1",
-		"searchable_retokenize_text_2",
-		"searchable_retokenize_text_3",
-	})
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text")
-	require.Equal(t, 4, got, "max+1 across contiguous gens")
-}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			lsmPath := t.TempDir()
+			trackerDir := filepath.Join(lsmPath, migrationsDir, tc.tracker)
+			require.NoError(t, os.MkdirAll(trackerDir, 0o755))
+			touchSentinel(t, filepath.Join(trackerDir, "swapped.mig"))
+			touchSentinel(t, filepath.Join(trackerDir, "tidied.mig"))
+			require.NoError(t, os.WriteFile(
+				filepath.Join(trackerDir, "properties.mig"), []byte(propName), 0o644))
 
-func TestNextMigrationGeneration_NonContiguousGens(t *testing.T) {
-	// If gens have gaps (e.g. trim removed some but not the highest), we
-	// still pick max+1 — never reuse a gap.
-	lsmPath := fakeMigrationsDir(t, []string{
-		"searchable_retokenize_text_1",
-		"searchable_retokenize_text_5",
-		"searchable_retokenize_text_7",
-	})
-	got := nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text")
-	require.Equal(t, 8, got, "non-contiguous gens still pick max+1")
-}
+			stagedDir := filepath.Join(lsmPath, tc.canonical+tc.ingestSuffix)
+			require.NoError(t, os.MkdirAll(stagedDir, 0o755))
+			require.NoError(t, os.WriteFile(
+				filepath.Join(stagedDir, "segment.db"), []byte("rebuilt"), 0o644))
 
-func TestNextMigrationGeneration_MixedPrefixesScopedCorrectly(t *testing.T) {
-	lsmPath := fakeMigrationsDir(t, []string{
-		"searchable_retokenize_text_3",
-		"searchable_retokenize_other_7", // different prop in same prefix
-		"filterable_retokenize_text_10", // different prefix, same prop
-	})
-	require.Equal(t, 4, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text"))
-	require.Equal(t, 8, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_other"))
-	require.Equal(t, 11, nextMigrationGeneration(lsmPath, MigrationDirPrefixFilterableRetokenize, "_text"))
-	require.Equal(t, 1, nextMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_neverused"))
-}
+			logger, _ := test.NewNullLogger()
+			FinalizeCompletedMigrations(lsmPath,
+				&models.Class{Class: "Finalize", Properties: tc.props}, logger)
 
-func TestMaxMigrationGeneration_NoExisting(t *testing.T) {
-	lsmPath := fakeMigrationsDir(t, nil)
-	require.Equal(t, 0, maxMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text"))
-}
-
-func TestMaxMigrationGeneration_Existing(t *testing.T) {
-	lsmPath := fakeMigrationsDir(t, []string{
-		"searchable_retokenize_text_2",
-		"searchable_retokenize_text_5",
-	})
-	require.Equal(t, 5, maxMigrationGeneration(lsmPath, MigrationDirPrefixSearchableRetokenize, "_text"))
+			canonicalDir := filepath.Join(lsmPath, tc.canonical)
+			if tc.wantFinalized {
+				data, err := os.ReadFile(filepath.Join(canonicalDir, "segment.db"))
+				require.NoError(t, err, "the rebuilt data must reach the canonical name")
+				require.Equal(t, "rebuilt", string(data))
+				require.NoDirExists(t, stagedDir)
+				require.NoDirExists(t, trackerDir)
+				return
+			}
+			require.NoDirExists(t, canonicalDir,
+				"the next load's sweep deletes a canonical directory under a disabled index")
+			require.FileExists(t, filepath.Join(stagedDir, "segment.db"),
+				"the rebuilt data must keep its staged name until the flag lands")
+			require.DirExists(t, trackerDir,
+				"the tracker must survive, or nothing knows to finalize later")
+		})
+	}
 }
 
 // TestFinalizeCompletedMigrations_MultiGen_PickHighestTidied verifies
@@ -183,7 +256,7 @@ func TestFinalizeCompletedMigrations_MultiGen_PickHighestTidied(t *testing.T) {
 		winnerMarker, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("text"), logger)
 
 	// Canonical main dir should exist and contain gen-3's marker.
 	canonical := filepath.Join(lsmPath, "property_text_searchable")
@@ -232,7 +305,7 @@ func TestFinalizeCompletedMigrations_TidiedPlusInFlight(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_2"), 0o755))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("text"), logger)
 
 	// Gen 1 finalized → canonical dir exists.
 	_, err := os.Stat(filepath.Join(lsmPath, "property_text_searchable"))
@@ -268,7 +341,7 @@ func TestFinalizeCompletedMigrations_OnlyUntidiedIsNoOp(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_1"), 0o755))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("text"), logger)
 
 	// Tracker dir still there.
 	_, err := os.Stat(gen1)
@@ -353,7 +426,7 @@ func TestFinalizeCompletedMigrations_MergedButNotTidied_Recovers(t *testing.T) {
 		gen2Marker, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("text"), logger)
 
 	// Canonical dir must contain gen-2's marker, NOT gen-1's stale data.
 	canonical := filepath.Join(lsmPath, "property_text_searchable")
@@ -398,7 +471,7 @@ func TestFinalizeCompletedMigrations_MergedOnly_NoPriorTidied_Recovers(t *testin
 		marker, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("text"), logger)
 
 	canonical := filepath.Join(lsmPath, "property_text_searchable")
 	got, err := os.ReadFile(filepath.Join(canonical, "segment.db"))
@@ -442,7 +515,7 @@ func TestFinalizeCompletedMigrations_TidiedHigherThanMerged_PicksTidied(t *testi
 		winner, 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("text"), logger)
 
 	got, err := os.ReadFile(filepath.Join(lsmPath, "property_text_searchable", "segment.db"))
 	require.NoError(t, err)
@@ -475,7 +548,7 @@ func TestFinalizeCompletedMigrations_RecoveryWritesMissingSentinels(t *testing.T
 		[]byte("data"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("text"), logger)
 
 	// If sentinels weren't written before finalizeMigrationDir ran, the
 	// canonical dir would not be created (finalizeMigrationDir returns
@@ -509,7 +582,7 @@ func TestFinalizeCompletedMigrations_StartedOnlyNotPromoted(t *testing.T) {
 	require.NoError(t, os.MkdirAll(filepath.Join(lsmPath, "property_text_searchable__retokenize_reindex_1"), 0o755))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("text"), logger)
 
 	// Tracker untouched.
 	_, err := os.Stat(gen1)
@@ -559,7 +632,7 @@ func TestFinalizeCompletedMigrations_RecoveryAcrossNamespaces(t *testing.T) {
 		[]byte("filterable-data"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("text"), logger)
 
 	// Both canonical dirs should now exist with their respective data.
 	sBytes, err := os.ReadFile(filepath.Join(lsmPath, "property_text_searchable", "s.db"))
@@ -591,10 +664,10 @@ func TestFinalizeCompletedMigrations_IdempotentAfterRecovery(t *testing.T) {
 		[]byte("data"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("text"), logger)
 
 	// Second call should be a complete no-op now that nothing remains in .migrations.
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("text"), logger)
 
 	got, err := os.ReadFile(filepath.Join(lsmPath, "property_text_searchable", "seg.db"))
 	require.NoError(t, err)
@@ -683,7 +756,7 @@ func TestFinalizeCompletedMigrations_ConcurrentMultiPropMigrations_Converge(t *t
 		[]byte("gamma-range-NEW"), 0o644))
 
 	logger, _ := test.NewNullLogger()
-	FinalizeCompletedMigrations(lsmPath, logger)
+	FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("alpha", "beta", "gamma"), logger)
 
 	// All three property migrations must promote to their canonical
 	// names with the correct data. A bug that processed only the first
@@ -782,7 +855,7 @@ func TestFinalizeCompletedMigrations_PerShardDivergentStates_Converge(t *testing
 		case "no_migrations":
 			// Intentionally empty — finalize must be a no-op here.
 		}
-		FinalizeCompletedMigrations(lsmPath, logger)
+		FinalizeCompletedMigrations(lsmPath, classWithIndexedProps("path"), logger)
 	}
 
 	for _, sh := range shards {

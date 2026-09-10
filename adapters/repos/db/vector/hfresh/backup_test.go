@@ -53,7 +53,7 @@ func TestHFreshBackupListFiles(t *testing.T) {
 
 	fmt.Printf("generating data took %s\n", time.Since(before))
 
-	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk(cfg.TargetVector, func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
+	cfg.VectorForIDThunk = hnsw.NewVectorForIDThunk("", func(ctx context.Context, indexID uint64, targetVector string) ([]float32, error) {
 		return vectors[indexID], nil
 	})
 	index := makeHFreshWithConfig(t, store, cfg, ucfg)

@@ -38,7 +38,6 @@ func newTestHandlerWithRealVectorConfigParser(t *testing.T) *Handler {
 	cfg := config.Config{
 		DefaultVectorizerModule:     config.VectorizerModuleNone,
 		DefaultVectorDistanceMetric: "cosine",
-		HFreshEnabled:               true,
 	}
 	fakeClusterState := fakes.NewFakeClusterState()
 	fakeValidator := &fakeValidator{}

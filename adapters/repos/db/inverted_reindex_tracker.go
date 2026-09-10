@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 // -----------------------------------------------------------------------------
@@ -335,41 +334,8 @@ func (t *fileReindexTracker) createFile(filename string, content []byte) error {
 // none — never a truncated one. Unlike [fileReindexTracker.createFile] it
 // overwrites, which is what lets a caller repair a torn file. Use it wherever
 // a reader keys off the file's content rather than its mere existence.
-func (t *fileReindexTracker) createFileAtomic(filename string, content []byte) (err error) {
-	// Same directory as the target, or the rename would cross filesystems.
-	// Nothing sweeps a temp file a crash leaves behind, so it stays out of
-	// backups by its .tmp extension alone — every walk that reaches this
-	// directory has to skip that extension.
-	tmp, err := os.CreateTemp(t.config.migrationPath, filename+".*.tmp")
-	if err != nil {
-		return err
-	}
-	tmpPath := tmp.Name()
-	defer func() {
-		if err != nil {
-			tmp.Close()
-			os.Remove(tmpPath)
-		}
-	}()
-
-	if _, err = tmp.Write(content); err != nil {
-		return err
-	}
-	// The bytes have to reach the disk before the name does, or a machine
-	// crash can publish the new name over content that never landed.
-	if err = tmp.Sync(); err != nil {
-		return err
-	}
-	// Close reports write errors the Write above can still be holding.
-	if err = tmp.Close(); err != nil {
-		return err
-	}
-	if err = os.Rename(tmpPath, t.filepath(filename)); err != nil {
-		return err
-	}
-	// The rename is itself a directory entry, and survives a machine crash
-	// only once the directory holding it is synced.
-	return diskio.Fsync(t.config.migrationPath)
+func (t *fileReindexTracker) createFileAtomic(filename string, content []byte) error {
+	return writeFileAtomic(t.config.migrationPath, filename, content)
 }
 
 func (t *fileReindexTracker) removeFile(filename string) error {

@@ -158,7 +158,7 @@ func TestRQCompressorFactoryDispatch(t *testing.T) {
 
 	newCompressor := func(store *lsmkv.Store, bits int) (compressionhelpers.VectorCompressor, error) {
 		return compressionhelpers.NewRQCompressor(dist, 1e6, logger, store, memwatch.NewDummyMonitor(),
-			lsmkv.MakeNoopBucketOptions, bits, dim, "", nil)
+			lsmkv.MakeNoopBucketOptions, bits, dim, "vectors_compressed", nil)
 	}
 
 	// statsBits extracts the bit width from the stats type the given
@@ -202,7 +202,7 @@ func TestRQCompressorFactoryDispatch(t *testing.T) {
 			restoredCompressor, err := compressionhelpers.RestoreRQCompressor(dist, 1e6, logger,
 				int(data.InputDim), int(data.Bits), int(data.Rotation.OutputDim), int(data.Rotation.Rounds),
 				data.Rotation.Swaps, data.Rotation.Signs, nil, data.Mean, restoreStore,
-				memwatch.NewDummyMonitor(), lsmkv.MakeNoopBucketOptions, "", nil)
+				memwatch.NewDummyMonitor(), lsmkv.MakeNoopBucketOptions, "vectors_compressed", nil)
 			require.NoError(t, err)
 			defer restoredCompressor.Drop()
 			assert.Equal(t, uint32(bits), statsBits(t, restoredCompressor, bits))
@@ -212,7 +212,7 @@ func TestRQCompressorFactoryDispatch(t *testing.T) {
 			store := testinghelpers.NewDummyStore(t)
 			defer store.Shutdown(context.Background())
 			compressor, err := compressionhelpers.NewRQMultiCompressor(dist, 1e6, logger, store,
-				memwatch.NewDummyMonitor(), lsmkv.MakeNoopBucketOptions, bits, dim, "", nil)
+				memwatch.NewDummyMonitor(), lsmkv.MakeNoopBucketOptions, bits, dim, "vectors_compressed", nil)
 			require.NoError(t, err)
 			defer compressor.Drop()
 			assert.Equal(t, uint32(bits), statsBits(t, compressor, bits))
@@ -227,7 +227,7 @@ func TestRQCompressorFactoryDispatch(t *testing.T) {
 			restoredCompressor, err := compressionhelpers.RestoreRQMultiCompressor(dist, 1e6, logger,
 				int(data.InputDim), int(data.Bits), int(data.Rotation.OutputDim), int(data.Rotation.Rounds),
 				data.Rotation.Swaps, data.Rotation.Signs, nil, restoreStore, memwatch.NewDummyMonitor(),
-				lsmkv.MakeNoopBucketOptions, "", nil)
+				lsmkv.MakeNoopBucketOptions, "vectors_compressed", nil)
 			require.NoError(t, err)
 			defer restoredCompressor.Drop()
 			assert.Equal(t, uint32(bits), statsBits(t, restoredCompressor, bits))
