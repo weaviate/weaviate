@@ -59,6 +59,20 @@ func (b *deleteObjectsBatcher) delete(ctx context.Context, uuids []strfmt.UUID, 
 	b.objects = b.deleteSingleBatchInLSM(ctx, uuids, deletionTime, dryRun)
 }
 
+// deleteSingleBatchInLSM deletes the batch in two phases so the whole batch
+// shares ONE durability barrier:
+//
+//	phase 1 (concurrent): per object, read the row and remove its inverted
+//	  postings (prepareBatchDelete) — no row deletes yet.
+//	barrier (once): make every phase-1 posting removal durable over the
+//	  union of touched buckets (invertedDeleteBarrier).
+//	phase 2 (concurrent): per object, re-validate and delete the row
+//	  (finalizeBatchDelete); a row changed by a concurrent put between the
+//	  phases falls back to a full per-object crash-safe delete.
+//
+// This order guarantees no crash can leave an orphan posting (docID in a
+// posting, no object row), which — once docIDs are reused — would resolve to
+// a different object.
 func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,
 	batch []strfmt.UUID, deletionTime time.Time, dryRun bool,
 ) objects.BatchSimpleObjects {
@@ -76,10 +90,15 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,
 		return result
 	}
 
+	// phase 1: concurrent inverted cleanups, accumulating the union of
+	// touched buckets; rows stay in place
+	preps := make([]*preparedBatchDelete, len(batch))
+	touchedUnion := newTouchedBuckets()
+
 	eg := enterrors.NewErrorGroupWrapper(b.shard.Index().logger)
 	eg.SetLimit(_NUMCPU) // prevent unbounded concurrency
 
-	lastDeleted := -1
+	lastScheduled := -1
 outer:
 	for i, uuid := range batch {
 		select {
@@ -89,39 +108,88 @@ outer:
 		}
 
 		f := func() error {
-			// perform delete
-			obj := b.deleteObjectOfBatchInLSM(ctx, uuid, deletionTime, dryRun)
+			obj, prep := b.prepareObjectOfBatchInLSM(ctx, uuid, deletionTime, dryRun)
 			objLock.Lock()
 			result[i] = obj
+			if prep != nil {
+				preps[i] = prep
+				touchedUnion.merge(prep.touched)
+			}
 			objLock.Unlock()
 			return nil
 		}
 		eg.Go(f, i, uuid)
-		lastDeleted = i
+		lastScheduled = i
 
 	}
 	// safe to ignore error, as the internal routines never return an error
 	eg.Wait()
 
 	ctxErr := ctx.Err()
-	for i, count := lastDeleted+1, len(batch); i < count; i++ {
+	for i, count := lastScheduled+1, len(batch); i < count; i++ {
 		result[i] = objects.BatchSimpleObject{UUID: batch[i], Err: ctxErr}
 	}
+
+	// barrier: phase 1's posting removals must be durable before ANY row
+	// delete below can possibly become durable
+	anyPrepared := false
+	for i := range preps {
+		if preps[i] != nil && preps[i].found && result[i].Err == nil {
+			anyPrepared = true
+			break
+		}
+	}
+	if anyPrepared {
+		if err := b.shard.invertedDeleteBarrier(ctx, touchedUnion); err != nil {
+			// rows were not deleted; every prepared object converges on retry
+			err = errors.Wrap(err, "inverted delete barrier")
+			for i := range preps {
+				if preps[i] != nil && preps[i].found && result[i].Err == nil {
+					result[i] = objects.BatchSimpleObject{UUID: batch[i], Err: err}
+				}
+			}
+			return result
+		}
+	}
+
+	// phase 2: concurrent re-validation + row deletes
+	eg = enterrors.NewErrorGroupWrapper(b.shard.Index().logger)
+	eg.SetLimit(_NUMCPU)
+	for i := range preps {
+		if preps[i] == nil || !preps[i].found || result[i].Err != nil {
+			continue
+		}
+		prep := preps[i]
+		f := func() error {
+			err := b.shard.finalizeBatchDelete(ctx, prep, deletionTime)
+			objLock.Lock()
+			result[i] = objects.BatchSimpleObject{UUID: prep.uuid, Err: err}
+			objLock.Unlock()
+			return nil
+		}
+		eg.Go(f, i, prep.uuid)
+	}
+	eg.Wait()
 
 	return result
 }
 
-func (b *deleteObjectsBatcher) deleteObjectOfBatchInLSM(ctx context.Context,
+// prepareObjectOfBatchInLSM runs phase 1 for one object of the batch. The
+// returned prep is nil for dry runs and failures.
+func (b *deleteObjectsBatcher) prepareObjectOfBatchInLSM(ctx context.Context,
 	uuid strfmt.UUID, deletionTime time.Time, dryRun bool,
-) objects.BatchSimpleObject {
+) (objects.BatchSimpleObject, *preparedBatchDelete) {
 	before := time.Now()
 	defer b.shard.Metrics().BatchDelete(before, "shard_delete_individual_total")
 	if !dryRun {
-		err := b.shard.batchDeleteObject(ctx, uuid, deletionTime)
-		return objects.BatchSimpleObject{UUID: uuid, Err: err}
+		prep, err := b.shard.prepareBatchDelete(ctx, uuid, deletionTime)
+		if err != nil {
+			return objects.BatchSimpleObject{UUID: uuid, Err: err}, nil
+		}
+		return objects.BatchSimpleObject{UUID: uuid, Err: nil}, prep
 	}
 
-	return objects.BatchSimpleObject{UUID: uuid, Err: nil}
+	return objects.BatchSimpleObject{UUID: uuid, Err: nil}, nil
 }
 
 func (b *deleteObjectsBatcher) flushWALs(ctx context.Context) {
