@@ -64,6 +64,16 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 	legacy := s.index.GetVectorIndexConfig("")
 	targets := s.index.getTargetVectorIndexConfigs()
 
+	// The mapping is the shard's record of which indexes it has. A shard
+	// without one builds under the naming rule and writes it; one with it
+	// reconciles the records against the schema first.
+	_, initialized, err := s.mapping.Load()
+	if err != nil {
+		return fmt.Errorf("shard %q: %w", s.ID(), err)
+	}
+	// an initialized mapping is reconciled in the next commit; until then
+	// it builds as before and writes nothing
+
 	if legacy != nil {
 		if err := s.initLegacyVector(ctx, legacy, s.lazySegmentLoadingEnabled); err != nil {
 			return err
@@ -74,6 +84,12 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 		return err
 	}
 
+	if !initialized {
+		err = s.initVectorIndexMapping(activeVectorIndexConfigs(legacy, targets))
+		if err != nil {
+			return fmt.Errorf("shard %q: %w", s.ID(), err)
+		}
+	}
 	return nil
 }
 

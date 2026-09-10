@@ -225,8 +225,8 @@ func TestDropVectorIndex_FailedTeardownKeepsTheIndexForCleanup(t *testing.T) {
 	failing.On("Drop", mock.Anything, false).Return(assert.AnError).Once()
 	failing.On("Drop", mock.Anything, false).Return(nil).Once()
 	require.True(t, shard.vectors.Replace("named", failing))
+	// the first load recorded the vector ready
 	named := vectorIndexRecord{PhysicalID: "vectors_named", IndexType: "hnsw", State: "ready"}
-	require.NoError(t, shard.mapping.Initialize(map[string]vectorIndexRecord{"named": named}))
 
 	err := shard.DropVectorIndex(ctx, "named")
 	require.ErrorIs(t, err, assert.AnError)
