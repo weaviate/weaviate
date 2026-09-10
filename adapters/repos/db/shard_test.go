@@ -1136,10 +1136,7 @@ func getVectorIndexAndQueue(t *testing.T, shard ShardLike, targetVector string) 
 	return idx, q
 }
 
-// TestShard_OpensMetadataDBForEveryShard pins that index.db is opened at
-// load for every shard, not only for one with a dynamic index: the vector
-// index mapping is read from it, and its file lock is what makes an offline
-// operation that raced the load fail instead of writing next to us.
+// Every shard opens index.db at load, and its lock makes an offline read fail.
 func TestShard_OpensMetadataDBForEveryShard(t *testing.T) {
 	ctx := testCtx()
 	shd, _ := testShard(t, ctx, "MetaDBEveryShard")
@@ -1149,8 +1146,7 @@ func TestShard_OpensMetadataDBForEveryShard(t *testing.T) {
 	_, err := os.Stat(path.Join(s.path(), shardmeta.FileName))
 	require.NoError(t, err)
 
-	// the loaded shard holds the lock: the offline read reports an error,
-	// not "no state"
+	// the loaded shard holds the lock
 	_, _, err = shardmeta.GetOffline(s.path(), dynamicindex.StateNamespace, []byte("upgraded"))
 	require.Error(t, err)
 }

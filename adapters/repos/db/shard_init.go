@@ -148,12 +148,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
-	// The shard's metadata DB stays open for the shard's whole life: the
-	// vector index mapping is read from it at load, a dynamic index writes
-	// its upgrade verdict to it, and bolt's file lock is what makes an
-	// offline operation that raced this load fail cleanly. Shutdown and the
-	// drop close it. The timeout bounds the wait on a lock a leaked handle
-	// still holds; without it bolt retries forever.
+	// Open for the shard's life: read at load, written by dynamic, and its
+	// file lock makes an offline operation that raced this load fail cleanly.
+	// The timeout bounds the wait on a leaked handle's lock.
 	s.metadataDB, err = shardmeta.Open(s.path(), entlsmkv.BoltFlockTimeout)
 	if err != nil {
 		return nil, fmt.Errorf("open metadata db for shard %q: %w", s.ID(), err)

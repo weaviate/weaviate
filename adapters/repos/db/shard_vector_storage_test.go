@@ -24,8 +24,7 @@ import (
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 )
 
-// newTestDynamicState opens a metadata DB in shardDir and returns dynamic's
-// state namespace, the way the shard hands it to the index.
+// newTestDynamicState returns dynamic's state namespace on a fresh index.db.
 func newTestDynamicState(t *testing.T, shardDir string) dynamic.StateOps {
 	t.Helper()
 	db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
@@ -34,9 +33,7 @@ func newTestDynamicState(t *testing.T, shardDir string) dynamic.StateOps {
 	return db.Namespace(dynamic.StateNamespace)
 }
 
-// TestVectorIndexStorageDirs pins which directories each index type
-// occupies for a physical ID; the probe checks them and the durability
-// step syncs them.
+// TestVectorIndexStorageDirs pins the directories each index type occupies.
 func TestVectorIndexStorageDirs(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -90,7 +87,6 @@ func TestVectorIndexStorageExists(t *testing.T) {
 		filepath.Join(shardDir, "lsm", "vectors"),
 	}
 
-	// nothing there yet
 	exists, err := vectorIndexStorageExists(dirs)
 	require.NoError(t, err)
 	assert.False(t, exists)
@@ -106,13 +102,12 @@ func TestVectorIndexStorageExists(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, exists)
 
-	// a file where a directory belongs is an error, not "absent"
+	// a file in a dir's place is an error, not "absent"
 	require.NoError(t, os.RemoveAll(dirs[0]))
 	require.NoError(t, os.WriteFile(dirs[0], []byte("x"), 0o644))
 	_, err = vectorIndexStorageExists(dirs)
 	require.ErrorContains(t, err, "not a directory")
 
-	// no directories means nothing can be missing
 	exists, err = vectorIndexStorageExists(nil)
 	require.NoError(t, err)
 	assert.True(t, exists)
@@ -132,7 +127,6 @@ func TestSyncVectorIndexStorage(t *testing.T) {
 	require.NoError(t, syncVectorIndexStorage(dirs))
 	require.NoError(t, syncVectorIndexStorage(nil))
 
-	// a directory that is not there cannot be made durable
 	missing := filepath.Join(shardDir, "vectors_gone.hnsw.commitlog.d")
 	err := syncVectorIndexStorage([]string{missing})
 	require.ErrorContains(t, err, missing)

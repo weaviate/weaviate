@@ -332,10 +332,8 @@ func UpgradedOnDisk(rootPath, id string) (bool, error) {
 	return upgradedFromVerdict(v, rootPath, id), nil
 }
 
-// UpgradedInState is UpgradedOnDisk for a LOADED shard: the same verdict,
-// read through the shard's own metadata handle instead of opening the
-// file, which the loaded shard holds locked. It reads only; the index's
-// own load is what migrates a missing named-vector key.
+// UpgradedInState is UpgradedOnDisk through a loaded shard's own handle. It
+// only reads; the index's load is what migrates a missing named key.
 func UpgradedInState(state StateOps, rootPath, id string) (bool, error) {
 	v, err := state.Get(dbKeyForID(id))
 	if err != nil {
@@ -344,11 +342,9 @@ func UpgradedInState(state StateOps, rootPath, id string) (bool, error) {
 	return upgradedFromVerdict(v, rootPath, id), nil
 }
 
-// upgradedFromVerdict decodes a stored verdict the way the index's own
-// load does: a recorded value wins; no value (a missing file, namespace,
-// key, or an empty value) falls back to the hnsw commit log directory for
-// a named vector only. An unnamed vector's load reads a missing key as not
-// upgraded and then deletes that directory, so nothing may infer from it.
+// upgradedFromVerdict decodes a verdict as the index's load does: a value
+// wins; none falls back to the commit log directory for a named vector only,
+// since an unnamed vector's load deletes that directory.
 func upgradedFromVerdict(v []byte, rootPath, id string) bool {
 	if len(v) > 0 {
 		return v[0] != 0

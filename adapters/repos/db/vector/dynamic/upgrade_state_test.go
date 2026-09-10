@@ -214,8 +214,7 @@ func setUpStateDB(t *testing.T, rootPath string, state stateDB, key string, valu
 	require.NoError(t, db.Close())
 }
 
-// TestUpgradedInState pins the loaded-shard twin of UpgradedOnDisk: the
-// same verdict, read through the shard's open metadata handle.
+// TestUpgradedInState pins UpgradedOnDisk's verdicts read through an open handle.
 func TestUpgradedInState(t *testing.T) {
 	tests := []struct {
 		name          string

@@ -23,16 +23,10 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex"
 )
 
-// vectorIndexStorageDirs lists the directories a vector index of indexType
-// occupies at physicalID under shardDir. The startup probe checks that they
-// exist and the durability step syncs them, both from this one list, so the
-// two cannot drift apart. It is a presence list, not a validity check: a
-// directory that exists but is corrupt fails inside the constructor.
-//
-// A dynamic index lives in its flat bucket until it upgrades, then in its
-// hnsw commit log directory; state is the shard's dynamic namespace, read
-// through the open handle. PR5 moves this into the implementations along
-// with cleanup.
+// vectorIndexStorageDirs lists the directories an index of indexType at
+// physicalID occupies under shardDir. The startup probe and the durability
+// sync both use it, so they cannot drift. A dynamic index is in its flat
+// bucket until its verdict says it upgraded.
 func vectorIndexStorageDirs(shardDir string, state dynamic.StateOps, indexType, physicalID string) ([]string, error) {
 	hnswDir := filepath.Join(shardDir, helpers.HNSWCommitLogDirNameForID(physicalID))
 	flatDir := filepath.Join(shardDir, "lsm", helpers.VectorsBucketNameForID(physicalID))
@@ -58,8 +52,8 @@ func vectorIndexStorageDirs(shardDir string, state dynamic.StateOps, indexType, 
 	}
 }
 
-// vectorIndexStorageExists reports whether every directory in dirs exists.
-// A path that exists but is not a directory is an error, not an absence.
+// vectorIndexStorageExists reports whether every dir exists; a file in a
+// dir's place is an error.
 func vectorIndexStorageExists(dirs []string) (bool, error) {
 	for _, dir := range dirs {
 		info, err := os.Stat(dir)
@@ -76,11 +70,9 @@ func vectorIndexStorageExists(dirs []string) (bool, error) {
 	return true, nil
 }
 
-// syncVectorIndexStorage fsyncs every directory in dirs and its parent, so
-// their directory entries are durable before a record that points at them
-// is. The constructors create these directories without a sync (hnsw's
-// commit logger and lsmkv's bucket both MkdirAll and move on), and after a
-// power loss a synced record could otherwise outlive an unsynced entry.
+// syncVectorIndexStorage fsyncs every dir and its parent: the constructors
+// MkdirAll without a sync, and a record must not outlive the entries it
+// points at.
 func syncVectorIndexStorage(dirs []string) error {
 	synced := map[string]struct{}{}
 	for _, dir := range dirs {

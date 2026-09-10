@@ -252,18 +252,15 @@ func TestDropVectorIndex_BatchRejected(t *testing.T) {
 	require.NoError(t, errs[1])
 }
 
-// TestDropVectorIndex_CompletionSweepRetriesThroughLoadedShard pins the drop
-// task's completion sweep on a loaded shard: it re-runs the shard's own drop,
-// which finishes a drop that failed part-way and never opens index.db offline
-// against the lock the shard holds.
+// The completion sweep on a loaded shard re-runs the shard's drop: it finishes
+// a drop that failed part-way and never opens index.db against the shard's lock.
 func TestDropVectorIndex_CompletionSweepRetriesThroughLoadedShard(t *testing.T) {
 	ctx := testCtx()
 	shard, class := setupDropVectorShard(t, ctx)
 	markDropped(class, "foo")
 	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
 
-	// a removal that failed part-way leaves directories behind: the hnsw
-	// commit log, and a bucket the store already shut down and forgot
+	// leftovers of a removal that failed part-way
 	leftovers := []string{
 		filepath.Join(shard.path(), helpers.GetHNSWCommitLogDirName("foo")),
 		filepath.Join(shard.pathLSM(), helpers.GetVectorsBucketName("foo")),
@@ -275,7 +272,7 @@ func TestDropVectorIndex_CompletionSweepRetriesThroughLoadedShard(t *testing.T) 
 	db := &DB{logger: shard.index.logger, indices: map[string]*Index{shard.index.ID(): shard.index}}
 	start := time.Now()
 	require.NoError(t, db.EnsureDroppedVectorFilesRemoved(class.Class, shard.name, []string{"foo"}))
-	// the offline route would wait a second on the lock this shard holds
+	// the offline route waits a second per target on this shard's lock
 	assert.Less(t, time.Since(start), time.Second)
 
 	for _, dir := range leftovers {

@@ -96,12 +96,8 @@ func (db *DB) EnsureDroppedVectorFilesRemoved(collection, shardName string, targ
 	if idx == nil {
 		return fmt.Errorf("index for collection %q not found", collection)
 	}
-	// A loaded shard owns its files, so its drop is retried through the shard
-	// rather than swept by path: the retry is idempotent (a slot, bucket or
-	// directory already gone costs a lookup), it finishes a drop that failed
-	// part-way, and it never opens index.db offline against the shard's own
-	// lock. The offline route below is for cold shards, and for a shard
-	// caught shutting down, whose handle is going away.
+	// A loaded shard retries its own drop: idempotent, it finishes a drop that
+	// failed part-way, and it never opens index.db against its own lock.
 	if loaded := loadedShard(idx.shards.Load(shardName)); loaded != nil {
 		done, err := loaded.retryDroppedVectorIndexes(targets)
 		if done || err != nil {
@@ -220,9 +216,8 @@ func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Cont
 	return fmt.Errorf("drop-vector finalize: bounded retry exhausted: %w", lastErr)
 }
 
-// retryDroppedVectorIndexes re-runs the shard's own drop for each target, held
-// against shutdown for the duration. done is false when the shard is already
-// shutting down, and the caller takes the offline route instead.
+// retryDroppedVectorIndexes re-runs the shard's drop for each target, pinned
+// against shutdown. done is false when the shard is already shutting down.
 func (s *Shard) retryDroppedVectorIndexes(targets []string) (done bool, err error) {
 	release, err := s.preventShutdown()
 	if err != nil {
@@ -238,8 +233,7 @@ func (s *Shard) retryDroppedVectorIndexes(targets []string) (done bool, err erro
 	return true, nil
 }
 
-// loadedShard returns the *Shard behind a ShardLike when it is loaded, and
-// nil for a missing or cold shard. It never loads one.
+// loadedShard returns the loaded *Shard behind shard, or nil. It never loads.
 func loadedShard(shard ShardLike) *Shard {
 	switch s := shard.(type) {
 	case *Shard:

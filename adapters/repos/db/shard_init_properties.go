@@ -586,10 +586,8 @@ func (s *Shard) removeBucket(ctx context.Context, bucketName string) error {
 			return fmt.Errorf("failed to shutdown bucket %s: %w", bucketName, err)
 		}
 	}
-	// Remove the bucket's directory from disk. A bucket the store no longer
-	// knows can still have one: a removal that failed right here left the
-	// files behind after the shutdown, and the retry must not stop at the
-	// registry lookup.
+	// Remove the directory even if the store forgot the bucket: a removal
+	// that failed here after the shutdown left it behind.
 	if err := s.removeDirIfExists(s.pathLSM(), bucketName); err != nil {
 		return fmt.Errorf("bucket %s shut down successfully but directory removal failed: %w", bucketName, err)
 	}

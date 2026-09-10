@@ -87,9 +87,7 @@ func FlatMetadataFileNameForID(physicalID string) string {
 	return FlatMetadataFileName(PhysicalIDSuffix(physicalID))
 }
 
-// HNSWCommitLogDirNameForID names the hnsw commit log directory of a
-// physical index ID, under the shard directory. The ID-based twin of
-// GetHNSWCommitLogDirName.
+// HNSWCommitLogDirNameForID is GetHNSWCommitLogDirName by physical ID.
 func HNSWCommitLogDirNameForID(physicalID string) string {
 	return physicalID + ".hnsw.commitlog.d"
 }
