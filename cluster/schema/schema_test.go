@@ -378,7 +378,7 @@ func TestSchemaRestoreLegacyWithEmptyClasses(t *testing.T) {
 		// Test RestoreLegacy
 		mockParser := NewMockParser(t)
 
-		err := s.RestoreLegacy([]byte(snapData), mockParser)
+		_, err := s.RestoreLegacy([]byte(snapData), mockParser)
 		require.NoError(t, err)
 
 		// Verify that s.classes is an empty map, not nil
@@ -405,7 +405,7 @@ func TestSchemaRestoreLegacyWithNilClasses(t *testing.T) {
 
 		// Test RestoreLegacy
 		mockParser := NewMockParser(t)
-		err = s.RestoreLegacy(snapData, mockParser)
+		_, err = s.RestoreLegacy(snapData, mockParser)
 		require.NoError(t, err)
 
 		// Verify that s.classes is initialized, not nil
@@ -422,7 +422,7 @@ func TestSchemaAddClassAfterRestoreWithEmptyClasses(t *testing.T) {
 		// First restore with empty classes
 		snapData := `{"node_id":"test-node","snapshot_id":"test-snapshot","classes":{}}`
 		mockParser := NewMockParser(t)
-		err := s.RestoreLegacy([]byte(snapData), mockParser)
+		_, err := s.RestoreLegacy([]byte(snapData), mockParser)
 		require.NoError(t, err)
 
 		// Verify s.classes is not nil
@@ -456,7 +456,7 @@ func TestSchemaAddClassAfterRestoreWithNilClasses(t *testing.T) {
 		require.NoError(t, err)
 
 		mockParser := NewMockParser(t)
-		err = s.RestoreLegacy(snapData, mockParser)
+		_, err = s.RestoreLegacy(snapData, mockParser)
 		require.NoError(t, err)
 
 		// Verify s.classes is not nil

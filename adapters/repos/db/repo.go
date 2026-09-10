@@ -586,7 +586,7 @@ func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) sharding.R
 
 // DropOrphanedClass removes the data of a class the schema already dropped.
 // Unlike DeleteIndex it removes files with no index loaded, the state a
-// schema-only delete leaves behind, so callers must know the class existed.
+// schema-only delete leaves behind, so callers must know this node held it.
 func (db *DB) DropOrphanedClass(className schema.ClassName) error {
 	if idx := db.GetIndex(className); idx != nil {
 		// Stop the cycle managers first: renaming underneath a running index
@@ -595,7 +595,43 @@ func (db *DB) DropOrphanedClass(className schema.ClassName) error {
 			return err
 		}
 	}
+
+	// The caller knows this node held the class, not that the path is only
+	// ours: BACKUP_FILESYSTEM_PATH takes any absolute directory, so
+	// <RootPath>/backups is legal and a collection named Backups maps onto it.
+	path := filepath.Join(db.config.RootPath, indexID(className))
+	if !hasShardStore(path) {
+		db.logger.WithFields(logrus.Fields{
+			"action": "drop_orphaned_class",
+			"class":  className.String(),
+			"path":   path,
+		}).Warn("left class data in place: no shard store, so not our index")
+		return nil
+	}
 	return db.dropIndexData(className)
+}
+
+// hasShardStore reports whether path holds a shard directory: a child with the
+// lsm store and the version file every shard writes on init. A backup, laid out
+// as <backupID>/<node>/<class> with a file at each leaf, never does.
+func hasShardStore(path string) bool {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		lsm, err := os.Stat(filepath.Join(path, e.Name(), "lsm"))
+		if err != nil || !lsm.IsDir() {
+			continue
+		}
+		if v, err := os.Stat(filepath.Join(path, e.Name(), "version")); err == nil && !v.IsDir() {
+			return true
+		}
+	}
+	return false
 }
 
 // dropIndexData removes a class's files without going through an Index.

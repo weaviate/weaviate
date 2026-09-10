@@ -34,11 +34,16 @@ type recordingIndexer struct {
 	Indexer
 
 	deleted []string
+	frozen  map[string]bool
 	dropErr error
 }
 
-func (r *recordingIndexer) DropOrphanedClass(_ context.Context, class string, _ bool) error {
+func (r *recordingIndexer) DropOrphanedClass(_ context.Context, class string, hasFrozen bool) error {
 	r.deleted = append(r.deleted, class)
+	if r.frozen == nil {
+		r.frozen = map[string]bool{}
+	}
+	r.frozen[class] = hasFrozen
 	return r.dropErr
 }
 
@@ -139,8 +144,7 @@ func TestReloadDropsClassesTheSchemaNoLongerNames(t *testing.T) {
 			name: "deleting a class that never existed records nothing",
 			seed: func(t *testing.T, sm *SchemaManager) {
 				addClass(t, sm, "Kept")
-				// Accepted and replayed even though neither exists. "Raft" is
-				// the dangerous one: its index id is the RAFT work directory.
+				// Accepted and replayed even though neither is a collection.
 				deleteClassSchemaOnly(t, sm, "Raft")
 				deleteClassSchemaOnly(t, sm, "NeverExisted")
 			},
@@ -238,4 +242,53 @@ func snapshotWithout(t *testing.T, sm *SchemaManager, class string) []byte {
 	data, err := json.Marshal(classes)
 	require.NoError(t, err)
 	return data
+}
+
+// TestRestoreCarriesTheFrozenFlag pins that a class restored away keeps the
+// offloaded-tenant flag its pre-restore state carried. Without it the drop
+// removes the local directory and skips the cloud copy, which nothing else
+// would ever name again.
+func TestRestoreCarriesTheFrozenFlag(t *testing.T) {
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	idx := &recordingIndexer{}
+	sm := NewSchemaManager("node1", idx, parser, prometheus.NewPedanticRegistry(), logrus.New())
+
+	addFrozenTenantClass(t, sm, "Frozen")
+	addClass(t, sm, "Hot")
+	// A snapshot naming no class at all: both were deleted while away.
+	empty, err := json.Marshal(map[string]*metaClass{})
+	require.NoError(t, err)
+	require.NoError(t, sm.Restore(empty, sm.parser))
+
+	sm.ReloadDBFromSchema()
+
+	require.ElementsMatch(t, []string{"Frozen", "Hot"}, idx.deleted)
+	require.True(t, idx.frozen["Frozen"], "the offloaded class lost its frozen flag")
+	require.False(t, idx.frozen["Hot"])
+}
+
+// addFrozenTenantClass seeds a multi-tenant class with one offloaded tenant.
+func addFrozenTenantClass(t *testing.T, sm *SchemaManager, class string) {
+	t.Helper()
+	sub, err := json.Marshal(command.AddClassRequest{
+		Class: &models.Class{
+			Class:              class,
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+		},
+		State: &sharding.State{
+			PartitioningEnabled: true,
+			Physical: map[string]sharding.Physical{
+				"tenant1": {
+					Name:           "tenant1",
+					BelongsToNodes: []string{"node1"},
+					Status:         models.TenantActivityStatusFROZEN,
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, sm.AddClass(&command.ApplyRequest{
+		Type: command.ApplyRequest_TYPE_ADD_CLASS, Class: class, SubCommand: sub,
+	}, "node1", true, false))
 }

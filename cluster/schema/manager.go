@@ -56,13 +56,12 @@ type SchemaManager struct {
 	// tenantLimitErrTemplate resolves the cap-exceeded message (empty = default).
 	tenantLimitErrTemplate func() string
 
-	// metadataOnly nodes hold no class data and never reload, so anything
-	// recorded for them would sit in a map nothing drains.
+	// metadataOnly nodes never reload, so a record would never be drained.
 	metadataOnly bool
 
 	orphansMu sync.Mutex
-	// orphanedClasses maps classes dropped from the schema while the store went
-	// untouched to whether they held frozen tenants.
+	// orphanedClasses maps classes dropped while the store went untouched to
+	// whether they held frozen tenants.
 	orphanedClasses map[string]bool
 }
 
@@ -115,8 +114,7 @@ func (s *SchemaManager) SetIndexer(idx Indexer) {
 	s.schema.shardReader = idx
 }
 
-// SetMetadataOnly marks a node that stores no class data. Call once during FSM
-// bootstrap.
+// SetMetadataOnly marks a node that stores no class data.
 func (s *SchemaManager) SetMetadataOnly(v bool) {
 	s.metadataOnly = v
 }
@@ -140,37 +138,23 @@ func (s *SchemaManager) AliasSnapshot() ([]byte, error) {
 }
 
 // Restore installs a snapshot's schema. Nothing replays the DELETE_CLASS that
-// dropped a class the snapshot no longer names, so this diff is the only
-// signal the store gets that its data should go.
+// dropped a class the snapshot no longer names, so this diff is the store's
+// only signal.
 func (s *SchemaManager) Restore(data []byte, parser Parser) error {
-	before := s.schema.classNames()
-	if err := s.schema.Restore(data, parser); err != nil {
+	dropped, err := s.schema.Restore(data, parser)
+	if err != nil {
 		return err
 	}
-	s.recordOrphansSince(before)
+	s.recordOrphans(dropped)
 	return nil
 }
 
-// recordOrphansSince marks every class present before an operation and absent
-// after it. Frozen tenants are unknowable by now, so cloud cleanup is left to
-// the delete path that still has that state.
-func (s *SchemaManager) recordOrphansSince(before map[string]struct{}) {
-	if s.metadataOnly {
-		return
-	}
-	after := s.schema.classNames()
-
-	s.orphansMu.Lock()
-	defer s.orphansMu.Unlock()
-	for name := range before {
-		if _, stillThere := after[name]; !stillThere {
-			if s.orphanedClasses == nil {
-				s.orphanedClasses = map[string]bool{}
-			}
-			if _, seen := s.orphanedClasses[name]; !seen {
-				s.orphanedClasses[name] = false
-			}
-		}
+// recordOrphans marks the classes a restore dropped, so the reload removes
+// their data. Nothing replays the DELETE_CLASS behind a snapshot, so this is
+// the store's only signal.
+func (s *SchemaManager) recordOrphans(dropped map[string]bool) {
+	for class, hasFrozen := range dropped {
+		s.recordOrphan(class, hasFrozen)
 	}
 }
 
@@ -206,8 +190,10 @@ func (s *SchemaManager) dropOrphanedClasses() {
 		// DropOrphanedClass, not DeleteClass: the data has to go with no index
 		// loaded, which is only safe for a class the schema really held.
 		if err := s.db.DropOrphanedClass(context.Background(), class, hasFrozen); err != nil {
-			s.log.WithField("class", class).
-				Errorf("drop data of class the schema no longer names: %v", err)
+			s.log.WithFields(logrus.Fields{
+				"action": "drop_orphaned_class",
+				"class":  class,
+			}).Error(err)
 			// Put it back; nothing else would name this data again.
 			s.recordOrphan(class, hasFrozen)
 		}
@@ -218,14 +204,14 @@ func (s *SchemaManager) RestoreAliases(data []byte) error {
 	return s.schema.RestoreAlias(data)
 }
 
-// RestoreLegacy installs an old-format snapshot, dropping classes just as
-// Restore does, so it needs the same diff.
+// RestoreLegacy is Restore for the old snapshot format, and drops classes the
+// same way.
 func (s *SchemaManager) RestoreLegacy(data []byte, parser Parser) error {
-	before := s.schema.classNames()
-	if err := s.schema.RestoreLegacy(data, parser); err != nil {
+	dropped, err := s.schema.RestoreLegacy(data, parser)
+	if err != nil {
 		return err
 	}
-	s.recordOrphansSince(before)
+	s.recordOrphans(dropped)
 	return nil
 }
 
@@ -477,29 +463,16 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 }
 
 func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, enableSchemaCallback bool) error {
-	var hasFrozen bool
-	tenants, err := s.schema.getTenants(cmd.Class, nil)
-	if err != nil {
-		hasFrozen = false
-	}
-
-	for _, t := range tenants {
-		if t.ActivityStatus == models.TenantActivityStatusFROZEN ||
-			t.ActivityStatus == models.TenantActivityStatusFREEZING {
-			hasFrozen = true
-			break
-		}
-	}
+	hasFrozen := s.schema.hasFrozenTenant(cmd.Class)
 
 	return s.apply(
 		applyOp{
 			op: cmd.GetType().String(),
 			updateSchema: func() error {
-				// Only a delete that removed an entry leaves data behind.
-				// DeleteClass does not check existence, so recording any name a
-				// caller passed would hand it to the orphan path, which removes
-				// files with no index: a replayed DELETE /v1/schema/raft would
-				// take out <root>/raft.
+				// Only a delete that removed an entry leaves data behind:
+				// DeleteClass validates nothing, so a name that was never a
+				// collection would otherwise be recorded too. Whether the
+				// directory is really ours is settled at the drop.
 				if s.schema.deleteClass(cmd.Class) && schemaOnly {
 					s.recordOrphan(cmd.Class, hasFrozen)
 				}

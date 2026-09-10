@@ -314,6 +314,21 @@ type shardReader interface {
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 }
 
+// hasFrozenTenant reports whether class has a tenant on offloaded storage.
+func (s *schema) hasFrozenTenant(class string) bool {
+	tenants, err := s.getTenants(class, nil)
+	if err != nil {
+		return false
+	}
+	for _, t := range tenants {
+		if t.ActivityStatus == models.TenantActivityStatusFROZEN ||
+			t.ActivityStatus == models.TenantActivityStatusFREEZING {
+			return true
+		}
+	}
+	return false
+}
+
 // classNames returns the names the schema holds, without MetaClasses' deep copy.
 func (s *schema) classNames() map[string]struct{} {
 	s.mu.RLock()
@@ -674,10 +689,10 @@ func (s *schema) MetaClasses() map[string]*metaClass {
 	return classesCopy
 }
 
-func (s *schema) Restore(data []byte, parser Parser) error {
+func (s *schema) Restore(data []byte, parser Parser) (map[string]bool, error) {
 	var classes map[string]*metaClass
 	if err := json.Unmarshal(data, &classes); err != nil {
-		return fmt.Errorf("restore snapshot: decode json: %w", err)
+		return nil, fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
 
 	if classes == nil {
@@ -687,10 +702,10 @@ func (s *schema) Restore(data []byte, parser Parser) error {
 	return s.restore(classes, parser)
 }
 
-func (s *schema) RestoreLegacy(data []byte, parser Parser) error {
+func (s *schema) RestoreLegacy(data []byte, parser Parser) (map[string]bool, error) {
 	snap := snapshot{}
 	if err := json.Unmarshal(data, &snap); err != nil {
-		return fmt.Errorf("restore snapshot: decode json: %w", err)
+		return nil, fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
 
 	if snap.Classes == nil {
@@ -700,15 +715,43 @@ func (s *schema) RestoreLegacy(data []byte, parser Parser) error {
 	return s.restore(snap.Classes, parser)
 }
 
-func (s *schema) restore(classes map[string]*metaClass, parser Parser) error {
+// restore reports the classes it dropped, each mapped to whether it has a
+// tenant on offloaded storage. Both are resolved before the swap: afterwards
+// the schema can no longer answer either question.
+func (s *schema) restore(classes map[string]*metaClass, parser Parser) (map[string]bool, error) {
 	for _, cls := range classes {
 		if err := parser.ParseClass(&cls.Class); err != nil { // should not fail
-			return fmt.Errorf("parsing class %q: %w", cls.Class.Class, err) // schema might be corrupted
+			return nil, fmt.Errorf("parsing class %q: %w", cls.Class.Class, err) // schema might be corrupted
 		}
 		cls.Sharding.SetLocalName(s.nodeID)
 	}
+
+	dropped := s.droppedBy(classes)
 	s.replaceClasses(classes)
-	return nil
+	return dropped, nil
+}
+
+// droppedBy returns the classes incoming does not name, each with whether it
+// has a tenant on offloaded storage. Only the dropped classes are looked up, so
+// a restore that removes nothing costs nothing.
+func (s *schema) droppedBy(incoming map[string]*metaClass) map[string]bool {
+	s.mu.RLock()
+	var names []string
+	for name := range s.classes {
+		if _, kept := incoming[name]; !kept {
+			names = append(names, name)
+		}
+	}
+	s.mu.RUnlock()
+
+	if len(names) == 0 {
+		return nil
+	}
+	dropped := make(map[string]bool, len(names))
+	for _, name := range names {
+		dropped[name] = s.hasFrozenTenant(name)
+	}
+	return dropped
 }
 
 func (s *schema) RestoreAlias(data []byte) error {
