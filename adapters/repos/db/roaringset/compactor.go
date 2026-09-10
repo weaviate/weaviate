@@ -353,11 +353,13 @@ func (c *nodeCompactor) takeRightKey() error {
 
 func (c *nodeCompactor) cleanupValues(additions, deletions *sroar.Bitmap,
 ) (add, del *sroar.Bitmap, skip bool) {
+	// Compacted rather than Condense, so a node the flush wrote compacted is not
+	// re-encoded larger by the first compaction that carries it forward.
 	if !c.cleanupDeletions {
-		return Condense(additions), Condense(deletions), false
+		return additions.Compacted(), deletions.Compacted(), false
 	}
 	if !additions.IsEmpty() {
-		return Condense(additions), c.emptyBitmap, false
+		return additions.Compacted(), c.emptyBitmap, false
 	}
 	return nil, nil, true
 }
