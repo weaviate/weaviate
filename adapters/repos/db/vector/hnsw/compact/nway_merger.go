@@ -26,6 +26,13 @@ import (
 // commits for the same node ID, commits are merged using precedence rules:
 // higher iterator ID = more recent data = higher precedence.
 //
+// docIDs are NOT immutable across the merge inputs: with docID reuse a
+// deleted id can be re-added in a later file. The per-node merge is therefore
+// file-order aware — a DeleteNodeCommit only wins over data from files at
+// least as old as itself; once a newer file has established a life for the
+// id, an older file's delete (and everything older still) is discarded as a
+// dead prior life. See commitMerger.addCommit.
+//
 // The merger accepts any [IteratorLike] implementation, allowing both
 // [Iterator] (from .sorted files) and [SnapshotIterator] (from .snapshot
 // files) to be combined. This enables merging a snapshot with subsequent
@@ -273,6 +280,18 @@ type commitMerger struct {
 	removeTombstone    bool
 	seenReplaceAtLevel map[uint16]bool // true once a Replace or Clear has been seen at a level
 	seenClearLinks     bool            // true once ClearLinks has been seen from any iterator
+
+	// Cross-file docID-reuse reconciliation. With reuse, a DeleteNodeCommit in
+	// an OLDER file ends an OLDER life of the id; it must not override the
+	// newer life already merged from newer files. curIterHasLife records that
+	// the iterator currently being fed contributed node state (AddNode or any
+	// link commit — both imply the id existed in that file's window);
+	// finishIterator folds it into lifeFromNewer. When a delete arrives while
+	// lifeFromNewer is set, the delete and EVERYTHING in older files belongs
+	// to a dead prior life, so suppressOlder discards the rest of the stream.
+	curIterHasLife bool
+	lifeFromNewer  bool
+	suppressOlder  bool
 }
 
 func newCommitMerger(nodeID uint64, logger logrus.FieldLogger) *commitMerger {
@@ -290,6 +309,10 @@ func newCommitMerger(nodeID uint64, logger logrus.FieldLogger) *commitMerger {
 // via addCommit. It merges pendingLinks into linksPerLevel so that the next
 // (lower-precedence) iterator's ClearLinks cannot erase these finalized links.
 func (m *commitMerger) finishIterator() {
+	if m.curIterHasLife {
+		m.lifeFromNewer = true
+		m.curIterHasLife = false
+	}
 	for level, pending := range m.pendingLinks {
 		existing := m.linksPerLevel[level]
 		m.linksPerLevel[level] = append(pending, existing...)
@@ -298,8 +321,22 @@ func (m *commitMerger) finishIterator() {
 }
 
 func (m *commitMerger) addCommit(c Commit) error {
+	if m.suppressOlder {
+		// A delete from a newer file already marked everything at or below its
+		// file as a dead prior life of this id (docID reuse); discard it.
+		return nil
+	}
+
 	switch ct := c.(type) {
 	case *DeleteNodeCommit:
+		if m.lifeFromNewer {
+			// A NEWER file re-added this id (docID reuse): this delete ended an
+			// older life. Keep the newer life untouched and discard the rest of
+			// the stream — every remaining commit comes from this file or older
+			// ones and therefore describes the dead life.
+			m.suppressOlder = true
+			return nil
+		}
 		// DeleteNode means we can drop all previous data for this node
 		m.deleted = true
 		m.addNode = nil
@@ -308,14 +345,21 @@ func (m *commitMerger) addCommit(c Commit) error {
 		m.linksReplaced = make(map[uint16]bool)
 		m.seenReplaceAtLevel = make(map[uint16]bool)
 		m.seenClearLinks = false
+		m.curIterHasLife = false
 
 	case *AddNodeCommit:
-		if !m.deleted && m.addNode == nil {
-			// Keep the first AddNode we see (highest precedence)
-			m.addNode = ct
+		if !m.deleted {
+			m.curIterHasLife = true
+			if m.addNode == nil {
+				// Keep the first AddNode we see (highest precedence)
+				m.addNode = ct
+			}
 		}
 
 	case *ReplaceLinksAtLevelCommit:
+		if !m.deleted {
+			m.curIterHasLife = true
+		}
 		if !m.deleted && !m.seenReplaceAtLevel[ct.Level] && !m.seenClearLinks {
 			// First replace at this level - prepend to any pending links from this iterator,
 			// then finishIterator will prepend the whole pending block before finalized links.
@@ -328,6 +372,7 @@ func (m *commitMerger) addCommit(c Commit) error {
 
 	case *AddLinksAtLevelCommit:
 		if !m.deleted {
+			m.curIterHasLife = true
 			if m.seenReplaceAtLevel[ct.Level] || m.seenClearLinks {
 				// A newer iterator already owns this level (or all levels) — stop accumulating.
 			} else {
@@ -339,6 +384,7 @@ func (m *commitMerger) addCommit(c Commit) error {
 
 	case *AddLinkAtLevelCommit:
 		if !m.deleted {
+			m.curIterHasLife = true
 			if m.seenReplaceAtLevel[ct.Level] || m.seenClearLinks {
 				// A newer iterator already owns this level (or all levels) — stop accumulating.
 			} else {
@@ -349,6 +395,9 @@ func (m *commitMerger) addCommit(c Commit) error {
 		}
 
 	case *ClearLinksAtLevelCommit:
+		if !m.deleted {
+			m.curIterHasLife = true
+		}
 		if !m.deleted && !m.seenReplaceAtLevel[ct.Level] {
 			// Wipe any pending links accumulated at this level within the current iterator
 			// (they are older than this clear within the same file).
@@ -361,6 +410,7 @@ func (m *commitMerger) addCommit(c Commit) error {
 
 	case *ClearLinksCommit:
 		if !m.deleted {
+			m.curIterHasLife = true
 			// Wipe pending links: any links accumulated so far within the current iterator
 			// are superseded by this clear (which is newer within the same file).
 			m.pendingLinks = make(map[uint16][]uint64)
@@ -377,6 +427,20 @@ func (m *commitMerger) addCommit(c Commit) error {
 		m.addTombstone = true
 
 	case *RemoveTombstoneCommit:
+		// RemoveTombstone is written only during cleanup of a deleted node,
+		// AFTER its DeleteNode. If a newer file already established a life for
+		// this id, this op is the stranded tail of an OLDER life's cleanup
+		// (rotation can split the DeleteNode/RemoveTombstone pair across
+		// files) — attaching it to the new life could cancel a live tombstone
+		// added by an even newer file, leaking an uncleanable node.
+		//
+		// Note an AddTombstone from an older file is NOT skipped here: with no
+		// intervening delete it tombstones the same (still current) life, e.g.
+		// a node created in an old file whose links a newer file rewrote
+		// during a neighbor's cleanup.
+		if m.lifeFromNewer {
+			return nil
+		}
 		m.removeTombstone = true
 
 	default:
@@ -409,11 +473,14 @@ func (m *commitMerger) result() *NodeCommits {
 	}
 
 	// Safe to collapse: RemoveTombstone is emitted only while cleaning up a
-	// deleted node, and with docID reuse the deserializer clears all per-id
-	// delete/tombstone state when it observes a re-add (InMemoryReader.readNode).
-	// A condensed input therefore never carries an old life's RemoveTombstone
-	// alongside a live node, so both-set still never describes a live node —
-	// guaranteed by re-add reconciliation rather than by docID immutability.
+	// deleted node. Same-file re-adds are reconciled upstream by the
+	// deserializer (InMemoryReader.readNode clears per-id delete/tombstone
+	// state on re-add), and cross-file re-adds are reconciled here: addCommit
+	// discards a delete — and everything older — once a newer file has
+	// established a life for the id, and drops an older file's stranded
+	// RemoveTombstone rather than letting it cancel the newer life's
+	// tombstone. So when both flags are set here, they belong to the SAME
+	// life and describe a completed tombstone cycle, never a live node.
 	if m.addTombstone && !m.removeTombstone {
 		commits = append(commits, &AddTombstoneCommit{ID: m.nodeID})
 	}

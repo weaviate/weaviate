@@ -19,18 +19,20 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The n-way merger collapses AddTombstone + RemoveTombstone for the same node to a
-// no-op (emits neither), regardless of precedence or in-file order. These tests
-// prove that is correct for every reachable input:
+// The n-way merger collapses AddTombstone + RemoveTombstone for the same node
+// to a no-op (emits neither) whenever both ops belong to the same life. These
+// tests prove no live tombstone is ever dropped:
 //
 //	RemoveTombstone is terminal within a node's life. It is emitted only while
 //	cleaning up a tombstoned node, always immediately after DeleteNode
-//	(delete.go). With docID reuse a deleted id CAN be reissued, but the
-//	deserializer (InMemoryReader.readNode) clears all per-id delete/tombstone
-//	state when it observes the re-add, so a condensed input never carries an
-//	old life's RemoveTombstone alongside a live node. Whenever both tombstone
-//	flags are set, DeleteNode is present too, so result() emits [DeleteNode] —
-//	the correct final state. No live tombstone is ever dropped.
+//	(delete.go). With docID reuse a deleted id CAN be reissued: same-file
+//	re-adds are reconciled by the deserializer (InMemoryReader.readNode clears
+//	all per-id delete/tombstone state on re-add), and cross-file re-adds are
+//	reconciled by the merger itself (an older file's delete — and its stranded
+//	RemoveTombstone tail — never overrides a life established by a newer
+//	file; see the crossfile reuse tests). Whenever both tombstone flags
+//	survive to result(), they describe the SAME life's completed cycle, so
+//	collapsing them is the correct final state.
 
 const tombNode = uint64(5)
 
@@ -87,12 +89,15 @@ func classifyTombState(commits []Commit) mergedTombState {
 	return s
 }
 
-// TestNWayMerger_TombstoneCollapse_Mechanism pins the literal collapse: Add+Remove
-// for the same node always yield neither, independent of order and precedence.
+// TestNWayMerger_TombstoneCollapse_Mechanism pins the collapse mechanism:
+// Add+Remove yield neither when both ops belong to the same life, while an
+// older file's stranded RemoveTombstone never cancels a newer life's live
+// tombstone.
 func TestNWayMerger_TombstoneCollapse_Mechanism(t *testing.T) {
 	cases := []struct {
-		name    string
-		streams [][]Commit
+		name        string
+		streams     [][]Commit
+		wantAddTomb bool
 	}{
 		{
 			name: "older_Add_newer_Remove",
@@ -102,11 +107,16 @@ func TestNWayMerger_TombstoneCollapse_Mechanism(t *testing.T) {
 			},
 		},
 		{
-			name: "older_Remove_newer_Add",
+			// An older file's RemoveTombstone can only be the stranded tail of
+			// an old life's cleanup (its DeleteNode is in the same or an older
+			// file). The newer file's AddTombstone tombstones the NEW life and
+			// must survive: no collapse across lives.
+			name: "older_Remove_newer_Add_keeps_new_life_tombstone",
 			streams: [][]Commit{
 				{&RemoveTombstoneCommit{ID: tombNode}},
 				{&AddNodeCommit{ID: tombNode, Level: 0}, &AddTombstoneCommit{ID: tombNode}},
 			},
+			wantAddTomb: true,
 		},
 		{
 			name: "same_file_Remove_then_Add",
@@ -118,7 +128,7 @@ func TestNWayMerger_TombstoneCollapse_Mechanism(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s := mergedStateForNode(t, tc.streams...)
-			require.False(t, s.emitsAddTomb, "merger unexpectedly emitted AddTombstone")
+			require.Equal(t, tc.wantAddTomb, s.emitsAddTomb, "AddTombstone in merged output")
 			require.False(t, s.emitsRmTomb, "merger unexpectedly emitted RemoveTombstone")
 		})
 	}

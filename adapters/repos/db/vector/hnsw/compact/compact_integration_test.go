@@ -1045,3 +1045,88 @@ func TestCompactEndToEnd_DocIDReuse(t *testing.T) {
 		"compacted: node 2 must not be marked deleted")
 	assertGraphEqual(t, baseline, compacted)
 }
+
+// TestCompactEndToEnd_CrossFileDocIDReuse is the multi-file variant of
+// TestCompactEndToEnd_DocIDReuse: the reused id's lifecycle is SPLIT across
+// compactable files — old life in one, its cleanup in the next, the new life
+// in a third (the drain-gate common case). The sequential loader is the
+// ground truth; running the compactor to a fixed point must converge to the
+// identical graph, whichever subsets of files each merge cycle combines.
+func TestCompactEndToEnd_CrossFileDocIDReuse(t *testing.T) {
+	writeLogs := func(t *testing.T, dir string) {
+		t.Helper()
+		// File 1: base graph + node 2's old life (level 2, tombstoned at the end).
+		createTestWALFile(t, filepath.Join(dir, "1000"), func(w *WALWriter) {
+			require.NoError(t, w.WriteAddNode(0, 2))
+			require.NoError(t, w.WriteSetEntryPointMaxLevel(0, 2))
+			require.NoError(t, w.WriteAddNode(1, 1))
+			require.NoError(t, w.WriteReplaceLinksAtLevel(0, 0, []uint64{1}))
+			require.NoError(t, w.WriteReplaceLinksAtLevel(1, 0, []uint64{0}))
+
+			// old life of node 2
+			require.NoError(t, w.WriteAddNode(2, 2))
+			require.NoError(t, w.WriteReplaceLinksAtLevel(2, 0, []uint64{0, 1}))
+			require.NoError(t, w.WriteReplaceLinksAtLevel(2, 1, []uint64{0}))
+			require.NoError(t, w.WriteReplaceLinksAtLevel(2, 2, []uint64{0}))
+			require.NoError(t, w.WriteAddTombstone(2))
+		})
+		// File 2: the old life's cleanup, alone in its file.
+		createTestWALFile(t, filepath.Join(dir, "1200"), func(w *WALWriter) {
+			require.NoError(t, w.WriteDeleteNode(2))
+			require.NoError(t, w.WriteRemoveTombstone(2))
+		})
+		// File 3: the new life of node 2 (docID reuse), level 1.
+		createTestWALFile(t, filepath.Join(dir, "1400"), func(w *WALWriter) {
+			require.NoError(t, w.WriteAddNode(2, 1))
+			require.NoError(t, w.WriteReplaceLinksAtLevel(2, 0, []uint64{1}))
+			require.NoError(t, w.WriteReplaceLinksAtLevel(2, 1, []uint64{0}))
+			require.NoError(t, w.WriteReplaceLinksAtLevel(1, 0, []uint64{0, 2}))
+		})
+		// Live file (highest timestamp, never compacted).
+		createTestWALFile(t, filepath.Join(dir, "2000"), func(w *WALWriter) {
+			require.NoError(t, w.WriteAddNode(3, 0))
+			require.NoError(t, w.WriteReplaceLinksAtLevel(3, 0, []uint64{0}))
+		})
+	}
+
+	assertReusedNodeAlive := func(t *testing.T, res *ent.DeserializationResult, label string) {
+		t.Helper()
+		require.Greater(t, len(res.Graph.Nodes), 2, "%s: nodes array too small", label)
+		node := res.Graph.Nodes[2]
+		require.NotNil(t, node, "%s: re-added node 2 must be alive", label)
+		assert.Equal(t, 1, node.Level, "%s: node 2 must have the new life's level", label)
+		require.NotNil(t, node.Connections, "%s: node 2 must have connections", label)
+		assert.Equal(t, []uint64{1}, node.Connections.GetLayer(0), "%s: node 2 level 0 links", label)
+		assert.Equal(t, []uint64{0}, node.Connections.GetLayer(1), "%s: node 2 level 1 links", label)
+		assert.NotContains(t, res.Graph.Tombstones, uint64(2), "%s: node 2 must not be tombstoned", label)
+	}
+
+	// Baseline: plain sequential load of the raw WALs, no compaction.
+	baseDir := t.TempDir()
+	writeLogs(t, baseDir)
+	baseline := loadGraph(t, baseDir)
+	assertReusedNodeAlive(t, baseline, "baseline")
+
+	// Compacted: run the compactor to a fixed point, then load.
+	workDir := t.TempDir()
+	writeLogs(t, workDir)
+	compactor := NewCompactor(DefaultCompactorConfig(workDir), quietLogger())
+
+	const maxCycles = 20
+	converged := false
+	for i := 0; i < maxCycles; i++ {
+		action, err := compactor.RunCycle(nil)
+		require.NoError(t, err, "RunCycle %d", i)
+		if action == ActionNone {
+			converged = true
+			break
+		}
+	}
+	require.True(t, converged, "compaction did not converge within %d cycles", maxCycles)
+
+	compacted := loadGraph(t, workDir)
+	assertReusedNodeAlive(t, compacted, "compacted")
+	assert.NotContains(t, compacted.Graph.NodesDeleted, uint64(2),
+		"compacted: node 2 must not be marked deleted")
+	assertGraphEqual(t, baseline, compacted)
+}

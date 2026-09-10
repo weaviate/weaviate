@@ -240,15 +240,12 @@ func (r *InMemoryReader) readNode(c *AddNodeCommit, res *ent.DeserializationResu
 	// (readLink & co.) deliberately does NOT count as a re-add — only AddNode
 	// carries the level and marks the beginning of a new life.
 	//
-	// SCOPE: this reconciliation only covers a delete and re-add seen by the
-	// SAME reader, i.e. within one commit-log file. The CROSS-FILE case —
-	// delete in file N, re-add in file N+1 — is NOT covered: the NWayMerger
-	// iterates newest file first, so the old file's DeleteNodeCommit arrives
-	// after the new file's AddNodeCommit and still resets the merge state
-	// (commitMerger.addCommit sets deleted=true and drops addNode), killing
-	// the re-added node. Compaction is therefore NOT reuse-safe end to end
-	// yet; that gap is its own upcoming PR (between PR-S3 and the free list)
-	// and blocks enabling the reuse flag until it lands.
+	// SCOPE: this reconciliation covers a delete and re-add seen by the SAME
+	// reader, i.e. within one commit-log file. The CROSS-FILE case — delete
+	// in file N, re-add in file N+1 — is reconciled by the NWayMerger itself:
+	// commitMerger.addCommit discards a DeleteNodeCommit (and everything from
+	// older files) once a newer file has established a life for the id. See
+	// nway_merger.go and the crossfile reuse tests.
 	if _, deleted := res.Graph.NodesDeleted[c.ID]; deleted {
 		delete(res.Graph.NodesDeleted, c.ID)
 		delete(res.Graph.Tombstones, c.ID)
