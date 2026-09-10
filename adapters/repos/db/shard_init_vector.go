@@ -136,18 +136,11 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		makeBucketOptions = s.overwrittenMakeDefaultBucketOptions(lsmkv.WithLazySegmentLoading(lazyLoadSegments))
 	}
 
-	// a shard can actually have multiple vector indexes:
-	// - the main index, which is used for all normal object vectors
-	// - a geo property index for each geo prop in the schema
-	//
-	// here we label the main vector index as such.
-	vecIdxID := physicalID
-
 	// Every log line under this index carries both identities: the logical
 	// name for operators ("which vector?") and the physical id for storage
 	// ("which files?"). Implementations and the entities they own (compressors,
 	// commit loggers, queues) inherit it and add nothing of their own.
-	logger := s.vectorIndexLogger(targetVector, vecIdxID)
+	logger := s.vectorIndexLogger(targetVector, physicalID)
 
 	switch vectorIndexUserConfig.IndexType() {
 	case vectorindex.VectorIndexTypeHNSW:
@@ -167,7 +160,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			vi, err := hnsw.New(hnsw.Config{
 				Logger:                            logger,
 				RootPath:                          s.path(),
-				ID:                                vecIdxID,
+				ID:                                physicalID,
 				ShardName:                         s.name,
 				ClassName:                         s.index.Config.ClassName.String(),
 				PrometheusMetrics:                 s.promMetrics,
@@ -185,7 +178,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 						// consistent with previous logic where the individual limit is 1/5 of the combined limit
 						hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
 					}, opts...)
-					return hnsw.NewCommitLogger(s.path(), vecIdxID,
+					return hnsw.NewCommitLogger(s.path(), physicalID,
 						logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
 						allOpts...,
 					)
@@ -212,7 +205,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 
 		vi, err := flat.New(flat.Config{
-			ID:                vecIdxID,
+			ID:                physicalID,
 			RootPath:          s.path(),
 			Logger:            logger,
 			DistanceProvider:  distProv,
@@ -233,7 +226,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
 		vi, err := dynamic.New(dynamic.Config{
-			ID:                           vecIdxID,
+			ID:                           physicalID,
 			Logger:                       logger,
 			DistanceProvider:             distProv,
 			RootPath:                     s.path(),
@@ -250,7 +243,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					// consistent with previous logic where the individual limit is 1/5 of the combined limit
 					hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
 				}, opts...)
-				return hnsw.NewCommitLogger(s.path(), vecIdxID,
+				return hnsw.NewCommitLogger(s.path(), physicalID,
 					logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
 					allOpts...,
 				)
@@ -275,7 +268,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
-		hfreshConfigID := vecIdxID
+		hfreshConfigID := physicalID
 		centroidsID := helpers.CentroidsID(hfreshConfigID)
 		rootPath := filepath.Join(s.path(), helpers.HFreshDirName(hfreshConfigID))
 
