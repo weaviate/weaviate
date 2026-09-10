@@ -14,7 +14,7 @@ package filters_tests
 import (
 	"acceptance_tests_with_client/internal/wvhost"
 	"context"
-	"net/url"
+	"net"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -82,17 +82,16 @@ func newClusterClient(t *testing.T, dc *docker.DockerContainer) *weaviate.Client
 	t.Helper()
 
 	var err error
-	rest, err := url.Parse(dc.URI())
+	restHost, restPort, err := net.SplitHostPort(dc.URI())
 	require.NoError(t, err)
 
-	grpc, err := url.Parse(dc.GrpcURI())
+	grpcHost, grpcPort, err := net.SplitHostPort(dc.GrpcURI())
 	require.NoError(t, err)
 
 	return wvhost.NewClient(t,
-		weaviate.WithScheme(rest.Scheme),
-		weaviate.WithHTTPHost(rest.Hostname()),
-		weaviate.WithHTTPPort(rest.Port()),
-		weaviate.WithGRPCHost(grpc.Hostname()),
-		weaviate.WithGRPCPort(grpc.Port()),
+		weaviate.WithHTTPHost(restHost),
+		weaviate.WithHTTPPort(restPort),
+		weaviate.WithGRPCHost(grpcHost),
+		weaviate.WithGRPCPort(grpcPort),
 	)
 }
