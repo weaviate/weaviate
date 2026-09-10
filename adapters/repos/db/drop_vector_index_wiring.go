@@ -96,6 +96,13 @@ func (db *DB) EnsureDroppedVectorFilesRemoved(collection, shardName string, targ
 	if idx == nil {
 		return fmt.Errorf("index for collection %q not found", collection)
 	}
+	// Every load and unload holds the shard's create lock through the map
+	// update and the shutdown, so under it a shard absent from the map has
+	// released index.db. Index.Shutdown bypasses it; the retry's shutdown
+	// error covers that.
+	idx.shardCreateLocks.RLock(shardName)
+	defer idx.shardCreateLocks.RUnlock(shardName)
+
 	// A loaded shard retries its own drop: idempotent, it finishes a drop that
 	// failed part-way, and it never opens index.db against its own lock.
 	if loaded := idx.shards.loaded(shardName); loaded != nil {
