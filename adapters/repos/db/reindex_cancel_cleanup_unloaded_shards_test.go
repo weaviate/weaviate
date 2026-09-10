@@ -1238,7 +1238,7 @@ func TestEverySidecarSuffixIsASidecar(t *testing.T) {
 	require.ElementsMatch(t, sweptMigrationDirPrefixes(),
 		slices.Collect(maps.Keys(strategiesByMigrationDir(1))),
 		"a strategy the cleanup sweeps but this test does not instantiate would "+
-			"never have its suffix checked against the role words")
+			"never have its suffix checked against the registry")
 
 	// Generation 0 is the canonical post-finalize bucket, which carries no
 	// sidecar suffix at all; live migrations start at 1 (see genSuffix).
