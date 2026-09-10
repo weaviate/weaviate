@@ -784,14 +784,19 @@ func testContains(c *weaviate.Client) func(t *testing.T) {
 				require.NotNilf(t, h, "%q collection handle", collectionName)
 				for _, tt := range tests {
 					t.Run(tt.name, func(t *testing.T) {
-						nt := query.NearText{Concepts: []string{"Pit Vipers"}}
-						if tt.nearText != nil {
-							nt = *tt.nearText
+						var r *query.Result
+						var err error
+						if nt := tt.nearText; nt != nil {
+							nt.ReturnProperties = append(nt.ReturnProperties, tt.property)
+							nt.Filter = tt.where
+							r, err = h.Query.NearText(t.Context(), *tt.nearText)
+						} else {
+							r, err = h.Query.OverAll(t.Context(), query.OverAll{
+								ReturnProperties: []string{tt.property},
+								Filter:           tt.where,
+							})
 						}
-						nt.ReturnProperties = append(nt.ReturnProperties, tt.property)
-						nt.Filter = tt.where
 
-						r, err := h.Query.NearText(t.Context(), nt)
 						require.NoError(t, err)
 						require.NotNil(t, r, "query response")
 
