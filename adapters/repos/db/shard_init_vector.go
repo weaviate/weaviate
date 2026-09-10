@@ -22,7 +22,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	vcommon "github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
@@ -30,7 +29,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
-	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex"
@@ -216,11 +214,6 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
-		metaDB, err := s.getOrInitMetadataDB()
-		if err != nil {
-			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
-		}
-
 		vi, err := dynamic.New(dynamic.Config{
 			ID:                           vecIdxID,
 			Logger:                       logger,
@@ -245,7 +238,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				)
 			},
 			TombstoneCallbacks:   s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
-			State:                metaDB.Namespace(dynamic.StateNamespace),
+			State:                s.metadataDB.Namespace(dynamic.StateNamespace),
 			AllocChecker:         s.index.allocChecker,
 			MakeBucketOptions:    makeBucketOptions,
 			AsyncIndexingEnabled: s.index.AsyncIndexingEnabled,
@@ -330,20 +323,6 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 	}
 	defer vectorIndex.PostStartup(s.shutCtx)
 	return vectorIndex, nil
-}
-
-func (s *Shard) getOrInitMetadataDB() (*shardmeta.DB, error) {
-	if s.metadataDB == nil {
-		// Timeout: a leaked handle from a failed shard teardown holds the
-		// flock; without it this open retries forever and wedges the loading
-		// goroutine.
-		db, err := shardmeta.Open(s.path(), entlsmkv.BoltFlockTimeout)
-		if err != nil {
-			return nil, err
-		}
-		s.metadataDB = db
-	}
-	return s.metadataDB, nil
 }
 
 // initTargetVectors builds the named target-vector indexes. legacy and configs
@@ -471,12 +450,10 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 		}
 	}
 
-	// Remove the index checkpoint entry for this vector.
-	if s.indexCheckpoints != nil {
-		if err := s.indexCheckpoints.Delete(s.ID(), targetVector); err != nil {
-			return fmt.Errorf("delete checkpoint for vector %q: %w", targetVector, err)
-		}
+	// the record goes last, so a failed drop keeps it for the retry
+	err = s.mapping.Delete(targetVector)
+	if err != nil {
+		return fmt.Errorf("drop mapping record for vector %q: %w", targetVector, err)
 	}
-
 	return nil
 }

@@ -44,12 +44,14 @@ func TestInitTargetVector_Idempotent_DoesNotOrphanQueue(t *testing.T) {
 	cfg := enthnsw.UserConfig{Skip: true}
 
 	require.NoError(t, shard.initTargetVector(ctx, "v1", cfg, false))
-	q1, _ := shard.GetVectorIndexQueue("v1")
+	q1, releaseQ1, _ := shard.AcquireVectorIndexQueue("v1")
+	defer releaseQ1()
 	require.NotNil(t, q1)
 
 	require.NoError(t, shard.initTargetVector(ctx, "v1", cfg, false))
 
-	q2, _ := shard.GetVectorIndexQueue("v1")
+	q2, releaseQ2, _ := shard.AcquireVectorIndexQueue("v1")
+	defer releaseQ2()
 
 	assert.Same(t, q1, q2,
 		"re-initialising an existing target vector must not silently replace and "+
@@ -80,8 +82,8 @@ func TestInitTargetVector_ShutsDownIndexWhenQueueCreationFails(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			shardLike, index := testShard(t, context.Background(), "VecQueueOrphan")
 			s := underlyingShard(t, shardLike)
-			// enable async only after NewShard: it makes NewVectorIndexQueue call
-			// q.Init(), but at creation the harness would also need a checkpoint store.
+			// enable async only after NewShard so that NewVectorIndexQueue, not the
+			// shard constructor, is what calls q.Init().
 			index.AsyncIndexingEnabled = true
 
 			const target = "orphanTarget"
@@ -205,7 +207,7 @@ func underlyingShard(t *testing.T, sl ShardLike) *Shard {
 // the old maps each entry stayed until its own teardown succeeded.
 func TestDropVectorIndex_FailedTeardownKeepsTheIndexForCleanup(t *testing.T) {
 	ctx := context.Background()
-	shardLike, _ := testShardWithSettings(t, ctx, &models.Class{Class: "test"}, enthnsw.UserConfig{}, false, true, false, func(idx *Index) {
+	shardLike, _ := testShardWithSettings(t, ctx, &models.Class{Class: "test"}, enthnsw.UserConfig{}, false, false, func(idx *Index) {
 		idx.vectorIndexUserConfig = nil
 		idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
 			"named": enthnsw.NewDefaultUserConfig(),
@@ -223,6 +225,8 @@ func TestDropVectorIndex_FailedTeardownKeepsTheIndexForCleanup(t *testing.T) {
 	failing.On("Drop", mock.Anything, false).Return(assert.AnError).Once()
 	failing.On("Drop", mock.Anything, false).Return(nil).Once()
 	require.True(t, shard.vectors.Replace("named", failing))
+	named := vectorIndexRecord{PhysicalID: "vectors_named", IndexType: "hnsw", State: "ready"}
+	require.NoError(t, shard.mapping.Initialize(map[string]vectorIndexRecord{"named": named}))
 
 	err := shard.DropVectorIndex(ctx, "named")
 	require.ErrorIs(t, err, assert.AnError)
@@ -236,6 +240,10 @@ func TestDropVectorIndex_FailedTeardownKeepsTheIndexForCleanup(t *testing.T) {
 	}))
 	require.Len(t, owned, 1, "the index whose teardown failed must stay reachable for cleanup")
 	assert.Same(t, failing, owned[0])
+	records, _, err := shard.mapping.Load()
+	require.NoError(t, err)
+	assert.Equal(t, map[string]vectorIndexRecord{"named": named}, records,
+		"the record outlives a failed teardown: the retry needs it")
 
 	require.NoError(t, shard.DropVectorIndex(ctx, "named"), "a retried drop tears the same index down")
 	owned = nil
@@ -244,4 +252,7 @@ func TestDropVectorIndex_FailedTeardownKeepsTheIndexForCleanup(t *testing.T) {
 		return nil
 	}))
 	assert.Empty(t, owned)
+	records, _, err = shard.mapping.Load()
+	require.NoError(t, err)
+	assert.Empty(t, records, "the retried drop deleted the record")
 }

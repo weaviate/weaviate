@@ -96,6 +96,17 @@ func (db *DB) EnsureDroppedVectorFilesRemoved(collection, shardName string, targ
 	if idx == nil {
 		return fmt.Errorf("index for collection %q not found", collection)
 	}
+	// Loads and unloads hold this lock while they update the map and shut the
+	// shard down. Under it, a shard in the map stays loaded, and one missing
+	// from the map has already closed index.db, so the offline path is safe.
+	idx.shardCreateLocks.RLock(shardName)
+	defer idx.shardCreateLocks.RUnlock(shardName)
+
+	// A loaded shard retries its own drop: idempotent, it finishes a drop that
+	// failed part-way, and it never opens index.db against its own lock.
+	if loaded := idx.shards.loaded(shardName); loaded != nil {
+		return loaded.retryDroppedVectorIndexes(targets)
+	}
 	helper := newVectorDropIndexHelper()
 	class := idx.getClass()
 	for _, target := range targets {
@@ -206,4 +217,22 @@ func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Cont
 		return nil
 	}
 	return fmt.Errorf("drop-vector finalize: bounded retry exhausted: %w", lastErr)
+}
+
+// retryDroppedVectorIndexes re-runs the shard's drop for each target, pinned
+// against shutdown. A shard shutting down is an error: the ack fails, and the
+// next load or the replayed callback sweeps files and record together.
+func (s *Shard) retryDroppedVectorIndexes(targets []string) error {
+	release, err := s.preventShutdown()
+	if err != nil {
+		return fmt.Errorf("sweep dropped vectors of shard %q: %w", s.ID(), err)
+	}
+	defer release()
+	for _, target := range targets {
+		err := s.DropVectorIndex(context.Background(), target)
+		if err != nil {
+			return fmt.Errorf("retry drop of vector %q on loaded shard: %w", target, err)
+		}
+	}
+	return nil
 }

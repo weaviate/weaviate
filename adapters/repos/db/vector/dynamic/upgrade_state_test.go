@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -211,4 +212,52 @@ func setUpStateDB(t *testing.T, rootPath string, state stateDB, key string, valu
 		return
 	}
 	require.NoError(t, db.Close())
+}
+
+// TestUpgradedInState pins UpgradedOnDisk's verdicts read through an open handle.
+func TestUpgradedInState(t *testing.T) {
+	tests := []struct {
+		name          string
+		targetVector  string
+		storedKey     string
+		storedValue   []byte
+		hnswDirExists bool
+		want          bool
+	}{
+		{name: "no state and no hnsw dir"},
+		{name: "unnamed vector never infers an upgrade from its hnsw dir", hnswDirExists: true},
+		{name: "state says upgraded", storedKey: "upgraded", storedValue: []byte{1}, want: true},
+		{name: "state outranks an hnsw dir", storedKey: "upgraded", storedValue: []byte{0}, hnswDirExists: true},
+		{name: "empty value falls back like no value", storedKey: "upgraded", storedValue: []byte{}, hnswDirExists: true},
+		{name: "named vector with no state and no hnsw dir", targetVector: "custom"},
+		{name: "named vector infers an upgrade from its hnsw dir", targetVector: "custom", hnswDirExists: true, want: true},
+		{name: "named state says upgraded", targetVector: "custom", storedKey: "upgraded_custom", storedValue: []byte{1}, want: true},
+		{name: "named state outranks its hnsw dir", targetVector: "custom", storedKey: "upgraded_custom", storedValue: []byte{0}, hnswDirExists: true},
+		{name: "another vector's state does not count", targetVector: "custom", storedKey: "upgraded_other", storedValue: []byte{1}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rootPath := t.TempDir()
+			id := "main"
+			if tt.targetVector != "" {
+				id = "vectors_" + tt.targetVector
+			}
+			if tt.hnswDirExists {
+				require.NoError(t, os.MkdirAll(hnswCommitLogDirectory(rootPath, id), 0o777))
+			}
+
+			db, err := shardmeta.Open(rootPath, time.Second)
+			require.NoError(t, err)
+			defer db.Close()
+			state := db.Namespace(StateNamespace)
+			if tt.storedKey != "" {
+				require.NoError(t, state.Put([]byte(tt.storedKey), tt.storedValue))
+			}
+
+			upgraded, err := UpgradedInState(state, rootPath, id)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, upgraded)
+		})
+	}
 }

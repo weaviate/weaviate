@@ -77,7 +77,7 @@ func TestTheClusterPassWalksARealLoadedShard(t *testing.T) {
 
 	class := newTestClassWithProps("ClusterPassWalk", []string{"title"})
 	shd, realIdx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false, func(i *Index) { i.logger = logger })
+		false, false, func(i *Index) { i.logger = logger })
 	shard := shd.(*Shard)
 
 	detectorIdx := &Index{logger: logger, shardCreateLocks: esync.NewKeyRWLocker()}
@@ -191,11 +191,11 @@ func TestTheClusterPassDoesNotRebuildAShardTornDownUnderIt(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	class := newTestClassWithProps("ClusterPassTeardown", []string{"title"})
 	hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false, func(i *Index) { i.logger = logger })
+		false, false, func(i *Index) { i.logger = logger })
 	defer hot.Shutdown(context.Background())
 
 	cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
 		false, idx.bitmapBufPool)
 	require.NoError(t, cold.Load(ctx))
 	idx.shards.Store(tenant, cold)

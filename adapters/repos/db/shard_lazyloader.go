@@ -24,7 +24,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -72,7 +71,7 @@ type LazyLoadShard struct {
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker,
+	memMonitor memwatch.AllocChecker,
 	shardLoadLimiter *loadlimiter.LoadLimiter, shardReindexer ShardReindexerV3,
 	lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
 ) *LazyLoadShard {
@@ -82,15 +81,14 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 	promMetrics.NewUnloadedshard()
 	return &LazyLoadShard{
 		shardOpts: &deferredShardOpts{
-			promMetrics:      promMetrics,
-			name:             shardName,
-			index:            index,
-			class:            class,
-			jobQueueCh:       jobQueueCh,
-			scheduler:        index.scheduler,
-			indexCheckpoints: indexCheckpoints,
-			shardReindexer:   shardReindexer,
-			bitmapBufPool:    bitmapBufPool,
+			promMetrics:    promMetrics,
+			name:           shardName,
+			index:          index,
+			class:          class,
+			jobQueueCh:     jobQueueCh,
+			scheduler:      index.scheduler,
+			shardReindexer: shardReindexer,
+			bitmapBufPool:  bitmapBufPool,
 		},
 		memMonitor:       memMonitor,
 		shardLoadLimiter: shardLoadLimiter,
@@ -99,15 +97,14 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 }
 
 type deferredShardOpts struct {
-	promMetrics      *monitoring.PrometheusMetrics
-	name             string
-	index            *Index
-	class            *models.Class
-	jobQueueCh       chan job
-	scheduler        *queue.Scheduler
-	indexCheckpoints *indexcheckpoint.Checkpoints
-	shardReindexer   ShardReindexerV3
-	bitmapBufPool    roaringset.BitmapBufPool
+	promMetrics    *monitoring.PrometheusMetrics
+	name           string
+	index          *Index
+	class          *models.Class
+	jobQueueCh     chan job
+	scheduler      *queue.Scheduler
+	shardReindexer ShardReindexerV3
+	bitmapBufPool  roaringset.BitmapBufPool
 }
 
 func (l *LazyLoadShard) mustLoad() {
@@ -161,7 +158,7 @@ func (l *LazyLoadShard) loadIfCold(ctx context.Context) (bool, error) {
 
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
 		class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
-		l.shardOpts.indexCheckpoints, l.shardOpts.shardReindexer, l.lazyLoadSegments,
+		l.shardOpts.shardReindexer, l.lazyLoadSegments,
 		l.shardOpts.bitmapBufPool, monitoring.ShardRegistrationLazy)
 	if err != nil {
 		l.shardOpts.promMetrics.FailLoadingShard()
@@ -545,13 +542,6 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 		// cleanup dimensions: not deleted in s.metrics.DeleteShardLabels
 		clearDimensionMetrics(idx.Config, l.shardOpts.promMetrics, className, shardName)
 
-		// cleanup index checkpoints
-		if l.shardOpts.indexCheckpoints != nil {
-			if err := l.shardOpts.index.indexCheckpoints.DeleteShard(l.ID()); err != nil {
-				return fmt.Errorf("delete shard index checkpoints: %w", err)
-			}
-		}
-
 		// The registry tracks open buckets in memory, not files, so purge the
 		// shard's residual entries before deleting the files
 		lsmkv.GlobalBucketRegistry.RemoveByPrefixes(shardPathLSM(idx.path(), shardName))
@@ -645,13 +635,6 @@ func (l *LazyLoadShard) dropUnloadedVectorIndex(targetVector string) error {
 		l.shardOpts.index.path(), l.shardOpts.name, targetVector,
 		otherTargetVectors(class, targetVector)); err != nil {
 		return err
-	}
-
-	// Remove the index checkpoint entry for this vector.
-	if l.shardOpts.indexCheckpoints != nil {
-		if err := l.shardOpts.indexCheckpoints.Delete(l.ID(), targetVector); err != nil {
-			return fmt.Errorf("delete checkpoint for vector %q: %w", targetVector, err)
-		}
 	}
 	return nil
 }
@@ -780,16 +763,6 @@ func (l *LazyLoadShard) MergeObject(ctx context.Context, object objects.MergeDoc
 	return l.shard.MergeObject(ctx, object)
 }
 
-func (l *LazyLoadShard) GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool) {
-	l.mustLoad()
-	return l.shard.GetVectorIndexQueue(targetVector)
-}
-
-func (l *LazyLoadShard) GetVectorIndex(targetVector string) (VectorIndex, bool) {
-	l.mustLoad()
-	return l.shard.GetVectorIndex(targetVector)
-}
-
 func (l *LazyLoadShard) WithVectorIndex(targetVector string, f func(index VectorIndex) error) (bool, error) {
 	l.mustLoad()
 	return l.shard.WithVectorIndex(targetVector, f)
@@ -830,11 +803,6 @@ func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, s
 		return nil, err
 	}
 	return l.shard.VectorDistanceForQuery(ctx, id, searchVectors, targets)
-}
-
-func (l *LazyLoadShard) ConvertQueue(targetVector string) error {
-	l.mustLoad()
-	return l.shard.ConvertQueue(targetVector)
 }
 
 func (l *LazyLoadShard) FillQueue(targetVector string, from uint64) error {

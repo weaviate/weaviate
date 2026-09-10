@@ -50,7 +50,7 @@ func TestPhysicalLayoutPin(t *testing.T) {
 		// BQ is enabled so an LSM bucket appears without needing to reach any
 		// write-triggered threshold - see the "no raw bucket" note below.
 		vic := hnswent.UserConfig{BQ: hnswent.BQConfig{Enabled: true}}
-		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinHNSWLegacy"}, vic, false, true, true)
+		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinHNSWLegacy"}, vic, false, true)
 		s := shd.(*Shard)
 		defer removeRootPath(t, idx)
 
@@ -74,7 +74,7 @@ func TestPhysicalLayoutPin(t *testing.T) {
 
 	t.Run("hnsw named", func(t *testing.T) {
 		vic := hnswent.UserConfig{BQ: hnswent.BQConfig{Enabled: true}}
-		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinHNSWNamed"}, nil, false, true, true,
+		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinHNSWNamed"}, nil, false, true,
 			func(i *Index) {
 				i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"title": vic}
 			},
@@ -95,7 +95,7 @@ func TestPhysicalLayoutPin(t *testing.T) {
 	t.Run("flat legacy", func(t *testing.T) {
 		fuc := flatent.UserConfig{}
 		fuc.SetDefaults()
-		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinFlatLegacy"}, fuc, false, true, true)
+		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinFlatLegacy"}, fuc, false, true)
 		s := shd.(*Shard)
 		defer removeRootPath(t, idx)
 
@@ -114,7 +114,7 @@ func TestPhysicalLayoutPin(t *testing.T) {
 	t.Run("flat named", func(t *testing.T) {
 		fuc := flatent.UserConfig{}
 		fuc.SetDefaults()
-		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinFlatNamed"}, nil, false, true, true,
+		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinFlatNamed"}, nil, false, true,
 			func(i *Index) {
 				i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"title": fuc}
 			},
@@ -135,7 +135,7 @@ func TestPhysicalLayoutPin(t *testing.T) {
 	t.Run("dynamic legacy", func(t *testing.T) {
 		duc := dynamicent.UserConfig{}
 		duc.SetDefaults()
-		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinDynamicLegacy"}, duc, false, true, true)
+		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinDynamicLegacy"}, duc, false, true)
 		s := shd.(*Shard)
 		defer removeRootPath(t, idx)
 
@@ -152,7 +152,7 @@ func TestPhysicalLayoutPin(t *testing.T) {
 	t.Run("dynamic named", func(t *testing.T) {
 		duc := dynamicent.UserConfig{}
 		duc.SetDefaults()
-		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinDynamicNamed"}, nil, false, true, true, /* async indexing required for dynamic */
+		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinDynamicNamed"}, nil, false, true, /* async indexing required for dynamic */
 			func(i *Index) {
 				i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"title": duc}
 			},
@@ -176,7 +176,7 @@ func TestPhysicalLayoutPin(t *testing.T) {
 	t.Run("hfresh legacy", func(t *testing.T) {
 		huc := hfreshent.UserConfig{}
 		huc.SetDefaults()
-		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinHFreshLegacy"}, huc, false, true, true)
+		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinHFreshLegacy"}, huc, false, true)
 		s := shd.(*Shard)
 		defer removeRootPath(t, idx)
 
@@ -195,7 +195,7 @@ func TestPhysicalLayoutPin(t *testing.T) {
 	t.Run("hfresh named", func(t *testing.T) {
 		huc := hfreshent.UserConfig{}
 		huc.SetDefaults()
-		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinHFreshNamed"}, nil, false, true, true,
+		shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: "PinHFreshNamed"}, nil, false, true,
 			func(i *Index) {
 				i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"title": huc}
 			},
@@ -257,7 +257,9 @@ func putNamedBatch(t *testing.T, ctx context.Context, shd ShardLike, className, 
 // exist once the index has actually seen the vectors.
 func drainQueue(t *testing.T, shd ShardLike, targetVector string) {
 	t.Helper()
-	q, ok := shd.GetVectorIndexQueue(targetVector)
+	q, release, ok := shd.AcquireVectorIndexQueue(targetVector)
+	require.True(t, ok)
+	defer release()
 	require.True(t, ok, "no queue for target vector %q", targetVector)
 	require.Eventually(t, func() bool { return q.Size() == 0 }, 30*time.Second, 50*time.Millisecond)
 }

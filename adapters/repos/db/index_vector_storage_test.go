@@ -233,7 +233,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				TrackVectorDimensions: true,
 				EnableLazyLoadShards:  true,
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-				defaultVectorConfig, vectorConfigs, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
+				defaultVectorConfig, vectorConfigs, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
 				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
@@ -553,7 +553,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				enthnsw.UserConfig{
 					VectorCacheMaxObjects: 1000,
-				}, vectorConfigs, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
+				}, vectorConfigs, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
 				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
@@ -777,7 +777,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
+		}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 
@@ -922,7 +922,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, index.GetVectorIndexConfigs(), mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
+		}, index.GetVectorIndexConfigs(), mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 	defer newIndex.Shutdown(ctx)

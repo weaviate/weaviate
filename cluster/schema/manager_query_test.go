@@ -31,7 +31,7 @@ import (
 func TestQueryCollectionsCount(t *testing.T) {
 	newManager := func(t *testing.T) *SchemaManager {
 		sm := &SchemaManager{
-			schema: NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry()),
+			schema: NewSchema(t.Name(), prometheus.NewPedanticRegistry()),
 		}
 		ss := &sharding.State{Physical: make(map[string]sharding.Physical)}
 		require.NoError(t, sm.schema.addClass(&models.Class{Class: "customer1:Movies"}, ss, 1))

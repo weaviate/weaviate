@@ -45,7 +45,7 @@ func runTornStateMigrationToReindexed(t *testing.T, ctx context.Context, classNa
 	class := newTestClassWithProps(className, []string{tornGuardPropName})
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 
 	for _, obj := range makeConvergenceTestObjects(t, tornGuardNumObjects, className) {
@@ -260,7 +260,7 @@ func TestTornState_OnAfterLsmInit_NoReindexedSentinel_GuardNoOp(t *testing.T) {
 	class := newTestClassWithProps(className, []string{tornGuardPropName})
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 

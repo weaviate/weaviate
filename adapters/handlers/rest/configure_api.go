@@ -164,6 +164,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/banner"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/classification"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -515,26 +516,29 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			AsyncReplicationPropagationDelay:          appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay,
 			AsyncReplicationRootPrefilterBatchSize:    appState.ServerConfig.Config.Replication.AsyncReplicationRootPrefilterBatchSize,
 		},
-		MaximumConcurrentShardLoads:  appState.ServerConfig.Config.MaximumConcurrentShardLoads,
-		MaximumConcurrentBucketLoads: appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
-		HNSWMaxLogSize:               appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
-		HNSWWaitForCachePrefill:      appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
-		HNSWFlatSearchConcurrency:    appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
-		HNSWAcornFilterRatio:         appState.ServerConfig.Config.HNSWAcornFilterRatio,
-		BM25FilterTombMergeGateRatio: appState.ServerConfig.Config.BM25FilterTombMergeGateRatio,
-		HNSWGeoIndexEF:               appState.ServerConfig.Config.HNSWGeoIndexEF,
-		VisitedListPoolMaxSize:       appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
-		TenantActivityReadLogLevel:   appState.ServerConfig.Config.TenantActivityReadLogLevel,
-		TenantActivityWriteLogLevel:  appState.ServerConfig.Config.TenantActivityWriteLogLevel,
-		QuerySlowLogEnabled:          appState.ServerConfig.Config.QuerySlowLogEnabled,
-		QuerySlowLogThreshold:        appState.ServerConfig.Config.QuerySlowLogThreshold,
-		InvertedSorterDisabled:       appState.ServerConfig.Config.InvertedSorterDisabled,
-		QueryBatchedContainsEnabled:  appState.ServerConfig.Config.QueryBatchedContainsEnabled,
-		LazyPropertyLengthsEnabled:   appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
-		MaintenanceModeEnabled:       appState.Cluster.MaintenanceModeEnabledForLocalhost,
-		AsyncIndexingEnabled:         appState.ServerConfig.Config.AsyncIndexingEnabled,
-		OperationalMode:              appState.ServerConfig.Config.OperationalMode,
-		DisableDimensionMetrics:      appState.ServerConfig.Config.DisableDimensionMetrics,
+		MaximumConcurrentShardLoads:   appState.ServerConfig.Config.MaximumConcurrentShardLoads,
+		MaximumConcurrentBucketLoads:  appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
+		HNSWMaxLogSize:                appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
+		HNSWWaitForCachePrefill:       appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
+		HNSWFlatSearchConcurrency:     appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
+		HNSWAcornFilterRatio:          appState.ServerConfig.Config.HNSWAcornFilterRatio,
+		BM25FilterTombMergeGateRatio:  appState.ServerConfig.Config.BM25FilterTombMergeGateRatio,
+		QueryAdmissionBudget:          appState.ServerConfig.Config.QueryAdmissionBudget,
+		QueryAdmissionMaxQueue:        appState.ServerConfig.Config.QueryAdmissionMaxQueue,
+		QueryAdmissionControlDisabled: appState.ServerConfig.Config.QueryAdmissionControlDisabled,
+		HNSWGeoIndexEF:                appState.ServerConfig.Config.HNSWGeoIndexEF,
+		VisitedListPoolMaxSize:        appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
+		TenantActivityReadLogLevel:    appState.ServerConfig.Config.TenantActivityReadLogLevel,
+		TenantActivityWriteLogLevel:   appState.ServerConfig.Config.TenantActivityWriteLogLevel,
+		QuerySlowLogEnabled:           appState.ServerConfig.Config.QuerySlowLogEnabled,
+		QuerySlowLogThreshold:         appState.ServerConfig.Config.QuerySlowLogThreshold,
+		InvertedSorterDisabled:        appState.ServerConfig.Config.InvertedSorterDisabled,
+		QueryBatchedContainsEnabled:   appState.ServerConfig.Config.QueryBatchedContainsEnabled,
+		LazyPropertyLengthsEnabled:    appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
+		MaintenanceModeEnabled:        appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		AsyncIndexingEnabled:          appState.ServerConfig.Config.AsyncIndexingEnabled,
+		OperationalMode:               appState.ServerConfig.Config.OperationalMode,
+		DisableDimensionMetrics:       appState.ServerConfig.Config.DisableDimensionMetrics,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil, appState.NamespacesController) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -690,6 +694,13 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	migrator.SetCluster(appState.ClusterService.Raft)
 	appState.ClusterService.SetInflightDrainer(repo.WaitForLocalInflightWrites)
 
+	// Docs links carry ?clusterid= only when telemetry is enabled. Installed
+	// before ClusterService.Open so links logged during restore-time shard
+	// loads already carry it.
+	if telemetryEnabled(appState) {
+		enterrors.SetClusterIDSource(appState.ClusterService.ClusterID)
+	}
+
 	// Wrap RestoreClassDir so each post-RAFT-apply class-dir move also
 	// fires the orphan-reindex audit on the restored on-disk state.
 	// AuditOrphanReindexTrackersIfReady returns a Skipped outcome until
@@ -745,6 +756,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	schemaManager, err := schema.NewManager(migrator,
 		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
+		executor,
 		schemaRepo,
 		appState.Logger, appState.Authorizer, &appState.ServerConfig.Config.SchemaHandlerConfig, appState.ServerConfig.Config,
 		vectorIndex.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
@@ -1518,6 +1530,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}
 		}, appState.Logger)
 		setupTelemetryDebugHandlers(telemeter)
+
+		// The banner waits for the cluster id and fetches its art from
+		// weaviate.io, so it only runs when telemetry is enabled.
+		if !entconfig.Enabled(os.Getenv("DISABLE_STARTUP_BANNER")) {
+			repeater := banner.NewRepeater(appState.Logger, appState.ClusterService.ClusterID,
+				appState.ServerConfig.Config.BannerInterval, nil)
+			enterrors.GoWrapper(func() { repeater.Run(serverShutdownCtx) }, appState.Logger)
+		}
 	}
 	if entconfig.Enabled(os.Getenv("ENABLE_CLEANUP_UNFINISHED_BACKUPS")) {
 		enterrors.GoWrapper(

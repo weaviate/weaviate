@@ -114,7 +114,7 @@ func TestReindexProviderBarrierIntegration_OnGroupCompletedPrep(t *testing.T) {
 	class := newTestClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 
@@ -167,7 +167,7 @@ func TestReindexProviderBarrierIntegration_OnSwapRequestedSwap(t *testing.T) {
 	class := newTestClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 
@@ -242,7 +242,7 @@ func TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord(t *te
 	class := newTestClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 
@@ -335,7 +335,7 @@ func TestReindexProviderBarrierIntegration_MarkReindexedDurabilityBarrier(t *tes
 	class := newTestClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 
 	barrierIntegrationSeedObjects(t, ctx, shard, className, 25)

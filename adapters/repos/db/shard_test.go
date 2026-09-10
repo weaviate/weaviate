@@ -32,6 +32,8 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
+	dynamicindex "github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	hnswindex "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -211,7 +213,7 @@ func TestShard_InvalidVectorBatches(t *testing.T) {
 
 	class := &models.Class{Class: "TestClass"}
 
-	shd, idx := testShardWithSettings(t, ctx, class, hnsw.NewDefaultUserConfig(), false, false, false)
+	shd, idx := testShardWithSettings(t, ctx, class, hnsw.NewDefaultUserConfig(), false, false)
 
 	testShard(t, context.Background(), class.Class)
 
@@ -241,7 +243,7 @@ func TestShard_InvalidHFreshBatches(t *testing.T) {
 
 	class := &models.Class{Class: "TestClass"}
 
-	shd, idx := testShardWithSettings(t, ctx, class, hfresh.NewDefaultUserConfig(), false, false, false)
+	shd, idx := testShardWithSettings(t, ctx, class, hfresh.NewDefaultUserConfig(), false, false)
 
 	testShard(t, context.Background(), class.Class)
 
@@ -271,7 +273,7 @@ func TestShard_InvalidMultiVectorBatches(t *testing.T) {
 		ctx := testCtx()
 		class := &models.Class{Class: "TestClass"}
 		vectorIndexConfig := hnsw.NewDefaultMultiVectorUserConfig()
-		shd, idx := testShardWithSettings(t, ctx, class, vectorIndexConfig, false, false, false)
+		shd, idx := testShardWithSettings(t, ctx, class, vectorIndexConfig, false, false)
 		testShard(t, context.Background(), class.Class)
 		r := getRandomSeed()
 		batchSize := 100
@@ -296,7 +298,7 @@ func TestShard_InvalidMultiVectorBatches(t *testing.T) {
 			Enabled:      true,
 			MuveraConfig: hnsw.MuveraConfig{Enabled: true, KSim: 1, Repetitions: 2, DProjections: 5},
 		}
-		shd, idx := testShardWithSettings(t, ctx, class, vectorIndexConfig, false, false, false)
+		shd, idx := testShardWithSettings(t, ctx, class, vectorIndexConfig, false, false)
 		testShard(t, context.Background(), class.Class)
 		r := getRandomSeed()
 		batchSize := 100
@@ -319,7 +321,7 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 
 	ctx := testCtx()
 	className := "TestClass"
-	shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, hnsw.UserConfig{}, false, true, true /* withCheckpoints */)
+	shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, hnsw.UserConfig{}, false, true)
 
 	amount := 1500
 
@@ -391,7 +393,7 @@ func TestShard_DebugResetVectorIndex_Dynamic(t *testing.T) {
 		FlatUC:    fuc,
 	}
 	shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, uc,
-		false, true, true /* async indexing on: required by the dynamic index */)
+		false, true /* async indexing on: required by the dynamic index */)
 
 	defer func(path string) {
 		err := os.RemoveAll(path)
@@ -419,7 +421,6 @@ func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
 		&models.Class{Class: className},
 		hnsw.UserConfig{},
 		false,
-		true,
 		true,
 		func(i *Index) {
 			i.vectorIndexUserConfigs = make(map[string]schemaConfig.VectorIndexConfig)
@@ -547,7 +548,7 @@ func TestShard_RepairIndex(t *testing.T) {
 			if test.idxOpt != nil {
 				opts = append(opts, test.idxOpt)
 			}
-			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, test.cfg, false, true, true /* withCheckpoints */, opts...)
+			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, test.cfg, false, true, opts...)
 
 			amount := 1000
 
@@ -716,7 +717,7 @@ func TestShard_FillQueue(t *testing.T) {
 			if test.idxOpt != nil {
 				opts = append(opts, test.idxOpt)
 			}
-			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, test.cfg, false, true, true /* withCheckpoints */, opts...)
+			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, test.cfg, false, true, opts...)
 
 			amount := 1000
 
@@ -884,7 +885,7 @@ func TestShard_UpgradeIndex(t *testing.T) {
 		i.vectorIndexUserConfig = cfg
 	})
 
-	shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, cfg, false, true, true /* withCheckpoints */, opts...)
+	shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, cfg, false, true, opts...)
 
 	defer func(path string) {
 		err := os.RemoveAll(path)
@@ -913,7 +914,9 @@ func TestShard_UpgradeIndex(t *testing.T) {
 		}
 	}
 
-	q, ok := shd.GetVectorIndexQueue("")
+	q, release, ok := shd.AcquireVectorIndexQueue("")
+	require.True(t, ok)
+	defer release()
 	require.True(t, ok)
 
 	// wait for the queue to be empty
@@ -959,7 +962,7 @@ func TestShard_DynamicIndexStartsTombstoneCleanupCycle(t *testing.T) {
 					tombstoneCycle = i.cycleCallbacks.vectorTombstoneCleanupCycle
 				},
 			}
-			shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, tt.config, false, true, asyncIndexingEnabled, opts...)
+			shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, tt.config, false, asyncIndexingEnabled, opts...)
 
 			defer func(path string) {
 				err := os.RemoveAll(path)
@@ -1039,7 +1042,7 @@ func TestShard_RequantizeIndex(t *testing.T) {
 			if test.idxOpt != nil {
 				opts = append(opts, test.idxOpt)
 			}
-			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, test.cfg, false, true, false, opts...)
+			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, test.cfg, false, false, opts...)
 
 			amount := 50
 
@@ -1121,8 +1124,29 @@ func TestShard_RequantizeIndex(t *testing.T) {
 }
 
 func getVectorIndexAndQueue(t *testing.T, shard ShardLike, targetVector string) (VectorIndex, *VectorIndexQueue) {
-	idx, vok := shard.GetVectorIndex(targetVector)
-	q, qok := shard.GetVectorIndexQueue(targetVector)
+	idx, releaseIdx, vok := shard.AcquireVectorIndex(targetVector)
+	if vok {
+		defer releaseIdx()
+	}
+	q, releaseQ, qok := shard.AcquireVectorIndexQueue(targetVector)
+	if qok {
+		defer releaseQ()
+	}
 	require.True(t, vok && qok)
 	return idx, q
+}
+
+// Every shard opens index.db at load, and its lock makes an offline read fail.
+func TestShard_OpensMetadataDBForEveryShard(t *testing.T) {
+	ctx := testCtx()
+	shd, _ := testShard(t, ctx, "MetaDBEveryShard")
+	s := shd.(*Shard)
+
+	require.NotNil(t, s.metadataDB)
+	_, err := os.Stat(path.Join(s.path(), shardmeta.FileName))
+	require.NoError(t, err)
+
+	// the loaded shard holds the lock
+	_, _, err = shardmeta.GetOffline(s.path(), dynamicindex.StateNamespace, []byte("upgraded"))
+	require.Error(t, err)
 }

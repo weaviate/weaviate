@@ -41,6 +41,15 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.tenantAddLocks.Unlock(req.Class)
 	}
 
+	// PreApplyFilter below judges against in-memory FSM state, so a leader that
+	// has not drained what it inherited must not judge yet. After the tenant
+	// lock, not before: that lock is held across the apply, so a caller can wait
+	// on it long enough for leadership to turn over, and a term confirmed before
+	// the wait says nothing about the term it wakes up in.
+	if err := st.waitLeaderFSMCaughtUp(); err != nil {
+		return 0, err
+	}
+
 	// Parse the underlying command before pre execute filtering to avoid queryinf the schema is the underlying command
 	// is invalid
 	cmdBytes, err := proto.Marshal(req)

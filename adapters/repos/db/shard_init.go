@@ -25,11 +25,12 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -38,7 +39,7 @@ import (
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-	scheduler *queue.Scheduler, indexCheckpoints *indexcheckpoint.Checkpoints,
+	scheduler *queue.Scheduler,
 	reindexer ShardReindexerV3, lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
 	registration monitoring.ShardRegistration,
 ) (_ *Shard, err error) {
@@ -79,10 +80,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		metrics:     metrics,
 		slowQueryReporter: helpers.NewSlowQueryReporter(index.Config.QuerySlowLogEnabled,
 			index.Config.QuerySlowLogThreshold, index.logger),
-		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
-		centralJobQueue:  jobQueueCh,
-		scheduler:        scheduler,
-		indexCheckpoints: indexCheckpoints,
+		replicationMap:  pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		centralJobQueue: jobQueueCh,
+		scheduler:       scheduler,
 
 		shutdownLock:  new(sync.RWMutex),
 		shutCtx:       shutCtx,
@@ -148,6 +148,15 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
+	// Open for the shard's life: read at load, written by dynamic, and its
+	// file lock makes an offline operation that raced this load fail cleanly.
+	// The timeout bounds the wait on a leaked handle's lock.
+	s.metadataDB, err = shardmeta.Open(s.path(), entlsmkv.BoltFlockTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("open metadata db for shard %q: %w", s.ID(), err)
+	}
+	s.mapping = newVectorIndexMapping(s.metadataDB)
+
 	if err := s.sweepChangelogDir(); err != nil {
 		return nil, fmt.Errorf("sweep changelog dir for shard %q: %w", s.ID(), err)
 	}
@@ -160,14 +169,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	s.settleMigrationDirectories(ctx, class)
 
 	// Pessimistically mark any in-flight enable-rangeable / repair-rangeable
-	// migration's target property as "not locally ready" on this shard.
-	// Without this, a post-restart shard whose recovery hasn't finished
-	// the local swap yet would serve range queries from an empty
-	// PreReindexHook'd bucket as soon as the cluster-wide schema flag
-	// flips on another node. See [Shard.rangeableLocalReady] for the
-	// full rationale. Props not found in this scan default to "ready"
-	// (no migration ever ran, or every prior migration already tidied —
-	// FinalizeCompletedMigrations above promoted them to canonical).
+	// migration's target property "not locally ready": repair-rangeable runs
+	// with the schema flag already true, so nothing else would stop a shard
+	// whose recovery has not finished the swap from serving range queries off
+	// an empty PreReindexHook'd bucket. Props not in this scan default to
+	// ready. Full rationale on [Shard.rangeableLocalReady].
 	markInFlightRangeableMigrationsNotReady(s)
 
 	if err := s.initNonVector(ctx, class); err != nil {
@@ -176,18 +182,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	if err = s.initShardVectors(ctx); err != nil {
 		return nil, fmt.Errorf("init shard vectors: %w", err)
-	}
-
-	if s.index.AsyncIndexingEnabled {
-		f := func() {
-			_ = s.ForEachVectorQueue(func(targetVector string, _ *VectorIndexQueue) error {
-				if err := s.ConvertQueue(targetVector); err != nil {
-					index.logger.WithError(err).Errorf("preload shard for target vector: %s", targetVector)
-				}
-				return nil
-			})
-		}
-		enterrors.GoWrapper(f, s.index.logger)
 	}
 	s.NotifyReady()
 	s.inheritResourcePressureReadOnly()
@@ -262,9 +256,9 @@ func (s *Shard) NotifyReady() {
 // PreReindexHook hasn't fired yet on this replica.
 //
 // Properties that don't have a tracker dir, or whose dir has
-// `tidied.mig` (FinalizeCompletedMigrations promoted them to canonical
-// in this same startup), are left untouched — the default-true policy
-// in [Shard.IsRangeableLocallyReady] applies to them.
+// `tidied.mig` (a completed migration, whose finalization
+// FinalizeCompletedMigrations owns), are left untouched — the
+// default-true policy in [Shard.IsRangeableLocallyReady] applies to them.
 func markInFlightRangeableMigrationsNotReady(s *Shard) {
 	migrationsDir := filepath.Join(s.pathLSM(), ".migrations")
 	entries, err := os.ReadDir(migrationsDir)
