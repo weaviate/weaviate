@@ -720,7 +720,7 @@ type backupSelections struct {
 	classes, users, roles []string
 	// baseChainDeduped pins the restore floor at 3.0: restoring this artifact traverses a replica-deduped base.
 	baseChainDeduped bool
-	// baseDesignations is the immediate base's dedupeDesignations, the sticky-planning preference; nil for non-deduped or pre-feature bases.
+	// baseDesignations is the immediate base's dedupeDesignations; nil for non-deduped or pre-feature bases.
 	baseDesignations map[string]map[string]string
 }
 
@@ -803,7 +803,7 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 			break
 		}
 	}
-	// Only the immediate base constrains sticky planning: any other chain shape leaves every replica able to skip.
+	// only the immediate base constrains stickiness: any other chain shape leaves every replica able to skip
 	if len(chain) > 0 {
 		selections.baseDesignations = chain[0].DedupeDesignations
 	}

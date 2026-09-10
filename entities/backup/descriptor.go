@@ -64,7 +64,7 @@ type DistributedBackupDescriptor struct {
 	DedupeFallbackShards   int `json:"dedupeFallbackShards,omitempty"`
 	// DedupeCutoffsMs: per-class checkpoint cutoff (epoch ms) for deduped classes; the artifact provably contains every write acked at or before it.
 	DedupeCutoffsMs map[string]int64 `json:"dedupeCutoffsMs,omitempty"`
-	// DedupeDesignations records class→shard→archiving node for designated shards, letting a later incremental keep the same designee (node-local diffs skip nothing on any other replica).
+	// DedupeDesignations (class→shard→archiving node) lets a later incremental keep the designee — the only replica whose node-local diff can skip.
 	DedupeDesignations map[string]map[string]string `json:"dedupeDesignations,omitempty"`
 }
 

@@ -87,7 +87,7 @@ type Request struct {
 	// BaseChainDeduped pins the version stamp at 3.0 when a base in the incremental chain is replica-deduped, whatever this run's outcome.
 	BaseChainDeduped bool `json:"baseChainDeduped,omitempty"`
 
-	// BaseDedupeDesignations carries the immediate base's dedupeDesignations for sticky planning; coordinator-only, never wired to participants.
+	// BaseDedupeDesignations is the immediate base's dedupeDesignations for sticky planning; coordinator-only, never on the wire.
 	BaseDedupeDesignations map[string]map[string]string `json:"-"`
 
 	// ShardDesignations (class -> shard -> archiving node) EXCLUDES: a participant skips a shard only when a DIFFERENT node is named, so drift degrades to duplication, never omission.
