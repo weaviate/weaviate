@@ -323,3 +323,27 @@ func TestDropVectorIndex_UninitializedMapping(t *testing.T) {
 	assert.False(t, initialized)
 	assert.Empty(t, records)
 }
+
+// TestDropVectorIndex_CompletionSweepRefusesAShardShuttingDown pins that a
+// loaded shard caught shutting down is an error for the completion sweep,
+// not a fallback to the offline route: the shard still holds index.db
+// locked while its references drain, so an offline delete would report
+// success and leave the record behind after the marker is gone.
+func TestDropVectorIndex_CompletionSweepRefusesAShardShuttingDown(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	foo := vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}
+	require.NoError(t, shard.mapping.Initialize(map[string]vectorIndexRecord{"foo": foo}))
+	markDropped(class, "foo")
+
+	shard.shutdownRequested.Store(true)
+	defer shard.shutdownRequested.Store(false)
+
+	db := &DB{logger: shard.index.logger, indices: map[string]*Index{shard.index.ID(): shard.index}}
+	err := db.EnsureDroppedVectorFilesRemoved(class.Class, shard.name, []string{"foo"})
+	require.ErrorIs(t, err, errShutdownInProgress)
+
+	records, _, err := shard.mapping.Load()
+	require.NoError(t, err)
+	assert.Equal(t, map[string]vectorIndexRecord{"foo": foo}, records, "nothing was swept, so the record stays for the retry")
+}
