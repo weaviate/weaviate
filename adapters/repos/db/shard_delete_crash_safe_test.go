@@ -94,7 +94,7 @@ func crashSafeConcreteShard(t *testing.T, ctx context.Context, s ShardLike) *Sha
 func crashSafeTestShard(t *testing.T, ctx context.Context, className string) *Shard {
 	t.Helper()
 	shd, _ := testShardWithSettings(t, ctx, crashSafeDeleteClass(className),
-		enthnsw.UserConfig{Skip: true}, false, false, false)
+		enthnsw.UserConfig{Skip: true}, false, false)
 	return crashSafeConcreteShard(t, ctx, shd)
 }
 
@@ -129,8 +129,9 @@ func crashSafeReadObjectState(t *testing.T, s *Shard, id strfmt.UUID) *crashSafe
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	require.NoError(t, err)
 
-	bucket, err := s.objectsBucket()
+	bucket, release, err := s.objectsBucket()
 	require.NoError(t, err)
+	defer release()
 
 	row, err := bucket.Get(idBytes)
 	require.NoError(t, err)
@@ -159,8 +160,9 @@ func crashSafeReadObjectState(t *testing.T, s *Shard, id strfmt.UUID) *crashSafe
 
 func crashSafeRowPresent(t *testing.T, s *Shard, idBytes []byte) bool {
 	t.Helper()
-	bucket, err := s.objectsBucket()
+	bucket, release, err := s.objectsBucket()
 	require.NoError(t, err)
+	defer release()
 	row, err := bucket.Get(idBytes)
 	require.NoError(t, err)
 	return row != nil

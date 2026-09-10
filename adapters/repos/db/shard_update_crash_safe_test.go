@@ -109,8 +109,9 @@ func TestUpdateCrashSafe_RetryAfterCrashBeforeRowWrite(t *testing.T) {
 
 	// Run the update only up to (and including) the barrier — the row write
 	// never happens, simulating a crash right before it.
-	bucket, err := s.objectsBucket()
+	bucket, release, err := s.objectsBucket()
 	require.NoError(t, err)
+	defer release()
 	className, err := bucket.ClassName()
 	require.NoError(t, err)
 	prevObj, err := storobj.FromBinaryDisk(prevSt.row, className)
