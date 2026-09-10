@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
+	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -57,16 +58,10 @@ type classSearcher interface {
 		params *aggregation.Params) (any, error)
 }
 
-// schemaReader is the subset of schema.Manager used by the handler.
-type schemaReader interface {
-	ReadOnlyClass(name string) *models.Class
-	ResolveAlias(alias string) string
-}
-
 // HandlerConfig wires the handler's dependencies.
 type HandlerConfig struct {
 	Traverser         classSearcher
-	SchemaReader      schemaReader
+	SchemaReader      schema.SchemaReader
 	Authorizer        authorization.Authorizer
 	NamespacesEnabled bool
 	DefaultLimit      int64
@@ -82,7 +77,7 @@ type HandlerConfig struct {
 // the swagger security layer; the handler receives the resulting principal.
 type Handler struct {
 	traverser          classSearcher
-	schemaReader       schemaReader
+	schemaReader       schema.SchemaReader
 	authorizer         authorization.Authorizer
 	namespacesEnabled  bool
 	defaultLimit       int64

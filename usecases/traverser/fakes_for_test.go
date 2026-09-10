@@ -81,6 +81,7 @@ type fakeVectorSearcher struct {
 	diversifyCalledRelevanceFromDist bool
 
 	sparseObjectSearchFn func(params dto.GetParams) ([]*storobj.Object, []float32, error)
+	crossClassErr        error
 }
 
 func (f *fakeVectorSearcher) CrossClassVectorSearch(ctx context.Context,
@@ -89,7 +90,7 @@ func (f *fakeVectorSearcher) CrossClassVectorSearch(ctx context.Context,
 	f.calledWithVector = vector
 	f.calledWithLimit = limit
 	f.calledWithOffset = offset
-	return f.results, nil
+	return f.results, f.crossClassErr
 }
 
 func (f *fakeVectorSearcher) Aggregate(ctx context.Context,

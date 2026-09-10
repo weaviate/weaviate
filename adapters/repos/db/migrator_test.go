@@ -987,9 +987,9 @@ func TestShardsStatusNonExistingIndexWrapsNotFound(t *testing.T) {
 		call func() error
 	}{
 		{
-			name: "GetShardsStatus",
+			name: "GetShardsStorageStatus",
 			call: func() error {
-				_, _, err := migrator.GetShardsStatus(context.Background(), "DoesNotExist", "")
+				_, _, err := migrator.GetShardsStorageStatus(context.Background(), "DoesNotExist", "")
 				return err
 			},
 		},

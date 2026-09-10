@@ -211,14 +211,10 @@ func requireVectorIndexMappingInitialized(b *shardmeta.Batch) error {
 	return nil
 }
 
-// Delete removes name's record. A record that is not there is already
-// deleted, so a retried drop succeeds.
+// Delete removes name's record. A missing record, or a mapping that was
+// never initialized, is already deleted.
 func (m *vectorIndexMapping) Delete(name string) error {
 	err := m.ns.Update(func(b *shardmeta.Batch) error {
-		err := requireVectorIndexMappingInitialized(b)
-		if err != nil {
-			return err
-		}
 		return b.Delete([]byte(vectorIndexMappingKey(name)))
 	})
 	if err != nil {

@@ -83,8 +83,7 @@ func (ci *ClassInfo) Version() uint64 {
 }
 
 type schema struct {
-	nodeID      string
-	shardReader shardReader
+	nodeID string
 
 	// mu protects `classes`, `aliases` and `classCountByNamespace`
 	mu      sync.RWMutex
@@ -107,7 +106,7 @@ type schema struct {
 	shardsCount *prometheus.GaugeVec
 }
 
-func NewSchema(nodeID string, shardReader shardReader, reg prometheus.Registerer) *schema {
+func NewSchema(nodeID string, reg prometheus.Registerer) *schema {
 	// this also registers the prometheus metrics with given `reg` in addition to just creating it.
 	r := promauto.With(reg)
 
@@ -116,7 +115,6 @@ func NewSchema(nodeID string, shardReader shardReader, reg prometheus.Registerer
 		classes:               make(map[string]*metaClass, 128),
 		aliases:               make(map[string]string, 128),
 		classCountByNamespace: make(map[string]int),
-		shardReader:           shardReader,
 		collectionsCount: r.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace:   "weaviate",
 			Name:        "schema_collections",
@@ -342,14 +340,6 @@ func (s *schema) CopyShardingState(class string) (*sharding.State, uint64) {
 	})
 
 	return &shardingState, version
-}
-
-func (s *schema) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
-	return s.shardReader.GetShardsStatus(class, tenant)
-}
-
-type shardReader interface {
-	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 }
 
 func (s *schema) len() int {

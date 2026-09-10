@@ -98,7 +98,7 @@ type SchemaObjectsIndexUpsertParams struct {
 
 	/* Tenants.
 
-	   Tenant names to target. Only valid on multi-tenant collections and only when the resulting operation is format-only (on PUT that is `rangeFilters` creation). Omit to target all tenants.
+	   Tenant names to target. Never valid on PUT: every migration this endpoint can submit is semantic, and semantic migrations are always cluster-wide, so passing tenants is rejected with a `400`. Tenant scoping remains available on the `/rebuild` variant.
 	*/
 	Tenants []string
 

@@ -28,7 +28,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -146,6 +148,15 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
+	// Open for the shard's life: read at load, written by dynamic, and its
+	// file lock makes an offline operation that raced this load fail cleanly.
+	// The timeout bounds the wait on a leaked handle's lock.
+	s.metadataDB, err = shardmeta.Open(s.path(), entlsmkv.BoltFlockTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("open metadata db for shard %q: %w", s.ID(), err)
+	}
+	s.mapping = newVectorIndexMapping(s.metadataDB)
+
 	if err := s.sweepChangelogDir(); err != nil {
 		return nil, fmt.Errorf("sweep changelog dir for shard %q: %w", s.ID(), err)
 	}
@@ -158,13 +169,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	s.settleMigrationDirectories(ctx, class)
 
 	// Pessimistically mark any in-flight enable-rangeable / repair-rangeable
-	// migration's target property as "not locally ready" on this shard.
-	// Without this, a post-restart shard whose recovery hasn't finished
-	// the local swap yet would serve range queries from an empty
-	// PreReindexHook'd bucket as soon as the cluster-wide schema flag
-	// flips on another node. See [Shard.rangeableLocalReady] for the
-	// full rationale. Props not found in this scan default to "ready"
-	// (no migration ever ran, or every prior migration already tidied).
+	// migration's target property "not locally ready": repair-rangeable runs
+	// with the schema flag already true, so nothing else would stop a shard
+	// whose recovery has not finished the swap from serving range queries off
+	// an empty PreReindexHook'd bucket. Props not in this scan default to
+	// ready. Full rationale on [Shard.rangeableLocalReady].
 	markInFlightRangeableMigrationsNotReady(s)
 
 	if err := s.initNonVector(ctx, class); err != nil {

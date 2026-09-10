@@ -80,6 +80,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/multitenancy"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -215,6 +216,19 @@ func (m *shardMap) Swap(name string, shard ShardLike) (previous ShardLike, loade
 // CompareAndSwap swaps the old and new values for key if the value stored in the map is equal to old.
 func (m *shardMap) CompareAndSwap(name string, old, new ShardLike) bool {
 	return (*sync.Map)(m).CompareAndSwap(name, old, new)
+}
+
+// loaded returns the loaded *Shard named name, or nil. It never loads.
+func (m *shardMap) loaded(name string) *Shard {
+	switch s := m.Load(name).(type) {
+	case *Shard:
+		return s
+	case *LazyLoadShard:
+		if s.isLoaded() {
+			return s.shard
+		}
+	}
+	return nil
 }
 
 // LoadAndDelete deletes the value for a key, returning the previous value if any.
@@ -1554,6 +1568,7 @@ type IndexConfig struct {
 	StartupShards                       *startupShardCounters
 	BucketLoadLimiter                   *loadlimiter.LoadLimiter
 	NamespacesExister                   namespaces.Exister
+	QueryAdmission                      *queryadmission.Limiter
 	ObjectsTTLBatchSize                 *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseEveryNoBatches       *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]
@@ -4213,7 +4228,7 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 	return size, nil
 }
 
-// getShardsStatus returns the status of the collection's shards on each of its
+// getShardsStorageStatus returns the status of the collection's shards on each of its
 // replica nodes. Example:
 //
 //	map[string]map[string]string{
@@ -4224,7 +4239,7 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 // The second return value are shard statuses mirroring the legacy implementation,
 // where the status is returned based on the first replica to contain the shard,
 // preferably local.
-func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]map[string]string, map[string]string, error) {
+func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[string]map[string]string, map[string]string, error) {
 	thisNode := i.getSchema.NodeName()
 	className := i.Config.ClassName.String()
 	shardNames, err := i.schemaReader.Shards(className)

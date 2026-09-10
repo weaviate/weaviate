@@ -108,7 +108,7 @@ type SchemaManager struct {
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
 	return &SchemaManager{
-		schema: NewSchema(nodeId, db, reg),
+		schema: NewSchema(nodeId, reg),
 		db:     db,
 		parser: parser,
 		log:    log,
@@ -229,7 +229,6 @@ func (s *SchemaManager) NewSchemaReaderWithWaitFunc(f func(context.Context, uint
 
 func (s *SchemaManager) SetIndexer(idx Indexer) {
 	s.db = idx
-	s.schema.shardReader = idx
 }
 
 func (s *SchemaManager) SetReplicationFSM(fsm replicationFSM) {

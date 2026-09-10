@@ -863,12 +863,3 @@ func putObjectAndFlush(t *testing.T, repo *db.DB, className, tenant string, vect
 		return nil
 	})
 }
-
-type MockShardReader struct {
-	lst models.ShardStatusList
-	err error
-}
-
-func (m MockShardReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
-	return m.lst, m.err
-}

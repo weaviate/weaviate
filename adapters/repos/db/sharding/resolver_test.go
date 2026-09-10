@@ -22,24 +22,16 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
-// fakeSchemaReader is a single test fake that satisfies sharding.schemaReader
-// (and multitenancy.schemaReader). It can behave as:
-//   - A fixed-shard mapper: set shards = []string{"shard1"} to always return "shard1" for all UUIDs.
-//   - A hashing mapper: set shards = []string{...} to distribute UUIDs across shard using a simple hash on the first byte of the UUID.
-//   - A tenant mapper: set tenantShards = map[string]string{"tenantA": models.TenantActivityStatusHOT} to
-//     distribute UUIDs across tenants based on the tenant name.
-//
-// Example configs:
-//
-//	&fakeSchemaReader{shards: []string{"shard1"}} // UUID-hashing distribution with fixed shard (always "shard1")
-//	&fakeSchemaReader{shards: []string{"shard1","shard2","shard3"}} // UUID-hashing distribution
-//	&fakeSchemaReader{tenantShards: map[string]string{"tenantA": models.TenantActivityStatusHOT}} // tenant sharding distribution
 type fakeSchemaReader struct {
+	schemaUC.SchemaGetter
+
 	shards          []string
 	tenantShards    map[string]string
 	tenantsShardErr error

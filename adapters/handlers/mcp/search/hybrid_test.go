@@ -21,16 +21,22 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
+	"github.com/weaviate/weaviate/cluster/proto/api"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // stubSchemaManager satisfies namespacing.SchemaManager. ResolveAlias returns
@@ -43,12 +49,28 @@ func (s stubSchemaManager) ResolveAlias(alias string) string {
 	return s.aliases[alias]
 }
 
-type stubSchemaReader struct {
-	classes map[string]*models.Class
-}
+// schemaReaderWith builds a real SchemaReader over classes. The searcher takes
+// the concrete reader, so a test that wants the schema to hold something has to
+// seed one. Classes are added in the order given: a reference property whose
+// target is not in the schema yet is rejected.
+func schemaReaderWith(t *testing.T, classes ...*models.Class) clusterSchema.SchemaReader {
+	t.Helper()
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	logger, _ := test.NewNullLogger()
+	sm := clusterSchema.NewSchemaManager("node1", nil, parser, prometheus.NewPedanticRegistry(), logger)
 
-func (s stubSchemaReader) ReadOnlyClass(name string) *models.Class {
-	return s.classes[name]
+	for _, cls := range classes {
+		sub, err := json.Marshal(api.AddClassRequest{
+			Class: cls,
+			State: &sharding.State{PartitioningEnabled: true},
+		})
+		require.NoError(t, err)
+		require.NoError(t, sm.AddClass(&api.ApplyRequest{
+			Type: api.ApplyRequest_TYPE_ADD_CLASS, Class: cls.Class, SubCommand: sub,
+		}, "node1", true, false))
+	}
+	return sm.NewSchemaReader()
 }
 
 // recordingTraverser captures the GetParams it last received so tests can
@@ -73,7 +95,7 @@ func newSearcher(t *testing.T, principal *models.Principal, namespacesEnabled bo
 	return NewWeaviateSearcher(
 		authHandler,
 		trav,
-		stubSchemaReader{},
+		schemaReaderWith(t),
 		stubSchemaManager{aliases: aliases},
 		namespacesEnabled,
 		logger,
@@ -200,7 +222,7 @@ func newSearcherWithResults(t *testing.T, principal *models.Principal, results [
 	authHandler := auth.NewAuth(false, composer, &authorization.DummyAuthorizer{}, nil)
 	logger, _ := test.NewNullLogger()
 	return NewWeaviateSearcher(authHandler, &stubTraverser{results: results},
-		stubSchemaReader{}, stubSchemaManager{}, true, logger)
+		schemaReaderWith(t), stubSchemaManager{}, true, logger)
 }
 
 // TestHybrid_NestedRefClassStripped pins the NS strip on nested
@@ -300,10 +322,13 @@ func TestHybrid_DefaultSelectProperties(t *testing.T) {
 			{Name: "body", DataType: []string{"text"}},
 		},
 	}
-	reader := stubSchemaReader{classes: map[string]*models.Class{"Things": class}}
+	// Owner is seeded too: the real schema rejects a reference property whose
+	// target class it does not hold.
+	owner := &models.Class{Class: "Owner"}
 
 	newSearcherWithSchema := func(t *testing.T) (*WeaviateSearcher, *recordingTraverser) {
 		t.Helper()
+		reader := schemaReaderWith(t, owner, class)
 		composer := func(token string, _ []string) (*models.Principal, error) { return &models.Principal{}, nil }
 		authHandler := auth.NewAuth(false, composer, &authorization.DummyAuthorizer{}, nil)
 		trav := &recordingTraverser{}

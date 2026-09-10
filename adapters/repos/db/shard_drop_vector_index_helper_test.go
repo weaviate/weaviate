@@ -20,6 +20,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 )
@@ -175,6 +177,48 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 
 		err := h.removeVectorIndexFiles(indexPath, shardName, "nonexistent", nil)
 		require.NoError(t, err)
+	})
+	t.Run("deletes the vector's mapping record offline", func(t *testing.T) {
+		indexPath, shardName := setup(t)
+		shardDir := filepath.Join(indexPath, shardName)
+		require.NoError(t, os.MkdirAll(shardDir, 0o755))
+
+		db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		foo := vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}
+		bar := vectorIndexRecord{PhysicalID: "vectors_bar", IndexType: "flat", State: "ready"}
+		require.NoError(t, newVectorIndexMapping(db).Initialize(map[string]vectorIndexRecord{"foo": foo, "bar": bar}))
+		require.NoError(t, db.Close())
+
+		require.NoError(t, h.removeVectorIndexFiles(indexPath, shardName, "foo", nil))
+
+		db, err = shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		defer db.Close()
+		records, initialized, err := newVectorIndexMapping(db).Load()
+		require.NoError(t, err)
+		assert.True(t, initialized)
+		assert.Equal(t, map[string]vectorIndexRecord{"bar": bar}, records)
+	})
+
+	t.Run("leaves the record to a shard that holds the file locked", func(t *testing.T) {
+		indexPath, shardName := setup(t)
+		shardDir := filepath.Join(indexPath, shardName)
+		require.NoError(t, os.MkdirAll(shardDir, 0o755))
+
+		// what a loaded shard holds
+		db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
+		require.NoError(t, err)
+		defer db.Close()
+		foo := vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}
+		require.NoError(t, newVectorIndexMapping(db).Initialize(map[string]vectorIndexRecord{"foo": foo}))
+
+		require.NoError(t, h.removeVectorIndexFiles(indexPath, shardName, "foo", nil))
+
+		records, _, err := newVectorIndexMapping(db).Load()
+		require.NoError(t, err)
+		assert.Equal(t, map[string]vectorIndexRecord{"foo": foo}, records,
+			"the loaded owner deletes through its own handle")
 	})
 }
 
