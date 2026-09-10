@@ -88,7 +88,7 @@ func TestSingleObjectDelete_PropLengthTrackerNotFlushed(t *testing.T) {
 	}
 
 	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	t.Cleanup(func() { shard.Shutdown(context.Background()) })
 
