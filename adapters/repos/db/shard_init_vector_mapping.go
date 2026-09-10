@@ -22,23 +22,20 @@ import (
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// vectorIndexRecordFor is the record a vector gets when the shard creates its
-// index under the naming rule: the derived physical ID and the schema's type.
+// vectorIndexRecordFor is the record of a vector created under the naming rule.
 func vectorIndexRecordFor(name string, cfg schemaConfig.VectorIndexConfig, state string) vectorIndexRecord {
 	return vectorIndexRecord{PhysicalID: vectorIndexID(name), IndexType: cfg.IndexType(), State: state}
 }
 
-// vectorIndexHasStorage reports whether cfg describes a physical index. An
-// hnsw config with skip set builds a no-op index that owns no files, so the
-// mapping does not record it.
+// vectorIndexHasStorage is false for a skipped hnsw config: a no-op index
+// owns no files, so the mapping does not record it.
 func vectorIndexHasStorage(cfg schemaConfig.VectorIndexConfig) bool {
 	hnswCfg, ok := cfg.(hnswent.UserConfig)
 	return !ok || !hnswCfg.Skip
 }
 
-// activeVectorIndexConfigs is the schema's vectors that own storage, keyed by
-// logical name with the legacy vector under the empty name. Dropped vectors
-// are already absent from targets: the schema parser skips them.
+// activeVectorIndexConfigs is the schema's vectors that own storage, the
+// legacy one under the empty name.
 func activeVectorIndexConfigs(legacy schemaConfig.VectorIndexConfig,
 	targets map[string]schemaConfig.VectorIndexConfig,
 ) map[string]schemaConfig.VectorIndexConfig {
@@ -54,14 +51,13 @@ func activeVectorIndexConfigs(legacy schemaConfig.VectorIndexConfig,
 	return configs
 }
 
-// vectorIndexStorageDirsFor lists the directories rec occupies under this
-// shard. A dynamic record's verdict is read through the shard's own handle.
+// vectorIndexStorageDirsFor lists the directories rec occupies under this shard.
 func (s *Shard) vectorIndexStorageDirsFor(rec vectorIndexRecord) ([]string, error) {
 	return vectorIndexStorageDirs(s.path(), s.metadataDB.Namespace(dynamic.StateNamespace), rec.IndexType, rec.PhysicalID)
 }
 
-// syncVectorIndexRecordStorage makes rec's directories durable, so a record
-// that says ready never outlives the storage it points at.
+// syncVectorIndexRecordStorage makes rec's directories durable before the
+// record says ready.
 func (s *Shard) syncVectorIndexRecordStorage(name string, rec vectorIndexRecord) error {
 	dirs, err := s.vectorIndexStorageDirsFor(rec)
 	if err != nil {
@@ -74,10 +70,8 @@ func (s *Shard) syncVectorIndexRecordStorage(name string, rec vectorIndexRecord)
 	return nil
 }
 
-// initVectorIndexMapping runs after a first-load build: every index the
-// shard just created under the naming rule gets a ready record, once its
-// directories are durable, all in one transaction. A shard from before the
-// mapping existed and a brand-new shard both come through here once.
+// initVectorIndexMapping records every index of a first-load build as
+// ready, in one transaction, once its directories are durable.
 func (s *Shard) initVectorIndexMapping(configs map[string]schemaConfig.VectorIndexConfig) error {
 	records := make(map[string]vectorIndexRecord, len(configs))
 	for name, cfg := range configs {
@@ -95,15 +89,13 @@ func (s *Shard) initVectorIndexMapping(configs map[string]schemaConfig.VectorInd
 	return nil
 }
 
-// errVectorIndexStorageMissing is the fail-closed refusal: a record says an
-// index is ready, and its directories are not on disk. An empty index in
-// its place would serve nothing where there was data.
+// errVectorIndexStorageMissing: a ready record whose directories are gone.
+// An empty index in their place would serve nothing where there was data.
 var errVectorIndexStorageMissing = errors.New("vector index storage is missing")
 
-// reconcileVectorIndexMapping is a later load: every vector the schema has
-// is opened at the ID its record holds, after the record and the storage
-// are checked against each other, and every record the schema no longer
-// has is deleted. Names are visited in order so a failure is deterministic.
+// reconcileVectorIndexMapping opens every schema vector at its recorded ID
+// and deletes the records the schema no longer has. Names are visited in
+// order so a failure is deterministic.
 func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, legacy schemaConfig.VectorIndexConfig,
 	targets map[string]schemaConfig.VectorIndexConfig, records map[string]vectorIndexRecord,
 ) error {
@@ -120,8 +112,7 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, legacy schemaCo
 		cfg := configs[name]
 		rec, ok := records[name]
 		if !ok {
-			// added while the shard was cold, or by a version without the
-			// mapping: recorded as creating first, like a crash mid-creation
+			// added while the shard was cold: treated like a crash mid-creation
 			rec = vectorIndexRecordFor(name, cfg, vectorIndexStateCreating)
 			err := s.mapping.Put(name, rec)
 			if err != nil {
@@ -142,8 +133,7 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, legacy schemaCo
 		if _, active := configs[name]; active {
 			continue
 		}
-		// dropped (the load-time sweep removed its files) or gone from the
-		// schema without the marker: the record goes, the storage stays
+		// dropped or gone from the schema: the record goes, the storage stays
 		err := s.mapping.Delete(name)
 		if err != nil {
 			return err
@@ -152,9 +142,8 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, legacy schemaCo
 	return nil
 }
 
-// openRecordedVectorIndex builds name's index at the recorded ID. A ready
-// record is probed first and refused when its storage is gone; a creating
-// record is built, made durable, and flipped to ready.
+// openRecordedVectorIndex builds name's index at the recorded ID: a ready
+// record is probed first, a creating one is built, synced and flipped.
 func (s *Shard) openRecordedVectorIndex(ctx context.Context, name string, cfg schemaConfig.VectorIndexConfig, rec vectorIndexRecord) error {
 	if rec.State == vectorIndexStateReady {
 		dirs, err := s.vectorIndexStorageDirsFor(rec)

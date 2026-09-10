@@ -64,10 +64,8 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 	legacy := s.index.GetVectorIndexConfig("")
 	targets := s.index.getTargetVectorIndexConfigs()
 
-	// The mapping is the shard's record of which indexes it has. A shard
-	// without one builds under the naming rule and writes it; one with it
-	// reconciles the records against the schema and opens each index at
-	// the ID its record holds.
+	// A shard without a mapping builds under the naming rule and writes one;
+	// a shard with one reconciles it against the schema.
 	records, initialized, err := s.mapping.Load()
 	if err != nil {
 		return fmt.Errorf("shard %q: %w", s.ID(), err)
@@ -361,8 +359,7 @@ func (s *Shard) initTargetVectors(ctx context.Context, legacy schemaConfig.Vecto
 	return nil
 }
 
-// migrateCompressedVectors runs the compressed-vectors folder migration
-// before the named indexes are built; a failure is logged, as before.
+// migrateCompressedVectors logs a failed compressed-vectors folder migration.
 func (s *Shard) migrateCompressedVectors(legacy schemaConfig.VectorIndexConfig, configs map[string]schemaConfig.VectorIndexConfig) {
 	if err := newCompressedVectorsMigrator(s.index.logger).do(s, legacy, configs); err != nil {
 		s.index.logger.WithFields(logrus.Fields{
@@ -381,8 +378,7 @@ func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg s
 }
 
 // createVectorIndex builds and publishes targetVector's index and queue at
-// physicalID unless the slot exists. The ID is the caller's: the naming
-// rule for a new vector, the mapping's record for one the shard already has.
+// physicalID unless the slot exists.
 func (s *Shard) createVectorIndex(ctx context.Context, targetVector, physicalID string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
 	_, err := s.vectors.Create(targetVector, func() (VectorIndex, *VectorIndexQueue, error) {
 		return s.buildVectorIndexAndQueue(ctx, targetVector, physicalID, cfg, lazyLoadSegments)
@@ -410,9 +406,7 @@ func (s *Shard) buildVectorIndexAndQueue(ctx context.Context, targetVector, phys
 }
 
 // initLegacyVector creates the legacy vector's index and queue under the
-// naming rule unless the shard has them already. A second init used to
-// replace the running index with a fresh instance and orphan it; now it
-// finds the first in place.
+// naming rule unless the shard has them already.
 func (s *Shard) initLegacyVector(ctx context.Context, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
 	return s.createVectorIndex(ctx, "", s.vectorIndexID(""), cfg, lazyLoadSegments)
 }

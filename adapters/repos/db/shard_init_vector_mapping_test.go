@@ -34,8 +34,7 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// storageExistsFor reports whether the directories rec occupies under the
-// shard are all on disk.
+// storageExistsFor reports whether rec's directories are all on disk.
 func storageExistsFor(t *testing.T, s *Shard, rec vectorIndexRecord) bool {
 	t.Helper()
 	dirs, err := s.vectorIndexStorageDirsFor(rec)
@@ -45,9 +44,7 @@ func storageExistsFor(t *testing.T, s *Shard, rec vectorIndexRecord) bool {
 	return exists
 }
 
-// TestInitShardVectors_FirstLoadWritesTheMapping pins the first load of a
-// shard without a mapping: every index is built as before and recorded
-// ready, at the ID the naming rule gives, with its storage on disk.
+// The first load records every index ready at the ID the naming rule gives.
 func TestInitShardVectors_FirstLoadWritesTheMapping(t *testing.T) {
 	ctx := testCtx()
 	shard, _ := setupDropVectorShard(t, ctx)
@@ -65,10 +62,7 @@ func TestInitShardVectors_FirstLoadWritesTheMapping(t *testing.T) {
 	}
 }
 
-// TestInitShardVectors_FirstLoadRecordsEveryType pins that each index type
-// leaves the directories the probe expects behind after its constructor
-// ran, so a ready record written at first load is never a false alarm at
-// the next one.
+// Each index type leaves the directories the probe expects after construction.
 func TestInitShardVectors_FirstLoadRecordsEveryType(t *testing.T) {
 	flatCfg := entflat.UserConfig{}
 	flatCfg.SetDefaults()
@@ -105,9 +99,7 @@ func TestInitShardVectors_FirstLoadRecordsEveryType(t *testing.T) {
 	}
 }
 
-// TestInitShardVectors_SkippedIndexHasNoRecord pins that an hnsw vector
-// with skip set builds a no-op index that owns no files, and the mapping
-// does not record it: the shard is initialized with no records.
+// A skipped hnsw vector owns no files and gets no record.
 func TestInitShardVectors_SkippedIndexHasNoRecord(t *testing.T) {
 	ctx := testCtx()
 	shd, _ := testShard(t, ctx, "SkippedVector")
@@ -119,16 +111,14 @@ func TestInitShardVectors_SkippedIndexHasNoRecord(t *testing.T) {
 	assert.Empty(t, records)
 }
 
-// reload shuts the shard down and opens it again from disk, the way a
-// restart would, returning the new instance.
+// reload shuts the shard down and opens it again from disk.
 func reload(t *testing.T, ctx context.Context, shard *Shard, class *models.Class) *Shard {
 	t.Helper()
 	return reloadShardFromDisk(t, ctx, shard.index, shard, class)
 }
 
 // reloadExpectingError shuts the shard down and checks that opening it again
-// fails with wantErr in the message. The caller must repair the state and
-// reload successfully afterwards, so the fixture's cleanup finds a live shard.
+// fails with wantErr. The caller must repair and reload afterwards.
 func reloadExpectingError(t *testing.T, ctx context.Context, shard *Shard, class *models.Class, wantErr string) {
 	t.Helper()
 	require.NoError(t, shard.Shutdown(ctx))
@@ -137,8 +127,7 @@ func reloadExpectingError(t *testing.T, ctx context.Context, shard *Shard, class
 	require.ErrorContains(t, err, wantErr)
 }
 
-// withOfflineMapping opens a shut-down shard's index.db, hands the mapping
-// and its raw namespace to fn, and closes the file again.
+// withOfflineMapping opens a shut-down shard's index.db for fn.
 func withOfflineMapping(t *testing.T, shardDir string, fn func(m *vectorIndexMapping, ns *shardmeta.Namespace)) {
 	t.Helper()
 	db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
@@ -147,8 +136,7 @@ func withOfflineMapping(t *testing.T, shardDir string, fn func(m *vectorIndexMap
 	fn(newVectorIndexMapping(db), db.Namespace(vectorIndexMappingNamespace))
 }
 
-// TestInitShardVectors_Reconcile walks a shard through every state the
-// mapping can be in at a later load, one reload per state.
+// One reload per state the mapping can be in at a later load.
 func TestInitShardVectors_Reconcile(t *testing.T) {
 	ctx := testCtx()
 	shard, class := setupDropVectorShard(t, ctx)
@@ -164,7 +152,7 @@ func TestInitShardVectors_Reconcile(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, found)
 
-	// a ready record whose storage is gone refuses the load, naming what is missing
+	// a ready record whose storage is gone refuses the load
 	require.NoError(t, os.RemoveAll(fooDir))
 	reloadExpectingError(t, ctx, shard, class, `vector "foo"`)
 	require.NoError(t, os.MkdirAll(fooDir, 0o755))
