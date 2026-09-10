@@ -559,7 +559,7 @@ type keyWithBML struct {
 	deletions []uint64
 }
 
-func createSegmentsFromKeys(t *testing.T, keys []keyWithBML) []byte {
+func createSegmentsFromKeys(t testing.TB, keys []keyWithBML) []byte {
 	out := []byte{}
 
 	for _, k := range keys {
@@ -634,10 +634,10 @@ func (c *CountingWriteSeeker) Close() error { return c.f.Close() }
 
 // TestCompactorStoresNoEmptyBitmap is the compaction-side pair of
 // TestFlushRoaringSetStoresNoEmptyBitmap: whatever a compaction re-encodes, an
-// empty side must still cost a zero length indicator and no payload. The two
-// paths reach that differently — the flush skips the encoder for an empty side,
-// while the compactor relies on NewSegmentNode taking ToBuffer's nil — so
-// neither test covers the other.
+// empty side must still cost a zero length indicator and no payload. Both
+// writers share one encoder, so what this adds over the flush's pair is
+// cleanupValues: with cleanup on, a node holding only deletions goes, and one
+// holding both keeps no deletions payload.
 //
 // It also walks the body to IndexStart, which is the structural check that a
 // recorded byte-for-byte manifest would otherwise be carrying.
@@ -689,5 +689,95 @@ func TestCompactorStoresNoEmptyBitmap(t *testing.T) {
 				require.NotZero(t, sides["both sides"][1])
 			}
 		})
+	}
+}
+
+// TestCompactorIndexNamesTheNodesItPointsAt pins the half of the output the
+// value tests never read: the index. Every entry must carry the key of the node
+// its offsets land on.
+//
+// The compactor builds each node in one reused buffer, so an entry that took
+// its key from the node — as KeyIndexAndWriteTo returns it — would be left
+// pointing at whatever the next node overwrote. The body would still be
+// correct, and every value test would still pass.
+func TestCompactorIndexNamesTheNodesItPointsAt(t *testing.T) {
+	// Node sizes repeat, so a later node is built in the buffer an earlier one
+	// used and writes over that node's key bytes. Sizes that only grow give
+	// every node a fresh allocation, and no stale key is ever disturbed.
+	keys := make([]keyWithBML, 0, 40)
+	for i := 0; i < 40; i++ {
+		keys = append(keys, keyWithBML{
+			key:       []byte(fmt.Sprintf("key-%05d", i)),
+			additions: slice(uint64(i)*1000, uint64(i)*1000+uint64(10+(i%4)*20)),
+		})
+	}
+
+	data := cursorCompactor(t,
+		NewSegmentCursor(createSegmentsFromKeys(t, keys[:20]), nil),
+		NewSegmentCursor(createSegmentsFromKeys(t, keys[20:]), nil),
+		compactor.SegmentWriterBufferSize+1, false, false)
+
+	header, err := segmentindex.ParseHeader(data[:segmentindex.HeaderSize])
+	require.NoError(t, err)
+
+	tree := segmentindex.NewDiskTree(data[header.IndexStart:])
+	require.Equal(t, len(keys), tree.KeyCount())
+
+	for _, k := range keys {
+		node, err := tree.Get(k.key)
+		require.NoError(t, err, "the index does not hold key %q", k.key)
+
+		// Where the index says this key lives, a node carrying it must start.
+		require.LessOrEqual(t, node.End, header.IndexStart,
+			"index entry for %q points past the body", k.key)
+		at := NewSegmentNodeFromBuffer(data[node.Start:node.End])
+		require.Equal(t, k.key, at.PrimaryKey(),
+			"the index entry for %q points at a node holding %q", k.key, at.PrimaryKey())
+	}
+}
+
+// benchmarkCompactorKeys is the compaction fixture: two segments of equal size
+// under disjoint keys, so every node takes the takeLeftKey or takeRightKey arm
+// and the count of nodes built is the count of keys.
+func benchmarkCompactorKeys(t testing.TB, perSegment int) (left, right []byte) {
+	t.Helper()
+
+	keys := make([]keyWithBML, 0, perSegment*2)
+	for i := 0; i < perSegment*2; i++ {
+		keys = append(keys, keyWithBML{
+			key:       []byte(fmt.Sprintf("key-%05d", i)),
+			additions: slice(uint64(i)*1000, uint64(i)*1000+500),
+		})
+	}
+	return createSegmentsFromKeys(t, keys[:perSegment]),
+		createSegmentsFromKeys(t, keys[perSegment:])
+}
+
+// BenchmarkCompactorRoaringSet reports what one compaction allocates. The
+// figure a commit message quotes for this path comes from here: the nodes are
+// built into one buffer the compaction carries, so allocs/op is what says the
+// buffer is still being reused rather than re-made per node.
+func BenchmarkCompactorRoaringSet(b *testing.B) {
+	const perSegment = 100
+
+	left, right := benchmarkCompactorKeys(b, perSegment)
+	dir := b.TempDir()
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		f, err := os.Create(filepath.Join(dir, "compacted.db"))
+		require.NoError(b, err)
+		b.StartTimer()
+
+		c := NewCompactor(f, NewSegmentCursor(left, nil), NewSegmentCursor(right, nil),
+			5, false, false, int64(compactor.SegmentWriterBufferSize+1), nil)
+		require.NoError(b, c.Do(context.Background()))
+
+		b.StopTimer()
+		require.NoError(b, f.Close())
+		b.StartTimer()
 	}
 }

@@ -204,7 +204,8 @@ func NewSegmentNode(
 
 // NewSegmentNodeCompacted builds the node into buf, which it grows and returns
 // for the next call. Both the node and the segmentindex.Key a write of it
-// returns alias buf, so nothing may hold either past the next call.
+// returns alias buf, so nothing may hold either past the next call. A nil
+// bitmap is an empty side.
 func NewSegmentNodeCompacted(
 	key []byte, additions, deletions *sroar.Bitmap, buf []byte,
 ) (*SegmentNode, []byte, error) {
