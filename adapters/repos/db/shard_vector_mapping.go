@@ -222,9 +222,3 @@ func (m *vectorIndexMapping) Delete(name string) error {
 	}
 	return nil
 }
-
-// deleteVectorIndexRecordOffline removes name's record from a cold shard's
-// mapping. A missing or locked file is success: see shardmeta.DeleteOffline.
-func deleteVectorIndexRecordOffline(shardDir, name string) error {
-	return shardmeta.DeleteOffline(shardDir, vectorIndexMappingNamespace, []byte(vectorIndexMappingKey(name)))
-}

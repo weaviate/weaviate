@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
@@ -88,7 +89,8 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 	}
 
 	// the record goes last, so a failed sweep keeps it for the retry
-	if err := deleteVectorIndexRecordOffline(shardDir, targetVector); err != nil {
+	key := []byte(vectorIndexMappingKey(targetVector))
+	if err := shardmeta.DeleteOffline(shardDir, vectorIndexMappingNamespace, key); err != nil {
 		return fmt.Errorf("remove mapping record for %q: %w", targetVector, err)
 	}
 
