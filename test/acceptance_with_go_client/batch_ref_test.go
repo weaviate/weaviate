@@ -58,8 +58,9 @@ func TestBatchReferenceCreateNoObjects(t *testing.T) {
 	// no objects exist, ref must fail - note that we tolerate if the target does not exist, however the source must exist
 	ref := data.Reference{
 		Origin: data.ObjectPath{
-			Property: "ref",
-			UUID:     uuid1,
+			Collection: collectionFrom,
+			Property:   "ref",
+			UUID:       uuid1,
 		},
 		UUID: uuid2,
 	}
@@ -113,8 +114,9 @@ func TestBatchReferenceTargetIsMT(t *testing.T) {
 
 	ref := data.Reference{
 		Origin: data.ObjectPath{
-			Property: "ref",
-			UUID:     uuid2,
+			Collection: collectionFrom,
+			Property:   "ref",
+			UUID:       uuid2,
 		},
 		UUID: uuid1,
 	}
