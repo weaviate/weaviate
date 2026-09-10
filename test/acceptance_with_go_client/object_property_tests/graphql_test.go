@@ -12,6 +12,7 @@
 package object_property_tests
 
 import (
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"testing"
 
@@ -22,8 +23,6 @@ import (
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/filters"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
-
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestObjectProperty_GraphQL(t *testing.T) {

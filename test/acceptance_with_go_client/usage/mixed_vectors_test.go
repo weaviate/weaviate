@@ -12,6 +12,7 @@
 package usage
 
 import (
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"testing"
 	"time"
@@ -22,8 +23,6 @@ import (
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 // TestUsageWithLegacyAndNamedVectors covers a class carrying both a legacy

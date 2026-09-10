@@ -15,16 +15,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
 	pkgerrors "github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	gproto "google.golang.org/protobuf/proto"
 
+	"github.com/weaviate/weaviate/cluster/proto/api"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -38,7 +44,9 @@ import (
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type fakeSearcher struct {
@@ -71,19 +79,6 @@ func (f *fakeSearcher) Aggregate(ctx context.Context, principal *models.Principa
 	return f.aggregateRes, nil
 }
 
-type fakeSchemaReader struct {
-	classes map[string]*models.Class
-	aliases map[string]string
-}
-
-func (f *fakeSchemaReader) ReadOnlyClass(name string) *models.Class {
-	return f.classes[name]
-}
-
-func (f *fakeSchemaReader) ResolveAlias(alias string) string {
-	return f.aliases[alias]
-}
-
 func movieClass() *models.Class {
 	return &models.Class{
 		Class:      "Movie",
@@ -96,6 +91,8 @@ func movieClass() *models.Class {
 			{Name: "year", DataType: schema.DataTypeInt.PropString()},
 			{Name: "poster", DataType: schema.DataTypeBlob.PropString()},
 			{Name: "hasAuthor", DataType: []string{"Author"}},
+			// multi-target: the reference points at either collection
+			{Name: "basedOn", DataType: []string{"Book", "Comic"}},
 		},
 	}
 }
@@ -110,35 +107,155 @@ func authorClass() *models.Class {
 		Properties: []*models.Property{
 			{Name: "name", DataType: schema.DataTypeText.PropString()},
 			{Name: "age", DataType: schema.DataTypeInt.PropString()},
+			// second hop: Movie -> Author -> Studio
+			{Name: "worksFor", DataType: []string{"Studio"}},
 		},
 	}
 }
 
+func studioClass() *models.Class {
+	return &models.Class{
+		Class: "Studio",
+		Properties: []*models.Property{
+			{Name: "name", DataType: schema.DataTypeText.PropString()},
+			{Name: "logo", DataType: schema.DataTypeBlob.PropString()},
+			// third hop, for the depth-limit tests
+			{Name: "ownedBy", DataType: []string{"Studio"}},
+		},
+	}
+}
+
+func bookClass() *models.Class {
+	return &models.Class{
+		Class: "Book",
+		Properties: []*models.Property{
+			{Name: "title", DataType: schema.DataTypeText.PropString()},
+			{Name: "isbn", DataType: schema.DataTypeText.PropString()},
+		},
+	}
+}
+
+func comicClass() *models.Class {
+	return &models.Class{
+		Class: "Comic",
+		Properties: []*models.Property{
+			{Name: "title", DataType: schema.DataTypeText.PropString()},
+			{Name: "issue", DataType: schema.DataTypeInt.PropString()},
+		},
+	}
+}
+
+// seedSchema builds a real SchemaReader over classes and aliases. The handler
+// takes the concrete reader, so a test that wants the schema to hold something
+// has to seed one.
+func seedSchema(t *testing.T, classes []*models.Class, aliases map[string]string) clusterSchema.SchemaReader {
+	t.Helper()
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+	sm := clusterSchema.NewSchemaManager("node1", nil, parser, prometheus.NewPedanticRegistry(), logger)
+
+	// A reference property whose target class is not in the schema yet is
+	// rejected, and the fixtures cross-link, so retry the rejects until a pass
+	// adds nothing — a reference cycle or a genuinely bad class.
+	remaining := classes
+	for len(remaining) > 0 {
+		var deferred []*models.Class
+		var firstErr error
+		for _, cls := range remaining {
+			sub, err := json.Marshal(api.AddClassRequest{
+				Class: cls,
+				State: &sharding.State{PartitioningEnabled: true},
+			})
+			require.NoError(t, err)
+			if err := sm.AddClass(&api.ApplyRequest{
+				Type: api.ApplyRequest_TYPE_ADD_CLASS, Class: cls.Class, SubCommand: sub,
+			}, "node1", true, false); err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				deferred = append(deferred, cls)
+			}
+		}
+		if len(deferred) == len(remaining) {
+			require.NoError(t, firstErr, "seeding made no progress; check for a reference cycle")
+		}
+		remaining = deferred
+	}
+
+	for alias, collection := range aliases {
+		sub, err := gproto.Marshal(&api.CreateAliasRequest{Alias: alias, Collection: collection})
+		require.NoError(t, err)
+		require.NoError(t, sm.CreateAlias(&api.ApplyRequest{
+			Type: api.ApplyRequest_TYPE_CREATE_ALIAS, Class: collection, SubCommand: sub,
+		}))
+	}
+
+	return sm.NewSchemaReader()
+}
+
 type testDeps struct {
-	searcher     *fakeSearcher
-	schemaReader *fakeSchemaReader
-	authorizer   *mocks.FakeAuthorizer
-	handler      *Handler
+	searcher   *fakeSearcher
+	authorizer *mocks.FakeAuthorizer
+	handler    *Handler
+	// classes mirrors what the schema was seeded with, for the few tests that
+	// resolve collections themselves instead of going through the handler.
+	classes map[string]*models.Class
 }
 
 func newTestHandler(t *testing.T) *testDeps {
 	t.Helper()
+	return newTestHandlerSeeded(t, nil, nil)
+}
+
+// newTestHandlerWithAliases seeds aliases at construction.
+func newTestHandlerWithAliases(t *testing.T, aliases map[string]string) *testDeps {
+	t.Helper()
+	return newTestHandlerSeeded(t, nil, aliases)
+}
+
+// newTestHandlerWithClass seeds one extra collection beyond the fixture set.
+func newTestHandlerWithClass(t *testing.T, extra *models.Class) *testDeps {
+	t.Helper()
+	return newTestHandlerSeeded(t, []*models.Class{extra}, nil)
+}
+
+// newTestHandlerSeeded builds the handler over a real schema. Everything is
+// seeded at construction because the handler takes a concrete schema reader,
+// which, unlike a stub, cannot be re-pointed once built.
+func newTestHandlerSeeded(t *testing.T, extra []*models.Class, aliases map[string]string) *testDeps {
+	t.Helper()
 	deps := &testDeps{
-		searcher: &fakeSearcher{},
-		schemaReader: &fakeSchemaReader{
-			classes: map[string]*models.Class{
-				"Movie":  movieClass(),
-				"Author": authorClass(),
-			},
-		},
+		searcher:   &fakeSearcher{},
 		authorizer: mocks.NewMockAuthorizer(),
+		classes:    map[string]*models.Class{},
 	}
+
+	// extra overrides a fixture class of the same name, the way assigning into
+	// the old stub's map did.
+	for _, c := range []*models.Class{
+		movieClass(), authorClass(), studioClass(), bookClass(), comicClass(),
+	} {
+		deps.classes[c.Class] = c
+	}
+	for _, c := range extra {
+		deps.classes[c.Class] = c
+	}
+
+	classes := make([]*models.Class, 0, len(deps.classes))
+	for _, c := range deps.classes {
+		classes = append(classes, c)
+	}
+
 	deps.handler = NewHandler(HandlerConfig{
-		Traverser:      deps.searcher,
-		SchemaReader:   deps.schemaReader,
-		Authorizer:     deps.authorizer,
-		DefaultLimit:   10,
-		MaximumResults: 10000,
+		Traverser:    deps.searcher,
+		SchemaReader: seedSchema(t, classes, aliases),
+		Authorizer:   deps.authorizer,
+		DefaultLimit: 10,
+		// matches DefaultQueryCrossReferenceDepthLimit
+		CrossRefDepthLimit: 5,
+		MaximumResults:     10000,
 		// happy-path fixture: the experimental feature is enabled
 		Enabled: runtime.NewDynamicValue(true),
 		Logger:  logrus.New(),
@@ -459,8 +576,7 @@ func TestHandlerTenantAuthorization(t *testing.T) {
 }
 
 func TestHandlerResolvesAliases(t *testing.T) {
-	deps := newTestHandler(t)
-	deps.schemaReader.aliases = map[string]string{"Films": "Movie"}
+	deps := newTestHandlerWithAliases(t, map[string]string{"Films": "Movie"})
 
 	_, apiErr := doNearText(t, deps, nil, "Films", `{"query":["space"]}`)
 	require.Nil(t, apiErr)
@@ -492,9 +608,8 @@ func (a rbacLikeAuthorizer) FilterAuthorizedResources(ctx context.Context, princ
 // TestHandlerAliasForbiddenDoesNotLeakTarget: a denied request against an
 // alias must not disclose the alias's target collection in the 403.
 func TestHandlerAliasForbiddenDoesNotLeakTarget(t *testing.T) {
-	deps := newTestHandler(t)
+	deps := newTestHandlerWithAliases(t, map[string]string{"Films": "Movie"})
 	deps.handler.authorizer = rbacLikeAuthorizer{}
-	deps.schemaReader.aliases = map[string]string{"Films": "Movie"}
 
 	_, apiErr := doNearText(t, deps, nil, "Films", `{"query":["space"]}`)
 	require.NotNil(t, apiErr)
@@ -508,9 +623,8 @@ func TestHandlerAliasForbiddenDoesNotLeakTarget(t *testing.T) {
 // collection — else the difference reveals the alias to a denied caller.
 func TestHandlerAliasForbiddenNoExistenceOracle(t *testing.T) {
 	// registered alias Films -> Movie, caller denied everything
-	aliased := newTestHandler(t)
+	aliased := newTestHandlerWithAliases(t, map[string]string{"Films": "Movie"})
 	aliased.handler.authorizer = rbacLikeAuthorizer{}
-	aliased.schemaReader.aliases = map[string]string{"Films": "Movie"}
 	_, aliasErr := doNearText(t, aliased, nil, "Films", `{"query":["space"]}`)
 	require.NotNil(t, aliasErr)
 
@@ -569,7 +683,7 @@ func (a *denyCollections) Calls() []mocks.AuthZReq { return a.requests }
 // reference selection or a where filter are authorized, not just the primary.
 func TestHandlerAuthorizesReferencedCollections(t *testing.T) {
 	for name, body := range map[string]string{
-		"reference selection": `{"query":["space"],"returnProperties":["hasAuthor.name"]}`,
+		"reference selection": `{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor","returnProperties":["name"]}]}`,
 		"where filter across a reference": `{"query":["space"],"where":` +
 			`{"path":["hasAuthor","Author","name"],"operator":"Equal","valueText":"x"}}`,
 	} {
@@ -654,11 +768,11 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 			err: pkgerrors.Wrapf(
 				enterrors.NewErrQueryVectorization(fmt.Errorf("remote client vectorize: connection refused")),
 				"explorer: get class: vectorize params"),
-			wantStatus: http.StatusBadGateway,
+			wantStatus: http.StatusInternalServerError,
 		},
 		{
 			// ORDERING GUARD: the no-vectorizer error arrives wrapped inside
-			// ErrQueryVectorization; 422 must win over 502
+			// ErrQueryVectorization; 422 must win over 500
 			name: "no vectorizer configured",
 			err: pkgerrors.Wrapf(
 				enterrors.NewErrQueryVectorization(
@@ -863,9 +977,9 @@ func TestNearObjectHandlerHappyPath(t *testing.T) {
 // TestNearObjectSourceObjectErrorMapping builds the source-object errors via
 // their real producer types, replicating the explorer's wrap chain (it wraps
 // every vector-resolution failure in ErrQueryVectorization): the typed
-// matches must win over the 502 mapping, or an unknown id would surface as
-// an embedding-provider failure. near-object declares no 502 at all, so an
-// untyped failure has to come out as the declared 500.
+// matches must win over the wrapper's 500 mapping, or an unknown id would
+// surface as a generic internal error. An untyped failure has to come out as
+// the declared 500.
 func TestNearObjectSourceObjectErrorMapping(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -876,7 +990,8 @@ func TestNearObjectSourceObjectErrorMapping(t *testing.T) {
 			name: "unknown source object id",
 			err: pkgerrors.Wrapf(
 				enterrors.NewErrQueryVectorization(
-					fmt.Errorf("nearObject params: %w", enterrors.NewErrSourceObjectNotFound(fmt.Errorf("vector not found")))),
+					fmt.Errorf("nearObject params: %w", enterrors.NewErrSourceObjectNotFound(
+						fmt.Errorf("nearObject search-object with id 73f2eb5f-5abf-447a-81ca-74b1dd168247 not found")))),
 				"explorer: get class: vectorize search vector"),
 			wantStatus: http.StatusBadRequest,
 		},

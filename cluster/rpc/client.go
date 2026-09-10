@@ -25,6 +25,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
@@ -360,8 +361,13 @@ func fromRPCError(err error) error {
 			return errors.Join(err, clusterSchema.ErrMTDisabled)
 		}
 	case codes.AlreadyExists:
-		if strings.Contains(msg, namespaces.ErrAlreadyExists.Error()) {
+		switch {
+		case strings.Contains(msg, namespaces.ErrAlreadyExists.Error()):
 			return errors.Join(err, namespaces.ErrAlreadyExists)
+		case strings.Contains(msg, apikey.ErrUserIdentifierExists.Error()):
+			return errors.Join(err, apikey.ErrUserIdentifierExists)
+		case strings.Contains(msg, apikey.ErrUserExists.Error()):
+			return errors.Join(err, apikey.ErrUserExists)
 		}
 	case codes.Aborted:
 		if strings.Contains(msg, clusterSchema.ErrClassVersionConflict.Error()) {

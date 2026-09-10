@@ -24,12 +24,12 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -112,7 +112,14 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 ) <-chan backup.ClassDescriptor {
 	ds := make(chan backup.ClassDescriptor, len(classes))
 	f := func() {
+		// The caller drains this channel to close before it releases any index, so
+		// every way out of this goroutine has to leave the channel closed.
+		defer close(ds)
 		for _, c := range classes {
+			if err := ctx.Err(); err != nil {
+				ds <- backup.ClassDescriptor{Name: c, BackupID: bakid, Error: err}
+				return
+			}
 			desc := backup.ClassDescriptor{Name: c, BackupID: bakid}
 			func() {
 				idx := db.GetIndex(schema.ClassName(c))
@@ -145,7 +152,6 @@ func (db *DB) BackupDescriptors(ctx context.Context, bakid string, classes []str
 				break
 			}
 		}
-		close(ds)
 	}
 	enterrors.GoWrapper(f, db.logger)
 	return ds
@@ -844,7 +850,7 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 			continue
 		}
 		name := entry.Name()
-		if name != dynamicent.StateDBFileName && !flatent.IsMetadataFile(name) {
+		if name != shardmeta.FileName && !flatent.IsMetadataFile(name) {
 			continue
 		}
 		relPath, err := filepath.Rel(rootPath, filepath.Join(shardDir, name))

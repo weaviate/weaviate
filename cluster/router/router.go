@@ -241,18 +241,31 @@ func (r *singleTenantRouter) getReadReplicasLocation(collection string, tenant s
 		return types.ReadReplicaSet{}, err
 	}
 
-	var replicas []types.Replica
+	readReplicas, _, err := r.readReplicasForShards(collection, tenant, targetShards)
+	return readReplicas, err
+}
 
-	for _, shardName := range targetShards {
+// readReplicasForShards gathers the read replicas of every shard in shards into one set,
+// and names the shards that have none: they leave no trace in the set itself.
+func (r *singleTenantRouter) readReplicasForShards(collection, tenant string, shards []string) (types.ReadReplicaSet, []string, error) {
+	var replicas []types.Replica
+	var shardsWithoutReplicas []string
+
+	for _, shardName := range shards {
 		readReplica, err := r.readReplicasForShard(collection, tenant, shardName)
 		if err != nil {
-			return types.ReadReplicaSet{}, err
+			return types.ReadReplicaSet{}, nil, err
+		}
+
+		if len(readReplica) == 0 {
+			shardsWithoutReplicas = append(shardsWithoutReplicas, shardName)
+			continue
 		}
 
 		replicas = append(replicas, readReplica...)
 	}
 
-	return types.ReadReplicaSet{Replicas: replicas}, nil
+	return types.ReadReplicaSet{Replicas: replicas}, shardsWithoutReplicas, nil
 }
 
 // getWriteReplicasLocation returns only write replicas for single-tenant collections.
@@ -329,9 +342,21 @@ func (r *singleTenantRouter) BuildReadRoutingPlan(params types.RoutingPlanBuildO
 
 // buildReadRoutingPlan constructs a read routing plan for single-tenant collections.
 func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
-	readReplicas, err := r.getReadReplicasLocation(r.collection, params.Tenant, params.Shard)
+	targetShards, err := r.targetShards(r.collection, params.Shard)
 	if err != nil {
 		return types.ReadRoutingPlan{}, err
+	}
+
+	readReplicas, shardsWithoutReplicas, err := r.readReplicasForShards(r.collection, params.Tenant, targetShards)
+	if err != nil {
+		return types.ReadRoutingPlan{}, err
+	}
+
+	// A shard with no read replica fails the plan rather than dropping out of it:
+	// callers read every shard the plan holds, so a missing one reads short and reports success.
+	if len(shardsWithoutReplicas) > 0 {
+		return types.ReadRoutingPlan{}, fmt.Errorf("collection %q: no read replica found for shards %q",
+			r.collection, shardsWithoutReplicas)
 	}
 
 	if len(readReplicas.Replicas) == 0 {

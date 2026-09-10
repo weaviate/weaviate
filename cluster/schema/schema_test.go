@@ -13,8 +13,10 @@ package schema
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -35,7 +37,7 @@ import (
 
 func TestCollectionNameConflictWithAlias(t *testing.T) {
 	var (
-		sc = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+		sc = NewSchema(t.Name(), prometheus.NewPedanticRegistry())
 		ss = &sharding.State{Physical: make(map[string]sharding.Physical)}
 	)
 
@@ -53,7 +55,7 @@ func TestCollectionNameConflictWithAlias(t *testing.T) {
 func Test_schemaCollectionMetrics(t *testing.T) {
 	r := prometheus.NewPedanticRegistry()
 
-	s := NewSchema("testNode", nil, r)
+	s := NewSchema("testNode", r)
 	ss := &sharding.State{}
 
 	c1 := &models.Class{
@@ -75,27 +77,32 @@ func Test_schemaCollectionMetrics(t *testing.T) {
 		},
 	}
 
-	// Collection metrics
-	assert.Equal(t, float64(0), testutil.ToFloat64(s.collectionsCount))
+	// Collection metrics. These classes carry no namespace, so they land on
+	// the empty-namespace series.
+	unnamespaced := func() float64 {
+		return testutil.ToFloat64(s.collectionsCount.WithLabelValues(""))
+	}
+
+	assert.Equal(t, float64(0), unnamespaced())
 	require.NoError(t, s.addClass(c1, ss, 0)) // adding c1 collection
-	assert.Equal(t, float64(1), testutil.ToFloat64(s.collectionsCount))
+	assert.Equal(t, float64(1), unnamespaced())
 
 	require.NoError(t, s.addClass(c2, ss, 0)) // adding c2 collection
-	assert.Equal(t, float64(2), testutil.ToFloat64(s.collectionsCount))
+	assert.Equal(t, float64(2), unnamespaced())
 
 	// delete c2
 	s.deleteClass("collection2")
-	assert.Equal(t, float64(1), testutil.ToFloat64(s.collectionsCount))
+	assert.Equal(t, float64(1), unnamespaced())
 
 	// delete c1
 	s.deleteClass("collection1")
-	assert.Equal(t, float64(0), testutil.ToFloat64(s.collectionsCount))
+	assert.Equal(t, float64(0), unnamespaced())
 }
 
 func Test_schemaShardMetrics(t *testing.T) {
 	r := prometheus.NewPedanticRegistry()
 
-	s := NewSchema("testNode", nil, r)
+	s := NewSchema("testNode", r)
 	ss := &sharding.State{}
 
 	c1 := &models.Class{
@@ -223,7 +230,7 @@ func Test_UpdateTenants_TransitionalStateRejection(t *testing.T) {
 		className  = "TestClass"
 	)
 	newSchema := func() *schema {
-		return NewSchema(nodeID, nil, prometheus.NewPedanticRegistry())
+		return NewSchema(nodeID, prometheus.NewPedanticRegistry())
 	}
 	newClass := func() *models.Class {
 		return &models.Class{
@@ -335,7 +342,7 @@ func Test_UpdateTenants_MovementRejection(t *testing.T) {
 	}
 	setup := func(t *testing.T, node, startStatus string) *schema {
 		t.Helper()
-		s := NewSchema(node, nil, prometheus.NewPedanticRegistry())
+		s := NewSchema(node, prometheus.NewPedanticRegistry())
 		require.NoError(t, s.addClass(newClass(), &sharding.State{}, 0))
 		require.NoError(t, s.addTenants(className, 0, &api.AddTenantsRequest{
 			ClusterNodes: []string{node},
@@ -394,7 +401,7 @@ func Test_UpdateTenants_MovementRejection(t *testing.T) {
 	})
 
 	t.Run("partial: only the moving tenant is blocked, sibling still applies", func(t *testing.T) {
-		s := NewSchema(nodeID, nil, prometheus.NewPedanticRegistry())
+		s := NewSchema(nodeID, prometheus.NewPedanticRegistry())
 		require.NoError(t, s.addClass(newClass(), &sharding.State{}, 0))
 		require.NoError(t, s.addTenants(className, 0, &api.AddTenantsRequest{
 			ClusterNodes: []string{nodeID},
@@ -434,7 +441,7 @@ func Test_UpdateTenants_RecordsPreFreezeStatus(t *testing.T) {
 	)
 	setup := func(t *testing.T, existing []*api.Tenant) *schema {
 		t.Helper()
-		s := NewSchema(nodeID, nil, prometheus.NewPedanticRegistry())
+		s := NewSchema(nodeID, prometheus.NewPedanticRegistry())
 		require.NoError(t, s.addClass(&models.Class{
 			Class:              className,
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
@@ -556,6 +563,24 @@ func (p *fixedParser) ParseClassUpdate(_, _ *models.Class) (*models.Class, error
 	return p.updated, nil
 }
 
+type failingParser struct{}
+
+func (failingParser) ParseClass(*models.Class) error { return errors.New("corrupt class") }
+
+func (failingParser) ParseClassUpdate(_, _ *models.Class) (*models.Class, error) {
+	return nil, nil
+}
+
+// restoreClasses restores a snapshot holding exactly the named classes.
+func restoreClasses(t *testing.T, sc *schema, names ...string) {
+	t.Helper()
+	classes := make(map[string]*metaClass, len(names))
+	for _, name := range names {
+		classes[name] = &metaClass{Class: models.Class{Class: name}}
+	}
+	require.NoError(t, sc.Restore(mustMarshal(t, classes), &fixedParser{}))
+}
+
 // Test_UpdateClass_MovementRejection verifies that an UpdateClass which would rewrite on-disk
 // vector structure is forbidden while a movement is active on the collection, that safe
 // (query-time-only) changes are allowed, and that a rejected update leaves the schema untouched.
@@ -672,6 +697,7 @@ var (
 		"hnsw.Distance", "hnsw.PQ.Enabled", "hnsw.PQ.BitCompression", "hnsw.PQ.Segments", "hnsw.PQ.Centroids",
 		"hnsw.PQ.TrainingLimit", "hnsw.PQ.Encoder.Type", "hnsw.PQ.Encoder.Distribution", "hnsw.BQ.Enabled",
 		"hnsw.SQ.Enabled", "hnsw.SQ.TrainingLimit", "hnsw.RQ.Enabled", "hnsw.RQ.Bits",
+		"hnsw.RQ.Centering", "hnsw.RQ.TrainingLimit",
 		"flat.Distance", "flat.PQ.Enabled", "flat.BQ.Enabled", "flat.SQ.Enabled", "flat.RQ.Enabled", "flat.RQ.Bits",
 		"dynamic.Distance",
 	}
@@ -815,7 +841,7 @@ func Test_UpdateProperty_MovementRejection(t *testing.T) {
 
 func Test_schemaDeepCopy(t *testing.T) {
 	r := prometheus.NewPedanticRegistry()
-	s := NewSchema("testNode", nil, r)
+	s := NewSchema("testNode", r)
 
 	class := &models.Class{
 		Class: "test",
@@ -873,7 +899,7 @@ func Test_schemaDeepCopy(t *testing.T) {
 func TestSchemaRestoreLegacyWithEmptyClasses(t *testing.T) {
 	// Test the scenario where snapshot contains "classes":{} which should unmarshal to empty map
 	t.Run("empty classes object", func(t *testing.T) {
-		s := NewSchema("test-node", &MockShardReader{}, nil)
+		s := NewSchema("test-node", nil)
 
 		// Create snapshot JSON with empty classes object
 		snapData := `{"node_id":"test-node","snapshot_id":"test-snapshot","classes":{}}`
@@ -893,7 +919,7 @@ func TestSchemaRestoreLegacyWithEmptyClasses(t *testing.T) {
 func TestSchemaRestoreLegacyWithNilClasses(t *testing.T) {
 	// Test the scenario where snapshot JSON unmarshaling results in nil Classes
 	t.Run("nil classes after unmarshal", func(t *testing.T) {
-		s := NewSchema("test-node", &MockShardReader{}, nil)
+		s := NewSchema("test-node", nil)
 
 		// Create a snapshot struct with nil Classes to simulate unmarshal failure
 		snap := snapshot{
@@ -920,7 +946,7 @@ func TestSchemaRestoreLegacyWithNilClasses(t *testing.T) {
 func TestSchemaAddClassAfterRestoreWithEmptyClasses(t *testing.T) {
 	// Test the scenario where addClass is called after restoring empty classes
 	t.Run("add class after empty restore", func(t *testing.T) {
-		s := NewSchema("test-node", &MockShardReader{}, nil)
+		s := NewSchema("test-node", nil)
 
 		// First restore with empty classes
 		snapData := `{"node_id":"test-node","snapshot_id":"test-snapshot","classes":{}}`
@@ -947,7 +973,7 @@ func TestSchemaAddClassAfterRestoreWithEmptyClasses(t *testing.T) {
 func TestSchemaAddClassAfterRestoreWithNilClasses(t *testing.T) {
 	// Test the scenario where addClass is called after restoring with nil classes
 	t.Run("add class after nil restore", func(t *testing.T) {
-		s := NewSchema("test-node", &MockShardReader{}, nil)
+		s := NewSchema("test-node", nil)
 
 		// First restore with nil classes (simulating unmarshal failure)
 		snap := snapshot{
@@ -980,7 +1006,7 @@ func TestSchemaAddClassAfterRestoreWithNilClasses(t *testing.T) {
 
 func TestCreateAlias(t *testing.T) {
 	var (
-		sc = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+		sc = NewSchema(t.Name(), prometheus.NewPedanticRegistry())
 		ss = &sharding.State{Physical: make(map[string]sharding.Physical)}
 	)
 
@@ -1020,7 +1046,7 @@ func TestSchemaAliasCasing(t *testing.T) {
 	// Meaning, MyCar, MYCar, myCar all same.
 
 	var (
-		sc = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+		sc = NewSchema(t.Name(), prometheus.NewPedanticRegistry())
 		ss = &sharding.State{Physical: make(map[string]sharding.Physical)}
 	)
 
@@ -1048,7 +1074,7 @@ func TestSchemaAliasCasing(t *testing.T) {
 
 func TestReplaceAlias(t *testing.T) {
 	var (
-		sc = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+		sc = NewSchema(t.Name(), prometheus.NewPedanticRegistry())
 		ss = &sharding.State{Physical: make(map[string]sharding.Physical)}
 	)
 
@@ -1074,7 +1100,7 @@ func TestReplaceAlias(t *testing.T) {
 
 func TestDeleteAlias(t *testing.T) {
 	var (
-		sc = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+		sc = NewSchema(t.Name(), prometheus.NewPedanticRegistry())
 		ss = &sharding.State{Physical: make(map[string]sharding.Physical)}
 	)
 
@@ -1094,7 +1120,7 @@ func TestDeleteAlias(t *testing.T) {
 
 func TestResolveAlias(t *testing.T) {
 	var (
-		sc = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+		sc = NewSchema(t.Name(), prometheus.NewPedanticRegistry())
 		ss = &sharding.State{Physical: make(map[string]sharding.Physical)}
 	)
 
@@ -1114,7 +1140,7 @@ func TestResolveAlias(t *testing.T) {
 
 func TestGetAlias(t *testing.T) {
 	var (
-		sc = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+		sc = NewSchema(t.Name(), prometheus.NewPedanticRegistry())
 		ss = &sharding.State{Physical: make(map[string]sharding.Physical)}
 	)
 
@@ -1170,7 +1196,7 @@ func TestGetAlias(t *testing.T) {
 // kept lowercase, and that ResolveAlias still finds it under that key. Only
 // the class portion of the name is normalized.
 func TestAliasNamespacePrefixPreserved(t *testing.T) {
-	sc := NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+	sc := NewSchema(t.Name(), prometheus.NewPedanticRegistry())
 	ss := &sharding.State{Physical: make(map[string]sharding.Physical)}
 	require.NoError(t, sc.addClass(&models.Class{Class: "delhappy:Movies"}, ss, 1))
 	require.NoError(t, sc.createAlias("delhappy:Movies", "delhappy:Films"))
@@ -1183,16 +1209,304 @@ func TestAliasNamespacePrefixPreserved(t *testing.T) {
 }
 
 func TestCollectionsCount_Namespaced(t *testing.T) {
-	sc := NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+	newState := func() *sharding.State {
+		return &sharding.State{Physical: make(map[string]sharding.Physical)}
+	}
+
+	tests := []struct {
+		name  string
+		setup func(t *testing.T, sc *schema)
+		// want maps a namespace onto the count CollectionsCount must report;
+		// the empty namespace is the cluster-global total.
+		want map[string]int
+	}{
+		{
+			name:  "no classes",
+			setup: func(*testing.T, *schema) {},
+			want:  map[string]int{"": 0, "customer1": 0},
+		},
+		{
+			name: "classes across namespaces alongside an unqualified class",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, newState(), 1))
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Films"}, newState(), 2))
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer2:Movies"}, newState(), 3))
+				require.NoError(t, sc.addClass(&models.Class{Class: "Global"}, newState(), 4))
+			},
+			want: map[string]int{"": 4, "customer1": 2, "customer2": 1, "unknown": 0},
+		},
+		{
+			name: "a namespace that prefixes another does not absorb its classes",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer:Movies"}, newState(), 1))
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, newState(), 2))
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Films"}, newState(), 3))
+			},
+			want: map[string]int{"": 3, "customer": 1, "customer1": 2},
+		},
+		{
+			name: "a rejected duplicate add is not counted twice",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, newState(), 1))
+				require.ErrorIs(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, newState(), 2), ErrClassExists)
+			},
+			want: map[string]int{"": 1, "customer1": 1},
+		},
+		{
+			name: "delete removes the class from its namespace only",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, newState(), 1))
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Films"}, newState(), 2))
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer2:Movies"}, newState(), 3))
+				require.True(t, sc.deleteClass("customer1:Movies"))
+			},
+			want: map[string]int{"": 2, "customer1": 1, "customer2": 1},
+		},
+		{
+			name: "deleting the last class empties the namespace",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, newState(), 1))
+				require.True(t, sc.deleteClass("customer1:Movies"))
+			},
+			want: map[string]int{"": 0, "customer1": 0},
+		},
+		{
+			name: "deleting a class that is not there leaves the count alone",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, newState(), 1))
+				require.False(t, sc.deleteClass("customer1:Missing"))
+				require.False(t, sc.deleteClass("customer2:Missing"))
+			},
+			want: map[string]int{"": 1, "customer1": 1, "customer2": 0},
+		},
+		{
+			name: "re-adding a deleted class counts it once",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, newState(), 1))
+				require.True(t, sc.deleteClass("customer1:Movies"))
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, newState(), 2))
+			},
+			want: map[string]int{"": 1, "customer1": 1},
+		},
+		{
+			name: "restoring a snapshot replaces the counts of the namespaces it had",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, newState(), 1))
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Films"}, newState(), 2))
+
+				restoreClasses(t, sc, "customer2:Books", "Global")
+			},
+			want: map[string]int{"": 2, "customer1": 0, "customer2": 1},
+		},
+		{
+			name: "restoring an empty snapshot clears every namespace",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, newState(), 1))
+
+				restoreClasses(t, sc)
+			},
+			want: map[string]int{"": 0, "customer1": 0},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sc := NewSchema(t.Name(), prometheus.NewPedanticRegistry())
+			tt.setup(t, sc)
+
+			for namespace, want := range tt.want {
+				assert.Equal(t, want, sc.CollectionsCount(namespace), "namespace %q", namespace)
+			}
+		})
+	}
+}
+
+// A namespace that loses its last class must leave no entry behind: a cluster
+// that churns namespaces would otherwise grow the map for the life of the node.
+func TestClassCountByNamespace_DropsEmptyNamespace(t *testing.T) {
+	sc := NewSchema(t.Name(), prometheus.NewPedanticRegistry())
 	ss := &sharding.State{Physical: make(map[string]sharding.Physical)}
 
 	require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, ss, 1))
-	require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Films"}, ss, 2))
-	require.NoError(t, sc.addClass(&models.Class{Class: "customer2:Movies"}, ss, 3))
-	require.NoError(t, sc.addClass(&models.Class{Class: "Global"}, ss, 4))
+	require.True(t, sc.deleteClass("customer1:Movies"))
+	assert.Empty(t, sc.classCountByNamespace, "after the last class is deleted")
 
-	assert.Equal(t, 4, sc.CollectionsCount(""), "empty namespace returns total")
-	assert.Equal(t, 2, sc.CollectionsCount("customer1"))
+	require.NoError(t, sc.addClass(&models.Class{Class: "customer2:Books"}, ss, 2))
+	restoreClasses(t, sc)
+	assert.Empty(t, sc.classCountByNamespace, "after an empty snapshot is restored")
+}
+
+// A snapshot the parser rejects must leave the previous classes and their gauge
+// series untouched: replaceClasses runs only after every class has parsed.
+func TestRestore_RejectedSnapshotLeavesStateIntact(t *testing.T) {
+	sc := NewSchema(t.Name(), prometheus.NewPedanticRegistry())
+	ss := &sharding.State{Physical: make(map[string]sharding.Physical)}
+	require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, ss, 1))
+
+	data := mustMarshal(t, map[string]*metaClass{
+		"customer2:Books": {Class: models.Class{Class: "customer2:Books"}},
+	})
+	require.Error(t, sc.Restore(data, failingParser{}))
+
+	assert.Equal(t, 2, testutil.CollectAndCount(sc.collectionsCount))
+	assert.Equal(t, float64(1), testutil.ToFloat64(sc.collectionsCount.WithLabelValues("customer1")))
+	assert.Equal(t, 1, sc.CollectionsCount("customer1"))
+	assert.Equal(t, 0, sc.CollectionsCount("customer2"))
+}
+
+// TestCollectionsGauge_ByNamespace pins the observable half of the count: the
+// per-namespace series an operator reads to explain a rejected create, and the
+// pruning that keeps a namespace-churning cluster from growing series without
+// bound.
+func TestCollectionsGauge_ByNamespace(t *testing.T) {
+	ss := &sharding.State{Physical: make(map[string]sharding.Physical)}
+
+	tests := []struct {
+		name   string
+		setup  func(t *testing.T, sc *schema)
+		want   map[string]float64
+		series int
+	}{
+		{
+			name:   "a fresh schema publishes zero, not nothing",
+			setup:  func(t *testing.T, sc *schema) {},
+			want:   map[string]float64{"": 0},
+			series: 1,
+		},
+		{
+			name: "each namespace gets its own series and unqualified classes share one",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, ss, 1))
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Films"}, ss, 2))
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer2:Movies"}, ss, 3))
+				require.NoError(t, sc.addClass(&models.Class{Class: "Unqualified"}, ss, 4))
+			},
+			want:   map[string]float64{"": 1, "customer1": 2, "customer2": 1},
+			series: 3,
+		},
+		{
+			name: "emptying a namespace drops its series",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, ss, 1))
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer2:Movies"}, ss, 2))
+				require.True(t, sc.deleteClass("customer1:Movies"))
+			},
+			want:   map[string]float64{"": 0, "customer2": 1},
+			series: 2,
+		},
+		{
+			name: "deleting the last unqualified class keeps its series at zero",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "Unqualified"}, ss, 1))
+				require.True(t, sc.deleteClass("Unqualified"))
+			},
+			want:   map[string]float64{"": 0},
+			series: 1,
+		},
+		{
+			name: "a rejected duplicate add does not move the series",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, ss, 1))
+				require.ErrorIs(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, ss, 2), ErrClassExists)
+			},
+			want:   map[string]float64{"": 0, "customer1": 1},
+			series: 2,
+		},
+		{
+			name: "deleting a class that is not there leaves the series alone",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, ss, 1))
+				require.False(t, sc.deleteClass("customer1:Missing"))
+				require.False(t, sc.deleteClass("customer2:Missing"))
+			},
+			want:   map[string]float64{"": 0, "customer1": 1},
+			series: 2,
+		},
+		{
+			name: "a restore republishes the series and discards the old ones",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, ss, 1))
+				restoreClasses(t, sc, "customer2:Books", "Unqualified")
+			},
+			want:   map[string]float64{"": 1, "customer2": 1},
+			series: 2,
+		},
+		{
+			name: "a restore of an empty snapshot leaves only the zero series",
+			setup: func(t *testing.T, sc *schema) {
+				require.NoError(t, sc.addClass(&models.Class{Class: "customer1:Movies"}, ss, 1))
+				restoreClasses(t, sc)
+			},
+			want:   map[string]float64{"": 0},
+			series: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sc := NewSchema(t.Name(), prometheus.NewPedanticRegistry())
+			tt.setup(t, sc)
+
+			// Counted before any read below: WithLabelValues creates the series
+			// it names, so reading first would manufacture the very series this
+			// asserts on.
+			assert.Equal(t, tt.series, testutil.CollectAndCount(sc.collectionsCount),
+				"no series beyond the ones asserted")
+
+			for namespace, want := range tt.want {
+				assert.Equal(t, want, testutil.ToFloat64(sc.collectionsCount.WithLabelValues(namespace)),
+					"namespace %q", namespace)
+			}
+		})
+	}
+}
+
+// The count is read under a read lock, so all three writers of the map must
+// write it under the lock that guards s.classes. Run with -race.
+func TestCollectionsCount_ConcurrentAccess(t *testing.T) {
+	sc := NewSchema(t.Name(), prometheus.NewPedanticRegistry())
+	ss := &sharding.State{Physical: make(map[string]sharding.Physical)}
+
+	snapshot, err := json.Marshal(map[string]*metaClass{
+		"customer2:Books": {Class: models.Class{Class: "customer2:Books"}},
+	})
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 2000; i++ {
+			sc.CollectionsCount("customer1")
+			sc.CollectionsCount("")
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		// Adds its own class before deleting it, so deleteClass reaches the
+		// counter every iteration instead of returning early once the names
+		// the other goroutines write are gone.
+		for i := 0; i < 2000; i++ {
+			name := fmt.Sprintf("customer3:C%d", i)
+			assert.NoError(t, sc.addClass(&models.Class{Class: name}, ss, uint64(i)))
+			sc.deleteClass(name)
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 200; i++ {
+			// assert, not require: only the test goroutine may call FailNow.
+			assert.NoError(t, sc.Restore(snapshot, &fixedParser{}))
+		}
+	}()
+
+	for i := 0; i < 100; i++ {
+		require.NoError(t, sc.addClass(&models.Class{Class: fmt.Sprintf("customer1:C%d", i)}, ss, uint64(i)))
+	}
+	wg.Wait()
+
+	// The racing writers leave an arbitrary map; a final restore settles it so
+	// the counts are deterministic.
+	require.NoError(t, sc.Restore(snapshot, &fixedParser{}))
 	assert.Equal(t, 1, sc.CollectionsCount("customer2"))
-	assert.Equal(t, 0, sc.CollectionsCount("unknown"))
+	assert.Equal(t, 0, sc.CollectionsCount("customer1"))
 }

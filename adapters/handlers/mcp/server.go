@@ -74,7 +74,7 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager, reg prome
 			server.WithRecovery(),
 		),
 		creator:        create.NewWeaviateCreator(authHandler, state.BatchManager, logger, writeAccessEnabled),
-		searcher:       search.NewWeaviateSearcher(authHandler, state.Traverser, state.SchemaManager, state.SchemaManager, state.ServerConfig.Config.Namespaces.Enabled, logger),
+		searcher:       search.NewWeaviateSearcher(authHandler, state.Traverser, state.ClusterService.SchemaReader(), state.SchemaManager, state.ServerConfig.Config.Namespaces.Enabled, logger),
 		reader:         read.NewWeaviateReader(authHandler, state.SchemaManager, state.SchemaManager, state.ServerConfig.Config.Namespaces.Enabled, objectsManager, logger),
 		state:          state,
 		logger:         logger,
@@ -87,7 +87,9 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager, reg prome
 }
 
 func (s *MCPServer) Handler() http.Handler {
-	return server.NewStreamableHTTPServer(s.server)
+	// Every request is authenticated on its own and nothing is kept per session,
+	// so session ids are neither issued nor required.
+	return server.NewStreamableHTTPServer(s.server, server.WithStateLess(true))
 }
 
 // registerToolFilter hides write tools from tools/list when write access is

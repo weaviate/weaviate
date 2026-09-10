@@ -18,6 +18,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -136,7 +138,6 @@ func (h *HFresh) initDimensions(vector []float32) error {
 		return errors.Wrap(err, "could not create quantizer")
 	}
 	h.quantizer = quantizer
-	h.Centroids.SetQuantizer(h.quantizer)
 
 	if err := h.persistQuantizationData(); err != nil {
 		return errors.Wrap(err, "could not persist RQ data")
@@ -312,7 +313,7 @@ func (h *HFresh) AddMulti(ctx context.Context, docID uint64, vectors [][]float32
 
 	idBytes := make([]byte, 8)
 	binary.BigEndian.PutUint64(idBytes, docID)
-	if err := h.store.Bucket(h.id+"_muvera_vectors").Put(idBytes, multivector.MuveraBytesFromFloat32(encoded)); err != nil {
+	if err := h.store.Bucket(helpers.MuveraBucketName(h.id)).Put(idBytes, multivector.MuveraBytesFromFloat32(encoded)); err != nil {
 		return errors.Wrap(err, "put muvera vector into bucket")
 	}
 

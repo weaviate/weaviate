@@ -1164,3 +1164,95 @@ func TestAsyncReplicationResolutionIsLocalOnly(t *testing.T) {
 		t.Run(name, func(t *testing.T) { call() })
 	}
 }
+
+// CountObjects must query only as many replicas as the consistency level asks
+// for — a node with no expectation set here fails the test if it is queried —
+// and must report an error instead of a count of 0 when it reaches none.
+func TestFinderCountObjects(t *testing.T) {
+	var (
+		cls   = "C1"
+		shard = "SH1"
+		nodes = []string{"A", "B", "C"}
+	)
+
+	for _, tt := range []struct {
+		name     string
+		cl       types.ConsistencyLevel
+		counts   map[string]int
+		errNodes []string
+		timeout  time.Duration // caller deadline; zero for none
+		want     int
+		wantErr  string // substring the call must fail with; empty if it must succeed
+	}{
+		{
+			name:   "ONE queries the local replica only",
+			cl:     types.ConsistencyLevelOne,
+			counts: map[string]int{"A": 7},
+			want:   7,
+		},
+		{
+			name:   "QUORUM queries a majority",
+			cl:     types.ConsistencyLevelQuorum,
+			counts: map[string]int{"A": 92, "B": 92},
+			want:   92,
+		},
+		{
+			name:   "ALL queries every replica and reconciles",
+			cl:     types.ConsistencyLevelAll,
+			counts: map[string]int{"A": 92, "B": 13, "C": 92},
+			want:   92,
+		},
+		{
+			name:     "ONE falls back to another replica when the first fails",
+			cl:       types.ConsistencyLevelOne,
+			errNodes: []string{"A"},
+			counts:   map[string]int{"B": 5},
+			want:     5,
+		},
+		{
+			name:     "every replica failing surfaces an error",
+			cl:       types.ConsistencyLevelOne,
+			errNodes: nodes,
+			timeout:  100 * time.Millisecond,
+			wantErr:  "no nodes reported object count",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFakeFactory(t, cls, shard, nodes, false)
+			finder := f.newFinder("A")
+			for node, count := range tt.counts {
+				f.RClient.EXPECT().CountObjects(anyVal, node, cls, shard).Return(count, nil)
+			}
+			// Maybe: which replicas the retry queue reaches before the deadline
+			// is timing-dependent; the counts above carry the fan-out assertions.
+			for _, node := range tt.errNodes {
+				f.RClient.EXPECT().CountObjects(anyVal, node, cls, shard).Return(0, errAny).Maybe()
+			}
+
+			collectionPlan, err := f.newRouter("A").BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
+				ConsistencyLevel: tt.cl,
+			})
+			require.NoError(t, err)
+
+			shardPlans := collectionPlan.ShardPlans(tt.cl)
+			require.Len(t, shardPlans, 1)
+			plan := shardPlans[0]
+
+			ctx := context.Background()
+			if tt.timeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, tt.timeout)
+				defer cancel()
+			}
+
+			got, err := finder.CountObjects(ctx, plan)
+
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}

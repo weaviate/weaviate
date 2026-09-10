@@ -435,7 +435,7 @@ func (s *schemaHandlers) getSchema(params schema.SchemaDumpParams, principal *mo
 	return schema.NewSchemaDumpOK().WithPayload(payload)
 }
 
-func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetParams,
+func (s *schemaHandlers) getShardsStorageStatus(params schema.SchemaObjectsShardsGetParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
@@ -685,7 +685,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager,
 		SchemaDumpHandlerFunc(h.getSchema)
 
 	api.SchemaSchemaObjectsShardsGetHandler = schema.
-		SchemaObjectsShardsGetHandlerFunc(h.getShardsStatus)
+		SchemaObjectsShardsGetHandlerFunc(h.getShardsStorageStatus)
 	api.SchemaSchemaObjectsShardsUpdateHandler = schema.
 		SchemaObjectsShardsUpdateHandlerFunc(h.updateShardStatus)
 

@@ -25,7 +25,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
@@ -44,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/namespaces"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -62,7 +62,6 @@ type DB struct {
 	nodeResolver              cluster.NodeResolver
 	remoteNode                *sharding.RemoteNode
 	promMetrics               *monitoring.PrometheusMetrics
-	indexCheckpoints          *indexcheckpoint.Checkpoints
 	shutdown                  chan struct{}
 	shutdownOnce              sync.Once
 	startupComplete           atomic.Bool
@@ -110,6 +109,10 @@ type DB struct {
 	shardLoadLimiter  *loadlimiter.LoadLimiter
 	bucketLoadLimiter *loadlimiter.LoadLimiter
 
+	// queryAdmission bounds aggregate search fan-out concurrency on this node,
+	// covering both local and coordinator ingress.
+	queryAdmission *queryadmission.Limiter
+
 	reindexer      ShardReindexerV3
 	nodeSelector   cluster.NodeSelector
 	schemaReader   schemaUC.SchemaReader
@@ -134,6 +137,11 @@ type DB struct {
 	reindexAuditDeferredRequests       int
 	shardReindexActivityLookupBuilder  ShardReindexActivityLookupBuilder
 	reindexCleanupInProgressLookupBldr CleanupInProgressLookupBuilder
+
+	// Both carry their own lock; see [migrationUnitSeals] and
+	// [migrationClusterReconciler].
+	migrationSeals   migrationUnitSeals
+	migrationCluster migrationClusterReconciler
 
 	bitmapBufPool      roaringset.BitmapBufPool
 	bitmapBufPoolClose func()
@@ -312,11 +320,14 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	// resume any .deleteme cleanup that didn't finish before the last shutdown
 	scanAndAsyncDeletePending(config.RootPath, logger)
 
+	// Fakes without the cross-class RPC leave the comparer nil → per-class pre-filter fallback.
+	crossClassComparer, _ := replicaClient.(replica.CompareRootsSessionFactory)
 	asyncReplicationScheduler, err := NewAsyncReplicationScheduler(
 		context.Background(),
 		config.Replication,
 		promMetrics,
 		logger,
+		crossClassComparer,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create async replication scheduler: %w", err)
@@ -346,11 +357,19 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		bitmapBufPool:             roaringset.NewBitmapBufPoolNoop(),
 		bitmapBufPoolClose:        func() {},
 		AsyncIndexingEnabled:      config.AsyncIndexingEnabled,
+		queryAdmission: queryadmission.New(metricsRegisterer, queryadmission.Config{
+			Capacity: config.QueryAdmissionBudget,
+			MaxQueue: config.QueryAdmissionMaxQueue,
+			Disabled: config.QueryAdmissionControlDisabled,
+		}),
 	}
 
 	// Serve replication calls targeting the local node in-process instead of
 	// over a loopback round-trip.
 	db.replicaClient = newRoutingReplicationClient(replicaClient, db, nodeResolver, localNodeName)
+
+	// The reconciler walks this node's loaded shards, so it needs a way back.
+	db.migrationCluster.db = db
 
 	if db.maxNumberGoroutines == 0 {
 		return db, errors.New("no workers to add batch-jobs configured.")
@@ -417,6 +436,7 @@ type Config struct {
 	EnableLazyLoadShards                *bool
 	LazyLoadShardCountThreshold         int
 	LazyLoadShardSizeThresholdGB        float64
+	LazyLoadShardWarmupMinObjects       int64
 	ForceFullReplicasSearch             bool
 	TransferInactivityTimeout           time.Duration
 	HaltForTransferTimeout              time.Duration
@@ -426,6 +446,9 @@ type Config struct {
 	Replication                         replication.GlobalConfig
 	MaximumConcurrentShardLoads         int
 	MaximumConcurrentBucketLoads        int
+	QueryAdmissionBudget                int
+	QueryAdmissionMaxQueue              int
+	QueryAdmissionControlDisabled       *configRuntime.DynamicValue[bool]
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
 	ObjectsTTLBatchSize                 *configRuntime.DynamicValue[int]
@@ -457,10 +480,13 @@ type Config struct {
 	MaintenanceModeEnabled      func() bool
 	AsyncIndexingEnabled        bool
 
-	HFreshEnabled   bool
 	OperationalMode *configRuntime.DynamicValue[string]
 
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
+
+	// Plumbed through for future callers under the "wl" directory; nothing in
+	// the DB layer reads it yet.
+	WeaviateLicense *configRuntime.DynamicValue[bool]
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
@@ -644,10 +670,6 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	}
 
 	db.shutDownWg.Wait() // wait until job queue shutdown is completed
-
-	if db.AsyncIndexingEnabled {
-		db.indexCheckpoints.Close()
-	}
 
 	return ec.ToErrorLimited(maxReportedErrors)
 }

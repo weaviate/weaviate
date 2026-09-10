@@ -234,6 +234,62 @@ func TestCompareHashTreeRootsRoundTrip(t *testing.T) {
 	})
 }
 
+func TestCompareHashTreeRootsMultiRoundTrip(t *testing.T) {
+	t.Run("classifies per class and isolates per-class errors", func(t *testing.T) {
+		mockReplicator := replicaTypes.NewMockReplicator(t)
+		svc := &ReplicationService{server: mockReplicator}
+
+		mockReplicator.EXPECT().
+			CompareHashTreeRoots(mock.Anything, "ClassA", map[string]hashtree.Digest{"a1": {1, 2}, "a2": {3, 4}}).
+			Return([]string{"a2"}, nil)
+		mockReplicator.EXPECT().
+			CompareHashTreeRoots(mock.Anything, "ClassB", map[string]hashtree.Digest{"b1": {5, 6}}).
+			Return(nil, errors.New("index not loaded"))
+
+		resp, err := svc.CompareHashTreeRootsMulti(context.Background(), &pb.CompareHashTreeRootsMultiRequest{
+			Classes: []*pb.ClassShardRootDigests{
+				{Index: "ClassA", ShardRootDigests: []*pb.ShardRootDigest{
+					{Shard: "a1", RootHashHigh: 1, RootHashLow: 2},
+					{Shard: "a2", RootHashHigh: 3, RootHashLow: 4},
+				}},
+				{Index: "ClassB", ShardRootDigests: []*pb.ShardRootDigest{
+					{Shard: "b1", RootHashHigh: 5, RootHashLow: 6},
+				}},
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, resp.GetClasses(), 2)
+		byIndex := map[string]*pb.ClassDivergingShards{}
+		for _, cls := range resp.GetClasses() {
+			byIndex[cls.GetIndex()] = cls
+		}
+		assert.Equal(t, []string{"a2"}, byIndex["ClassA"].GetDivergingShards())
+		assert.Empty(t, byIndex["ClassA"].GetError())
+		assert.Contains(t, byIndex["ClassB"].GetError(), "index not loaded")
+	})
+
+	t.Run("rejects a request exceeding the total shard cap without calling the replicator", func(t *testing.T) {
+		mockReplicator := replicaTypes.NewMockReplicator(t)
+		svc := &ReplicationService{server: mockReplicator}
+
+		perClass := replica.CompareHashTreeRootsMaxShardsPerRequest/2 + 1
+		classes := make([]*pb.ClassShardRootDigests, 2)
+		for c := range classes {
+			shards := make([]*pb.ShardRootDigest, perClass)
+			for i := range shards {
+				shards[i] = &pb.ShardRootDigest{Shard: fmt.Sprintf("shard-%d", i)}
+			}
+			classes[c] = &pb.ClassShardRootDigests{Index: fmt.Sprintf("Class%d", c), ShardRootDigests: shards}
+		}
+
+		_, err := svc.CompareHashTreeRootsMulti(context.Background(), &pb.CompareHashTreeRootsMultiRequest{Classes: classes})
+		require.Error(t, err)
+		st, ok := status.FromError(err)
+		require.True(t, ok)
+		assert.Equal(t, codes.InvalidArgument, st.Code())
+	})
+}
+
 func TestCompareDigestsEncoding(t *testing.T) {
 	const index, shard = "MyClass", "myshard"
 	source := []routerTypes.RepairDigest{

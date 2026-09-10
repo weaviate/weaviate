@@ -85,6 +85,140 @@ func (_m *MockShardLike) EXPECT() *MockShardLike_Expecter {
 	return &MockShardLike_Expecter{mock: &_m.Mock}
 }
 
+// AcquireVectorIndex provides a mock function with given fields: targetVector
+func (_m *MockShardLike) AcquireVectorIndex(targetVector string) (VectorIndex, func(), bool) {
+	ret := _m.Called(targetVector)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AcquireVectorIndex")
+	}
+
+	var r0 VectorIndex
+	var r1 func()
+	var r2 bool
+	if rf, ok := ret.Get(0).(func(string) (VectorIndex, func(), bool)); ok {
+		return rf(targetVector)
+	}
+	if rf, ok := ret.Get(0).(func(string) VectorIndex); ok {
+		r0 = rf(targetVector)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(VectorIndex)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(string) func()); ok {
+		r1 = rf(targetVector)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(func())
+		}
+	}
+
+	if rf, ok := ret.Get(2).(func(string) bool); ok {
+		r2 = rf(targetVector)
+	} else {
+		r2 = ret.Get(2).(bool)
+	}
+
+	return r0, r1, r2
+}
+
+// MockShardLike_AcquireVectorIndex_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AcquireVectorIndex'
+type MockShardLike_AcquireVectorIndex_Call struct {
+	*mock.Call
+}
+
+// AcquireVectorIndex is a helper method to define mock.On call
+//   - targetVector string
+func (_e *MockShardLike_Expecter) AcquireVectorIndex(targetVector interface{}) *MockShardLike_AcquireVectorIndex_Call {
+	return &MockShardLike_AcquireVectorIndex_Call{Call: _e.mock.On("AcquireVectorIndex", targetVector)}
+}
+
+func (_c *MockShardLike_AcquireVectorIndex_Call) Run(run func(targetVector string)) *MockShardLike_AcquireVectorIndex_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_AcquireVectorIndex_Call) Return(index VectorIndex, release func(), ok bool) *MockShardLike_AcquireVectorIndex_Call {
+	_c.Call.Return(index, release, ok)
+	return _c
+}
+
+func (_c *MockShardLike_AcquireVectorIndex_Call) RunAndReturn(run func(string) (VectorIndex, func(), bool)) *MockShardLike_AcquireVectorIndex_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// AcquireVectorIndexQueue provides a mock function with given fields: targetVector
+func (_m *MockShardLike) AcquireVectorIndexQueue(targetVector string) (*VectorIndexQueue, func(), bool) {
+	ret := _m.Called(targetVector)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AcquireVectorIndexQueue")
+	}
+
+	var r0 *VectorIndexQueue
+	var r1 func()
+	var r2 bool
+	if rf, ok := ret.Get(0).(func(string) (*VectorIndexQueue, func(), bool)); ok {
+		return rf(targetVector)
+	}
+	if rf, ok := ret.Get(0).(func(string) *VectorIndexQueue); ok {
+		r0 = rf(targetVector)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*VectorIndexQueue)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(string) func()); ok {
+		r1 = rf(targetVector)
+	} else {
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).(func())
+		}
+	}
+
+	if rf, ok := ret.Get(2).(func(string) bool); ok {
+		r2 = rf(targetVector)
+	} else {
+		r2 = ret.Get(2).(bool)
+	}
+
+	return r0, r1, r2
+}
+
+// MockShardLike_AcquireVectorIndexQueue_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AcquireVectorIndexQueue'
+type MockShardLike_AcquireVectorIndexQueue_Call struct {
+	*mock.Call
+}
+
+// AcquireVectorIndexQueue is a helper method to define mock.On call
+//   - targetVector string
+func (_e *MockShardLike_Expecter) AcquireVectorIndexQueue(targetVector interface{}) *MockShardLike_AcquireVectorIndexQueue_Call {
+	return &MockShardLike_AcquireVectorIndexQueue_Call{Call: _e.mock.On("AcquireVectorIndexQueue", targetVector)}
+}
+
+func (_c *MockShardLike_AcquireVectorIndexQueue_Call) Run(run func(targetVector string)) *MockShardLike_AcquireVectorIndexQueue_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_AcquireVectorIndexQueue_Call) Return(queue *VectorIndexQueue, release func(), ok bool) *MockShardLike_AcquireVectorIndexQueue_Call {
+	_c.Call.Return(queue, release, ok)
+	return _c
+}
+
+func (_c *MockShardLike_AcquireVectorIndexQueue_Call) RunAndReturn(run func(string) (*VectorIndexQueue, func(), bool)) *MockShardLike_AcquireVectorIndexQueue_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Activity provides a mock function with no fields
 func (_m *MockShardLike) Activity() (int32, int32) {
 	ret := _m.Called()
@@ -520,52 +654,6 @@ func (_c *MockShardLike_CompareDigests_Call) Return(_a0 []types.RepairDigest, _a
 }
 
 func (_c *MockShardLike_CompareDigests_Call) RunAndReturn(run func(context.Context, []types.RepairDigest) ([]types.RepairDigest, error)) *MockShardLike_CompareDigests_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ConvertQueue provides a mock function with given fields: targetVector
-func (_m *MockShardLike) ConvertQueue(targetVector string) error {
-	ret := _m.Called(targetVector)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ConvertQueue")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(string) error); ok {
-		r0 = rf(targetVector)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockShardLike_ConvertQueue_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ConvertQueue'
-type MockShardLike_ConvertQueue_Call struct {
-	*mock.Call
-}
-
-// ConvertQueue is a helper method to define mock.On call
-//   - targetVector string
-func (_e *MockShardLike_Expecter) ConvertQueue(targetVector interface{}) *MockShardLike_ConvertQueue_Call {
-	return &MockShardLike_ConvertQueue_Call{Call: _e.mock.On("ConvertQueue", targetVector)}
-}
-
-func (_c *MockShardLike_ConvertQueue_Call) Run(run func(targetVector string)) *MockShardLike_ConvertQueue_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_ConvertQueue_Call) Return(_a0 error) *MockShardLike_ConvertQueue_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_ConvertQueue_Call) RunAndReturn(run func(string) error) *MockShardLike_ConvertQueue_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -1686,122 +1774,6 @@ func (_c *MockShardLike_GetStatusReason_Call) Return(_a0 string) *MockShardLike_
 }
 
 func (_c *MockShardLike_GetStatusReason_Call) RunAndReturn(run func() string) *MockShardLike_GetStatusReason_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetVectorIndex provides a mock function with given fields: targetVector
-func (_m *MockShardLike) GetVectorIndex(targetVector string) (VectorIndex, bool) {
-	ret := _m.Called(targetVector)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetVectorIndex")
-	}
-
-	var r0 VectorIndex
-	var r1 bool
-	if rf, ok := ret.Get(0).(func(string) (VectorIndex, bool)); ok {
-		return rf(targetVector)
-	}
-	if rf, ok := ret.Get(0).(func(string) VectorIndex); ok {
-		r0 = rf(targetVector)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(VectorIndex)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(string) bool); ok {
-		r1 = rf(targetVector)
-	} else {
-		r1 = ret.Get(1).(bool)
-	}
-
-	return r0, r1
-}
-
-// MockShardLike_GetVectorIndex_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetVectorIndex'
-type MockShardLike_GetVectorIndex_Call struct {
-	*mock.Call
-}
-
-// GetVectorIndex is a helper method to define mock.On call
-//   - targetVector string
-func (_e *MockShardLike_Expecter) GetVectorIndex(targetVector interface{}) *MockShardLike_GetVectorIndex_Call {
-	return &MockShardLike_GetVectorIndex_Call{Call: _e.mock.On("GetVectorIndex", targetVector)}
-}
-
-func (_c *MockShardLike_GetVectorIndex_Call) Run(run func(targetVector string)) *MockShardLike_GetVectorIndex_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_GetVectorIndex_Call) Return(_a0 VectorIndex, _a1 bool) *MockShardLike_GetVectorIndex_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockShardLike_GetVectorIndex_Call) RunAndReturn(run func(string) (VectorIndex, bool)) *MockShardLike_GetVectorIndex_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetVectorIndexQueue provides a mock function with given fields: targetVector
-func (_m *MockShardLike) GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool) {
-	ret := _m.Called(targetVector)
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetVectorIndexQueue")
-	}
-
-	var r0 *VectorIndexQueue
-	var r1 bool
-	if rf, ok := ret.Get(0).(func(string) (*VectorIndexQueue, bool)); ok {
-		return rf(targetVector)
-	}
-	if rf, ok := ret.Get(0).(func(string) *VectorIndexQueue); ok {
-		r0 = rf(targetVector)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*VectorIndexQueue)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(string) bool); ok {
-		r1 = rf(targetVector)
-	} else {
-		r1 = ret.Get(1).(bool)
-	}
-
-	return r0, r1
-}
-
-// MockShardLike_GetVectorIndexQueue_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetVectorIndexQueue'
-type MockShardLike_GetVectorIndexQueue_Call struct {
-	*mock.Call
-}
-
-// GetVectorIndexQueue is a helper method to define mock.On call
-//   - targetVector string
-func (_e *MockShardLike_Expecter) GetVectorIndexQueue(targetVector interface{}) *MockShardLike_GetVectorIndexQueue_Call {
-	return &MockShardLike_GetVectorIndexQueue_Call{Call: _e.mock.On("GetVectorIndexQueue", targetVector)}
-}
-
-func (_c *MockShardLike_GetVectorIndexQueue_Call) Run(run func(targetVector string)) *MockShardLike_GetVectorIndexQueue_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_GetVectorIndexQueue_Call) Return(_a0 *VectorIndexQueue, _a1 bool) *MockShardLike_GetVectorIndexQueue_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockShardLike_GetVectorIndexQueue_Call) RunAndReturn(run func(string) (*VectorIndexQueue, bool)) *MockShardLike_GetVectorIndexQueue_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -3487,6 +3459,54 @@ func (_c *MockShardLike_UpdateStatus_Call) RunAndReturn(run func(string, string)
 	return _c
 }
 
+// UpdateStatusIf provides a mock function with given fields: cond, status, reason
+func (_m *MockShardLike) UpdateStatusIf(cond func(ShardStatus) bool, status string, reason string) error {
+	ret := _m.Called(cond, status, reason)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateStatusIf")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(func(ShardStatus) bool, string, string) error); ok {
+		r0 = rf(cond, status, reason)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShardLike_UpdateStatusIf_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateStatusIf'
+type MockShardLike_UpdateStatusIf_Call struct {
+	*mock.Call
+}
+
+// UpdateStatusIf is a helper method to define mock.On call
+//   - cond func(ShardStatus) bool
+//   - status string
+//   - reason string
+func (_e *MockShardLike_Expecter) UpdateStatusIf(cond interface{}, status interface{}, reason interface{}) *MockShardLike_UpdateStatusIf_Call {
+	return &MockShardLike_UpdateStatusIf_Call{Call: _e.mock.On("UpdateStatusIf", cond, status, reason)}
+}
+
+func (_c *MockShardLike_UpdateStatusIf_Call) Run(run func(cond func(ShardStatus) bool, status string, reason string)) *MockShardLike_UpdateStatusIf_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(func(ShardStatus) bool), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_UpdateStatusIf_Call) Return(_a0 error) *MockShardLike_UpdateStatusIf_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_UpdateStatusIf_Call) RunAndReturn(run func(func(ShardStatus) bool, string, string) error) *MockShardLike_UpdateStatusIf_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // UpdateVectorIndexConfig provides a mock function with given fields: ctx, updated
 func (_m *MockShardLike) UpdateVectorIndexConfig(ctx context.Context, updated config.VectorIndexConfig) error {
 	ret := _m.Called(ctx, updated)
@@ -3749,6 +3769,120 @@ func (_c *MockShardLike_WasDeleted_Call) Return(_a0 bool, _a1 time.Time, _a2 err
 }
 
 func (_c *MockShardLike_WasDeleted_Call) RunAndReturn(run func(context.Context, strfmt.UUID) (bool, time.Time, error)) *MockShardLike_WasDeleted_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// WithVectorIndex provides a mock function with given fields: targetVector, f
+func (_m *MockShardLike) WithVectorIndex(targetVector string, f func(VectorIndex) error) (bool, error) {
+	ret := _m.Called(targetVector, f)
+
+	if len(ret) == 0 {
+		panic("no return value specified for WithVectorIndex")
+	}
+
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string, func(VectorIndex) error) (bool, error)); ok {
+		return rf(targetVector, f)
+	}
+	if rf, ok := ret.Get(0).(func(string, func(VectorIndex) error) bool); ok {
+		r0 = rf(targetVector, f)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	if rf, ok := ret.Get(1).(func(string, func(VectorIndex) error) error); ok {
+		r1 = rf(targetVector, f)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockShardLike_WithVectorIndex_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WithVectorIndex'
+type MockShardLike_WithVectorIndex_Call struct {
+	*mock.Call
+}
+
+// WithVectorIndex is a helper method to define mock.On call
+//   - targetVector string
+//   - f func(VectorIndex) error
+func (_e *MockShardLike_Expecter) WithVectorIndex(targetVector interface{}, f interface{}) *MockShardLike_WithVectorIndex_Call {
+	return &MockShardLike_WithVectorIndex_Call{Call: _e.mock.On("WithVectorIndex", targetVector, f)}
+}
+
+func (_c *MockShardLike_WithVectorIndex_Call) Run(run func(targetVector string, f func(VectorIndex) error)) *MockShardLike_WithVectorIndex_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(func(VectorIndex) error))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_WithVectorIndex_Call) Return(found bool, err error) *MockShardLike_WithVectorIndex_Call {
+	_c.Call.Return(found, err)
+	return _c
+}
+
+func (_c *MockShardLike_WithVectorIndex_Call) RunAndReturn(run func(string, func(VectorIndex) error) (bool, error)) *MockShardLike_WithVectorIndex_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// WithVectorIndexQueue provides a mock function with given fields: targetVector, f
+func (_m *MockShardLike) WithVectorIndexQueue(targetVector string, f func(*VectorIndexQueue) error) (bool, error) {
+	ret := _m.Called(targetVector, f)
+
+	if len(ret) == 0 {
+		panic("no return value specified for WithVectorIndexQueue")
+	}
+
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string, func(*VectorIndexQueue) error) (bool, error)); ok {
+		return rf(targetVector, f)
+	}
+	if rf, ok := ret.Get(0).(func(string, func(*VectorIndexQueue) error) bool); ok {
+		r0 = rf(targetVector, f)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	if rf, ok := ret.Get(1).(func(string, func(*VectorIndexQueue) error) error); ok {
+		r1 = rf(targetVector, f)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockShardLike_WithVectorIndexQueue_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'WithVectorIndexQueue'
+type MockShardLike_WithVectorIndexQueue_Call struct {
+	*mock.Call
+}
+
+// WithVectorIndexQueue is a helper method to define mock.On call
+//   - targetVector string
+//   - f func(*VectorIndexQueue) error
+func (_e *MockShardLike_Expecter) WithVectorIndexQueue(targetVector interface{}, f interface{}) *MockShardLike_WithVectorIndexQueue_Call {
+	return &MockShardLike_WithVectorIndexQueue_Call{Call: _e.mock.On("WithVectorIndexQueue", targetVector, f)}
+}
+
+func (_c *MockShardLike_WithVectorIndexQueue_Call) Run(run func(targetVector string, f func(*VectorIndexQueue) error)) *MockShardLike_WithVectorIndexQueue_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(func(*VectorIndexQueue) error))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_WithVectorIndexQueue_Call) Return(found bool, err error) *MockShardLike_WithVectorIndexQueue_Call {
+	_c.Call.Return(found, err)
+	return _c
+}
+
+func (_c *MockShardLike_WithVectorIndexQueue_Call) RunAndReturn(run func(string, func(*VectorIndexQueue) error) (bool, error)) *MockShardLike_WithVectorIndexQueue_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -4456,6 +4590,53 @@ func (_c *MockShardLike_isReadOnly_Call) Return(_a0 error) *MockShardLike_isRead
 }
 
 func (_c *MockShardLike_isReadOnly_Call) RunAndReturn(run func() error) *MockShardLike_isReadOnly_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// migrationRecordStore provides a mock function with no fields
+func (_m *MockShardLike) migrationRecordStore() *MigrationRecordStore {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for migrationRecordStore")
+	}
+
+	var r0 *MigrationRecordStore
+	if rf, ok := ret.Get(0).(func() *MigrationRecordStore); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*MigrationRecordStore)
+		}
+	}
+
+	return r0
+}
+
+// MockShardLike_migrationRecordStore_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'migrationRecordStore'
+type MockShardLike_migrationRecordStore_Call struct {
+	*mock.Call
+}
+
+// migrationRecordStore is a helper method to define mock.On call
+func (_e *MockShardLike_Expecter) migrationRecordStore() *MockShardLike_migrationRecordStore_Call {
+	return &MockShardLike_migrationRecordStore_Call{Call: _e.mock.On("migrationRecordStore")}
+}
+
+func (_c *MockShardLike_migrationRecordStore_Call) Run(run func()) *MockShardLike_migrationRecordStore_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockShardLike_migrationRecordStore_Call) Return(_a0 *MigrationRecordStore) *MockShardLike_migrationRecordStore_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_migrationRecordStore_Call) RunAndReturn(run func() *MigrationRecordStore) *MockShardLike_migrationRecordStore_Call {
 	_c.Call.Return(run)
 	return _c
 }

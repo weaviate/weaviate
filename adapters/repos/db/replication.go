@@ -499,7 +499,7 @@ func (i *Index) IncomingReinitShard(ctx context.Context, shardName string) error
 
 		shard, ok := i.shards.LoadAndDelete(shardName)
 		if ok {
-			if err := shutdownOrRestoreShard(ctx, &i.shards, shardName, shard, i.logger); err != nil &&
+			if err := shutdownOrRestoreShard(ctx, i, shardName, shard); err != nil &&
 				!errors.Is(err, errAlreadyShutdown) {
 				return err
 			}

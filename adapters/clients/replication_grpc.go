@@ -497,6 +497,80 @@ func (c *grpcReplicationClient) CompareHashTreeRoots(ctx context.Context, host, 
 	return resp.GetDivergingShards(), nil
 }
 
+var _ replica.CompareRootsSessionFactory = (*grpcReplicationClient)(nil)
+
+func (c *grpcReplicationClient) NewCompareRootsSession() replica.CompareRootsSession {
+	return &grpcCompareRootsSession{c: c}
+}
+
+// grpcCompareRootsSession reuses one request graph across calls; single-goroutine use only.
+type grpcCompareRootsSession struct {
+	c       *grpcReplicationClient
+	req     protocol.CompareHashTreeRootsMultiRequest
+	classes []*protocol.ClassShardRootDigests
+	digests []*protocol.ShardRootDigest
+}
+
+// fill overwrites the graph with exactly the given classes; structs are reused via
+// pointer only (they embed protoimpl.MessageState, which must never be copied).
+func (s *grpcCompareRootsSession) fill(classes map[string]map[string]hashtree.Digest) *protocol.CompareHashTreeRootsMultiRequest {
+	total := 0
+	for _, roots := range classes {
+		total += len(roots)
+	}
+	for len(s.digests) < total {
+		s.digests = append(s.digests, &protocol.ShardRootDigest{})
+	}
+	for len(s.classes) < len(classes) {
+		s.classes = append(s.classes, &protocol.ClassShardRootDigests{})
+	}
+	di, ci := 0, 0
+	for class, roots := range classes {
+		start := di
+		for shard, root := range roots {
+			d := s.digests[di]
+			d.Shard, d.RootHashHigh, d.RootHashLow = shard, root[0], root[1]
+			di++
+		}
+		cls := s.classes[ci]
+		cls.Index = class
+		cls.ShardRootDigests = s.digests[start:di:di]
+		ci++
+	}
+	s.req.Classes = s.classes[:ci]
+	return &s.req
+}
+
+func (s *grpcCompareRootsSession) CompareHashTreeRootsMulti(ctx context.Context, host string,
+	classes map[string]map[string]hashtree.Digest,
+) (*replica.CompareHashTreeRootsMultiResp, error) {
+	client, err := s.c.getClient(host)
+	if err != nil {
+		return nil, err
+	}
+
+	// Graph reuse is safe on the next call: retries re-marshal inside this stub call and nothing retains it after return.
+	grpcResp, err := client.CompareHashTreeRootsMulti(ctx, s.fill(classes))
+	if err != nil {
+		// Older peers don't serve this RPC; sentinel lets the caller fall back.
+		if status.Code(err) == codes.Unimplemented {
+			return nil, replica.ErrCompareHashTreeRootsUnsupported
+		}
+		return nil, fmt.Errorf("gRPC CompareHashTreeRootsMulti: %w", err)
+	}
+
+	resp := &replica.CompareHashTreeRootsMultiResp{
+		Classes: make(map[string]replica.CompareHashTreeRootsMultiClassResp, len(grpcResp.GetClasses())),
+	}
+	for _, cls := range grpcResp.GetClasses() {
+		resp.Classes[cls.GetIndex()] = replica.CompareHashTreeRootsMultiClassResp{
+			DivergingShards: cls.GetDivergingShards(),
+			Error:           cls.GetError(),
+		}
+	}
+	return resp, nil
+}
+
 func (c *grpcReplicationClient) OverwriteObjects(ctx context.Context, host, index, shard string,
 	vobjects []*objects.VObject,
 ) ([]types.RepairResponse, error) {

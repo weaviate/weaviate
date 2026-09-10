@@ -285,31 +285,6 @@ func (r *restorer) validate(ctx context.Context, store *nodeStore, req *Request)
 	return meta, cs, nil
 }
 
-// oneClassSchema allows for creating schema with one class
-// This is required when migrating to hierarchical file structure from pre-v1.23
-type oneClassSchema struct {
-	cls *models.Class
-	ss  *sharding.State
-}
-
-func (s oneClassSchema) Read(_ string, reader func(*models.Class, *sharding.State) error) error {
-	return reader(s.cls, s.ss)
-}
-
-func (s oneClassSchema) Shards(_ string) ([]string, error) {
-	return s.ss.AllPhysicalShards(), nil
-}
-
-func (s oneClassSchema) LocalShards() ([]string, error) {
-	return s.ss.AllLocalPhysicalShards(), nil
-}
-
-func (s oneClassSchema) ReadOnlySchema() models.Schema {
-	return models.Schema{
-		Classes: []*models.Class{s.cls},
-	}
-}
-
 // hfsMigrator builds and return a class migrator ready for use
 func hfsMigrator(desc *backup.ClassDescriptor, nodeName string, serverVersion string) (func(classDir string) error, error) {
 	if serverVersion >= "1.23" {
@@ -331,6 +306,8 @@ func hfsMigrator(desc *backup.ClassDescriptor, nodeName string, serverVersion st
 	}
 
 	return func(classDir string) error {
-		return migratefs.MigrateToHierarchicalFS(classDir, oneClassSchema{class, &ss})
+		return migratefs.MigrateToHierarchicalFS(classDir, []migratefs.ClassShards{
+			{Class: class, Shards: ss.AllPhysicalShards()},
+		})
 	}, nil
 }

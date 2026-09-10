@@ -72,9 +72,13 @@ func (*forbiddenError) Error() string { return "forbidden" }
 // plus cluster-wide Stats and BatchStats, mirroring what LocalNodeStatus builds.
 type fakeDB struct {
 	status []*models.NodeStatus
+
+	// gotClass and gotShard record the filters of the last GetNodeStatus call.
+	gotClass, gotShard string
 }
 
 func (f *fakeDB) GetNodeStatus(ctx context.Context, className, shardName, verbosity string) ([]*models.NodeStatus, error) {
+	f.gotClass, f.gotShard = className, shardName
 	return f.status, nil
 }
 
@@ -173,6 +177,51 @@ func TestGetNodeStatus_VerboseFiltersCrossClassStats(t *testing.T) {
 
 			require.NotNil(t, status[0].BatchStats,
 				"node-wide batch stats leak no per-class data and must always be preserved")
+		})
+	}
+}
+
+// A minimal request must reach the DB without a class or shard filter. A
+// filtered lookup answers 404 for an unknown class and 200 otherwise. That
+// would let a caller authorized only on the minimal resource, which names no
+// class, learn whether a class exists.
+func TestGetNodeStatus_MinimalDropsClassFilter(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	tests := []struct {
+		name      string
+		output    string
+		allowed   []string
+		wantClass string
+		wantShard string
+	}{
+		{
+			name:      "minimal drops class and shard",
+			output:    verbosity.OutputMinimal,
+			allowed:   authorization.Nodes(verbosity.OutputMinimal),
+			wantClass: "",
+			wantShard: "",
+		},
+		{
+			name:      "verbose keeps class and shard",
+			output:    verbosity.OutputVerbose,
+			allowed:   []string{nodeResource("Foo")},
+			wantClass: "Foo",
+			wantShard: "s1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			db := &fakeDB{status: []*models.NodeStatus{{Name: "node1"}}}
+			m := NewManager(logger, &allowlistAuthorizer{allowed: tt.allowed}, db, nil,
+				rbacconf.Config{Enabled: true}, time.Second)
+
+			status, err := m.GetNodeStatus(context.Background(), &models.Principal{}, "Foo", "s1", tt.output)
+			require.NoError(t, err)
+			require.Len(t, status, 1)
+			require.Equal(t, tt.wantClass, db.gotClass)
+			require.Equal(t, tt.wantShard, db.gotShard)
 		})
 	}
 }

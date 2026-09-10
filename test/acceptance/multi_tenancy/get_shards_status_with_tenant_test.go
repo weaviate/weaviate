@@ -19,9 +19,9 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-func TestGetShardsStatusWithTenant(t *testing.T) {
+func TestGetShardsStorageStatusWithTenant(t *testing.T) {
 	testClass := models.Class{
-		Class: "ClassGetShardsStatusWithTenant",
+		Class: "ClassGetShardsStorageStatusWithTenant",
 		MultiTenancyConfig: &models.MultiTenancyConfig{
 			Enabled: true,
 		},

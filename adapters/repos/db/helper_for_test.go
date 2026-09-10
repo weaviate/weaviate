@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"log"
 	"math/rand"
 	"os"
@@ -28,7 +29,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
@@ -262,12 +262,12 @@ func stubDBWithNoLiveReindex() *DB {
 
 func testShard(t testing.TB, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
 	return testShardWithSettings(t, ctx, &models.Class{Class: className}, enthnsw.UserConfig{Skip: true},
-		false, false, false, indexOpts...)
+		false, false, indexOpts...)
 }
 
 func testShardMultiTenant(t testing.TB, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
 	return testShardWithMultiTenantSettings(t, ctx, &models.Class{Class: className}, enthnsw.UserConfig{Skip: true},
-		false, false, false, indexOpts...)
+		false, false, indexOpts...)
 }
 
 func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMetrics, classes ...*models.Class) *DB {
@@ -354,13 +354,8 @@ func getSingleShardNameFromRepo(repo *DB, className string) string {
 }
 
 func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models.Class,
-	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, multiTenant, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
+	vic schemaConfig.VectorIndexConfig, withStopwords, multiTenant, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
-	// With async indexing on, NewShard reads the checkpoint store from a
-	// goroutine, so a missing one surfaces on an unrelated test.
-	require.False(t, withAsyncIndexingEnabled && !withCheckpoints,
-		"async indexing needs withCheckpoints")
-
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	maxResults := int64(10_000)
@@ -429,11 +424,6 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 	var sd *stopwords.Detector
 	if withStopwords {
 		sd, err = stopwords.NewDetectorFromConfig(iic.Stopwords)
-		require.NoError(t, err)
-	}
-	var checkpts *indexcheckpoint.Checkpoints
-	if withCheckpoints {
-		checkpts, err = indexcheckpoint.New(tmpDir, logger)
 		require.NoError(t, err)
 	}
 
@@ -507,7 +497,6 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 		schemaReader:           mockSchemaReader,
 		centralJobQueue:        repo.jobQueueCh,
 		stopwords:              sd,
-		indexCheckpoints:       checkpts,
 		allocChecker:           memwatch.NewDummyMonitor(),
 		shardCreateLocks:       esync.NewKeyRWLocker(),
 		backupLock:             esync.NewKeyRWLocker(),
@@ -515,7 +504,6 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 		shardLoadLimiter:       loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		shardReindexer:         NewShardReindexerV3Noop(),
 		bitmapBufPool:          roaringset.NewBitmapBufPoolNoop(),
-		HFreshEnabled:          true,
 		replicator:             replicator,
 		router:                 mockRouter,
 		db:                     repo,
@@ -548,15 +536,15 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 
 // Simplified functions that delegate to the common helper
 func testShardWithMultiTenantSettings(t testing.TB, ctx context.Context, class *models.Class,
-	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
+	vic schemaConfig.VectorIndexConfig, withStopwords, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
-	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, true, withAsyncIndexingEnabled, indexOpts...)
+	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, true, withAsyncIndexingEnabled, indexOpts...)
 }
 
 func testShardWithSettings(t testing.TB, ctx context.Context, class *models.Class,
-	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
+	vic schemaConfig.VectorIndexConfig, withStopwords, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
-	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, false, withAsyncIndexingEnabled, indexOpts...)
+	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, false, withAsyncIndexingEnabled, indexOpts...)
 }
 
 func testObject(className string) *storobj.Object {
@@ -649,4 +637,14 @@ func newTestIndex(t *testing.T, logger logrus.FieldLogger, className string,
 		idx.shards.Store(name, shard)
 	}
 	return idx
+}
+
+// shutdownIndexOnCleanup stops the index's cycle goroutines before t.TempDir's RemoveAll; tolerates a mid-test shutdown.
+func shutdownIndexOnCleanup(t *testing.T, index *Index) {
+	t.Helper()
+	t.Cleanup(func() {
+		if err := index.Shutdown(context.Background()); err != nil && !errors.Is(err, errAlreadyShutdown) {
+			t.Errorf("shutdown index: %v", err)
+		}
+	})
 }

@@ -173,6 +173,32 @@ func FromEnv(config *Config) error {
 		config.LazyLoadShardCountThreshold = DefaultLazyLoadShardCountThreshold
 	}
 
+	// Written only when the variable is set, so a value from the config file
+	// survives.
+	if v := os.Getenv("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS"); v != "" {
+		asInt, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return fmt.Errorf("parse LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS as int: %w", err)
+		}
+		config.LazyLoadShardWarmupMinObjects = asInt
+	}
+	// Eager loading ignores the knob entirely, so warning there would describe a
+	// state no collection on this node is in. Auto-detection is resolved per
+	// collection later, so a nil setting still warns.
+	if minObjects := config.LazyLoadShardWarmupMinObjects; minObjects != 0 &&
+		(config.EnableLazyLoadShards == nil || *config.EnableLazyLoadShards) {
+		left := fmt.Sprintf("only shards holding more than %d objects are warmed up", minObjects)
+		if minObjects < 0 {
+			left = "no shard is warmed up"
+		}
+		logrus.Warnf("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS is %d, so on a collection using lazy loading %s. "+
+			"A HOT tenant left out stays unloaded until first access. "+
+			"While it is unloaded the TTL sweep keeps its expired objects, async replication leaves a "+
+			"stale replica unrepaired, and MAXIMUM_ALLOWED_OBJECTS_COUNT stops counting it, so this "+
+			"node admits writes past its cap.",
+			minObjects, left)
+	}
+
 	// Lazy load shard size threshold for auto-detection (in GB)
 	// Determines at what total shard size auto-detection enables lazy loading
 	if v := os.Getenv("LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB"); v != "" {
@@ -631,8 +657,6 @@ func FromEnv(config *Config) error {
 	}
 	config.DefaultShardingCount = configRuntime.NewDynamicValue(defaultShardingCount)
 
-	config.HFreshEnabled = true
-
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true
 	}
@@ -981,6 +1005,28 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	// 0 is a valid, documented value here ("auto": 16x/10x GOMAXPROCS), so use
+	// the non-negative parser rather than the positive one which rejects 0.
+	//
+	// The budget is consumed per shard searched on this node. Do not raise it in
+	// proportion to local shard count, which weakens the aggregate bound; tune
+	// from measured QPS, tail latency, and the admission waiting/shed metrics.
+	if err = parseNonNegativeInt(
+		"QUERY_ADMISSION_BUDGET",
+		func(val int) { config.QueryAdmissionBudget = val },
+		0,
+	); err != nil {
+		return err
+	}
+
+	if err = parseNonNegativeInt(
+		"QUERY_ADMISSION_MAX_QUEUE",
+		func(val int) { config.QueryAdmissionMaxQueue = val },
+		0,
+	); err != nil {
+		return err
+	}
+
 	if err := parsePositiveInt(
 		"GRPC_MAX_MESSAGE_SIZE",
 		func(val int) { config.GRPC.MaxMsgSize = val },
@@ -1037,6 +1083,7 @@ func FromEnv(config *Config) error {
 
 	config.DisableGraphQL = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL")))
 	config.ExperimentalRESTSearchEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("EXPERIMENTAL_REST_SEARCH_ENABLED")))
+	config.WeaviateLicense = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("WEAVIATE_LICENSE")))
 
 	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
 	if config.Namespaces.Enabled {
@@ -1045,7 +1092,7 @@ func FromEnv(config *Config) error {
 
 	if err := parser.ParseDynamicDurationWithValidation("NAMESPACE_CLEANUP_INTERVAL",
 		DefaultNamespaceCleanupInterval,
-		parser.ValidateDurationGreaterThanEqual0,
+		parser.ValidateCronInterval,
 		func(val *configRuntime.DynamicValue[time.Duration]) { config.Namespaces.CleanupInterval = val }); err != nil {
 		return err
 	}
@@ -1271,6 +1318,19 @@ func FromEnv(config *Config) error {
 			return fmt.Errorf("parse TELEMETRY_PUSH_INTERVAL as duration: %w", err)
 		}
 		config.TelemetryPushInterval = interval
+	}
+
+	if v := os.Getenv("BANNER_INTERVAL"); v != "" {
+		interval, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse BANNER_INTERVAL as duration: %w", err)
+		}
+		config.BannerInterval = interval
+	}
+	// Each repeat logs a banner and fetches its art from the website; a value
+	// below an hour, from the env var or the config file, is raised to it.
+	if config.BannerInterval > 0 && config.BannerInterval < time.Hour {
+		config.BannerInterval = time.Hour
 	}
 
 	{
@@ -1508,6 +1568,12 @@ func FromEnv(config *Config) error {
 	config.QueryBatchedContainsEnabled = configRuntime.NewDynamicValue(
 		entcfg.Enabled(os.Getenv("QUERY_BATCHED_CONTAINS_ENABLED")))
 
+	// Query admission control is enabled by default; this is the kill switch.
+	queryAdmissionControlDisabled := false
+	if v := os.Getenv("QUERY_ADMISSION_CONTROL_DISABLED"); v != "" {
+		queryAdmissionControlDisabled = entcfg.Enabled(v)
+	}
+	config.QueryAdmissionControlDisabled = configRuntime.NewDynamicValue(queryAdmissionControlDisabled)
 	operationalMode := READ_WRITE
 	if v := os.Getenv("OPERATIONAL_MODE"); v != "" && (v == READ_WRITE || v == READ_ONLY || v == WRITE_ONLY || v == SCALE_OUT) {
 		operationalMode = v
@@ -2359,9 +2425,9 @@ func (c *Config) parseBackupGCSConfig() error {
 	switch t := strings.TrimSpace(strings.ToLower(os.Getenv(gcsModuleTransportEnv))); t {
 	case "": // keep the config file value
 	case gcsModuleTransportHTTP:
-		c.BackupGCS.UseGRPC = false
+		c.BackupGCS.UseGRPC = new(false)
 	case gcsModuleTransportGRPC:
-		c.BackupGCS.UseGRPC = true
+		c.BackupGCS.UseGRPC = new(true)
 	default:
 		return fmt.Errorf("%s must be %q or %q. Got: %v",
 			gcsModuleTransportEnv, gcsModuleTransportHTTP, gcsModuleTransportGRPC, t)

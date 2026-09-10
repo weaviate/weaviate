@@ -159,6 +159,28 @@ func (m *Manager) GetUsers(req *cmd.QueryRequest) ([]byte, error) {
 	return payload, nil
 }
 
+func (m *Manager) ExportUsers(req *cmd.QueryRequest) ([]byte, error) {
+	if m.dynUser == nil {
+		payload, _ := json.Marshal(cmd.QueryExportUsersResponse{})
+		return payload, nil
+	}
+	subCommand := cmd.QueryExportUsersRequest{}
+	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	users, err := m.dynUser.ExportUsers(subCommand.UserIds...)
+	if err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	payload, err := json.Marshal(cmd.QueryExportUsersResponse{Users: users})
+	if err != nil {
+		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
+	}
+	return payload, nil
+}
+
 func (m *Manager) CheckUserIdentifierExists(req *cmd.QueryRequest) ([]byte, error) {
 	if m.dynUser == nil {
 		payload, _ := json.Marshal(cmd.QueryGetUsersRequest{})

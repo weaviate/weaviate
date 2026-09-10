@@ -265,12 +265,14 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	assert.Equal(t, int64(2), hotShard.ObjectsCount)
 	assert.Equal(t, uint64(612), hotShard.ObjectsStorageBytes)
 	assert.Equal(t, strings.ToLower(models.TenantActivityStatusACTIVE), hotShard.Status)
+	assert.False(t, hotShard.LazyUnloaded, "a loaded shard is not marked as unloaded")
 	assert.Len(t, hotShard.NamedVectors, 1)
 
 	require.NotNil(t, coldShard)
 	assert.Equal(t, int64(0), coldShard.ObjectsCount)
 	assert.Equal(t, uint64(0), coldShard.ObjectsStorageBytes)
 	assert.Equal(t, strings.ToLower(models.TenantActivityStatusINACTIVE), coldShard.Status)
+	assert.False(t, coldShard.LazyUnloaded, "an inactive shard is never loaded, so it carries no mark")
 	assert.Len(t, coldShard.NamedVectors, 1)
 
 	vector := hotShard.NamedVectors[0]
@@ -860,13 +862,4 @@ func putObjectAndFlush(t *testing.T, repo *db.DB, className, tenant string, vect
 		require.NoError(t, shard.Store().GetBucketsByName()["objects"].FlushMemtable())
 		return nil
 	})
-}
-
-type MockShardReader struct {
-	lst models.ShardStatusList
-	err error
-}
-
-func (m MockShardReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
-	return m.lst, m.err
 }

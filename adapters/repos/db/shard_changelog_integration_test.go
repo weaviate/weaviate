@@ -67,7 +67,7 @@ func setupChangelogTestShard(t *testing.T, ctx context.Context) *Shard {
 	t.Helper()
 	class := changelogTestClass()
 	vic := hnsw.UserConfig{Distance: common.DefaultDistanceMetric}
-	shardLike, _ := testShardWithSettings(t, ctx, class, vic, false, true, false)
+	shardLike, _ := testShardWithSettings(t, ctx, class, vic, false, false)
 	switch s := shardLike.(type) {
 	case *Shard:
 		return s

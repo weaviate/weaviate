@@ -61,8 +61,10 @@ const (
 	// 24h timeout. It is a hard timeout on the request rather than a stall
 	// detector, so it must stay well above the time a full chunk takes on a slow
 	// link, and well below chunkRetryDeadline to leave room for retries. Raising
-	// the writer's ChunkSize means revisiting both. HTTP only; the gRPC writer
-	// ignores it.
+	// the writer's ChunkSize means revisiting both. The SDK applies it on the
+	// HTTP transport only, so on the default gRPC transport a stalled chunk is
+	// bounded by the caller's context rather than by this. chunkRetryDeadline
+	// applies on both.
 	chunkTransferTimeout = time.Minute
 )
 
@@ -103,7 +105,7 @@ func storageOptions(ctx context.Context, logger logrus.FieldLogger, transport uc
 		opts = append(opts, option.WithoutAuthentication())
 	}
 
-	if transport.UseGRPC {
+	if transport.UseGRPCOrDefault() {
 		// The SDK exports gRPC client metrics to Cloud Monitoring by default. That
 		// needs monitoring.timeSeries.create and reports its own failures through
 		// the standard library, bypassing our logger.
@@ -135,10 +137,11 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string, logge
 	}
 
 	var client *storage.Client
-	if config.Transport.UseGRPC {
+	if config.Transport.UseGRPCOrDefault() {
 		logger.Infof("backup-gcs: using gRPC transport with a connection pool of %d per client", config.Transport.GRPCConnPool)
 		client, err = storage.NewGRPCClient(ctx, opts...)
 	} else {
+		logger.Info("backup-gcs: using HTTP transport")
 		client, err = storage.NewClient(ctx, opts...)
 	}
 	if err != nil {

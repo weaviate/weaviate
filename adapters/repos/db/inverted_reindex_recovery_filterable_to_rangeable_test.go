@@ -153,26 +153,25 @@ func filterableToRangeableFingerprint(t *testing.T, b *lsmkv.Bucket) map[uint64]
 	return out
 }
 
-// newFilterableToRangeableTask wraps a FilterableToRangeableStrategy in
-// the test infrastructure. Mirrors NewRuntimeFilterableToRangeableTask
-// (the production constructor in inverted_reindexer_filterable_to_rangeable.go)
-// but with two test-side adaptations:
-//
-//  1. schemaManager is nil — the test wrapper overrides OnMigrationComplete
-//     so the schema-flag flip never runs, and the strategy doesn't touch
-//     schemaManager outside that call.
-//  2. The OnMigrationComplete observer is a flag setter, so the baseline
-//     test can assert the hook fired without needing a real RAFT/schema
-//     wire-up.
+// newFilterableToRangeableTask mirrors NewRuntimeFilterableToRangeableTask but
+// overrides OnMigrationComplete with a flag setter the baseline test asserts on.
 func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName string) (*ShardReindexTaskGeneric, *testFilterableToRangeableStrategyWrapper) {
 	t.Helper()
 	wrapped := &testFilterableToRangeableStrategyWrapper{
 		FilterableToRangeableStrategy: FilterableToRangeableStrategy{
-			schemaManager: nil, // OnMigrationComplete is overridden below
-			propNames:     []string{propName},
-			generation:    1,
+			propNames:  []string{propName},
+			generation: 1,
 		},
 	}
+	return newFilterableToRangeableTaskWithStrategy(t, idx, className, propName, wrapped), wrapped
+}
+
+// newFilterableToRangeableTaskWithStrategy takes a caller-supplied strategy,
+// for tests that need the production OnMigrationComplete.
+func newFilterableToRangeableTaskWithStrategy(t *testing.T, idx *Index, className, propName string,
+	strategy MigrationStrategy,
+) *ShardReindexTaskGeneric {
+	t.Helper()
 
 	selectedProps := map[string]struct{}{propName: {}}
 	cfg := reindexTaskConfig{
@@ -192,11 +191,10 @@ func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName 
 		},
 	}
 
-	task := NewShardReindexTaskGeneric(
-		"FilterableToRangeable", idx.logger, wrapped, cfg,
+	return NewShardReindexTaskGeneric(
+		"FilterableToRangeable", idx.logger, strategy, cfg,
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 	)
-	return task, wrapped
 }
 
 // testFilterableToRangeableStrategyWrapper overrides OnMigrationComplete
@@ -235,7 +233,7 @@ func TestRecoveryConvergence_FilterableToRangeable_Baseline(t *testing.T) {
 	class := newFilterableToRangeableTestClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 
@@ -254,14 +252,7 @@ func TestRecoveryConvergence_FilterableToRangeable_Baseline(t *testing.T) {
 		"pre-migration rangeable bucket must NOT exist (IndexRangeFilters defaults to false)")
 
 	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	require.NoError(t, task.RunOnShard(ctx, shard))
 	require.True(t, wrapped.migrationCompleted,
 		"OnMigrationComplete must fire post-migration")
 
@@ -290,4 +281,30 @@ func TestRecoveryConvergence_FilterableToRangeable_Baseline(t *testing.T) {
 	require.True(t, rt.IsMerged())
 	require.True(t, rt.IsSwapped())
 	require.True(t, rt.IsTidied())
+}
+
+// FromEachState pins the same recovery invariant as the RebuildSearchable
+// matrix, for the rangeable family (enable-/repair-rangeable): from any
+// on-disk state a restart can interrupt at, one relaunch must converge to
+// a clean-run baseline.
+func TestRecoveryConvergence_FilterableToRangeable_FromEachState(t *testing.T) {
+	const numObjects = 25
+	propName := filterableToRangeablePropName
+
+	recoveryConvergenceMatrix[uint64]{
+		namePrefix: "FilterableToRangeable",
+		buildClass: newFilterableToRangeableTestClass,
+		seedObjects: func(t *testing.T, ctx context.Context, shard *Shard, className string) {
+			for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
+				require.NoError(t, shard.PutObject(ctx, obj))
+			}
+		},
+		buildTask: func(t *testing.T, idx *Index, className string) (*ShardReindexTaskGeneric, func() bool) {
+			task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
+			return task, func() bool { return wrapped.migrationCompleted }
+		},
+		bucketName:   helpers.BucketRangeableFromPropNameLSM(propName),
+		wantStrategy: lsmkv.StrategyRoaringSetRange,
+		fingerprint:  filterableToRangeableFingerprint,
+	}.run(t)
 }

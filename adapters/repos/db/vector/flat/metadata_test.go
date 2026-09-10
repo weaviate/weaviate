@@ -20,10 +20,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/vmihailenco/msgpack/v5"
 	bolt "go.etcd.io/bbolt"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
@@ -135,7 +137,6 @@ func Test_FlatDimensionsTargetVector(t *testing.T) {
 	index, err := New(Config{
 		ID:                indexID,
 		RootPath:          rootPath,
-		TargetVector:      "target",
 		DistanceProvider:  distancer,
 		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 	}, config, store)
@@ -158,7 +159,6 @@ func Test_FlatDimensionsTargetVector(t *testing.T) {
 		index, err = New(Config{
 			ID:                indexID,
 			RootPath:          rootPath,
-			TargetVector:      "target",
 			DistanceProvider:  distancer,
 			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, config, store)
@@ -172,7 +172,11 @@ func Test_FlatDimensionsTargetVector(t *testing.T) {
 	})
 
 	t.Run("target vector file validation", func(t *testing.T) {
-		index.targetVector = "./../foo"
+		// getMetadataFile derives from the physical ID
+		// directly, so the path-escaping value arrives via the ID's
+		// "vectors_<suffix>" shape. helpers.FlatMetadataFileName delegates to
+		// flatent.MetadataFileName, so the Clean/Base sanitization still runs.
+		index.id = "vectors_./../foo"
 		require.Equal(t, "meta_foo.db", index.getMetadataFile())
 	})
 }
@@ -403,9 +407,8 @@ func TestSnapshotMutableFiles(t *testing.T) {
 		store := testinghelpers.NewDummyStore(t)
 		t.Cleanup(func() { store.Shutdown(context.Background()) })
 		index, err := New(Config{
-			ID:                "snapshot-test",
+			ID:                helpers.VectorIndexIDForTarget(target),
 			RootPath:          rootPath,
-			TargetVector:      target,
 			DistanceProvider:  dp,
 			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
 		}, uc, store)
@@ -534,4 +537,51 @@ func TestSnapshotMutableFiles(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, relPaths)
 	})
+}
+
+// Test_FlatStorageNamesDeriveFromID pins every storage name for the two
+// shipped ID shapes; the index has no other name to derive them from.
+func Test_FlatStorageNamesDeriveFromID(t *testing.T) {
+	tests := []struct {
+		name           string
+		id             string
+		wantBucket     string
+		wantCompressed string
+		wantMetadata   string
+	}{
+		{
+			name:           "legacy",
+			id:             "main",
+			wantBucket:     "vectors",
+			wantCompressed: "vectors_compressed",
+			wantMetadata:   "meta.db",
+		},
+		{
+			name:           "named",
+			id:             "vectors_title",
+			wantBucket:     "vectors_title",
+			wantCompressed: "vectors_compressed_title",
+			wantMetadata:   "meta_title.db",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := testinghelpers.NewDummyStore(t)
+			t.Cleanup(func() { store.Shutdown(context.Background()) })
+			uc := flatent.UserConfig{}
+			uc.SetDefaults()
+			index, err := New(Config{
+				ID:                tt.id,
+				RootPath:          t.TempDir(),
+				DistanceProvider:  distancer.NewCosineDistanceProvider(),
+				MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+			}, uc, store)
+			require.NoError(t, err)
+			t.Cleanup(func() { index.Shutdown(context.Background()) })
+
+			assert.Equal(t, tt.wantBucket, index.getBucketName())
+			assert.Equal(t, tt.wantCompressed, index.getCompressedBucketName())
+			assert.Equal(t, tt.wantMetadata, index.getMetadataFile())
+		})
+	}
 }

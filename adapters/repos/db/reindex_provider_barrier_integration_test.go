@@ -64,7 +64,7 @@ func barrierIntegrationProvider(t *testing.T) (*ReindexProvider, *logrustest.Hoo
 }
 
 // barrierIntegrationDrivenToReindexed halts iteration at markReindexed
-// (the FINALIZING-barrier handoff) via skipSwapOnFinish=true.
+// (the FINALIZING-barrier handoff).
 func barrierIntegrationDrivenToReindexed(
 	t *testing.T,
 	ctx context.Context,
@@ -74,23 +74,16 @@ func barrierIntegrationDrivenToReindexed(
 	t.Helper()
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task := newTestTask(logger, strategy)
-	task.skipSwapOnFinish.Store(true)
 
-	require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-	for {
-		rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-		require.NoError(t, err)
-		if rerunAt.IsZero() {
-			break
-		}
-	}
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+
 	// Sanity: iteration must have halted at the barrier (markReindexed
 	// written, runtimePrepare NOT called).
 	rt := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
 	require.True(t, rt.IsReindexed(),
-		"helper precondition: iteration must reach IsReindexed under skipSwapOnFinish=true")
+		"helper precondition: RunReindexOnlyOnShard must reach IsReindexed")
 	require.False(t, rt.IsMerged(),
-		"helper precondition: runtimePrepare must NOT run under skipSwapOnFinish=true")
+		"helper precondition: RunReindexOnlyOnShard must NOT run runtimePrepare")
 	return task, strategy
 }
 
@@ -121,7 +114,7 @@ func TestReindexProviderBarrierIntegration_OnGroupCompletedPrep(t *testing.T) {
 	class := newTestClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 
@@ -174,7 +167,7 @@ func TestReindexProviderBarrierIntegration_OnSwapRequestedSwap(t *testing.T) {
 	class := newTestClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 
@@ -249,7 +242,7 @@ func TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord(t *te
 	class := newTestClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 
@@ -342,7 +335,7 @@ func TestReindexProviderBarrierIntegration_MarkReindexedDurabilityBarrier(t *tes
 	class := newTestClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 
 	barrierIntegrationSeedObjects(t, ctx, shard, className, 25)

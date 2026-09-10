@@ -35,6 +35,7 @@ const (
 
 	FilterStrategySweeping = "sweeping"
 	FilterStrategyAcorn    = "acorn"
+	FilterStrategyPathseer = "pathseer"
 
 	DefaultFilterStrategy = FilterStrategyAcorn
 
@@ -114,9 +115,11 @@ func (u *UserConfig) SetDefaults() {
 		RescoreLimit:  DefaultSQRescoreLimit,
 	}
 	u.RQ = RQConfig{
-		Enabled:      DefaultRQEnabled,
-		Bits:         DefaultRQBits,
-		RescoreLimit: DefaultRQRescoreLimit,
+		Enabled:       DefaultRQEnabled,
+		Bits:          DefaultRQBits,
+		RescoreLimit:  DefaultRQRescoreLimit,
+		Centering:     DefaultRQCentering,
+		TrainingLimit: DefaultRQTrainingLimit,
 	}
 	if strategy := os.Getenv("HNSW_DEFAULT_FILTER_STRATEGY"); strategy == FilterStrategySweeping {
 		u.FilterStrategy = FilterStrategySweeping
@@ -280,8 +283,8 @@ func (u *UserConfig) validate() error {
 		))
 	}
 
-	if u.FilterStrategy != FilterStrategySweeping && u.FilterStrategy != FilterStrategyAcorn {
-		errMsgs = append(errMsgs, "filterStrategy must be either 'sweeping' or 'acorn'")
+	if u.FilterStrategy != FilterStrategySweeping && u.FilterStrategy != FilterStrategyAcorn && u.FilterStrategy != FilterStrategyPathseer {
+		errMsgs = append(errMsgs, "filterStrategy must be either 'sweeping' or 'acorn', or 'pathseer'")
 	}
 
 	if len(errMsgs) > 0 {
@@ -313,6 +316,10 @@ func (u *UserConfig) validate() error {
 	err := ValidateRQConfig(u.RQ)
 	if err != nil {
 		return err
+	}
+
+	if u.RQ.Enabled && u.RQ.Centering && u.Multivector.Enabled && !u.Multivector.MuveraConfig.Enabled {
+		return fmt.Errorf("invalid hnsw config: rq centering is not supported for multivector indexes")
 	}
 
 	if u.Multivector.MuveraConfig.Enabled && u.Multivector.MuveraConfig.KSim > 10 {

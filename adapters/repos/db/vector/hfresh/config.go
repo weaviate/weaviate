@@ -39,7 +39,6 @@ type Config struct {
 	DistanceProvider             distancer.Provider
 	RootPath                     string
 	ID                           string
-	TargetVector                 string
 	ShardName                    string
 	ClassName                    string
 	PrometheusMetrics            *monitoring.PrometheusMetrics
@@ -83,6 +82,10 @@ func (c *Config) Validate() error {
 
 	if c.TempVectorForIDWithViewThunk == nil {
 		return errors.New("tempVectorForIDWithViewThunk cannot be nil")
+	}
+
+	if c.VectorForIDThunk == nil {
+		return errors.New("vectorForIDThunk cannot be nil")
 	}
 
 	return nil

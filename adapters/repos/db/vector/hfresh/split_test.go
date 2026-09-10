@@ -12,6 +12,11 @@
 package hfresh
 
 import (
+	"context"
+	"errors"
+	"math"
+	"math/rand"
+	"sync/atomic"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -193,4 +198,334 @@ func TestSplitTaskQueueOperations(t *testing.T) {
 
 	err = tf.Index.taskQueue.EnqueueSplit(postingID)
 	require.NoError(t, err)
+}
+
+// TestCentroidDistanceQuantizerMismatch is a regression test for the
+// centroid-distance path used by the split/merge reassignment checks
+// (Centroid.Distance on a centroid fetched via Centroids.Get). The centroid
+// HNSW stores 8-bit RQ codes; before the fix in HNSWIndex.Get, the raw 8-bit
+// code was handed to Distancer.DistanceBetweenCompressedVectors, which
+// decodes it as a 1-bit code — every reassignment comparison was NaN or a
+// value unrelated to actual proximity. Get now leaves Compressed nil and
+// Centroid.Distance lazily encodes a 1-bit code on first use, so those
+// comparisons behave like the estimator.
+//
+// Setup: well-separated unit centroids inserted exactly like doSplit inserts
+// them, and posting vectors sampled tightly around each centroid, encoded
+// exactly like posting entries are. For every sample, the production distance
+// to its own and to a far centroid must match the 1-bit estimator run on an
+// explicitly re-encoded centroid, and must track the true float distances.
+func TestCentroidDistanceQuantizerMismatch(t *testing.T) {
+	const (
+		dims       = 256
+		nCentroids = 8
+		nSamples   = 25
+		noiseSigma = 0.01
+	)
+
+	tf := createHFreshIndex(t)
+	rng := rand.New(rand.NewSource(1))
+
+	normalize := func(v []float32) []float32 {
+		var sum float64
+		for _, x := range v {
+			sum += float64(x) * float64(x)
+		}
+		norm := float32(math.Sqrt(sum))
+		out := make([]float32, len(v))
+		for i, x := range v {
+			out[i] = x / norm
+		}
+		return out
+	}
+
+	randomUnitVector := func() []float32 {
+		v := make([]float32, dims)
+		for i := range v {
+			v[i] = float32(rng.NormFloat64())
+		}
+		return normalize(v)
+	}
+
+	centers := make([][]float32, nCentroids)
+	for i := range centers {
+		centers[i] = randomUnitVector()
+	}
+
+	initializeDimensions(t, &tf, centers[0])
+	quantizer := tf.Index.quantizer
+	dist := tf.Index.distancer
+
+	oneBitCode := func(v []float32) []byte {
+		return quantizer.CompressedBytes(quantizer.Encode(v))
+	}
+
+	// Insert the centroids exactly the way doSplit does (split.go): the
+	// Compressed field passed here is ignored by Insert, and later reads go
+	// through Centroids.Get.
+	centroidIDs := make([]uint64, nCentroids)
+	for i, c := range centers {
+		id, err := tf.Index.IDs.Next()
+		require.NoError(t, err)
+		centroidIDs[i] = id
+		require.NoError(t, tf.Index.Centroids.Insert(id, &Centroid{
+			Uncompressed: c,
+			Compressed:   oneBitCode(c),
+		}))
+	}
+
+	fetched := make([]*Centroid, nCentroids)
+	for i, id := range centroidIDs {
+		c, err := tf.Index.Centroids.Get(id)
+		require.NoError(t, err)
+		fetched[i] = c
+	}
+
+	// Get must not hand out the centroid HNSW's internal 8-bit code: it leaves
+	// Compressed nil and Centroid.Distance lazily encodes a 1-bit code on
+	// first use (at d=256: 40 bytes, not 272).
+	oneBitLen := len(oneBitCode(centers[0]))
+	require.Nil(t, fetched[0].Compressed,
+		"Centroids.Get must not populate Compressed eagerly")
+
+	var (
+		trueOwnMax, trueFarMin float32 = 0, 4
+		prodOK, prodOrder      int
+		total                  int
+	)
+
+	for ci := range centers {
+		far := (ci + nCentroids/2) % nCentroids
+		reencodedOwn := oneBitCode(fetched[ci].Uncompressed)
+		reencodedFar := oneBitCode(fetched[far].Uncompressed)
+
+		for s := range nSamples {
+			sample := make([]float32, dims)
+			for i := range sample {
+				sample[i] = centers[ci][i] + float32(rng.NormFloat64())*noiseSigma
+			}
+			sample = normalize(sample)
+			vec := NewVector(uint64(ci*nSamples+s), VectorVersion(1), oneBitCode(sample))
+
+			trueOwn, err := dist.DistanceBetweenVectors(sample, centers[ci])
+			require.NoError(t, err)
+			trueFar, err := dist.DistanceBetweenVectors(sample, centers[far])
+			require.NoError(t, err)
+
+			// The production path: identical to the newDist/oldDist/prevDist
+			// computations in enqueueReassignAfterSplit and doMerge.
+			prodOwn, err := fetched[ci].Distance(dist, vec)
+			require.NoError(t, err)
+			prodFar, err := fetched[far].Distance(dist, vec)
+			require.NoError(t, err)
+
+			// It must agree exactly with the estimator run on an explicitly
+			// re-encoded centroid.
+			expectedOwn, err := dist.DistanceBetweenCompressedVectors(vec.Data(), reencodedOwn)
+			require.NoError(t, err)
+			require.Equal(t, expectedOwn, prodOwn)
+			expectedFar, err := dist.DistanceBetweenCompressedVectors(vec.Data(), reencodedFar)
+			require.NoError(t, err)
+			require.Equal(t, expectedFar, prodFar)
+
+			total++
+			trueOwnMax = max(trueOwnMax, trueOwn)
+			trueFarMin = min(trueFarMin, trueFar)
+
+			// "does the production path agree the vector sits near its centroid?"
+			if prodOwn < 0.5 && prodFar > 0.5 {
+				prodOK++
+			}
+			// the comparison the reassignment logic actually gates on
+			if prodOwn < prodFar {
+				prodOrder++
+			}
+		}
+	}
+
+	// Distance memoized a code in the 1-bit quantizer's format.
+	require.Len(t, fetched[0].Compressed, oneBitLen,
+		"Centroid.Distance must memoize a 1-bit code")
+
+	t.Logf("samples: %d", total)
+	t.Logf("true own-centroid distance max: %.4f, far-centroid min: %.4f", trueOwnMax, trueFarMin)
+	t.Logf("near/far separated correctly: %d/%d, own ranked closer: %d/%d", prodOK, total, prodOrder, total)
+
+	// Geometry sanity: samples sit on their centroid, far centroids are far.
+	require.Less(t, trueOwnMax, float32(0.2))
+	require.Greater(t, trueFarMin, float32(0.6))
+
+	// The production distances must track the true geometry: a vector sitting
+	// essentially ON its centroid is reported near, a far centroid far, and
+	// the own centroid ranks closer. Before the fix these were 0/200, 50/200.
+	require.GreaterOrEqual(t, float64(prodOK)/float64(total), 0.95)
+	require.GreaterOrEqual(t, float64(prodOrder)/float64(total), 0.95)
+}
+
+// TestSplitClustersOnFullPrecisionVectors pins the data source of the split's
+// clustering: the centroids a split returns must be the means of its members'
+// REAL vectors, fetched through VectorForIDThunk. A regression to clustering
+// on the posting's 1-bit reconstructions would return centroids whose
+// coordinates all collapse to the same magnitude (±‖x‖/√dims), nowhere near
+// these means — the vectors below carry strong per-coordinate magnitude
+// structure precisely so that any such regression fails loudly.
+func TestSplitClustersOnFullPrecisionVectors(t *testing.T) {
+	tf := createHFreshIndex(t)
+	defer tf.Index.Shutdown(t.Context())
+
+	const perGroup = 8
+	groups := [2][]float32{
+		{8.0, 2.0, 0.5, 0.1},
+		{0.1, 0.5, 2.0, 8.0},
+	}
+	vectors := make([][]float32, 0, 2*perGroup)
+	for g := range groups {
+		for i := range perGroup {
+			v := make([]float32, len(groups[g]))
+			for j := range v {
+				v[j] = groups[g][j] + float32(i)*0.01
+			}
+			vectors = append(vectors, v)
+		}
+	}
+
+	_, posting := createPostingWithVectors(t, &tf, vectors, 300)
+
+	results, err := tf.Index.splitPosting(t.Context(), posting)
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+
+	// Whatever membership the clustering settles on, each child's centroid
+	// must be the mean of its members' real vectors. (Membership itself is
+	// not asserted: initialization is randomized, so the exact grouping may
+	// vary — the data-source pin does not depend on it.)
+	for _, result := range results {
+		require.NotEmpty(t, result.Posting)
+
+		mean := make([]float32, len(groups[0]))
+		for _, v := range result.Posting {
+			for j, x := range vectors[v.ID()-300] {
+				mean[j] += x
+			}
+		}
+		for j := range mean {
+			mean[j] /= float32(len(result.Posting))
+			require.InDelta(t, mean[j], result.Uncompressed[j], 1e-3,
+				"centroid coordinate %d must be the mean of the members' full-precision vectors", j)
+		}
+	}
+}
+
+// A vector deleted between the split's garbage-collection pass and its
+// full-precision fetch fails that attempt; doSplit must retry, filter the
+// now-deleted entry, and complete the split without it.
+func TestSplitRetriesWhenVectorDeletedDuringSplit(t *testing.T) {
+	tf := createHFreshIndex(t)
+	defer tf.Index.Shutdown(t.Context())
+
+	vectors := createTestVectors(4, 15)
+	postingID, posting := createPostingWithVectors(t, &tf, vectors, 400)
+
+	uncompressed := []float32{1.0, 0.0, 0.0, 0.0}
+	compressed := tf.Index.quantizer.CompressedBytes(tf.Index.quantizer.Encode(uncompressed))
+	err := tf.Index.Centroids.Insert(postingID, &Centroid{
+		Uncompressed: uncompressed,
+		Compressed:   compressed,
+		Deleted:      false,
+	})
+	require.NoError(t, err)
+
+	err = tf.Index.PostingStore.Put(t.Context(), postingID, posting)
+	require.NoError(t, err)
+	err = tf.Index.setPostingVectorIDs(t.Context(), postingID, posting)
+	require.NoError(t, err)
+
+	originalMax := tf.Index.maxPostingSize
+	tf.Index.maxPostingSize = 10
+	defer func() { tf.Index.maxPostingSize = originalMax }()
+
+	// vector 405 is deleted concurrently: its first fetch fails, and the
+	// deletion becomes visible in the version map right after — the retry's
+	// garbage collection must filter it
+	const deletedID = uint64(405)
+	var tripped atomic.Bool
+	base := tf.Index.config.VectorForIDThunk
+	tf.Index.config.VectorForIDThunk = func(ctx context.Context, id uint64) ([]float32, error) {
+		if id == deletedID && tripped.CompareAndSwap(false, true) {
+			_, err := tf.Index.VersionMap.MarkDeleted(ctx, deletedID)
+			require.NoError(t, err)
+			return nil, errors.New("deleted concurrently")
+		}
+		return base(ctx, id)
+	}
+
+	err = tf.Index.doSplit(t.Context(), postingID, false)
+	require.NoError(t, err)
+	require.True(t, tripped.Load(), "the failing fetch must have been exercised")
+
+	require.False(t, tf.Index.Centroids.Exists(postingID))
+	require.True(t, tf.Index.Centroids.Exists(postingID+1))
+	require.True(t, tf.Index.Centroids.Exists(postingID+2))
+
+	var total int
+	for _, id := range []uint64{postingID + 1, postingID + 2} {
+		p, err := tf.Index.PostingStore.Get(t.Context(), id)
+		require.NoError(t, err)
+		total += len(p)
+		for _, v := range p {
+			require.NotEqual(t, deletedID, v.ID(), "the deleted vector must not survive the retry")
+		}
+	}
+	require.Equal(t, 14, total)
+}
+
+// A muvera index routes on the encoded FDE, which is stored in the muvera
+// bucket rather than in the object store the single-vector path reads. The
+// split must cluster on those stored FDEs: reading the object store instead
+// fails every fetch, and on the synchronous split path that failure is
+// returned to the insert which triggered the split.
+func TestSplitMuveraPostingClustersOnStoredFDEs(t *testing.T) {
+	tf := createMuveraHFreshIndex(t)
+	defer tf.Index.Shutdown(t.Context())
+
+	const docs = 16
+	rng := rand.New(rand.NewSource(42))
+	for i := range docs {
+		addMultiVectorToIndex(t, &tf, uint64(i), randomMultiVector(rng, 2, 16))
+	}
+
+	var postingIDs []uint64
+	for id := range tf.Index.PostingMap.Iter() {
+		postingIDs = append(postingIDs, id)
+	}
+	require.Len(t, postingIDs, 1, "the corpus must stay in one posting so the split input is known")
+
+	posting, err := tf.Index.PostingStore.Get(t.Context(), postingIDs[0])
+	require.NoError(t, err)
+	require.Len(t, posting, docs)
+
+	results, err := tf.Index.splitPosting(t.Context(), posting)
+	require.NoError(t, err)
+	require.Len(t, results, 2)
+
+	// Whatever membership the clustering settles on, each child's centroid
+	// must be the mean of its members' stored FDEs. (Membership itself is not
+	// asserted: initialization is randomized, so the exact grouping may vary.)
+	for _, result := range results {
+		require.NotEmpty(t, result.Posting)
+
+		mean := make([]float32, len(result.Uncompressed))
+		for _, v := range result.Posting {
+			fde, err := tf.Index.muveraEncoder.GetMuveraVectorForID(v.ID(), tf.Index.id+"_muvera_vectors")
+			require.NoError(t, err)
+			for j, x := range tf.Index.normalizeVec(fde) {
+				mean[j] += x
+			}
+		}
+		for j := range mean {
+			mean[j] /= float32(len(result.Posting))
+			require.InDelta(t, mean[j], result.Uncompressed[j], 1e-3,
+				"centroid coordinate %d must be the mean of the members' stored FDEs", j)
+		}
+	}
 }

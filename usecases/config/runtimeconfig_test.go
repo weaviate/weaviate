@@ -21,6 +21,7 @@ import (
 
 	"github.com/go-jose/go-jose/v4/json"
 	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -243,6 +244,32 @@ func TestBackupMaxIndividualFilesRuntimeOverride(t *testing.T) {
 	})
 }
 
+func TestRuntimeConfigQueryAdmissionControlDisabled(t *testing.T) {
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	// Default (server flag) is enabled, i.e. not disabled.
+	source := &WeaviateRuntimeConfig{
+		QueryAdmissionControlDisabled: runtime.NewDynamicValue(false),
+	}
+	require.False(t, source.QueryAdmissionControlDisabled.Get())
+
+	// A runtime override flips the kill switch on live.
+	parsed, err := ParseRuntimeConfig([]byte("query_admission_control_disabled: true"))
+	require.NoError(t, err)
+	require.NotNil(t, parsed.QueryAdmissionControlDisabled)
+	require.True(t, parsed.QueryAdmissionControlDisabled.Get())
+
+	require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+	require.True(t, source.QueryAdmissionControlDisabled.Get())
+
+	// Removing the override reverts to the default (enabled).
+	parsed, err = ParseRuntimeConfig([]byte(""))
+	require.NoError(t, err)
+	require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+	require.False(t, source.QueryAdmissionControlDisabled.Get())
+}
+
 func TestDisableDimensionMetricsRuntimeOverride(t *testing.T) {
 	// ParseRuntimeConfig ignores unknown keys, so only an explicit assertion catches a
 	// renamed or misspelled yaml tag.
@@ -274,6 +301,30 @@ func TestDisableDimensionMetricsRuntimeOverride(t *testing.T) {
 		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil, nil))
 		assert.Equal(t, true, conf.DisableDimensionMetrics.Get())
 	})
+}
+
+func TestHookKeyMatchesAnyField(t *testing.T) {
+	tests := []struct {
+		name    string
+		hookKey string
+		want    bool
+	}{
+		{name: "a whole field name", hookKey: "DisableGraphQL", want: true},
+		{name: "a prefix of a field name", hookKey: "OIDC", want: true},
+		{
+			// NamespaceCleanupInterval is the field. The rule is a prefix
+			// match, so naming its tail names nothing.
+			name:    "a substring that is not a prefix",
+			hookKey: "CleanupInterval",
+		},
+		{name: "a name no field carries", hookKey: "NoSuchKnob"},
+		{name: "the empty key, which names every field", hookKey: "", want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, HookKeyMatchesAnyField(tt.hookKey))
+		})
+	}
 }
 
 func TestUpdateRuntimeConfig(t *testing.T) {
@@ -826,6 +877,50 @@ maximum_allowed_collections_count: 13`)
 			assert.Equal(t, float64(DefaultObjectsTTLConcurrencyFactor), concurrencyFactor.Get())
 		})
 	})
+
+	t.Run("a refused value logs why in the message an operator reads", func(t *testing.T) {
+		refusingLog, hook := test.NewNullLogger()
+		interval, err := runtime.NewDynamicValueWithValidation(time.Minute,
+			func(d time.Duration) error {
+				if d < time.Second {
+					return fmt.Errorf("interval %s is below the one second floor", d)
+				}
+				return nil
+			})
+		require.NoError(t, err)
+		// A second field the same push accepts, so the refusal is one record of
+		// two rather than the whole batch.
+		var autoSchema runtime.DynamicValue[bool]
+		reg := &WeaviateRuntimeConfig{
+			NamespaceCleanupInterval: interval,
+			AutoschemaEnabled:        &autoSchema,
+		}
+
+		parsed, err := ParseRuntimeConfig([]byte("namespace_cleanup_interval: 500ms\nautoschema_enabled: true"))
+		require.NoError(t, err)
+
+		require.NoError(t, UpdateRuntimeConfig(refusingLog, reg, parsed, nil, nil))
+
+		atLevel := func(level logrus.Level) []*logrus.Entry {
+			var got []*logrus.Entry
+			for _, entry := range hook.AllEntries() {
+				if entry.Level == level {
+					got = append(got, entry)
+				}
+			}
+			return got
+		}
+
+		refused := atLevel(logrus.ErrorLevel)
+		require.Len(t, refused, 1, "only the refused field logs an error")
+		assert.Contains(t, refused[0].Message, "interval 500ms is below the one second floor",
+			"the reason a push was refused belongs in the message, not beside it")
+		assert.NotContains(t, refused[0].Data, logrus.ErrorKey)
+		assert.Equal(t, time.Minute, interval.Get(), "a refused field keeps its previous value")
+		assert.Len(t, atLevel(logrus.InfoLevel), 1,
+			"the accepted field still reports its change")
+		assert.True(t, autoSchema.Get(), "one refused field must not hold back the rest of the push")
+	})
 }
 
 // TestExportDefaultPathRuntimeOverride verifies that runtime config overrides
@@ -1007,4 +1102,15 @@ func TestBuildRegisteredRuntimeConfig_RegistersReplicaMovementCleanup(t *testing
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupMaxAge, registered.ReplicaMovementCleanupMaxAge)
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupInterval, registered.ReplicaMovementCleanupInterval)
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupIncludeCancelled, registered.ReplicaMovementCleanupIncludeCancelled)
+}
+
+// Same guard for the Weaviate License switch: without the registration line the
+// runtime override is parsed, accepted and then dropped on the floor.
+func TestBuildRegisteredRuntimeConfig_RegistersWeaviateLicense(t *testing.T) {
+	cfg := &Config{}
+	cfg.WeaviateLicense = runtime.NewDynamicValue(true)
+
+	registered := BuildRegisteredRuntimeConfig(cfg)
+
+	require.Same(t, cfg.WeaviateLicense, registered.WeaviateLicense)
 }

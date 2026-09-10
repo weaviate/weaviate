@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/client/classifications"
 	"github.com/weaviate/weaviate/client/cluster"
 	"github.com/weaviate/weaviate/client/distributed_tasks"
+	"github.com/weaviate/weaviate/client/experimental"
 	"github.com/weaviate/weaviate/client/export"
 	"github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/client/mcp"
@@ -93,6 +94,7 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *Weaviate {
 	cli.Classifications = classifications.New(transport, formats)
 	cli.Cluster = cluster.New(transport, formats)
 	cli.DistributedTasks = distributed_tasks.New(transport, formats)
+	cli.Experimental = experimental.New(transport, formats)
 	cli.Export = export.New(transport, formats)
 	cli.Graphql = graphql.New(transport, formats)
 	cli.Mcp = mcp.New(transport, formats)
@@ -165,6 +167,8 @@ type Weaviate struct {
 
 	DistributedTasks distributed_tasks.ClientService
 
+	Experimental experimental.ClientService
+
 	Export export.ClientService
 
 	Graphql graphql.ClientService
@@ -206,6 +210,7 @@ func (c *Weaviate) SetTransport(transport runtime.ClientTransport) {
 	c.Classifications.SetTransport(transport)
 	c.Cluster.SetTransport(transport)
 	c.DistributedTasks.SetTransport(transport)
+	c.Experimental.SetTransport(transport)
 	c.Export.SetTransport(transport)
 	c.Graphql.SetTransport(transport)
 	c.Mcp.SetTransport(transport)

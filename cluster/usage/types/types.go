@@ -73,6 +73,11 @@ type ShardUsage struct {
 	// The status of the shard (ACTIVE, INACTIVE)
 	Status string `json:"status,omitempty"`
 
+	// LazyUnloaded marks an active shard that was not in memory when the report ran,
+	// so everything above was read from disk. It tells a lazy shard sitting cold
+	// apart from one serving requests; both report the same active status.
+	LazyUnloaded bool `json:"lazy_unloaded,omitempty"`
+
 	// The number of objects in the shard
 	ObjectsCount int64 `json:"objects_count"`
 
