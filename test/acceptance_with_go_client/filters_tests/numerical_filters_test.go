@@ -191,7 +191,7 @@ func testNumericalFilters(c *weaviate.Client) func(t *testing.T) {
 			})
 		}
 		queryIntersection := func(propName string, lte, gte any) []uuid.UUID {
-			return get(filter.Or{
+			return get(filter.And{
 				filter.Cond{
 					Target:   propName,
 					Operator: filter.LessThanEqual,
