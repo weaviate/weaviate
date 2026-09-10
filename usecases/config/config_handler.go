@@ -196,12 +196,29 @@ type Config struct {
 	TrackVectorDimensions            bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 	TrackVectorDimensionsInterval    time.Duration            `json:"track_vector_dimensions_interval" yaml:"track_vector_dimensions_interval"`
 	ReindexVectorDimensionsAtStartup bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
+	// QueryAdmissionBudget / QueryAdmissionMaxQueue size the node-level query
+	// admission limiter. 0 means auto (16x / 10x GOMAXPROCS respectively).
+	// QueryAdmissionControlDisabled is a runtime kill switch; enabled by default.
+	QueryAdmissionBudget          int                         `json:"query_admission_budget" yaml:"query_admission_budget"`
+	QueryAdmissionMaxQueue        int                         `json:"query_admission_max_queue" yaml:"query_admission_max_queue"`
+	QueryAdmissionControlDisabled *runtime.DynamicValue[bool] `json:"query_admission_control_disabled" yaml:"query_admission_control_disabled"`
 	// EnableLazyLoadShards controls lazy shard loading.
 	// nil = auto-detect based on thresholds, true = always lazy-load, false = always eager-load.
 	// DISABLE_LAZY_LOAD_SHARDS=true sets this to false for backward compatibility.
-	EnableLazyLoadShards                *bool                          `json:"enable_lazy_load_shards" yaml:"enable_lazy_load_shards"`
-	LazyLoadShardCountThreshold         int                            `json:"lazy_load_shard_count_threshold" yaml:"lazy_load_shard_count_threshold"`
-	LazyLoadShardSizeThresholdGB        float64                        `json:"lazy_load_shard_size_threshold_gb" yaml:"lazy_load_shard_size_threshold_gb"`
+	EnableLazyLoadShards         *bool   `json:"enable_lazy_load_shards" yaml:"enable_lazy_load_shards"`
+	LazyLoadShardCountThreshold  int     `json:"lazy_load_shard_count_threshold" yaml:"lazy_load_shard_count_threshold"`
+	LazyLoadShardSizeThresholdGB float64 `json:"lazy_load_shard_size_threshold_gb" yaml:"lazy_load_shard_size_threshold_gb"`
+	// LazyLoadShardWarmupMinObjects gates the background sweep that loads lazy
+	// shards after startup, one per second. Negative sweeps nothing, zero sweeps
+	// every shard ever written to, and a positive value sweeps only shards holding
+	// strictly more than that many objects, counted from flushed segments. An eager
+	// collection runs no sweep.
+	//
+	// A HOT tenant left out and never touched stays unloaded, and every path that
+	// reads only loaded shards under-reports or skips it: TTL keeps its expired
+	// objects, async replication leaves a stale replica unrepaired, and
+	// MAXIMUM_ALLOWED_OBJECTS_COUNT stops counting it.
+	LazyLoadShardWarmupMinObjects       int64                          `json:"lazy_load_shard_warmup_min_objects" yaml:"lazy_load_shard_warmup_min_objects"`
 	ForceFullReplicasSearch             bool                           `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
 	TransferInactivityTimeout           time.Duration                  `json:"transfer_inactivity_timeout" yaml:"transfer_inactivity_timeout"`
 	HaltForTransferTimeout              time.Duration                  `json:"halt_for_transfer_timeout" yaml:"halt_for_transfer_timeout"`
@@ -215,6 +232,7 @@ type Config struct {
 	DisableTelemetry                    bool                           `json:"disable_telemetry" yaml:"disable_telemetry"`
 	TelemetryURL                        string                         `json:"telemetry_url" yaml:"telemetry_url"`
 	TelemetryPushInterval               time.Duration                  `json:"telemetry_push_interval" yaml:"telemetry_push_interval"`
+	BannerInterval                      time.Duration                  `json:"banner_interval" yaml:"banner_interval"`
 	HNSWStartupWaitForVectorCache       bool                           `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
 	HNSWVisitedListPoolMaxSize          int                            `json:"hnsw_visited_list_pool_max_size" yaml:"hnsw_visited_list_pool_max_size"`
 	HNSWFlatSearchConcurrency           int                            `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
@@ -348,6 +366,10 @@ type Config struct {
 
 	// Disable vector dimension tracking that are used for billing. These metrics are being deprecated in favor of more accurate metrics
 	DisableDimensionMetrics *runtime.DynamicValue[bool] `json:"disable_dimension_metrics" yaml:"disable_dimension_metrics"`
+
+	// WeaviateLicense gates the functionality that is licensed under the
+	// Weaviate License (the "wl" directory) instead of BSD-3-Clause.
+	WeaviateLicense *runtime.DynamicValue[bool] `json:"weaviate_license" yaml:"weaviate_license"`
 }
 
 type CollectionPropsTenants struct {
@@ -1136,7 +1158,7 @@ type Namespaces struct {
 const (
 	DefaultCORSAllowOrigin  = "*"
 	DefaultCORSAllowMethods = "*"
-	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Weaviate-Client, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key, X-Deepseek-Baseurl, X-Deepseek-Api-Key, X-Twelvelabs-Baseurl, X-Twelvelabs-Api-Key"
+	DefaultCORSAllowHeaders = "Content-Type, Authorization, Batch, X-Openai-Api-Key, X-Openai-Organization, X-Openai-Baseurl, X-Anyscale-Baseurl, X-Anyscale-Api-Key, X-Cohere-Api-Key, X-Cohere-Baseurl, X-Huggingface-Api-Key, X-Azure-Api-Key, X-Azure-Deployment-Id, X-Azure-Resource-Name, X-Azure-Concurrency, X-Azure-Block-Size, X-Google-Api-Key, X-Google-Vertex-Api-Key, X-Google-Studio-Api-Key, X-Goog-Api-Key, X-Goog-Vertex-Api-Key, X-Goog-Studio-Api-Key, X-Palm-Api-Key, X-Jinaai-Api-Key, X-Aws-Access-Key, X-Aws-Secret-Key, X-Voyageai-Baseurl, X-Voyageai-Api-Key, X-Mistral-Baseurl, X-Mistral-Api-Key, X-Anthropic-Baseurl, X-Anthropic-Api-Key, X-Databricks-Endpoint, X-Databricks-Token, X-Databricks-User-Agent, X-Friendli-Token, X-Friendli-Baseurl, X-Weaviate-Api-Key, X-Weaviate-Cluster-Url, X-Weaviate-Client, X-Nvidia-Api-Key, X-Nvidia-Baseurl, X-ContextualAI-Baseurl, X-ContextualAI-Api-Key, X-Digitalocean-Baseurl, X-Digitalocean-Api-Key, X-Meta-Baseurl, X-Meta-Api-Key, X-Deepseek-Baseurl, X-Deepseek-Api-Key, X-Twelvelabs-Baseurl, X-Twelvelabs-Api-Key"
 )
 
 func (r ResourceUsage) Validate() error {

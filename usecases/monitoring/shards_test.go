@@ -16,169 +16,268 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
-func TestShards(t *testing.T) {
+type shardSeries struct {
+	state ShardState
+	reg   ShardRegistration
+}
+
+type shardCounts struct {
+	vec    map[shardSeries]float64
+	legacy map[ShardState]float64
+}
+
+func snapshotShards(m *PrometheusMetrics) shardCounts {
+	c := shardCounts{
+		vec:    map[shardSeries]float64{},
+		legacy: map[ShardState]float64{},
+	}
+	for _, labels := range AllShardLabels() {
+		s := shardSeries{state: ShardState(labels[0]), reg: ShardRegistration(labels[1])}
+		c.vec[s] = testutil.ToFloat64(m.Shards.WithLabelValues(labels...))
+	}
+	c.legacy[ShardStateLoaded] = testutil.ToFloat64(m.ShardsLoaded)
+	c.legacy[ShardStateUnloaded] = testutil.ToFloat64(m.ShardsUnloaded)
+	c.legacy[ShardStateLoading] = testutil.ToFloat64(m.ShardsLoading)
+	c.legacy[ShardStateUnloading] = testutil.ToFloat64(m.ShardsUnloading)
+	return c
+}
+
+// TestShardTransitionsMoveBothMetrics pins every transition against the new
+// weaviate_shards series it moves and the legacy gauge that must move with it,
+// so the two stay reconcilable while consumers migrate.
+func TestShardTransitionsMoveBothMetrics(t *testing.T) {
+	tests := []struct {
+		name       string
+		apply      func(m *PrometheusMetrics)
+		wantVec    map[shardSeries]float64
+		wantLegacy map[ShardState]float64
+	}{
+		{
+			name:  "registering an unloaded shard",
+			apply: func(m *PrometheusMetrics) { m.NewUnloadedshard() },
+			wantVec: map[shardSeries]float64{
+				{ShardStateUnloaded, ShardRegistrationLazy}: 1,
+			},
+			wantLegacy: map[ShardState]float64{ShardStateUnloaded: 1},
+		},
+		{
+			name:  "registering a shard that is born loaded",
+			apply: func(m *PrometheusMetrics) { m.NewLoadedShard() },
+			wantVec: map[shardSeries]float64{
+				{ShardStateLoaded, ShardRegistrationEager}: 1,
+			},
+			wantLegacy: map[ShardState]float64{ShardStateLoaded: 1},
+		},
+		{
+			name:  "an unloaded shard starts loading",
+			apply: func(m *PrometheusMetrics) { m.StartLoadingShard() },
+			wantVec: map[shardSeries]float64{
+				{ShardStateUnloaded, ShardRegistrationLazy}: -1,
+				{ShardStateLoading, ShardRegistrationLazy}:  1,
+			},
+			wantLegacy: map[ShardState]float64{ShardStateUnloaded: -1, ShardStateLoading: 1},
+		},
+		{
+			name:  "a loading shard becomes loaded",
+			apply: func(m *PrometheusMetrics) { m.FinishLoadingShard() },
+			wantVec: map[shardSeries]float64{
+				{ShardStateLoading, ShardRegistrationLazy}: -1,
+				{ShardStateLoaded, ShardRegistrationLazy}:  1,
+			},
+			wantLegacy: map[ShardState]float64{ShardStateLoading: -1, ShardStateLoaded: 1},
+		},
+		{
+			name:  "a load that fails returns the shard to unloaded",
+			apply: func(m *PrometheusMetrics) { m.FailLoadingShard() },
+			wantVec: map[shardSeries]float64{
+				{ShardStateLoading, ShardRegistrationLazy}:  -1,
+				{ShardStateUnloaded, ShardRegistrationLazy}: 1,
+			},
+			wantLegacy: map[ShardState]float64{ShardStateLoading: -1, ShardStateUnloaded: 1},
+		},
+		{
+			name:  "a loaded lazy shard starts unloading",
+			apply: func(m *PrometheusMetrics) { m.StartUnloadingShard(ShardRegistrationLazy) },
+			wantVec: map[shardSeries]float64{
+				{ShardStateLoaded, ShardRegistrationLazy}:    -1,
+				{ShardStateUnloading, ShardRegistrationLazy}: 1,
+			},
+			wantLegacy: map[ShardState]float64{ShardStateLoaded: -1, ShardStateUnloading: 1},
+		},
+		{
+			name:  "a loaded eager shard starts unloading",
+			apply: func(m *PrometheusMetrics) { m.StartUnloadingShard(ShardRegistrationEager) },
+			wantVec: map[shardSeries]float64{
+				{ShardStateLoaded, ShardRegistrationEager}:    -1,
+				{ShardStateUnloading, ShardRegistrationEager}: 1,
+			},
+			wantLegacy: map[ShardState]float64{ShardStateLoaded: -1, ShardStateUnloading: 1},
+		},
+		{
+			name:  "an unloading lazy shard becomes unloaded",
+			apply: func(m *PrometheusMetrics) { m.FinishUnloadingShard(ShardRegistrationLazy) },
+			wantVec: map[shardSeries]float64{
+				{ShardStateUnloading, ShardRegistrationLazy}: -1,
+				{ShardStateUnloaded, ShardRegistrationLazy}:  1,
+			},
+			wantLegacy: map[ShardState]float64{ShardStateUnloading: -1, ShardStateUnloaded: 1},
+		},
+		{
+			name:  "an unloading eager shard becomes unloaded",
+			apply: func(m *PrometheusMetrics) { m.FinishUnloadingShard(ShardRegistrationEager) },
+			wantVec: map[shardSeries]float64{
+				{ShardStateUnloading, ShardRegistrationEager}: -1,
+				{ShardStateUnloaded, ShardRegistrationEager}:  1,
+			},
+			wantLegacy: map[ShardState]float64{ShardStateUnloading: -1, ShardStateUnloaded: 1},
+		},
+		{
+			name:  "dropping a loaded eager shard",
+			apply: func(m *PrometheusMetrics) { m.DeleteLoadedShard(ShardRegistrationEager) },
+			wantVec: map[shardSeries]float64{
+				{ShardStateLoaded, ShardRegistrationEager}: -1,
+			},
+			wantLegacy: map[ShardState]float64{ShardStateLoaded: -1},
+		},
+		{
+			name:  "dropping a loaded lazy shard",
+			apply: func(m *PrometheusMetrics) { m.DeleteLoadedShard(ShardRegistrationLazy) },
+			wantVec: map[shardSeries]float64{
+				{ShardStateLoaded, ShardRegistrationLazy}: -1,
+			},
+			wantLegacy: map[ShardState]float64{ShardStateLoaded: -1},
+		},
+		{
+			name:  "dropping an unloaded lazy shard",
+			apply: func(m *PrometheusMetrics) { m.DeleteUnloadedShard(ShardRegistrationLazy) },
+			wantVec: map[shardSeries]float64{
+				{ShardStateUnloaded, ShardRegistrationLazy}: -1,
+			},
+			wantLegacy: map[ShardState]float64{ShardStateUnloaded: -1},
+		},
+		{
+			name:  "dropping an unloaded eager shard",
+			apply: func(m *PrometheusMetrics) { m.DeleteUnloadedShard(ShardRegistrationEager) },
+			wantVec: map[shardSeries]float64{
+				{ShardStateUnloaded, ShardRegistrationEager}: -1,
+			},
+			wantLegacy: map[ShardState]float64{ShardStateUnloaded: -1},
+		},
+	}
+
 	m := GetMetrics()
 
-	t.Run("start_loading_shard", func(t *testing.T) {
-		// Setting base values
-		mv := m.ShardsLoading
-		mv.Set(1)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			before := snapshotShards(m)
+			tt.apply(m)
+			after := snapshotShards(m)
 
-		mv = m.ShardsUnloaded
-		mv.Set(1)
+			for s, got := range after.vec {
+				assert.Equal(t, tt.wantVec[s], got-before.vec[s],
+					"weaviate_shards{state=%q,registration=%q}", s.state, s.reg)
+			}
+			for state, got := range after.legacy {
+				assert.Equal(t, tt.wantLegacy[state], got-before.legacy[state],
+					"legacy gauge for state %q", state)
+			}
+		})
+	}
+}
 
-		m.StartLoadingShard()
+// TestShardStatesSumToTheLegacyGauges is the migration contract: a consumer
+// moving off shards_loaded and its siblings gets the same number from
+// sum by (state) over weaviate_shards.
+func TestShardStatesSumToTheLegacyGauges(t *testing.T) {
+	m := GetMetrics()
 
-		loadingCount := testutil.ToFloat64(m.ShardsLoading)
-		unloadedCount := testutil.ToFloat64(m.ShardsUnloaded)
+	// A lazy collection waking two of three shards and putting one back to
+	// sleep, alongside an eager collection that opens its shard at creation.
+	m.NewUnloadedshard()
+	m.NewUnloadedshard()
+	m.NewUnloadedshard()
+	m.NewLoadedShard()
 
-		assert.Equal(t, float64(2), loadingCount)
-		assert.Equal(t, float64(0), unloadedCount)
-	})
+	m.StartLoadingShard()
+	m.FinishLoadingShard()
+	m.StartLoadingShard()
+	m.FinishLoadingShard()
 
-	t.Run("finish_loading_shard", func(t *testing.T) {
-		// invariant:
-		// 1. `shards_loading` should be decremented
-		// 2. `shards_loaded` should be incremented
+	m.StartUnloadingShard(ShardRegistrationLazy)
+	m.FinishUnloadingShard(ShardRegistrationLazy)
 
-		// Setting base values
-		mv := m.ShardsLoading
-		mv.Set(1)
+	counts := snapshotShards(m)
+	for state, legacy := range counts.legacy {
+		sum := counts.vec[shardSeries{state, ShardRegistrationEager}] +
+			counts.vec[shardSeries{state, ShardRegistrationLazy}]
+		assert.Equal(t, legacy, sum, "sum by (state) for %q", state)
+	}
+}
 
-		mv = m.ShardsLoaded
-		mv.Set(1)
+// TestShardsExportsEveryStateAtStartup keeps a node whose collections are all
+// eager from omitting the lazy series instead of scraping zero.
+func TestShardsExportsEveryStateAtStartup(t *testing.T) {
+	m := GetMetrics()
 
-		m.FinishLoadingShard()
+	require.Equal(t, 8, testutil.CollectAndCount(m.Shards))
 
-		loadingCount := testutil.ToFloat64(m.ShardsLoading)
-		loadedCount := testutil.ToFloat64(m.ShardsLoaded)
+	for _, labels := range AllShardLabels() {
+		assert.NotPanics(t, func() {
+			testutil.ToFloat64(m.Shards.WithLabelValues(labels...))
+		}, "series %v must exist", labels)
+	}
+}
 
-		assert.Equal(t, float64(0), loadingCount) // dec
-		assert.Equal(t, float64(2), loadedCount)  // inc
-	})
+// TestWarmupOutcomeCountsOnItsOwnSeries pins each outcome to one series, so a
+// dashboard summing them reads the sweep's decisions without double counting.
+func TestWarmupOutcomeCountsOnItsOwnSeries(t *testing.T) {
+	m := GetMetrics()
 
-	t.Run("fail_loading_shard", func(t *testing.T) {
-		// invariant:
-		// 1. `shards_loading` should be decremented
-		// 2. `shards_unloaded` should be incremented
+	outcomes := []WarmupOutcome{
+		WarmupLoaded,
+		WarmupFailed,
+		WarmupSkippedShardGone,
+		WarmupSkippedAlreadyLoaded,
+		WarmupSkippedEmpty,
+		WarmupSkippedBelowThreshold,
+	}
 
-		// Setting base values
-		mv := m.ShardsLoading
-		mv.Set(1)
+	readAll := func() map[WarmupOutcome]float64 {
+		counts := make(map[WarmupOutcome]float64, len(outcomes))
+		for _, outcome := range outcomes {
+			counts[outcome] = testutil.ToFloat64(
+				m.LazyShardWarmupDecisions.WithLabelValues(string(outcome)))
+		}
+		return counts
+	}
 
-		mv = m.ShardsUnloaded
-		mv.Set(1)
+	for _, recorded := range outcomes {
+		t.Run(string(recorded), func(t *testing.T) {
+			before := readAll()
 
-		m.FailLoadingShard()
+			m.RecordWarmupOutcome(recorded)
 
-		loadingCount := testutil.ToFloat64(m.ShardsLoading)
-		unloadedCount := testutil.ToFloat64(m.ShardsUnloaded)
+			after := readAll()
+			for _, outcome := range outcomes {
+				want := before[outcome]
+				if outcome == recorded {
+					want++
+				}
+				assert.Equal(t, want, after[outcome], "outcome %q", outcome)
+			}
+		})
+	}
+}
 
-		assert.Equal(t, float64(0), loadingCount)  // dec
-		assert.Equal(t, float64(2), unloadedCount) // inc
-	})
+// TestRecordWarmupOutcomeToleratesNilMetrics covers an index built without
+// monitoring, which passes nil here.
+func TestRecordWarmupOutcomeToleratesNilMetrics(t *testing.T) {
+	var nilMetrics *PrometheusMetrics
 
-	t.Run("start_unloading_shard", func(t *testing.T) {
-		// invariant:
-		// 1. `shards_loaded` should be decremented
-		// 2. `shards_unloading` should be incremented
-
-		// Setting base values
-		mv := m.ShardsLoaded
-		mv.Set(1)
-
-		mv = m.ShardsUnloading
-		mv.Set(1)
-
-		m.StartUnloadingShard()
-
-		loadedCount := testutil.ToFloat64(m.ShardsLoaded)
-		unloadingCount := testutil.ToFloat64(m.ShardsUnloading)
-
-		assert.Equal(t, float64(0), loadedCount)    // dec
-		assert.Equal(t, float64(2), unloadingCount) // inc
-	})
-
-	t.Run("finish_unloading_shard", func(t *testing.T) {
-		// invariant:
-		// 1. `shards_unloading` should be decremented
-		// 2. `shards_unloaded` should be incremented
-
-		// Setting base values
-		mv := m.ShardsUnloading
-		mv.Set(1)
-
-		mv = m.ShardsUnloaded
-		mv.Set(1)
-
-		m.FinishUnloadingShard()
-
-		unloadingCount := testutil.ToFloat64(m.ShardsUnloading)
-		unloadedCount := testutil.ToFloat64(m.ShardsUnloaded)
-
-		assert.Equal(t, float64(0), unloadingCount) // dec
-		assert.Equal(t, float64(2), unloadedCount)  // inc
-	})
-
-	t.Run("new_unloaded_shard", func(t *testing.T) {
-		// invariant:
-		// 1. `shards_unloaded` should be incremented
-
-		// Setting base values
-		mv := m.ShardsUnloaded
-		mv.Set(1)
-
-		m.NewUnloadedshard()
-
-		unloadedCount := testutil.ToFloat64(m.ShardsUnloaded)
-
-		assert.Equal(t, float64(2), unloadedCount) // inc
-	})
-
-	t.Run("new_loaded_shard", func(t *testing.T) {
-		// invariant:
-		// 1. `shards_loaded` should be incremented
-
-		// Setting base values
-		mv := m.ShardsLoaded
-		mv.Set(1)
-
-		m.NewLoadedShard()
-
-		loadedCount := testutil.ToFloat64(m.ShardsLoaded)
-
-		assert.Equal(t, float64(2), loadedCount) // inc
-	})
-
-	t.Run("delete_loaded_shard", func(t *testing.T) {
-		// invariant:
-		// 1. `shards_loaded` should be decremented
-
-		// Setting base values
-		mv := m.ShardsLoaded
-		mv.Set(2)
-
-		m.DeleteLoadedShard()
-
-		loadedCount := testutil.ToFloat64(m.ShardsLoaded)
-
-		assert.Equal(t, float64(1), loadedCount) // dec
-	})
-
-	t.Run("delete_unloaded_shard", func(t *testing.T) {
-		// invariant:
-		// 1. `shards_unloaded` should be decremented
-
-		// Setting base values
-		mv := m.ShardsUnloaded
-		mv.Set(2)
-
-		m.DeleteUnloadedShard()
-
-		unloadedCount := testutil.ToFloat64(m.ShardsUnloaded)
-
-		assert.Equal(t, float64(1), unloadedCount) // dec
+	assert.NotPanics(t, func() {
+		nilMetrics.RecordWarmupOutcome(WarmupLoaded)
 	})
 }

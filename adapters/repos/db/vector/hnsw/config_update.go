@@ -76,6 +76,12 @@ func ValidateUserConfigUpdate(initial, updated config.VectorIndexConfig) error {
 			initialParsed.RQ.Bits, updatedParsed.RQ.Bits)
 	}
 
+	if initialParsed.RQ.Enabled && updatedParsed.RQ.Enabled &&
+		initialParsed.RQ.Centering != updatedParsed.RQ.Centering {
+		return errors.Errorf("rq centering is immutable: attempted change from \"%v\" to \"%v\"",
+			initialParsed.RQ.Centering, updatedParsed.RQ.Centering)
+	}
+
 	return nil
 }
 
@@ -125,6 +131,11 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 			callback()
 			return errors.Errorf("rq bits is immutable: attempted change from \"%v\" to \"%v\"",
 				h.rqConfig.Bits, parsed.RQ.Bits)
+		}
+		if parsed.RQ.Centering != h.rqConfig.Centering {
+			callback()
+			return errors.Errorf("rq centering is immutable: attempted change from \"%v\" to \"%v\"",
+				h.rqConfig.Centering, parsed.RQ.Centering)
 		}
 	}
 

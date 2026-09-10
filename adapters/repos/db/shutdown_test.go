@@ -752,7 +752,10 @@ func startGatedBackgroundLoad(t *testing.T, idx *Index, shardName string) (chan 
 	})
 
 	loadDone := make(chan error, 1)
-	go func() { loadDone <- idx.loadLocalShardIfActive(shardName) }()
+	go func() {
+		_, err := idx.loadLocalShardIfActive(shardName)
+		loadDone <- err
+	}()
 	<-entered
 
 	return release, loadDone

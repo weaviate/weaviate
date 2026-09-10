@@ -61,6 +61,7 @@ type fakeSchemaManager struct {
 	WaitedSchemaVersion    uint64
 	MaxWaitedSchemaVersion uint64
 	WaitedVersions         []uint64
+	GetClassCalls          []string
 }
 
 func (f *fakeSchemaManager) UpdatePropertyAddDataType(ctx context.Context, principal *models.Principal,
@@ -93,6 +94,7 @@ func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string { re
 func (f *fakeSchemaManager) GetClass(ctx context.Context, principal *models.Principal,
 	name string,
 ) (*models.Class, error) {
+	f.GetClassCalls = append(f.GetClassCalls, name)
 	if f.GetSchemaResponse.Objects == nil {
 		return nil, f.GetschemaErr
 	}

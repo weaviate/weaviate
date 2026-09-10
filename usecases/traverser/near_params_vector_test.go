@@ -638,7 +638,7 @@ func (f *fixedObjectSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID,
 // API handlers (e.g. adapters/handlers/rest/search) classify these failures
 // by type: a missing source object is a client error (400), a source object
 // without a usable vector a data-state error (422) — neither may degrade to
-// the generic vectorization 502.
+// the generic vectorization 500.
 func Test_nearParamsVector_vectorFromNearObjectParams_TypedErrors(t *testing.T) {
 	nearObject := &searchparams.NearObject{ID: "73f2eb5f-5abf-447a-81ca-74b1dd168247"}
 
@@ -649,7 +649,7 @@ func Test_nearParamsVector_vectorFromNearObjectParams_TypedErrors(t *testing.T) 
 		require.Error(t, err)
 		assert.True(t, errors.As(err, &enterrors.ErrSourceObjectNotFound{}),
 			"a missing source object must carry entities/errors.ErrSourceObjectNotFound, got: %v", err)
-		assert.Equal(t, "nearObject params: vector not found", err.Error())
+		assert.Equal(t, "nearObject params: nearObject search-object with id 73f2eb5f-5abf-447a-81ca-74b1dd168247 not found", err.Error())
 	})
 
 	t.Run("source object without any vector", func(t *testing.T) {

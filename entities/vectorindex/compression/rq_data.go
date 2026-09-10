@@ -17,4 +17,5 @@ type RQData struct {
 	Bits     uint32
 	Rotation FastRotation
 	Rounding []float32
+	Mean     []float32
 }

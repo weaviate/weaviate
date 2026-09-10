@@ -102,6 +102,7 @@ import (
 	modgenerativedummy "github.com/weaviate/weaviate/modules/generative-dummy"
 	modgenerativefriendliai "github.com/weaviate/weaviate/modules/generative-friendliai"
 	modgenerativegoogle "github.com/weaviate/weaviate/modules/generative-google"
+	modgenerativemeta "github.com/weaviate/weaviate/modules/generative-meta"
 	modgenerativemistral "github.com/weaviate/weaviate/modules/generative-mistral"
 	modgenerativenvidia "github.com/weaviate/weaviate/modules/generative-nvidia"
 	modgenerativeoctoai "github.com/weaviate/weaviate/modules/generative-octoai"
@@ -163,6 +164,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/banner"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/classification"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -477,6 +479,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		EnableLazyLoadShards:                appState.ServerConfig.Config.EnableLazyLoadShards,
 		LazyLoadShardCountThreshold:         appState.ServerConfig.Config.LazyLoadShardCountThreshold,
 		LazyLoadShardSizeThresholdGB:        appState.ServerConfig.Config.LazyLoadShardSizeThresholdGB,
+		LazyLoadShardWarmupMinObjects:       appState.ServerConfig.Config.LazyLoadShardWarmupMinObjects,
 		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
 		TransferInactivityTimeout:           appState.ServerConfig.Config.TransferInactivityTimeout,
 		HaltForTransferTimeout:              appState.ServerConfig.Config.HaltForTransferTimeout,
@@ -513,27 +516,31 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			AsyncReplicationPropagationDelay:          appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay,
 			AsyncReplicationRootPrefilterBatchSize:    appState.ServerConfig.Config.Replication.AsyncReplicationRootPrefilterBatchSize,
 		},
-		MaximumConcurrentShardLoads:  appState.ServerConfig.Config.MaximumConcurrentShardLoads,
-		MaximumConcurrentBucketLoads: appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
-		HNSWMaxLogSize:               appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
-		HNSWWaitForCachePrefill:      appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
-		HNSWFlatSearchConcurrency:    appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
-		HNSWAcornFilterRatio:         appState.ServerConfig.Config.HNSWAcornFilterRatio,
-		BM25FilterTombMergeGateRatio: appState.ServerConfig.Config.BM25FilterTombMergeGateRatio,
-		HNSWGeoIndexEF:               appState.ServerConfig.Config.HNSWGeoIndexEF,
-		VisitedListPoolMaxSize:       appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
-		TenantActivityReadLogLevel:   appState.ServerConfig.Config.TenantActivityReadLogLevel,
-		TenantActivityWriteLogLevel:  appState.ServerConfig.Config.TenantActivityWriteLogLevel,
-		QuerySlowLogEnabled:          appState.ServerConfig.Config.QuerySlowLogEnabled,
-		QuerySlowLogThreshold:        appState.ServerConfig.Config.QuerySlowLogThreshold,
-		InvertedSorterDisabled:       appState.ServerConfig.Config.InvertedSorterDisabled,
-		QueryBatchedContainsEnabled:  appState.ServerConfig.Config.QueryBatchedContainsEnabled,
-		LazyPropertyLengthsEnabled:   appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
-		MaintenanceModeEnabled:       appState.Cluster.MaintenanceModeEnabledForLocalhost,
-		AsyncIndexingEnabled:         appState.ServerConfig.Config.AsyncIndexingEnabled,
-		HFreshEnabled:                appState.ServerConfig.Config.HFreshEnabled,
-		OperationalMode:              appState.ServerConfig.Config.OperationalMode,
-		DisableDimensionMetrics:      appState.ServerConfig.Config.DisableDimensionMetrics,
+		MaximumConcurrentShardLoads:   appState.ServerConfig.Config.MaximumConcurrentShardLoads,
+		MaximumConcurrentBucketLoads:  appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
+		HNSWMaxLogSize:                appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
+		HNSWWaitForCachePrefill:       appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
+		HNSWFlatSearchConcurrency:     appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
+		HNSWAcornFilterRatio:          appState.ServerConfig.Config.HNSWAcornFilterRatio,
+		BM25FilterTombMergeGateRatio:  appState.ServerConfig.Config.BM25FilterTombMergeGateRatio,
+		QueryAdmissionBudget:          appState.ServerConfig.Config.QueryAdmissionBudget,
+		QueryAdmissionMaxQueue:        appState.ServerConfig.Config.QueryAdmissionMaxQueue,
+		QueryAdmissionControlDisabled: appState.ServerConfig.Config.QueryAdmissionControlDisabled,
+		HNSWGeoIndexEF:                appState.ServerConfig.Config.HNSWGeoIndexEF,
+		VisitedListPoolMaxSize:        appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
+		TenantActivityReadLogLevel:    appState.ServerConfig.Config.TenantActivityReadLogLevel,
+		TenantActivityWriteLogLevel:   appState.ServerConfig.Config.TenantActivityWriteLogLevel,
+		QuerySlowLogEnabled:           appState.ServerConfig.Config.QuerySlowLogEnabled,
+		QuerySlowLogThreshold:         appState.ServerConfig.Config.QuerySlowLogThreshold,
+		InvertedSorterDisabled:        appState.ServerConfig.Config.InvertedSorterDisabled,
+		QueryBatchedContainsEnabled:   appState.ServerConfig.Config.QueryBatchedContainsEnabled,
+		LazyPropertyLengthsEnabled:    appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
+		MaintenanceModeEnabled:        appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		AsyncIndexingEnabled:          appState.ServerConfig.Config.AsyncIndexingEnabled,
+		HFreshEnabled:                 appState.ServerConfig.Config.HFreshEnabled,
+		OperationalMode:               appState.ServerConfig.Config.OperationalMode,
+		DisableDimensionMetrics:       appState.ServerConfig.Config.DisableDimensionMetrics,
+		WeaviateLicense:               appState.ServerConfig.Config.WeaviateLicense,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil, appState.NamespacesController) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -688,6 +695,13 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.ClusterService = rCluster.New(rConfig, appState.AuthzController, appState.GRPCServerMetrics)
 	migrator.SetCluster(appState.ClusterService.Raft)
 	appState.ClusterService.SetInflightDrainer(repo.WaitForLocalInflightWrites)
+
+	// Docs links carry ?clusterid= only when telemetry is enabled. Installed
+	// before ClusterService.Open so links logged during restore-time shard
+	// loads already carry it.
+	if telemetryEnabled(appState) {
+		enterrors.SetClusterIDSource(appState.ClusterService.ClusterID)
+	}
 
 	// Wrap RestoreClassDir so each post-RAFT-apply class-dir move also
 	// fires the orphan-reindex audit on the restored on-disk state.
@@ -1515,6 +1529,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}
 		}, appState.Logger)
 		setupTelemetryDebugHandlers(telemeter)
+
+		// The banner waits for the cluster id and fetches its art from
+		// weaviate.io, so it only runs when telemetry is enabled.
+		if !entconfig.Enabled(os.Getenv("DISABLE_STARTUP_BANNER")) {
+			repeater := banner.NewRepeater(appState.Logger, appState.ClusterService.ClusterID,
+				appState.ServerConfig.Config.BannerInterval, nil)
+			enterrors.GoWrapper(func() { repeater.Run(serverShutdownCtx) }, appState.Logger)
+		}
 	}
 	if entconfig.Enabled(os.Getenv("ENABLE_CLEANUP_UNFINISHED_BACKUPS")) {
 		enterrors.GoWrapper(
@@ -1892,6 +1914,7 @@ func registerModules(appState *state.State) error {
 		modgenerativedigitalocean.Name,
 		modgenerativefriendliai.Name,
 		modgenerativegoogle.Name,
+		modgenerativemeta.Name,
 		modgenerativemistral.Name,
 		modgenerativenvidia.Name,
 		modgenerativeoctoai.Name,
@@ -2244,6 +2267,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modgenerativedigitalocean.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modgenerativemeta.Name]; ok {
+		appState.Modules.Register(modgenerativemeta.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modgenerativemeta.Name).
 			Debug("enabled module")
 	}
 

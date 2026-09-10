@@ -134,9 +134,9 @@ func midPropTidyRunSwapWithRecover(ctx context.Context, task *ShardReindexTaskGe
 
 // midPropTidyRunTidyExpectingPanicError runs tidyBackupBuckets and
 // returns the error it surfaces. When the testHookPostPropTidy hook
-// panics inside one of the goroutines, the wrapper's deferFunc recovers
-// and the error returned from eg.Wait() carries the substring "panic
-// occurred" (see [entities/errors/error_group_wrapper.go] line ~92).
+// panics inside one of the goroutines, the wrapper's recoverPanic
+// returns it as that goroutine's error, and eg.Wait() carries the
+// substring "panic occurred".
 func midPropTidyRunTidyExpectingPanicError(ctx context.Context, task *ShardReindexTaskGeneric,
 	shard *Shard, rt reindexTracker, props []string,
 ) error {
@@ -205,15 +205,7 @@ func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
 			// is runtimeSwap. For tidy cells, we additionally run
 			// runtimeSwap so that markSwapped is set and tidy is the
 			// next thing to run.
-			task.skipSwapOnFinish.Store(true)
-			require.NoError(t, task.OnAfterLsmInit(ctx, shard))
-			for {
-				rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-				require.NoError(t, err)
-				if rerunAt.IsZero() {
-					break
-				}
-			}
+			require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 			rt, err := task.newReindexTracker(shard.pathLSM())
 			require.NoError(t, err)
 			props, err := task.readPropsToReindex(rt)
@@ -335,7 +327,6 @@ func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
 
 			strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 			task2 := newTestTask(idx.logger, strategy2)
-			task2.skipSwapOnFinish.Store(false)
 			idx.shardReindexer = &testShardReindexer{task: task2}
 
 			shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
@@ -345,15 +336,12 @@ func TestRecoveryConvergence_MidPropSwapOrTidy_Loop(t *testing.T) {
 			defer shard2.Shutdown(ctx)
 			idx.shards.Store(shardName, shd2)
 
-			for {
-				rerunAt, _, err := task2.OnAfterLsmInitAsync(ctx, shard2)
-				require.NoErrorf(t, err,
-					"mid-prop-tidy recovery OnAfterLsmInitAsync (phase=%s, haltAfter=%d)",
-					tc.phase, tc.haltAfter)
-				if rerunAt.IsZero() {
-					break
-				}
-			}
+			// Relaunch is a no-op: FinalizeCompletedMigrations already
+			// completed the swap during shard init and removed the
+			// tracker; convergence is checked on bucket content below.
+			require.NoErrorf(t, task2.RunOnShard(ctx, shard2),
+				"mid-prop-tidy recovery relaunch (phase=%s, haltAfter=%d)",
+				tc.phase, tc.haltAfter)
 
 			// Phase 4: per-prop convergence — every prop must converge
 			// to baseline.

@@ -109,11 +109,10 @@ func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertPara
 		return jsonResponder(http.StatusConflict, errorResponse(principal, plan.conflict))
 	}
 	if plan.noop {
-		// NO_OP still needs the tenants-contract check (mis-scoped must
-		// 400, not silently 200). No migrationType here, so semantic-ness
-		// comes from indexType directly: only rangeable is format-only.
+		// A mis-scoped NO_OP must 400, not silently 200. Every migration
+		// this endpoint can submit is semantic, hence the constant true.
 		isMT := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
-		if resp := h.validateTenantScope(ctx, principal, collection, isMT, indexType != "rangeable", params.Tenants); resp != nil {
+		if resp := h.validateTenantScope(ctx, principal, collection, isMT, true, params.Tenants); resp != nil {
 			return resp
 		}
 		return noopOrJoinResponder(principal, plan)
@@ -648,6 +647,12 @@ func (h *indexesHandlers) validateTenantScope(ctx context.Context, principal *mo
 // task. Returns 202 STARTED or the mapped error, reusing the caller's RAFT
 // snapshot (reindexTasks) so check-and-submit sees one consistent view.
 func (h *indexesHandlers) submitReindexTask(ctx context.Context, principal *models.Principal, class *models.Class, collection, propertyName string, plan upsertPlan, tenants []string, reindexTasks []*distributedtask.Task) middleware.Responder {
+	// The one funnel both upsert and rebuild reach to start a task. A NO_OP
+	// returns before this and is deliberately not refused: it starts nothing.
+	if err := validateNoSidecarShapedProperties(class); err != nil {
+		return jsonResponder(http.StatusBadRequest, errorResponse(principal, err.Error()))
+	}
+
 	if h.appState.ClusterService == nil {
 		return jsonResponder(http.StatusServiceUnavailable, errorResponse(principal,
 			"cluster service unavailable; cannot submit reindex task"))

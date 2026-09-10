@@ -115,9 +115,11 @@ func TestUpdateIndexTenants(t *testing.T) {
 				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
 				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
+			shutdownIndexOnCleanup(t, index)
 
 			shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
-				NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop())
+				NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop(),
+				monitoring.ShardRegistrationEager)
 			require.NoError(t, err)
 
 			index.shards.Store("shard1", shard)
@@ -594,6 +596,7 @@ func TestUpdateIndexShards(t *testing.T) {
 				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
 				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
+			shutdownIndexOnCleanup(t, index)
 
 			// Initialize shards
 			for _, shardName := range tt.initialShards {
@@ -1059,13 +1062,15 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
+	shutdownIndexOnCleanup(t, index)
 	// HaltForTransfer's backup-gate would refuse the test's
 	// IncomingPauseFileActivity call without a wired lookup; install
 	// the no-live-reindex stub so the gate is satisfied.
 	index.db = stubDBWithNoLiveReindex()
 
 	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
-		NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop())
+		NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop(),
+		monitoring.ShardRegistrationEager)
 	require.NoError(t, err)
 
 	index.shards.Store("shard1", shard)

@@ -201,6 +201,41 @@ func TestEnvironmentDropVectorReconcileInterval(t *testing.T) {
 	}
 }
 
+func TestEnvironmentBannerInterval(t *testing.T) {
+	tests := []struct {
+		name        string
+		value       []string
+		preset      time.Duration // as the config file would set it
+		expected    time.Duration
+		expectedErr bool
+	}{
+		{name: "valid", value: []string{"48h"}, expected: 48 * time.Hour},
+		// Zero means "not set" to the repeater, which falls back to its default.
+		{name: "not given", value: []string{}, expected: 0},
+		{name: "below the floor is clamped", value: []string{"1m"}, expected: time.Hour},
+		{name: "config file value below the floor is clamped", preset: time.Minute, expected: time.Hour},
+		{name: "config file value above the floor is kept", preset: 2 * time.Hour, expected: 2 * time.Hour},
+		{name: "env wins over the config file", value: []string{"48h"}, preset: time.Minute, expected: 48 * time.Hour},
+		{name: "not parsable", value: []string{"garbage"}, expected: -1, expectedErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("BANNER_INTERVAL", tt.value[0])
+			}
+			conf := Config{BannerInterval: tt.preset}
+			err := FromEnv(&conf)
+
+			if tt.expectedErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.expected, conf.BannerInterval)
+			}
+		})
+	}
+}
+
 // TestEnvironmentDistributedTasksIntervals pins the caps on the two sibling
 // DTM knobs: unchecked, seconds*time.Second (hours*time.Hour) overflows into
 // a negative duration — the tick interval panics time.NewTicker after boot,
@@ -749,6 +784,48 @@ func TestEnvironmentLazyLoadShardSizeThreshold(t *testing.T) {
 	}
 }
 
+func TestEnvironmentLazyLoadShardWarmupMinObjects(t *testing.T) {
+	tests := []struct {
+		name string
+		// preset mirrors a value coming from the config file, which is parsed
+		// before FromEnv runs.
+		preset      int64
+		value       string
+		expected    int64
+		expectedErr bool
+	}{
+		{name: "unset keeps the zero value", value: "", expected: 0},
+		{name: "negative turns the sweep off", value: "-1", expected: -1},
+		{name: "zero sweeps every non-empty shard", value: "0", expected: 0},
+		{name: "positive sets a threshold", value: "1000", expected: 1000},
+		{name: "unparsable value is rejected", value: "not-an-int", expectedErr: true},
+		{name: "config file value survives an unset env var", preset: 500, value: "", expected: 500},
+		{name: "env var overrides the config file", preset: 500, value: "-1", expected: -1},
+		{name: "zero overrides a config-file threshold", preset: 500, value: "0", expected: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Ensure hermetic behavior regardless of outer environment
+			t.Setenv("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS", "")
+
+			if tt.value != "" {
+				t.Setenv("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS", tt.value)
+			}
+
+			conf := Config{LazyLoadShardWarmupMinObjects: tt.preset}
+			err := FromEnv(&conf)
+			if tt.expectedErr {
+				require.Error(t, err)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, conf.LazyLoadShardWarmupMinObjects)
+		})
+	}
+}
+
 func TestEnvironmentHaltForTransferTimeout(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -1131,6 +1208,36 @@ func TestEnvironmentExperimentalRESTSearchEnabled(t *testing.T) {
 			} else {
 				require.Equal(t, tt.expected, conf.ExperimentalRESTSearchEnabled.Get())
 			}
+		})
+	}
+}
+
+func TestEnvironmentWeaviateLicense(t *testing.T) {
+	factors := []struct {
+		name     string
+		value    []string
+		expected bool
+	}{
+		{"Valid: true", []string{"true"}, true},
+		{"Valid: on", []string{"on"}, true},
+		{"Valid: enabled", []string{"enabled"}, true},
+		{"Valid: 1", []string{"1"}, true},
+		{"Valid: false", []string{"false"}, false},
+		{"Valid: off", []string{"off"}, false},
+		{"Valid: 0", []string{"0"}, false},
+		{"Unrecognized value counts as off", []string{"yes"}, false},
+		{"Empty value counts as off", []string{""}, false},
+		{"not given", []string{}, false},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			if len(tt.value) == 1 {
+				t.Setenv("WEAVIATE_LICENSE", tt.value[0])
+			}
+			conf := Config{}
+			require.NoError(t, FromEnv(&conf))
+
+			require.Equal(t, tt.expected, conf.WeaviateLicense.Get())
 		})
 	}
 }
@@ -2391,4 +2498,76 @@ func TestNamespaceCleanupIntervalValidation(t *testing.T) {
 		assert.Equal(t, time.Minute, conf.Namespaces.CleanupInterval.Get(),
 			"a refused push must leave the previous interval in place")
 	})
+}
+
+func TestEnvironmentQueryAdmissionBudget(t *testing.T) {
+	assertNonNegativeIntEnv(t, "QUERY_ADMISSION_BUDGET",
+		func(c *Config) int { return c.QueryAdmissionBudget })
+}
+
+func TestEnvironmentQueryAdmissionMaxQueue(t *testing.T) {
+	assertNonNegativeIntEnv(t, "QUERY_ADMISSION_MAX_QUEUE",
+		func(c *Config) int { return c.QueryAdmissionMaxQueue })
+}
+
+// assertNonNegativeIntEnv checks: positive value taken, unset/0 means "auto",
+// negative/garbage rejected.
+func assertNonNegativeIntEnv(t *testing.T, envName string, get func(*Config) int) {
+	t.Helper()
+	factors := []struct {
+		name        string
+		value       []string
+		expected    int
+		expectedErr bool
+	}{
+		{"Valid", []string{"512"}, 512, false},
+		{"not given defaults to auto", []string{}, 0, false},
+		{"explicit zero means auto", []string{"0"}, 0, false},
+		{"negative rejected", []string{"-1"}, 0, true},
+		{"not parsable", []string{"nope"}, 0, true},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			conf, err := setEnvAndParse(t, envName, tt.value)
+			if tt.expectedErr {
+				require.NotNil(t, err)
+			} else {
+				require.Nil(t, err)
+				require.Equal(t, tt.expected, get(&conf))
+			}
+		})
+	}
+}
+
+// setEnvAndParse sets envName when value has exactly one element (empty/nil
+// models "unset"), then parses a fresh Config and returns it with any error.
+func setEnvAndParse(t *testing.T, envName string, value []string) (Config, error) {
+	t.Helper()
+	if len(value) == 1 {
+		t.Setenv(envName, value[0])
+	}
+	conf := Config{}
+	return conf, FromEnv(&conf)
+}
+
+func TestEnvironmentQueryAdmissionControlDisabled(t *testing.T) {
+	factors := []struct {
+		name     string
+		value    []string
+		expected bool
+	}{
+		{"Valid: true", []string{"true"}, true},
+		{"Valid: false", []string{"false"}, false},
+		{"Valid: 1", []string{"1"}, true},
+		{"Valid: 0", []string{"0"}, false},
+		{"not given defaults to enabled (not disabled)", []string{}, false},
+	}
+	for _, tt := range factors {
+		t.Run(tt.name, func(t *testing.T) {
+			conf, err := setEnvAndParse(t, "QUERY_ADMISSION_CONTROL_DISABLED", tt.value)
+			require.Nil(t, err)
+			require.NotNil(t, conf.QueryAdmissionControlDisabled)
+			require.Equal(t, tt.expected, conf.QueryAdmissionControlDisabled.Get())
+		})
+	}
 }

@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -136,22 +137,29 @@ func TestListInactiveLSMFiles(t *testing.T) {
 			},
 		},
 		{
-			name: "migrations tmp leftovers are excluded, checkpoints are not",
+			name: "migrations tmp leftovers are excluded, records and sentinels are not",
 			setup: func(t *testing.T, lsmDir string) {
 				trackerDir := filepath.Join(lsmDir, migrationsDir, "searchable_retokenize_text_1")
+				recordsDir := filepath.Join(lsmDir, migrationsDir, "records")
 				require.NoError(t, os.MkdirAll(trackerDir, 0o755))
-				for _, name := range []string{"started.mig", "properties.mig", "progress.mig.000000001"} {
+				require.NoError(t, os.MkdirAll(recordsDir, 0o755))
+				for _, name := range []string{
+					"payload.mig", "started.mig", "properties.mig", "progress.mig.000000001",
+				} {
 					require.NoError(t, os.WriteFile(filepath.Join(trackerDir, name), []byte("x"), 0o644))
 				}
+				require.NoError(t, os.WriteFile(
+					filepath.Join(recordsDir, "7_searchable_retokenize_shard-1__node-0.json"), []byte("{}"), 0o644))
 
-				// Same call the tracker's atomic properties.mig write makes, so
-				// the name carries the real random infix rather than one the
-				// test picked.
-				leftover, err := os.CreateTemp(trackerDir, "properties.mig.*.tmp")
+				// Same call the record store's atomic write makes, so the name
+				// carries the real random infix rather than one the test picked.
+				leftover, err := os.CreateTemp(recordsDir, "7_searchable_retokenize_shard-1__node-0.json.*.tmp")
 				require.NoError(t, err)
 				require.NoError(t, leftover.Close())
 			},
 			expected: []string{
+				filepath.Join(migrationsDir, "records", "7_searchable_retokenize_shard-1__node-0.json"),
+				filepath.Join(migrationsDir, "searchable_retokenize_text_1", "payload.mig"),
 				filepath.Join(migrationsDir, "searchable_retokenize_text_1", "progress.mig.000000001"),
 				filepath.Join(migrationsDir, "searchable_retokenize_text_1", "properties.mig"),
 				filepath.Join(migrationsDir, "searchable_retokenize_text_1", "started.mig"),
@@ -1159,4 +1167,67 @@ func TestBackupShardWithHardlinks_PreventShutdownErrorReleasesLocks(t *testing.T
 	require.True(t, idx.shardCreateLocks.TryRLock(shardName),
 		"shardCreateLocks must be released after preventShutdown failure")
 	idx.shardCreateLocks.RUnlock(shardName)
+}
+
+// TestBackupDescriptorsClosesChannelWhenCancelled pins that the producer closes
+// the descriptor channel on the early return a cancelled context takes. The
+// caller drains that channel to close before it releases any index, so a producer
+// that returns without closing leaves the backup waiting on a channel with no sender.
+func TestBackupDescriptorsClosesChannelWhenCancelled(t *testing.T) {
+	logger, _ := tlog.NewNullLogger()
+	db := &DB{logger: logger, indices: map[string]*Index{}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	ch := db.BackupDescriptors(ctx, "backup-1", []string{"Class-A", "Class-B"}, nil)
+
+	var got []backup.ClassDescriptor
+	for {
+		select {
+		case d, ok := <-ch:
+			if !ok {
+				require.Len(t, got, 1, "the cancelled class is the last descriptor sent")
+				assert.Equal(t, "Class-A", got[0].Name)
+				require.Error(t, got[0].Error)
+				assert.ErrorIs(t, got[0].Error, context.Canceled)
+				return
+			}
+			got = append(got, d)
+		case <-time.After(5 * time.Second):
+			t.Fatal("BackupDescriptors never closed the descriptor channel")
+		}
+	}
+}
+
+// TestBackupDescriptorsClosesChannelOnPanic pins the exit that defer close(ds)
+// exists for. GoWrapper recovers a panic and lets the goroutine end, so a close
+// that is not deferred leaves the caller draining a channel with no sender.
+func TestBackupDescriptorsClosesChannelOnPanic(t *testing.T) {
+	// The integration suite exports this, which turns GoWrapper's recover off.
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
+	logger, hook := tlog.NewNullLogger()
+	// A zero-value Index panics inside descriptor on its nil logger.
+	db := &DB{logger: logger, indices: map[string]*Index{indexID("Class-A"): {}}}
+
+	ch := db.BackupDescriptors(context.Background(), "backup-1", []string{"Class-A"}, nil)
+
+	select {
+	case d, ok := <-ch:
+		require.False(t, ok, "descriptor %q was sent, so the producer returned instead of panicking", d.Name)
+	case <-time.After(5 * time.Second):
+		t.Fatal("BackupDescriptors never closed the descriptor channel after the producer panicked")
+	}
+
+	// GoWrapper logs the recovery after the deferred close ran. Returning at close
+	// would let t.Setenv restore the flag while the recover is still reading it.
+	require.Eventually(t, func() bool {
+		for _, e := range hook.AllEntries() {
+			if strings.Contains(e.Message, "Recovered from panic") {
+				return true
+			}
+		}
+		return false
+	}, 5*time.Second, 10*time.Millisecond, "the producer goroutine never recovered a panic")
 }

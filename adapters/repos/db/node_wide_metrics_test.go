@@ -1033,6 +1033,7 @@ func newObjectCountIndex(t *testing.T, rootPath, className string, shardCounts m
 		shards:           shardMap{},
 		shardCreateLocks: esync.NewKeyRWLocker(),
 	}
+	index.closeRequestedCtx, index.signalCloseRequested = context.WithCancelCause(context.Background())
 	index.allShardsReady.Store(true)
 
 	for name, count := range shardCounts {
@@ -1064,7 +1065,7 @@ func takeGroupedSeries(t *testing.T, vecs ...*prometheus.GaugeVec) {
 // newObjectCountObserver returns a grouped observer over the indices, writing to
 // the process-global vec. Group is flipped on a value copy, never on the shared
 // global.
-func newObjectCountObserver(t *testing.T, indices ...*Index) *nodeWideMetricsObserver {
+func newGroupedObjectCountObserver(t *testing.T, indices ...*Index) *nodeWideMetricsObserver {
 	t.Helper()
 
 	takeGroupedSeries(t, monitoring.GetMetrics().ObjectCount)
@@ -1120,10 +1121,10 @@ func groupedObjectCounts(t *testing.T) map[string]float64 {
 	return groupedGaugeValues(t, monitoring.GetMetrics().ObjectCount)
 }
 
-func TestObserveObjectCount(t *testing.T) {
+func TestObserveObjectCountPerNamespace(t *testing.T) {
 	t.Run("one series per namespace plus the empty bucket", func(t *testing.T) {
 		root := t.TempDir()
-		o := newObjectCountObserver(t,
+		o := newGroupedObjectCountObserver(t,
 			newObjectCountIndex(t, root, "ns_a:Docs", map[string]int64{"shard1": 3}),
 			newObjectCountIndex(t, root, "ns_a:Notes", map[string]int64{"shard1": 2}),
 			newObjectCountIndex(t, root, "ns_b:Docs", map[string]int64{"shard1": 5, "shard2": 1}))
@@ -1137,7 +1138,7 @@ func TestObserveObjectCount(t *testing.T) {
 
 	t.Run("classes without a namespace land on the empty bucket", func(t *testing.T) {
 		root := t.TempDir()
-		o := newObjectCountObserver(t,
+		o := newGroupedObjectCountObserver(t,
 			newObjectCountIndex(t, root, "Docs", map[string]int64{"shard1": 4}))
 
 		o.observeObjectCount()
@@ -1146,7 +1147,7 @@ func TestObserveObjectCount(t *testing.T) {
 	})
 
 	t.Run("the empty bucket is published by a node holding no indices", func(t *testing.T) {
-		o := newObjectCountObserver(t)
+		o := newGroupedObjectCountObserver(t)
 
 		o.observeObjectCount()
 
@@ -1156,7 +1157,7 @@ func TestObserveObjectCount(t *testing.T) {
 	t.Run("a namespace whose last index is dropped loses its series", func(t *testing.T) {
 		root := t.TempDir()
 		nsA := newObjectCountIndex(t, root, "ns_a:Docs", map[string]int64{"shard1": 3})
-		o := newObjectCountObserver(t, nsA,
+		o := newGroupedObjectCountObserver(t, nsA,
 			newObjectCountIndex(t, root, "ns_b:Docs", map[string]int64{"shard1": 5}))
 
 		o.observeObjectCount()
@@ -1173,7 +1174,7 @@ func TestObserveObjectCount(t *testing.T) {
 		root := t.TempDir()
 		loading := newObjectCountIndex(t, root, "ns_a:Docs", map[string]int64{"shard1": 3})
 		loading.allShardsReady.Store(false)
-		o := newObjectCountObserver(t, loading,
+		o := newGroupedObjectCountObserver(t, loading,
 			newObjectCountIndex(t, root, "ns_b:Docs", map[string]int64{"shard1": 5}))
 
 		o.observeObjectCount()

@@ -313,6 +313,12 @@ func TestResolveUpsertPlan_Searchable(t *testing.T) {
 			wantNoop: true,
 		},
 		{
+			name:   "present + different tokenization -> change-tokenization",
+			prop:   textProp("t", "word", boolPtr(true), boolPtr(false)),
+			body:   &models.IndexUpsertRequest{Tokenization: "whitespace"},
+			wantMT: db.ReindexTypeChangeTokenization,
+		},
+		{
 			name:     "on wand + algorithm blockmax -> change-algorithm",
 			prop:     textProp("t", "word", boolPtr(true), boolPtr(false)),
 			blockmax: false,
@@ -376,6 +382,10 @@ func TestResolveUpsertPlan_Searchable(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantNoop, plan.noop)
 			assert.Equal(t, tc.wantMT, plan.migrationType)
+			if tc.wantMT != "" {
+				assert.Truef(t, db.IsSemanticMigration(tc.wantMT),
+					"upsertIndex 400s a tenant-scoped request for %s on the assumption every type it submits is cluster-wide", tc.wantMT)
+			}
 		})
 	}
 }
@@ -451,6 +461,10 @@ func TestResolveUpsertPlan_Filterable(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantNoop, plan.noop)
 			assert.Equal(t, tc.wantMT, plan.migrationType)
+			if tc.wantMT != "" {
+				assert.Truef(t, db.IsSemanticMigration(tc.wantMT),
+					"upsertIndex 400s a tenant-scoped request for %s on the assumption every type it submits is cluster-wide", tc.wantMT)
+			}
 		})
 	}
 }
@@ -506,6 +520,10 @@ func TestResolveUpsertPlan_RangeFilters(t *testing.T) {
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantNoop, plan.noop)
 			assert.Equal(t, tc.wantMT, plan.migrationType)
+			if tc.wantMT != "" {
+				assert.Truef(t, db.IsSemanticMigration(tc.wantMT),
+					"upsertIndex 400s a tenant-scoped request for %s on the assumption every type it submits is cluster-wide", tc.wantMT)
+			}
 		})
 	}
 }
