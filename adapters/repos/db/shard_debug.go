@@ -48,9 +48,16 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		return errors.Wrap(err, "drop vector index")
 	}
 
+	rec, ok, err := s.mapping.Get(targetVector)
+	if err != nil {
+		return errors.Wrap(err, "read mapping record")
+	}
+	if !ok {
+		return fmt.Errorf("vector %q has no mapping record", targetVector)
+	}
 	newConfig := s.index.GetVectorIndexConfig(targetVector)
 
-	vidx, err = s.initVectorIndex(ctx, targetVector, s.vectorIndexID(targetVector), newConfig, false)
+	vidx, err = s.initVectorIndex(ctx, targetVector, rec.PhysicalID, newConfig, false)
 	if err != nil {
 		return errors.Wrap(err, "init vector index")
 	}
