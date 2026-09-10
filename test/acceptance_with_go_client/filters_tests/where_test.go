@@ -79,6 +79,8 @@ func TestWhereFilter_Cluster(t *testing.T) {
 }
 
 func newClusterClient(t *testing.T, dc *docker.DockerContainer) *weaviate.Client {
+	t.Helper()
+
 	var err error
 	rest, err := url.Parse(dc.URI())
 	require.NoError(t, err)
