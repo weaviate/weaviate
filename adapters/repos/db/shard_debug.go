@@ -50,7 +50,7 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 
 	newConfig := s.index.GetVectorIndexConfig(targetVector)
 
-	vidx, err = s.initVectorIndex(ctx, targetVector, newConfig, false)
+	vidx, err = s.initVectorIndex(ctx, targetVector, s.vectorIndexID(targetVector), newConfig, false)
 	if err != nil {
 		return errors.Wrap(err, "init vector index")
 	}

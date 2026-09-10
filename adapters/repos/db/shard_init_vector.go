@@ -90,7 +90,7 @@ func (s *Shard) vectorIndexLogger(targetVector, indexID string) logrus.FieldLogg
 }
 
 func (s *Shard) initVectorIndex(ctx context.Context,
-	targetVector string, vectorIndexUserConfig schemaConfig.VectorIndexConfig, lazyLoadSegments bool,
+	targetVector, physicalID string, vectorIndexUserConfig schemaConfig.VectorIndexConfig, lazyLoadSegments bool,
 ) (VectorIndex, error) {
 	var distProv distancer.Provider
 
@@ -123,7 +123,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 	// - a geo property index for each geo prop in the schema
 	//
 	// here we label the main vector index as such.
-	vecIdxID := s.vectorIndexID(targetVector)
+	vecIdxID := physicalID
 
 	// Every log line under this index carries both identities: the logical
 	// name for operators ("which vector?") and the physical id for storage
@@ -346,22 +346,29 @@ func (s *Shard) initTargetVectors(ctx context.Context, legacy schemaConfig.Vecto
 	return nil
 }
 
-// initTargetVector creates the named vector's index and queue unless the
-// shard has them already. Creates are serialized by the slots, so two
-// concurrent UpdateVectorIndexConfigs calls that both saw the target absent
-// build it once; the second finds it in place and returns.
+// initTargetVector creates the named vector's index and queue under the
+// naming rule unless the shard has them already. Creates are serialized by
+// the slots, so two concurrent UpdateVectorIndexConfigs calls that both saw
+// the target absent build it once; the second finds it in place and returns.
 func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
+	return s.createVectorIndex(ctx, targetVector, s.vectorIndexID(targetVector), cfg, lazyLoadSegments)
+}
+
+// createVectorIndex builds and publishes targetVector's index and queue at
+// physicalID unless the slot exists. The ID is the caller's: the naming
+// rule for a new vector, the mapping's record for one the shard already has.
+func (s *Shard) createVectorIndex(ctx context.Context, targetVector, physicalID string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
 	_, err := s.vectors.Create(targetVector, func() (VectorIndex, *VectorIndexQueue, error) {
-		return s.buildVectorIndexAndQueue(ctx, targetVector, cfg, lazyLoadSegments)
+		return s.buildVectorIndexAndQueue(ctx, targetVector, physicalID, cfg, lazyLoadSegments)
 	})
 	return err
 }
 
-// buildVectorIndexAndQueue constructs a vector's index and its queue. A queue
-// that fails to build takes the index down with it, so nothing is left
-// running unpublished.
-func (s *Shard) buildVectorIndexAndQueue(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) (VectorIndex, *VectorIndexQueue, error) {
-	vectorIndex, err := s.initVectorIndex(ctx, targetVector, cfg, lazyLoadSegments)
+// buildVectorIndexAndQueue constructs a vector's index and its queue at
+// physicalID. A queue that fails to build takes the index down with it, so
+// nothing is left running unpublished.
+func (s *Shard) buildVectorIndexAndQueue(ctx context.Context, targetVector, physicalID string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) (VectorIndex, *VectorIndexQueue, error) {
+	vectorIndex, err := s.initVectorIndex(ctx, targetVector, physicalID, cfg, lazyLoadSegments)
 	if err != nil {
 		return nil, nil, fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
 	}
@@ -376,14 +383,12 @@ func (s *Shard) buildVectorIndexAndQueue(ctx context.Context, targetVector strin
 	return vectorIndex, queue, nil
 }
 
-// initLegacyVector creates the legacy vector's index and queue unless the
-// shard has them already. A second init used to replace the running index
-// with a fresh instance and orphan it; now it finds the first in place.
+// initLegacyVector creates the legacy vector's index and queue under the
+// naming rule unless the shard has them already. A second init used to
+// replace the running index with a fresh instance and orphan it; now it
+// finds the first in place.
 func (s *Shard) initLegacyVector(ctx context.Context, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
-	_, err := s.vectors.Create("", func() (VectorIndex, *VectorIndexQueue, error) {
-		return s.buildVectorIndexAndQueue(ctx, "", cfg, lazyLoadSegments)
-	})
-	return err
+	return s.createVectorIndex(ctx, "", s.vectorIndexID(""), cfg, lazyLoadSegments)
 }
 
 func (s *Shard) setVectorIndex(targetVector string, index VectorIndex) {
