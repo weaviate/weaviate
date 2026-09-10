@@ -27,11 +27,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
-	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/usecases/sharding"
 
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -137,22 +137,29 @@ func TestListInactiveLSMFiles(t *testing.T) {
 			},
 		},
 		{
-			name: "migrations tmp leftovers are excluded, checkpoints are not",
+			name: "migrations tmp leftovers are excluded, records and sentinels are not",
 			setup: func(t *testing.T, lsmDir string) {
 				trackerDir := filepath.Join(lsmDir, migrationsDir, "searchable_retokenize_text_1")
+				recordsDir := filepath.Join(lsmDir, migrationsDir, "records")
 				require.NoError(t, os.MkdirAll(trackerDir, 0o755))
-				for _, name := range []string{"started.mig", "properties.mig", "progress.mig.000000001"} {
+				require.NoError(t, os.MkdirAll(recordsDir, 0o755))
+				for _, name := range []string{
+					"payload.mig", "started.mig", "properties.mig", "progress.mig.000000001",
+				} {
 					require.NoError(t, os.WriteFile(filepath.Join(trackerDir, name), []byte("x"), 0o644))
 				}
+				require.NoError(t, os.WriteFile(
+					filepath.Join(recordsDir, "7_searchable_retokenize_shard-1__node-0.json"), []byte("{}"), 0o644))
 
-				// Same call the tracker's atomic properties.mig write makes, so
-				// the name carries the real random infix rather than one the
-				// test picked.
-				leftover, err := os.CreateTemp(trackerDir, "properties.mig.*.tmp")
+				// Same call the record store's atomic write makes, so the name
+				// carries the real random infix rather than one the test picked.
+				leftover, err := os.CreateTemp(recordsDir, "7_searchable_retokenize_shard-1__node-0.json.*.tmp")
 				require.NoError(t, err)
 				require.NoError(t, leftover.Close())
 			},
 			expected: []string{
+				filepath.Join(migrationsDir, "records", "7_searchable_retokenize_shard-1__node-0.json"),
+				filepath.Join(migrationsDir, "searchable_retokenize_text_1", "payload.mig"),
 				filepath.Join(migrationsDir, "searchable_retokenize_text_1", "progress.mig.000000001"),
 				filepath.Join(migrationsDir, "searchable_retokenize_text_1", "properties.mig"),
 				filepath.Join(migrationsDir, "searchable_retokenize_text_1", "started.mig"),
@@ -225,8 +232,8 @@ func TestListInactiveShardFiles(t *testing.T) {
 		},
 		{
 			name:          "dynamic index state db",
-			rootFiles:     []string{dynamicent.StateDBFileName},
-			extraExpected: []string{filepath.Join(indexID, shardName, dynamicent.StateDBFileName)},
+			rootFiles:     []string{shardmeta.FileName},
+			extraExpected: []string{filepath.Join(indexID, shardName, shardmeta.FileName)},
 		},
 		{
 			name:          "flat index metadata of the unnamed vector",
@@ -243,9 +250,9 @@ func TestListInactiveShardFiles(t *testing.T) {
 		},
 		{
 			name:      "dynamic and flat state side by side",
-			rootFiles: []string{dynamicent.StateDBFileName, "meta.db", "meta_first.db"},
+			rootFiles: []string{shardmeta.FileName, "meta.db", "meta_first.db"},
 			extraExpected: []string{
-				filepath.Join(indexID, shardName, dynamicent.StateDBFileName),
+				filepath.Join(indexID, shardName, shardmeta.FileName),
 				filepath.Join(indexID, shardName, "meta.db"),
 				filepath.Join(indexID, shardName, "meta_first.db"),
 			},
@@ -459,7 +466,7 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(bucketDir, "segment-123.wal"), walContent, 0o644))
 
 	// Dynamic index state DB at the shard root (mutable).
-	require.NoError(t, os.WriteFile(filepath.Join(shardDir, dynamicent.StateDBFileName), []byte("bolt-data"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(shardDir, shardmeta.FileName), []byte("bolt-data"), 0o644))
 
 	// Flat vector index metadata (mutable), at the shard root where flat.New writes it.
 	require.NoError(t, os.WriteFile(filepath.Join(shardDir, "meta.db"), []byte("boltdb-data"), 0o644))
@@ -505,8 +512,8 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	clDst := filepath.Join(stagingRoot, indexID, shardName, "main.hnsw.commitlog.d", "1709203456")
 	assert.NotEqual(t, getIno(clSrc), getIno(clDst), "non-condensed commitlog should be copied, not hard-linked")
 
-	stateDBSrc := filepath.Join(shardDir, dynamicent.StateDBFileName)
-	stateDBDst := filepath.Join(stagingRoot, indexID, shardName, dynamicent.StateDBFileName)
+	stateDBSrc := filepath.Join(shardDir, shardmeta.FileName)
+	stateDBDst := filepath.Join(stagingRoot, indexID, shardName, shardmeta.FileName)
 	assert.NotEqual(t, getIno(stateDBSrc), getIno(stateDBDst), "index.db should be copied, not hard-linked")
 
 	// Immutable files: same inodes (hard-linked).

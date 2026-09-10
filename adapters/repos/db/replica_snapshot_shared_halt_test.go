@@ -263,12 +263,13 @@ func newSharedHaltTestShard(t *testing.T) (*Index, *Shard) {
 		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader,
-		nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
+		nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
+	shutdownIndexOnCleanup(t, index)
 	index.db = stubDBWithNoLiveReindex()
 
-	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
+	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler,
 		NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop(),
 		monitoring.ShardRegistrationEager)
 	require.NoError(t, err)

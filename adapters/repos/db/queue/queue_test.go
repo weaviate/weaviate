@@ -16,6 +16,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -1337,4 +1339,244 @@ func TestQueueForceSwitch(t *testing.T) {
 	files, err = q.ListFiles(ctx, tmpDir)
 	require.NoError(t, err)
 	require.Len(t, files, 9)
+}
+
+// TestDequeueBatchFlushesBeforeChunkRemoval ensures that the OnBatchProcessed
+// hook (used by the vector index queue to flush the HNSW commit log) runs
+// BEFORE the processed chunk file is removed from disk. If the chunk were
+// removed first, a crash between removal and flush would lose applied but
+// unflushed operations that the queue no longer holds.
+func TestDequeueBatchFlushesBeforeChunkRemoval(t *testing.T) {
+	s := makeScheduler(t)
+
+	dir := t.TempDir()
+
+	countChunks := func() int {
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+
+		var n int
+		for _, e := range entries {
+			if chunkFilePattern.MatchString(e.Name()) {
+				n++
+			}
+		}
+		return n
+	}
+
+	var flushCalls int
+	var chunksAtFlush int
+
+	q, err := NewDiskQueue(DiskQueueOptions{
+		ID:           "test_queue",
+		Scheduler:    s,
+		Logger:       newTestLogger(),
+		Dir:          dir,
+		TaskDecoder:  discardExecutor(),
+		StaleTimeout: 100 * time.Millisecond,
+		OnBatchProcessed: func() error {
+			flushCalls++
+			chunksAtFlush = countChunks()
+			return nil
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, q.Init())
+
+	pushMany(t, q, 1, 100, 200, 300)
+
+	// let the partial chunk become stale so DequeueBatch schedules it
+	time.Sleep(q.staleTimeout)
+
+	batch, err := q.DequeueBatch()
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+	require.Len(t, batch.Tasks, 3)
+
+	// the chunk is still on disk while the batch is in flight
+	require.Equal(t, 1, countChunks())
+
+	batch.Done()
+
+	require.Equal(t, 1, flushCalls)
+	// the flush hook must have observed the processed chunk still on disk
+	require.Equal(t, 1, chunksAtFlush, "chunk was removed before OnBatchProcessed ran")
+	// once the batch is done, the chunk is removed
+	require.Equal(t, 0, countChunks())
+}
+
+// TestDequeueBatchKeepsChunkWhenFlushFails ensures that a failed
+// OnBatchProcessed hook (a failed index flush) does not remove the processed
+// chunk: the chunk is the only durable copy of its ops until a flush succeeds,
+// so it must survive and be replayed on a later DequeueBatch — and replayed
+// BEFORE any later chunk. Replay is idempotent under re-application, not under
+// re-ordering: if a later chunk carries newer ops for the same key, replaying
+// the failed chunk after it would re-apply stale ops on top of newer ones.
+func TestDequeueBatchKeepsChunkWhenFlushFails(t *testing.T) {
+	s := makeScheduler(t)
+
+	dir := t.TempDir()
+
+	countChunks := func() int {
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+
+		var n int
+		for _, e := range entries {
+			if chunkFilePattern.MatchString(e.Name()) {
+				n++
+			}
+		}
+		return n
+	}
+
+	var flushCalls int
+	var flushErr error
+
+	q, err := NewDiskQueue(DiskQueueOptions{
+		ID:          "test_queue",
+		Scheduler:   s,
+		Logger:      newTestLogger(),
+		Dir:         dir,
+		TaskDecoder: discardExecutor(),
+		// header (13 bytes) + three 13-byte records fill a chunk, so the
+		// fourth push rolls over into a new one
+		ChunkSize:    40,
+		StaleTimeout: 100 * time.Millisecond,
+		OnBatchProcessed: func() error {
+			flushCalls++
+			return flushErr
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, q.Init())
+
+	keysOf := func(batch *Batch) []uint64 {
+		keys := make([]uint64, 0, len(batch.Tasks))
+		for _, task := range batch.Tasks {
+			keys = append(keys, task.Key())
+		}
+		return keys
+	}
+
+	// two full chunks scheduled behind each other, plus a partial third
+	pushMany(t, q, 1, 100, 200, 300, 400, 500, 600, 700)
+	require.Len(t, q.r.chunkList, 2, "expected exactly two full chunks pending")
+	require.Equal(t, int64(7), q.Size())
+
+	flushErr = errors.New("flush failed")
+
+	batch, err := q.DequeueBatch()
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+	require.Equal(t, []uint64{100, 200, 300}, keysOf(batch))
+
+	batch.Done()
+
+	require.Equal(t, 1, flushCalls)
+	// the failed flush must keep the chunk on disk and in the accounting
+	require.Equal(t, 3, countChunks(), "chunk was removed despite the failed flush")
+	require.Equal(t, int64(7), q.Size())
+
+	// the failed chunk must be replayed BEFORE the second chunk, or its stale
+	// ops would be re-applied on top of the second chunk's newer ones
+	flushErr = nil
+
+	batch, err = q.DequeueBatch()
+	require.NoError(t, err)
+	require.NotNil(t, batch, "chunk was not rescheduled after the failed flush")
+	require.Equal(t, []uint64{100, 200, 300}, keysOf(batch),
+		"the failed chunk must be replayed before any later chunk")
+
+	batch.Done()
+
+	require.Equal(t, 2, flushCalls)
+	require.Equal(t, int64(4), q.Size())
+
+	// the second chunk follows, untouched by the requeue
+	batch, err = q.DequeueBatch()
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+	require.Equal(t, []uint64{400, 500, 600}, keysOf(batch))
+
+	batch.Done()
+
+	require.Equal(t, 3, flushCalls)
+	require.Equal(t, int64(1), q.Size())
+
+	// the partial third chunk drains once it goes stale
+	time.Sleep(q.staleTimeout)
+
+	batch, err = q.DequeueBatch()
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+	require.Equal(t, []uint64{700}, keysOf(batch))
+
+	batch.Done()
+
+	require.Equal(t, 4, flushCalls)
+	require.Equal(t, int64(0), q.Size())
+	require.Equal(t, 0, countChunks())
+}
+
+// TestChunkWriterCreateSameMicrosecond ensures that chunk files, which are
+// named after their creation time in microseconds, are created exclusively.
+// Without O_EXCL, a second Create in the same microsecond silently reopens the
+// existing chunk file and later header writes clobber it.
+func TestChunkWriterCreateSameMicrosecond(t *testing.T) {
+	stubChunkTime := func(t *testing.T, ts int64) {
+		t.Helper()
+		prev := chunkTimeNow
+		chunkTimeNow = func() int64 { return ts }
+		t.Cleanup(func() { chunkTimeNow = prev })
+	}
+
+	t.Run("two creates in the same microsecond get distinct files", func(t *testing.T) {
+		dir := t.TempDir()
+		stubChunkTime(t, 12345)
+
+		w1 := &chunkWriter{dir: dir, logger: newTestLogger(), maxSize: defaultChunkSize}
+		require.NoError(t, w1.Create())
+
+		w2 := &chunkWriter{dir: dir, logger: newTestLogger(), maxSize: defaultChunkSize}
+		require.NoError(t, w2.Create())
+
+		require.NotEqual(t, w1.f.Name(), w2.f.Name(),
+			"second Create reused the first writer's chunk file")
+
+		require.NoError(t, w1.Close())
+		require.NoError(t, w2.Close())
+
+		// both chunk files must coexist, each with an intact header
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		require.Len(t, entries, 2)
+
+		for _, e := range entries {
+			f, err := os.Open(filepath.Join(dir, e.Name()))
+			require.NoError(t, err)
+			_, err = readChunkHeader(f)
+			require.NoError(t, err, "chunk %s has a corrupt header", e.Name())
+			require.NoError(t, f.Close())
+		}
+	})
+
+	t.Run("existing file at the target name is never reused", func(t *testing.T) {
+		dir := t.TempDir()
+		stubChunkTime(t, 12345)
+
+		existing := filepath.Join(dir, fmt.Sprintf(chunkFileFmt, int64(12345)))
+		content := []byte("pre-existing chunk data that must not be clobbered")
+		require.NoError(t, os.WriteFile(existing, content, 0o644))
+
+		w := &chunkWriter{dir: dir, logger: newTestLogger(), maxSize: defaultChunkSize}
+		require.NoError(t, w.Create())
+		require.NotEqual(t, existing, w.f.Name(),
+			"Create reused an existing chunk file")
+		require.NoError(t, w.Close())
+
+		got, err := os.ReadFile(existing)
+		require.NoError(t, err)
+		require.Equal(t, content, got, "existing chunk file was clobbered")
+	})
 }

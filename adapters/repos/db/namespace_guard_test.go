@@ -108,7 +108,7 @@ func newIndexForNamespaceTest(t *testing.T, className string, e namespaces.Exist
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil,
 		resolver.NewShardResolver(className, false, sg),
-		sg, reader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
+		sg, reader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler,
 		memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	if err != nil {

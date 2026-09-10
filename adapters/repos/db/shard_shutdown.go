@@ -391,9 +391,9 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 			Warn("skipping hashtree snapshot: store shutdown did not complete cleanly; tree will be rebuilt on next startup")
 	}
 
-	if s.dynamicVectorIndexDB != nil {
-		err = s.dynamicVectorIndexDB.Close()
-		ec.AddWrapf(err, "stop dynamic vector index db")
+	if s.metadataDB != nil {
+		err = s.metadataDB.Close()
+		ec.AddWrapf(err, "stop shard metadata db")
 	}
 
 	// Track shard unloaded: unloading -> unloaded

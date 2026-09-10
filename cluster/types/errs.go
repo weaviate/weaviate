@@ -27,6 +27,9 @@ var (
 	// ErrDeadlineExceeded represents an error returned when the deadline for waiting for a specific update is exceeded.
 	ErrDeadlineExceeded = errors.New("deadline exceeded for waiting for update")
 	ErrNotFound         = errors.New("not found")
+	// ErrFSMNotCaughtUp means this node is leader but its FSM has not applied
+	// what it inherited. Always transient: it catches up, or loses leadership.
+	ErrFSMNotCaughtUp = errors.New("leader FSM has not caught up with its log")
 )
 
 // IsNoLeader reports whether err means the operation could not reach a
