@@ -248,6 +248,25 @@ func TestVectorIndexMapping_Put(t *testing.T) {
 	}
 }
 
+func TestVectorIndexMapping_Get(t *testing.T) {
+	m, db := newTestVectorIndexMapping(t)
+	foo := vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}
+	require.NoError(t, m.Initialize(map[string]vectorIndexRecord{"foo": foo}))
+
+	rec, ok, err := m.Get("foo")
+	require.NoError(t, err)
+	assert.True(t, ok)
+	assert.Equal(t, foo, rec)
+
+	_, ok, err = m.Get("bar")
+	require.NoError(t, err)
+	assert.False(t, ok)
+
+	require.NoError(t, db.Namespace(vectorIndexMappingNamespace).Put([]byte("named/broken"), []byte("{")))
+	_, _, err = m.Get("broken")
+	require.ErrorContains(t, err, `record "broken"`)
+}
+
 func TestVectorIndexMapping_Delete(t *testing.T) {
 	t.Run("removes one record and leaves the rest", func(t *testing.T) {
 		m, _ := newTestVectorIndexMapping(t)

@@ -140,6 +140,23 @@ func (m *vectorIndexMapping) Load() (records map[string]vectorIndexRecord, initi
 	return records, initialized, nil
 }
 
+// Get returns name's record, and whether the mapping has one.
+func (m *vectorIndexMapping) Get(name string) (vectorIndexRecord, bool, error) {
+	v, err := m.ns.Get([]byte(vectorIndexMappingKey(name)))
+	if err != nil {
+		return vectorIndexRecord{}, false, fmt.Errorf("get vector index mapping record %q: %w", name, err)
+	}
+	if v == nil {
+		return vectorIndexRecord{}, false, nil
+	}
+	var rec vectorIndexRecord
+	err = json.Unmarshal(v, &rec)
+	if err != nil {
+		return vectorIndexRecord{}, false, fmt.Errorf("record %q: %w", name, err)
+	}
+	return rec, true, nil
+}
+
 // Initialize writes the format version and every record in one
 // transaction, or nothing. It is the first-load step for a shard whose
 // Load reported initialized=false, and it refuses to run on a mapping
