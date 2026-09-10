@@ -280,6 +280,16 @@ func (m *Migrator) DropClass(ctx context.Context, className string, hasFrozen bo
 	return nil
 }
 
+func (m *Migrator) DropOrphanedClass(ctx context.Context, className string, hasFrozen bool) error {
+	if err := m.db.DropOrphanedClass(schema.ClassName(className)); err != nil {
+		return err
+	}
+	if m.cloud != nil && hasFrozen {
+		return m.cloud.Delete(ctx, className, "", "")
+	}
+	return nil
+}
+
 func (m *Migrator) UpdateClass(ctx context.Context, className string, newClassName *string) error {
 	if newClassName != nil {
 		return errors.New("weaviate does not support renaming of classes")
