@@ -323,6 +323,8 @@ func TestBatchedContains(t *testing.T) {
 	// fold's fields unless the context carries slow_query_details, which its
 	// path does not install.
 	t.Run("batch delete answers through DocIDsLimited", func(t *testing.T) {
+		before := weaviate.logs(t, ctx, "fold_strategy")
+
 		// Dry run, so the corpus every other case reads is untouched.
 		resp, err := weaviate.client.Batch().ObjectsBatchDeleter().
 			WithClassName(className).
@@ -337,9 +339,16 @@ func TestBatchedContains(t *testing.T) {
 		require.EqualValues(t, splitValues, resp.Results.Matches,
 			"batch delete must match what the same filter returns through Get")
 
-		// The query names itself in the slow-query log, so a delete records
-		// which resolver produced its set.
-		weaviate.logsMatching(t, ctx, findUUIDsQueryRE)
+		// The entry itself arrives whichever resolver ran, so its presence
+		// proves nothing. FindUUIDs installs the details map the fold writes
+		// its plan into; without that installation the same entry arrives
+		// carrying no resolver fields at all.
+		added := strings.TrimPrefix(
+			weaviate.logsMatching(t, ctx, findUUIDsQueryRE), before)
+		require.Contains(t, added, "fold_workers",
+			"the delete recorded no fold, so its filter never took the batched path")
+		require.NotContains(t, added, "contains_desugared",
+			"the delete's filter fell back to the desugared per-value path")
 	})
 
 	t.Run("aggregate answers through its own allow list", func(t *testing.T) {
@@ -388,6 +397,8 @@ func TestBatchedContains(t *testing.T) {
 	// Shard.buildAllowList is reached only by a filtered vector search, and no
 	// other case here takes it. The filter decides which IDs come back.
 	t.Run("a filtered vector search answers through buildAllowList", func(t *testing.T) {
+		before := weaviate.logs(t, ctx, "fold_strategy")
+
 		where := filters.Where().WithPath([]string{"num"}).
 			WithOperator(filters.ContainsAny).
 			WithValueInt(0, 1, 2)
@@ -410,6 +421,15 @@ func TestBatchedContains(t *testing.T) {
 			[]string{idOf(0), idOf(1), idOf(2)},
 			acceptance_with_go_client.GetIds(t, resp, className),
 			"the vector search must return exactly what the filter matched")
+
+		// Those IDs are the same whichever resolver produced them, so the
+		// route's own entry is the only evidence it batched.
+		added := strings.TrimPrefix(
+			weaviate.logs(t, ctx, objectVectorSearchQuery), before)
+		require.Contains(t, added, "fold_workers",
+			"the vector search recorded no fold, so its filter never took the batched path")
+		require.NotContains(t, added, "contains_desugared",
+			"the vector search's filter fell back to the desugared per-value path")
 	})
 }
 
@@ -591,6 +611,11 @@ func (in *instance) logsMatching(t *testing.T, ctx context.Context, re *regexp.R
 // findUUIDsQueryRE matches the slow-query entry the delete path writes, under
 // either log format, and not the plain debug lines naming the same method.
 var findUUIDsQueryRE = regexp.MustCompile(`query"?\s*[:=]\s*"?FindUUIDs`)
+
+// objectVectorSearchQuery names the slow-query entry the filtered vector search
+// writes. No other case here reaches that method, so waiting on it waits on
+// this request rather than returning on one an earlier case left behind.
+const objectVectorSearchQuery = "ObjectVectorSearch"
 
 func foldWorkers(logs string) []int {
 	matches := foldWorkersRE.FindAllStringSubmatch(logs, -1)
