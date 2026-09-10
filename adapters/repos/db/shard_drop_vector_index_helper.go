@@ -88,9 +88,8 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 	}
 
 	// the record goes last, so a failed sweep keeps it for the retry
-	err := deleteVectorIndexRecordOffline(shardDir, targetVector)
-	if err != nil {
-		return err
+	if err := deleteVectorIndexRecordOffline(shardDir, targetVector); err != nil {
+		return fmt.Errorf("remove mapping record for %q: %w", targetVector, err)
 	}
 
 	return nil
