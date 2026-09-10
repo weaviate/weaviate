@@ -34,22 +34,29 @@ func (s *Shard) initVectorIndexMapping(configs map[string]schemaConfig.VectorInd
 		}
 		records[name] = rec
 	}
-	err := s.mapping.Initialize(records)
-	if err != nil {
-		return err
-	}
-	return nil
+	return s.mapping.Initialize(records)
 }
 
-// reconcileVectorIndexMapping opens every schema vector at its recorded ID
-// and deletes the records the schema no longer has. Names are visited in
-// order so a failure is deterministic.
+// reconcileVectorIndexMapping runs on every load after the first. The mapping
+// says which indexes the shard has, the schema says which it should have, and
+// the two can disagree after a crash, a schema change while the shard was
+// cold, or lost files. For each vector the schema has:
+//   - a ready record whose storage is on disk opens at the recorded ID;
+//   - a ready record whose storage is gone refuses the load: an empty index in
+//     its place would silently serve nothing where there was data;
+//   - a creating record (a crash between the two writes of a creation) is
+//     built, then marked ready;
+//   - no record (a vector added while the shard was cold) is treated like
+//     creating.
+//
+// A record the schema no longer has is deleted; its storage is left alone.
 func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, legacy schemaConfig.VectorIndexConfig,
 	targets map[string]schemaConfig.VectorIndexConfig, records map[string]vectorIndexRecord,
 ) error {
 	configs := activeVectorIndexConfigs(legacy, targets)
 	s.migrateCompressedVectors(legacy, targets)
 
+	// in name order, so a failure is deterministic
 	names := make([]string, 0, len(configs))
 	for name := range configs {
 		names = append(names, name)
