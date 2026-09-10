@@ -31,7 +31,7 @@
 // removeReindexBucketsDirs, sentinel writes (markPrepended,
 // markMerged).
 //
-// Constraints: this phase runs BEFORE the per-shard tokenization
+// Constraints: this phase runs BEFORE the per-shard property
 // overlay is set. Queries during this phase see the pre-migration
 // bucket content with the pre-migration analyzer — correct.
 //
@@ -187,8 +187,8 @@ type ShardReindexTaskGeneric struct {
 	// onPropSwapped runs inside the Phase 2a tight loop right after each
 	// bucket-pointer flip, so a query never observes overlay≠bucket for
 	// longer than one in-memory map write. Runs on the swap goroutine, so
-	// SetTokenizationOverlay's own lock is enough. Wired only for
-	// tokenization-changing migrations.
+	// SetPropertyOverlay's own lock is enough. Wired for every semantic
+	// migration whose strategy supplies an overlay.
 	//
 	// Only the recovery/resume path still uses this; the live Phase-2a loop
 	// routes through swapPropAtomic when wired.
@@ -426,7 +426,7 @@ func (t *ShardReindexTaskGeneric) runReindexOnlyOnShard(ctx context.Context, sha
 // finishes the cleanup and returns. Safe to call repeatedly from
 // rehydrate flows.
 //
-// MUST be called BEFORE the per-shard tokenization overlay is set
+// MUST be called BEFORE the per-shard property overlay is set
 // by [reindex_provider.OnGroupCompleted]. Setting the overlay
 // before prep completes would expose the very gap the overlay was
 // supposed to close — query input would tokenize as NEW against the
@@ -666,7 +666,7 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 	// prep/atomic/defer phase model, the happy-path caller is
 	// [reindex_provider.OnGroupCompleted], which invokes
 	// RunPrepareOnShard BEFORE RunSwapOnShard so the prep work runs
-	// OUTSIDE the per-shard tokenization-overlay window. Reaching this
+	// OUTSIDE the per-shard property-overlay window. Reaching this
 	// branch via OnGroupCompleted's flow means rehydrate happened but
 	// RunPrepareOnShard hasn't — call it defensively, but note that
 	// the atomic-window contract is no longer met (prep runs inside
@@ -1507,7 +1507,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 // + markMerged.
 //
 // Bucket=OLD and schema=OLD throughout — queries on the live main
-// bucket continue correctly. The per-shard tokenization overlay
+// bucket continue correctly. The per-shard property overlay
 // MUST NOT yet be set: setting it before this call would expose the
 // very gap the overlay was supposed to close (query input
 // tokenized as NEW against the still-OLD bucket while prep does
@@ -1621,7 +1621,7 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	lsmPath := shard.pathLSM()
 
 	// Phase 2a (atomic, tight loop): in-memory pointer swap per property.
-	// This is the ONLY work that runs inside the per-shard tokenization
+	// This is the ONLY work that runs inside the per-shard property
 	// overlay's "mixed-state" window (between first prop swapped and last
 	// prop swapped). SwapBucketPointer is a single map-write under
 	// bucketsLock (microseconds); markSwappedProp is a single fsync

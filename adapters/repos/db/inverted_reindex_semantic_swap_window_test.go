@@ -33,13 +33,9 @@ import (
 )
 
 // The swap window is the gap between a semantic migration's per-shard bucket
-// flip and the cluster-wide schema flip that OnTaskCompleted commits once
-// every node has acknowledged. runtimeSwap tears the double-write mirror down
-// on the way out, and the ordinary write path gates on the schema flag, which
-// is still off — so a write accepted in the window is stored, indexed nowhere,
-// and never healed (weaviate/etienne-claude-issues#449). Shards flip one at a
-// time and the schema flip waits for the last one, so the first shard to flip
-// sits in the window for the whole swap phase.
+// flip and the cluster-wide schema flip. Once the double-write mirror is torn
+// down, the write path gates on the still-off schema flag, so a write in the
+// window is stored but indexed nowhere (weaviate/etienne-claude-issues#449).
 
 const semanticWindowSeedObjects = 25
 
@@ -244,11 +240,8 @@ func TestWriteDuringSemanticMigrationSwapWindow(t *testing.T) {
 	}
 }
 
-// The length and null buckets belong to a property the live schema indexes.
-// Forcing an index flag on at write time makes the analyzer emit a property
-// that has neither, and both the add and the delete leg would then fail on the
-// missing bucket — turning silent loss into a loud rejection of every write to
-// the collection.
+// A property an overlay forces on has no length/null bucket yet; both write
+// legs must skip them or every write to the collection fails.
 func TestWriteDuringSwapWindowSkipsAbsentLengthAndNullBuckets(t *testing.T) {
 	const propName = "title"
 

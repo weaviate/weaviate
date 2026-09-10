@@ -115,11 +115,9 @@ type MigrationStrategy interface {
 	// godoc): OnMigrationComplete fires in Phase 2c — AFTER the per-prop
 	// SwapBucketPointer tight loop (Phase 2a) and AFTER the inline
 	// oldMain.Shutdown + oldMain→backup rename loop (Phase 2b), but still
-	// INSIDE the per-shard tokenization-overlay window for migrations
-	// that use one (change-tokenization-{searchable,filterable},
-	// enable-filterable, enable-searchable). The overlay is cleared
-	// later by the cluster-wide schema flip in
-	// [ReindexProvider.OnTaskCompleted].
+	// INSIDE the per-shard property-overlay window for every semantic
+	// migration except change-algorithm. The overlay is cleared later by
+	// the cluster-wide schema flip in [ReindexProvider.OnTaskCompleted].
 	//
 	// Allowed work in this position:
 	//

@@ -701,10 +701,10 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 // applies to external mutations.
 //
 // Returns only after the local FSM has applied the update. The reindex
-// provider's OnTaskCompleted clears the per-shard tokenization overlay
+// provider's OnTaskCompleted clears the per-shard property overlay
 // immediately after this returns; without the local-apply wait the
 // overlay would be cleared while this node's schema reader still has
-// the OLD tokenization, opening a query-side misalignment window
+// the OLD state, opening a query- and write-side misalignment window
 // between local-apply and RAFT-commit on slow followers.
 func UpdatePropertyInternalFromMigration(h *Handler, ctx context.Context, className string, prop *models.Property,
 	fields ...string,

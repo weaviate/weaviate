@@ -29,14 +29,8 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestTokenizationOverlay_WritePath_IgnoresOverlay pins a real write-path
-// correctness bug discovered during the #240 investigation:
-// Shard.AnalyzeObject (write-path analyzer) doesn't consult the
-// propertyOverlay, even though the query-path analyzer does and the
-// migration-backfill AnalyzeObjectForMigrationWithOverlay does. A PUT
-// during the SWAPPING window therefore lands SOURCE-tokenized terms in
-// a TARGET-tokenized bucket. Red on current main; turns green once
-// AnalyzeObject is wired to consult the overlay symmetrically.
+// Pins AnalyzeObject tokenizing writes against the overlay during the
+// SWAPPING window, matching the query path (weaviate/0-weaviate-issues#240).
 func TestTokenizationOverlay_WritePath_IgnoresOverlay(t *testing.T) {
 	ctx := testCtx()
 	className := "TokOverlayWrite_" + uuid.NewString()[:8]
@@ -69,11 +63,8 @@ func TestTokenizationOverlay_WritePath_IgnoresOverlay(t *testing.T) {
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 
-	// Simulate the SWAPPING window: set overlay to TARGET (field).
-	// Production sets this per prop, atomically with the bucket-pointer
-	// flip, via the onPropSwapped hook wired by
-	// maybeWirePerPropOverlaySet; the schema's prop.Tokenization stays at
-	// SOURCE (word) until the cluster-wide flip lands.
+	// Simulate the SWAPPING window: production sets this per prop via the
+	// onPropSwapped hook while the schema's tokenization is still SOURCE.
 	shard.SetPropertyOverlay(propName, inverted.PropertyOverlay{
 		Tokenization: models.PropertyTokenizationField,
 	})
@@ -93,23 +84,16 @@ func TestTokenizationOverlay_WritePath_IgnoresOverlay(t *testing.T) {
 	}
 	require.NoError(t, shard.PutObject(ctx, obj))
 
-	// Inspect the searchable bucket to see what got written. The bucket
-	// is mapcollection-strategy on a non-blockmax class.
+	// Bucket is mapcollection-strategy on a non-blockmax class.
 	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
 	bucket := shard.store.Bucket(bucketName)
 	require.NotNilf(t, bucket, "searchable bucket %q must exist", bucketName)
 
-	// Collect all term keys. With WORD tokenization there will be
-	// three keys ("two", "distinct", "words"). With FIELD tokenization
-	// there will be one key ("two distinct words").
 	terms := readMapBucketTerms(t, ctx, bucket)
 	sort.Strings(terms)
 	t.Logf("on-disk terms with overlay=field, live schema=word: %v", terms)
 
-	// Pin: the write path must honor the overlay. Pre-fix, terms
-	// land word-tokenized against the live schema instead of
-	// field-tokenized via the overlay — the #240 Symptom B
-	// candidate.
+	// Pin: the write path must honor the overlay.
 	expectedFieldTerms := []string{"two distinct words"}
 	assert.ElementsMatchf(t, expectedFieldTerms, terms,
 		"write-path bug — overlay=field is being ignored. "+
@@ -121,11 +105,8 @@ func TestTokenizationOverlay_WritePath_IgnoresOverlay(t *testing.T) {
 		expectedFieldTerms, terms)
 }
 
-// readMapBucketTerms returns every term-key from a mapcollection /
-// inverted searchable bucket. MapCursor() works on both strategies.
-// We don't decode the per-term docID payload here — the test asserts
-// on the term-key SET only, which is what discriminates word vs
-// field tokenization of the input.
+// readMapBucketTerms returns every term-key from a mapcollection bucket;
+// the term set alone is what discriminates word- from field-tokenized input.
 func readMapBucketTerms(t *testing.T, ctx context.Context, b *lsmkv.Bucket) []string {
 	t.Helper()
 	c, err := b.MapCursor()
