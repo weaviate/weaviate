@@ -15,7 +15,9 @@ package types
 // sizes change meaning, or shards that stay cold keep serving the old numbers.
 // VectorConfigsFingerprint invalidates the same file on its own, for the numbers
 // that depend on the collection's vector configs rather than on this format.
-const UsageDiskVersion int = 2
+// Version 3: multi-vector targets without MUVERA report every dimensions row and
+// model their vector bytes from the summed rows, instead of the first row only.
+const UsageDiskVersion int = 3
 
 // UsageDisk defines format of saved pre-computed shard usage data
 type UsageDisk struct {

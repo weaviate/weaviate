@@ -308,7 +308,7 @@ func TestUnloadedVectorUsage(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			usage, err := unloadedVectorUsage("vec", tt.vectorConfig, dimensionality, tt.state)
+			usage, err := unloadedVectorUsage("vec", tt.vectorConfig, []types.Dimensionality{dimensionality}, tt.state)
 			if tt.wantErr {
 				require.Error(t, err)
 				return

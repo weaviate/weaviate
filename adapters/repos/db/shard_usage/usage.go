@@ -165,33 +165,32 @@ func openUnloadedDimensionsBucket(ctx context.Context, logger logrus.FieldLogger
 	)
 }
 
-// CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
-func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLogger, path, tenantName, targetVector string) (types.Dimensionality, error) {
+// CalculateUnloadedDimensionsUsage calculates dimensions and object counts for an unloaded shard
+// without loading it into memory.
+func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLogger,
+	path, tenantName, targetVector string, opts ScanOpts,
+) (DimensionsScan, error) {
 	bucketPath := shardPathDimensionsLSM(path, tenantName)
 	if err := unloadedDimensionsBucketLocks.LockWithContext(bucketPath, ctx); err != nil {
-		return types.Dimensionality{}, fmt.Errorf("lock dimensions bucket: %w", err)
+		return DimensionsScan{}, fmt.Errorf("lock dimensions bucket: %w", err)
 	}
 	defer unloadedDimensionsBucketLocks.Unlock(bucketPath)
 
 	bucket, err := openUnloadedDimensionsBucket(ctx, logger, path, bucketPath)
 	if err != nil {
-		return types.Dimensionality{}, err
+		return DimensionsScan{}, err
 	}
 	defer bucket.Shutdown(ctx)
 
-	scan, err := ScanTargetVectorDimensions(ctx, bucket, targetVector, 0)
-	if err != nil {
-		return types.Dimensionality{}, err
-	}
-	return scan.Raw, nil
+	return ScanTargetVectorDimensions(ctx, bucket, targetVector, opts)
 }
 
-// CalculateUnloadedDimensionsUsageAll calculates dimensions and object count for all target
+// CalculateUnloadedDimensionsUsageAll calculates dimensions and object counts for all target
 // vectors of an unloaded shard without loading it into memory. The dimensions bucket is opened
 // once and shared by all target vector calculations, instead of once per target vector.
-// targetVectors maps each vector name to its MUVERA-encoded dimensionality, or 0 if not MUVERA.
+// targetVectors maps each vector name to its scan options.
 func CalculateUnloadedDimensionsUsageAll(ctx context.Context,
-	logger logrus.FieldLogger, path, tenantName string, targetVectors map[string]int,
+	logger logrus.FieldLogger, path, tenantName string, targetVectors map[string]ScanOpts,
 ) (map[string]DimensionsScan, error) {
 	if len(targetVectors) == 0 {
 		return nil, nil
@@ -210,8 +209,8 @@ func CalculateUnloadedDimensionsUsageAll(ctx context.Context,
 	defer bucket.Shutdown(ctx)
 
 	scans := make(map[string]DimensionsScan, len(targetVectors))
-	for targetVector, encodedDimensions := range targetVectors {
-		scan, err := ScanTargetVectorDimensions(ctx, bucket, targetVector, encodedDimensions)
+	for targetVector, opts := range targetVectors {
+		scan, err := ScanTargetVectorDimensions(ctx, bucket, targetVector, opts)
 		if err != nil {
 			return nil, err
 		}
@@ -446,19 +445,62 @@ func nonLSMStorage(shardPath string, files map[string]int64, dirs []string) (uin
 	return vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, nil
 }
 
+// ScanOpts controls how ScanTargetVectorDimensions reads a target vector's rows.
+type ScanOpts struct {
+	// MultiVector scans every row of the name instead of stopping at the first complete one. A
+	// multi-vector object's row is keyed by its total token dimensions, so objects with different
+	// token counts land in different rows and no single row can describe the target.
+	MultiVector bool
+	// EncodedDimensions, when positive, is the target's MUVERA-encoded dimensionality. Reported
+	// then collapses to a single {EncodedDimensions, total object count} entry. Implies a scan of
+	// every row.
+	EncodedDimensions int
+}
+
+// DimensionsScan is the result of scanning a target vector's rows in the dimensions bucket.
 type DimensionsScan struct {
-	Raw      types.Dimensionality
-	Reported types.Dimensionality
+	// Rows holds every complete row of the target, sorted ascending by Dimensions. Single-vector
+	// targets carry at most one entry: their first complete row, where the scan stops.
+	Rows []types.Dimensionality
+	// Reported is what the usage report shows: Rows, except for MUVERA targets, which report a
+	// single {encoded dimensionality, total object count} entry.
+	Reported []types.Dimensionality
+}
+
+// TotalCount is the object count summed across all rows.
+func (s DimensionsScan) TotalCount() int {
+	total := 0
+	for _, row := range s.Rows {
+		total += row.Count
+	}
+	return total
+}
+
+// TotalDimensions is the stored float count: Σ row object count × row dimensionality. For
+// multi-vector targets this is the true total over all token vectors, which no single row holds.
+func (s DimensionsScan) TotalDimensions() int {
+	total := 0
+	for _, row := range s.Rows {
+		total += row.Count * row.Dimensions
+	}
+	return total
+}
+
+// FirstDims is the smallest row's dimensionality, or 0 for a target without rows.
+func (s DimensionsScan) FirstDims() int {
+	if len(s.Rows) == 0 {
+		return 0
+	}
+	return s.Rows[0].Dimensions
 }
 
 const contextCheckInterval = 1024
 
-// ScanTargetVectorDimensions calculates dimensions and object count for a target vector from an
-// LSMKV bucket. A non-zero encodedDimensions reports that fixed dimensionality against the object
-// count summed across all rows, which costs a scan of the whole prefix instead of stopping at the
-// first complete row.
+// ScanTargetVectorDimensions calculates dimensions and object counts for a target vector from an
+// LSMKV bucket. Single-vector targets stop at the first complete row; multi-vector or MUVERA
+// targets pay a scan of the whole prefix to collect every row, see ScanOpts.
 func ScanTargetVectorDimensions(ctx context.Context, b *lsmkv.Bucket, targetVector string,
-	encodedDimensions int,
+	opts ScanOpts,
 ) (DimensionsScan, error) {
 	scan := DimensionsScan{}
 
@@ -469,7 +511,7 @@ func ScanTargetVectorDimensions(ctx context.Context, b *lsmkv.Bucket, targetVect
 	prefix := []byte(targetVector)
 	nameLen := len(targetVector)
 	expectedKeyLen := nameLen + 4 // vector name + uint32
-	totalCount := 0
+	scanAllRows := opts.MultiVector || opts.EncodedDimensions > 0
 	rows := 0
 	addRow := func(k []byte, count int) (done bool) {
 		// a full-prefix scan is long enough to need cancelling; the error is picked up after the loop
@@ -481,20 +523,13 @@ func ScanTargetVectorDimensions(ctx context.Context, b *lsmkv.Bucket, targetVect
 			return false
 		}
 		dimLength := binary.LittleEndian.Uint32(k[nameLen:])
-		if dimLength == 0 {
+		if dimLength == 0 || count == 0 {
 			return false
 		}
-		if scan.Raw.Dimensions == 0 || scan.Raw.Count == 0 {
-			scan.Raw.Dimensions = int(dimLength)
-			scan.Raw.Count = count
-		}
-		if encodedDimensions > 0 {
-			totalCount += count
-			return false
-		}
-		// remaining keys cannot change a complete result, and an empty name
+		scan.Rows = append(scan.Rows, types.Dimensionality{Dimensions: int(dimLength), Count: count})
+		// remaining keys cannot change a complete single-vector result, and an empty name
 		// matches every key so the prefix break above never fires
-		return scan.Raw.Dimensions != 0 && scan.Raw.Count != 0
+		return !scanAllRows
 	}
 	var k []byte
 
@@ -538,12 +573,17 @@ func ScanTargetVectorDimensions(ctx context.Context, b *lsmkv.Bucket, targetVect
 	}
 
 	if err := ctx.Err(); err != nil {
-		return scan, err
+		return DimensionsScan{}, err
 	}
 
-	scan.Reported = scan.Raw
-	if encodedDimensions > 0 && totalCount > 0 {
-		scan.Reported = types.Dimensionality{Dimensions: encodedDimensions, Count: totalCount}
+	// the cursor yields keys in byte order of the little-endian dimension bytes, which is not
+	// numeric order once dimensionalities differ in their low bytes
+	slices.SortFunc(scan.Rows, func(a, b types.Dimensionality) int {
+		return a.Dimensions - b.Dimensions
+	})
+	scan.Reported = scan.Rows
+	if opts.EncodedDimensions > 0 && len(scan.Rows) > 0 {
+		scan.Reported = []types.Dimensionality{{Dimensions: opts.EncodedDimensions, Count: scan.TotalCount()}}
 	}
 	return scan, nil
 }

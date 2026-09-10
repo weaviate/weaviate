@@ -557,7 +557,7 @@ func TestCalculateUnloadedDimensionsUsage_Concurrent(t *testing.T) {
 			defer wg.Done()
 			<-start
 			for range 10 {
-				if _, err := CalculateUnloadedDimensionsUsage(ctx, logger, dirName, tenantName, "text"); err != nil {
+				if _, err := CalculateUnloadedDimensionsUsage(ctx, logger, dirName, tenantName, "text", ScanOpts{}); err != nil {
 					errs <- err
 				}
 			}
@@ -566,7 +566,7 @@ func TestCalculateUnloadedDimensionsUsage_Concurrent(t *testing.T) {
 			defer wg.Done()
 			<-start
 			for range 10 {
-				if _, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, map[string]int{"text": 0}); err != nil {
+				if _, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, map[string]ScanOpts{"text": {}}); err != nil {
 					errs <- err
 				}
 			}
@@ -616,30 +616,35 @@ func TestCalculateUnloadedDimensionsUsageAll(t *testing.T) {
 
 	writeDims(t, b, "text", 128, []uint64{1, 2, 3, 4, 5})
 	writeDims(t, b, "image", 512, []uint64{1, 2, 3})
+	// a multi-vector target with varying per-object token counts spans several rows
+	writeDims(t, b, "colbert", 64, []uint64{1, 2})
+	writeDims(t, b, "colbert", 128, []uint64{3})
 	require.NoError(t, b.FlushMemtable())
 	require.NoError(t, b.Shutdown(ctx))
 
-	targetVectors := map[string]int{"text": 0, "image": 0, "missing": 0}
+	targetVectors := map[string]ScanOpts{"text": {}, "image": {}, "missing": {}, "colbert": {MultiVector: true}}
 	all, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, targetVectors)
 	require.NoError(t, err)
 	require.Len(t, all, len(targetVectors))
-	assert.Equal(t, types.Dimensionality{Dimensions: 128, Count: 5}, all["text"].Reported)
-	assert.Equal(t, types.Dimensionality{Dimensions: 512, Count: 3}, all["image"].Reported)
+	assert.Equal(t, []types.Dimensionality{{Dimensions: 128, Count: 5}}, all["text"].Reported)
+	assert.Equal(t, []types.Dimensionality{{Dimensions: 512, Count: 3}}, all["image"].Reported)
+	assert.Equal(t, []types.Dimensionality{{Dimensions: 64, Count: 2}, {Dimensions: 128, Count: 1}},
+		all["colbert"].Reported)
 	assert.Equal(t, DimensionsScan{}, all["missing"])
 
 	// parity with the single-vector variant
-	for targetVector := range targetVectors {
-		single, err := CalculateUnloadedDimensionsUsage(ctx, logger, dirName, tenantName, targetVector)
+	for targetVector, opts := range targetVectors {
+		single, err := CalculateUnloadedDimensionsUsage(ctx, logger, dirName, tenantName, targetVector, opts)
 		require.NoError(t, err)
-		assert.Equal(t, all[targetVector].Raw, single, targetVector)
+		assert.Equal(t, all[targetVector], single, targetVector)
 	}
 
 	withEncoded, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName,
-		map[string]int{"text": 2560, "image": 0})
+		map[string]ScanOpts{"text": {MultiVector: true, EncodedDimensions: 2560}, "image": {}})
 	require.NoError(t, err)
-	assert.Equal(t, types.Dimensionality{Dimensions: 2560, Count: 5}, withEncoded["text"].Reported)
-	assert.Equal(t, types.Dimensionality{Dimensions: 128, Count: 5}, withEncoded["text"].Raw)
-	assert.Equal(t, types.Dimensionality{Dimensions: 512, Count: 3}, withEncoded["image"].Reported)
+	assert.Equal(t, []types.Dimensionality{{Dimensions: 2560, Count: 5}}, withEncoded["text"].Reported)
+	assert.Equal(t, []types.Dimensionality{{Dimensions: 128, Count: 5}}, withEncoded["text"].Rows)
+	assert.Equal(t, []types.Dimensionality{{Dimensions: 512, Count: 3}}, withEncoded["image"].Reported)
 
 	// no target vectors → nothing to calculate, no bucket open
 	none, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, nil)
@@ -674,84 +679,119 @@ func TestScanTargetVectorDimensions(t *testing.T) {
 		{targetVector: "colbert", dims: 2560, docIDs: []uint64{3, 4, 5}},
 		{targetVector: "colbert", dims: 12800, docIDs: []uint64{6}},
 		{targetVector: "novectors", dims: 0, docIDs: []uint64{1, 2, 3}},
+		// all objects share one token count, so the rows collapse into one
+		{targetVector: "uniform", dims: 96, docIDs: []uint64{1, 2, 3}},
+		// 260 sorts before 8 in little-endian byte order but after it numerically
+		{targetVector: "mixed", dims: 8, docIDs: []uint64{1}},
+		{targetVector: "mixed", dims: 260, docIDs: []uint64{2, 3}},
 	}
 
 	tests := []struct {
-		name              string
-		targetVector      string
-		encodedDimensions int
-		expectedRaw       types.Dimensionality
-		expectedReported  types.Dimensionality
+		name             string
+		targetVector     string
+		opts             ScanOpts
+		expectedRows     []types.Dimensionality
+		expectedReported []types.Dimensionality
 	}{
 		{
 			name:             "no other name shares the prefix",
 			targetVector:     "image",
-			expectedRaw:      types.Dimensionality{Dimensions: 512, Count: 4},
-			expectedReported: types.Dimensionality{Dimensions: 512, Count: 4},
+			expectedRows:     []types.Dimensionality{{Dimensions: 512, Count: 4}},
+			expectedReported: []types.Dimensionality{{Dimensions: 512, Count: 4}},
 		},
 		{
 			name:             "name is a prefix of two longer names",
 			targetVector:     "text",
-			expectedRaw:      types.Dimensionality{Dimensions: 384, Count: 3},
-			expectedReported: types.Dimensionality{Dimensions: 384, Count: 3},
+			expectedRows:     []types.Dimensionality{{Dimensions: 384, Count: 3}},
+			expectedReported: []types.Dimensionality{{Dimensions: 384, Count: 3}},
 		},
 		{
 			name:             "name extends a shorter name",
 			targetVector:     "texts",
-			expectedRaw:      types.Dimensionality{Dimensions: 256, Count: 2},
-			expectedReported: types.Dimensionality{Dimensions: 256, Count: 2},
+			expectedRows:     []types.Dimensionality{{Dimensions: 256, Count: 2}},
+			expectedReported: []types.Dimensionality{{Dimensions: 256, Count: 2}},
 		},
 		{
 			name:             "name extends a shorter name and precedes a sibling",
 			targetVector:     "textbook",
-			expectedRaw:      types.Dimensionality{Dimensions: 192, Count: 5},
-			expectedReported: types.Dimensionality{Dimensions: 192, Count: 5},
+			expectedRows:     []types.Dimensionality{{Dimensions: 192, Count: 5}},
+			expectedReported: []types.Dimensionality{{Dimensions: 192, Count: 5}},
 		},
 		{
 			name:             "unnamed vector alongside named ones",
 			targetVector:     "",
-			expectedRaw:      types.Dimensionality{Dimensions: 128, Count: 6},
-			expectedReported: types.Dimensionality{Dimensions: 128, Count: 6},
+			expectedRows:     []types.Dimensionality{{Dimensions: 128, Count: 6}},
+			expectedReported: []types.Dimensionality{{Dimensions: 128, Count: 6}},
 		},
 		{
-			name:             "vector without entries",
-			targetVector:     "missing",
-			expectedRaw:      types.Dimensionality{},
-			expectedReported: types.Dimensionality{},
+			name:         "vector without entries",
+			targetVector: "missing",
 		},
 		{
-			name:              "muvera vector sums the count across all its rows",
-			targetVector:      "colbert",
-			encodedDimensions: encodedDims,
-			expectedRaw:       types.Dimensionality{Dimensions: 1280, Count: 2},
-			expectedReported:  types.Dimensionality{Dimensions: encodedDims, Count: 6},
+			name:         "multi-vector reports every row, not just the first",
+			targetVector: "colbert",
+			opts:         ScanOpts{MultiVector: true},
+			expectedRows: []types.Dimensionality{
+				{Dimensions: 1280, Count: 2}, {Dimensions: 2560, Count: 3}, {Dimensions: 12800, Count: 1},
+			},
+			expectedReported: []types.Dimensionality{
+				{Dimensions: 1280, Count: 2}, {Dimensions: 2560, Count: 3}, {Dimensions: 12800, Count: 1},
+			},
 		},
 		{
-			name:             "muvera vector without muvera reporting keeps the raw reading",
+			name:         "multi-vector rows sort numerically, not by little-endian bytes",
+			targetVector: "mixed",
+			opts:         ScanOpts{MultiVector: true},
+			expectedRows: []types.Dimensionality{
+				{Dimensions: 8, Count: 1}, {Dimensions: 260, Count: 2},
+			},
+			expectedReported: []types.Dimensionality{
+				{Dimensions: 8, Count: 1}, {Dimensions: 260, Count: 2},
+			},
+		},
+		{
+			name:             "multi-vector with a uniform token count keeps a single row",
+			targetVector:     "uniform",
+			opts:             ScanOpts{MultiVector: true},
+			expectedRows:     []types.Dimensionality{{Dimensions: 96, Count: 3}},
+			expectedReported: []types.Dimensionality{{Dimensions: 96, Count: 3}},
+		},
+		{
+			name:             "single-vector scan still stops at the first complete row",
 			targetVector:     "colbert",
-			expectedRaw:      types.Dimensionality{Dimensions: 1280, Count: 2},
-			expectedReported: types.Dimensionality{Dimensions: 1280, Count: 2},
+			expectedRows:     []types.Dimensionality{{Dimensions: 1280, Count: 2}},
+			expectedReported: []types.Dimensionality{{Dimensions: 1280, Count: 2}},
 		},
 		{
-			name:              "muvera single-vector name is unaffected by the summing",
-			targetVector:      "image",
-			encodedDimensions: encodedDims,
-			expectedRaw:       types.Dimensionality{Dimensions: 512, Count: 4},
-			expectedReported:  types.Dimensionality{Dimensions: encodedDims, Count: 4},
+			name:         "muvera vector sums the count across all its rows",
+			targetVector: "colbert",
+			opts:         ScanOpts{MultiVector: true, EncodedDimensions: encodedDims},
+			expectedRows: []types.Dimensionality{
+				{Dimensions: 1280, Count: 2}, {Dimensions: 2560, Count: 3}, {Dimensions: 12800, Count: 1},
+			},
+			expectedReported: []types.Dimensionality{{Dimensions: encodedDims, Count: 6}},
 		},
 		{
-			name:              "muvera vector with only objects without a vector",
-			targetVector:      "novectors",
-			encodedDimensions: encodedDims,
-			expectedRaw:       types.Dimensionality{},
-			expectedReported:  types.Dimensionality{},
+			name:             "muvera single-vector name is unaffected by the summing",
+			targetVector:     "image",
+			opts:             ScanOpts{EncodedDimensions: encodedDims},
+			expectedRows:     []types.Dimensionality{{Dimensions: 512, Count: 4}},
+			expectedReported: []types.Dimensionality{{Dimensions: encodedDims, Count: 4}},
 		},
 		{
-			name:              "muvera vector without entries",
-			targetVector:      "missing",
-			encodedDimensions: encodedDims,
-			expectedRaw:       types.Dimensionality{},
-			expectedReported:  types.Dimensionality{},
+			name:         "multi-vector with only objects without a vector",
+			targetVector: "novectors",
+			opts:         ScanOpts{MultiVector: true},
+		},
+		{
+			name:         "muvera vector with only objects without a vector",
+			targetVector: "novectors",
+			opts:         ScanOpts{MultiVector: true, EncodedDimensions: encodedDims},
+		},
+		{
+			name:         "muvera vector without entries",
+			targetVector: "missing",
+			opts:         ScanOpts{MultiVector: true, EncodedDimensions: encodedDims},
 		},
 	}
 
@@ -775,9 +815,9 @@ func TestScanTargetVectorDimensions(t *testing.T) {
 
 				for _, tt := range tests {
 					t.Run(tt.name, func(t *testing.T) {
-						scan, err := ScanTargetVectorDimensions(ctx, b, tt.targetVector, tt.encodedDimensions)
+						scan, err := ScanTargetVectorDimensions(ctx, b, tt.targetVector, tt.opts)
 						require.NoError(t, err)
-						assert.Equal(t, tt.expectedRaw, scan.Raw, "raw reading")
+						assert.Equal(t, tt.expectedRows, scan.Rows, "rows")
 						assert.Equal(t, tt.expectedReported, scan.Reported, "reported reading")
 					})
 				}
@@ -792,7 +832,7 @@ func TestScanTargetVectorDimensions(t *testing.T) {
 		require.NoError(t, err)
 		defer b.Shutdown(ctx)
 
-		_, err = ScanTargetVectorDimensions(ctx, b, "text", 0)
+		_, err = ScanTargetVectorDimensions(ctx, b, "text", ScanOpts{})
 		require.Error(t, err)
 	})
 }

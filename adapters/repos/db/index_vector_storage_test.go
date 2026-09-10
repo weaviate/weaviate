@@ -322,13 +322,12 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 
 				// the caller looks these up by target vector name
 				require.Contains(t, dimensionalities, targetVector)
-				assert.Equal(t, tt.objectCount, dimensionalities[targetVector].Count)
-				assert.Equal(t, tt.vectorDimensions, dimensionalities[targetVector].Dimensions)
+				assert.Equal(t, tt.objectCount, dimensionalities[targetVector].TotalCount())
+				assert.Equal(t, tt.vectorDimensions, dimensionalities[targetVector].FirstDims())
 				if targetVector != "" {
 					// the legacy index is iterated too and keeps its own entry
 					require.Contains(t, dimensionalities, "")
-					assert.Equal(t, 0, dimensionalities[""].Count)
-					assert.Equal(t, 0, dimensionalities[""].Dimensions)
+					assert.Empty(t, dimensionalities[""].Rows)
 				}
 
 				// For PQ compression, we need to account for the actual compression ratio
@@ -393,8 +392,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 
 				// an index with no vectors written yet still gets an entry
 				require.Contains(t, dimensionalities, "")
-				assert.Equal(t, 0, dimensionalities[""].Count)
-				assert.Equal(t, 0, dimensionalities[""].Dimensions)
+				assert.Empty(t, dimensionalities[""].Rows)
 
 				// Release the shard (this will flush all data to disk)
 				release()
@@ -619,11 +617,11 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				require.True(t, ok)
 				require.NoError(t, lazyShard.Load(ctx))
 
-				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector, 0)
+				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector, shardusage.ScanOpts{})
 				require.NoError(t, err)
 
-				assert.Equal(t, tt.expectedCount, dimensionality.Raw.Count)
-				assert.Equal(t, tt.expectedDims, dimensionality.Raw.Dimensions)
+				assert.Equal(t, tt.expectedCount, dimensionality.TotalCount())
+				assert.Equal(t, tt.expectedDims, dimensionality.FirstDims())
 
 				// Release the shard (this will flush all data to disk)
 				release()
@@ -650,11 +648,11 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				require.True(t, ok)
 				require.NoError(t, lazyShard.Load(ctx))
 
-				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector, 0)
+				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector, shardusage.ScanOpts{})
 				require.NoError(t, err)
 
-				assert.Equal(t, tt.expectedCount, dimensionality.Raw.Count)
-				assert.Equal(t, tt.expectedDims, dimensionality.Raw.Dimensions)
+				assert.Equal(t, tt.expectedCount, dimensionality.TotalCount())
+				assert.Equal(t, tt.expectedDims, dimensionality.FirstDims())
 
 				// Release the shard (this will flush all data to disk)
 				release()
@@ -841,8 +839,8 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	// Test that active calculations are correct
 	expectedSize := int64(objectCount*vectorDimensions*4) + int64(commitLogSize)
 	assert.Equal(t, expectedSize, activeVectorStorageSize, "Active vector storage size should be close to expected")
-	assert.Equal(t, objectCount, dimensionality.Count, "Active shard object count should match")
-	assert.Equal(t, vectorDimensions, dimensionality.Dimensions, "Active shard dimensions should match")
+	assert.Equal(t, objectCount, dimensionality.TotalCount(), "Active shard object count should match")
+	assert.Equal(t, vectorDimensions, dimensionality.FirstDims(), "Active shard dimensions should match")
 	assert.Equal(t, objectCount, activeObjectCount, "Active object count should match")
 
 	// the dimensionalities read once per sweep reach the usage report unchanged
@@ -865,10 +863,10 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	// from the captured map, and has to be read on demand instead
 	dimensionalitySources := []struct {
 		name             string
-		dimensionalities map[string]usagetypes.Dimensionality
+		dimensionalities map[string]shardusage.DimensionsScan
 	}{
 		{name: "captured by the sweep", dimensionalities: dimensionalities},
-		{name: "read on demand", dimensionalities: map[string]usagetypes.Dimensionality{}},
+		{name: "read on demand", dimensionalities: map[string]shardusage.DimensionsScan{}},
 	}
 	for _, tt := range dimensionalitySources {
 		t.Run(tt.name, func(t *testing.T) {
@@ -958,4 +956,213 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 
 	// Verify all mock expectations were met
 	mockSchema.AssertExpectations(t)
+}
+
+// TestIndex_MultiVectorUsage_VaryingTokenCounts pins the usage accounting of a multi-vector
+// target without MUVERA whose objects differ in token count: the objects spread over one
+// dimensions-bucket row per distinct total token dims, and both the hot and the cold path
+// must report every row and model the vector bytes from their sum instead of reading only
+// the first row (weaviate/0-weaviate-issues#659).
+func TestIndex_MultiVectorUsage_VaryingTokenCounts(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	const (
+		className    = "TestClass"
+		shardName    = "test-shard"
+		targetVector = "colbert"
+		objectCount  = 30
+		tokenDim     = 8
+	)
+	// object i holds 1 + i%3 token vectors, spreading the objects over three rows
+	tokensOf := func(i int) int { return 1 + i%3 }
+	totalFloats := 0
+	for i := range objectCount {
+		totalFloats += tokensOf(i) * tokenDim
+	}
+	expectedRows := []usagetypes.Dimensionality{
+		{Dimensions: 1 * tokenDim, Count: objectCount / 3},
+		{Dimensions: 2 * tokenDim, Count: objectCount / 3},
+		{Dimensions: 3 * tokenDim, Count: objectCount / 3},
+	}
+	// the report enumerates the same rows; a consumer sums them
+	assertReportedDimensionalities := func(t *testing.T, reported []*usagetypes.Dimensionality) {
+		t.Helper()
+		require.Len(t, reported, len(expectedRows))
+		countSum, floatSum := 0, 0
+		for i, row := range reported {
+			assert.Equal(t, expectedRows[i], *row)
+			countSum += row.Count
+			floatSum += row.Count * row.Dimensions
+		}
+		assert.Equal(t, objectCount, countSum, "summed counts must be the object count")
+		assert.Equal(t, totalFloats, floatSum, "summed dims must be the stored float count")
+	}
+
+	dirName := t.TempDir()
+
+	shardState := &sharding.State{
+		Physical: map[string]sharding.Physical{
+			shardName: {
+				Name:           shardName,
+				BelongsToNodes: []string{"test-node"},
+				Status:         models.TenantActivityStatusHOT,
+			},
+		},
+	}
+	shardState.SetLocalName("test-node")
+
+	multiCfg := enthnsw.NewDefaultMultiVectorUserConfig()
+	multiCfg.VectorCacheMaxObjects = 1000
+
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+			},
+		},
+		InvertedIndexConfig: &models.InvertedIndexConfig{},
+		MultiTenancyConfig:  &models.MultiTenancyConfig{Enabled: shardState.PartitioningEnabled},
+		VectorConfig: map[string]models.VectorConfig{
+			targetVector: {VectorIndexType: "hnsw", VectorIndexConfig: multiCfg},
+		},
+	}
+	fakeSchema := schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+
+	scheduler := queue.NewScheduler(queue.SchedulerOptions{Logger: logger, Workers: 1})
+
+	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
+		return readerFunc(class, shardState)
+	}).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"test-node"}, nil).Maybe()
+	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
+
+	mockSchema := schemaUC.NewMockSchemaGetter(t)
+	mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
+	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
+	mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
+	mockSchema.EXPECT().ShardFromUUID(className, mock.Anything).Return(shardName).Maybe()
+	mockSchema.EXPECT().ShardOwner(className, shardName).Maybe().Return("test-node", nil)
+
+	mockRouter := types.NewMockRouter(t)
+	mockRouter.EXPECT().GetWriteReplicasLocation(className, mock.Anything, shardName).
+		Return(types.WriteReplicaSet{
+			Replicas: []types.Replica{{NodeName: "test-node", ShardName: shardName, HostAddr: "10.14.57.56"}},
+		}, nil).Maybe()
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
+
+	index, err := NewIndex(ctx, nil, IndexConfig{
+		RootPath:              dirName,
+		ClassName:             schema.ClassName(className),
+		ReplicationFactor:     1,
+		ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
+		TrackVectorDimensions: true,
+		EnableLazyLoadShards:  true,
+	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
+		enthnsw.UserConfig{VectorCacheMaxObjects: 1000},
+		map[string]schemaConfig.VectorIndexConfig{targetVector: multiCfg},
+		mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil,
+		&replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+	require.NoError(t, err)
+	defer index.Shutdown(ctx)
+
+	err = index.addProperty(ctx, &models.Property{
+		Name:         "name",
+		DataType:     schema.DataTypeText.PropString(),
+		Tokenization: models.PropertyTokenizationWhitespace,
+	})
+	require.NoError(t, err)
+
+	for i := range objectCount {
+		obj := &models.Object{
+			Class: className,
+			ID:    strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012d", i)),
+			Properties: map[string]interface{}{
+				"name": fmt.Sprintf("test-object-%d", i),
+			},
+		}
+		tokens := make([][]float32, tokensOf(i))
+		for tk := range tokens {
+			tokens[tk] = make([]float32, tokenDim)
+			for d := range tokens[tk] {
+				tokens[tk][d] = float32(i+tk+d) / 1000.0
+			}
+		}
+		storageObj := storobj.FromObject(obj, nil, nil, map[string][][]float32{targetVector: tokens})
+		require.NoError(t, index.putObject(ctx, storageObj, nil, obj.Tenant, 0))
+	}
+
+	shard, release, err := index.GetShard(ctx, shardName)
+	require.NoError(t, err)
+	require.NotNil(t, shard)
+	lazyShard, ok := shard.(*LazyLoadShard)
+	require.True(t, ok)
+	require.NoError(t, lazyShard.Load(ctx))
+
+	lsmPath := filepath.Join(index.path(), shard.Name(), "lsm")
+	directories, err := diskio.GetSubdirNames(lsmPath)
+	require.NoError(t, err)
+
+	t.Run("hot path models the bytes from all rows", func(t *testing.T) {
+		_, uncompressed, scans, err := lazyShard.shard.VectorStorageUsage(ctx, lsmPath, directories)
+		require.NoError(t, err)
+		require.Contains(t, scans, targetVector)
+		assert.Equal(t, expectedRows, scans[targetVector].Rows)
+		assert.Equal(t, int64(totalFloats*4), uncompressed)
+
+		dimensions, err := shard.Dimensions(ctx, targetVector)
+		require.NoError(t, err)
+		assert.Equal(t, totalFloats, dimensions)
+
+		for name, cached := range map[string]map[string]shardusage.DimensionsScan{
+			"captured by the sweep": scans,
+			"read on demand":        {},
+		} {
+			t.Run(name, func(t *testing.T) {
+				usages, err := index.vectorUsages(ctx, lazyShard.shard, cached)
+				require.NoError(t, err)
+				var found *usagetypes.VectorUsage
+				for _, usage := range usages {
+					if usage.Name == targetVector {
+						found = usage
+					}
+				}
+				require.NotNil(t, found, "multi-vector target missing from the usage entries")
+				assertReportedDimensionalities(t, found.Dimensionalities)
+			})
+		}
+	})
+
+	release()
+	require.NoError(t, index.ForEachShard(func(name string, shard ShardLike) error {
+		return shard.Shutdown(ctx)
+	}))
+	index.shards.LoadAndDelete(shardName)
+
+	t.Run("cold path reports the same rows and bytes", func(t *testing.T) {
+		collectionUsage, err := index.usageForCollection(ctx, semaphore.NewWeighted(4), true, class.VectorConfig)
+		require.NoError(t, err)
+		require.Len(t, collectionUsage.Shards, 1)
+		tenant := collectionUsage.Shards[0]
+
+		var found *usagetypes.VectorUsage
+		for _, usage := range tenant.NamedVectors {
+			if usage.Name == targetVector {
+				found = usage
+			}
+		}
+		require.NotNil(t, found, "multi-vector target missing from the cold usage entries")
+		assertReportedDimensionalities(t, found.Dimensionalities)
+
+		assert.GreaterOrEqual(t, tenant.VectorStorageBytes, uint64(totalFloats*4),
+			"vector storage must cover the modelled float payload of every row")
+		assert.Greater(t, tenant.ObjectsStorageBytes, uint64(0),
+			"the objects bucket holds more than the modelled vector bytes")
+	})
 }
