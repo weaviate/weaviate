@@ -56,6 +56,10 @@ type SchemaManager struct {
 	// tenantLimitErrTemplate resolves the cap-exceeded message (empty = default).
 	tenantLimitErrTemplate func() string
 
+	// metadataOnly nodes hold no class data and never reload, so recording
+	// orphans for them would grow a map nothing ever drains.
+	metadataOnly bool
+
 	orphansMu sync.Mutex
 	// orphanedClasses maps classes dropped from the schema while the store went
 	// untouched to whether they held frozen tenants.
@@ -111,6 +115,12 @@ func (s *SchemaManager) SetIndexer(idx Indexer) {
 	s.schema.shardReader = idx
 }
 
+// SetMetadataOnly marks a node that stores no class data. Call once during FSM
+// bootstrap.
+func (s *SchemaManager) SetMetadataOnly(v bool) {
+	s.metadataOnly = v
+}
+
 func (s *SchemaManager) SetReplicationFSM(fsm replicationFSM) {
 	s.replicationFSM = fsm
 }
@@ -145,6 +155,9 @@ func (s *SchemaManager) Restore(data []byte, parser Parser) error {
 // after it. Frozen tenants are unknowable by now, so cloud cleanup is left to
 // the delete path that still has that state.
 func (s *SchemaManager) recordOrphansSince(before map[string]struct{}) {
+	if s.metadataOnly {
+		return
+	}
 	after := s.schema.classNames()
 
 	s.orphansMu.Lock()
@@ -163,6 +176,9 @@ func (s *SchemaManager) recordOrphansSince(before map[string]struct{}) {
 
 // recordOrphan marks one class whose data the store was not told to remove.
 func (s *SchemaManager) recordOrphan(class string, hasFrozen bool) {
+	if s.metadataOnly {
+		return
+	}
 	s.orphansMu.Lock()
 	defer s.orphansMu.Unlock()
 	if s.orphanedClasses == nil {
@@ -187,9 +203,15 @@ func (s *SchemaManager) dropOrphanedClasses() {
 		if _, revived := present[class]; revived {
 			continue
 		}
-		if err := s.db.DeleteClass(class, hasFrozen); err != nil {
+		// DropOrphanedClass, not DeleteClass: the class is gone from the
+		// schema, so the data has to go even with no index loaded, and that is
+		// only safe for a class the schema really held.
+		if err := s.db.DropOrphanedClass(context.Background(), class, hasFrozen); err != nil {
 			s.log.WithField("class", class).
 				Errorf("drop data of class the schema no longer names: %v", err)
+			// Put it back: a reload that fails here is the only thing standing
+			// between the data and living on disk forever.
+			s.recordOrphan(class, hasFrozen)
 		}
 	}
 }
@@ -198,8 +220,15 @@ func (s *SchemaManager) RestoreAliases(data []byte) error {
 	return s.schema.RestoreAlias(data)
 }
 
+// RestoreLegacy installs an old-format snapshot. It drops classes just as
+// Restore does, so it needs the same diff.
 func (s *SchemaManager) RestoreLegacy(data []byte, parser Parser) error {
-	return s.schema.RestoreLegacy(data, parser)
+	before := s.schema.classNames()
+	if err := s.schema.RestoreLegacy(data, parser); err != nil {
+		return err
+	}
+	s.recordOrphansSince(before)
+	return nil
 }
 
 func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {

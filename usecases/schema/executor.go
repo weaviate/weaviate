@@ -58,6 +58,12 @@ func (e *executor) Open(ctx context.Context) error {
 	return e.migrator.WaitForStartup(ctx)
 }
 
+// DropOrphanedClass returns its error, unlike DeleteClass, so a failed drop
+// can be retried by the next reload.
+func (e *executor) DropOrphanedClass(ctx context.Context, cls string, hasFrozen bool) error {
+	return e.migrator.DropOrphanedClass(ctx, cls, hasFrozen)
+}
+
 // ReloadLocalDB reloads the local database using the latest schema.
 func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassRequest) error {
 	cs := make([]*models.Class, len(all))

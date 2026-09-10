@@ -14,6 +14,7 @@ package schema
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -33,11 +34,12 @@ type recordingIndexer struct {
 	Indexer
 
 	deleted []string
+	dropErr error
 }
 
-func (r *recordingIndexer) DeleteClass(class string, _ bool) error {
+func (r *recordingIndexer) DropOrphanedClass(_ context.Context, class string, _ bool) error {
 	r.deleted = append(r.deleted, class)
-	return nil
+	return r.dropErr
 }
 
 func (r *recordingIndexer) TriggerSchemaUpdateCallbacks() {}
@@ -125,6 +127,15 @@ func TestReloadDropsClassesTheSchemaNoLongerNames(t *testing.T) {
 			wantDeleted: []string{"Orphan"},
 		},
 		{
+			name: "legacy-format snapshot that drops a class (#651)",
+			seed: func(t *testing.T, sm *SchemaManager) {
+				addClass(t, sm, "Kept")
+				addClass(t, sm, "Orphan")
+				require.NoError(t, sm.RestoreLegacy(legacySnapshotWithout(t, sm, "Orphan"), sm.parser))
+			},
+			wantDeleted: []string{"Orphan"},
+		},
+		{
 			name: "a class the schema still names is never dropped",
 			seed: func(t *testing.T, sm *SchemaManager) {
 				addClass(t, sm, "Kept")
@@ -148,6 +159,47 @@ func TestReloadDropsClassesTheSchemaNoLongerNames(t *testing.T) {
 	}
 }
 
+// TestMetadataOnlyNodesRecordNoOrphans pins that a node holding no class data
+// does not accumulate orphans. schemaOnly is true for every command on such a
+// node, and it never reloads, so anything recorded would sit in the map for
+// the process lifetime.
+func TestMetadataOnlyNodesRecordNoOrphans(t *testing.T) {
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	idx := &recordingIndexer{}
+	sm := NewSchemaManager("node1", idx, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	sm.SetMetadataOnly(true)
+
+	addClass(t, sm, "Orphan")
+	deleteClassSchemaOnly(t, sm, "Orphan")
+	require.NoError(t, sm.Restore(snapshotWithout(t, sm, ""), sm.parser))
+
+	sm.orphansMu.Lock()
+	defer sm.orphansMu.Unlock()
+	require.Empty(t, sm.orphanedClasses, "metadata-only node recorded orphans nothing drains")
+}
+
+// TestFailedDropIsRetriedOnTheNextReload pins that a drop that fails is not
+// lost: the entry goes back so a later reload tries again, since nothing else
+// would ever name that data.
+func TestFailedDropIsRetriedOnTheNextReload(t *testing.T) {
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	idx := &recordingIndexer{dropErr: errors.New("disk gone")}
+	sm := NewSchemaManager("node1", idx, parser, prometheus.NewPedanticRegistry(), logrus.New())
+
+	addClass(t, sm, "Orphan")
+	deleteClassSchemaOnly(t, sm, "Orphan")
+
+	sm.ReloadDBFromSchema()
+	require.Equal(t, []string{"Orphan"}, idx.deleted)
+
+	// The failure is retried rather than forgotten.
+	idx.dropErr = nil
+	sm.ReloadDBFromSchema()
+	require.Equal(t, []string{"Orphan", "Orphan"}, idx.deleted)
+}
+
 // deleteClassSchemaOnly applies DELETE_CLASS the way catch-up does: the entry
 // goes, the store is left untouched.
 func deleteClassSchemaOnly(t *testing.T, sm *SchemaManager, class string) {
@@ -155,6 +207,17 @@ func deleteClassSchemaOnly(t *testing.T, sm *SchemaManager, class string) {
 	require.NoError(t, sm.DeleteClass(&command.ApplyRequest{
 		Type: command.ApplyRequest_TYPE_DELETE_CLASS, Class: class,
 	}, true, false))
+}
+
+// legacySnapshotWithout is snapshotWithout in the pre-Snapshot wire format,
+// which Store.Restore routes through RestoreLegacy.
+func legacySnapshotWithout(t *testing.T, sm *SchemaManager, class string) []byte {
+	t.Helper()
+	classes := sm.schema.MetaClasses()
+	delete(classes, class)
+	data, err := json.Marshal(snapshot{NodeID: "node1", Classes: classes})
+	require.NoError(t, err)
+	return data
 }
 
 // snapshotWithout stands in for the leader's snapshot, taken after class was

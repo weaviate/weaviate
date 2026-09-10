@@ -585,6 +585,19 @@ func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) sharding.R
 	return index
 }
 
+// DropOrphanedClass removes the data of a class the schema has already
+// dropped. Unlike DeleteIndex it removes files even with no index loaded,
+// which is the state a delete applied schema-only leaves behind, so callers
+// must know the class existed.
+func (db *DB) DropOrphanedClass(className schema.ClassName) error {
+	if idx := db.GetIndex(className); idx != nil {
+		// Stop the cycle managers first: renaming underneath a running index
+		// lets its next write recreate the path.
+		return db.DeleteIndex(className)
+	}
+	return db.dropIndexData(className)
+}
+
 // dropIndexData removes a class's files without going through an Index.
 func (db *DB) dropIndexData(className schema.ClassName) error {
 	deleted, err := renameForAsyncDelete(
@@ -602,9 +615,12 @@ func (db *DB) dropIndexData(className schema.ClassName) error {
 func (db *DB) DeleteIndex(className schema.ClassName) error {
 	index := db.GetIndex(className)
 	if index == nil {
-		// The class can still have data with no index built for it. Only
-		// index.drop removes the directory, so returning here strands it.
-		return db.dropIndexData(className)
+		// Deleting a class that never existed reaches here — DeleteClass does
+		// not check — so this must stay a no-op. Removing files by name would
+		// let DELETE /v1/schema/raft rename the RAFT work directory. Orphan
+		// removal goes through DropOrphanedClass, which is only ever called
+		// for a class the schema really held.
+		return nil
 	}
 
 	// a reader holding dropIndex would block the drop below while db.indexLock is held

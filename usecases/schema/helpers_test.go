@@ -123,6 +123,10 @@ func (f *fakeDB) ReloadLocalDB(ctx context.Context, all []command.UpdateClassReq
 	return nil
 }
 
+func (f *fakeDB) DropOrphanedClass(ctx context.Context, class string, hasFrozen bool) error {
+	return nil
+}
+
 func (f *fakeDB) DeleteClass(class string, hasFrozen bool) error {
 	return nil
 }
@@ -290,6 +294,10 @@ type fakeMigrator struct {
 
 func (f *fakeMigrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
 	return nil, nil
+}
+
+func (f *fakeMigrator) DropOrphanedClass(ctx context.Context, className string, hasFrozen bool) error {
+	return nil
 }
 
 func (f *fakeMigrator) AddClass(ctx context.Context, cls *models.Class) error {
