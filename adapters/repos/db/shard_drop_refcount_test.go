@@ -16,6 +16,7 @@ package db
 import (
 	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,8 +27,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/multi"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
+	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -140,11 +147,9 @@ func TestShardDropDrainsRealBatchWrite(t *testing.T) {
 // bounded on purpose, so a reference held past the window must not wedge the
 // delete, and must be logged. Runs for the full drain window (~30s).
 func TestShardDropProceedsWhenDrainTimesOut(t *testing.T) {
-	index, cleanup := initIndexAndPopulate(t, t.TempDir())
-	defer cleanup()
-
 	logger, hook := test.NewNullLogger()
-	index.logger = logger
+	index, cleanup := initIndexAndPopulateWithLogger(t, t.TempDir(), logger)
+	defer cleanup()
 
 	start := time.Now()
 	_, release, dropped := dropTestShard(t, index) // pin is never released
@@ -162,15 +167,111 @@ func TestShardDropProceedsWhenDrainTimesOut(t *testing.T) {
 	require.True(t, warned, "a drop that outran its drain must be logged, not silent")
 }
 
+// TestObjectReadsAfterStoreTeardownReturnErrors is the read-side sibling: a
+// query outliving the drain reads the objects bucket through the same
+// deregistered-bucket window. The bucket view has no error to return, so it
+// yields the zero view and the reads taken against it fail individually.
+func TestObjectReadsAfterStoreTeardownReturnErrors(t *testing.T) {
+	index, cleanup := initIndexAndPopulate(t, t.TempDir())
+	defer cleanup()
+
+	_, shard := loadTestShard(t, index)
+	require.NoError(t, shard.store.Shutdown(context.Background()))
+
+	obj, _ := dropTestObject(nil)
+	id := obj.ID()
+
+	reads := map[string]func() error{
+		"exists": func() error {
+			_, err := shard.Exists(context.Background(), id)
+			return err
+		},
+		"object digest": func() error {
+			_, err := shard.ObjectDigestErrDeleted(context.Background(), id)
+			return err
+		},
+		"object digests in range": func() error {
+			end := strfmt.UUID(uuid.Max.String())
+			_, err := shard.ObjectDigestsInRange(context.Background(), id, end, 10)
+			return err
+		},
+		"vector by doc id": func() error {
+			_, err := shard.vectorByIndexID(context.Background(), 0, "")
+			return err
+		},
+		"multi vector by doc id": func() error {
+			_, err := shard.multiVectorByIndexID(context.Background(), 0, "")
+			return err
+		},
+		"object by id": func() error {
+			_, err := shard.ObjectByID(context.Background(), id, nil, additional.Properties{})
+			return err
+		},
+		"multi object by id": func() error {
+			_, err := shard.MultiObjectByID(context.Background(), []multi.Identifier{{ID: id.String()}})
+			return err
+		},
+		"multi object raw by id": func() error {
+			_, err := shard.MultiObjectRawByID(context.Background(), []strfmt.UUID{id})
+			return err
+		},
+		"object digests": func() error {
+			_, err := shard.ObjectDigests(context.Background(), []multi.Identifier{{ID: id.String()}})
+			return err
+		},
+		"compare digests": func() error {
+			_, err := shard.CompareDigests(context.Background(),
+				[]types.RepairDigest{{ID: uuid.MustParse(id.String())}})
+			return err
+		},
+		"object by doc id with props": func() error {
+			_, err := shard.objectByIndexIDWithProps(context.Background(), 0, nil)
+			return err
+		},
+		"uuid from doc id": func() error {
+			_, err := shard.uuidFromDocID(0)
+			return err
+		},
+		"object list": func() error {
+			_, err := shard.ObjectList(context.Background(), 10, nil, nil, additional.Properties{},
+				shard.index.Config.ClassName)
+			return err
+		},
+		"cursor object list": func() error {
+			_, err := shard.cursorObjectList(context.Background(), &filters.Cursor{Limit: 10},
+				additional.Properties{}, shard.index.Config.ClassName)
+			return err
+		},
+		"was deleted": func() error {
+			_, _, err := shard.WasDeleted(context.Background(), id)
+			return err
+		},
+		"object vector search": func() error {
+			_, _, err := shard.ObjectVectorSearch(context.Background(),
+				[]models.Vector{[]float32{1, 2, 3, 4}}, []string{""}, 0, 10, nil, nil, nil,
+				additional.Properties{}, nil, nil)
+			return err
+		},
+	}
+
+	for name, read := range reads {
+		t.Run(name, func(t *testing.T) {
+			require.ErrorIs(t, read(), lsmkv.ErrBucketNotFound)
+		})
+	}
+
+	t.Run("releasing the zero bucket view", func(t *testing.T) {
+		require.NotPanics(t, func() { shard.GetObjectsBucketView().ReleaseView() })
+	})
+}
+
 // TestObjectWritesAfterStoreTeardownReturnErrors covers the backstop: a write
 // outliving the drain must fail on the deregistered bucket rather than
 // dereference nil, and must be reported once.
 func TestObjectWritesAfterStoreTeardownReturnErrors(t *testing.T) {
-	index, cleanup := initIndexAndPopulate(t, t.TempDir())
-	defer cleanup()
-
 	logger, hook := test.NewNullLogger()
-	index.logger = logger
+	index, cleanup := initIndexAndPopulateWithLogger(t, t.TempDir(), logger)
+	defer cleanup()
 
 	_, shard := loadTestShard(t, index)
 	// the state a teardown that outran its drain leaves behind
@@ -210,9 +311,113 @@ func TestObjectWritesAfterStoreTeardownReturnErrors(t *testing.T) {
 
 	var reports int
 	for _, e := range hook.AllEntries() {
-		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, "mutation reached a torn-down store") {
+		if e.Level == logrus.WarnLevel && strings.Contains(e.Message, "request reached a torn-down store") {
 			reports++
 		}
 	}
 	require.Equal(t, 1, reports, "an outrun drain must be reported exactly once per shard")
+}
+
+// TestInFlightObjectReadHoldsOffBucketTeardown is the read matrix's mirror
+// image. The matrix covers the read that arrives once teardown has finished,
+// which only exercises the nil-bucket guards. This covers the read that
+// resolved its bucket first: the lifetime pin it holds must make
+// Bucket.Shutdown wait, because a teardown that ran anyway would unmap the
+// segments the read is still in.
+func TestInFlightObjectReadHoldsOffBucketTeardown(t *testing.T) {
+	index, cleanup := initIndexAndPopulate(t, t.TempDir())
+	defer cleanup()
+
+	_, shard := loadTestShard(t, index)
+
+	reading := make(chan struct{})
+	resume := make(chan struct{})
+	iterated := make(chan error, 1)
+
+	go func() {
+		var once sync.Once
+		iterated <- index.IterateObjects(context.Background(),
+			func(*Index, ShardLike, *storobj.Object) error {
+				once.Do(func() {
+					close(reading)
+					<-resume
+				})
+				return nil
+			})
+	}()
+
+	select {
+	case <-reading:
+	case err := <-iterated:
+		t.Fatalf("iteration finished without reading an object: %v", err)
+	}
+
+	torn := make(chan error, 1)
+	go func() { torn <- shard.store.Shutdown(context.Background()) }()
+
+	select {
+	case err := <-torn:
+		t.Fatalf("teardown completed while a read still held the objects bucket: %v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+
+	close(resume)
+	require.NoError(t, <-iterated)
+
+	select {
+	case err := <-torn:
+		require.NoError(t, err)
+	case <-time.After(time.Minute):
+		t.Fatal("teardown never completed after the read released its pin")
+	}
+}
+
+// TestDropVectorIndexWaitsForALease pins the RFC's deletion step 3 at the
+// shard level: a drop of one named vector waits for a caller that holds
+// its index, and a drop of another vector does not.
+func TestDropVectorIndexWaitsForALease(t *testing.T) {
+	shd, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "test"}, hnswent.UserConfig{}, false, false, func(idx *Index) {
+		idx.vectorIndexUserConfig = nil
+		idx.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+			"held":  hnswent.NewDefaultUserConfig(),
+			"other": hnswent.NewDefaultUserConfig(),
+		}
+	})
+	s := shd.(*Shard)
+
+	_, release, ok := s.AcquireVectorIndex("held")
+	require.True(t, ok)
+
+	otherDropped := make(chan error, 1)
+	go func() { otherDropped <- s.DropVectorIndex(context.Background(), "other") }()
+	select {
+	case err := <-otherDropped:
+		require.NoError(t, err, "a drop of an unrelated vector must not wait for this lease")
+	case <-time.After(10 * time.Second):
+		t.Fatal("dropping the other vector waited for a lease on the held one")
+	}
+
+	heldDropped := make(chan error, 1)
+	go func() { heldDropped <- s.DropVectorIndex(context.Background(), "held") }()
+	select {
+	case <-heldDropped:
+		t.Fatal("the drop completed while the index was leased")
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	_, _, ok = s.AcquireVectorIndex("held")
+	require.False(t, ok, "no new lease once the drop has started")
+
+	release()
+	select {
+	case err := <-heldDropped:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the drop did not complete after the lease was released")
+	}
+
+	_, _, ok = s.AcquireVectorIndex("held")
+	require.False(t, ok)
+	_, _, ok = s.AcquireVectorIndex("other")
+	require.False(t, ok)
 }

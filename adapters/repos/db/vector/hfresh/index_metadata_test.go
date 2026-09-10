@@ -64,7 +64,7 @@ func TestRestoreMetadataMigratesPostingMapV1ToV2(t *testing.T) {
 	err = NewIndexMetadataStore(bucket).SetDimensions(64)
 	require.NoError(t, err)
 
-	err = bucket.Put(postingMapKey(postingMapBucketPrefixV1, 42), legacyPackedPostingMetadata(10, 20, 30))
+	err = mustBucket(t, bucket).Put(postingMapKey(postingMapBucketPrefixV1, 42), legacyPackedPostingMetadata(10, 20, 30))
 	require.NoError(t, err)
 
 	index := makeHFreshWithConfig(t, store, cfg, uc)
@@ -84,7 +84,7 @@ func TestRestoreMetadataMigratesPostingMapV1ToV2(t *testing.T) {
 	persistedSize, err := NewPostingSizesStore(bucket, postingSizesBucketPrefix).Get(ctx, 42)
 	require.NoError(t, err)
 	require.EqualValues(t, 3, persistedSize)
-	require.Equal(t, 0, countKeysWithPrefix(bucket, postingMapBucketPrefixV1))
+	require.Equal(t, 0, countKeysWithPrefix(mustBucket(t, bucket), postingMapBucketPrefixV1))
 }
 
 func TestStartupDeletesLegacyReassignBucketKey(t *testing.T) {
@@ -106,11 +106,11 @@ func TestStartupDeletesLegacyReassignBucketKey(t *testing.T) {
 
 	index := makeHFreshWithConfig(t, store, cfg, uc)
 
-	data, err := index.IndexMetadata.bucket.Get(reassignBucketKey)
+	data, err := mustBucket(t, index.IndexMetadata.bucket).Get(reassignBucketKey)
 	require.NoError(t, err)
 	require.Nil(t, data)
 
-	data, err = index.IndexMetadata.bucket.Get(unrelatedKey)
+	data, err = mustBucket(t, index.IndexMetadata.bucket).Get(unrelatedKey)
 	require.NoError(t, err)
 	require.Equal(t, unrelatedValue, data)
 }

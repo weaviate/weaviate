@@ -440,7 +440,7 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 			className := "LocalCallbacksDone_" + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, []string{prop})
 			hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
+				false, false)
 			defer hot.Shutdown(context.Background())
 
 			migrationType := ReindexTypeChangeTokenization
@@ -453,7 +453,7 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 				mkTrackerDir(t, shardPathLSM(idx.path(), tenant), trackerDir, tc.sentinels...)
 			}
 			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+				idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
 				false, idx.bitmapBufPool)
 			if !tc.absentFromShardMap {
 				idx.shards.Store(tenant, cold)
