@@ -195,7 +195,7 @@ func testContains(c *weaviate.Client) func(t *testing.T) {
 				{
 					name: "contains any int with int",
 					where: filter.Cond{
-						Target:   "ints",
+						Target:   "int",
 						Operator: filter.ContainsAny,
 						Value:    []int{1, 2, 3},
 					},
