@@ -12,7 +12,6 @@
 package filters_tests
 
 import (
-	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"fmt"
 	"testing"
@@ -20,17 +19,15 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate-go-client/v6"
 	"github.com/weaviate/weaviate-go-client/v6/collections"
 	"github.com/weaviate/weaviate-go-client/v6/data"
 	"github.com/weaviate/weaviate-go-client/v6/query"
 	"github.com/weaviate/weaviate-go-client/v6/query/filter"
 )
 
-// FIXME(dyma): connect to host passed in the function
-func testContainsText(host string) func(t *testing.T) {
+func testContainsText(c *weaviate.Client) func(t *testing.T) {
 	return func(t *testing.T) {
-		c := wvhost.NewClient(t)
-
 		require.NoError(t, c.Collections.DeleteAll(t.Context()))
 		t.Cleanup(func() {
 			require.NoError(t, c.Collections.DeleteAll(context.Background()))
