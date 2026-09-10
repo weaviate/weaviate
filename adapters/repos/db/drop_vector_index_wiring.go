@@ -98,7 +98,7 @@ func (db *DB) EnsureDroppedVectorFilesRemoved(collection, shardName string, targ
 	}
 	// A loaded shard retries its own drop: idempotent, it finishes a drop that
 	// failed part-way, and it never opens index.db against its own lock.
-	if loaded := loadedShard(idx.shards.Load(shardName)); loaded != nil {
+	if loaded := idx.shards.loaded(shardName); loaded != nil {
 		done, err := loaded.retryDroppedVectorIndexes(targets)
 		if done || err != nil {
 			return err
@@ -231,17 +231,4 @@ func (s *Shard) retryDroppedVectorIndexes(targets []string) (done bool, err erro
 		}
 	}
 	return true, nil
-}
-
-// loadedShard returns the loaded *Shard behind shard, or nil. It never loads.
-func loadedShard(shard ShardLike) *Shard {
-	switch s := shard.(type) {
-	case *Shard:
-		return s
-	case *LazyLoadShard:
-		if s.isLoaded() {
-			return s.shard
-		}
-	}
-	return nil
 }
