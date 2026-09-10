@@ -29,10 +29,11 @@ import (
 	"github.com/weaviate/weaviate/entities/versioned"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 const SHUTDOWN_GRACE_PERIOD = 75 * time.Second
@@ -65,10 +66,12 @@ type StreamHandler struct {
 	shuttingDown         atomic.Bool
 	workerStatsPerStream *sync.Map // map[string]*stats
 	stoppingPerStream    *sync.Map // map[string]struct{}
-	allocChecker         memwatch.AllocChecker
+	admissionChecker     admissionChecker
+	admitMu              sync.Mutex // taken only by tryAdmit, to check and reserve as one step
 	memInFlight          atomic.Int64
 	schemaManager        schemaManager
 	namespacesEnabled    bool
+	config               config.BatchStream
 }
 
 func NewStreamHandler(
@@ -83,9 +86,10 @@ func NewStreamHandler(
 	logger logrus.FieldLogger,
 	schemaManager schemaManager,
 	namespacesEnabled bool,
-	allocChecker memwatch.AllocChecker,
+	admissionChecker admissionChecker,
+	cfg config.BatchStream,
 ) *StreamHandler {
-	h := &StreamHandler{
+	return &StreamHandler{
 		authenticator:        authenticator,
 		authorizer:           authorizer,
 		shuttingDownCtx:      shuttingDownCtx,
@@ -98,11 +102,11 @@ func NewStreamHandler(
 		metrics:              metrics,
 		workerStatsPerStream: &sync.Map{},
 		stoppingPerStream:    &sync.Map{},
-		allocChecker:         allocChecker,
+		admissionChecker:     admissionChecker,
 		schemaManager:        schemaManager,
 		namespacesEnabled:    namespacesEnabled,
+		config:               cfg,
 	}
-	return h
 }
 
 // registerStream registers one stream, or returns an error if the server is
@@ -549,51 +553,22 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, principal
 				continue
 			}
 
-			// Estimate memory for the incoming batch so we can do an allocation check
-			size := estimateBatchMemory(objs)
-			// Refresh the alloc checker before each check to get the latest memory stats
-			h.allocChecker.Refresh(false)
-			// Check if we can allocate memory for this batch plus any other in-flight memory currently in the processing queue
-			if err := h.allocChecker.CheckAlloc(size + h.memInFlight.Load()); err != nil {
-				h.logger.WithField("streamId", streamId).Warnf("memory allocation check failed before pushing to processing queue: %v", err)
+			// The wire size covers every object, reference and vector the message
+			// carries. The decoded message is what the receiver holds until the
+			// workers drain it.
+			size := int64(proto.Size(request))
+			if err := h.holdForMemory(ctx, size); err != nil {
+				log.Warnf("memory allocation check failed before pushing to processing queue: %v", err)
 				return oomErr(objs, refs, err)
 			}
 
-			// Resolve each raw obj.Collection to the form stored in the schema
-			// (uppercased, namespace-qualified, alias-resolved) so the vectorisation
-			// lookup hits for namespaced principals and alias callers. The result
-			// map stays keyed by the raw obj.Collection because the downstream
-			// worker keys objsByCollection by obj.Collection unchanged.
-			resolvedNames := []string{}
-			resolvedByRaw := map[string]string{}
-			for _, obj := range objs {
-				if _, ok := resolvedByRaw[obj.Collection]; ok {
-					continue
-				}
-				resolved, _, err := namespacing.Resolve(principal, h.schemaManager, h.namespacesEnabled, obj.Collection)
-				if err != nil {
-					h.reportRejectedBatch(stream, log, principal, objs, refs, err)
-					return err
-				}
-				resolvedNames = append(resolvedNames, resolved)
-				resolvedByRaw[obj.Collection] = resolved
-			}
-
-			classes, err := h.schemaManager.GetCachedClassNoAuth(ctx, resolvedNames...)
-			if err != nil {
-				log.Errorf("failed to get classes for vectorisation check: %v", err)
-				err = fmt.Errorf("get classes for vectorisation check: %w", err)
-				h.reportRejectedBatch(stream, log, principal, objs, refs, err)
+			if err := h.enqueue(ctx, stream, log, principal, streamId, consistencyLevel, wg, objs, refs, size); err != nil {
 				return err
 			}
-			usesVectorisationByCollection := map[string]bool{}
-			for raw, resolved := range resolvedByRaw {
-				if class, ok := classes[resolved]; ok {
-					usesVectorisationByCollection[raw] = modelsext.ClassUsesVectorisation(class.Class)
-				}
-			}
 
-			h.push(ctx, streamId, consistencyLevel, wg, objs, refs, usesVectorisationByCollection, size)
+			// The delay grows with memory pressure. A client that waits for its
+			// acks slows down instead of being cut off.
+			h.delayAck(ctx)
 
 			uuids, beacons := uuidsAndBeacons(objs, refs)
 			// Acknowledge receipt of these objects and/or references from the message
@@ -610,9 +585,56 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, principal
 	}
 }
 
-// push enqueues one message for the workers. size is the memory estimate the
-// allocation check already used, so that check and the in-flight counter never
-// disagree about what a batch costs.
+func (h *StreamHandler) enqueue(ctx context.Context, stream pb.Weaviate_BatchStreamServer, log *logrus.Entry, principal *models.Principal, streamId string, consistencyLevel *pb.ConsistencyLevel, wg *sync.WaitGroup, objs []*pb.BatchObject, refs []*pb.BatchReference, size int64) error {
+	pushed := false
+	defer func() {
+		if !pushed {
+			h.memInFlight.Add(-size)
+		}
+	}()
+
+	// Resolve each raw obj.Collection to the form stored in the schema
+	// (uppercased, namespace-qualified, alias-resolved) so the vectorisation
+	// lookup hits for namespaced principals and alias callers. The result
+	// map stays keyed by the raw obj.Collection because the downstream
+	// worker keys objsByCollection by obj.Collection unchanged.
+	resolvedNames := []string{}
+	resolvedByRaw := map[string]string{}
+	for _, obj := range objs {
+		if _, ok := resolvedByRaw[obj.Collection]; ok {
+			continue
+		}
+		resolved, _, err := namespacing.Resolve(principal, h.schemaManager, h.namespacesEnabled, obj.Collection)
+		if err != nil {
+			h.reportRejectedBatch(stream, log, principal, objs, refs, err)
+			return err
+		}
+		resolvedNames = append(resolvedNames, resolved)
+		resolvedByRaw[obj.Collection] = resolved
+	}
+
+	classes, err := h.schemaManager.GetCachedClassNoAuth(ctx, resolvedNames...)
+	if err != nil {
+		log.Errorf("failed to get classes for vectorisation check: %v", err)
+		err = fmt.Errorf("get classes for vectorisation check: %w", err)
+		h.reportRejectedBatch(stream, log, principal, objs, refs, err)
+		return err
+	}
+	usesVectorisationByCollection := map[string]bool{}
+	for raw, resolved := range resolvedByRaw {
+		if class, ok := classes[resolved]; ok {
+			usesVectorisationByCollection[raw] = modelsext.ClassUsesVectorisation(class.Class)
+		}
+	}
+
+	h.push(ctx, streamId, consistencyLevel, wg, objs, refs, usesVectorisationByCollection, size)
+	pushed = true
+	return nil
+}
+
+// push enqueues one message for the workers. size is the reservation that
+// enqueue holds. Once the queue send succeeds, the worker's onComplete owns
+// that reservation. push never writes memInFlight itself.
 func (h *StreamHandler) push(ctx context.Context, streamId string, consistencyLevel *pb.ConsistencyLevel, wg *sync.WaitGroup, objs []*pb.BatchObject, refs []*pb.BatchReference, usesVectorisationByCollection map[string]bool, size int64) {
 	// Update metrics based on how many objects are being pushed
 	howMany := len(objs) + len(refs)
@@ -620,17 +642,15 @@ func (h *StreamHandler) push(ctx context.Context, streamId string, consistencyLe
 		h.metrics.OnProcessingQueuePush(howMany)
 	}
 
-	// Track memory in-flight for all batches currently being processed
-	h.memInFlight.Add(size)
 	wg.Add(1)
 
-	// If the pushed value never gets consumed, we still need to decrement the in-flight memory and the wait group counter.
-	// This can happen if the server is shutting down and the stream is closed before the batch is processed.
+	// The send below has no cancellation branch, so a pushed value is always
+	// consumed. This guard fires only if that send panics. It balances the wait
+	// group and nothing else: releasing the reservation stays enqueue's job.
 	pushed := false
 	defer func() {
 		if !pushed {
 			defer wg.Done()
-			h.memInFlight.Add(-size)
 		}
 	}()
 
@@ -692,14 +712,6 @@ func oomErr(objs []*pb.BatchObject, refs []*pb.BatchReference, err error) *oom {
 		uuids:   uuids,
 		beacons: beacons,
 	}
-}
-
-func estimateBatchMemory(objs []*pb.BatchObject) int64 {
-	var sum int64
-	for _, obj := range objs {
-		sum += memwatch.EstimateBatchObjectMemory(obj)
-	}
-	return sum
 }
 
 type batchResults struct {

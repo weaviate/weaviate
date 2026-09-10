@@ -328,6 +328,9 @@ type Config struct {
 	// only be enabled on newly bootstrapped clusters (enforced at startup).
 	Namespaces Namespaces `json:"namespaces" yaml:"namespaces"`
 
+	// Configuration options for the batch streaming logic, e.g. soft memory backpressure.
+	BatchStream BatchStream `json:"batch_stream" yaml:"batch_stream"`
+
 	// Usage configuration for the usage module
 	Usage usagetypes.UsageConfig `json:"usage" yaml:"usage"`
 
@@ -922,6 +925,73 @@ func (b BackupGCS) Validate() error {
 		return nil
 	}
 	return validateBackupGCSConnPool(b.GRPCConnPool, "backup_gcs.grpc_conn_pool")
+}
+
+const (
+	// DefaultBatchStreamGateRatio keeps the threshold the batch stream's memory
+	// monitor had before the ratio became configurable. It sits below the global
+	// monitor's 0.97 because accepted batches stay in memory until the workers
+	// drain them.
+	DefaultBatchStreamGateRatio = 0.9
+
+	// DefaultBatchStreamEngageRatio keeps the whole ack delay curve below the
+	// heap levels at which the garbage collector starts running up against its
+	// CPU limit.
+	DefaultBatchStreamEngageRatio = 0.5
+
+	// DefaultBatchStreamMaxAckDelay lets one 1000 object message through every 2s
+	// per stream at the gate. That is shorter than the 5s cadence of the Backoff
+	// message, and 3% of the shutdown grace period.
+	DefaultBatchStreamMaxAckDelay = 2 * time.Second
+
+	// DefaultBatchStreamHoldSeconds is long enough for an in-flight batch to
+	// complete and free its share of the in-flight memory, and leaves 45s of the
+	// 75s shutdown grace period for the sender's drain.
+	DefaultBatchStreamHoldSeconds = 30
+)
+
+// BatchStream configures the backpressure the BatchStream receiver applies to a
+// client. A zero field is indistinguishable from unset and takes its
+// DefaultBatchStream* value, so 0 cannot switch a knob off.
+type BatchStream struct {
+	// GateRatio is the fraction of GOMEMLIMIT at which live heap stops a message
+	// being admitted. It is the threshold of the batch stream's own memory
+	// monitor, and the top of the ack delay curve.
+	// Env: BATCH_STREAM_GATE_RATIO.
+	GateRatio float64 `json:"gate_ratio" yaml:"gate_ratio"`
+
+	// EngageRatio is the live heap ratio below which acks are not delayed.
+	// Between it and GateRatio the delay grows quadratically to MaxAckDelay. A
+	// GateRatio at or below it disables the delay entirely.
+	// Env: BATCH_STREAM_ENGAGE_RATIO.
+	EngageRatio float64 `json:"engage_ratio" yaml:"engage_ratio"`
+
+	// MaxAckDelay is the ack delay applied at and above GateRatio.
+	// Env: BATCH_STREAM_MAX_ACK_DELAY, a Go duration such as 2s or 500ms.
+	MaxAckDelay time.Duration `json:"max_ack_delay" yaml:"max_ack_delay"`
+
+	// HoldSeconds bounds how long a receiver waits for memory after a failed
+	// admission check before it fails the stream. batch.Start clamps it to the
+	// shutdown grace period, because a holding receiver blocks the drain.
+	// Env: BATCH_STREAM_HOLD_SECONDS.
+	HoldSeconds int `json:"hold_seconds" yaml:"hold_seconds"`
+}
+
+// WithDefaults returns b with each zero field replaced by its default.
+func (b BatchStream) WithDefaults() BatchStream {
+	if b.GateRatio == 0 {
+		b.GateRatio = DefaultBatchStreamGateRatio
+	}
+	if b.EngageRatio == 0 {
+		b.EngageRatio = DefaultBatchStreamEngageRatio
+	}
+	if b.MaxAckDelay == 0 {
+		b.MaxAckDelay = DefaultBatchStreamMaxAckDelay
+	}
+	if b.HoldSeconds == 0 {
+		b.HoldSeconds = DefaultBatchStreamHoldSeconds
+	}
+	return b
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided

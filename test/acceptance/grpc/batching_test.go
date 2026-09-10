@@ -375,6 +375,17 @@ func TestGRPC_OutOfMemoryBatching(t *testing.T) {
 		WithWeaviateWithGRPC().
 		WithWeaviateEnv("GOMEMLIMIT", "268435456").
 		WithWeaviateEnv("GRPC_MAX_MESSAGE_SIZE", "536870912").
+		// A gate of 0.1 puts the admission threshold at 26.8MB. The ~20.5MB
+		// message below crosses it as soon as the booted node holds 6.3MB of live
+		// heap. At the default 0.9 the same message is admitted, so this variable
+		// also proves the gate ratio reaches the monitor.
+		WithWeaviateEnv("BATCH_STREAM_GATE_RATIO", "0.1").
+		// config refuses a gate at or below the engage ratio, so the default 0.5
+		// engage has to drop under the pinned gate
+		WithWeaviateEnv("BATCH_STREAM_ENGAGE_RATIO", "0.05").
+		// the rejected message is held before it is refused; one second keeps the
+		// test from waiting out the default hold
+		WithWeaviateEnv("BATCH_STREAM_HOLD_SECONDS", "1").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -430,6 +441,11 @@ func TestGRPC_OutOfMemoryBatching(t *testing.T) {
 		require.NoError(t, err, "BatchStream should return a response")
 		require.NotNil(t, msg.GetOutOfMemory(), "Response should indicate out of memory got %T instead", msg.Message)
 		require.Equal(t, len(uuids), len(msg.GetOutOfMemory().GetUuids()), "All sent objects should be listed in out of memory response")
+
+		// The server closes its side after OutOfMemory and sends nothing further,
+		// in particular no ShuttingDown message.
+		_, err = stream.Recv()
+		require.ErrorIs(t, err, io.EOF, "the server must close the stream after the out of memory message")
 	})
 }
 
