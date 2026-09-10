@@ -323,6 +323,8 @@ func TestBatchedContains(t *testing.T) {
 	// fold's fields unless the context carries slow_query_details, which its
 	// path does not install.
 	t.Run("batch delete answers through DocIDsLimited", func(t *testing.T) {
+		before := weaviate.logs(t, ctx, "fold_strategy")
+
 		// Dry run, so the corpus every other case reads is untouched.
 		resp, err := weaviate.client.Batch().ObjectsBatchDeleter().
 			WithClassName(className).
@@ -337,9 +339,16 @@ func TestBatchedContains(t *testing.T) {
 		require.EqualValues(t, splitValues, resp.Results.Matches,
 			"batch delete must match what the same filter returns through Get")
 
-		// The query names itself in the slow-query log, so a delete records
-		// which resolver produced its set.
-		weaviate.logsMatching(t, ctx, findUUIDsQueryRE)
+		// The entry itself arrives whichever resolver ran, so its presence
+		// proves nothing. FindUUIDs installs the details map the fold writes
+		// its plan into; without that installation the same entry arrives
+		// carrying no resolver fields at all.
+		added := strings.TrimPrefix(
+			weaviate.logsMatching(t, ctx, findUUIDsQueryRE), before)
+		require.Contains(t, added, "fold_workers",
+			"the delete recorded no fold, so its filter never took the batched path")
+		require.NotContains(t, added, "contains_desugared",
+			"the delete's filter fell back to the desugared per-value path")
 	})
 
 	t.Run("aggregate answers through its own allow list", func(t *testing.T) {
@@ -388,6 +397,8 @@ func TestBatchedContains(t *testing.T) {
 	// Shard.buildAllowList is reached only by a filtered vector search, and no
 	// other case here takes it. The filter decides which IDs come back.
 	t.Run("a filtered vector search answers through buildAllowList", func(t *testing.T) {
+		before := weaviate.logs(t, ctx, "fold_strategy")
+
 		where := filters.Where().WithPath([]string{"num"}).
 			WithOperator(filters.ContainsAny).
 			WithValueInt(0, 1, 2)
@@ -410,13 +421,22 @@ func TestBatchedContains(t *testing.T) {
 			[]string{idOf(0), idOf(1), idOf(2)},
 			acceptance_with_go_client.GetIds(t, resp, className),
 			"the vector search must return exactly what the filter matched")
+
+		// Those IDs are the same whichever resolver produced them, so the
+		// route's own entry is the only evidence it batched.
+		added := strings.TrimPrefix(
+			weaviate.logsMatching(t, ctx, objectVectorSearchQueryRE), before)
+		require.Contains(t, added, "fold_workers",
+			"the vector search recorded no fold, so its filter never took the batched path")
+		require.NotContains(t, added, "contains_desugared",
+			"the vector search's filter fell back to the desugared per-value path")
 	})
 }
 
-// TestBatchedContainsDisabled runs the one setting that turns the fold off.
-// Every other case here proves the default batches, which says nothing about
-// whether a deployment can still opt out — the lever an operator reaches for
-// when the fold is the suspect.
+// TestBatchedContainsDisabled sets QUERY_BATCHED_CONTAINS_ENABLED=false, one of
+// the three routes config_handler.go names to the same field. Every other case
+// here proves the default batches, which says nothing about whether a
+// deployment can still opt out.
 func TestBatchedContainsDisabled(t *testing.T) {
 	ctx := context.Background()
 
@@ -525,42 +545,46 @@ func (in *instance) readLogs(ctx context.Context) (string, error) {
 	return string(out), nil
 }
 
+// pollLogs returns the instance's output once accept passes on it. Docker's
+// stdout capture is asynchronous, so a line written before the query returned
+// may not have reached the stream yet. accept must pass only on something the
+// caller's own query produces, or the first read returns and waits for nothing.
+// want names what is being waited for, and is reported when nothing arrives.
+func (in *instance) pollLogs(t *testing.T, ctx context.Context, timeout time.Duration,
+	want string, accept func(c *assert.CollectT, logs string),
+) string {
+	t.Helper()
+
+	var out string
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		s, err := in.readLogs(ctx)
+		if !assert.NoError(c, err) {
+			return
+		}
+		out = s
+		accept(c, s)
+	}, timeout, 100*time.Millisecond,
+		"the container never logged %s", want)
+	return out
+}
+
 // logsAfterFolds returns the instance's output once it holds at least want
 // fold_workers lines, so a caller waits for its own queries.
 func (in *instance) logsAfterFolds(t *testing.T, ctx context.Context, want int) string {
 	t.Helper()
-
-	var out string
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		s, err := in.readLogs(ctx)
-		if !assert.NoError(c, err) {
-			return
-		}
-		out = s
-		assert.GreaterOrEqual(c, len(foldWorkers(s)), want)
-	}, 30*time.Second, 100*time.Millisecond,
-		"the container never logged %d folds", want)
-	return out
+	return in.pollLogs(t, ctx, 30*time.Second, fmt.Sprintf("%d folds", want),
+		func(c *assert.CollectT, logs string) {
+			assert.GreaterOrEqual(c, len(foldWorkers(logs)), want)
+		})
 }
 
-// logs returns the instance's output once waitFor appears in it. Docker's
-// stdout capture is asynchronous, so a line written before the query returned
-// may not have reached the stream yet. waitFor must be a token the caller's own
-// query produces, or the first read returns and waits for nothing.
+// logs returns the instance's output once waitFor appears in it.
 func (in *instance) logs(t *testing.T, ctx context.Context, waitFor string) string {
 	t.Helper()
-
-	var out string
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		s, err := in.readLogs(ctx)
-		if !assert.NoError(c, err) {
-			return
-		}
-		out = s
-		assert.Contains(c, s, waitFor)
-	}, 10*time.Second, 100*time.Millisecond,
-		"the container never logged %q", waitFor)
-	return out
+	return in.pollLogs(t, ctx, 10*time.Second, fmt.Sprintf("%q", waitFor),
+		func(c *assert.CollectT, logs string) {
+			assert.Contains(c, logs, waitFor)
+		})
 }
 
 // foldWorkers returns every fold_workers the logs recorded, oldest first.
@@ -574,23 +598,23 @@ var foldWorkersRE = regexp.MustCompile(`fold_workers"?\s*[:=]\s*"?(\d+)`)
 // whose evidence is a log field rather than a bare token.
 func (in *instance) logsMatching(t *testing.T, ctx context.Context, re *regexp.Regexp) string {
 	t.Helper()
-
-	var out string
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		s, err := in.readLogs(ctx)
-		if !assert.NoError(c, err) {
-			return
-		}
-		out = s
-		assert.Regexp(c, re, s)
-	}, 10*time.Second, 100*time.Millisecond,
-		"the delete path recorded no slow-query entry, so which resolver ran is unrecoverable")
-	return out
+	return in.pollLogs(t, ctx, 10*time.Second, fmt.Sprintf("a slow-query entry matching %s", re),
+		func(c *assert.CollectT, logs string) {
+			assert.Regexp(c, re, logs)
+		})
 }
 
-// findUUIDsQueryRE matches the slow-query entry the delete path writes, under
-// either log format, and not the plain debug lines naming the same method.
-var findUUIDsQueryRE = regexp.MustCompile(`query"?\s*[:=]\s*"?FindUUIDs`)
+// slowQueryRE matches the slow-query entry a named route writes, under either
+// log format, and not the plain debug lines naming the same method.
+func slowQueryRE(query string) *regexp.Regexp {
+	return regexp.MustCompile(`query"?\s*[:=]\s*"?` + regexp.QuoteMeta(query))
+}
+
+var (
+	findUUIDsQueryRE          = slowQueryRE("FindUUIDs")
+	objectVectorSearchQueryRE = slowQueryRE("ObjectVectorSearch")
+	aggregateQueryRE          = slowQueryRE("Aggregate")
+)
 
 func foldWorkers(logs string) []int {
 	matches := foldWorkersRE.FindAllStringSubmatch(logs, -1)
