@@ -88,7 +88,8 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 		return err
 	}
 
-	err = s.initVectorIndexMapping(activeVectorIndexConfigs(legacy, targets))
+	active, _ := vectorIndexConfigsByStorage(legacy, targets)
+	err = s.initVectorIndexMapping(active)
 	if err != nil {
 		return fmt.Errorf("shard %q: %w", s.ID(), err)
 	}

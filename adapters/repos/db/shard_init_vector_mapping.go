@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
@@ -53,7 +54,7 @@ func (s *Shard) initVectorIndexMapping(configs map[string]schemaConfig.VectorInd
 func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, legacy schemaConfig.VectorIndexConfig,
 	targets map[string]schemaConfig.VectorIndexConfig, records map[string]vectorIndexRecord,
 ) error {
-	configs := activeVectorIndexConfigs(legacy, targets)
+	configs, skipped := vectorIndexConfigsByStorage(legacy, targets)
 	s.migrateCompressedVectors(legacy, targets)
 
 	// in name order, so a failure is deterministic
@@ -94,6 +95,14 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, legacy schemaCo
 			return err
 		}
 	}
+
+	// a skipped vector owns no files and no record, but callers need its slot
+	for name, cfg := range skipped {
+		err := s.createVectorIndex(ctx, name, s.vectorIndexID(name), cfg, s.lazySegmentLoadingEnabled)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -113,11 +122,20 @@ func (s *Shard) openRecordedVectorIndex(ctx context.Context, name string, cfg sc
 		if err != nil {
 			return fmt.Errorf("vector %q: %w", name, err)
 		}
-		if !exists {
+		if exists {
+			return s.createVectorIndex(ctx, name, rec.PhysicalID, cfg, s.lazySegmentLoadingEnabled)
+		}
+		hasVectors, err := s.hasVectorsFor(ctx, name, cfg.IsMultiVector())
+		if err != nil {
+			return fmt.Errorf("vector %q: %w", name, err)
+		}
+		if hasVectors {
 			return fmt.Errorf("%w: vector %q is recorded ready at %q, expected %v on disk",
 				errVectorIndexStorageMissing, name, rec.PhysicalID, dirs)
 		}
-		return s.createVectorIndex(ctx, name, rec.PhysicalID, cfg, s.lazySegmentLoadingEnabled)
+		// nothing to index: an empty index that a backup or a transfer did
+		// not carry, since they list files and an empty index has none.
+		// Rebuilt like a creating record.
 	}
 
 	err := s.createVectorIndex(ctx, name, rec.PhysicalID, cfg, s.lazySegmentLoadingEnabled)
@@ -136,21 +154,52 @@ func (s *Shard) openRecordedVectorIndex(ctx context.Context, name string, cfg sc
 	return nil
 }
 
-// activeVectorIndexConfigs is the schema's vectors that own storage, the
-// legacy one under the empty name.
-func activeVectorIndexConfigs(legacy schemaConfig.VectorIndexConfig,
+// vectorIndexConfigsByStorage splits the schema's vectors, the legacy one
+// under the empty name, into those that own storage and the skipped ones.
+func vectorIndexConfigsByStorage(legacy schemaConfig.VectorIndexConfig,
 	targets map[string]schemaConfig.VectorIndexConfig,
-) map[string]schemaConfig.VectorIndexConfig {
-	configs := make(map[string]schemaConfig.VectorIndexConfig, len(targets)+1)
-	if legacy != nil && vectorIndexHasStorage(legacy) {
-		configs[""] = legacy
+) (active, skipped map[string]schemaConfig.VectorIndexConfig) {
+	active = make(map[string]schemaConfig.VectorIndexConfig, len(targets)+1)
+	skipped = make(map[string]schemaConfig.VectorIndexConfig)
+	if legacy != nil {
+		targets = maps.Clone(targets)
+		targets[""] = legacy
 	}
 	for name, cfg := range targets {
 		if vectorIndexHasStorage(cfg) {
-			configs[name] = cfg
+			active[name] = cfg
+		} else {
+			skipped[name] = cfg
 		}
 	}
-	return configs
+	return active, skipped
+}
+
+// errVectorFound stops the object scan at the first vector.
+var errVectorFound = errors.New("vector found")
+
+// hasVectorsFor reports whether any object holds a vector for name.
+func (s *Shard) hasVectorsFor(ctx context.Context, name string, multi bool) (bool, error) {
+	var err error
+	if multi {
+		err = s.iterateOnLSMMultiVectors(ctx, 0, name, func(_ uint64, v [][]float32) error {
+			if len(v) > 0 {
+				return errVectorFound
+			}
+			return nil
+		})
+	} else {
+		err = s.iterateOnLSMVectors(ctx, 0, name, func(_ uint64, v []float32) error {
+			if len(v) > 0 {
+				return errVectorFound
+			}
+			return nil
+		})
+	}
+	if errors.Is(err, errVectorFound) {
+		return true, nil
+	}
+	return false, err
 }
 
 // vectorIndexHasStorage is false for a skipped hnsw config: a no-op index

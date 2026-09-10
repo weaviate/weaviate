@@ -109,20 +109,44 @@ func TestInitShardVectors_SkippedIndexHasNoRecord(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, initialized)
 	assert.Empty(t, records)
+
+	// a later load rebuilds the no-op index and its queue: callers need the slot
+	shard = reload(t, ctx, shard, &models.Class{Class: "SkippedVector"})
+	found, err := shard.WithVectorIndex("", func(VectorIndex) error { return nil })
+	require.NoError(t, err)
+	assert.True(t, found)
+	found, err = shard.WithVectorIndexQueue("", func(*VectorIndexQueue) error { return nil })
+	require.NoError(t, err)
+	assert.True(t, found)
 }
 
 // reload shuts the shard down and opens it again from disk.
 func reload(t *testing.T, ctx context.Context, shard *Shard, class *models.Class) *Shard {
 	t.Helper()
-	return reloadShardFromDisk(t, ctx, shard.index, shard, class)
+	return reloadAfter(t, ctx, shard, class, nil)
 }
 
-// reloadExpectingError shuts the shard down and checks that opening it again
-// fails with wantErr. The caller must repair and reload afterwards.
-func reloadExpectingError(t *testing.T, ctx context.Context, shard *Shard, class *models.Class, wantErr string) {
+// reloadAfter is reload with a step between the shutdown and the reopen,
+// where a directory removal survives the shutdown's own writes.
+func reloadAfter(t *testing.T, ctx context.Context, shard *Shard, class *models.Class, beforeOpen func()) *Shard {
 	t.Helper()
 	require.NoError(t, shard.Shutdown(ctx))
 	simulateProcessRestartBucketCleanup(t, shard.pathLSM())
+	if beforeOpen != nil {
+		beforeOpen()
+	}
+	return openShardFromDisk(t, ctx, shard.index, class, shard.Name())
+}
+
+// reloadExpectingError is reloadAfter for a reopen that must fail with
+// wantErr. The caller must repair and reload afterwards.
+func reloadExpectingError(t *testing.T, ctx context.Context, shard *Shard, class *models.Class, wantErr string, beforeOpen func()) {
+	t.Helper()
+	require.NoError(t, shard.Shutdown(ctx))
+	simulateProcessRestartBucketCleanup(t, shard.pathLSM())
+	if beforeOpen != nil {
+		beforeOpen()
+	}
 	_, err := shard.index.initShard(ctx, shard.Name(), class, nil, true, true)
 	require.ErrorContains(t, err, wantErr)
 }
@@ -152,9 +176,19 @@ func TestInitShardVectors_Reconcile(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, found)
 
-	// a ready record whose storage is gone refuses the load
-	require.NoError(t, os.RemoveAll(fooDir))
-	reloadExpectingError(t, ctx, shard, class, `vector "foo"`)
+	// a ready record whose storage is gone, with nothing to index, is rebuilt:
+	// a backup or a transfer carries no directory for an empty index
+	removeFooDir := func() { require.NoError(t, os.RemoveAll(fooDir)) }
+	shard = reloadAfter(t, ctx, shard, class, removeFooDir)
+	_, err = os.Stat(fooDir)
+	require.NoError(t, err)
+	records, _, err = shard.mapping.Load()
+	require.NoError(t, err)
+	assert.Equal(t, foo, records["foo"])
+
+	// with a vector to index, the same loss refuses the load
+	require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "a", true)))
+	reloadExpectingError(t, ctx, shard, class, `vector "foo"`, removeFooDir)
 	require.NoError(t, os.MkdirAll(fooDir, 0o755))
 	shard = reload(t, ctx, shard, class)
 
@@ -190,7 +224,7 @@ func TestInitShardVectors_Reconcile(t *testing.T) {
 	wrongType := foo
 	wrongType.IndexType = "flat"
 	require.NoError(t, shard.mapping.Put("foo", wrongType))
-	reloadExpectingError(t, ctx, shard, class, "flat")
+	reloadExpectingError(t, ctx, shard, class, "flat", nil)
 	withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
 		require.NoError(t, m.Put("foo", foo))
 	})
@@ -198,7 +232,7 @@ func TestInitShardVectors_Reconcile(t *testing.T) {
 
 	// a mapping the shard cannot read refuses the load
 	require.NoError(t, shard.metadataDB.Namespace(vectorIndexMappingNamespace).Put([]byte("bogus"), []byte("x")))
-	reloadExpectingError(t, ctx, shard, class, `unknown key "bogus"`)
+	reloadExpectingError(t, ctx, shard, class, `unknown key "bogus"`, nil)
 	withOfflineMapping(t, shard.path(), func(_ *vectorIndexMapping, ns *shardmeta.Namespace) {
 		require.NoError(t, ns.Delete([]byte("bogus")))
 	})
