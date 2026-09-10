@@ -22,7 +22,6 @@ import (
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/cluster/usage/types"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
@@ -66,47 +65,58 @@ func (c DimensionCategory) String() string {
 }
 
 // DimensionsUsage scans the dimensions bucket for a given vector, see shardusage.ScanTargetVectorDimensions
-func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string, encodedDimensions int) (shardusage.DimensionsScan, error) {
+func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string, opts shardusage.ScanOpts) (shardusage.DimensionsScan, error) {
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
 		return shardusage.DimensionsScan{}, errors.Errorf("dimensionsUsage: no bucket dimensions")
 	}
-	return shardusage.ScanTargetVectorDimensions(ctx, b, targetVector, encodedDimensions)
+	return shardusage.ScanTargetVectorDimensions(ctx, b, targetVector, opts)
 }
 
-// Dimensions returns the total number of dimensions for a given vector
+// targetVectorScanOpts resolves how the dimensions bucket has to be scanned for a target vector:
+// a multi-vector target spreads its objects over one row per distinct total token dims, so every
+// row has to be read. A vector without a config scans like a single vector, which matches the
+// single row it writes.
+func (s *Shard) targetVectorScanOpts(targetVector string) shardusage.ScanOpts {
+	cfg, ok := s.index.GetVectorIndexConfigs()[targetVector]
+	return shardusage.ScanOpts{MultiVector: ok && cfg.IsMultiVector()}
+}
+
+// Dimensions returns the total number of dimensions stored for a given vector, summed across all
+// of its dimensions-bucket rows: the raw float count, also for multi-vector targets with varying
+// token counts and regardless of any MUVERA encoding, which changes the index but not the stored
+// vectors.
 func (s *Shard) Dimensions(ctx context.Context, targetVector string) (int, error) {
-	dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector)
+	scan, err := s.calcTargetVectorDimensions(ctx, targetVector)
 	if err != nil {
 		return 0, err
 	}
-	return dimensionality.Count * dimensionality.Dimensions, nil
+	return scan.TotalDimensions(), nil
 }
 
 func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error) {
-	dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector)
+	scan, err := s.calcTargetVectorDimensions(ctx, targetVector)
 	if err != nil {
 		return 0, err
 	}
-	return dimensionality.Count * correctEmptySegments(segments, dimensionality.Dimensions), nil
+	// for multi-vector targets the smallest row stands in for the per-object dimensionality, so
+	// quantized segments stay an approximation there
+	return scan.TotalCount() * correctEmptySegments(segments, scan.FirstDims()), nil
 }
 
 func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string,
-) (types.Dimensionality, error) {
+) (shardusage.DimensionsScan, error) {
+	opts := s.targetVectorScanOpts(targetVector)
 	if b := s.store.Bucket(helpers.DimensionsBucketLSM); b != nil {
-		scan, err := shardusage.ScanTargetVectorDimensions(ctx, b, targetVector, 0)
-		if err != nil {
-			return types.Dimensionality{}, err
-		}
-		return scan.Raw, nil
+		return shardusage.ScanTargetVectorDimensions(ctx, b, targetVector, opts)
 	}
 	if s.index.Config.TrackVectorDimensions {
-		return types.Dimensionality{}, errors.Errorf("calcTargetVectorDimensions: no bucket dimensions")
+		return shardusage.DimensionsScan{}, errors.Errorf("calcTargetVectorDimensions: no bucket dimensions")
 	}
 	// A shard that does not track dimensions never opened the bucket, so read what
 	// an earlier tracking run left on disk — the same source an unloaded shard
 	// reads, so one shard reports the same either way.
-	return shardusage.CalculateUnloadedDimensionsUsage(ctx, s.index.logger, s.index.path(), s.name, targetVector)
+	return shardusage.CalculateUnloadedDimensionsUsage(ctx, s.index.logger, s.index.path(), s.name, targetVector, opts)
 }
 
 // DimensionMetrics represents the dimension tracking metrics for a vector.

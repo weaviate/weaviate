@@ -362,9 +362,9 @@ func (i *Index) calculateLoadedShardUsage(ctx context.Context, shard *Shard, exa
 }
 
 // vectorUsages builds the usage entry of every vector index of a loaded shard.
-// dimensionalities holds the raw dimensions [Shard.VectorStorageUsage] already read
-// from the dimensions bucket; whatever it cannot answer is read on demand.
-func (i *Index) vectorUsages(ctx context.Context, shard *Shard, dimensionalities map[string]types.Dimensionality) (types.VectorsUsage, error) {
+// scans holds the dimensions rows [Shard.VectorStorageUsage] already read from the
+// dimensions bucket; whatever it cannot answer is read on demand.
+func (i *Index) vectorUsages(ctx context.Context, shard *Shard, scans map[string]shardusage.DimensionsScan) (types.VectorsUsage, error) {
 	vectorConfigs := i.GetVectorIndexConfigs()
 	var usages types.VectorsUsage
 	if err := shard.ForEachVectorIndex(func(targetVector string, vectorIndex VectorIndex) error {
@@ -392,16 +392,28 @@ func (i *Index) vectorUsages(ctx context.Context, shard *Shard, dimensionalities
 		}
 		dimInfo := GetDimensionCategory(vectorIndexConfig, isDynamicUpgraded)
 
-		// a target vector added since VectorStorageUsage ran is missing from the map, and
-		// MUVERA reports encoded dimensions that the raw scan does not carry
 		encodedDimensions := i.muveraEncodedDimensions(shard.Name(), targetVector, vectorIndexConfig)
-		dimensionality, cached := dimensionalities[targetVector]
-		if !cached || encodedDimensions > 0 {
-			scan, err := shard.DimensionsUsage(ctx, targetVector, encodedDimensions)
+		scan, cached := scans[targetVector]
+		if !cached {
+			// a target vector added since VectorStorageUsage ran is missing from the map
+			var err error
+			scan, err = shard.DimensionsUsage(ctx, targetVector, shardusage.ScanOpts{
+				MultiVector:       vectorIndexConfig.IsMultiVector(),
+				EncodedDimensions: encodedDimensions,
+			})
 			if err != nil {
 				return err
 			}
-			dimensionality = scan.Reported
+		}
+		reported := scan.Reported
+		if encodedDimensions > 0 && len(scan.Rows) > 0 {
+			// the sweep's scan does not carry the MUVERA encoding, so derive the encoded
+			// entry from its rows instead of scanning the bucket again
+			reported = []types.Dimensionality{{Dimensions: encodedDimensions, Count: scan.TotalCount()}}
+		}
+		reportedDims := 0
+		if len(reported) > 0 {
+			reportedDims = reported[0].Dimensions
 		}
 
 		usages = append(usages, &types.VectorUsage{
@@ -409,10 +421,10 @@ func (i *Index) vectorUsages(ctx context.Context, shard *Shard, dimensionalities
 			Compression:            dimInfo.category.String(),
 			VectorIndexType:        indexType,
 			IsDynamic:              isDynamic,
-			VectorCompressionRatio: vectorCompressionRatio(vectorIndex.CompressionStats(), dimensionality.Dimensions),
+			VectorCompressionRatio: vectorCompressionRatio(vectorIndex.CompressionStats(), reportedDims),
 			Bits:                   dimInfo.bits,
 			MultiVectorConfig:      multiVectorConfigFromConfig(vectorIndexConfig),
-			Dimensionalities:       trackedDimensionalities(dimensionality),
+			Dimensionalities:       trackedDimensionalities(reported),
 		})
 		return nil
 	}); err != nil {
@@ -422,14 +434,23 @@ func (i *Index) vectorUsages(ctx context.Context, shard *Shard, dimensionalities
 	return usages, nil
 }
 
-// trackedDimensionalities wraps one target vector's dimensionality for the report,
-// and returns nothing when nothing was tracked. A configured vector holding no data
-// has no dimensionality to bill, rather than one of zero.
-func trackedDimensionalities(dimensionality types.Dimensionality) []*types.Dimensionality {
-	if dimensionality.Count <= 0 && dimensionality.Dimensions <= 0 {
+// trackedDimensionalities wraps a target vector's reported rows for the report, and
+// returns nothing when nothing was tracked. A configured vector holding no data has
+// no dimensionality to bill, rather than one of zero. Multi-vector targets without
+// MUVERA carry one row per distinct per-object total token dims, so consumers must
+// sum the entries instead of reading only the first.
+func trackedDimensionalities(reported []types.Dimensionality) []*types.Dimensionality {
+	tracked := make([]*types.Dimensionality, 0, len(reported))
+	for _, row := range reported {
+		if row.Count <= 0 && row.Dimensions <= 0 {
+			continue
+		}
+		tracked = append(tracked, &row)
+	}
+	if len(tracked) == 0 {
 		return nil
 	}
-	return []*types.Dimensionality{&dimensionality}
+	return tracked
 }
 
 // unloadedVectorState is what a shard's files say about one target vector that
@@ -468,22 +489,26 @@ func (i *Index) unloadedVectorState(shardName, targetVector string,
 // shard from its schema config, the dimensions read off disk, and what the shard's
 // files say about the index the config asks for.
 func unloadedVectorUsage(targetVector string, vectorConfig models.VectorConfig,
-	dimensionality types.Dimensionality, state unloadedVectorState,
+	reported []types.Dimensionality, state unloadedVectorState,
 ) (*types.VectorUsage, error) {
 	vectorIndexConfig, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 	if !ok {
 		return nil, fmt.Errorf("vector index config for %q is not of expected type", targetVector)
 	}
 
+	reportedDims := 0
+	if len(reported) > 0 {
+		reportedDims = reported[0].Dimensions
+	}
 	dimInfo := GetDimensionCategory(vectorIndexConfig, state.dynamicUpgraded)
 	vectorUsage := &types.VectorUsage{
 		Name:                   targetVector,
 		Compression:            dimInfo.category.String(),
 		Bits:                   dimInfo.bits,
-		VectorCompressionRatio: dimInfo.compressionRatio(dimensionality.Dimensions, state.quantizedVectorsExist),
+		VectorCompressionRatio: dimInfo.compressionRatio(reportedDims, state.quantizedVectorsExist),
 		VectorIndexType:        vectorIndexConfig.IndexType(),
 		IsDynamic:              vectorConfig.VectorIndexType == common.IndexTypeDynamic,
-		Dimensionalities:       trackedDimensionalities(dimensionality),
+		Dimensionalities:       trackedDimensionalities(reported),
 		MultiVectorConfig:      multiVectorConfigFromConfig(vectorIndexConfig),
 	}
 	if vectorUsage.IsDynamic {
@@ -546,17 +571,20 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 	}
 
 	// Get named vector data for cold shards from schema configuration
-	encodedDimensions := make(map[string]int, len(vectorConfigs))
+	scanOpts := make(map[string]shardusage.ScanOpts, len(vectorConfigs))
 	for targetVector, vectorConfig := range vectorConfigs {
 		cfg, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
 		if !ok {
 			return nil, fmt.Errorf("class %s, shard %s: vector index config for target vector %q has unexpected type %T",
 				i.Config.ClassName, shardName, targetVector, vectorConfig.VectorIndexConfig)
 		}
-		encodedDimensions[targetVector] = i.muveraEncodedDimensions(shardName, targetVector, cfg)
+		scanOpts[targetVector] = shardusage.ScanOpts{
+			MultiVector:       cfg.IsMultiVector(),
+			EncodedDimensions: i.muveraEncodedDimensions(shardName, targetVector, cfg),
+		}
 	}
 	// open the dimensions bucket once for all target vectors
-	scansAll, err := shardusage.CalculateUnloadedDimensionsUsageAll(ctx, i.logger, i.path(), shardName, encodedDimensions)
+	scansAll, err := shardusage.CalculateUnloadedDimensionsUsageAll(ctx, i.logger, i.path(), shardName, scanOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -565,9 +593,7 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 	uncompressedVectorSize := uint64(0) // calculate total uncompressed vector size for all vectors
 	for targetVector, vectorConfig := range vectorConfigs {
 		scan := scansAll[targetVector]
-		// disk accounting keeps modelling raw dimensions, which is a single row and so
-		// under-counts multi-vectors with varying token counts
-		uncompressedVectorSize += uint64(scan.Raw.Count) * uint64(scan.Raw.Dimensions) * 4
+		uncompressedVectorSize += uint64(scan.TotalDimensions()) * 4
 
 		state := i.unloadedVectorState(shardName, targetVector, vectorConfig, vectorMetrics)
 		vectorUsage, err := unloadedVectorUsage(targetVector, vectorConfig, scan.Reported, state)

@@ -12,7 +12,6 @@
 package usage
 
 import (
-	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"fmt"
 	"math/rand"
@@ -22,6 +21,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"acceptance_tests_with_client/internal/wvhost"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -388,10 +389,10 @@ func TestAlterSchemaDropVectorIndex(t *testing.T) {
 
 	// every vector gets its own dimensions and object count, so a report that attributes one
 	// vector's numbers to another cannot pass
-	expected := map[string]usagetypes.Dimensionality{
-		vectorPrefix: {Dimensions: 384, Count: 100},
-		vector1:      {Dimensions: 128, Count: 60},
-		vector2:      {Dimensions: 256, Count: 30},
+	expected := map[string][]usagetypes.Dimensionality{
+		vectorPrefix: {{Dimensions: 384, Count: 100}},
+		vector1:      {{Dimensions: 128, Count: 60}},
+		vector2:      {{Dimensions: 256, Count: 30}},
 	}
 
 	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
@@ -442,8 +443,8 @@ func TestAlterSchemaDropVectorIndex(t *testing.T) {
 	for i := range numObjects {
 		vectors := models.Vectors{}
 		for name, dimensionality := range expected {
-			if i < dimensionality.Count {
-				vectors[name] = generateRandomVector(dimensionality.Dimensions)
+			if i < dimensionality[0].Count {
+				vectors[name] = generateRandomVector(dimensionality[0].Dimensions)
 			}
 		}
 		objs[i] = &models.Object{
@@ -855,13 +856,18 @@ func settledShardUsage(t *testing.T, c *client.Client, className, tenantName str
 	return settled
 }
 
-// namedVectorDimensionalities maps every named vector of a shard usage report to the
-// dimensionality it reports.
-func namedVectorDimensionalities(t require.TestingT, shard *usagetypes.ShardUsage) map[string]usagetypes.Dimensionality {
-	dimensionalities := make(map[string]usagetypes.Dimensionality, len(shard.NamedVectors))
+// namedVectorDimensionalities maps every named vector of a shard usage report to all the
+// dimensionality rows it reports. Multi-vector targets without MUVERA report one row per
+// distinct per-object total token dims, so callers must compare or sum the whole slice.
+func namedVectorDimensionalities(t require.TestingT, shard *usagetypes.ShardUsage) map[string][]usagetypes.Dimensionality {
+	dimensionalities := make(map[string][]usagetypes.Dimensionality, len(shard.NamedVectors))
 	for name, v := range namedVectors(t, shard) {
 		require.NotEmpty(t, v.Dimensionalities, "no dimensionality reported for vector %q", name)
-		dimensionalities[name] = *v.Dimensionalities[0]
+		rows := make([]usagetypes.Dimensionality, 0, len(v.Dimensionalities))
+		for _, row := range v.Dimensionalities {
+			rows = append(rows, *row)
+		}
+		dimensionalities[name] = rows
 	}
 	return dimensionalities
 }
@@ -1782,9 +1788,8 @@ func testUsageMuvera(t *testing.T, c *client.Client, debug string) {
 	regularVec := "regular"
 
 	const (
-		numObjects  = 20
-		tokenDim    = 32
-		fixedTokens = 3
+		numObjects = 20
+		tokenDim   = 32
 
 		ksim         = 4
 		dprojections = 16
@@ -1792,10 +1797,17 @@ func testUsageMuvera(t *testing.T, c *client.Client, debug string) {
 		encodedDims  = repetitions * (1 << ksim) * dprojections
 	)
 
-	expected := map[string]usagetypes.Dimensionality{
-		muveraVec:  {Dimensions: encodedDims, Count: numObjects},
-		colbertVec: {Dimensions: fixedTokens * tokenDim, Count: numObjects},
-		regularVec: {Dimensions: tokenDim, Count: numObjects},
+	// both multi-vector targets hold 2 + i%3 tokens, so objects spread over one dimensions
+	// row per token count: 7 objects at 2 tokens, 7 at 3, 6 at 4. MUVERA collapses them into
+	// a single encoded row; without MUVERA the report enumerates every row.
+	expected := map[string][]usagetypes.Dimensionality{
+		muveraVec: {{Dimensions: encodedDims, Count: numObjects}},
+		colbertVec: {
+			{Dimensions: 2 * tokenDim, Count: 7},
+			{Dimensions: 3 * tokenDim, Count: 7},
+			{Dimensions: 4 * tokenDim, Count: 6},
+		},
+		regularVec: {{Dimensions: tokenDim, Count: numObjects}},
 	}
 
 	multivectorIndexConfig := func(muvera bool) map[string]any {
@@ -1851,10 +1863,10 @@ func testUsageMuvera(t *testing.T, c *client.Client, debug string) {
 				"name": fmt.Sprintf("name %d", i),
 			},
 			Vectors: models.Vectors{
-				// varying token counts spread the raw dims over several rows, so a
-				// single-row report cannot reach the full count
+				// varying token counts spread the raw dims over several rows; the muvera
+				// report must sum them and the colbert report must enumerate them
 				muveraVec:  generateRandomMultiVector(2+i%3, tokenDim),
-				colbertVec: generateRandomMultiVector(fixedTokens, tokenDim),
+				colbertVec: generateRandomMultiVector(2+i%3, tokenDim),
 				regularVec: generateRandomVector(tokenDim),
 			},
 		}

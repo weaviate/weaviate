@@ -581,6 +581,8 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 		vectorConfig      func() enthnsw.UserConfig
 		namedVectorConfig func() enthnsw.UserConfig
 		multiVectorConfig func() enthnsw.UserConfig
+		// multiVecCardFn gives object i's token count; nil keeps the fixed multiVecCard
+		multiVecCardFn func(i int) int
 
 		expectDimensions float64
 		expectSegments   float64
@@ -602,6 +604,31 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 			multiVectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig() },
 
 			expectDimensions: multiVecCard * dimensionsPerVector * objectCount,
+		},
+		{
+			// varying token counts spread the objects over several dimensions-bucket rows;
+			// the metric must sum every row instead of reading only the first
+			name:              "multi_varying_tokens",
+			multiVectorConfig: func() enthnsw.UserConfig { return enthnsw.NewDefaultUserConfig() },
+			multiVecCardFn:    func(i int) int { return 1 + i%4 },
+
+			// Σ (1 + i%4) over 100 objects = 100 + 25*(0+1+2+3) = 250 tokens
+			expectDimensions: 250 * dimensionsPerVector,
+		},
+		{
+			// MUVERA changes the index, not the stored vectors, so the metric still
+			// reports the raw token dimensions summed across all rows
+			name: "multi_muvera_varying_tokens",
+			multiVectorConfig: func() enthnsw.UserConfig {
+				cfg := enthnsw.NewDefaultUserConfig()
+				cfg.Multivector.MuveraConfig = enthnsw.MuveraConfig{
+					Enabled: true, KSim: 1, Repetitions: 2, DProjections: 5,
+				}
+				return cfg
+			},
+			multiVecCardFn: func(i int) int { return 1 + i%4 },
+
+			expectDimensions: 250 * dimensionsPerVector,
 		},
 		{
 			name:              "mixed",
@@ -715,7 +742,7 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 
 			if tt.multiVectorConfig != nil {
 				config := tt.multiVectorConfig()
-				config.Multivector = enthnsw.MultivectorConfig{Enabled: true}
+				config.Multivector.Enabled = true
 				class.VectorConfig[multiVectorName] = models.VectorConfig{
 					VectorIndexConfig: config,
 				}
@@ -736,7 +763,15 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 							Class: tt.name,
 							ID:    intToUUID(i),
 						}
-						err := db.PutObject(context.Background(), obj, legacyVec, namedVecs, multiVecs, nil, 0)
+						objMultiVecs := multiVecs
+						if tt.multiVecCardFn != nil {
+							objMultiVecs = map[string][][]float32{}
+							for range tt.multiVecCardFn(i) {
+								objMultiVecs[multiVectorName] = append(objMultiVecs[multiVectorName],
+									randVector(dimensionsPerVector))
+							}
+						}
+						err := db.PutObject(context.Background(), obj, legacyVec, namedVecs, objMultiVecs, nil, 0)
 						require.Nil(t, err)
 					}
 					publishVectorMetricsFromDB(t, db)

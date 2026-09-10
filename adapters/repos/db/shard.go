@@ -36,7 +36,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
-	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -682,33 +681,29 @@ func (s *Shard) ObjectStorageSize(ctx context.Context) (int64, error) {
 }
 
 // VectorStorageUsage calculates the total storage size of all vector indexes in the shard. It also
-// returns every target vector's dimensionality, so callers need not re-read the dimensions bucket.
-func (s *Shard) VectorStorageUsage(ctx context.Context, lsmPath string, directories []string) (int64, int64, map[string]usagetypes.Dimensionality, error) {
+// returns every target vector's dimensions scan, so callers need not re-read the dimensions bucket.
+func (s *Shard) VectorStorageUsage(ctx context.Context, lsmPath string, directories []string) (int64, int64, map[string]shardusage.DimensionsScan, error) {
 	vectorMetrics, err := shardusage.CalculateUnloadedVectorsMetrics(lsmPath, directories)
 	if err != nil {
 		return 0, 0, nil, err
 	}
 
 	uncompressedSize := int64(0)
-	dimensionalities := map[string]usagetypes.Dimensionality{}
+	scans := map[string]shardusage.DimensionsScan{}
 	if err := s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
-		// Get dimensions and object count from the dimensions bucket for this specific target vector
-		dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector)
+		// Get dimensions and object counts from the dimensions bucket for this specific target vector
+		scan, err := s.calcTargetVectorDimensions(ctx, targetVector)
 		if err != nil {
 			return err
 		}
-		dimensionalities[targetVector] = dimensionality
-		if dimensionality.Count == 0 || dimensionality.Dimensions == 0 {
-			return nil
-		}
-
-		uncompressedSize += int64(dimensionality.Count) * int64(dimensionality.Dimensions) * 4
+		scans[targetVector] = scan
+		uncompressedSize += int64(scan.TotalDimensions()) * 4
 		return nil
 	}); err != nil {
 		return 0, 0, nil, err
 	}
 
-	return vectorMetrics.StorageBytes, uncompressedSize, dimensionalities, nil
+	return vectorMetrics.StorageBytes, uncompressedSize, scans, nil
 }
 
 func (s *Shard) isFallbackToSearchable() bool {
