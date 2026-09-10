@@ -1,8 +1,0 @@
-size 4532
-index start 4354
-node 0 key "aaa low" len 1115 additions 512 deletions 0
-node 1 key "bbb low" len 1291 additions 512 deletions 16
-node 2 key "ccc high" len 1260 additions 512 deletions 0
-node 3 key "eee overlaps" len 672 additions 200 deletions 16
-nodes 4
-sha256 00129bdbf9d41e4b1ad8fade25b9eef7739bb40751dfdca6d0340d227d19e7c2

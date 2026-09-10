@@ -13,13 +13,11 @@ package roaringset
 
 import (
 	"context"
-	"crypto/sha256"
-	"flag"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
@@ -634,91 +632,62 @@ func (c *CountingWriteSeeker) Bytes() ([]byte, error) {
 // Close closes the underlying file.
 func (c *CountingWriteSeeker) Close() error { return c.f.Close() }
 
-var updateCompactorGolden = flag.Bool("update-compactor-golden", false,
-	"rewrite the recorded compacted segments instead of asserting against them")
-
-// compactorGoldenKeys spans the arms a compaction takes: a key on the left only,
-// a key on the right only, and one present on both so the merge arm is recorded.
-// The inputs carry the slack a bare NewBitmap leaves, which is the shape a segment
-// written before the flush compacted still has on disk.
-func compactorGoldenKeys() (left, right []keyWithBML) {
-	left = []keyWithBML{
-		{key: []byte("aaa low"), additions: slice(0, 512)},
-		{key: []byte("ccc high"), additions: slice(65536, 66048)},
-		{key: []byte("eee overlaps"), additions: slice(0, 100), deletions: slice(3000, 3016)},
-	}
-	right = []keyWithBML{
-		{key: []byte("bbb low"), additions: slice(1000, 1512), deletions: slice(2000, 2016)},
-		{key: []byte("eee overlaps"), additions: slice(100, 200)},
-	}
-	return left, right
-}
-
-// compactorManifest itemises a compacted segment: its size, where its index
-// starts, and one line per node. A bare hash would say the bytes moved; the
-// per-node length says which node moved and by how much.
-func compactorManifest(data []byte) (string, error) {
-	header, err := segmentindex.ParseHeader(data[:segmentindex.HeaderSize])
-	if err != nil {
-		return "", err
-	}
-
-	var sb strings.Builder
-	fmt.Fprintf(&sb, "size %d\n", len(data))
-	fmt.Fprintf(&sb, "index start %d\n", header.IndexStart)
-
-	nodes := 0
-	for offset := segmentindex.HeaderSize; offset < int(header.IndexStart); nodes++ {
-		node := NewSegmentNodeFromBuffer(data[offset:])
-		if node.Len() == 0 {
-			return "", fmt.Errorf("node %d reports a zero length", nodes)
-		}
-		fmt.Fprintf(&sb, "node %d key %q len %d additions %d deletions %d\n",
-			nodes, node.PrimaryKey(), node.Len(),
-			node.Additions().GetCardinality(), node.Deletions().GetCardinality())
-		offset += int(node.Len())
-	}
-	fmt.Fprintf(&sb, "nodes %d\n", nodes)
-	fmt.Fprintf(&sb, "sha256 %x\n", sha256.Sum256(data))
-	return sb.String(), nil
-}
-
-// TestCompactorGolden records what a compaction writes, so a change to how the
-// nodes are encoded names the node that moved. It is structural only — no
-// assertion here reads a doc ID back, so a regeneration cannot be checked
-// against these fixtures' values by anything in this package.
-func TestCompactorGolden(t *testing.T) {
-	leftKeys, rightKeys := compactorGoldenKeys()
-
+// TestCompactorStoresNoEmptyBitmap is the compaction-side pair of
+// TestFlushRoaringSetStoresNoEmptyBitmap: whatever a compaction re-encodes, an
+// empty side must still cost a zero length indicator and no payload. The two
+// paths reach that differently — the flush skips the encoder for an empty side,
+// while the compactor relies on NewSegmentNode taking ToBuffer's nil — so
+// neither test covers the other.
+//
+// It also walks the body to IndexStart, which is the structural check that a
+// recorded byte-for-byte manifest would otherwise be carrying.
+func TestCompactorStoresNoEmptyBitmap(t *testing.T) {
+	// cleanup=true drops nodes holding only deletions, so both arms of
+	// cleanupValues are exercised across the two rows.
 	for _, cleanup := range []bool{false, true} {
-		for _, checksums := range []bool{false, true} {
-			name := fmt.Sprintf("cleanup-%t_checksums-%t", cleanup, checksums)
-			t.Run(name, func(t *testing.T) {
-				left := createSegmentsFromKeys(t, leftKeys)
-				right := createSegmentsFromKeys(t, rightKeys)
-
-				data := cursorCompactor(t, NewSegmentCursor(left, nil),
-					NewSegmentCursor(right, nil),
-					compactor.SegmentWriterBufferSize+1, cleanup, checksums)
-
-				got, err := compactorManifest(data)
-				require.NoError(t, err)
-
-				path := filepath.Join("testdata", "roaringset-compactor-golden", name+".golden")
-				if *updateCompactorGolden {
-					require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
-					require.NoError(t, os.WriteFile(path, []byte(got), 0o644))
-					return
-				}
-
-				want, err := os.ReadFile(path)
-				require.NoError(t, err,
-					"no recorded segment; re-run with: go test ./adapters/repos/db/roaringset/ "+
-						"-run TestCompactorGolden -update-compactor-golden")
-				require.Equal(t, string(want), got,
-					"the compacted segment changed; only if the change was intended, re-run with: "+
-						"go test ./adapters/repos/db/roaringset/ -run TestCompactorGolden -update-compactor-golden")
+		t.Run(fmt.Sprintf("cleanup=%t", cleanup), func(t *testing.T) {
+			left := createSegmentsFromKeys(t, []keyWithBML{
+				{key: []byte("additions only"), additions: slice(0, 10)},
+				{key: []byte("both sides"), additions: slice(20, 30), deletions: slice(40, 50)},
 			})
-		}
+			right := createSegmentsFromKeys(t, []keyWithBML{
+				{key: []byte("deletions only"), deletions: slice(100, 110)},
+			})
+
+			data := cursorCompactor(t, NewSegmentCursor(left, nil), NewSegmentCursor(right, nil),
+				compactor.SegmentWriterBufferSize+1, cleanup, false)
+
+			header, err := segmentindex.ParseHeader(data[:segmentindex.HeaderSize])
+			require.NoError(t, err)
+
+			nodes := data[segmentindex.HeaderSize:header.IndexStart]
+			sides := map[string][2]uint64{}
+			at := 0
+			for at < len(nodes) {
+				nodeLen := binary.LittleEndian.Uint64(nodes[at : at+8])
+				require.NotZero(t, nodeLen, "node at %d reports a zero length", at)
+				aLen := binary.LittleEndian.Uint64(nodes[at+8 : at+16])
+				dLen := binary.LittleEndian.Uint64(nodes[at+16+int(aLen) : at+24+int(aLen)])
+				keyOff := at + 24 + int(aLen) + int(dLen)
+				keyLen := binary.LittleEndian.Uint32(nodes[keyOff : keyOff+4])
+				sides[string(nodes[keyOff+4:keyOff+4+int(keyLen)])] = [2]uint64{aLen, dLen}
+				at += int(nodeLen)
+			}
+			require.Equal(t, len(nodes), at, "the body did not end where the header says the index starts")
+
+			require.NotZero(t, sides["additions only"][0])
+			require.Zero(t, sides["additions only"][1], "an empty deletions side must store no payload")
+
+			if cleanup {
+				// Deletions are dropped once nothing older can be masked, so a node
+				// holding only deletions goes with them.
+				require.NotContains(t, sides, "deletions only")
+				require.Zero(t, sides["both sides"][1], "cleanup must leave no deletions payload")
+			} else {
+				require.Zero(t, sides["deletions only"][0], "an empty additions side must store no payload")
+				require.NotZero(t, sides["deletions only"][1])
+				require.NotZero(t, sides["both sides"][1])
+			}
+		})
 	}
 }

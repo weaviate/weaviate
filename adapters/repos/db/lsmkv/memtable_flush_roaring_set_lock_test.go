@@ -33,7 +33,7 @@ func discardingSegmentFile() *segmentindex.SegmentFile {
 
 func TestFlushRoaringSetBlocksOnMemtableWriteLock(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	m := newRoaringSetFlushFixture(t, goldenFixtureShapes(), false)
+	m := newRoaringSetFlushFixture(t, flushFixtureShapes(), false)
 
 	m.Lock()
 	var once sync.Once
@@ -70,7 +70,7 @@ func TestFlushRoaringSetBlocksOnMemtableWriteLock(t *testing.T) {
 // every time.
 func TestFlushRoaringSetConcurrentWrite(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	m := newRoaringSetFlushFixture(t, goldenFixtureShapes(), false)
+	m := newRoaringSetFlushFixture(t, flushFixtureShapes(), false)
 
 	written := make(chan error, 1)
 	enterrors.GoWrapper(func() {

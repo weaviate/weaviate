@@ -29,7 +29,7 @@ import (
 // segment body and still pass a bytes-only assertion, and copying every key per
 // flush is the cost this avoids.
 func TestFlushRoaringSetKeysDoNotAliasNodeBuffers(t *testing.T) {
-	m := newRoaringSetFlushFixture(t, goldenFixtureShapes(), false)
+	m := newRoaringSetFlushFixture(t, flushFixtureShapes(), false)
 
 	keys, err := m.writeRoaringSetNodes(discardingSegmentFile())
 	require.NoError(t, err)
@@ -55,7 +55,7 @@ func TestFlushRoaringSetKeysDoNotAliasNodeBuffers(t *testing.T) {
 // pins what flush() leaves behind: the partial .db.tmp is removed, so a failed
 // flush cannot be read as a segment by the next startup scan.
 func TestFlushRoaringSetRejectsSecondaryIndexes(t *testing.T) {
-	m := newRoaringSetFlushFixture(t, goldenFixtureShapes(), false)
+	m := newRoaringSetFlushFixture(t, flushFixtureShapes(), false)
 	m.secondaryIndices = 1
 
 	segmentPath, err := m.flush()
@@ -149,7 +149,7 @@ func TestFlushDataRoaringSetReportsWriteFailures(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := newRoaringSetFlushFixture(t, goldenFixtureShapes(), false)
+			m := newRoaringSetFlushFixture(t, flushFixtureShapes(), false)
 
 			ws := new(failingWriteSeeker)
 			ws.failOnWrite = tt.failOnWrite

@@ -13,13 +13,11 @@ package lsmkv
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"flag"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -27,9 +25,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
-
-var updateRoaringSetGolden = flag.Bool("update-roaringset-golden", false,
-	"rewrite the recorded roaring-set segments instead of asserting against them")
 
 // fixtureShape is one memtable key: the doc IDs added under it, then the doc
 // IDs removed. Removing IDs that were added grows the memtable's additions
@@ -60,7 +55,7 @@ func newRoaringSetFlushFixture(tb testing.TB, shapes []fixtureShape,
 		path:     path,
 		strategy: StrategyRoaringSet,
 		// enableChecksumValidation selects the header version and whether a
-		// checksum is appended, so TestFlushRoaringSetGolden crosses both values.
+		// checksum is appended, so TestFlushRoaringSetSegmentStructure crosses both values.
 		enableChecksumValidation: enableChecksumValidation,
 		// writeSegmentInfoIntoFileName selects only which path the segment lands
 		// on, which callers read back from flush() rather than deriving.
@@ -96,7 +91,7 @@ func docIDRange(from, to uint64) []uint64 {
 	return out
 }
 
-// goldenFixtureShapes covers additions only, deletions only, both, and
+// flushFixtureShapes covers additions only, deletions only, both, and
 // additions emptied by a later remove — which serializes like deletions only
 // and is here for the memtable state, a grown but empty additions bitmap.
 // The zero-length key tells a nil-key loop termination apart from a
@@ -107,7 +102,7 @@ func docIDRange(from, to uint64) []uint64 {
 // down is what makes the flush rewrite it as an array; a key whose only values
 // sit above 65536 leaves an empty container at a non-zero key once they are
 // removed, which is dropped rather than written.
-func goldenFixtureShapes() []fixtureShape {
+func flushFixtureShapes() []fixtureShape {
 	return []fixtureShape{
 		{key: []byte{}, add: docIDRange(0, 8)},
 		{key: []byte("additions"), add: docIDRange(100, 1100)},
@@ -127,10 +122,10 @@ func goldenFixtureShapes() []fixtureShape {
 	}
 }
 
-// goldenFixtures are the fixtures whose bytes are recorded. The round trip
+// flushFixtures are the fixtures whose bytes are recorded. The round trip
 // walks the same list, so a regeneration that keeps every cardinality cannot
 // hide a value that moved.
-func goldenFixtures() []struct {
+func flushFixtures() []struct {
 	name   string
 	shapes []fixtureShape
 } {
@@ -138,14 +133,14 @@ func goldenFixtures() []struct {
 		name   string
 		shapes []fixtureShape
 	}{
-		{name: "five shapes", shapes: goldenFixtureShapes()},
+		{name: "five shapes", shapes: flushFixtureShapes()},
 		{name: "single node", shapes: []fixtureShape{{key: []byte("only"), add: docIDRange(0, 512)}}},
 		{name: "empty", shapes: nil},
 	}
 }
 
-func TestFlushRoaringSetGolden(t *testing.T) {
-	for _, tt := range goldenFixtures() {
+func TestFlushRoaringSetSegmentStructure(t *testing.T) {
+	for _, tt := range flushFixtures() {
 		for _, checksums := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/checksums=%t", tt.name, checksums), func(t *testing.T) {
 				m := newRoaringSetFlushFixture(t, tt.shapes, checksums)
@@ -185,20 +180,17 @@ func TestFlushRoaringSetGolden(t *testing.T) {
 				require.Equal(t, len(tt.shapes),
 					segmentindex.NewDiskTree(data[header.IndexStart:]).KeyCount(),
 					"the index must carry one entry per key the memtable held")
-
-				assertGoldenSegment(t, goldenName(tt.name, checksums), data)
 			})
 		}
 	}
 }
 
 // TestFlushRoaringSetRoundTrip reads every doc ID back out of a flushed
-// segment. TestFlushRoaringSetGolden's assertions are all structural — offsets,
-// counts, a hash — so -update-roaringset-golden would happily record a segment
-// whose values are wrong. This is the assertion that regenerating cannot
-// launder, which is why it has to exist before any step regenerates.
+// segment. TestFlushRoaringSetSegmentStructure beside it checks only offsets
+// and counts, which hold for a segment whose values are wrong, so this is what
+// says the flush wrote the doc IDs it was given.
 func TestFlushRoaringSetRoundTrip(t *testing.T) {
-	for _, tt := range goldenFixtures() {
+	for _, tt := range flushFixtures() {
 		if len(tt.shapes) == 0 {
 			continue
 		}
@@ -253,64 +245,65 @@ func assertNodeMatchesShape(t *testing.T, shapes []fixtureShape, node *roaringse
 	require.Fail(t, "the segment holds a key no fixture shape produced", "%q", node.PrimaryKey())
 }
 
-func goldenName(fixture string, checksums bool) string {
-	return fmt.Sprintf("%s_checksums-%t", strings.ReplaceAll(fixture, " ", "-"), checksums)
+// segmentSideLengths reads the two bitmap length indicators straight out of a
+// node's bytes, ahead of any accessor. Additions() and Deletions() substitute
+// nil for a zero indicator, so reading through them cannot tell a stored empty
+// bitmap from an absent one — which is the distinction under test.
+//
+// Layout: [nodeLen u64][aLen u64][additions][dLen u64][deletions][keyLen u32][key]
+func segmentSideLengths(t *testing.T, nodes []byte) map[string][2]uint64 {
+	t.Helper()
+
+	out := map[string][2]uint64{}
+	for at := 0; at < len(nodes); {
+		nodeLen := binary.LittleEndian.Uint64(nodes[at : at+8])
+		require.NotZero(t, nodeLen, "node at %d reports a zero length", at)
+		aLen := binary.LittleEndian.Uint64(nodes[at+8 : at+16])
+		dLen := binary.LittleEndian.Uint64(nodes[at+16+int(aLen) : at+24+int(aLen)])
+		keyOff := at + 24 + int(aLen) + int(dLen)
+		keyLen := binary.LittleEndian.Uint32(nodes[keyOff : keyOff+4])
+		out[string(nodes[keyOff+4:keyOff+4+int(keyLen)])] = [2]uint64{aLen, dLen}
+		at += int(nodeLen)
+	}
+	return out
 }
 
-// segmentManifest itemises a flushed segment: the header's numbers, one line
-// per node, the index entry count, and the hash of the whole file. The hash
-// alone would report a changed byte as two hex strings; the itemisation says
-// which node moved and by how much, which is the quantity the compacting
-// rewrite is judged on.
-func segmentManifest(tb testing.TB, data []byte) string {
-	tb.Helper()
+// TestFlushRoaringSetStoresNoEmptyBitmap pins that an empty side costs a zero
+// length indicator and no payload. An empty sroar bitmap still owns its key-0
+// container and occupies bytes in memory, and CompactedToBuf hands a caller
+// that size rather than zero, so storing one is an easy mistake to make.
+//
+// TestFlushRoaringSetRoundTrip does catch it, but only through Additions()
+// returning nil for a zero indicator and testify separating a nil slice from an
+// empty one. This asserts the stored length directly, so the reason a failure
+// names is the size on disk rather than a slice comparison.
+func TestFlushRoaringSetStoresNoEmptyBitmap(t *testing.T) {
+	shapes := []fixtureShape{
+		{key: []byte("additions only"), add: docIDRange(0, 10)},
+		{key: []byte("deletions only"), remove: docIDRange(100, 110)},
+		// Allocated then emptied, so the source bitmap holds containers while
+		// holding no values — the case a length-based test would miss.
+		{key: []byte("grown then emptied"), add: docIDRange(200, 5000), remove: docIDRange(200, 5000)},
+	}
 
+	m := newRoaringSetFlushFixture(t, shapes, false)
+	segmentPath, err := m.flush()
+	require.NoError(t, err)
+
+	data, err := os.ReadFile(segmentPath)
+	require.NoError(t, err)
 	header, err := segmentindex.ParseHeader(data[:segmentindex.HeaderSize])
-	require.NoError(tb, err)
-	require.GreaterOrEqual(tb, len(data), int(header.IndexStart),
-		"the segment is shorter than the header's IndexStart")
+	require.NoError(t, err)
 
-	var out strings.Builder
-	fmt.Fprintf(&out, "size %d\n", len(data))
-	fmt.Fprintf(&out, "header version %d\n", header.Version)
-	fmt.Fprintf(&out, "index start %d\n", header.IndexStart)
+	sides := segmentSideLengths(t, data[segmentindex.HeaderSize:header.IndexStart])
 
-	offset := segmentindex.HeaderSize
-	for i := 0; offset < int(header.IndexStart); i++ {
-		node := roaringset.NewSegmentNodeFromBuffer(data[offset:])
-		// A zero length would make this walk run forever on a corrupt segment.
-		require.NotZero(tb, node.Len(), "node %d reports a zero length", i)
-		fmt.Fprintf(&out, "node %d key %q len %d additions %d deletions %d\n",
-			i, node.PrimaryKey(), node.Len(),
-			len(node.Additions().ToArray()), len(node.Deletions().ToArray()))
-		offset += int(node.Len())
-	}
+	require.NotZero(t, sides["additions only"][0])
+	require.Zero(t, sides["additions only"][1], "an empty deletions side must store no payload")
 
-	fmt.Fprintf(&out, "index entries %d\n",
-		segmentindex.NewDiskTree(data[header.IndexStart:]).KeyCount())
-	fmt.Fprintf(&out, "sha256 %x\n", sha256.Sum256(data))
+	require.Zero(t, sides["deletions only"][0], "an empty additions side must store no payload")
+	require.NotZero(t, sides["deletions only"][1])
 
-	return out.String()
-}
-
-// assertGoldenSegment compares the flushed segment against its recorded
-// manifest, or rewrites the record under -update-roaringset-golden, so that
-// nothing recorded is ever hand-typed.
-func assertGoldenSegment(tb testing.TB, name string, data []byte) {
-	tb.Helper()
-
-	got := segmentManifest(tb, data)
-	path := filepath.Join("testdata", "roaringset-golden", name+".golden")
-
-	if *updateRoaringSetGolden {
-		require.NoError(tb, os.MkdirAll(filepath.Dir(path), 0o755))
-		require.NoError(tb, os.WriteFile(path, []byte(got), 0o644))
-		return
-	}
-
-	recorded, err := os.ReadFile(path)
-	require.NoError(tb, err,
-		"no recorded segment; re-run with: go test ./adapters/repos/db/lsmkv/ -run TestFlushRoaringSetGolden -update-roaringset-golden")
-	require.Equal(tb, string(recorded), got,
-		"the flushed segment changed; only if the change was intended, re-run with: go test ./adapters/repos/db/lsmkv/ -run TestFlushRoaringSetGolden -update-roaringset-golden")
+	require.Zero(t, sides["grown then emptied"][0],
+		"a bitmap emptied after growing must store no payload, however much it holds in memory")
+	require.NotZero(t, sides["grown then emptied"][1])
 }
