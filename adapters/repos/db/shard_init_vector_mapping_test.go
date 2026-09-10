@@ -14,12 +14,18 @@
 package db
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	entdynamic "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
@@ -111,4 +117,104 @@ func TestInitShardVectors_SkippedIndexHasNoRecord(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, initialized)
 	assert.Empty(t, records)
+}
+
+// reload shuts the shard down and opens it again from disk, the way a
+// restart would, returning the new instance.
+func reload(t *testing.T, ctx context.Context, shard *Shard, class *models.Class) *Shard {
+	t.Helper()
+	return reloadShardFromDisk(t, ctx, shard.index, shard, class)
+}
+
+// reloadExpectingError shuts the shard down and checks that opening it again
+// fails with wantErr in the message. The caller must repair the state and
+// reload successfully afterwards, so the fixture's cleanup finds a live shard.
+func reloadExpectingError(t *testing.T, ctx context.Context, shard *Shard, class *models.Class, wantErr string) {
+	t.Helper()
+	require.NoError(t, shard.Shutdown(ctx))
+	simulateProcessRestartBucketCleanup(t, shard.pathLSM())
+	_, err := shard.index.initShard(ctx, shard.Name(), class, nil, true, true)
+	require.ErrorContains(t, err, wantErr)
+}
+
+// withOfflineMapping opens a shut-down shard's index.db, hands the mapping
+// and its raw namespace to fn, and closes the file again.
+func withOfflineMapping(t *testing.T, shardDir string, fn func(m *vectorIndexMapping, ns *shardmeta.Namespace)) {
+	t.Helper()
+	db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
+	require.NoError(t, err)
+	defer db.Close()
+	fn(newVectorIndexMapping(db), db.Namespace(vectorIndexMappingNamespace))
+}
+
+// TestInitShardVectors_Reconcile walks a shard through every state the
+// mapping can be in at a later load, one reload per state.
+func TestInitShardVectors_Reconcile(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	foo := vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}
+	fooDir := filepath.Join(shard.path(), helpers.GetHNSWCommitLogDirName("foo"))
+
+	// a ready record whose storage is on disk opens as before
+	shard = reload(t, ctx, shard, class)
+	records, _, err := shard.mapping.Load()
+	require.NoError(t, err)
+	assert.Equal(t, foo, records["foo"])
+	found, err := shard.WithVectorIndex("foo", func(VectorIndex) error { return nil })
+	require.NoError(t, err)
+	assert.True(t, found)
+
+	// a ready record whose storage is gone refuses the load, naming what is missing
+	require.NoError(t, os.RemoveAll(fooDir))
+	reloadExpectingError(t, ctx, shard, class, `vector "foo"`)
+	require.NoError(t, os.MkdirAll(fooDir, 0o755))
+	shard = reload(t, ctx, shard, class)
+
+	// a creating record resumes: built, synced, flipped to ready
+	creating := foo
+	creating.State = "creating"
+	require.NoError(t, shard.mapping.Put("foo", creating))
+	shard = reload(t, ctx, shard, class)
+	records, _, err = shard.mapping.Load()
+	require.NoError(t, err)
+	assert.Equal(t, foo, records["foo"])
+
+	// a vector the schema has but the mapping does not is recorded
+	require.NoError(t, shard.mapping.Delete("foo"))
+	shard = reload(t, ctx, shard, class)
+	records, _, err = shard.mapping.Load()
+	require.NoError(t, err)
+	assert.Equal(t, foo, records["foo"])
+
+	// a record the schema does not have is deleted, its storage untouched
+	ghostDir := filepath.Join(shard.path(), helpers.GetHNSWCommitLogDirName("ghost"))
+	require.NoError(t, os.MkdirAll(ghostDir, 0o755))
+	require.NoError(t, shard.mapping.Put("ghost", vectorIndexRecord{PhysicalID: "vectors_ghost", IndexType: "hnsw", State: "ready"}))
+	shard = reload(t, ctx, shard, class)
+	records, _, err = shard.mapping.Load()
+	require.NoError(t, err)
+	_, hasGhost := records["ghost"]
+	assert.False(t, hasGhost)
+	_, err = os.Stat(ghostDir)
+	assert.NoError(t, err, "a record the schema lost is not a reason to delete files")
+
+	// a record whose type disagrees with the schema refuses the load
+	wrongType := foo
+	wrongType.IndexType = "flat"
+	require.NoError(t, shard.mapping.Put("foo", wrongType))
+	reloadExpectingError(t, ctx, shard, class, "flat")
+	withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+		require.NoError(t, m.Put("foo", foo))
+	})
+	shard = reload(t, ctx, shard, class)
+
+	// a mapping the shard cannot read refuses the load
+	require.NoError(t, shard.metadataDB.Namespace(vectorIndexMappingNamespace).Put([]byte("bogus"), []byte("x")))
+	reloadExpectingError(t, ctx, shard, class, `unknown key "bogus"`)
+	withOfflineMapping(t, shard.path(), func(_ *vectorIndexMapping, ns *shardmeta.Namespace) {
+		require.NoError(t, ns.Delete([]byte("bogus")))
+	})
+	shard = reload(t, ctx, shard, class)
+	_, _, err = shard.mapping.Load()
+	require.NoError(t, err)
 }

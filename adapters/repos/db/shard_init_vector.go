@@ -66,13 +66,19 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 
 	// The mapping is the shard's record of which indexes it has. A shard
 	// without one builds under the naming rule and writes it; one with it
-	// reconciles the records against the schema first.
-	_, initialized, err := s.mapping.Load()
+	// reconciles the records against the schema and opens each index at
+	// the ID its record holds.
+	records, initialized, err := s.mapping.Load()
 	if err != nil {
 		return fmt.Errorf("shard %q: %w", s.ID(), err)
 	}
-	// an initialized mapping is reconciled in the next commit; until then
-	// it builds as before and writes nothing
+	if initialized {
+		err = s.reconcileVectorIndexMapping(ctx, legacy, targets, records)
+		if err != nil {
+			return fmt.Errorf("shard %q: %w", s.ID(), err)
+		}
+		return nil
+	}
 
 	if legacy != nil {
 		if err := s.initLegacyVector(ctx, legacy, s.lazySegmentLoadingEnabled); err != nil {
@@ -84,11 +90,9 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 		return err
 	}
 
-	if !initialized {
-		err = s.initVectorIndexMapping(activeVectorIndexConfigs(legacy, targets))
-		if err != nil {
-			return fmt.Errorf("shard %q: %w", s.ID(), err)
-		}
+	err = s.initVectorIndexMapping(activeVectorIndexConfigs(legacy, targets))
+	if err != nil {
+		return fmt.Errorf("shard %q: %w", s.ID(), err)
 	}
 	return nil
 }
@@ -347,12 +351,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 func (s *Shard) initTargetVectors(ctx context.Context, legacy schemaConfig.VectorIndexConfig,
 	configs map[string]schemaConfig.VectorIndexConfig, lazyLoadSegments bool,
 ) error {
-	if err := newCompressedVectorsMigrator(s.index.logger).do(s, legacy, configs); err != nil {
-		s.index.logger.WithFields(logrus.Fields{
-			"action":   "init_target_vectors",
-			"shard_id": s.ID(),
-		}).Errorf("failed to migrate vectors compressed folder: %v", err)
-	}
+	s.migrateCompressedVectors(legacy, configs)
 
 	for targetVector, vectorIndexConfig := range configs {
 		if err := s.initTargetVector(ctx, targetVector, vectorIndexConfig, lazyLoadSegments); err != nil {
@@ -360,6 +359,17 @@ func (s *Shard) initTargetVectors(ctx context.Context, legacy schemaConfig.Vecto
 		}
 	}
 	return nil
+}
+
+// migrateCompressedVectors runs the compressed-vectors folder migration
+// before the named indexes are built; a failure is logged, as before.
+func (s *Shard) migrateCompressedVectors(legacy schemaConfig.VectorIndexConfig, configs map[string]schemaConfig.VectorIndexConfig) {
+	if err := newCompressedVectorsMigrator(s.index.logger).do(s, legacy, configs); err != nil {
+		s.index.logger.WithFields(logrus.Fields{
+			"action":   "init_target_vectors",
+			"shard_id": s.ID(),
+		}).Errorf("failed to migrate vectors compressed folder: %v", err)
+	}
 }
 
 // initTargetVector creates the named vector's index and queue under the
