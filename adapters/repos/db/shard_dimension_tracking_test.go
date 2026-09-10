@@ -1124,7 +1124,8 @@ func TestDimensionTrackingWithGrouping(t *testing.T) {
 		{
 			name:            "with_grouping_enabled",
 			groupingEnabled: true,
-			// The node total spans every namespace, so it belongs to none.
+			// Without namespaces every index sits in the empty one, so grouping
+			// still publishes the single series it always did.
 			expectedLabels:     []string{"n/a", "n/a", ""},
 			expectedDimensions: []int{expectTotalDim},
 		},
@@ -1146,10 +1147,10 @@ func TestDimensionTrackingWithGrouping(t *testing.T) {
 			name:            "namespaced_class_with_grouping_enabled",
 			groupingEnabled: true,
 			classNamespace:  "ns_a",
-			// Grouping rewrites the class to "n/a" before the namespace is
-			// derived, so the namespace collapses with it.
-			expectedLabels:     []string{"n/a", "n/a", ""},
-			expectedDimensions: []int{expectTotalDim},
+			// Grouping drops the class and shard, never the namespace: the
+			// namespace carries the total and the empty bucket stays at 0.
+			expectedLabels:     []string{"n/a", "n/a", "ns_a", "n/a", "n/a", ""},
+			expectedDimensions: []int{expectTotalDim, 0},
 		},
 	}
 
@@ -1215,7 +1216,7 @@ func TestDimensionTrackingWithGrouping(t *testing.T) {
 				// Verify dimension metrics
 				dim, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues(className, shardName, namespace)
 				require.NoError(t, err, "get vector_dimensions_sum metric")
-				require.Equal(t, float64(tc.expectedDimensions[0]), testutil.ToFloat64(dim),
+				require.Equal(t, float64(tc.expectedDimensions[i/3]), testutil.ToFloat64(dim),
 					"vector_dimensions_sum{class=%s,shard=%s,collection_namespace=%s}", className, shardName, namespace)
 
 				// Verify segment metrics (should be 0 for standard vectors)
@@ -1226,4 +1227,64 @@ func TestDimensionTrackingWithGrouping(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPublishVectorMetrics covers what a single publish cannot: the grouped
+// observer's view of a namespace across two passes.
+func TestPublishVectorMetrics(t *testing.T) {
+	const (
+		objectCount  = 5
+		dimPerVector = 64
+		expectDim    = objectCount * dimPerVector
+	)
+
+	metrics := *monitoring.GetMetrics()
+	metrics.Group = true
+	takeGroupedSeries(t, metrics.VectorDimensionsSum, metrics.VectorSegmentsSum)
+
+	classes := make([]*models.Class, 0, 2)
+	for _, ns := range []string{"ns_a", "ns_b"} {
+		classes = append(classes, &models.Class{
+			Class:               namespacing.QualifiedName(ns, "Docs"),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
+		})
+	}
+
+	db := createTestDatabaseWithNamespaces(t, &metrics,
+		activeNamespaces{"ns_a", "ns_b"}, classes...)
+
+	for _, class := range classes {
+		for i := range objectCount {
+			err := db.PutObject(context.Background(),
+				&models.Object{Class: class.Class, ID: intToUUID(i)},
+				randVector(dimPerVector), nil, nil, nil, 0)
+			require.NoError(t, err, "put object")
+		}
+	}
+
+	// One observer across both passes: the second pass prunes what the first
+	// published. It is not db.metricsObserver, whose own goroutine publishes on
+	// a timer and owns that state.
+	observer := &nodeWideMetricsObserver{db: db}
+
+	t.Run("grouped: one series per namespace plus the empty bucket", func(t *testing.T) {
+		observer.publishVectorMetrics(t.Context())
+
+		assert.Equal(t, map[string]float64{"": 0, "ns_a": expectDim, "ns_b": expectDim},
+			groupedGaugeValues(t, metrics.VectorDimensionsSum))
+		assert.Equal(t, map[string]float64{"": 0, "ns_a": 0, "ns_b": 0},
+			groupedGaugeValues(t, metrics.VectorSegmentsSum))
+	})
+
+	t.Run("grouped: a namespace whose last index is dropped is zeroed, not deleted", func(t *testing.T) {
+		require.NoError(t, db.DeleteIndex(schema.ClassName(classes[1].Class)))
+
+		observer.publishVectorMetrics(t.Context())
+
+		// Zeroed rather than deleted: billing reads these two gauges after the
+		// data is gone, which is the same reason a dropped shard zeroes them.
+		assert.Equal(t, map[string]float64{"": 0, "ns_a": expectDim, "ns_b": 0},
+			groupedGaugeValues(t, metrics.VectorDimensionsSum))
+	})
 }

@@ -91,18 +91,20 @@ func (m *Metrics) QueriesObserveDuration(className string, startMs int64) {
 		return
 	}
 
+	// Read the namespace before className is overwritten below. Grouped mode
+	// publishes one series per namespace, not one for the whole node.
+	namespace := namespacing.NamespaceFromQualified(className)
+
 	if m.groupClasses {
 		className = "n/a"
 	}
 
 	took := float64(time.Now().UnixMilli() - startMs)
 
-	// className is already "n/a" here in grouped mode, so the namespace comes
-	// out empty. Grouped mode keeps its single series.
 	m.queriesDurations.With(prometheus.Labels{
 		"class_name":           className,
 		"query_type":           "get_graphql",
-		"collection_namespace": namespacing.NamespaceFromQualified(className),
+		"collection_namespace": namespace,
 	}).Observe(float64(took))
 }
 

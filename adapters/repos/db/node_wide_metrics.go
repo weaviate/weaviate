@@ -48,7 +48,19 @@ type nodeWideMetricsObserver struct {
 	// goroutine touches it.
 	tenantPeaks map[string]int
 
-	// Guards usage only. The two fields above are written outside it.
+	// Per-namespace object counts from the previous grouped pass.
+	// Only the keys are read. A namespace missing from the next pass has lost
+	// its last index, so its series is deleted. Only the observeShards
+	// goroutine touches it.
+	previousObjectCounts map[string]int64
+
+	// Per-namespace dimension totals from the previous grouped pass.
+	// Only the keys are read. A namespace missing from the next pass
+	// is set to 0 instead of deleted, because billing keeps these gauges. Only
+	// the observeDimensionMetrics goroutine touches it.
+	previousDimensions map[string]DimensionMetrics
+
+	// Guards usage only. The fields above are written outside it.
 	activityLock sync.RWMutex
 	// Tenant usage as of the most recent cycle. Each cycle updates it in place
 	// instead of building a new one, so repeated observations do not allocate.
@@ -127,7 +139,9 @@ func (o *nodeWideMetricsObserver) observeShards() {
 	}
 }
 
-// Collect and publish aggregated object_count metric iff all indices report allShardsReady=true.
+// Collect and publish the object_count metric per namespace, only if every
+// index reports allShardsReady=true. In grouped mode nothing else writes this
+// gauge: the lsmkv writers are switched off when metrics are grouped.
 func (o *nodeWideMetricsObserver) observeObjectCount() {
 	o.db.indexLock.RLock()
 	defer o.db.indexLock.RUnlock()
@@ -143,8 +157,14 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 
 	start := time.Now()
 
+	// The empty namespace is seeded so it is published even when there are no
+	// indices. On a cluster without namespaces it is this metric's only series,
+	// and consumers must never see it disappear.
+	countByNamespace := map[string]int64{"": 0}
+
 	totalObjectCount := int64(0)
 	for _, index := range o.db.indices {
+		indexObjectCount := int64(0)
 		index.ForEachShard(func(name string, shard ShardLike) error {
 			index.shardCreateLocks.RLock(name)
 			defer index.shardCreateLocks.RUnlock(name)
@@ -168,17 +188,26 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 					WithField("class", index.Config.ClassName).
 					Warnf("error while getting object count for shard: %v", err)
 			}
-			totalObjectCount += objectCount
+			indexObjectCount += objectCount
 			return nil
 		})
+		countByNamespace[index.namespace] += indexObjectCount
+		totalObjectCount += indexObjectCount
 	}
 
-	// The node total spans every namespace, so it belongs to none.
-	o.db.promMetrics.ObjectCount.With(prometheus.Labels{
-		"class_name":           "n/a",
-		"shard_name":           "n/a",
-		"collection_namespace": "",
-	}).Set(float64(totalObjectCount))
+	for namespace, count := range countByNamespace {
+		o.db.promMetrics.ObjectCount.With(groupedLabels(namespace)).Set(float64(count))
+	}
+
+	// A namespace whose last index is gone would otherwise keep its series at
+	// the count it last had. The empty namespace is always in the new map, so
+	// this loop never deletes it.
+	for namespace := range o.previousObjectCounts {
+		if _, ok := countByNamespace[namespace]; !ok {
+			o.db.promMetrics.ObjectCount.Delete(groupedLabels(namespace))
+		}
+	}
+	o.previousObjectCounts = countByNamespace
 
 	took := time.Since(start)
 	o.db.logger.WithFields(logrus.Fields{
@@ -186,6 +215,16 @@ func (o *nodeWideMetricsObserver) observeObjectCount() {
 		"took":         took,
 		"object_count": totalObjectCount,
 	}).Debug("observed node wide metrics")
+}
+
+// groupedLabels returns the labels of a grouped series. There is one series per
+// namespace, with no class or shard of its own.
+func groupedLabels(namespace string) prometheus.Labels {
+	return prometheus.Labels{
+		"class_name":           "n/a",
+		"shard_name":           "n/a",
+		"collection_namespace": namespace,
+	}
 }
 
 // NOTE(dyma): should this also chech that all indices report allShardsReady == true?
@@ -481,7 +520,16 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 	// We're a low-priority process, copy the index map to avoid blocking others.
 	indices := o.db.copyIndices()
 
+	grouped := o.db.promMetrics.Group
+
 	var total DimensionMetrics
+	// Grouped mode publishes one series per namespace instead of the node total.
+	// The empty namespace is seeded so it is published even when there are no
+	// indices.
+	var dimsByNamespace map[string]DimensionMetrics
+	if grouped {
+		dimsByNamespace = map[string]DimensionMetrics{"": {}}
+	}
 
 	start := time.Now()
 	defer func() {
@@ -506,29 +554,48 @@ func (o *nodeWideMetricsObserver) publishVectorMetrics(ctx context.Context) {
 			if !closed {
 				className := index.Config.ClassName.String()
 
+				var indexTotal DimensionMetrics
 				// Avoid loading cold shards, as it may create I/O spikes.
 				index.ForEachLoadedShard(func(shardName string, sl ShardLike) error {
 					index.shardCreateLocks.RLock(shardName)
 					defer index.shardCreateLocks.RUnlock(shardName)
 
 					dim := calculateShardDimensionMetrics(ctx, sl)
-					total = total.Add(dim)
+					indexTotal = indexTotal.Add(dim)
 
 					// Report metrics per-shard if grouping is disabled.
-					if !o.db.promMetrics.Group {
+					if !grouped {
 						o.sendVectorDimensions(className, shardName,
 							namespacing.NamespaceFromQualified(className), dim)
 					}
 					return nil
 				})
+
+				total = total.Add(indexTotal)
+				if grouped {
+					dimsByNamespace[index.namespace] = dimsByNamespace[index.namespace].Add(indexTotal)
+				}
 			}
 		}()
 	}
 
-	// Report aggregate metrics for the node if grouping is enabled. The node
-	// total spans every namespace, so it belongs to none.
-	if o.db.promMetrics.Group {
-		o.sendVectorDimensions("n/a", "n/a", "", total)
+	// Report one series per namespace when grouping is enabled. The node total
+	// is their sum, so publishing it as well would double-count.
+	if grouped {
+		for namespace, dm := range dimsByNamespace {
+			o.sendVectorDimensions("n/a", "n/a", namespace, dm)
+		}
+
+		// A namespace whose last index is gone keeps its series at 0 rather than
+		// losing it. Billing reads these two gauges, so ungrouped mode keeps
+		// them the same way. The empty namespace is always in the new map, so
+		// this loop never touches it.
+		for namespace := range o.previousDimensions {
+			if _, ok := dimsByNamespace[namespace]; !ok {
+				o.sendVectorDimensions("n/a", "n/a", namespace, DimensionMetrics{})
+			}
+		}
+		o.previousDimensions = dimsByNamespace
 	}
 }
 

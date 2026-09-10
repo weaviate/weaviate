@@ -207,11 +207,8 @@ func makeAddMonitoring(metrics *monitoring.PrometheusMetrics) func(http.Handler)
 				if !ok {
 					return
 				}
-				namespace := batchNamespace.Namespace
-				if metrics.Group {
-					namespace = ""
-				}
-				metrics.BatchSizeBytes.WithLabelValues("rest", namespace).Observe(float64(size))
+				metrics.BatchSizeBytes.WithLabelValues("rest", batchNamespace.Namespace).
+					Observe(float64(size))
 			}
 		})
 	}

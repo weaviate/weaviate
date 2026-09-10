@@ -347,7 +347,10 @@ func publishVectorMetricsFromDB(t *testing.T, db *DB) {
 		t.Logf("Vector dimensions tracking is disabled, returning 0")
 		return
 	}
-	db.metricsObserver.publishVectorMetrics(t.Context())
+	// A throwaway observer, not db.metricsObserver: db.metricsObserver's own
+	// goroutine keeps prune state between passes, and a second publisher
+	// would race it.
+	(&nodeWideMetricsObserver{db: db}).publishVectorMetrics(t.Context())
 }
 
 func getSingleShardNameFromRepo(repo *DB, className string) string {

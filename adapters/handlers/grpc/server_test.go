@@ -145,15 +145,16 @@ func TestMakeMetricsInterceptor(t *testing.T) {
 		assert.Equal(t, uint64(1), grpcBatchCount(t, metrics, ""))
 	})
 
-	t.Run("grouped mode yields empty label", func(t *testing.T) {
+	t.Run("grouped mode carries the handler's namespace", func(t *testing.T) {
 		metrics := newGRPCBatchMetrics(true)
 
 		_, err := makeMetricsInterceptor(logger, metrics)(context.Background(),
 			&pbv1.BatchObjectsRequest{}, batchInfo, settingHandler("ns_a", nil))
 
 		require.NoError(t, err)
-		assert.Equal(t, uint64(1), grpcBatchCount(t, metrics, ""))
-		assert.Zero(t, grpcBatchCount(t, metrics, "ns_a"))
+		assert.Equal(t, uint64(1), grpcBatchCount(t, metrics, "ns_a"),
+			"grouping collapses classes, never principals")
+		assert.Zero(t, grpcBatchCount(t, metrics, ""))
 	})
 
 	t.Run("other methods are untouched", func(t *testing.T) {

@@ -116,12 +116,13 @@ func execInContainer(t assert.TestingT, c testcontainers.Container, cmd string) 
 	return string(out), true
 }
 
-// scrape returns the metrics lines matching pattern. The whole page is far too
-// large to survive an exec stream intact, so it is filtered in the container.
-// A line count comes back with it, so an unreachable endpoint fails loudly
-// instead of reading as "no such series".
-func scrape(t assert.TestingT, pattern string) ([]string, bool) {
-	out, ok := execInContainer(t, sharedCompose.GetWeaviate().Container(), fmt.Sprintf(
+// scrape returns the metrics lines matching pattern, read from the container
+// the caller names: the package runs one cluster per monitoring mode. The whole
+// page is far too large to survive an exec stream intact, so it is filtered in
+// the container. A line count comes back with it, so an unreachable endpoint
+// fails loudly instead of reading as "no such series".
+func scrape(t assert.TestingT, c testcontainers.Container, pattern string) ([]string, bool) {
+	out, ok := execInContainer(t, c, fmt.Sprintf(
 		"wget -qO- http://localhost:%d/metrics > /tmp/metrics.probe 2>/dev/null; "+
 			"printf 'LINES=%%s\\n' \"$(wc -l < /tmp/metrics.probe)\"; "+
 			"grep -F '%s' /tmp/metrics.probe || true",
@@ -210,9 +211,9 @@ func authCtx(key string) context.Context {
 	return metadata.AppendToOutgoingContext(context.Background(), "authorization", "Bearer "+key)
 }
 
-func newGrpcClient(t *testing.T) (pb.WeaviateClient, *grpc.ClientConn) {
+func newGrpcClient(t *testing.T, grpcURI string) (pb.WeaviateClient, *grpc.ClientConn) {
 	t.Helper()
-	conn, err := helper.CreateGrpcConnectionClient(sharedCompose.GetWeaviate().GrpcURI())
+	conn, err := helper.CreateGrpcConnectionClient(grpcURI)
 	require.NoError(t, err)
 	return helper.CreateGrpcWeaviateClient(conn), conn
 }
@@ -237,19 +238,17 @@ func fixedVector() []float32 {
 	return vec
 }
 
-// TestNamespaceMetrics proves that a namespaced cluster attributes all five
-// platform metrics per namespace, and that a namespace's series do not
-// outlive it.
-func TestNamespaceMetrics(t *testing.T) {
-	const nsA, nsB = "ns-a", "ns-b"
+// seedNamespaces creates two namespaces, each with a confined user and a class,
+// and produces one sample of every metric under test in both: ns-a ingests over
+// REST and ns-b over gRPC, so each API contributes a batch_size_bytes sample
+// under a different namespace, and each namespace runs one search.
+func seedNamespaces(t *testing.T, grpcClient pb.WeaviateClient, nsA, nsB string) (userAKey, userBKey string) {
+	t.Helper()
 
 	helper.CreateNamespace(t, nsA, adminKey)
 	helper.CreateNamespace(t, nsB, adminKey)
-	userAKey := newNamespacedUser(t, "user-a", nsA)
-	userBKey := newNamespacedUser(t, "user-b", nsB)
-
-	grpcClient, conn := newGrpcClient(t)
-	defer conn.Close()
+	userAKey = newNamespacedUser(t, "user-a", nsA)
+	userBKey = newNamespacedUser(t, "user-b", nsB)
 
 	// vectorizer "none" keeps the vectors the test supplies, so the dimension
 	// gauges are exactly objectCount * vectorDim.
@@ -261,8 +260,6 @@ func TestNamespaceMetrics(t *testing.T) {
 		}, key)
 	}
 
-	// ns-a ingests over REST, ns-b over gRPC, so each API contributes one
-	// batch_size_bytes sample under a different namespace.
 	restObjects := make([]*models.Object, objectCount)
 	for i := range restObjects {
 		restObjects[i] = &models.Object{
@@ -308,6 +305,21 @@ func TestNamespaceMetrics(t *testing.T) {
 		require.NoError(t, err)
 	}
 
+	return userAKey, userBKey
+}
+
+// TestNamespaceMetrics proves that a namespaced cluster attributes all five
+// platform metrics per namespace, and that a namespace's series do not
+// outlive it.
+func TestNamespaceMetrics(t *testing.T) {
+	const nsA, nsB = "ns-a", "ns-b"
+
+	weaviate := sharedCompose.GetWeaviate()
+	grpcClient, conn := newGrpcClient(t, weaviate.GrpcURI())
+	defer conn.Close()
+
+	userAKey, userBKey := seedNamespaces(t, grpcClient, nsA, nsB)
+
 	// An unfiltered Aggregate{ObjectsCount} reaches Bucket.Count, which writes
 	// the object_count gauge synchronously.
 	for _, key := range []string{userAKey, userBKey} {
@@ -322,7 +334,7 @@ func TestNamespaceMetrics(t *testing.T) {
 	t.Run("object_count per namespace", func(t *testing.T) {
 		for _, ns := range []string{nsA, nsB} {
 			require.EventuallyWithT(t, func(c *assert.CollectT) {
-				lines, ok := scrape(c, "object_count{")
+				lines, ok := scrape(c, weaviate.Container(), "object_count{")
 				if !ok {
 					return
 				}
@@ -338,7 +350,7 @@ func TestNamespaceMetrics(t *testing.T) {
 	t.Run("vector_dimensions_sum and vector_segments_sum per namespace", func(t *testing.T) {
 		for _, ns := range []string{nsA, nsB} {
 			require.EventuallyWithT(t, func(c *assert.CollectT) {
-				lines, ok := scrape(c, `collection_namespace="`+ns+`"`)
+				lines, ok := scrape(c, weaviate.Container(), `collection_namespace="`+ns+`"`)
 				if !ok {
 					return
 				}
@@ -360,7 +372,7 @@ func TestNamespaceMetrics(t *testing.T) {
 	t.Run("queries_durations_ms per namespace", func(t *testing.T) {
 		for _, ns := range []string{nsA, nsB} {
 			require.EventuallyWithT(t, func(c *assert.CollectT) {
-				lines, ok := scrape(c, "queries_durations_ms_count{")
+				lines, ok := scrape(c, weaviate.Container(), "queries_durations_ms_count{")
 				if !ok {
 					return
 				}
@@ -386,7 +398,7 @@ func TestNamespaceMetrics(t *testing.T) {
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
 				require.EventuallyWithT(t, func(c *assert.CollectT) {
-					lines, ok := scrape(c, "batch_size_bytes_")
+					lines, ok := scrape(c, weaviate.Container(), "batch_size_bytes_")
 					if !ok {
 						return
 					}
@@ -420,7 +432,7 @@ func TestNamespaceMetrics(t *testing.T) {
 		}}, adminKey)
 
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			lines, ok := scrape(c, "batch_size_bytes_count{")
+			lines, ok := scrape(c, weaviate.Container(), "batch_size_bytes_count{")
 			if !ok {
 				return
 			}
@@ -437,7 +449,7 @@ func TestNamespaceMetrics(t *testing.T) {
 		helper.WaitForNamespaceGone(t, nsA, adminKey, 60*time.Second)
 
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			lines, ok := scrape(c, `collection_namespace="`+nsA+`"`)
+			lines, ok := scrape(c, weaviate.Container(), `collection_namespace="`+nsA+`"`)
 			if !ok {
 				return
 			}
@@ -452,7 +464,7 @@ func TestNamespaceMetrics(t *testing.T) {
 
 		// The surviving namespace is untouched.
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			lines, ok := scrape(c, `collection_namespace="`+nsB+`"`)
+			lines, ok := scrape(c, weaviate.Container(), `collection_namespace="`+nsB+`"`)
 			if !ok {
 				return
 			}
@@ -465,7 +477,7 @@ func TestNamespaceMetrics(t *testing.T) {
 	// one thing its removal must leave behind.
 	t.Run("the dimension gauges are kept at zero for billing", func(t *testing.T) {
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			lines, ok := scrape(c, `collection_namespace="`+nsA+`"`)
+			lines, ok := scrape(c, weaviate.Container(), `collection_namespace="`+nsA+`"`)
 			if !ok {
 				return
 			}
@@ -486,5 +498,211 @@ func TestNamespaceMetrics(t *testing.T) {
 
 	t.Cleanup(func() {
 		helper.DeleteNamespace(t, nsB, adminKey)
+	})
+}
+
+// startGroupedCompose brings up a second cluster with class grouping on.
+// PROMETHEUS_MONITORING_GROUP_CLASSES is read once at startup, so the two modes
+// cannot share the package's compose.
+func startGroupedCompose(t *testing.T) *docker.DockerCompose {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	compose, err := docker.New().
+		WithApiKey().
+		WithRBAC().
+		WithUserApiKey(adminUser, adminKey).
+		WithRbacRoots(adminUser).
+		WithDbUsers().
+		WithNamespaces().
+		WithWeaviateEnv("PROMETHEUS_MONITORING_ENABLED", "true").
+		WithWeaviateEnv("PROMETHEUS_MONITORING_GROUP_CLASSES", "true").
+		WithWeaviateEnv("TRACK_VECTOR_DIMENSIONS", "true").
+		WithWeaviateEnv("TRACK_VECTOR_DIMENSIONS_INTERVAL", "2s").
+		// Grouped object_count comes from the node-wide observer on a 30s tick,
+		// reading the asynchronous count, which ignores the memtable. Only a
+		// flush puts the batch on disk, and the 60s default dirty threshold
+		// would leave the assertion below no margin.
+		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "1").
+		// A bucket whose commit log is under this reuses the WAL instead of
+		// flushing, at any dirty age. The test's batch is a few hundred bytes,
+		// so the 4KiB default would keep it in the memtable indefinitely.
+		WithWeaviateEnv("PERSISTENCE_MAX_REUSE_WAL_SIZE", "0").
+		WithWeaviateWithGRPC().
+		Start(ctx)
+	require.NoError(t, err, "start grouped compose")
+
+	// The helper package's client is process-global. The package's tests never run in
+	// parallel, so this one borrows it and hands it back.
+	helper.SetupClient(compose.GetWeaviate().URI())
+	t.Cleanup(func() {
+		helper.SetupClient(sharedCompose.GetWeaviate().URI())
+		if err := compose.Terminate(context.Background()); err != nil {
+			t.Logf("failed to terminate grouped compose: %v", err)
+		}
+	})
+	return compose
+}
+
+// TestNamespaceMetricsGrouped proves the same five metrics stay attributed per
+// namespace under PROMETHEUS_MONITORING_GROUP_CLASSES, the mode platform runs
+// namespaced clusters in. Grouping collapses class_name and shard_name to n/a,
+// so the namespace is the only dimension left to bill by.
+func TestNamespaceMetricsGrouped(t *testing.T) {
+	const nsA, nsB = "ns-a", "ns-b"
+
+	weaviate := startGroupedCompose(t).GetWeaviate()
+	grpcClient, conn := newGrpcClient(t, weaviate.GrpcURI())
+	defer conn.Close()
+
+	seedNamespaces(t, grpcClient, nsA, nsB)
+
+	t.Run("object_count per namespace", func(t *testing.T) {
+		// No synchronous trigger exists here: the lsmkv writers are off in
+		// grouped mode, so this waits for a flush plus an observer tick.
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			lines, ok := scrape(c, weaviate.Container(), "object_count{")
+			if !ok {
+				return
+			}
+			for _, ns := range []string{nsA, nsB} {
+				got, ok := sampleValue(c, lines, `class_name="n/a"`, `shard_name="n/a"`, nsLabel(ns))
+				if !assert.True(c, ok, "no grouped object_count series for %q", ns) {
+					return
+				}
+				assert.Equal(c, float64(objectCount), got)
+			}
+
+			empty, ok := sampleValue(c, lines, `class_name="n/a"`, `shard_name="n/a"`, nsLabel(""))
+			if !assert.True(c, ok, "the empty bucket is always published") {
+				return
+			}
+			assert.Zero(c, empty, "every class on this cluster belongs to a namespace")
+
+			for _, line := range lines {
+				assert.Contains(c, line, `class_name="n/a"`,
+					"grouping publishes no per-class series")
+			}
+		}, 90*time.Second, time.Second)
+	})
+
+	t.Run("vector_dimensions_sum and vector_segments_sum per namespace", func(t *testing.T) {
+		for _, ns := range []string{nsA, nsB} {
+			require.EventuallyWithT(t, func(c *assert.CollectT) {
+				lines, ok := scrape(c, weaviate.Container(), `collection_namespace="`+ns+`"`)
+				if !ok {
+					return
+				}
+				// The whole grouped label set, so ungrouped output, which carries
+				// real class and shard names, cannot satisfy this.
+				dims, ok := sampleValue(c, lines, "vector_dimensions_sum{",
+					`class_name="n/a"`, `shard_name="n/a"`, nsLabel(ns))
+				if !assert.True(c, ok, "no grouped vector_dimensions_sum series for %q", ns) {
+					return
+				}
+				assert.Equal(c, float64(objectCount*vectorDim), dims)
+
+				segs, ok := sampleValue(c, lines, "vector_segments_sum{",
+					`class_name="n/a"`, `shard_name="n/a"`, nsLabel(ns))
+				if !assert.True(c, ok, "no grouped vector_segments_sum series for %q", ns) {
+					return
+				}
+				assert.Zero(c, segs, "no quantization is configured")
+			}, 15*time.Second, 500*time.Millisecond)
+		}
+	})
+
+	t.Run("queries_durations_ms per namespace", func(t *testing.T) {
+		for _, ns := range []string{nsA, nsB} {
+			require.EventuallyWithT(t, func(c *assert.CollectT) {
+				lines, ok := scrape(c, weaviate.Container(), "queries_durations_ms_count{")
+				if !ok {
+					return
+				}
+				got, ok := sampleValue(c, lines, `class_name="n/a"`,
+					`query_type="get_graphql"`, nsLabel(ns))
+				if !assert.True(c, ok, "no queries_durations_ms_count series for %q", ns) {
+					return
+				}
+				assert.GreaterOrEqual(c, got, 1.0)
+			}, 10*time.Second, 250*time.Millisecond)
+		}
+	})
+
+	t.Run("batch_size_bytes per namespace and api", func(t *testing.T) {
+		tests := []struct {
+			name string
+			api  string
+			ns   string
+		}{
+			{name: "rest batch under ns-a", api: "rest", ns: nsA},
+			{name: "grpc batch under ns-b", api: "grpc", ns: nsB},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				require.EventuallyWithT(t, func(c *assert.CollectT) {
+					lines, ok := scrape(c, weaviate.Container(), "batch_size_bytes_")
+					if !ok {
+						return
+					}
+					count, ok := sampleValue(c, lines, "batch_size_bytes_count{",
+						`api="`+tc.api+`"`, nsLabel(tc.ns))
+					if !assert.True(c, ok, "no batch_size_bytes_count series for %q", tc.ns) {
+						return
+					}
+					assert.Equal(c, 1.0, count, "grouping collapses classes, never principals")
+				}, 10*time.Second, 250*time.Millisecond)
+			})
+		}
+	})
+
+	t.Run("deleting a namespace drops its grouped series", func(t *testing.T) {
+		helper.DeleteNamespace(t, nsA, adminKey, helper.WithoutWaitForCleanup())
+		helper.WaitForNamespaceGone(t, nsA, adminKey, 60*time.Second)
+
+		// Grouped series carry no class name, so no class or shard delete
+		// reaches them; the namespace removal is their only owner. An observer
+		// pass concurrent with the removal can re-publish one, which the next
+		// pass prunes, so this allows three ticks.
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			lines, ok := scrape(c, weaviate.Container(), `collection_namespace="`+nsA+`"`)
+			if !ok {
+				return
+			}
+
+			for _, metric := range []string{"object_count{", "queries_durations_ms_", "batch_size_bytes_"} {
+				for _, line := range lines {
+					assert.NotContains(c, line, metric,
+						"%s must not outlive the namespace", metric)
+				}
+			}
+
+			dims, ok := sampleValue(c, lines, "vector_dimensions_sum{", nsLabel(nsA))
+			if !assert.True(c, ok, "vector_dimensions_sum is retained for billing") {
+				return
+			}
+			assert.Zero(c, dims)
+
+			segs, ok := sampleValue(c, lines, "vector_segments_sum{", nsLabel(nsA))
+			if !assert.True(c, ok, "vector_segments_sum is retained for billing") {
+				return
+			}
+			assert.Zero(c, segs)
+		}, 90*time.Second, time.Second)
+
+		// The surviving namespace is untouched.
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			lines, ok := scrape(c, weaviate.Container(), `collection_namespace="`+nsB+`"`)
+			if !ok {
+				return
+			}
+			got, ok := sampleValue(c, lines, "object_count{", nsLabel(nsB))
+			if !assert.True(c, ok, "deleting one namespace must not touch another's series") {
+				return
+			}
+			assert.Equal(c, float64(objectCount), got)
+		}, 10*time.Second, 250*time.Millisecond)
 	})
 }

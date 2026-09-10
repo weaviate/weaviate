@@ -167,11 +167,7 @@ func makeMetricsInterceptor(logger logrus.FieldLogger, metrics *monitoring.Prome
 		// Metric uses non-standard base unit ms, use ms for backwards compatibility
 		metrics.BatchTime.WithLabelValues("total_api_level_grpc", "n/a", "n/a").
 			Observe(float64(duration.Milliseconds()))
-		namespace := batchNamespace.Namespace
-		if metrics.Group {
-			namespace = ""
-		}
-		metrics.BatchSizeBytes.WithLabelValues("grpc", namespace).Observe(reqSizeBytes)
+		metrics.BatchSizeBytes.WithLabelValues("grpc", batchNamespace.Namespace).Observe(reqSizeBytes)
 
 		return resp, err
 	}

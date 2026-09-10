@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -66,14 +67,28 @@ func TestQueriesObserveDuration(t *testing.T) {
 		assert.Equal(t, uint64(1), observedCount(t, vec, "Docs", ""))
 	})
 
-	t.Run("grouped mode yields one n/a series with empty namespace", func(t *testing.T) {
+	t.Run("grouped mode yields one n/a series per namespace", func(t *testing.T) {
 		m, vec := newQueryMetrics(true)
 
 		m.QueriesObserveDuration("ns_a:Docs", startMs)
 		m.QueriesObserveDuration("ns_b:Docs", startMs)
 
-		assert.Equal(t, uint64(2), observedCount(t, vec, "n/a", ""),
-			"both namespaces collapse onto the single grouped series")
+		// This count runs before observedCount, which creates any series it
+		// looks up.
+		assert.Equal(t, 2, testutil.CollectAndCount(vec),
+			"grouped mode publishes one series per namespace and nothing else")
+		assert.Equal(t, uint64(1), observedCount(t, vec, "n/a", "ns_a"))
+		assert.Equal(t, uint64(1), observedCount(t, vec, "n/a", "ns_b"))
+		assert.Equal(t, uint64(0), observedCount(t, vec, "n/a", ""),
+			"a namespaced query must not also land on the empty bucket")
+	})
+
+	t.Run("grouped unqualified class lands on the empty namespace", func(t *testing.T) {
+		m, vec := newQueryMetrics(true)
+
+		m.QueriesObserveDuration("Docs", startMs)
+
+		assert.Equal(t, uint64(1), observedCount(t, vec, "n/a", ""))
 	})
 
 	t.Run("nil receiver is a no-op", func(t *testing.T) {

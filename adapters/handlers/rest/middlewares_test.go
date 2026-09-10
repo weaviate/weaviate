@@ -184,15 +184,15 @@ func TestMakeAddMonitoring(t *testing.T) {
 		assert.Equal(t, uint64(1), count)
 	})
 
-	t.Run("grouped mode yields empty label", func(t *testing.T) {
+	t.Run("grouped mode carries the handler's namespace", func(t *testing.T) {
 		metrics := newBatchMetrics(true)
 		r := httptest.NewRequest(http.MethodPost, "/v1/batch/objects", strings.NewReader(body))
 
 		makeAddMonitoring(metrics)(drainingHandler(t, "ns_a")).ServeHTTP(httptest.NewRecorder(), r)
 
-		count, _ := batchSizeSamples(t, metrics, "")
-		assert.Equal(t, uint64(1), count)
-		count, _ = batchSizeSamples(t, metrics, "ns_a")
+		count, _ := batchSizeSamples(t, metrics, "ns_a")
+		assert.Equal(t, uint64(1), count, "grouping collapses classes, never principals")
+		count, _ = batchSizeSamples(t, metrics, "")
 		assert.Zero(t, count)
 	})
 

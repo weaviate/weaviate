@@ -382,10 +382,15 @@ func (pm *PrometheusMetrics) DeleteClass(className string) error {
 	return nil
 }
 
-// DeleteNamespace deletes the series that belong to a namespace itself,
-// rather than to one of its classes. Only batch_size_bytes qualifies currently.
-// Every other series labelled with collection_namespace is keyed by class_name too,
-// and [DeleteClass] or [DeleteShard] removes it when the namespace's classes are dropped.
+// DeleteNamespace deletes the series that belong to a namespace itself, rather
+// than to one of its classes. Two kinds qualify. batch_size_bytes is keyed by
+// namespace alone. Grouped mode (PROMETHEUS_MONITORING_GROUP_CLASSES) publishes
+// one series per namespace under class_name="n/a", which [DeleteClass] and
+// [DeleteShard] never match. Series carrying a real class name are removed with
+// their class or shard instead.
+//
+// The two dimension gauges are set to 0 instead of being deleted, because
+// billing reads them.
 //
 // The empty namespace is the shared bucket for global operators, anonymous
 // callers, and non-namespaced clusters. It is never deleted.
@@ -396,6 +401,25 @@ func (pm *PrometheusMetrics) DeleteNamespace(namespace string) {
 	pm.BatchSizeBytes.DeletePartialMatch(prometheus.Labels{
 		"collection_namespace": namespace,
 	})
+
+	groupedMatch := prometheus.Labels{
+		"class_name":           "n/a",
+		"collection_namespace": namespace,
+	}
+	pm.ObjectCount.DeletePartialMatch(groupedMatch)
+	pm.QueriesDurations.DeletePartialMatch(groupedMatch)
+
+	groupedGauge := prometheus.Labels{
+		"class_name":           "n/a",
+		"shard_name":           "n/a",
+		"collection_namespace": namespace,
+	}
+	if pm.VectorDimensionsSum.Delete(groupedGauge) {
+		pm.VectorDimensionsSum.With(groupedGauge).Set(0)
+	}
+	if pm.VectorSegmentsSum.Delete(groupedGauge) {
+		pm.VectorSegmentsSum.With(groupedGauge).Set(0)
+	}
 }
 
 const mb = 1024 * 1024
@@ -510,7 +534,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		}, []string{"operation", "step", "class_name", "shard_name"}),
 		ObjectCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "object_count",
-			Help: "Number of objects in a shard (node-wide total when class grouping is enabled)",
+			Help: "Number of objects in a shard (one node-wide total per namespace when class grouping is enabled)",
 		}, []string{"class_name", "shard_name", "collection_namespace"}),
 
 		QueriesCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
