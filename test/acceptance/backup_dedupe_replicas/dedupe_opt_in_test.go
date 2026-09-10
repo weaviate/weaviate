@@ -26,13 +26,12 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-func TestBackupDedupeKillSwitch(t *testing.T) {
+func TestBackupDedupeRequiresOptIn(t *testing.T) {
 	ctx := context.Background()
 
 	compose, err := docker.New().
 		WithBackendFilesystem().
 		WithWeaviate().
-		WithWeaviateEnv("BACKUP_DEDUPE_DISABLED", "true").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -42,7 +41,7 @@ func TestBackupDedupeKillSwitch(t *testing.T) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 	defer helper.ResetClient()
 
-	const className = "KillSwitchArticles"
+	const className = "OptInArticles"
 	helper.CreateClass(t, &models.Class{
 		Class:      className,
 		Vectorizer: "none",
@@ -50,7 +49,7 @@ func TestBackupDedupeKillSwitch(t *testing.T) {
 	})
 	defer helper.DeleteClass(t, className)
 
-	_, err = helper.CreateBackup(t, dedupeBackupConfig(), className, "filesystem", "kill-switch-backup")
+	_, err = helper.CreateBackup(t, dedupeBackupConfig(), className, "filesystem", "opt-in-backup")
 	require.Error(t, err)
 	var uerr *backups.BackupsCreateUnprocessableEntity
 	require.True(t, errors.As(err, &uerr), "want 422, got %T: %v", err, err)
@@ -58,5 +57,5 @@ func TestBackupDedupeKillSwitch(t *testing.T) {
 	for _, item := range uerr.Payload.Error {
 		messages = append(messages, item.Message)
 	}
-	assert.Contains(t, strings.Join(messages, "; "), "BACKUP_DEDUPE_DISABLED")
+	assert.Contains(t, strings.Join(messages, "; "), "BACKUP_DEDUPE_ENABLED")
 }

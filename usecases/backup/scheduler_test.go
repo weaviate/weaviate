@@ -3186,17 +3186,28 @@ func TestRestoreIgnoresNodeMappingForUnknownNode(t *testing.T) {
 	}
 }
 
-func TestSchedulerBackupDedupeKillSwitch(t *testing.T) {
-	t.Setenv("BACKUP_DEDUPE_DISABLED", "true")
-	fs := newFakeScheduler(nil)
-	_, err := fs.scheduler().Backup(context.Background(), nil, &BackupRequest{ID: "kill-switch", Backend: "s3", DedupeReplicas: true})
-	require.ErrorContains(t, err, "BACKUP_DEDUPE_DISABLED")
-	assert.IsType(t, backup.ErrUnprocessable{}, err)
+func TestSchedulerBackupDedupeOptIn(t *testing.T) {
+	t.Run("RejectedByDefault", func(t *testing.T) {
+		t.Setenv("BACKUP_DEDUPE_ENABLED", "")
+		fs := newFakeScheduler(nil)
+		_, err := fs.scheduler().Backup(context.Background(), nil, &BackupRequest{ID: "opt-in", Backend: "s3", DedupeReplicas: true})
+		require.ErrorContains(t, err, "BACKUP_DEDUPE_ENABLED")
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+	})
+	t.Run("EnabledPassesGate", func(t *testing.T) {
+		t.Setenv("BACKUP_DEDUPE_ENABLED", "true")
+		fs := newFakeScheduler(nil)
+		fs.selector.On("ListClasses", mock.Anything).Return([]string{})
+		_, err := fs.scheduler().Backup(context.Background(), nil, &BackupRequest{ID: "opt-in", Backend: "s3", DedupeReplicas: true})
+		require.ErrorContains(t, err, "no available classes")
+		assert.NotContains(t, err.Error(), "BACKUP_DEDUPE_ENABLED")
+	})
 }
 
 // startPlanningBackup drives a dedupe create into its convergence wait and returns its result channel.
 func startPlanningBackup(t *testing.T, id string) (*Scheduler, *fakeScheduler, chan error) {
 	t.Helper()
+	t.Setenv("BACKUP_DEDUPE_ENABLED", "true")
 	const cls = "Class1"
 	fs := newFakeScheduler(&fakeNodeResolver{hosts: map[string]string{"N1": "h1", "N2": "h2"}, leader: "N1"})
 	fs.selector.On("Backupable", mock.Anything, []string{cls}).Return(nil)

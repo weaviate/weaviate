@@ -172,8 +172,8 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 	}
 
 	// Coordinator-entry-only by design (participants honor designations regardless); restore of existing deduped artifacts is deliberately never gated.
-	if req.DedupeReplicas && entcfg.Enabled(os.Getenv("BACKUP_DEDUPE_DISABLED")) {
-		return nil, backup.NewErrUnprocessable(fmt.Errorf("dedupeReplicas is disabled on this cluster (BACKUP_DEDUPE_DISABLED); retry without the option"))
+	if req.DedupeReplicas && !entcfg.Enabled(os.Getenv("BACKUP_DEDUPE_ENABLED")) {
+		return nil, backup.NewErrUnprocessable(fmt.Errorf("dedupeReplicas is not enabled on this cluster; set BACKUP_DEDUPE_ENABLED=true or retry without the option"))
 	}
 
 	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)
