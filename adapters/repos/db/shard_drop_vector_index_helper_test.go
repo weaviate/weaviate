@@ -206,7 +206,7 @@ func TestVectorDropIndexHelper_RemoveVectorIndexFiles(t *testing.T) {
 		shardDir := filepath.Join(indexPath, shardName)
 		require.NoError(t, os.MkdirAll(shardDir, 0o755))
 
-		// an open read-write handle is what a loaded shard holds
+		// what a loaded shard holds
 		db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
 		require.NoError(t, err)
 		defer db.Close()

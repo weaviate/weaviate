@@ -87,8 +87,7 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 		return fmt.Errorf("remove dynamic state for %q: %w", targetVector, err)
 	}
 
-	// The vector's mapping record lives in the same file and goes the same
-	// way, last, so a sweep that failed above leaves it for the retry.
+	// the record goes last, so a failed sweep keeps it for the retry
 	err := deleteVectorIndexRecordOffline(shardDir, targetVector)
 	if err != nil {
 		return err

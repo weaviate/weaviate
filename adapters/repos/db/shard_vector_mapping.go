@@ -211,11 +211,8 @@ func requireVectorIndexMappingInitialized(b *shardmeta.Batch) error {
 	return nil
 }
 
-// Delete removes name's record. A record that is not there is already
-// deleted, so a retried drop succeeds, and so does a drop on a shard whose
-// mapping was never initialized: it has no records. The write transaction
-// creates the namespace but no format version, so Load still reports the
-// mapping uninitialized afterwards.
+// Delete removes name's record. A missing record, or a mapping that was
+// never initialized, is already deleted.
 func (m *vectorIndexMapping) Delete(name string) error {
 	err := m.ns.Update(func(b *shardmeta.Batch) error {
 		return b.Delete([]byte(vectorIndexMappingKey(name)))
@@ -226,10 +223,8 @@ func (m *vectorIndexMapping) Delete(name string) error {
 	return nil
 }
 
-// deleteVectorIndexRecordOffline removes name's record from an UNLOADED
-// shard's mapping, opening the file briefly. A missing file, a missing
-// namespace, or a file locked by a loaded shard is success: nothing was
-// recorded, or the loaded owner deletes through its own handle.
+// deleteVectorIndexRecordOffline removes name's record from a cold shard's
+// mapping. A missing or locked file is success: see shardmeta.DeleteOffline.
 func deleteVectorIndexRecordOffline(shardDir, name string) error {
 	err := shardmeta.DeleteOffline(shardDir, vectorIndexMappingNamespace, []byte(vectorIndexMappingKey(name)))
 	if err != nil {

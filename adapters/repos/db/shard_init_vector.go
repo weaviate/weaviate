@@ -450,8 +450,7 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 		}
 	}
 
-	// The record goes last: a drop that failed above keeps it, so the retry
-	// and the next load still know the physical ID and type of what is left.
+	// the record goes last, so a failed drop keeps it for the retry
 	err = s.mapping.Delete(targetVector)
 	if err != nil {
 		return fmt.Errorf("drop mapping record for vector %q: %w", targetVector, err)

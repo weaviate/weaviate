@@ -463,13 +463,10 @@ type Shard struct {
 	activityTrackerRead  atomic.Int32
 	activityTrackerWrite atomic.Int32
 
-	// metadataDB is the shard-owned metadata database (<shard>/index.db),
-	// opened for the shard's whole life by NewShard, closed by shutdown and
-	// by drop, snapshotted by backup. The vector index mapping and dynamic's
-	// upgrade verdicts live in it.
+	// metadataDB is <shard>/index.db, open for the shard's life: the vector
+	// index mapping and dynamic's upgrade verdicts live in it.
 	metadataDB *shardmeta.DB
-	// mapping is the shard's persisted view of its vector indexes, one record
-	// per logical vector in metadataDB.
+	// mapping is the shard's persisted view of its vector indexes.
 	mapping *vectorIndexMapping
 
 	// indicates whether shard is shut down or dropped (or ongoing)

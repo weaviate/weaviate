@@ -288,8 +288,7 @@ func TestDropVectorIndex_CompletionSweepRetriesThroughLoadedShard(t *testing.T) 
 	assert.True(t, found)
 }
 
-// TestDropVectorIndex_DeletesTheMappingRecord pins that a loaded drop
-// removes the vector's record after its files, and leaves the siblings'.
+// A loaded drop removes the vector's record and leaves the siblings'.
 func TestDropVectorIndex_DeletesTheMappingRecord(t *testing.T) {
 	ctx := testCtx()
 	shard, class := setupDropVectorShard(t, ctx)
@@ -306,13 +305,12 @@ func TestDropVectorIndex_DeletesTheMappingRecord(t *testing.T) {
 	assert.True(t, initialized)
 	assert.Equal(t, map[string]vectorIndexRecord{"mv": mv}, records)
 
-	// a retried drop has nothing left to delete and still succeeds
+	// a retried drop still succeeds
 	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
 }
 
-// TestDropVectorIndex_UninitializedMapping pins that a drop on a shard
-// whose mapping was never written (every shard before slice 4b, and a
-// shard restored from an older backup) succeeds and writes no record.
+// A drop on a shard without a mapping (an older backup) succeeds and writes
+// no record.
 func TestDropVectorIndex_UninitializedMapping(t *testing.T) {
 	ctx := testCtx()
 	shard, class := setupDropVectorShard(t, ctx)
@@ -326,11 +324,8 @@ func TestDropVectorIndex_UninitializedMapping(t *testing.T) {
 	assert.Empty(t, records)
 }
 
-// TestDropVectorIndex_CompletionSweepRefusesAShardShuttingDown pins that a
-// loaded shard caught shutting down is an error for the completion sweep,
-// not a fallback to the offline route: the shard still holds index.db
-// locked while its references drain, so an offline delete would report
-// success and leave the record behind after the marker is gone.
+// The completion sweep errors on a shard shutting down instead of going
+// offline: the shard still holds index.db locked while its references drain.
 func TestDropVectorIndex_CompletionSweepRefusesAShardShuttingDown(t *testing.T) {
 	ctx := testCtx()
 	shard, class := setupDropVectorShard(t, ctx)
@@ -350,13 +345,10 @@ func TestDropVectorIndex_CompletionSweepRefusesAShardShuttingDown(t *testing.T) 
 	assert.Equal(t, map[string]vectorIndexRecord{"foo": foo}, records, "nothing was swept, so the record stays for the retry")
 }
 
-// TestDropVectorIndex_CompletionSweepWaitsForAnUnload pins the lifecycle
-// path where an unload has removed the shard from the map but not yet shut
-// it down: the sweep waits on the shard's create lock, which every unload
-// holds through its shutdown, instead of deleting offline against a file
-// the shard still holds locked. The shard is kept alive past both offline
-// lock timeouts (dynamic's key, then the record, a second each), because
-// that is how long the unsynchronized sweep takes to report a false success.
+// An unload has left the map but not yet shut down: the sweep waits on the
+// create lock instead of deleting offline against the lock the shard holds.
+// The shard stays alive past both offline timeouts (two seconds), which is
+// when an unsynchronized sweep reports a false success.
 func TestDropVectorIndex_CompletionSweepWaitsForAnUnload(t *testing.T) {
 	ctx := testCtx()
 	shard, class := setupDropVectorShard(t, ctx)
@@ -365,7 +357,7 @@ func TestDropVectorIndex_CompletionSweepWaitsForAnUnload(t *testing.T) {
 	markDropped(class, "foo")
 	idx := shard.index
 
-	// what an unload does first: take the create lock, leave the map
+	// what an unload does first
 	idx.shardCreateLocks.Lock(shard.name)
 	_, ok := idx.shards.LoadAndDelete(shard.name)
 	require.True(t, ok)
@@ -376,15 +368,14 @@ func TestDropVectorIndex_CompletionSweepWaitsForAnUnload(t *testing.T) {
 		done <- db.EnsureDroppedVectorFilesRemoved(class.Class, shard.name, []string{"foo"})
 	}()
 
-	// the shard is still alive and holds index.db; a sweep that went offline
-	// would have reported success by now
+	// an offline sweep would have reported success by now
 	select {
 	case err := <-done:
 		t.Fatalf("the sweep did not wait for the unload: %v", err)
 	case <-time.After(2500 * time.Millisecond):
 	}
 
-	// the unload finishes: shutdown releases the file, then the lock
+	// the unload finishes
 	require.NoError(t, shard.Shutdown(ctx))
 	idx.shardCreateLocks.Unlock(shard.name)
 
@@ -395,7 +386,7 @@ func TestDropVectorIndex_CompletionSweepWaitsForAnUnload(t *testing.T) {
 		t.Fatal("the sweep did not run after the unload")
 	}
 
-	// the shard is cold now: the record was deleted offline
+	// the record was deleted offline
 	records, initialized, err := reopenMapping(t, shard.path())
 	require.NoError(t, err)
 	assert.True(t, initialized)
