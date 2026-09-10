@@ -14,16 +14,19 @@ package filters_tests
 import (
 	"acceptance_tests_with_client/internal/wvhost"
 	"context"
+	"net/url"
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate-go-client/v6"
 	"github.com/weaviate/weaviate/test/docker"
 )
 
 func TestWhereFilter_SingleNode_Contains(t *testing.T) {
-	t.Run("Contains", testContains(wvhost.REST()))
-	t.Run("Contains text", testContainsText(wvhost.REST()))
-	t.Run("Contains movies", testContainsMovies(wvhost.REST()))
+	c := wvhost.NewClient(t)
+	t.Run("Contains", testContains(c))
+	t.Run("Contains text", testContainsText(c))
+	t.Run("Contains movies", testContainsMovies(c))
 }
 
 func TestWhereFilter_SingleNode_Numerical(t *testing.T) {
@@ -38,9 +41,8 @@ func TestWhereFilter_SingleNode_Numerical(t *testing.T) {
 			require.NoError(t, compose.Terminate(ctx))
 		}()
 
-		endpoint := compose.GetWeaviate().URI()
-
-		t.Run("numerical filters", testNumericalFilters(endpoint))
+		c := newClusterClient(t, compose.GetWeaviate())
+		t.Run("numerical filters", testNumericalFilters(c))
 	})
 
 	t.Run("with rangeable in memory", func(t *testing.T) {
@@ -53,9 +55,8 @@ func TestWhereFilter_SingleNode_Numerical(t *testing.T) {
 			require.NoError(t, compose.Terminate(ctx))
 		}()
 
-		endpoint := compose.GetWeaviate().URI()
-
-		t.Run("numerical filters", testNumericalFilters(endpoint))
+		c := newClusterClient(t, compose.GetWeaviate())
+		t.Run("numerical filters", testNumericalFilters(c))
 	})
 }
 
@@ -70,10 +71,26 @@ func TestWhereFilter_Cluster(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 	}()
 
-	endpoint := compose.GetWeaviate().URI()
+	c := newClusterClient(t, compose.GetWeaviate())
+	t.Run("Contains", testContains(c))
+	t.Run("Contains text", testContainsText(c))
+	t.Run("Contains movies", testContainsMovies(c))
+	t.Run("Numerical filters", testNumericalFilters(c))
+}
 
-	t.Run("Contains", testContains(endpoint))
-	t.Run("Contains text", testContainsText(endpoint))
-	t.Run("Contains movies", testContainsMovies(endpoint))
-	t.Run("Numerical filters", testNumericalFilters(endpoint))
+func newClusterClient(t *testing.T, dc *docker.DockerContainer) *weaviate.Client {
+	var err error
+	rest, err := url.Parse(dc.URI())
+	require.NoError(t, err)
+
+	grpc, err := url.Parse(dc.GrpcURI())
+	require.NoError(t, err)
+
+	return wvhost.NewClient(t,
+		weaviate.WithScheme(rest.Scheme),
+		weaviate.WithHTTPHost(rest.Hostname()),
+		weaviate.WithHTTPPort(rest.Port()),
+		weaviate.WithGRPCHost(grpc.Hostname()),
+		weaviate.WithGRPCPort(grpc.Port()),
+	)
 }

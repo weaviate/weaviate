@@ -12,7 +12,6 @@
 package filters_tests
 
 import (
-	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"fmt"
 	"testing"
@@ -20,17 +19,15 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate-go-client/v6"
 	"github.com/weaviate/weaviate-go-client/v6/collections"
 	"github.com/weaviate/weaviate-go-client/v6/data"
 	"github.com/weaviate/weaviate-go-client/v6/query"
 	"github.com/weaviate/weaviate-go-client/v6/query/filter"
 )
 
-// FIXME(dyma): connect to host passed in the function
-func testContains(string) func(t *testing.T) {
+func testContains(c *weaviate.Client) func(t *testing.T) {
 	return func(t *testing.T) {
-		c := wvhost.NewClient(t)
-
 		collectionName := "WhereTest"
 		id1 := uuid.MustParse("00000000-0000-0000-0000-000000000001")
 		id2 := uuid.MustParse("00000000-0000-0000-0000-000000000002")
@@ -810,11 +807,8 @@ func testContains(string) func(t *testing.T) {
 	}
 }
 
-// FIXME(dyma): connect to host passed in the function
-func testContainsMovies(string) func(t *testing.T) {
+func testContainsMovies(c *weaviate.Client) func(t *testing.T) {
 	return func(t *testing.T) {
-		c := wvhost.NewClient(t)
-
 		collectionName := "Movies"
 		movies := []struct {
 			id        uuid.UUID
