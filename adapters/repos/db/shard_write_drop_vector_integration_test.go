@@ -15,11 +15,17 @@ package db
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
@@ -244,4 +250,38 @@ func TestDropVectorIndex_BatchRejected(t *testing.T) {
 	require.Contains(t, errs[0].Error(), "vector index not found")
 	require.Contains(t, errs[0].Error(), "foo")
 	require.NoError(t, errs[1])
+}
+
+// The completion sweep on a loaded shard re-runs the shard's drop: it finishes
+// a drop that failed part-way and never opens index.db against the shard's lock.
+func TestDropVectorIndex_CompletionSweepRetriesThroughLoadedShard(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	markDropped(class, "foo")
+	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+
+	// leftovers of a removal that failed part-way
+	leftovers := []string{
+		filepath.Join(shard.path(), helpers.GetHNSWCommitLogDirName("foo")),
+		filepath.Join(shard.pathLSM(), helpers.GetVectorsBucketName("foo")),
+	}
+	for _, dir := range leftovers {
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+	}
+
+	db := &DB{logger: shard.index.logger, indices: map[string]*Index{shard.index.ID(): shard.index}}
+	start := time.Now()
+	require.NoError(t, db.EnsureDroppedVectorFilesRemoved(class.Class, shard.name, []string{"foo"}))
+	// the offline route waits a second per target on this shard's lock
+	assert.Less(t, time.Since(start), time.Second)
+
+	for _, dir := range leftovers {
+		_, err := os.Stat(dir)
+		assert.True(t, os.IsNotExist(err), "the sweep finished the drop: %s", dir)
+	}
+
+	// the sibling vector is untouched
+	found, err := shard.WithVectorIndex("mv", func(VectorIndex) error { return nil })
+	require.NoError(t, err)
+	assert.True(t, found)
 }

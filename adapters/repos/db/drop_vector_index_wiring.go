@@ -96,6 +96,14 @@ func (db *DB) EnsureDroppedVectorFilesRemoved(collection, shardName string, targ
 	if idx == nil {
 		return fmt.Errorf("index for collection %q not found", collection)
 	}
+	// A loaded shard retries its own drop: idempotent, it finishes a drop that
+	// failed part-way, and it never opens index.db against its own lock.
+	if loaded := idx.shards.loaded(shardName); loaded != nil {
+		done, err := loaded.retryDroppedVectorIndexes(targets)
+		if done || err != nil {
+			return err
+		}
+	}
 	helper := newVectorDropIndexHelper()
 	class := idx.getClass()
 	for _, target := range targets {
@@ -206,4 +214,21 @@ func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Cont
 		return nil
 	}
 	return fmt.Errorf("drop-vector finalize: bounded retry exhausted: %w", lastErr)
+}
+
+// retryDroppedVectorIndexes re-runs the shard's drop for each target, pinned
+// against shutdown. done is false when the shard is already shutting down.
+func (s *Shard) retryDroppedVectorIndexes(targets []string) (done bool, err error) {
+	release, err := s.preventShutdown()
+	if err != nil {
+		return false, nil
+	}
+	defer release()
+	for _, target := range targets {
+		err := s.DropVectorIndex(context.Background(), target)
+		if err != nil {
+			return true, fmt.Errorf("retry drop of vector %q on loaded shard: %w", target, err)
+		}
+	}
+	return true, nil
 }

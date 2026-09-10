@@ -218,6 +218,19 @@ func (m *shardMap) CompareAndSwap(name string, old, new ShardLike) bool {
 	return (*sync.Map)(m).CompareAndSwap(name, old, new)
 }
 
+// loaded returns the loaded *Shard named name, or nil. It never loads.
+func (m *shardMap) loaded(name string) *Shard {
+	switch s := m.Load(name).(type) {
+	case *Shard:
+		return s
+	case *LazyLoadShard:
+		if s.isLoaded() {
+			return s.shard
+		}
+	}
+	return nil
+}
+
 // LoadAndDelete deletes the value for a key, returning the previous value if any.
 // The loaded result reports whether the key was present.
 func (m *shardMap) LoadAndDelete(name string) (ShardLike, bool) {
