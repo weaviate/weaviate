@@ -13,15 +13,15 @@ package lsmkv
 
 import (
 	"bufio"
-	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"testing"
 	"unsafe"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/testinghelpers"
 )
 
 // TestFlushRoaringSetKeysDoNotAliasNodeBuffers pins the backing array, not just
@@ -29,7 +29,7 @@ import (
 // segment body and still pass a bytes-only assertion, and copying every key per
 // flush is the cost this avoids.
 func TestFlushRoaringSetKeysDoNotAliasNodeBuffers(t *testing.T) {
-	m := newRoaringSetFlushFixture(t, goldenFixtureShapes(), false)
+	m := newRoaringSetFlushFixture(t, flushFixtureShapes(), false)
 
 	keys, err := m.writeRoaringSetNodes(discardingSegmentFile())
 	require.NoError(t, err)
@@ -40,6 +40,8 @@ func TestFlushRoaringSetKeysDoNotAliasNodeBuffers(t *testing.T) {
 	flat := m.roaringSet.FlattenInOrder()
 	require.Len(t, keys, len(flat))
 	require.Equal(t, m.roaringSet.Count(), len(keys),
+		"the walk must yield one key per node the tree holds")
+	require.Equal(t, m.roaringSet.Count(), cap(keys),
 		"the tree's count is what presizes keys, so a wrong one silently regrows it")
 
 	for i, node := range flat {
@@ -55,7 +57,7 @@ func TestFlushRoaringSetKeysDoNotAliasNodeBuffers(t *testing.T) {
 // pins what flush() leaves behind: the partial .db.tmp is removed, so a failed
 // flush cannot be read as a segment by the next startup scan.
 func TestFlushRoaringSetRejectsSecondaryIndexes(t *testing.T) {
-	m := newRoaringSetFlushFixture(t, goldenFixtureShapes(), false)
+	m := newRoaringSetFlushFixture(t, flushFixtureShapes(), false)
 	m.secondaryIndices = 1
 
 	segmentPath, err := m.flush()
@@ -68,40 +70,6 @@ func TestFlushRoaringSetRejectsSecondaryIndexes(t *testing.T) {
 		require.NotContains(t, entry.Name(), ".db",
 			"a failed flush left %q behind", entry.Name())
 	}
-}
-
-var errDiskFull = errors.New("no space left on device")
-
-// failingWriteSeeker fails the failOnWrite'th Write, counting from 1, or every
-// Seek when failSeek is set. It stands in for the ENOSPC or EIO a real segment
-// file returns; nothing else in the package can reach those paths.
-type failingWriteSeeker struct {
-	failOnWrite int
-	failSeek    bool
-	writes      int
-	offset      int64
-}
-
-func (w *failingWriteSeeker) Write(p []byte) (int, error) {
-	w.writes++
-	if w.writes == w.failOnWrite {
-		return 0, errDiskFull
-	}
-	w.offset += int64(len(p))
-	return len(p), nil
-}
-
-func (w *failingWriteSeeker) Seek(offset int64, whence int) (int64, error) {
-	if w.failSeek {
-		return 0, errDiskFull
-	}
-	switch whence {
-	case io.SeekStart:
-		w.offset = offset
-	case io.SeekEnd:
-		w.offset += offset
-	}
-	return w.offset, nil
 }
 
 // TestFlushDataRoaringSetReportsWriteFailures walks the error paths an ENOSPC
@@ -149,17 +117,18 @@ func TestFlushDataRoaringSetReportsWriteFailures(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			m := newRoaringSetFlushFixture(t, goldenFixtureShapes(), false)
+			m := newRoaringSetFlushFixture(t, flushFixtureShapes(), false)
 
-			ws := new(failingWriteSeeker)
-			ws.failOnWrite = tt.failOnWrite
-			ws.failSeek = tt.failSeek
+			ws := &testinghelpers.FailingWriteSeeker{
+				FailOnWrite: tt.failOnWrite,
+				FailSeek:    tt.failSeek,
+			}
 			bufw := bufio.NewWriterSize(ws, tt.bufSize)
 			f := segmentindex.NewSegmentFile(segmentindex.WithBufferedWriter(bufw))
 
 			err := m.flushDataRoaringSet(f, ws, bufw)
 			require.ErrorContains(t, err, tt.wantErr)
-			require.ErrorIs(t, err, errDiskFull,
+			require.ErrorIs(t, err, testinghelpers.ErrDiskFull,
 				"the underlying failure must survive the wrap")
 		})
 	}
