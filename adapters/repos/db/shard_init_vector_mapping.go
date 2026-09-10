@@ -22,54 +22,6 @@ import (
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// vectorIndexRecordFor is the record of a vector created under the naming rule.
-func vectorIndexRecordFor(name string, cfg schemaConfig.VectorIndexConfig, state string) vectorIndexRecord {
-	return vectorIndexRecord{PhysicalID: vectorIndexID(name), IndexType: cfg.IndexType(), State: state}
-}
-
-// vectorIndexHasStorage is false for a skipped hnsw config: a no-op index
-// owns no files, so the mapping does not record it.
-func vectorIndexHasStorage(cfg schemaConfig.VectorIndexConfig) bool {
-	hnswCfg, ok := cfg.(hnswent.UserConfig)
-	return !ok || !hnswCfg.Skip
-}
-
-// activeVectorIndexConfigs is the schema's vectors that own storage, the
-// legacy one under the empty name.
-func activeVectorIndexConfigs(legacy schemaConfig.VectorIndexConfig,
-	targets map[string]schemaConfig.VectorIndexConfig,
-) map[string]schemaConfig.VectorIndexConfig {
-	configs := make(map[string]schemaConfig.VectorIndexConfig, len(targets)+1)
-	if legacy != nil && vectorIndexHasStorage(legacy) {
-		configs[""] = legacy
-	}
-	for name, cfg := range targets {
-		if vectorIndexHasStorage(cfg) {
-			configs[name] = cfg
-		}
-	}
-	return configs
-}
-
-// vectorIndexStorageDirsFor lists the directories rec occupies under this shard.
-func (s *Shard) vectorIndexStorageDirsFor(rec vectorIndexRecord) ([]string, error) {
-	return vectorIndexStorageDirs(s.path(), s.metadataDB.Namespace(dynamic.StateNamespace), rec.IndexType, rec.PhysicalID)
-}
-
-// syncVectorIndexRecordStorage makes rec's directories durable before the
-// record says ready.
-func (s *Shard) syncVectorIndexRecordStorage(name string, rec vectorIndexRecord) error {
-	dirs, err := s.vectorIndexStorageDirsFor(rec)
-	if err != nil {
-		return fmt.Errorf("vector %q: %w", name, err)
-	}
-	err = syncVectorIndexStorage(dirs)
-	if err != nil {
-		return fmt.Errorf("vector %q: %w", name, err)
-	}
-	return nil
-}
-
 // initVectorIndexMapping records every index of a first-load build as
 // ready, in one transaction, once its directories are durable.
 func (s *Shard) initVectorIndexMapping(configs map[string]schemaConfig.VectorIndexConfig) error {
@@ -88,10 +40,6 @@ func (s *Shard) initVectorIndexMapping(configs map[string]schemaConfig.VectorInd
 	}
 	return nil
 }
-
-// errVectorIndexStorageMissing: a ready record whose directories are gone.
-// An empty index in their place would serve nothing where there was data.
-var errVectorIndexStorageMissing = errors.New("vector index storage is missing")
 
 // reconcileVectorIndexMapping opens every schema vector at its recorded ID
 // and deletes the records the schema no longer has. Names are visited in
@@ -142,6 +90,10 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, legacy schemaCo
 	return nil
 }
 
+// errVectorIndexStorageMissing: a ready record whose directories are gone.
+// An empty index in their place would serve nothing where there was data.
+var errVectorIndexStorageMissing = errors.New("vector index storage is missing")
+
 // openRecordedVectorIndex builds name's index at the recorded ID: a ready
 // record is probed first, a creating one is built, synced and flipped.
 func (s *Shard) openRecordedVectorIndex(ctx context.Context, name string, cfg schemaConfig.VectorIndexConfig, rec vectorIndexRecord) error {
@@ -173,6 +125,54 @@ func (s *Shard) openRecordedVectorIndex(ctx context.Context, name string, cfg sc
 	err = s.mapping.Put(name, rec)
 	if err != nil {
 		return err
+	}
+	return nil
+}
+
+// activeVectorIndexConfigs is the schema's vectors that own storage, the
+// legacy one under the empty name.
+func activeVectorIndexConfigs(legacy schemaConfig.VectorIndexConfig,
+	targets map[string]schemaConfig.VectorIndexConfig,
+) map[string]schemaConfig.VectorIndexConfig {
+	configs := make(map[string]schemaConfig.VectorIndexConfig, len(targets)+1)
+	if legacy != nil && vectorIndexHasStorage(legacy) {
+		configs[""] = legacy
+	}
+	for name, cfg := range targets {
+		if vectorIndexHasStorage(cfg) {
+			configs[name] = cfg
+		}
+	}
+	return configs
+}
+
+// vectorIndexHasStorage is false for a skipped hnsw config: a no-op index
+// owns no files, so the mapping does not record it.
+func vectorIndexHasStorage(cfg schemaConfig.VectorIndexConfig) bool {
+	hnswCfg, ok := cfg.(hnswent.UserConfig)
+	return !ok || !hnswCfg.Skip
+}
+
+// vectorIndexRecordFor is the record of a vector created under the naming rule.
+func vectorIndexRecordFor(name string, cfg schemaConfig.VectorIndexConfig, state string) vectorIndexRecord {
+	return vectorIndexRecord{PhysicalID: vectorIndexID(name), IndexType: cfg.IndexType(), State: state}
+}
+
+// vectorIndexStorageDirsFor lists the directories rec occupies under this shard.
+func (s *Shard) vectorIndexStorageDirsFor(rec vectorIndexRecord) ([]string, error) {
+	return vectorIndexStorageDirs(s.path(), s.metadataDB.Namespace(dynamic.StateNamespace), rec.IndexType, rec.PhysicalID)
+}
+
+// syncVectorIndexRecordStorage makes rec's directories durable before the
+// record says ready.
+func (s *Shard) syncVectorIndexRecordStorage(name string, rec vectorIndexRecord) error {
+	dirs, err := s.vectorIndexStorageDirsFor(rec)
+	if err != nil {
+		return fmt.Errorf("vector %q: %w", name, err)
+	}
+	err = syncVectorIndexStorage(dirs)
+	if err != nil {
+		return fmt.Errorf("vector %q: %w", name, err)
 	}
 	return nil
 }
