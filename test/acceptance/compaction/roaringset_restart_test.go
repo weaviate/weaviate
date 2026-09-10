@@ -166,6 +166,19 @@ func TestRoaringSetSurvivesRestart(t *testing.T) {
 			}, 60*time.Second, time.Second,
 				"no segment appeared in %s, so the flush under test never ran", categoryBucket)
 
+			// A level above 0 is a segment some compaction produced, so the data
+			// read back after the restart has been through both writers rather
+			// than the flush alone. Compaction needs two segments to start, which
+			// is why the import below runs before the wait rather than after.
+			importCategories(t)
+			require.Eventually(t, func() bool {
+				maxLevel, _ := compactions.MaxLevelAndCount(ctx, container,
+					categoryCollection, shard, categoryBucket)
+				return maxLevel >= 1
+			}, 120*time.Second, 2*time.Second,
+				"no compacted segment appeared in %s, so the restart reads flushed segments only",
+				categoryBucket)
+
 			// Unflushed at stop time, so the stop mode decides which writer
 			// persists it. Asserted rather than timed: if the dirty cycle had
 			// flushed this batch too, both rows would exercise the same writer and
@@ -181,7 +194,7 @@ func TestRoaringSetSurvivesRestart(t *testing.T) {
 			require.NoError(t, compose.StartAt(ctx, 0))
 			helper.SetupClient(compose.GetWeaviate().URI())
 
-			requireCategoryCounts(t, 2*objectsPerCategory,
+			requireCategoryCounts(t, 3*objectsPerCategory,
 				"the filterable index does not answer with the objects it held before the restart")
 		})
 	}
