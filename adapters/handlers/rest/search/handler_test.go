@@ -15,16 +15,22 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
 	pkgerrors "github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	gproto "google.golang.org/protobuf/proto"
 
+	"github.com/weaviate/weaviate/cluster/proto/api"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -38,7 +44,9 @@ import (
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type fakeSearcher struct {
@@ -69,19 +77,6 @@ func (f *fakeSearcher) Aggregate(ctx context.Context, principal *models.Principa
 		return nil, f.aggregateErr
 	}
 	return f.aggregateRes, nil
-}
-
-type fakeSchemaReader struct {
-	classes map[string]*models.Class
-	aliases map[string]string
-}
-
-func (f *fakeSchemaReader) ReadOnlyClass(name string) *models.Class {
-	return f.classes[name]
-}
-
-func (f *fakeSchemaReader) ResolveAlias(alias string) string {
-	return f.aliases[alias]
 }
 
 func movieClass() *models.Class {
@@ -150,31 +145,112 @@ func comicClass() *models.Class {
 	}
 }
 
+// seedSchema builds a real SchemaReader over classes and aliases. The handler
+// takes the concrete reader, so a test that wants the schema to hold something
+// has to seed one.
+func seedSchema(t *testing.T, classes []*models.Class, aliases map[string]string) clusterSchema.SchemaReader {
+	t.Helper()
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
+	sm := clusterSchema.NewSchemaManager("node1", nil, parser, prometheus.NewPedanticRegistry(), logger)
+
+	// A reference property whose target class is not in the schema yet is
+	// rejected, and the fixtures cross-link, so retry the rejects until a pass
+	// adds nothing — a reference cycle or a genuinely bad class.
+	remaining := classes
+	for len(remaining) > 0 {
+		var deferred []*models.Class
+		var firstErr error
+		for _, cls := range remaining {
+			sub, err := json.Marshal(api.AddClassRequest{
+				Class: cls,
+				State: &sharding.State{PartitioningEnabled: true},
+			})
+			require.NoError(t, err)
+			if err := sm.AddClass(&api.ApplyRequest{
+				Type: api.ApplyRequest_TYPE_ADD_CLASS, Class: cls.Class, SubCommand: sub,
+			}, "node1", true, false); err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				deferred = append(deferred, cls)
+			}
+		}
+		if len(deferred) == len(remaining) {
+			require.NoError(t, firstErr, "seeding made no progress; check for a reference cycle")
+		}
+		remaining = deferred
+	}
+
+	for alias, collection := range aliases {
+		sub, err := gproto.Marshal(&api.CreateAliasRequest{Alias: alias, Collection: collection})
+		require.NoError(t, err)
+		require.NoError(t, sm.CreateAlias(&api.ApplyRequest{
+			Type: api.ApplyRequest_TYPE_CREATE_ALIAS, Class: collection, SubCommand: sub,
+		}))
+	}
+
+	return sm.NewSchemaReader()
+}
+
 type testDeps struct {
-	searcher     *fakeSearcher
-	schemaReader *fakeSchemaReader
-	authorizer   *mocks.FakeAuthorizer
-	handler      *Handler
+	searcher   *fakeSearcher
+	authorizer *mocks.FakeAuthorizer
+	handler    *Handler
+	// classes mirrors what the schema was seeded with, for the few tests that
+	// resolve collections themselves instead of going through the handler.
+	classes map[string]*models.Class
 }
 
 func newTestHandler(t *testing.T) *testDeps {
 	t.Helper()
+	return newTestHandlerSeeded(t, nil, nil)
+}
+
+// newTestHandlerWithAliases seeds aliases at construction.
+func newTestHandlerWithAliases(t *testing.T, aliases map[string]string) *testDeps {
+	t.Helper()
+	return newTestHandlerSeeded(t, nil, aliases)
+}
+
+// newTestHandlerWithClass seeds one extra collection beyond the fixture set.
+func newTestHandlerWithClass(t *testing.T, extra *models.Class) *testDeps {
+	t.Helper()
+	return newTestHandlerSeeded(t, []*models.Class{extra}, nil)
+}
+
+// newTestHandlerSeeded builds the handler over a real schema. Everything is
+// seeded at construction because the handler takes a concrete schema reader,
+// which, unlike a stub, cannot be re-pointed once built.
+func newTestHandlerSeeded(t *testing.T, extra []*models.Class, aliases map[string]string) *testDeps {
+	t.Helper()
 	deps := &testDeps{
-		searcher: &fakeSearcher{},
-		schemaReader: &fakeSchemaReader{
-			classes: map[string]*models.Class{
-				"Movie":  movieClass(),
-				"Author": authorClass(),
-				"Studio": studioClass(),
-				"Book":   bookClass(),
-				"Comic":  comicClass(),
-			},
-		},
+		searcher:   &fakeSearcher{},
 		authorizer: mocks.NewMockAuthorizer(),
+		classes:    map[string]*models.Class{},
 	}
+
+	// extra overrides a fixture class of the same name, the way assigning into
+	// the old stub's map did.
+	for _, c := range []*models.Class{
+		movieClass(), authorClass(), studioClass(), bookClass(), comicClass(),
+	} {
+		deps.classes[c.Class] = c
+	}
+	for _, c := range extra {
+		deps.classes[c.Class] = c
+	}
+
+	classes := make([]*models.Class, 0, len(deps.classes))
+	for _, c := range deps.classes {
+		classes = append(classes, c)
+	}
+
 	deps.handler = NewHandler(HandlerConfig{
 		Traverser:    deps.searcher,
-		SchemaReader: deps.schemaReader,
+		SchemaReader: seedSchema(t, classes, aliases),
 		Authorizer:   deps.authorizer,
 		DefaultLimit: 10,
 		// matches DefaultQueryCrossReferenceDepthLimit
@@ -500,8 +576,7 @@ func TestHandlerTenantAuthorization(t *testing.T) {
 }
 
 func TestHandlerResolvesAliases(t *testing.T) {
-	deps := newTestHandler(t)
-	deps.schemaReader.aliases = map[string]string{"Films": "Movie"}
+	deps := newTestHandlerWithAliases(t, map[string]string{"Films": "Movie"})
 
 	_, apiErr := doNearText(t, deps, nil, "Films", `{"query":["space"]}`)
 	require.Nil(t, apiErr)
@@ -533,9 +608,8 @@ func (a rbacLikeAuthorizer) FilterAuthorizedResources(ctx context.Context, princ
 // TestHandlerAliasForbiddenDoesNotLeakTarget: a denied request against an
 // alias must not disclose the alias's target collection in the 403.
 func TestHandlerAliasForbiddenDoesNotLeakTarget(t *testing.T) {
-	deps := newTestHandler(t)
+	deps := newTestHandlerWithAliases(t, map[string]string{"Films": "Movie"})
 	deps.handler.authorizer = rbacLikeAuthorizer{}
-	deps.schemaReader.aliases = map[string]string{"Films": "Movie"}
 
 	_, apiErr := doNearText(t, deps, nil, "Films", `{"query":["space"]}`)
 	require.NotNil(t, apiErr)
@@ -549,9 +623,8 @@ func TestHandlerAliasForbiddenDoesNotLeakTarget(t *testing.T) {
 // collection — else the difference reveals the alias to a denied caller.
 func TestHandlerAliasForbiddenNoExistenceOracle(t *testing.T) {
 	// registered alias Films -> Movie, caller denied everything
-	aliased := newTestHandler(t)
+	aliased := newTestHandlerWithAliases(t, map[string]string{"Films": "Movie"})
 	aliased.handler.authorizer = rbacLikeAuthorizer{}
-	aliased.schemaReader.aliases = map[string]string{"Films": "Movie"}
 	_, aliasErr := doNearText(t, aliased, nil, "Films", `{"query":["space"]}`)
 	require.NotNil(t, aliasErr)
 

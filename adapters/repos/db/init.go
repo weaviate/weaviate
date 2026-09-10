@@ -373,7 +373,17 @@ func (db *DB) migrateFileStructureIfNecessary() error {
 func (db *DB) migrateToHierarchicalFS() error {
 	before := time.Now()
 
-	if err := migratefs.MigrateToHierarchicalFS(db.config.RootPath, db.schemaReader); err != nil {
+	schema := db.schemaReader.ReadOnlySchema()
+	collections := make([]migratefs.ClassShards, 0, len(schema.Classes))
+	for _, class := range schema.Classes {
+		shards, err := db.schemaReader.Shards(class.Class)
+		if err != nil {
+			return fmt.Errorf("unable to retrieve shards for class %q: %w", class.Class, err)
+		}
+		collections = append(collections, migratefs.ClassShards{Class: class, Shards: shards})
+	}
+
+	if err := migratefs.MigrateToHierarchicalFS(db.config.RootPath, collections); err != nil {
 		return err
 	}
 	db.logger.WithField("action", "hierarchical_fs_migration").
