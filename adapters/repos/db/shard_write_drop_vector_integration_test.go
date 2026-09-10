@@ -26,7 +26,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/entities/additional"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -284,4 +286,118 @@ func TestDropVectorIndex_CompletionSweepRetriesThroughLoadedShard(t *testing.T) 
 	found, err := shard.WithVectorIndex("mv", func(VectorIndex) error { return nil })
 	require.NoError(t, err)
 	assert.True(t, found)
+}
+
+// A loaded drop removes the vector's record and leaves the siblings'.
+func TestDropVectorIndex_DeletesTheMappingRecord(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+
+	foo := vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}
+	mv := vectorIndexRecord{PhysicalID: "vectors_mv", IndexType: "hnsw", State: "ready"}
+	require.NoError(t, shard.mapping.Initialize(map[string]vectorIndexRecord{"foo": foo, "mv": mv}))
+
+	markDropped(class, "foo")
+	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+
+	records, initialized, err := shard.mapping.Load()
+	require.NoError(t, err)
+	assert.True(t, initialized)
+	assert.Equal(t, map[string]vectorIndexRecord{"mv": mv}, records)
+
+	// a retried drop still succeeds
+	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+}
+
+// A drop on a shard without a mapping (an older backup) succeeds and writes
+// no record.
+func TestDropVectorIndex_UninitializedMapping(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+
+	markDropped(class, "foo")
+	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+
+	records, initialized, err := shard.mapping.Load()
+	require.NoError(t, err)
+	assert.False(t, initialized)
+	assert.Empty(t, records)
+}
+
+// The completion sweep errors on a shard shutting down instead of going
+// offline: the shard still holds index.db locked while its references drain.
+func TestDropVectorIndex_CompletionSweepRefusesAShardShuttingDown(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	foo := vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}
+	require.NoError(t, shard.mapping.Initialize(map[string]vectorIndexRecord{"foo": foo}))
+	markDropped(class, "foo")
+
+	shard.shutdownRequested.Store(true)
+	defer shard.shutdownRequested.Store(false)
+
+	db := &DB{logger: shard.index.logger, indices: map[string]*Index{shard.index.ID(): shard.index}}
+	err := db.EnsureDroppedVectorFilesRemoved(class.Class, shard.name, []string{"foo"})
+	require.ErrorIs(t, err, errShutdownInProgress)
+
+	records, _, err := shard.mapping.Load()
+	require.NoError(t, err)
+	assert.Equal(t, map[string]vectorIndexRecord{"foo": foo}, records, "nothing was swept, so the record stays for the retry")
+}
+
+// An unload has left the map but not yet shut down: the sweep waits on the
+// create lock instead of deleting offline against the lock the shard holds.
+// The shard stays alive past both offline timeouts (two seconds), which is
+// when an unsynchronized sweep reports a false success.
+func TestDropVectorIndex_CompletionSweepWaitsForAnUnload(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	foo := vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}
+	require.NoError(t, shard.mapping.Initialize(map[string]vectorIndexRecord{"foo": foo}))
+	markDropped(class, "foo")
+	idx := shard.index
+
+	// what an unload does first
+	idx.shardCreateLocks.Lock(shard.name)
+	_, ok := idx.shards.LoadAndDelete(shard.name)
+	require.True(t, ok)
+
+	db := &DB{logger: idx.logger, indices: map[string]*Index{idx.ID(): idx}}
+	done := make(chan error, 1)
+	go func() {
+		done <- db.EnsureDroppedVectorFilesRemoved(class.Class, shard.name, []string{"foo"})
+	}()
+
+	// an offline sweep would have reported success by now
+	select {
+	case err := <-done:
+		t.Fatalf("the sweep did not wait for the unload: %v", err)
+	case <-time.After(2500 * time.Millisecond):
+	}
+
+	// the unload finishes
+	require.NoError(t, shard.Shutdown(ctx))
+	idx.shardCreateLocks.Unlock(shard.name)
+
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the sweep did not run after the unload")
+	}
+
+	// the record was deleted offline
+	records, initialized, err := reopenMapping(t, shard.path())
+	require.NoError(t, err)
+	assert.True(t, initialized)
+	assert.Empty(t, records)
+}
+
+// reopenMapping reads a shut-down shard's mapping through a fresh handle.
+func reopenMapping(t *testing.T, shardDir string) (map[string]vectorIndexRecord, bool, error) {
+	t.Helper()
+	db, err := shardmeta.Open(shardDir, entlsmkv.BoltFlockTimeout)
+	require.NoError(t, err)
+	defer db.Close()
+	return newVectorIndexMapping(db).Load()
 }

@@ -274,9 +274,11 @@ func TestVectorIndexMapping_Delete(t *testing.T) {
 		require.NoError(t, m.Delete("title"))
 	})
 
-	t.Run("refuses an uninitialized mapping", func(t *testing.T) {
+	t.Run("an uninitialized mapping has nothing to delete", func(t *testing.T) {
 		m, _ := newTestVectorIndexMapping(t)
-		err := m.Delete("title")
-		require.ErrorIs(t, err, errVectorIndexMappingUninitialized)
+		require.NoError(t, m.Delete("title"))
+		_, initialized, err := m.Load()
+		require.NoError(t, err)
+		assert.False(t, initialized, "a delete does not initialize the mapping")
 	})
 }
