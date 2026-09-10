@@ -16,142 +16,126 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"sort"
+	"slices"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// initVectorIndexMapping records every index of a first-load build as
-// ready, in one transaction, once its directories are durable.
-func (s *Shard) initVectorIndexMapping(configs map[string]schemaConfig.VectorIndexConfig) error {
-	records := make(map[string]vectorIndexRecord, len(configs))
-	for name, cfg := range configs {
-		rec := vectorIndexRecordFor(name, cfg, vectorIndexStateReady)
-		err := s.syncVectorIndexRecordStorage(name, rec)
-		if err != nil {
-			return err
-		}
-		records[name] = rec
-	}
-	return s.mapping.Initialize(records)
-}
-
 // reconcileVectorIndexMapping runs on every load after the first. The mapping
 // says which indexes the shard has, the schema says which it should have, and
 // the two can disagree after a crash, a schema change while the shard was
-// cold, or lost files. For each vector the schema has:
-//   - a ready record whose storage is on disk opens at the recorded ID;
-//   - a ready record whose storage is gone refuses the load: an empty index in
-//     its place would silently serve nothing where there was data;
-//   - a creating record (a crash between the two writes of a creation) is
-//     built, then marked ready;
-//   - no record (a vector added while the shard was cold) is treated like
-//     creating.
+// cold, or lost files. It returns the record each schema vector is built
+// from, in name order so a failure is deterministic:
+//   - a ready record whose storage is on disk builds at the recorded ID;
+//   - a ready record whose storage is gone refuses the load if the object
+//     store holds a vector for it: an empty index in its place would silently
+//     serve nothing where there was data. With nothing to index it is
+//     rebuilt: a backup or a transfer carries no directory for an empty index;
+//   - a creating record (a crash between the two writes of a creation) and a
+//     missing record (a vector added while the shard was cold) are built,
+//     then marked ready.
 //
 // A record the schema no longer has is deleted; its storage is left alone.
-func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, legacy schemaConfig.VectorIndexConfig,
-	targets map[string]schemaConfig.VectorIndexConfig, records map[string]vectorIndexRecord,
-) error {
-	configs, skipped := vectorIndexConfigsByStorage(legacy, targets)
-	s.migrateCompressedVectors(legacy, targets)
-
-	// in name order, so a failure is deterministic
-	names := make([]string, 0, len(configs))
-	for name := range configs {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-
-	for _, name := range names {
-		cfg := configs[name]
+func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[string]schemaConfig.VectorIndexConfig,
+	records map[string]vectorIndexRecord,
+) (map[string]vectorIndexRecord, error) {
+	toBuild := make(map[string]vectorIndexRecord, len(active))
+	for _, name := range slices.Sorted(maps.Keys(active)) {
+		cfg := active[name]
 		rec, ok := records[name]
 		if !ok {
-			// added while the shard was cold: treated like a crash mid-creation
 			rec = vectorIndexRecordFor(name, cfg, vectorIndexStateCreating)
 			err := s.mapping.Put(name, rec)
 			if err != nil {
-				return err
+				return nil, err
 			}
 		}
 		if rec.IndexType != cfg.IndexType() {
-			return fmt.Errorf("vector %q: the mapping records a %s index at %q but the schema says %s",
+			return nil, fmt.Errorf("vector %q: the mapping records a %s index at %q but the schema says %s",
 				name, rec.IndexType, rec.PhysicalID, cfg.IndexType())
 		}
-		err := s.openRecordedVectorIndex(ctx, name, cfg, rec)
-		if err != nil {
-			return err
+		if rec.State == vectorIndexStateReady {
+			rebuild, err := s.readyVectorIndexNeedsRebuild(ctx, name, cfg, rec)
+			if err != nil {
+				return nil, err
+			}
+			if rebuild {
+				rec.State = vectorIndexStateCreating
+			}
 		}
+		toBuild[name] = rec
 	}
 
 	for name := range records {
-		if _, active := configs[name]; active {
+		if _, ok := active[name]; ok {
 			continue
 		}
 		// dropped or gone from the schema: the record goes, the storage stays
 		err := s.mapping.Delete(name)
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
-
-	// a skipped vector owns no files and no record, but callers need its slot
-	for name, cfg := range skipped {
-		err := s.createVectorIndex(ctx, name, s.vectorIndexID(name), cfg, s.lazySegmentLoadingEnabled)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
+	return toBuild, nil
 }
 
 // errVectorIndexStorageMissing: a ready record whose directories are gone.
 // An empty index in their place would serve nothing where there was data.
 var errVectorIndexStorageMissing = errors.New("vector index storage is missing")
 
-// openRecordedVectorIndex builds name's index at the recorded ID: a ready
-// record is probed first, a creating one is built, synced and flipped.
-func (s *Shard) openRecordedVectorIndex(ctx context.Context, name string, cfg schemaConfig.VectorIndexConfig, rec vectorIndexRecord) error {
-	if rec.State == vectorIndexStateReady {
-		dirs, err := s.vectorIndexStorageDirsFor(rec)
-		if err != nil {
-			return fmt.Errorf("vector %q: %w", name, err)
-		}
-		exists, err := vectorIndexStorageExists(dirs)
-		if err != nil {
-			return fmt.Errorf("vector %q: %w", name, err)
-		}
-		if exists {
-			return s.createVectorIndex(ctx, name, rec.PhysicalID, cfg, s.lazySegmentLoadingEnabled)
-		}
-		hasVectors, err := s.hasVectorsFor(ctx, name, cfg.IsMultiVector())
-		if err != nil {
-			return fmt.Errorf("vector %q: %w", name, err)
-		}
-		if hasVectors {
-			return fmt.Errorf("%w: vector %q is recorded ready at %q, expected %v on disk",
-				errVectorIndexStorageMissing, name, rec.PhysicalID, dirs)
-		}
-		// nothing to index: an empty index that a backup or a transfer did
-		// not carry, since they list files and an empty index has none.
-		// Rebuilt like a creating record.
+// readyVectorIndexNeedsRebuild probes a ready record's storage. Present:
+// nothing to do. Missing with vectors to index: the load is refused. Missing
+// with nothing to index: the index is rebuilt.
+func (s *Shard) readyVectorIndexNeedsRebuild(ctx context.Context, name string, cfg schemaConfig.VectorIndexConfig, rec vectorIndexRecord) (bool, error) {
+	dirs, err := s.vectorIndexStorageDirsFor(rec)
+	if err != nil {
+		return false, fmt.Errorf("vector %q: %w", name, err)
 	}
+	exists, err := vectorIndexStorageExists(dirs)
+	if err != nil {
+		return false, fmt.Errorf("vector %q: %w", name, err)
+	}
+	if exists {
+		return false, nil
+	}
+	hasVectors, err := s.hasVectorsFor(ctx, name, cfg.IsMultiVector())
+	if err != nil {
+		return false, fmt.Errorf("vector %q: %w", name, err)
+	}
+	if hasVectors {
+		return false, fmt.Errorf("%w: vector %q is recorded ready at %q, expected %v on disk",
+			errVectorIndexStorageMissing, name, rec.PhysicalID, dirs)
+	}
+	return true, nil
+}
 
-	err := s.createVectorIndex(ctx, name, rec.PhysicalID, cfg, s.lazySegmentLoadingEnabled)
-	if err != nil {
-		return err
+// commitVectorIndexRecords makes the indexes just built durable in the
+// mapping. On the first load every record is written ready in one
+// transaction; later, only the records that were creating are flipped.
+func (s *Shard) commitVectorIndexRecords(records map[string]vectorIndexRecord, initialized bool) error {
+	for name, rec := range records {
+		if initialized && rec.State == vectorIndexStateReady {
+			continue
+		}
+		err := s.syncVectorIndexRecordStorage(name, rec)
+		if err != nil {
+			return err
+		}
+		rec.State = vectorIndexStateReady
+		records[name] = rec
+		if initialized {
+			err = s.mapping.Put(name, rec)
+			if err != nil {
+				return err
+			}
+		}
 	}
-	err = s.syncVectorIndexRecordStorage(name, rec)
-	if err != nil {
-		return err
+	if initialized {
+		return nil
 	}
-	rec.State = vectorIndexStateReady
-	err = s.mapping.Put(name, rec)
-	if err != nil {
-		return err
-	}
-	return nil
+	return s.mapping.Initialize(records)
 }
 
 // vectorIndexConfigsByStorage splits the schema's vectors, the legacy one

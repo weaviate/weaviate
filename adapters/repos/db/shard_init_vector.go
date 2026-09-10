@@ -15,7 +15,9 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
 
 	"github.com/pkg/errors"
 
@@ -63,33 +65,45 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 	// "concurrent map read and map write", not a recoverable race.
 	legacy := s.index.GetVectorIndexConfig("")
 	targets := s.index.getTargetVectorIndexConfigs()
+	active, skipped := vectorIndexConfigsByStorage(legacy, targets)
 
-	// A shard without a mapping builds under the naming rule and writes one;
-	// a shard with one reconciles it against the schema.
+	// The mapping decides the physical ID of each index. A shard without one
+	// creates everything under the naming rule; a shard with one checks its
+	// records against the schema and the disk first.
 	records, initialized, err := s.mapping.Load()
 	if err != nil {
 		return fmt.Errorf("shard %q: %w", s.ID(), err)
 	}
 	if initialized {
-		err = s.reconcileVectorIndexMapping(ctx, legacy, targets, records)
+		records, err = s.reconcileVectorIndexMapping(ctx, active, records)
 		if err != nil {
 			return fmt.Errorf("shard %q: %w", s.ID(), err)
 		}
-		return nil
+	} else {
+		records = make(map[string]vectorIndexRecord, len(active))
+		for name, cfg := range active {
+			records[name] = vectorIndexRecordFor(name, cfg, vectorIndexStateCreating)
+		}
 	}
 
-	if legacy != nil {
-		if err := s.initLegacyVector(ctx, legacy, s.lazySegmentLoadingEnabled); err != nil {
+	s.migrateCompressedVectors(legacy, targets)
+
+	// legacy first, then names in order
+	for _, name := range slices.Sorted(maps.Keys(records)) {
+		err := s.createVectorIndex(ctx, name, records[name].PhysicalID, active[name], s.lazySegmentLoadingEnabled)
+		if err != nil {
+			return err
+		}
+	}
+	// a skipped vector owns no files and no record, but callers need its slot
+	for name, cfg := range skipped {
+		err := s.createVectorIndex(ctx, name, s.vectorIndexID(name), cfg, s.lazySegmentLoadingEnabled)
+		if err != nil {
 			return err
 		}
 	}
 
-	if err := s.initTargetVectors(ctx, legacy, targets, s.lazySegmentLoadingEnabled); err != nil {
-		return err
-	}
-
-	active, _ := vectorIndexConfigsByStorage(legacy, targets)
-	err = s.initVectorIndexMapping(active)
+	err = s.commitVectorIndexRecords(records, initialized)
 	if err != nil {
 		return fmt.Errorf("shard %q: %w", s.ID(), err)
 	}
@@ -337,22 +351,6 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 	return vectorIndex, nil
 }
 
-// initTargetVectors builds the named target-vector indexes. legacy and configs
-// are caller-held snapshots; the migrator needs legacy to tell a
-// single-named-vector layout from a legacy-plus-named one.
-func (s *Shard) initTargetVectors(ctx context.Context, legacy schemaConfig.VectorIndexConfig,
-	configs map[string]schemaConfig.VectorIndexConfig, lazyLoadSegments bool,
-) error {
-	s.migrateCompressedVectors(legacy, configs)
-
-	for targetVector, vectorIndexConfig := range configs {
-		if err := s.initTargetVector(ctx, targetVector, vectorIndexConfig, lazyLoadSegments); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // migrateCompressedVectors logs a failed compressed-vectors folder migration.
 func (s *Shard) migrateCompressedVectors(legacy schemaConfig.VectorIndexConfig, configs map[string]schemaConfig.VectorIndexConfig) {
 	if err := newCompressedVectorsMigrator(s.index.logger).do(s, legacy, configs); err != nil {
@@ -397,12 +395,6 @@ func (s *Shard) buildVectorIndexAndQueue(ctx context.Context, targetVector, phys
 		return nil, nil, fmt.Errorf("cannot create index queue for %q: %w", targetVector, err)
 	}
 	return vectorIndex, queue, nil
-}
-
-// initLegacyVector creates the legacy vector's index and queue under the
-// naming rule unless the shard has them already.
-func (s *Shard) initLegacyVector(ctx context.Context, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
-	return s.createVectorIndex(ctx, "", s.vectorIndexID(""), cfg, lazyLoadSegments)
 }
 
 func (s *Shard) setVectorIndex(targetVector string, index VectorIndex) {
