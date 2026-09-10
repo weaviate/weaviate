@@ -207,7 +207,6 @@ func TestFailedDropIsRetriedOnTheNextReload(t *testing.T) {
 	sm.ReloadDBFromSchema()
 	require.Equal(t, []string{"Orphan"}, idx.deleted)
 
-	// The failure is retried rather than forgotten.
 	idx.dropErr = nil
 	sm.ReloadDBFromSchema()
 	require.Equal(t, []string{"Orphan", "Orphan"}, idx.deleted)
@@ -244,10 +243,8 @@ func snapshotWithout(t *testing.T, sm *SchemaManager, class string) []byte {
 	return data
 }
 
-// TestRestoreCarriesTheFrozenFlag pins that a class restored away keeps the
-// offloaded-tenant flag its pre-restore state carried. Without it the drop
-// removes the local directory and skips the cloud copy, which nothing else
-// would ever name again.
+// TestRestoreCarriesTheFrozenFlag pins that a class restored away keeps its
+// offloaded-tenant flag: without it the drop skips the cloud copy for good.
 func TestRestoreCarriesTheFrozenFlag(t *testing.T) {
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)
@@ -268,7 +265,6 @@ func TestRestoreCarriesTheFrozenFlag(t *testing.T) {
 	require.False(t, idx.frozen["Hot"])
 }
 
-// addFrozenTenantClass seeds a multi-tenant class with one offloaded tenant.
 func addFrozenTenantClass(t *testing.T, sm *SchemaManager, class string) {
 	t.Helper()
 	sub, err := json.Marshal(command.AddClassRequest{

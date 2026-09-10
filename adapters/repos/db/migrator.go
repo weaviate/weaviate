@@ -280,7 +280,6 @@ func (m *Migrator) DropClass(ctx context.Context, className string, hasFrozen bo
 	return nil
 }
 
-// DropOrphanedClass removes the data of a class the schema already dropped.
 func (m *Migrator) DropOrphanedClass(ctx context.Context, className string, hasFrozen bool) error {
 	if err := m.db.DropOrphanedClass(schema.ClassName(className)); err != nil {
 		return err

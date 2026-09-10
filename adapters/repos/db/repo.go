@@ -589,16 +589,12 @@ func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) sharding.R
 // schema-only delete leaves behind, so callers must know this node held it.
 func (db *DB) DropOrphanedClass(className schema.ClassName) error {
 	if idx := db.GetIndex(className); idx != nil {
-		// Stop the cycle managers first: renaming underneath a running index
-		// lets its next write recreate the path.
 		if err := db.DeleteIndex(className); err != nil {
 			return err
 		}
 	}
 
-	// The caller knows this node held the class, not that the path is only
-	// ours: BACKUP_FILESYSTEM_PATH takes any absolute directory, so
-	// <RootPath>/backups is legal and a collection named Backups maps onto it.
+	// The caller knows the class was ours; only the directory knows the path is.
 	path := filepath.Join(db.config.RootPath, indexID(className))
 	if !hasShardStore(path) {
 		db.logger.WithFields(logrus.Fields{
@@ -612,8 +608,9 @@ func (db *DB) DropOrphanedClass(className schema.ClassName) error {
 }
 
 // hasShardStore reports whether path holds a shard directory: a child with the
-// lsm store and the version file every shard writes on init. A backup, laid out
-// as <backupID>/<node>/<class> with a file at each leaf, never does.
+// lsm store and the version file every shard writes on init. BACKUP_FILESYSTEM_PATH
+// takes any absolute directory, so <RootPath>/backups is legal and a collection
+// named Backups maps onto it.
 func hasShardStore(path string) bool {
 	entries, err := os.ReadDir(path)
 	if err != nil {
@@ -634,7 +631,6 @@ func hasShardStore(path string) bool {
 	return false
 }
 
-// dropIndexData removes a class's files without going through an Index.
 func (db *DB) dropIndexData(className schema.ClassName) error {
 	deleted, err := renameForAsyncDelete(
 		filepath.Join(db.config.RootPath, indexID(className)), db.logger)

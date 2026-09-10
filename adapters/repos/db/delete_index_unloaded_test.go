@@ -107,8 +107,7 @@ func TestDropOrphanedClassReportsAFailedDrop(t *testing.T) {
 }
 
 // TestDropOrphanedClassLeavesADirectoryThatIsNotAnIndex pins the one thing the
-// caller cannot know: whether the path is only ours. The class really was in
-// the schema and really was held here, so only the directory settles it.
+// caller cannot know: whether the path is only ours.
 func TestDropOrphanedClassLeavesADirectoryThatIsNotAnIndex(t *testing.T) {
 	tests := []struct {
 		name    string

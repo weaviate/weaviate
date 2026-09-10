@@ -149,16 +149,13 @@ func (s *SchemaManager) Restore(data []byte, parser Parser) error {
 	return nil
 }
 
-// recordOrphans marks the classes a restore dropped, so the reload removes
-// their data. Nothing replays the DELETE_CLASS behind a snapshot, so this is
-// the store's only signal.
+// recordOrphans marks the classes a restore dropped.
 func (s *SchemaManager) recordOrphans(dropped map[string]bool) {
 	for class, hasFrozen := range dropped {
 		s.recordOrphan(class, hasFrozen)
 	}
 }
 
-// recordOrphan marks one class whose data the store was not told to remove.
 func (s *SchemaManager) recordOrphan(class string, hasFrozen bool) {
 	if s.metadataOnly {
 		return
@@ -187,8 +184,7 @@ func (s *SchemaManager) dropOrphanedClasses() {
 		if _, revived := present[class]; revived {
 			continue
 		}
-		// DropOrphanedClass, not DeleteClass: the data has to go with no index
-		// loaded, which is only safe for a class the schema really held.
+		// DropOrphanedClass, not DeleteClass: no index is loaded to delete.
 		if err := s.db.DropOrphanedClass(context.Background(), class, hasFrozen); err != nil {
 			s.log.WithFields(logrus.Fields{
 				"action": "drop_orphaned_class",
