@@ -73,6 +73,31 @@ func TestUpload_ConcurrentNoFlagRedefinedPanic(t *testing.T) {
 	}
 }
 
+func TestUploadArgs_SkipsScratchFiles(t *testing.T) {
+	// Constructed directly: New() registers Prometheus collectors, and the
+	// suite already has one module registered.
+	m := &Module{
+		Endpoint:    "http://127.0.0.1:1",
+		Bucket:      "weaviate-offload-test",
+		Concurrency: 4,
+	}
+
+	args := m.uploadArgs("/var/lib/weaviate/testclass/tenant-0", "TestClass", "tenant-0", "node1")
+
+	// Exact argv, because position matters: s5cmd stops reading flags at the
+	// first positional, so an --exclude placed after the source wildcard
+	// becomes a third positional and cp fails with "expected source and
+	// destination arguments".
+	require.Equal(t, []string{
+		"--endpoint-url=http://127.0.0.1:1",
+		"cp",
+		"--concurrency=4",
+		"--exclude=*.tmp",
+		"/var/lib/weaviate/testclass/tenant-0/*",
+		"s3://weaviate-offload-test/testclass/tenant-0/node1/",
+	}, args)
+}
+
 func shardName(i int) string {
 	return fmt.Sprintf("tenant-%d", i)
 }
