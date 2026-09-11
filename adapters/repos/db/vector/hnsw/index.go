@@ -858,6 +858,28 @@ func (h *hnsw) ContainsDoc(docID uint64) bool {
 	return exists && !h.hasTombstone(docID)
 }
 
+// CleanForReuse implements common.ReuseCleanliness: a docID is clean once
+// its tombstone cleanup fully completed — no node slot and no tombstone.
+// This is deliberately stronger than !ContainsDoc, which also reports false
+// for a tombstoned-but-present node whose cleanup has not run yet.
+//
+// Multivector indexes conservatively report never-clean: their per-docID
+// vector-id mapping adds a second id space whose reuse story is not covered
+// by the v1 scope (single-vector HNSW and flat).
+func (h *hnsw) CleanForReuse(docID uint64) bool {
+	if h.Multivector() {
+		return false
+	}
+
+	h.RLock()
+	h.shardedNodeLocks.RLock(docID)
+	exists := len(h.nodes) > int(docID) && h.nodes[docID] != nil
+	h.shardedNodeLocks.RUnlock(docID)
+	h.RUnlock()
+
+	return !exists && !h.hasTombstone(docID)
+}
+
 func (h *hnsw) Iterate(fn func(docID uint64) bool) {
 	if h.Multivector() && !h.muvera.Load() {
 		h.iterateMulti(fn)
