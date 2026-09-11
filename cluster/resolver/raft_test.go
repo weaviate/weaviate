@@ -30,6 +30,9 @@ func (m ipv6NodeSelector) NodeAddress(id string) string       { return m.address
 func (m ipv6NodeSelector) NodeHostname(string) (string, bool) { return "", false }
 func (m ipv6NodeSelector) LocalName() string                  { return "" }
 func (m ipv6NodeSelector) AllHostnames() []string             { return nil }
+func (m ipv6NodeSelector) AllNames() []string                 { return nil }
+func (m ipv6NodeSelector) NodeCount() int                     { return 0 }
+func (m ipv6NodeSelector) ClusterHealthScore() int            { return 0 }
 func (m ipv6NodeSelector) AllOtherClusterMembers(int) map[string]string {
 	return nil
 }

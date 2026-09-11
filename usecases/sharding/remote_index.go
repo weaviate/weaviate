@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -41,7 +42,7 @@ type RemoteIndex struct {
 	class        string
 	stateGetter  shardingStateGetter
 	client       RemoteIndexClient
-	nodeResolver nodeResolver
+	nodeResolver cluster.HostnameResolver
 }
 
 type shardingStateGetter interface {
@@ -51,7 +52,7 @@ type shardingStateGetter interface {
 }
 
 func NewRemoteIndex(className string,
-	stateGetter shardingStateGetter, nodeResolver nodeResolver,
+	stateGetter shardingStateGetter, nodeResolver cluster.HostnameResolver,
 	client RemoteIndexClient,
 ) *RemoteIndex {
 	return &RemoteIndex{
@@ -60,10 +61,6 @@ func NewRemoteIndex(className string,
 		client:       client,
 		nodeResolver: nodeResolver,
 	}
-}
-
-type nodeResolver interface {
-	NodeHostname(nodeName string) (string, bool)
 }
 
 type RemoteIndexClient interface {
