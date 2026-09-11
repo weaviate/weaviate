@@ -39,7 +39,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 )
 
 // refCountTestIndex returns a single-shard index plus its only shard. The shard
@@ -54,7 +54,7 @@ func refCountTestIndex(t *testing.T, className string) (*Index, *Shard) {
 	shard, idx := testShardWithSettings(t, t.Context(), &models.Class{Class: className},
 		enthnsw.NewDefaultUserConfig(), false, false, func(i *Index) {
 			i.shardResolver = resolver.NewShardResolver(className, false, i.getSchema)
-			i.remote = sharding.NewRemoteIndex(className, i.getSchema,
+			i.remote = remote.NewIndex(className, i.getSchema,
 				nodeResolver, &FakeRemoteClient{})
 		})
 

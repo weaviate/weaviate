@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 )
 
 const (
@@ -76,7 +77,7 @@ func newLockTestMigrator(t *testing.T, reachIndex bool) *Migrator {
 	nodeResolver.EXPECT().
 		NodeHostname(mock.Anything).
 		RunAndReturn(func(s string) (string, bool) { return s, true }).Maybe()
-	idx.remote = sharding.NewRemoteIndex(
+	idx.remote = remote.NewIndex(
 		lockTestClass,
 		idx.getSchema,
 		nodeResolver,

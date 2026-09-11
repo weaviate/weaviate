@@ -30,7 +30,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/types"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 )
 
 type Server struct {
@@ -41,8 +41,8 @@ type Server struct {
 type Config struct {
 	State                              *state.State
 	Replicator                         types.Replicator
-	FileReplicationRepo                sharding.RemoteIncomingRepo
-	FileReplicationSchema              sharding.RemoteIncomingSchema
+	FileReplicationRepo                remote.IncomingRepo
+	FileReplicationSchema              remote.IncomingSchema
 	MaintenanceModeEnabledForLocalhost func() bool
 	NodeReady                          func() bool
 	GRPCServerOptions                  []grpc.ServerOption

@@ -26,18 +26,18 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 )
 
 type ObjectTTL struct {
-	remoteIndex *sharding.RemoteIndexIncoming
+	remoteIndex *remote.IndexIncoming
 	auth        auth
 	logger      logrus.FieldLogger
 	config      config.Config
 	localStatus *objectttl.LocalStatus
 }
 
-func NewObjectTTL(remoteIndex *sharding.RemoteIndexIncoming, auth auth, logger logrus.FieldLogger,
+func NewObjectTTL(remoteIndex *remote.IndexIncoming, auth auth, logger logrus.FieldLogger,
 	config config.Config, localStatus *objectttl.LocalStatus,
 ) *ObjectTTL {
 	return &ObjectTTL{
