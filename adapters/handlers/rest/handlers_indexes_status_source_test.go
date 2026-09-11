@@ -168,7 +168,7 @@ func TestReadClassAndTasks_ComeFromOneNodeInOneOrder(t *testing.T) {
 				fsm.steps[1].class = nil
 			}
 
-			var lister localTaskLister
+			var lister distributedtask.LocalTaskLister
 			if !tt.noLister {
 				lister = fsm
 			}
@@ -193,7 +193,7 @@ func TestReadClassAndTasks_ComeFromOneNodeInOneOrder(t *testing.T) {
 	}
 }
 
-// A nil ClusterService must stay out of the localTaskLister interface: boxed,
+// A nil ClusterService must stay out of the distributedtask.LocalTaskLister interface: boxed,
 // its first call nil-derefs on the promoted method.
 func TestGetIndexes_NilClusterService_AnswersSchemaOnly(t *testing.T) {
 	require.Nil(t, resolveTaskSource(&state.State{}),

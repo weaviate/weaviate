@@ -52,7 +52,7 @@ type dropVectorFinalizer interface {
 
 // clusterDropTaskClient is the slice of the cluster service the enqueuer uses.
 type clusterDropTaskClient interface {
-	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
+	distributedtask.TaskLister
 	AddDistributedTaskWithGroups(ctx context.Context, namespace, taskID string,
 		taskPayload any, unitSpecs []distributedtask.UnitSpec) error
 }
@@ -507,7 +507,7 @@ var _ schema.DropVectorIndexEnqueuer = (*dropVectorIndexEnqueuer)(nil)
 // dropVectorReconcileClient is the enqueuer slice reconciliation uses. The
 // task list is fetched once per round and shared across every marker check.
 type dropVectorReconcileClient interface {
-	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
+	distributedtask.TaskLister
 	EnqueueDropVectorIndexWithTasks(ctx context.Context, collection string, targets []string,
 		tasks map[string][]*distributedtask.Task) error
 }
