@@ -14,6 +14,7 @@ package rbac
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1382,6 +1383,90 @@ func TestGetRolesForUserOrGroupDuringRestore(t *testing.T) {
 	}
 	require.Positive(t, lookups.Load())
 	require.Positive(t, restores.Load())
+}
+
+// TestWholeTableReadsDuringRemoval pins that a read of every p or g row does not
+// share memory with a concurrent RemovePermissions or RevokeRolesForUser, which
+// casbin applies in place. Only a -race run can fail it.
+func TestWholeTableReadsDuringRemoval(t *testing.T) {
+	tests := []struct {
+		name string
+		read func(*Manager) error
+	}{
+		{
+			name: "GetRoles",
+			read: func(m *Manager) error {
+				_, err := m.GetRoles()
+				return err
+			},
+		},
+		{
+			name: "ListGroupingSubjects",
+			read: func(m *Manager) error {
+				_, err := m.ListGroupingSubjects()
+				return err
+			},
+		},
+		{
+			name: "Snapshot",
+			read: func(m *Manager) error {
+				_, err := m.Snapshot()
+				return err
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			m, err := setupTestManager(t, logger)
+			require.NoError(t, err)
+
+			const n = 50
+			role := func(i int) string { return fmt.Sprintf("role-%d", i) }
+			user := func(i int) string {
+				return conv.UserNameWithTypeFromId(fmt.Sprintf("user-%d", i), authentication.AuthTypeDb)
+			}
+			policy := func(i int) authorization.Policy {
+				return authorization.Policy{Resource: authorization.Collections(fmt.Sprintf("C%d", i))[0], Verb: authorization.READ, Domain: authorization.SchemaDomain}
+			}
+			roles := make(map[string][]authorization.Policy, n)
+			for i := range n {
+				roles[role(i)] = []authorization.Policy{policy(i)}
+			}
+			require.NoError(t, m.CreateRolesPermissions(roles))
+			for i := range n {
+				require.NoError(t, m.AddRolesForUser(user(i), []string{role(i)}))
+			}
+
+			// casbin removes a row that is not its table's last by moving the last row
+			// into that row's slot.
+			removed := make(chan error, 1)
+			go func() {
+				for i := range n {
+					p := policy(i)
+					if err := m.RemovePermissions(role(i), []*authorization.Policy{&p}); err != nil {
+						removed <- err
+						return
+					}
+					if err := m.RevokeRolesForUser(user(i), role(i)); err != nil {
+						removed <- err
+						return
+					}
+				}
+				removed <- nil
+			}()
+
+			for {
+				require.NoError(t, tt.read(m))
+				select {
+				case err := <-removed:
+					require.NoError(t, err)
+					return
+				default:
+				}
+			}
+		})
+	}
 }
 
 // TestRestoreInvalidatesEnforceCache verifies that Restore() properly

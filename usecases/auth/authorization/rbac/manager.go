@@ -174,9 +174,9 @@ func (m *Manager) getRoles(names ...string) (map[string][]authorization.Policy, 
 
 	if len(names) == 0 {
 		// get all roles
-		polices, err := m.casbin.GetNamedPolicy("p")
+		polices, err := m.copyPolicies()
 		if err != nil {
-			return nil, fmt.Errorf("GetNamedPolicy: %w", err)
+			return nil, fmt.Errorf("GetFilteredNamedPolicy: %w", err)
 		}
 		casbinStoragePolicies = append(casbinStoragePolicies, polices)
 
@@ -185,9 +185,9 @@ func (m *Manager) getRoles(names ...string) (map[string][]authorization.Policy, 
 			casbinStoragePoliciesMap[p[0]] = struct{}{}
 		}
 
-		polices, err = m.casbin.GetNamedGroupingPolicy("g")
+		polices, err = m.copyGroupingPolicies()
 		if err != nil {
-			return nil, fmt.Errorf("GetNamedGroupingPolicy: %w", err)
+			return nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
 		}
 		casbinStoragePolicies = collectStaleRoles(polices, casbinStoragePoliciesMap, casbinStoragePolicies)
 	} else {
@@ -217,15 +217,28 @@ func (m *Manager) getRoles(names ...string) (map[string][]authorization.Policy, 
 	return policies, nil
 }
 
+// copyPolicies returns every p row in a slice casbin does not hold. GetNamedPolicy
+// returns casbin's own slice, which RemovePermissions rewrites in place while the
+// caller still reads it. The filtered read copies it under casbin's lock.
+func (m *Manager) copyPolicies() ([][]string, error) {
+	return m.casbin.GetFilteredNamedPolicy("p", 0)
+}
+
+// copyGroupingPolicies is copyPolicies for the g rows, which RevokeRolesForUser
+// rewrites in place.
+func (m *Manager) copyGroupingPolicies() ([][]string, error) {
+	return m.casbin.GetFilteredNamedGroupingPolicy("g", 0)
+}
+
 // ListGroupingSubjects returns the subject key of every role-assignment row
 // (each a `<prefix>:<user>` or `<prefix>:<group>` string).
 func (m *Manager) ListGroupingSubjects() ([]string, error) {
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
-	rows, err := m.casbin.GetGroupingPolicy()
+	rows, err := m.copyGroupingPolicies()
 	if err != nil {
-		return nil, fmt.Errorf("GetGroupingPolicy: %w", err)
+		return nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
 	}
 	subjects := make([]string, 0, len(rows))
 	for _, r := range rows {
@@ -618,11 +631,11 @@ func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 	var policy, groupingPolicy [][]string
 	if len(roles) == 0 {
 		var err error
-		policy, err = m.casbin.GetPolicy()
+		policy, err = m.copyPolicies()
 		if err != nil {
 			return nil, err
 		}
-		groupingPolicy, err = m.casbin.GetGroupingPolicy()
+		groupingPolicy, err = m.copyGroupingPolicies()
 		if err != nil {
 			return nil, err
 		}
