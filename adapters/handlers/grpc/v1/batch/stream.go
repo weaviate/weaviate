@@ -554,8 +554,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, principal
 			}
 
 			// The wire size covers every object, reference and vector the message
-			// carries. The decoded message is what the receiver holds until the
-			// workers drain it.
+			// carries.
 			size := int64(proto.Size(request))
 			if err := h.holdForMemory(ctx, size); err != nil {
 				log.Warnf("memory allocation check failed before pushing to processing queue: %v", err)
@@ -645,8 +644,7 @@ func (h *StreamHandler) push(ctx context.Context, streamId string, consistencyLe
 	wg.Add(1)
 
 	// The send below has no cancellation branch, so a pushed value is always
-	// consumed. This guard fires only if that send panics. It balances the wait
-	// group and nothing else: releasing the reservation stays enqueue's job.
+	// consumed. This guard fires only if that send panics.
 	pushed := false
 	defer func() {
 		if !pushed {

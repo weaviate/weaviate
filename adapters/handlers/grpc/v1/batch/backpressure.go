@@ -21,35 +21,20 @@ import (
 )
 
 const (
-	// holdRecheckInterval is how long a held message waits between memory
-	// re-checks. A wait still ends at once when the stream ends or the server
-	// shuts down, because sleepSlice selects on both of those signals.
 	holdRecheckInterval = 250 * time.Millisecond
-
-	// ackDelayExponent is the simplest exponent that curves the delay upward.
-	// Halfway between the engage and gate ratios the delay is a quarter of the
-	// maximum.
-	ackDelayExponent = 2
+	ackDelayExponent    = 2
 )
 
-// admissionChecker decides whether a batch message may be admitted. It also
-// reports live heap as a fraction of the memory limit. The receiver calls
-// nothing else on a checker.
 type admissionChecker interface {
 	Refresh(updateMappings bool)
 	CheckAlloc(sizeInBytes int64) error
 	Ratio() float64
 }
 
-// The default checker Start builds is a *memwatch.Monitor, so it has to satisfy
-// the interface.
 var _ admissionChecker = (*memwatch.Monitor)(nil)
 
-// delayAck is the soft backpressure. The message is already with the workers;
-// only its Ack is held back, for longer the closer live heap is to the gate. A
-// client that waits for acks before sending more slows down before it reaches
-// the gate. The wait never runs in a worker: in-flight memory is freed only as
-// batches complete, so the workers must keep draining.
+// delayAck is the soft backpressure. It calculates and reports the
+// live heap ratio then sleeps for a duration determined by the ratio.
 func (h *StreamHandler) delayAck(ctx context.Context) {
 	ratio := h.admissionChecker.Ratio()
 	if h.metrics != nil {
@@ -62,11 +47,8 @@ func (h *StreamHandler) delayAck(ctx context.Context) {
 }
 
 // ackDelay is how long to wait before acknowledging a message at the given live
-// heap ratio. It is zero at or below the engage ratio, and cfg.MaxAckDelay at
-// or above the gate ratio. In between it rises along a curve that stays below
-// the straight line joining those two points. If the gate ratio is at or below
-// the engage ratio the curve has no room to rise, so the delay is zero for every
-// ratio. A ratio that is NaN, negative, or above one is clamped into [0, 1].
+// heap ratio. It uses exponential linear normalization between the engage and gate ratios,
+// with ackDelayExponent defined as above (quadratic as it stands).
 func ackDelay(cfg config.BatchStream, ratio float64) time.Duration {
 	if cfg.GateRatio <= cfg.EngageRatio {
 		return 0
@@ -87,10 +69,9 @@ func ackDelay(cfg config.BatchStream, ratio float64) time.Duration {
 	return time.Duration(float64(cfg.MaxAckDelay) * math.Pow(scaled, ackDelayExponent))
 }
 
-// sleepSlice waits d and reports whether the wait ran to completion. It returns
-// false as soon as the stream ends or the server begins shutting down. The
-// receiver only starts its grace period once shuttingDownCtx is done, so that
-// signal always fires first and no other deadline applies here.
+// sleepSlice waits for duration d or until the context or shutting down context is done, whichever comes first.
+//
+// It returns true if the wait ran to completion, and false otherwise.
 func (h *StreamHandler) sleepSlice(ctx context.Context, d time.Duration) bool {
 	timer := time.NewTimer(d)
 	defer timer.Stop()
@@ -105,10 +86,8 @@ func (h *StreamHandler) sleepSlice(ctx context.Context, d time.Duration) bool {
 }
 
 // tryAdmit reports whether a message of size bytes fits on top of the memory
-// already in flight, and reserves those bytes when it does. The check and the
-// reservation happen under one lock. A second stream's check therefore counts
-// the first stream's reservation, and two streams cannot both pass against the
-// same free memory. Nothing that blocks runs under admitMu.
+// already in flight, and reserves those bytes when it does.
+// The function locks admitMu to ensure that the check and potential reservation of memory are atomic.
 func (h *StreamHandler) tryAdmit(size int64) error {
 	h.admitMu.Lock()
 	defer h.admitMu.Unlock()
@@ -121,11 +100,8 @@ func (h *StreamHandler) tryAdmit(size int64) error {
 	return err
 }
 
-// holdForMemory is the memory gate. A failed check is retried every
-// holdRecheckInterval until it passes or the hold expires; only then does the
-// caller take the OutOfMemory path. A held stream is stalled, not slowed:
-// slowing a client before the gate is delayAck's job. A passing check reserves
-// the message's size inside tryAdmit; a failing one reserves nothing.
+// holdForMemory is the memory gate. It repeatedly attempts to admit the specified memory size,
+// waiting for a short interval between attempts, until it either succeeds or the hold period expires.
 func (h *StreamHandler) holdForMemory(ctx context.Context, size int64) error {
 	err := h.tryAdmit(size)
 	if err == nil {

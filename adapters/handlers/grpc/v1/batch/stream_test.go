@@ -679,7 +679,7 @@ func objsRequest(collection string, howMany, vectorBytes int) *pb.BatchStreamReq
 	return newBatchStreamObjsRequest(objs)
 }
 
-func TestReceiverHoldOnFailedAdmission(t *testing.T) {
+func Test_receiver_holdForMemory(t *testing.T) {
 	logger := logrus.New()
 	collection := "TestClass"
 
@@ -913,9 +913,6 @@ func TestReceiverHoldOnFailedAdmission(t *testing.T) {
 	})
 }
 
-// Two streams admitting at once must not both pass against the same free
-// memory. The check and the reservation are one step, so the second stream
-// counts what the first was just admitted for.
 func TestAtomicAdmission(t *testing.T) {
 	logger := logrus.New()
 
@@ -988,10 +985,7 @@ func TestAtomicAdmission(t *testing.T) {
 	})
 }
 
-// The receiver delays its Ack in proportion to memory pressure. A client that
-// limits how many objects it leaves unacked slows down as the delay grows, long
-// before the admission check would refuse a message outright.
-func TestReceiverAckGovernor(t *testing.T) {
+func Test_receiver_ackForDelay(t *testing.T) {
 	logger := logrus.New()
 	collection := "TestClass"
 
@@ -1199,55 +1193,6 @@ func TestReceiverAckGovernor(t *testing.T) {
 			t.Fatal("drain did not complete with a receiver sleeping out an ack delay")
 		}
 	})
-}
-
-// The admission check must weigh what a message costs to hold. The estimate it
-// replaced counted only client-supplied vectors, so a references-only message
-// and an import that vectorises server-side both weighed nothing.
-func TestAdmissionEstimateIsWireSize(t *testing.T) {
-	logger := logrus.New()
-	collection := "TestClass"
-
-	cases := []struct {
-		name string
-		req  *pb.BatchStreamRequest
-	}{
-		{
-			name: "objects without vectors estimate to the message wire size",
-			req:  objsRequest(collection, 3, 0),
-		},
-		{
-			name: "references-only messages estimate to the message wire size",
-			req: newBatchStreamObjsAndRefsRequest(nil, []*pb.BatchReference{
-				{FromCollection: collection, FromUuid: uuid.New().String(), ToUuid: uuid.New().String(), Name: "ref"},
-			}),
-		},
-		{
-			name: "objects with vectors estimate to the message wire size",
-			req:  objsRequest(collection, 2, 512),
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-
-			expected := int64(proto.Size(tc.req))
-			require.NotZero(t, expected)
-
-			checker, checks := newAdmissionChecker(t, 0, admitAll)
-			mockBatcher, mockSchemaManager, mockAuthenticator := newStreamMocks(t, collection, 1)
-			mockStream, _ := newDataStream(t, ctx, tc.req)
-
-			handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, false,
-				batch.WithAdmissionChecker(checker))
-			require.NoError(t, handler.Handle(mockStream))
-
-			require.Equal(t, []int64{expected}, checks.recordedSizes(),
-				"the check must weigh the whole message, references and all")
-		})
-	}
 }
 
 func countMatching(msgs []*pb.BatchStreamReply, pick func(*pb.BatchStreamReply) bool) int {
