@@ -216,26 +216,27 @@ func TestSerialization_UnhappyPath(t *testing.T) {
 	})
 }
 
-func TestSerialization_KeyIndexAndWriteTo(t *testing.T) {
+// TestSerialization_WrittenNodeParsesBackAtItsOffset writes a node past a
+// prefix, the way both writers place one after the header and the nodes before
+// it, and reads it back from where it landed.
+func TestSerialization_WrittenNodeParsesBackAtItsOffset(t *testing.T) {
 	buf := &bytes.Buffer{}
-	offset := 7
-	// write some dummy data, so we have an offset
-	buf.Write(make([]byte, offset))
+	start := 7
+	// dummy prefix, so the node does not begin at zero
+	buf.Write(make([]byte, start))
 
 	additions := NewBitmap(1, 2, 3, 4, 6)
 	deletions := NewBitmap(5, 7)
 	key := []byte("my-key")
 
 	sn, err := NewSegmentNode(key, additions, deletions)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
-	keyIndex, err := sn.KeyIndexAndWriteTo(buf, offset)
-	require.Nil(t, err)
+	n, err := buf.Write(sn.ToBuffer())
+	require.NoError(t, err)
 
 	res := buf.Bytes()
-	assert.Equal(t, keyIndex.ValueEnd, len(res))
-
-	newSN := NewSegmentNodeFromBuffer(res[keyIndex.ValueStart:keyIndex.ValueEnd])
+	newSN := NewSegmentNodeFromBuffer(res[start : start+n])
 	newAdditions := newSN.Additions()
 	assert.True(t, newAdditions.Contains(4))
 	assert.False(t, newAdditions.Contains(5))

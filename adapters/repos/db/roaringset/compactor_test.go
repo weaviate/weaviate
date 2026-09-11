@@ -481,7 +481,7 @@ func cursorCompactor(t *testing.T, leftCursor, rightCursor SegmentCursor, maxNew
 	f, err := os.Create(segmentFile)
 	require.NoError(t, err)
 
-	c := NewCompactor(f, leftCursor, rightCursor, 5, cleanup, checkSum, maxNewFileSize, nil)
+	c := NewCompactor(f, leftCursor, rightCursor, 5, cleanup, checkSum, maxNewFileSize)
 	require.NoError(t, c.Do(context.Background()))
 
 	require.NoError(t, f.Close())
@@ -528,7 +528,7 @@ func TestCompactor_InMemoryWritesEfficency(t *testing.T) {
 			maxNewFileSize = compactor.SegmentWriterBufferSize + 1
 		}
 
-		c := NewCompactor(ws, leftCursor, rightCursor, 0, true, true, maxNewFileSize, nil)
+		c := NewCompactor(ws, leftCursor, rightCursor, 0, true, true, maxNewFileSize)
 
 		err = c.Do(context.Background())
 		require.Nil(t, err)
@@ -697,7 +697,7 @@ func TestCompactorStoresNoEmptyBitmap(t *testing.T) {
 // its offsets land on.
 //
 // The compactor builds each node in one reused buffer, so an entry that took
-// its key from the node — as KeyIndexAndWriteTo returns it — would be left
+// its key from the node — as SegmentNode.PrimaryKey returns it — would be left
 // pointing at whatever the next node overwrote. The body would still be
 // correct, and every value test would still pass.
 func TestCompactorIndexNamesTheNodesItPointsAt(t *testing.T) {
@@ -730,6 +730,8 @@ func TestCompactorIndexNamesTheNodesItPointsAt(t *testing.T) {
 		// Where the index says this key lives, a node carrying it must start.
 		require.LessOrEqual(t, node.End, header.IndexStart,
 			"index entry for %q points past the body", k.key)
+		require.GreaterOrEqual(t, node.Start, uint64(segmentindex.HeaderSize),
+			"index entry for %q points into the header", k.key)
 		at := NewSegmentNodeFromBuffer(data[node.Start:node.End])
 		require.Equal(t, k.key, at.PrimaryKey(),
 			"the index entry for %q points at a node holding %q", k.key, at.PrimaryKey())
@@ -773,11 +775,51 @@ func BenchmarkCompactorRoaringSet(b *testing.B) {
 		b.StartTimer()
 
 		c := NewCompactor(f, NewSegmentCursor(left, nil), NewSegmentCursor(right, nil),
-			5, false, false, int64(compactor.SegmentWriterBufferSize+1), nil)
+			5, false, false, int64(compactor.SegmentWriterBufferSize+1))
 		require.NoError(b, c.Do(context.Background()))
 
 		b.StopTimer()
 		require.NoError(b, f.Close())
 		b.StartTimer()
+	}
+}
+
+// TestCompactorSegmentChecksumValidates reads a compacted segment back the way
+// a startup does. The index is marshalled through SegmentFile.BodyWriter, which
+// is the writer the CRC is computed over, so a change routing those bytes past
+// it would leave a segment that parses and fails validation on the next load.
+func TestCompactorSegmentChecksumValidates(t *testing.T) {
+	// Deletions on both sides, so the cleanup arm has nodes to drop and the two
+	// rows do not compact to the same bytes.
+	left := createSegmentsFromKeys(t, []keyWithBML{
+		{key: []byte("aaa"), additions: slice(0, 200), deletions: slice(500, 520)},
+		{key: []byte("ccc"), deletions: slice(600, 620)},
+	})
+	right := createSegmentsFromKeys(t, []keyWithBML{
+		{key: []byte("bbb"), additions: slice(1000, 1200), deletions: slice(1500, 1520)},
+	})
+
+	for _, cleanup := range []bool{false, true} {
+		t.Run(fmt.Sprintf("cleanup=%t", cleanup), func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "compacted.db")
+			f, err := os.Create(path)
+			require.NoError(t, err)
+
+			c := NewCompactor(f, NewSegmentCursor(left, nil), NewSegmentCursor(right, nil),
+				5, cleanup, true, int64(compactor.SegmentWriterBufferSize+1))
+			require.NoError(t, c.Do(context.Background()))
+			require.NoError(t, f.Close())
+
+			rf, err := os.Open(path)
+			require.NoError(t, err)
+			defer rf.Close()
+
+			info, err := rf.Stat()
+			require.NoError(t, err)
+
+			sf := segmentindex.NewSegmentFile(segmentindex.WithReader(rf))
+			require.NoError(t, sf.ValidateChecksum(info.Size(), segmentindex.HeaderSize),
+				"a compacted segment must validate against the checksum it wrote")
+		})
 	}
 }

@@ -14,11 +14,9 @@ package roaringset
 import (
 	"encoding/binary"
 	"fmt"
-	"io"
 	"math"
 
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
@@ -203,9 +201,8 @@ func NewSegmentNode(
 }
 
 // NewSegmentNodeCompacted builds the node into buf, which it grows and returns
-// for the next call. Both the node and the segmentindex.Key a write of it
-// returns alias buf, so nothing may hold either past the next call. A nil
-// bitmap is an empty side.
+// for the next call. The node aliases buf, so nothing may hold it past the
+// next call. A nil bitmap is an empty side.
 func NewSegmentNodeCompacted(
 	key []byte, additions, deletions *sroar.Bitmap, buf []byte,
 ) (*SegmentNode, []byte, error) {
@@ -302,27 +299,4 @@ func (sn *SegmentNode) ToBuffer() []byte {
 // safe to share the data or create your own copy.
 func NewSegmentNodeFromBuffer(buf []byte) *SegmentNode {
 	return &SegmentNode{data: buf}
-}
-
-// KeyIndexAndWriteTo is a helper to flush a memtables full of SegmentNodes. It
-// writes itself into the given writer and returns a [segmentindex.Key] with
-// start and end indicators (respecting SegmentNode.Offset). Those keys can
-// then be used to build an index for the nodes. The combination of index and
-// node make up an LSM segment.
-//
-// RoaringSets do not support secondary keys, thus the segmentindex.Key will
-// only ever contain a primary key.
-func (sn *SegmentNode) KeyIndexAndWriteTo(w io.Writer, offset int) (segmentindex.Key, error) {
-	out := segmentindex.Key{}
-
-	n, err := w.Write(sn.data)
-	if err != nil {
-		return out, err
-	}
-
-	out.ValueStart = offset
-	out.ValueEnd = offset + n
-	out.Key = sn.PrimaryKey()
-
-	return out, nil
 }

@@ -103,16 +103,15 @@ func (m *Memtable) writeRoaringSetNodes(f *segmentindex.SegmentFile) ([]segmenti
 			return nil, fmt.Errorf("create segment node: %w", err)
 		}
 
-		ki, err := sn.KeyIndexAndWriteTo(f.BodyWriter(), totalWritten)
+		n, err := f.BodyWriter().Write(sn.ToBuffer())
 		if err != nil {
 			return nil, fmt.Errorf("write node %d: %w", len(keys), err)
 		}
+		totalWritten += n
 
-		// ki.Key is a subslice of the node's serialization, so keeping it would
-		// hold the whole segment body until the index is written. The tree's key
-		// has the same bytes and outlives the flush.
-		keys = append(keys, segmentindex.KeyRedux{Key: key, ValueEnd: ki.ValueEnd})
-		totalWritten = ki.ValueEnd
+		// The key is the tree's, which outlives the flush: the node's own copy
+		// would alias the reused buffer and go stale once the next node fills it.
+		keys = append(keys, segmentindex.KeyRedux{Key: key, ValueEnd: totalWritten})
 	}
 
 	return keys, nil
