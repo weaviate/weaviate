@@ -263,6 +263,11 @@ func (q *DiskQueue) Metrics() *Metrics {
 	return q.metrics
 }
 
+// Dir returns the directory holding this queue's chunk files.
+func (q *DiskQueue) Dir() string {
+	return q.dir
+}
+
 func (q *DiskQueue) ID() string {
 	return q.id
 }
@@ -912,6 +917,44 @@ func (q *DiskQueue) listFilesNoLock(ctx context.Context, basePath string) ([]str
 	return chunkList, nil
 }
 
+// PendingChunkFiles returns the base names of the chunk files currently on
+// disk for this queue — every record not yet fully processed lives in one of
+// them (including the partial chunk being appended to). Derived files
+// (.processed tombstones, .corrupt quarantined chunks) are excluded by the
+// anchored pattern.
+//
+// This is the primitive behind the shard's docID-reuse drain gate: a
+// watermark is the SET of names present at capture time (names are
+// wall-clock derived, so a set comparison — not a max — survives clock
+// regressions), and the gate passes once none of the captured names remain.
+// A captured chunk that gets quarantined also leaves the set; that is safe
+// because its ops are then never applied, and cleanliness is a state query
+// against the indexes, not an event derived from the queue.
+func (q *DiskQueue) PendingChunkFiles() (map[string]struct{}, error) {
+	if q == nil {
+		return nil, nil
+	}
+	q.m.RLock()
+	defer q.m.RUnlock()
+
+	entries, err := os.ReadDir(q.dir)
+	if err != nil {
+		if stderrors.Is(err, fs.ErrNotExist) {
+			return map[string]struct{}{}, nil
+		}
+		return nil, errors.Wrap(err, "failed to read queue directory")
+	}
+
+	names := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || !chunkFilePattern.MatchString(entry.Name()) {
+			continue
+		}
+		names[entry.Name()] = struct{}{}
+	}
+	return names, nil
+}
+
 func (q *DiskQueue) readChunkRecordCount(path string) (uint64, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -1187,9 +1230,10 @@ const createChunkMaxAttempts = 1000
 func (w *chunkWriter) Create() error {
 	var err error
 
-	// Chunk files are named after their creation time in microseconds, so
-	// two chunks created within the same microsecond collide on the same
-	// name. Without O_EXCL the second create would silently reopen the
+	// Chunk files are named after their creation time in microseconds; a
+	// non-monotonic clock (NTP step, VM resume, regression across restarts)
+	// can hand two creates the same name. Without O_EXCL the second create
+	// would silently reopen the
 	// existing chunk and later header writes would clobber it. Create
 	// exclusively and bump the timestamp until a free name is found.
 	//
