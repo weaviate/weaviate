@@ -390,13 +390,14 @@ func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg s
 		err = s.markVectorIndexReady(targetVector, rec)
 		if err != nil {
 			// nothing may run unpublished; the record stays creating for the retry
+			errs := []error{err}
 			if closeErr := queue.Close(ctx); closeErr != nil {
-				return nil, nil, fmt.Errorf("%w (closing the unrecorded queue also failed: %w)", err, closeErr)
+				errs = append(errs, fmt.Errorf("close the unrecorded queue: %w", closeErr))
 			}
 			if shutdownErr := index.Shutdown(s.shutCtx); shutdownErr != nil {
-				return nil, nil, fmt.Errorf("%w (shutting down the unrecorded vector index also failed: %w)", err, shutdownErr)
+				errs = append(errs, fmt.Errorf("shut the unrecorded vector index down: %w", shutdownErr))
 			}
-			return nil, nil, err
+			return nil, nil, stderrors.Join(errs...)
 		}
 		return index, queue, nil
 	})
