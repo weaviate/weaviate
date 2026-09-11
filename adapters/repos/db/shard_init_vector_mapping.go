@@ -238,45 +238,72 @@ func (s *Shard) syncVectorIndexRecordStorage(name string, rec vectorIndexRecord)
 	return nil
 }
 
-// vectorIndexCollisions lists every pair of records that share a physical
-// name, as "vectors A and B share N", names in order. The legacy vector is
-// the empty name.
-func vectorIndexCollisions(records map[string]vectorIndexRecord) []string {
-	names := slices.Sorted(maps.Keys(records))
-	owned := make(map[string]map[string]struct{}, len(names))
-	for _, name := range names {
-		set := map[string]struct{}{}
-		for _, n := range helpers.VectorIndexArtifactNamesForID(records[name].PhysicalID).All() {
-			set[n] = struct{}{}
-		}
-		owned[name] = set
+// vectorIndexOwners maps each recorded vector to its physical ID. Skipped
+// vectors are never recorded, so every owner has storage.
+func vectorIndexOwners(records map[string]vectorIndexRecord) map[string]string {
+	owners := make(map[string]string, len(records))
+	for name, rec := range records {
+		owners[name] = rec.PhysicalID
+	}
+	return owners
+}
+
+// vectorIndexCollisionsWith lists the owners other than name that share a
+// physical name with an index at physicalID, as "vectors A and B share N".
+// The legacy vector is the empty name.
+func vectorIndexCollisionsWith(owners map[string]string, name, physicalID string) []string {
+	mine := map[string]struct{}{}
+	for _, n := range helpers.VectorIndexArtifactNamesForID(physicalID).All() {
+		mine[n] = struct{}{}
 	}
 	var collisions []string
-	for i, a := range names {
-		for _, b := range names[i+1:] {
-			for _, n := range slices.Sorted(maps.Keys(owned[a])) {
-				if _, shared := owned[b][n]; shared {
-					collisions = append(collisions, fmt.Sprintf("vectors %q and %q share %q", a, b, n))
-					break
-				}
+	for _, other := range slices.Sorted(maps.Keys(owners)) {
+		if other == name {
+			continue
+		}
+		for _, n := range helpers.VectorIndexArtifactNamesForID(owners[other]).All() {
+			if _, shared := mine[n]; shared {
+				collisions = append(collisions, fmt.Sprintf("vectors %q and %q share %q", other, name, n))
+				break
 			}
 		}
 	}
 	return collisions
 }
 
+// vectorIndexCollisions lists every pair of owners that share a physical
+// name, each pair once, names in order.
+func vectorIndexCollisions(owners map[string]string) []string {
+	names := slices.Sorted(maps.Keys(owners))
+	var collisions []string
+	for i, name := range names {
+		before := make(map[string]string, i)
+		for _, earlier := range names[:i] {
+			before[earlier] = owners[earlier]
+		}
+		collisions = append(collisions, vectorIndexCollisionsWith(before, name, owners[name])...)
+	}
+	return collisions
+}
+
+// vectorIndexCollisionError is the refusal every caller of the check returns.
+func vectorIndexCollisionError(name string, collisions []string) error {
+	return fmt.Errorf("vector %q cannot be created: %s", name, strings.Join(collisions, "; "))
+}
+
 // refuseVectorIndexCollision fails a creation whose physical names are
 // already in use by another recorded vector. The vector's own record, a
 // retry of an interrupted creation, is not a collision.
-func (s *Shard) refuseVectorIndexCollision(name string, rec vectorIndexRecord) error {
+func (s *Shard) refuseVectorIndexCollision(name, physicalID string) error {
 	records, _, err := s.mapping.Load()
 	if err != nil {
 		return err
 	}
-	records[name] = rec
-	collisions := vectorIndexCollisions(records)
+	owners := vectorIndexOwners(records)
+	delete(owners, name)
+	collisions := vectorIndexCollisionsWith(owners, name, physicalID)
 	if len(collisions) == 0 {
 		return nil
 	}
-	return fmt.Errorf("vector %q cannot be created: %s", name, strings.Join(collisions, "; "))
+	return vectorIndexCollisionError(name, collisions)
 }

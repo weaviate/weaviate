@@ -319,40 +319,43 @@ func TestInitTargetVector_SkippedVectorHasNoRecord(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// TestVectorIndexCollisions pins which pairs of recorded vectors share a
-// physical name: the check that refuses a live creation and the warning a
-// first load logs.
+// TestVectorIndexCollisions pins which pairs of owners share a physical
+// name, and that a newcomer is checked against the owners only.
 func TestVectorIndexCollisions(t *testing.T) {
-	rec := func(id string) vectorIndexRecord {
-		return vectorIndexRecord{PhysicalID: id, IndexType: "hnsw", State: "ready"}
-	}
 	tests := []struct {
-		name    string
-		records map[string]vectorIndexRecord
-		want    []string
+		name   string
+		owners map[string]string
+		want   []string
 	}{
-		{name: "no collision", records: map[string]vectorIndexRecord{"": rec("main"), "title": rec("vectors_title")}},
+		{name: "no collision", owners: map[string]string{"": "main", "title": "vectors_title"}},
 		{
-			name:    "compressed next to the legacy vector",
-			records: map[string]vectorIndexRecord{"": rec("main"), "compressed": rec("vectors_compressed")},
-			want:    []string{`vectors "" and "compressed" share "vectors_compressed"`},
+			name:   "compressed next to the legacy vector",
+			owners: map[string]string{"": "main", "compressed": "vectors_compressed"},
+			want:   []string{`vectors "" and "compressed" share "vectors_compressed"`},
 		},
 		{
-			name:    "muvera next to its sibling",
-			records: map[string]vectorIndexRecord{"foo": rec("vectors_foo"), "foo_muvera_vectors": rec("vectors_foo_muvera_vectors")},
-			want:    []string{`vectors "foo" and "foo_muvera_vectors" share "vectors_foo_muvera_vectors"`},
+			name:   "muvera next to its sibling",
+			owners: map[string]string{"foo": "vectors_foo", "foo_muvera_vectors": "vectors_foo_muvera_vectors"},
+			want:   []string{`vectors "foo" and "foo_muvera_vectors" share "vectors_foo_muvera_vectors"`},
 		},
 		{
-			name:    "centroids next to its sibling",
-			records: map[string]vectorIndexRecord{"foo": rec("vectors_foo"), "foo_centroids": rec("vectors_foo_centroids")},
-			want:    []string{`vectors "foo" and "foo_centroids" share "vectors_compressed_foo_centroids"`},
+			name:   "centroids next to its sibling",
+			owners: map[string]string{"foo": "vectors_foo", "foo_centroids": "vectors_foo_centroids"},
+			want:   []string{`vectors "foo" and "foo_centroids" share "vectors_compressed_foo_centroids"`},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, vectorIndexCollisions(tt.records))
+			assert.Equal(t, tt.want, vectorIndexCollisions(tt.owners))
 		})
 	}
+
+	// a newcomer is checked against the owners, not the owners against each
+	// other: an existing collision does not block an unrelated addition
+	owners := map[string]string{"foo": "vectors_foo", "foo_muvera_vectors": "vectors_foo_muvera_vectors"}
+	assert.Empty(t, vectorIndexCollisionsWith(owners, "bar", "vectors_bar"))
+	assert.Equal(t, []string{`vectors "foo" and "foo_mv_mappings" share "vectors_foo_mv_mappings"`},
+		vectorIndexCollisionsWith(owners, "foo_mv_mappings", "vectors_foo_mv_mappings"))
 }
 
 // A live creation whose physical names another vector owns is refused
@@ -372,6 +375,11 @@ func TestInitTargetVector_RefusesACollision(t *testing.T) {
 	found, err := shard.WithVectorIndex("compressed", func(VectorIndex) error { return nil })
 	require.NoError(t, err)
 	assert.False(t, found, "nothing was built")
+
+	// an existing collision does not block an unrelated addition
+	require.NoError(t, shard.mapping.Put("foo_muvera_vectors", vectorIndexRecord{PhysicalID: "vectors_foo_muvera_vectors", IndexType: "hnsw", State: "ready"}))
+	require.NoError(t, shard.index.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{"bar": enthnsw.NewDefaultUserConfig()}))
+	require.NoError(t, shard.mapping.Delete("foo_muvera_vectors"))
 
 	// a retry of a vector's own creating record is not a collision with itself
 	broken := enthnsw.NewDefaultUserConfig()
