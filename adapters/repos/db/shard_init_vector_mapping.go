@@ -44,15 +44,23 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[stri
 	records map[string]vectorIndexRecord,
 ) (map[string]vectorIndexRecord, error) {
 	toBuild := make(map[string]vectorIndexRecord, len(active))
+	owners := vectorIndexOwners(records)
 	for _, name := range slices.Sorted(maps.Keys(active)) {
 		cfg := active[name]
 		rec, ok := records[name]
 		if !ok {
+			// a vector without a record is a newcomer: refused like a live
+			// creation when its files belong to another vector, and counted as
+			// an owner for the newcomers after it
 			rec = vectorIndexRecordFor(name, cfg, vectorIndexStateCreating)
+			if collisions := vectorIndexCollisionsWith(owners, name, rec.PhysicalID); len(collisions) > 0 {
+				return nil, vectorIndexCollisionError(name, collisions)
+			}
 			err := s.mapping.Put(name, rec)
 			if err != nil {
 				return nil, err
 			}
+			owners[name] = rec.PhysicalID
 		}
 		if rec.IndexType != cfg.IndexType() {
 			return nil, fmt.Errorf("vector %q: the mapping records a %s index at %q but the schema says %s",

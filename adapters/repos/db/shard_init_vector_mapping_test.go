@@ -390,3 +390,40 @@ func TestInitTargetVector_RefusesACollision(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "ready", rec.State)
 }
+
+// A schema vector without a record that collides with a recorded vector, or
+// with another newcomer, refuses the load: only an older version could have
+// written such a schema, and building it would share another index's files.
+func TestInitShardVectors_ReconcileRefusesACollidingNewcomer(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	plant := func(names ...string) {
+		shard.index.vectorIndexUserConfigLock.Lock()
+		defer shard.index.vectorIndexUserConfigLock.Unlock()
+		for _, name := range names {
+			shard.index.vectorIndexUserConfigs[name] = enthnsw.NewDefaultUserConfig()
+		}
+	}
+	unplant := func(names ...string) {
+		shard.index.vectorIndexUserConfigLock.Lock()
+		defer shard.index.vectorIndexUserConfigLock.Unlock()
+		for _, name := range names {
+			delete(shard.index.vectorIndexUserConfigs, name)
+		}
+	}
+
+	// against a recorded vector
+	plant("compressed")
+	reloadExpectingError(t, ctx, shard, class, `vectors "" and "compressed" share "vectors_compressed"`, nil)
+	unplant("compressed")
+	shard = reload(t, ctx, shard, class)
+
+	// against another newcomer
+	plant("bar", "bar_muvera_vectors")
+	reloadExpectingError(t, ctx, shard, class, `vectors "bar" and "bar_muvera_vectors" share "vectors_bar_muvera_vectors"`, nil)
+	unplant("bar", "bar_muvera_vectors")
+	shard = reload(t, ctx, shard, class)
+	_, ok, err := shard.mapping.Get("bar")
+	require.NoError(t, err)
+	assert.False(t, ok, "a refused newcomer left no record")
+}
