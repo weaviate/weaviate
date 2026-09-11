@@ -279,7 +279,7 @@ func (m *Manager) TenantsShardsStatus(ctx context.Context, class string, tenants
 	return status, err
 }
 
-// TenantsShardsWithVersion returns tenant status and the schema version from any implicit activation.
+// TenantsShardsStatusWithVersion returns tenant status and the schema version from any implicit activation.
 // Callers performing writes should use the returned schemaVersion in WaitForUpdate before proceeding.
 func (m *Manager) TenantsShardsStatusWithVersion(ctx context.Context, class string, tenants ...string) (map[string]string, uint64, error) {
 	slices.Sort(tenants)
