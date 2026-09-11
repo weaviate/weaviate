@@ -99,7 +99,7 @@ func (rs SchemaReader) ShardReplicasWithVersion(ctx context.Context, class, shar
 	return nodes, err
 }
 
-// TenantsShardsWithVersion returns shard name for the provided tenant and its activity status
+// TenantsShardsStatusWithVersion returns shard name for the provided tenant and its activity status
 func (rs SchemaReader) TenantsShardsStatusWithVersion(ctx context.Context, version uint64, class string, tenants ...string) (tenantShards map[string]string, err error) {
 	if version > 0 {
 		status, _, err := rs.versionedSchemaReader.TenantsShardsStatus(ctx, version, class, tenants...)
