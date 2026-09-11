@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
@@ -215,7 +216,7 @@ func invalidateComputedUsage(idx *Index, shardName string) error {
 // class and apply an internal class update. Narrowed to an interface so the
 // finalizer's read-modify-write / retry / guard logic is unit-testable.
 type schemaClassUpdater interface {
-	ReadOnlyClass(collection string) *models.Class
+	local.ClassReader
 	UpdateClassInternal(ctx context.Context, collection string, updated *models.Class) error
 }
 
@@ -226,11 +227,11 @@ type schemaVectorConfigFinalizer struct {
 	mgr schemaClassUpdater
 }
 
-// managerClassUpdater adapts *schema.Manager to schemaClassUpdater.
-type managerClassUpdater struct{ mgr *schema.Manager }
-
-func (a managerClassUpdater) ReadOnlyClass(collection string) *models.Class {
-	return a.mgr.ReadOnlyClass(collection)
+// managerClassUpdater adapts *schema.Manager to schemaClassUpdater: the class reads
+// come from the manager's local schema, the update goes through its handler.
+type managerClassUpdater struct {
+	local.ClassReader
+	mgr *schema.Manager
 }
 
 func (a managerClassUpdater) UpdateClassInternal(ctx context.Context, collection string, updated *models.Class) error {
@@ -240,7 +241,7 @@ func (a managerClassUpdater) UpdateClassInternal(ctx context.Context, collection
 // NewSchemaVectorConfigFinalizer builds the schema finalizer used to construct
 // the DropVectorIndexProvider (exported so the REST wiring can pass it).
 func NewSchemaVectorConfigFinalizer(mgr *schema.Manager) *schemaVectorConfigFinalizer {
-	return &schemaVectorConfigFinalizer{mgr: managerClassUpdater{mgr}}
+	return &schemaVectorConfigFinalizer{mgr: managerClassUpdater{ClassReader: mgr, mgr: mgr}}
 }
 
 // deepCopyClass returns a fully independent copy (JSON round-trip; finalize is

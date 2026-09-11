@@ -28,6 +28,7 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 // A held receiver blocks drain until its hold ends, so Start clamps a
@@ -56,8 +57,8 @@ func TestEnqueueReleasesReservation(t *testing.T) {
 	)
 
 	// Maybe on both lookups: the namespace subtest fails before either runs.
-	newSchemaManager := func(lookupErr error) *mocks.MockschemaManager {
-		schemaManager := mocks.NewMockschemaManager(t)
+	newSchemaManager := func(lookupErr error) *objects.MockClassResolver {
+		schemaManager := objects.NewMockClassResolver(t)
 		schemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 		classes := map[string]versioned.Class{className: {Class: &models.Class{Class: className}}}
 		if lookupErr != nil {
@@ -67,7 +68,7 @@ func TestEnqueueReleasesReservation(t *testing.T) {
 		return schemaManager
 	}
 
-	newHandler := func(schemaManager schemaManager, queue processingQueue, namespacesEnabled bool) *StreamHandler {
+	newHandler := func(schemaManager objects.ClassResolver, queue processingQueue, namespacesEnabled bool) *StreamHandler {
 		shuttingDownCtx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
 		return NewStreamHandler(nil, nil, shuttingDownCtx, cancel, &sync.WaitGroup{}, &sync.WaitGroup{},

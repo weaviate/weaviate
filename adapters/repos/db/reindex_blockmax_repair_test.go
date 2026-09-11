@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	api "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema/leader"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -61,7 +62,7 @@ func (c *capturingSchemaManager) UpdatePropertyFromMigration(_ context.Context, 
 // WaitForUpdate (the local-apply wait after the stamp write). Every other
 // SchemaReader call panics via the nil embed.
 type repairResidualReader struct {
-	schemauc.SchemaReader
+	local.SchemaReader
 	class *models.Class
 }
 

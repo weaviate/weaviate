@@ -32,7 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
-	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -135,13 +135,6 @@ func (h *indexesHandlers) submitLock(collection, propertyName string) *sync.Mute
 	return h.appState.ReindexSubmitLocks.SubmitLockFor(collection, propertyName)
 }
 
-// classReader reads a class from this node's schema. appState.SchemaManager,
-// a *usecases/schema.Manager, satisfies it.
-type classReader interface {
-	ClassInfo(name string) clusterSchema.ClassInfo
-	ReadOnlyClass(name string) *models.Class
-}
-
 // readClassAndTasks reads the task list before the class, so the class can
 // never be the older of the two. A nil lister means no cluster service: the
 // caller gets the class with no tasks. classes must be non-nil.
@@ -152,7 +145,7 @@ type classReader interface {
 // ReadOnlyClass below, after the task read, so the order above holds for
 // every class this returns. A collection deleted between the two reads
 // leaves ReadOnlyClass answering nil against an Exists that was true.
-func readClassAndTasks(collection string, taskSource distributedtask.LocalTaskLister, classes classReader) (*models.Class, []parsedReindexTask) {
+func readClassAndTasks(collection string, taskSource distributedtask.LocalTaskLister, classes local.ClassReader) (*models.Class, []parsedReindexTask) {
 	if !classes.ClassInfo(collection).Exists {
 		return nil, nil
 	}

@@ -17,11 +17,11 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type schemaReader interface {
@@ -41,13 +41,13 @@ type WeaviateReader struct {
 	auth.Auth
 
 	schemaReader      schemaReader
-	schemaManager     namespacing.SchemaManager
+	schemaManager     local.AliasReader
 	namespacesEnabled bool
 	objectsManager    objectsManager
 	logger            logrus.FieldLogger
 }
 
-func NewWeaviateReader(auth *auth.Auth, schemaReader schemaReader, schemaManager namespacing.SchemaManager, namespacesEnabled bool, objectsManager objectsManager, logger logrus.FieldLogger) *WeaviateReader {
+func NewWeaviateReader(auth *auth.Auth, schemaReader schemaReader, schemaManager local.AliasReader, namespacesEnabled bool, objectsManager objectsManager, logger logrus.FieldLogger) *WeaviateReader {
 	return &WeaviateReader{
 		schemaReader:      schemaReader,
 		schemaManager:     schemaManager,
