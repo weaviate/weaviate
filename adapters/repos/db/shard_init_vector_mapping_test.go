@@ -15,10 +15,13 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -28,6 +31,7 @@ import (
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/storobj"
 	entdynamic "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	entflat "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
@@ -426,4 +430,62 @@ func TestInitShardVectors_ReconcileRefusesACollidingNewcomer(t *testing.T) {
 	_, ok, err := shard.mapping.Get("bar")
 	require.NoError(t, err)
 	assert.False(t, ok, "a refused newcomer left no record")
+}
+
+// The operator's way out of a refused load: a schema written before the
+// collision check carries "compressed" next to a legacy BQ vector, the shard
+// refuses to load, the vector is dropped while the shard is cold, and the
+// shard loads with the legacy vector's quantized data intact.
+func TestInitShardVectors_RecoveryFromARefusedLoad(t *testing.T) {
+	ctx := testCtx()
+	cfg := enthnsw.NewDefaultUserConfig()
+	cfg.BQ.Enabled = true
+	class := &models.Class{Class: "Recovery", VectorIndexType: "hnsw", VectorIndexConfig: cfg}
+	shd, idx := testShardWithSettings(t, ctx, class, cfg, false, false)
+	shard := underlyingShard(t, shd)
+
+	var objs []*storobj.Object
+	for i := range 5 {
+		obj := &storobj.Object{
+			MarshallerVersion: 1,
+			Object:            models.Object{ID: strfmt.UUID(uuid.NewString()), Class: class.Class},
+			Vector:            []float32{float32(i), 1, 2, 3},
+		}
+		require.NoError(t, shard.PutObject(ctx, obj))
+		objs = append(objs, obj)
+	}
+	compressed := filepath.Join(shard.pathLSM(), helpers.VectorsCompressedBucketLSM)
+	_, err := os.Stat(compressed)
+	require.NoError(t, err, "the legacy vector keeps its quantized bucket")
+
+	// an older version's schema: a colliding vector, no record
+	shard.index.vectorIndexUserConfigLock.Lock()
+	shard.index.vectorIndexUserConfigs["compressed"] = enthnsw.NewDefaultUserConfig()
+	shard.index.vectorIndexUserConfigLock.Unlock()
+
+	// the shard goes cold, and refuses to load
+	require.NoError(t, shard.Shutdown(ctx))
+	simulateProcessRestartBucketCleanup(t, shard.pathLSM())
+	coldShard, err := idx.initShard(ctx, shard.Name(), class, nil, false, true)
+	require.NoError(t, err)
+	cold := coldShard.(*LazyLoadShard)
+	idx.shards.Store(shard.Name(), cold)
+	require.ErrorContains(t, cold.Load(ctx), `vectors "" and "compressed" share "vectors_compressed"`)
+
+	// the drop runs against the cold shard, by path
+	require.NoError(t, idx.dropVectorIndex(ctx, "compressed"))
+
+	require.NoError(t, cold.Load(ctx))
+	_, err = os.Stat(compressed)
+	require.NoError(t, err, "the drop spared the legacy vector's bucket")
+	found, err := cold.shard.WithVectorIndex("", func(index VectorIndex) error {
+		for _, obj := range objs {
+			if !index.ContainsDoc(obj.DocID) {
+				return fmt.Errorf("doc %d is gone", obj.DocID)
+			}
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	assert.True(t, found)
 }

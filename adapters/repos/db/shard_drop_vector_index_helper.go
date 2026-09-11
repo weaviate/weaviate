@@ -106,11 +106,16 @@ func otherTargetVectors(class *models.Class, exclude string) []string {
 		// with a live sibling takes that sibling's bucket with it.
 		return nil
 	}
-	others := make([]string, 0, len(class.VectorConfig))
+	others := make([]string, 0, len(class.VectorConfig)+1)
 	for name := range class.VectorConfig {
 		if name != exclude {
 			others = append(others, name)
 		}
+	}
+	// the legacy vector owns files too: its quantized bucket is a named
+	// vector "compressed"'s raw bucket
+	if modelsext.ClassHasLegacyVectorIndex(class) && exclude != "" {
+		others = append(others, "")
 	}
 	return others
 }
