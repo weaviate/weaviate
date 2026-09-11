@@ -12,10 +12,9 @@
 package filters_tests
 
 import (
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"testing"
-
-	"acceptance_tests_with_client/internal/wvhost"
 
 	acceptance_with_go_client "acceptance_tests_with_client"
 

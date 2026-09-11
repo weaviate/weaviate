@@ -12,13 +12,12 @@
 package compression_test
 
 import (
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"fmt"
 	"math/rand"
 	"testing"
 	"time"
-
-	"acceptance_tests_with_client/internal/wvhost"
 
 	"github.com/stretchr/testify/require"
 	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"

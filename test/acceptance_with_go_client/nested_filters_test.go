@@ -12,10 +12,9 @@
 package acceptance_with_go_client
 
 import (
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"testing"
-
-	"acceptance_tests_with_client/internal/wvhost"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
