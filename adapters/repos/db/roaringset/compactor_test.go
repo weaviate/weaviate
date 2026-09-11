@@ -14,6 +14,7 @@ package roaringset
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -820,6 +821,101 @@ func TestCompactorSegmentChecksumValidates(t *testing.T) {
 			sf := segmentindex.NewSegmentFile(segmentindex.WithReader(rf))
 			require.NoError(t, sf.ValidateChecksum(info.Size(), segmentindex.HeaderSize),
 				"a compacted segment must validate against the checksum it wrote")
+		})
+	}
+}
+
+var errCompactionDiskFull = errors.New("no space left on device")
+
+// failingWriteSeeker fails the failOnWrite'th Write, counting from 1, or every
+// Seek when failSeek is set. It stands in for the ENOSPC or EIO a real segment
+// file returns; nothing else in this package can reach those paths.
+type failingWriteSeeker struct {
+	failOnWrite int
+	failSeek    bool
+	writes      int
+	offset      int64
+}
+
+func (w *failingWriteSeeker) Write(p []byte) (int, error) {
+	w.writes++
+	if w.writes == w.failOnWrite {
+		return 0, errCompactionDiskFull
+	}
+	w.offset += int64(len(p))
+	return len(p), nil
+}
+
+func (w *failingWriteSeeker) Seek(offset int64, whence int) (int64, error) {
+	if w.failSeek {
+		return 0, errCompactionDiskFull
+	}
+	switch whence {
+	case io.SeekStart:
+		w.offset = offset
+	case io.SeekEnd:
+		w.offset += offset
+	}
+	return w.offset, nil
+}
+
+// TestCompactorReportsWriteFailures walks the error paths an ENOSPC or EIO
+// reaches during an ordinary compaction. The header patch is the one worth most:
+// it is the only failure that lands after a complete body and index are already
+// written, so what it leaves behind looks finished.
+//
+// nodesPerSegment selects the path. compactor.NewWriter buffers 256 KiB, so a
+// small fixture reaches the segment file only at the explicit Flush, while one
+// past that size pushes node writes straight through.
+func TestCompactorReportsWriteFailures(t *testing.T) {
+	tests := []struct {
+		name            string
+		nodesPerSegment int
+		failOnWrite     int
+		failSeek        bool
+		wantErr         string
+	}{
+		{
+			name:            "a node write fails",
+			nodesPerSegment: 200,
+			failOnWrite:     1,
+			wantErr:         "write keys",
+		},
+		{
+			name:            "the body and index flush fails",
+			nodesPerSegment: 4,
+			failOnWrite:     1,
+			wantErr:         "flush buffered",
+		},
+		{
+			name:            "the header patch fails after the body is written",
+			nodesPerSegment: 4,
+			failOnWrite:     2,
+			wantErr:         "write header",
+		},
+		{
+			name:            "seeking back to patch the header fails",
+			nodesPerSegment: 4,
+			failSeek:        true,
+			wantErr:         "write header",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			left, right := benchmarkCompactorKeys(t, tt.nodesPerSegment)
+
+			ws := new(failingWriteSeeker)
+			ws.failOnWrite = tt.failOnWrite
+			ws.failSeek = tt.failSeek
+
+			c := NewCompactor(ws, NewSegmentCursor(left, nil), NewSegmentCursor(right, nil),
+				5, false, true, int64(compactor.SegmentWriterBufferSize+1))
+
+			err := c.Do(context.Background())
+			require.ErrorContains(t, err, tt.wantErr)
+			require.ErrorIs(t, err, errCompactionDiskFull,
+				"the underlying failure must survive the wrap")
 		})
 	}
 }
