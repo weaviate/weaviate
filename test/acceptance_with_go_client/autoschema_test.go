@@ -30,34 +30,34 @@ func TestAutoschemaCasingClass(t *testing.T) {
 	ctx := t.Context()
 	c := wvhost.NewClient(t)
 
-	upperClassName := "RandomBlueTree"
-	lowerClassName := "randomBlueTree"
+	upperCollectionName := "RandomBlueTree"
+	lowerCollectionName := "randomBlueTree"
 
 	cases := []struct {
-		className1 string
-		className2 string
+		collectionName1 string
+		collectionName2 string
 	}{
-		{className1: upperClassName, className2: upperClassName},
-		{className1: lowerClassName, className2: lowerClassName},
-		{className1: upperClassName, className2: lowerClassName},
-		{className1: lowerClassName, className2: upperClassName},
+		{collectionName1: upperCollectionName, collectionName2: upperCollectionName},
+		{collectionName1: lowerCollectionName, collectionName2: lowerCollectionName},
+		{collectionName1: upperCollectionName, collectionName2: lowerCollectionName},
+		{collectionName1: lowerCollectionName, collectionName2: upperCollectionName},
 	}
 	for _, tt := range cases {
-		t.Run(tt.className1+" "+tt.className2, func(t *testing.T) {
+		t.Run(tt.collectionName1+" "+tt.collectionName2, func(t *testing.T) {
 			var err error
 
-			require.NoError(t, c.Collections.Delete(ctx, tt.className1))
-			require.NoError(t, c.Collections.Delete(ctx, tt.className2))
+			require.NoError(t, c.Collections.Delete(ctx, tt.collectionName1))
+			require.NoError(t, c.Collections.Delete(ctx, tt.collectionName2))
 
-			_, err = c.Collections.Use(tt.className1).Data.Insert(ctx, nil)
-			require.NoError(t, err, "insert into %s", tt.className1)
+			_, err = c.Collections.Use(tt.collectionName1).Data.Insert(ctx, nil)
+			require.NoError(t, err, "insert into %s", tt.collectionName1)
 
-			_, err = c.Collections.Use(tt.className2).Data.Insert(ctx, nil)
-			require.NoError(t, err, "insert into %s", tt.className2)
+			_, err = c.Collections.Use(tt.collectionName2).Data.Insert(ctx, nil)
+			require.NoError(t, err, "insert into %s", tt.collectionName2)
 
 			// Regardless of whether a class exists or not, the delete operation will always return a success
-			require.NoError(t, c.Collections.Delete(ctx, upperClassName))
-			require.NoError(t, c.Collections.Delete(ctx, lowerClassName))
+			require.NoError(t, c.Collections.Delete(ctx, upperCollectionName))
+			require.NoError(t, c.Collections.Delete(ctx, lowerCollectionName))
 		})
 	}
 }
@@ -66,7 +66,7 @@ func TestAutoschemaCasingProps(t *testing.T) {
 	ctx := t.Context()
 	c := wvhost.NewClient(t)
 
-	className := "RandomGreenBike"
+	collectionName := "RandomGreenBike"
 
 	upperPropName := "SomeProp"
 	lowerPropName := "someProp"
@@ -81,9 +81,9 @@ func TestAutoschemaCasingProps(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.prop1+" "+tt.prop2, func(t *testing.T) {
-			require.NoError(t, c.Collections.Delete(ctx, className))
+			require.NoError(t, c.Collections.Delete(ctx, collectionName))
 
-			h := c.Collections.Use(className)
+			h := c.Collections.Use(collectionName)
 			require.NotNil(t, h, "collection handle")
 
 			{
@@ -109,7 +109,7 @@ func TestAutoschemaCasingProps(t *testing.T) {
 			require.NoError(t, err)
 			require.EqualValues(t, count, 3)
 
-			require.NoError(t, c.Collections.Delete(ctx, className))
+			require.NoError(t, c.Collections.Delete(ctx, collectionName))
 		})
 	}
 }
