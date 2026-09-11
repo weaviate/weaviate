@@ -181,6 +181,15 @@ type commitLogger struct {
 	n      atomic.Int64
 	path   string
 
+	// mu serializes flushBuffers/sync/close against each other and guards
+	// closed. A durability barrier (Bucket.SyncWAL) may sync the FLUSHING
+	// memtable's log concurrently with the flush cycle closing it; the
+	// memtable's own lock cannot arbitrate that without also blocking
+	// readers (m.RLock) for the duration of close()'s fsync. Appends don't
+	// take mu: they are serialized by the memtable lock and can no longer
+	// happen once close() is reachable (waitForZeroWriters ran).
+	mu sync.Mutex
+
 	checksumWriter integrity.ChecksumWriter
 
 	bufNode *bytes.Buffer
@@ -396,10 +405,22 @@ func (cl *commitLogger) size() int64 {
 }
 
 func (cl *commitLogger) sync() error {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+
+	// a closed log was already flushed and fsynced by close(); syncing again
+	// would fail on the closed file while the durability it asks for is
+	// already guaranteed
+	if cl.closed {
+		return nil
+	}
 	return cl.file.Sync()
 }
 
 func (cl *commitLogger) close() error {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+
 	if cl.closed {
 		return nil
 	}
@@ -439,6 +460,13 @@ func (cl *commitLogger) delete() error {
 }
 
 func (cl *commitLogger) flushBuffers() error {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+
+	// see sync(): close() already flushed everything a closed log buffered
+	if cl.closed {
+		return nil
+	}
 	err := cl.writer.Flush()
 	if err != nil {
 		return fmt.Errorf("flushing WAL %q: %w", cl.path, err)

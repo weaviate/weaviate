@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -177,6 +178,9 @@ type ShardLike interface {
 	setFallbackToSearchable(fallback bool)
 	addJobToQueue(job job)
 	batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error
+	prepareBatchDelete(ctx context.Context, id strfmt.UUID, deletionTime time.Time) (*preparedBatchDelete, error)
+	finalizeBatchDelete(ctx context.Context, prep *preparedBatchDelete, deletionTime time.Time) error
+	invertedDeleteBarrier(ctx context.Context, touched *touchedBuckets) error
 	putObjectLSM(ctx context.Context, object *storobj.Object, idBytes []byte) (objectInsertStatus, error)
 	mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error)
 	updatePropertySpecificIndices(ctx context.Context, object *storobj.Object, status objectInsertStatus) error
@@ -370,6 +374,17 @@ type Shard struct {
 	// replication
 	replicationMap pendingReplicaTasks
 
+	// testDeletePhaseHook, when non-nil, is invoked after each phase of the
+	// crash-safe delete sequence (see deleteObjectCrashSafeLocked). It exists
+	// ONLY so tests can assert the no-orphan-posting invariant at every
+	// intermediate state; production code never sets it.
+	testDeletePhaseHook func(phase string)
+
+	// testPutPhaseHook is testDeletePhaseHook's sibling for the crash-safe
+	// docID-retiring phases of an UPDATE that changes the docID (see
+	// retireOldDocIDLocked). Test-only; production code never sets it.
+	testPutPhaseHook func(phase string)
+
 	// Indicates whether searchable buckets should be used
 	// when filterable buckets are missing for text/text[] properties
 	// This can happen for db created before v1.19, where
@@ -463,6 +478,12 @@ type Shard struct {
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
 	bitmapBufPool  roaringset.BitmapBufPool
+
+	// freeList manages reusable docIDs (docid_freelist.go). Inert unless
+	// DOCID_REUSE_ENABLED; its harvest runs on the vector tombstone-cleanup
+	// cycle via freeListCallbackCtrl.
+	freeList             *shardDocIDFreeList
+	freeListCallbackCtrl cyclemanager.CycleCallbackCtrl
 
 	activityTrackerRead  atomic.Int32
 	activityTrackerWrite atomic.Int32

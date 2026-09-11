@@ -1207,6 +1207,36 @@ func (index *flat) ContainsDoc(id uint64) bool {
 	return true
 }
 
+// CleanForReuse implements common.ReuseCleanliness. Flat deletes apply
+// synchronously to the bucket(s) (see Delete/deleteFromBuckets), so a docID
+// is clean exactly when no bucket holds it anymore. Both buckets are checked
+// when compression is active: during the compression cutover the uncompressed
+// bucket can briefly outlive its compressed sibling.
+func (index *flat) CleanForReuse(id uint64) bool {
+	idBytes := make([]byte, 8)
+	binary.BigEndian.PutUint64(idBytes, id)
+
+	names := []string{index.getBucketName()}
+	if index.Compressed() {
+		names = append(names, index.getCompressedBucketName())
+	}
+	for _, bucketName := range names {
+		bucket, release, err := index.getBucket(bucketName)
+		if err != nil {
+			return false // conservative: cannot prove cleanliness
+		}
+		v, err := bucket.Get(idBytes)
+		release()
+		if err != nil && !errors.Is(err, entlsmkv.NotFound) {
+			return false
+		}
+		if v != nil {
+			return false
+		}
+	}
+	return true
+}
+
 func (index *flat) Iterate(fn func(docID uint64) bool) {
 	var bucketName string
 

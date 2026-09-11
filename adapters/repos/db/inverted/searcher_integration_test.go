@@ -151,7 +151,12 @@ func TestObjects(t *testing.T) {
 		})
 	})
 
-	t.Run("ids of deleted documents are removed from bitmap factory", func(t *testing.T) {
+	t.Run("unresolvable ids are skipped at resolution, universe intact", func(t *testing.T) {
+		// The searcher used to lazily REMOVE unresolvable ids from the shared
+		// prefilled bitmap. That shrink is gone (docID reuse: a late removal
+		// can hide the id's next life from negated filters), so the universe
+		// must stay intact through every phase while resolution simply skips
+		// ids without a live row.
 		maxDocID := docIDCounter - 1
 		maxDocIDWithNonExistentIds := maxDocID + 10
 
@@ -219,12 +224,12 @@ func TestObjects(t *testing.T) {
 				filter, nil, additional.Properties{}, className, []string{propName}, nil)
 			assert.NoError(t, err)
 
-			t.Run("some elements not found, ids removed from bitmap factory", func(t *testing.T) {
+			t.Run("unresolvable ids skipped, universe unchanged", func(t *testing.T) {
 				bm, release := bitmapFactory.GetBitmap()
 				defer release()
 
-				require.Equal(t, int(maxDocID)+1, bm.GetCardinality())
-				require.Equal(t, maxDocID, bm.Maximum())
+				require.Equal(t, int(maxDocIDWithNonExistentIds)+1, bm.GetCardinality())
+				require.Equal(t, maxDocIDWithNonExistentIds, bm.Maximum())
 			})
 		})
 
@@ -249,16 +254,18 @@ func TestObjects(t *testing.T) {
 					Type:  schema.DataTypeText,
 				},
 			}}
-			_, err := searcher.Objects(context.Background(), numObjects,
+			objects, err := searcher.Objects(context.Background(), numObjects,
 				filter, nil, additional.Properties{}, className, []string{propName}, nil)
 			assert.NoError(t, err)
+			assert.Len(t, objects, multiplier-len(docIDsToRemove),
+				"deleted rows must be skipped at resolution")
 
-			t.Run("some elements not found, ids removed from bitmap factory", func(t *testing.T) {
+			t.Run("deleted rows skipped, universe unchanged", func(t *testing.T) {
 				bm, release := bitmapFactory.GetBitmap()
 				defer release()
 
-				require.Equal(t, int(maxDocID)+1-len(docIDsToRemove), bm.GetCardinality())
-				require.Equal(t, maxDocID, bm.Maximum())
+				require.Equal(t, int(maxDocIDWithNonExistentIds)+1, bm.GetCardinality())
+				require.Equal(t, maxDocIDWithNonExistentIds, bm.Maximum())
 			})
 		})
 	})

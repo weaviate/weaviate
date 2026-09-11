@@ -234,3 +234,15 @@ func (i *Index) ListFiles(ctx context.Context, basePath string) ([]string, error
 func (i *Index) UnderlyingVectorIndex() interface{} {
 	return i.vectorIndex
 }
+
+// CleanForReuse implements common.ReuseCleanliness by delegating to the
+// underlying vector index (HNSW, whose tombstone cleanup runs on the shard's
+// geo cleanup cycle). Geo shares the shard's docID space, so it participates
+// in the reuse intersection like any other index; an underlying index
+// without the surface reports never-clean.
+func (i *Index) CleanForReuse(docID uint64) bool {
+	if rc, ok := i.vectorIndex.(common.ReuseCleanliness); ok {
+		return rc.CleanForReuse(docID)
+	}
+	return false
+}

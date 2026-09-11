@@ -181,6 +181,12 @@ type dynamic struct {
 	// above) lets tests substitute a failing or blocking rebuild without a
 	// test-only branch in the production path. Production always runs doUpgrade.
 	upgradeFn func() error
+
+	// onUpgradeStart/onUpgradeDone bracket a claimed upgrade attempt (set via
+	// SetUpgradeHooks). The shard uses them to disable docID reuse while the
+	// flat→HNSW copy window is open. Both may be nil.
+	onUpgradeStart func()
+	onUpgradeDone  func()
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -595,6 +601,36 @@ func (dynamic *dynamic) ContainsDoc(docID uint64) bool {
 	return dynamic.index.ContainsDoc(docID)
 }
 
+// CleanForReuse implements common.ReuseCleanliness by delegating to the
+// ACTIVE underlying index — and reports never-clean while an upgrade is in
+// flight: during the flat→HNSW copy both indexes transiently exist, and an
+// id clean in one may still live (or gain writes) in the other.
+func (dynamic *dynamic) CleanForReuse(docID uint64) bool {
+	if dynamic.status.IsUpgrading() {
+		return false
+	}
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	if rc, ok := dynamic.index.(common.ReuseCleanliness); ok {
+		return rc.CleanForReuse(docID)
+	}
+	return false
+}
+
+// SetUpgradeHooks installs shard-level callbacks around the flat→HNSW
+// upgrade: start fires as soon as an upgrade attempt is claimed (before any
+// copying), done fires when the attempt finishes, successful or not. The
+// shard uses them to disable docID reuse for the whole shard while the
+// upgrade's copy window is open; there was previously no start-of-upgrade
+// seam (only the completion callback and UpgradeInProgress polling, which
+// leaves a gap between poll and copy).
+func (dynamic *dynamic) SetUpgradeHooks(start, done func()) {
+	dynamic.Lock()
+	defer dynamic.Unlock()
+	dynamic.onUpgradeStart = start
+	dynamic.onUpgradeDone = done
+}
+
 func (dynamic *dynamic) Preload(id uint64, vector []float32) {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
@@ -669,7 +705,19 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 		return nil
 	}
 
+	// The attempt is claimed: fire the start hook BEFORE any copying begins,
+	// so the shard can close its docID-reuse window ahead of the copy.
+	dynamic.RLock()
+	onStart, onDone := dynamic.onUpgradeStart, dynamic.onUpgradeDone
+	dynamic.RUnlock()
+	if onStart != nil {
+		onStart()
+	}
+
 	enterrors.GoWrapper(func() {
+		if onDone != nil {
+			defer onDone()
+		}
 		defer callback()
 		// re-arm on error AND panic (GoWrapper recovers): a later Upgrade call
 		// must be able to retry. doUpgrade flips status only on success.
