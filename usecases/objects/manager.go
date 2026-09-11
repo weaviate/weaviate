@@ -24,6 +24,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -38,12 +39,25 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
+// CachedClassReader reads versioned classes through the schema manager's class cache,
+// skipping authorization: callers must have authorized the request already.
+type CachedClassReader interface {
+	GetCachedClassNoAuth(ctx context.Context, names ...string) (map[string]versioned.Class, error)
+}
+
+// ClassResolver resolves collection aliases and reads classes through the schema
+// manager's class cache. The objects layer and the gRPC batch path both use it.
+type ClassResolver interface {
+	CachedClassReader
+	local.AliasReader
+}
+
 type schemaManager interface {
 	AddClass(ctx context.Context, principal *models.Principal, class *models.Class) (*models.Class, uint64, error)
 	AddTenants(ctx context.Context, principal *models.Principal, class string, tenants []*models.Tenant) (uint64, error)
 	GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, error)
 	// ReadOnlyClass return class model.
-	ReadOnlyClass(name string) *models.Class
+	local.ClassReader
 	// AddClassProperty it is upsert operation. it adds properties to a class and updates
 	// existing properties if the merge bool passed true.
 	AddClassProperty(ctx context.Context, principal *models.Principal, className string, merge bool, prop ...*models.Property) (*models.Class, uint64, error)
@@ -61,16 +75,13 @@ type schemaManager interface {
 	GetCachedClass(ctx context.Context, principal *models.Principal, names ...string,
 	) (map[string]versioned.Class, error)
 
-	GetCachedClassNoAuth(ctx context.Context, names ...string) (map[string]versioned.Class, error)
+	ClassResolver
 
 	// WaitForUpdate ensures that the local schema has caught up to schemaVersion
-	WaitForUpdate(ctx context.Context, schemaVersion uint64) error
+	local.UpdateWaiter
 
 	// GetConsistentSchema retrieves a locally cached copy of the schema
 	GetConsistentSchema(ctx context.Context, principal *models.Principal, consistency bool) (schema.Schema, error)
-
-	// ResolveAlias returns a class name associated with a given alias, empty string if doesn't exist
-	ResolveAlias(alias string) string
 
 	// EnsureTenantActiveForWrite activates tenants when AutoTenantActivation is enabled.
 	// Returns the schema version from activation. callers must use it in WaitForUpdate before writes.

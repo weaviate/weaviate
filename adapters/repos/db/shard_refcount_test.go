@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -38,7 +39,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/objects"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding/remote"
 )
 
@@ -387,7 +387,7 @@ func TestShardRefCountSchemaWaitFailure(t *testing.T) {
 			idx, shard := refCountTestIndex(t, className)
 
 			// the caller's own wait succeeds, the one inside the shard lookup does not
-			schemaReader := idx.schemaReader.(*schemaUC.MockSchemaReader)
+			schemaReader := idx.schemaReader.(*local.MockSchemaReader)
 			schemaReader.EXPECT().WaitForUpdate(mock.Anything, schemaVersion).Return(nil).Once()
 			schemaReader.EXPECT().WaitForUpdate(mock.Anything, schemaVersion).
 				Return(context.Canceled).Once()
@@ -454,7 +454,7 @@ func TestWithShardOrRemoteRunsOneArm(t *testing.T) {
 			var version uint64
 			if test.failSchemaWait {
 				version = schemaVersion
-				schemaReader := idx.schemaReader.(*schemaUC.MockSchemaReader)
+				schemaReader := idx.schemaReader.(*local.MockSchemaReader)
 				schemaReader.EXPECT().WaitForUpdate(mock.Anything, schemaVersion).
 					Return(context.Canceled).Once()
 			}

@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
@@ -32,7 +33,7 @@ import (
 var _NUMCPU = runtime.GOMAXPROCS(0)
 
 type executor struct {
-	schemaReader SchemaReader
+	schemaReader local.SchemaReader
 	migrator     Migrator
 
 	callbacksLock sync.RWMutex
@@ -43,7 +44,7 @@ type executor struct {
 }
 
 // NewManager creates a new manager
-func NewExecutor(migrator Migrator, sr SchemaReader,
+func NewExecutor(migrator Migrator, sr local.SchemaReader,
 	logger logrus.FieldLogger, classBackupDir func(string) error,
 ) *executor {
 	return &executor{

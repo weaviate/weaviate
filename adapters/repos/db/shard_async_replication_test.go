@@ -39,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
+	localschema "github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	entreplication "github.com/weaviate/weaviate/entities/replication"
@@ -49,7 +50,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 // uuidLow and uuidHigh are deterministic UUIDs with clear binary ordering:
@@ -732,7 +732,7 @@ func asyncSchedulerOption(t *testing.T, ctx context.Context) func(*Index) {
 
 func setShardReplicas(t *testing.T, idx *Index, nodes ...string) {
 	t.Helper()
-	m, ok := idx.schemaReader.(*schemaUC.MockSchemaReader)
+	m, ok := idx.schemaReader.(*localschema.MockSchemaReader)
 	require.True(t, ok, "schemaReader is not a *MockSchemaReader")
 	for _, c := range m.ExpectedCalls {
 		if c.Method == "ShardReplicas" {

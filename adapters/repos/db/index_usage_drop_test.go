@@ -23,6 +23,7 @@ import (
 	"golang.org/x/sync/semaphore"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -91,7 +92,7 @@ func runUsageScanTeardown(t *testing.T, nodeName, className, shardName string,
 	shardingState.SetLocalName(nodeName)
 
 	scanInCollection := make(chan struct{}, 8)
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
 			select {

@@ -17,17 +17,11 @@ import (
 
 	"github.com/go-openapi/strfmt"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 )
-
-// SchemaManager is a single-method interface exposing alias resolution.
-// It allows the resolver to look up aliases without depending on the full
-// schema reader.
-type SchemaManager interface {
-	ResolveAlias(alias string) string
-}
 
 // QualifiedName joins a namespace and a name with NamespaceSeparator. If
 // namespace is empty, name is returned unchanged. Used to qualify class
@@ -141,7 +135,7 @@ func QualifyUserIDForLookup(principal *models.Principal, namespacesEnabled bool,
 // namespace-prefixed alias used for lookup when an alias was hit (raw for
 // global principals), "" otherwise — used by the objects layer to preserve
 // existing alias-aware flows.
-func Resolve(principal *models.Principal, sm SchemaManager, namespacesEnabled bool, name string) (class, qualifiedAlias string, err error) {
+func Resolve(principal *models.Principal, sm local.AliasReader, namespacesEnabled bool, name string) (class, qualifiedAlias string, err error) {
 	if err := ValidateNamespacePrefix(principal, namespacesEnabled, name, "class"); err != nil {
 		return "", "", err
 	}

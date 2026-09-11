@@ -27,6 +27,7 @@ import (
 
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/types"
@@ -42,7 +43,7 @@ type Config struct {
 	State                              *state.State
 	Replicator                         types.Replicator
 	FileReplicationRepo                remote.IncomingRepo
-	FileReplicationSchema              remote.IncomingSchema
+	FileReplicationSchema              local.VersionedReader
 	MaintenanceModeEnabledForLocalhost func() bool
 	NodeReady                          func() bool
 	GRPCServerOptions                  []grpc.ServerOption
