@@ -55,6 +55,7 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 	// the next load resumes instead of refusing
 	err = s.markVectorIndexCreating(targetVector, rec)
 	if err != nil {
+		q.Resume()
 		return errors.Wrap(err, "mark vector index creating")
 	}
 
@@ -71,12 +72,14 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 	}
 	s.setVectorIndex(targetVector, vidx)
 
+	// the queue follows the new index whatever the record write says: the
+	// record is repaired at the next load, the shard must keep indexing now
+	q.ResetWith(vidx)
+	q.Resume()
+
 	err = s.markVectorIndexReady(targetVector, rec)
 	if err != nil {
 		return errors.Wrap(err, "mark vector index ready")
 	}
-
-	q.ResetWith(vidx)
-	q.Resume()
 	return nil
 }
