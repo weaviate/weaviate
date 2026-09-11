@@ -169,6 +169,7 @@ func setupGraphQLHandlers(
 		}
 
 		metricRequestsTotal.log(result)
+		addDocsLinks(result, graphQLResponse)
 		// Return the response
 		return graphql.NewGraphqlPostOK().WithPayload(graphQLResponse)
 	})
@@ -314,6 +315,7 @@ func handleUnbatchedGraphQLRequest(ctx context.Context, wg *sync.WaitGroup, grap
 				}
 			} else {
 				metricRequestsTotal.log(result)
+				addDocsLinks(result, graphQLResponse)
 				// Return the GraphQL response
 				*requestResults <- gqlUnbatchedRequestResponse{
 					requestIndex,
@@ -484,4 +486,38 @@ func (e *graphqlRequestsTotal) getClassNameAndQueryType(data interface{}) (class
 		}
 	}
 	return className, queryType
+}
+
+// addDocsLinks appends the documenting page to a documented resolver error in
+// the client-facing response. The resolved result stays pristine, so the
+// metrics logger observing it never puts the link into server log text.
+func addDocsLinks(result *tailorincgraphql.Result, response *models.GraphQLResponse) {
+	if result == nil || response == nil {
+		return
+	}
+	for i := range response.Errors {
+		if i >= len(result.Errors) || response.Errors[i] == nil {
+			continue
+		}
+		response.Errors[i].Message = enterrors.AppendDocsLink(response.Errors[i].Message, resolverError(result.Errors[i]))
+	}
+}
+
+// resolverError digs the resolver's own error out of a formatted one. The
+// executor nests it in FormattedError and *gqlerrors.Error layers, neither of
+// which has an Unwrap, so errors.Is cannot see through them by itself.
+func resolverError(formatted gqlerrors.FormattedError) error {
+	var err error = formatted
+	for {
+		var fe gqlerrors.FormattedError
+		var ge *gqlerrors.Error
+		switch {
+		case errors.As(err, &fe) && fe.OriginalError() != nil:
+			err = fe.OriginalError()
+		case errors.As(err, &ge) && ge.OriginalError != nil:
+			err = ge.OriginalError
+		default:
+			return err
+		}
+	}
 }

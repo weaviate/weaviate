@@ -252,7 +252,7 @@ func (w *worker) fanInReplies(
 				outer := outerIdxs[resp.offset+k]
 				failed[outer] = struct{}{}
 				errs = append(errs, &pb.BatchStreamReply_Results_Error{
-					Error:  resp.err.Error(),
+					Error:  enterrors.MessageWithDocsLink(resp.err),
 					Detail: &pb.BatchStreamReply_Results_Error_Uuid{Uuid: objs[outer].Uuid},
 				})
 			}
@@ -308,7 +308,7 @@ func (w *worker) sendReferences(ctx context.Context, streamId string, refs []*pb
 		errors := make([]*pb.BatchStreamReply_Results_Error, 0, len(refs))
 		for _, ref := range refs {
 			errors = append(errors, &pb.BatchStreamReply_Results_Error{
-				Error:  err.Error(),
+				Error:  enterrors.MessageWithDocsLink(err),
 				Detail: &pb.BatchStreamReply_Results_Error_Beacon{Beacon: toBeacon(ref)},
 			})
 		}
