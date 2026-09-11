@@ -78,22 +78,19 @@ func (h *hnsw) Delete(ids ...uint64) error {
 		// connect it to (the entrypoint). With that one being tombstoned, the new
 		// node would be guaranteed to have zero edges
 
-		node := h.nodeByID(id)
-		if node == nil {
-			// node was already deleted/cleaned up
-			continue
-		}
-
 		if h.getEntrypoint() == id {
+			// the entrypoint must be moved even when its node slot is already
+			// nil, e.g. a torn crash-recovery state where the DeleteNode
+			// commit survived but the matching RemoveTombstone commit did not
 			if err := func() error {
 				beforeDeleteEP := time.Now()
 				defer h.metrics.TrackDelete(beforeDeleteEP, "delete_entrypoint")
 
 				denyList := h.tombstonesAsDenyList()
-				if onlyNode, err := h.resetIfOnlyNode(node, denyList); err != nil {
+				if onlyNode, err := h.resetIfOnlyNode(id, denyList); err != nil {
 					return errors.Wrap(err, "reset index")
 				} else if !onlyNode {
-					if err := h.deleteEntrypoint(node, denyList); err != nil {
+					if err := h.deleteEntrypoint(id, denyList); err != nil {
 						return errors.Wrap(err, "delete entrypoint")
 					}
 				}
@@ -169,7 +166,7 @@ func (h *hnsw) resetIfEmpty() (empty bool, err error) {
 	return false, nil
 }
 
-func (h *hnsw) resetIfOnlyNode(needle *vertex, denyList helpers.AllowList) (onlyNode bool, err error) {
+func (h *hnsw) resetIfOnlyNode(needleID uint64, denyList helpers.AllowList) (onlyNode bool, err error) {
 	h.resetLock.Lock()
 	defer h.resetLock.Unlock()
 	h.Lock()
@@ -181,7 +178,7 @@ func (h *hnsw) resetIfOnlyNode(needle *vertex, denyList helpers.AllowList) (only
 		h.shardedNodeLocks.RLockAll()
 		defer h.shardedNodeLocks.RUnlockAll()
 
-		return h.isOnlyNodeUnlocked(needle, denyList)
+		return h.isOnlyNodeUnlocked(needleID, denyList)
 	}()
 	// It can happen that between calls of isOnlyNodeUnlocked and resetUnlocked
 	// values of h.nodes will change (due to locks being RUnlocked and Locked again)
@@ -470,11 +467,7 @@ func (h *hnsw) replaceDeletedEntrypoint(deleteList helpers.AllowList, breakClean
 			// level, we need to find an entrypoint on a lower level
 			// 2. there is a risk that this is the only node in the entire graph. In
 			// this case we must reset the graph
-			h.shardedNodeLocks.RLock(id)
-			node := h.nodes[id]
-			h.shardedNodeLocks.RUnlock(id)
-
-			if err := h.deleteEntrypoint(node, deleteList); err != nil {
+			if err := h.deleteEntrypoint(id, deleteList); err != nil {
 				return false, errors.Wrap(err, "delete entrypoint")
 			}
 		}
@@ -692,15 +685,11 @@ func connectionsPointTo(connections *packedconn.Connections, needles helpers.All
 // one. It respects the attached denyList, so that it doesn't assign another
 // node which also has a tombstone and is also in the process of being cleaned
 // up
-func (h *hnsw) deleteEntrypoint(node *vertex, denyList helpers.AllowList) error {
-	if h.isOnlyNode(node, denyList) {
+func (h *hnsw) deleteEntrypoint(id uint64, denyList helpers.AllowList) error {
+	if h.isOnlyNode(id, denyList) {
 		// no point in finding another entrypoint if this is the only node
 		return nil
 	}
-
-	node.Lock()
-	id := node.id
-	node.Unlock()
 
 	newEntrypoint, level, ok := h.findNewGlobalEntrypoint(denyList, id)
 	if !ok {
@@ -863,25 +852,25 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, oldEntrypoint 
 		return 0, nil
 	}
 
-	if h.isOnlyNode(&vertex{id: oldEntrypoint}, denyList) {
+	if h.isOnlyNode(oldEntrypoint, denyList) {
 		return 0, nil
 	}
 
 	return 0, fmt.Errorf("class %s: shard %s: findNewLocalEntrypoint called on an empty hnsw graph", h.className, h.shardName)
 }
 
-func (h *hnsw) isOnlyNode(needle *vertex, denyList helpers.AllowList) bool {
+func (h *hnsw) isOnlyNode(needleID uint64, denyList helpers.AllowList) bool {
 	h.RLock()
 	h.shardedNodeLocks.RLockAll()
 	defer h.RUnlock()
 	defer h.shardedNodeLocks.RUnlockAll()
 
-	return h.isOnlyNodeUnlocked(needle, denyList)
+	return h.isOnlyNodeUnlocked(needleID, denyList)
 }
 
-func (h *hnsw) isOnlyNodeUnlocked(needle *vertex, denyList helpers.AllowList) bool {
+func (h *hnsw) isOnlyNodeUnlocked(needleID uint64, denyList helpers.AllowList) bool {
 	for _, node := range h.nodes {
-		if node == nil || node.id == needle.id || denyList.Contains(node.id) || node.connections.Layers() == 0 {
+		if node == nil || node.id == needleID || denyList.Contains(node.id) || node.connections.Layers() == 0 {
 			continue
 		}
 		return false

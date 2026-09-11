@@ -2238,3 +2238,100 @@ func TestDelete_EntrypointWithLowerLevelThanOtherNodes(t *testing.T) {
 		require.Equal(t, 3, index.currentMaximumLayer)
 	})
 }
+
+// TestDelete_TombstonedEntrypointWithNilNode reproduces a crash-recovery state
+// where the entrypoint id still carries a tombstone but its node slot is nil.
+//
+// removeTombstonesAndNodes persists DeleteNode and RemoveTombstone as two
+// separate commit-log entries. If the process dies between the two (and the
+// entrypoint had not been replaced first, e.g. because findNewGlobalEntrypoint
+// found no candidate), replay yields: entryPointID = X, tombstones = {X},
+// nodes[X] = nil. The multivector startup repair (restoreDocMappings) can
+// produce the same shape by nilling a node with a missing doc mapping.
+//
+// The cleanup cycle then handed the nil node to deleteEntrypoint/isOnlyNode,
+// which dereferenced it and panicked. The recover in cleanUpTombstonedNodes
+// swallowed the panic and returned a nil error, so every subsequent cycle
+// panicked at the same point and tombstone cleanup never made progress again.
+func TestDelete_TombstonedEntrypointWithNilNode(t *testing.T) {
+	newCorruptIndex := func(t *testing.T, withLiveNodes bool) *hnsw {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "tombstoned-nil-entrypoint-test",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk:      testVectorForID,
+			GetViewThunk:          GetViewThunk,
+			TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk([][]float32{
+				{0.1, 0.2},
+				{0.3, 0.4},
+				{0.5, 0.6},
+			}),
+			AllocChecker: memwatch.NewDummyMonitor(),
+		}, ent.UserConfig{
+			MaxConnections:         30,
+			EFConstruction:         128,
+			EF:                     36,
+			CleanupIntervalSeconds: 0,
+			VectorCacheMaxObjects:  100000,
+		}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		require.Nil(t, err)
+		t.Cleanup(func() { index.Drop(context.Background(), false) })
+
+		index.Lock()
+		index.entryPointID = 0
+		index.currentMaximumLayer = 0
+		index.nodes = make([]*vertex, 10)
+		// slot 0 deliberately stays nil: the DeleteNode commit for the old
+		// entrypoint was persisted, the matching RemoveTombstone was not
+		if withLiveNodes {
+			conns1, _ := packedconn.NewWithElements([][]uint64{{2}})
+			index.nodes[1] = &vertex{id: 1, level: 0, connections: conns1}
+			conns2, _ := packedconn.NewWithElements([][]uint64{{1}})
+			index.nodes[2] = &vertex{id: 2, level: 0, connections: conns2}
+		}
+		index.Unlock()
+
+		index.tombstoneLock.Lock()
+		index.tombstones = map[uint64]struct{}{0: {}}
+		index.tombstoneLock.Unlock()
+
+		return index
+	}
+
+	tombstoneCount := func(index *hnsw) int {
+		index.tombstoneLock.Lock()
+		defer index.tombstoneLock.Unlock()
+		return len(index.tombstones)
+	}
+
+	t.Run("cleanup replaces the entrypoint and removes the tombstone", func(t *testing.T) {
+		index := newCorruptIndex(t, true)
+
+		require.Nil(t, index.CleanUpTombstonedNodes(neverStop))
+
+		assert.Equal(t, uint64(1), index.getEntrypoint(),
+			"entrypoint must move to a live node")
+		assert.Equal(t, 0, tombstoneCount(index),
+			"the stale tombstone must be cleaned up")
+	})
+
+	t.Run("cleanup resets the graph when no live node remains", func(t *testing.T) {
+		index := newCorruptIndex(t, false)
+
+		require.Nil(t, index.CleanUpTombstonedNodes(neverStop))
+
+		assert.Equal(t, 0, tombstoneCount(index),
+			"the stale tombstone must be cleaned up")
+		assert.True(t, index.isEmpty(), "graph must be reset to empty")
+	})
+
+	t.Run("Delete on the corrupt entrypoint id replaces the entrypoint", func(t *testing.T) {
+		index := newCorruptIndex(t, true)
+
+		require.Nil(t, index.Delete(0))
+
+		assert.Equal(t, uint64(1), index.getEntrypoint(),
+			"entrypoint must move to a live node even though its slot is nil")
+	})
+}
