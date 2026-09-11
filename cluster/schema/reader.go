@@ -255,7 +255,7 @@ func (rs SchemaReader) ShardReplicas(class, shard string) (nodes []string, err e
 	return res, err
 }
 
-// TenantsShards returns shard name for the provided tenant and its activity status
+// TenantsShardsStatus returns shard name for the provided tenant and its activity status
 func (rs SchemaReader) TenantsShardsStatus(class string, tenants ...string) (map[string]string, error) {
 	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("TenantsShardsStatus"))
 	defer t.ObserveDuration()
