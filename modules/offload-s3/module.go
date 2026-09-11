@@ -307,14 +307,6 @@ func (m *Module) Upload(ctx context.Context, className, shardName, nodeName stri
 	// Only mark real uploads as active: the empty-shard shortcut above is a no-op.
 	defer monitoring.GetBackgroundProcessMetrics().Started(monitoring.ProcessOffload)()
 
-	cmd := []string{
-		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
-		"cp",
-		fmt.Sprintf("--concurrency=%s", fmt.Sprintf("%d", m.Concurrency)),
-		fmt.Sprintf("%s/*", localPath),
-		fmt.Sprintf("s3://%s/%s/%s/%s/", m.Bucket, strings.ToLower(className), shardName, nodeName),
-	}
-
 	var err error
 	defer func() {
 		// Update few useful metrics
@@ -327,8 +319,25 @@ func (m *Module) Upload(ctx context.Context, className, shardName, nodeName stri
 		m.metrics.OpsDuration.WithLabelValues("upload", status).Observe(time.Since(start).Seconds())
 	}()
 
-	err = m.newApp().RunContext(ctx, cmd)
+	err = m.newApp().RunContext(ctx, m.uploadArgs(localPath, className, shardName, nodeName))
 	return err
+}
+
+// uploadArgs builds the s5cmd invocation for a shard upload. s5cmd expands
+// the source wildcard recursively, so without --exclude it also ships the
+// .tmp scratch a shard keeps when it is frozen without ever being loaded.
+// lsmkv.Bucket.listFiles and listInactiveLSMFiles already skip those; this
+// path builds an argv instead of walking the tree, so it needs its own rule.
+// .wal stays in, the shard needs it to recover on the next reactivation.
+func (m *Module) uploadArgs(localPath, className, shardName, nodeName string) []string {
+	return []string{
+		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
+		"cp",
+		fmt.Sprintf("--concurrency=%s", fmt.Sprintf("%d", m.Concurrency)),
+		"--exclude=*.tmp",
+		fmt.Sprintf("%s/*", localPath),
+		fmt.Sprintf("s3://%s/%s/%s/%s/", m.Bucket, strings.ToLower(className), shardName, nodeName),
+	}
 }
 
 // Download downloads the content of a shard to desired node from
