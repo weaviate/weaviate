@@ -24,6 +24,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
@@ -68,19 +69,11 @@ func (e *PartialUpdateError) Error() string {
 
 func (e *PartialUpdateError) Unwrap() []error { return e.Errs }
 
-type ClassInfo struct {
-	Exists            bool
-	MultiTenancy      models.MultiTenancyConfig
-	ReplicationFactor int
-	Tenants           int
-	Properties        int
-	ClassVersion      uint64
-	ShardVersion      uint64
-}
+// ClassInfo lives in package local, whose SchemaReader this package's SchemaReader
+// implements; local must not import this package.
+type ClassInfo = local.ClassInfo
 
-func (ci *ClassInfo) Version() uint64 {
-	return max(ci.ClassVersion, ci.ShardVersion)
-}
+var _ local.SchemaReader = SchemaReader{}
 
 type schema struct {
 	nodeID string
