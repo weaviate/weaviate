@@ -13,7 +13,9 @@ package errorcompounder
 
 import (
 	"fmt"
+	"maps"
 	"math"
+	"slices"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -90,48 +92,58 @@ func (ec *errorCompounder) toError(limit int) error {
 		return nil
 	}
 
+	errs := make([]error, 0, ec.Len())
+	collect(ec.top, &errs)
+
 	var b strings.Builder
-	var errs []error
+	rendered := render(ec.top, &b, limit)
 
-	var f func(*entry) bool
-	f = func(e *entry) bool {
-		addComma := false
-		for _, err := range e.errors {
-			if addComma {
-				b.WriteString(", ")
-			}
-			b.WriteString(err.Error())
-			errs = append(errs, err)
-			addComma = true
-
-			limit--
-			if limit == 0 {
-				return false
-			}
-		}
-		for name, group := range e.groups {
-			if addComma {
-				b.WriteString(", ")
-			}
-			b.WriteString("\"")
-			b.WriteString(name)
-			b.WriteString("\": {")
-			ok := f(group)
-			b.WriteString("}")
-			addComma = true
-
-			if !ok {
-				return false
-			}
-		}
-		return true
-	}
-	f(ec.top)
 	// without the count a truncated message reads like the complete list
-	if omitted := ec.Len() - len(errs); omitted > 0 {
+	if omitted := ec.Len() - rendered; omitted > 0 {
 		fmt.Fprintf(&b, " (and %d more)", omitted)
 	}
 	return &compoundError{msg: b.String(), errs: errs}
+}
+
+// collect appends every error under e. A caller classifying a compound reads all
+// of them, so no limit applies here.
+func collect(e *entry, errs *[]error) {
+	*errs = append(*errs, e.errors...)
+	for _, name := range slices.Sorted(maps.Keys(e.groups)) {
+		collect(e.groups[name], errs)
+	}
+}
+
+// render writes at most limit errors into b and reports how many it wrote. The
+// groups are walked in name order: a limit decides which errors reach the
+// message, so ranging the map would name a different set on every render.
+func render(e *entry, b *strings.Builder, limit int) int {
+	rendered := 0
+	addComma := false
+	write := func(s string) {
+		if addComma {
+			b.WriteString(", ")
+		}
+		b.WriteString(s)
+		addComma = true
+	}
+
+	for _, err := range e.errors {
+		if rendered == limit {
+			return rendered
+		}
+		write(err.Error())
+		rendered++
+	}
+	for _, name := range slices.Sorted(maps.Keys(e.groups)) {
+		if rendered == limit {
+			return rendered
+		}
+		write("\"" + name + "\": {")
+		rendered += render(e.groups[name], b, limit-rendered)
+		b.WriteString("}")
+	}
+	return rendered
 }
 
 func (ec *errorCompounder) add(err error) {
@@ -162,7 +174,7 @@ func (ec *errorCompounder) addGroups(err error, groups ...string) {
 
 // compoundError renders every collected error into a single message while
 // keeping those errors reachable for errors.Is and errors.As. A limited error
-// only exposes the errors its message covers.
+// renders only part of them into the message; all of them stay reachable.
 type compoundError struct {
 	msg  string
 	errs []error
@@ -213,4 +225,15 @@ func (e *entry) len() int {
 		ln += nested.len()
 	}
 	return ln
+}
+
+// GroupNames renders each var as a group name. A group is named by a string, so
+// a var of another type is formatted rather than dropped: dropping one would
+// file the error under a path its caller did not ask for.
+func GroupNames(vars ...interface{}) []string {
+	groups := make([]string, 0, len(vars))
+	for _, v := range vars {
+		groups = append(groups, fmt.Sprint(v))
+	}
+	return groups
 }

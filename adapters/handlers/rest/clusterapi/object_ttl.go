@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -113,23 +114,58 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
 
+		// the slot is taken before the body is read, so a second caller is refused
+		// without decoding one. An unbounded read is the cluster server's to bound;
+		// what this handler owes is not to multiply it.
 		ok, ttlCtx := d.localStatus.SetRunning()
 		if !ok {
 			http.Error(w, "another request is still being processed", http.StatusTooManyRequests)
 			return
 		}
+		refuse := func(msg string) {
+			d.localStatus.Finished()
+			http.Error(w, msg, http.StatusBadRequest)
+		}
 
 		var body []objectttl.ObjectsExpiredPayload
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			d.localStatus.ResetRunning("bad request")
-			http.Error(w, "Error parsing JSON body", http.StatusBadRequest)
+			refuse("Error parsing JSON body")
 			return
+		}
+		// the coordinator names each collection once, so a repeat asks for two
+		// different deletions of one collection and says nothing about which wins
+		named := make(map[string]string, len(body))
+		for _, classPayload := range body {
+			// db.indices is keyed by the lowercased class name, so two spellings
+			// reach one index, and admitting both sweeps it twice at once
+			key := strings.ToLower(classPayload.Class)
+			if first, repeated := named[key]; repeated {
+				refuse(fmt.Sprintf("collection named more than once: %s and %s",
+					first, classPayload.Class))
+				return
+			}
+			named[key] = classPayload.Class
+
+			// the coordinator fills all three
+			if classPayload.Prop == "" || classPayload.TtlMilli == 0 {
+				refuse(fmt.Sprintf("collection %s: prop and ttlMilli are required",
+					classPayload.Class))
+				return
+			}
+			// the coordinator sets delMilli to the instant it swept; an omitted
+			// field decodes to zero, which is a timestamp rather than an absence,
+			// so nothing downstream can tell it apart from a real deletion time
+			if classPayload.DelMilli <= 0 {
+				refuse(fmt.Sprintf("collection %s: delMilli must be a deletion time",
+					classPayload.Class))
+				return
+			}
 		}
 
 		// run the deletion in a separate goroutine to free up the HTTP handler immediately
 		enterrors.GoWrapper(func() {
 			// make sure to unlock the requestRunning flag when all deletions are done
-			defer d.localStatus.ResetRunning("finished")
+			defer d.localStatus.Finished()
 
 			started := time.Now()
 
@@ -144,6 +180,9 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 			for i := range body {
 				colNames[i] = body[i].Class
 			}
+
+			ec := errorcompounder.NewSafe()
+			swept := len(body)
 
 			logger := d.logger.WithField("action", "objects_ttl_deletion")
 			logger.WithFields(logrus.Fields{
@@ -162,27 +201,51 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 				metrics.ObserveObjectsTtlDuration(took)
 				metrics.AddObjectsTtlObjectsDeleted(float64(total))
 
-				if err != nil {
-					metrics.IncObjectsTtlFailureCount()
+				// ec holds what a callee returned; the context says whether an
+				// abort stopped it.
+				cause := context.Cause(ttlCtx)
+				if cause != nil {
+					logger = logger.WithFields(logrus.Fields{
+						"stopped_early":     true,
+						"collections_swept": swept,
+					})
+				}
 
-					logger.WithError(err).Error("incoming ttl deletion on remote node failed")
+				if !ec.Empty() {
+					metrics.IncObjectsTtlFailureCount()
+					logger.Errorf("incoming ttl deletion on remote node failed: %v", err)
+					return
+				}
+				if cause != nil {
+					logger.Warnf("incoming ttl deletion on remote node stopped early: %v", cause)
 					return
 				}
 				logger.Debug("incoming ttl deletion on remote node finished")
 			}()
 
-			ec := errorcompounder.NewSafe()
 			eg := enterrors.NewErrorGroupWrapper(d.logger)
 			eg.SetLimit(concurrency.TimesFloatGOMAXPROCS(d.config.ObjectsTTLConcurrencyFactor.Get()))
 
-			for _, classPayload := range body {
+			for pos, classPayload := range body {
+				if context.Cause(ttlCtx) != nil {
+					swept = pos
+					break
+				}
 				className := classPayload.Class
-				objsDeletedCounters[className] = &atomic.Int32{}
-				countDeleted := func(count int32) { objsDeletedCounters[className].Add(count) }
+				// captured by value: a delete goroutine indexing objsDeletedCounters
+				// by name would race the next iteration's map write, which is fatal.
+				counter := &atomic.Int32{}
+				objsDeletedCounters[className] = counter
+				countDeleted := func(count int32) { counter.Add(count) }
 
-				// TODO aliszka:ttl handle graceful index close / drop
-				idx, err := d.remoteIndex.IndexForIncomingWrite(context.Background(), className, classPayload.ClassVersion)
+				idx, err := d.remoteIndex.IndexForIncomingWrite(ttlCtx, className, classPayload.ClassVersion)
 				if err != nil {
+					// the schema wait reports its own deadline whether it timed out
+					// or was cancelled, so ask the context which one happened
+					if context.Cause(ttlCtx) != nil {
+						swept = pos
+						break
+					}
 					ec.AddGroups(fmt.Errorf("get index: %w", err), className)
 					continue
 				}
@@ -191,9 +254,9 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 					time.UnixMilli(classPayload.DelMilli), countDeleted, classPayload.ClassVersion)
 			}
 
-			eg.Wait() // ignore errors from goroutines, they are collected in ec
+			eg.WaitAndCollect(ec)
 
-			err = ec.ToError()
+			err = ec.ToErrorLimited(objectttl.MaxReportedErrors)
 		}, d.logger)
 
 		w.WriteHeader(http.StatusAccepted)
@@ -205,7 +268,7 @@ func (d *ObjectTTL) incomingAbort() http.Handler {
 		defer r.Body.Close()
 
 		response := objectttl.ObjectsExpiredAbortResponse{
-			Aborted: d.localStatus.ResetRunning("aborted"),
+			Aborted: d.localStatus.Abort(),
 		}
 
 		d.logger.WithFields(logrus.Fields{
