@@ -318,3 +318,67 @@ func TestInitTargetVector_SkippedVectorHasNoRecord(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, ok)
 }
+
+// TestVectorIndexCollisions pins which pairs of recorded vectors share a
+// physical name: the check that refuses a live creation and the warning a
+// first load logs.
+func TestVectorIndexCollisions(t *testing.T) {
+	rec := func(id string) vectorIndexRecord {
+		return vectorIndexRecord{PhysicalID: id, IndexType: "hnsw", State: "ready"}
+	}
+	tests := []struct {
+		name    string
+		records map[string]vectorIndexRecord
+		want    []string
+	}{
+		{name: "no collision", records: map[string]vectorIndexRecord{"": rec("main"), "title": rec("vectors_title")}},
+		{
+			name:    "compressed next to the legacy vector",
+			records: map[string]vectorIndexRecord{"": rec("main"), "compressed": rec("vectors_compressed")},
+			want:    []string{`vectors "" and "compressed" share "vectors_compressed"`},
+		},
+		{
+			name:    "muvera next to its sibling",
+			records: map[string]vectorIndexRecord{"foo": rec("vectors_foo"), "foo_muvera_vectors": rec("vectors_foo_muvera_vectors")},
+			want:    []string{`vectors "foo" and "foo_muvera_vectors" share "vectors_foo_muvera_vectors"`},
+		},
+		{
+			name:    "centroids next to its sibling",
+			records: map[string]vectorIndexRecord{"foo": rec("vectors_foo"), "foo_centroids": rec("vectors_foo_centroids")},
+			want:    []string{`vectors "foo" and "foo_centroids" share "vectors_compressed_foo_centroids"`},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, vectorIndexCollisions(tt.records))
+		})
+	}
+}
+
+// A live creation whose physical names another vector owns is refused
+// before anything is written or built.
+func TestInitTargetVector_RefusesACollision(t *testing.T) {
+	ctx := testCtx()
+	shard, _ := setupDropVectorShard(t, ctx)
+
+	err := shard.index.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{
+		"compressed": enthnsw.NewDefaultUserConfig(),
+	})
+	require.ErrorContains(t, err, `share "vectors_compressed"`)
+
+	_, ok, err := shard.mapping.Get("compressed")
+	require.NoError(t, err)
+	assert.False(t, ok, "nothing was written")
+	found, err := shard.WithVectorIndex("compressed", func(VectorIndex) error { return nil })
+	require.NoError(t, err)
+	assert.False(t, found, "nothing was built")
+
+	// a retry of a vector's own creating record is not a collision with itself
+	broken := enthnsw.NewDefaultUserConfig()
+	broken.Distance = "bogus"
+	require.Error(t, shard.index.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{"again": broken}))
+	require.NoError(t, shard.index.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{"again": enthnsw.NewDefaultUserConfig()}))
+	rec, _, err := shard.mapping.Get("again")
+	require.NoError(t, err)
+	assert.Equal(t, "ready", rec.State)
+}

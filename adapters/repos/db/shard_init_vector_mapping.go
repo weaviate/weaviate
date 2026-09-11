@@ -17,7 +17,9 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -234,4 +236,47 @@ func (s *Shard) syncVectorIndexRecordStorage(name string, rec vectorIndexRecord)
 		return fmt.Errorf("vector %q: %w", name, err)
 	}
 	return nil
+}
+
+// vectorIndexCollisions lists every pair of records that share a physical
+// name, as "vectors A and B share N", names in order. The legacy vector is
+// the empty name.
+func vectorIndexCollisions(records map[string]vectorIndexRecord) []string {
+	names := slices.Sorted(maps.Keys(records))
+	owned := make(map[string]map[string]struct{}, len(names))
+	for _, name := range names {
+		set := map[string]struct{}{}
+		for _, n := range helpers.VectorIndexArtifactNamesForID(records[name].PhysicalID).All() {
+			set[n] = struct{}{}
+		}
+		owned[name] = set
+	}
+	var collisions []string
+	for i, a := range names {
+		for _, b := range names[i+1:] {
+			for _, n := range slices.Sorted(maps.Keys(owned[a])) {
+				if _, shared := owned[b][n]; shared {
+					collisions = append(collisions, fmt.Sprintf("vectors %q and %q share %q", a, b, n))
+					break
+				}
+			}
+		}
+	}
+	return collisions
+}
+
+// refuseVectorIndexCollision fails a creation whose physical names are
+// already in use by another recorded vector. The vector's own record, a
+// retry of an interrupted creation, is not a collision.
+func (s *Shard) refuseVectorIndexCollision(name string, rec vectorIndexRecord) error {
+	records, _, err := s.mapping.Load()
+	if err != nil {
+		return err
+	}
+	records[name] = rec
+	collisions := vectorIndexCollisions(records)
+	if len(collisions) == 0 {
+		return nil
+	}
+	return fmt.Errorf("vector %q cannot be created: %s", name, strings.Join(collisions, "; "))
 }

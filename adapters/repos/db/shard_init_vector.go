@@ -84,6 +84,9 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 		for name, cfg := range active {
 			records[name] = vectorIndexRecordFor(name, cfg, vectorIndexStateCreating)
 		}
+		for _, c := range vectorIndexCollisions(records) {
+			s.index.logger.WithField("shard", s.ID()).Warnf("vector index physical names collide, a drop of either may take the other's files: %s", c)
+		}
 	}
 
 	s.migrateCompressedVectors(legacy, targets)
@@ -372,7 +375,11 @@ func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg s
 	}
 	rec := vectorIndexRecordFor(targetVector, cfg, vectorIndexStateCreating)
 	_, err := s.vectors.Create(targetVector, func() (VectorIndex, *VectorIndexQueue, error) {
-		err := s.markVectorIndexCreating(targetVector, rec)
+		err := s.refuseVectorIndexCollision(targetVector, rec)
+		if err != nil {
+			return nil, nil, err
+		}
+		err = s.markVectorIndexCreating(targetVector, rec)
 		if err != nil {
 			return nil, nil, err
 		}
