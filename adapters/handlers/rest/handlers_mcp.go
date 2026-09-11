@@ -12,10 +12,13 @@
 package rest
 
 import (
+	"encoding/json"
 	"net/http"
+	"slices"
 
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
+	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	mcpops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/mcp"
@@ -56,18 +59,29 @@ func setupMCPHandlers(api *operations.WeaviateAPI, appState *state.State, object
 	)
 }
 
-const mcpDisabledBody = `{"error":"MCP server is not enabled. To enable it, either set MCP_SERVER_ENABLED=true (requires restart) or set mcp_server_enabled: true in the runtime overrides YAML (no restart needed). See https://docs.weaviate.io/weaviate/mcp/mcp-server"}`
+const mcpDisabledBody = `{"error":"MCP server is disabled. Enable it in your cluster configuration: set MCP_SERVER_ENABLED=true or set the mcp_server_enabled runtime override. See https://docs.weaviate.io/weaviate/configuration/mcp-server"}`
 
-// mcpGate answers 503 while MCP is disabled at runtime and otherwise hands
-// the request to the MCP server.
+// mcpGate answers 503 while MCP is disabled at runtime, 400 for a protocol
+// version this server does not speak, and otherwise hands the request to the
+// MCP server.
 func mcpGate(enabled func() bool, server http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !enabled() {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_, _ = w.Write([]byte(mcpDisabledBody))
+			writeMCPError(w, http.StatusServiceUnavailable, []byte(mcpDisabledBody))
+			return
+		}
+		// mcp-go accepts any value here; the spec asks for 400 on an unsupported one.
+		if v := r.Header.Get("MCP-Protocol-Version"); v != "" && !slices.Contains(mcplib.ValidProtocolVersions, v) {
+			body, _ := json.Marshal(map[string]string{"error": "unsupported MCP protocol version: " + v})
+			writeMCPError(w, http.StatusBadRequest, body)
 			return
 		}
 		server.ServeHTTP(w, r)
 	})
+}
+
+func writeMCPError(w http.ResponseWriter, status int, body []byte) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(body)
 }

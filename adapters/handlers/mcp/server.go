@@ -69,9 +69,7 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager, reg prome
 		server: server.NewMCPServer(
 			"Weaviate MCP Server",
 			"0.1.0",
-			server.WithToolCapabilities(true),
-			server.WithResourceCapabilities(false, false),
-			server.WithRecovery(),
+			serverOptions(m, writeAccessEnabled)...,
 		),
 		creator:        create.NewWeaviateCreator(authHandler, state.BatchManager, logger, writeAccessEnabled),
 		searcher:       search.NewWeaviateSearcher(authHandler, state.Traverser, state.SchemaManager, state.SchemaManager, state.ServerConfig.Config.Namespaces.Enabled, logger),
@@ -86,20 +84,48 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager, reg prome
 	return s
 }
 
+// serverOptions is the option set the production MCP server is built with.
+// Kept as a function so tests can pin the exact production wiring — notably
+// that tool arguments are validated against the advertised input schemas.
+func serverOptions(m *metrics.MCPMetrics, writeAccessEnabled func() bool) []server.ServerOption {
+	return []server.ServerOption{
+		server.WithToolCapabilities(true),
+		server.WithResourceCapabilities(false, false),
+		server.WithRecovery(),
+		server.WithInputSchemaValidation(),
+		server.WithHooks(listMetricsHooks(m, writeAccessEnabled)),
+	}
+}
+
 func (s *MCPServer) Handler() http.Handler {
 	// Every request is authenticated on its own and nothing is kept per session,
 	// so session ids are neither issued nor required.
 	return server.NewStreamableHTTPServer(s.server, server.WithStateLess(true))
 }
 
+// listMetricsHooks counts tools/list requests. The count lives in a hook, not
+// in the tool filter, because the filter also runs for every tools/call.
+func listMetricsHooks(m *metrics.MCPMetrics, writeAccessEnabled func() bool) *server.Hooks {
+	hooks := &server.Hooks{}
+	hooks.AddAfterListTools(func(context.Context, any, *mcplib.ListToolsRequest, *mcplib.ListToolsResult) {
+		m.ObserveListed(writeAccessEnabled())
+	})
+	return hooks
+}
+
 // registerToolFilter hides write tools from tools/list when write access is
-// disabled at runtime. Read tools are always visible. The filter only affects
-// listing — calls to disabled tools are also rejected by the tool handlers.
+// disabled at runtime; read tools are always visible. mcp-go also runs the
+// filter on every tools/call, with only the called tool, so calls must pass
+// through — the tool handlers reject disabled writes themselves.
 func (s *MCPServer) registerToolFilter() {
 	server.WithToolFilter(func(ctx context.Context, tools []mcplib.Tool) []mcplib.Tool {
-		writeEnabled := s.creator.IsWriteAccessEnabled()
-		s.metrics.ObserveListed(writeEnabled)
-		if writeEnabled {
+		// A single write tool is a tools/call, never a listing. Removing it here
+		// would answer "tool not found"; passing it through lets the handler
+		// answer with the write-disabled hint.
+		if len(tools) == 1 && s.writeToolNames[tools[0].Name] {
+			return tools
+		}
+		if s.creator.IsWriteAccessEnabled() {
 			return tools
 		}
 		filtered := make([]mcplib.Tool, 0, len(tools))

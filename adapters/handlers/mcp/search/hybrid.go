@@ -14,6 +14,7 @@ package search
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -33,6 +34,10 @@ import (
 )
 
 func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, args QueryHybridArgs) (resp *QueryHybridResp, retErr error) {
+	if err := validateHybridArgs(args); err != nil {
+		return nil, err
+	}
+
 	// Authorize the request: first check MCP-level permission, then collection-level data permission
 	principal, err := s.Authorize(ctx, req, authorization.READ)
 	if err != nil {
@@ -80,12 +85,14 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 		alpha = *args.Alpha
 	}
 
-	// Build hybrid search params
+	// Build hybrid search params. The zero-value fusion is ranked fusion;
+	// use the same default as GraphQL and gRPC.
 	hybridSearch := &searchparams.HybridSearch{
-		Query:         args.Query,
-		Alpha:         alpha,
-		TargetVectors: args.TargetVectors,
-		Properties:    args.TargetProperties,
+		Query:           args.Query,
+		Alpha:           alpha,
+		TargetVectors:   args.TargetVectors,
+		Properties:      args.TargetProperties,
+		FusionAlgorithm: common_filters.HybridFusionDefault,
 	}
 
 	// Build pagination
@@ -146,6 +153,18 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 	res = stripResultsOwnNamespace(principal, res)
 
 	return &QueryHybridResp{Results: res}, nil
+}
+
+// validateHybridArgs rejects values the search layer does not check itself:
+// an out-of-range alpha is used as-is and a negative limit panics.
+func validateHybridArgs(args QueryHybridArgs) error {
+	if args.Alpha != nil && (*args.Alpha < 0 || *args.Alpha > 1) {
+		return errors.New("alpha must be between 0 and 1")
+	}
+	if args.Limit != nil && *args.Limit < 0 {
+		return errors.New("limit must be 0 or greater")
+	}
+	return nil
 }
 
 // allSelectProperties returns all non-ref, non-blob properties of the class,

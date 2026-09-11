@@ -14,6 +14,7 @@ package filter
 import (
 	"context"
 	"slices"
+	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -59,15 +60,21 @@ func (f *ResourceFilter[T]) Filter(
 	// For RBAC, first check if all items have the same parent resource
 	firstResource := resourceFn(items[0])
 	allSameParent := true
+	hasCollectionMarker := strings.HasSuffix(firstResource, "/#")
 
 	for i := 1; i < len(items); i++ {
-		if authorization.WildcardPath(resourceFn(items[i])) != authorization.WildcardPath(firstResource) {
+		resource := resourceFn(items[i])
+		if authorization.WildcardPath(resource) != authorization.WildcardPath(firstResource) {
 			allSameParent = false
+		}
+		if strings.HasSuffix(resource, "/#") {
+			hasCollectionMarker = true
 		}
 	}
 
-	// If all items have the same parent, we can do a single authorization check
-	if allSameParent {
+	// If all items share the same parent, one wildcard check covers them. Skipped when
+	// any resource ends in "/#" (the collection itself): its wildcard is the tenant shape.
+	if allSameParent && !hasCollectionMarker {
 		if err := f.authorizer.Authorize(ctx, principal, verb, authorization.WildcardPath(firstResource)); err == nil {
 			return items
 		}

@@ -924,3 +924,20 @@ func TestQueryHybridTargetVectors(t *testing.T) {
 		}
 	}
 }
+
+// The tool uses relative score fusion like every other API, so the best pure
+// BM25 match scores 1.0. Ranked fusion would give 1/61.
+func TestQueryHybridScoresUseRelativeScoreFusion(t *testing.T) {
+	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
+	defer cleanup()
+
+	results := executeHybridQueryWithResults(t, ctx, &search.QueryHybridArgs{
+		CollectionName: cls.Class,
+		Query:          "learning",
+		Alpha:          &alpha,
+		ReturnMetadata: []string{"score"},
+	}, 3)
+
+	top := results.Results[0].(map[string]any)["_additional"].(map[string]any)["score"]
+	require.InDelta(t, 1.0, top, 1e-6)
+}

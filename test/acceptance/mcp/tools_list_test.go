@@ -199,6 +199,7 @@ func TestToolsList(t *testing.T) {
 	for _, tool := range result.Tools {
 		assert.NotEmpty(t, tool.Name, "tool should have a name")
 		assert.NotEmpty(t, tool.Description, "tool %q should have a description", tool.Name)
+		assert.NotEmpty(t, tool.InputSchema.Properties, "tool %q should advertise its arguments", tool.Name)
 	}
 
 	// Verify descriptions match the config file (loaded via volume mount).
