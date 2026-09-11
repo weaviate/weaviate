@@ -121,7 +121,6 @@ func TestDeferEmptyMultiTenantShardOnInit(t *testing.T) {
 			mockSchema := schemaUC.NewMockSchemaGetter(t)
 			mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
 			mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
-			mockSchema.EXPECT().NodeName().Maybe().Return(nodeName)
 			mockSchema.EXPECT().TenantsShardsStatus(ctx, className, tenant).Maybe().
 				Return(map[string]string{tenant: models.TenantActivityStatusHOT}, nil)
 
@@ -139,6 +138,7 @@ func TestDeferEmptyMultiTenantShardOnInit(t *testing.T) {
 			shardResolver := resolver.NewShardResolver(className, true, schemaGetter)
 
 			index, err := NewIndex(ctx, nil, IndexConfig{
+				NodeName:             nodeName,
 				RootPath:             dirName,
 				ClassName:            schema.ClassName(className),
 				ReplicationFactor:    1,

@@ -69,7 +69,7 @@ func (f *movementFakeUpgradable) Upgrade(callback func()) error {
 }
 
 func newMovementTestQueue(fsm types.ReplicationFSMReader, vi VectorIndex) *VectorIndexQueue {
-	idx := &Index{db: &DB{replicationFSM: fsm}, Config: IndexConfig{ClassName: schema.ClassName("C")}}
+	idx := &Index{db: &DB{localNodeName: "node1", replicationFSM: fsm}, Config: IndexConfig{NodeName: "node1", ClassName: schema.ClassName("C")}}
 	return &VectorIndexQueue{
 		// Zero-value scheduler + DiskQueue: PauseQueue/ResumeQueue early-return on a nil ctx
 		// and ID() reads an empty string, so the upgrade-trigger path runs without a live

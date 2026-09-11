@@ -30,8 +30,8 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
+	clustermocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/namespaces"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 // fixedNodeResolver resolves every node name to the same host.
@@ -130,9 +130,7 @@ func TestCoordinatorStartSkipsClassesWithoutActiveNamespace(t *testing.T) {
 			})
 
 			// Not reached when every class is skipped, since there is nothing to dispatch.
-			getter := schemaUC.NewMockSchemaGetter(t)
-			getter.EXPECT().NodeName().Return("node1").Maybe()
-			getter.EXPECT().Nodes().Return([]string{"node1", "node2"}).Maybe()
+			getter := clustermocks.NewMockNodeSelector("node1", "node2")
 
 			// A nil db is safe because two nodes always route the sweep to the remote
 			// node; the local branch would use it.

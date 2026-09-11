@@ -63,11 +63,6 @@ type SchemaGetter interface {
 	ReadOnlyClass(string) *models.Class
 	ResolveAlias(string) string
 	GetAliasesForClass(class string) []*models.Alias
-	Nodes() []string
-	NodeName() string
-	ClusterHealthScore() int
-	ResolveParentNodes(string, string) (map[string]string, error)
-	Statistics() map[string]any
 
 	ShardOwner(class, shard string) (string, error)
 	TenantsShardsStatus(ctx context.Context, class string, tenants ...string) (map[string]string, error)
@@ -241,33 +236,6 @@ func NewManager(validator validator,
 	}
 
 	return m, nil
-}
-
-func (m *Manager) ClusterHealthScore() int {
-	return m.clusterState.ClusterHealthScore()
-}
-
-// ResolveParentNodes gets all replicas for a specific class shard and resolves their names
-//
-// it returns map[node_name] node_address where node_address = "" if can't resolve node_name
-func (m *Manager) ResolveParentNodes(class, shardName string) (map[string]string, error) {
-	nodes, err := m.ShardReplicas(class, shardName)
-	if err != nil {
-		return nil, fmt.Errorf("get replicas from schema: %w", err)
-	}
-
-	if len(nodes) == 0 {
-		return nil, nil
-	}
-
-	name2Addr := make(map[string]string, len(nodes))
-	for _, node := range nodes {
-		if node != "" {
-			host, _ := m.clusterState.NodeHostname(node)
-			name2Addr[node] = host
-		}
-	}
-	return name2Addr, nil
 }
 
 func (m *Manager) TenantsShardsStatus(ctx context.Context, class string, tenants ...string) (map[string]string, error) {

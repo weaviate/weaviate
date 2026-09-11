@@ -31,7 +31,7 @@ import (
 func (db *DB) GetNodeStatus(ctx context.Context, className, shardName string, verbosity string) ([]*models.NodeStatus, error) {
 	// nodes join and leave while this runs, so the same read has to size the
 	// slice and drive the loop
-	nodeNames := db.schemaGetter.Nodes()
+	nodeNames := db.nodeSelector.AllNames()
 	nodeStatuses := make([]*models.NodeStatus, len(nodeNames))
 	eg := enterrors.NewErrorGroupWrapper(db.logger)
 	eg.SetLimit(_NUMCPU)
@@ -63,7 +63,7 @@ func (db *DB) GetNodeStatus(ctx context.Context, className, shardName string, ve
 }
 
 func (db *DB) GetOneNodeStatus(ctx context.Context, nodeName, className, shardName, output string) (*models.NodeStatus, error) {
-	if db.schemaGetter.NodeName() == nodeName {
+	if db.localNodeName == nodeName {
 		status, err := db.LocalNodeStatus(ctx, className, shardName, output)
 		if errors.Is(err, context.DeadlineExceeded) {
 			// a local scan that ran out of time times out this node alone,
@@ -135,12 +135,12 @@ func (db *DB) LocalNodeStatus(ctx context.Context, className, shardName, output 
 	}
 
 	clusterHealthStatus := models.NodeStatusStatusHEALTHY
-	if db.schemaGetter.ClusterHealthScore() > 0 {
+	if db.nodeSelector.ClusterHealthScore() > 0 {
 		clusterHealthStatus = models.NodeStatusStatusUNHEALTHY
 	}
 
 	status := models.NodeStatus{
-		Name:            db.schemaGetter.NodeName(),
+		Name:            db.localNodeName,
 		Version:         db.config.ServerVersion,
 		GitHash:         db.config.GitHash,
 		Status:          &clusterHealthStatus,
@@ -378,7 +378,7 @@ func isAnyVectorIndexCompressed(shard ShardLike) bool {
 func (db *DB) GetNodeStatistics(ctx context.Context) ([]*models.Statistics, error) {
 	// nodes join and leave while this runs, so the same read has to size the
 	// slice and drive the loop
-	nodeNames := db.schemaGetter.Nodes()
+	nodeNames := db.nodeSelector.AllNames()
 	nodeStatistics := make([]*models.Statistics, len(nodeNames))
 	eg := enterrors.NewErrorGroupWrapper(db.logger)
 	eg.SetLimit(_NUMCPU)
@@ -410,7 +410,7 @@ func (db *DB) IncomingGetNodeStatistics() (*models.Statistics, error) {
 }
 
 func (db *DB) localNodeStatistics() (*models.Statistics, error) {
-	stats := db.schemaGetter.Statistics()
+	stats := db.membership.Stats()
 	var raft *models.RaftStatistics
 	raftStats, ok := stats["raft"].(map[string]string)
 	if ok {
@@ -436,7 +436,7 @@ func (db *DB) localNodeStatistics() (*models.Statistics, error) {
 		}
 	}
 	status := models.StatisticsStatusHEALTHY
-	if db.schemaGetter.ClusterHealthScore() > 0 {
+	if db.nodeSelector.ClusterHealthScore() > 0 {
 		status = models.StatisticsStatusUNHEALTHY
 	}
 	statistics := &models.Statistics{
@@ -457,7 +457,7 @@ func (db *DB) localNodeStatistics() (*models.Statistics, error) {
 }
 
 func (db *DB) getNodeStatistics(ctx context.Context, nodeName string) (*models.Statistics, error) {
-	if db.schemaGetter.NodeName() == nodeName {
+	if db.localNodeName == nodeName {
 		return db.localNodeStatistics()
 	}
 	statistics, err := db.remoteNode.GetStatistics(ctx, nodeName)

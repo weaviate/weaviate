@@ -30,6 +30,7 @@ import (
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"golang.org/x/sync/semaphore"
 )
@@ -44,6 +45,7 @@ type Service interface {
 
 type service struct {
 	schemaManager    schema.SchemaGetter
+	nodes            cluster.NodeReader
 	db               *db.DB
 	backups          backup.BackupBackendProvider
 	logger           logrus.FieldLogger
@@ -51,9 +53,10 @@ type service struct {
 }
 
 // db db.IndexGetter
-func NewService(schemaManager schema.SchemaGetter, db *db.DB, backups backup.BackupBackendProvider, logger logrus.FieldLogger) Service {
+func NewService(schemaManager schema.SchemaGetter, nodes cluster.NodeReader, db *db.DB, backups backup.BackupBackendProvider, logger logrus.FieldLogger) Service {
 	s := &service{
 		schemaManager: schemaManager,
+		nodes:         nodes,
 		db:            db,
 		backups:       backups,
 		logger:        logger,
@@ -79,7 +82,7 @@ func (s *service) SetShardConcurrency(concurrency int) {
 func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Report, error) {
 	collections := s.schemaManager.GetSchemaSkipAuth().Objects.Classes
 	usage := &types.Report{
-		Node:        s.schemaManager.NodeName(),
+		Node:        s.nodes.LocalName(),
 		Collections: make([]*types.CollectionUsage, 0, len(collections)),
 		Backups:     make([]*types.BackupUsage, 0),
 	}

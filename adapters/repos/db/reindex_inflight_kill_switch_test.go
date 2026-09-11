@@ -38,7 +38,7 @@ func TestAnyLiveReindexForShard_RuntimeReindexDisabled(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var lookups atomic.Int64
-			db := &DB{config: Config{RuntimeReindexDisabled: tt.disabled}}
+			db := &DB{localNodeName: "node1", config: Config{RuntimeReindexDisabled: tt.disabled}}
 			db.SetShardReindexActivityLookup(func() ShardReindexActivityLookup {
 				lookups.Add(1)
 				return func(string, string) bool { return true }

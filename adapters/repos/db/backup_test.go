@@ -344,7 +344,7 @@ func TestListInactiveShardFiles(t *testing.T) {
 			// Build a minimal Index to call listInactiveShardFiles.
 			// fakeSchemaGetter is defined in fakes_for_tests.go with NodeName() returning "node1".
 			idx := &Index{
-				Config:    IndexConfig{RootPath: rootDir, ClassName: "MyClass"},
+				Config:    IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: "MyClass"},
 				getSchema: &fakeSchemaGetter{},
 				db:        stubDBWithNoLiveReindex(),
 			}
@@ -521,7 +521,7 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	require.NoError(t, os.MkdirAll(stagingRoot, 0o755))
 
 	idx := &Index{
-		Config:    IndexConfig{RootPath: rootDir, ClassName: "MyClass"},
+		Config:    IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: "MyClass"},
 		getSchema: &fakeSchemaGetter{},
 		db:        stubDBWithNoLiveReindex(),
 	}
@@ -579,7 +579,7 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 
 	newTestIndex := func() *Index {
 		return &Index{
-			Config: IndexConfig{RootPath: rootDir, ClassName: schema.ClassName(className)},
+			Config: IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: schema.ClassName(className)},
 			getSchema: &fakeSchemaGetter{
 				schema: schema.Schema{
 					Objects: &models.Schema{
@@ -685,7 +685,7 @@ func TestBackupFrozenShardOmitted(t *testing.T) {
 	require.NoError(t, os.MkdirAll(stagingRoot, 0o755))
 
 	idx := &Index{
-		Config:    IndexConfig{RootPath: rootDir, ClassName: "MyClass"},
+		Config:    IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: "MyClass"},
 		getSchema: &fakeSchemaGetter{},
 		db:        stubDBWithNoLiveReindex(),
 	}
@@ -720,7 +720,7 @@ func newDescriptorTestIndex(t *testing.T, rootDir, className string, shardState 
 		}).Maybe()
 
 	return &Index{
-		Config: IndexConfig{RootPath: rootDir, ClassName: schema.ClassName(className)},
+		Config: IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: schema.ClassName(className)},
 		getSchema: &fakeSchemaGetter{
 			schema: schema.Schema{
 				Objects: &models.Schema{
@@ -1214,7 +1214,7 @@ func TestBackupShardWithHardlinks_PreventShutdownErrorReleasesLocks(t *testing.T
 // that returns without closing leaves the backup waiting on a channel with no sender.
 func TestBackupDescriptorsClosesChannelWhenCancelled(t *testing.T) {
 	logger, _ := tlog.NewNullLogger()
-	db := &DB{logger: logger, indices: map[string]*Index{}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{}}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -1248,7 +1248,7 @@ func TestBackupDescriptorsClosesChannelOnPanic(t *testing.T) {
 
 	logger, hook := tlog.NewNullLogger()
 	// A zero-value Index panics inside descriptor on its nil logger.
-	db := &DB{logger: logger, indices: map[string]*Index{indexID("Class-A"): {}}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{indexID("Class-A"): {}}}
 
 	ch := db.BackupDescriptors(context.Background(), "backup-1", []string{"Class-A"}, nil, nil)
 

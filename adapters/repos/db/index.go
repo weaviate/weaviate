@@ -520,7 +520,7 @@ func NewIndex(
 	}
 
 	// TODO: Fix replica router instantiation to be at the top level
-	index.replicator, err = replica.NewReplicator(cfg.ClassName.String(), router, nodeResolver, sg.NodeName(), getDeletionStrategy, replicaClient, promMetrics, logger)
+	index.replicator, err = replica.NewReplicator(cfg.ClassName.String(), router, nodeResolver, cfg.NodeName, getDeletionStrategy, replicaClient, promMetrics, logger)
 	if err != nil {
 		return nil, fmt.Errorf("create replicator for index %q: %w", index.ID(), err)
 	}
@@ -1531,6 +1531,8 @@ func (i *Index) DeletionStrategy() string {
 }
 
 type IndexConfig struct {
+	// NodeName is the local node name.
+	NodeName                            string
 	RootPath                            string
 	ClassName                           schema.ClassName
 	QueryMaximumResults                 int64
@@ -2833,7 +2835,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 					return fmt.Errorf(
 						"local shard object search %s: %w", shard.ID(), err)
 				}
-				nodeName := i.getSchema.NodeName()
+				nodeName := i.Config.NodeName
 				if addlProps.QueryProfile {
 					searchType := "keyword"
 					if keywordRanking == nil {
@@ -2965,7 +2967,7 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
 	if additional.QueryProfile {
-		helpers.AddShardQueryProfile(ctx, shard.ID(), i.getSchema.NodeName(), "vector", time.Since(shardStart), helpers.ExtractSlowQueryDetails(ctx))
+		helpers.AddShardQueryProfile(ctx, shard.ID(), i.Config.NodeName, "vector", time.Since(shardStart), helpers.ExtractSlowQueryDetails(ctx))
 	}
 	return res, resDists, nil
 }
@@ -2996,11 +2998,11 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
 	if additionalProps.QueryProfile {
-		helpers.AddShardQueryProfile(ctx, shard.ID(), i.getSchema.NodeName(), "vector", time.Since(shardStart), helpers.ExtractSlowQueryDetails(localCtx))
+		helpers.AddShardQueryProfile(ctx, shard.ID(), i.Config.NodeName, "vector", time.Since(shardStart), helpers.ExtractSlowQueryDetails(localCtx))
 	}
 	// Append result to out
 	if i.shardHasMultipleReplicasRead(tenantName, shardName) {
-		storobj.AddOwnership(localShardResult, i.getSchema.NodeName(), shardName)
+		storobj.AddOwnership(localShardResult, i.Config.NodeName, shardName)
 	}
 	return localShardResult, localShardScores, nil
 }
@@ -3023,7 +3025,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 		// Force a search on all the replicas for the shard
 		remoteSearchResults, err := i.remote.SearchAllReplicas(ctx,
 			i.logger, shardName, searchVectors, targetVectors, distance, limit, localFilters,
-			nil, sort, nil, groupBy, additional, i.getSchema.NodeName(), targetCombination, properties)
+			nil, sort, nil, groupBy, additional, i.Config.NodeName, targetCombination, properties)
 		// Only return an error if we failed to query remote shards AND we had no local shard to query
 		if err != nil && shard == nil {
 			return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
@@ -3272,7 +3274,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 			if keywordRanking == nil {
 				searchType = "object"
 			}
-			helpers.AddShardQueryProfile(ctx, shard.ID(), i.getSchema.NodeName(), searchType, time.Since(shardStart), helpers.ExtractSlowQueryDetails(ctx))
+			helpers.AddShardQueryProfile(ctx, shard.ID(), i.Config.NodeName, searchType, time.Since(shardStart), helpers.ExtractSlowQueryDetails(ctx))
 		}
 
 		return res, scores, helpers.ExtractQueryProfiles(ctx), nil
@@ -3288,7 +3290,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 		return nil, nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
 	if additional.QueryProfile {
-		helpers.AddShardQueryProfile(ctx, shard.ID(), i.getSchema.NodeName(), "vector", time.Since(shardStart), helpers.ExtractSlowQueryDetails(ctx))
+		helpers.AddShardQueryProfile(ctx, shard.ID(), i.Config.NodeName, "vector", time.Since(shardStart), helpers.ExtractSlowQueryDetails(ctx))
 	}
 
 	return res, resDists, helpers.ExtractQueryProfiles(ctx), nil
@@ -4293,7 +4295,7 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 // where the status is returned based on the first replica to contain the shard,
 // preferably local.
 func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[string]map[string]string, map[string]string, error) {
-	thisNode := i.getSchema.NodeName()
+	thisNode := i.Config.NodeName
 	className := i.Config.ClassName.String()
 	shardNames, err := i.schemaReader.Shards(className)
 	if err != nil {

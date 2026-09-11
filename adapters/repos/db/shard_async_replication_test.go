@@ -919,8 +919,9 @@ func TestDBReconcileAsyncReplicationWalksEveryIndex(t *testing.T) {
 	})
 
 	db := &DB{
-		logger:  logger,
-		indices: map[string]*Index{idxA.ID(): idxA, idxB.ID(): idxB},
+		localNodeName: "node1",
+		logger:        logger,
+		indices:       map[string]*Index{idxA.ID(): idxA, idxB.ID(): idxB},
 	}
 
 	disabled.SetValue(false)

@@ -93,7 +93,6 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
 	mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
 	mockSchema.EXPECT().ReadOnlyClass(warmupClassName).Maybe().Return(class)
-	mockSchema.EXPECT().NodeName().Maybe().Return(warmupNodeName)
 	mockSchema.EXPECT().TenantsShardsStatus(mock.Anything, warmupClassName, mock.Anything).Maybe().
 		Return(tenantStatus, nil)
 
@@ -115,6 +114,7 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 	shardResolver := resolver.NewShardResolver(warmupClassName, true, schemaGetter)
 
 	index, err := NewIndex(ctx, nil, IndexConfig{
+		NodeName:                      warmupNodeName,
 		RootPath:                      dirName,
 		ClassName:                     schema.ClassName(warmupClassName),
 		ReplicationFactor:             1,

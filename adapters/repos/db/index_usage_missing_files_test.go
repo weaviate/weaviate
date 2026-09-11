@@ -245,7 +245,6 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageInde
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
 	mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
-	mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 	mockSchema.EXPECT().ShardOwner(className, tenantName).Maybe().Return("test-node", nil)
 	mockSchema.EXPECT().TenantsShardsStatus(ctx, className, tenantName).Maybe().
 		Return(map[string]string{tenantName: models.TenantActivityStatusHOT}, nil)
@@ -263,6 +262,7 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageInde
 
 	newIndexFn := func(lazy, trackDimensions bool) *Index {
 		idx, err := NewIndex(ctx, nil, IndexConfig{
+			NodeName:              "test-node",
 			RootPath:              dirName,
 			ClassName:             schema.ClassName(className),
 			ReplicationFactor:     1,

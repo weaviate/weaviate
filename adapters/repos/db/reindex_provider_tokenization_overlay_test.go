@@ -316,7 +316,7 @@ func TestOnTaskCompletedOverlayClearLeavesUnloadedShardsAlone(t *testing.T) {
 
 	logger, _ := logrustest.NewNullLogger()
 	p := NewReindexProvider(
-		&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
+		&DB{localNodeName: "node1", indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
 		nil, nil, logger, "n1", nil, ctx)
 
 	require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{

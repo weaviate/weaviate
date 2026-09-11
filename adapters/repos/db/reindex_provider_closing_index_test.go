@@ -91,7 +91,7 @@ func TestLocalCallbacksDoneRefusesToAnswerForAClosingIndex(t *testing.T) {
 			defer signalCloseRequested(nil)
 
 			idx := &Index{
-				Config:               IndexConfig{RootPath: t.TempDir(), ClassName: entschema.ClassName(className)},
+				Config:               IndexConfig{NodeName: "node1", RootPath: t.TempDir(), ClassName: entschema.ClassName(className)},
 				closingCtx:           closingCtx,
 				closeRequestedCtx:    closeRequestedCtx,
 				signalCloseRequested: signalCloseRequested,
@@ -122,7 +122,7 @@ func TestLocalCallbacksDoneRefusesToAnswerForAClosingIndex(t *testing.T) {
 			require.NoError(t, err)
 
 			p := NewReindexProvider(
-				&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
+				&DB{localNodeName: "node1", indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
 				nil, nil, logger, node, nil, ctx)
 
 			got := p.LocalCallbacksDone(&distributedtask.Task{

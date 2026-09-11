@@ -36,6 +36,7 @@ const (
 func newLoadingGuardIndex(shard ShardLike, replicationFactor int64) *Index {
 	idx := &Index{
 		Config: IndexConfig{
+			NodeName:          "node1",
 			ClassName:         schema.ClassName(loadingGuardClass),
 			ReplicationFactor: replicationFactor,
 		},
