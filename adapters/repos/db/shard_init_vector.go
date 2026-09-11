@@ -421,7 +421,7 @@ func (s *Shard) buildVectorIndexAndQueue(ctx context.Context, targetVector, phys
 	if err != nil {
 		return nil, nil, fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
 	}
-	queue, err := NewVectorIndexQueue(s, targetVector, vectorIndex)
+	queue, err := newVectorIndexQueueWithID(s, physicalID, targetVector, vectorIndex)
 	if err != nil {
 		if shutdownErr := vectorIndex.Shutdown(s.shutCtx); shutdownErr != nil {
 			return nil, nil, fmt.Errorf("cannot create index queue for %q: %w (shutting down the orphaned vector index also failed: %w)",
