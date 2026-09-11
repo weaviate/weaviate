@@ -33,7 +33,7 @@ type activationSpySM struct {
 	updateCount int
 }
 
-func (a *activationSpySM) QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error) {
+func (a *activationSpySM) QueryTenantsShardsStatus(class string, tenants ...string) (map[string]string, uint64, error) {
 	a.queryCount++
 	res := make(map[string]string, len(tenants))
 	for _, t := range tenants {

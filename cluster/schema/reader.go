@@ -256,11 +256,11 @@ func (rs SchemaReader) ShardReplicas(class, shard string) (nodes []string, err e
 }
 
 // TenantsShards returns shard name for the provided tenant and its activity status
-func (rs SchemaReader) TenantsShards(class string, tenants ...string) (map[string]string, error) {
-	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("TenantsShards"))
+func (rs SchemaReader) TenantsShardsStatus(class string, tenants ...string) (map[string]string, error) {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("TenantsShardsStatus"))
 	defer t.ObserveDuration()
 
-	return rs.TenantsShardsWithVersion(context.TODO(), 0, class, tenants...)
+	return rs.TenantsShardsStatusWithVersion(context.TODO(), 0, class, tenants...)
 }
 
 func (rs SchemaReader) Len() int { return rs.schema.len() }

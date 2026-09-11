@@ -133,7 +133,7 @@ func (m *metaClass) ShardReplicas(shard string) ([]string, uint64, error) {
 }
 
 // TenantsShards returns shard name for the provided tenant and its activity status
-func (m *metaClass) TenantsShards(class string, tenants ...string) (map[string]string, uint64) {
+func (m *metaClass) TenantsShardsStatus(class string, tenants ...string) (map[string]string, uint64) {
 	m.RLock()
 	defer m.RUnlock()
 

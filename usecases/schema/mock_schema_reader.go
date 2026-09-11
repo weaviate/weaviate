@@ -1242,8 +1242,8 @@ func (_c *MockSchemaReader_Shards_Call) RunAndReturn(run func(string) ([]string,
 	return _c
 }
 
-// TenantsShardsWithVersion provides a mock function with given fields: ctx, version, class, tenants
-func (_m *MockSchemaReader) TenantsShardsWithVersion(ctx context.Context, version uint64, class string, tenants ...string) (map[string]string, error) {
+// TenantsShardsStatusWithVersion provides a mock function with given fields: ctx, version, class, tenants
+func (_m *MockSchemaReader) TenantsShardsStatusWithVersion(ctx context.Context, version uint64, class string, tenants ...string) (map[string]string, error) {
 	_va := make([]interface{}, len(tenants))
 	for _i := range tenants {
 		_va[_i] = tenants[_i]
@@ -1254,7 +1254,7 @@ func (_m *MockSchemaReader) TenantsShardsWithVersion(ctx context.Context, versio
 	ret := _m.Called(_ca...)
 
 	if len(ret) == 0 {
-		panic("no return value specified for TenantsShardsWithVersion")
+		panic("no return value specified for TenantsShardsStatusWithVersion")
 	}
 
 	var r0 map[string]string
@@ -1279,22 +1279,22 @@ func (_m *MockSchemaReader) TenantsShardsWithVersion(ctx context.Context, versio
 	return r0, r1
 }
 
-// MockSchemaReader_TenantsShardsWithVersion_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TenantsShardsWithVersion'
-type MockSchemaReader_TenantsShardsWithVersion_Call struct {
+// MockSchemaReader_TenantsShardsStatusWithVersion_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TenantsShardsStatusWithVersion'
+type MockSchemaReader_TenantsShardsStatusWithVersion_Call struct {
 	*mock.Call
 }
 
-// TenantsShardsWithVersion is a helper method to define mock.On call
+// TenantsShardsStatusWithVersion is a helper method to define mock.On call
 //   - ctx context.Context
 //   - version uint64
 //   - class string
 //   - tenants ...string
-func (_e *MockSchemaReader_Expecter) TenantsShardsWithVersion(ctx interface{}, version interface{}, class interface{}, tenants ...interface{}) *MockSchemaReader_TenantsShardsWithVersion_Call {
-	return &MockSchemaReader_TenantsShardsWithVersion_Call{Call: _e.mock.On("TenantsShardsWithVersion",
+func (_e *MockSchemaReader_Expecter) TenantsShardsStatusWithVersion(ctx interface{}, version interface{}, class interface{}, tenants ...interface{}) *MockSchemaReader_TenantsShardsStatusWithVersion_Call {
+	return &MockSchemaReader_TenantsShardsStatusWithVersion_Call{Call: _e.mock.On("TenantsShardsStatusWithVersion",
 		append([]interface{}{ctx, version, class}, tenants...)...)}
 }
 
-func (_c *MockSchemaReader_TenantsShardsWithVersion_Call) Run(run func(ctx context.Context, version uint64, class string, tenants ...string)) *MockSchemaReader_TenantsShardsWithVersion_Call {
+func (_c *MockSchemaReader_TenantsShardsStatusWithVersion_Call) Run(run func(ctx context.Context, version uint64, class string, tenants ...string)) *MockSchemaReader_TenantsShardsStatusWithVersion_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		variadicArgs := make([]string, len(args)-3)
 		for i, a := range args[3:] {
@@ -1307,12 +1307,12 @@ func (_c *MockSchemaReader_TenantsShardsWithVersion_Call) Run(run func(ctx conte
 	return _c
 }
 
-func (_c *MockSchemaReader_TenantsShardsWithVersion_Call) Return(_a0 map[string]string, _a1 error) *MockSchemaReader_TenantsShardsWithVersion_Call {
+func (_c *MockSchemaReader_TenantsShardsStatusWithVersion_Call) Return(_a0 map[string]string, _a1 error) *MockSchemaReader_TenantsShardsStatusWithVersion_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockSchemaReader_TenantsShardsWithVersion_Call) RunAndReturn(run func(context.Context, uint64, string, ...string) (map[string]string, error)) *MockSchemaReader_TenantsShardsWithVersion_Call {
+func (_c *MockSchemaReader_TenantsShardsStatusWithVersion_Call) RunAndReturn(run func(context.Context, uint64, string, ...string) (map[string]string, error)) *MockSchemaReader_TenantsShardsStatusWithVersion_Call {
 	_c.Call.Return(run)
 	return _c
 }

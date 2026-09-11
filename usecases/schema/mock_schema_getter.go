@@ -689,8 +689,8 @@ func (_c *MockSchemaGetter_Statistics_Call) RunAndReturn(run func() map[string]i
 	return _c
 }
 
-// TenantsShards provides a mock function with given fields: ctx, class, tenants
-func (_m *MockSchemaGetter) TenantsShards(ctx context.Context, class string, tenants ...string) (map[string]string, error) {
+// TenantsShardsStatus provides a mock function with given fields: ctx, class, tenants
+func (_m *MockSchemaGetter) TenantsShardsStatus(ctx context.Context, class string, tenants ...string) (map[string]string, error) {
 	_va := make([]interface{}, len(tenants))
 	for _i := range tenants {
 		_va[_i] = tenants[_i]
@@ -701,7 +701,7 @@ func (_m *MockSchemaGetter) TenantsShards(ctx context.Context, class string, ten
 	ret := _m.Called(_ca...)
 
 	if len(ret) == 0 {
-		panic("no return value specified for TenantsShards")
+		panic("no return value specified for TenantsShardsStatus")
 	}
 
 	var r0 map[string]string
@@ -726,21 +726,21 @@ func (_m *MockSchemaGetter) TenantsShards(ctx context.Context, class string, ten
 	return r0, r1
 }
 
-// MockSchemaGetter_TenantsShards_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TenantsShards'
-type MockSchemaGetter_TenantsShards_Call struct {
+// MockSchemaGetter_TenantsShardsStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'TenantsShardsStatus'
+type MockSchemaGetter_TenantsShardsStatus_Call struct {
 	*mock.Call
 }
 
-// TenantsShards is a helper method to define mock.On call
+// TenantsShardsStatus is a helper method to define mock.On call
 //   - ctx context.Context
 //   - class string
 //   - tenants ...string
-func (_e *MockSchemaGetter_Expecter) TenantsShards(ctx interface{}, class interface{}, tenants ...interface{}) *MockSchemaGetter_TenantsShards_Call {
-	return &MockSchemaGetter_TenantsShards_Call{Call: _e.mock.On("TenantsShards",
+func (_e *MockSchemaGetter_Expecter) TenantsShardsStatus(ctx interface{}, class interface{}, tenants ...interface{}) *MockSchemaGetter_TenantsShardsStatus_Call {
+	return &MockSchemaGetter_TenantsShardsStatus_Call{Call: _e.mock.On("TenantsShardsStatus",
 		append([]interface{}{ctx, class}, tenants...)...)}
 }
 
-func (_c *MockSchemaGetter_TenantsShards_Call) Run(run func(ctx context.Context, class string, tenants ...string)) *MockSchemaGetter_TenantsShards_Call {
+func (_c *MockSchemaGetter_TenantsShardsStatus_Call) Run(run func(ctx context.Context, class string, tenants ...string)) *MockSchemaGetter_TenantsShardsStatus_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		variadicArgs := make([]string, len(args)-2)
 		for i, a := range args[2:] {
@@ -753,12 +753,12 @@ func (_c *MockSchemaGetter_TenantsShards_Call) Run(run func(ctx context.Context,
 	return _c
 }
 
-func (_c *MockSchemaGetter_TenantsShards_Call) Return(_a0 map[string]string, _a1 error) *MockSchemaGetter_TenantsShards_Call {
+func (_c *MockSchemaGetter_TenantsShardsStatus_Call) Return(_a0 map[string]string, _a1 error) *MockSchemaGetter_TenantsShardsStatus_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockSchemaGetter_TenantsShards_Call) RunAndReturn(run func(context.Context, string, ...string) (map[string]string, error)) *MockSchemaGetter_TenantsShards_Call {
+func (_c *MockSchemaGetter_TenantsShardsStatus_Call) RunAndReturn(run func(context.Context, string, ...string) (map[string]string, error)) *MockSchemaGetter_TenantsShardsStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }
