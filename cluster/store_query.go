@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/types"
 )
 
 func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
@@ -187,14 +188,14 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get replication operation state: %w", err)
 		}
 	default:
-		// This could occur when a new command has been introduced in a later app version
-		// At this point, we need to panic so that the app undergo an upgrade during restart
+		// No case above handles this type, as when the query started on a newer node. The error
+		// wraps ErrUnknownCommand so callers can tell it apart from a leader fault.
 		const msg = "consider upgrading to newer version"
 		st.log.WithFields(logrus.Fields{
 			"type": req.Type,
 			"more": msg,
 		}).Error("unknown command")
-		return &cmd.QueryResponse{}, fmt.Errorf("unknown command type %s: %s", req.Type, msg)
+		return &cmd.QueryResponse{}, fmt.Errorf("%w type %s: %s", types.ErrUnknownCommand, req.Type, msg)
 	}
 	return &cmd.QueryResponse{Payload: payload}, nil
 }
