@@ -121,9 +121,11 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 		vrst.WithLabelValues("qna", oaiUrl, fmt.Sprintf("%v", res.StatusCode)).Inc()
 	}
 	if err != nil {
-		vrst := metrics.ModuleExternalResponseStatus
-		vrst.WithLabelValues("qna", oaiUrl, fmt.Sprintf("%v", res.StatusCode)).Inc()
-		monitoring.GetMetrics().ModuleExternalError.WithLabelValues("qna", "openai", "OpenAI API", fmt.Sprintf("%v", res.StatusCode)).Inc()
+		code := -1
+		if res != nil {
+			code = res.StatusCode
+		}
+		monitoring.GetMetrics().ModuleExternalError.WithLabelValues("qna", "openai", "OpenAI API", fmt.Sprintf("%v", code)).Inc()
 		return nil, errors.Wrap(err, "send POST request")
 	}
 	defer res.Body.Close()
@@ -140,8 +142,6 @@ func (v *qna) Answer(ctx context.Context, text, question string, cfg moduletools
 	}
 
 	monitoring.GetMetrics().ModuleExternalResponseSize.WithLabelValues("generate", oaiUrl).Observe(float64(len(bodyBytes)))
-	vrst := monitoring.GetMetrics().ModuleExternalResponseStatus
-	vrst.WithLabelValues("qna", oaiUrl, fmt.Sprintf("%v", res.StatusCode)).Inc()
 
 	if res.StatusCode != 200 || resBody.Error != nil {
 		return nil, v.getError(res.StatusCode, requestID, resBody.Error, settings.IsAzure())
