@@ -25,7 +25,8 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/clients"
-	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	clustermocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
@@ -64,7 +65,7 @@ func TestSuccessGetUser(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
 			authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(test.userId)[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
-			schemaGetter := schema.NewMockSchemaGetter(t)
+			var nodeLister cluster.NodeLister = clustermocks.NewMockNodeSelector()
 			if test.userType == models.UserTypeOutputDbUser {
 				dynUser.On("GetUsers", test.userId).Return(map[string]apikey.UserView{test.userId: {Id: test.userId, ApiKeyFirstLetters: "abc"}}, nil)
 			} else {
@@ -74,7 +75,7 @@ func TestSuccessGetUser(t *testing.T) {
 				map[string][]authorization.Policy{"role": {}}, nil)
 
 			if test.addLastUsed {
-				schemaGetter.On("Nodes").Return([]string{"node1"})
+				nodeLister = clustermocks.NewMockNodeSelector("node1")
 			}
 
 			h := dynUserHandler{
@@ -82,7 +83,7 @@ func TestSuccessGetUser(t *testing.T) {
 				authorizer:           authorizer,
 				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"static"}, AllowedKeys: []string{"static"}},
 				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root"}}, dbUserEnabled: true,
-				nodesGetter: schemaGetter,
+				nodesGetter: nodeLister,
 			}
 
 			res := h.getUser(users.GetUserInfoParams{UserID: test.userId, IncludeLastUsedTime: &test.addLastUsed, HTTPRequest: req}, principal)
@@ -207,7 +208,6 @@ func TestSuccessGetUserMultiNode(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
 			authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(userId)[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
-			schemaGetter := schema.NewMockSchemaGetter(t)
 
 			dynUser.On("GetUsers", userId).Return(map[string]apikey.UserView{userId: {Id: userId, LastUsedAt: returnedTime}}, nil)
 			dynUser.On("GetRolesForUserOrGroup", userId, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{"role": {}}, nil)
@@ -216,7 +216,7 @@ func TestSuccessGetUserMultiNode(t *testing.T) {
 			for i := range test.nodeResponses {
 				nodes = append(nodes, string(rune(i)))
 			}
-			schemaGetter.On("Nodes").Return(nodes)
+			nodeLister := clustermocks.NewMockNodeSelector(nodes...)
 
 			server := httptest.NewServer(&fakeHandler{t: t, counter: atomic.Int32{}, nodeResponses: test.nodeResponses})
 			defer server.Close()
@@ -228,7 +228,7 @@ func TestSuccessGetUserMultiNode(t *testing.T) {
 				authorizer:           authorizer,
 				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"static"}, AllowedKeys: []string{"static"}},
 				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root"}}, dbUserEnabled: true,
-				nodesGetter: schemaGetter,
+				nodesGetter: nodeLister,
 				remoteUser:  remote,
 			}
 

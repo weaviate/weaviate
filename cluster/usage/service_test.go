@@ -39,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	backupusecase "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	clustermocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -101,7 +102,6 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	})
 	mockSchemaGetter.EXPECT().ReadOnlyClass(class.Class).Return(class)
 	mockSchemaGetter.EXPECT().ShardFromUUID(class.Class, mock.Anything).Return(shardName)
-	mockSchemaGetter.EXPECT().NodeName().Return(nodeName)
 
 	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
@@ -116,7 +116,7 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.Background()))
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchemaGetter, repo, mockBackupProvider, logger)
+	service := NewService(mockSchemaGetter, clustermocks.NewMockNodeSelector(nodeName), repo, mockBackupProvider, logger)
 
 	result, err := service.Usage(ctx, false)
 
@@ -204,7 +204,6 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 			},
 		},
 	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
 	mockSchema.EXPECT().ReadOnlyClass(class.Class).Return(class).Maybe()
 	mockSchema.EXPECT().TenantsShardsStatus(mock.Anything, className, hotTenant).
 		Return(map[string]string{hotTenant: models.TenantActivityStatusHOT}, nil).Maybe()
@@ -237,7 +236,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
 
-	service := NewService(mockSchema, repo, mockBackupProvider, logger)
+	service := NewService(mockSchema, clustermocks.NewMockNodeSelector(nodeName), repo, mockBackupProvider, logger)
 
 	result, err := service.Usage(ctx, false)
 
@@ -310,7 +309,6 @@ func TestService_Usage_WithBackups(t *testing.T) {
 	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
 		Objects: &models.Schema{Classes: []*models.Class{}},
 	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
 
 	shardingState := &sharding.State{
 		Physical: map[string]sharding.Physical{},
@@ -349,7 +347,7 @@ func TestService_Usage_WithBackups(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{mockBackupBackend})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, repo, mockBackupProvider, logger)
+	service := NewService(mockSchema, clustermocks.NewMockNodeSelector(nodeName), repo, mockBackupProvider, logger)
 
 	result, err := service.Usage(ctx, false)
 
@@ -395,7 +393,6 @@ func TestService_Usage_WithBackups_3node_cluster(t *testing.T) {
 	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
 		Objects: &models.Schema{Classes: []*models.Class{}},
 	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
 
 	shardingState := &sharding.State{
 		Physical: map[string]sharding.Physical{},
@@ -433,7 +430,7 @@ func TestService_Usage_WithBackups_3node_cluster(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{mockBackupBackend})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, repo, mockBackupProvider, logger)
+	service := NewService(mockSchema, clustermocks.NewMockNodeSelector(nodeName), repo, mockBackupProvider, logger)
 
 	result, err := service.Usage(ctx, false)
 
@@ -470,7 +467,6 @@ func TestService_Usage_WithDedupedBackup(t *testing.T) {
 	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
 		Objects: &models.Schema{Classes: []*models.Class{}},
 	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
 
 	shardingState := &sharding.State{Physical: map[string]sharding.Physical{}}
 	shardingState.SetLocalName(nodeName)
@@ -497,7 +493,7 @@ func TestService_Usage_WithDedupedBackup(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{mockBackupBackend})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, repo, mockBackupProvider, logger)
+	service := NewService(mockSchema, clustermocks.NewMockNodeSelector(nodeName), repo, mockBackupProvider, logger)
 
 	result, err := service.Usage(ctx, false)
 
@@ -515,7 +511,6 @@ func TestService_Usage_EmptyCollections(t *testing.T) {
 	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
 		Objects: &models.Schema{Classes: []*models.Class{}},
 	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
 
 	shardingState := &sharding.State{
 		Physical: map[string]sharding.Physical{},
@@ -528,7 +523,7 @@ func TestService_Usage_EmptyCollections(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, repo, mockBackupProvider, logger)
+	service := NewService(mockSchema, clustermocks.NewMockNodeSelector(nodeName), repo, mockBackupProvider, logger)
 
 	result, err := service.Usage(ctx, false)
 
@@ -551,7 +546,6 @@ func TestService_Usage_BackupError(t *testing.T) {
 	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
 		Objects: &models.Schema{Classes: []*models.Class{}},
 	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
 
 	shardingState := &sharding.State{
 		Physical: map[string]sharding.Physical{},
@@ -567,7 +561,7 @@ func TestService_Usage_BackupError(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{mockBackupBackend})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, repo, mockBackupProvider, logger)
+	service := NewService(mockSchema, clustermocks.NewMockNodeSelector(nodeName), repo, mockBackupProvider, logger)
 
 	_, err := service.Usage(ctx, false)
 
@@ -599,7 +593,6 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 			Classes: []*models.Class{class},
 		},
 	})
-	mockSchema.EXPECT().NodeName().Return(nodeName)
 
 	shardingState := &sharding.State{
 		Physical: map[string]sharding.Physical{
@@ -631,7 +624,7 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, repo, mockBackupProvider, logger)
+	service := NewService(mockSchema, clustermocks.NewMockNodeSelector(nodeName), repo, mockBackupProvider, logger)
 
 	result, err := service.Usage(ctx, false)
 
@@ -720,7 +713,6 @@ func TestService_Usage_MultipleCollectionsConcurrent(t *testing.T) {
 		mockSchemaGetter.EXPECT().ReadOnlyClass(class.Class).Return(class)
 	}
 	mockSchemaGetter.EXPECT().ShardFromUUID(mock.Anything, mock.Anything).Return(shardName)
-	mockSchemaGetter.EXPECT().NodeName().Return(nodeName)
 
 	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
@@ -737,7 +729,7 @@ func TestService_Usage_MultipleCollectionsConcurrent(t *testing.T) {
 	repo.SetSchemaReader(mockSchemaReader)
 	require.Nil(t, repo.WaitForStartup(context.Background()))
 
-	service := NewService(mockSchemaGetter, repo, mockBackupProvider, logger)
+	service := NewService(mockSchemaGetter, clustermocks.NewMockNodeSelector(nodeName), repo, mockBackupProvider, logger)
 	service.SetShardConcurrency(len(classes))
 
 	usageStarted.Store(true)
@@ -810,7 +802,6 @@ func TestService_Usage_MultipleCollectionsError(t *testing.T) {
 		mockSchemaGetter.EXPECT().ReadOnlyClass(class.Class).Return(class)
 	}
 	mockSchemaGetter.EXPECT().ShardFromUUID(mock.Anything, mock.Anything).Return(shardName)
-	mockSchemaGetter.EXPECT().NodeName().Return(nodeName)
 
 	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
 
@@ -825,7 +816,7 @@ func TestService_Usage_MultipleCollectionsError(t *testing.T) {
 	repo.SetSchemaReader(mockSchemaReader)
 	require.Nil(t, repo.WaitForStartup(context.Background()))
 
-	service := NewService(mockSchemaGetter, repo, mockBackupProvider, logger)
+	service := NewService(mockSchemaGetter, clustermocks.NewMockNodeSelector(nodeName), repo, mockBackupProvider, logger)
 	service.SetShardConcurrency(len(classes))
 
 	usageStarted.Store(true)

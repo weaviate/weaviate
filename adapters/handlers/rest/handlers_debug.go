@@ -60,7 +60,7 @@ func setupDebugHandlers(appState *state.State) {
 	}))
 
 	http.HandleFunc("/debug/usage", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		service := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, appState.Logger)
+		service := usage.NewService(appState.SchemaManager, appState.Cluster, appState.DB, appState.Modules, appState.Logger)
 		if param := r.URL.Query().Get("shardConcurrency"); param != "" {
 			shardConcurrency, err := strconv.Atoi(param)
 			if err != nil || shardConcurrency < 1 {

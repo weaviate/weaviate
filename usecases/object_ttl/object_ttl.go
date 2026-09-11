@@ -35,7 +35,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/namespaces"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -44,13 +43,13 @@ type objectTTLAndVersion struct {
 	ttlConfig *models.ObjectTTLConfig
 }
 
-func NewCoordinator(schemaReader local.ClassReader, schemaGetter schemaUC.SchemaGetter,
+func NewCoordinator(schemaReader local.ClassReader, nodes cluster.NodeReader,
 	namespacesExister namespaces.Exister, db *db.DB, logger logrus.FieldLogger,
 	clusterClient *http.Client, nodeResolver cluster.HostnameResolver, localStatus *LocalStatus,
 ) *Coordinator {
 	return &Coordinator{
 		schemaReader:      schemaReader,
-		schemaGetter:      schemaGetter,
+		nodes:             nodes,
 		namespacesExister: namespacesExister,
 		logger:            logger,
 		clusterClient:     clusterClient,
@@ -64,7 +63,7 @@ func NewCoordinator(schemaReader local.ClassReader, schemaGetter schemaUC.Schema
 
 type Coordinator struct {
 	schemaReader      local.ClassReader
-	schemaGetter      schemaUC.SchemaGetter
+	nodes             cluster.NodeReader
 	namespacesExister namespaces.Exister
 	db                *db.DB
 	objectTTLOngoing  atomic.Bool
@@ -108,8 +107,8 @@ func (c *Coordinator) Start(ctx context.Context, targetOwnNode bool, ttlTime, de
 		return nil
 	}
 
-	localNode := c.schemaGetter.NodeName()
-	allNodes := c.schemaGetter.Nodes()
+	localNode := c.nodes.LocalName()
+	allNodes := c.nodes.AllNames()
 	remoteNodes := make([]string, 0, len(allNodes))
 	remoteNodeSelected := ""
 
@@ -149,8 +148,8 @@ func (c *Coordinator) Start(ctx context.Context, targetOwnNode bool, ttlTime, de
 }
 
 func (c *Coordinator) Abort(ctx context.Context, targetOwnNode bool) (bool, error) {
-	localNode := c.schemaGetter.NodeName()
-	allNodes := c.schemaGetter.Nodes()
+	localNode := c.nodes.LocalName()
+	allNodes := c.nodes.AllNames()
 
 	var remoteNodes []string
 	if !targetOwnNode {

@@ -24,6 +24,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -149,10 +150,9 @@ type BackupBackendProvider interface {
 }
 
 type schemaManger interface {
+	local.ClassReader
 	RestoreClass(ctx context.Context, d *backup.ClassDescriptor, nodeMapping map[string]string, overwriteAlias bool, stripNamespaces bool) error
-	NodeName() string
 	NamespacesEnabled() bool
-	ClassEqual(name string) string
 }
 
 type NodeResolver interface {
@@ -217,12 +217,12 @@ func NewHandler(
 	cfg config.Backup,
 	authorizer authorization.Authorizer,
 	schema schemaManger,
+	node string,
 	sourcer Sourcer,
 	backends BackupBackendProvider,
 	rbacSourcer RBACSnapshotter,
 	dynUserSourcer dynUserSnapshotter,
 ) *Handler {
-	node := schema.NodeName()
 	m := &Handler{
 		node:       node,
 		logger:     logger,

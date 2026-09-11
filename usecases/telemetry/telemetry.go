@@ -31,6 +31,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
@@ -50,6 +51,7 @@ type Telemeter struct {
 	machineID          strfmt.UUID
 	nodesStatusGetter  nodesStatusGetter
 	schemaManager      schema.SchemaGetter
+	nodes              cluster.NodeLister
 	logger             logrus.FieldLogger
 	shutdown           chan struct{}
 	failedToStart      bool
@@ -84,7 +86,7 @@ type Config struct {
 }
 
 // New creates a new Telemeter instance.
-func New(nodesStatusGetter nodesStatusGetter, schemaManager schema.SchemaGetter,
+func New(nodesStatusGetter nodesStatusGetter, schemaManager schema.SchemaGetter, nodes cluster.NodeLister,
 	logger logrus.FieldLogger, consumerURL string, pushInterval time.Duration,
 	telemetryEnabled bool,
 	cfg Config,
@@ -101,6 +103,7 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schema.SchemaGetter,
 		machineID:            strfmt.UUID(uuid.NewString()),
 		nodesStatusGetter:    nodesStatusGetter,
 		schemaManager:        schemaManager,
+		nodes:                nodes,
 		logger:               logger,
 		shutdown:             make(chan struct{}),
 		consumer:             consumerURL,
@@ -307,7 +310,7 @@ type curatedFields struct {
 
 // curatedFields extracts the schema-derived signal fields in a single schema pass.
 func (tel *Telemeter) curatedFields() curatedFields {
-	cf := curatedFields{nodeCount: len(tel.schemaManager.Nodes())}
+	cf := curatedFields{nodeCount: len(tel.nodes.AllNames())}
 
 	sch := tel.schemaManager.GetSchemaSkipAuth()
 	if sch.Objects == nil {

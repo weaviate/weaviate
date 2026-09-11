@@ -558,7 +558,7 @@ func createManagerWithSnapshotters(sourcer Sourcer, schema schemaManger, backend
 	logger, _ := test.NewNullLogger()
 	rbac := &fakeRbacBackupWrapper{}
 	dynUser := &fakeDynUserBackupWrapper{}
-	return NewHandler(logger, config.Backup{}, mocks.NewMockAuthorizer(), schema, sourcer, backends, rbac, dynUser), rbac, dynUser
+	return NewHandler(logger, config.Backup{}, mocks.NewMockAuthorizer(), schema, nodeNameOf(schema), sourcer, backends, rbac, dynUser), rbac, dynUser
 }
 
 // fakeRbacBackupWrapper satisfies RBACSnapshotter (variadic Snapshot). It records the
@@ -954,4 +954,13 @@ func TestResolveBaseBackupChain(t *testing.T) {
 			}
 		})
 	}
+}
+
+// nodeNameOf is the node the handler runs on: the fake's own name when the test set
+// one, the package default otherwise.
+func nodeNameOf(s schemaManger) string {
+	if f, ok := s.(*fakeSchemaManger); ok && f.nodeName != "" {
+		return f.nodeName
+	}
+	return nodeName
 }

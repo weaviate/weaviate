@@ -48,7 +48,7 @@ func indexForCheckpointTest(t *testing.T) *Index {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	return &Index{
-		Config:           IndexConfig{ClassName: schema.ClassName("MyClass")},
+		Config:           IndexConfig{NodeName: "node1", ClassName: schema.ClassName("MyClass")},
 		shardCreateLocks: esync.NewKeyRWLocker(),
 		logger:           logrus.NewEntry(logger),
 		closingCtx:       ctx,
