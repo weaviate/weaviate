@@ -97,7 +97,7 @@ type dropVectorSchemaFinalizer interface {
 type dropVectorSchemaReader interface {
 	QueryShardingState(class string) (*sharding.State, uint64, error)
 	QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error)
-	ListDistributedTasks(ctx context.Context) (map[string][]*distributedtask.Task, error)
+	distributedtask.TaskLister
 }
 
 // DropVectorIndexProvider executes drop-vector-index distributed tasks: each
