@@ -25,7 +25,6 @@ tools/gen-code-from-swagger.sh
 git commit -a -m "prepare release v$VERSION"
 
 git tag -a "v$VERSION" -m "release v$VERSION - $MSG"
-git tag -a "grpc/generated/protocol/v$VERSION" -m "release grpc/generated/protocol v$VERSION"
 
 echo "You can use the following template for the release notes, copy/paste below the line"
 echo "----------------------------"
