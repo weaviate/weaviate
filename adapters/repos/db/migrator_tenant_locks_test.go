@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -56,7 +57,7 @@ func newLockTestMigrator(t *testing.T, reachIndex bool) *Migrator {
 	}}
 	state.SetLocalName(lockTestNode)
 
-	reader := schemaUC.NewMockSchemaReader(t)
+	reader := local.NewMockSchemaReader(t)
 	reader.EXPECT().Shards(lockTestClass).Return(shards, nil).Maybe()
 	reader.EXPECT().Read(lockTestClass, true, mock.Anything).RunAndReturn(
 		func(_ string, _ bool, read func(*models.Class, *sharding.State) error) error {

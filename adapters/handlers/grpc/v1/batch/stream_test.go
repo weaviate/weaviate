@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/versioned"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 func TestStreamHandler(t *testing.T) {
@@ -43,7 +44,7 @@ func TestStreamHandler(t *testing.T) {
 		defer cancel()
 
 		mockBatcher := mocks.NewMockbatcher(t)
-		mockSchemaManager := mocks.NewMockschemaManager(t)
+		mockSchemaManager := objects.NewMockClassResolver(t)
 		mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 		mockStream := newMockStream(t)
 		mockStream.EXPECT().Context().Return(ctx).Once()
@@ -75,7 +76,7 @@ func TestStreamHandler(t *testing.T) {
 		defer cancel()
 
 		mockBatcher := mocks.NewMockbatcher(t)
-		mockSchemaManager := mocks.NewMockschemaManager(t)
+		mockSchemaManager := objects.NewMockClassResolver(t)
 		mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 		mockStream := newMockStream(t)
 		mockStream.EXPECT().Context().Return(ctx).Once()
@@ -107,7 +108,7 @@ func TestStreamHandler(t *testing.T) {
 		defer cancel()
 
 		mockBatcher := mocks.NewMockbatcher(t)
-		mockSchemaManager := mocks.NewMockschemaManager(t)
+		mockSchemaManager := objects.NewMockClassResolver(t)
 		mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 		mockStream := newMockStream(t)
 		mockStream.EXPECT().Context().Return(ctx).Once()
@@ -162,7 +163,7 @@ func TestStreamHandler(t *testing.T) {
 
 		collection := "TestClass"
 		mockBatcher := mocks.NewMockbatcher(t)
-		mockSchemaManager := mocks.NewMockschemaManager(t)
+		mockSchemaManager := objects.NewMockClassResolver(t)
 		mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 		mockSchemaManager.EXPECT().
 			GetCachedClassNoAuth(mock.Anything, collection).
@@ -218,7 +219,7 @@ func TestStreamHandler(t *testing.T) {
 		logger := logrus.New()
 
 		mockBatcher := mocks.NewMockbatcher(t)
-		mockSchemaManager := mocks.NewMockschemaManager(t)
+		mockSchemaManager := objects.NewMockClassResolver(t)
 		mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 		mockStream := newMockStream(t)
 		mockStream.EXPECT().Context().Return(ctx).Maybe()
@@ -283,7 +284,7 @@ func TestStreamHandler(t *testing.T) {
 		defer cancel()
 
 		mockBatcher := mocks.NewMockbatcher(t)
-		mockSchemaManager := mocks.NewMockschemaManager(t)
+		mockSchemaManager := objects.NewMockClassResolver(t)
 		mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 		mockStream := newMockStream(t)
 		mockStream.EXPECT().Context().Return(ctx).Maybe()
@@ -347,7 +348,7 @@ func TestStreamHandler(t *testing.T) {
 		defer cancel()
 
 		mockBatcher := mocks.NewMockbatcher(t)
-		mockSchemaManager := mocks.NewMockschemaManager(t)
+		mockSchemaManager := objects.NewMockClassResolver(t)
 		mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 		mockStream := newMockStream(t)
 		mockStream.EXPECT().Context().Return(ctx).Maybe()
@@ -532,7 +533,7 @@ func TestStreamHandlerCollectionResolution(t *testing.T) {
 			defer cancel()
 
 			mockBatcher := mocks.NewMockbatcher(t)
-			mockSchemaManager := mocks.NewMockschemaManager(t)
+			mockSchemaManager := objects.NewMockClassResolver(t)
 			mockStream := newMockStream(t)
 			mockStream.EXPECT().Context().Return(ctx).Maybe()
 			mockAuthenticator := mocks.NewMockauthenticator(t)
@@ -632,7 +633,7 @@ func TestStreamHandlerReportsSchemaResolutionFailures(t *testing.T) {
 			}
 
 			mockBatcher := mocks.NewMockbatcher(t)
-			mockSchemaManager := mocks.NewMockschemaManager(t)
+			mockSchemaManager := objects.NewMockClassResolver(t)
 			mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 			mockSchemaManager.EXPECT().GetCachedClassNoAuth(mock.Anything, mock.Anything).
 				Return(nil, tc.getClassErr).Maybe()
@@ -712,7 +713,7 @@ func TestHandleRejectsStreamsThatStartDuringDrain(t *testing.T) {
 	mockBatcher := mocks.NewMockbatcher(t)
 	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).
 		Return(&pb.BatchObjectsReply{}, nil).Maybe()
-	mockSchemaManager := mocks.NewMockschemaManager(t)
+	mockSchemaManager := objects.NewMockClassResolver(t)
 	mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 	mockSchemaManager.EXPECT().GetCachedClassNoAuth(mock.Anything, collection).
 		Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).Maybe()
@@ -778,7 +779,7 @@ func TestReceiverPanicEndsStreamWithError(t *testing.T) {
 	mockBatcher := mocks.NewMockbatcher(t)
 	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).
 		Return(&pb.BatchObjectsReply{}, nil).Maybe()
-	mockSchemaManager := mocks.NewMockschemaManager(t)
+	mockSchemaManager := objects.NewMockClassResolver(t)
 	mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 	mockSchemaManager.EXPECT().GetCachedClassNoAuth(mock.Anything, collection).
 		Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).Maybe()
@@ -888,7 +889,7 @@ func TestStreamHandlerRecvGoroutineDoesNotLeakOnEarlyExit(t *testing.T) {
 			mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).
 				Return(&pb.BatchObjectsReply{}, nil).Maybe()
 
-			mockSchemaManager := mocks.NewMockschemaManager(t)
+			mockSchemaManager := objects.NewMockClassResolver(t)
 			mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 			mockSchemaManager.EXPECT().GetCachedClassNoAuth(mock.Anything, mock.Anything).
 				RunAndReturn(func(_ context.Context, names ...string) (map[string]versioned.Class, error) {
@@ -965,7 +966,7 @@ func TestSendNotSerialisedAcrossStreams(t *testing.T) {
 	mockBatcher := mocks.NewMockbatcher(t)
 	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).
 		Return(&pb.BatchObjectsReply{}, nil).Maybe()
-	mockSchemaManager := mocks.NewMockschemaManager(t)
+	mockSchemaManager := objects.NewMockClassResolver(t)
 	mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 	mockSchemaManager.EXPECT().GetCachedClassNoAuth(mock.Anything, collection).
 		Return(map[string]versioned.Class{collection: {Class: &models.Class{Class: collection}}}, nil).Maybe()

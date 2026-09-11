@@ -21,7 +21,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/mock"
-	schema2 "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -207,7 +207,7 @@ func assertShardRootContents(t *testing.T, shardsByClass map[string][]string, ro
 
 func testDB(t *testing.T, root string, classes []*models.Class, states map[string]*sharding.State) *DB {
 	logger, _ := test.NewNullLogger()
-	mockSchemaReader := schema2.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).RunAndReturn(func(className string) ([]string, error) {
 		return states[className].AllPhysicalShards(), nil
 	}).Maybe()

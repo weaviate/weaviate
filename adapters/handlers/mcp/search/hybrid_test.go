@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -42,6 +43,8 @@ import (
 // stubSchemaManager satisfies namespacing.SchemaManager. ResolveAlias returns
 // whatever was placed in aliases, "" otherwise.
 type stubSchemaManager struct {
+	// Left unset: only the methods defined below are expected.
+	local.AliasReader
 	aliases map[string]string
 }
 

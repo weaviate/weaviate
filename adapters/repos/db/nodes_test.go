@@ -29,13 +29,13 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/verbosity"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -731,7 +731,7 @@ func shardedIndex(t *testing.T, className string, shardNames []string,
 // retries every non-permanent error. reads counts how often the read ran, and
 // onRead runs at the moment the state is handed out.
 type retryingSchemaReader struct {
-	schemaUC.SchemaReader
+	local.SchemaReader
 	class  *models.Class
 	state  *sharding.State
 	reads  int

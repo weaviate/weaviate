@@ -13,14 +13,16 @@ package schema
 
 import (
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/schema/leader"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/versioned"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 type ClassGetter struct {
 	parser        *Parser
-	schemaReader  SchemaReader
+	schemaReader  local.ClassReader
 	schemaManager leader.ClassReader
 	logger        logrus.FieldLogger
 
@@ -30,7 +32,7 @@ type ClassGetter struct {
 func NewClassGetter(
 	schemaParser *Parser,
 	schemaManager leader.ClassReader,
-	schemaReader SchemaReader,
+	schemaReader local.ClassReader,
 	collectionRetrievalStrategyFF *configRuntime.FeatureFlag[string],
 	logger logrus.FieldLogger,
 ) *ClassGetter {

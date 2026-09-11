@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -118,7 +119,7 @@ type DB struct {
 
 	reindexer      ShardReindexerV3
 	nodeSelector   cluster.NodeSelector
-	schemaReader   schemaUC.SchemaReader
+	schemaReader   local.SchemaReader
 	replicationFSM types.ReplicationFSMReader
 
 	// reindexAuditMu guards the audit deps installed by
@@ -303,7 +304,7 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	remoteIndex remote.IndexClient, nodeResolver cluster.NodeResolver,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
-	nodeSelector cluster.NodeSelector, schemaReader schemaUC.SchemaReader, replicationFSM types.ReplicationFSMReader,
+	nodeSelector cluster.NodeSelector, schemaReader local.SchemaReader, replicationFSM types.ReplicationFSMReader,
 	namespacesExister namespaces.Exister,
 ) (*DB, error) {
 	if memMonitor == nil {
@@ -775,7 +776,7 @@ func (db *DB) SetNodeSelector(nodeSelector cluster.NodeSelector) {
 	db.nodeSelector = nodeSelector
 }
 
-func (db *DB) SetSchemaReader(schemaReader schemaUC.SchemaReader) {
+func (db *DB) SetSchemaReader(schemaReader local.SchemaReader) {
 	db.schemaReader = schemaReader
 }
 
