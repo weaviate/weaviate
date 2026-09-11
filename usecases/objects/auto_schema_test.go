@@ -654,17 +654,17 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 	}
 	for _, tt := range tests {
 		vectorRepo := &fakeVectorRepo{}
-		vectorRepo.On("ObjectByID", strfmt.UUID("df48b9f6-ba48-470c-bf6a-57657cb07390"), mock.Anything, mock.Anything, mock.Anything).
-			Return(&search.Result{ClassName: "Publication"}, nil).Once()
-		vectorRepo.On("ObjectByID", strfmt.UUID("df48b9f6-ba48-470c-bf6a-57657cb07391"), mock.Anything, mock.Anything, mock.Anything).
-			Return(&search.Result{ClassName: "Article"}, nil).Once()
+		vectorRepo.On("ObjectsByID", strfmt.UUID("df48b9f6-ba48-470c-bf6a-57657cb07390"), mock.Anything, mock.Anything, "", "").
+			Return(searchResults([]string{"Publication"}), nil).Once()
+		vectorRepo.On("ObjectsByID", strfmt.UUID("df48b9f6-ba48-470c-bf6a-57657cb07391"), mock.Anything, mock.Anything, "", "").
+			Return(searchResults([]string{"Article"}), nil).Once()
 		m := &AutoSchemaManager{
 			schemaManager: &fakeSchemaManager{},
 			vectorRepo:    vectorRepo,
 			config:        tt.fields.config,
 		}
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := m.determineType(tt.args.value, false)
+			got, err := m.determineType("", tt.args.value, false)
 			if len(tt.errMsgs) == 0 {
 				require.NoError(t, err)
 				if !reflect.DeepEqual(got, tt.want) {
@@ -1451,56 +1451,70 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 	}
 }
 
-func Test_autoSchemaManager_getProperties_stripsBeaconWithoutClassDataType(t *testing.T) {
+// Test_autoSchemaManager_getProperties_beaconWithoutClass pins how auto-schema
+// types a beacon that omits its class: by the id looked up in the source
+// namespace.
+func Test_autoSchemaManager_getProperties_beaconWithoutClass(t *testing.T) {
+	confinedPrincipal := &models.Principal{Username: "u", Namespace: "customer1"}
+	globalOperator := &models.Principal{Username: "admin", IsGlobalOperator: true}
 	cases := []struct {
 		name             string
 		principal        *models.Principal
-		repoClassName    string
+		sourceClass      string
+		lookupIn         string   // the namespace the lookup has to search
+		repoClasses      []string // what ObjectsByID finds there, in the order it lists them
 		expectedDataType []string
 	}{
 		{
-			name:             "namespaced principal own-NS prefix stripped",
-			principal:        &models.Principal{Username: "u", Namespace: "customer1"},
-			repoClassName:    "customer1:Movies",
+			name:             "own namespace resolves, prefix stripped",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			lookupIn:         "customer1",
+			repoClasses:      []string{"customer1:Movies"},
 			expectedDataType: []string{"Movies"},
 		},
 		{
-			name:             "global principal passes through",
-			principal:        &models.Principal{Username: "admin", IsGlobalOperator: true},
-			repoClassName:    "Movies",
+			name:             "unknown uuid does not resolve",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			lookupIn:         "customer1",
+			expectedDataType: []string{"object[]"},
+		},
+		{
+			// A reference may not cross namespaces, and an operator writing
+			// into a namespaced collection is bound by that too.
+			name:             "global operator looks the id up in the source namespace",
+			principal:        globalOperator,
+			sourceClass:      "customer1:Library",
+			lookupIn:         "customer1",
+			expectedDataType: []string{"object[]"},
+		},
+		{
+			name:             "global operator resolves an unqualified class",
+			principal:        globalOperator,
+			sourceClass:      "Library",
+			repoClasses:      []string{"Movies"},
 			expectedDataType: []string{"Movies"},
 		},
 		{
-			// Crosses-namespace beacons should fall through unchanged so the
-			// downstream qualifier rejects them (deny-foreign-NS contract).
-			name:             "foreign-NS prefix left intact",
-			principal:        &models.Principal{Username: "u", Namespace: "customer1"},
-			repoClassName:    "customer2:Movies",
-			expectedDataType: []string{"customer2:Movies"},
+			name:             "principal-less caller resolves an unqualified class",
+			sourceClass:      "Library",
+			repoClasses:      []string{"Movies"},
+			expectedDataType: []string{"Movies"},
 		},
 	}
 	id := strfmt.UUID("00000000-1111-2222-3333-444444444444")
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			vectorRepo := &fakeVectorRepo{}
-			vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything, mock.Anything).
-				Return(&search.Result{ClassName: tc.repoClassName}, nil).Once()
-			manager := &AutoSchemaManager{
-				schemaManager: &fakeSchemaManager{},
-				vectorRepo:    vectorRepo,
-				config: config.AutoSchema{
-					Enabled:       runtime.NewDynamicValue(true),
-					DefaultNumber: schema.DataTypeNumber.String(),
-					DefaultString: schema.DataTypeText.String(),
-					DefaultDate:   schema.DataTypeDate.String(),
-				},
-			}
+			vectorRepo.On("ObjectsByID", id, mock.Anything, mock.Anything, "", tc.lookupIn).
+				Return(searchResults(tc.repoClasses), nil).Once()
+			manager := newBeaconTestManager(vectorRepo)
+
 			properties, err := manager.getProperties(&models.Object{
-				Class: "Library",
+				Class: tc.sourceClass,
 				Properties: map[string]interface{}{
 					"watched": []interface{}{
-						// Beacon without class — asRef looks up the object and
-						// uses its stored ClassName (qualified on NS-enabled).
 						map[string]interface{}{"beacon": "weaviate://localhost/" + id.String()},
 					},
 				},
@@ -1510,6 +1524,78 @@ func Test_autoSchemaManager_getProperties_stripsBeaconWithoutClassDataType(t *te
 			assert.Equal(t, "watched", properties[0].Name)
 			assert.Equal(t, tc.expectedDataType, properties[0].DataType)
 		})
+	}
+}
+
+// Test_autoSchemaManager_getProperties_beaconWithoutClassMixedArray pins the
+// error for a list mixing a beacon whose id the source namespace holds with
+// one whose id it does not. Only the first types as a reference.
+func Test_autoSchemaManager_getProperties_beaconWithoutClassMixedArray(t *testing.T) {
+	ownID := strfmt.UUID("00000000-1111-2222-3333-444444444444")
+	otherID := strfmt.UUID("00000000-1111-2222-3333-555555555555")
+	cases := []struct {
+		name    string
+		beacons []strfmt.UUID
+		errMsg  string
+	}{
+		{
+			name:    "own namespace first",
+			beacons: []strfmt.UUID{ownID, otherID},
+			errMsg:  "element [1]: mismatched data type - reference expected, got 'object'",
+		},
+		{
+			name:    "other namespace first",
+			beacons: []strfmt.UUID{otherID, ownID},
+			errMsg:  "element [1]: mismatched data type - 'object' expected, got reference",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			vectorRepo := &fakeVectorRepo{}
+			vectorRepo.On("ObjectsByID", ownID, mock.Anything, mock.Anything, "", "customer1").
+				Return(searchResults([]string{"customer1:Movies"}), nil)
+			vectorRepo.On("ObjectsByID", otherID, mock.Anything, mock.Anything, "", "customer1").
+				Return(searchResults(nil), nil)
+			manager := newBeaconTestManager(vectorRepo)
+
+			values := make([]interface{}, len(tc.beacons))
+			for i, id := range tc.beacons {
+				values[i] = map[string]interface{}{"beacon": "weaviate://localhost/" + id.String()}
+			}
+			_, err := manager.getProperties(&models.Object{
+				Class:      "customer1:Library",
+				Properties: map[string]interface{}{"watched": values},
+			}, &models.Principal{Username: "u", Namespace: "customer1"})
+			require.ErrorContains(t, err, tc.errMsg)
+		})
+	}
+}
+
+// searchResults builds what ObjectsByID returns for the given class names, and
+// nil for none so the fake reports the not-found answer.
+func searchResults(classNames []string) search.Results {
+	if len(classNames) == 0 {
+		return nil
+	}
+	results := make(search.Results, len(classNames))
+	for i, name := range classNames {
+		results[i] = search.Result{ClassName: name}
+	}
+	return results
+}
+
+func newBeaconTestManager(vectorRepo *fakeVectorRepo) *AutoSchemaManager {
+	logger, _ := test.NewNullLogger()
+	return &AutoSchemaManager{
+		schemaManager: &fakeSchemaManager{},
+		vectorRepo:    vectorRepo,
+		logger:        logger,
+		config: config.AutoSchema{
+			Enabled:       runtime.NewDynamicValue(true),
+			DefaultNumber: schema.DataTypeNumber.String(),
+			DefaultString: schema.DataTypeText.String(),
+			DefaultDate:   schema.DataTypeDate.String(),
+		},
 	}
 }
 
