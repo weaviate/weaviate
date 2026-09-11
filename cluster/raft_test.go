@@ -67,6 +67,9 @@ func TestRaftEndpoints(t *testing.T) {
 	// LeaderNotFound
 	_, err := srv.Execute(ctx, &command.ApplyRequest{})
 	assert.ErrorIs(t, err, types.ErrLeaderNotFound)
+	// This number sits far above every defined apply type, so no new type will claim it.
+	_, err = srv.Execute(ctx, &command.ApplyRequest{Type: command.ApplyRequest_Type(1 << 20)})
+	assert.ErrorIs(t, err, types.ErrUnknownCommand)
 	assert.ErrorIs(t, srv.Join(ctx, m.store.cfg.NodeID, addr, true), types.ErrLeaderNotFound)
 	assert.ErrorIs(t, srv.Remove(ctx, m.store.cfg.NodeID), types.ErrLeaderNotFound)
 
