@@ -275,6 +275,17 @@ func (f *fakeVectorRepo) ObjectByID(ctx context.Context, id strfmt.UUID,
 	return nil, args.Error(1)
 }
 
+func (f *fakeVectorRepo) ObjectsByID(ctx context.Context, id strfmt.UUID,
+	props search.SelectProperties, additional additional.Properties,
+	tenant, namespace string,
+) (search.Results, error) {
+	args := f.Called(id, props, additional, tenant, namespace)
+	if args.Get(0) != nil {
+		return args.Get(0).(search.Results), args.Error(1)
+	}
+	return nil, args.Error(1)
+}
+
 func (f *fakeVectorRepo) ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
 	sort []filters.Sort, additional additional.Properties, tenant string,
 ) (search.Results, error) {
