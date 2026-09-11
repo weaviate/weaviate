@@ -206,11 +206,11 @@ func Test_Schema_Authorization(t *testing.T) {
 				handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, db, authorizer)
 				fakeSchemaManager.On("ReadOnlySchema").Return(models.Schema{})
 				fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return(models.Class{})
-				fakeSchemaManager.On("GetAliases", mock.Anything, mock.Anything, mock.Anything).Return([]*models.Alias{{}}, nil)
+				fakeSchemaManager.On("AliasesFromLeader", mock.Anything, mock.Anything, mock.Anything).Return([]*models.Alias{{}}, nil)
 				// NOTE: When user invoking GetAlias by name, the collection is unknown.
 				// So we get the right alias (if exists) and use the collection that alias belongs to
 				// to verify the permission
-				fakeSchemaManager.On("GetAlias", mock.Anything, mock.Anything).Return(&models.Alias{Alias: "aliasName", Class: "class"}, nil)
+				fakeSchemaManager.On("AliasFromLeader", mock.Anything, mock.Anything).Return(&models.Alias{Alias: "aliasName", Class: "class"}, nil)
 
 				var args []any
 				if test.methodName == "GetSchema" || test.methodName == "GetConsistentSchema" {

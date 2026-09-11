@@ -22,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -195,7 +196,8 @@ type clusterState interface {
 
 // NewManager creates a new manager
 func NewManager(validator validator,
-	schemaManager SchemaManager,
+	schemaManager leader.Schema,
+	membership cluster.RaftMembership,
 	schemaReader SchemaReader,
 	indexer clusterSchema.Indexer,
 	repo SchemaStore,
@@ -214,6 +216,7 @@ func NewManager(validator validator,
 	handler, err := NewHandler(
 		schemaReader,
 		schemaManager,
+		membership,
 		indexer,
 		validator,
 		logger, authorizer,
@@ -276,7 +279,7 @@ func (m *Manager) TenantsShards(ctx context.Context, class string, tenants ...st
 func (m *Manager) TenantsShardsWithVersion(ctx context.Context, class string, tenants ...string) (map[string]string, uint64, error) {
 	slices.Sort(tenants)
 	tenants = slices.Compact(tenants)
-	status, version, err := m.schemaManager.QueryTenantsShards(class, tenants...)
+	status, version, err := m.schemaManager.TenantsShardsFromLeader(class, tenants...)
 	if !m.AllowImplicitTenantActivation(class) || err != nil {
 		return status, version, err
 	}
@@ -347,7 +350,7 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 ) (map[string]string, uint64, error) {
 	req := &api.UpdateTenantsRequest{
 		Tenants:               make([]*api.Tenant, 0, len(status)),
-		ClusterNodes:          m.schemaManager.StorageCandidates(),
+		ClusterNodes:          m.membership.StorageCandidates(),
 		ImplicitUpdateRequest: true,
 	}
 	for tenant, s := range status {
@@ -390,7 +393,7 @@ func (m *Manager) AllowImplicitTenantActivation(class string) bool {
 }
 
 func (m *Manager) TenantsStatus(class string, tenants ...string) (map[string]string, error) {
-	tenantsMap, _, err := m.schemaManager.QueryTenantsShards(class, tenants...)
+	tenantsMap, _, err := m.schemaManager.TenantsShardsFromLeader(class, tenants...)
 	return tenantsMap, err
 }
 
@@ -415,7 +418,7 @@ func (m *Manager) changeTenantsActivityStatus(ctx context.Context, class string,
 
 	req := &api.UpdateTenantsRequest{
 		Tenants:               make([]*api.Tenant, len(tenants)),
-		ClusterNodes:          m.schemaManager.StorageCandidates(),
+		ClusterNodes:          m.membership.StorageCandidates(),
 		ImplicitUpdateRequest: true,
 	}
 	for i := range tenants {
@@ -436,7 +439,7 @@ func (m *Manager) EnsureTenantActiveForWrite(ctx context.Context, class string, 
 }
 
 func (m *Manager) ShardOwner(class, shard string) (string, error) {
-	owner, _, err := m.schemaManager.QueryShardOwner(class, shard)
+	owner, _, err := m.schemaManager.ShardOwnerFromLeader(class, shard)
 	if err != nil {
 		return "", err
 	}

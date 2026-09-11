@@ -121,24 +121,24 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.ErrorIs(t, err, schema.ErrClassExists)
 
 	// QueryReadOnlyClass
-	readOnlyVClass, err := srv.QueryReadOnlyClasses(cls.Class)
+	readOnlyVClass, err := srv.ReadOnlyClassesFromLeader(cls.Class)
 	assert.NoError(t, err)
 	assert.NotNil(t, readOnlyVClass[cls.Class].Class)
 	assert.Equal(t, cls, readOnlyVClass[cls.Class].Class)
 
-	// QueryClassVersions
-	classVersions, err := srv.QueryClassVersions(cls.Class)
+	// ClassVersionsFromLeader
+	classVersions, err := srv.ClassVersionsFromLeader(cls.Class)
 	assert.NoError(t, err)
 	assert.Equal(t, readOnlyVClass[cls.Class].Version, classVersions[cls.Class])
 
-	// QuerySchema
-	getSchema, err := srv.QuerySchema()
+	// SchemaFromLeader
+	getSchema, err := srv.SchemaFromLeader()
 	assert.NoError(t, err)
 	assert.NotNil(t, getSchema)
 	assert.Equal(t, models.Schema{Classes: []*models.Class{readOnlyVClass[cls.Class].Class}}, getSchema)
 
-	// QueryTenants all
-	getTenantsAll, _, err := srv.QueryTenants(cls.Class, []string{})
+	// TenantsFromLeader all
+	getTenantsAll, _, err := srv.TenantsFromLeader(cls.Class, []string{})
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsAll)
 	assert.Equal(t, []*models.Tenant{{
@@ -146,8 +146,8 @@ func TestRaftEndpoints(t *testing.T) {
 		ActivityStatus: models.TenantActivityStatusHOT,
 	}}, getTenantsAll)
 
-	// QueryTenants one
-	getTenantsOne, _, err := srv.QueryTenants(cls.Class, []string{"T0"})
+	// TenantsFromLeader one
+	getTenantsOne, _, err := srv.TenantsFromLeader(cls.Class, []string{"T0"})
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsOne)
 	assert.Equal(t, []*models.Tenant{{
@@ -155,36 +155,36 @@ func TestRaftEndpoints(t *testing.T) {
 		ActivityStatus: models.TenantActivityStatusHOT,
 	}}, getTenantsOne)
 
-	// QueryTenants one
-	getTenantsNone, _, err := srv.QueryTenants(cls.Class, []string{"T"})
+	// TenantsFromLeader one
+	getTenantsNone, _, err := srv.TenantsFromLeader(cls.Class, []string{"T"})
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsNone)
 	assert.Equal(t, []*models.Tenant{}, getTenantsNone)
 
 	// Query ShardTenant
-	getTenantShards, _, err := srv.QueryTenantsShards(cls.Class, "T0")
+	getTenantShards, _, err := srv.TenantsShardsFromLeader(cls.Class, "T0")
 	for tenant, status := range getTenantShards {
 		assert.Nil(t, err)
 		assert.Equal(t, "T0", tenant)
 		assert.Equal(t, models.TenantActivityStatusHOT, status)
 	}
 
-	// QueryShardOwner
+	// ShardOwnerFromLeader
 	srv.UpdateClass(ctx, cls, &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0", BelongsToNodes: []string{"N0"}}}})
-	getShardOwner, _, err := srv.QueryShardOwner(cls.Class, "T0")
+	getShardOwner, _, err := srv.ShardOwnerFromLeader(cls.Class, "T0")
 	assert.Nil(t, err)
 	assert.Equal(t, "N0", getShardOwner)
 	// Verify that updating with nil sharding state does not change the sharding state
 	srv.UpdateClass(ctx, cls, nil)
-	getShardOwner, _, err = srv.QueryShardOwner(cls.Class, "T0")
+	getShardOwner, _, err = srv.ShardOwnerFromLeader(cls.Class, "T0")
 	assert.Nil(t, err)
 	assert.Equal(t, "N0", getShardOwner)
 
-	// QueryShardingState
+	// ShardingStateFromLeader
 	shardingState := &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0", BelongsToNodes: []string{"N0"}}}, ReplicationFactor: 1}
 	srv.UpdateClass(ctx, cls, shardingState)
 
-	getShardingState, _, err := srv.QueryShardingState(cls.Class)
+	getShardingState, _, err := srv.ShardingStateFromLeader(cls.Class)
 	assert.Nil(t, err)
 	assert.Equal(t, shardingState, getShardingState)
 

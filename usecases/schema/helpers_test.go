@@ -49,7 +49,7 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 	fakeValidator := &fakeValidator{}
 	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, fakeModulesProvider{}, nil, nil)
 	handler, err := NewHandler(
-		schemaManager, schemaManager, db, fakeValidator, logger, mocks.NewMockAuthorizer(),
+		schemaManager, schemaManager, schemaManager, db, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil, nil, nil)
 	require.NoError(t, err)
@@ -70,7 +70,7 @@ func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, 
 	fakeValidator := &fakeValidator{}
 	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, nil, nil, nil)
 	handler, err := NewHandler(
-		metaHandler, metaHandler, db, fakeValidator, logger, authorizer,
+		metaHandler, metaHandler, metaHandler, db, fakeValidator, logger, authorizer,
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil, nil, nil)
 	require.Nil(t, err)

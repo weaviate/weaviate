@@ -32,7 +32,7 @@ import (
 
 // QueryReadOnlyClass will verify that class is non empty and then build a Query that will be directed to the leader to
 // ensure we will read the class with strong consistency
-func (s *Raft) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
+func (s *Raft) ReadOnlyClassesFromLeader(classes ...string) (map[string]versioned.Class, error) {
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
@@ -89,9 +89,9 @@ func (s *Raft) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Cla
 	return resp.Classes, nil
 }
 
-// QuerySchema build a Query to read the schema that will be directed to the leader to ensure we will read the class
+// SchemaFromLeader build a Query to read the schema that will be directed to the leader to ensure we will read the class
 // with strong consistency
-func (s *Raft) QuerySchema() (models.Schema, error) {
+func (s *Raft) SchemaFromLeader() (models.Schema, error) {
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
@@ -118,10 +118,10 @@ func (s *Raft) QuerySchema() (models.Schema, error) {
 	return resp.Schema, nil
 }
 
-// QueryCollectionsCount issues a leader-directed count query. An empty
+// CollectionsCountFromLeader issues a leader-directed count query. An empty
 // namespace returns the cluster-global total; a non-empty namespace returns
 // the count restricted to classes in that namespace.
-func (s *Raft) QueryCollectionsCount(namespace string) (int, error) {
+func (s *Raft) CollectionsCountFromLeader(namespace string) (int, error) {
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
@@ -154,9 +154,9 @@ func (s *Raft) QueryCollectionsCount(namespace string) (int, error) {
 	return resp.Count, nil
 }
 
-// QueryTenants build a Query to read the tenants of a given class that will be directed to the leader to ensure we
+// TenantsFromLeader build a Query to read the tenants of a given class that will be directed to the leader to ensure we
 // will read the class with strong consistency
-func (s *Raft) QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error) {
+func (s *Raft) TenantsFromLeader(class string, tenants []string) ([]*models.Tenant, uint64, error) {
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
@@ -193,9 +193,9 @@ func (s *Raft) QueryTenants(class string, tenants []string) ([]*models.Tenant, u
 	return resp.Tenants, resp.ShardVersion, nil
 }
 
-// QueryShardOwner build a Query to read the tenants of a given class that will be directed to the leader to ensure we
+// ShardOwnerFromLeader build a Query to read the tenants of a given class that will be directed to the leader to ensure we
 // will read the tenant with strong consistency and return the shard owner node
-func (s *Raft) QueryShardOwner(class, shard string) (string, uint64, error) {
+func (s *Raft) ShardOwnerFromLeader(class, shard string) (string, uint64, error) {
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
@@ -232,10 +232,10 @@ func (s *Raft) QueryShardOwner(class, shard string) (string, uint64, error) {
 	return resp.Owner, resp.ShardVersion, nil
 }
 
-// QueryTenantsShards build a Query to read the tenants and their activity status of a given class.
+// TenantsShardsFromLeader build a Query to read the tenants and their activity status of a given class.
 // The request will be directed to the leader to ensure we  will read the tenant with strong consistency and return the
 // shard owner node
-func (s *Raft) QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error) {
+func (s *Raft) TenantsShardsFromLeader(class string, tenants ...string) (map[string]string, uint64, error) {
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
@@ -272,10 +272,10 @@ func (s *Raft) QueryTenantsShards(class string, tenants ...string) (map[string]s
 	return resp.TenantsActivityStatus, resp.SchemaVersion, nil
 }
 
-// QueryShardingState build a Query to read the sharding state of a given class.
+// ShardingStateFromLeader build a Query to read the sharding state of a given class.
 // The request will be directed to the leader to ensure we  will read the shard state with strong consistency and return the
 // state and it's version.
-func (s *Raft) QueryShardingState(class string) (*sharding.State, uint64, error) {
+func (s *Raft) ShardingStateFromLeader(class string) (*sharding.State, uint64, error) {
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
@@ -311,8 +311,8 @@ func (s *Raft) QueryShardingState(class string) (*sharding.State, uint64, error)
 	return resp.State, resp.Version, nil
 }
 
-// QueryClassVersions returns the current version of the requested classes.
-func (s *Raft) QueryClassVersions(classes ...string) (map[string]uint64, error) {
+// ClassVersionsFromLeader returns the current version of the requested classes.
+func (s *Raft) ClassVersionsFromLeader(classes ...string) (map[string]uint64, error) {
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",

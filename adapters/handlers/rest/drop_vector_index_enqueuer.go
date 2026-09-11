@@ -21,10 +21,10 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entschema "github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -35,7 +35,7 @@ import (
 // so it can reuse buildUnitMaps/buildUnitSpecs.
 type dropVectorIndexEnqueuer struct {
 	clusterService clusterDropTaskClient
-	schemaState    schemaStateQuerier
+	schemaState    leader.SchemaReader
 	logger         logrus.FieldLogger // nil-safe: only used for skip warnings
 	// finalizer removes dropped VectorConfig entries directly — the escape
 	// for MT collections with ZERO tenants, where no cleanup task can ever
@@ -57,18 +57,7 @@ type clusterDropTaskClient interface {
 		taskPayload any, unitSpecs []distributedtask.UnitSpec) error
 }
 
-// schemaStateQuerier provides leader-consistent schema reads for a collection:
-// the sharding state (units must be built from the current tenant statuses, not
-// this node's eventually-consistent local view — a tenant activated moments ago
-// could still read COLD locally and be skipped) and the class (targets are
-// re-validated as still marked dropped right before submitting the destructive
-// cleanup task). cluster.Raft satisfies it.
-type schemaStateQuerier interface {
-	QueryShardingState(class string) (*sharding.State, uint64, error)
-	QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error)
-}
-
-func newDropVectorIndexEnqueuer(clusterService clusterDropTaskClient, schemaState schemaStateQuerier, logger logrus.FieldLogger) *dropVectorIndexEnqueuer {
+func newDropVectorIndexEnqueuer(clusterService clusterDropTaskClient, schemaState leader.SchemaReader, logger logrus.FieldLogger) *dropVectorIndexEnqueuer {
 	return &dropVectorIndexEnqueuer{clusterService: clusterService, schemaState: schemaState, logger: logger}
 }
 
@@ -154,7 +143,7 @@ func (e *dropVectorIndexEnqueuer) EnqueueDropVectorIndexWithTasks(ctx context.Co
 		return nil // nothing (still) marked dropped — no-op
 	}
 
-	state, _, err := e.schemaState.QueryShardingState(collection)
+	state, _, err := e.schemaState.ShardingStateFromLeader(collection)
 	if err != nil {
 		return fmt.Errorf("drop-vector enqueue: sharding state for %q: %w", collection, err)
 	}
@@ -372,7 +361,7 @@ func withoutCleanedShards(ownership map[string][]string, cleaned []string) map[s
 // stillDroppedTargets filters targets to those still present and marked dropped
 // in the leader-consistent class. A missing class means nothing to clean.
 func (e *dropVectorIndexEnqueuer) stillDroppedTargets(collection string, targets []string) ([]string, error) {
-	vclasses, err := e.schemaState.QueryReadOnlyClasses(collection)
+	vclasses, err := e.schemaState.ReadOnlyClassesFromLeader(collection)
 	if err != nil {
 		return nil, err
 	}
@@ -484,7 +473,7 @@ func (e *dropVectorIndexEnqueuer) opStillNeeded(
 	}
 	lookup, ok := classes[p.Collection]
 	if !ok {
-		vclasses, err := e.schemaState.QueryReadOnlyClasses(p.Collection)
+		vclasses, err := e.schemaState.ReadOnlyClassesFromLeader(p.Collection)
 		if err != nil {
 			if e.logger != nil {
 				e.logger.WithField("collection", p.Collection).

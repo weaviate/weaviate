@@ -147,17 +147,17 @@ func (f *fakeSchemaManager) ClassInfoWithVersion(ctx context.Context, class stri
 	return args.Get(0).(clusterSchema.ClassInfo), args.Error(1)
 }
 
-func (f *fakeSchemaManager) QuerySchema() (models.Schema, error) {
+func (f *fakeSchemaManager) SchemaFromLeader() (models.Schema, error) {
 	args := f.Called()
 	return args.Get(0).(models.Schema), args.Error(1)
 }
 
-func (f *fakeSchemaManager) QueryCollectionsCount(namespace string) (int, error) {
+func (f *fakeSchemaManager) CollectionsCountFromLeader(namespace string) (int, error) {
 	args := f.Called(namespace)
 	return args.Get(0).(int), args.Error(1)
 }
 
-func (f *fakeSchemaManager) QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error) {
+func (f *fakeSchemaManager) ReadOnlyClassesFromLeader(classes ...string) (map[string]versioned.Class, error) {
 	args := f.Called(classes)
 
 	models := args.Get(0)
@@ -168,7 +168,7 @@ func (f *fakeSchemaManager) QueryReadOnlyClasses(classes ...string) (map[string]
 	return models.(map[string]versioned.Class), nil
 }
 
-func (f *fakeSchemaManager) QueryClassVersions(classes ...string) (map[string]uint64, error) {
+func (f *fakeSchemaManager) ClassVersionsFromLeader(classes ...string) (map[string]uint64, error) {
 	args := f.Called(classes)
 
 	models := args.Get(0)
@@ -179,17 +179,17 @@ func (f *fakeSchemaManager) QueryClassVersions(classes ...string) (map[string]ui
 	return models.(map[string]uint64), nil
 }
 
-func (f *fakeSchemaManager) QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error) {
+func (f *fakeSchemaManager) TenantsFromLeader(class string, tenants []string) ([]*models.Tenant, uint64, error) {
 	args := f.Called(class, tenants)
 	return args.Get(0).([]*models.Tenant), 0, args.Error(2)
 }
 
-func (f *fakeSchemaManager) QueryShardOwner(class, shard string) (string, uint64, error) {
+func (f *fakeSchemaManager) ShardOwnerFromLeader(class, shard string) (string, uint64, error) {
 	args := f.Called(class, shard)
-	return args.Get(0).(string), 0, args.Error(0)
+	return args.Get(0).(string), 0, args.Error(1)
 }
 
-func (f *fakeSchemaManager) QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error) {
+func (f *fakeSchemaManager) TenantsShardsFromLeader(class string, tenants ...string) (map[string]string, uint64, error) {
 	args := f.Called(class, tenants)
 	res := map[string]string{}
 	for idx := range tenants {
@@ -198,9 +198,9 @@ func (f *fakeSchemaManager) QueryTenantsShards(class string, tenants ...string) 
 	return res, 0, nil
 }
 
-func (f *fakeSchemaManager) QueryShardingState(class string) (*sharding.State, uint64, error) {
+func (f *fakeSchemaManager) ShardingStateFromLeader(class string) (*sharding.State, uint64, error) {
 	args := f.Called(class)
-	return args.Get(0).(*sharding.State), 0, args.Error(0)
+	return args.Get(0).(*sharding.State), 0, args.Error(1)
 }
 
 func (f *fakeSchemaManager) ReadOnlyClass(class string) *models.Class {
@@ -323,12 +323,12 @@ func (f *fakeSchemaManager) DeleteAlias(ctx context.Context, alias string) (uint
 	return 0, args.Error(0)
 }
 
-func (f *fakeSchemaManager) GetAlias(ctx context.Context, alias string) (*models.Alias, error) {
+func (f *fakeSchemaManager) AliasFromLeader(ctx context.Context, alias string) (*models.Alias, error) {
 	args := f.Called(ctx, alias)
 	return args.Get(0).(*models.Alias), args.Error(1)
 }
 
-func (f *fakeSchemaManager) GetAliases(ctx context.Context, alias string, class *models.Class) ([]*models.Alias, error) {
+func (f *fakeSchemaManager) AliasesFromLeader(ctx context.Context, alias string, class *models.Class) ([]*models.Alias, error) {
 	args := f.Called(ctx, alias, class)
 	return args.Get(0).([]*models.Alias), args.Error(1)
 }

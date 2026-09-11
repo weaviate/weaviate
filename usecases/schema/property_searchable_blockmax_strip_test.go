@@ -55,7 +55,7 @@ func TestCreatePaths_StripClientSetSearchableBlockmax(t *testing.T) {
 		fake.On("AddClass", mock.Anything, mock.Anything).Run(func(args mock.Arguments) {
 			stored = args.Get(0).(*models.Class)
 		}).Return(nil)
-		fake.On("QueryCollectionsCount", "").Return(0, nil)
+		fake.On("CollectionsCountFromLeader", "").Return(0, nil)
 
 		_, _, err := handler.AddClass(ctx, nil, class)
 		require.NoError(t, err)

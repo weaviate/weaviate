@@ -754,6 +754,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	schemaManager, err := schema.NewManager(migrator,
 		appState.ClusterService.Raft,
+		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
 		executor,
 		schemaRepo,
@@ -1185,6 +1186,7 @@ func initReindexAndDistributedTasks(
 	dropVectorProvider := db.NewDropVectorIndexProvider(
 		repo,
 		dropVectorFinalizer,
+		appState.ClusterService.Raft,
 		appState.ClusterService.Raft,
 		appState.Logger,
 		appState.Cluster.LocalName(),
