@@ -340,10 +340,10 @@ func (i *Index) descriptorWithHardlinks(ctx context.Context, backupID string, de
 	if err != nil {
 		return fmt.Errorf("list local shards: %w", err)
 	}
-	if err := verifyDesignatedLocalShards(designated, shardNames, i.getSchema.NodeName()); err != nil {
+	if err := verifyDesignatedLocalShards(designated, shardNames, i.Config.NodeName); err != nil {
 		return err
 	}
-	shardNames = filterDesignatedShards(shardNames, designated, replicas, i.getSchema.NodeName())
+	shardNames = filterDesignatedShards(shardNames, designated, replicas, i.Config.NodeName)
 
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
 	eg.SetLimit(_NUMCPU)
@@ -538,10 +538,10 @@ func (i *Index) descriptorWithoutHardlinks(ctx context.Context, backupID string,
 	if err != nil {
 		return fmt.Errorf("list local shards: %w", err)
 	}
-	if err := verifyDesignatedLocalShards(designated, shardNames, i.getSchema.NodeName()); err != nil {
+	if err := verifyDesignatedLocalShards(designated, shardNames, i.Config.NodeName); err != nil {
 		return err
 	}
-	shardNames = filterDesignatedShards(shardNames, designated, replicas, i.getSchema.NodeName())
+	shardNames = filterDesignatedShards(shardNames, designated, replicas, i.Config.NodeName)
 
 	shards := map[string]*backup.ShardDescriptor{}
 	for _, name := range shardNames {
@@ -803,7 +803,7 @@ func (i *Index) marshalSchema() ([]byte, error) {
 // This is used as the single source of truth for which shards to back up, avoiding the race condition
 // of iterating two separate data structures.
 func (i *Index) readSchema() (shards []string, state []byte, replicas map[string][]string, err error) {
-	nodeName := i.getSchema.NodeName()
+	nodeName := i.Config.NodeName
 	replicas = make(map[string][]string)
 	err = i.schemaReader.Read(i.Config.ClassName.String(), true, func(_ *models.Class, s *sharding.State) error {
 		if s == nil {
@@ -865,7 +865,7 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 	rootPath := i.Config.RootPath
 
 	sd.Name = shardName
-	sd.Node = i.getSchema.NodeName()
+	sd.Node = i.Config.NodeName
 
 	// Read metadata files (same data as readBackupMetadata in shard_backup.go).
 	// These files are guaranteed to exist: INACTIVE shards were always ACTIVE

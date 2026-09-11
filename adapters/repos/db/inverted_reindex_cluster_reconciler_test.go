@@ -49,7 +49,7 @@ func TestTheClusterPassSamplesItsPerShardRefusals(t *testing.T) {
 		idx.shards.Store(name, shard)
 	}
 
-	db := &DB{logger: logger, indices: map[string]*Index{"Books": idx}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{"Books": idx}}
 	db.migrationCluster.db = db
 	db.migrationCluster.local = func() ([]*distributedtask.Task, bool) { return nil, true }
 	db.migrationCluster.cluster = func(context.Context) ([]*distributedtask.Task, error) {
@@ -99,7 +99,7 @@ func TestTheClusterPassWalksARealLoadedShard(t *testing.T) {
 	settled.EXPECT().migrationRecordStore().Return(NewMigrationRecordStore(t.TempDir(), logger)).Maybe()
 	detectorIdx.shards.Store("settled", settled)
 
-	db := &DB{logger: logger, indices: map[string]*Index{"Real": realIdx, "Detector": detectorIdx}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{"Real": realIdx, "Detector": detectorIdx}}
 	db.migrationCluster.db = db
 	leaderQueries := 0
 	db.migrationCluster.cluster = func(context.Context) ([]*distributedtask.Task, error) {
@@ -212,7 +212,7 @@ func TestTheClusterPassDoesNotRebuildAShardTornDownUnderIt(t *testing.T) {
 	require.NoError(t, cold.Shutdown(ctx))
 	require.False(t, cold.isLoaded(), "fixture: the tenant is down before the pass resolves it")
 
-	db := &DB{logger: logger, indices: map[string]*Index{class.Class: idx}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{class.Class: idx}}
 	db.migrationCluster.db = db
 	unresolved, shuttingDown := db.migrationCluster.samplers()
 

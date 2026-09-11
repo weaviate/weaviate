@@ -60,7 +60,7 @@ func TestTerminalCleanupRanksATupleFailureLikeTheSweepDoes(t *testing.T) {
 			logger, hook := logrustest.NewNullLogger()
 			logger.SetLevel(logrus.DebugLevel)
 			p := NewReindexProvider(
-				&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
+				&DB{localNodeName: "node1", indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
 				nil, nil, logger, "n1", nil, context.Background())
 
 			p.autoCleanupAfterTerminal(&distributedtask.Task{
@@ -140,6 +140,7 @@ func closingIndexWithAnUnvisitedShard(t *testing.T) (*Index, string) {
 
 	idx := &Index{
 		Config: IndexConfig{
+			NodeName:  "node1",
 			RootPath:  t.TempDir(),
 			ClassName: entschema.ClassName("ClosingSweep" + uuid.NewString()[:8]),
 		},

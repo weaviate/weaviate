@@ -24,10 +24,13 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/backup"
 )
 
 type fakeSchemaManger struct {
+	// Left unset: only ClassEqual is expected of it.
+	local.ClassReader
 	errRestoreClass     error
 	nodeName            string
 	lastNodeMapping     map[string]string
@@ -42,10 +45,6 @@ func (f *fakeSchemaManger) RestoreClass(ctx context.Context, desc *backup.ClassD
 	f.lastNodeMapping = nodeMapping
 	f.lastStripNamespaces = stripNamespaces
 	return f.errRestoreClass
-}
-
-func (f *fakeSchemaManger) NodeName() string {
-	return f.nodeName
 }
 
 func (f *fakeSchemaManger) NamespacesEnabled() bool {

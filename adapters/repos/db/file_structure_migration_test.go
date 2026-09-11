@@ -221,8 +221,9 @@ func testDB(t *testing.T, root string, classes []*models.Class, states map[strin
 	}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: classes}).Maybe()
 	return &DB{
-		config: Config{RootPath: root},
-		logger: logger,
+		localNodeName: "node1",
+		config:        Config{RootPath: root},
+		logger:        logger,
 		schemaGetter: &fakeMigrationSchemaGetter{
 			sch:    schema.Schema{Objects: &models.Schema{Classes: classes}},
 			states: states,

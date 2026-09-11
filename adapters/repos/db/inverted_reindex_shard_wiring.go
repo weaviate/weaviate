@@ -47,7 +47,7 @@ func (s *Shard) migrationUnit() string {
 	if s.index == nil || s.index.getSchema == nil {
 		return ""
 	}
-	return MigrationUnitID(s.name, s.index.getSchema.NodeName())
+	return MigrationUnitID(s.name, s.index.Config.NodeName)
 }
 
 func (s *Shard) migrationReconciler(class func() *models.Class) *migrationReconciler {

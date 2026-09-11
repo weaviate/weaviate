@@ -37,6 +37,7 @@ import (
 func newActivityTestIndex(className string, partitioningEnabled bool) *Index {
 	return &Index{
 		Config: IndexConfig{
+			NodeName:          "node1",
 			ClassName:         schema.ClassName(className),
 			ReplicationFactor: 1,
 		},
@@ -75,7 +76,7 @@ func newWarmActivityObserver(tenants int) (*nodeWideMetricsObserver, *Index, *DB
 	for i := 0; i < tenants; i++ {
 		col.shards.Store(fmt.Sprintf("tenant-%d", i), &Shard{})
 	}
-	db := &DB{logger: logger, indices: map[string]*Index{"Col1": col}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{"Col1": col}}
 	o := newNodeWideMetricsObserver(db)
 	o.observeActivity()
 	return o, col, db
@@ -84,7 +85,8 @@ func newWarmActivityObserver(tenants int) (*nodeWideMetricsObserver, *Index, *DB
 func TestShardActivity(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	db := &DB{
-		logger: logger,
+		localNodeName: "node1",
+		logger:        logger,
 		indices: map[string]*Index{
 			"Col1":  newActivityTestIndex("Col1", true),
 			"NonMT": newActivityTestIndex("NonMT", false),
@@ -218,8 +220,9 @@ func TestShardActivityAcrossCycles(t *testing.T) {
 	nonMT.shards.Store("shard1", &Shard{})
 
 	db := &DB{
-		logger:  logger,
-		indices: map[string]*Index{"Col1": col1, "Col2": col2, "NonMT": nonMT},
+		localNodeName: "node1",
+		logger:        logger,
+		indices:       map[string]*Index{"Col1": col1, "Col2": col2, "NonMT": nonMT},
 	}
 	o := newNodeWideMetricsObserver(db)
 
@@ -523,7 +526,7 @@ func TestShardActivityUsageIsIndependent(t *testing.T) {
 	col1.shards.Store("t1", &Shard{})
 	col1.shards.Store("t2", &Shard{})
 
-	db := &DB{logger: logger, indices: map[string]*Index{"Col1": col1}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{"Col1": col1}}
 	o := newNodeWideMetricsObserver(db)
 	o.observeActivity()
 
@@ -821,7 +824,7 @@ func TestShardActivityColdShard(t *testing.T) {
 	cold := newColdShard(col1, "t_cold")
 	col1.shards.Store("t_cold", cold)
 
-	db := &DB{logger: logger, indices: map[string]*Index{"Col1": col1}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{"Col1": col1}}
 	o := newNodeWideMetricsObserver(db)
 
 	t.Run("observing does not load it", func(t *testing.T) {
@@ -856,7 +859,7 @@ func TestShardActivityColdShardLoads(t *testing.T) {
 	cold := newColdShard(col1, "t_cold")
 	col1.shards.Store("t_cold", cold)
 
-	db := &DB{logger: logger, indices: map[string]*Index{"Col1": col1}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{"Col1": col1}}
 	o := newNodeWideMetricsObserver(db)
 	o.observeActivity()
 	require.NotContains(t, o.Usage(tenantactivity.UsageFilterOnlyReads)["Col1"], "t_cold")
@@ -881,7 +884,7 @@ func TestShardActivityLogging(t *testing.T) {
 	logger.SetLevel(logrus.DebugLevel)
 
 	col1 := newActivityTestIndex("Col1", true)
-	db := &DB{logger: logger, indices: map[string]*Index{"Col1": col1}}
+	db := &DB{localNodeName: "node1", logger: logger, indices: map[string]*Index{"Col1": col1}}
 	db.config.TenantActivityReadLogLevel = configRuntime.NewDynamicValue("info")
 	db.config.TenantActivityWriteLogLevel = configRuntime.NewDynamicValue("info")
 	o := newNodeWideMetricsObserver(db)

@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	clustermocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -31,9 +32,8 @@ func TestCuratedFields_Extraction(t *testing.T) {
 	sg := &fakeNodesStatusGetter{}
 	sm := schemaUC.NewMockSchemaGetter(t)
 	logger, _ := test.NewNullLogger()
-	tel := New(sg, sm, logger, "", 0, false, Config{NodeID: "node-abc", AsyncIndexingEnabled: true, ClusterID: func() string { return "00000000-0000-7000-0000-0000000000aa" }})
+	tel := New(sg, sm, clustermocks.NewMockNodeSelector("n1", "n2", "n3"), logger, "", 0, false, Config{NodeID: "node-abc", AsyncIndexingEnabled: true, ClusterID: func() string { return "00000000-0000-7000-0000-0000000000aa" }})
 
-	sm.EXPECT().Nodes().Return([]string{"n1", "n2", "n3"}).Maybe()
 	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 		&models.NodeStatus{Stats: &models.NodeStats{ObjectCount: 0}},
 	)
@@ -91,7 +91,7 @@ func TestUsedModules_NilModuleConfigFallback(t *testing.T) {
 	sg := &fakeNodesStatusGetter{}
 	sm := schemaUC.NewMockSchemaGetter(t)
 	logger, _ := test.NewNullLogger()
-	tel := New(sg, sm, logger, "", 0, false, Config{ClusterID: func() string { return "" }})
+	tel := New(sg, sm, clustermocks.NewMockNodeSelector("node1"), logger, "", 0, false, Config{ClusterID: func() string { return "" }})
 
 	classes := []*models.Class{
 		{
@@ -134,9 +134,8 @@ func TestCuratedFields_NodeCount(t *testing.T) {
 	sg := &fakeNodesStatusGetter{}
 	sm := schemaUC.NewMockSchemaGetter(t)
 	logger, _ := test.NewNullLogger()
-	tel := New(sg, sm, logger, "", 0, false, Config{ClusterID: func() string { return "" }})
+	tel := New(sg, sm, clustermocks.NewMockNodeSelector("a", "b"), logger, "", 0, false, Config{ClusterID: func() string { return "" }})
 
-	sm.EXPECT().Nodes().Return([]string{"a", "b"}).Maybe()
 	sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
 	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 		&models.NodeStatus{Stats: &models.NodeStats{}},
@@ -193,7 +192,7 @@ func TestCuratedFields_DefaultVectorIndexType(t *testing.T) {
 	sg := &fakeNodesStatusGetter{}
 	sm := schemaUC.NewMockSchemaGetter(t)
 	logger, _ := test.NewNullLogger()
-	tel := New(sg, sm, logger, "", 0, false, Config{ClusterID: func() string { return "" }})
+	tel := New(sg, sm, clustermocks.NewMockNodeSelector("node1"), logger, "", 0, false, Config{ClusterID: func() string { return "" }})
 
 	sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{
 		Objects: &models.Schema{
@@ -202,7 +201,6 @@ func TestCuratedFields_DefaultVectorIndexType(t *testing.T) {
 			},
 		},
 	}).Maybe()
-	sm.EXPECT().Nodes().Return([]string{"node1"}).Maybe()
 	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 		&models.NodeStatus{Stats: &models.NodeStats{}},
 	)

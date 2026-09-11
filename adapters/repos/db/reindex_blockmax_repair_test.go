@@ -139,7 +139,7 @@ func TestReconcileClassSearchableBlockmax_BackfillsResidualStamp(t *testing.T) {
 
 	p := &ReindexProvider{
 		logger:        logger,
-		db:            &DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
+		db:            &DB{localNodeName: "node1", indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
 		schemaManager: mgr,
 	}
 
@@ -206,7 +206,7 @@ func TestReconcileClassSearchableBlockmax_SeedsFromFinishedTaskWhileShardless(t 
 	// observation — the FINISHED task is the sole seeding evidence.
 	p := &ReindexProvider{
 		logger:        logger,
-		db:            &DB{indices: map[string]*Index{}},
+		db:            &DB{localNodeName: "node1", indices: map[string]*Index{}},
 		schemaManager: mgr,
 	}
 

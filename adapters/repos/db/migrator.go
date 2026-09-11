@@ -151,6 +151,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 	var lazyLoadShardEnabled bool
 	idx, err = NewIndex(ctx, m.db,
 		IndexConfig{
+			NodeName:                       m.db.localNodeName,
 			ClassName:                      schema.ClassName(class.Class),
 			RootPath:                       m.db.config.RootPath,
 			ResourceUsage:                  m.db.config.ResourceUsage,
@@ -444,7 +445,7 @@ func (m *Migrator) updateIndexTenants(ctx context.Context, idx *Index,
 func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 	incomingSS *sharding.State,
 ) error {
-	nodeName := m.db.schemaGetter.NodeName()
+	nodeName := m.db.localNodeName
 
 	// one tenant's failure must not skip the rest: Physical iterates in map
 	// order, so which tenants were reconciled would otherwise vary per run

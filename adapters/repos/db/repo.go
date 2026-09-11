@@ -153,6 +153,8 @@ type DB struct {
 	AsyncIndexingEnabled bool
 
 	tenantsManager schemaUC.TenantsActivityManager
+	// membership reports RAFT statistics for the node status.
+	membership cluster.RaftMembership
 
 	// usageLimits is propagated to each Index when it is created, so
 	// Shard.PutObject{,Batch} can call CheckObjects on the write path.
@@ -791,4 +793,8 @@ func (db *DB) SetBitmapBufPool(bufPool roaringset.BitmapBufPool, close func()) {
 
 func (db *DB) SetTenantsActivityManager(tenantsManager schemaUC.TenantsActivityManager) {
 	db.tenantsManager = tenantsManager
+}
+
+func (db *DB) SetRaftMembership(membership cluster.RaftMembership) {
+	db.membership = membership
 }

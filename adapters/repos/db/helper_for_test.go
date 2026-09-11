@@ -255,7 +255,7 @@ func installNoLiveReindexLookup(db *DB) {
 // build a bare &Index{} literal without going through New() or the
 // shard fixtures.
 func stubDBWithNoLiveReindex() *DB {
-	db := &DB{}
+	db := &DB{localNodeName: "node1"}
 	installNoLiveReindexLookup(db)
 	return db
 }
@@ -480,6 +480,7 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 
 	idx := &Index{
 		Config: IndexConfig{
+			NodeName:               "node1",
 			EnableLazyLoadShards:   true,
 			RootPath:               tmpDir,
 			ClassName:              schema.ClassName(class.Class),
@@ -626,7 +627,7 @@ func newTestIndex(t *testing.T, logger logrus.FieldLogger, className string,
 	t.Cleanup(closingCancel)
 
 	idx := &Index{
-		Config:        IndexConfig{ClassName: schema.ClassName(className)},
+		Config:        IndexConfig{NodeName: "node1", ClassName: schema.ClassName(className)},
 		logger:        logger,
 		schemaReader:  reader,
 		closingCtx:    closingCtx,

@@ -58,7 +58,8 @@ func testResourceDB(t *testing.T, diskROPercent, memROPercent uint64, shards map
 	}
 
 	return &DB{
-		logger: logger,
+		localNodeName: "node1",
+		logger:        logger,
 		config: Config{
 			ResourceUsage: config.ResourceUsage{
 				DiskUse: config.DiskUse{
@@ -612,7 +613,8 @@ func TestSetShardsReady_MultipleIndices(t *testing.T) {
 	idx2.shards.Store("shard2", shard2)
 
 	db := &DB{
-		logger: logger,
+		localNodeName: "node1",
+		logger:        logger,
 		config: Config{
 			ResourceUsage: config.ResourceUsage{
 				DiskUse: config.DiskUse{ReadOnlyPercentage: 90},

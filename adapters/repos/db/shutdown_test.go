@@ -457,6 +457,7 @@ func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			db := &DB{
+				localNodeName:             "node1",
 				logger:                    logger,
 				shutdown:                  make(chan struct{}, 1),
 				bitmapBufPoolClose:        func() {},
@@ -524,6 +525,7 @@ func TestIndexShutdownAbortsInFlightReader(t *testing.T) {
 func newShutdownTestDB(t *testing.T, logger *logrus.Logger, batchWorkers int) *DB {
 	t.Helper()
 	db := &DB{
+		localNodeName:       "node1",
 		shutdown:            make(chan struct{}),
 		logger:              logger,
 		bitmapBufPoolClose:  func() {},
@@ -603,6 +605,7 @@ func TestDBShutdownIdempotent(t *testing.T) {
 func TestShutdownSignalSurvivesDeadResourceScanner(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	db := &DB{
+		localNodeName:      "node1",
 		shutdown:           make(chan struct{}),
 		logger:             logger,
 		bitmapBufPoolClose: func() {},
