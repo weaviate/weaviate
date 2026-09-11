@@ -759,13 +759,7 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 
 	roles, err := h.controller.GetRoles(roleName)
 	if err != nil {
-		h.logger.WithFields(logrus.Fields{
-			"action":    "delete_role",
-			"component": authorization.ComponentName,
-			"user":      principal.Username,
-			"roleName":  roleName,
-		}).Info("role was already deleted")
-		return authz.NewDeleteRoleNoContent()
+		return authz.NewDeleteRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetRoles: %w", err)))
 	}
 
 	if err := h.authorizeRoleScopes(ctx, principal, authorization.DELETE, roles[roleName], roleName); err != nil {
