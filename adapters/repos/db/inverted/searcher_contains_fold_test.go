@@ -19,6 +19,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -54,8 +55,9 @@ type containsBatchFixture struct {
 	// which is the only point a test can observe what the fold holds at once.
 	// onRead fires before the fetch and so cannot.
 	onHold func()
-	// onRead, when set, runs after each read is recorded — the cancellation
-	// test uses it to cancel a context at a deterministic point in the fold.
+	// onRead, when set, runs after each read is recorded and outside the
+	// fixture's lock, so a hook may cancel a context, block until another worker
+	// reads, or read the fixture back.
 	onRead func(numReads int)
 }
 
@@ -137,8 +139,8 @@ func (r *spyContainsBatchReader) Next(mergeConc int) (*sroar.Bitmap, func(), err
 		s.reads = append(s.reads, string(r.keys.At(r.pos)))
 		numReads, onRead := len(s.reads), s.onRead
 		s.mu.Unlock()
-		// called outside the lock: it cancels a context, and a fold that
-		// re-entered the fixture from there would deadlock
+		// called outside the lock: a hook may cancel a context, block, or
+		// re-enter the fixture, and the last two deadlock under s.mu
 		if onRead != nil {
 			onRead(numReads)
 		}
@@ -1365,60 +1367,65 @@ func TestDocBitmapContainsBatch_ParallelContextCancelled(t *testing.T) {
 // stopped that way must not report the stop as a failure — a ContainsAll filter
 // that folds to nothing answers "no results", not "context canceled".
 //
-// The first worker empties after two reads while the second still has most of
-// a hundred-key share to walk, so the second is normally mid-loop when the
-// fetch is stopped. That is a timing expectation, not a guarantee: the second
-// worker's rows are small, and under a mutation of the exit it still finished
-// first on 2 runs in 30, so the second share's rows are sized to make the claim
-// unconditional rather than left to the scheduler.
+// The second worker must be inside a row when the first proves its own share
+// empty, or the exit has nothing to stop and the test says nothing about it.
+// holdReadsAbove puts it there.
 func TestDocBitmapContainsBatch_ParallelContainsAllEarlyExitIsNotAnError(t *testing.T) {
-	const numKeys = 200 // two shares of 100
+	synctest.Test(t, func(t *testing.T) {
+		// The row layout below puts every second-share row outside the first
+		// share, so this test holds only at two workers.
+		const perShare, workers = 100, 2
+		// readsToEmpty is where the first worker's share is provably empty: its
+		// first two keys are disjoint.
+		const readsToEmpty = 2
+		numKeys := perShare * workers
 
-	// The second worker's rows are wide enough that it cannot finish its share
-	// before the first stops it. Left to the scheduler the two race, and the
-	// assertion on what was left unread fails on correct code.
-	fat := make([]uint64, 200_000)
-	for i := range fat {
-		fat[i] = uint64(i)
-	}
-
-	keys := make([]string, numKeys)
-	rows := map[string][]uint64{}
-	for i := range keys {
-		keys[i] = fmt.Sprintf("k%03d", i)
-		if i < numKeys/2 {
-			rows[keys[i]] = []uint64{1, 2, 3}
-		} else {
-			rows[keys[i]] = fat
+		keys := make([]string, numKeys)
+		rows := map[string][]uint64{}
+		for i := range keys {
+			keys[i] = fmt.Sprintf("k%03d", i)
+			if i < perShare {
+				rows[keys[i]] = []uint64{1, 2, 3}
+			} else {
+				rows[keys[i]] = []uint64{5, 6} // worker 1 stays non-empty on its own
+			}
 		}
-	}
-	// the first worker's first two keys are disjoint, so its own share is
-	// provably empty two reads in
-	rows[keys[0]] = []uint64{1, 2}
-	rows[keys[1]] = []uint64{8, 9}
+		rows[keys[0]] = []uint64{1, 2}
+		rows[keys[1]] = []uint64{8, 9}
 
-	forceContainsWorkers(t, 2)
-	fixture := newContainsBatchFixture(t, context.Background(), rows)
-	pool := roaringset.NewBitmapBufPoolTrackingForTests()
-	s := newFoldSearcher(t, pool)
-	pv := &propValuePair{
-		operator:     filters.ContainsAll,
-		containsKeys: sortedKeysFromStrings(t, keys),
-	}
+		forceContainsWorkers(t, workers)
+		fixture := newContainsBatchFixture(t, context.Background(), rows)
 
-	dbm, _, err := s.docBitmapContainsBatch(t.Context(), fixture.source(t), pv)
-	require.NoError(t, err, "the fold stopping itself must not surface as a failed query")
-	require.Empty(t, dbm.docIDs.ToArray())
-	dbm.release()
+		// Blocking a worker inside a read cannot stall the other: each gets its
+		// own goroutine, and nothing limits how many run.
+		firstFatKey := keys[perShare]
+		rendezvous := holdReadsAbove(fixture, firstFatKey)
 
-	// At one core the workers run one after another, so the second finishes its
-	// share before the first can stop it — nothing left unread, without
-	// anything being wrong with the exit.
-	if concurrency.GOMAXPROCS > 1 {
-		require.Less(t, len(fixture.reads), numKeys,
-			"the early exit must have stopped a worker mid-share, which is the case under test")
-	}
-	requireNoLeakedRows(t, fixture, pool)
+		pool := roaringset.NewBitmapBufPoolTrackingForTests()
+		s := newFoldSearcher(t, pool)
+		pv := &propValuePair{
+			operator:     filters.ContainsAll,
+			containsKeys: sortedKeysFromStrings(t, keys),
+		}
+
+		dbm, _, err := s.docBitmapContainsBatch(t.Context(), fixture.source(t), pv)
+		require.NoError(t, err, "the fold stopping itself must not surface as a failed query")
+		require.Empty(t, dbm.docIDs.ToArray())
+		dbm.release()
+
+		require.Equal(t, readsToEmpty, rendezvous.readsBelow(),
+			"the first worker must stop reading its own share once it is provably empty")
+
+		fatReads := 0
+		for _, key := range fixture.reads {
+			if key >= firstFatKey {
+				fatReads++
+			}
+		}
+		require.Equal(t, 1, fatReads,
+			"the fold must stop the second worker after its first read")
+		requireNoLeakedRows(t, fixture, pool)
+	})
 }
 
 // TestDocBitmapContainsBatch_MemoryClampBoundsTheFold takes the clamp off the
@@ -1852,61 +1859,63 @@ func TestDocBitmapContainsBatch_CancelledAfterWorkers(t *testing.T) {
 // own share — so it only appears where the shares meet, and a fold that waited
 // for every worker before looking would read the whole batch to answer nothing.
 //
-// The third worker's share is long and its reads are slow, so it is certainly
-// still reading when the first two meet. What proves the exit fired is that the
-// batch was not fully read.
+// The third worker must be holding a row when the first two meet, or the exit
+// has nothing to stop and the test says nothing about it. holdReadsAbove puts
+// it there, and the count of its reads is what proves the exit fired.
 func TestDocBitmapContainsBatch_ParallelContainsAllStopsOnCrossShareEmpty(t *testing.T) {
-	const perShare, workers = 40, 3
-	numKeys := perShare * workers
+	synctest.Test(t, func(t *testing.T) {
+		const perShare, workers = 40, 3
+		numKeys := perShare * workers
 
-	// The last worker's rows are large enough that reading and intersecting them
-	// takes far longer than the first two shares take in total. Shares are equal
-	// in KEY count, so without that skew all three finish at once and there is
-	// nobody left to stop — which is the honest limit of this exit.
-	fat := make([]uint64, 200_000)
-	for i := range fat {
-		fat[i] = uint64(i)
-	}
-
-	keys := make([]string, numKeys)
-	rows := map[string][]uint64{}
-	for i := range keys {
-		keys[i] = fmt.Sprintf("k%03d", i)
-		switch i / perShare {
-		case 0:
-			rows[keys[i]] = []uint64{1, 2} // worker 0 intersects to {1,2}
-		case 1:
-			rows[keys[i]] = []uint64{3, 4} // worker 1 to {3,4} — disjoint from it
-		default:
-			rows[keys[i]] = fat // worker 2 stays non-empty, and slow
+		keys := make([]string, numKeys)
+		rows := map[string][]uint64{}
+		for i := range keys {
+			keys[i] = fmt.Sprintf("k%03d", i)
+			switch i / perShare {
+			case 0:
+				rows[keys[i]] = []uint64{1, 2} // worker 0 intersects to {1,2}
+			case 1:
+				rows[keys[i]] = []uint64{3, 4} // worker 1 to {3,4} — disjoint from it
+			default:
+				rows[keys[i]] = []uint64{5, 6} // worker 2 stays non-empty on its own
+			}
 		}
-	}
 
-	forceContainsWorkers(t, workers)
-	fixture := newContainsBatchFixture(t, context.Background(), rows)
+		forceContainsWorkers(t, workers)
+		fixture := newContainsBatchFixture(t, context.Background(), rows)
 
-	pool := roaringset.NewBitmapBufPoolTrackingForTests()
-	s := newFoldSearcher(t, pool)
-	pv := &propValuePair{
-		operator:     filters.ContainsAll,
-		containsKeys: sortedKeysFromStrings(t, keys),
-	}
+		// Blocking a worker inside a read cannot stall the others: each gets its
+		// own goroutine, and nothing limits how many run.
+		firstFatKey := keys[perShare*(workers-1)]
+		rendezvous := holdReadsAbove(fixture, firstFatKey)
 
-	dbm, _, err := s.docBitmapContainsBatch(t.Context(), fixture.source(t), pv)
-	require.NoError(t, err)
-	require.Empty(t, dbm.docIDs.ToArray())
-	dbm.release()
+		pool := roaringset.NewBitmapBufPoolTrackingForTests()
+		s := newFoldSearcher(t, pool)
+		pv := &propValuePair{
+			operator:     filters.ContainsAll,
+			containsKeys: sortedKeysFromStrings(t, keys),
+		}
 
-	// Only where the workers can actually overlap. On a single-processor run
-	// they are interleaved rather than parallel, and the worker still reading
-	// runs to the end of its share before the goroutine that cancelled it is
-	// scheduled again — so the whole batch is read and the exit has stopped
-	// nothing, without anything being wrong with the exit.
-	if concurrency.GOMAXPROCS > 1 {
-		require.Less(t, len(fixture.reads), numKeys,
-			"the shares meeting empty must stop the workers still reading")
-	}
-	requireNoLeakedRows(t, fixture, pool)
+		dbm, _, err := s.docBitmapContainsBatch(t.Context(), fixture.source(t), pv)
+		require.NoError(t, err)
+		require.Empty(t, dbm.docIDs.ToArray())
+		dbm.release()
+
+		// Both small shares read out is what makes the empty result the two shares
+		// meeting rather than one share emptying alone — the fold's other exit.
+		require.Equal(t, perShare*(workers-1), rendezvous.readsBelow(),
+			"both small shares must be read out, or the exit that fired is not the one under test")
+
+		fatReads := 0
+		for _, key := range fixture.reads {
+			if key >= firstFatKey {
+				fatReads++
+			}
+		}
+		require.Equal(t, 1, fatReads,
+			"the shares meeting empty must stop the third worker after its first read")
+		requireNoLeakedRows(t, fixture, pool)
+	})
 }
 
 // keysFrom builds a [entsInverted.SortedKeys] from literal keys so tests can
@@ -2626,6 +2635,74 @@ func forceContainsAccumulatorGate(tb testing.TB, gate int) {
 	old := containsAccumulatorMinKeysPerWorker
 	containsAccumulatorMinKeysPerWorker = gate
 	tb.Cleanup(func() { containsAccumulatorMinKeysPerWorker = old })
+}
+
+// TestSpyContainsBatchReader_ReadHookRunsBeforeTheFetch pins what separates the
+// fixture's two hooks: onRead runs before the row is fetched, onHold after it.
+// A hook that blocks therefore parks its worker holding a row under onHold and
+// holding nothing under onRead, which is the difference their docs promise.
+func TestSpyContainsBatchReader_ReadHookRunsBeforeTheFetch(t *testing.T) {
+	fixture := newContainsBatchFixture(t, context.Background(),
+		map[string][]uint64{"k000": {1, 2}})
+
+	held := int64(-1)
+	fixture.onRead = func(int) { held = fixture.pool.Outstanding() }
+
+	reader := fixture.reader(t, sortedKeysFromStrings(t, []string{"k000"}))
+	_, release, err := reader.Next(concurrency.SROAR_MERGE)
+	require.NoError(t, err)
+	release()
+
+	require.Zero(t, held,
+		"the hook must see no row outstanding, or it parks its worker holding one")
+}
+
+// readRendezvous reports what holdReadsAbove observed, once the fold has
+// returned and every worker it drove has stopped.
+type readRendezvous struct {
+	mu    sync.Mutex
+	below int
+}
+
+// readsBelow counts the rows asked for under the boundary key.
+func (r *readRendezvous) readsBelow() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.below
+}
+
+// holdReadsAbove parks a worker reading a key at or above boundary inside that
+// read until every other worker has settled, and holds the workers below it
+// until one has arrived. A test asserting on what an exit stopped needs a
+// worker still reading when the exit fires, and which side gets there first is
+// otherwise the scheduler's to decide.
+//
+// Callers must run under synctest: the wait above the boundary ends on the
+// runtime reporting every other goroutine durably blocked, so what the workers
+// below it still had to do — their last read, its merge, the merge of their
+// shares — is ordered rather than outrun. A gate that never opens is a bubble
+// deadlock, which panics naming this test.
+func holdReadsAbove(fixture *containsBatchFixture, boundary string) *readRendezvous {
+	r := &readRendezvous{}
+	arrived := make(chan struct{})
+	var arrivedOnce sync.Once
+
+	fixture.onRead = func(numReads int) {
+		fixture.mu.Lock()
+		key := fixture.reads[numReads-1]
+		fixture.mu.Unlock()
+
+		if key >= boundary {
+			arrivedOnce.Do(func() { close(arrived) })
+			synctest.Wait()
+			return
+		}
+		<-arrived
+		r.mu.Lock()
+		r.below++
+		r.mu.Unlock()
+	}
+	return r
 }
 
 // requireNoLeakedRows asserts the fold released every row it was handed and
