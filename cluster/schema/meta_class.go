@@ -132,7 +132,7 @@ func (m *metaClass) ShardReplicas(shard string) ([]string, uint64, error) {
 	return slices.Clone(x.BelongsToNodes), m.version(), nil
 }
 
-// TenantsShards returns shard name for the provided tenant and its activity status
+// TenantsShardsStatus returns shard name for the provided tenant and its activity status
 func (m *metaClass) TenantsShardsStatus(class string, tenants ...string) (map[string]string, uint64) {
 	m.RLock()
 	defer m.RUnlock()
