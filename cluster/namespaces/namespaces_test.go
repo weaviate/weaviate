@@ -35,14 +35,32 @@ func newTestManager(t *testing.T) *Manager {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
-	return NewManager(usecasesNamespaces.NewController(logger), stubLeftovers{}, nil, nil, logger)
+	return NewManager(usecasesNamespaces.NewController(logger), stubLeftovers{}, nil, nil, nil, logger)
 }
 
-func newTestManagerWithLeftovers(t *testing.T, schema SchemaNamespaceLister, dynusers DynusersNamespaceLister, rbac RBACNamespaceLister) *Manager {
+func newTestManagerWithLeftovers(t *testing.T, schema SchemaNamespaceLister, dynusers DynusersNamespaceLister, rbac RBACNamespaceLister, metrics NamespaceMetricsDeleter) *Manager {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 	logger.SetLevel(logrus.DebugLevel)
-	return NewManager(usecasesNamespaces.NewController(logger), schema, dynusers, rbac, logger)
+	return NewManager(usecasesNamespaces.NewController(logger), schema, dynusers, rbac, metrics, logger)
+}
+
+// recordingDeleter records the namespaces whose metric series were dropped, in
+// call order.
+type recordingDeleter struct {
+	deleted []string
+}
+
+func (r *recordingDeleter) DeleteNamespace(namespace string) {
+	r.deleted = append(r.deleted, namespace)
+}
+
+// newTestManagerWithDeleter builds a Manager whose leftover lookups report
+// nothing, with a recording deleter attached.
+func newTestManagerWithDeleter(t *testing.T) (*Manager, *recordingDeleter) {
+	t.Helper()
+	deleter := &recordingDeleter{}
+	return newTestManagerWithLeftovers(t, stubLeftovers{}, nil, nil, deleter), deleter
 }
 
 func addCmd(t *testing.T, name string) *cmd.ApplyRequest {
@@ -126,7 +144,7 @@ func TestNewManager_RequiredArgsPanic(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			assert.Panics(t, func() {
-				NewManager(tc.controller, tc.schema, nil, nil, logger)
+				NewManager(tc.controller, tc.schema, nil, nil, nil, logger)
 			})
 		})
 	}
@@ -215,19 +233,29 @@ func TestManager_RemoveEntity(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newTestManager(t)
+			m, deleter := newTestManagerWithDeleter(t)
 			seedNamespace(t, m, "customer1", tc.seedState)
 
 			err := m.RemoveEntity(removeEntityCmd(t, "customer1"))
 			if tc.wantErr != nil {
 				require.Error(t, err)
 				assert.ErrorIs(t, err, tc.wantErr)
+				assert.Empty(t, deleter.deleted, "a refused removal must keep the metric series")
 				return
 			}
 			require.NoError(t, err)
 			assert.False(t, mExists(m, "customer1"))
+			assert.Equal(t, []string{"customer1"}, deleter.deleted)
 		})
 	}
+
+	t.Run("nil deleter is tolerated", func(t *testing.T) {
+		m := newTestManager(t)
+		seedNamespace(t, m, "customer1", cmd.NamespaceStateDeleting)
+
+		require.NoError(t, m.RemoveEntity(removeEntityCmd(t, "customer1")))
+		assert.False(t, mExists(m, "customer1"))
+	})
 }
 
 // stubLeftovers is a leftovers reader stub.
@@ -268,7 +296,8 @@ func TestManager_RemoveEntity_Leftovers(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newTestManagerWithLeftovers(t, tc.leftovers, tc.leftovers, tc.rbac)
+			deleter := &recordingDeleter{}
+			m := newTestManagerWithLeftovers(t, tc.leftovers, tc.leftovers, tc.rbac, deleter)
 			require.NoError(t, m.Add(addCmd(t, "customer1")))
 			require.NoError(t, m.ChangeState(changeStateCmd(t, "customer1", cmd.NamespaceStateDeleting, seedIndex, 0)))
 
@@ -276,10 +305,12 @@ func TestManager_RemoveEntity_Leftovers(t *testing.T) {
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
 				assert.True(t, mExists(m, "customer1"), "namespace must remain when leftovers block removal")
+				assert.Empty(t, deleter.deleted, "a refused removal must keep the metric series")
 				return
 			}
 			require.NoError(t, err)
 			assert.False(t, mExists(m, "customer1"))
+			assert.Equal(t, []string{"customer1"}, deleter.deleted)
 		})
 	}
 }
@@ -359,5 +390,75 @@ func TestManager_Get(t *testing.T) {
 		_, err := m.Get(&cmd.QueryRequest{SubCommand: []byte("not-json")})
 		require.Error(t, err)
 		assert.ErrorIs(t, err, usecasesNamespaces.ErrBadRequest)
+	})
+}
+
+// snapshotOf serializes the given namespaces in the shape Controller.Restore
+// accepts: a single home node and an explicit state.
+func snapshotOf(t *testing.T, names ...string) []byte {
+	t.Helper()
+	out := make(map[string]*cmd.Namespace, len(names))
+	for _, name := range names {
+		out[name] = &cmd.Namespace{
+			Name:      name,
+			HomeNodes: []string{"node-1"},
+			State:     cmd.NamespaceStateActive,
+		}
+	}
+	payload, err := json.Marshal(out)
+	require.NoError(t, err)
+	return payload
+}
+
+// A follower that lagged past log compaction installs a snapshot instead of
+// applying the removal entries, so Restore is the only place it learns that a
+// namespace is gone.
+func TestManager_Restore(t *testing.T) {
+	t.Run("restore deletes series of namespaces absent from the snapshot", func(t *testing.T) {
+		m, deleter := newTestManagerWithDeleter(t)
+		require.NoError(t, m.Add(addCmd(t, "customer1")))
+		require.NoError(t, m.Add(addCmd(t, "customer2")))
+
+		require.NoError(t, m.Restore(snapshotOf(t, "customer2")))
+
+		assert.Equal(t, []string{"customer1"}, deleter.deleted)
+		assert.False(t, mExists(m, "customer1"))
+	})
+
+	t.Run("restore keeps series of namespaces present in the snapshot", func(t *testing.T) {
+		m, deleter := newTestManagerWithDeleter(t)
+		require.NoError(t, m.Add(addCmd(t, "customer1")))
+
+		require.NoError(t, m.Restore(snapshotOf(t, "customer1", "customer2")))
+
+		assert.Empty(t, deleter.deleted)
+		assert.True(t, mExists(m, "customer2"), "a namespace the snapshot adds is installed")
+	})
+
+	t.Run("an empty snapshot deletes every namespace's series", func(t *testing.T) {
+		m, deleter := newTestManagerWithDeleter(t)
+		require.NoError(t, m.Add(addCmd(t, "customer1")))
+
+		require.NoError(t, m.Restore(nil))
+
+		assert.Equal(t, []string{"customer1"}, deleter.deleted)
+	})
+
+	t.Run("failed restore calls no deleter", func(t *testing.T) {
+		m, deleter := newTestManagerWithDeleter(t)
+		require.NoError(t, m.Add(addCmd(t, "customer1")))
+
+		require.Error(t, m.Restore([]byte("not-json")))
+
+		assert.Empty(t, deleter.deleted)
+		assert.True(t, mExists(m, "customer1"), "a rejected snapshot leaves state untouched")
+	})
+
+	t.Run("nil deleter is tolerated", func(t *testing.T) {
+		m := newTestManager(t)
+		require.NoError(t, m.Add(addCmd(t, "customer1")))
+
+		require.NoError(t, m.Restore(snapshotOf(t, "customer2")))
+		assert.False(t, mExists(m, "customer1"))
 	})
 }

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"os"
 	"reflect"
 	"runtime"
 	"slices"
@@ -23,13 +24,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 
 	"github.com/weaviate/weaviate/entities/tenantactivity"
 )
@@ -946,4 +953,233 @@ func TestShardActivityLogging(t *testing.T) {
 			require.Equal(t, cycle.want, logged)
 		})
 	}
+}
+
+// newDimensionObserver builds an observer over the process-global vecs with
+// grouping set per case. Group is flipped on a value copy, never on the
+// shared global.
+func newDimensionObserver(group bool) *nodeWideMetricsObserver {
+	promMetrics := *monitoring.GetMetrics()
+	promMetrics.Group = group
+	return &nodeWideMetricsObserver{db: &DB{promMetrics: &promMetrics}}
+}
+
+// dimensionGaugesOf reads both dimension gauges by label name. sendVectorDimensions
+// writes them positionally, so a reordered label set in the vec definition sends
+// the write to a series this read cannot find.
+func dimensionGaugesOf(t *testing.T, className, shardName, namespace string) (dims, segs float64) {
+	t.Helper()
+	labels := prometheus.Labels{
+		"class_name":           className,
+		"shard_name":           shardName,
+		"collection_namespace": namespace,
+	}
+	promMetrics := monitoring.GetMetrics()
+	dim, err := promMetrics.VectorDimensionsSum.GetMetricWith(labels)
+	require.NoError(t, err)
+	seg, err := promMetrics.VectorSegmentsSum.GetMetricWith(labels)
+	require.NoError(t, err)
+	return testutil.ToFloat64(dim), testutil.ToFloat64(seg)
+}
+
+func TestSendVectorDimensions(t *testing.T) {
+	t.Run("ungrouped shard carries class namespace", func(t *testing.T) {
+		o := newDimensionObserver(false)
+
+		o.sendVectorDimensions("ns_a:Send", "shard1", "ns_a", DimensionMetrics{Uncompressed: 20, Compressed: 4})
+
+		dims, segs := dimensionGaugesOf(t, "ns_a:Send", "shard1", "ns_a")
+		assert.Equal(t, 20.0, dims)
+		assert.Equal(t, 4.0, segs)
+
+		dims, segs = dimensionGaugesOf(t, "ns_a:Send", "shard1", "")
+		assert.Zero(t, dims, "the namespace must not also land on the empty label")
+		assert.Zero(t, segs)
+	})
+
+	t.Run("unqualified class carries empty namespace", func(t *testing.T) {
+		o := newDimensionObserver(false)
+
+		o.sendVectorDimensions("SendPlain", "shard1", "", DimensionMetrics{Uncompressed: 12})
+
+		dims, _ := dimensionGaugesOf(t, "SendPlain", "shard1", "")
+		assert.Equal(t, 12.0, dims)
+	})
+
+	t.Run("the grouped empty bucket carries n/a class and shard", func(t *testing.T) {
+		o := newDimensionObserver(true)
+
+		o.sendVectorDimensions("n/a", "n/a", "", DimensionMetrics{Uncompressed: 64, Compressed: 8})
+
+		dims, segs := dimensionGaugesOf(t, "n/a", "n/a", "")
+		assert.Equal(t, 64.0, dims)
+		assert.Equal(t, 8.0, segs)
+	})
+}
+
+// newObjectCountIndex builds an index whose shards report fixed object counts.
+// The observer checks a shard's directory before reading it, so each shard gets
+// a real one under the index path.
+func newObjectCountIndex(t *testing.T, rootPath, className string, shardCounts map[string]int64) *Index {
+	t.Helper()
+
+	index := &Index{
+		Config: IndexConfig{
+			ClassName: schema.ClassName(className),
+			RootPath:  rootPath,
+		},
+		namespace:        namespacing.NamespaceFromQualified(className),
+		closingCtx:       context.Background(),
+		shards:           shardMap{},
+		shardCreateLocks: esync.NewKeyRWLocker(),
+	}
+	index.closeRequestedCtx, index.signalCloseRequested = context.WithCancelCause(context.Background())
+	index.allShardsReady.Store(true)
+
+	for name, count := range shardCounts {
+		require.NoError(t, os.MkdirAll(shardPath(index.path(), name), os.ModePerm))
+		shard := NewMockShardLike(t)
+		shard.EXPECT().ObjectCountAsync(mock.Anything).Return(count, nil).Maybe()
+		index.shards.Store(name, shard)
+	}
+	return index
+}
+
+// takeGroupedSeries deletes every grouped series from these vecs, and its
+// cleanup deletes them again after the test. The vecs are process-global, so
+// without it a grouped series left behind by another test would join the
+// caller's series-set assertion.
+// Per-class series are untouched: grouping only ever writes class_name "n/a".
+func takeGroupedSeries(t *testing.T, vecs ...*prometheus.GaugeVec) {
+	t.Helper()
+
+	reset := func() {
+		for _, vec := range vecs {
+			vec.DeletePartialMatch(prometheus.Labels{"class_name": "n/a"})
+		}
+	}
+	reset()
+	t.Cleanup(reset)
+}
+
+// newObjectCountObserver returns a grouped observer over the indices, writing to
+// the process-global vec. Group is flipped on a value copy, never on the shared
+// global.
+func newGroupedObjectCountObserver(t *testing.T, indices ...*Index) *nodeWideMetricsObserver {
+	t.Helper()
+
+	takeGroupedSeries(t, monitoring.GetMetrics().ObjectCount)
+
+	promMetrics := *monitoring.GetMetrics()
+	promMetrics.Group = true
+
+	byID := make(map[string]*Index, len(indices))
+	for _, index := range indices {
+		byID[index.ID()] = index
+	}
+	logger, _ := test.NewNullLogger()
+	return newNodeWideMetricsObserver(&DB{logger: logger, promMetrics: &promMetrics, indices: byID})
+}
+
+// groupedGaugeValues reads a gauge's grouped series by namespace. It reports
+// which series exist, which a value read cannot: reading a label set creates
+// the series when it is absent.
+func groupedGaugeValues(t *testing.T, vec *prometheus.GaugeVec) map[string]float64 {
+	t.Helper()
+
+	// Collect sends on the channel and returns only once it is done, so the
+	// receive has to run beside it. These vecs are process-global and carry every
+	// series the package's other tests minted, which no fixed buffer can hold.
+	ch := make(chan prometheus.Metric, 64)
+	go func() {
+		vec.Collect(ch)
+		close(ch)
+	}()
+
+	counts := map[string]float64{}
+	for metric := range ch {
+		var m dto.Metric
+		// A failed Write must not end the goroutine: the producer holds the vec's
+		// read lock until the channel is drained.
+		if !assert.NoError(t, metric.Write(&m)) {
+			continue
+		}
+		labels := make(map[string]string, len(m.GetLabel()))
+		for _, label := range m.GetLabel() {
+			labels[label.GetName()] = label.GetValue()
+		}
+		if labels["class_name"] != "n/a" {
+			continue
+		}
+		counts[labels["collection_namespace"]] = m.GetGauge().GetValue()
+	}
+	return counts
+}
+
+func groupedObjectCounts(t *testing.T) map[string]float64 {
+	t.Helper()
+	return groupedGaugeValues(t, monitoring.GetMetrics().ObjectCount)
+}
+
+func TestObserveObjectCountPerNamespace(t *testing.T) {
+	t.Run("one series per namespace plus the empty bucket", func(t *testing.T) {
+		root := t.TempDir()
+		o := newGroupedObjectCountObserver(t,
+			newObjectCountIndex(t, root, "ns_a:Docs", map[string]int64{"shard1": 3}),
+			newObjectCountIndex(t, root, "ns_a:Notes", map[string]int64{"shard1": 2}),
+			newObjectCountIndex(t, root, "ns_b:Docs", map[string]int64{"shard1": 5, "shard2": 1}))
+
+		o.observeObjectCount()
+
+		// No node total is published: the total is the sum over the namespaces,
+		// the same figure the single grouped series used to carry.
+		assert.Equal(t, map[string]float64{"": 0, "ns_a": 5, "ns_b": 6}, groupedObjectCounts(t))
+	})
+
+	t.Run("classes without a namespace land on the empty bucket", func(t *testing.T) {
+		root := t.TempDir()
+		o := newGroupedObjectCountObserver(t,
+			newObjectCountIndex(t, root, "Docs", map[string]int64{"shard1": 4}))
+
+		o.observeObjectCount()
+
+		assert.Equal(t, map[string]float64{"": 4}, groupedObjectCounts(t))
+	})
+
+	t.Run("the empty bucket is published by a node holding no indices", func(t *testing.T) {
+		o := newGroupedObjectCountObserver(t)
+
+		o.observeObjectCount()
+
+		assert.Equal(t, map[string]float64{"": 0}, groupedObjectCounts(t))
+	})
+
+	t.Run("a namespace whose last index is dropped loses its series", func(t *testing.T) {
+		root := t.TempDir()
+		nsA := newObjectCountIndex(t, root, "ns_a:Docs", map[string]int64{"shard1": 3})
+		o := newGroupedObjectCountObserver(t, nsA,
+			newObjectCountIndex(t, root, "ns_b:Docs", map[string]int64{"shard1": 5}))
+
+		o.observeObjectCount()
+		require.Equal(t, map[string]float64{"": 0, "ns_a": 3, "ns_b": 5}, groupedObjectCounts(t))
+
+		delete(o.db.indices, nsA.ID())
+		o.observeObjectCount()
+
+		assert.Equal(t, map[string]float64{"": 0, "ns_b": 5}, groupedObjectCounts(t),
+			"a namespace left behind at its last count would be billed forever")
+	})
+
+	t.Run("a pass with a shard still loading publishes nothing", func(t *testing.T) {
+		root := t.TempDir()
+		loading := newObjectCountIndex(t, root, "ns_a:Docs", map[string]int64{"shard1": 3})
+		loading.allShardsReady.Store(false)
+		o := newGroupedObjectCountObserver(t, loading,
+			newObjectCountIndex(t, root, "ns_b:Docs", map[string]int64{"shard1": 5}))
+
+		o.observeObjectCount()
+
+		assert.Empty(t, groupedObjectCounts(t),
+			"a partial count is worse than none, for every namespace")
+	})
 }

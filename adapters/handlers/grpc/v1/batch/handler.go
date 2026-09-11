@@ -58,6 +58,7 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	}
 	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
+	restCtx.SetBatchNamespace(ctx, namespacing.ConfinedNamespace(principal))
 	ctx = classcache.ContextWithClassCache(ctx)
 
 	// we need to save the class two times:
