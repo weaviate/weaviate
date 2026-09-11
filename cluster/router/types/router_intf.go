@@ -13,6 +13,8 @@ package types
 
 import (
 	"fmt"
+
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 // Router defines the contract for determining routing plans for reads and writes
@@ -102,21 +104,9 @@ type Router interface {
 	//   - error: if an error occurs while building the routing plan.
 	BuildReadRoutingPlan(params RoutingPlanBuildOptions) (ReadRoutingPlan, error)
 
-	// NodeHostname returns the hostname for a given node name.
-	//
-	// Parameters:
-	//   - nodeName: the name of the node to get the hostname for.
-	//
-	// Returns:
-	//   - hostname: the hostname of the node.
-	//   - ok: true if the hostname was found, false if the node name is unknown or unregistered.
-	NodeHostname(nodeName string) (string, bool)
+	cluster.HostnameResolver
 
-	// AllHostnames returns all known hostnames in the cluster.
-	//
-	// Returns:
-	//   - hostnames: a slice of all known hostnames; always returns a valid slice, possibly empty.
-	AllHostnames() []string
+	cluster.HostnameLister
 }
 
 // Replica represents a single replica in the system, containing enough information

@@ -187,15 +187,7 @@ type ClassPayload struct {
 
 type clusterState interface {
 	cluster.NodeSelector
-	// Hostnames initializes a broadcast
-	Hostnames() []string
-
-	// AllNames initializes shard distribution across nodes
-	AllNames() []string
-	NodeCount() int
-
-	// ClusterHealthScore gets the whole cluster health, the lower number the better
-	ClusterHealthScore() int
+	cluster.MemberLister
 
 	SchemaSyncIgnored() bool
 	SkipSchemaRepair() bool

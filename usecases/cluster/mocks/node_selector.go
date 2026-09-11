@@ -65,6 +65,10 @@ func (m memberlist) AllHostnames() []string {
 	return m.nodes
 }
 
+func (m memberlist) AllNames() []string {
+	return m.nodes
+}
+
 func (m memberlist) NodeAddress(name string) string {
 	for _, node := range m.nodes {
 		if node == name {
