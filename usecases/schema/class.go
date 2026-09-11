@@ -81,7 +81,7 @@ func (h *Handler) GetConsistentClass(ctx context.Context, principal *models.Prin
 	}
 
 	if consistency {
-		vclasses, err := h.schemaManager.QueryReadOnlyClasses(name)
+		vclasses, err := h.schemaManager.ReadOnlyClassesFromLeader(name)
 		return vclasses[name].Class, vclasses[name].Version, err
 	}
 	class, err := h.schemaReader.ReadOnlyClassWithVersion(ctx, name, 0)
@@ -199,7 +199,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 			countNamespace = principal.Namespace
 		}
 
-		existingCollectionsCount, err := h.schemaManager.QueryCollectionsCount(countNamespace)
+		existingCollectionsCount, err := h.schemaManager.CollectionsCountFromLeader(countNamespace)
 		if err != nil {
 			h.logger.WithField("namespace", countNamespace).Errorf("could not query the collections count: %v", err)
 		}
@@ -287,7 +287,7 @@ func rejectExplicitMultiShardOnNamespacedClass(shardingConfig any) error {
 // [namespace.home_node] so every shard pins to that one node.
 func (h *Handler) namespaceCandidates(qualifiedClass string) ([]string, error) {
 	if !h.config.Namespaces.Enabled {
-		return h.schemaManager.StorageCandidates(), nil
+		return h.membership.StorageCandidates(), nil
 	}
 	ns := namespacing.NamespaceFromQualified(qualifiedClass)
 	if ns == "" {
@@ -301,7 +301,7 @@ func (h *Handler) namespaceCandidates(qualifiedClass string) ([]string, error) {
 	if homeNode == "" {
 		return nil, fmt.Errorf("namespace %q has no home_node; refusing placement", ns)
 	}
-	candidates := h.schemaManager.StorageCandidates()
+	candidates := h.membership.StorageCandidates()
 	if !slices.Contains(candidates, homeNode) {
 		return nil, fmt.Errorf("namespace %q home_node %q is not a current storage candidate", ns, homeNode)
 	}
@@ -523,7 +523,7 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	// removal slip past the escalation. A failed leader read fails CLOSED —
 	// require the stronger scope rather than guess.
 	reference := initial.VectorConfig
-	if vclasses, err := h.schemaManager.QueryReadOnlyClasses(className); err != nil {
+	if vclasses, err := h.schemaManager.ReadOnlyClassesFromLeader(className); err != nil {
 		if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Collections(className)...); err != nil {
 			return fmt.Errorf("cannot verify the update against the schema leader; the drop endpoint's scope is required: %w", err)
 		}
@@ -608,7 +608,7 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 	initial := h.schemaReader.ReadOnlyClass(className)
 
 	if err := rejectVectorIndexTypeNone(initial, updated); err != nil {
-		vclasses, qErr := h.schemaManager.QueryReadOnlyClasses(className)
+		vclasses, qErr := h.schemaManager.ReadOnlyClassesFromLeader(className)
 		if qErr != nil {
 			return err
 		}

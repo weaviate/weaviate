@@ -513,7 +513,7 @@ func TestGetAliases_WithNonExistentClass(t *testing.T) {
 		handler.schemaReader = fakeSchemaManagerWithReader
 
 		// Mock GetAliases to return aliases
-		fakeSchemaManager.On("GetAliases", ctx, "", expectedClass).Return(expectedAliases, nil)
+		fakeSchemaManager.On("AliasesFromLeader", ctx, "", expectedClass).Return(expectedAliases, nil)
 
 		// Call GetAliases with a class filter that exists
 		aliases, err := handler.GetAliases(ctx, nil, "", "ExistingClass")

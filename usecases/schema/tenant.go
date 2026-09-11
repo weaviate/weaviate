@@ -73,7 +73,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 	if dv := h.config.UsageLimits.MaxTenantsPerCollection; dv != nil {
 		cap := dv.Get()
 		if cap >= 0 {
-			existing, _, err := h.schemaManager.QueryTenants(class, nil)
+			existing, _, err := h.schemaManager.TenantsFromLeader(class, nil)
 			if err != nil {
 				return 0, fmt.Errorf("count tenants for limit check: %w", err)
 			}
@@ -292,7 +292,7 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 		return nil, err
 	}
 	if consistency {
-		allTenants, _, err = h.schemaManager.QueryTenants(class, tenants)
+		allTenants, _, err = h.schemaManager.TenantsFromLeader(class, tenants)
 	} else {
 		// If non consistent, fallback to the default implementation
 		allTenants, err = h.getTenantsByNames(class, tenants)
@@ -329,7 +329,7 @@ func (h *Handler) GetConsistentTenant(ctx context.Context, principal *models.Pri
 
 	tenants := []string{tenant}
 	if consistency {
-		allTenants, _, err = h.schemaManager.QueryTenants(class, tenants)
+		allTenants, _, err = h.schemaManager.TenantsFromLeader(class, tenants)
 	} else {
 		// If non consistent, fallback to the default implementation
 		allTenants, err = h.getTenantsByNames(class, tenants)
@@ -372,7 +372,7 @@ func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.
 
 	var tenants []*models.Tenant
 	if consistency {
-		tenants, _, err = h.schemaManager.QueryTenants(class, []string{tenant})
+		tenants, _, err = h.schemaManager.TenantsFromLeader(class, []string{tenant})
 	} else {
 		// If non consistent, fallback to the default implementation
 		tenants, err = h.getTenantsByNames(class, []string{tenant})
