@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -118,7 +119,9 @@ func (prs *commitlogParserRoaringSet) parseNode(reader io.Reader) error {
 	}
 
 	segment := roaringset.NewSegmentNodeFromBuffer(segBuf)
-	key := segment.PrimaryKey()
+	// PrimaryKey is a window into segBuf and roaringSetAddRemoveSlices keeps the
+	// slice it is given, so an uncopied key holds the whole record.
+	key := bytes.Clone(segment.PrimaryKey())
 
 	if err := prs.consume(key, segment.Additions().ToArray(), segment.Deletions().ToArray()); err != nil {
 		return fmt.Errorf("consume segment additions/deletions: %w", err)
@@ -141,7 +144,7 @@ func (prs *commitlogParserRoaringSet) parseNodeList(reader io.Reader) error {
 	}
 
 	segment := roaringset.NewSegmentNodeListFromBuffer(segBuf)
-	key := segment.PrimaryKey()
+	key := bytes.Clone(segment.PrimaryKey())
 	if err := prs.consume(key, segment.Additions(), segment.Deletions()); err != nil {
 		return errors.Wrap(err, "add/remove bitmaps")
 	}

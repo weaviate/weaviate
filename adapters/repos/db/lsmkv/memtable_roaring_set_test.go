@@ -12,12 +12,15 @@
 package lsmkv
 
 import (
+	"errors"
+	"fmt"
 	"path"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
@@ -263,4 +266,187 @@ func TestMemtableRoaringSet(t *testing.T) {
 
 		require.Nil(t, m.commitlog.close())
 	})
+}
+
+// TestMemtableRoaringSetSize pins Size() as the emptiness predicate
+// atomicallySwitchMemtable and Memtable.flush read it as.
+func TestMemtableRoaringSetSize(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	newRoaringSetMemtable := func(t *testing.T, cl memtableCommitLogger) *Memtable {
+		m, err := newMemtable(cl, nil, logger, nil, memtableConfig{
+			path:     path.Join(t.TempDir(), "fake"),
+			strategy: StrategyRoaringSet,
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, m.commitlog.close()) })
+		return m
+	}
+	newRoaringSetCommitLog := func(t *testing.T) memtableCommitLogger {
+		cl, err := newCommitLogger(path.Join(t.TempDir(), "fake"), StrategyRoaringSet, 0)
+		require.NoError(t, err)
+		return cl
+	}
+
+	key := []byte("key1")
+
+	t.Run("a write carrying no doc IDs leaves the memtable empty", func(t *testing.T) {
+		writes := []struct {
+			name  string
+			write func(m *Memtable) error
+		}{
+			{"add list", func(m *Memtable) error { return m.roaringSetAddList(key, nil) }},
+			{"add bitmap", func(m *Memtable) error { return m.roaringSetAddBitmap(key, sroar.NewBitmap()) }},
+			{"remove list", func(m *Memtable) error { return m.roaringSetRemoveList(key, nil) }},
+			{"remove bitmap", func(m *Memtable) error { return m.roaringSetRemoveBitmap(key, sroar.NewBitmap()) }},
+			{"add and remove slices", func(m *Memtable) error {
+				return m.roaringSetAddRemoveSlices(key, nil, nil)
+			}},
+			{"add batch", func(m *Memtable) error {
+				return m.roaringSetAddBatch([]RoaringSetBatchEntry{{Key: key}})
+			}},
+			{"remove batch", func(m *Memtable) error {
+				return m.roaringSetRemoveBatch([]RoaringSetBatchEntry{{Key: key}})
+			}},
+		}
+
+		for _, w := range writes {
+			t.Run(w.name, func(t *testing.T) {
+				m := newRoaringSetMemtable(t, newRoaringSetCommitLog(t))
+
+				require.NoError(t, w.write(m))
+
+				assert.Zero(t, m.Size())
+				// a zero Size alone would not rule out a node left behind by a
+				// write that returned before roaringSetAdjustMeta ran
+				assert.Empty(t, m.roaringSet.FlattenInOrder())
+				assert.Zero(t, m.DirtyDuration(),
+					"a memtable holding nothing cannot be switched, so the dirty "+
+						"timer would only wake the flush cycle to be refused")
+			})
+		}
+	})
+
+	t.Run("a tombstone alone makes the memtable non-empty", func(t *testing.T) {
+		m := newRoaringSetMemtable(t, newRoaringSetCommitLog(t))
+
+		require.NoError(t, m.roaringSetRemoveOne(key, 7))
+
+		assert.Greater(t, m.Size(), uint64(0),
+			"a memtable read as empty is skipped, resurrecting the deleted doc")
+		assert.Len(t, m.roaringSet.FlattenInOrder(), 1)
+	})
+
+	t.Run("an empty entry in a batch creates no node for its key", func(t *testing.T) {
+		m := newRoaringSetMemtable(t, newRoaringSetCommitLog(t))
+
+		require.NoError(t, m.roaringSetAddBatch([]RoaringSetBatchEntry{
+			{Key: []byte("key1"), Values: []uint64{1}},
+			{Key: []byte("key2")},
+			{Key: []byte("key3"), Values: []uint64{3}},
+		}))
+
+		assert.Len(t, m.roaringSet.FlattenInOrder(), 2)
+	})
+
+	t.Run("rewriting doc IDs already present does not grow the size", func(t *testing.T) {
+		m := newRoaringSetMemtable(t, newRoaringSetCommitLog(t))
+		require.NoError(t, m.roaringSetAddList(key, []uint64{1, 2, 3}))
+		sizeAfterFirstWrite := m.Size()
+
+		for i := 0; i < 100; i++ {
+			require.NoError(t, m.roaringSetAddList(key, []uint64{1, 2, 3}))
+		}
+
+		assert.Equal(t, sizeAfterFirstWrite, m.Size())
+	})
+
+	t.Run("a batch stopped by the commit log reports what it wrote", func(t *testing.T) {
+		entries := []RoaringSetBatchEntry{
+			{Key: []byte("key1"), Values: []uint64{1}},
+			{Key: []byte("key2"), Values: []uint64{2}},
+			{Key: []byte("key3"), Values: []uint64{3}},
+		}
+		batches := []struct {
+			name  string
+			write func(m *Memtable, entries []RoaringSetBatchEntry) error
+		}{
+			{"add batch", func(m *Memtable, entries []RoaringSetBatchEntry) error {
+				return m.roaringSetAddBatch(entries)
+			}},
+			{"remove batch", func(m *Memtable, entries []RoaringSetBatchEntry) error {
+				return m.roaringSetRemoveBatch(entries)
+			}},
+		}
+
+		for _, batch := range batches {
+			for _, accepted := range []int{0, 2} {
+				t.Run(fmt.Sprintf("%s, %d entries accepted", batch.name, accepted), func(t *testing.T) {
+					stopped := newRoaringSetMemtable(t, &commitLogRefusingAfter{limit: accepted})
+					require.Error(t, batch.write(stopped, entries))
+
+					// what a memtable that was asked for only the accepted entries holds
+					complete := newRoaringSetMemtable(t, newRoaringSetCommitLog(t))
+					require.NoError(t, batch.write(complete, entries[:accepted]))
+
+					assert.Len(t, stopped.roaringSet.FlattenInOrder(), accepted)
+					assert.Equal(t, complete.Size(), stopped.Size())
+					if accepted > 0 {
+						assert.NotZero(t, stopped.Size(),
+							"the entries the commit log accepted are in the tree")
+						return
+					}
+					assert.Zero(t, stopped.DirtyDuration(),
+						"a memtable nothing reached must not be marked dirty, or every "+
+							"later flush cycle takes the flush lock to switch nothing")
+				})
+			}
+		}
+	})
+
+	// a tripwire on sroar rather than something the readers of Size() depend on:
+	// every node costs nodeFixedSizeInBytes, so a zero still means no nodes even
+	// if a release started shrinking bitmap buffers on Remove
+	t.Run("size never decreases", func(t *testing.T) {
+		m := newRoaringSetMemtable(t, newRoaringSetCommitLog(t))
+		docIDs := make([]uint64, 1024)
+		for i := range docIDs {
+			docIDs[i] = uint64(i)
+		}
+
+		steps := []struct {
+			name  string
+			write func(m *Memtable) error
+		}{
+			{"add many", func(m *Memtable) error { return m.roaringSetAddList(key, docIDs) }},
+			{"remove all but one", func(m *Memtable) error { return m.roaringSetRemoveList(key, docIDs[1:]) }},
+			{"remove the last one", func(m *Memtable) error { return m.roaringSetRemoveList(key, docIDs[:1]) }},
+			{"add one back", func(m *Memtable) error { return m.roaringSetAddOne(key, docIDs[0]) }},
+			{"remove doc IDs never added", func(m *Memtable) error {
+				return m.roaringSetRemoveList(key, []uint64{1 << 40, 1 << 41})
+			}},
+		}
+
+		previous := m.Size()
+		for _, step := range steps {
+			require.NoError(t, step.write(m))
+			assert.GreaterOrEqual(t, m.Size(), previous, step.name)
+			previous = m.Size()
+		}
+	})
+}
+
+// commitLogRefusingAfter refuses the add past limit nodes.
+type commitLogRefusingAfter struct {
+	dummyCommitLogger
+	limit    int
+	accepted int
+}
+
+func (c *commitLogRefusingAfter) add(node *roaringset.SegmentNodeList) error {
+	if c.accepted >= c.limit {
+		return errors.New("commit log refused the node")
+	}
+	c.accepted++
+	return nil
 }

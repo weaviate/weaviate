@@ -988,9 +988,7 @@ func TestBatchReaderStatsReportTheWork(t *testing.T) {
 
 // TestBatchReaderSkipsAnEmptyActiveMemtable pins the constructor's skip of an
 // active memtable whose size is zero: such rows add and delete nothing, so
-// the answer must match the per-key path, which does not skip it. A write
-// carrying no values (or a commit-log replay with both slices empty) builds a
-// node but leaves size at zero.
+// the answer must match the per-key path, which does not skip it.
 func TestBatchReaderSkipsAnEmptyActiveMemtable(t *testing.T) {
 	t.Parallel()
 
@@ -1031,12 +1029,13 @@ func TestBatchReaderSkipsAnEmptyActiveMemtable(t *testing.T) {
 				"ccc": bitmapFromSlice([]uint64{3}),
 			})
 
-			// Written through the write path, so size and tree disagree exactly as
-			// they would in a bucket: nodes for two keys, size still at zero.
+			// written through the write path, so the fixture reaches the state the
+			// way a bucket does
 			active := newTestMemtableRoaringSet(map[string][]uint64{})
 			require.NoError(t, active.roaringSetAddList([]byte("aaa"), []uint64{}))
 			require.NoError(t, active.roaringSetAddList([]byte("ccc"), []uint64{}))
 			require.Zero(t, active.Size(), "the fixture must reach the state the skip is about")
+			require.Empty(t, active.roaringSet.FlattenInOrder())
 
 			b := &Bucket{
 				strategy: StrategyRoaringSet,

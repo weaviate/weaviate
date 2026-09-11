@@ -41,7 +41,7 @@ func (m *Memtable) roaringSetAddList(key []byte, values []uint64) error {
 
 	m.roaringSet.Insert(key, roaringset.Insert{Additions: values})
 
-	m.roaringSetAdjustMeta(len(values))
+	m.roaringSetAdjustMeta()
 	return nil
 }
 
@@ -66,19 +66,15 @@ func (m *Memtable) roaringSetAddBatch(entries []RoaringSetBatchEntry) error {
 	m.Lock()
 	defer m.Unlock()
 
-	var insertedValues int
 	for i, node := range nodes {
 		if err := m.roaringSetAddCommitLog(node); err != nil {
-			if insertedValues > 0 {
-				m.roaringSetAdjustMeta(insertedValues)
-			}
+			m.roaringSetAdjustMeta()
 			return err
 		}
 		m.roaringSet.Insert(entries[i].Key, roaringset.Insert{Additions: entries[i].Values})
-		insertedValues += len(entries[i].Values)
 	}
 
-	m.roaringSetAdjustMeta(insertedValues)
+	m.roaringSetAdjustMeta()
 	return nil
 }
 
@@ -92,7 +88,6 @@ func (m *Memtable) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 	if err != nil {
 		return fmt.Errorf("create node for commit log: %w", err)
 	}
-	cardinality := bm.GetCardinality()
 
 	m.Lock()
 	defer m.Unlock()
@@ -103,7 +98,7 @@ func (m *Memtable) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 
 	m.roaringSet.Insert(key, roaringset.Insert{Additions: array})
 
-	m.roaringSetAdjustMeta(cardinality)
+	m.roaringSetAdjustMeta()
 	return nil
 }
 
@@ -130,7 +125,7 @@ func (m *Memtable) roaringSetRemoveList(key []byte, values []uint64) error {
 
 	m.roaringSet.Insert(key, roaringset.Insert{Deletions: values})
 
-	m.roaringSetAdjustMeta(len(values))
+	m.roaringSetAdjustMeta()
 	return nil
 }
 
@@ -155,19 +150,15 @@ func (m *Memtable) roaringSetRemoveBatch(entries []RoaringSetBatchEntry) error {
 	m.Lock()
 	defer m.Unlock()
 
-	var deletedValues int
 	for i, node := range nodes {
 		if err := m.roaringSetAddCommitLog(node); err != nil {
-			if deletedValues > 0 {
-				m.roaringSetAdjustMeta(deletedValues)
-			}
+			m.roaringSetAdjustMeta()
 			return err
 		}
 		m.roaringSet.Insert(entries[i].Key, roaringset.Insert{Deletions: entries[i].Values})
-		deletedValues += len(entries[i].Values)
 	}
 
-	m.roaringSetAdjustMeta(deletedValues)
+	m.roaringSetAdjustMeta()
 	return nil
 }
 
@@ -181,7 +172,7 @@ func (m *Memtable) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error {
 	if err != nil {
 		return fmt.Errorf("create node for commit log: %w", err)
 	}
-	cardinality := bm.GetCardinality()
+
 	m.Lock()
 	defer m.Unlock()
 
@@ -191,7 +182,7 @@ func (m *Memtable) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error {
 
 	m.roaringSet.Insert(key, roaringset.Insert{Deletions: array})
 
-	m.roaringSetAdjustMeta(cardinality)
+	m.roaringSetAdjustMeta()
 	return nil
 }
 
@@ -217,7 +208,7 @@ func (m *Memtable) roaringSetAddRemoveSlices(key []byte, additions []uint64, del
 		Deletions: deletions,
 	})
 
-	m.roaringSetAdjustMeta(len(additions) + len(deletions))
+	m.roaringSetAdjustMeta()
 	return nil
 }
 
@@ -233,13 +224,16 @@ func (m *Memtable) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 	return m.roaringSet.Get(key)
 }
 
-func (m *Memtable) roaringSetAdjustMeta(entriesChanged int) {
-	// in the worst case roaring bitmaps take 2 bytes per entry. A reasonable
-	// estimation is therefore to take the changed entries and multiply them by
-	// 2.
-	m.size += uint64(entriesChanged * 2)
+// roaringSetAdjustMeta reads m.size back off the tree's running total, so the
+// two cannot drift. It is the only writer of m.size on this strategy.
+func (m *Memtable) roaringSetAdjustMeta() {
+	m.size = m.roaringSet.SizeInBytes()
 	m.metrics.observeSize(m.size)
-	m.updateDirtyAt()
+	// a memtable holding nothing cannot be switched, so the dirty timer would
+	// only wake the flush cycle to be refused
+	if m.size > 0 {
+		m.updateDirtyAt()
+	}
 }
 
 func (m *Memtable) roaringSetAddCommitLog(node *roaringset.SegmentNodeList) error {
