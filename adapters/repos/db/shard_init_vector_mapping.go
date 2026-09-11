@@ -119,23 +119,42 @@ func (s *Shard) commitVectorIndexRecords(records map[string]vectorIndexRecord, i
 		if initialized && rec.State == vectorIndexStateReady {
 			continue
 		}
-		err := s.syncVectorIndexRecordStorage(name, rec)
-		if err != nil {
-			return err
-		}
-		rec.State = vectorIndexStateReady
-		records[name] = rec
-		if initialized {
-			err = s.mapping.Put(name, rec)
+		if !initialized {
+			err := s.syncVectorIndexRecordStorage(name, rec)
 			if err != nil {
 				return err
 			}
+			rec.State = vectorIndexStateReady
+			records[name] = rec
+			continue
+		}
+		err := s.markVectorIndexReady(name, rec)
+		if err != nil {
+			return err
 		}
 	}
 	if initialized {
 		return nil
 	}
 	return s.mapping.Initialize(records)
+}
+
+// markVectorIndexCreating records that name's index is about to be built at
+// rec.PhysicalID. A crash from here on leaves a record the next load resumes.
+func (s *Shard) markVectorIndexCreating(name string, rec vectorIndexRecord) error {
+	rec.State = vectorIndexStateCreating
+	return s.mapping.Put(name, rec)
+}
+
+// markVectorIndexReady makes rec's directories durable, then records the
+// index as ready.
+func (s *Shard) markVectorIndexReady(name string, rec vectorIndexRecord) error {
+	err := s.syncVectorIndexRecordStorage(name, rec)
+	if err != nil {
+		return err
+	}
+	rec.State = vectorIndexStateReady
+	return s.mapping.Put(name, rec)
 }
 
 // vectorIndexConfigsByStorage splits the schema's vectors, the legacy one
