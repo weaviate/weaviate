@@ -293,17 +293,17 @@ func TestDropVectorIndex_DeletesTheMappingRecord(t *testing.T) {
 	ctx := testCtx()
 	shard, class := setupDropVectorShard(t, ctx)
 
-	foo := vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}
-	mv := vectorIndexRecord{PhysicalID: "vectors_mv", IndexType: "hnsw", State: "ready"}
-	require.NoError(t, shard.mapping.Initialize(map[string]vectorIndexRecord{"foo": foo, "mv": mv}))
-
+	// the first load recorded every vector; the drop takes only foo's record
 	markDropped(class, "foo")
 	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
 
 	records, initialized, err := shard.mapping.Load()
 	require.NoError(t, err)
 	assert.True(t, initialized)
-	assert.Equal(t, map[string]vectorIndexRecord{"mv": mv}, records)
+	assert.Equal(t, map[string]vectorIndexRecord{
+		"":   {PhysicalID: "main", IndexType: "hnsw", State: "ready"},
+		"mv": {PhysicalID: "vectors_mv", IndexType: "hnsw", State: "ready"},
+	}, records)
 
 	// a retried drop still succeeds
 	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
@@ -314,6 +314,7 @@ func TestDropVectorIndex_DeletesTheMappingRecord(t *testing.T) {
 func TestDropVectorIndex_UninitializedMapping(t *testing.T) {
 	ctx := testCtx()
 	shard, class := setupDropVectorShard(t, ctx)
+	wipeMapping(t, shard)
 
 	markDropped(class, "foo")
 	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
@@ -324,13 +325,27 @@ func TestDropVectorIndex_UninitializedMapping(t *testing.T) {
 	assert.Empty(t, records)
 }
 
+// wipeMapping removes every key of the shard's mapping namespace, the way an
+// older backup restores it.
+func wipeMapping(t *testing.T, shard *Shard) {
+	t.Helper()
+	ns := shard.metadataDB.Namespace(vectorIndexMappingNamespace)
+	var keys [][]byte
+	require.NoError(t, ns.ForEach(func(key, _ []byte) error {
+		keys = append(keys, key)
+		return nil
+	}))
+	for _, key := range keys {
+		require.NoError(t, ns.Delete(key))
+	}
+}
+
 // The completion sweep errors on a shard shutting down instead of going
 // offline: the shard still holds index.db locked while its references drain.
 func TestDropVectorIndex_CompletionSweepRefusesAShardShuttingDown(t *testing.T) {
 	ctx := testCtx()
 	shard, class := setupDropVectorShard(t, ctx)
 	foo := vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}
-	require.NoError(t, shard.mapping.Initialize(map[string]vectorIndexRecord{"foo": foo}))
 	markDropped(class, "foo")
 
 	shard.shutdownRequested.Store(true)
@@ -342,7 +357,7 @@ func TestDropVectorIndex_CompletionSweepRefusesAShardShuttingDown(t *testing.T) 
 
 	records, _, err := shard.mapping.Load()
 	require.NoError(t, err)
-	assert.Equal(t, map[string]vectorIndexRecord{"foo": foo}, records, "nothing was swept, so the record stays for the retry")
+	assert.Equal(t, foo, records["foo"], "nothing was swept, so the record stays for the retry")
 }
 
 // An unload has left the map but not yet shut down: the sweep waits on the
@@ -352,8 +367,6 @@ func TestDropVectorIndex_CompletionSweepRefusesAShardShuttingDown(t *testing.T) 
 func TestDropVectorIndex_CompletionSweepWaitsForAnUnload(t *testing.T) {
 	ctx := testCtx()
 	shard, class := setupDropVectorShard(t, ctx)
-	foo := vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}
-	require.NoError(t, shard.mapping.Initialize(map[string]vectorIndexRecord{"foo": foo}))
 	markDropped(class, "foo")
 	idx := shard.index
 
@@ -386,11 +399,13 @@ func TestDropVectorIndex_CompletionSweepWaitsForAnUnload(t *testing.T) {
 		t.Fatal("the sweep did not run after the unload")
 	}
 
-	// the record was deleted offline
+	// foo's record was deleted offline, the others stay
 	records, initialized, err := reopenMapping(t, shard.path())
 	require.NoError(t, err)
 	assert.True(t, initialized)
-	assert.Empty(t, records)
+	_, hasFoo := records["foo"]
+	assert.False(t, hasFoo)
+	assert.Len(t, records, 2)
 }
 
 // reopenMapping reads a shut-down shard's mapping through a fresh handle.
