@@ -334,6 +334,9 @@ type Config struct {
 	// only be enabled on newly bootstrapped clusters (enforced at startup).
 	Namespaces Namespaces `json:"namespaces" yaml:"namespaces"`
 
+	// Configuration options for the batch streaming logic, e.g. soft memory backpressure.
+	BatchStream BatchStream `json:"batch_stream" yaml:"batch_stream"`
+
 	// Usage configuration for the usage module
 	Usage usagetypes.UsageConfig `json:"usage" yaml:"usage"`
 
@@ -928,6 +931,51 @@ func (b BackupGCS) Validate() error {
 		return nil
 	}
 	return validateBackupGCSConnPool(b.GRPCConnPool, "backup_gcs.grpc_conn_pool")
+}
+
+const (
+	DefaultBatchStreamGateRatio   = 0.9
+	DefaultBatchStreamEngageRatio = 0.5
+	DefaultBatchStreamMaxAckDelay = 2 * time.Second
+	DefaultBatchStreamHoldSeconds = 30
+)
+
+// BatchStream configures the backpressure the BatchStream receiver applies to a
+// client.
+type BatchStream struct {
+	// GateRatio is the fraction of GOMEMLIMIT at which live heap stops a message
+	// being admitted. It is the threshold of the batch stream's own memory
+	// monitor, and the top of the ack delay curve.
+	GateRatio float64 `json:"gate_ratio" yaml:"gate_ratio"`
+
+	// EngageRatio is the live heap ratio below which acks are not delayed.
+	// Between it and GateRatio the delay grows convexly to MaxAckDelay. A
+	// GateRatio at or below it disables the delay entirely.
+	EngageRatio float64 `json:"engage_ratio" yaml:"engage_ratio"`
+
+	// MaxAckDelay is the ack delay applied at and above GateRatio.
+	MaxAckDelay time.Duration `json:"max_ack_delay" yaml:"max_ack_delay"`
+
+	// HoldSeconds bounds how long a receiver waits for memory after a failed
+	// admission check before it fails the stream.
+	HoldSeconds int `json:"hold_seconds" yaml:"hold_seconds"`
+}
+
+// WithDefaults returns b with each zero field replaced by its default.
+func (b BatchStream) WithDefaults() BatchStream {
+	if b.GateRatio == 0 {
+		b.GateRatio = DefaultBatchStreamGateRatio
+	}
+	if b.EngageRatio == 0 {
+		b.EngageRatio = DefaultBatchStreamEngageRatio
+	}
+	if b.MaxAckDelay == 0 {
+		b.MaxAckDelay = DefaultBatchStreamMaxAckDelay
+	}
+	if b.HoldSeconds == 0 {
+		b.HoldSeconds = DefaultBatchStreamHoldSeconds
+	}
+	return b
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided

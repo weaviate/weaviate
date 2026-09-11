@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -526,4 +527,25 @@ func TestConfigValidation_Namespaces(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBatchStreamDefaults(t *testing.T) {
+	t.Run("a zero struct fills every default", func(t *testing.T) {
+		require.Equal(t, BatchStream{
+			GateRatio:   DefaultBatchStreamGateRatio,
+			EngageRatio: DefaultBatchStreamEngageRatio,
+			MaxAckDelay: DefaultBatchStreamMaxAckDelay,
+			HoldSeconds: DefaultBatchStreamHoldSeconds,
+		}, BatchStream{}.WithDefaults())
+	})
+
+	t.Run("set fields survive", func(t *testing.T) {
+		set := BatchStream{
+			GateRatio:   0.75,
+			EngageRatio: 0.25,
+			MaxAckDelay: 500 * time.Millisecond,
+			HoldSeconds: 5,
+		}
+		require.Equal(t, set, set.WithDefaults())
+	})
 }

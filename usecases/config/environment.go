@@ -723,6 +723,10 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if err := config.parseBatchStreamConfig(); err != nil {
+		return err
+	}
+
 	if v := os.Getenv("ORIGIN"); v != "" {
 		config.Origin = v
 	}
@@ -2393,6 +2397,40 @@ func (c *Config) parseBackupGCSConfig() error {
 		func(val int) { c.BackupGCS.GRPCConnPool = val },
 		validateBackupGCSConnPool); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (c *Config) parseBatchStreamConfig() error {
+	if err := parsePercentage("BATCH_STREAM_GATE_RATIO",
+		func(val float64) { c.BatchStream.GateRatio = val },
+		c.BatchStream.GateRatio); err != nil {
+		return err
+	}
+
+	if err := parsePercentage("BATCH_STREAM_ENGAGE_RATIO",
+		func(val float64) { c.BatchStream.EngageRatio = val },
+		c.BatchStream.EngageRatio); err != nil {
+		return err
+	}
+
+	if err := parsePositiveDuration("BATCH_STREAM_MAX_ACK_DELAY",
+		func(val time.Duration) { c.BatchStream.MaxAckDelay = val },
+		c.BatchStream.MaxAckDelay); err != nil {
+		return err
+	}
+
+	if err := parsePositiveInt("BATCH_STREAM_HOLD_SECONDS",
+		func(val int) { c.BatchStream.HoldSeconds = val },
+		c.BatchStream.HoldSeconds); err != nil {
+		return err
+	}
+
+	c.BatchStream = c.BatchStream.WithDefaults()
+	if c.BatchStream.GateRatio <= c.BatchStream.EngageRatio {
+		return fmt.Errorf("BATCH_STREAM_GATE_RATIO (%v) must be above BATCH_STREAM_ENGAGE_RATIO (%v)",
+			c.BatchStream.GateRatio, c.BatchStream.EngageRatio)
 	}
 
 	return nil
