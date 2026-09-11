@@ -30,15 +30,16 @@ type restoreDocNoopBucketView struct{}
 
 func (n *restoreDocNoopBucketView) ReleaseView() {}
 
-func TestRestoreDocMappingsWithMissingBucket(t *testing.T) {
-	rootPath := t.TempDir()
-	store := testinghelpers.NewDummyStore(t)
+// newRestoreDocMappingsIndex builds the multivector index shared by the
+// TestRestoreDocMappings* tests.
+func newRestoreDocMappingsIndex(t *testing.T) *hnsw {
+	t.Helper()
 
 	uc := ent.UserConfig{}
 	uc.Multivector.Enabled = true
 
 	index, err := New(Config{
-		RootPath:              rootPath,
+		RootPath:              t.TempDir(),
 		ID:                    "doc-mappings",
 		MakeCommitLoggerThunk: MakeNoopCommitLogger,
 		DistanceProvider:      distancer.NewL2SquaredProvider(),
@@ -50,11 +51,16 @@ func TestRestoreDocMappingsWithMissingBucket(t *testing.T) {
 			return nil, nil
 		},
 		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
-	}, uc, cyclemanager.NewCallbackGroupNoop(), store)
+	}, uc, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	require.Nil(t, err)
 
-	assert.Nil(t, err)
+	return index
+}
 
-	err = index.AddMulti(context.Background(), 1, [][]float32{{1, 2, 3}})
+func TestRestoreDocMappingsWithMissingBucket(t *testing.T) {
+	index := newRestoreDocMappingsIndex(t)
+
+	err := index.AddMulti(context.Background(), 1, [][]float32{{1, 2, 3}})
 	assert.Nil(t, err)
 
 	newStore := testinghelpers.NewDummyStore(t)
@@ -65,30 +71,9 @@ func TestRestoreDocMappingsWithMissingBucket(t *testing.T) {
 }
 
 func TestRestoreDocMappingsWithNilData(t *testing.T) {
-	rootPath := t.TempDir()
-	store := testinghelpers.NewDummyStore(t)
+	index := newRestoreDocMappingsIndex(t)
 
-	uc := ent.UserConfig{}
-	uc.Multivector.Enabled = true
-
-	index, err := New(Config{
-		RootPath:              rootPath,
-		ID:                    "doc-mappings",
-		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewL2SquaredProvider(),
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-			return nil, nil
-		},
-		GetViewThunk: func() common.BucketView { return &restoreDocNoopBucketView{} },
-		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
-			return nil, nil
-		},
-		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
-	}, uc, cyclemanager.NewCallbackGroupNoop(), store)
-
-	assert.Nil(t, err)
-
-	err = index.AddMulti(context.Background(), 1, [][]float32{{1, 2, 3}})
+	err := index.AddMulti(context.Background(), 1, [][]float32{{1, 2, 3}})
 	assert.Nil(t, err)
 	err = index.AddMulti(context.Background(), 2, [][]float32{{4, 5, 6}, {7, 8, 9}})
 	assert.Nil(t, err)
@@ -120,29 +105,9 @@ func TestRestoreDocMappingsWithNilData(t *testing.T) {
 // it the entrypoint dangles forever: nodes[ep] is nil but no tombstone means
 // no cleanup path ever looks at it.
 func TestRestoreDocMappingsTombstonesRemovedEntrypoint(t *testing.T) {
-	rootPath := t.TempDir()
-	store := testinghelpers.NewDummyStore(t)
+	index := newRestoreDocMappingsIndex(t)
 
-	uc := ent.UserConfig{}
-	uc.Multivector.Enabled = true
-
-	index, err := New(Config{
-		RootPath:              rootPath,
-		ID:                    "doc-mappings",
-		MakeCommitLoggerThunk: MakeNoopCommitLogger,
-		DistanceProvider:      distancer.NewL2SquaredProvider(),
-		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-			return nil, nil
-		},
-		GetViewThunk: func() common.BucketView { return &restoreDocNoopBucketView{} },
-		TempVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([]float32, error) {
-			return nil, nil
-		},
-		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
-	}, uc, cyclemanager.NewCallbackGroupNoop(), store)
-	require.Nil(t, err)
-
-	err = index.AddMulti(context.Background(), 1, [][]float32{{1, 2, 3}})
+	err := index.AddMulti(context.Background(), 1, [][]float32{{1, 2, 3}})
 	require.Nil(t, err)
 	err = index.AddMulti(context.Background(), 2, [][]float32{{4, 5, 6}})
 	require.Nil(t, err)
