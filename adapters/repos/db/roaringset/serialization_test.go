@@ -13,6 +13,7 @@ package roaringset
 
 import (
 	"bytes"
+	"fmt"
 	"math"
 	"testing"
 	"unsafe"
@@ -213,29 +214,32 @@ func TestSerialization_UnhappyPath(t *testing.T) {
 
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "key too long")
+		assert.Contains(t, err.Error(), fmt.Sprintf("%d bytes", math.MaxUint32+3),
+			"the message must report the length it compared, not only the limit")
 	})
 }
 
-func TestSerialization_KeyIndexAndWriteTo(t *testing.T) {
+// TestSerialization_WrittenNodeParsesBackAtItsOffset writes a node past a
+// prefix, the way both writers place one after the header and the nodes before
+// it, and reads it back from where it landed.
+func TestSerialization_WrittenNodeParsesBackAtItsOffset(t *testing.T) {
 	buf := &bytes.Buffer{}
-	offset := 7
-	// write some dummy data, so we have an offset
-	buf.Write(make([]byte, offset))
+	start := 7
+	// dummy prefix, so the node does not begin at zero
+	buf.Write(make([]byte, start))
 
 	additions := NewBitmap(1, 2, 3, 4, 6)
 	deletions := NewBitmap(5, 7)
 	key := []byte("my-key")
 
 	sn, err := NewSegmentNode(key, additions, deletions)
-	require.Nil(t, err)
+	require.NoError(t, err)
 
-	keyIndex, err := sn.KeyIndexAndWriteTo(buf, offset)
-	require.Nil(t, err)
+	n, err := buf.Write(sn.ToBuffer())
+	require.NoError(t, err)
 
 	res := buf.Bytes()
-	assert.Equal(t, keyIndex.ValueEnd, len(res))
-
-	newSN := NewSegmentNodeFromBuffer(res[keyIndex.ValueStart:keyIndex.ValueEnd])
+	newSN := NewSegmentNodeFromBuffer(res[start : start+n])
 	newAdditions := newSN.Additions()
 	assert.True(t, newAdditions.Contains(4))
 	assert.False(t, newAdditions.Contains(5))
@@ -255,8 +259,25 @@ func TestNewSegmentNodeCompactedMatchesNewSegmentNode(t *testing.T) {
 		key       []byte
 		additions []uint64
 		deletions []uint64
+		// An empty slice still yields a non-nil bitmap, so nil is asked for
+		// rather than inferred. cleanupValues hands the encoder a literal nil
+		// deletions on every root-level compaction.
+		nilAdditions bool
+		nilDeletions bool
 	}{
 		{name: "both empty", key: []byte("k")},
+		{
+			name:         "nil deletions beside additions",
+			key:          []byte("k"),
+			additions:    slice(0, 100),
+			nilDeletions: true,
+		},
+		{
+			name:         "both nil",
+			key:          []byte("k"),
+			nilAdditions: true,
+			nilDeletions: true,
+		},
 		{name: "additions only", key: []byte("k"), additions: slice(0, 100)},
 		{name: "deletions only", key: []byte("k"), deletions: slice(0, 100)},
 		{
@@ -279,8 +300,13 @@ func TestNewSegmentNodeCompactedMatchesNewSegmentNode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			additions := NewBitmap(tt.additions...).Compacted()
-			deletions := NewBitmap(tt.deletions...).Compacted()
+			var additions, deletions *sroar.Bitmap
+			if !tt.nilAdditions {
+				additions = NewBitmap(tt.additions...).Compacted()
+			}
+			if !tt.nilDeletions {
+				deletions = NewBitmap(tt.deletions...).Compacted()
+			}
 
 			want, err := NewSegmentNode(tt.key, additions, deletions)
 			require.NoError(t, err)
@@ -314,6 +340,8 @@ func TestNewSegmentNodeCompactedMatchesNewSegmentNode(t *testing.T) {
 		_, _, err := NewSegmentNodeCompacted(make([]byte, math.MaxUint32+1),
 			NewBitmap(1), NewBitmap(), nil)
 		require.ErrorContains(t, err, "key too long")
+		require.ErrorContains(t, err, fmt.Sprintf("%d bytes", math.MaxUint32+1),
+			"the message must report the length it compared, not only the limit")
 	})
 }
 
@@ -339,7 +367,7 @@ func TestNewSegmentNodeCompactedReusesTheBuffer(t *testing.T) {
 			b.ReportAllocs()
 			for i := 0; i < b.N; i++ {
 				node, out, err := NewSegmentNodeCompacted([]byte("k"), additions, NewBitmap(), buf)
-				if err != nil || node == nil {
+				if err != nil || node.Len() == 0 {
 					b.Fatal(err)
 				}
 				buf = out
@@ -390,4 +418,84 @@ func TestCompactedToBufCallsGetOnceWithTheExactSize(t *testing.T) {
 
 	require.Equal(t, 1, calls)
 	require.Equal(t, len(bm.Compacted().ToBuffer()), handed)
+}
+
+// TestNewSegmentNodeCompactedScratchOutlivesTheNode pins the one thing the two
+// return values do not share: the node is exactly its own bytes, while scratch
+// stays at the largest node built so far. A caller writing scratch instead of the
+// node would append the previous node's tail, so the shrink rows carry the claim.
+//
+// The shapes overlap TestNewSegmentNodeCompactedMatchesNewSegmentNode's table on
+// purpose — they are what makes a node shrink — but the bytes are that table's
+// job, not this one's.
+func TestNewSegmentNodeCompactedScratchOutlivesTheNode(t *testing.T) {
+	big := slice(0, 4000)
+
+	tests := []struct {
+		name     string
+		key      string
+		add, del []uint64
+	}{
+		{name: "both sides", key: "k1", add: []uint64{1, 2, 3}, del: []uint64{4, 5}},
+		{name: "additions only", key: "k2", add: []uint64{1, 2, 3}},
+		{name: "deletions only", key: "k3", del: []uint64{4, 5}},
+		{name: "both empty", key: "k4"},
+		{name: "large, grows scratch", key: "k5", add: big, del: big},
+		{name: "tiny after large", key: "k6", add: []uint64{1}},
+		{name: "empty after large", key: "k7"},
+	}
+
+	var (
+		scratch   []byte
+		highWater int
+	)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var add, del *sroar.Bitmap
+			if tt.add != nil {
+				add = NewBitmap(tt.add...)
+			}
+			if tt.del != nil {
+				del = NewBitmap(tt.del...)
+			}
+
+			node, out, err := NewSegmentNodeCompacted([]byte(tt.key), add, del, scratch)
+			require.NoError(t, err)
+			scratch = out
+
+			// Derived from the inputs rather than read back off the node:
+			// ToBuffer is data[:Len()], so comparing those two pins nothing.
+			const overhead = 8 + 8 + 8 + 4
+			want := overhead + len(tt.key)
+			if add != nil {
+				want += len(add.Compacted().ToBuffer())
+			}
+			if del != nil {
+				want += len(del.Compacted().ToBuffer())
+			}
+			require.Equal(t, uint64(want), node.Len(),
+				"the node's declared length must be its payloads plus its key, not the scratch it sits in")
+			require.GreaterOrEqual(t, len(scratch), int(node.Len()),
+				"scratch must cover the node it just built")
+			if highWater == 0 || int(node.Len()) > highWater {
+				highWater = int(node.Len())
+			}
+			// The whole point of the second return: it stays at the largest node
+			// built so far, where the node shrinks back. Returning the node's own
+			// slice instead would make these equal on every row.
+			require.Equal(t, highWater, len(scratch),
+				"scratch must hold the high-water mark, not the node just built")
+
+			// Only that the node is readable at all: the values are
+			// TestNewSegmentNodeCompactedMatchesNewSegmentNode's job, and it
+			// compares them against the reference encoder rather than to itself.
+			require.Equal(t, tt.key, string(NewSegmentNodeFromBuffer(node.ToBuffer()).PrimaryKey()))
+		})
+	}
+
+	// The last two rows are 206 and 30 bytes, so a scratch still holding the
+	// large row's 16k is the only outcome that says it was carried forward.
+	require.Greater(t, highWater, 8000,
+		"the fixture no longer contains a row large enough to tell a carried-forward buffer from a fresh one")
+	require.Equal(t, highWater, len(scratch))
 }

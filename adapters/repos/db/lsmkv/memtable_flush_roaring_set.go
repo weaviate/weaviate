@@ -82,11 +82,12 @@ func (m *Memtable) writeRoaringSetNodes(f *segmentindex.SegmentFile) ([]segmenti
 	// reused by the next. Safe because the node is written out before the loop
 	// comes round again, and because keys[i].Key does not alias this buffer.
 	var (
-		nodeBuf []byte
-		sn      *roaringset.SegmentNode
+		nodeScratch []byte
+		sn          roaringset.SegmentNode
 	)
-	// A nil key is the end of the walk; a zero-length one is a node the tree can
-	// hold, so length cannot tell the two apart.
+	// A nil key is the end of the walk, and the bucket refuses one as a key, so
+	// no node can carry it. A zero-length key is a node the tree can hold, which
+	// is why the test is nil rather than a length.
 	for key, layer, err := cursor.First(); ; key, layer, err = cursor.Next() {
 		if err != nil {
 			return nil, fmt.Errorf("walk memtable: %w", err)
@@ -95,24 +96,29 @@ func (m *Memtable) writeRoaringSetNodes(f *segmentindex.SegmentFile) ([]segmenti
 			break
 		}
 
-		// The segment must carry no slack, so the bitmaps are compacted straight
-		// into the node buffer.
-		sn, nodeBuf, err = roaringset.NewSegmentNodeCompacted(key,
-			layer.Additions, layer.Deletions, nodeBuf)
+		// Compacting straight into the node buffer keeps the segment free of the
+		// container slack the memtable's bitmaps carry.
+		sn, nodeScratch, err = roaringset.NewSegmentNodeCompacted(key,
+			layer.Additions, layer.Deletions, nodeScratch)
 		if err != nil {
 			return nil, fmt.Errorf("create segment node: %w", err)
 		}
 
-		ki, err := sn.KeyIndexAndWriteTo(f.BodyWriter(), totalWritten)
+		n, err := f.BodyWriter().Write(sn.ToBuffer())
 		if err != nil {
 			return nil, fmt.Errorf("write node %d: %w", len(keys), err)
 		}
+		totalWritten += n
 
-		// ki.Key is a subslice of the node's serialization, so keeping it would
-		// hold the whole segment body until the index is written. The tree's key
-		// has the same bytes and outlives the flush.
-		keys = append(keys, segmentindex.KeyRedux{Key: key, ValueEnd: ki.ValueEnd})
-		totalWritten = ki.ValueEnd
+		// The key is the tree's, which outlives the flush: the node's own copy
+		// would alias the reused buffer and go stale once the next node fills it.
+		keys = append(keys, segmentindex.KeyRedux{Key: key, ValueEnd: totalWritten})
+	}
+
+	// A walk that ends early would rename a short segment into place and delete
+	// the commit log behind it, so the count is checked rather than assumed.
+	if want := m.roaringSet.Count(); len(keys) != want {
+		return nil, fmt.Errorf("walked %d of %d roaring set nodes", len(keys), want)
 	}
 
 	return keys, nil
