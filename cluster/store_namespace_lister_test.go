@@ -18,10 +18,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
 type fakeSchemaSource struct {
+	// Left unset: only the methods defined below are expected.
+	local.SchemaReader
 	classes []string
 	aliases map[string]string
 }
@@ -36,6 +39,8 @@ func (f fakeSchemaSource) ReadSchema(reader func(models.Class, uint64)) error {
 func (f fakeSchemaSource) Aliases() map[string]string { return f.aliases }
 
 type failingSchemaSource struct {
+	// Left unset: only the methods defined below are expected.
+	local.SchemaReader
 	err error
 }
 

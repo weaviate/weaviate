@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/cluster/replication"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding/remote"
 	"google.golang.org/grpc/codes"
@@ -29,12 +30,12 @@ type FileReplicationService struct {
 	pb.UnimplementedFileReplicationServiceServer
 
 	repo   remote.IncomingRepo
-	schema remote.IncomingSchema
+	schema local.VersionedReader
 
 	fileChunkSize int
 }
 
-func NewFileReplicationService(repo remote.IncomingRepo, schema remote.IncomingSchema, fileChunkSize int) *FileReplicationService {
+func NewFileReplicationService(repo remote.IncomingRepo, schema local.VersionedReader, fileChunkSize int) *FileReplicationService {
 	return &FileReplicationService{
 		repo:          repo,
 		schema:        schema,

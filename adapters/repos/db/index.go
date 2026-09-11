@@ -47,6 +47,7 @@ import (
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/executor"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
@@ -262,7 +263,7 @@ type Index struct {
 	globalreplicationConfig *replication.GlobalConfig
 
 	getSchema    schemaUC.SchemaGetter
-	schemaReader schemaUC.SchemaReader
+	schemaReader local.SchemaReader
 
 	// replicationFSMReader is wired post-construction (migrator/init) while
 	// shards may already run hashbeats — hence atomic, read via getReplicationFSMReader.
@@ -434,7 +435,7 @@ func NewIndex(
 	router routerTypes.Router,
 	shardResolver *resolver.ShardResolver,
 	sg schemaUC.SchemaGetter,
-	schemaReader schemaUC.SchemaReader,
+	schemaReader local.SchemaReader,
 	cs inverted.ClassSearcher,
 	logger logrus.FieldLogger,
 	nodeResolver cluster.NodeResolver,

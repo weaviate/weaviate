@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -64,7 +65,7 @@ func TestIncomingCreateReplicaSnapshotConcurrent(t *testing.T) {
 		PartitioningEnabled: true,
 	}
 
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(_ string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
 			return readFunc(class, ss)

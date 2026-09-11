@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/cluster/replication/copier/internal/changelogdrain"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/fakes"
@@ -77,7 +78,10 @@ func (r *bufconnFakeRepo) GetIndexForIncomingSharding(schema.ClassName) remote.I
 
 // bufconnFakeSchema satisfies the StartChangeCapture schema-version barrier;
 // these tests pass schemaVersion 0, so the barrier is always a no-op.
-type bufconnFakeSchema struct{}
+type bufconnFakeSchema struct {
+	// Left unset: only the methods defined below are expected.
+	local.VersionedReader
+}
 
 func (bufconnFakeSchema) ReadOnlyClassWithVersion(context.Context, string, uint64) (*models.Class, error) {
 	return nil, nil

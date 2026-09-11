@@ -26,10 +26,10 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
-	"github.com/weaviate/weaviate/entities/versioned"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -43,11 +43,6 @@ func errShutdown(err error) error {
 
 type authenticator interface {
 	PrincipalFromContext(ctx context.Context) (*models.Principal, error)
-}
-
-type schemaManager interface {
-	GetCachedClassNoAuth(ctx context.Context, names ...string) (map[string]versioned.Class, error)
-	ResolveAlias(alias string) string
 }
 
 type StreamHandler struct {
@@ -67,7 +62,7 @@ type StreamHandler struct {
 	stoppingPerStream    *sync.Map // map[string]struct{}
 	allocChecker         memwatch.AllocChecker
 	memInFlight          atomic.Int64
-	schemaManager        schemaManager
+	schemaManager        objects.ClassResolver
 	namespacesEnabled    bool
 }
 
@@ -81,7 +76,7 @@ func NewStreamHandler(
 	processingQueue processingQueue,
 	metrics *BatchStreamingMetrics,
 	logger logrus.FieldLogger,
-	schemaManager schemaManager,
+	schemaManager objects.ClassResolver,
 	namespacesEnabled bool,
 	allocChecker memwatch.AllocChecker,
 ) *StreamHandler {

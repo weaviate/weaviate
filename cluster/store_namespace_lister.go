@@ -14,23 +14,18 @@ package cluster
 import (
 	"strings"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 )
 
-// SchemaSource is the subset of the schema reader used here.
-type SchemaSource interface {
-	ReadSchema(reader func(models.Class, uint64)) error
-	Aliases() map[string]string
-}
-
 // SchemaNamespaceLister returns the classes and aliases whose name starts
 // with "<namespace>:".
 type SchemaNamespaceLister struct {
-	src SchemaSource
+	src local.SchemaReader
 }
 
-func NewSchemaNamespaceLister(src SchemaSource) *SchemaNamespaceLister {
+func NewSchemaNamespaceLister(src local.SchemaReader) *SchemaNamespaceLister {
 	return &SchemaNamespaceLister{src: src}
 }
 

@@ -29,6 +29,7 @@ import (
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -51,7 +52,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
@@ -217,7 +218,7 @@ func TestLazyLoadedShards(t *testing.T) {
 		Workers: 1,
 	})
 
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 		return readerFunc(class, shardState)
 	}).Maybe()
