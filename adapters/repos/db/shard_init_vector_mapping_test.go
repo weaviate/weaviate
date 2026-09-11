@@ -240,3 +240,81 @@ func TestInitShardVectors_Reconcile(t *testing.T) {
 	_, _, err = shard.mapping.Load()
 	require.NoError(t, err)
 }
+
+// A vector added to a running shard is recorded ready at the naming rule's
+// ID, with its storage durable, and survives a reload as itself.
+func TestInitTargetVector_RecordsTheVector(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+
+	require.NoError(t, shard.index.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{
+		"added": enthnsw.NewDefaultUserConfig(),
+	}))
+
+	added := vectorIndexRecord{PhysicalID: "vectors_added", IndexType: "hnsw", State: "ready"}
+	rec, ok, err := shard.mapping.Get("added")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, added, rec)
+	assert.True(t, storageExistsFor(t, shard, rec))
+
+	// a second update for the same vector finds the slot and writes nothing new
+	require.NoError(t, shard.index.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{
+		"added": enthnsw.NewDefaultUserConfig(),
+	}))
+
+	shard = reload(t, ctx, shard, class)
+	rec, ok, err = shard.mapping.Get("added")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, added, rec)
+}
+
+// A build that fails leaves a creating record and no slot; the next load
+// resumes it once the config is fixed.
+func TestInitTargetVector_FailedBuildLeavesCreating(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+
+	broken := enthnsw.NewDefaultUserConfig()
+	broken.Distance = "bogus"
+	err := shard.index.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{"broken": broken})
+	require.ErrorContains(t, err, "unrecognized distance metric")
+
+	rec, ok, err := shard.mapping.Get("broken")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, vectorIndexRecord{PhysicalID: "vectors_broken", IndexType: "hnsw", State: "creating"}, rec)
+	found, err := shard.WithVectorIndex("broken", func(VectorIndex) error { return nil })
+	require.NoError(t, err)
+	assert.False(t, found)
+
+	// the schema now carries a valid config: the reload resumes the creation
+	shard.index.vectorIndexUserConfigLock.Lock()
+	shard.index.vectorIndexUserConfigs["broken"] = enthnsw.NewDefaultUserConfig()
+	shard.index.vectorIndexUserConfigLock.Unlock()
+	shard = reload(t, ctx, shard, class)
+	rec, _, err = shard.mapping.Get("broken")
+	require.NoError(t, err)
+	assert.Equal(t, "ready", rec.State)
+	found, err = shard.WithVectorIndex("broken", func(VectorIndex) error { return nil })
+	require.NoError(t, err)
+	assert.True(t, found)
+}
+
+// A skipped vector added live gets its no-op slot and no record.
+func TestInitTargetVector_SkippedVectorHasNoRecord(t *testing.T) {
+	ctx := testCtx()
+	shard, _ := setupDropVectorShard(t, ctx)
+
+	require.NoError(t, shard.index.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{
+		"skipped": enthnsw.UserConfig{Skip: true},
+	}))
+
+	found, err := shard.WithVectorIndex("skipped", func(VectorIndex) error { return nil })
+	require.NoError(t, err)
+	assert.True(t, found)
+	_, ok, err := shard.mapping.Get("skipped")
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
