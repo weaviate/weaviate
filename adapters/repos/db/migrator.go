@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"time"
 
@@ -908,6 +909,27 @@ func (m *Migrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]sche
 		if err := m.ValidateVectorIndexConfigUpdate(old[vecName], updatedCfg); err != nil {
 			return fmt.Errorf("invalid update for vector %q: %w", vecName, err)
 		}
+	}
+
+	// A vector this update adds must not own a file an existing vector owns:
+	// file names derive from the name, so "compressed" next to the legacy
+	// vector shares its quantized bucket. Checked here, before the schema
+	// commits; the shard checks again against its own records.
+	owners := make(map[string]string, len(old))
+	for name, cfg := range old {
+		if vectorIndexHasStorage(cfg) {
+			owners[name] = vectorIndexID(name)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(updated)) {
+		if _, existed := old[name]; existed || !vectorIndexHasStorage(updated[name]) {
+			continue
+		}
+		collisions := vectorIndexCollisionsWith(owners, name, vectorIndexID(name))
+		if len(collisions) > 0 {
+			return vectorIndexCollisionError(name, collisions)
+		}
+		owners[name] = vectorIndexID(name)
 	}
 	return nil
 }
