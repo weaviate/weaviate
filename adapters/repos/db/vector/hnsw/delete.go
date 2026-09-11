@@ -301,7 +301,7 @@ func (h *hnsw) CleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	return err
 }
 
-func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) (bool, error) {
+func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallback) (executed bool, err error) {
 	if !h.tombstoneCleanupRunning.CompareAndSwap(false, true) {
 		return false, errors.New("tombstone cleanup already running")
 	}
@@ -310,11 +310,13 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
 	defer func() {
-		err := recover()
-		if err != nil {
-			entsentry.Recover(err)
-			h.logger.WithField("panic", err).Errorf("class %s: tombstone cleanup panicked", h.className)
+		if r := recover(); r != nil {
+			entsentry.Recover(r)
+			h.logger.WithField("panic", r).Errorf("class %s: tombstone cleanup panicked", h.className)
 			enterrors.PrintStack(h.logger)
+			// surface the panic as an error: a swallowed panic makes the
+			// cycle report success while no cleanup progress was made
+			err = fmt.Errorf("tombstone cleanup panicked: %v", r)
 		}
 	}()
 
@@ -328,7 +330,6 @@ func (h *hnsw) cleanUpTombstonedNodes(shouldAbort cyclemanager.ShouldAbortCallba
 		return resetCtx.Err() != nil || shouldAbort()
 	}
 
-	executed := false
 	ok, deleteList := h.copyTombstonesToAllowList(breakCleanUpTombstonedNodes)
 	if !ok {
 		return executed, nil
@@ -691,16 +692,17 @@ func (h *hnsw) deleteEntrypoint(id uint64, denyList helpers.AllowList) error {
 		return nil
 	}
 
-	newEntrypoint, level, ok := h.findNewGlobalEntrypoint(denyList, id)
-	if !ok {
-		return nil
-	}
-
-	h.Lock()
-	h.entryPointID = newEntrypoint
-	h.currentMaximumLayer = level
-	h.Unlock()
-	if err := h.commitLog.SetEntryPointWithMaxLayer(newEntrypoint, level); err != nil {
+	// repairGlobalEntrypoint re-checks under h.Lock that the entrypoint is
+	// still the one being replaced — the callers of deleteEntrypoint do not
+	// exclude concurrent inserts, and an insert's promotion of a
+	// higher-level entrypoint must not be clobbered by an unconditional
+	// write here. It also persists within the same critical section, so
+	// memory and commit log cannot record different entrypoints.
+	// errNoUsableEntrypoint maps back to a no-op: every remaining candidate
+	// is deny-listed or under maintenance, which callers treat as "nothing
+	// to do" (the tombstone stays, a later cycle retries).
+	if _, err := h.repairGlobalEntrypoint(id, denyList); err != nil &&
+		!errors.Is(err, errNoUsableEntrypoint) {
 		return err
 	}
 
@@ -922,6 +924,14 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 	for id, ok := it.Next(); ok; id, ok = it.Next() {
 		if breakCleanUpTombstonedNodes() {
 			return false, nil
+		}
+		if h.getEntrypoint() == id && !h.isOnlyNode(id, deleteList) {
+			// the entrypoint could not be replaced earlier in this cycle
+			// (e.g. every candidate was under maintenance by a concurrent
+			// insert): keep the node and its tombstone so a later cycle
+			// retries, instead of leaving a dangling entrypoint with no
+			// tombstone that no cycle would ever revisit
+			continue
 		}
 		h.metrics.RemoveTombstone()
 		h.tombstoneLock.Lock()

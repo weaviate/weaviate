@@ -857,11 +857,18 @@ func (h *hnsw) Iterate(fn func(docID uint64) bool) {
 func (h *hnsw) iterate(fn func(docID uint64) bool) {
 	var id uint64
 
+	// snapshot under resetLock: resetUnlocked swaps h.resetCtx and an
+	// unsynchronized read races that write. The snapshot still observes a
+	// reset, because the old context is cancelled before being replaced.
+	h.resetLock.RLock()
+	resetCtx := h.resetCtx
+	h.resetLock.RUnlock()
+
 	for {
 		if h.shutdownCtx.Err() != nil {
 			return
 		}
-		if h.resetCtx.Err() != nil {
+		if resetCtx.Err() != nil {
 			return
 		}
 
@@ -894,8 +901,13 @@ func (h *hnsw) iterateMulti(fn func(docID uint64) bool) {
 	}
 	h.RUnlock()
 
+	// snapshot under resetLock — see iterate for why
+	h.resetLock.RLock()
+	resetCtx := h.resetCtx
+	h.resetLock.RUnlock()
+
 	for _, docID := range indexedDocIDs {
-		if h.shutdownCtx.Err() != nil || h.resetCtx.Err() != nil {
+		if h.shutdownCtx.Err() != nil || resetCtx.Err() != nil {
 			return
 		}
 
