@@ -20,6 +20,21 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
+func TestReassignWithoutDestinationsPreservesVector(t *testing.T) {
+	tf := createHFreshIndex(t)
+	postingID, posting := createPostingWithVectors(t, &tf, [][]float32{{1, 0, 0, 0}}, 100)
+
+	err := tf.Index.doReassign(t.Context(), reassignOperation{PostingID: postingID, VectorID: 100})
+	require.ErrorContains(t, err, "no destination postings")
+
+	version, err := tf.Index.VersionMap.Get(t.Context(), 100)
+	require.NoError(t, err)
+	require.Equal(t, VectorVersion(1), version)
+	retained, err := posting.GarbageCollect(tf.Index.VersionMap)
+	require.NoError(t, err)
+	require.Len(t, retained, 1, "failed reassignment must not invalidate the surviving copy")
+}
+
 // Reassign a vector that has been deleted
 func TestReassignDeletedVector(t *testing.T) {
 	tf := createHFreshIndex(t)
