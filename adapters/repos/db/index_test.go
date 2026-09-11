@@ -25,6 +25,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -492,4 +494,130 @@ func TestIndexDropLocalShard(t *testing.T) {
 		}
 		require.True(t, sawNamedDropLog, "expected a drop_shard error log naming the shard")
 	})
+}
+
+type debugRepairTestShard struct {
+	ShardLike
+	pinErr error
+	held   atomic.Bool
+	run    func(string) error
+}
+
+func (s *debugRepairTestShard) preventShutdown() (func(), error) {
+	if s.pinErr != nil {
+		return func() {}, s.pinErr
+	}
+	s.held.Store(true)
+	return func() { s.held.Store(false) }, nil
+}
+
+func (s *debugRepairTestShard) RepairIndex(_ context.Context, vector string) error {
+	return s.run(vector)
+}
+
+func TestIndexDebugRepairShardSelection(t *testing.T) {
+	for _, tc := range []struct {
+		name, shard string
+		want        []string
+		wantError   bool
+	}{
+		{name: "explicit shard", shard: "a", want: []string{"a"}},
+		{name: "all local shards", want: []string{"a", "b"}},
+		{name: "missing shard", shard: "missing", wantError: true},
+		{name: "unavailable shard", shard: "unavailable", wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			idx := &Index{logger: logger, shardCreateLocks: esync.NewKeyRWLocker()}
+			calls := make(chan string, 2)
+			shards := map[string]*debugRepairTestShard{}
+			for _, name := range []string{"a", "b"} {
+				shard := &debugRepairTestShard{}
+				shard.run = func(vector string) error {
+					if vector != "description" {
+						t.Errorf("unexpected target vector %q", vector)
+					}
+					if !shard.held.Load() {
+						t.Error("shard reference released before repair finished")
+					}
+					calls <- name
+					if name == "a" {
+						return errors.New("repair failed")
+					}
+					return nil
+				}
+				idx.shards.Store(name, shard)
+				shards[name] = shard
+			}
+			idx.shards.Store("unavailable", &debugRepairTestShard{pinErr: errors.New("shard closing")})
+			err := idx.DebugRepairIndex(t.Context(), tc.shard, "description")
+			if tc.wantError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+			var got []string
+			for range tc.want {
+				select {
+				case name := <-calls:
+					got = append(got, name)
+				case <-time.After(5 * time.Second):
+					t.Fatal("repair did not run")
+				}
+			}
+			require.ElementsMatch(t, tc.want, got)
+			require.Eventually(t, func() bool { return !shards["a"].held.Load() && !shards["b"].held.Load() }, time.Second, time.Millisecond)
+		})
+	}
+}
+
+func TestIndexDebugRepairAllShardsRunsSequentiallyInBackground(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	idx := &Index{logger: logger, shardCreateLocks: esync.NewKeyRWLocker()}
+	started := make(chan string, 2)
+	unblock := make(chan struct{})
+	defer close(unblock)
+	shards := make([]*debugRepairTestShard, 0, 2)
+	for _, name := range []string{"a", "b"} {
+		shard := &debugRepairTestShard{run: func(string) error {
+			started <- name
+			<-unblock
+			return nil
+		}}
+		shards = append(shards, shard)
+		idx.shards.Store(name, shard)
+	}
+
+	accepted := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		accepted <- idx.DebugRepairIndex(t.Context(), "", "")
+	}, logger)
+	select {
+	case err := <-accepted:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("repair blocked the caller")
+	}
+	var first string
+	select {
+	case first = <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("repair did not start")
+	}
+	select {
+	case <-started:
+		t.Fatal("started another repair before the first finished")
+	case <-time.After(100 * time.Millisecond):
+	}
+	unblock <- struct{}{}
+	select {
+	case second := <-started:
+		require.NotEqual(t, first, second)
+	case <-time.After(5 * time.Second):
+		t.Fatal("second shard was not repaired")
+	}
+	unblock <- struct{}{}
+	require.Eventually(t, func() bool {
+		return !shards[0].held.Load() && !shards[1].held.Load()
+	}, time.Second, time.Millisecond)
 }

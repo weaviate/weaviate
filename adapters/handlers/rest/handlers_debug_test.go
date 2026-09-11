@@ -12,12 +12,17 @@
 package rest
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"net/http/httptest"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/entities/schema"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	ucfg "github.com/weaviate/weaviate/usecases/config"
@@ -173,4 +178,55 @@ func TestRedactDebugConfigSecrets_RealConfigPipeline(t *testing.T) {
 
 	sentryM, _ := cleaned["sentry"].(map[string]any)
 	assert.Equal(t, "<redacted>", sentryM["dsn"])
+}
+
+type debugRepairTestIndex struct{ repair func(string, string) error }
+
+func (i *debugRepairTestIndex) DebugRepairIndex(_ context.Context, shard, vector string) error {
+	return i.repair(shard, vector)
+}
+
+func TestVectorRepairHandler(t *testing.T) {
+	for _, tc := range []struct {
+		name, method, query, shard, vector string
+		disabled, missing                  bool
+		repairErr                          error
+		status                             int
+		called                             bool
+	}{
+		{name: "single shard", method: "POST", query: "collection=Movies&shard=a&vector=description", shard: "a", vector: "description", status: 202, called: true},
+		{name: "all shards", method: "POST", query: "collection=Movies", status: 202, called: true},
+		{name: "all shards named vector", method: "POST", query: "collection=Movies&shard=&vector=description", vector: "description", status: 202, called: true},
+		{name: "missing collection", method: "POST", query: "shard=a", status: 400},
+		{name: "unknown collection", method: "POST", query: "collection=Movies", missing: true, status: 404},
+		{name: "missing shard", method: "POST", query: "collection=Movies&shard=missing", shard: "missing", repairErr: errors.New("shard not found"), status: 404, called: true},
+		{name: "repair start failure", method: "POST", query: "collection=Movies&shard=a", shard: "a", repairErr: errors.New("shard closing"), status: 500, called: true},
+		{name: "async disabled", method: "POST", query: "collection=Movies", disabled: true, status: 501},
+		{name: "get cannot repair", method: "GET", query: "collection=Movies", status: 405},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			called := false
+			idx := &debugRepairTestIndex{repair: func(shard, vector string) error {
+				called = true
+				require.Equal(t, tc.shard, shard)
+				require.Equal(t, tc.vector, vector)
+				return tc.repairErr
+			}}
+			handler := newVectorRepairHandler(logger, !tc.disabled, func(name schema.ClassName) vectorRepairIndex {
+				require.Equal(t, schema.ClassName("Movies"), name)
+				if tc.missing {
+					return nil
+				}
+				return idx
+			})
+			rec := httptest.NewRecorder()
+			handler(rec, httptest.NewRequest(tc.method, "/debug/index/repair/vector?"+tc.query, nil))
+			require.Equal(t, tc.status, rec.Code)
+			require.Equal(t, tc.called, called)
+			if tc.status == 404 {
+				require.NotContains(t, rec.Body.String(), "failed to repair vector index")
+			}
+		})
+	}
 }
