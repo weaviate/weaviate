@@ -232,7 +232,7 @@ func (s *Raft) QueryShardOwner(class, shard string) (string, uint64, error) {
 	return resp.Owner, resp.ShardVersion, nil
 }
 
-// QueryTenantsShards build a Query to read the tenants and their activity status of a given class.
+// QueryTenantsShardsStatus build a Query to read the tenants and their activity status of a given class.
 // The request will be directed to the leader to ensure we  will read the tenant with strong consistency and return the
 // shard owner node
 func (s *Raft) QueryTenantsShardsStatus(class string, tenants ...string) (map[string]string, uint64, error) {
