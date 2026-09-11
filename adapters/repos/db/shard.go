@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -477,6 +478,12 @@ type Shard struct {
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
 	bitmapBufPool  roaringset.BitmapBufPool
+
+	// freeList manages reusable docIDs (docid_freelist.go). Inert unless
+	// DOCID_REUSE_ENABLED; its harvest runs on the vector tombstone-cleanup
+	// cycle via freeListCallbackCtrl.
+	freeList             *shardDocIDFreeList
+	freeListCallbackCtrl cyclemanager.CycleCallbackCtrl
 
 	activityTrackerRead  atomic.Int32
 	activityTrackerWrite atomic.Int32

@@ -140,21 +140,14 @@ func (bmf *BitmapFactory) GetBitmap() (cloned *sroar.Bitmap, release func()) {
 	return cloned, release
 }
 
-func (bmf *BitmapFactory) Remove(ids *sroar.Bitmap) {
-	bmf.lock.Lock()
-	defer bmf.lock.Unlock()
-
-	bmf.prefilled.AndNot(ids)
-}
-
-func (bmf *BitmapFactory) RemoveIds(ids ...uint64) {
-	bmf.lock.Lock()
-	defer bmf.lock.Unlock()
-
-	for _, id := range ids {
-		bmf.prefilled.Remove(id)
-	}
-}
+// The factory intentionally has NO shrink operation (Remove/RemoveIds were
+// deleted): with docID reuse, removing a retired id from the shared
+// prefilled universe races the id's next life — the removal can land after
+// the id was reissued, hiding the NEW object from negated filters until
+// restart. Consumers that resolve ids (object lookups, filtered/grouped
+// aggregations) skip or discount ids without a live row instead, which the
+// post-restart state (universe prefilled from the counter, deletions
+// included) already forced them to handle correctly.
 
 // ----------------------------------------------------------------------------
 

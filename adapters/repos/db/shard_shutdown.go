@@ -311,6 +311,10 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	err = s.GetPropertyLengthTracker().Close()
 	ec.AddWrapf(err, "close prop length tracker")
 
+	if s.freeListCallbackCtrl != nil {
+		ec.AddWrapf(s.freeListCallbackCtrl.Unregister(ctx), "unregister docid freelist harvest")
+	}
+
 	// unregister all callbacks at once, in parallel
 	err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
 		s.cycleCallbacks.compactionCallbacksCtrl,

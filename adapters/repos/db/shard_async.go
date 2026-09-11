@@ -35,6 +35,11 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 		return nil
 	}
 
+	// FillQueue scans checkpoint→counter and assumes monotone docIDs; hold
+	// off docID reuse for the whole run.
+	s.freeList.Pause()
+	defer s.freeList.Resume()
+
 	start := time.Now()
 
 	var counter int
@@ -237,6 +242,12 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 	if !s.index.AsyncIndexingEnabled {
 		return nil
 	}
+
+	// RepairIndex sizes its visited list from the counter high-water mark and
+	// reconciles by ContainsDoc without a generation; hold off docID reuse
+	// for the whole run.
+	s.freeList.Pause()
+	defer s.freeList.Resume()
 
 	start := time.Now()
 	className := s.index.Config.ClassName.String()
@@ -517,6 +528,11 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 // it also removes any indexed vector that is not in the LSM store.
 // It it safe to call or interrupt this method at any time.
 func (s *Shard) RequantizeIndex(ctx context.Context, targetVector string) error {
+	// Requantization re-encodes vectors from an LSM scan; a docID reused
+	// mid-scan could be preloaded with the OLD life's vector. Hold off reuse.
+	s.freeList.Pause()
+	defer s.freeList.Resume()
+
 	start := time.Now()
 
 	vectorIndex, releaseIndex, ok := s.AcquireVectorIndex(targetVector)

@@ -1199,12 +1199,20 @@ func (s *Shard) deleteFromVectorAndGeoQueues(docID uint64) error {
 		return err
 	}
 
-	return s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
+	err = s.ForEachGeoQueue(func(propName string, queue *VectorIndexQueue) error {
 		if err := queue.Delete(docID); err != nil {
 			return fmt.Errorf("delete from geo index queue of prop %q: %w", propName, err)
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	// The delete is complete and its vector/geo ops are enqueued: the docID
+	// becomes a reuse candidate (no-op unless DOCID_REUSE_ENABLED).
+	s.freeList.RegisterCandidate(docID)
+	return nil
 }
 
 func (s *Shard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time, error) {

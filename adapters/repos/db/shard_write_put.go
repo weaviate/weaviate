@@ -93,6 +93,13 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		return errors.Wrap(err, "flush prop length tracker to disk")
 	}
 
+	// The update retired the old docID (row rewritten, inverted cleanup
+	// barriered, vector/geo deletes enqueued above) — it is now a reuse
+	// candidate like any deleted docID.
+	if status.docIDChanged {
+		s.freeList.RegisterCandidate(status.oldDocID)
+	}
+
 	return nil
 }
 
@@ -336,6 +343,11 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 		return objectInsertStatus{}, err
 	}
 
+	// rowWritten gates the reused-docID unwind below: once the object row
+	// referencing the docID is written, the id is in use and must NOT go
+	// back to the free list, whatever fails afterwards.
+	rowWritten := false
+
 	// wrapped in function to handle lock/unlock
 	if err := func() error {
 		s.asyncReplicationRWMux.RLock()
@@ -397,6 +409,7 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 		if err := s.upsertObjectDataLSM(bucket, idBytes, objBinary, status.docID); err != nil {
 			return errors.Wrap(err, "upsert object data")
 		}
+		rowWritten = true
 		s.firePutPhaseHook(putPhaseRowWritten)
 		s.metrics.PutObjectUpsertObject(before)
 
@@ -409,6 +422,9 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 
 		return nil
 	}(); err != nil {
+		if status.reusedDocID && !rowWritten {
+			s.freeList.Return(status.docID)
+		}
 		return objectInsertStatus{}, err
 	} else if status.skipUpsert {
 		return status, nil
@@ -503,6 +519,10 @@ type objectInsertStatus struct {
 	// the one already stored. No object update, inverted indexes update and vector index
 	// update is required.
 	skipUpsert bool
+	// docID came from the shard's free list (docID reuse) rather than the
+	// monotonic counter; on insert failure before the row write it must be
+	// returned to the list.
+	reusedDocID bool
 }
 
 // to be called with the current contents of a row, if the row is empty (i.e.
@@ -512,11 +532,12 @@ func (s *Shard) determineInsertStatus(prevObj, nextObj *storobj.Object) (objectI
 	var out objectInsertStatus
 
 	if prevObj == nil {
-		docID, err := s.counter.GetAndInc()
+		docID, reused, err := s.nextDocID()
 		if err != nil {
-			return out, errors.Wrap(err, "initial doc id: get new doc id from counter")
+			return out, errors.Wrap(err, "initial doc id")
 		}
 		out.docID = docID
+		out.reusedDocID = reused
 		return out, nil
 	}
 
@@ -549,14 +570,32 @@ func (s *Shard) determineInsertStatus(prevObj, nextObj *storobj.Object) (objectI
 		return out, nil
 	}
 
-	docID, err := s.counter.GetAndInc()
+	docID, reused, err := s.nextDocID()
 	if err != nil {
-		return out, errors.Wrap(err, "doc id update: get new doc id from counter")
+		return out, errors.Wrap(err, "doc id update")
 	}
 	out.docID = docID
+	out.reusedDocID = reused
 	out.docIDChanged = true
 
 	return out, nil
+}
+
+// nextDocID hands out the docID for a new object version: a verified
+// reusable id from the shard's free list when docID reuse is on and one is
+// available, otherwise the monotonic counter. An Acquire error is a broken
+// reuse invariant and fails the insert (never silently degraded).
+func (s *Shard) nextDocID() (docID uint64, reused bool, err error) {
+	if id, ok, err := s.freeList.Acquire(); err != nil {
+		return 0, false, err
+	} else if ok {
+		return id, true, nil
+	}
+	docID, err = s.counter.GetAndInc()
+	if err != nil {
+		return 0, false, errors.Wrap(err, "get new doc id from counter")
+	}
+	return docID, false, nil
 }
 
 // determineMutableInsertStatus is a special version of determineInsertStatus
@@ -567,11 +606,12 @@ func (s *Shard) determineMutableInsertStatus(previous, next *storobj.Object) (ob
 	var out objectInsertStatus
 
 	if previous == nil {
-		docID, err := s.counter.GetAndInc()
+		docID, reused, err := s.nextDocID()
 		if err != nil {
-			return out, errors.Wrap(err, "initial doc id: get new doc id from counter")
+			return out, errors.Wrap(err, "initial doc id")
 		}
 		out.docID = docID
+		out.reusedDocID = reused
 		return out, nil
 	}
 

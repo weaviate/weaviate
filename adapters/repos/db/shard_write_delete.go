@@ -218,6 +218,10 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return false, err
 	}
 
+	// The delete is complete and its vector/geo ops are enqueued: the docID
+	// becomes a reuse candidate (no-op unless DOCID_REUSE_ENABLED).
+	s.freeList.RegisterCandidate(docID)
+
 	return true, nil
 }
 
@@ -375,13 +379,12 @@ func (s *Shard) cleanupInvertedIndexForRetiredDocID(previousObject *storobj.Obje
 		return nil, fmt.Errorf("subtract prop lengths: %w", err)
 	}
 
-	// Removing the old docId from the factory solves an issue,
-	// where, if using a NotEquals filter on a property,
-	// there is a possible time period where that docId has been deleted from the inverted index,
-	// but is still present in HNSW or other vector indices.
-	// For any NotEquals filter, we do an Equals filter and invert it's results.
-	s.bitmapFactory.RemoveIds(docID)
-
+	// Note the docID is deliberately NOT removed from the bitmapFactory's
+	// prefilled universe anymore: with docID reuse, shrinking the universe
+	// for a retired id would make the id's NEXT life invisible to negated
+	// filters until restart. The transient over-inclusion the shrink used to
+	// paper over is handled at resolution time instead (filtered/grouped
+	// aggregations count only ids that resolve to a live row).
 	touched := newTouchedBuckets()
 
 	st := s.loadPropValueIndexState()
