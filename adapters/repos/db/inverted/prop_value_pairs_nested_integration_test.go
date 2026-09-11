@@ -34,7 +34,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // Nested filtering is preview-gated. Enable the gate at package init via
@@ -115,8 +114,7 @@ func newNestedTestSearcher(t *testing.T, bucketNames ...string) (*Searcher, *lsm
 	searcher := NewSearcher(logger, store, func(string) *models.Class { return class },
 		nil, nil, stopwords.NewProvider(fakeStopwordDetector{}, nil), 2,
 		func() bool { return false }, nil, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
-		WithBatchedContainsEnabled(runtime.NewDynamicValue(true))
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	return searcher, store
 }
@@ -2807,8 +2805,7 @@ func newSearcherForClass(t *testing.T, class *models.Class, bucketNames ...strin
 	searcher := NewSearcher(logger, store, func(string) *models.Class { return class },
 		nil, nil, stopwords.NewProvider(fakeStopwordDetector{}, nil), 2,
 		func() bool { return false }, nil, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
-		WithBatchedContainsEnabled(runtime.NewDynamicValue(true))
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 	return searcher, store
 }
 
@@ -4987,8 +4984,7 @@ func newIsNullCorrelationSearcher(t *testing.T, prop string) (*Searcher, *lsmkv.
 	*searcher = *NewSearcher(logger, store, func(string) *models.Class { return class },
 		nil, nil, stopwords.NewProvider(fakeStopwordDetector{}, nil), 2,
 		func() bool { return false }, nil, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
-		WithBatchedContainsEnabled(runtime.NewDynamicValue(true))
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 	return searcher, store.Bucket(vbName), store.Bucket(mbName)
 }
 
