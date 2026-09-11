@@ -68,7 +68,7 @@ type SchemaGetter interface {
 	Statistics() map[string]any
 
 	ShardOwner(class, shard string) (string, error)
-	TenantsShards(ctx context.Context, class string, tenants ...string) (map[string]string, error)
+	TenantsShardsStatus(ctx context.Context, class string, tenants ...string) (map[string]string, error)
 	// OptimisticTenantStatus tries to query the local state first
 	// allowImplicitActivation may only be set by callers acting for an external user request;
 	// because it lets the lookup activate a COLD tenant under auto tenant activation and leader lookup.
@@ -274,17 +274,17 @@ func (m *Manager) ResolveParentNodes(class, shardName string) (map[string]string
 	return name2Addr, nil
 }
 
-func (m *Manager) TenantsShards(ctx context.Context, class string, tenants ...string) (map[string]string, error) {
-	status, _, err := m.TenantsShardsWithVersion(ctx, class, tenants...)
+func (m *Manager) TenantsShardsStatus(ctx context.Context, class string, tenants ...string) (map[string]string, error) {
+	status, _, err := m.TenantsShardsStatusWithVersion(ctx, class, tenants...)
 	return status, err
 }
 
 // TenantsShardsWithVersion returns tenant status and the schema version from any implicit activation.
 // Callers performing writes should use the returned schemaVersion in WaitForUpdate before proceeding.
-func (m *Manager) TenantsShardsWithVersion(ctx context.Context, class string, tenants ...string) (map[string]string, uint64, error) {
+func (m *Manager) TenantsShardsStatusWithVersion(ctx context.Context, class string, tenants ...string) (map[string]string, uint64, error) {
 	slices.Sort(tenants)
 	tenants = slices.Compact(tenants)
-	status, version, err := m.schemaManager.QueryTenantsShards(class, tenants...)
+	status, version, err := m.schemaManager.QueryTenantsShardsStatus(class, tenants...)
 	if !m.AllowImplicitTenantActivation(class) || err != nil {
 		return status, version, err
 	}
@@ -347,7 +347,7 @@ func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tena
 		return map[string]string{tenant: status}, nil
 	}
 
-	return m.TenantsShards(ctx, class, tenant)
+	return m.TenantsShardsStatus(ctx, class, tenant)
 }
 
 func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
@@ -398,7 +398,7 @@ func (m *Manager) AllowImplicitTenantActivation(class string) bool {
 }
 
 func (m *Manager) TenantsStatus(class string, tenants ...string) (map[string]string, error) {
-	tenantsMap, _, err := m.schemaManager.QueryTenantsShards(class, tenants...)
+	tenantsMap, _, err := m.schemaManager.QueryTenantsShardsStatus(class, tenants...)
 	return tenantsMap, err
 }
 
@@ -439,7 +439,7 @@ func (m *Manager) changeTenantsActivityStatus(ctx context.Context, class string,
 // EnsureTenantActiveForWrite activates COLD tenants when AutoTenantActivation is enabled.
 // Returns the schema version from activation. callers must pass this to WaitForUpdate
 func (m *Manager) EnsureTenantActiveForWrite(ctx context.Context, class string, tenants ...string) (uint64, error) {
-	_, schemaVersion, err := m.TenantsShardsWithVersion(ctx, class, tenants...)
+	_, schemaVersion, err := m.TenantsShardsStatusWithVersion(ctx, class, tenants...)
 	return schemaVersion, err
 }
 
