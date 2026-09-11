@@ -27,12 +27,11 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	clustermocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 const (
@@ -50,84 +49,81 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 						ObjectCount: 100,
 					},
 				})
-			sm.EXPECT().GetSchemaSkipAuth().Return(
-				schema.Schema{
-					Objects: &models.Schema{Classes: []*models.Class{
-						{
-							Class: "GoogleModuleWithGoogleAIStudioEmptyConfig",
-							ModuleConfig: map[string]interface{}{
-								"text2vec-google": nil,
-							},
+			sm.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{
+				{
+					Class: "GoogleModuleWithGoogleAIStudioEmptyConfig",
+					ModuleConfig: map[string]interface{}{
+						"text2vec-google": nil,
+					},
+				},
+				{
+					Class: "LegacyConfiguration",
+					ModuleConfig: map[string]interface{}{
+						"text2vec-google": map[string]interface{}{
+							"modelId":     "text-embedding-004",
+							"apiEndpoint": "generativelanguage.googleapis.com",
 						},
-						{
-							Class: "LegacyConfiguration",
-							ModuleConfig: map[string]interface{}{
+						"generative-openai": map[string]interface{}{},
+					},
+				},
+				{
+					Class: "NamedVector",
+					VectorConfig: map[string]models.VectorConfig{
+						"description": {
+							Vectorizer: map[string]interface{}{
+								"text2vec-openai": map[string]interface{}{
+									"properties":         []interface{}{"description"},
+									"vectorizeClassName": false,
+								},
+							},
+							VectorIndexType: "flat",
+						},
+					},
+				},
+				{
+					Class: "NamedVectorWithNilVectorizer",
+					VectorConfig: map[string]models.VectorConfig{
+						"description": {
+							Vectorizer:      nil,
+							VectorIndexType: "flat",
+						},
+					},
+				},
+				{
+					Class: "BothNamedVectorAndLegacyConfiguration",
+					ModuleConfig: map[string]interface{}{
+						"generative-google": map[string]interface{}{
+							"apiEndpoint": "generativelanguage.googleapis.com",
+						},
+					},
+					VectorConfig: map[string]models.VectorConfig{
+						"description_google": {
+							Vectorizer: map[string]interface{}{
 								"text2vec-google": map[string]interface{}{
-									"modelId":     "text-embedding-004",
-									"apiEndpoint": "generativelanguage.googleapis.com",
+									"properties":         []interface{}{"description"},
+									"vectorizeClassName": false,
 								},
-								"generative-openai": map[string]interface{}{},
 							},
+							VectorIndexType: "flat",
 						},
-						{
-							Class: "NamedVector",
-							VectorConfig: map[string]models.VectorConfig{
-								"description": {
-									Vectorizer: map[string]interface{}{
-										"text2vec-openai": map[string]interface{}{
-											"properties":         []interface{}{"description"},
-											"vectorizeClassName": false,
-										},
-									},
-									VectorIndexType: "flat",
+						"description_aws": {
+							Vectorizer: map[string]interface{}{
+								"text2vec-aws": map[string]interface{}{
+									"properties":         []interface{}{"description"},
+									"vectorizeClassName": false,
 								},
 							},
+							VectorIndexType: "flat",
 						},
-						{
-							Class: "NamedVectorWithNilVectorizer",
-							VectorConfig: map[string]models.VectorConfig{
-								"description": {
-									Vectorizer:      nil,
-									VectorIndexType: "flat",
-								},
+						"description_openai": {
+							Vectorizer: map[string]interface{}{
+								"text2vec-openai": map[string]interface{}{},
 							},
+							VectorIndexType: "flat",
 						},
-						{
-							Class: "BothNamedVectorAndLegacyConfiguration",
-							ModuleConfig: map[string]interface{}{
-								"generative-google": map[string]interface{}{
-									"apiEndpoint": "generativelanguage.googleapis.com",
-								},
-							},
-							VectorConfig: map[string]models.VectorConfig{
-								"description_google": {
-									Vectorizer: map[string]interface{}{
-										"text2vec-google": map[string]interface{}{
-											"properties":         []interface{}{"description"},
-											"vectorizeClassName": false,
-										},
-									},
-									VectorIndexType: "flat",
-								},
-								"description_aws": {
-									Vectorizer: map[string]interface{}{
-										"text2vec-aws": map[string]interface{}{
-											"properties":         []interface{}{"description"},
-											"vectorizeClassName": false,
-										},
-									},
-									VectorIndexType: "flat",
-								},
-								"description_openai": {
-									Vectorizer: map[string]interface{}{
-										"text2vec-openai": map[string]interface{}{},
-									},
-									VectorIndexType: "flat",
-								},
-							},
-						},
-					}},
-				})
+					},
+				},
+			}})
 			ci.On("getCloudInfo").Return(nil)
 
 			// Track some clients before building INIT payload
@@ -165,37 +161,34 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 						ObjectCount: 1000,
 					},
 				})
-			sm.EXPECT().GetSchemaSkipAuth().Return(
-				schema.Schema{
-					Objects: &models.Schema{Classes: []*models.Class{
-						{
-							Class: "Class",
-							ModuleConfig: map[string]interface{}{
-								"generative-openai": map[string]interface{}{},
-							},
-							VectorConfig: map[string]models.VectorConfig{
-								"description_google": {
-									Vectorizer: map[string]interface{}{
-										"text2vec-google": map[string]interface{}{
-											"properties":         []interface{}{"description"},
-											"vectorizeClassName": false,
-										},
-									},
-									VectorIndexType: "flat",
-								},
-								"description_aws": {
-									Vectorizer: map[string]interface{}{
-										"text2vec-aws": map[string]interface{}{
-											"properties":         []interface{}{"description"},
-											"vectorizeClassName": false,
-										},
-									},
-									VectorIndexType: "flat",
+			sm.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{
+				{
+					Class: "Class",
+					ModuleConfig: map[string]interface{}{
+						"generative-openai": map[string]interface{}{},
+					},
+					VectorConfig: map[string]models.VectorConfig{
+						"description_google": {
+							Vectorizer: map[string]interface{}{
+								"text2vec-google": map[string]interface{}{
+									"properties":         []interface{}{"description"},
+									"vectorizeClassName": false,
 								},
 							},
+							VectorIndexType: "flat",
 						},
-					}},
-				})
+						"description_aws": {
+							Vectorizer: map[string]interface{}{
+								"text2vec-aws": map[string]interface{}{
+									"properties":         []interface{}{"description"},
+									"vectorizeClassName": false,
+								},
+							},
+							VectorIndexType: "flat",
+						},
+					},
+				},
+			}})
 			ci.On("getCloudInfo").Return(nil)
 
 			// Track multiple client types
@@ -257,7 +250,7 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 
 		t.Run("on terminate", func(t *testing.T) {
 			tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t, withClientTracker(), withIntegrationTracker())
-			sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
+			sm.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 			sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 				&models.NodeStatus{
 					Stats: &models.NodeStats{
@@ -314,10 +307,7 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 						ObjectCount: 1000,
 					},
 				})
-			sm.EXPECT().GetSchemaSkipAuth().Return(
-				schema.Schema{
-					Objects: &models.Schema{Classes: []*models.Class{}},
-				})
+			sm.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{}})
 			// Don't track any clients
 			payload, err := tel.buildPayload(context.Background(), PayloadType.Update)
 			assert.Nil(t, err)
@@ -352,7 +342,7 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				tel, sg, sm := newTestTelemeter(t)
-				sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
+				sm.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 				sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).
 					Return(tt.nodeStatus...)
 				payload, err := tel.buildPayload(context.Background(), PayloadType.Terminate)
@@ -394,38 +384,35 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 			},
 		})
 
-	sm.EXPECT().GetSchemaSkipAuth().Return(
-		schema.Schema{
-			Objects: &models.Schema{Classes: []*models.Class{
-				{
-					Class: "Class",
-					ModuleConfig: map[string]interface{}{
-						"generative-openai": map[string]interface{}{},
-					},
-					VectorConfig: map[string]models.VectorConfig{
-						"description_google": {
-							Vectorizer: map[string]interface{}{
-								"text2vec-google": map[string]interface{}{
-									"properties":         []interface{}{"description"},
-									"vectorizeClassName": false,
-									"apiEndpoint":        "generativelanguage.googleapis.com",
-								},
-							},
-							VectorIndexType: "flat",
-						},
-						"description_aws": {
-							Vectorizer: map[string]interface{}{
-								"text2vec-aws": map[string]interface{}{
-									"properties":         []interface{}{"description"},
-									"vectorizeClassName": false,
-								},
-							},
-							VectorIndexType: "flat",
+	sm.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{
+		{
+			Class: "Class",
+			ModuleConfig: map[string]interface{}{
+				"generative-openai": map[string]interface{}{},
+			},
+			VectorConfig: map[string]models.VectorConfig{
+				"description_google": {
+					Vectorizer: map[string]interface{}{
+						"text2vec-google": map[string]interface{}{
+							"properties":         []interface{}{"description"},
+							"vectorizeClassName": false,
+							"apiEndpoint":        "generativelanguage.googleapis.com",
 						},
 					},
+					VectorIndexType: "flat",
 				},
-			}},
-		})
+				"description_aws": {
+					Vectorizer: map[string]interface{}{
+						"text2vec-aws": map[string]interface{}{
+							"properties":         []interface{}{"description"},
+							"vectorizeClassName": false,
+						},
+					},
+					VectorIndexType: "flat",
+				},
+			},
+		},
+	}})
 
 	err := tel.Start(context.Background())
 	require.Nil(t, err)
@@ -501,17 +488,14 @@ func TestTelemetry_BuildPayload_WithCloudInfo(t *testing.T) {
 					ObjectCount: 100,
 				},
 			})
-		sm.EXPECT().GetSchemaSkipAuth().Return(
-			schema.Schema{
-				Objects: &models.Schema{Classes: []*models.Class{
-					{
-						Class: "GoogleModuleWithGoogleAIStudioEmptyConfig",
-						ModuleConfig: map[string]interface{}{
-							"text2vec-google": nil,
-						},
-					},
-				}},
-			})
+		sm.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{
+			{
+				Class: "GoogleModuleWithGoogleAIStudioEmptyConfig",
+				ModuleConfig: map[string]interface{}{
+					"text2vec-google": nil,
+				},
+			},
+		}})
 		ci.On("getCloudInfo").Return(
 			&cloudInfo{cloudProvider: "GCP", uniqueID: "id"},
 		)
@@ -535,7 +519,7 @@ func TestTelemetry_BuildPayload_WithCloudInfo(t *testing.T) {
 
 	t.Run("on update with only cloud provider present", func(t *testing.T) {
 		tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t)
-		sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
+		sm.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 		sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 			&models.NodeStatus{
 				Stats: &models.NodeStats{
@@ -561,7 +545,7 @@ func TestTelemetry_BuildPayload_WithCloudInfo(t *testing.T) {
 
 	t.Run("on terminate with empty cloud info", func(t *testing.T) {
 		tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t)
-		sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
+		sm.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 		sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 			&models.NodeStatus{
 				Stats: &models.NodeStats{
@@ -589,7 +573,7 @@ func TestTelemetry_WithCloudInfoConsumer_GCP(t *testing.T) {
 	server := httptest.NewServer(&gcpTestConsumer{t})
 	defer server.Close()
 	tel, sg, sm := newTestTelemeterWithCustomCloudInfo(t, newGCPCloudInfo(server.URL))
-	sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
+	sm.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 
 	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 		&models.NodeStatus{
@@ -617,7 +601,7 @@ func TestTelemetry_WithCloudInfoConsumer_AWS(t *testing.T) {
 	server := httptest.NewServer(&awsTestConsumer{t})
 	defer server.Close()
 	tel, sg, sm := newTestTelemeterWithCustomCloudInfo(t, newAWSCloudInfo(server.URL))
-	sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
+	sm.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 
 	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 		&models.NodeStatus{
@@ -679,10 +663,10 @@ func withClientTracker() telemetryOpt {
 }
 
 func newTestTelemeter(t *testing.T, opts ...telemetryOpt,
-) (*Telemeter, *fakeNodesStatusGetter, *schemaUC.MockSchemaGetter,
+) (*Telemeter, *fakeNodesStatusGetter, *local.MockSchemaReader,
 ) {
 	sg := &fakeNodesStatusGetter{}
-	sm := schemaUC.NewMockSchemaGetter(t)
+	sm := local.NewMockSchemaReader(t)
 	logger, _ := test.NewNullLogger()
 	// stubClusterID returns a fixed id so payloads carry clusterId in tests.
 	stubClusterID := func() string {
@@ -697,7 +681,7 @@ func newTestTelemeter(t *testing.T, opts ...telemetryOpt,
 }
 
 func newTestTelemeterWithCloudInfo(t *testing.T, opts ...telemetryOpt,
-) (*Telemeter, *fakeNodesStatusGetter, *schemaUC.MockSchemaGetter, *fakeCloudInfoProvider,
+) (*Telemeter, *fakeNodesStatusGetter, *local.MockSchemaReader, *fakeCloudInfoProvider,
 ) {
 	tel, sg, sm := newTestTelemeter(t, opts...)
 	ci := &fakeCloudInfoProvider{}
@@ -706,7 +690,7 @@ func newTestTelemeterWithCloudInfo(t *testing.T, opts ...telemetryOpt,
 }
 
 func newTestTelemeterWithCustomCloudInfo(t *testing.T, ci cloudInfoProvider, opts ...telemetryOpt,
-) (*Telemeter, *fakeNodesStatusGetter, *schemaUC.MockSchemaGetter,
+) (*Telemeter, *fakeNodesStatusGetter, *local.MockSchemaReader,
 ) {
 	tel, sg, sm := newTestTelemeter(t, opts...)
 	tel.cloudInfoHelper = &cloudInfoHelper{provider: ci}

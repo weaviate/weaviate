@@ -26,9 +26,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/schema/leader"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
-	entschema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -147,16 +147,17 @@ func (p *probeRecordingEnqueuer) ListDistributedTasks(ctx context.Context) (map[
 
 // orderLister records whether the schema was read before or after the probe.
 type orderLister struct {
+	local.ClassReader
 	probed  *bool
 	orderOK *bool
 	classes []*models.Class
 }
 
-func (l orderLister) GetSchemaSkipAuth() entschema.Schema {
+func (l orderLister) ReadOnlySchema() models.Schema {
 	if *l.probed {
 		*l.orderOK = true
 	}
-	return entschema.Schema{Objects: &models.Schema{Classes: l.classes}}
+	return models.Schema{Classes: l.classes}
 }
 
 // TestReconciliationAtStartup_ReadsSchemaAfterProbe pins the restore race fix:

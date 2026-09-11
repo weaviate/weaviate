@@ -223,8 +223,11 @@ func (f *fakeSchemaGetter) SetVectorIndexConfig(cfg hnsw.UserConfig) {
 	}
 }
 
-func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
-	return f.schema
+func (f *fakeSchemaGetter) ReadOnlySchema() models.Schema {
+	if f.schema.Objects == nil {
+		return models.Schema{}
+	}
+	return *f.schema.Objects
 }
 
 func (f *fakeSchemaGetter) ReadOnlyClass(className string) *models.Class {

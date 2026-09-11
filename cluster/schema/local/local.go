@@ -42,6 +42,9 @@ type ClassReader interface {
 	// The copy must not be modified.
 	ReadOnlyClass(name string) *models.Class
 	ReadOnlyVersionedClass(name string) versioned.Class
+	// ReadOnlySchema returns the local schema without authorization checks. Never
+	// return it to a user request, it could leak classes the principal may not read;
+	// it is meant for non-user processes such as startup and maintenance.
 	ReadOnlySchema() models.Schema
 	ClassInfo(class string) ClassInfo
 	// ClassEqual returns the name of the existing class that matches name

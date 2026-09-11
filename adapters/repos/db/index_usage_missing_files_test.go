@@ -243,7 +243,7 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageInde
 	}).Maybe()
 
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
+	mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
 	mockSchema.EXPECT().ShardOwner(className, tenantName).Maybe().Return("test-node", nil)
 	mockSchema.EXPECT().TenantsShardsStatus(ctx, className, tenantName).Maybe().

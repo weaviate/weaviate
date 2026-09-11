@@ -35,8 +35,11 @@ type fakeSchemaGetter struct {
 	schema schema.Schema
 }
 
-func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
-	return f.schema
+func (f *fakeSchemaGetter) ReadOnlySchema() models.Schema {
+	if f.schema.Objects == nil {
+		return models.Schema{}
+	}
+	return *f.schema.Objects
 }
 
 func (f *fakeSchemaGetter) ReadOnlyClass(class string) *models.Class {
