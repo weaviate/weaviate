@@ -35,14 +35,13 @@ var _ admissionChecker = (*memwatch.Monitor)(nil)
 
 // delayAck is the soft backpressure. It calculates and reports the
 // live heap ratio then sleeps for a duration determined by the ratio.
-func (h *StreamHandler) delayAck(ctx context.Context) {
-	ratio := h.admissionChecker.Ratio()
+func (h *StreamHandler) delayAck(ctx context.Context, heapRatio float64) {
 	if h.metrics != nil {
-		h.metrics.OnLiveHeapRatio(ratio)
+		h.metrics.OnLiveHeapRatio(heapRatio)
 	}
 
-	if delay := ackDelay(h.config, ratio); delay > 0 {
-		h.sleepSlice(ctx, delay)
+	if delay := ackDelay(h.config, heapRatio); delay > 0 {
+		h.wait(ctx, delay)
 	}
 }
 
@@ -69,26 +68,26 @@ func ackDelay(cfg config.BatchStream, ratio float64) time.Duration {
 	return time.Duration(float64(cfg.MaxAckDelay) * math.Pow(scaled, ackDelayExponent))
 }
 
-// sleepSlice waits for duration d or until the context or shutting down context is done, whichever comes first.
+// wait waits for duration d or until the context or shutting down context is done, whichever comes first.
 //
 // It returns true if the wait ran to completion, and false otherwise.
-func (h *StreamHandler) sleepSlice(ctx context.Context, d time.Duration) bool {
+func (h *StreamHandler) wait(ctx context.Context, d time.Duration) error {
 	timer := time.NewTimer(d)
 	defer timer.Stop()
 	select {
 	case <-timer.C:
-		return true
+		return nil
 	case <-ctx.Done():
-		return false
+		return ctx.Err()
 	case <-h.shuttingDownCtx.Done():
-		return false
+		return h.shuttingDownCtx.Err()
 	}
 }
 
 // tryAdmit reports whether a message of size bytes fits on top of the memory
 // already in flight, and reserves those bytes when it does.
 // The function locks admitMu to ensure that the check and potential reservation of memory are atomic.
-func (h *StreamHandler) tryAdmit(size int64) error {
+func (h *StreamHandler) tryAdmit(size int64) (float64, error) {
 	h.admitMu.Lock()
 	defer h.admitMu.Unlock()
 
@@ -97,25 +96,28 @@ func (h *StreamHandler) tryAdmit(size int64) error {
 	if err == nil {
 		h.memInFlight.Add(size)
 	}
-	return err
+	return h.admissionChecker.Ratio(), err
 }
 
 // holdForMemory is the memory gate. It repeatedly attempts to admit the specified memory size,
 // waiting for a short interval between attempts, until it either succeeds or the hold period expires.
-func (h *StreamHandler) holdForMemory(ctx context.Context, size int64) error {
-	err := h.tryAdmit(size)
+func (h *StreamHandler) holdForMemory(ctx context.Context, size int64) (float64, error) {
+	heapRatio, err := h.tryAdmit(size)
 	if err == nil {
-		return nil
+		return heapRatio, nil
 	}
 
 	deadline := time.Now().Add(time.Duration(h.config.HoldSeconds) * time.Second)
 	for {
 		wait := min(holdRecheckInterval, time.Until(deadline))
-		if wait <= 0 || !h.sleepSlice(ctx, wait) {
-			return err
+		if wait <= 0 {
+			return 0, err
 		}
-		if err = h.tryAdmit(size); err == nil {
-			return nil
+		if wErr := h.wait(ctx, wait); wErr != nil {
+			return 0, wErr
+		}
+		if heapRatio, err = h.tryAdmit(size); err == nil {
+			return heapRatio, nil
 		}
 	}
 }

@@ -553,10 +553,11 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, principal
 				continue
 			}
 
+			var heapRatio float64
 			// The wire size covers every object, reference and vector the message
 			// carries.
 			size := int64(proto.Size(request))
-			if err := h.holdForMemory(ctx, size); err != nil {
+			if heapRatio, err = h.holdForMemory(ctx, size); err != nil {
 				log.Warnf("memory allocation check failed before pushing to processing queue: %v", err)
 				return oomErr(objs, refs, err)
 			}
@@ -567,7 +568,7 @@ func (h *StreamHandler) receiver(ctx context.Context, streamId string, principal
 
 			// The delay grows with memory pressure. A client that waits for its
 			// acks slows down instead of being cut off.
-			h.delayAck(ctx)
+			h.delayAck(ctx, heapRatio)
 
 			uuids, beacons := uuidsAndBeacons(objs, refs)
 			// Acknowledge receipt of these objects and/or references from the message

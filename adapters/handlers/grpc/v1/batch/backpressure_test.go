@@ -85,7 +85,8 @@ func TestEnqueueReleasesReservation(t *testing.T) {
 	// The test calls enqueue directly, so it must make the reservation itself.
 	// It goes through the same admission check the receiver uses.
 	call := func(h *StreamHandler, principal *models.Principal, collection string, wg *sync.WaitGroup) error {
-		require.NoError(t, h.tryAdmit(size))
+		_, err := h.tryAdmit(size)
+		require.NoError(t, err)
 		objs := []*pb.BatchObject{{Collection: collection, Uuid: "5f8e0d34-1c6a-4a1e-9f0c-6f9b6e0f0a11"}}
 		return h.enqueue(context.Background(), stubStream{}, h.logger.WithField("streamId", "stream"),
 			principal, "stream", nil, wg, objs, nil, size)
