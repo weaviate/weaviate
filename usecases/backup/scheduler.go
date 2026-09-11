@@ -340,9 +340,15 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 }
 
 // filterBackupableClasses returns the subset of classes the caller may act on
-// with verb, narrowing the empty-Include operation instead of failing it whole.
-// An empty result is Forbidden; any other authorizer error is Unprocessable.
+// with verb. Callers use it only when the request omits 'include', so a caller
+// allowed some of the classes acts on those instead of being refused outright.
+// An empty input list is a class-less backup and passes through. A non-empty
+// input that leaves nothing allowed is Forbidden. Any other authorizer error is
+// Unprocessable.
 func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Principal, verb string, classes []string) ([]string, error) {
+	if len(classes) == 0 {
+		return classes, nil
+	}
 	allowed := make([]string, 0, len(classes))
 	for _, c := range classes {
 		if err := s.authorizer.Authorize(ctx, pr, verb, authorization.Backups(c)...); err != nil {
@@ -734,30 +740,26 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 
 	// Get all available classes first for wildcard expansion
 	allClasses := s.backupper.selector.ListClasses(ctx)
-	if len(allClasses) == 0 {
-		return selections, fmt.Errorf("no available classes to backup, there's nothing to do here")
-	}
 
 	// Expand wildcards in Include list
 	include := expandWildcards(req.Include, allClasses)
-	// An include list that expands to nothing must not fall through to every class.
-	if len(req.Include) > 0 && len(include) == 0 {
-		return selections, fmt.Errorf("class list 'include' %v matches no class", req.Include)
-	}
 
 	// Expand wildcards in Exclude list
 	exclude := expandWildcards(req.Exclude, allClasses)
 
+	// Only an omitted 'include' list means every class. Testing len(classes)
+	// here instead of len(req.Include) would back up the whole cluster when an
+	// include pattern matched nothing.
 	classes := include
-	if len(classes) == 0 {
+	if len(req.Include) == 0 {
 		classes = allClasses
 	}
-	if classes = filterClasses(classes, exclude); len(classes) == 0 {
-		return selections, fmt.Errorf("empty class list: please choose from : %v", allClasses)
-	}
+	classes = filterClasses(classes, exclude)
 
-	if err := s.backupper.selector.Backupable(ctx, classes); err != nil {
-		return selections, err
+	if len(classes) > 0 {
+		if err := s.backupper.selector.Backupable(ctx, classes); err != nil {
+			return selections, err
+		}
 	}
 
 	users, err := s.resolveUsers(req.IncludeUsers)
@@ -771,6 +773,24 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 		return selections, err
 	}
 	selections.skipRoles = len(req.IncludeRoles) > 0 && len(roles) == 0
+
+	// Zero collections is legitimate as long as a user or a role was selected.
+	// Selecting none of the three would produce an empty backup.
+	if len(classes) == 0 && len(users) == 0 && len(roles) == 0 {
+		classReason := "no collection selected"
+		if len(req.Include) > 0 {
+			classReason = fmt.Sprintf("class list 'include' %v matches no class", req.Include)
+		}
+		userReason := "'includeUsers' not set"
+		if selections.skipUsers {
+			userReason = fmt.Sprintf("'includeUsers' %v matches no user", req.IncludeUsers)
+		}
+		roleReason := "'includeRoles' not set"
+		if selections.skipRoles {
+			roleReason = fmt.Sprintf("'includeRoles' %v matches no role", req.IncludeRoles)
+		}
+		return selections, fmt.Errorf("nothing to back up: %s, %s, %s", classReason, userReason, roleReason)
+	}
 
 	if err = s.checkIfBackupExists(ctx, store, req); err != nil {
 		return selections, err
@@ -953,27 +973,45 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 
 	cs := meta.Classes()
 
-	// Expand wildcards in Include list against backup's classes
-	include := expandWildcards(req.Include, cs)
-	// An include list that expands to nothing must not fall through to every class.
-	if len(req.Include) > 0 && len(include) == 0 {
-		return nil, fmt.Errorf("class list 'include' %v matches no class in the backup", req.Include)
-	}
-
-	// Expand wildcards in Exclude list against backup's classes
-	exclude := expandWildcards(req.Exclude, cs)
-
-	if len(include) > 0 {
-		if first := meta.AllExist(include); first != "" {
-			err = fmt.Errorf("class %s doesn't exist in the backup, but does have %v: ", first, cs)
-			return nil, err
+	if len(cs) == 0 {
+		// AllExist returns "" when every class is present. It also returns ""
+		// for a missing class named "", so it cannot report an empty-string
+		// entry. Both lists are rejected here instead of going through it.
+		if len(req.Include) > 0 || len(req.Exclude) > 0 {
+			return nil, fmt.Errorf("backup %q contains no collection: 'include' %v and 'exclude' %v must be omitted",
+				req.ID, req.Include, req.Exclude)
 		}
-		meta.Include(include)
+		if req.UserRestoreOption == models.RestoreConfigUsersOptionsNoRestore &&
+			req.RbacRestoreOption == models.RestoreConfigRolesOptionsNoRestore {
+			return nil, fmt.Errorf("backup %q contains no collection and both 'usersOptions' and 'rolesOptions' are %q: nothing to restore",
+				req.ID, models.RestoreConfigUsersOptionsNoRestore)
+		}
+		// RemoveEmpty is not called here. It would drop the leader's class-less
+		// entry, and the coordinator fans out only to the nodes the descriptor
+		// lists. The restore would then run with no participant, so the leader's
+		// per-node descriptor check, its status entry and the cancel target would
+		// all be skipped.
 	} else {
-		meta.Exclude(exclude)
-	}
-	if meta.RemoveEmpty().Count() == 0 {
-		return nil, fmt.Errorf("nothing left to restore: please choose from : %v", cs)
+		include := expandWildcards(req.Include, cs)
+		// An include list that expands to nothing must not fall through to every class.
+		if len(req.Include) > 0 && len(include) == 0 {
+			return nil, fmt.Errorf("class list 'include' %v matches no class in the backup", req.Include)
+		}
+
+		exclude := expandWildcards(req.Exclude, cs)
+
+		if len(include) > 0 {
+			if first := meta.AllExist(include); first != "" {
+				err = fmt.Errorf("class %s doesn't exist in the backup, but does have %v: ", first, cs)
+				return nil, err
+			}
+			meta.Include(include)
+		} else {
+			meta.Exclude(exclude)
+		}
+		if meta.RemoveEmpty().Count() == 0 {
+			return nil, fmt.Errorf("nothing left to restore: please choose from : %v", cs)
+		}
 	}
 	if len(req.NodeMapping) > 0 {
 		meta.NodeMapping = req.NodeMapping

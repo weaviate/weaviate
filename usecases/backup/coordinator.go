@@ -851,6 +851,10 @@ func (c *coordinator) queryAll(ctx context.Context, req *StatusRequest, nodes ma
 // commitAll tells all participants to proceed with their backup operations
 // It returns the number of failures
 func (c *coordinator) commitAll(ctx context.Context, req *StatusRequest, nodes map[string]string) int {
+	// With no worker nothing closes errChan, so the range below would block forever.
+	if len(nodes) == 0 {
+		return 0
+	}
 	type pair struct {
 		node string
 		err  error
