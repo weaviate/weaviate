@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"path"
 	"slices"
 	"strings"
@@ -25,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/backup"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -79,6 +81,7 @@ func NewScheduler(
 	authorizer authorization.Authorizer,
 	client client,
 	sourcer Selector,
+	checkpointer ReplicaCheckpointer,
 	userLister UserLister,
 	roleLister RoleLister,
 	backends BackupBackendProvider,
@@ -102,13 +105,13 @@ func NewScheduler(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver, backends, nil,
+			logger, nodeResolver, backends, nil, checkpointer,
 		),
 		restorer: newCoordinator(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver, backends, rolesAndUsers,
+			logger, nodeResolver, backends, rolesAndUsers, nil,
 		),
 	}
 	return m
@@ -168,6 +171,11 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		}
 	}
 
+	// Coordinator-entry-only by design (participants honor designations regardless); restore of existing deduped artifacts is deliberately never gated.
+	if req.DedupeReplicas && !entcfg.Enabled(os.Getenv("BACKUP_DEDUPE_ENABLED")) {
+		return nil, backup.NewErrUnprocessable(fmt.Errorf("dedupeReplicas is not enabled on this cluster; set BACKUP_DEDUPE_ENABLED=true or retry without the option"))
+	}
+
 	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q: %w, did you enable the right module?", req.Backend, err)
@@ -190,16 +198,20 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, fmt.Errorf("init uploader: %w", err)
 	}
 	breq := Request{
-		Method:       OpCreate,
-		ID:           req.ID,
-		Backend:      req.Backend,
-		Classes:      sel.classes,
-		Users:        sel.users,
-		Roles:        sel.roles,
-		Compression:  req.Compression,
-		Bucket:       req.Bucket,
-		Path:         req.Path,
-		BaseBackupID: req.BaseBackupID,
+		Method:                          OpCreate,
+		ID:                              req.ID,
+		Backend:                         req.Backend,
+		Classes:                         sel.classes,
+		Users:                           sel.users,
+		Roles:                           sel.roles,
+		Compression:                     req.Compression,
+		Bucket:                          req.Bucket,
+		Path:                            req.Path,
+		BaseBackupID:                    req.BaseBackupID,
+		DedupeReplicas:                  req.DedupeReplicas,
+		DedupeConvergenceTimeoutSeconds: req.DedupeConvergenceTimeoutSeconds,
+		BaseChainDeduped:                sel.baseChainDeduped,
+		BaseDedupeDesignations:          sel.baseDesignations,
 	}
 	if err := s.backupper.Backup(ctx, store, &breq); err != nil {
 		return nil, err
@@ -254,7 +266,11 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		if err != nil {
 			return nil, err
 		}
+		// Drop nodes hosting only unauthorized classes, or they stay required participants.
 		meta.Include(allowed)
+		if meta.RemoveEmpty().Count() == 0 {
+			return nil, backup.NewErrUnprocessable(fmt.Errorf("nothing left to restore after authorization filtering"))
+		}
 	}
 
 	schema, userBlob, rbacBlob, err := s.fetchSchema(ctx, req.Backend, req.Bucket, req.Path, meta)
@@ -404,7 +420,7 @@ func (s *Scheduler) BackupStatus(ctx context.Context, principal *models.Principa
 		return nil, err
 	}
 
-	req := &StatusRequest{OpCreate, backupID, backend, store.bucket, store.path, ""}
+	req := &StatusRequest{Method: OpCreate, ID: backupID, Backend: backend, Bucket: store.bucket, Path: store.path}
 	st, err := s.backupper.OnStatus(ctx, store, req)
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {
@@ -428,7 +444,7 @@ func (s *Scheduler) RestorationStatus(ctx context.Context, principal *models.Pri
 	if err := s.authorizeBackupByID(ctx, principal, authorization.READ, store, GlobalRestoreFile, overrideBucket, overridePath); err != nil {
 		return nil, err
 	}
-	req := &StatusRequest{OpRestore, backupID, backend, overrideBucket, overridePath, ""}
+	req := &StatusRequest{Method: OpRestore, ID: backupID, Backend: backend, Bucket: overrideBucket, Path: overridePath}
 	st, err := s.restorer.OnStatus(ctx, store, req)
 	if err != nil {
 		if errors.Is(err, errMetaNotFound) {
@@ -486,6 +502,12 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		}
 	}
 
+	// Participant aborts only reach nodes already committed to the op; the slot
+	// signal is what stops a create still in its planning/convergence wait.
+	if s.backupper.lastOp.cancelIfInFlight(backupID) {
+		s.logger.WithField("backup_id", backupID).Info("cancel: signalled in-flight backup coordinator")
+	}
+
 	nodes, err := s.backupper.Nodes(ctx, &Request{
 		Method:  OpCreate,
 		Backend: backend,
@@ -499,6 +521,20 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 		&AbortRequest{Method: OpCreate, ID: backupID, Backend: backend, Bucket: overrideBucket, Path: overridePath}, nodes)
 
 	return nil
+}
+
+// cancelCoordinatorOp lets a remote DELETE's abort fan-out cancel a create this node
+// coordinates; only user aborts qualify (empty AttemptID — coordinator cleanup aborts
+// carry theirs and must not flip their own op to Cancelled).
+func (s *Scheduler) cancelCoordinatorOp(method Op, id, attemptID string) bool {
+	if method != OpCreate || attemptID != "" {
+		return false
+	}
+	if s.backupper.lastOp.cancelIfInFlight(id) {
+		s.logger.WithField("backup_id", id).Info("cancel: remote abort signalled in-flight backup coordinator")
+		return true
+	}
+	return false
 }
 
 func (s *Scheduler) CancelRestore(ctx context.Context, principal *models.Principal, backend, backupID, overrideBucket, overridePath string,
@@ -682,6 +718,10 @@ func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, o
 // mean an ordinary class-only backup.
 type backupSelections struct {
 	classes, users, roles []string
+	// baseChainDeduped pins the restore floor at 3.0: restoring this artifact traverses a replica-deduped base.
+	baseChainDeduped bool
+	// baseDesignations is the immediate base's dedupeDesignations; nil for non-deduped or pre-feature bases.
+	baseDesignations map[string]map[string]string
 }
 
 // validateBackupRequest resolves the request into concrete classes, users, and
@@ -753,8 +793,19 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 	if err != nil {
 		return selections, fmt.Errorf("get compression type: %w", err)
 	}
-	if _, err = resolveBaseBackupChain(ctx, req.BaseBackupID, time.Now().UTC(), req.Bucket, req.Path, compressionType, store.MetaForBackupID); err != nil {
+	chain, err := resolveBaseBackupChain(ctx, req.BaseBackupID, time.Now().UTC(), req.Bucket, req.Path, compressionType, store.GlobalMetaForBackupID)
+	if err != nil {
 		return selections, fmt.Errorf("resolve base backup chain: %w", err)
+	}
+	for _, base := range chain {
+		if major, ok := parseMajor(base.GetVersion()); ok && major >= 3 {
+			selections.baseChainDeduped = true
+			break
+		}
+	}
+	// only the immediate base constrains stickiness: any other chain shape leaves every replica able to skip
+	if len(chain) > 0 {
+		selections.baseDesignations = chain[0].DedupeDesignations
 	}
 
 	selections.classes = classes
@@ -906,8 +957,9 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	if err := meta.Validate(); err != nil {
 		return nil, fmt.Errorf("corrupted backup file: %w", err)
 	}
-	if v := meta.Version; v[0] > Version[0] {
-		return nil, fmt.Errorf("%s: %s > %s", errMsgHigherVersion, v, Version)
+	// dedupeReplicas requires the 3.x format; 3.x without the flag is a legacy-layout artifact whose base chain pins the floor.
+	if major, ok := parseMajor(meta.Version); ok && meta.DedupeReplicas && major < 3 {
+		return nil, fmt.Errorf("corrupted backup file: version %s inconsistent with dedupeReplicas=%v", meta.Version, meta.DedupeReplicas)
 	}
 
 	// Base backups are only read after the restore has started staging data.

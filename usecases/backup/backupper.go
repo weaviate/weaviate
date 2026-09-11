@@ -46,7 +46,7 @@ func newBackupper(node string, logger logrus.FieldLogger, cfg config.Backup, sou
 		rbacSourcer:    rbacSourcer,
 		dynUserSourcer: dynUserSourcer,
 		backends:       backends,
-		shardSyncChan:  shardSyncChan{coordChan: make(chan interface{}, 5)},
+		shardSyncChan:  shardSyncChan{coordChan: make(chan interface{}, 5), logger: logger},
 	}
 }
 
@@ -103,10 +103,7 @@ func (b *backupper) publishFailure(err error) {
 // It will start the backup as soon as it receives an ack, or abort otherwise
 func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, error) {
 	id := req.ID
-	expiration := req.Duration
-	if expiration > _TimeoutShardCommit {
-		expiration = _TimeoutShardCommit
-	}
+	expiration := min(req.Duration, maxBooking(false))
 	ret := CanCommitResponse{
 		Method:  OpCreate,
 		ID:      req.ID,
@@ -114,7 +111,7 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 	}
 
 	// make sure there is no active backup
-	if prevID := b.lastOp.renew(id, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
+	if prevID := b.lastOp.renew(id, req.AttemptID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return ret, fmt.Errorf("backup %s already in progress", prevID)
 	}
 
@@ -130,7 +127,8 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 		}
 
 		provider := newUploader(b.cfg, b.sourcer, b.rbacSourcer, b.dynUserSourcer, req.Users, req.Roles, store, req.ID, &b.lastOp, b.logger).
-			withCompression(newZipConfig(req.Compression))
+			withCompression(newZipConfig(req.Compression)).
+			withShardDesignations(req.ShardDesignations)
 
 		compressionType, err := CompressionTypeFromLevel(req.Level)
 		if err != nil {
@@ -163,14 +161,20 @@ func (b *backupper) backup(store nodeStore, req *Request) (CanCommitResponse, er
 			baseBackupID = ""
 		}
 
+		// DedupeEffective, not DedupeReplicas: the version tracks the coordinator's planning outcome, uniform across node descriptors.
+		version := Version
+		if req.DedupeEffective {
+			version = VersionDedupeReplicas
+		}
 		result := backup.BackupDescriptor{
 			StartedAt:       startedAt,
 			ID:              id,
 			Classes:         make([]backup.ClassDescriptor, 0, len(req.Classes)),
-			Version:         Version,
+			Version:         version,
 			ServerVersion:   config.ServerVersion,
 			CompressionType: &compressionType,
 			BaseBackupID:    baseBackupID,
+			DedupeReplicas:  req.DedupeEffective,
 		}
 
 		b.logger.WithFields(logFields).Info("starting backup")

@@ -67,6 +67,10 @@ function main() {
   run_acceptance_drop_vector_index_async_indexing_group1=false
   run_acceptance_drop_vector_index_async_indexing_group2=false
   run_acceptance_backups=false
+  run_acceptance_backup_dedupe=false
+  run_acceptance_backup_dedupe_cross_version=false
+  run_acceptance_backup_dedupe_incremental=false
+  run_acceptance_backup_dedupe_misc=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -133,6 +137,10 @@ function main() {
           --acceptance-drop-vector-index-async-indexing-group1|-advia1) run_all_tests=false; run_acceptance_drop_vector_index_async_indexing_group1=true;;
           --acceptance-drop-vector-index-async-indexing-group2|-advia2) run_all_tests=false; run_acceptance_drop_vector_index_async_indexing_group2=true;;
           --acceptance-backups|-ab) run_all_tests=false; run_acceptance_backups=true;;
+          --acceptance-backup-dedupe|-abd) run_all_tests=false; run_acceptance_backup_dedupe=true;;
+          --acceptance-backup-dedupe-cross-version|-abdcv) run_all_tests=false; run_acceptance_backup_dedupe_cross_version=true;;
+          --acceptance-backup-dedupe-incremental|-abdi) run_all_tests=false; run_acceptance_backup_dedupe_incremental=true;;
+          --acceptance-backup-dedupe-misc|-abdm) run_all_tests=false; run_acceptance_backup_dedupe_misc=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -182,6 +190,10 @@ function main() {
               "--acceptance-reindex-mt | -armt"\
               "--acceptance-reindex-backup | -arb"\
               "--acceptance-backups | -ab"\
+              "--acceptance-backup-dedupe | -abd"\
+              "--acceptance-backup-dedupe-cross-version | -abdcv"\
+              "--acceptance-backup-dedupe-incremental | -abdi"\
+              "--acceptance-backup-dedupe-misc | -abdm"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -468,6 +480,26 @@ function main() {
     echo "running backup/restore acceptance tests"
     run_acceptance_backups
   fi
+
+  if $run_acceptance_backup_dedupe; then
+    echo "running backup dedupe acceptance tests"
+    run_acceptance_backup_dedupe
+  fi
+
+  if $run_acceptance_backup_dedupe_cross_version; then
+    echo "running backup dedupe cross-version acceptance tests"
+    run_acceptance_backup_dedupe_cross_version
+  fi
+
+  if $run_acceptance_backup_dedupe_incremental; then
+    echo "running backup dedupe incremental acceptance tests"
+    run_acceptance_backup_dedupe_incremental
+  fi
+
+  if $run_acceptance_backup_dedupe_misc; then
+    echo "running backup dedupe misc acceptance tests"
+    run_acceptance_backup_dedupe_misc
+  fi
   echo "Done!"
 }
 
@@ -657,6 +689,7 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/reindex_blockmax_ageout' \
     | grep -v 'test/acceptance/reindex_backup' \
     | grep -v 'test/acceptance/backups' \
+    | grep -v 'test/acceptance/backup_dedupe_replicas' \
     | grep -v 'test/acceptance/distributed_tasks' \
     | grep -v 'test/acceptance/drop_vector_index' \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
@@ -686,6 +719,10 @@ function run_aof_group() {
   if [[ -n "${AOF_GROUP_SKIP:-}" ]]; then
     echo "  -skip filter: $AOF_GROUP_SKIP"
   fi
+  local group_timeout="${AOF_GROUP_TIMEOUT:-20m}"
+  if [[ "$group_timeout" != "20m" ]]; then
+    echo "  -timeout: $group_timeout"
+  fi
 
   local -a extra_flags=()
   if [[ -n "${AOF_GROUP_RUN:-}" ]]; then
@@ -707,7 +744,7 @@ function run_aof_group() {
           testFailed=1
         fi
       else
-        if ! go test -count 1 -timeout=20m -race "${extra_flags[@]}" "$pkg"; then
+        if ! go test -count 1 -timeout="$group_timeout" -race "${extra_flags[@]}" "$pkg"; then
           echo "Test for $pkg failed" >&2
           testFailed=1
         fi
@@ -1139,7 +1176,38 @@ function run_acceptance_backups() {
   build_weaviate_test_image
   echo_green "acceptance — backups"
   run_aof_group "backups" \
-    test/acceptance/backups
+    test/acceptance/backups \
+    test/acceptance/backup_dedupe_replicas
+}
+
+function run_acceptance_backup_dedupe() {
+  build_weaviate_test_image
+  echo_green "acceptance — backup-dedupe"
+  # Worst-case waits in TestBackupDedupeReplicas sum to ~30m; the workflow job allots 45m.
+  AOF_GROUP_RUN='^TestBackupDedupeReplicas$' AOF_GROUP_TIMEOUT=40m \
+    run_aof_group "backup-dedupe" test/acceptance/backup_dedupe_replicas
+}
+
+function run_acceptance_backup_dedupe_cross_version() {
+  build_weaviate_test_image
+  echo_green "acceptance — backup-dedupe-cross-version"
+  AOF_GROUP_RUN='^TestBackupCrossVersionRestore$' AOF_GROUP_TIMEOUT=30m \
+    run_aof_group "backup-dedupe-cross-version" test/acceptance/backup_dedupe_replicas
+}
+
+function run_acceptance_backup_dedupe_incremental() {
+  build_weaviate_test_image
+  echo_green "acceptance — backup-dedupe-incremental"
+  AOF_GROUP_RUN='^TestBackupDedupeIncremental$' AOF_GROUP_TIMEOUT=40m \
+    run_aof_group "backup-dedupe-incremental" test/acceptance/backup_dedupe_replicas
+}
+
+# Catch-all shard: when adding a sub-shard above, add its test prefix to the SKIP regex so it isn't double-run.
+function run_acceptance_backup_dedupe_misc() {
+  build_weaviate_test_image
+  echo_green "acceptance — backup-dedupe-misc"
+  AOF_GROUP_SKIP='^(TestBackupDedupeReplicas|TestBackupCrossVersionRestore|TestBackupDedupeIncremental)$' \
+    run_aof_group "backup-dedupe-misc" test/acceptance/backup_dedupe_replicas
 }
 
 # get_fast_go_client_packages returns a list of fast go client test packages.

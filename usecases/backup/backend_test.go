@@ -1079,6 +1079,49 @@ func TestFileWriter_Write_StripRenamesInnerIndexDir(t *testing.T) {
 		"source-indexID dir must not survive the strip rename")
 }
 
+func TestFileWriterStagedRecorder(t *testing.T) {
+	tests := []struct {
+		name     string
+		desc     *backup.ClassDescriptor
+		wantCall bool
+	}{
+		{name: "zero shards never records", desc: &backup.ClassDescriptor{Name: "Foo"}},
+		{name: "failing fetch records before mutation", wantCall: true, desc: &backup.ClassDescriptor{
+			Name:   "Foo",
+			Shards: []*backup.ShardDescriptor{{Name: "s1", Node: "n1"}},
+			Chunks: map[int32][]string{0: {"s1"}},
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			mockBackend := modulecapabilities.NewMockBackupBackend(t)
+			mockBackend.EXPECT().SourceDataPath().Return(tempDir)
+			if tc.wantCall {
+				mockBackend.EXPECT().
+					Read(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					RunAndReturn(func(_ context.Context, _, _, _, _ string, w io.WriteCloser) (int64, error) {
+						_ = w.Close()
+						return 0, ErrAny
+					})
+			}
+
+			var recorded []string
+			fw := newFileWriter(nil, nodeStore{objectStore: objectStore{backend: mockBackend}}, logrus.New()).
+				withStagedRecorder(func(dir string) { recorded = append(recorded, dir) })
+
+			err := fw.Write(context.Background(), tc.desc, "Foo", "", "", backup.CompressionNone)
+			if tc.wantCall {
+				require.Error(t, err)
+				require.Equal(t, []string{filepath.Join(tempDir, TempDirectory, "Foo")}, recorded)
+			} else {
+				require.NoError(t, err)
+				require.Empty(t, recorded)
+			}
+		})
+	}
+}
+
 // incrementalTestEnv provides shared infrastructure for incremental backup round-trip tests.
 // It holds an in-memory chunk store (mock backend) and helpers for running production
 // processShard (backup) and writeTempFiles (restore) code paths.
@@ -1208,7 +1251,8 @@ func (e *incrementalTestEnv) restore(backupID string, desc *backup.ClassDescript
 	}
 
 	classTempDir := filepath.Join(fw.tempDir, e.className)
-	err := fw.writeTempFiles(context.Background(), classTempDir, "", "", desc, backup.CompressionNone)
+	require.NoError(e.t, fw.prepare(classTempDir))
+	err := fw.fetch(context.Background(), classTempDir, desc, fw.backend, "", "", backup.CompressionNone)
 	require.NoError(e.t, err)
 	return classTempDir
 }
@@ -1782,4 +1826,19 @@ func TestLabelErr(t *testing.T) {
 			require.ErrorIs(t, got, tt.err)
 		})
 	}
+}
+
+func TestRestoreClassDirSkipsStagingMarker(t *testing.T) {
+	t.Parallel()
+	dataPath := t.TempDir()
+	staged := filepath.Join(dataPath, TempDirectory, "Class-A")
+	require.NoError(t, os.MkdirAll(filepath.Join(staged, "class-a"), os.ModePerm))
+	require.NoError(t, os.WriteFile(filepath.Join(staged, "class-a", "segment-1"), []byte("data"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(staged, stagingMarkerFile), []byte("a1"), 0o644))
+
+	require.NoError(t, RestoreClassDir(dataPath)("Class-A"))
+
+	require.FileExists(t, filepath.Join(dataPath, "class-a", "segment-1"))
+	require.NoFileExists(t, filepath.Join(dataPath, stagingMarkerFile))
+	require.NoDirExists(t, staged)
 }

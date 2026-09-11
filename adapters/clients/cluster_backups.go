@@ -48,7 +48,7 @@ func (c *ClusterBackups) CanCommit(ctx context.Context,
 		return nil, fmt.Errorf("marshal can-commit request: %w", err)
 	}
 
-	httpReq, err := http.NewRequest(http.MethodPost, url.String(), bytes.NewReader(b))
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url.String(), bytes.NewReader(b))
 	if err != nil {
 		return nil, fmt.Errorf("new can-commit request: %w", err)
 	}
@@ -168,11 +168,12 @@ func (c *ClusterBackups) do(req *http.Request) (body []byte, statusCode int, err
 		return nil, 0, fmt.Errorf("make request: %w", err)
 	}
 
+	defer httpResp.Body.Close()
+
 	body, err = io.ReadAll(httpResp.Body)
 	if err != nil {
 		return nil, httpResp.StatusCode, fmt.Errorf("read response: %w", err)
 	}
-	defer httpResp.Body.Close()
 
 	return body, httpResp.StatusCode, nil
 }

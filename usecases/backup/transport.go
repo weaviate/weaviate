@@ -74,6 +74,33 @@ type Request struct {
 	RestoreOverwriteAlias bool
 
 	BaseBackupID string
+
+	// DedupeReplicas marks a replica-deduped backup (create: opt-in echo, restore: fan-out marker); older nodes ignore it.
+	DedupeReplicas bool `json:"dedupeReplicas,omitempty"`
+
+	// DedupeEffective is the planning outcome (designated shards exist) and alone drives stamping; DedupeReplicas keeps carrying the request flag for the capability guard.
+	DedupeEffective bool `json:"dedupeEffective,omitempty"`
+
+	// DedupeConvergenceTimeoutSeconds bounds convergence planning, coordinator-side only; 0 = default.
+	DedupeConvergenceTimeoutSeconds int `json:"dedupeConvergenceTimeoutSeconds,omitempty"`
+
+	// BaseChainDeduped pins the version stamp at 3.0 when a base in the incremental chain is replica-deduped, whatever this run's outcome.
+	BaseChainDeduped bool `json:"baseChainDeduped,omitempty"`
+
+	// BaseDedupeDesignations is the immediate base's dedupeDesignations for sticky planning; coordinator-only, never on the wire.
+	BaseDedupeDesignations map[string]map[string]string `json:"-"`
+
+	// ShardDesignations (class -> shard -> archiving node) EXCLUDES: a participant skips a shard only when a DIFFERENT node is named, so drift degrades to duplication, never omission.
+	ShardDesignations map[string]map[string]string `json:"shardDesignations,omitempty"`
+
+	// SourceNodes are the original node names whose {backupID}/{node} subtrees hold descriptors and chunks.
+	SourceNodes []string `json:"sourceNodes,omitempty"`
+
+	// SchemaSourceNode is the prefix whose descriptor carries the sharding state the coordinator applies; participants derive shard membership from it, never from their own possibly-skewed snapshot.
+	SchemaSourceNode string `json:"schemaSourceNode,omitempty"`
+
+	// AttemptID distinguishes coordinator attempts sharing a backup ID; older nodes ignore it.
+	AttemptID string `json:"attemptId,omitempty"`
 }
 
 // CanCommitErrorKind is a coarse, JSON-stable classification of a remote
@@ -111,6 +138,8 @@ type CanCommitResponse struct {
 	// empty. Older nodes never set this field; consumers must treat the
 	// zero value as [CanCommitErrCannotCommit].
 	ErrKind CanCommitErrorKind `json:"err_kind,omitempty"`
+	// DedupeHonored acks DedupeReplicas support; older nodes never set it and the coordinator aborts without it.
+	DedupeHonored bool `json:"dedupe_honored,omitempty"`
 }
 
 type StatusRequest struct {
@@ -126,6 +155,9 @@ type StatusRequest struct {
 	Path string
 
 	BaseBackupID string
+
+	// AttemptID gates which coordinator attempt an abort may cancel; empty means legacy ID-only matching.
+	AttemptID string `json:"attemptId,omitempty"`
 }
 
 type StatusResponse struct {

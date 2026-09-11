@@ -67,8 +67,9 @@ func (s *fakeSourcer) Backupable(ctx context.Context, classes []string) error {
 }
 
 func (s *fakeSourcer) BackupDescriptors(ctx context.Context, bakid string, classes []string, baseDescr []*backup.BackupDescriptor,
+	shardDesignations map[string]map[string]string,
 ) <-chan backup.ClassDescriptor {
-	args := s.Called(ctx, bakid, classes, baseDescr)
+	args := s.Called(ctx, bakid, classes, baseDescr, shardDesignations)
 	return args.Get(0).(<-chan backup.ClassDescriptor)
 }
 
@@ -92,6 +93,12 @@ func (fb *fakeBackend) getMetaBaseBackupID() string {
 	fb.RLock()
 	defer fb.RUnlock()
 	return fb.meta.BaseBackupID
+}
+
+func (fb *fakeBackend) getMetaStamp() (string, bool) {
+	fb.RLock()
+	defer fb.RUnlock()
+	return fb.meta.Version, fb.meta.DedupeReplicas
 }
 
 func newFakeBackend() *fakeBackend {

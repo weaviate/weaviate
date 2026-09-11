@@ -1,0 +1,182 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package backup_dedupe_replicas_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/minio/minio-go/v7"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/client/backups"
+	entbackup "github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/test/acceptance/replication/common"
+	"github.com/weaviate/weaviate/test/helper"
+	ubak "github.com/weaviate/weaviate/usecases/backup"
+)
+
+const oldWeaviateImage = "cr.weaviate.io/semitechnologies/weaviate:1.34.0"
+
+// TestBackupCrossVersionRestore proves a backup created by an older release restores normally on this build without any deduplication machinery.
+func TestBackupCrossVersionRestore(t *testing.T) {
+	ctx := context.Background()
+
+	const (
+		className        = "CrossVersionArticles"
+		backupID         = "cross-version-1"
+		numSeeded        = 300
+		envWeaviateImage = "TEST_WEAVIATE_IMAGE"
+	)
+
+	prevImage, hadImage := os.LookupEnv(envWeaviateImage)
+	require.NoError(t, os.Setenv(envWeaviateImage, oldWeaviateImage))
+	restoreImageEnv := func() {
+		if hadImage {
+			assert.NoError(t, os.Setenv(envWeaviateImage, prevImage))
+		} else {
+			assert.NoError(t, os.Unsetenv(envWeaviateImage))
+		}
+	}
+	defer restoreImageEnv()
+
+	oldCompose := startDedupeCluster(ctx, t)
+	oldTerminated := false
+	defer func() {
+		if !oldTerminated {
+			require.NoError(t, oldCompose.Terminate(ctx))
+		}
+	}()
+	restoreImageEnv()
+
+	helper.SetupClient(oldCompose.GetWeaviate().URI())
+	defer helper.ResetClient()
+
+	var ids []strfmt.UUID
+	t.Run("old release creates a plain backup", func(t *testing.T) {
+		helper.CreateClass(t, newReplicatedClass(className))
+		ids = seedObjects(t, oldCompose.GetWeaviate().URI(), className, numSeeded)
+		_, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), className, backendS3, backupID)
+		require.NoError(t, err)
+		helper.ExpectBackupEventuallyCreated(t, backupID, backendS3, nil, helper.WithDeadline(4*time.Minute))
+	})
+
+	artifact := downloadBackupPrefix(t, minioClient(t, oldCompose.GetMinIO().URI()), backupID)
+	require.NotEmpty(t, artifact)
+
+	t.Run("old release refuses a replica-deduped artifact", func(t *testing.T) {
+		const refuseID = "cross-version-refuse"
+		oldMinio := minioClient(t, oldCompose.GetMinIO().URI())
+		globalKey := fmt.Sprintf("%s/%s", backupID, ubak.GlobalBackupFile)
+		for key, data := range artifact {
+			if key == globalKey {
+				var global map[string]any
+				require.NoError(t, json.Unmarshal(data, &global))
+				global["id"] = refuseID
+				global["version"] = "3.0"
+				rewritten, err := json.Marshal(global)
+				require.NoError(t, err)
+				data = rewritten
+			}
+			target := refuseID + strings.TrimPrefix(key, backupID)
+			_, err := oldMinio.PutObject(ctx, bucketName, target, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{})
+			require.NoError(t, err)
+		}
+		_, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backendS3, refuseID, nil, false)
+		require.Error(t, err)
+		var uerr *backups.BackupsRestoreUnprocessableEntity
+		require.True(t, errors.As(err, &uerr), "want 422, got %T: %v", err, err)
+		messages := make([]string, 0, len(uerr.Payload.Error))
+		for _, item := range uerr.Payload.Error {
+			messages = append(messages, item.Message)
+		}
+		require.Contains(t, strings.Join(messages, "; "), "higher version")
+	})
+
+	require.NoError(t, oldCompose.Terminate(ctx))
+	oldTerminated = true
+
+	newCompose := startDedupeCluster(ctx, t)
+	defer func() {
+		require.NoError(t, newCompose.Terminate(ctx))
+	}()
+	defer dumpNodeLogs(t, newCompose)
+
+	host := newCompose.GetWeaviate().URI()
+	helper.SetupClient(host)
+	newMinio := minioClient(t, newCompose.GetMinIO().URI())
+	uploadBackupPrefix(t, newMinio, artifact)
+
+	t.Run("this build restores it without dedupe machinery", func(t *testing.T) {
+		var global entbackup.DistributedBackupDescriptor
+		require.True(t, readJSONObject(t, newMinio, fmt.Sprintf("%s/%s", backupID, ubak.GlobalBackupFile), &global))
+		assert.False(t, global.DedupeReplicas)
+		assert.NotEqual(t, ubak.VersionDedupeReplicas, global.Version)
+
+		restoreAndVerify(t, host, className, backupID, ids)
+	})
+
+	t.Run("deduped incremental continues the pre-dedupe chain", func(t *testing.T) {
+		const incrID = "cross-version-incr"
+		shards := common.DiscoverShards(t, host, className)
+		require.NotEmpty(t, shards)
+		waitForCheckpointCapability(t, newCompose, className, shards)
+
+		ids = append(ids, seedObjects(t, host, className, 100)...)
+		_, err := helper.CreateBackupWithBase(t, dedupeBackupConfig(), className, backendS3, incrID, backupID)
+		require.NoError(t, err)
+		helper.ExpectBackupEventuallyCreated(t, incrID, backendS3, nil, helper.WithDeadline(4*time.Minute))
+
+		global := readGlobalMeta(t, newMinio, incrID)
+		assert.Equal(t, ubak.VersionDedupeReplicas, global.Version)
+		assert.True(t, global.DedupeReplicas)
+		assert.Equal(t, backupID, global.BaseBackupID)
+
+		helper.DeleteClass(t, className)
+		restoreAndVerify(t, host, className, incrID, ids)
+	})
+}
+
+func downloadBackupPrefix(t *testing.T, client *minio.Client, prefix string) map[string][]byte {
+	t.Helper()
+	ctx := context.Background()
+	out := map[string][]byte{}
+	for obj := range client.ListObjects(ctx, bucketName, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
+		require.NoError(t, obj.Err)
+		r, err := client.GetObject(ctx, bucketName, obj.Key, minio.GetObjectOptions{})
+		require.NoError(t, err)
+		data, err := io.ReadAll(r)
+		require.NoError(t, r.Close())
+		require.NoError(t, err)
+		out[obj.Key] = data
+	}
+	return out
+}
+
+func uploadBackupPrefix(t *testing.T, client *minio.Client, objects map[string][]byte) {
+	t.Helper()
+	ctx := context.Background()
+	for key, data := range objects {
+		_, err := client.PutObject(ctx, bucketName, key, bytes.NewReader(data), int64(len(data)), minio.PutObjectOptions{})
+		require.NoError(t, err)
+	}
+}
