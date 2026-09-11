@@ -163,7 +163,8 @@ func (db *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 }
 
 // ObjectsByID returns every object with the given id in the collections of
-// namespace, "" meaning those outside any namespace.
+// namespace, "" meaning those outside any namespace. Without a tenant it skips
+// multi-tenant collections.
 func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
 	tenant, namespace string,
@@ -175,6 +176,10 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 
 	for _, index := range db.indices {
 		if index.namespace != namespace {
+			continue
+		}
+		if tenant == "" && index.partitioningEnabled {
+			// A multi-tenant collection holds nothing a lookup without a tenant can reach.
 			continue
 		}
 		res, err := index.objectByID(ctx, id, props, additional, nil, tenant)

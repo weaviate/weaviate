@@ -294,10 +294,14 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		// A beacon may omit its class, and asRef then resolves it by the id
 		// alone. An id ns1 holds types as its collection. Nothing an ns1 caller
 		// sees may name ns2, and an id ns2 holds types like one nobody holds.
-		const victim, target, probe = "BeaconVictim", "BeaconTarget", "BeaconProbe"
+		const victim, target, tenanted, probe = "BeaconVictim", "BeaconTarget", "BeaconTenanted", "BeaconProbe"
 		setupClassInNs1(t, ns2, victim, user2Key)
 		setupClassInNs1(t, ns1, target, user1Key)
 		setupClassInNs1(t, ns1, probe, user1Key)
+		// The id lookup reads the collections of ns1, and a multi-tenant one
+		// cannot answer a lookup made without a tenant.
+		mustCreateMTClass(t, tenanted, user1Key, mtAutoCreate)
+		t.Cleanup(func() { helper.DeleteClassAuth(t, ns1+":"+tenanted, adminKey) })
 
 		heldByNs2 := strfmt.UUID("99999999-aaaa-bbbb-cccc-111111111111")
 		_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
@@ -307,6 +311,12 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		heldByNs1 := strfmt.UUID("99999999-aaaa-bbbb-cccc-333333333333")
 		_, err = helper.CreateObjectWithResponseAuth(t, &models.Object{
 			ID: heldByNs1, Class: target, Properties: map[string]any{"title": "own"},
+		}, user1Key)
+		require.NoError(t, err)
+		// Written through the node the upsert reaches, so that node holds the
+		// multi-tenant collection before the lookup runs.
+		_, err = helper.CreateObjectWithResponseAuth(t, &models.Object{
+			ID: heldByNs1, Class: tenanted, Tenant: "tenant1", Properties: map[string]any{"title": "own"},
 		}, user1Key)
 		require.NoError(t, err)
 		heldByNobody := strfmt.UUID("99999999-aaaa-bbbb-cccc-222222222222")
