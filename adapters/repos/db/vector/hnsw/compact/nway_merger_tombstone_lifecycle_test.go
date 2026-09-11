@@ -41,28 +41,7 @@ const tombNode = uint64(5)
 // precedence) and returns the classified merged output for tombNode.
 func mergedStateForNode(t *testing.T, streams ...[]Commit) mergedTombState {
 	t.Helper()
-	iterators := make([]IteratorLike, 0, len(streams))
-	for i, s := range streams {
-		it, err := NewIterator(newFakeCommitReader(s), i, logrus.New())
-		require.NoError(t, err)
-		iterators = append(iterators, it)
-	}
-	merger, err := NewNWayMerger(iterators, logrus.New())
-	require.NoError(t, err)
-
-	var out mergedTombState
-	for {
-		nc, err := merger.Next()
-		require.NoError(t, err)
-		if nc == nil {
-			break
-		}
-		if nc.NodeID != tombNode {
-			continue
-		}
-		out = classifyTombState(nc.Commits)
-	}
-	return out
+	return mergedStateAndLinksForNode(t, tombNode, streams...).mergedTombState
 }
 
 type mergedTombState struct {
