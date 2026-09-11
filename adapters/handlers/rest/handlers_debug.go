@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
+	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -131,49 +132,13 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
-	http.HandleFunc("/debug/index/repair/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !appState.DB.AsyncIndexingEnabled {
-			http.Error(w, "async indexing is not enabled", http.StatusNotImplemented)
-			return
-		}
-
-		colName := r.URL.Query().Get("collection")
-		shardName := r.URL.Query().Get("shard")
-		targetVector := r.URL.Query().Get("vector")
-
-		if colName == "" || shardName == "" {
-			http.Error(w, "collection and shard are required", http.StatusBadRequest)
-			return
-		}
-
-		idx := appState.DB.GetIndex(schema.ClassName(colName))
+	// Omit shard to repair all local shards of the collection in the background.
+	http.HandleFunc("/debug/index/repair/vector", newVectorRepairHandler(logger, appState.DB.AsyncIndexingEnabled, func(name schema.ClassName) vectorRepairIndex {
+		idx := appState.DB.GetIndex(name)
 		if idx == nil {
-			logger.WithField("collection", colName).Error("collection not found")
-			http.Error(w, "collection not found", http.StatusNotFound)
-			return
+			return nil
 		}
-
-		err := idx.DebugRepairIndex(context.Background(), shardName, targetVector)
-		if err != nil {
-			logger.
-				WithField("shard", shardName).
-				WithField("targetVector", targetVector).
-				WithError(err).
-				Error("failed to repair vector index")
-			if errTxt := err.Error(); strings.Contains(errTxt, "not found") {
-				http.Error(w, "shard not found", http.StatusNotFound)
-			}
-
-			http.Error(w, "failed to repair vector index", http.StatusInternalServerError)
-			return
-		}
-
-		logger.
-			WithField("shard", shardName).
-			WithField("targetVector", targetVector).
-			Info("repair started")
-
-		w.WriteHeader(http.StatusAccepted)
+		return idx
 	}))
 
 	http.HandleFunc("/debug/index/requantize/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -982,6 +947,64 @@ type MaintenanceMode struct {
 
 type hnswStats interface {
 	Stats() (*hnsw.HnswStats, error)
+}
+
+type vectorRepairIndex interface {
+	DebugRepairIndex(context.Context, string, string) error
+}
+
+func newVectorRepairHandler(logger logrus.FieldLogger, asyncEnabled bool, getIndex func(schema.ClassName) vectorRepairIndex) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		if !asyncEnabled {
+			http.Error(w, "async indexing is not enabled", http.StatusNotImplemented)
+			return
+		}
+
+		colName := r.URL.Query().Get("collection")
+		shardName := r.URL.Query().Get("shard")
+		targetVector := r.URL.Query().Get("vector")
+
+		if colName == "" {
+			http.Error(w, "collection is required", http.StatusBadRequest)
+			return
+		}
+
+		idx := getIndex(schema.ClassName(colName))
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection not found")
+			http.Error(w, "collection not found", http.StatusNotFound)
+			return
+		}
+
+		err := idx.DebugRepairIndex(context.Background(), shardName, targetVector)
+		if err != nil {
+			logger.
+				WithField("collection", colName).
+				WithField("shard", shardName).
+				WithField("targetVector", targetVector).
+				Errorf("failed to repair vector index: %v", err)
+			if errTxt := err.Error(); strings.Contains(errTxt, "not found") {
+				http.Error(w, "shard not found", http.StatusNotFound)
+				return
+			}
+
+			http.Error(w, "failed to repair vector index", http.StatusInternalServerError)
+			return
+		}
+
+		logger.
+			WithField("collection", colName).
+			WithField("shard", shardName).
+			WithField("targetVector", targetVector).
+			Info("vector index repair accepted (empty shard selects all local shards)")
+
+		w.WriteHeader(http.StatusAccepted)
+	}
 }
 
 type hfreshReassignAller interface {

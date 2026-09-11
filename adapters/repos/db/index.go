@@ -4537,23 +4537,52 @@ func (i *Index) DebugResetVectorIndex(ctx context.Context, shardName, targetVect
 	return nil
 }
 
+// DebugRepairIndex repairs the selected shard, or all local shards when shardName
+// is empty. Repairs run in the background, sequentially for an all-shards request.
 func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector string) error {
+	repair := func(name string, shard ShardLike, release func()) {
+		defer release()
+		if err := shard.RepairIndex(context.Background(), targetVector); err != nil {
+			i.logger.WithField("shard", name).WithField("targetVector", targetVector).
+				Errorf("failed to repair vector index: %v", err)
+		}
+	}
+
+	if shardName == "" {
+		enterrors.GoWrapper(func() {
+			err := i.ForEachShard(func(name string, _ ShardLike) error {
+				shard, release, err := i.GetShard(context.Background(), name)
+				if err != nil || shard == nil {
+					release()
+					if err == nil {
+						err = errors.New("shard not found")
+					}
+					i.logger.WithField("shard", name).WithField("targetVector", targetVector).
+						Errorf("failed to get shard for vector index repair: %v", err)
+					return nil
+				}
+				repair(name, shard, release)
+				return nil
+			})
+			if err != nil {
+				i.logger.Errorf("failed to iterate shards for vector index repair: %v", err)
+			}
+		}, i.logger)
+		return nil
+	}
+
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
+		release()
 		return err
 	}
-	defer release()
 	if shard == nil {
+		release()
 		return errors.New("shard not found")
 	}
 
-	// Repair in the background
 	enterrors.GoWrapper(func() {
-		err := shard.RepairIndex(context.Background(), targetVector)
-		if err != nil {
-			i.logger.WithField("shard", shardName).WithError(err).Error("failed to repair vector index")
-			return
-		}
+		repair(shardName, shard, release)
 	}, i.logger)
 
 	return nil
