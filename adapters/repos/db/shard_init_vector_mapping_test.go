@@ -231,10 +231,10 @@ func TestInitShardVectors_Reconcile(t *testing.T) {
 	shard = reload(t, ctx, shard, class)
 
 	// a mapping the shard cannot read refuses the load
-	require.NoError(t, shard.metadataDB.Namespace(vectorIndexMappingNamespace).Put([]byte("bogus"), []byte("x")))
-	reloadExpectingError(t, ctx, shard, class, `unknown key "bogus"`, nil)
+	require.NoError(t, shard.metadataDB.Namespace(vectorIndexMappingNamespace).Put([]byte(".bogus"), []byte("x")))
+	reloadExpectingError(t, ctx, shard, class, `unknown key ".bogus"`, nil)
 	withOfflineMapping(t, shard.path(), func(_ *vectorIndexMapping, ns *shardmeta.Namespace) {
-		require.NoError(t, ns.Delete([]byte("bogus")))
+		require.NoError(t, ns.Delete([]byte(".bogus")))
 	})
 	shard = reload(t, ctx, shard, class)
 	_, _, err = shard.mapping.Load()

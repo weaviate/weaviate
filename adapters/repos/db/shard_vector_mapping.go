@@ -22,12 +22,13 @@ import (
 
 // The mapping's on-disk layout inside index.db. Every key and field name
 // below is read by later versions; changing one is a format change.
+// A named vector is keyed by its name. The two other keys start with a dot,
+// which a vector name cannot, so they can never collide with one.
 const (
 	vectorIndexMappingNamespace        = "vector_index_mapping"
-	vectorIndexMappingFormatVersionKey = "format_version"
+	vectorIndexMappingFormatVersionKey = ".format_version"
 	vectorIndexMappingFormatVersion    = "1"
-	vectorIndexMappingLegacyKey        = "legacy"
-	vectorIndexMappingNamedPrefix      = "named/"
+	vectorIndexMappingLegacyKey        = ".legacy"
 )
 
 // Record states. There is no dropped state: the schema carries deletion
@@ -67,21 +68,20 @@ func vectorIndexMappingKey(name string) string {
 	if name == "" {
 		return vectorIndexMappingLegacyKey
 	}
-	return vectorIndexMappingNamedPrefix + name
+	return name
 }
 
 // vectorIndexMappingName is the inverse of vectorIndexMappingKey. ok is
-// false for a key that does not name a vector, including a bare "named/":
-// the empty name is the legacy vector, and only the legacy key may say so.
+// false for a key that names no vector: an empty one, or a dotted one that
+// is not the legacy key.
 func vectorIndexMappingName(key string) (name string, ok bool) {
 	if key == vectorIndexMappingLegacyKey {
 		return "", true
 	}
-	name, found := strings.CutPrefix(key, vectorIndexMappingNamedPrefix)
-	if found && name != "" {
-		return name, true
+	if key == "" || strings.HasPrefix(key, ".") {
+		return "", false
 	}
-	return "", false
+	return key, true
 }
 
 // validate rejects a record that no version of this code writes.
