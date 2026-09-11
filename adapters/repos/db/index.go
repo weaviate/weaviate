@@ -86,6 +86,7 @@ import (
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
@@ -268,7 +269,7 @@ type Index struct {
 	// shards may already run hashbeats — hence atomic, read via getReplicationFSMReader.
 	replicationFSMReader atomic.Pointer[replicationTypes.ReplicationFSMReader]
 	logger               logrus.FieldLogger
-	remote               *sharding.RemoteIndex
+	remote               *remote.Index
 	stopwords            *stopwords.Detector
 	// stopwordProvider bundles the collection-level stopword detector and the
 	// cached user-defined preset detectors. It is replaced atomically when
@@ -443,7 +444,7 @@ func NewIndex(
 	cs inverted.ClassSearcher,
 	logger logrus.FieldLogger,
 	nodeResolver cluster.NodeResolver,
-	remoteClient sharding.RemoteIndexClient,
+	remoteClient remote.IndexClient,
 	replicaClient replica.Client,
 	globalReplicationConfig *replication.GlobalConfig,
 	promMetrics *monitoring.PrometheusMetrics,
@@ -498,7 +499,7 @@ func NewIndex(
 		stopwords:               sd,
 		partitioningEnabled:     multitenancy.IsMultiTenant(class.MultiTenancyConfig),
 		AsyncIndexingEnabled:    asyncIndexingEnabled,
-		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
+		remote:                  remote.NewIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
 		metrics:                 metrics,
 		centralJobQueue:         jobQueueCh,
 		backupLock:              esync.NewKeyRWLocker(),

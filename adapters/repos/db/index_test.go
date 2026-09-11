@@ -47,7 +47,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 )
 
 func TestIndex_aggregateCount(t *testing.T) {
@@ -456,7 +456,7 @@ func TestIndex_getShardsStorageStatus(t *testing.T) {
 		logger:           logger,
 	}
 
-	index.remote = sharding.NewRemoteIndex(
+	index.remote = remote.NewIndex(
 		"Songs",
 		index.getSchema,
 		nodeResolver,

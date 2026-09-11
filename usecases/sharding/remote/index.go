@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package sharding
+package remote
 
 import (
 	"context"
@@ -38,10 +38,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-type RemoteIndex struct {
+type Index struct {
 	class        string
 	stateGetter  shardingStateGetter
-	client       RemoteIndexClient
+	client       IndexClient
 	nodeResolver cluster.HostnameResolver
 }
 
@@ -51,11 +51,11 @@ type shardingStateGetter interface {
 	ShardReplicas(class, shard string) ([]string, error)
 }
 
-func NewRemoteIndex(className string,
+func NewIndex(className string,
 	stateGetter shardingStateGetter, nodeResolver cluster.HostnameResolver,
-	client RemoteIndexClient,
-) *RemoteIndex {
-	return &RemoteIndex{
+	client IndexClient,
+) *Index {
+	return &Index{
 		class:        className,
 		stateGetter:  stateGetter,
 		client:       client,
@@ -63,7 +63,7 @@ func NewRemoteIndex(className string,
 	}
 }
 
-type RemoteIndexClient interface {
+type IndexClient interface {
 	PutObject(ctx context.Context, hostName, indexName, shardName string,
 		obj *storobj.Object, schemaVersion uint64) error
 	BatchPutObjects(ctx context.Context, hostName, indexName, shardName string,
@@ -107,7 +107,7 @@ type RemoteIndexClient interface {
 	RemoveAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
 }
 
-func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
+func (ri *Index) PutObject(ctx context.Context, shardName string,
 	obj *storobj.Object, schemaVersion uint64,
 ) error {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
@@ -133,7 +133,7 @@ func duplicateErr(in error, count int) []error {
 	return out
 }
 
-func (ri *RemoteIndex) BatchPutObjects(ctx context.Context, shardName string,
+func (ri *Index) BatchPutObjects(ctx context.Context, shardName string,
 	objs []*storobj.Object, schemaVersion uint64,
 ) []error {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
@@ -151,7 +151,7 @@ func (ri *RemoteIndex) BatchPutObjects(ctx context.Context, shardName string,
 	return ri.client.BatchPutObjects(ctx, host, ri.class, shardName, objs, nil, schemaVersion)
 }
 
-func (ri *RemoteIndex) BatchAddReferences(ctx context.Context, shardName string,
+func (ri *Index) BatchAddReferences(ctx context.Context, shardName string,
 	refs objects.BatchReferences, schemaVersion uint64,
 ) []error {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
@@ -169,7 +169,7 @@ func (ri *RemoteIndex) BatchAddReferences(ctx context.Context, shardName string,
 	return ri.client.BatchAddReferences(ctx, host, ri.class, shardName, refs, schemaVersion)
 }
 
-func (ri *RemoteIndex) Exists(ctx context.Context, shardName string,
+func (ri *Index) Exists(ctx context.Context, shardName string,
 	id strfmt.UUID,
 ) (bool, error) {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
@@ -185,7 +185,7 @@ func (ri *RemoteIndex) Exists(ctx context.Context, shardName string,
 	return ri.client.Exists(ctx, host, ri.class, shardName, id)
 }
 
-func (ri *RemoteIndex) DeleteObject(ctx context.Context, shardName string,
+func (ri *Index) DeleteObject(ctx context.Context, shardName string,
 	id strfmt.UUID, deletionTime time.Time, schemaVersion uint64,
 ) error {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
@@ -201,7 +201,7 @@ func (ri *RemoteIndex) DeleteObject(ctx context.Context, shardName string,
 	return ri.client.DeleteObject(ctx, host, ri.class, shardName, id, deletionTime, schemaVersion)
 }
 
-func (ri *RemoteIndex) MergeObject(ctx context.Context, shardName string,
+func (ri *Index) MergeObject(ctx context.Context, shardName string,
 	mergeDoc objects.MergeDocument, schemaVersion uint64,
 ) error {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
@@ -217,7 +217,7 @@ func (ri *RemoteIndex) MergeObject(ctx context.Context, shardName string,
 	return ri.client.MergeObject(ctx, host, ri.class, shardName, mergeDoc, schemaVersion)
 }
 
-func (ri *RemoteIndex) GetObject(ctx context.Context, shardName string,
+func (ri *Index) GetObject(ctx context.Context, shardName string,
 	id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties,
 ) (*storobj.Object, error) {
@@ -234,7 +234,7 @@ func (ri *RemoteIndex) GetObject(ctx context.Context, shardName string,
 	return ri.client.GetObject(ctx, host, ri.class, shardName, id, props, additional)
 }
 
-func (ri *RemoteIndex) MultiGetObjects(ctx context.Context, shardName string,
+func (ri *Index) MultiGetObjects(ctx context.Context, shardName string,
 	ids []strfmt.UUID,
 ) ([]*storobj.Object, error) {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
@@ -259,7 +259,7 @@ type ReplicasSearchResult struct {
 	QueryProfiles []helpers.ShardQueryProfile
 }
 
-func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
+func (ri *Index) SearchAllReplicas(ctx context.Context,
 	log logrus.FieldLogger,
 	shard string,
 	queryVec []models.Vector,
@@ -287,7 +287,7 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 	return ri.queryAllReplicas(ctx, log, shard, remoteShardQuery, localNode)
 }
 
-func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
+func (ri *Index) SearchShard(ctx context.Context, shard string,
 	queryVec []models.Vector,
 	targetVector []string,
 	distance float32,
@@ -322,7 +322,7 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	return r.objects, r.scores, r.queryProfiles, node, err
 }
 
-func (ri *RemoteIndex) Aggregate(
+func (ri *Index) Aggregate(
 	ctx context.Context,
 	shard string,
 	params aggregation.Params,
@@ -341,7 +341,7 @@ func (ri *RemoteIndex) Aggregate(
 	return rr.(*aggregation.Result), err
 }
 
-func (ri *RemoteIndex) FindUUIDs(ctx context.Context, shardName string,
+func (ri *Index) FindUUIDs(ctx context.Context, shardName string,
 	filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
@@ -357,7 +357,7 @@ func (ri *RemoteIndex) FindUUIDs(ctx context.Context, shardName string,
 	return ri.client.FindUUIDs(ctx, host, ri.class, shardName, filters, limit)
 }
 
-func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
+func (ri *Index) DeleteObjectBatch(ctx context.Context, shardName string,
 	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
 ) objects.BatchSimpleObjects {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
@@ -375,7 +375,7 @@ func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
 	return ri.client.DeleteObjectBatch(ctx, host, ri.class, shardName, uuids, deletionTime, dryRun, schemaVersion)
 }
 
-func (ri *RemoteIndex) GetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
+func (ri *Index) GetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
 	if err != nil {
 		return 0, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
@@ -389,7 +389,7 @@ func (ri *RemoteIndex) GetShardQueueSize(ctx context.Context, shardName string) 
 	return ri.client.GetShardQueueSize(ctx, host, ri.class, shardName)
 }
 
-func (ri *RemoteIndex) GetShardStatus(ctx context.Context, shardName, nodeName string) (string, error) {
+func (ri *Index) GetShardStatus(ctx context.Context, shardName, nodeName string) (string, error) {
 	host, ok := ri.nodeResolver.NodeHostname(nodeName)
 	if !ok {
 		return "", fmt.Errorf("resolve node name %q to host", nodeName)
@@ -398,7 +398,7 @@ func (ri *RemoteIndex) GetShardStatus(ctx context.Context, shardName, nodeName s
 	return ri.client.GetShardStatus(ctx, host, ri.class, shardName)
 }
 
-func (ri *RemoteIndex) UpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
+func (ri *Index) UpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
 	if err != nil {
 		return fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
@@ -412,7 +412,7 @@ func (ri *RemoteIndex) UpdateShardStatus(ctx context.Context, shardName, targetS
 	return ri.client.UpdateShardStatus(ctx, host, ri.class, shardName, targetStatus, schemaVersion)
 }
 
-func (ri *RemoteIndex) queryAllReplicas(
+func (ri *Index) queryAllReplicas(
 	ctx context.Context,
 	log logrus.FieldLogger,
 	shard string,
@@ -489,7 +489,7 @@ func (ri *RemoteIndex) queryAllReplicas(
 	return queryAll(replicas)
 }
 
-func (ri *RemoteIndex) queryReplicas(
+func (ri *Index) queryReplicas(
 	ctx context.Context,
 	shard string,
 	do func(nodeName, host string) (interface{}, error),

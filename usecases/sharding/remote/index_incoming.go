@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package sharding
+package remote
 
 import (
 	"context"
@@ -39,15 +39,15 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
 
-type RemoteIncomingRepo interface {
-	GetIndexForIncomingSharding(className schema.ClassName) RemoteIndexIncomingRepo
+type IncomingRepo interface {
+	GetIndexForIncomingSharding(className schema.ClassName) IndexIncomingRepo
 }
 
-type RemoteIncomingSchema interface {
+type IncomingSchema interface {
 	ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (*models.Class, error)
 }
 
-type RemoteIndexIncomingRepo interface {
+type IndexIncomingRepo interface {
 	IncomingPutObject(ctx context.Context, shardName string,
 		obj *storobj.Object, schemaVersion uint64) error
 	IncomingBatchPutObjects(ctx context.Context, shardName string,
@@ -102,9 +102,9 @@ type RemoteIndexIncomingRepo interface {
 	IncomingReleaseReplicaSnapshot(ctx context.Context, opID string) error
 	IncomingGetReplicaSnapshotFileMetadata(ctx context.Context, opID, relativeFilePath string) (file.FileMetadata, error)
 	IncomingGetReplicaSnapshotFile(ctx context.Context, opID, relativeFilePath string) (io.ReadCloser, error)
-	// IncomingAddAsyncReplicationTargetNode See adapters/clients.RemoteIndex.AddAsyncReplicationTargetNode
+	// IncomingAddAsyncReplicationTargetNode See adapters/clients.Index.AddAsyncReplicationTargetNode
 	IncomingAddAsyncReplicationTargetNode(ctx context.Context, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
-	// IncomingRemoveAsyncReplicationTargetNode See adapters/clients.RemoteIndex.RemoveAsyncReplicationTargetNode
+	// IncomingRemoveAsyncReplicationTargetNode See adapters/clients.Index.RemoveAsyncReplicationTargetNode
 	IncomingRemoveAsyncReplicationTargetNode(ctx context.Context, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
 
 	// IncomingStartChangeCapture activates a new change-capture log on the shard.
@@ -122,21 +122,21 @@ type RemoteIndexIncomingRepo interface {
 	IncomingStopChangeCapture(ctx context.Context, shardName, opID string) error
 }
 
-type RemoteIndexIncoming struct {
-	repo    RemoteIncomingRepo
-	schema  RemoteIncomingSchema
+type IndexIncoming struct {
+	repo    IncomingRepo
+	schema  IncomingSchema
 	modules interface{}
 }
 
-func NewRemoteIndexIncoming(repo RemoteIncomingRepo, schema RemoteIncomingSchema, modules interface{}) *RemoteIndexIncoming {
-	return &RemoteIndexIncoming{
+func NewIndexIncoming(repo IncomingRepo, schema IncomingSchema, modules interface{}) *IndexIncoming {
+	return &IndexIncoming{
 		repo:    repo,
 		schema:  schema,
 		modules: modules,
 	}
 }
 
-func (rii *RemoteIndexIncoming) PutObject(ctx context.Context, indexName,
+func (rii *IndexIncoming) PutObject(ctx context.Context, indexName,
 	shardName string, obj *storobj.Object, schemaVersion uint64,
 ) error {
 	index, err := rii.IndexForIncomingWrite(ctx, indexName, schemaVersion)
@@ -147,7 +147,7 @@ func (rii *RemoteIndexIncoming) PutObject(ctx context.Context, indexName,
 	return index.IncomingPutObject(ctx, shardName, obj, schemaVersion)
 }
 
-func (rii *RemoteIndexIncoming) BatchPutObjects(ctx context.Context, indexName,
+func (rii *IndexIncoming) BatchPutObjects(ctx context.Context, indexName,
 	shardName string, objs []*storobj.Object, schemaVersion uint64,
 ) []error {
 	index, err := rii.IndexForIncomingWrite(ctx, indexName, schemaVersion)
@@ -158,7 +158,7 @@ func (rii *RemoteIndexIncoming) BatchPutObjects(ctx context.Context, indexName,
 	return index.IncomingBatchPutObjects(ctx, shardName, objs, schemaVersion)
 }
 
-func (rii *RemoteIndexIncoming) BatchAddReferences(ctx context.Context, indexName,
+func (rii *IndexIncoming) BatchAddReferences(ctx context.Context, indexName,
 	shardName string, refs objects.BatchReferences, schemaVersion uint64,
 ) []error {
 	index, err := rii.IndexForIncomingWrite(ctx, indexName, schemaVersion)
@@ -169,7 +169,7 @@ func (rii *RemoteIndexIncoming) BatchAddReferences(ctx context.Context, indexNam
 	return index.IncomingBatchAddReferences(ctx, shardName, refs, schemaVersion)
 }
 
-func (rii *RemoteIndexIncoming) GetObject(ctx context.Context, indexName,
+func (rii *IndexIncoming) GetObject(ctx context.Context, indexName,
 	shardName string, id strfmt.UUID, selectProperties search.SelectProperties,
 	additional additional.Properties,
 ) (*storobj.Object, error) {
@@ -181,7 +181,7 @@ func (rii *RemoteIndexIncoming) GetObject(ctx context.Context, indexName,
 	return index.IncomingGetObject(ctx, shardName, id, selectProperties, additional)
 }
 
-func (rii *RemoteIndexIncoming) Exists(ctx context.Context, indexName,
+func (rii *IndexIncoming) Exists(ctx context.Context, indexName,
 	shardName string, id strfmt.UUID,
 ) (bool, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
@@ -192,7 +192,7 @@ func (rii *RemoteIndexIncoming) Exists(ctx context.Context, indexName,
 	return index.IncomingExists(ctx, shardName, id)
 }
 
-func (rii *RemoteIndexIncoming) DeleteObject(ctx context.Context, indexName,
+func (rii *IndexIncoming) DeleteObject(ctx context.Context, indexName,
 	shardName string, id strfmt.UUID, deletionTime time.Time, schemaVersion uint64,
 ) error {
 	index, err := rii.IndexForIncomingWrite(ctx, indexName, schemaVersion)
@@ -203,7 +203,7 @@ func (rii *RemoteIndexIncoming) DeleteObject(ctx context.Context, indexName,
 	return index.IncomingDeleteObject(ctx, shardName, id, deletionTime, schemaVersion)
 }
 
-func (rii *RemoteIndexIncoming) MergeObject(ctx context.Context, indexName,
+func (rii *IndexIncoming) MergeObject(ctx context.Context, indexName,
 	shardName string, mergeDoc objects.MergeDocument, schemaVersion uint64,
 ) error {
 	index, err := rii.IndexForIncomingWrite(ctx, indexName, schemaVersion)
@@ -214,7 +214,7 @@ func (rii *RemoteIndexIncoming) MergeObject(ctx context.Context, indexName,
 	return index.IncomingMergeObject(ctx, shardName, mergeDoc, schemaVersion)
 }
 
-func (rii *RemoteIndexIncoming) MultiGetObjects(ctx context.Context, indexName,
+func (rii *IndexIncoming) MultiGetObjects(ctx context.Context, indexName,
 	shardName string, ids []strfmt.UUID,
 ) ([]*storobj.Object, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
@@ -225,7 +225,7 @@ func (rii *RemoteIndexIncoming) MultiGetObjects(ctx context.Context, indexName,
 	return index.IncomingMultiGetObjects(ctx, shardName, ids)
 }
 
-func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName string,
+func (rii *IndexIncoming) Search(ctx context.Context, indexName, shardName string,
 	vectors []models.Vector, targetVectors []string, distance float32, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination,
@@ -240,7 +240,7 @@ func (rii *RemoteIndexIncoming) Search(ctx context.Context, indexName, shardName
 		ctx, shardName, vectors, targetVectors, distance, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, properties)
 }
 
-func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardName string,
+func (rii *IndexIncoming) Aggregate(ctx context.Context, indexName, shardName string,
 	params aggregation.Params,
 ) (*aggregation.Result, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
@@ -251,7 +251,7 @@ func (rii *RemoteIndexIncoming) Aggregate(ctx context.Context, indexName, shardN
 	return index.IncomingAggregate(ctx, shardName, params, rii.modules)
 }
 
-func (rii *RemoteIndexIncoming) FindUUIDs(ctx context.Context, indexName, shardName string,
+func (rii *IndexIncoming) FindUUIDs(ctx context.Context, indexName, shardName string,
 	filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
@@ -262,7 +262,7 @@ func (rii *RemoteIndexIncoming) FindUUIDs(ctx context.Context, indexName, shardN
 	return index.IncomingFindUUIDs(ctx, shardName, filters, limit)
 }
 
-func (rii *RemoteIndexIncoming) DeleteObjectBatch(ctx context.Context, indexName, shardName string,
+func (rii *IndexIncoming) DeleteObjectBatch(ctx context.Context, indexName, shardName string,
 	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
 ) objects.BatchSimpleObjects {
 	index, err := rii.IndexForIncomingWrite(ctx, indexName, schemaVersion)
@@ -273,7 +273,7 @@ func (rii *RemoteIndexIncoming) DeleteObjectBatch(ctx context.Context, indexName
 	return index.IncomingDeleteObjectBatch(ctx, shardName, uuids, deletionTime, dryRun, schemaVersion)
 }
 
-func (rii *RemoteIndexIncoming) GetShardQueueSize(ctx context.Context,
+func (rii *IndexIncoming) GetShardQueueSize(ctx context.Context,
 	indexName, shardName string,
 ) (int64, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
@@ -284,7 +284,7 @@ func (rii *RemoteIndexIncoming) GetShardQueueSize(ctx context.Context,
 	return index.IncomingGetShardQueueSize(ctx, shardName)
 }
 
-func (rii *RemoteIndexIncoming) GetShardStatus(ctx context.Context,
+func (rii *IndexIncoming) GetShardStatus(ctx context.Context,
 	indexName, shardName string,
 ) (string, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
@@ -295,7 +295,7 @@ func (rii *RemoteIndexIncoming) GetShardStatus(ctx context.Context,
 	return index.IncomingGetShardStatus(ctx, shardName)
 }
 
-func (rii *RemoteIndexIncoming) UpdateShardStatus(ctx context.Context,
+func (rii *IndexIncoming) UpdateShardStatus(ctx context.Context,
 	indexName, shardName, targetStatus string, schemaVersion uint64,
 ) error {
 	index, err := rii.IndexForIncomingWrite(ctx, indexName, schemaVersion)
@@ -306,7 +306,7 @@ func (rii *RemoteIndexIncoming) UpdateShardStatus(ctx context.Context,
 	return index.IncomingUpdateShardStatus(ctx, shardName, targetStatus, schemaVersion)
 }
 
-func (rii *RemoteIndexIncoming) FilePutter(ctx context.Context,
+func (rii *IndexIncoming) FilePutter(ctx context.Context,
 	indexName, shardName, filePath string,
 ) (io.WriteCloser, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
@@ -317,7 +317,7 @@ func (rii *RemoteIndexIncoming) FilePutter(ctx context.Context,
 	return index.IncomingFilePutter(ctx, shardName, filePath)
 }
 
-func (rii *RemoteIndexIncoming) CreateShard(ctx context.Context,
+func (rii *IndexIncoming) CreateShard(ctx context.Context,
 	indexName, shardName string,
 ) error {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
@@ -328,7 +328,7 @@ func (rii *RemoteIndexIncoming) CreateShard(ctx context.Context,
 	return index.IncomingCreateShard(ctx, indexName, shardName)
 }
 
-func (rii *RemoteIndexIncoming) ReInitShard(ctx context.Context,
+func (rii *IndexIncoming) ReInitShard(ctx context.Context,
 	indexName, shardName string,
 ) error {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
@@ -339,7 +339,7 @@ func (rii *RemoteIndexIncoming) ReInitShard(ctx context.Context,
 	return index.IncomingReinitShard(ctx, shardName)
 }
 
-func (rii *RemoteIndexIncoming) OverwriteObjects(ctx context.Context,
+func (rii *IndexIncoming) OverwriteObjects(ctx context.Context,
 	indexName, shardName string, vobjects []*objects.VObject,
 ) ([]types.RepairResponse, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
@@ -350,7 +350,7 @@ func (rii *RemoteIndexIncoming) OverwriteObjects(ctx context.Context,
 	return index.IncomingOverwriteObjects(ctx, shardName, vobjects)
 }
 
-func (rii *RemoteIndexIncoming) DigestObjects(ctx context.Context,
+func (rii *IndexIncoming) DigestObjects(ctx context.Context,
 	indexName, shardName string, ids []strfmt.UUID,
 ) ([]types.RepairResponse, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
@@ -361,9 +361,9 @@ func (rii *RemoteIndexIncoming) DigestObjects(ctx context.Context,
 	return index.IncomingDigestObjects(ctx, shardName, ids)
 }
 
-func (rii *RemoteIndexIncoming) IndexForIncomingWrite(ctx context.Context, indexName string,
+func (rii *IndexIncoming) IndexForIncomingWrite(ctx context.Context, indexName string,
 	schemaVersion uint64,
-) (RemoteIndexIncomingRepo, error) {
+) (IndexIncomingRepo, error) {
 	// wait for schema and store to reach version >= schemaVersion
 	if _, err := rii.schema.ReadOnlyClassWithVersion(ctx, indexName, schemaVersion); err != nil {
 		return nil, fmt.Errorf("local index %q not found: %w", indexName, err)
@@ -376,7 +376,7 @@ func (rii *RemoteIndexIncoming) IndexForIncomingWrite(ctx context.Context, index
 	return index, nil
 }
 
-func (rii *RemoteIndexIncoming) DigestObjectsInRange(ctx context.Context,
+func (rii *IndexIncoming) DigestObjectsInRange(ctx context.Context,
 	indexName, shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
 ) ([]types.RepairDigest, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
@@ -387,7 +387,7 @@ func (rii *RemoteIndexIncoming) DigestObjectsInRange(ctx context.Context,
 	return index.IncomingDigestObjectsInRange(ctx, shardName, initialUUID, finalUUID, limit)
 }
 
-func (rii *RemoteIndexIncoming) HashTreeLevel(ctx context.Context,
+func (rii *IndexIncoming) HashTreeLevel(ctx context.Context,
 	indexName, shardName string, level int, discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
@@ -398,7 +398,7 @@ func (rii *RemoteIndexIncoming) HashTreeLevel(ctx context.Context,
 	return index.IncomingHashTreeLevel(ctx, shardName, level, discriminant)
 }
 
-func (rii *RemoteIndexIncoming) CountObjects(ctx context.Context, indexName, shardName string) (int, error) {
+func (rii *IndexIncoming) CountObjects(ctx context.Context, indexName, shardName string) (int, error) {
 	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
 	if index == nil {
 		return 0, fmt.Errorf("local index %q not found", indexName)
@@ -407,7 +407,7 @@ func (rii *RemoteIndexIncoming) CountObjects(ctx context.Context, indexName, sha
 	return index.IncomingCountObjects(ctx, shardName)
 }
 
-func (rii *RemoteIndexIncoming) AddAsyncReplicationTargetNode(
+func (rii *IndexIncoming) AddAsyncReplicationTargetNode(
 	ctx context.Context,
 	indexName, shardName string,
 	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
@@ -421,7 +421,7 @@ func (rii *RemoteIndexIncoming) AddAsyncReplicationTargetNode(
 	return index.IncomingAddAsyncReplicationTargetNode(ctx, shardName, targetNodeOverride)
 }
 
-func (rii *RemoteIndexIncoming) RemoveAsyncReplicationTargetNode(
+func (rii *IndexIncoming) RemoveAsyncReplicationTargetNode(
 	ctx context.Context,
 	indexName, shardName string,
 	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
