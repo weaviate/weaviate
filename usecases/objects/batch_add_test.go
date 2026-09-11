@@ -508,3 +508,51 @@ func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 	require.NotNil(t, addedObjects[0].Object.Properties)
 	require.NotNil(t, addedObjects[1].Object.Properties)
 }
+
+// Test_BatchManager_AddObjects_KeepsAutoSchemaError pins that a batch entry
+// keeps the error auto-schema recorded for it. An object without a UUID gets
+// one generated, and that step must not overwrite an error already recorded.
+func Test_BatchManager_AddObjects_KeepsAutoSchemaError(t *testing.T) {
+	cases := []struct {
+		name string
+		id   strfmt.UUID
+	}{
+		{name: "uuid generated for the caller"},
+		{name: "uuid supplied by the caller", id: strfmt.UUID("cf918366-3d3b-4b90-9bc6-bc5ea8762ff6")},
+	}
+	sch := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{{Class: "TestClass", VectorIndexConfig: hnsw.UserConfig{}}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			vectorRepo := &fakeVectorRepo{}
+			vectorRepo.On("BatchPutObjects", mock.Anything).Return(nil)
+			cfg := &config.WeaviateConfig{Config: config.Config{AutoSchema: config.AutoSchema{
+				Enabled:       runtime.NewDynamicValue(true),
+				DefaultNumber: schema.DataTypeNumber.String(),
+				DefaultString: schema.DataTypeText.String(),
+				DefaultDate:   schema.DataTypeDate.String(),
+			}}}
+			schemaManager := &fakeSchemaManager{GetSchemaResponse: sch}
+			logger, _ := test.NewNullLogger()
+			modulesProvider := getFakeModulesProvider()
+			modulesProvider.On("BatchUpdateVector").Return(nil, nil)
+			manager := NewBatchManager(vectorRepo, modulesProvider, schemaManager, cfg, logger,
+				mocks.NewMockAuthorizer(), nil,
+				NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+
+			// A value determineType does not recognize makes getProperties fail.
+			added, err := manager.AddObjects(context.Background(), nil, []*models.Object{{
+				ID:         tc.id,
+				Class:      "TestClass",
+				Properties: map[string]interface{}{"broken": struct{}{}},
+			}}, []*string{}, nil)
+			require.NoError(t, err)
+			require.Len(t, added, 1)
+			require.Error(t, added[0].Err)
+			assert.ErrorContains(t, added[0].Err, "unrecognized data type")
+		})
+	}
+}

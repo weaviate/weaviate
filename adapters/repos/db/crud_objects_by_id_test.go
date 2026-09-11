@@ -34,8 +34,17 @@ func TestObjectsByID(t *testing.T) {
 	id := strfmt.UUID("5a9e1c2b-0d3f-4e6a-9b8c-7d1e2f3a4b5c")
 	logger, _ := test.NewNullLogger()
 	db := &DB{logger: logger, indices: map[string]*Index{}}
-	for _, class := range []string{"Plain", "ns1:Plain", "ns2:Plain", "ns4:Closed"} {
-		db.indices[indexID(schema.ClassName(class))] = objectsByIDTestIndex(t, class, id)
+	for _, c := range []struct {
+		class       string
+		multiTenant bool
+	}{
+		{class: "Plain"},
+		{class: "Tenanted", multiTenant: true},
+		{class: "ns1:Plain"},
+		{class: "ns2:Plain"},
+		{class: "ns4:Closed"},
+	} {
+		db.indices[indexID(schema.ClassName(c.class))] = objectsByIDTestIndex(t, c.class, c.multiTenant, id)
 	}
 	require.NoError(t, db.indices[indexID("ns4:Closed")].ForEachShard(func(_ string, shard ShardLike) error {
 		return shard.Shutdown(t.Context())
@@ -48,7 +57,7 @@ func TestObjectsByID(t *testing.T) {
 		wantErr   error
 	}{
 		{
-			name: "a lookup without a namespace searches only the collections outside every namespace",
+			name: "a lookup without a tenant skips a multi-tenant collection",
 			want: []string{"Plain"},
 		},
 		{
@@ -90,7 +99,7 @@ func TestObjectsByID(t *testing.T) {
 
 // objectsByIDTestIndex returns a one-shard index of className holding id. It
 // carries the shard resolver and namespace lookup Index.objectByID consults.
-func objectsByIDTestIndex(t *testing.T, className string, id strfmt.UUID) *Index {
+func objectsByIDTestIndex(t *testing.T, className string, multiTenant bool, id strfmt.UUID) *Index {
 	t.Helper()
 
 	exister := namespaces.NewMockExister(t)
@@ -99,10 +108,16 @@ func objectsByIDTestIndex(t *testing.T, className string, id strfmt.UUID) *Index
 	withLookups := func(i *Index) {
 		i.namespace = namespacing.NamespaceFromQualified(className)
 		i.namespacesExister = exister
-		i.shardResolver = resolver.NewShardResolver(className, false, i.getSchema)
+		i.shardResolver = resolver.NewShardResolver(className, multiTenant, i.getSchema)
 	}
 
-	shard, idx := testShard(t, t.Context(), className, withLookups)
+	var shard ShardLike
+	var idx *Index
+	if multiTenant {
+		shard, idx = testShardMultiTenant(t, t.Context(), className, withLookups)
+	} else {
+		shard, idx = testShard(t, t.Context(), className, withLookups)
+	}
 	obj := testObject(className)
 	obj.Object.ID = id
 	require.NoError(t, shard.PutObject(t.Context(), obj))

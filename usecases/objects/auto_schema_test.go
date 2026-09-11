@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/schema/test_utils"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/versioned"
@@ -658,13 +659,15 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			Return(searchResults([]string{"Publication"}), nil).Once()
 		vectorRepo.On("ObjectsByID", strfmt.UUID("df48b9f6-ba48-470c-bf6a-57657cb07391"), mock.Anything, mock.Anything, "", "").
 			Return(searchResults([]string{"Article"}), nil).Once()
+		logger, _ := test.NewNullLogger()
 		m := &AutoSchemaManager{
 			schemaManager: &fakeSchemaManager{},
 			vectorRepo:    vectorRepo,
+			logger:        logger,
 			config:        tt.fields.config,
 		}
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := m.determineType("", tt.args.value, false)
+			got, err := m.determineType(context.Background(), refTarget{}, tt.args.value, false)
 			if len(tt.errMsgs) == 0 {
 				require.NoError(t, err)
 				if !reflect.DeepEqual(got, tt.want) {
@@ -1441,10 +1444,10 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 
 	for i, tc := range testCases {
 		t.Run(fmt.Sprintf("testCase_%d", i), func(t *testing.T) {
-			properties, _ := manager.getProperties(&models.Object{
+			properties, _ := manager.getProperties(context.Background(), &models.Object{
 				Class:      "ClassWithObjectProps",
 				Properties: tc.valProperties,
-			}, nil)
+			}, nil, nil)
 
 			assertPropsMatch(t, tc.expectedProperties, properties)
 		})
@@ -1452,8 +1455,8 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 }
 
 // Test_autoSchemaManager_getProperties_beaconWithoutClass pins how auto-schema
-// types a beacon that omits its class: by the id looked up in the source
-// namespace.
+// types a beacon that omits its class. A property that exists is typed by what
+// it records, and a new one by the id looked up in the source namespace.
 func Test_autoSchemaManager_getProperties_beaconWithoutClass(t *testing.T) {
 	confinedPrincipal := &models.Principal{Username: "u", Namespace: "customer1"}
 	globalOperator := &models.Principal{Username: "admin", IsGlobalOperator: true}
@@ -1461,14 +1464,105 @@ func Test_autoSchemaManager_getProperties_beaconWithoutClass(t *testing.T) {
 		name             string
 		principal        *models.Principal
 		sourceClass      string
-		lookupIn         string   // the namespace the lookup has to search
-		repoClasses      []string // what ObjectsByID finds there, in the order it lists them
+		tenant           string        // the object's tenant, which the lookup must not carry
+		schemaClass      *models.Class // what the collection already holds, nil while it is new
+		schemaAnswers    bool          // the schema types the property, so no id lookup may run
+		beaconClass      string        // the class the beacon names, "" for none
+		lookupIn         string        // the namespace the lookup has to search
+		repoClasses      []string      // what ObjectsByID finds there, in the order it lists them
+		repoErr          error
 		expectedDataType []string
+		expectedErr      string
 	}{
+		{
+			// The validator rewrites the beacon with this same class, so
+			// searching for the id would answer an answered question.
+			name:             "existing reference property answers without a lookup",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			schemaClass:      classWithProperty("watched", "customer1:Movies"),
+			lookupIn:         "customer1",
+			repoClasses:      []string{"customer1:Ledger"},
+			schemaAnswers:    true,
+			expectedDataType: []string{"Movies"},
+		},
+		{
+			name:             "existing multi-target property answers without a lookup",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			schemaClass:      classWithProperty("watched", "customer1:Movies", "customer1:Shows"),
+			lookupIn:         "customer1",
+			repoClasses:      []string{"customer1:Ledger"},
+			schemaAnswers:    true,
+			expectedDataType: []string{"Movies"},
+		},
+		{
+			name:             "existing primitive property types the beacon as an object",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			schemaClass:      classWithProperty("watched", "text"),
+			lookupIn:         "customer1",
+			repoClasses:      []string{"customer1:Ledger"},
+			schemaAnswers:    true,
+			expectedDataType: []string{"object[]"},
+		},
+		{
+			name:             "existing object property types the beacon as an object",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			schemaClass:      classWithProperty("watched", "object"),
+			lookupIn:         "customer1",
+			repoClasses:      []string{"customer1:Ledger"},
+			schemaAnswers:    true,
+			expectedDataType: []string{"object[]"},
+		},
+		{
+			// The beacon has to reach the nested merge, which adds it to the
+			// property's nested properties so validation accepts it.
+			name:             "existing object[] property types the beacon as an object",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			schemaClass:      classWithProperty("watched", "object[]"),
+			lookupIn:         "customer1",
+			repoClasses:      []string{"customer1:Ledger"},
+			schemaAnswers:    true,
+			expectedDataType: []string{"object[]"},
+		},
+		{
+			name:             "existing object[] property types a beacon naming its class as an object",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			schemaClass:      classWithProperty("watched", "object[]"),
+			beaconClass:      "Ledger",
+			lookupIn:         "customer1",
+			schemaAnswers:    true,
+			expectedDataType: []string{"object[]"},
+		},
+		{
+			name:             "collection holding another property still looks the id up",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			schemaClass:      classWithProperty("other", "customer1:Movies"),
+			lookupIn:         "customer1",
+			repoClasses:      []string{"customer1:Ledger"},
+			expectedDataType: []string{"Ledger"},
+		},
 		{
 			name:             "own namespace resolves, prefix stripped",
 			principal:        confinedPrincipal,
 			sourceClass:      "customer1:Library",
+			lookupIn:         "customer1",
+			repoClasses:      []string{"customer1:Movies"},
+			expectedDataType: []string{"Movies"},
+		},
+		{
+			// Asking a multi-tenant collection for the tenant would activate it
+			// there, in a collection the write never named.
+			name:             "multi-tenant object looks the id up without its tenant",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			tenant:           "tenant1",
+			schemaClass:      &models.Class{MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}},
 			lookupIn:         "customer1",
 			repoClasses:      []string{"customer1:Movies"},
 			expectedDataType: []string{"Movies"},
@@ -1479,6 +1573,28 @@ func Test_autoSchemaManager_getProperties_beaconWithoutClass(t *testing.T) {
 			sourceClass:      "customer1:Library",
 			lookupIn:         "customer1",
 			expectedDataType: []string{"object[]"},
+		},
+		{
+			// A recorded target outside the source namespace is no reference this
+			// write may use, and no class name from it may reach the caller.
+			name:             "property recording another namespace answers without a lookup",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			schemaClass:      classWithProperty("watched", "customer2:Secret"),
+			lookupIn:         "customer1",
+			repoClasses:      []string{"customer1:Ledger"},
+			schemaAnswers:    true,
+			expectedDataType: []string{"object[]"},
+		},
+		{
+			// Typing the property from a failed lookup would store every later
+			// beacon on it as text, so the object fails instead.
+			name:        "failed lookup fails the object",
+			principal:   confinedPrincipal,
+			sourceClass: "customer1:Library",
+			lookupIn:    "customer1",
+			repoErr:     assert.AnError,
+			expectedErr: "cannot resolve the collection of beacon",
 		},
 		{
 			// A reference may not cross namespaces, and an operator writing
@@ -1508,21 +1624,33 @@ func Test_autoSchemaManager_getProperties_beaconWithoutClass(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			vectorRepo := &fakeVectorRepo{}
 			vectorRepo.On("ObjectsByID", id, mock.Anything, mock.Anything, "", tc.lookupIn).
-				Return(searchResults(tc.repoClasses), nil).Once()
+				Return(searchResults(tc.repoClasses), tc.repoErr).Once()
 			manager := newBeaconTestManager(vectorRepo)
 
-			properties, err := manager.getProperties(&models.Object{
-				Class: tc.sourceClass,
+			properties, err := manager.getProperties(context.Background(), &models.Object{
+				Class:  tc.sourceClass,
+				Tenant: tc.tenant,
 				Properties: map[string]interface{}{
 					"watched": []interface{}{
-						map[string]interface{}{"beacon": "weaviate://localhost/" + id.String()},
+						map[string]interface{}{"beacon": crossref.NewLocalhost(tc.beaconClass, id).String()},
 					},
 				},
-			}, tc.principal)
+			}, tc.principal, tc.schemaClass)
+
+			if tc.expectedErr != "" {
+				require.ErrorContains(t, err, tc.expectedErr)
+				assert.NotContains(t, err.Error(), assert.AnError.Error(),
+					"the repo error names the index it failed on, so it must not reach the caller")
+				return
+			}
 			require.NoError(t, err)
 			require.Len(t, properties, 1)
 			assert.Equal(t, "watched", properties[0].Name)
 			assert.Equal(t, tc.expectedDataType, properties[0].DataType)
+			if tc.schemaAnswers {
+				vectorRepo.AssertNotCalled(t, "ObjectsByID",
+					mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+			}
 		})
 	}
 }
@@ -1562,13 +1690,19 @@ func Test_autoSchemaManager_getProperties_beaconWithoutClassMixedArray(t *testin
 			for i, id := range tc.beacons {
 				values[i] = map[string]interface{}{"beacon": "weaviate://localhost/" + id.String()}
 			}
-			_, err := manager.getProperties(&models.Object{
+			_, err := manager.getProperties(context.Background(), &models.Object{
 				Class:      "customer1:Library",
 				Properties: map[string]interface{}{"watched": values},
-			}, &models.Principal{Username: "u", Namespace: "customer1"})
+			}, &models.Principal{Username: "u", Namespace: "customer1"}, nil)
 			require.ErrorContains(t, err, tc.errMsg)
 		})
 	}
+}
+
+// classWithProperty builds the collection a caller writes into, holding one
+// property under the given data types.
+func classWithProperty(name string, dataType ...string) *models.Class {
+	return &models.Class{Properties: []*models.Property{{Name: name, DataType: dataType}}}
 }
 
 // searchResults builds what ObjectsByID returns for the given class names, and

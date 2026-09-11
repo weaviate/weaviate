@@ -119,7 +119,7 @@ func (m *AutoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 		if schemaClass == nil && !allowCreateClass {
 			return 0, ErrInvalidUserInput{"given class does not exist"}
 		}
-		properties, err := m.getProperties(object, principal)
+		properties, err := m.getProperties(ctx, object, principal, schemaClass)
 		if err != nil {
 			return 0, err
 		}
@@ -179,13 +179,16 @@ func (m *AutoSchemaManager) createClass(ctx context.Context, principal *models.P
 	return newClass, schemaVersion, err
 }
 
-func (m *AutoSchemaManager) getProperties(object *models.Object, principal *models.Principal) ([]*models.Property, error) {
+func (m *AutoSchemaManager) getProperties(ctx context.Context, object *models.Object,
+	principal *models.Principal, schemaClass *models.Class,
+) ([]*models.Property, error) {
 	properties := []*models.Property{}
 	namespace := namespacing.NamespaceFromQualified(object.Class)
 	if props, ok := object.Properties.(map[string]interface{}); ok {
 		for name, value := range props {
 			now := time.Now()
-			dt, err := m.determineType(namespace, value, false)
+			target := refTarget{class: schemaClass, property: name, sourceNamespace: namespace}
+			dt, err := m.determineType(ctx, target, value, false)
 			if err != nil {
 				return nil, fmt.Errorf("property '%s' on class '%s': %w", name, object.Class, err)
 			}
@@ -194,9 +197,9 @@ func (m *AutoSchemaManager) getProperties(object *models.Object, principal *mode
 			if len(dt) == 1 {
 				switch dt[0] {
 				case schema.DataTypeObject:
-					nestedProperties, err = m.determineNestedProperties(namespace, value.(map[string]interface{}), now)
+					nestedProperties, err = m.determineNestedProperties(ctx, target, value.(map[string]interface{}), now)
 				case schema.DataTypeObjectArray:
-					nestedProperties, err = m.determineNestedPropertiesOfArray(namespace, value.([]interface{}), now)
+					nestedProperties, err = m.determineNestedPropertiesOfArray(ctx, target, value.([]interface{}), now)
 				default:
 					// do nothing
 				}
@@ -247,7 +250,7 @@ func couldBeUUID(s string) bool {
 	return l == 32 || l == 36 || l == 38 || l == 45
 }
 
-func (m *AutoSchemaManager) determineType(sourceNamespace string,
+func (m *AutoSchemaManager) determineType(ctx context.Context, target refTarget,
 	value interface{}, ofNestedProp bool,
 ) ([]schema.DataType, error) {
 	fallbackDataType := []schema.DataType{schema.DataTypeText}
@@ -301,7 +304,7 @@ func (m *AutoSchemaManager) determineType(sourceNamespace string,
 		var determinedDataType schema.DataType
 
 		for i := range typedValue {
-			dataType, refDataType, err := m.determineArrayType(sourceNamespace, typedValue[i], ofNestedProp)
+			dataType, refDataType, err := m.determineArrayType(ctx, target, typedValue[i], ofNestedProp)
 			if err != nil {
 				return nil, fmt.Errorf("element [%d]: %w", i, err)
 			}
@@ -370,7 +373,7 @@ func asSingleDataType(arrayDataType schema.DataType) schema.DataType {
 	return arrayDataType
 }
 
-func (m *AutoSchemaManager) determineArrayType(sourceNamespace string,
+func (m *AutoSchemaManager) determineArrayType(ctx context.Context, target refTarget,
 	value interface{}, ofNestedProp bool,
 ) (schema.DataType, schema.DataType, error) {
 	switch typedValue := value.(type) {
@@ -405,7 +408,11 @@ func (m *AutoSchemaManager) determineArrayType(sourceNamespace string,
 		if ofNestedProp {
 			return schema.DataTypeObjectArray, "", nil
 		}
-		if refDataType, ok := m.asRef(sourceNamespace, typedValue); ok {
+		refDataType, isRef, err := m.asRef(ctx, target, typedValue)
+		if err != nil {
+			return "", "", err
+		}
+		if isRef {
 			return "", refDataType, nil
 		}
 		return schema.DataTypeObjectArray, "", nil
@@ -451,38 +458,82 @@ func (m *AutoSchemaManager) asPhoneNumber(val map[string]interface{}) ([]schema.
 	return nil, false
 }
 
-// asRef reports the class a cross-reference beacon targets. A beacon naming no
-// class takes a collection holding the id in the source namespace.
-func (m *AutoSchemaManager) asRef(sourceNamespace string,
+// refTarget tells asRef which property a beacon is written to. class is the
+// collection as it stands, nil while it is being created, and sourceNamespace
+// is the namespace that collection sits in.
+type refTarget struct {
+	class           *models.Class
+	property        string
+	sourceNamespace string
+}
+
+// recordedDataType returns the data type class records for the property, or nil
+// while class or the property does not exist yet.
+func recordedDataType(class *models.Class, propName string) []string {
+	if class == nil {
+		return nil
+	}
+	prop, err := schema.GetPropertyByName(class, schema.LowercaseFirstLetter(propName))
+	if err != nil {
+		return nil
+	}
+	return prop.DataType
+}
+
+// asRef reports the class a cross-reference beacon targets. A property that
+// exists is typed by what it records. Otherwise a beacon naming no class takes
+// a collection holding the id in the source namespace.
+func (m *AutoSchemaManager) asRef(ctx context.Context, target refTarget,
 	val map[string]interface{},
-) (schema.DataType, bool) {
+) (schema.DataType, bool, error) {
 	beacon, ok := val["beacon"].(string)
 	if !ok {
-		return "", false
+		return "", false, nil
 	}
 	ref, err := crossref.Parse(beacon)
 	if err != nil {
-		return "", false
+		return "", false, nil
+	}
+	// An existing property keeps its type, because DedupProperties drops whatever
+	// is derived here, so looking the id up would only cost a search per write.
+	// object[] is the exception: its nested properties are merged, so the beacon is
+	// typed as an object and "beacon" becomes a nested property the write can pass.
+	if recorded := recordedDataType(target.class, target.property); len(recorded) > 0 {
+		if schema.IsRefDataType(recorded) &&
+			namespacing.NamespaceFromQualified(recorded[0]) == target.sourceNamespace {
+			return schema.DataType(recorded[0]), true, nil
+		}
+		return "", false, nil
 	}
 	if ref.Class != "" {
-		return schema.DataType(ref.Class), true
+		return schema.DataType(ref.Class), true, nil
 	}
-	results, err := m.vectorRepo.ObjectsByID(context.Background(), ref.TargetID, search.SelectProperties{},
-		additional.Properties{}, "", sourceNamespace)
-	if err != nil || len(results) == 0 {
-		return "", false
+	// Asking a multi-tenant collection for a tenant can activate that tenant, so
+	// the lookup names none and ObjectsByID passes those collections over.
+	results, err := m.vectorRepo.ObjectsByID(ctx, ref.TargetID, search.SelectProperties{},
+		additional.Properties{}, "", target.sourceNamespace)
+	if err != nil {
+		// Typing the property from a lookup that did not run stores every later
+		// beacon on it as text. The repo error names the index it failed on,
+		// which is a qualified class name, so only the log may carry it.
+		m.logger.WithField("auto_schema", "asRef").
+			Warnf("resolve the collection of beacon %q: %v", beacon, err)
+		return "", false, fmt.Errorf("cannot resolve the collection of beacon %q; name it in the beacon", beacon)
+	}
+	if len(results) == 0 {
+		return "", false, nil
 	}
 	// Which of several collections holding the id comes first is unordered.
-	return schema.DataType(results[0].ClassName), true
+	return schema.DataType(results[0].ClassName), true, nil
 }
 
-func (m *AutoSchemaManager) determineNestedProperties(sourceNamespace string,
+func (m *AutoSchemaManager) determineNestedProperties(ctx context.Context, target refTarget,
 	values map[string]interface{}, now time.Time,
 ) ([]*models.NestedProperty, error) {
 	i := 0
 	nestedProperties := make([]*models.NestedProperty, len(values))
 	for name, value := range values {
-		np, err := m.determineNestedProperty(sourceNamespace, name, value, now)
+		np, err := m.determineNestedProperty(ctx, target, name, value, now)
 		if err != nil {
 			return nil, fmt.Errorf("nested property '%s': %w", name, err)
 		}
@@ -492,10 +543,10 @@ func (m *AutoSchemaManager) determineNestedProperties(sourceNamespace string,
 	return nestedProperties, nil
 }
 
-func (m *AutoSchemaManager) determineNestedProperty(sourceNamespace string,
+func (m *AutoSchemaManager) determineNestedProperty(ctx context.Context, target refTarget,
 	name string, value interface{}, now time.Time,
 ) (*models.NestedProperty, error) {
-	dt, err := m.determineType(sourceNamespace, value, true)
+	dt, err := m.determineType(ctx, target, value, true)
 	if err != nil {
 		return nil, err
 	}
@@ -504,9 +555,9 @@ func (m *AutoSchemaManager) determineNestedProperty(sourceNamespace string,
 	if len(dt) == 1 {
 		switch dt[0] {
 		case schema.DataTypeObject:
-			np, err = m.determineNestedProperties(sourceNamespace, value.(map[string]interface{}), now)
+			np, err = m.determineNestedProperties(ctx, target, value.(map[string]interface{}), now)
 		case schema.DataTypeObjectArray:
-			np, err = m.determineNestedPropertiesOfArray(sourceNamespace, value.([]interface{}), now)
+			np, err = m.determineNestedPropertiesOfArray(ctx, target, value.([]interface{}), now)
 		default:
 			// do nothing
 		}
@@ -524,13 +575,13 @@ func (m *AutoSchemaManager) determineNestedProperty(sourceNamespace string,
 	}, nil
 }
 
-func (m *AutoSchemaManager) determineNestedPropertiesOfArray(sourceNamespace string,
+func (m *AutoSchemaManager) determineNestedPropertiesOfArray(ctx context.Context, target refTarget,
 	valArray []interface{}, now time.Time,
 ) ([]*models.NestedProperty, error) {
 	if len(valArray) == 0 {
 		return []*models.NestedProperty{}, nil
 	}
-	nestedProperties, err := m.determineNestedProperties(sourceNamespace, valArray[0].(map[string]interface{}), now)
+	nestedProperties, err := m.determineNestedProperties(ctx, target, valArray[0].(map[string]interface{}), now)
 	if err != nil {
 		return nil, err
 	}
@@ -548,14 +599,14 @@ func (m *AutoSchemaManager) determineNestedPropertiesOfArray(sourceNamespace str
 		for name, value := range values {
 			index, ok := nestedPropertiesIndexMap[name]
 			if !ok {
-				np, err := m.determineNestedProperty(sourceNamespace, name, value, now)
+				np, err := m.determineNestedProperty(ctx, target, name, value, now)
 				if err != nil {
 					return nil, err
 				}
 				nestedPropertiesIndexMap[name] = len(nestedProperties)
 				nestedProperties = append(nestedProperties, np)
 			} else if _, isNested := schema.AsNested(nestedProperties[index].DataType); isNested {
-				np, err := m.determineNestedProperty(sourceNamespace, name, value, now)
+				np, err := m.determineNestedProperty(ctx, target, name, value, now)
 				if err != nil {
 					return nil, err
 				}
