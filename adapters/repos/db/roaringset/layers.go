@@ -37,13 +37,19 @@ import (
 //
 // As a result, an element is either a net addition or a net deletion in a
 // layer, but it can never be both.
+//
+// A nil side means the layer holds nothing for it. A layer [BinarySearchTree]
+// holds has at least one non-nil side: a node exists only for a write carrying
+// one, and a side is only ever assigned, never cleared. A nil side fills on the
+// first write to it, so a layer held by value goes stale where the bitmaps it
+// names have not moved.
 type BitmapLayer struct {
 	Additions *sroar.Bitmap
 	Deletions *sroar.Bitmap
 }
 
-// Clone copies both sides, keeping an allocated-but-empty one allocated. Where
-// that distinction matters, see [BitmapLayer.CloneIfWithin].
+// Clone copies both sides, keeping an allocated-but-empty one allocated and a
+// nil one nil. Where that distinction matters, see [BitmapLayer.CloneIfWithin].
 func (l *BitmapLayer) Clone() BitmapLayer {
 	clone := BitmapLayer{}
 	if l.Additions != nil {
