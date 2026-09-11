@@ -92,8 +92,8 @@ func TestBackup_DBLevel(t *testing.T) {
 			return jsonErr
 		})
 		require.Nil(t, err)
-		expectedSchema, err := testShd.Index().getSchema.GetSchemaSkipAuth().
-			Objects.Classes[0].MarshalBinary()
+		expectedSchema, err := testShd.Index().getSchema.ReadOnlySchema().
+			Classes[0].MarshalBinary()
 		require.Nil(t, err)
 
 		classes := make([]string, 0, len(db.indices))

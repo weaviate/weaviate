@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	backupent "github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -31,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
-	"github.com/weaviate/weaviate/usecases/schema"
 	"golang.org/x/sync/semaphore"
 )
 
@@ -44,7 +44,7 @@ type Service interface {
 }
 
 type service struct {
-	schemaManager    schema.SchemaGetter
+	schemaReader     local.ClassReader
 	nodes            cluster.NodeReader
 	db               *db.DB
 	backups          backup.BackupBackendProvider
@@ -53,13 +53,13 @@ type service struct {
 }
 
 // db db.IndexGetter
-func NewService(schemaManager schema.SchemaGetter, nodes cluster.NodeReader, db *db.DB, backups backup.BackupBackendProvider, logger logrus.FieldLogger) Service {
+func NewService(schemaReader local.ClassReader, nodes cluster.NodeReader, db *db.DB, backups backup.BackupBackendProvider, logger logrus.FieldLogger) Service {
 	s := &service{
-		schemaManager: schemaManager,
-		nodes:         nodes,
-		db:            db,
-		backups:       backups,
-		logger:        logger,
+		schemaReader: schemaReader,
+		nodes:        nodes,
+		db:           db,
+		backups:      backups,
+		logger:       logger,
 	}
 	s.shardConcurrency.Store(DefaultShardConcurrency)
 	return s
@@ -80,7 +80,7 @@ func (s *service) SetShardConcurrency(concurrency int) {
 // exactObjectCount will return the correct object count (including memtables) when set to true. This is mainly for
 // testing via the debug api. In production, this should be false to avoid the performance hit
 func (s *service) Usage(ctx context.Context, exactObjectCount bool) (*types.Report, error) {
-	collections := s.schemaManager.GetSchemaSkipAuth().Objects.Classes
+	collections := s.schemaReader.ReadOnlySchema().Classes
 	usage := &types.Report{
 		Node:        s.nodes.LocalName(),
 		Collections: make([]*types.CollectionUsage, 0, len(collections)),

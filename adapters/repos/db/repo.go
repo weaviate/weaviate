@@ -182,7 +182,8 @@ func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
 }
 
 func (db *DB) GetSchema() schema.Schema {
-	return db.schemaGetter.GetSchemaSkipAuth()
+	s := db.schemaGetter.ReadOnlySchema()
+	return schema.Schema{Objects: &s}
 }
 
 func (db *DB) GetConfig() Config {
@@ -239,12 +240,9 @@ func (db *DB) StartupLoadingProgress() *StartupProgressSnapshot {
 
 // startupClassNames returns the current class names for the startup progress scan
 func (db *DB) startupClassNames() []string {
-	s := db.schemaGetter.GetSchemaSkipAuth()
-	if s.Objects == nil {
-		return nil
-	}
-	names := make([]string, 0, len(s.Objects.Classes))
-	for _, class := range s.Objects.Classes {
+	classes := db.schemaGetter.ReadOnlySchema().Classes
+	names := make([]string, 0, len(classes))
+	for _, class := range classes {
 		names = append(names, class.Class)
 	}
 	return names

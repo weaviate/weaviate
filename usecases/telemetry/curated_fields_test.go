@@ -19,18 +19,17 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	clustermocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 func ptrTo[T any](v T) *T { return &v }
 
 func TestCuratedFields_Extraction(t *testing.T) {
 	sg := &fakeNodesStatusGetter{}
-	sm := schemaUC.NewMockSchemaGetter(t)
+	sm := local.NewMockSchemaReader(t)
 	logger, _ := test.NewNullLogger()
 	tel := New(sg, sm, clustermocks.NewMockNodeSelector("n1", "n2", "n3"), logger, "", 0, false, Config{NodeID: "node-abc", AsyncIndexingEnabled: true, ClusterID: func() string { return "00000000-0000-7000-0000-0000000000aa" }})
 
@@ -61,9 +60,7 @@ func TestCuratedFields_Extraction(t *testing.T) {
 		},
 	}
 
-	sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{
-		Objects: &models.Schema{Classes: classes},
-	}).Maybe()
+	sm.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: classes}).Maybe()
 
 	payload, err := tel.buildPayload(context.Background(), PayloadType.Init)
 	require.NoError(t, err)
@@ -89,7 +86,7 @@ func TestCuratedFields_Extraction(t *testing.T) {
 
 func TestUsedModules_NilModuleConfigFallback(t *testing.T) {
 	sg := &fakeNodesStatusGetter{}
-	sm := schemaUC.NewMockSchemaGetter(t)
+	sm := local.NewMockSchemaReader(t)
 	logger, _ := test.NewNullLogger()
 	tel := New(sg, sm, clustermocks.NewMockNodeSelector("node1"), logger, "", 0, false, Config{ClusterID: func() string { return "" }})
 
@@ -118,9 +115,7 @@ func TestUsedModules_NilModuleConfigFallback(t *testing.T) {
 		},
 	}
 
-	sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{
-		Objects: &models.Schema{Classes: classes},
-	}).Maybe()
+	sm.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: classes}).Maybe()
 
 	modules, err := tel.getUsedModules()
 	require.NoError(t, err)
@@ -132,11 +127,11 @@ func TestUsedModules_NilModuleConfigFallback(t *testing.T) {
 
 func TestCuratedFields_NodeCount(t *testing.T) {
 	sg := &fakeNodesStatusGetter{}
-	sm := schemaUC.NewMockSchemaGetter(t)
+	sm := local.NewMockSchemaReader(t)
 	logger, _ := test.NewNullLogger()
 	tel := New(sg, sm, clustermocks.NewMockNodeSelector("a", "b"), logger, "", 0, false, Config{ClusterID: func() string { return "" }})
 
-	sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
+	sm.EXPECT().ReadOnlySchema().Return(models.Schema{}).Maybe()
 	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
 		&models.NodeStatus{Stats: &models.NodeStats{}},
 	)
@@ -190,15 +185,13 @@ func TestPayload_PointerSemantics_JSON(t *testing.T) {
 
 func TestCuratedFields_DefaultVectorIndexType(t *testing.T) {
 	sg := &fakeNodesStatusGetter{}
-	sm := schemaUC.NewMockSchemaGetter(t)
+	sm := local.NewMockSchemaReader(t)
 	logger, _ := test.NewNullLogger()
 	tel := New(sg, sm, clustermocks.NewMockNodeSelector("node1"), logger, "", 0, false, Config{ClusterID: func() string { return "" }})
 
-	sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{
-				{Class: "X", VectorIndexType: ""},
-			},
+	sm.EXPECT().ReadOnlySchema().Return(models.Schema{
+		Classes: []*models.Class{
+			{Class: "X", VectorIndexType: ""},
 		},
 	}).Maybe()
 	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(

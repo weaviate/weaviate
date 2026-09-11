@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/schema/leader"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entschema "github.com/weaviate/weaviate/entities/schema"
@@ -532,17 +533,12 @@ func reconcileDroppedVectorIndexes(ctx context.Context, classes []*models.Class,
 	}
 }
 
-// schemaLister returns the local schema snapshot (eventually-consistent is fine
-// for an idempotent safety net); *schema.Manager satisfies it.
-type schemaLister interface {
-	GetSchemaSkipAuth() entschema.Schema
-}
-
 // runDropVectorIndexReconciliation waits (bounded) for the cluster task store to
 // be readable — so submits don't hit an unelected leader — then runs
 // reconcileDroppedVectorIndexes periodically until ctx is cancelled. Launch in a
-// goroutine.
-func runDropVectorIndexReconciliation(ctx context.Context, lister schemaLister,
+// goroutine. lister reads the local schema: eventually consistent is fine for
+// this idempotent safety net.
+func runDropVectorIndexReconciliation(ctx context.Context, lister local.ClassReader,
 	enq dropVectorReconcileClient, logger logrus.FieldLogger, interval time.Duration,
 	isLeader func() bool, nudge <-chan struct{},
 ) {
@@ -583,9 +579,8 @@ func runDropVectorIndexReconciliation(ctx context.Context, lister schemaLister,
 			if isLeader != nil && !isLeader() {
 				return
 			}
-			sch := lister.GetSchemaSkipAuth()
-			if sch.Objects != nil && len(sch.Objects.Classes) > 0 {
-				reconcileDroppedVectorIndexes(ctx, sch.Objects.Classes, enq, logger)
+			if classes := lister.ReadOnlySchema().Classes; len(classes) > 0 {
+				reconcileDroppedVectorIndexes(ctx, classes, enq, logger)
 			}
 		}()
 		select {
