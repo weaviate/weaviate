@@ -34,12 +34,12 @@ import (
 //	  -cpu=1,4,8,16 ./adapters/repos/db/roaringset/ -args -bench-max-id=5000000
 var benchMaxId = flag.Uint64("bench-max-id", 1_000_000, "initial max doc ID for BitmapFactory benchmarks")
 
-// BenchmarkBitmapFactory_GetBitmap measures GetBitmap throughput
-// with and without concurrent RemoveIds calls (simulating deletes/updates).
+// BenchmarkBitmapFactory_GetBitmap measures GetBitmap throughput, including
+// under concurrent maxId growth (simulating inserts).
 func BenchmarkBitmapFactory_GetBitmap(b *testing.B) {
 	startMaxId := *benchMaxId
 
-	b.Run("without_concurrent_removes", func(b *testing.B) {
+	b.Run("baseline", func(b *testing.B) {
 		bmf := NewBitmapFactory(NewBitmapBufPoolNoop(), func() uint64 { return startMaxId })
 
 		b.ResetTimer()
@@ -50,30 +50,6 @@ func BenchmarkBitmapFactory_GetBitmap(b *testing.B) {
 				release()
 			}
 		})
-	})
-
-	b.Run("with_concurrent_removes", func(b *testing.B) {
-		bmf := NewBitmapFactory(NewBitmapBufPoolNoop(), func() uint64 { return startMaxId })
-
-		var stopped atomic.Bool
-		go func() {
-			id := uint64(0)
-			for !stopped.Load() {
-				bmf.RemoveIds(id % startMaxId)
-				id++
-			}
-		}()
-
-		b.ResetTimer()
-		b.RunParallel(func(pb *testing.PB) {
-			for pb.Next() {
-				bm, release := bmf.GetBitmap()
-				_ = bm.GetCardinality()
-				release()
-			}
-		})
-
-		stopped.Store(true)
 	})
 
 	// with_increasing_maxid simulates concurrent inserts: maxId grows, periodically
@@ -104,63 +80,6 @@ func BenchmarkBitmapFactory_GetBitmap(b *testing.B) {
 		})
 
 		stopped.Store(true)
-	})
-
-	// with_concurrent_removes_and_increasing_maxid combines both write-lock sources:
-	// RemoveIds (from deletes/updates) and FillUp expansions (from inserts).
-	b.Run("with_concurrent_removes_and_increasing_maxid", func(b *testing.B) {
-		var maxId atomic.Uint64
-		maxId.Store(startMaxId)
-		bmf := NewBitmapFactory(NewBitmapBufPoolNoop(), func() uint64 { return maxId.Load() })
-
-		var stopped atomic.Bool
-		go func() {
-			for !stopped.Load() {
-				if maxId.Load() < 2*startMaxId {
-					maxId.Add(1)
-				}
-			}
-		}()
-		go func() {
-			id := uint64(0)
-			for !stopped.Load() {
-				bmf.RemoveIds(id % startMaxId)
-				id++
-			}
-		}()
-
-		b.ResetTimer()
-		b.RunParallel(func(pb *testing.PB) {
-			for pb.Next() {
-				bm, release := bmf.GetBitmap()
-				_ = bm.GetCardinality()
-				release()
-			}
-		})
-
-		stopped.Store(true)
-	})
-}
-
-// BenchmarkBitmapFactory_RemoveIds measures isolated RemoveIds throughput under
-// parallel write contention. A concurrent-gets variant is intentionally omitted:
-// RemoveIds (~13 ns/op) is ~1000× faster than GetBitmap (~18 µs/op), so a
-// background reader goroutine starves under write pressure, causing the benchmark
-// framework to calibrate b.N to ~385M iterations which then takes hundreds of
-// seconds at contended rates. The complementary view — how reads are slowed by
-// concurrent writes — is already covered by BenchmarkBitmapFactory_GetBitmap/with_concurrent_removes.
-func BenchmarkBitmapFactory_RemoveIds(b *testing.B) {
-	startMaxId := *benchMaxId
-
-	bmf := NewBitmapFactory(NewBitmapBufPoolNoop(), func() uint64 { return startMaxId })
-
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		id := uint64(0)
-		for pb.Next() {
-			bmf.RemoveIds(id % startMaxId)
-			id++
-		}
 	})
 }
 
@@ -356,11 +275,11 @@ func TestBitmapFactoryUniverse(t *testing.T) {
 		count := uint64(0)
 		bmf := NewBitmapFactory(NewBitmapBufPoolNoop(), func() uint64 { return count })
 
-		// a deny-list filter runs before anything is written. Whatever it
-		// returns, objectsByDocID prunes every ID it cannot resolve.
-		for _, id := range universe(t, bmf) {
-			bmf.RemoveIds(id)
-		}
+		// a deny-list filter runs before anything is written; the universe is
+		// empty and consumers skip unresolvable ids at resolution time (the
+		// factory deliberately has no shrink operation — see the comment at
+		// the factory).
+		assert.Empty(t, universe(t, bmf))
 
 		count = 1
 		assert.Equal(t, []uint64{0}, universe(t, bmf),
