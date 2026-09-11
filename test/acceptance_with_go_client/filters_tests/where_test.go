@@ -14,6 +14,7 @@ package filters_tests
 import (
 	"acceptance_tests_with_client/internal/wvhost"
 	"context"
+	"log"
 	"net"
 	"testing"
 
@@ -87,6 +88,9 @@ func newClusterClient(t *testing.T, dc *docker.DockerContainer) *weaviate.Client
 
 	grpcHost, grpcPort, err := net.SplitHostPort(dc.GrpcURI())
 	require.NoError(t, err)
+
+	log.Printf("\t>>>>>>>>>>>>>>>>>>>>>>>>>>URI: %q", dc.URI())
+	log.Printf("\t>>>>>>>>>>>>>>>>>>>>>>>>>>GrpcURI: %q", dc.GrpcURI())
 
 	return wvhost.NewClient(t,
 		weaviate.WithHTTPHost(restHost),
