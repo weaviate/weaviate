@@ -57,7 +57,7 @@ func TestBackupWithConcurrentDelete(t *testing.T) {
 							Name:            "make",
 							DataType:        collections.DataTypeText,
 							Tokenization:    collections.TokenizationField,
-							IndexFilterable: true,
+							IndexFilterable: new(true),
 						},
 					},
 				},

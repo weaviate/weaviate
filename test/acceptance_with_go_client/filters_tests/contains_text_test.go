@@ -17,92 +17,86 @@ import (
 	"testing"
 	"time"
 
-	acceptance_with_go_client "acceptance_tests_with_client"
-
-	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
-	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
-	"github.com/weaviate/weaviate-go-client/v5/weaviate/filters"
-	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate-go-client/v6"
+	"github.com/weaviate/weaviate-go-client/v6/collections"
+	"github.com/weaviate/weaviate-go-client/v6/data"
+	"github.com/weaviate/weaviate-go-client/v6/query"
+	"github.com/weaviate/weaviate-go-client/v6/query/filter"
 )
 
-func testContainsText(host string) func(t *testing.T) {
+func testContainsText(c *weaviate.Client) func(t *testing.T) {
 	return func(t *testing.T) {
-		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: host})
-		require.NoError(t, err)
-
-		defer func() {
-			err := client.Schema().AllDeleter().Do(context.Background())
-			require.NoError(t, err)
-		}()
+		require.NoError(t, c.Collections.DeleteAll(t.Context()))
+		t.Cleanup(func() {
+			require.NoError(t, c.Collections.DeleteAll(context.Background()))
+		})
 
 		ctx := context.Background()
-		className := "ContainsText"
-		id := "be6452f4-5db6-4a41-bfef-ff5dffd4ab16"
+		collectionName := "ContainsText"
+		id := uuid.MustParse("be6452f4-5db6-4a41-bfef-ff5dffd4ab16")
 		texts := []string{
 			" Hello You*-beautiful_world?!",
 			"HoW yOU_DOin? ",
 		}
 
+		var h *collections.Handle
+		var err error
+
 		t.Run("init data", func(t *testing.T) {
-			class := &models.Class{
-				Class: className,
-				Properties: []*models.Property{
+			h, err = c.Collections.Create(t.Context(), collections.Collection{
+				Name: collectionName,
+				Properties: []collections.Property{
 					{
 						Name:         "textField",
-						DataType:     schema.DataTypeText.PropString(),
-						Tokenization: models.PropertyTokenizationField,
+						DataType:     collections.DataTypeText,
+						Tokenization: collections.TokenizationField,
 					},
 					{
 						Name:         "textWhitespace",
-						DataType:     schema.DataTypeText.PropString(),
-						Tokenization: models.PropertyTokenizationWhitespace,
+						DataType:     collections.DataTypeText,
+						Tokenization: collections.TokenizationWhitespace,
 					},
 					{
 						Name:         "textLowercase",
-						DataType:     schema.DataTypeText.PropString(),
-						Tokenization: models.PropertyTokenizationLowercase,
+						DataType:     collections.DataTypeText,
+						Tokenization: collections.TokenizationLowercase,
 					},
 					{
 						Name:         "textWord",
-						DataType:     schema.DataTypeText.PropString(),
-						Tokenization: models.PropertyTokenizationWord,
+						DataType:     collections.DataTypeText,
+						Tokenization: collections.TokenizationWord,
 					},
 
 					{
 						Name:         "textsField",
-						DataType:     schema.DataTypeTextArray.PropString(),
-						Tokenization: models.PropertyTokenizationField,
+						DataType:     collections.DataTypeTextArray,
+						Tokenization: collections.TokenizationField,
 					},
 					{
 						Name:         "textsWhitespace",
-						DataType:     schema.DataTypeTextArray.PropString(),
-						Tokenization: models.PropertyTokenizationWhitespace,
+						DataType:     collections.DataTypeTextArray,
+						Tokenization: collections.TokenizationWhitespace,
 					},
 					{
 						Name:         "textsLowercase",
-						DataType:     schema.DataTypeTextArray.PropString(),
-						Tokenization: models.PropertyTokenizationLowercase,
+						DataType:     collections.DataTypeTextArray,
+						Tokenization: collections.TokenizationLowercase,
 					},
 					{
 						Name:         "textsWord",
-						DataType:     schema.DataTypeTextArray.PropString(),
-						Tokenization: models.PropertyTokenizationWord,
+						DataType:     collections.DataTypeTextArray,
+						Tokenization: collections.TokenizationWord,
 					},
 				},
-			}
-
-			err := client.Schema().ClassCreator().
-				WithClass(class).
-				Do(ctx)
+			})
 			require.NoError(t, err)
+			require.NotNilf(t, h, "%q collection handle", collectionName)
 
-			wrap, err := client.Data().Creator().
-				WithClassName(className).
-				WithID(id).
-				WithProperties(map[string]interface{}{
+			_, err = h.Data.Insert(ctx, &data.Object{
+				UUID: &id,
+				Properties: map[string]any{
 					"textField":       texts[0],
 					"textWhitespace":  texts[0],
 					"textLowercase":   texts[0],
@@ -111,12 +105,9 @@ func testContainsText(host string) func(t *testing.T) {
 					"textsWhitespace": texts,
 					"textsLowercase":  texts,
 					"textsWord":       texts,
-				}).
-				Do(ctx)
+				},
+			})
 			require.NoError(t, err)
-			require.NotNil(t, wrap)
-			require.NotNil(t, wrap.Object)
-			require.Equal(t, strfmt.UUID(id), wrap.Object.ID)
 
 			// Give time for graphql to receive and rebuild the schema internally
 			time.Sleep(3 * time.Second)
@@ -125,7 +116,7 @@ func testContainsText(host string) func(t *testing.T) {
 		t.Run("search using contains", func(t *testing.T) {
 			type testCase struct {
 				propName      string
-				operator      filters.WhereOperator
+				operator      filter.Operator
 				values        []string
 				expectedFound bool
 			}
@@ -134,219 +125,219 @@ func testContainsText(host string) func(t *testing.T) {
 			testCases = append(testCases,
 				testCase{
 					propName:      "textField",
-					operator:      filters.ContainsAny,
+					operator:      filter.ContainsAny,
 					values:        []string{"Hello You*-beautiful_world?!", "HoW yOU_DOin?"},
 					expectedFound: true,
 				},
 				testCase{
 					propName:      "textField",
-					operator:      filters.ContainsAll,
+					operator:      filter.ContainsAll,
 					values:        []string{"Hello You*-beautiful_world?!", "HoW yOU_DOin?"},
 					expectedFound: false,
 				},
 				testCase{
 					propName:      "textField",
-					operator:      filters.ContainsNone,
+					operator:      filter.ContainsNone,
 					values:        []string{"Hello You*-beautiful_world?!", "HoW yOU_DOin?"},
 					expectedFound: false,
 				},
 				testCase{
 					propName:      "textsField",
-					operator:      filters.ContainsAny,
+					operator:      filter.ContainsAny,
 					values:        []string{"Hello You*-beautiful_world?!", "HoW yOU_DOin?"},
 					expectedFound: true,
 				},
 				testCase{
 					propName:      "textsField",
-					operator:      filters.ContainsAll,
+					operator:      filter.ContainsAll,
 					values:        []string{"Hello You*-beautiful_world?!", "HoW yOU_DOin?"},
 					expectedFound: true,
 				},
 				testCase{
 					propName:      "textsField",
-					operator:      filters.ContainsNone,
+					operator:      filter.ContainsNone,
 					values:        []string{"Hello You*-beautiful_world?!", "HoW yOU_DOin?"},
 					expectedFound: false,
 				},
 
 				testCase{
 					propName:      "textWord",
-					operator:      filters.ContainsAny,
+					operator:      filter.ContainsAny,
 					values:        []string{"HELLO", "doin"},
 					expectedFound: true,
 				},
 				testCase{
 					propName:      "textWord",
-					operator:      filters.ContainsAll,
+					operator:      filter.ContainsAll,
 					values:        []string{"HELLO", "doin"},
 					expectedFound: false,
 				},
 				testCase{
 					propName:      "textWord",
-					operator:      filters.ContainsNone,
+					operator:      filter.ContainsNone,
 					values:        []string{"HELLO", "doin"},
 					expectedFound: false,
 				},
 				testCase{
 					propName:      "textsWord",
-					operator:      filters.ContainsAny,
+					operator:      filter.ContainsAny,
 					values:        []string{"HELLO", "doin"},
 					expectedFound: true,
 				},
 				testCase{
 					propName:      "textsWord",
-					operator:      filters.ContainsAll,
+					operator:      filter.ContainsAll,
 					values:        []string{"HELLO", "doin"},
 					expectedFound: true,
 				},
 				testCase{
 					propName:      "textsWord",
-					operator:      filters.ContainsNone,
+					operator:      filter.ContainsNone,
 					values:        []string{"HELLO", "doin"},
 					expectedFound: false,
 				},
 
 				testCase{
 					propName:      "textField",
-					operator:      filters.ContainsAny,
+					operator:      filter.ContainsAny,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: false,
 				},
 				testCase{
 					propName:      "textField",
-					operator:      filters.ContainsAll,
+					operator:      filter.ContainsAll,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: false,
 				},
 				testCase{
 					propName:      "textField",
-					operator:      filters.ContainsNone,
+					operator:      filter.ContainsNone,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: true,
 				},
 				testCase{
 					propName:      "textsField",
-					operator:      filters.ContainsAny,
+					operator:      filter.ContainsAny,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: false,
 				},
 				testCase{
 					propName:      "textsField",
-					operator:      filters.ContainsAll,
+					operator:      filter.ContainsAll,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: false,
 				},
 				testCase{
 					propName:      "textsField",
-					operator:      filters.ContainsNone,
+					operator:      filter.ContainsNone,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: true,
 				},
 				testCase{
 					propName:      "textWhitespace",
-					operator:      filters.ContainsAny,
+					operator:      filter.ContainsAny,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: true,
 				},
 				testCase{
 					propName:      "textWhitespace",
-					operator:      filters.ContainsAll,
+					operator:      filter.ContainsAll,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: false,
 				},
 				testCase{
 					propName:      "textWhitespace",
-					operator:      filters.ContainsNone,
+					operator:      filter.ContainsNone,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: false,
 				},
 				testCase{
 					propName:      "textsWhitespace",
-					operator:      filters.ContainsAny,
+					operator:      filter.ContainsAny,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: true,
 				},
 				testCase{
 					propName:      "textsWhitespace",
-					operator:      filters.ContainsAll,
+					operator:      filter.ContainsAll,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: true,
 				},
 				testCase{
 					propName:      "textsWhitespace",
-					operator:      filters.ContainsNone,
+					operator:      filter.ContainsNone,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: false,
 				},
 				testCase{
 					propName:      "textLowercase",
-					operator:      filters.ContainsAny,
+					operator:      filter.ContainsAny,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: true,
 				},
 				testCase{
 					propName:      "textLowercase",
-					operator:      filters.ContainsAll,
+					operator:      filter.ContainsAll,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: false,
 				},
 				testCase{
 					propName:      "textLowercase",
-					operator:      filters.ContainsNone,
+					operator:      filter.ContainsNone,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: false,
 				},
 				testCase{
 					propName:      "textsLowercase",
-					operator:      filters.ContainsAny,
+					operator:      filter.ContainsAny,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: true,
 				},
 				testCase{
 					propName:      "textsLowercase",
-					operator:      filters.ContainsAll,
+					operator:      filter.ContainsAll,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: true,
 				},
 				testCase{
 					propName:      "textsLowercase",
-					operator:      filters.ContainsNone,
+					operator:      filter.ContainsNone,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: false,
 				},
 				testCase{
 					propName:      "textWord",
-					operator:      filters.ContainsAny,
+					operator:      filter.ContainsAny,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: true,
 				},
 				testCase{
 					propName:      "textWord",
-					operator:      filters.ContainsAll,
+					operator:      filter.ContainsAll,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: false,
 				},
 				testCase{
 					propName:      "textWord",
-					operator:      filters.ContainsNone,
+					operator:      filter.ContainsNone,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: false,
 				},
 				testCase{
 					propName:      "textsWord",
-					operator:      filters.ContainsAny,
+					operator:      filter.ContainsAny,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: true,
 				},
 				testCase{
 					propName:      "textsWord",
-					operator:      filters.ContainsAll,
+					operator:      filter.ContainsAll,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: true,
 				},
 				testCase{
 					propName:      "textsWord",
-					operator:      filters.ContainsNone,
+					operator:      filter.ContainsNone,
 					values:        []string{"Hello", "HoW"},
 					expectedFound: false,
 				},
@@ -356,19 +347,19 @@ func testContainsText(host string) func(t *testing.T) {
 				testCases = append(testCases,
 					testCase{
 						propName:      propName,
-						operator:      filters.ContainsAny,
+						operator:      filter.ContainsAny,
 						values:        []string{"hello", "world"},
 						expectedFound: false,
 					},
 					testCase{
 						propName:      propName,
-						operator:      filters.ContainsAll,
+						operator:      filter.ContainsAll,
 						values:        []string{"hello", "world"},
 						expectedFound: false,
 					},
 					testCase{
 						propName:      propName,
-						operator:      filters.ContainsNone,
+						operator:      filter.ContainsNone,
 						values:        []string{"hello", "world"},
 						expectedFound: true,
 					},
@@ -378,19 +369,19 @@ func testContainsText(host string) func(t *testing.T) {
 				testCases = append(testCases,
 					testCase{
 						propName:      propName,
-						operator:      filters.ContainsAny,
+						operator:      filter.ContainsAny,
 						values:        []string{"hello", "world"},
 						expectedFound: false,
 					},
 					testCase{
 						propName:      propName,
-						operator:      filters.ContainsAll,
+						operator:      filter.ContainsAll,
 						values:        []string{"hello", "world"},
 						expectedFound: false,
 					},
 					testCase{
 						propName:      propName,
-						operator:      filters.ContainsNone,
+						operator:      filter.ContainsNone,
 						values:        []string{"hello", "world"},
 						expectedFound: true,
 					},
@@ -400,19 +391,19 @@ func testContainsText(host string) func(t *testing.T) {
 				testCases = append(testCases,
 					testCase{
 						propName:      propName,
-						operator:      filters.ContainsAny,
+						operator:      filter.ContainsAny,
 						values:        []string{"hello", "world"},
 						expectedFound: true,
 					},
 					testCase{
 						propName:      propName,
-						operator:      filters.ContainsAll,
+						operator:      filter.ContainsAll,
 						values:        []string{"hello", "world"},
 						expectedFound: false,
 					},
 					testCase{
 						propName:      propName,
-						operator:      filters.ContainsNone,
+						operator:      filter.ContainsNone,
 						values:        []string{"hello", "world"},
 						expectedFound: false,
 					},
@@ -422,19 +413,19 @@ func testContainsText(host string) func(t *testing.T) {
 				testCases = append(testCases,
 					testCase{
 						propName:      propName,
-						operator:      filters.ContainsAny,
+						operator:      filter.ContainsAny,
 						values:        []string{"hello", "world"},
 						expectedFound: true,
 					},
 					testCase{
 						propName:      propName,
-						operator:      filters.ContainsAll,
+						operator:      filter.ContainsAll,
 						values:        []string{"hello", "world"},
 						expectedFound: true,
 					},
 					testCase{
 						propName:      propName,
-						operator:      filters.ContainsNone,
+						operator:      filter.ContainsNone,
 						values:        []string{"hello", "world"},
 						expectedFound: false,
 					},
@@ -443,27 +434,24 @@ func testContainsText(host string) func(t *testing.T) {
 
 			for _, tc := range testCases {
 				t.Run(fmt.Sprintf("%+v", tc), func(t *testing.T) {
-					where := filters.Where().
-						WithPath([]string{tc.propName}).
-						WithOperator(tc.operator).
-						WithValueText(tc.values...)
-					field := graphql.Field{
-						Name:   "_additional",
-						Fields: []graphql.Field{{Name: "id"}},
-					}
-
-					resp, err := client.GraphQL().Get().
-						WithClassName(className).
-						WithWhere(where).
-						WithFields(field).
-						Do(ctx)
+					r, err := h.Query.OverAll(t.Context(), query.OverAll{
+						Filter: filter.Cond{
+							Target:   tc.propName,
+							Operator: tc.operator,
+							Value:    tc.values,
+						},
+					})
 					require.NoError(t, err)
+					require.NotNil(t, r, "query response")
 
-					ids := acceptance_with_go_client.GetIds(t, resp, className)
+					var got []uuid.UUID
+					for i := range r.Objects {
+						got = append(got, r.Objects[i].UUID)
+					}
 					if tc.expectedFound {
-						require.ElementsMatch(t, ids, []string{id})
+						require.ElementsMatch(t, []uuid.UUID{id}, got)
 					} else {
-						require.Empty(t, ids)
+						require.Empty(t, got)
 					}
 				})
 			}
