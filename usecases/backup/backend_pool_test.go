@@ -257,7 +257,7 @@ func newProbeUploader(t *testing.T, p *uploadProbe, poolSize int) (*uploader, *b
 	logger, _ := test.NewNullLogger()
 	store := nodeStore{objectStore{backend: p, backupId: "backup-1"}}
 	stat := &backupStat{}
-	u := newUploader(config.Backup{}, p, nil, nil, nil, nil, store, "backup-1", stat, logger).
+	u := newUploader(config.Backup{}, p, nil, nil, snapshotSelection{}, store, "backup-1", stat, logger).
 		withCompression(zipConfig{Level: int(NoCompression), GoPoolSize: poolSize})
 
 	desc := &backup.BackupDescriptor{ID: "backup-1", Classes: make([]backup.ClassDescriptor, 0, len(names))}
