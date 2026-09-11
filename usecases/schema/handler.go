@@ -230,11 +230,6 @@ func (h *Handler) GetConsistentSchema(ctx context.Context, principal *models.Pri
 	}, nil
 }
 
-// GetSchemaSkipAuth can never be used as a response to a user request as it
-// could leak the schema to an unauthorized user, is intended to be used for
-// non-user triggered processes, such as regular updates / maintenance / etc
-func (h *Handler) GetSchemaSkipAuth() schema.Schema { return h.getSchema() }
-
 func (h *Handler) getSchema() schema.Schema {
 	s := h.schemaReader.ReadOnlySchema()
 	return schema.Schema{

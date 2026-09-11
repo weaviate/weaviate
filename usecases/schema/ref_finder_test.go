@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -28,7 +29,7 @@ func TestRefFinder(t *testing.T) {
 			},
 		}
 
-		getter := &fakeSchemaGetterForRefFinder{s}
+		getter := &fakeSchemaGetterForRefFinder{schema: s}
 		res := NewRefFinder(getter, 3).Find("Car")
 
 		assert.Len(t, res, 0)
@@ -60,7 +61,7 @@ func TestRefFinder(t *testing.T) {
 			},
 		}
 
-		getter := &fakeSchemaGetterForRefFinder{s}
+		getter := &fakeSchemaGetterForRefFinder{schema: s}
 		res := NewRefFinder(getter, 3).Find("Car")
 
 		assert.Len(t, res, 0)
@@ -114,7 +115,7 @@ func TestRefFinder(t *testing.T) {
 			},
 		}
 
-		getter := &fakeSchemaGetterForRefFinder{s}
+		getter := &fakeSchemaGetterForRefFinder{schema: s}
 		res := NewRefFinder(getter, 3).Find("Car")
 
 		assert.Equal(t, []filters.Path{
@@ -189,7 +190,7 @@ func TestRefFinder(t *testing.T) {
 			},
 		}
 
-		getter := &fakeSchemaGetterForRefFinder{s}
+		getter := &fakeSchemaGetterForRefFinder{schema: s}
 		res := NewRefFinder(getter, 3).Find("Car")
 
 		assert.Equal(t, []filters.Path{
@@ -234,9 +235,13 @@ func TestRefFinder(t *testing.T) {
 }
 
 type fakeSchemaGetterForRefFinder struct {
+	local.ClassReader
 	schema schema.Schema
 }
 
-func (f *fakeSchemaGetterForRefFinder) GetSchemaSkipAuth() schema.Schema {
-	return f.schema
+func (f *fakeSchemaGetterForRefFinder) ReadOnlySchema() models.Schema {
+	if f.schema.Objects == nil {
+		return models.Schema{}
+	}
+	return *f.schema.Objects
 }

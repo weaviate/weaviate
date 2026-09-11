@@ -289,7 +289,7 @@ func (db *DB) ShardReplicas(ctx context.Context, class string) (map[string][]str
 }
 
 func (db *DB) ListClasses(ctx context.Context) []string {
-	classes := db.schemaGetter.GetSchemaSkipAuth().Objects.Classes
+	classes := db.schemaGetter.ReadOnlySchema().Classes
 	classNames := make([]string, len(classes))
 
 	for i, class := range classes {

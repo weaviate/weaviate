@@ -283,8 +283,11 @@ type fakeMigrationSchemaGetter struct {
 	states map[string]*sharding.State
 }
 
-func (sg *fakeMigrationSchemaGetter) GetSchemaSkipAuth() schema.Schema {
-	return sg.sch
+func (sg *fakeMigrationSchemaGetter) ReadOnlySchema() models.Schema {
+	if sg.sch.Objects == nil {
+		return models.Schema{}
+	}
+	return *sg.sch.Objects
 }
 
 func (sg *fakeMigrationSchemaGetter) ReadOnlyClass(class string) *models.Class {

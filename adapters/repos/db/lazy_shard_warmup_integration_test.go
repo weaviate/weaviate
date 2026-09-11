@@ -91,7 +91,7 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
+	mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 	mockSchema.EXPECT().ReadOnlyClass(warmupClassName).Maybe().Return(class)
 	mockSchema.EXPECT().TenantsShards(mock.Anything, warmupClassName, mock.Anything).Maybe().
 		Return(tenantStatus, nil)

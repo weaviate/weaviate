@@ -17,8 +17,6 @@ import (
 	context "context"
 
 	mock "github.com/stretchr/testify/mock"
-	entitiesschema "github.com/weaviate/weaviate/entities/schema"
-
 	models "github.com/weaviate/weaviate/entities/models"
 )
 
@@ -79,51 +77,6 @@ func (_c *MockSchemaGetter_GetAliasesForClass_Call) Return(_a0 []*models.Alias) 
 }
 
 func (_c *MockSchemaGetter_GetAliasesForClass_Call) RunAndReturn(run func(string) []*models.Alias) *MockSchemaGetter_GetAliasesForClass_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetSchemaSkipAuth provides a mock function with no fields
-func (_m *MockSchemaGetter) GetSchemaSkipAuth() entitiesschema.Schema {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetSchemaSkipAuth")
-	}
-
-	var r0 entitiesschema.Schema
-	if rf, ok := ret.Get(0).(func() entitiesschema.Schema); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(entitiesschema.Schema)
-	}
-
-	return r0
-}
-
-// MockSchemaGetter_GetSchemaSkipAuth_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetSchemaSkipAuth'
-type MockSchemaGetter_GetSchemaSkipAuth_Call struct {
-	*mock.Call
-}
-
-// GetSchemaSkipAuth is a helper method to define mock.On call
-func (_e *MockSchemaGetter_Expecter) GetSchemaSkipAuth() *MockSchemaGetter_GetSchemaSkipAuth_Call {
-	return &MockSchemaGetter_GetSchemaSkipAuth_Call{Call: _e.mock.On("GetSchemaSkipAuth")}
-}
-
-func (_c *MockSchemaGetter_GetSchemaSkipAuth_Call) Run(run func()) *MockSchemaGetter_GetSchemaSkipAuth_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockSchemaGetter_GetSchemaSkipAuth_Call) Return(_a0 entitiesschema.Schema) *MockSchemaGetter_GetSchemaSkipAuth_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockSchemaGetter_GetSchemaSkipAuth_Call) RunAndReturn(run func() entitiesschema.Schema) *MockSchemaGetter_GetSchemaSkipAuth_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -233,6 +186,51 @@ func (_c *MockSchemaGetter_ReadOnlyClass_Call) Return(_a0 *models.Class) *MockSc
 }
 
 func (_c *MockSchemaGetter_ReadOnlyClass_Call) RunAndReturn(run func(string) *models.Class) *MockSchemaGetter_ReadOnlyClass_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// ReadOnlySchema provides a mock function with no fields
+func (_m *MockSchemaGetter) ReadOnlySchema() models.Schema {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReadOnlySchema")
+	}
+
+	var r0 models.Schema
+	if rf, ok := ret.Get(0).(func() models.Schema); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(models.Schema)
+	}
+
+	return r0
+}
+
+// MockSchemaGetter_ReadOnlySchema_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReadOnlySchema'
+type MockSchemaGetter_ReadOnlySchema_Call struct {
+	*mock.Call
+}
+
+// ReadOnlySchema is a helper method to define mock.On call
+func (_e *MockSchemaGetter_Expecter) ReadOnlySchema() *MockSchemaGetter_ReadOnlySchema_Call {
+	return &MockSchemaGetter_ReadOnlySchema_Call{Call: _e.mock.On("ReadOnlySchema")}
+}
+
+func (_c *MockSchemaGetter_ReadOnlySchema_Call) Run(run func()) *MockSchemaGetter_ReadOnlySchema_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockSchemaGetter_ReadOnlySchema_Call) Return(_a0 models.Schema) *MockSchemaGetter_ReadOnlySchema_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockSchemaGetter_ReadOnlySchema_Call) RunAndReturn(run func() models.Schema) *MockSchemaGetter_ReadOnlySchema_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -525,7 +523,8 @@ func (_c *MockSchemaGetter_TenantsShards_Call) RunAndReturn(run func(context.Con
 func NewMockSchemaGetter(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockSchemaGetter {
+},
+) *MockSchemaGetter {
 	mock := &MockSchemaGetter{}
 	mock.Mock.Test(t)
 

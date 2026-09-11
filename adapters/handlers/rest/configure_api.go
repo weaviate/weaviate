@@ -961,12 +961,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		if err := metaStoreReady.waitForMetaStore(); err != nil {
 			l.Fatalf("meta store failed to become ready; cannot verify namespace startup invariants: %v", err)
 		}
-		schemaSnapshot := appState.SchemaManager.GetSchemaSkipAuth()
 		var classNames []string
-		if schemaSnapshot.Objects != nil {
-			for _, c := range schemaSnapshot.Objects.Classes {
-				classNames = append(classNames, c.Class)
-			}
+		for _, c := range appState.SchemaManager.ReadOnlySchema().Classes {
+			classNames = append(classNames, c.Class)
 		}
 		// RBAC rows feed only the NS-disabled checks, so fetch them solely on
 		// that path — a read error then means we can't verify the invariant and
