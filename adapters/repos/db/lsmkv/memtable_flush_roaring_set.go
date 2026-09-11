@@ -12,62 +12,107 @@
 package lsmkv
 
 import (
+	"bufio"
 	"fmt"
+	"io"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
-func (m *Memtable) flushDataRoaringSet(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
-	flat := m.roaringSet.FlattenInOrder()
-
-	totalDataLength := totalPayloadSizeRoaringSet(flat)
-	header := &segmentindex.Header{
-		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
-		Level:            0, // always level zero on a new one
-		Version:          segmentindex.ChooseHeaderVersion(m.enableChecksumValidation),
-		SecondaryIndices: 0,
-		Strategy:         segmentindex.StrategyRoaringSet,
+// flushDataRoaringSet reserves a header, streams the nodes and their index past it,
+// then seeks back and writes the real header.
+func (m *Memtable) flushDataRoaringSet(f *segmentindex.SegmentFile,
+	ogF io.WriteSeeker, bufw *bufio.Writer,
+) error {
+	// compactor.WriteHeader below is passed a literal 0, so a non-zero count would be
+	// dropped rather than recorded, and every later Header.SecondaryIndex on the
+	// segment would fail.
+	if m.secondaryIndices != 0 {
+		return fmt.Errorf("roaring set flush cannot write %d secondary indexes",
+			m.secondaryIndices)
 	}
 
-	n, err := f.WriteHeader(header)
+	// compactor.WriteHeader overwrites these once the index start is known.
+	if _, err := bufw.Write(make([]byte, segmentindex.HeaderSize)); err != nil {
+		return fmt.Errorf("reserve header: %w", err)
+	}
+
+	keys, err := m.writeRoaringSetNodes(f)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	headerSize := int(n)
-	keys := make([]segmentindex.Key, len(flat))
 
-	totalWritten := headerSize
-	for i, node := range flat {
-		sn, err := roaringset.NewSegmentNode(node.Key, node.Value.Additions,
-			node.Value.Deletions)
+	if _, err := segmentindex.MarshalSortedKeys(f.BodyWriter(), keys,
+		segmentindex.HeaderSize); err != nil {
+		return fmt.Errorf("write roaring set index: %w", err)
+	}
+
+	indexStart := uint64(segmentindex.HeaderSize)
+	if len(keys) > 0 {
+		indexStart = uint64(keys[len(keys)-1].ValueEnd)
+	}
+
+	// WriteHeader ends in bufw.Reset, which discards anything still buffered.
+	if err := bufw.Flush(); err != nil {
+		return fmt.Errorf("flush buffered: %w", err)
+	}
+
+	if err := compactor.WriteHeader(nil, ogF, bufw, f, 0,
+		segmentindex.ChooseHeaderVersion(m.enableChecksumValidation), 0, indexStart,
+		segmentindex.StrategyRoaringSet); err != nil {
+		return fmt.Errorf("write header: %w", err)
+	}
+
+	return nil
+}
+
+func (m *Memtable) writeRoaringSetNodes(f *segmentindex.SegmentFile) ([]segmentindex.KeyRedux, error) {
+	// The cursor hands out the tree's own bitmaps, which the roaringSet* writers
+	// mutate under m.Lock(), so the lock covers the whole walk rather than a copy.
+	m.RLock()
+	defer m.RUnlock()
+
+	keys := make([]segmentindex.KeyRedux, 0, m.roaringSet.Count())
+	cursor := roaringset.NewBinarySearchTreeCursorNoCopy(m.roaringSet)
+
+	totalWritten := segmentindex.HeaderSize
+	// Scratch for the node under construction, grown when one needs more and
+	// reused by the next. Safe because the node is written out before the loop
+	// comes round again, and because keys[i].Key does not alias this buffer.
+	var (
+		nodeBuf []byte
+		sn      *roaringset.SegmentNode
+	)
+	// A nil key is the end of the walk; a zero-length one is a node the tree can
+	// hold, so length cannot tell the two apart.
+	for key, layer, err := cursor.First(); ; key, layer, err = cursor.Next() {
+		if err != nil {
+			return nil, fmt.Errorf("walk memtable: %w", err)
+		}
+		if key == nil {
+			break
+		}
+
+		// The segment must carry no slack, so the bitmaps are compacted straight
+		// into the node buffer.
+		sn, nodeBuf, err = roaringset.NewSegmentNodeCompacted(key,
+			layer.Additions, layer.Deletions, nodeBuf)
 		if err != nil {
 			return nil, fmt.Errorf("create segment node: %w", err)
 		}
 
-		ki, err := sn.KeyIndexAndWriteTo(f.BodyWriter(), totalWritten)
+		n, err := f.BodyWriter().Write(sn.ToBuffer())
 		if err != nil {
-			return nil, fmt.Errorf("write node %d: %w", i, err)
+			return nil, fmt.Errorf("write node %d: %w", len(keys), err)
 		}
+		totalWritten += n
 
-		keys[i] = ki
-		totalWritten = ki.ValueEnd
+		// The key is the tree's, which outlives the flush: the node's own copy
+		// would alias the reused buffer and go stale once the next node fills it.
+		keys = append(keys, segmentindex.KeyRedux{Key: key, ValueEnd: totalWritten})
 	}
 
 	return keys, nil
-}
-
-func totalPayloadSizeRoaringSet(in []*roaringset.BinarySearchNode) int {
-	var sum int
-	for _, n := range in {
-		sum += 8 // uint64 to segment length
-		sum += 8 // uint64 to indicate length of additions bitmap
-		sum += len(n.Value.Additions.ToBuffer())
-		sum += 8 // uint64 to indicate length of deletions bitmap
-		sum += len(n.Value.Deletions.ToBuffer())
-		sum += 4 // uint32 to indicate key size
-		sum += len(n.Key)
-	}
-
-	return sum
 }

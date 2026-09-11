@@ -14,6 +14,7 @@ package roaringset
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"math/rand"
 	"testing"
 	"time"
@@ -208,6 +209,107 @@ func TestBSTRoaringSet_Flatten(t *testing.T) {
 			}
 		})
 	})
+
+	t.Run("the flattened copy keeps the source bitmap's slack", func(t *testing.T) {
+		// A range mostly removed again leaves the container sized for what it
+		// held, which tells a buffer copy apart from a rebuild through a union.
+		// 1000 keeps the container array-backed, and Condense leaves a
+		// bitmap-backed one at its full size.
+		bst := new(BinarySearchTree)
+		bst.Insert([]byte("key"), Insert{Additions: slice(0, 1000)})
+		bst.Insert([]byte("key"), Insert{Deletions: slice(10, 1000)})
+
+		flat := bst.FlattenInOrder()
+		require.Len(t, flat, 1)
+
+		source := bst.root.Value.Additions.ToBuffer()
+		copied := flat[0].Value.Additions.ToBuffer()
+		condensed := Condense(bst.root.Value.Additions).ToBuffer()
+
+		require.Greater(t, len(source), len(condensed),
+			"the fixture no longer carries slack Condense can reclaim; sroar's array/bitmap container threshold may have moved")
+		assert.Equal(t, source, copied, "the copy must be the source buffer, byte for byte")
+		assert.Greater(t, len(copied), len(condensed),
+			"a copy the size of a condensed bitmap means the values were rebuilt, not copied")
+	})
+}
+
+func TestBinarySearchTreeCountsDistinctKeys(t *testing.T) {
+	ascendingKeys := func(n int) [][]byte {
+		keys := make([][]byte, n)
+		for i := range keys {
+			keys[i] = []byte(fmt.Sprintf("key-%05d", i))
+		}
+		return keys
+	}
+
+	tests := []struct {
+		name    string
+		inserts [][]byte
+		values  Insert
+		want    int
+	}{
+		{name: "no inserts", values: Insert{Additions: []uint64{1}}, want: 0},
+		{
+			name:    "one key",
+			inserts: [][]byte{[]byte("a")},
+			values:  Insert{Additions: []uint64{1}},
+			want:    1,
+		},
+		{
+			name:    "the same key twice merges",
+			inserts: [][]byte{[]byte("a"), []byte("a")},
+			values:  Insert{Additions: []uint64{1}},
+			want:    1,
+		},
+		{
+			name:    "the same key twice, not adjacent",
+			inserts: [][]byte{[]byte("b"), []byte("a"), []byte("b")},
+			values:  Insert{Additions: []uint64{1}},
+			want:    2,
+		},
+		{
+			// Ascending keys rebalance, so the root moves and insert returns a new
+			// one on rows a nil return would have counted as a merge.
+			name:    "ascending keys rebalance and still count once each",
+			inserts: ascendingKeys(64),
+			values:  Insert{Additions: []uint64{1}},
+			want:    64,
+		},
+		{
+			// The duplicate lands below the root, where insert relays the subtree's
+			// answer rather than deciding it.
+			name:    "a key re-inserted below the root merges",
+			inserts: [][]byte{[]byte("b"), []byte("a"), []byte("c"), []byte("c")},
+			values:  Insert{Additions: []uint64{1}},
+			want:    3,
+		},
+		{
+			name:    "a zero-length key is a key",
+			inserts: [][]byte{{}, []byte("a")},
+			values:  Insert{Additions: []uint64{1}},
+			want:    2,
+		},
+		{
+			name:    "a key carrying only deletions is a key",
+			inserts: [][]byte{[]byte("deleted")},
+			values:  Insert{Deletions: []uint64{7}},
+			want:    1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := new(BinarySearchTree)
+			for _, key := range tt.inserts {
+				tree.Insert(key, tt.values)
+			}
+
+			require.Equal(t, tt.want, tree.Count())
+			require.Len(t, tree.FlattenInOrder(), tt.want,
+				"Count must match the nodes a walk of the tree yields")
+		})
+	}
 }
 
 func BenchmarkBinarySearchTreeInsert(b *testing.B) {
@@ -264,9 +366,46 @@ func BenchmarkBinarySearchTreeFlatten(b *testing.B) {
 		m.Insert(keys[value], insert)
 	}
 
+	b.ReportAllocs()
+	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		m.FlattenInOrder()
 	}
+}
+
+// BenchmarkBinarySearchTreeFlattenWithSlack flattens bitmaps carrying container
+// slack, which BenchmarkBinarySearchTreeFlatten's single-value nodes have none
+// of. Copying a buffer keeps that slack, so a cursor opened here holds more
+// bytes than a rebuild through a union would leave it.
+//
+// retained-B is that held size. B/op cannot stand in for it: it also counts
+// sroar's buffer slop beyond what ToBuffer reports, which understates the
+// difference between the two copies.
+func BenchmarkBinarySearchTreeFlattenWithSlack(b *testing.B) {
+	const keys = 200
+
+	bst := new(BinarySearchTree)
+	for i := 0; i < keys; i++ {
+		key := []byte(fmt.Sprintf("key-%05d", i))
+		bst.Insert(key, Insert{Additions: slice(0, 1000)})
+		bst.Insert(key, Insert{Deletions: slice(10, 1000)})
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	var retained int
+	for i := 0; i < b.N; i++ {
+		flat := bst.FlattenInOrder()
+
+		retained = 0
+		for _, node := range flat {
+			retained += node.Value.LenInBytes()
+		}
+	}
+
+	b.ReportMetric(float64(retained), "retained-B")
 }
 
 func lexicographicallySortableFloat64(in float64) ([]byte, error) {

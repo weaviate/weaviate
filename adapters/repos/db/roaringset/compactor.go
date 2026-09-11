@@ -17,8 +17,6 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/weaviate/weaviate/usecases/memwatch"
-
 	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
 
 	"github.com/pkg/errors"
@@ -82,7 +80,6 @@ type Compactor struct {
 	enableChecksumValidation bool
 
 	maxNewFileSize int64
-	allocChecker   memwatch.AllocChecker
 }
 
 // NewCompactor from left (older) and right (newer) segment. See [Compactor]
@@ -121,7 +118,7 @@ type Compactor struct {
 func NewCompactor(w io.WriteSeeker,
 	left, right SegmentCursor, level uint16,
 	cleanupDeletions bool,
-	enableChecksumValidation bool, maxNewFileSize int64, allocChecker memwatch.AllocChecker,
+	enableChecksumValidation bool, maxNewFileSize int64,
 ) *Compactor {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"operation": "compaction",
@@ -143,7 +140,6 @@ func NewCompactor(w io.WriteSeeker,
 		cleanupDeletions:         cleanupDeletions,
 		enableChecksumValidation: enableChecksumValidation,
 		maxNewFileSize:           maxNewFileSize,
-		allocChecker:             allocChecker,
 	}
 }
 
@@ -164,7 +160,12 @@ func (c *Compactor) Do(ctx context.Context) error {
 		return fmt.Errorf("write keys: %w", err)
 	}
 
-	if err := c.writeIndexes(segmentFile, kis); err != nil {
+	// Marshalled directly rather than through segmentindex.Indexes: this segment
+	// carries no secondary index, and the nodes were written in one pass from
+	// HeaderSize, which is what lets MarshalSortedKeys derive each key's start
+	// from the previous key's end.
+	if _, err := segmentindex.MarshalSortedKeys(segmentFile.BodyWriter(), kis,
+		segmentindex.HeaderSize); err != nil {
 		return fmt.Errorf("write index: %w", err)
 	}
 
@@ -211,21 +212,23 @@ type nodeCompactor struct {
 	left, right           SegmentCursor
 	keyLeft, keyRight     []byte
 	valueLeft, valueRight BitmapLayer
-	output                []segmentindex.Key
+	output                []segmentindex.KeyRedux
 	offset                int
 	bufw                  io.Writer
+	// nodeBuf holds the node under construction, grown when one needs more and
+	// reused by the next. Safe because writeNode hands the node to the writer
+	// before returning, and records the cursor's key rather than the node's.
+	nodeBuf []byte
 
 	cleanupDeletions bool
-	emptyBitmap      *sroar.Bitmap
 }
 
-func (c *Compactor) writeNodes(ctx context.Context, f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
+func (c *Compactor) writeNodes(ctx context.Context, f *segmentindex.SegmentFile) ([]segmentindex.KeyRedux, error) {
 	nc := &nodeCompactor{
 		left:             c.left,
 		right:            c.right,
 		bufw:             f.BodyWriter(),
 		cleanupDeletions: c.cleanupDeletions,
-		emptyBitmap:      sroar.NewBitmap(),
 	}
 
 	nc.init()
@@ -290,19 +293,8 @@ func (c *nodeCompactor) mergeIdenticalKeys() error {
 		return fmt.Errorf("merge bitmap layers for identical keys: %w", err)
 	}
 
-	if additions, deletions, skip := c.cleanupValues(merged.Additions, merged.Deletions); !skip {
-		sn, err := NewSegmentNode(c.keyRight, additions, deletions)
-		if err != nil {
-			return fmt.Errorf("new segment node for merged key: %w", err)
-		}
-
-		ki, err := sn.KeyIndexAndWriteTo(c.bufw, c.offset)
-		if err != nil {
-			return fmt.Errorf("write individual node (merged key): %w", err)
-		}
-
-		c.offset = ki.ValueEnd
-		c.output = append(c.output, ki)
+	if err := c.writeNode(c.keyRight, merged.Additions, merged.Deletions); err != nil {
+		return fmt.Errorf("merged key: %w", err)
 	}
 
 	// advance both!
@@ -312,19 +304,8 @@ func (c *nodeCompactor) mergeIdenticalKeys() error {
 }
 
 func (c *nodeCompactor) takeLeftKey() error {
-	if additions, deletions, skip := c.cleanupValues(c.valueLeft.Additions, c.valueLeft.Deletions); !skip {
-		sn, err := NewSegmentNode(c.keyLeft, additions, deletions)
-		if err != nil {
-			return fmt.Errorf("new segment node for left key: %w", err)
-		}
-
-		ki, err := sn.KeyIndexAndWriteTo(c.bufw, c.offset)
-		if err != nil {
-			return fmt.Errorf("write individual node (left key): %w", err)
-		}
-
-		c.offset = ki.ValueEnd
-		c.output = append(c.output, ki)
+	if err := c.writeNode(c.keyLeft, c.valueLeft.Additions, c.valueLeft.Deletions); err != nil {
+		return fmt.Errorf("left key: %w", err)
 	}
 
 	c.keyLeft, c.valueLeft, _ = c.left.Next()
@@ -332,44 +313,51 @@ func (c *nodeCompactor) takeLeftKey() error {
 }
 
 func (c *nodeCompactor) takeRightKey() error {
-	if additions, deletions, skip := c.cleanupValues(c.valueRight.Additions, c.valueRight.Deletions); !skip {
-		sn, err := NewSegmentNode(c.keyRight, additions, deletions)
-		if err != nil {
-			return fmt.Errorf("new segment node for right key: %w", err)
-		}
-
-		ki, err := sn.KeyIndexAndWriteTo(c.bufw, c.offset)
-		if err != nil {
-			return fmt.Errorf("write individual node (right key): %w", err)
-		}
-
-		c.offset = ki.ValueEnd
-		c.output = append(c.output, ki)
+	if err := c.writeNode(c.keyRight, c.valueRight.Additions, c.valueRight.Deletions); err != nil {
+		return fmt.Errorf("right key: %w", err)
 	}
 
 	c.keyRight, c.valueRight, _ = c.right.Next()
 	return nil
 }
 
-func (c *nodeCompactor) cleanupValues(additions, deletions *sroar.Bitmap,
-) (add, del *sroar.Bitmap, skip bool) {
-	if !c.cleanupDeletions {
-		return Condense(additions), Condense(deletions), false
+// writeNode compacts the layer straight into the shared buffer, writes it, and
+// records its index entry. It is a no-op where cleanupValues drops the node.
+func (c *nodeCompactor) writeNode(key []byte, additions, deletions *sroar.Bitmap) error {
+	add, del, skip := c.cleanupValues(additions, deletions)
+	if skip {
+		return nil
 	}
-	if !additions.IsEmpty() {
-		return Condense(additions), c.emptyBitmap, false
+
+	sn, buf, err := NewSegmentNodeCompacted(key, add, del, c.nodeBuf)
+	if err != nil {
+		return fmt.Errorf("new segment node: %w", err)
 	}
-	return nil, nil, true
+	c.nodeBuf = buf
+
+	n, err := c.bufw.Write(sn.ToBuffer())
+	if err != nil {
+		return fmt.Errorf("write individual node: %w", err)
+	}
+	c.offset += n
+
+	// The key is the cursor's, which points into the source segment: the node's
+	// own copy would pin its serialization until the index is written, and go stale
+	// where a later node reuses the buffer.
+	c.output = append(c.output, segmentindex.KeyRedux{Key: key, ValueEnd: c.offset})
+	return nil
 }
 
-func (c *Compactor) writeIndexes(f *segmentindex.SegmentFile,
-	keys []segmentindex.Key,
-) error {
-	indexes := &segmentindex.Indexes{
-		Keys:                keys,
-		SecondaryIndexCount: 0,
-		AllocChecker:        c.allocChecker,
+func (c *nodeCompactor) cleanupValues(additions, deletions *sroar.Bitmap,
+) (add, del *sroar.Bitmap, skip bool) {
+	// The layers uncompacted, and nil rather than an empty deletions bitmap:
+	// NewSegmentNodeCompacted compacts what it is given, and reads a nil side
+	// as empty.
+	if !c.cleanupDeletions {
+		return additions, deletions, false
 	}
-	_, err := f.WriteIndexes(indexes)
-	return err
+	if !additions.IsEmpty() {
+		return additions, nil, false
+	}
+	return nil, nil, true
 }

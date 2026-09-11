@@ -19,7 +19,8 @@ import (
 )
 
 type BinarySearchTree struct {
-	root *BinarySearchNode
+	root  *BinarySearchNode
+	count int
 }
 
 type Insert struct {
@@ -37,10 +38,15 @@ func (t *BinarySearchTree) Insert(key []byte, values Insert) {
 			},
 			colourIsRed: false, // root node is always black
 		}
+		t.count++
 		return
 	}
 
-	if newRoot := t.root.insert(key, values); newRoot != nil {
+	newRoot, created := t.root.insert(key, values)
+	if created {
+		t.count++
+	}
+	if newRoot != nil {
 		t.root = newRoot
 	}
 	t.root.colourIsRed = false // Can be flipped in the process of balancing, but root is always black
@@ -58,12 +64,21 @@ func (t *BinarySearchTree) Get(key []byte) (BitmapLayer, error) {
 
 // FlattenInOrder creates list of ordered copies of bst nodes
 // Only Key and Value fields are populated
+// The copies carry the source bitmaps' layout, so a caller serializing them
+// must pass them through [Condense] itself.
 func (t *BinarySearchTree) FlattenInOrder() []*BinarySearchNode {
 	if t.root == nil {
 		return nil
 	}
 
 	return t.root.flattenInOrder()
+}
+
+// Count returns how many distinct keys the tree holds. A key inserted with only
+// deletions counts, and the tree has no removal, so the number only grows. The
+// caller's own lock guards it, as it does the rest of the tree.
+func (t *BinarySearchTree) Count() int {
+	return t.count
 }
 
 type BinarySearchNode struct {
@@ -154,7 +169,9 @@ func addNewSearchNodeRoaringSetReceiver(nodePtr **BinarySearchNode) {
 	*nodePtr = &BinarySearchNode{}
 }
 
-func (n *BinarySearchNode) insert(key []byte, values Insert) *BinarySearchNode {
+// insert reports whether it added a node, which the caller counts. A nil
+// node means the root did not move, not that the key merged.
+func (n *BinarySearchNode) insert(key []byte, values Insert) (*BinarySearchNode, bool) {
 	if bytes.Equal(key, n.Key) {
 		// Merging the new additions and deletions into the existing ones is a
 		// four-step process:
@@ -177,7 +194,7 @@ func (n *BinarySearchNode) insert(key []byte, values Insert) *BinarySearchNode {
 			n.Value.Deletions.Set(x)
 		}
 
-		return nil
+		return nil, false
 	}
 
 	if bytes.Compare(key, n.Key) < 0 {
@@ -193,7 +210,7 @@ func (n *BinarySearchNode) insert(key []byte, values Insert) *BinarySearchNode {
 				parent:      n,
 				colourIsRed: true,
 			}
-			return BinarySearchNodeFromRB(rbtree.Rebalance(n.left))
+			return BinarySearchNodeFromRB(rbtree.Rebalance(n.left)), true
 		}
 	} else {
 		if n.right != nil {
@@ -208,7 +225,7 @@ func (n *BinarySearchNode) insert(key []byte, values Insert) *BinarySearchNode {
 				parent:      n,
 				colourIsRed: true,
 			}
-			return BinarySearchNodeFromRB(rbtree.Rebalance(n.right))
+			return BinarySearchNodeFromRB(rbtree.Rebalance(n.right)), true
 		}
 	}
 }
@@ -255,18 +272,16 @@ func (n *BinarySearchNode) flattenInOrder() []*BinarySearchNode {
 	}
 
 	// Node's Value has to be copied, not to be mutated when BST is updated.
-	// Since memtable flush needs condensing, Condense serves as cloning here
-	// instead of separate clone + optional condense calls
 	right = append([]*BinarySearchNode{n.shallowCopy()}, right...)
 	return append(left, right...)
 }
 
 func (n *BinarySearchNode) shallowCopy() *BinarySearchNode {
+	// Clone copies the buffer, so the copy carries whatever slack the source has.
+	// Only read cursors reach this, and none of them writes a segment, so the
+	// compacted layout Condense produces would buy them no smaller file.
 	return &BinarySearchNode{
-		Key: n.Key,
-		Value: BitmapLayer{
-			Additions: Condense(n.Value.Additions),
-			Deletions: Condense(n.Value.Deletions),
-		},
+		Key:   n.Key,
+		Value: n.Value.Clone(),
 	}
 }

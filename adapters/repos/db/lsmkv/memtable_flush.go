@@ -127,9 +127,10 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 		}
 
 	case StrategyRoaringSet:
-		if keys, err = m.flushDataRoaringSet(segmentFile); err != nil {
+		if err = m.flushDataRoaringSet(segmentFile, meteredF, bufw); err != nil {
 			return "", err
 		}
+		skipIndices = true
 
 	case StrategyRoaringSetRange:
 		if keys, err = m.flushDataRoaringSetRange(segmentFile); err != nil {
