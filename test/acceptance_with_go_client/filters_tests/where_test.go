@@ -82,15 +82,15 @@ func TestWhereFilter_Cluster(t *testing.T) {
 func newClusterClient(t *testing.T, dc *docker.DockerContainer) *weaviate.Client {
 	t.Helper()
 
-	var err error
-	restHost, restPort, err := net.SplitHostPort(dc.URI())
-	require.NoError(t, err)
-
-	grpcHost, grpcPort, err := net.SplitHostPort(dc.GrpcURI())
-	require.NoError(t, err)
-
 	log.Printf("\t>>>>>>>>>>>>>>>>>>>>>>>>>>URI: %q", dc.URI())
 	log.Printf("\t>>>>>>>>>>>>>>>>>>>>>>>>>>GrpcURI: %q", dc.GrpcURI())
+
+	var err error
+	restHost, restPort, err := net.SplitHostPort(dc.URI())
+	require.NoError(t, err, "split REST URI")
+
+	grpcHost, grpcPort, err := net.SplitHostPort(dc.GrpcURI())
+	require.NoError(t, err, "split gRPC URI")
 
 	return wvhost.NewClient(t,
 		weaviate.WithHTTPHost(restHost),
