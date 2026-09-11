@@ -100,7 +100,7 @@ type VersionedReader interface {
 	ShardOwnerWithVersion(ctx context.Context, class, shard string, version uint64) (string, error)
 	ShardFromUUIDWithVersion(ctx context.Context, class string, uuid []byte, version uint64) (string, error)
 	ShardReplicasWithVersion(ctx context.Context, class, shard string, version uint64) ([]string, error)
-	TenantsShardsWithVersion(ctx context.Context, version uint64, class string, tenants ...string) (map[string]string, error)
+	TenantsShardsStatusWithVersion(ctx context.Context, version uint64, class string, tenants ...string) (map[string]string, error)
 }
 
 // ClassInfo summarizes a class as the local schema knows it.
