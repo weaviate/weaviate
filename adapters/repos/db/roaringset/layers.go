@@ -37,6 +37,11 @@ import (
 //
 // As a result, an element is either a net addition or a net deletion in a
 // layer, but it can never be both.
+//
+// A nil side means the layer holds nothing for it; a layer a memtable holds has
+// at least one non-nil side, since [BinarySearchTree.Insert] creates no node for
+// a write carrying neither. A nil side can fill mid-life, so a reader needs the
+// memtable's read lock rather than the pointers being fixed.
 type BitmapLayer struct {
 	Additions *sroar.Bitmap
 	Deletions *sroar.Bitmap

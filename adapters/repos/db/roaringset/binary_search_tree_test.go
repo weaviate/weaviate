@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"math/rand"
 	"testing"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -78,6 +77,20 @@ func TestBSTRoaringSet(t *testing.T) {
 
 		// check Deletions
 		assert.True(t, res.Deletions.Contains(9))
+	})
+
+	t.Run("single key, entry deleted, then added", func(t *testing.T) {
+		bst := &BinarySearchTree{}
+		key := []byte("my-key")
+
+		bst.Insert(key, Insert{Deletions: []uint64{9}})
+		bst.Insert(key, Insert{Additions: []uint64{9, 10}})
+
+		res, err := bst.Get(key)
+		require.NoError(t, err)
+
+		assert.ElementsMatch(t, []uint64{9, 10}, res.Additions.ToArray())
+		assert.Empty(t, res.Deletions.ToArray())
 	})
 
 	t.Run("single key, entry added, then deleted, then re-added", func(t *testing.T) {
@@ -369,8 +382,8 @@ func TestBSTRoaringSetSizeInBytes(t *testing.T) {
 		t.Run(shape.name, func(t *testing.T) {
 			require.Len(t, bst.FlattenInOrder(), shape.keys)
 			require.Greater(t, bst.SizeInBytes(),
-				uint64(shape.keys*(2*emptyBitmapBytes+len(key(0)))),
-				"a key costs its node on top of its own bytes and its two bitmap buffers")
+				uint64(shape.keys*(bitmapFixedSizeInBytes+emptyBitmapBytes+len(key(0)))),
+				"a key costs its node on top of its own bytes and its bitmap")
 		})
 	}
 
@@ -385,19 +398,38 @@ func TestBSTRoaringSetSizeInBytes(t *testing.T) {
 			sizes["one key of 1000 dense doc IDs"])
 	})
 
-	t.Run("an allocated but empty bitmap side is charged", func(t *testing.T) {
+	t.Run("a side the write does not fill is not charged", func(t *testing.T) {
 		additionsOnly := &BinarySearchTree{}
 		additionsOnly.Insert(key(0), Insert{Additions: []uint64{1}})
 
 		bothSides := &BinarySearchTree{}
 		bothSides.Insert(key(0), Insert{Additions: []uint64{1}, Deletions: []uint64{2}})
 
-		require.Equal(t, bothSides.SizeInBytes(), additionsOnly.SizeInBytes(),
-			"an empty deletions side already holds a buffer, so filling it costs no more")
-		// spelled out, so dropping the deletions term fails here too
+		require.Equal(t, additionsOnly.SizeInBytes()+
+			uint64(bitmapFixedSizeInBytes+NewBitmap(2).LenInBytes()),
+			bothSides.SizeInBytes(),
+			"a deletions side costs its own struct as well as its buffer")
+		// spelled out, so dropping either of the node's terms fails here too
 		require.Equal(t, uint64(nodeFixedSizeInBytes+len(key(0))+
-			NewBitmap(1).LenInBytes()+emptyBitmapBytes),
+			bitmapFixedSizeInBytes+NewBitmap(1).LenInBytes()),
 			additionsOnly.SizeInBytes())
+	})
+
+	t.Run("filling an absent side later charges its struct, not only its buffer", func(t *testing.T) {
+		bst := &BinarySearchTree{}
+		bst.Insert(key(0), Insert{Additions: []uint64{1}})
+		before := bst.SizeInBytes()
+
+		bst.Insert(key(0), Insert{Deletions: []uint64{2}})
+
+		require.Equal(t, before+uint64(bitmapFixedSizeInBytes+NewBitmap(2).LenInBytes()),
+			bst.SizeInBytes(),
+			"the merge delta has to cover the struct a side allocated on first use adds")
+
+		bothSides := &BinarySearchTree{}
+		bothSides.Insert(key(0), Insert{Additions: []uint64{1}, Deletions: []uint64{2}})
+		require.Equal(t, bothSides.SizeInBytes(), bst.SizeInBytes(),
+			"a side allocated on first use costs what one allocated with the node costs")
 	})
 
 	t.Run("a longer key costs the bytes it adds", func(t *testing.T) {
@@ -479,23 +511,79 @@ func TestBSTRoaringSetEmptyInsert(t *testing.T) {
 	})
 }
 
-func BenchmarkBinarySearchTreeInsert(b *testing.B) {
-	count := uint64(100_000)
-	keys := make([][]byte, count)
+// TestBSTRoaringSetNodeSides pins which sides a node holds, since a reader may
+// take both being nil to mean the tree holds no layer for the key.
+func TestBSTRoaringSetNodeSides(t *testing.T) {
+	key := []byte("my-key")
 
-	// generate
-	for i := range keys {
-		bytes, err := lexicographicallySortableFloat64(float64(i) / 3)
-		require.NoError(b, err)
-		keys[i] = bytes
+	tests := []struct {
+		name          string
+		values        Insert
+		wantAdditions []uint64
+		wantDeletions []uint64
+	}{
+		{"additions only", Insert{Additions: []uint64{7}}, []uint64{7}, nil},
+		{"deletions only", Insert{Deletions: []uint64{7}}, nil, []uint64{7}},
+		{"both sides", Insert{Additions: []uint64{7}, Deletions: []uint64{8}}, []uint64{7}, []uint64{8}},
+		{"empty slice on the other side", Insert{Additions: []uint64{7}, Deletions: []uint64{}}, []uint64{7}, nil},
 	}
 
-	// shuffle
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	assertSides := func(t *testing.T, node *BinarySearchNode, wantAdditions, wantDeletions []uint64) {
+		t.Helper()
+
+		if wantAdditions == nil {
+			assert.Nil(t, node.Value.Additions)
+		} else {
+			assert.ElementsMatch(t, wantAdditions, node.Value.Additions.ToArray())
+		}
+		if wantDeletions == nil {
+			assert.Nil(t, node.Value.Deletions)
+		} else {
+			assert.ElementsMatch(t, wantDeletions, node.Value.Deletions.ToArray())
+		}
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			bst := &BinarySearchTree{}
+			bst.Insert(key, test.values)
+
+			assertSides(t, bst.root, test.wantAdditions, test.wantDeletions)
+		})
+
+		t.Run(test.name+", then a write to both sides", func(t *testing.T) {
+			bst := &BinarySearchTree{}
+			bst.Insert(key, test.values)
+			bst.Insert(key, Insert{Additions: []uint64{9}, Deletions: []uint64{10}})
+
+			assertSides(t, bst.root,
+				append([]uint64{9}, test.wantAdditions...),
+				append([]uint64{10}, test.wantDeletions...))
+		})
+	}
+}
+
+// shuffledBenchmarkKeys fixes the shuffle, so two runs differ by the change
+// under measurement and not by the rotations the insert order forced.
+func shuffledBenchmarkKeys(b *testing.B, count uint64) [][]byte {
+	keys := make([][]byte, count)
+	for i := range keys {
+		key, err := lexicographicallySortableFloat64(float64(i) / 3)
+		require.NoError(b, err)
+		keys[i] = key
+	}
+
+	r := rand.New(rand.NewSource(1))
 	for i := range keys {
 		j := r.Intn(i + 1)
 		keys[i], keys[j] = keys[j], keys[i]
 	}
+	return keys
+}
+
+func BenchmarkBinarySearchTreeInsert(b *testing.B) {
+	count := uint64(100_000)
+	keys := shuffledBenchmarkKeys(b, count)
 
 	insert := Insert{Additions: make([]uint64, 1)}
 	for i := 0; i < b.N; i++ {
@@ -509,21 +597,7 @@ func BenchmarkBinarySearchTreeInsert(b *testing.B) {
 
 func BenchmarkBinarySearchTreeFlatten(b *testing.B) {
 	count := uint64(100_000)
-	keys := make([][]byte, count)
-
-	// generate
-	for i := range keys {
-		bytes, err := lexicographicallySortableFloat64(float64(i) / 3)
-		require.NoError(b, err)
-		keys[i] = bytes
-	}
-
-	// shuffle
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	for i := range keys {
-		j := r.Intn(i + 1)
-		keys[i], keys[j] = keys[j], keys[i]
-	}
+	keys := shuffledBenchmarkKeys(b, count)
 
 	// insert
 	insert := Insert{Additions: make([]uint64, 1)}

@@ -181,30 +181,45 @@ func addNewSearchNodeRoaringSetReceiver(nodePtr **BinarySearchNode) {
 	*nodePtr = &BinarySearchNode{}
 }
 
-// nodeFixedSizeInBytes is the heap a node holds whatever it contains: the node
-// itself plus the two sroar.Bitmap structs its layer points at.
-const nodeFixedSizeInBytes = int(unsafe.Sizeof(BinarySearchNode{}) + 2*unsafe.Sizeof(sroar.Bitmap{}))
+const (
+	nodeFixedSizeInBytes = int(unsafe.Sizeof(BinarySearchNode{}))
+	// Charged per non-nil side rather than per node, so that insert's
+	// before/after delta covers a side allocated on first use.
+	bitmapFixedSizeInBytes = int(unsafe.Sizeof(sroar.Bitmap{}))
+)
 
 func (n *BinarySearchNode) sizeInBytes() int {
 	return nodeFixedSizeInBytes + len(n.Key) + n.bitmapsSizeInBytes()
 }
 
-// bitmapsSizeInBytes uses sroar.Bitmap.LenInBytes, which counts an
-// allocated-but-empty buffer; BitmapLayer.LenInBytes reads one as free.
 func (n *BinarySearchNode) bitmapsSizeInBytes() int {
-	return n.Value.Additions.LenInBytes() + n.Value.Deletions.LenInBytes()
+	return bitmapSizeInBytes(n.Value.Additions) + bitmapSizeInBytes(n.Value.Deletions)
 }
 
+// bitmapSizeInBytes uses sroar.Bitmap.LenInBytes, which counts an
+// allocated-but-empty buffer; BitmapLayer.LenInBytes reads one as free.
+func bitmapSizeInBytes(bm *sroar.Bitmap) int {
+	if bm == nil {
+		return 0
+	}
+	return bitmapFixedSizeInBytes + bm.LenInBytes()
+}
+
+// NewBitmap allocates a buffer even when handed no values, so an absent side is
+// guarded on the write's length rather than left to an empty slice passing through.
 func newBinarySearchNode(key []byte, values Insert, parent *BinarySearchNode, colourIsRed bool) *BinarySearchNode {
-	return &BinarySearchNode{
-		Key: key,
-		Value: BitmapLayer{
-			Additions: NewBitmap(values.Additions...),
-			Deletions: NewBitmap(values.Deletions...),
-		},
+	node := &BinarySearchNode{
+		Key:         key,
 		parent:      parent,
 		colourIsRed: colourIsRed,
 	}
+	if len(values.Additions) > 0 {
+		node.Value.Additions = NewBitmap(values.Additions...)
+	}
+	if len(values.Deletions) > 0 {
+		node.Value.Deletions = NewBitmap(values.Deletions...)
+	}
+	return node
 }
 
 // insert reports the bytes the subtree grew by and whether it added a node, both
@@ -225,11 +240,19 @@ func (n *BinarySearchNode) insert(key []byte, values Insert) (*BinarySearchNode,
 		// 4. actually add the new entries to deletions (this step is vital in case
 		//    a delete points to an entry of a previous segment that's not added in
 		//    this memtable)
+
+		// Set panics on a nil bitmap, where Remove on the other side returns false.
+		if n.Value.Additions == nil && len(values.Additions) > 0 {
+			n.Value.Additions = NewBitmap()
+		}
 		for _, x := range values.Additions {
 			n.Value.Deletions.Remove(x)
 			n.Value.Additions.Set(x)
 		}
 
+		if n.Value.Deletions == nil && len(values.Deletions) > 0 {
+			n.Value.Deletions = NewBitmap()
+		}
 		for _, x := range values.Deletions {
 			n.Value.Additions.Remove(x)
 			n.Value.Deletions.Set(x)
