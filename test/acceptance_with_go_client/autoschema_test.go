@@ -46,8 +46,8 @@ func TestAutoschemaCasingClass(t *testing.T) {
 		t.Run(tt.className1+" "+tt.className2, func(t *testing.T) {
 			var err error
 
-			_ = c.Collections.Delete(ctx, tt.className1)
-			_ = c.Collections.Delete(ctx, tt.className2)
+			require.NoError(t, c.Collections.Delete(ctx, tt.className1))
+			require.NoError(t, c.Collections.Delete(ctx, tt.className2))
 
 			_, err = c.Collections.Use(tt.className1).Data.Insert(ctx, nil)
 			require.NoError(t, err, "insert into %s", tt.className1)
@@ -81,7 +81,7 @@ func TestAutoschemaCasingProps(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.prop1+" "+tt.prop2, func(t *testing.T) {
-			c.Collections.Delete(ctx, className)
+			require.NoError(t, c.Collections.Delete(ctx, className))
 
 			h := c.Collections.Use(className)
 			require.NotNil(t, h, "collection handle")
@@ -133,7 +133,7 @@ func TestAutoschemaCasingUpdateProps(t *testing.T) {
 	for _, tt := range cases {
 		t.Run(tt.prop1+" "+tt.prop2, func(t *testing.T) {
 			collectionName := "RandomOliveTree"
-			c.Collections.Delete(ctx, collectionName)
+			require.NoError(t, c.Collections.Delete(ctx, collectionName))
 			h := c.Collections.Use(collectionName)
 
 			{
