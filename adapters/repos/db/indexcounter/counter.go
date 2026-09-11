@@ -144,6 +144,32 @@ func (c *Counter) Drop(keepFiles bool) error {
 	return nil
 }
 
+// Close closes the counter's open file descriptor without removing the
+// underlying file, unlike Drop. Callers that unload a shard (as opposed to
+// deleting it) must call this so the fd isn't held until the *os.File
+// finalizer eventually runs it -- non-deterministic, and least likely to
+// happen promptly under the memory pressure that makes fds scarce in the
+// first place. Nothing needs flushing first: GetAndInc already does a
+// synchronous Seek+Write on every increment, so the persisted value is
+// already durable.
+//
+// Deliberately does not nil out c.f, mirroring Drop: a shard unloaded via
+// Close can still be deleted afterwards via Drop, which needs c.f.Name()
+// for the file path it removes. Closing an already-closed *os.File is a
+// harmless no-op error, same as Drop already tolerates if it's ever called
+// on a counter this has already closed.
+func (c *Counter) Close() error {
+	c.Lock()
+	defer c.Unlock()
+	if c.f == nil {
+		return nil
+	}
+	if err := c.f.Close(); err != nil {
+		return errors.Wrap(err, "close counter file")
+	}
+	return nil
+}
+
 func (c *Counter) FileName() string {
 	return c.f.Name()
 }

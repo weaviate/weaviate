@@ -67,3 +67,32 @@ func TestReadOnDisk(t *testing.T) {
 		require.Equal(t, uint64(3), count)
 	})
 }
+
+func TestClose(t *testing.T) {
+	t.Run("closes without removing the file, unlike Drop", func(t *testing.T) {
+		dir := t.TempDir()
+		c, err := New(dir)
+		require.NoError(t, err)
+		for range 3 {
+			_, err := c.GetAndInc()
+			require.NoError(t, err)
+		}
+
+		require.NoError(t, c.Close())
+
+		filename := filepath.Join(dir, "indexcount")
+		_, statErr := os.Stat(filename)
+		require.NoError(t, statErr, "Close must not remove the counter file")
+
+		// The persisted value survives the close (GetAndInc already fsyncs
+		// on every call) -- a fresh open on the same path reads it back.
+		reopened, err := New(dir)
+		require.NoError(t, err)
+		require.Equal(t, uint64(3), reopened.Get())
+	})
+
+	t.Run("does not panic on a zero-value Counter", func(t *testing.T) {
+		var c Counter
+		require.NoError(t, c.Close())
+	})
+}
