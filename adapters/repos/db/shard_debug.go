@@ -28,15 +28,12 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		return fmt.Errorf("async indexing is not enabled")
 	}
 
-	// TODO(vector-index-mapping): drop the fallback once live creation writes
-	// records; until then a vector added on a running shard has none.
-	physicalID := s.vectorIndexID(targetVector)
 	rec, ok, err := s.mapping.Get(targetVector)
 	if err != nil {
 		return errors.Wrap(err, "read mapping record")
 	}
-	if ok {
-		physicalID = rec.PhysicalID
+	if !ok {
+		return fmt.Errorf("vector %q has no mapping record", targetVector)
 	}
 
 	vidx, releaseIndex, vok := s.AcquireVectorIndex(targetVector)
@@ -54,6 +51,13 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		return errors.Wrap(err, "pause vector index")
 	}
 
+	// bracketed like a creation: a crash in between leaves creating, which
+	// the next load resumes instead of refusing
+	err = s.markVectorIndexCreating(targetVector, rec)
+	if err != nil {
+		return errors.Wrap(err, "mark vector index creating")
+	}
+
 	err = vidx.Drop(ctx, false)
 	if err != nil {
 		return errors.Wrap(err, "drop vector index")
@@ -61,11 +65,16 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 
 	newConfig := s.index.GetVectorIndexConfig(targetVector)
 
-	vidx, err = s.initVectorIndex(ctx, targetVector, physicalID, newConfig, false)
+	vidx, err = s.initVectorIndex(ctx, targetVector, rec.PhysicalID, newConfig, false)
 	if err != nil {
 		return errors.Wrap(err, "init vector index")
 	}
 	s.setVectorIndex(targetVector, vidx)
+
+	err = s.markVectorIndexReady(targetVector, rec)
+	if err != nil {
+		return errors.Wrap(err, "mark vector index ready")
+	}
 
 	q.ResetWith(vidx)
 	q.Resume()
