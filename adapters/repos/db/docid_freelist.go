@@ -233,7 +233,10 @@ func (fl *shardDocIDFreeList) Return(docID uint64) {
 }
 
 // assertNoTraces is the acquire-time hard assertion: no object row under the
-// docID secondary index, and every index reports CleanForReuse.
+// docID secondary index, and every index reports CleanForReuse. The per-index
+// check carries more than slot emptiness — HNSW, for example, also rejects an
+// id that is still the index's entrypoint (a stranded entrypoint passes the
+// row and slot checks but the graph still routes through it).
 func (fl *shardDocIDFreeList) assertNoTraces(docID uint64) error {
 	bucket, release, err := fl.shard.objectsBucket()
 	if err != nil {

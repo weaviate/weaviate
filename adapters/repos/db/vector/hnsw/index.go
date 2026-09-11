@@ -859,9 +859,21 @@ func (h *hnsw) ContainsDoc(docID uint64) bool {
 }
 
 // CleanForReuse implements common.ReuseCleanliness: a docID is clean once
-// its tombstone cleanup fully completed — no node slot and no tombstone.
-// This is deliberately stronger than !ContainsDoc, which also reports false
-// for a tombstoned-but-present node whose cleanup has not run yet.
+// its tombstone cleanup fully completed — no node slot, no tombstone, and
+// not the index's current entrypoint. This is deliberately stronger than
+// !ContainsDoc, which also reports false for a tombstoned-but-present node
+// whose cleanup has not run yet.
+//
+// The entrypoint guard closes a class of poisoned states, not just one
+// producer: historic cleanups could drop a node's tombstone while the id
+// remained the entrypoint (a stranded entrypoint with a stale
+// currentMaximumLayer). That state passes the slot-nil, no-tombstone and
+// object-row checks, so without this guard the id would be reissued while
+// the graph still routes every search and insert through it. #13031 fixes
+// the known producer; the guard here rejects the whole class regardless of
+// how the state was produced. The stranded check is gated on live nodes
+// existing, because an EMPTY index legitimately has entryPointID 0 — a bare
+// equality check would permanently veto docID 0 on a fresh index.
 //
 // Multivector indexes conservatively report never-clean: their per-docID
 // vector-id mapping adds a second id space whose reuse story is not covered
@@ -875,9 +887,19 @@ func (h *hnsw) CleanForReuse(docID uint64) bool {
 	h.shardedNodeLocks.RLock(docID)
 	exists := len(h.nodes) > int(docID) && h.nodes[docID] != nil
 	h.shardedNodeLocks.RUnlock(docID)
+
+	strandedEntrypoint := false
+	if !exists && h.entryPointID == docID {
+		// Only a graph that still holds live nodes makes the entrypoint
+		// reference meaningful (rare path: the O(n) scan runs only for the
+		// one id a stranded entrypoint points at).
+		h.shardedNodeLocks.RLockAll()
+		strandedEntrypoint = h.hasLiveNodesUnlocked()
+		h.shardedNodeLocks.RUnlockAll()
+	}
 	h.RUnlock()
 
-	return !exists && !h.hasTombstone(docID)
+	return !exists && !strandedEntrypoint && !h.hasTombstone(docID)
 }
 
 func (h *hnsw) Iterate(fn func(docID uint64) bool) {

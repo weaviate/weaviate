@@ -159,6 +159,46 @@ func TestDocIDReuse_PoisonedEntryFailsHard(t *testing.T) {
 	require.Contains(t, err.Error(), "docID reuse invariant violation")
 }
 
+// TestDocIDReuse_PoisonedEntryIndexSideFailsHard is the index-side sibling of
+// the row-side poison test: the object row is gone, but an index still holds
+// per-id state (here: the pending tombstone; the same assertNoTraces →
+// CleanForReuse path also rejects a stranded entrypoint, pinned at the hnsw
+// level in TestCleanForReuse_EntrypointGuard). Acquire must fail the insert
+// hard, never hand the id out.
+func TestDocIDReuse_PoisonedEntryIndexSideFailsHard(t *testing.T) {
+	t.Setenv("DOCID_REUSE_ENABLED", "true")
+	ctx := context.Background()
+	s := reuseTestShard(t, ctx, false)
+
+	reusePutObject(t, s, []float32{1, 0, 0})
+	idB := reusePutObject(t, s, []float32{0, 1, 0})
+	docIDB := reuseDocIDOf(t, s, idB)
+
+	// delete WITHOUT running tombstone cleanup: row gone, hnsw tombstone
+	// still pending
+	require.NoError(t, s.DeleteObject(ctx, idB, time.Time{}))
+
+	// poison the free list with the not-yet-clean id
+	s.freeList.mu.Lock()
+	s.freeList.free = append(s.freeList.free, docIDB)
+	s.freeList.inFree[docIDB] = struct{}{}
+	s.freeList.mu.Unlock()
+
+	obj := &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:         strfmt.UUID(uuid.NewString()),
+			Class:      reuseTestClass,
+			Properties: map[string]interface{}{"category": "keep"},
+		},
+		Vector: []float32{0, 0, 1},
+	}
+	err := s.PutObject(ctx, obj)
+	require.Error(t, err, "insert must fail hard on index-side traces")
+	require.Contains(t, err.Error(), "docID reuse invariant violation")
+	require.Contains(t, err.Error(), "still holds a trace")
+}
+
 // TestDocIDReuse_CrashBeforePersistIsSafe pins the crash-safety direction: if
 // the process dies after tombstone cleanup but before the harvest persisted
 // the free list, the id must NOT be reusable after restart.
