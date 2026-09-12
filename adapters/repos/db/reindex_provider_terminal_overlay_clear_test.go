@@ -105,3 +105,66 @@ func TestWriteAfterFailedMigrationSweepsOverlaidBucket(t *testing.T) {
 	assert.NotContains(t, names, prop,
 		"the schema indexes the property nowhere, so the analyzer must skip it")
 }
+
+// A node can read FINISHED from the leader before its own schema flip
+// applies, so the completion tick declines to clear. Applying the flip has to
+// retire the overlay, or a later index delete revives it.
+func TestOverlayOutlivingFinishedIsClearedByTheLocalFlip(t *testing.T) {
+	ctx := testCtx()
+	className := "FinishedOverlayLag_" + uuid.NewString()[:8]
+	const prop = "p"
+
+	class := newTestClassWithProps(className, []string{prop})
+	class.Properties[0].IndexFilterable = boolPtr(false)
+
+	hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		false, false, false)
+	defer hot.Shutdown(context.Background())
+	shard, err := unwrapShard(ctx, hot)
+	require.NoError(t, err)
+
+	shard.SetPropertyOverlay(prop, inverted.PropertyOverlay{ForceFilterable: true})
+
+	payload, err := json.Marshal(ReindexTaskPayload{
+		Collection:    className,
+		MigrationType: ReindexTypeEnableFilterable,
+		Properties:    []string{prop},
+		UnitToShard:   map[string]string{"u1": hot.Name()},
+	})
+	require.NoError(t, err)
+
+	logger, _ := logrustest.NewNullLogger()
+	p := NewReindexProvider(
+		&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
+		nil, nil, logger, "n1", nil, ctx)
+	require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
+		Namespace:      ReindexNamespace,
+		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_finished", Version: 1},
+		Status:         distributedtask.TaskStatusFinished,
+		Payload:        payload,
+	}))
+	require.NotEmpty(t, shard.SnapshotPropertyOverlay([]string{prop}),
+		"this node's schema is still pre-flip, so the overlay must survive, "+
+			"or this test proves nothing")
+
+	class.Properties[0].IndexFilterable = boolPtr(true)
+	require.NoError(t, idx.updateProperty(ctx, class.Properties[0]))
+	require.Empty(t, shard.SnapshotPropertyOverlay([]string{prop}),
+		"applying the flip must retire the overlay the completion tick could not")
+
+	// An index delete takes the bucket away again, which is what makes a
+	// surviving entry fatal rather than inert.
+	class.Properties[0].IndexFilterable = boolPtr(false)
+	require.NoError(t, idx.updateProperty(ctx, class.Properties[0]))
+
+	obj := &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:         strfmt.UUID(uuid.NewString()),
+			Class:      className,
+			Properties: map[string]interface{}{prop: "alpha bravo"},
+		},
+	}
+	require.NoError(t, shard.PutObject(ctx, obj),
+		"a write after the index delete must not demand a bucket the overlay forces")
+}
