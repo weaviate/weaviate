@@ -262,9 +262,25 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 }
 
 func (h *hnsw) setDimensionsFromEntrypoint() {
-	if len(h.nodes) > 0 {
-		if vec, err := h.VectorForIDThunk(context.Background(), h.entryPointID); err == nil {
+	if len(h.nodes) == 0 {
+		return
+	}
+	if vec, err := h.VectorForIDThunk(context.Background(), h.entryPointID); err == nil && len(vec) > 0 {
+		h.dims.Store(int32(len(vec)))
+		return
+	}
+	// the entrypoint's object may already be gone (e.g. a torn crash
+	// recovery where the entrypoint id is tombstoned but still set): fall
+	// back to any live node rather than leaving dims at 0, which would
+	// disable dimension validation for every subsequent insert and let a
+	// single wrong-length insert poison the recorded dimensionality
+	for _, node := range h.nodes {
+		if node == nil || node.id == h.entryPointID {
+			continue
+		}
+		if vec, err := h.VectorForIDThunk(context.Background(), node.id); err == nil && len(vec) > 0 {
 			h.dims.Store(int32(len(vec)))
+			return
 		}
 	}
 }
@@ -384,6 +400,7 @@ func (h *hnsw) restoreDocMappings() error {
 	}
 	defer release()
 
+	var removed []uint64
 	for _, node := range h.nodes {
 		if node == nil {
 			continue
@@ -399,6 +416,7 @@ func (h *hnsw) restoreDocMappings() error {
 				"error":   err.Error(),
 			}).Error("skipping node with missing doc mapping")
 			h.nodes[node.id] = nil
+			removed = append(removed, node.id)
 			continue
 		}
 
@@ -410,6 +428,7 @@ func (h *hnsw) restoreDocMappings() error {
 				"bytes_length": len(docIDBytes),
 			}).Error("skipping node with invalid doc mapping data")
 			h.nodes[node.id] = nil
+			removed = append(removed, node.id)
 			continue
 		}
 
@@ -433,6 +452,24 @@ func (h *hnsw) restoreDocMappings() error {
 	h.vecIDcounter = maxNodeID + 1
 	h.maxDocID = maxDocID
 	h.Unlock()
+
+	if len(removed) > 0 {
+		// tombstone the removed nodes in memory only — the commit logger is
+		// wired up after restoreFromDisk returns, so persisting here would
+		// nil-panic; that is fine, since a crash before the next cleanup
+		// cycle re-detects the missing mappings on the next restore. The
+		// tombstones make the next cleanup cycle reassign the edges still
+		// pointing at the removed nodes and, when one of them is the
+		// entrypoint, move the entrypoint off the dangling id.
+		h.tombstoneLock.Lock()
+		if h.tombstones == nil {
+			h.tombstones = make(map[uint64]struct{}, len(removed))
+		}
+		for _, id := range removed {
+			h.tombstones[id] = struct{}{}
+		}
+		h.tombstoneLock.Unlock()
+	}
 	return nil
 }
 
