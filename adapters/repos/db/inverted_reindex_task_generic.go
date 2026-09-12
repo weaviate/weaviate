@@ -357,7 +357,9 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		return t.runtimeSwap(ctx, logger, shard, props)
 	}
 
-	logger.WithField("props", props).Info("starting prep+swap phase (caller did not invoke RunPrepareOnShard separately)")
+	logger.WithField("property_count", len(props)).
+		WithField("props", migrationReportedNames(props)).
+		Info("starting prep+swap phase (caller did not invoke RunPrepareOnShard separately)")
 
 	if err := t.ensureReindexBucketsLoadedForSwap(ctx, logger, concreteShard, props); err != nil {
 		return fmt.Errorf("ensure buckets loaded: %w", err)
@@ -406,14 +408,16 @@ func (t *ShardReindexTaskGeneric) ensureReindexBucketsLoadedForSwap(
 	}
 
 	if len(missingReindex) > 0 {
-		logger.WithField("props", missingReindex).
+		logger.WithField("property_count", len(missingReindex)).
+			WithField("props", migrationReportedNames(missingReindex)).
 			Warn("reindex buckets not in store but dirs exist; defensively loading before runtime swap")
 		if err := t.loadReindexBuckets(ctx, logger, shard, missingReindex); err != nil {
 			return fmt.Errorf("load reindex buckets: %w", err)
 		}
 	}
 	if len(missingIngest) > 0 {
-		logger.WithField("props", missingIngest).
+		logger.WithField("property_count", len(missingIngest)).
+			WithField("props", migrationReportedNames(missingIngest)).
 			Warn("ingest buckets not in store but dirs exist; defensively loading before runtime swap")
 		// keepLevelCompaction=false, keepTombstones=false: at this
 		// point (pre-prepend, mid-runtimeSwap) the standard
@@ -697,7 +701,9 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Sha
 	if hasRecord {
 		props = rec.Subject().Properties()
 	}
-	logger.WithField("props", props).Debug("props found")
+	logger.WithField("property_count", len(props)).
+		WithField("props", migrationReportedNames(props)).
+		Debug("props found")
 	if len(props) == 0 {
 		logger.Debug("no props found. nothing to do")
 		return hasRecord, nil
@@ -1448,7 +1454,8 @@ func (t *ShardReindexTaskGeneric) loadIngestBuckets(ctx context.Context,
 
 	if strategy == lsmkv.StrategyRoaringSetRange && shard.Index().Config.IndexRangeableInMemory {
 		bucketOpts = append(bucketOpts, lsmkv.WithRangeableInMemoryDeferred(true))
-		logger.WithField("props", props).Info(
+		logger.WithField("property_count", len(props)).
+			WithField("props", migrationReportedNames(props)).Info(
 			"rangeable properties are serving from disk during reindex ingest; " +
 				"in-memory acceleration is restored automatically when the migration " +
 				"finalizes. A node restart, shard reload, or tenant reactivation only " +
