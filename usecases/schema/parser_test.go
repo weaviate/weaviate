@@ -12,9 +12,11 @@
 package schema
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -704,4 +706,50 @@ func TestParseClassUpdate_VectorlessFlip(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "missing config for vector")
 	})
+}
+
+// recordingValidator captures what the vector config validator is handed and
+// refuses when told to, standing in for the migrator's collision check.
+type recordingValidator struct {
+	fakeValidator
+	old, updated map[string]schemaConfig.VectorIndexConfig
+	refuse       error
+}
+
+func (v *recordingValidator) ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig) error {
+	v.old, v.updated = old, updated
+	return v.refuse
+}
+
+// A named vector added to a class with a legacy vector is validated with the
+// legacy vector present under "", and the validator's refusal aborts the
+// parse, so nothing reaches the schema.
+func TestParseClassUpdate_LegacyVectorReachesTheValidator(t *testing.T) {
+	sc := config.Config{DesiredCount: 1, VirtualPerPhysical: 128, ActualCount: 1, DesiredVirtualCount: 128, Key: "_id", Strategy: "hash", Function: "murmur3"}
+	legacy := enthnsw.NewDefaultUserConfig()
+	named := map[string]models.VectorConfig{
+		"compressed": {VectorIndexType: "hnsw", VectorIndexConfig: enthnsw.NewDefaultUserConfig(), Vectorizer: map[string]interface{}{"none": map[string]interface{}{}}},
+	}
+	// the parse mutates its inputs, so each call gets fresh ones
+	classes := func() (initial, updated *models.Class) {
+		initial = &models.Class{Class: "C", VectorIndexType: "hnsw", VectorIndexConfig: legacy, Vectorizer: "none", ShardingConfig: sc}
+		updated = &models.Class{Class: "C", VectorIndexType: "hnsw", VectorIndexConfig: legacy, Vectorizer: "none", VectorConfig: named}
+		return initial, updated
+	}
+
+	v := &recordingValidator{}
+	p := NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, v, fakeModulesProvider{}, nil, nil)
+	initial, updated := classes()
+	_, err := p.ParseClassUpdate(initial, updated)
+	require.NoError(t, err)
+	assert.Contains(t, v.old, "")
+	assert.Contains(t, v.updated, "")
+	assert.Contains(t, v.updated, "compressed")
+	assert.NotContains(t, v.old, "compressed")
+
+	v = &recordingValidator{refuse: errors.New("vectors \"\" and \"compressed\" share \"vectors_compressed\"")}
+	p = NewParser(fakes.NewFakeClusterState(), dummyParseVectorConfig, v, fakeModulesProvider{}, nil, nil)
+	initial, updated = classes()
+	_, err = p.ParseClassUpdate(initial, updated)
+	require.ErrorContains(t, err, `share "vectors_compressed"`)
 }

@@ -17,7 +17,9 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -42,15 +44,23 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[stri
 	records map[string]vectorIndexRecord,
 ) (map[string]vectorIndexRecord, error) {
 	toBuild := make(map[string]vectorIndexRecord, len(active))
+	owners := vectorIndexOwners(records)
 	for _, name := range slices.Sorted(maps.Keys(active)) {
 		cfg := active[name]
 		rec, ok := records[name]
 		if !ok {
+			// a vector without a record is a newcomer: refused like a live
+			// creation when its files belong to another vector, and counted as
+			// an owner for the newcomers after it
 			rec = vectorIndexRecordFor(name, cfg, vectorIndexStateCreating)
+			if collisions := vectorIndexCollisionsWith(owners, name, rec.PhysicalID); len(collisions) > 0 {
+				return nil, vectorIndexCollisionError(name, collisions)
+			}
 			err := s.mapping.Put(name, rec)
 			if err != nil {
 				return nil, err
 			}
+			owners[name] = rec.PhysicalID
 		}
 		if rec.IndexType != cfg.IndexType() {
 			return nil, fmt.Errorf("vector %q: the mapping records a %s index at %q but the schema says %s",
@@ -119,23 +129,42 @@ func (s *Shard) commitVectorIndexRecords(records map[string]vectorIndexRecord, i
 		if initialized && rec.State == vectorIndexStateReady {
 			continue
 		}
-		err := s.syncVectorIndexRecordStorage(name, rec)
-		if err != nil {
-			return err
-		}
-		rec.State = vectorIndexStateReady
-		records[name] = rec
-		if initialized {
-			err = s.mapping.Put(name, rec)
+		if !initialized {
+			err := s.syncVectorIndexRecordStorage(name, rec)
 			if err != nil {
 				return err
 			}
+			rec.State = vectorIndexStateReady
+			records[name] = rec
+			continue
+		}
+		err := s.markVectorIndexReady(name, rec)
+		if err != nil {
+			return err
 		}
 	}
 	if initialized {
 		return nil
 	}
 	return s.mapping.Initialize(records)
+}
+
+// markVectorIndexCreating records that name's index is about to be built at
+// rec.PhysicalID. A crash from here on leaves a record the next load resumes.
+func (s *Shard) markVectorIndexCreating(name string, rec vectorIndexRecord) error {
+	rec.State = vectorIndexStateCreating
+	return s.mapping.Put(name, rec)
+}
+
+// markVectorIndexReady makes rec's directories durable, then records the
+// index as ready.
+func (s *Shard) markVectorIndexReady(name string, rec vectorIndexRecord) error {
+	err := s.syncVectorIndexRecordStorage(name, rec)
+	if err != nil {
+		return err
+	}
+	rec.State = vectorIndexStateReady
+	return s.mapping.Put(name, rec)
 }
 
 // vectorIndexConfigsByStorage splits the schema's vectors, the legacy one
@@ -215,4 +244,74 @@ func (s *Shard) syncVectorIndexRecordStorage(name string, rec vectorIndexRecord)
 		return fmt.Errorf("vector %q: %w", name, err)
 	}
 	return nil
+}
+
+// vectorIndexOwners maps each recorded vector to its physical ID. Skipped
+// vectors are never recorded, so every owner has storage.
+func vectorIndexOwners(records map[string]vectorIndexRecord) map[string]string {
+	owners := make(map[string]string, len(records))
+	for name, rec := range records {
+		owners[name] = rec.PhysicalID
+	}
+	return owners
+}
+
+// vectorIndexCollisionsWith lists the owners other than name that share a
+// physical name with an index at physicalID, as "vectors A and B share N".
+// The legacy vector is the empty name.
+func vectorIndexCollisionsWith(owners map[string]string, name, physicalID string) []string {
+	mine := map[string]struct{}{}
+	for _, n := range helpers.VectorIndexArtifactNamesForID(physicalID).All() {
+		mine[n] = struct{}{}
+	}
+	var collisions []string
+	for _, other := range slices.Sorted(maps.Keys(owners)) {
+		if other == name {
+			continue
+		}
+		for _, n := range helpers.VectorIndexArtifactNamesForID(owners[other]).All() {
+			if _, shared := mine[n]; shared {
+				collisions = append(collisions, fmt.Sprintf("vectors %q and %q share %q", other, name, n))
+				break
+			}
+		}
+	}
+	return collisions
+}
+
+// vectorIndexCollisions lists every pair of owners that share a physical
+// name, each pair once, names in order.
+func vectorIndexCollisions(owners map[string]string) []string {
+	names := slices.Sorted(maps.Keys(owners))
+	var collisions []string
+	for i, name := range names {
+		before := make(map[string]string, i)
+		for _, earlier := range names[:i] {
+			before[earlier] = owners[earlier]
+		}
+		collisions = append(collisions, vectorIndexCollisionsWith(before, name, owners[name])...)
+	}
+	return collisions
+}
+
+// vectorIndexCollisionError is the refusal every caller of the check returns.
+func vectorIndexCollisionError(name string, collisions []string) error {
+	return fmt.Errorf("vector %q cannot be created: %s", name, strings.Join(collisions, "; "))
+}
+
+// refuseVectorIndexCollision fails a creation whose physical names are
+// already in use by another recorded vector. The vector's own record, a
+// retry of an interrupted creation, is not a collision.
+func (s *Shard) refuseVectorIndexCollision(name, physicalID string) error {
+	records, _, err := s.mapping.Load()
+	if err != nil {
+		return err
+	}
+	owners := vectorIndexOwners(records)
+	delete(owners, name)
+	collisions := vectorIndexCollisionsWith(owners, name, physicalID)
+	if len(collisions) == 0 {
+		return nil
+	}
+	return vectorIndexCollisionError(name, collisions)
 }

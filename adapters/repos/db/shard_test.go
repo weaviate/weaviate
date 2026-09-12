@@ -383,9 +383,9 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
 }
 
-// A vector added on a running shard has no mapping record until the next
-// load; the reset must still rebuild it, and only after resolving its ID.
-func TestShard_DebugResetVectorIndex_UnmappedVector(t *testing.T) {
+// A vector added on a running shard is recorded, so the reset finds its
+// record and rebuilds at its ID; the record is ready again afterwards.
+func TestShard_DebugResetVectorIndex_AddedVector(t *testing.T) {
 	ctx := testCtx()
 	className := "TestClass"
 	shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, hnsw.UserConfig{}, false, true)
@@ -395,16 +395,21 @@ func TestShard_DebugResetVectorIndex_UnmappedVector(t *testing.T) {
 
 	require.NoError(t, idx.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{"added": hnsw.UserConfig{}}))
 	s := underlyingShard(t, shd)
-	_, ok, err := s.mapping.Get("added")
+	before, ok, err := s.mapping.Get("added")
 	require.NoError(t, err)
-	require.False(t, ok, "live creation writes no record yet")
+	require.True(t, ok)
 
 	require.NoError(t, shd.DebugResetVectorIndex(ctx, "added"))
 
-	found, err := s.WithVectorIndex("added", func(VectorIndex) error { return nil })
+	after, ok, err := s.mapping.Get("added")
 	require.NoError(t, err)
-	assert.True(t, found)
-	assert.True(t, storageExistsFor(t, s, vectorIndexRecord{PhysicalID: "vectors_added", IndexType: "hnsw"}))
+	require.True(t, ok)
+	assert.Equal(t, before, after)
+	assert.True(t, storageExistsFor(t, s, after))
+
+	// a vector without a record cannot be reset
+	require.NoError(t, idx.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{"skipped": hnsw.UserConfig{Skip: true}}))
+	require.ErrorContains(t, shd.DebugResetVectorIndex(ctx, "skipped"), "no mapping record")
 
 	require.Nil(t, idx.drop())
 }

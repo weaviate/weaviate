@@ -204,6 +204,30 @@ func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 	}
 }
 
+// VectorIndexArtifactNamesForID is vectorIndexArtifactNames keyed by physical
+// ID. For a named vector the two agree; for the legacy vector only this one
+// names what the indexes write (the name-based list keys off "vectors").
+func VectorIndexArtifactNamesForID(physicalID string) VectorIndexArtifacts {
+	return VectorIndexArtifacts{
+		LSMBuckets: []string{
+			VectorsBucketNameForID(physicalID),
+			CompressedBucketNameForID(physicalID),
+			MuveraBucketName(physicalID),
+			MVMappingsBucketName(physicalID),
+			HFreshPostingsBucketName(physicalID),
+			HFreshSharedBucketName(physicalID),
+			CompressedBucketNameForID(CentroidsID(physicalID)),
+		},
+		ShardDirs: []string{
+			HNSWCommitLogDirNameForID(physicalID),
+			physicalID + ".hnsw.snapshot.d",
+			HFreshDirName(physicalID),
+			physicalID + ".queue.d",
+			FlatMetadataFileNameForID(physicalID),
+		},
+	}
+}
+
 // VectorIndexArtifactsFor lists what dropping targetVector has to remove. It is
 // the single source of truth for that set: the live drop, the file sweep and
 // the tests all read it, because three hand-maintained copies is exactly how

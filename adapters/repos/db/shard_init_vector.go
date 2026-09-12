@@ -84,6 +84,9 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 		for name, cfg := range active {
 			records[name] = vectorIndexRecordFor(name, cfg, vectorIndexStateCreating)
 		}
+		for _, c := range vectorIndexCollisions(vectorIndexOwners(records)) {
+			s.index.logger.WithField("shard", s.ID()).Warnf("vector index physical names collide, a drop of either may take the other's files: %s", c)
+		}
 	}
 
 	s.migrateCompressedVectors(legacy, targets)
@@ -362,11 +365,43 @@ func (s *Shard) migrateCompressedVectors(legacy schemaConfig.VectorIndexConfig, 
 }
 
 // initTargetVector creates the named vector's index and queue under the
-// naming rule unless the shard has them already. Creates are serialized by
-// the slots, so two concurrent UpdateVectorIndexConfigs calls that both saw
-// the target absent build it once; the second finds it in place and returns.
+// naming rule unless the shard has them already, recording it creating
+// before the build and ready after. Creates are serialized by the slots, so
+// two concurrent UpdateVectorIndexConfigs calls that both saw the target
+// absent build it once; the second finds it in place and returns.
 func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
-	return s.createVectorIndex(ctx, targetVector, s.vectorIndexID(targetVector), cfg, lazyLoadSegments)
+	if !vectorIndexHasStorage(cfg) {
+		return s.createVectorIndex(ctx, targetVector, s.vectorIndexID(targetVector), cfg, lazyLoadSegments)
+	}
+	rec := vectorIndexRecordFor(targetVector, cfg, vectorIndexStateCreating)
+	_, err := s.vectors.Create(targetVector, func() (VectorIndex, *VectorIndexQueue, error) {
+		err := s.refuseVectorIndexCollision(targetVector, rec.PhysicalID)
+		if err != nil {
+			return nil, nil, err
+		}
+		err = s.markVectorIndexCreating(targetVector, rec)
+		if err != nil {
+			return nil, nil, err
+		}
+		index, queue, err := s.buildVectorIndexAndQueue(ctx, targetVector, rec.PhysicalID, cfg, lazyLoadSegments)
+		if err != nil {
+			return nil, nil, err
+		}
+		err = s.markVectorIndexReady(targetVector, rec)
+		if err != nil {
+			// nothing may run unpublished; the record stays creating for the retry
+			errs := []error{err}
+			if closeErr := queue.Close(ctx); closeErr != nil {
+				errs = append(errs, fmt.Errorf("close the unrecorded queue: %w", closeErr))
+			}
+			if shutdownErr := index.Shutdown(s.shutCtx); shutdownErr != nil {
+				errs = append(errs, fmt.Errorf("shut the unrecorded vector index down: %w", shutdownErr))
+			}
+			return nil, nil, stderrors.Join(errs...)
+		}
+		return index, queue, nil
+	})
+	return err
 }
 
 // createVectorIndex builds and publishes targetVector's index and queue at
@@ -386,7 +421,7 @@ func (s *Shard) buildVectorIndexAndQueue(ctx context.Context, targetVector, phys
 	if err != nil {
 		return nil, nil, fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
 	}
-	queue, err := NewVectorIndexQueue(s, targetVector, vectorIndex)
+	queue, err := newVectorIndexQueueWithID(s, physicalID, targetVector, vectorIndex)
 	if err != nil {
 		if shutdownErr := vectorIndex.Shutdown(s.shutCtx); shutdownErr != nil {
 			return nil, nil, fmt.Errorf("cannot create index queue for %q: %w (shutting down the orphaned vector index also failed: %w)",

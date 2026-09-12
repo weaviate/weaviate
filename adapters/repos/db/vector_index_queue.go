@@ -54,14 +54,6 @@ type VectorIndexQueue struct {
 	vectorIndex VectorIndex
 }
 
-func NewVectorIndexQueue(
-	shard *Shard,
-	targetVector string,
-	index VectorIndex,
-) (*VectorIndexQueue, error) {
-	return newVectorIndexQueueWithID(shard, shard.vectorIndexID(targetVector), targetVector, index)
-}
-
 // NewGeoIndexQueue creates a VectorIndexQueue for a geo property index.
 // It uses a geo-specific ID to avoid the misleading "vectors_" prefix.
 func NewGeoIndexQueue(
