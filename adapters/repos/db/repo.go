@@ -120,9 +120,7 @@ type DB struct {
 	schemaReader   schemaUC.SchemaReader
 	replicationFSM types.ReplicationFSMReader
 
-	// reindexAuditMu guards the two lookups below. Both are installed
-	// from the scheduler-start goroutine and read from the backup path,
-	// which runs concurrently with it.
+	// reindexAuditMu guards the two lookups below: written at scheduler start, read from backup.
 	reindexAuditMu                     sync.RWMutex
 	shardReindexActivityLookupBuilder  ShardReindexActivityLookupBuilder
 	reindexCleanupInProgressLookupBldr CleanupInProgressLookupBuilder

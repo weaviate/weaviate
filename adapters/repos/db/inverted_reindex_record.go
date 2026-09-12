@@ -49,8 +49,7 @@ const (
 	StrategyCodeRebuildSearchable           MigrationStrategyCode = MigrationDirPrefixRebuildSearchable
 )
 
-// One list: a valid code missing from it reads out of a record file name as no
-// code at all.
+// A valid code missing from this list reads out of a record file name as no code at all.
 var migrationStrategyCodes = []MigrationStrategyCode{
 	StrategyCodeSearchableMapToBlockmax, StrategyCodeFilterableRoaringsetRefresh,
 	StrategyCodeFilterableToRangeable, StrategyCodeSearchableRetokenize,
@@ -62,10 +61,6 @@ func (c MigrationStrategyCode) valid() bool {
 	return slices.Contains(migrationStrategyCodes, c)
 }
 
-// migrationStrategyCodeOfRecordFile reads the strategy back out of a record
-// file name, which [MigrationRecordKey.fileName] writes as
-// "<taskVersion>_<strategyCode>_<unitID>.json". False means unparseable, which a
-// caller must not read as "some other strategy".
 func migrationStrategyCodeOfRecordFile(name string) (MigrationStrategyCode, bool) {
 	rest, isJSON := strings.CutSuffix(name, ".json")
 	if !isJSON {
@@ -83,8 +78,6 @@ func migrationStrategyCodeOfRecordFile(name string) (MigrationStrategyCode, bool
 	return "", false
 }
 
-// TaskVersion is also the generation the migration's directory names carry, so
-// a record and the directories it names are found under the same number.
 type MigrationRecordKey struct {
 	TaskVersion  uint64                `json:"taskVersion"`
 	StrategyCode MigrationStrategyCode `json:"strategyCode"`
@@ -113,7 +106,6 @@ func (k MigrationRecordKey) valid() bool {
 	return k.TaskVersion > 0 && k.StrategyCode.valid() && migrationHandleIsOneElement(k.UnitID)
 }
 
-// MigrationCheckpoint is the iteration resume point.
 type MigrationCheckpoint struct {
 	LastProcessedKey []byte    `json:"lastProcessedKey,omitempty"`
 	UpdatedAt        time.Time `json:"updatedAt"`
@@ -141,9 +133,7 @@ type MigrationSubject struct {
 
 	TrackerDir string `json:"trackerDir,omitempty"`
 
-	// Unmirrored is set when a boot could not arm this migration's double-write
-	// mirror. Writes in that window reach the canonical bucket only, so the
-	// staged copy is permanently behind and must never rename over it.
+	// Writes in the unmirrored window reached the canonical bucket only, so the staged copy must never rename over it.
 	Unmirrored bool `json:"unmirrored,omitempty"`
 
 	Props map[string]MigrationPropertyDirs `json:"props,omitempty"`

@@ -942,8 +942,7 @@ func (s *Scheduler) runPreparationPhase(
 			if state == nil {
 				continue
 			}
-			// context.Canceled is the provider's retryable signal, not a cancelled
-			// context. Dropping the fired mark is what lets a retry happen.
+			// context.Canceled is the provider's retryable signal; dropping the mark lets a retry happen.
 			if errors.Is(groupErr, context.Canceled) {
 				delete(state.preparationCallbackFired, w.groupID)
 				s.loggerWithTask(namespace, desc).

@@ -9,86 +9,12 @@
 //  CONTACT: hello@weaviate.io
 //
 
-// Runtime reindex — phase contract
-// ================================
-//
-// The runtime swap path (semantic migrations through OnGroupCompleted,
-// and non-semantic migrations through RunOnShard) is partitioned
-// into THREE phases. Maintainers MUST preserve the boundary between them
-// — drift between phases causes the per-shard "FINALIZING window"
-// misalignment between bucket content and the query analyzer at
-// production scale, surfaced as
-// https://github.com/weaviate/0-weaviate-issues/issues/216 and fixed by
-// the prep/atomic/defer split this file implements.
-//
-// Phase 1 — PREP (background, NOT inside the overlay window)
-// ----------------------------------------------------------
-// Implemented by [ShardReindexTaskGeneric.runtimePrepare].
-//
-// Allowed work: heavy disk I/O. FlushAndSwitch on every per-property
-// reindex bucket, ShutdownBucket(reindex) to make its segments
-// immutable, PrependSegmentsFromBucket(reindex → ingest) per property,
-// removeReindexBucketsDirs, and the record write that commits the
-// staged data.
-//
-// Constraints: this phase runs BEFORE the per-shard tokenization
-// overlay is set. Queries during this phase see the pre-migration
-// bucket content with the pre-migration analyzer — correct.
-//
-// Phase 2 — ATOMIC SWAP (inside the overlay window; per-shard
-// "mixed-state" subwindow MUST stay microseconds)
-// ------------------------------------------------------------
-// Implemented by [ShardReindexTaskGeneric.runtimeSwap].
-//
-// 2a — tight loop, MUST stay microseconds: a query hitting a
-// not-yet-swapped prop tokenizes new-analyzer input against the old
-// bucket. The [onPropSwapped] overlay hook fires per-flip (not once up
-// front) so the overlay≠bucket exposure stays one in-memory map write.
-//
-// 2b — post-atomic inline retirement (slow but correctness-safe):
-// oldMainBucket.Shutdown(ctx) + removal of its directory at the handle the
-// record names, per property, AFTER every prop has flipped in 2a. Shutdown MUST
-// be inline: it alone frees the bucket's path from GlobalBucketRegistry, and
-// deferring it fails the next in-process shard init at this name with
-// ErrBucketAlreadyRegistered.
-//
-// 2c — post-atomic inline finalize: OnMigrationComplete +
-// trimOlderGenerationsLocked. These run OUTSIDE the mixed-state
-// subwindow.
-//
-//   - OnMigrationComplete is a per-strategy hook: mostly a no-op, but
-//     FilterableToRangeableStrategy mutates in-memory readiness the query
-//     path consults, and MapToBlockmaxStrategy issues a RAFT call inline
-//     (slow, 100s of ms, but correctness-safe). See
-//     [MigrationStrategy.OnMigrationComplete] for the per-strategy contract.
-//
-// Phase 3 — DEFERRED LIVE-BUCKET RENAME (next process startup, BEFORE
-// LSM init reloads any buckets)
-// ---------------------------------------------------------------------
-// Implemented by [migrationReconciler.Reconcile], which promotes every
-// record whose flip decision is durable by renaming its staged
-// directory onto the canonical name it records.
-//
-// Why deferred: the ingest bucket is the LIVE post-swap main bucket.
-// Its mmaps are open, its segment registry holds the ingest_<N> path
-// as its dir. Renaming that dir while the bucket is in-memory would
-// corrupt the segment registry and any subsequent write that
-// resolves paths from the bucket's stored dir. At next startup,
-// before LSM init touches the canonical name, no bucket is mmapping
-// anything — the rename is safe.
-//
-// Crash safety: the flip decision is fsynced ahead of the first pointer flip,
-// so a record short of it proves no flip was decided.
-// [ShardReindexTaskGeneric.RunSwapOnShard] dispatches on the record to resume;
-// a crash in or after 2b resolves at the next shard load, when reconciliation
-// finishes the directory work before any bucket opens.
-//
-// Atomic-phase regression guard: a unit test must fail if
-// SwapBucketPointer is preceded by any disk-I/O or compaction-wait
-// op inside Phase 2 — the "atomic" subwindow has to stay
-// microseconds for queries at production scale, since any inline
-// disk work bloats the window where a query can read post-swap
-// bucket content with the pre-swap analyzer.
+// Runtime reindex phase contract. The swap's flip loop must stay microseconds: a
+// query on a not-yet-flipped prop tokenizes new-analyzer input against the old
+// bucket (https://github.com/weaviate/0-weaviate-issues/issues/216). Retiring a
+// displaced bucket shuts it down inline, since Shutdown alone frees its path from
+// GlobalBucketRegistry. The rename onto the canonical name waits for the next
+// startup: renaming a live bucket's dir corrupts its segment registry.
 
 package db
 
@@ -116,14 +42,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// ShardReindexTaskGeneric is a strategy-parameterized reindex task. All
-// lifecycle logic (state machine, merge/swap, object iteration, progress
-// tracking) lives here, with strategy-specific behavior delegated to a
-// MigrationStrategy.
-//
-// See the file-level phase-contract godoc above for the prep / atomic
-// swap / deferred-rename invariants that every code path in this file
-// must preserve.
 type ShardReindexTaskGeneric struct {
 	name     string
 	logger   logrus.FieldLogger
@@ -180,8 +98,6 @@ type ShardReindexTaskGeneric struct {
 	// bucket for Phase-2b, or (nil, nil) on an already-swapped prop.
 	swapPropAtomic func(ctx context.Context, store *lsmkv.Store, propIdx int, propName string) (*lsmkv.Bucket, error)
 
-	// closingGuard reports whether the shard's index is still open. Set at
-	// construction, never reassigned, never nil.
 	closingGuard indexClosingGuard
 
 	// rebuildRangeableRepFn dispatches [rebuildRangeableInMemoryReps]'s
@@ -192,18 +108,13 @@ type ShardReindexTaskGeneric struct {
 	rebuildRangeableRepFn func(ctx context.Context, b *lsmkv.Bucket) error
 }
 
-// indexClosingGuard reports context.Canceled once the shard's index is
-// closing or closed, and nil while it is still open.
 type indexClosingGuard func(shard ShardLike) error
 
-// defaultIndexClosingGuard takes the index's close read-lock, so a drop that
-// starts after the check cannot complete until the caller returns.
+// Takes the close read-lock, so a racing drop cannot complete before returning.
 func defaultIndexClosingGuard(shard ShardLike) error {
 	return shard.Index().withCloseRLockGuard(func() error { return nil })
 }
 
-// NewShardReindexTaskGeneric creates a new generic reindex task. closingGuard
-// must not be nil; production callers pass [defaultIndexClosingGuard].
 func NewShardReindexTaskGeneric(name string, logger logrus.FieldLogger,
 	strategy MigrationStrategy, config reindexTaskConfig,
 	keyParser indexKeyParser, objectsIteratorAsync objectsIteratorAsync,
@@ -264,23 +175,8 @@ func (t *ShardReindexTaskGeneric) migrationPath(lsmPath string) string {
 	return filepath.Join(lsmPath, ".migrations", t.strategy.MigrationDirName())
 }
 
-// reindexRecoveryPayloadFile is the filename of the on-disk JSON record
-// describing the in-flight reindex task. Written by [ReindexProvider]
-// before the reindex iteration starts; read at startup by
-// [DiscoverInFlightReindexTasks] to rebuild task instances for shards that
-// had a reindex in progress when the node went down. It lives in the
-// migration's own sub-directory so it is removed alongside it on
-// reset/cleanup.
 const reindexRecoveryPayloadFile = "payload.mig"
 
-// SaveRecoveryPayload writes the given JSON-encoded recovery record to
-// payload.mig inside the migration directory of this task on the given
-// shard LSM path. It is idempotent: if the file already exists with the
-// same content, and is small enough to compare, the call is a no-op;
-// otherwise it is overwritten.
-// Callers are expected to ensure the migration directory exists; this
-// function will [os.MkdirAll] it just in case to keep startup recovery
-// robust against partial state.
 func (t *ShardReindexTaskGeneric) SaveRecoveryPayload(lsmPath string, payload []byte) error {
 	migDir := t.migrationPath(lsmPath)
 	if err := os.MkdirAll(migDir, 0o777); err != nil {
@@ -295,14 +191,7 @@ func (t *ShardReindexTaskGeneric) SaveRecoveryPayload(lsmPath string, payload []
 	return os.WriteFile(target, payload, 0o600)
 }
 
-// RunOnShard sequences the reindex lifecycle (iterate, prep, swap) on a live
-// shard. Each phase dispatches on the migration record, so a relaunch after a
-// restart resumes instead of reporting success on a half-done migration.
-// The shard may be a *Shard or *LazyLoadShard.
 func (t *ShardReindexTaskGeneric) RunOnShard(ctx context.Context, shard ShardLike) error {
-	// Prep and swap error out on a shard carrying no migration. The iteration is
-	// the gate, since it decides the two cases where nothing starts: shard not
-	// selected, and no reindexable properties.
 	shouldRunPrepareAndSwap, err := t.runReindexOnlyOnShard(ctx, shard)
 	if err != nil {
 		return err
@@ -317,27 +206,12 @@ func (t *ShardReindexTaskGeneric) RunOnShard(ctx context.Context, shard ShardLik
 	return t.RunSwapOnShard(ctx, shard)
 }
 
-// RunReindexOnlyOnShard runs the reindex iteration only — no merge, no swap.
-// After this returns, the shard has:
-//   - ingest bucket with double-written data
-//   - reindex bucket with reindexed data
-//   - main bucket unchanged (still serving queries)
-//   - the record reports the rebuild complete
-//
-// This is used for barrier semantics: all shards must finish reindexing
-// before any shard swaps. Call RunSwapOnShard after all shards are done.
-//
-// The task instance registers double-write callbacks that MUST remain active
-// until RunSwapOnShard completes — callers must use the same task instance for
-// both calls.
+// The double-write callbacks must stay active until RunSwapOnShard: same task instance.
 func (t *ShardReindexTaskGeneric) RunReindexOnlyOnShard(ctx context.Context, shard ShardLike) error {
 	_, err := t.runReindexOnlyOnShard(ctx, shard)
 	return err
 }
 
-// runReindexOnlyOnShard is the body of RunReindexOnlyOnShard. It additionally
-// reports whether the prepare and swap phases should run on this shard, which
-// is what [ShardReindexTaskGeneric.RunOnShard] sequences them on.
 func (t *ShardReindexTaskGeneric) runReindexOnlyOnShard(ctx context.Context, shard ShardLike) (bool, error) {
 	concreteShard, err := unwrapShard(ctx, shard)
 	if err != nil {
@@ -365,40 +239,8 @@ func (t *ShardReindexTaskGeneric) runReindexOnlyOnShard(ctx context.Context, sha
 	}
 }
 
-// RunPrepareOnShard runs the disk-I/O-heavy prep phase between
-// RunReindexOnlyOnShard and RunSwapOnShard.
-//
-// Preconditions:
-//   - MUST have completed RunReindexOnlyOnShard, or be re-entering on a
-//     record that already commits the staged data, in which case this is an
-//     idempotent no-op.
-//
-// Performs, per property:
-//   - reindexBucket.FlushAndSwitch()  // memtable → immutable segments
-//   - store.ShutdownBucket(reindexName)  // waits for compaction to
-//     drain — this is the load-bearing slow step that #216 (the
-//     "atomic phase actually atomic" design contract) requires
-//     to live outside the per-shard atomic window
-//   - ingestBucket.PrependSegmentsFromBucket(...)  // segment copy
-//
-// Then commits the staged data in the record and removes the reindex
-// bucket dirs.
-//
-// Idempotent: a record that already commits the staged data returns
-// nil. Safe to call repeatedly from rehydrate flows.
-//
-// MUST be called BEFORE the per-shard tokenization overlay is set
-// by [reindex_provider.OnGroupCompleted]. Setting the overlay
-// before prep completes would expose the very gap the overlay was
-// supposed to close — query input would tokenize as NEW against the
-// still-OLD bucket while prep is doing seconds of disk I/O.
-//
-// Double-write callbacks registered during reindex MUST remain
-// active across this call (they fire on writes to MAIN to mirror
-// into INGEST; MAIN is still serving queries with OLD data while
-// prep runs, and the mirror keeps the new ingest segments
-// consistent with ongoing writes). Callbacks are disabled only at
-// the end of [runtimeSwap] after the atomic pointer flip.
+// MUST run before the tokenization overlay is set, which would otherwise tokenize
+// query input as new against the still-old bucket for the seconds prep takes.
 func (t *ShardReindexTaskGeneric) RunPrepareOnShard(ctx context.Context, shard ShardLike) error {
 	entry, err := t.enterDTMPhase(ctx, shard, "RunPrepareOnShard")
 	if err != nil {
@@ -445,12 +287,10 @@ func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard Shard
 
 	rec, ok := t.migrationRecord(concreteShard)
 	if !ok {
-		// Shouldn't happen via OnGroupCompleted (units are node-assigned).
 		return nil, fmt.Errorf("shard %q has no migration record — no in-flight migration on disk", concreteShard.Name())
 	}
 
-	// Must precede the iteration-resume ladder below: committed implies the
-	// iteration already completed.
+	// Must precede the resume ladder: committed implies the iteration completed.
 	if rec.StagedDataComplete() {
 		return &dtmPhaseEntry{shard: concreteShard, logger: logger, rec: rec}, nil
 	}
@@ -468,9 +308,6 @@ func (t *ShardReindexTaskGeneric) enterDTMPhase(ctx context.Context, shard Shard
 	return &dtmPhaseEntry{shard: concreteShard, logger: logger, rec: rec}, nil
 }
 
-// RunSwapOnShard runs the swap + OnMigrationComplete phase, dispatching on the
-// record so a node that restarted inside the FINALIZING window resumes from
-// whatever state its record last reached instead of re-running the whole path.
 func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard ShardLike) error {
 	entry, err := t.enterDTMPhase(ctx, shard, "RunSwapOnShard")
 	if err != nil {
@@ -492,8 +329,6 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 	case swapPending:
 		logger.WithField("props", props).Info(
 			"RunSwapOnShard: the flip decision stands but its data is still under the staged name; re-running the in-memory swap")
-		// The swap needs a bucket at the canonical name to point at the staged
-		// one; a load that left the promotion waiting on the schema opened none.
 		if err := t.ensureCanonicalBucketsOpen(ctx, shard, props); err != nil {
 			return err
 		}
@@ -534,33 +369,7 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 	return nil
 }
 
-// ensureReindexBucketsLoadedForSwap defensively loads any reindex or
-// ingest buckets that are missing from the in-memory store but whose
-// directories still exist on disk. This protects the pre-prepend
-// runtimeSwap path on the rehydrate flow from a class of state-divergence
-// races between in-memory bucket state and on-disk reindex state:
-//
-//   - A previous in-process runtimePrepare was interrupted mid-flight
-//     by ctx.Canceled (graceful shutdown). The interrupted
-//     ShutdownBucket may have removed the reindex bucket from the
-//     store's bucket map without advancing the record, and the
-//     cancellation can leave compaction callbacks unregistered
-//     partway through the unhook sequence.
-//   - On restart, the shard-registered recovery task's OnAfterLsmInit
-//     (see [shardReindexerV3RecoveryOnly]) is the only re-load hook.
-//     If for any reason the bucket name lookup in
-//     [runtimePrepare]'s first iteration misses (lsm store re-init,
-//     concurrent bucket shutdown, cached-task vs fresh-task pointer
-//     differences after the rehydrate path's [createReindexTasks]),
-//     the prepare fails with "reindex bucket not found" before any
-//     side effect, and the post-completion ack records success=false
-//     for the whole task — flipping the cluster to FAILED while
-//     other replicas have already completed the swap.
-//
-// CreateOrLoadBucket is idempotent, so calling it when the bucket is
-// already loaded is harmless. We narrow the call to props whose dirs
-// exist on disk to avoid creating empty buckets in a degenerate state
-// where the dir is genuinely gone (which would mask a real bug).
+// Covers a prepare interrupted by a graceful shutdown, which can drop a bucket from the store.
 func (t *ShardReindexTaskGeneric) ensureReindexBucketsLoadedForSwap(
 	ctx context.Context, logger logrus.FieldLogger, shard *Shard, props []string,
 ) error {
@@ -646,14 +455,7 @@ func (t *ShardReindexTaskGeneric) stagedPropsStillOnDisk(logger logrus.FieldLogg
 	return kept, nil
 }
 
-// swapStillToRun reports whether a record carrying the flip decision is waiting
-// for the in-memory swap rather than for its promotion.
-//
-// The decision is written before the first pointer moves, so a swapped record
-// with every staged directory still under its staged name never reached the
-// canonical name — the shape a restart leaves when the promotion is deferred
-// until the schema enables the index. The swap is idempotent, so re-running it
-// settles that; anything else keeps taking the completion path.
+// swapStillToRun: the decision precedes the first pointer move, so all-staged means none flipped.
 func (t *ShardReindexTaskGeneric) swapStillToRun(logger logrus.FieldLogger, shard ShardLike,
 	rec MigrationRecord, props []string,
 ) (bool, error) {
@@ -667,24 +469,7 @@ func (t *ShardReindexTaskGeneric) swapStillToRun(logger logrus.FieldLogger, shar
 	return len(staged) == len(props), nil
 }
 
-// requireCanonicalHoldsMigratedData refuses to commit a migration's schema
-// effect unless the canonical name really holds this migration's data.
-// [migrationRecordQuestions.FlipDecided] proves the flip was DECIDED, never
-// that it ran, and the two things that put data under the canonical name answer
-// in different places:
-//
-//   - an in-process flip, which the open bucket's own directory says;
-//   - a promotion's rename, which only disk says. An enable-* migration commits
-//     the very flag deciding whether shard init opens that bucket, so requiring
-//     an open one would make the retry uncommittable when it is needed most.
-//
-// A missing canonical directory is one a later load deleted, so the effect must
-// stay off an index nothing serves.
-//
-// A superseded property commits its effect over a successor's data. That is
-// safe only because [typesConflictReason] refuses a task overlapping an
-// in-flight one's properties, so a successor exists only once this task is
-// terminal, and a terminal task never re-enters here.
+// An in-process flip shows in the open bucket's dir, a promotion's rename only on disk.
 func (t *ShardReindexTaskGeneric) requireCanonicalHoldsMigratedData(shard ShardLike, rec MigrationRecord) error {
 	subject := rec.Subject()
 	dirs := shardBucketDirs(shard.pathLSM())
@@ -723,6 +508,7 @@ func (t *ShardReindexTaskGeneric) requireCanonicalHoldsMigratedData(shard ShardL
 	return nil
 }
 
+// The flip needs a canonical bucket to point at; a waiting promotion opened none.
 func (t *ShardReindexTaskGeneric) ensureCanonicalBucketsOpen(ctx context.Context,
 	shard ShardLike, props []string,
 ) error {
@@ -750,14 +536,6 @@ func (t *ShardReindexTaskGeneric) ensureCanonicalBucketsOpen(ctx context.Context
 	return nil
 }
 
-// finalizeMigrationAfterRecovery runs the strategy's OnMigrationComplete
-// hook and trims older on-disk generations. This is the rehydrate-path
-// equivalent of runtimeSwap's final two steps,
-// invoked by the recovery branches in [RunSwapOnShard] which don't go
-// through runtimeSwap.
-//
-// Best-effort on trim — failures are logged, not returned, matching
-// the trim policy at the end of runtimeSwap.
 func (t *ShardReindexTaskGeneric) finalizeMigrationAfterRecovery(
 	ctx context.Context, logger logrus.FieldLogger, shard ShardLike, props []string,
 ) error {
@@ -780,20 +558,7 @@ func (t *ShardReindexTaskGeneric) finalizeMigrationAfterRecovery(
 	return nil
 }
 
-// rebuildRangeableInMemoryReps restores the INDEX_RANGEABLE_IN_MEMORY
-// contract for buckets promoted by a reindex swap: ingest buckets open
-// without an in-memory rep, so without this they'd serve range reads from
-// disk until the next open. Idempotent.
-//
-// A rebuild failure degrades to disk serving (WARN-and-continue) instead of
-// failing the migration: data work (prepend, swap) has already
-// committed, disk serving is always correct, and only the in-memory
-// acceleration is deferred to next restart. Every degrade still logs at
-// ERROR and increments a metric so it stays visible.
-//
-// context.Canceled is the one error this function still returns, so
-// [runPerUnitPhase]'s errors.Is(context.Canceled) check keeps routing to
-// the transient ack path instead of a permanent FAILED or false FINISHED.
+// A failed rangeable rebuild degrades to disk serving; context.Canceled is its one error.
 func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, props []string,
 ) error {
@@ -899,17 +664,13 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInitGuarded(ctx context.Context, sha
 	return t.onAfterLsmInit(ctx, shard)
 }
 
-// OnAfterLsmInit is the shard-init entry into the after-LSM-init hook. It runs
-// no closing check: some NewShard routes already hold closeLock.RLock and
-// sync.RWMutex is not reentrant. DTM callers MUST use onAfterLsmInitGuarded.
+// OnAfterLsmInit skips the closing check: some NewShard routes already hold
+// closeLock.RLock, which is not reentrant. DTM callers MUST use onAfterLsmInitGuarded.
 func (t *ShardReindexTaskGeneric) OnAfterLsmInit(ctx context.Context, shard *Shard) error {
 	_, err := t.onAfterLsmInit(ctx, shard)
 	return err
 }
 
-// onAfterLsmInit is the shared body of OnAfterLsmInit / onAfterLsmInitGuarded.
-// The returned bool reports whether prep+swap should run; an already-finished
-// migration still returns true, since both phases are idempotent.
 func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Shard,
 ) (shouldRunPrepareAndSwap bool, err error) {
 	collectionName := shard.Index().Config.ClassName.String()
@@ -966,8 +727,7 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Sha
 
 	t.strategy.PreReindexHook(shard, props)
 
-	// since reindex bucket will be merged into ingest bucket with reindex segments being before ingest,
-	// ingest segments should not be compacted and tombstones should be kept
+	// Reindex segments sort before ingest ones, so ingest must not compact and must keep tombstones.
 	if err = t.loadIngestBuckets(ctx, logger, shard, props, !committed, !committed); err != nil {
 		err = fmt.Errorf("starting ingest buckets:%w", err)
 		return false, err
@@ -981,8 +741,7 @@ func (t *ShardReindexTaskGeneric) onAfterLsmInit(ctx context.Context, shard *Sha
 		return true, nil
 	}
 
-	// Ceiled up 1ms: LastUpdateTimeUnix has ms resolution and the skip predicate
-	// is `<`. The horizon is captured after the callbacks are live.
+	// Ceil to the next ms: LastUpdateTimeUnix has ms resolution, the predicate is "<".
 	cutoff := time.Now().Truncate(time.Millisecond).Add(time.Millisecond)
 	subject := t.migrationSubject(shard, props, cutoff)
 	if err = t.putMigrationRecord(shard, NewMigrationRecordIterating(subject, MigrationCheckpoint{})); err != nil {
@@ -1029,8 +788,6 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 			if concrete, err = unwrapShard(ctx, shard); err != nil {
 				return zerotime, err
 			}
-			// The swap needs a bucket at the canonical name to point at the
-			// staged one; a load that left the promotion waiting opened none.
 			if err = t.ensureCanonicalBucketsOpen(ctx, shard, props); err != nil {
 				return zerotime, err
 			}
@@ -1237,8 +994,7 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 		lastStoredKey = lastProcessedKey.Clone()
 	}
 	if finished {
-		// Flush before recording the rebuild complete, or a SIGKILL leaves a record
-		// claiming rows that never left the memtable.
+		// Flush first, or a SIGKILL leaves a record claiming rows still in the memtable.
 		if err = t.flushReindexBuckets(shard, props, "recording the rebuild complete"); err != nil {
 			return zerotime, err
 		}
@@ -1275,26 +1031,15 @@ func (t *ShardReindexTaskGeneric) runtimePrepare(ctx context.Context,
 			return fmt.Errorf("ingest bucket %q not found", ingestName)
 		}
 
-		// FlushAndSwitch makes the reindex memtable immutable so its
-		// segments are safe to copy.
 		if err := reindexBucket.FlushAndSwitch(); err != nil {
 			return fmt.Errorf("flushing reindex bucket %q: %w", reindexName, err)
 		}
 		reindexDir := reindexBucket.GetDir()
-		// FOLLOW-UP: store.ShutdownBucket / bucket.Shutdown does not abort
-		// an in-flight long-running compaction when ctx is cancelled —
-		// it waits for the compaction to finish naturally and only then
-		// observes the cancellation, returning "long-running compaction
-		// in progress: context canceled". During a graceful shutdown
-		// (rolling restart) this means the prep can be interrupted mid-
-		// flight even though there's a clean exit path that doesn't
-		// touch the compaction's output. Tracked separately.
+		// FOLLOW-UP: ShutdownBucket does not abort a long-running compaction on ctx
+		// cancel, so a graceful shutdown can interrupt the prep. Tracked separately.
 		if err := store.ShutdownBucket(ctx, reindexName); err != nil {
 			return fmt.Errorf("shutting down reindex bucket %q: %w", reindexName, err)
 		}
-
-		// Prepend reindex segments into the ingest bucket. After this,
-		// ingest contains all reindexed + double-written data.
 		if err := ingestBucket.PrependSegmentsFromBucket(ctx, reindexDir); err != nil {
 			return fmt.Errorf("prepending segments from %q to %q: %w", reindexName, ingestName, err)
 		}
@@ -1335,9 +1080,7 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	// Read here, not at the two call sites: rewriting a record that already
-	// carries the flip decision drops the promotion marks of a rename that ran,
-	// letting a later pass repeat it over the data it produced.
+	// Read here, not at the call sites: rewriting a decided record drops promotion marks.
 	if rec, ok := t.migrationRecord(shard); !ok || !rec.FlipDecided() {
 		displaced := make(map[string]string, len(props))
 		for _, propName := range props {
@@ -1366,8 +1109,7 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 			if err != nil {
 				return err
 			}
-			// Fire even when processOneSwapPropFn no-ops an already-swapped
-			// prop, so a resumed swap re-establishes the overlay.
+			// Fire even on an already-swapped prop, so a resumed swap re-establishes the overlay.
 			if t.onPropSwapped != nil {
 				t.onPropSwapped(propName)
 			}
@@ -1383,10 +1125,6 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	} else {
 		logger.Warnf("runtime swap: cannot retire superseded migrations: %v", err)
 	}
-
-	// Phase 2b: only a shut-down bucket may be removed, and Bucket.Shutdown is what
-	// releases its path from lsmkv.GlobalBucketRegistry — skip it and the next
-	// in-process shard init at this name fails with ErrBucketAlreadyRegistered.
 	dirs := shardBucketDirs(shard.pathLSM())
 	for _, propName := range props {
 		oldMainBucket, ok := oldMainBuckets[propName]
@@ -1512,7 +1250,6 @@ func (t *ShardReindexTaskGeneric) obsoleteSidecarDirs(logger logrus.FieldLogger,
 			if !strings.HasPrefix(name, mainBucket) {
 				continue
 			}
-			// Strip the mainBucket prefix to inspect the suffix.
 			rest := name[len(mainBucket):]
 			if len(rest) == 0 {
 				continue // the live main bucket itself
@@ -1595,8 +1332,6 @@ func (t *ShardReindexTaskGeneric) migrationRecordKey() MigrationRecordKey {
 	}
 }
 
-// The key carries the task version, which is also the generation, so the record
-// under it names the directories this task writes.
 func (t *ShardReindexTaskGeneric) migrationRecord(shard ShardLike) (MigrationRecord, bool) {
 	store := shard.migrationRecordStore()
 	if store == nil {
@@ -1644,8 +1379,7 @@ func (t *ShardReindexTaskGeneric) flushReindexBuckets(shard ShardLike, props []s
 func (t *ShardReindexTaskGeneric) recordCheckpoint(shard ShardLike, subject MigrationSubject,
 	lastProcessedKey indexKey,
 ) error {
-	// Flush before the checkpoint: the resume seeks strictly past the checkpoint
-	// key, so a posting the crash dropped from the buffer is never rebuilt.
+	// Flush first: the resume seeks past the checkpoint, so an unflushed posting is lost.
 	if err := t.flushReindexBuckets(shard, subject.Properties(), "recording iteration progress"); err != nil {
 		return err
 	}
@@ -1707,8 +1441,6 @@ func (t *ShardReindexTaskGeneric) loadIngestBuckets(ctx context.Context,
 	strategy := t.strategy.TargetStrategy()
 	bucketOpts := t.bucketOptions(shard, strategy, keepLevelCompaction, keepTombstones, t.config.memtableOptFactor)
 
-	// Only the ingest bucket becomes the main bucket post-swap; the reindex
-	// buckets are torn down and never serve reads.
 	if strategy == lsmkv.StrategyRoaringSetRange && shard.Index().Config.IndexRangeableInMemory {
 		bucketOpts = append(bucketOpts, lsmkv.WithRangeableInMemoryDeferred(true))
 		logger.WithField("props", props).Info(
@@ -1892,8 +1624,7 @@ func (t *ShardReindexTaskGeneric) selectedProps(collectionName string) ([]string
 	for propName := range selected {
 		propNames = append(propNames, propName)
 	}
-	// Sort for determinism — map iteration order is randomized and the record's
-	// property list is compared and logged.
+	// Sort: the record's property list is compared, so the order must be stable.
 	sort.Strings(propNames)
 	return propNames, true
 }

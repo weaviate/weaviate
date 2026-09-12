@@ -18,9 +18,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// shardMigrations is one shard's side of migration-record reconciliation. A
-// shard detached from its index answers with each dependency's safe default
-// rather than failing: no readable local task list, and an uncontended seal.
+// A shard detached from its index falls back to safe defaults rather than failing.
 type shardMigrations struct {
 	shard *Shard
 }

@@ -84,9 +84,6 @@ const migrationWedgeRemedyNoCanonical = "Once you have confirmed which directory
 	"the property's data, remove this record by hand; no new migration can supersede a " +
 	"record that names no canonical directory."
 
-// migrationReportedNames orders, deduplicates and caps a property list for a
-// log line. The list is user-chosen and unbounded, so callers pair the names
-// with their own count field rather than formatting the list whole.
 func migrationReportedNames(names []string) []string {
 	set := make(map[string]struct{}, len(names))
 	for _, name := range names {
@@ -121,9 +118,6 @@ func (r *migrationReconciler) wedged(subject MigrationSubject, remedy, format st
 		Errorf(format+" "+remedy, args...)
 }
 
-// Info, not Debug: every shard that finishes ahead of the cluster-wide schema
-// flip lands here, and an operator asking why it is not promoted needs to find
-// the answer. One line per record per load bounds it.
 func (r *migrationReconciler) deferredBySchema(subject MigrationSubject,
 	deferring errorcompounder.ErrorCompounder,
 ) {
@@ -380,16 +374,12 @@ func (r *migrationReconciler) ReconcileWithClusterTasks(ctx context.Context, tas
 			r.logger.WithField("record", subject.Key.String()).Info(
 				"the staged data is the data; the next shard load promotes it onto the canonical name")
 		case verdict == migrationVerdictCommit:
-			// The rebuild never finished and the cluster is past it, so no pass
-			// can settle this record. Unmatched, it costs a leader query a minute.
 			r.wedgeUncommittable(rec, why)
 		}
 	}
 	monitoring.GetMetrics().AddMigrationRecordsWedged(r.WedgedCount(), 0)
 }
 
-// Marked in the store as well as logged, so the polling pass stops asking for a
-// verdict that will not change.
 func (r *migrationReconciler) wedgeUncommittable(rec MigrationRecord, why string) {
 	subject := rec.Subject()
 	r.wedged(subject, migrationWedgeRemedy,
@@ -482,8 +472,6 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 		return err
 	}
 
-	// One line for the record, not one per property: an unretired property keeps
-	// the record Swapped, so every pass would repeat the whole set.
 	if reported := unretired.ToErrorLimited(maxReportedErrors); reported != nil {
 		r.logger.WithField("record", subject.Key.String()).Warnf(
 			"%d superseded propert(y/ies) of this record still hold their staged directory, so retirement "+
@@ -499,9 +487,6 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 	return r.store.Put(NewMigrationRecordPromoted(subject, rec.Flipped(), rec.displacedDirs))
 }
 
-// supersededPropertyIsRetired reports whether retirement has taken a superseded
-// property's staged directory, and why it could not tell. The reason goes to
-// the caller, not a log line, which would repeat per property on every pass.
 func (r *migrationReconciler) supersededPropertyIsRetired(all []MigrationRecord,
 	subject MigrationSubject, prop string,
 ) (bool, string) {
@@ -521,17 +506,12 @@ func (r *migrationReconciler) supersededPropertyIsRetired(all []MigrationRecord,
 
 // Directory presence can't prove a rename ran (canonical is pre-created
 // empty either way), so the record brackets it with a start/finish write.
-//
-// deferred names the schema reason this property is waiting rather than failing;
-// it and promoted are never both set, and neither being set means the promotion
-// was withheld.
 func (r *migrationReconciler) promoteProperty(rec MigrationRecordSwapped,
 	prop string, dirs promotionDirs,
 ) (updated MigrationRecordSwapped, promoted bool, deferred string, err error) {
 	subject := rec.Subject()
 	staged, canonical, displaced := dirs.staged, dirs.canonical, dirs.displaced
-	// Above the schema gate: these arms settle a rename that already ran, and no
-	// gate can un-run one.
+	// Above the schema gate: these arms settle a rename that already ran, and no gate can un-run one.
 	switch rec.PromotionOf(prop) {
 	case migrationPromotionFinished:
 		updated, promoted, err = r.confirmPromotionSurvives(rec, prop, canonical)
@@ -552,8 +532,7 @@ func (r *migrationReconciler) promoteProperty(rec MigrationRecordSwapped,
 		return updated, promoted, "", err
 	}
 
-	// Before clearForPromotion, not just before the rename: clearing removes the
-	// canonical and displaced directories, so a gate below it would still delete.
+	// Above clearForPromotion, not just above the rename: clearing deletes the canonical and displaced dirs.
 	if swept, why := migrationCanonicalSweptBySchema(r.deps.Class(), subject, prop); swept {
 		return rec, false, why, nil
 	}
@@ -597,8 +576,6 @@ func (r *migrationReconciler) clearForPromotion(subject MigrationSubject, dir, w
 	if !there {
 		return true, nil
 	}
-	// The flip never moved the pointer off this directory, so it is the copy the
-	// shard wrote to; an unmirrored boot means the staged copy missed those writes.
 	if subject.Unmirrored {
 		r.wedged(subject, migrationWedgeRemedy,
 			"cannot promote: %s %q still holds this property's data and a boot took writes into it with "+
@@ -717,8 +694,7 @@ func (r *migrationReconciler) reconcilePromotedSealed(ctx context.Context, rec M
 	if err != nil {
 		return err
 	}
-	// The staged directory a withheld property is still waiting under is an
-	// owned dir, so reclaiming now would delete the very data the wait protects.
+	// A withheld property's staged directory is the only copy of its data.
 	if len(withheld) > 0 {
 		return nil
 	}
@@ -755,8 +731,6 @@ func (r *migrationReconciler) reconcilePromotedSealed(ctx context.Context, rec M
 	return r.store.Remove(subject.Key)
 }
 
-// withheld names the properties the schema is not ready for; their staged
-// directory is the only copy of their data, so the caller must not reclaim it.
 func (r *migrationReconciler) repromoteWhatTheRecordOutran(ctx context.Context, all []MigrationRecord,
 	subject MigrationSubject,
 ) (withheld []string, err error) {
@@ -885,8 +859,6 @@ const (
 	taskListIsComplete taskListCompleteness = true
 )
 
-// verdictFrom consults the two external facts, in an order that skips the
-// second whenever the first is conclusive.
 func (r *migrationReconciler) verdictFrom(subject MigrationSubject, tasks []*distributedtask.Task,
 	completeness taskListCompleteness,
 ) (migrationVerdict, string) {
@@ -955,8 +927,7 @@ func (r *migrationReconciler) discardSealed(ctx context.Context, subject Migrati
 }
 
 // The record answers for every directory it names, so it goes last of all.
-// Mirrors are disarmed first: a still-armed mirror would send its next copy
-// into a directory just removed, failing the user's write with it.
+// Mirrors are disarmed first: a still-armed mirror would copy into a directory just removed.
 func (r *migrationReconciler) reclaimRecordAndDirs(ctx context.Context, subject MigrationSubject) error {
 	if r.deps.Mirror != nil {
 		for _, prop := range subject.Properties() {

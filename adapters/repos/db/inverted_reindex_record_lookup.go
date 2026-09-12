@@ -25,10 +25,6 @@ func migrationRecordsAt(lsmPath string, logger logrus.FieldLogger) (records []Mi
 	return store.Records(), someRecordsUnreadable, false
 }
 
-// migrationRecordStoreAt is migrationRecordsAt for a caller that also writes.
-//
-// Silent on the healthy path: callers fan this out over a shard set, so a line
-// here follows the tenant count. Each walk reports record_set_reads instead.
 func migrationRecordStoreAt(lsmPath string, logger logrus.FieldLogger) (store *MigrationRecordStore, someRecordsUnreadable, recordSetUnreadable bool) {
 	store = NewMigrationRecordStore(lsmPath, logger)
 	if err := store.Load(); err != nil {
@@ -169,9 +165,7 @@ func migrationRecordFor(records []MigrationRecord, migrationType ReindexMigratio
 	return false
 }
 
-// migrationRecordStampedUnmirrored returns rec with MigrationSubject.Unmirrored
-// set. Only a record awaiting its flip can be stamped: earlier, nothing staged
-// can fall behind; later, the canonical name already holds the migrated data.
+// Only a record awaiting its flip can fall behind: before there is nothing staged, after the canonical name holds the data.
 func migrationRecordStampedUnmirrored(rec MigrationRecord) (MigrationRecord, bool) {
 	switch typed := rec.(type) {
 	case MigrationRecordIterated:

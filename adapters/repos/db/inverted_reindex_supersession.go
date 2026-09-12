@@ -97,8 +97,7 @@ var migrationLiveDataRoles = migrationRolesWithShape(migrationShapeSidecar)
 
 var migrationReclaimBlockingRoles = append(slices.Clone(migrationLiveDataRoles), migrationRoleCanonical)
 
-// [validateOneOwnerPerDirectory] sees one record at a time, so two individually
-// valid records can still collide on live data.
+// [validateOneOwnerPerDirectory] sees one record at a time, so two valid records can collide.
 func migrationDirHeldByAnotherRecord(all []MigrationRecord, subject MigrationSubject,
 	dir string, roles []migrationDirRole,
 ) (MigrationRecordKey, migrationDirRole, bool) {

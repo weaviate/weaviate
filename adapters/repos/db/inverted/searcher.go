@@ -47,9 +47,7 @@ import (
 // IsRangeableLocallyReady reports whether this shard's rangeable bucket for
 // the property is safe to query; true when no migration is in flight. False
 // makes the filter resolver fall back to the filterable bucket walk on THIS
-// shard only — slow but correct while a repair-rangeable rebuild runs with
-// the schema flag already true. An unreadable migration record answers false
-// for every property on that shard: nothing says which one it covered.
+// shard only — slow but correct while a repair-rangeable rebuild runs.
 type IsRangeableLocallyReady func(propName string) bool
 
 type Searcher struct {

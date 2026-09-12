@@ -198,10 +198,8 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 // flag yet). On apply, Migrator.UpdateProperty →
 // Shard.updatePropertyBuckets ran cleanStaleMigrationDirs for every
 // index whose flag was now false, removing the in-flight migration's
-// .migrations/<dir>/ working directory, so the resumed migration's next
-// write into it failed with "no such file or directory" → task FAILED.
-// https://github.com/weaviate/weaviate/issues/10675 frontend repro on
-// parallel enable-filterable + enable-rangeable hit this.
+// .migrations/<dir>/ working directory → task FAILED.
+// https://github.com/weaviate/weaviate/issues/10675
 //
 // Closing the window at submit time is correct: reject any new task
 // whose property set overlaps an in-flight task's property set, so the

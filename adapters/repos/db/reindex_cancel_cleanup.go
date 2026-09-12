@@ -34,9 +34,7 @@ import (
 // (see [dirNamesCache]).
 //
 // Caller MUST ensure no local reindex goroutine is touching the tuple —
-// otherwise the cleanup races the worker's writes to the __reindex/__ingest
-// buckets. All three callers enforce this via
-// [ReindexProvider.SealLocalTaskDrain].
+// otherwise the cleanup races the worker's writes to the staged buckets.
 type StalePartialReindexSweep func(ctx context.Context, collection, propName, indexType string) error
 
 // NewStalePartialReindexSweep returns the CANCEL→retry counterpart to the
@@ -259,39 +257,7 @@ func (i *Index) cleanStalePartialReindexState(
 	return sweepErr
 }
 
-// hasStalePartialReindexState reports whether the shard rooted at lsmPath
-// has on-disk state [Shard.CleanStalePartialReindexState] would remove,
-// without loading the shard.
-//
-// Fails open (returns true) on anything it can't read — an unmappable index
-// type, an unlistable directory, or an unparseable tracker payload — since a
-// false "clean" would leave a stale record for the next task to resume
-// against.
-//
-// The unreadable payload only fails open while no record names the dir. Where
-// one does, [migrationDirScope.taskProperties] answers from it, and a tracker
-// naming other properties leaves this reporting clean and skipping the shard.
-//
-// Failing open costs only a hydration, except on an unlistable .migrations:
-// that hydration then finds no completed migration to preserve and removes
-// sidecars a deferred finalize still needs.
-//
-// A FROZEN (offload) transition removes the shard from the map before it
-// removes files, so a mid-transition read either finds an emptying
-// directory and skips it (which offload is about to make true anyway), or
-// races the other way into a spurious [ErrCleanupShardFailed] — never
-// corruption. A deactivated (COLD) tenant is absent from the map too, and
-// reactivating it changes nothing: the record check runs from the task path,
-// not from a shard load.
-//
-// The second return says the shard holds directories of a migration whose
-// staging finished. Only a shard load settles those, and it is meaningful only
-// when the first return is false — a shard already hydrating finalizes them
-// either way.
-//
-// props memoizes the tracker payloads read on the way to that answer. Callers
-// running a grid of tuples over the same shards hand in one for the whole run
-// ([dirNamesCache.trackerProps]); a nil one is memoized for this call alone.
+// Fails open on anything unreadable: a false "clean" leaves a stale record behind.
 func hasStalePartialReindexState(
 	lsmPath, propName, indexType string, dirs *dirNamesCache, props *taskPropsCache,
 	logger logrus.FieldLogger,

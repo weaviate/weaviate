@@ -19,16 +19,13 @@ import (
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
-// bucketDirs is the only place a migration directory handle becomes a path.
-// Guarded here, not at each caller: joining an empty or escaping handle onto
-// the root resolves to the root itself, and callers remove or rename the result.
+// bucketDirs guards every handle→path join: an empty or escaping one resolves to the root.
 type bucketDirs struct {
 	root string
 }
 
 func shardBucketDirs(lsmPath string) bucketDirs { return bucketDirs{root: lsmPath} }
 
-// Tracker dirs carry handles out of the same records, so they take the same guard.
 func (b bucketDirs) Trackers() bucketDirs {
 	return bucketDirs{root: filepath.Join(b.root, migrationsDir)}
 }
@@ -41,8 +38,7 @@ func (b bucketDirs) Path(dir, what string) (string, error) {
 	return filepath.Join(b.root, dir), nil
 }
 
-// Any stat failure besides ENOENT must stop the caller, or a promotion probe
-// could take "cannot see it" as proof a rename already ran.
+// A stat failure must stop the caller: "cannot see it" is not proof a rename ran.
 func (b bucketDirs) Exists(dir string) (bool, error) {
 	if dir == "" {
 		return false, nil
@@ -72,8 +68,7 @@ func (b bucketDirs) Discard(dir, what string) error {
 	return nil
 }
 
-// The Promoted record written on this rename's strength is durable, so the
-// rename must be too, or a crash leaves it naming a path that was never made.
+// The Promoted record rests on this rename, so the rename must be durable too.
 func (b bucketDirs) Promote(from, to string) error {
 	fromPath, err := b.Path(from, "the directory to promote")
 	if err != nil {

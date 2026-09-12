@@ -22,8 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 )
 
-// Encode returns the file name the record store gives rec and the bytes it
-// writes into it, through the production writer.
+// Encode round-trips rec through the production writer.
 func Encode(t *testing.T, rec db.MigrationRecord) (name, content string) {
 	t.Helper()
 

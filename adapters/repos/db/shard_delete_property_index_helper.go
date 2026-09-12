@@ -26,10 +26,7 @@ func newPropertyDeleteIndexHelper() *propertyDeleteIndexHelper {
 	return &propertyDeleteIndexHelper{}
 }
 
-// propertyIndexRemoved reports whether the collection turns a property index
-// off. The sweep below deletes what it names, and
-// [migrationCanonicalSweptBySchema] refuses to promote onto what it names; one
-// function, so the two cannot come to different answers about the same flag.
+// Shared with [migrationCanonicalSweptBySchema] so both read the flag the same.
 func propertyIndexRemoved(propertyIndexSetting *bool) bool {
 	return propertyIndexSetting != nil && !*propertyIndexSetting
 }

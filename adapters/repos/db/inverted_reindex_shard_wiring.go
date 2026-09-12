@@ -30,8 +30,7 @@ func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Cla
 		reconciler.WedgedCount(), len(s.migrationRecords.Unreadable()))
 }
 
-// Empty where the node name is not wired: a shard that cannot name its own unit
-// must not set its own records aside.
+// Empty where the node name is not wired: such a shard must not set records aside.
 func (s *Shard) migrationUnit() string {
 	if s.index == nil || s.index.getSchema == nil {
 		return ""
@@ -53,8 +52,7 @@ func (s *Shard) migrationReconciler(class func() *models.Class) *migrationReconc
 
 // Resolves the record's own copy of the property and closes that. The
 // reconciler names directories instead, because it has to decide before it
-// closes; both land on ShutdownStagedBucketsAt. Called by the cutover PR,
-// where a worker closes the copy it is done writing.
+// closes; both land on ShutdownStagedBucketsAt.
 func (s *Shard) ShutdownStagedBuckets(ctx context.Context, key MigrationRecordKey, prop string) error {
 	if s.migrationRecords == nil {
 		return nil
@@ -98,8 +96,6 @@ func (l *LazyLoadShard) migrationRecordStore() *MigrationRecordStore {
 
 func (s *Shard) migrationMirrorRegistry() *migrationMirrorRegistry { return &s.migrationMirrors }
 
-// Reports no registry rather than loading a cold shard, for the same reason
-// [LazyLoadShard.migrationRecordStore] does.
 func (l *LazyLoadShard) migrationMirrorRegistry() *migrationMirrorRegistry {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()

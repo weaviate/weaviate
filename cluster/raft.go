@@ -116,8 +116,7 @@ func (s *Raft) Ready() bool {
 	return s.store.Ready()
 }
 
-// FSMHasCaughtUp reports that this node replayed the log it held when the store
-// opened. It says nothing about how far behind the leader it is.
+// FSMHasCaughtUp reports only that the log held at store open was replayed.
 func (s *Raft) FSMHasCaughtUp() bool {
 	return s.store.FSMHasCaughtUp()
 }

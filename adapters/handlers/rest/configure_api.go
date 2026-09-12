@@ -812,9 +812,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// OnAfterLsmInit during shard load — BEFORE any post-restart write
 	// reaches the shard. Without this, writes between shard init and the
 	// deferred swap go only to the old main bucket and are silently lost.
-	// Reads: <data>/<index>/<shard>/lsm/.migrations/<dir>/payload.mig
-	// (written by ReindexProvider.persistRecoveryRecord before reindex
-	// starts), plus the shard's migration records.
 	recoveredReindexes, recoveryErr := db.DiscoverInFlightReindexTasks(
 		appState.ServerConfig.Config.Persistence.DataPath,
 		appState.Logger,

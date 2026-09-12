@@ -32,11 +32,8 @@ import (
 // to collide with a suffix base.
 
 // MigrationStrategy encapsulates the parts that differ per migration type
-// (e.g., Map→Blockmax, Set→RoaringSet). The lifecycle logic (state machine,
-// merge/swap, object iteration, progress tracking) lives in
-// ShardReindexTaskGeneric.
+// (e.g., Map→Blockmax, Set→RoaringSet); the lifecycle lives in ShardReindexTaskGeneric.
 type MigrationStrategy interface {
-	// StrategyCode identifies this strategy in a migration record's key.
 	StrategyCode() MigrationStrategyCode
 
 	// MigrationDirName returns the subdirectory name under .migrations/
@@ -97,9 +94,7 @@ type MigrationStrategy interface {
 	// map→blockmax, roaring-set refresh) should return nil.
 	AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay
 
-	// OnMigrationComplete is called once this shard's flip is durable, in Phase 2c
-	// of the runtime swap. Forbidden: heavy disk I/O on the new main bucket — it is
-	// live, and anything that stalls its compaction shows up as query latency.
+	// No heavy disk I/O on the new main bucket: it is live, and a stalled compaction shows as latency.
 	OnMigrationComplete(ctx context.Context, shard ShardLike) error
 }
 

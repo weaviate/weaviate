@@ -16,8 +16,7 @@ import "slices"
 type migrationRecordQuestions interface {
 	StagedDataComplete() bool
 
-	// FlipDecided reports whether the flip DECISION is durable. It is written
-	// before the first pointer moves, so it never means the flip ran.
+	// FlipDecided reports whether the flip DECISION is durable, not that the flip ran.
 	FlipDecided() bool
 
 	// Both read by the cutover: the first before it hands a shard's writes to

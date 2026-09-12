@@ -81,13 +81,7 @@ type deleteCallbackEntry struct {
 
 // propValueIndexState folds the callback slices and migration scope into one
 // atomic snapshot, so a concurrent arm/disarm can never expose
-// callbacks-without-scope or scope-without-callbacks to a write. scope is
-// derived from scopeRegs on every mutation rather than accumulated, which is
-// what extends that guarantee across two registrations on one property.
-//
-// nextCallbackID hands out per-registration ids under mutatePropValueIndexState's
-// mutex; it is carried by copy across mutations so every registration gets a
-// distinct id its disarm can remove by.
+// callbacks-without-scope or scope-without-callbacks to a write.
 type propValueIndexState struct {
 	add             []addCallbackEntry
 	del             []deleteCallbackEntry
@@ -95,9 +89,7 @@ type propValueIndexState struct {
 	scopeRegs       []migrationScopeReg
 	nextCallbackID  uint64
 	overlaysDiverge bool
-	// conflicts is carried so the warning fires only on the transition; a
-	// per-property teardown mutates once per property, making re-reporting
-	// quadratic.
+	// Carried so the warning fires on the transition only, not once per property.
 	conflicts []string
 	analyses  []doubleWriteAnalysis
 }

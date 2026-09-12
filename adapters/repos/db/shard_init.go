@@ -161,15 +161,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	// opened at a name it is about to move would serve the wrong data.
 	s.reconcileMigrationRecords(ctx, class)
 
-	// Pessimistically mark any in-flight enable-rangeable / repair-rangeable
-	// migration's target property "not locally ready": repair-rangeable runs
-	// with the schema flag already true, so nothing else would stop a shard
-	// whose recovery has not finished the swap from serving range queries off
-	// an empty PreReindexHook'd bucket. Props no record names default to ready:
-	// no migration ever ran, or reconciliation above already promoted it —
-	// unless a record this build could not read might have been a rangeable
-	// one, in which case every property on the shard is undecidable instead.
-	// Full rationale on [Shard.rangeableLocalReady].
 	markInFlightRangeableMigrationsNotReady(s)
 
 	if err := s.initNonVector(ctx, class); err != nil {
@@ -259,10 +250,7 @@ func markInFlightRangeableMigrationsNotReady(s *Shard) {
 	}
 }
 
-// A fault names a file and a scope, never a strategy, so only a name that parses
-// as some other strategy leaves rangeable readiness alone. Everything else turns
-// it off shard-wide: a store-scope fault read no file, and an unparseable name
-// could be anything.
+// A store-scope fault read no file; an unparseable name could be any strategy.
 func migrationFaultCouldHideARangeableRecord(faults []MigrationRecordUnreadable) bool {
 	for _, fault := range faults {
 		if fault.Scope != MigrationRecordFaultFile {
@@ -276,12 +264,8 @@ func migrationFaultCouldHideARangeableRecord(faults []MigrationRecordUnreadable)
 	return false
 }
 
-// maxRecoveryPayloadBytes bounds the probes that read one field of payload.mig
-// inside a RAFT apply. Over it the payload is refused rather than parsed.
 const maxRecoveryPayloadBytes = 1 << 20 // 1 MiB
 
-// maxRecoveryWalkPayloadBytes bounds the startup walk's memory: an unbounded
-// read of a corrupt payload at boot is a crash loop.
 const maxRecoveryWalkPayloadBytes = 256 << 20
 
 // errRecoveryPayloadTooLarge marks a payload.mig [maxRecoveryPayloadBytes]
@@ -318,9 +302,6 @@ func readRecoveryPayloadFacts(migDir string) (recoveryPayloadFacts, error) {
 	if err != nil {
 		return recoveryPayloadFacts{}, err
 	}
-	// Anonymous shape: only the fields we need. Avoids depending on
-	// ReindexTaskPayload here (no import cycle risk, but keeping shard
-	// init lean).
 	var rec struct {
 		TaskID      string `json:"taskID"`
 		TaskVersion uint64 `json:"taskVersion"`

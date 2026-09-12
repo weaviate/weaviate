@@ -23,15 +23,7 @@ import (
 
 // Migration directory names live under <shard>/lsm/.migrations/<name>/ and
 // uniquely identify a per-strategy in-progress migration on a shard.
-//
-// Two concerns need to agree on these names:
-//  1. Each strategy's MigrationDirName() return value (the writer side).
-//  2. Debug endpoints (handlers_debug_bmw_aux.go) that touch the migration
-//     directory directly.
-//
-// To prevent silent drift between writer and debug, define each name exactly
-// once here and reference the constant from both places.
-//
+
 // Some strategies pin a single directory (e.g. searchable_map_to_blockmax),
 // others suffix per-property names onto a common prefix (e.g.
 // enable_filterable_<prop1>_<prop2>) — for those, the constant is the
@@ -105,9 +97,7 @@ func migrationDirWithProps(prefix string, propNames []string) string {
 
 // genSuffix returns the migration's generation suffix, e.g. "_2". Generation
 // is the RAFT task version: monotonic, so migrations never collide on a dir
-// name and reconciliation's "higher generation wins" check stays valid.
-// Generation 0 (no suffix) is the canonical post-promotion bucket; live
-// migrations use ≥ 1.
+// name. Generation 0 (no suffix) is the canonical post-promotion bucket; live migrations use >= 1.
 func genSuffix(generation int) string {
 	return "_" + strconv.Itoa(generation)
 }
@@ -133,9 +123,7 @@ func parseMigrationDirName(name string) (prefix string, generation int, ok bool)
 	return name[:idx], gen, true
 }
 
-// migrationTrackerDirAbsent reports whether a migration's tracker dir is
-// provably missing. A stat error must not be read as absence, or a pending
-// migration gets marked complete without its index ever rebuilt.
+// A stat error must not read as absence: a pending migration would be marked complete, unrebuilt.
 func migrationTrackerDirAbsent(lsmPath, dirName string) bool {
 	there, err := shardBucketDirs(lsmPath).Trackers().Exists(dirName)
 	return err == nil && !there
@@ -181,9 +169,7 @@ func migrationDirPrefixesForIndexType(indexType string) []string {
 // A dir name alone can be ambiguous (e.g. "enable_filterable_a_b_1" is both
 // a two-property tracker for "a"+"b" and a one-property tracker for "a_b"),
 // so an ambiguous name falls back to the task's recorded property list
-// ([readTaskProps]). That list is trusted only where it rebuilds the dir's
-// own name, and with no list only an exact one-property name, since guessing
-// wider could remove another property's tracker.
+// ([readTaskProps]). Guessing wider than that list could delete another property's tracker.
 type migrationDirScope struct {
 	lsmPath  string
 	propName string
@@ -207,8 +193,6 @@ func (s migrationDirScope) knownFrom(state migrationPreservedState) migrationDir
 	return s
 }
 
-// migrationDirsOf returns the tracker dirs a (propName, indexType) cleanup
-// deletes on the shard at lsmPath.
 func migrationDirsOf(lsmPath, propName, indexType string) migrationDirScope {
 	return migrationDirScope{
 		lsmPath:  lsmPath,
@@ -338,11 +322,6 @@ func migrationDirBase(name string) string {
 // property's tracker); the unloaded-shard gate and recovery probe fail open on
 // it instead, since the narrowed fallback could wrongly report
 // clean/recovered.
-//
-// That fail-open only covers a dir whose name leaves this property possible
-// and no record names the dir. Where one does,
-// [migrationDirScope.taskProperties] answers from it, unreadablePayload stays
-// false, and both probes decide from that list instead.
 //
 // An intact payload still requires the exact sorted-name reconstruction —
 // unreachable from real writers, which always derive the name and payload

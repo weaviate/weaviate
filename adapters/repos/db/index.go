@@ -1153,9 +1153,7 @@ func (i *Index) updateProperty(ctx context.Context, property *models.Property) e
 	})
 
 	err := eg.Wait()
-	// Either count non-zero prints: a tracker removed by name match alone
-	// costs no payload read but still reads the shard's record set, which is
-	// where the once-per-index-type regression shows up.
+	// Either count prints: a name-match removal reads the record set but no payload.
 	payloadReads, recordSetReads := counts.payloadReads.Load(), counts.recordSetReads.Load()
 	if payloadReads > 0 || recordSetReads > 0 {
 		i.logger.WithFields(map[string]any{

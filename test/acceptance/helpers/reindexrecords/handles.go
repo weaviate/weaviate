@@ -22,15 +22,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
 
-// Handles are the directories one migration owns for one property.
 type Handles struct {
 	Canonical string
 	Staged    string
 	Sidecar   string
 }
 
-// HandlesFor names the directories the writer emits for propName under code's
-// strategy, at the given migration generation.
 func HandlesFor(t *testing.T, code db.MigrationStrategyCode, propName string, generation int) Handles {
 	t.Helper()
 
@@ -46,8 +43,7 @@ func HandlesFor(t *testing.T, code db.MigrationStrategyCode, propName string, ge
 	}
 }
 
-// TrackerDir names the directory under .migrations/ that tracks a migration of
-// the given strategy over propNames. A class-level strategy ignores propNames.
+// TrackerDir ignores propNames for a class-level strategy.
 func TrackerDir(t *testing.T, code db.MigrationStrategyCode, propNames []string, generation int) string {
 	t.Helper()
 

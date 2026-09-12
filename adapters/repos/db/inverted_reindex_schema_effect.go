@@ -113,10 +113,7 @@ func migrationPropertyEffectVisible(subject MigrationSubject, prop *models.Prope
 	return visible != nil && visible(subject, prop)
 }
 
-// migrationCanonicalIndexFlag reads the schema flag that owns the canonical
-// directory this strategy promotes onto, naming the field so a refusal can say
-// which flag it followed. Arms mirror [sourceBucketNameFor]; no default arm, so
-// the linter refuses a ninth code that names no flag here.
+// No default arm: the exhaustive linter is what catches a new strategy code that names no flag here.
 func migrationCanonicalIndexFlag(code MigrationStrategyCode, prop *models.Property) (*bool, string) {
 	switch code {
 	case StrategyCodeSearchableMapToBlockmax, StrategyCodeEnableSearchable,
@@ -131,20 +128,8 @@ func migrationCanonicalIndexFlag(code MigrationStrategyCode, prop *models.Proper
 	return nil, ""
 }
 
-// migrationCanonicalSweptBySchema reports whether the load-time sweep would
-// delete what a promotion is about to rename onto the canonical name, and why.
-//
-// [propertyDeleteIndexHelper.ensureBucketsAreRemovedForNonExistentPropertyIndexes]
-// runs before the promotion on every load and deletes a canonical directory
-// whose index the collection turns off. enable-* migrations run with that flag
-// off throughout, so renaming before the cluster-wide flip puts the rebuilt
-// data exactly where the next load deletes it.
-//
-// The rule followed is the sweep's own, an explicit false — not
-// [migrationEffectStatus], which reads an unset flag as not-enabled and would
-// defer every retokenize and change-algorithm promotion. A property the
-// collection does not list is unreached by the sweep and promotes; a collection
-// this node has not applied cannot be answered and waits.
+// Follows the load-time sweep's own rule, an explicit false: [migrationEffectStatus]
+// reads an unset flag as not-enabled and would defer every retokenize promotion.
 func migrationCanonicalSweptBySchema(class *models.Class, subject MigrationSubject,
 	prop string,
 ) (swept bool, why string) {

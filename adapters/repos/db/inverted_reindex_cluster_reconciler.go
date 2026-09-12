@@ -63,8 +63,7 @@ func (r *migrationClusterReconciler) samplers() (unresolved, shuttingDown *logru
 }
 
 // SetTaskSources and the periodic pass run on different goroutines, so the
-// sources are guarded. Every call starts a pass; configure_api makes exactly
-// one, at startup.
+// sources are guarded.
 func (r *migrationClusterReconciler) SetTaskSources(ctx context.Context, source MigrationLocalTaskSource,
 	cluster MigrationClusterTaskSource,
 ) {
