@@ -425,9 +425,8 @@ type Shard struct {
 	rangeableLocalReadyMu sync.RWMutex
 	rangeableLocalReady   map[string]bool
 
-	// Per-prop analyzer override bridging this shard's bucket swap and the
-	// cluster-wide schema flip: a write in that window is otherwise indexed
-	// nowhere and never healed (weaviate/etienne-claude-issues#449).
+	// Bridges this shard's bucket swap and the cluster-wide schema flip: a
+	// write in that window is otherwise lost (weaviate/etienne-claude-issues#449).
 	propertyOverlayMu sync.RWMutex
 	propertyOverlay   map[string]inverted.PropertyOverlay
 
@@ -781,8 +780,7 @@ func (s *Shard) SetPropertyOverlay(propName string, o inverted.PropertyOverlay) 
 }
 
 // SwapBucketAndSetOverlay runs propName's bucket flip and overlay set as ONE
-// critical section under propertyOverlayMu (read side:
-// [Shard.PinTokenizationAndSearchableBucket]), so no query sees a mixed pair.
+// critical section, so no query sees a mixed pair.
 //
 // CONTRACT: flip must not call Bucket.Shutdown or take lifetimeLock — a
 // query may hold another prop's pin and need propertyOverlayMu next, so
@@ -810,11 +808,7 @@ func (s *Shard) SwapBucketAndSetOverlay(propName string, o inverted.PropertyOver
 }
 
 // PinTokenizationAndSearchableBucket resolves propName's tokenization AND
-// pins its searchable bucket under one RLock (write
-// side: [Shard.SwapBucketAndSetOverlay]), so a query never sees a mixed
-// pre-/post-swap pair; the pin makes a concurrent swap's Shutdown drain
-// first. Caller MUST release exactly once (bucket may be nil). Lock order:
-// propertyOverlayMu → bucketAccessLock → lifetimeLock.
+// pins its bucket under one RLock. Lock order: propertyOverlayMu → bucketAccessLock → lifetimeLock.
 func (s *Shard) PinTokenizationAndSearchableBucket(propName, liveTokenization string,
 ) (string, *lsmkv.Bucket, func()) {
 	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
@@ -852,8 +846,7 @@ func (s *Shard) ClearPropertyOverlay(propName string) {
 	delete(s.propertyOverlay, propName)
 }
 
-// ClearPropertyOverlayIfCaughtUp drops propName's entry only once live
-// provides what it overrides; dropping it earlier loses the writes it places.
+// ClearPropertyOverlayIfCaughtUp: dropping early loses the writes it places.
 func (s *Shard) ClearPropertyOverlayIfCaughtUp(propName string, live *models.Property) {
 	if propName == "" {
 		return

@@ -1263,11 +1263,6 @@ func (p *ReindexProvider) runShardSwapPhase(
 // Provider-level shared state (p.payloads, p.runningHandles,
 // p.reindexTasks) is already mutex-protected via p.mu in
 // resolveUnitForPhase and its peers, so concurrent calls are safe.
-//
-// When parallel=false the loop is sequential (legacy behavior). Used
-// by the PREP path where heavy IO (FlushAndSwitch, ShutdownBucket,
-// PrependSegmentsFromBucket) per shard would compound under
-// parallelism.
 func (p *ReindexProvider) runPerUnitPhase(
 	task *distributedtask.Task,
 	payload *ReindexTaskPayload,
@@ -1586,12 +1581,8 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 			case distributedtask.TaskStatusFailed:
 				logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
 				p.autoCleanupAfterTerminal(task, payload, logger)
-				// No schema flip follows a failure, so an entry left here
-				// forces writes into a bucket the cleanup already tore out,
-				// and nothing re-sets it: the swap callbacks share this tick
-				// and skip terminal tasks. A tokenization change keeps its
-				// entry, whose flag was already on, so dropping it would
-				// analyze old-tokenized terms into a target-tokenized bucket.
+				// Excludes a tokenization change: its flag was already on, so
+				// dropping the entry writes old-tokenized terms to the new bucket.
 				if IsSemanticMigration(payload.MigrationType) &&
 					!IsTokenizationChangingMigration(payload.MigrationType) {
 					p.clearOverlaysOnLoadedShards(p.serverCtx, payload, logger)
@@ -1619,8 +1610,6 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 			case distributedtask.TaskStatusStarted,
 				distributedtask.TaskStatusPreparing,
 				distributedtask.TaskStatusSwapping:
-				// SWAPPING handled below; STARTED/PREPARING never reach
-				// OnTaskCompleted.
 			}
 		}
 		return nil
@@ -2136,9 +2125,6 @@ func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
 	return true
 }
 
-// logOperatorRepairGuidanceOnPartialSwap logs the REST command that
-// recovers from a semantic migration which stopped after some shards had
-// swapped.
 func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *ReindexTaskPayload, outcome distributedtask.TaskStatus) {
 	if !IsSemanticMigration(payload.MigrationType) {
 		return
@@ -2605,8 +2591,7 @@ func IsTokenizationChangingMigration(mt ReindexMigrationType) bool {
 		mt == ReindexTypeChangeTokenizationFilterable
 }
 
-// Set once up front rather than per flip, the overlay would be visible for
-// RunSwapOnShard's whole disk-I/O preamble instead of one map write.
+// Per flip, not up front: that would expose it for the whole disk-I/O preamble.
 func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks []*ShardReindexTaskGeneric) {
 	if shard == nil || payload == nil {
 		return

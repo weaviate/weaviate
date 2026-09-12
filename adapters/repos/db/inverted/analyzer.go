@@ -36,8 +36,7 @@ type Property struct {
 	HasFilterableIndex bool // roaring set index
 	HasSearchableIndex bool // map index (with frequencies)
 	HasRangeableIndex  bool // roaring set index for ranged queries
-	// OverlayForcedOnly marks a property only an overlay made visible: its
-	// property-length and null-state buckets do not exist yet.
+	// OverlayForcedOnly: no property-length or null-state bucket exists yet.
 	OverlayForcedOnly bool
 }
 

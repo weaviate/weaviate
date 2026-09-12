@@ -31,10 +31,6 @@
 // removeReindexBucketsDirs, sentinel writes (markPrepended,
 // markMerged).
 //
-// Constraints: this phase runs BEFORE the per-shard property
-// overlay is set. Queries during this phase see the pre-migration
-// bucket content with the pre-migration analyzer — correct.
-//
 // Phase 2 — ATOMIC SWAP (inside the overlay window; per-shard
 // "mixed-state" subwindow MUST stay microseconds)
 // ------------------------------------------------------------
@@ -184,11 +180,6 @@ type ShardReindexTaskGeneric struct {
 	registerDoubleWriteCallbacksFn func(shard *Shard, props []string,
 		bucketNamer func(string) string, forTargetStrategy bool) func()
 
-	// onPropSwapped runs inside the Phase 2a tight loop right after each
-	// bucket-pointer flip, so a query never observes overlay≠bucket for
-	// longer than one in-memory map write. Runs on the swap goroutine, so
-	// SetPropertyOverlay's own lock is enough.
-	//
 	// Only the recovery/resume path still uses this; the live Phase-2a loop
 	// routes through swapPropAtomic when wired.
 	onPropSwapped func(propName string)
@@ -655,16 +646,6 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		return t.finalizeMigrationAfterRecovery(ctx, logger, shard, rt, props)
 	}
 
-	// Default: pre-prepend state (only reindexed.mig set). Under the
-	// prep/atomic/defer phase model, the happy-path caller is
-	// [reindex_provider.OnGroupCompleted], which invokes
-	// RunPrepareOnShard BEFORE RunSwapOnShard so the prep work runs
-	// OUTSIDE the per-shard property-overlay window. Reaching this
-	// branch via OnGroupCompleted's flow means rehydrate happened but
-	// RunPrepareOnShard hasn't — call it defensively, but note that
-	// the atomic-window contract is no longer met (prep runs inside
-	// the overlay window). Acceptable for tests and edge cases where
-	// FINALIZING-window query correctness isn't being asserted.
 	logger.WithField("props", props).Info("starting prep+swap phase (caller did not invoke RunPrepareOnShard separately)")
 
 	if err := t.ensureReindexBucketsLoadedForSwap(ctx, logger, concreteShard, props); err != nil {
@@ -1606,14 +1587,6 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	store := shard.Store()
 	lsmPath := shard.pathLSM()
 
-	// Phase 2a (atomic, tight loop): in-memory pointer swap per property.
-	// This is the ONLY work that runs inside the per-shard property
-	// overlay's "mixed-state" window (between first prop swapped and last
-	// prop swapped). SwapBucketPointer is a single map-write under
-	// bucketsLock (microseconds); markSwappedProp is a single fsync
-	// (single-digit ms). The per-prop loop completes in a few ms total
-	// even for 4-property migrations.
-	//
 	// The slow disk work (old-bucket Shutdown, oldMainDir→backupDir
 	// rename) is pulled OUT of this loop so it can't extend the
 	// mixed-state window. It runs in Phase 2b below (after all
