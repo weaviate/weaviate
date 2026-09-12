@@ -121,7 +121,7 @@ func TestDeferEmptyMultiTenantShardOnInit(t *testing.T) {
 			mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
 			mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
 			mockSchema.EXPECT().NodeName().Maybe().Return(nodeName)
-			mockSchema.EXPECT().TenantsShards(ctx, className, tenant).Maybe().
+			mockSchema.EXPECT().TenantsShardsStatus(ctx, className, tenant).Maybe().
 				Return(map[string]string{tenant: models.TenantActivityStatusHOT}, nil)
 
 			mockRouter := types.NewMockRouter(t)

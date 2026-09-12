@@ -63,7 +63,7 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get shard owner: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_TENANTS_SHARDS:
-		payload, err = st.schemaManager.QueryTenantsShards(req)
+		payload, err = st.schemaManager.QueryTenantsShardsStatus(req)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get tenant shard: %w", err)
 		}

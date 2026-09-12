@@ -96,7 +96,7 @@ type SchemaManager interface {
 	// restricts the count to classes in that namespace.
 	QueryCollectionsCount(namespace string) (int, error)
 	QueryShardOwner(class, shard string) (string, uint64, error)
-	QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error)
+	QueryTenantsShardsStatus(class string, tenants ...string) (map[string]string, uint64, error)
 	QueryShardingState(class string) (*sharding.State, uint64, error)
 	QueryClassVersions(names ...string) (map[string]uint64, error)
 
@@ -143,7 +143,7 @@ type SchemaReader interface {
 	ShardOwnerWithVersion(ctx context.Context, lass, shard string, version uint64) (string, error)
 	ShardFromUUIDWithVersion(ctx context.Context, class string, uuid []byte, version uint64) (string, error)
 	ShardReplicasWithVersion(ctx context.Context, class, shard string, version uint64) ([]string, error)
-	TenantsShardsWithVersion(ctx context.Context, version uint64, class string, tenants ...string) (map[string]string, error)
+	TenantsShardsStatusWithVersion(ctx context.Context, version uint64, class string, tenants ...string) (map[string]string, error)
 }
 
 type validator interface {

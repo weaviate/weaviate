@@ -32,10 +32,10 @@ type fakeSchemaReader struct {
 	classExists     bool
 }
 
-// TenantsShards returns tenant status for requested tenants or the configured error.
+// TenantsShardsStatus returns tenant status for requested tenants or the configured error.
 // Only returns status for tenants that exist in the tenantShards map.
 // Tenants not in the map are omitted from the result (simulating non-existent tenants).
-func (f *fakeSchemaReader) TenantsShards(_ context.Context, _ string, tenants ...string) (map[string]string, error) {
+func (f *fakeSchemaReader) TenantsShardsStatus(_ context.Context, _ string, tenants ...string) (map[string]string, error) {
 	if f.tenantsShardErr != nil {
 		return nil, f.tenantsShardErr
 	}

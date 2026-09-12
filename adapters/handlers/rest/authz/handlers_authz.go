@@ -20,10 +20,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/weaviate/weaviate/usecases/auth/authentication"
-
-	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
-
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 
@@ -31,6 +27,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
@@ -1726,7 +1724,7 @@ func validateUserTypeInput(userTypeInput string) (authentication.AuthType, error
 
 // 		// tenants filtration specific collection, specific tenant
 // 		if perm.Collection != nil && *perm.Collection != "" && *perm.Collection != "*" && perm.Tenant != nil && *perm.Tenant != "" && *perm.Tenant != "*" {
-// 			shardsStatus, err := h.schemaReader.TenantsShards(context.Background(), *perm.Collection, *perm.Tenant)
+// 			shardsStatus, err := h.schemaReader.TenantsShardsStatus(context.Background(), *perm.Collection, *perm.Tenant)
 // 			if err != nil {
 // 				return fmt.Errorf("err while fetching collection '%s', tenant '%s', %s", *perm.Collection, *perm.Tenant, err)
 // 			}

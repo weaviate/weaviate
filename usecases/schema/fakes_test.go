@@ -189,7 +189,7 @@ func (f *fakeSchemaManager) QueryShardOwner(class, shard string) (string, uint64
 	return args.Get(0).(string), 0, args.Error(0)
 }
 
-func (f *fakeSchemaManager) QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error) {
+func (f *fakeSchemaManager) QueryTenantsShardsStatus(class string, tenants ...string) (map[string]string, uint64, error) {
 	args := f.Called(class, tenants)
 	res := map[string]string{}
 	for idx := range tenants {
@@ -266,7 +266,7 @@ func (f *fakeSchemaManager) ShardOwnerWithVersion(ctx context.Context, class, sh
 	return args.String(0), args.Error(1)
 }
 
-func (f *fakeSchemaManager) TenantsShardsWithVersion(ctx context.Context, version uint64, class string, tenants ...string) (tenantShards map[string]string, err error) {
+func (f *fakeSchemaManager) TenantsShardsStatusWithVersion(ctx context.Context, version uint64, class string, tenants ...string) (tenantShards map[string]string, err error) {
 	args := f.Called(ctx, version, class, tenants)
 	if m, ok := args.Get(0).(map[string]string); ok {
 		return m, args.Error(1)
