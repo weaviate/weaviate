@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/dustin/go-humanize"
+	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -216,90 +217,19 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
-	// Enqueues a reassignment for every live vector of one shard's hfresh
-	// index, re-routing vectors that earlier maintenance left in the wrong
-	// postings. The reassignment tasks only write for vectors whose current
+	// Enqueues a reassignment for every live vector of a shard's hfresh
+	// index (or all local shards when shard is omitted), re-routing vectors
+	// that earlier maintenance left in the wrong postings. The reassignment tasks only write for vectors whose current
 	// posting is no longer among their RNG-selected targets, so this is safe
 	// to run on a healthy index. Call via something like:
 	// curl -X POST "localhost:6060/debug/index/reassign/vector?collection=Foo&shard=abc123&vector=default"
-	http.HandleFunc("/debug/index/reassign/vector", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// unlike its read-only siblings, this endpoint starts a corpus-wide
-		// mutating job — do not let a probing GET trigger it
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed, use POST", http.StatusMethodNotAllowed)
-			return
-		}
-
-		colName := r.URL.Query().Get("collection")
-		shardName := r.URL.Query().Get("shard")
-		targetVector := r.URL.Query().Get("vector")
-
-		if colName == "" || shardName == "" {
-			http.Error(w, "collection and shard are required", http.StatusBadRequest)
-			return
-		}
-
-		idx := appState.DB.GetIndex(schema.ClassName(colName))
+	// Omit shard to enqueue all local shards of the collection.
+	http.HandleFunc("/debug/index/reassign/vector", newHFreshReassignHandler(logger, func(name schema.ClassName) hfreshReassignIndex {
+		idx := appState.DB.GetIndex(name)
 		if idx == nil {
-			logger.WithField("collection", colName).Error("collection not found")
-			http.Error(w, "collection not found", http.StatusNotFound)
-			return
+			return nil
 		}
-
-		shard, release, err := idx.GetShard(context.Background(), shardName)
-		if err != nil {
-			logger.WithField("shard", shardName).Error(err)
-			http.Error(w, err.Error(), http.StatusNotFound)
-			return
-		}
-		if shard == nil {
-			release()
-			logger.WithField("shard", shardName).Error("shard not found")
-			http.Error(w, "shard not found", http.StatusNotFound)
-			return
-		}
-
-		vidx, ok := shard.GetVectorIndex(targetVector)
-		if !ok {
-			release()
-			logger.WithField("shard", shardName).Error("vector index not found")
-			http.Error(w, "vector index not found", http.StatusNotFound)
-			return
-		}
-
-		h, ok := vidx.(hfreshReassignAller)
-		if !ok {
-			release()
-			http.Error(w, "not an hfresh index", http.StatusBadRequest)
-			return
-		}
-
-		// The scan needs no shard reference: EnqueueReassignAll also watches
-		// the index's own lifecycle context and stops when the shard shuts
-		// down or is dropped, like the version map warmup does.
-		release()
-
-		reassignLogger := logger.
-			WithField("collection", colName).
-			WithField("shard", shardName).
-			WithField("targetVector", targetVector)
-
-		enterrors.GoWrapper(func() {
-			stats, err := h.EnqueueReassignAll(context.Background())
-			statsLogger := reassignLogger.
-				WithField("postings", stats.Postings).
-				WithField("enqueued", stats.Enqueued).
-				WithField("skippedDeleted", stats.SkippedDeleted).
-				WithField("skippedStale", stats.SkippedStale)
-			if err != nil {
-				statsLogger.Error(err)
-				return
-			}
-			statsLogger.Info("reassign-all enqueue completed")
-		}, reassignLogger)
-
-		reassignLogger.Info("reassign-all enqueue started")
-		w.WriteHeader(http.StatusAccepted)
+		return idx
 	}))
 
 	http.HandleFunc("/debug/stats/collection/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -982,6 +912,101 @@ type MaintenanceMode struct {
 
 type hnswStats interface {
 	Stats() (*hnsw.HnswStats, error)
+}
+
+type hfreshReassignIndex interface {
+	GetShard(context.Context, string) (db.ShardLike, func(), error)
+	ForEachShard(func(string, db.ShardLike) error) error
+}
+
+func newHFreshReassignHandler(logger logrus.FieldLogger, getIndex func(schema.ClassName) hfreshReassignIndex) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// This starts a mutating job; a probing GET must not trigger it.
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed, use POST", http.StatusMethodNotAllowed)
+			return
+		}
+
+		colName := r.URL.Query().Get("collection")
+		shardName := r.URL.Query().Get("shard")
+		targetVector := r.URL.Query().Get("vector")
+		if colName == "" {
+			http.Error(w, "collection is required", http.StatusBadRequest)
+			return
+		}
+		idx := getIndex(schema.ClassName(colName))
+		if idx == nil {
+			http.Error(w, "collection not found", http.StatusNotFound)
+			return
+		}
+
+		reassignLogger := logger.WithField("collection", colName).WithField("targetVector", targetVector)
+		if shardName == "" {
+			// Walk local shards in the background, scanning one at a time so
+			// a large collection does not launch a scan goroutine per shard.
+			enterrors.GoWrapper(func() {
+				err := idx.ForEachShard(func(name string, _ db.ShardLike) error {
+					shardLogger := reassignLogger.WithField("shard", name)
+					h, _, err := getHFreshReassigner(idx, name, targetVector)
+					if err != nil {
+						shardLogger.Errorf("failed to start reassign-all: %v", err)
+						return nil
+					}
+					enqueueHFreshReassign(h, shardLogger)
+					return nil
+				})
+				if err != nil {
+					reassignLogger.Errorf("failed to iterate local shards for reassign-all: %v", err)
+				}
+			}, reassignLogger)
+			reassignLogger.Info("reassign-all started for all local shards")
+		} else {
+			h, status, err := getHFreshReassigner(idx, shardName, targetVector)
+			if err != nil {
+				http.Error(w, err.Error(), status)
+				return
+			}
+			shardLogger := reassignLogger.WithField("shard", shardName)
+			enterrors.GoWrapper(func() { enqueueHFreshReassign(h, shardLogger) }, shardLogger)
+		}
+		w.WriteHeader(http.StatusAccepted)
+	}
+}
+
+func getHFreshReassigner(idx hfreshReassignIndex, shardName, targetVector string) (hfreshReassignAller, int, error) {
+	shard, release, err := idx.GetShard(context.Background(), shardName)
+	if err != nil {
+		return nil, http.StatusNotFound, err
+	}
+	// The scan watches HFresh's lifecycle context itself; retain the shard
+	// reference only while resolving its vector index, as for a single shard.
+	defer release()
+	if shard == nil {
+		return nil, http.StatusNotFound, fmt.Errorf("shard not found")
+	}
+	vidx, ok := shard.GetVectorIndex(targetVector)
+	if !ok {
+		return nil, http.StatusNotFound, fmt.Errorf("vector index not found")
+	}
+	h, ok := vidx.(hfreshReassignAller)
+	if !ok {
+		return nil, http.StatusBadRequest, fmt.Errorf("not an hfresh index")
+	}
+	return h, http.StatusAccepted, nil
+}
+
+func enqueueHFreshReassign(h hfreshReassignAller, logger logrus.FieldLogger) {
+	logger.Info("reassign-all enqueue started")
+	stats, err := h.EnqueueReassignAll(context.Background())
+	statsLogger := logger.WithField("postings", stats.Postings).
+		WithField("enqueued", stats.Enqueued).
+		WithField("skippedDeleted", stats.SkippedDeleted).
+		WithField("skippedStale", stats.SkippedStale)
+	if err != nil {
+		statsLogger.Errorf("reassign-all enqueue failed: %v", err)
+		return
+	}
+	statsLogger.Info("reassign-all enqueue completed")
 }
 
 type hfreshReassignAller interface {

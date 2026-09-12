@@ -56,23 +56,11 @@
 // trimOlderGenerationsLocked. These run OUTSIDE the mixed-state
 // subwindow.
 //
-//   - OnMigrationComplete is a per-strategy hook with significant
-//     drift between implementations. Some are no-ops (semantic
-//     change-tokenization, enable-filterable, enable-searchable —
-//     their cluster-wide schema flip is in OnTaskCompleted).
-//     Others mutate in-memory local state that the query path
-//     consults (e.g. FilterableToRangeableStrategy.OnMigrationComplete
-//     calls Shard.setRangeableLocallyReady so this shard's queries
-//     match the new schema before the RAFT flip propagates).
-//     Others issue RAFT calls inline
-//     (FilterableToRangeableStrategy.applyPerPropertySchemaUpdate,
-//     MapToBlockmaxStrategy.updateToBlockMaxInvertedIndexConfig).
-//     RAFT calls in this position are slow (100s of ms) but
-//     correctness-safe — the overlay covers the entire RunSwapOnShard
-//     for change-tokenization, and BlockMax has no analyzer overlay
-//     because the format change is internal. See the godoc on
-//     [MigrationStrategy.OnMigrationComplete] for the per-strategy
-//     contract.
+//   - OnMigrationComplete is a per-strategy hook: mostly a no-op, but
+//     FilterableToRangeableStrategy mutates in-memory readiness the query
+//     path consults, and MapToBlockmaxStrategy issues a RAFT call inline
+//     (slow, 100s of ms, but correctness-safe). See
+//     [MigrationStrategy.OnMigrationComplete] for the per-strategy contract.
 //
 // Phase 3 — DEFERRED LIVE-BUCKET RENAME (next process startup, BEFORE
 // LSM init reloads any buckets)
@@ -1422,15 +1410,10 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	logger.Debug("runtime swap: displaced dirs removed (staged→canonical rename deferred to next load)")
 	swapCompleted = true
 
-	// Ordering contract: rebuild must be checked before OnMigrationComplete.
-	//
-	// Unlike the semantic-migration family ([IsSemanticMigration]),
-	// FilterableToRangeableStrategy.OnMigrationComplete is not gated by
-	// task-terminal status - it RAFT-commits IndexRangeFilters=true
-	// unconditionally the first time any shard's swap reaches this line.
-	// Skipping the check would advertise range-query support while this
-	// shard still falls back to disk (or a corrupt segment parsed as empty
-	// - see [rebuildRangeableInMemoryReps]).
+	// Ordering contract: rebuild before OnMigrationComplete. The hook marks
+	// the property locally ready, pointing this shard's range queries at the
+	// swapped bucket; marking one that failed to activate for in-memory
+	// serving would serve a corrupt segment parsed as empty.
 	if err := t.rebuildRangeableInMemoryReps(ctx, logger, shard, props); err != nil {
 		return err
 	}
@@ -1581,7 +1564,7 @@ func (t *ShardReindexTaskGeneric) obsoleteTrackerDirs(logger logrus.FieldLogger,
 func (t *ShardReindexTaskGeneric) removeAllSafe(logger logrus.FieldLogger, path string) {
 	if err := os.RemoveAll(path); err != nil {
 		logger.WithField("path", path).
-			Warnf("runtime swap: trim: failed to remove obsolete dir; the orphan audit reclaims it: %v", err)
+			Warnf("runtime swap: trim: failed to remove obsolete dir; it is left on disk: %v", err)
 	}
 }
 

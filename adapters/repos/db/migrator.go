@@ -209,6 +209,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			StartupShards:                       &m.db.startupShards,
 			BucketLoadLimiter:                   m.db.bucketLoadLimiter,
 			NamespacesExister:                   m.db.namespacesExister,
+			QueryAdmission:                      m.db.queryAdmission,
 			HNSWMaxLogSize:                      m.db.config.HNSWMaxLogSize,
 			HNSWWaitForCachePrefill: func() bool {
 				// don't wait if lazy load shard is enabled

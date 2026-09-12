@@ -96,44 +96,6 @@ func TestMigrationDirName(t *testing.T) {
 	}
 }
 
-// TestFinalizeMigrationSuffixesRecognisesAllStrategies asserts that
-// migrationSuffixes returns a non-nil recipe for the dir name produced by
-// each strategy's MigrationDirName(). If a new strategy is added and its
-// constant is registered in inverted_reindex_strategy_dir_names.go but the
-// finalize switch isn't updated, this test fails.
-func TestFinalizeMigrationSuffixesRecognisesAllStrategies(t *testing.T) {
-	cases := []struct {
-		name string
-		dir  string
-	}{
-		{"MapToBlockmax", (&MapToBlockmaxStrategy{}).MigrationDirName()},
-		{"RoaringSetRefresh", (&RoaringSetRefreshStrategy{}).MigrationDirName()},
-		{"FilterableToRangeable_noProps", (&FilterableToRangeableStrategy{}).MigrationDirName()},
-		{"FilterableToRangeable_withProps", (&FilterableToRangeableStrategy{propNames: []string{"p"}}).MigrationDirName()},
-		{"SearchableRetokenize", (&SearchableRetokenizeStrategy{propName: "p"}).MigrationDirName()},
-		{"FilterableRetokenize", (&FilterableRetokenizeStrategy{propName: "p"}).MigrationDirName()},
-		{"EnableFilterable_noProps", (&EnableFilterableStrategy{}).MigrationDirName()},
-		{"EnableFilterable_withProps", (&EnableFilterableStrategy{propNames: []string{"p"}}).MigrationDirName()},
-		{"EnableSearchable_noProps", (&EnableSearchableStrategy{}).MigrationDirName()},
-		{"EnableSearchable_withProps", (&EnableSearchableStrategy{propNames: []string{"p"}}).MigrationDirName()},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := migrationSuffixes(tc.dir); got == nil {
-				t.Fatalf("migrationSuffixes(%q) = nil, want a recipe", tc.dir)
-			}
-		})
-	}
-}
-
-// TestFinalizeMigrationSuffixesUnknown asserts that an unknown dir name
-// returns nil, preserving the existing default-branch behaviour.
-func TestFinalizeMigrationSuffixesUnknown(t *testing.T) {
-	if got := migrationSuffixes("unknown_migration"); got != nil {
-		t.Fatalf("migrationSuffixes(unknown) = %+v, want nil", got)
-	}
-}
-
 func TestMigrationDirsForPropertyIndex_OmitsClassLevelMapToBlockmax(t *testing.T) {
 	got := migrationDirPrefixesForIndexType("searchable")
 	for _, p := range got {

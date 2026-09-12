@@ -12,6 +12,7 @@
 package compact
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -20,6 +21,64 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestCompactor_IsolatedNode(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		id    uint64
+		level uint16
+	}{
+		{name: "first HNSW object", id: 0},
+		{name: "first HFresh centroid", id: 1},
+		{name: "higher level node", id: 7, level: 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			logger := logrus.New()
+			compactor := NewCompactor(DefaultCompactorConfig(dir), logger)
+			for round := 0; round < 3; round++ {
+				name := fmt.Sprint(1000 + round)
+				f, err := os.Create(filepath.Join(dir, name))
+				require.NoError(t, err)
+				writer := NewWALWriter(f)
+				switch round {
+				case 0:
+					require.NoError(t, writer.WriteSetEntryPointMaxLevel(tc.id, tc.level))
+					require.NoError(t, writer.WriteAddNode(tc.id, tc.level))
+				case 1:
+					// A later log has no AddNode. It must not lower the stored level.
+					require.NoError(t, writer.WriteAddLinksAtLevel(tc.id, 0, nil))
+				case 2:
+					// Deletion must still win over the isolated node in the snapshot.
+					require.NoError(t, writer.WriteDeleteNode(tc.id))
+				}
+				require.NoError(t, f.Close())
+				createEmptyFile(t, dir, fmt.Sprint(1001+round))
+				// Force another snapshot even when the delta is smaller than 20%.
+				compactor.config.SnapshotThreshold = 0.000001
+				action, err := compactor.RunCycle(nil)
+				require.NoError(t, err)
+				require.Equal(t, ActionCreateSnapshot, action)
+				state, err := NewFileDiscovery(dir).Scan()
+				require.NoError(t, err)
+				require.NotNil(t, state.Snapshot)
+				res, err := NewSnapshotReader(logger).ReadFromFile(state.Snapshot.Path)
+				require.NoError(t, err)
+				if round == 2 {
+					if int(tc.id) < len(res.Graph.Nodes) {
+						require.Nil(t, res.Graph.Nodes[tc.id])
+					}
+					continue
+				}
+				require.Greater(t, len(res.Graph.Nodes), int(tc.id))
+				node := res.Graph.Nodes[tc.id]
+				require.NotNil(t, node, "isolated node must survive compaction round %d", round)
+				require.Equal(t, int(tc.level), node.Level)
+				require.Equal(t, tc.id, res.Graph.Entrypoint)
+			}
+		})
+	}
+}
 
 func TestCompactor_EmptyDirectory(t *testing.T) {
 	dir := t.TempDir()

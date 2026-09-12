@@ -154,26 +154,25 @@ func filterableToRangeableFingerprint(t *testing.T, b *lsmkv.Bucket) map[uint64]
 	return out
 }
 
-// newFilterableToRangeableTask wraps a FilterableToRangeableStrategy in
-// the test infrastructure. Mirrors NewRuntimeFilterableToRangeableTask
-// (the production constructor in inverted_reindexer_filterable_to_rangeable.go)
-// but with two test-side adaptations:
-//
-//  1. schemaManager is nil — the test wrapper overrides OnMigrationComplete
-//     so the schema-flag flip never runs, and the strategy doesn't touch
-//     schemaManager outside that call.
-//  2. The OnMigrationComplete observer is a flag setter, so the baseline
-//     test can assert the hook fired without needing a real RAFT/schema
-//     wire-up.
+// newFilterableToRangeableTask mirrors NewRuntimeFilterableToRangeableTask but
+// overrides OnMigrationComplete with a flag setter the baseline test asserts on.
 func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName, unitID string) (*ShardReindexTaskGeneric, *testFilterableToRangeableStrategyWrapper) {
 	t.Helper()
 	wrapped := &testFilterableToRangeableStrategyWrapper{
 		FilterableToRangeableStrategy: FilterableToRangeableStrategy{
-			schemaManager: nil, // OnMigrationComplete is overridden below
-			propNames:     []string{propName},
-			generation:    1,
+			propNames:  []string{propName},
+			generation: 1,
 		},
 	}
+	return newFilterableToRangeableTaskWithStrategy(t, idx, className, propName, unitID, wrapped), wrapped
+}
+
+// newFilterableToRangeableTaskWithStrategy takes a caller-supplied strategy,
+// for tests that need the production OnMigrationComplete.
+func newFilterableToRangeableTaskWithStrategy(t *testing.T, idx *Index, className, propName, unitID string,
+	strategy MigrationStrategy,
+) *ShardReindexTaskGeneric {
+	t.Helper()
 
 	selectedProps := map[string]struct{}{propName: {}}
 	cfg := reindexTaskConfig{
@@ -193,7 +192,7 @@ func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName,
 	}
 
 	task := NewShardReindexTaskGeneric(
-		"FilterableToRangeable", idx.logger, wrapped, cfg,
+		"FilterableToRangeable", idx.logger, strategy, cfg,
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
 		defaultIndexClosingGuard,
 	)
@@ -202,7 +201,7 @@ func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName,
 		unitID,
 		&ReindexTaskPayload{MigrationType: ReindexTypeEnableRangeable},
 	)
-	return task, wrapped
+	return task
 }
 
 // testFilterableToRangeableStrategyWrapper overrides OnMigrationComplete
