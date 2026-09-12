@@ -97,11 +97,11 @@ func (sc retokenizeScenario) run(t *testing.T) map[string][]uint64 {
 	var bucketName string
 	if sc.filterable {
 		bucketName = helpers.BucketFromPropNameLSM(propName)
-		task, _ = newFilterableRetokenizeTask(t, idx, className, propName, sc.targetTok)
+		task, _ = newFilterableRetokenizeTask(t, idx, className, propName, sc.targetTok, shard.migrationUnit())
 	} else {
 		bucketName = helpers.BucketSearchableFromPropNameLSM(propName)
 		preStrategy := shard.store.Bucket(bucketName).Strategy()
-		task, _ = newSearchableRetokenizeTask(t, idx, className, propName, sc.targetTok, preStrategy)
+		task, _ = newSearchableRetokenizeTask(t, idx, className, propName, sc.targetTok, preStrategy, shard.migrationUnit())
 	}
 
 	// Drive to reindexed-but-not-swapped: iterator done, double-write live.

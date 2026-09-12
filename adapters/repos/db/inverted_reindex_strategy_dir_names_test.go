@@ -96,49 +96,6 @@ func TestMigrationDirName(t *testing.T) {
 	}
 }
 
-// TestFinalizeMigrationSuffixesRecognisesAllStrategies asserts that
-// migrationSuffixes returns a non-nil recipe for the dir name produced by
-// each strategy's MigrationDirName(). If a new strategy is added and its
-// constant is registered in inverted_reindex_strategy_dir_names.go but the
-// finalize switch isn't updated, this test fails.
-func TestFinalizeMigrationSuffixesRecognisesAllStrategies(t *testing.T) {
-	cases := []struct {
-		name string
-		dir  string
-	}{
-		{"MapToBlockmax", (&MapToBlockmaxStrategy{}).MigrationDirName()},
-		{"RoaringSetRefresh", (&RoaringSetRefreshStrategy{}).MigrationDirName()},
-		{"FilterableToRangeable_noProps", (&FilterableToRangeableStrategy{}).MigrationDirName()},
-		{"FilterableToRangeable_withProps", (&FilterableToRangeableStrategy{propNames: []string{"p"}}).MigrationDirName()},
-		{"SearchableRetokenize", (&SearchableRetokenizeStrategy{propName: "p"}).MigrationDirName()},
-		{"FilterableRetokenize", (&FilterableRetokenizeStrategy{propName: "p"}).MigrationDirName()},
-		{"EnableFilterable_noProps", (&EnableFilterableStrategy{}).MigrationDirName()},
-		{"EnableFilterable_withProps", (&EnableFilterableStrategy{propNames: []string{"p"}}).MigrationDirName()},
-		{"EnableSearchable_noProps", (&EnableSearchableStrategy{}).MigrationDirName()},
-		{"EnableSearchable_withProps", (&EnableSearchableStrategy{propNames: []string{"p"}}).MigrationDirName()},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := migrationSuffixes(tc.dir); got == nil {
-				t.Fatalf("migrationSuffixes(%q) = nil, want a recipe", tc.dir)
-			}
-		})
-	}
-}
-
-// TestFinalizeMigrationSuffixesUnknown asserts that an unknown dir name
-// returns nil, preserving the existing default-branch behaviour.
-func TestFinalizeMigrationSuffixesUnknown(t *testing.T) {
-	if got := migrationSuffixes("unknown_migration"); got != nil {
-		t.Fatalf("migrationSuffixes(unknown) = %+v, want nil", got)
-	}
-}
-
-// TestMigrationDirsForPropertyIndex_OmitsClassLevelMapToBlockmax pins the
-// per-property contract: the class-level MapToBlockmax tracker must NOT be
-// returned here (cleanStaleMigrationDirsAt + CleanStalePartialReindexState
-// would corrupt the class-level dir on single-property cleanup). The
-// blockmax tracker is matched directly in LocalCallbacksDone instead.
 func TestMigrationDirsForPropertyIndex_OmitsClassLevelMapToBlockmax(t *testing.T) {
 	got := migrationDirPrefixesForIndexType("searchable")
 	for _, p := range got {
@@ -147,9 +104,6 @@ func TestMigrationDirsForPropertyIndex_OmitsClassLevelMapToBlockmax(t *testing.T
 				got, MigrationDirSearchableMapToBlockmax)
 		}
 	}
-	require.Equal(t, MigrationDirSearchableMapToBlockmax,
-		migrationDirsOf("", nil, "text", "searchable").preserving("searchable").classDir,
-		"the preserve set must still span it: a completed class-level migration owns live sidecars")
 }
 
 // Pins which tracker dirs a (property, index type) cleanup owns: the ones a
@@ -170,7 +124,6 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 		// propName is the property being swept; "cat" unless set.
 		propName  string
 		indexType string
-		preserve  bool
 		want      bool
 	}{
 		{
@@ -226,13 +179,6 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			dir:  "enable_filterable_b_a_1", props: []string{"a", "b"},
 			propName: "a", want: false,
 		},
-		// An intact payload decides on its own, so the name-token fallback that
-		// preserves this same dir without a payload does not apply here.
-		{
-			name: "a payload naming this property, in a dir name it does not rebuild, in the preserve set",
-			dir:  "enable_filterable_b_a_1", props: []string{"a", "b"},
-			propName: "a", preserve: true, want: false,
-		},
 		{
 			name: "a property whose name extends this one",
 			dir:  "enable_filterable_cat_x_1", props: []string{"cat_x"},
@@ -250,50 +196,30 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			dir:      "enable_filterable_a_b_1",
 			propName: "a", want: false,
 		},
-		// #10675: sidecar deletion is not payload-gated, so preservation must
-		// still catch this tracker even without a payload.
 		{
-			name:     "a two-property task with no payload, in the preserve set",
-			dir:      "enable_filterable_a_b_1",
-			propName: "a", preserve: true, want: true,
-		},
-		// Preserve guessing stays scoped to this property; not the whole prefix.
-		{
-			name:     "another property's task with no payload, in the preserve set",
+			name:     "another property's task with no payload",
 			dir:      "enable_filterable_other_1",
-			propName: "cat", preserve: true, want: false,
-		},
-		// Over-preserved on purpose: ambiguous between "cat"+"x" and "cat_x".
-		{
-			name:     "a property whose name extends this one, with no payload, in the preserve set",
-			dir:      "enable_filterable_cat_x_1",
-			propName: "cat", preserve: true, want: true,
+			propName: "cat", want: false,
 		},
 		{
-			name:     "a property whose name this one extends across the join character, in the preserve set",
+			name:     "a property whose name this one extends across the join character",
 			dir:      "enable_filterable_b_a_1",
-			propName: "a", preserve: true, want: true,
+			propName: "a", want: false,
 		},
-		// The swept property as a middle "_"-token of a payload-less name. No
-		// sorted multi-property name has this shape, but a single property
-		// named "x_a_y" does; only the middle-token clause of
-		// namesPropertyToken catches it.
 		{
-			name:     "a single property carrying this property mid-token, with no payload, in the preserve set",
+			name:     "a single property carrying this property mid-token, with no payload",
 			dir:      "enable_filterable_x_a_y_1",
-			propName: "a", preserve: true, want: true,
-		},
-		// [migrationDirWithProps] sorts, so the only name a writer leaves that
-		// matches mid-list is the task's own middle property.
-		{
-			name:     "the middle property of a three-property task, with no payload, in the preserve set",
-			dir:      "enable_filterable_a_b_c_1",
-			propName: "b", preserve: true, want: true,
+			propName: "a", want: false,
 		},
 		{
 			name:     "the middle property of a three-property task, with no payload",
 			dir:      "enable_filterable_a_b_c_1",
 			propName: "b", want: false,
+		},
+		{
+			name: "the middle property of a three-property task, with its payload",
+			dir:  "enable_filterable_a_b_c_1", props: []string{"a", "b", "c"},
+			propName: "b", want: true,
 		},
 		// An empty payload decides nothing, so falls back to the name like a
 		// missing payload does.
@@ -310,11 +236,6 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			name:           "a two-property shape with an unparseable payload",
 			dir:            "enable_filterable_a_b_1",
 			corruptPayload: true, propName: "a", want: false,
-		},
-		{
-			name:           "a two-property shape with an unparseable payload, in the preserve set",
-			dir:            "enable_filterable_a_b_1",
-			corruptPayload: true, propName: "a", preserve: true, want: true,
 		},
 		{
 			name: "a property whose name this one extends",
@@ -335,11 +256,6 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			name: "the class-level tracker every property shares",
 			dir:  "filterable_roaringset_refresh_1",
 			want: false,
-		},
-		{
-			name:     "the class-level tracker, in the preserve set",
-			dir:      "filterable_roaringset_refresh_1",
-			preserve: true, want: true,
 		},
 		{
 			name: "an index type with no strategies",
@@ -375,11 +291,8 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 					[]byte("not a recovery record"), 0o644))
 			}
 
-			scope := migrationDirsOf(lsm, nil, propName, indexType)
-			if tc.preserve {
-				scope = scope.preserving(indexType)
-			}
-			require.Equal(t, tc.want, scope.inScope(tc.dir))
+			require.Equal(t, tc.want,
+				migrationDirsOf(lsm, propName, indexType).inScope(tc.dir))
 		})
 	}
 }

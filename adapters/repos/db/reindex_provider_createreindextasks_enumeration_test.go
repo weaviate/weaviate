@@ -20,15 +20,15 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
+func testTaskIdentity() (distributedtask.TaskDescriptor, string) {
+	return distributedtask.TaskDescriptor{ID: "Books:reindex:ab12", Version: 7}, "shard-1__node-0"
+}
+
 // Structural pin for createReindexTasks' switch: every
 // ReindexMigrationType in reindex_provider_payload.go must dispatch to
 // at least one ShardReindexTaskGeneric or fail with a documented
 // error. A new constant without a matching case fails the loop below
 // instead of silently producing "unknown migration type" at runtime.
-
-// The dispatch switch is what these cases pin; the descriptor only has to
-// name a version the names can carry.
-var enumerationDesc = distributedtask.TaskDescriptor{ID: "task-1", Version: 1}
 
 // allKnownMigrationTypes is the authoritative enumeration; sorted to
 // match the declaration order in reindex_provider_payload.go.
@@ -227,7 +227,8 @@ func TestCreateReindexTasks_AllKnownTypesDispatched(t *testing.T) {
 			// c.mt and we want the payload to match.
 			payload := *c.payload
 			payload.MigrationType = c.mt
-			tasks, err := p.createReindexTasks(enumerationDesc, &payload, tmpLsmPath, false)
+			desc, unitID := testTaskIdentity()
+			tasks, err := p.createReindexTasks(desc, unitID, &payload, tmpLsmPath, false)
 
 			if c.wantErrSubst != "" {
 				require.Errorf(t, err,
@@ -251,6 +252,9 @@ func TestCreateReindexTasks_AllKnownTypesDispatched(t *testing.T) {
 				assert.NotNilf(t, task,
 					"migration type %q produced nil task at index %d (production code would NPE on RunOnShard)",
 					c.mt, i)
+				assert.Truef(t, task.migrationRecordKey().valid(),
+					"migration type %q task %d has an unusable record key %s",
+					c.mt, i, task.migrationRecordKey())
 			}
 		})
 	}
@@ -267,7 +271,8 @@ func TestCreateReindexTasks_UnknownTypeRejected(t *testing.T) {
 	tmpLsmPath := t.TempDir()
 	p := &ReindexProvider{logger: logger}
 
-	tasks, err := p.createReindexTasks(enumerationDesc, &ReindexTaskPayload{
+	desc, unitID := testTaskIdentity()
+	tasks, err := p.createReindexTasks(desc, unitID, &ReindexTaskPayload{
 		MigrationType: ReindexMigrationType("definitely-not-a-real-type"),
 		Collection:    "MyClass",
 		Properties:    []string{"title"},
@@ -290,7 +295,8 @@ func TestCreateReindexTasks_EmptyPropertiesRejected(t *testing.T) {
 
 	for _, mt := range allKnownMigrationTypes() {
 		t.Run(string(mt), func(t *testing.T) {
-			tasks, err := p.createReindexTasks(enumerationDesc, &ReindexTaskPayload{
+			desc, unitID := testTaskIdentity()
+			tasks, err := p.createReindexTasks(desc, unitID, &ReindexTaskPayload{
 				MigrationType: mt,
 				Collection:    "MyClass",
 				// Properties: nil — the gate is in createReindexTasks itself.
@@ -319,7 +325,8 @@ func TestCreateReindexTasks_TooManyPropertiesRejected(t *testing.T) {
 		tooMany[i] = "p"
 	}
 
-	tasks, err := p.createReindexTasks(enumerationDesc, &ReindexTaskPayload{
+	desc, unitID := testTaskIdentity()
+	tasks, err := p.createReindexTasks(desc, unitID, &ReindexTaskPayload{
 		MigrationType: ReindexTypeRepairFilterable, // arbitrary; the gate is migration-agnostic
 		Collection:    "MyClass",
 		Properties:    tooMany,

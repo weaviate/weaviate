@@ -26,7 +26,6 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -100,14 +99,18 @@ func (f *reconcileFixture) logged(want string) bool {
 	return false
 }
 
-func (f *reconcileFixture) errorLines(contains string) []string {
+func (f *reconcileFixture) linesAt(level logrus.Level, contains string) []string {
 	var lines []string
 	for _, entry := range f.logs.AllEntries() {
-		if entry.Level == logrus.ErrorLevel && strings.Contains(entry.Message, contains) {
+		if entry.Level == level && strings.Contains(entry.Message, contains) {
 			lines = append(lines, entry.Message)
 		}
 	}
 	return lines
+}
+
+func (f *reconcileFixture) errorLines(contains string) []string {
+	return f.linesAt(logrus.ErrorLevel, contains)
 }
 
 func manyMigrationProps(n int) []string {
@@ -151,52 +154,6 @@ func (f *reconcileFixture) deps() migrationReconcileDeps {
 	}
 }
 
-func TestOnlyAHandleNamingOneDirectoryBecomesAPath(t *testing.T) {
-	tests := []struct {
-		name             string
-		dir              string
-		refusedAsPath    bool
-		refusedAsRemoval bool
-	}{
-		{name: "names none", dir: "", refusedAsPath: true, refusedAsRemoval: false},
-		{name: "the root itself", dir: ".", refusedAsPath: true, refusedAsRemoval: true},
-		{name: "the parent of the root", dir: "..", refusedAsPath: true, refusedAsRemoval: true},
-		{name: "a join back to the root", dir: "x/..", refusedAsPath: true, refusedAsRemoval: true},
-		{name: "a nested path", dir: "sub/dir", refusedAsPath: true, refusedAsRemoval: true},
-		{name: "an absolute path", dir: "/etc", refusedAsPath: true, refusedAsRemoval: true},
-		{name: "one directory", dir: "property_title_searchable", refusedAsPath: false, refusedAsRemoval: false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newReconcileFixture(t)
-			f.mkdirs(helpers.ObjectsBucketLSM, "property_title_searchable")
-			r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
-
-			path, err := r.path(f.lsmPath, tt.dir, "a recorded directory")
-			if tt.refusedAsPath {
-				require.Error(t, err)
-				require.Empty(t, path)
-			} else {
-				require.NoError(t, err)
-				require.Equal(t, filepath.Join(f.lsmPath, tt.dir), path)
-			}
-
-			err = r.removeDir(f.lsmPath, tt.dir, "a recorded directory")
-			if tt.refusedAsRemoval {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-
-			require.DirExists(t, f.lsmPath, "the shard's LSM directory")
-			require.True(t, f.exists(helpers.ObjectsBucketLSM), "the shard's object store")
-			require.Equal(t, tt.refusedAsPath, f.exists("property_title_searchable"),
-				"only a handle that names one directory removes one")
-		})
-	}
-}
-
 func (f *reconcileFixture) mkdirs(names ...string) {
 	f.t.Helper()
 	for _, name := range names {
@@ -237,14 +194,6 @@ func (f *reconcileFixture) blockRecordWrites() {
 func (f *reconcileFixture) allowRecordWrites() {
 	f.t.Helper()
 	require.NoError(f.t, os.Chmod(f.store.Dir(), 0o700))
-}
-
-// A file no build can decode, which is what withholds every destructive action
-// on the shard whose record store holds it.
-func plantUnreadableRecord(t *testing.T, dir string) {
-	t.Helper()
-	require.NoError(t, os.MkdirAll(dir, 0o777))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "99_enable_searchable.json"), []byte("{"), 0o600))
 }
 
 // Writes the file without the writer's own bookkeeping, which is the only way
@@ -649,10 +598,11 @@ func TestAbandonPromotionKeepsARenameThatAlreadyMoved(t *testing.T) {
 				require.NoError(t, os.WriteFile(
 					filepath.Join(f.lsmPath, "property_title_searchable"), []byte("not a directory"), 0o600))
 				r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
-				updated, promoted, err := r.promoteProperty(rec, "title",
+				updated, promoted, deferred, err := r.promoteProperty(rec, "title",
 					promotionDirs{staged: "property_title__g42_ingest", canonical: "property_title_searchable"})
 				require.Error(t, err, "fixture: the rename has to fail for there to be anything to take back")
 				require.False(t, promoted)
+				require.Empty(t, deferred)
 				return updated
 			},
 			stagedThere: true,
@@ -673,6 +623,7 @@ func TestAbandonPromotionKeepsARenameThatAlreadyMoved(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newReconcileFixture(t)
+			f.class = testClassWithTokenization(models.PropertyTokenizationWord, "title")
 			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
 			if tt.stagedThere {
 				f.mkdirs("property_title__g42_ingest")
@@ -1424,53 +1375,6 @@ func TestPromotionWithholdsOnADirectoryItCannotStat(t *testing.T) {
 	}
 }
 
-// The probe every recorded directory is resolved through. A stat that could
-// not answer must not read as an absent directory: the promotion probe would
-// take "cannot see it" as proof the rename already ran.
-func TestDirExistsSeparatesAbsentFromUnreadable(t *testing.T) {
-	tests := []struct {
-		name     string
-		dir      string
-		sealRoot bool
-		want     bool
-		wantErr  bool
-	}{
-		{name: "a directory that is there", dir: "property_title_searchable", want: true},
-		{name: "nothing at that name", dir: "property_gone_searchable"},
-		{name: "a regular file is not a directory", dir: "afile"},
-		{name: "a handle naming none reads as absent, not as an error", dir: ""},
-		{name: "a handle that does not name one directory under the shard", dir: "sub/dir", wantErr: true},
-		{
-			name: "a directory the process may not stat is not an absent one",
-			dir:  "property_title_searchable", sealRoot: true, wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newReconcileFixture(t)
-			f.mkdirs("property_title_searchable")
-			require.NoError(t, os.WriteFile(filepath.Join(f.lsmPath, "afile"), []byte("x"), 0o600))
-			if tt.sealRoot {
-				if os.Geteuid() == 0 {
-					t.Skip("root traverses a 0o000 directory, so the permission error cannot arise")
-				}
-				require.NoError(t, os.Chmod(f.lsmPath, 0o000))
-				t.Cleanup(func() { os.Chmod(f.lsmPath, 0o700) })
-			}
-
-			there, err := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).dirExists(tt.dir)
-			if tt.wantErr {
-				require.Error(t, err)
-				require.False(t, there, "a probe that could not answer must not report a directory")
-				return
-			}
-			require.NoError(t, err)
-			require.Equal(t, tt.want, there)
-		})
-	}
-}
-
 // A record whose flip is durable is never re-decided. The cluster pass reaches
 // records a shard load left standing, and the leader can report the owning task
 // cancelled long after the flip: discarding then takes the only copy there is.
@@ -1782,7 +1686,8 @@ func TestACancelledPassRemovesNothing(t *testing.T) {
 	require.Equal(t, "property_body__g50_ingest", f.contentOf("property_body__g50_ingest"),
 		"so the rename it would have run never ran")
 
-	require.ErrorIs(t, r.repromoteWhatTheRecordOutran(ctx, all, committing), context.Canceled,
+	_, outranErr := r.repromoteWhatTheRecordOutran(ctx, all, committing)
+	require.ErrorIs(t, outranErr, context.Canceled,
 		"and so does the sweep that re-runs a promotion the record outran")
 	require.Equal(t, "property_body__g50_ingest", f.contentOf("property_body__g50_ingest"))
 
@@ -1892,6 +1797,8 @@ func TestARecordTheAppliedSchemaHasNotCaughtUpWithIsAskedAgain(t *testing.T) {
 			state, _ = f.state(subject.Key)
 			require.Equal(t, MigrationStateSwapped, state,
 				"and the pass after the schema catches up commits it")
+			require.False(t, f.store.HasUndecided(),
+				"the flip is decided, so the pass has nothing left to ask the leader about this shard")
 		})
 	}
 }
@@ -1967,4 +1874,21 @@ func TestAWedgedRecordIsDiagnosedOncePerLoadedStore(t *testing.T) {
 	require.True(t, present, "the wedged record answers for staged data nothing else attributes")
 	require.Equal(t, MigrationStateMerged, state, "and nothing promoted or discarded it")
 	require.True(t, f.exists("property_title__g42_ingest"), "its staged data is untouched")
+}
+
+// The shared cap every log line carrying a property list goes through; the list
+// is user-chosen, so nothing in the code bounds its length.
+func TestMigrationReportedNamesCapsAPropertyList(t *testing.T) {
+	names := make([]string, 0, 30)
+	for i := 0; i < 30; i++ {
+		names = append(names, fmt.Sprintf("prop_%02d", i))
+	}
+
+	got := migrationReportedNames(names)
+
+	require.Len(t, got, maxReportedErrors+1, "the cap, plus the entry accounting for the rest")
+	require.Equal(t, "(and 20 more)", got[len(got)-1])
+	require.Equal(t, "prop_00", got[0], "sorted, so the same list reads the same way twice")
+	require.Equal(t, []string{"only"}, migrationReportedNames([]string{"only"}),
+		"a list within the cap is reported whole")
 }

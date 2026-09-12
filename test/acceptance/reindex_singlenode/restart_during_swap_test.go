@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
@@ -303,9 +304,6 @@ func restartSwapFilterQuery(t *testing.T, className, property, operator, value s
 	return ids
 }
 
-// dumpShardState lists the LSM dir, .migrations dir, and the sentinel files
-// inside it for the first shard of the given class. Used as a diagnostic aid
-// when the swap fails to fire.
 func dumpShardState(ctx context.Context, t *testing.T, c testcontainers.Container, className string) {
 	t.Helper()
 	lsmGlob := fmt.Sprintf("/data/%s/", strings.ToLower(className))
@@ -314,7 +312,7 @@ func dumpShardState(ctx context.Context, t *testing.T, c testcontainers.Containe
 		{"sh", "-c", "find " + lsmGlob + " -maxdepth 6 -type d -printf '%p\\n' 2>/dev/null | head -50"},
 		{"sh", "-c", "find " + lsmGlob + " -maxdepth 6 -name '*.mig' -printf '%p\\n' 2>/dev/null"},
 	} {
-		code, reader, err := c.Exec(ctx, cmd)
+		code, reader, err := c.Exec(ctx, cmd, tcexec.Multiplexed())
 		if err != nil {
 			t.Logf("exec %v error: %v", cmd, err)
 			continue

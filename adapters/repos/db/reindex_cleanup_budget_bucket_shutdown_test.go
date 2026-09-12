@@ -54,7 +54,7 @@ func sweepStoppedInABucketShutdown(t *testing.T,
 
 	// A cancelled attempt at gen 2: started but never completed, so the sweep
 	// has to shut its ingest bucket down rather than preserve it.
-	mkTrackerDir(t, shard.pathLSM(), "enable_filterable_category_2", "started.mig")
+	mkTrackerDir(t, shard.pathLSM(), "enable_filterable_category_2")
 	const sidecar = "property_category__enable_filterable_ingest_2"
 	require.NoError(t, shard.store.CreateOrLoadBucket(testCtx(), sidecar,
 		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))

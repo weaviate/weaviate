@@ -14,17 +14,18 @@ package db
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
-	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
+
+type migrationMirrorDisarmer interface {
+	DisarmMigrationMirror(key MigrationRecordKey, prop string)
+}
 
 // Must run before the directory is removed, or mmaps and compactions leak.
 // Takes directories, not a record, so the caller closes only what it has
@@ -41,12 +42,13 @@ type migrationReconcileDeps struct {
 
 	Class func() *models.Class
 
+	Mirror  migrationMirrorDisarmer
 	Buckets migrationStagedBucketCloser
 }
 
 type migrationReconciler struct {
 	store      *MigrationRecordStore
-	lsmPath    string
+	dirs       bucketDirs
 	wedgedKeys map[MigrationRecordKey]bool
 	logger     logrus.FieldLogger
 	deps       migrationReconcileDeps
@@ -55,7 +57,9 @@ type migrationReconciler struct {
 func newMigrationReconciler(store *MigrationRecordStore, lsmPath string,
 	logger logrus.FieldLogger, deps migrationReconcileDeps,
 ) *migrationReconciler {
-	return &migrationReconciler{store: store, lsmPath: lsmPath, logger: logger, deps: deps}
+	return &migrationReconciler{
+		store: store, dirs: shardBucketDirs(lsmPath), logger: logger, deps: deps,
+	}
 }
 
 type migrationVerdict uint8
@@ -80,8 +84,6 @@ const migrationWedgeRemedyNoCanonical = "Once you have confirmed which directory
 	"the property's data, remove this record by hand; no new migration can supersede a " +
 	"record that names no canonical directory."
 
-// A property list is user-chosen and unbounded, so it never reaches a log line
-// whole: the count goes in a field and the names go through the shared cap.
 func migrationReportedNames(names []string) []string {
 	set := make(map[string]struct{}, len(names))
 	for _, name := range names {
@@ -114,6 +116,20 @@ func (r *migrationReconciler) wedged(subject MigrationSubject, remedy, format st
 	r.logger.WithField("record", subject.Key.String()).
 		WithField("property_count", len(subject.Props)).
 		Errorf(format+" "+remedy, args...)
+}
+
+func (r *migrationReconciler) deferredBySchema(subject MigrationSubject,
+	deferring errorcompounder.ErrorCompounder,
+) {
+	reported := deferring.ToErrorLimited(maxReportedErrors)
+	if reported == nil {
+		return
+	}
+	r.logger.WithField("record", subject.Key.String()).
+		WithField("property_count", deferring.Len()).
+		Infof("%d propert(y/ies) keep their staged name: the schema does not enable the index they were "+
+			"rebuilt for, and promoting now would put their data where the next load's sweep deletes it: %v",
+			deferring.Len(), reported)
 }
 
 // Debug, not Info: a Leave repeats on every shard load for the life of the
@@ -222,10 +238,7 @@ func (r *migrationReconciler) reconcileUncommitted(ctx context.Context, rec Migr
 		// Above the restart edge, not below it: a migration the cluster
 		// committed can never be finished here, so restarting its rebuild
 		// would restart it on every load and the record would never terminate.
-		r.wedged(subject, migrationWedgeRemedy,
-			"migration is %s locally but the cluster reports it committed (%s), so no load here can finish it. "+
-				"Properties: %s.",
-			rec.State(), why, strings.Join(migrationReportedNames(subject.Properties()), ", "))
+		r.wedgeUncommittable(rec, why)
 		return nil
 	case migrationVerdictLeave:
 	default:
@@ -244,7 +257,7 @@ func (r *migrationReconciler) reconcileUncommitted(ctx context.Context, rec Migr
 // resuming would swap in an incomplete bucket.
 func (r *migrationReconciler) restartIfRebuiltDataGone(subject MigrationSubject) (bool, error) {
 	for _, dir := range migrationOwnedDirs(subject) {
-		there, err := r.dirExists(dir)
+		there, err := r.dirs.Exists(dir)
 		if err != nil {
 			return false, err
 		}
@@ -307,7 +320,7 @@ func (r *migrationReconciler) commitMerged(subject MigrationSubject,
 				"refusing to commit the flip: property %q names no staged or canonical directory, "+
 					"so the flip it would record could never be promoted", prop)
 		}
-		there, err := r.dirExists(staged)
+		there, err := r.dirs.Exists(staged)
 		if err != nil {
 			return MigrationRecordSwapped{}, err
 		}
@@ -340,7 +353,7 @@ func (r *migrationReconciler) ReconcileWithClusterTasks(ctx context.Context, tas
 			return
 		}
 		subject := rec.Subject()
-		if rec.PointerSwapped() || r.store.Wedged(subject.Key) {
+		if rec.FlipDecided() || r.store.Wedged(subject.Key) {
 			continue
 		}
 		verdict, why := r.clusterVerdict(subject, tasks)
@@ -360,9 +373,20 @@ func (r *migrationReconciler) ReconcileWithClusterTasks(ctx context.Context, tas
 			}
 			r.logger.WithField("record", subject.Key.String()).Info(
 				"the staged data is the data; the next shard load promotes it onto the canonical name")
+		case verdict == migrationVerdictCommit:
+			r.wedgeUncommittable(rec, why)
 		}
 	}
 	monitoring.GetMetrics().AddMigrationRecordsWedged(r.WedgedCount(), 0)
+}
+
+func (r *migrationReconciler) wedgeUncommittable(rec MigrationRecord, why string) {
+	subject := rec.Subject()
+	r.wedged(subject, migrationWedgeRemedy,
+		"migration is %s locally but the cluster reports it committed (%s), so no load here can finish it. "+
+			"Properties: %s.",
+		rec.State(), why, strings.Join(migrationReportedNames(subject.Properties()), ", "))
+	r.store.MarkWedged(subject.Key)
 }
 
 // As destructive as discard (removes directories before renaming), so
@@ -387,6 +411,8 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 	// property, and a failure between the rename and its sync yields two.
 	promoting := errorcompounder.New()
 	var noHandles []string
+	unretired := errorcompounder.New()
+	deferring := errorcompounder.New()
 
 	for _, prop := range subject.Properties() {
 		// Between Put(started) and the rename there is no check: those two are
@@ -395,6 +421,10 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 			return err
 		}
 		if migrationPropertySuperseded(all, subject, prop) {
+			if retired, why := r.supersededPropertyIsRetired(all, subject, prop); !retired {
+				settled = false
+				unretired.Addf("%s", why)
+			}
 			continue
 		}
 
@@ -406,12 +436,17 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 		}
 
 		displaced, _ := rec.DisplacedDir(prop)
-		updated, promoted, err := r.promoteProperty(rec, prop,
+		updated, promoted, deferred, err := r.promoteProperty(rec, prop,
 			promotionDirs{staged: staged, canonical: canonical, displaced: displaced})
 		rec = updated
 		if err != nil {
 			settled = false
 			promoting.AddWrapf(err, "promote property %q", prop)
+			continue
+		}
+		if deferred != "" {
+			settled = false
+			deferring.Addf("%s", deferred)
 			continue
 		}
 		if !promoted {
@@ -420,6 +455,8 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 		}
 		promotedAny = true
 	}
+
+	r.deferredBySchema(subject, deferring)
 
 	if len(noHandles) > 0 {
 		r.wedged(subject, migrationWedgeRemedyNoCanonical,
@@ -435,6 +472,13 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 		return err
 	}
 
+	if reported := unretired.ToErrorLimited(maxReportedErrors); reported != nil {
+		r.logger.WithField("record", subject.Key.String()).Warnf(
+			"%d superseded propert(y/ies) of this record still hold their staged directory, so retirement "+
+				"has not run for them; keeping the record, which is what lets the next load retry: %v",
+			unretired.Len(), reported)
+	}
+
 	// A Promoted record is read as "this rename happened". A pass that renamed
 	// nothing must not write one; a fully superseded record is retired instead.
 	if !settled || !promotedAny {
@@ -443,71 +487,103 @@ func (r *migrationReconciler) promoteSealed(ctx context.Context, rec MigrationRe
 	return r.store.Put(NewMigrationRecordPromoted(subject, rec.Flipped(), rec.displacedDirs))
 }
 
+func (r *migrationReconciler) supersededPropertyIsRetired(all []MigrationRecord,
+	subject MigrationSubject, prop string,
+) (bool, string) {
+	staged := subject.Props[prop].Staged
+	if migrationRetirementLeavesStagedDir(all, subject, staged) {
+		return true, ""
+	}
+	there, err := r.dirs.Exists(staged)
+	if err != nil {
+		return false, fmt.Sprintf("property %q: staged directory %q could not be read: %v", prop, staged, err)
+	}
+	if there {
+		return false, fmt.Sprintf("property %q: staged directory %q is still on disk", prop, staged)
+	}
+	return true, ""
+}
+
 // Directory presence can't prove a rename ran (canonical is pre-created
 // empty either way), so the record brackets it with a start/finish write.
 func (r *migrationReconciler) promoteProperty(rec MigrationRecordSwapped,
 	prop string, dirs promotionDirs,
-) (MigrationRecordSwapped, bool, error) {
+) (updated MigrationRecordSwapped, promoted bool, deferred string, err error) {
 	subject := rec.Subject()
 	staged, canonical, displaced := dirs.staged, dirs.canonical, dirs.displaced
+	// Above the schema gate: these arms settle a rename that already ran, and no gate can un-run one.
 	switch rec.PromotionOf(prop) {
 	case migrationPromotionFinished:
-		return r.confirmPromotionSurvives(rec, prop, canonical)
+		updated, promoted, err = r.confirmPromotionSurvives(rec, prop, canonical)
+		return updated, promoted, "", err
 	case migrationPromotionLost:
 		r.wedged(subject, migrationWedgeRemedy,
 			"property %q was promoted onto %q and that directory is gone; preserving the record and promoting nothing.",
 			prop, canonical)
-		return rec, false, nil
+		return rec, false, "", nil
 	default:
 	}
-	stagedThere, err := r.dirExists(staged)
+	stagedThere, err := r.dirs.Exists(staged)
 	if err != nil {
-		return rec, false, err
+		return rec, false, "", err
 	}
 	if !stagedThere {
-		return r.settleInterruptedPromotion(rec, prop, staged, canonical)
+		updated, promoted, err = r.settleInterruptedPromotion(rec, prop, staged, canonical)
+		return updated, promoted, "", err
+	}
+
+	// Above clearForPromotion, not just above the rename: clearing deletes the canonical and displaced dirs.
+	if swept, why := migrationCanonicalSweptBySchema(r.deps.Class(), subject, prop); swept {
+		return rec, false, why, nil
 	}
 
 	// Dormant here: every flip this build writes displaces the canonical name
 	// itself, and the cutover is what writes a different one.
 	if displaced != "" && displaced != canonical {
-		if cleared, err := r.clearForPromotion(displaced, "the displaced directory"); err != nil || !cleared {
-			return rec, false, err
+		if cleared, err := r.clearForPromotion(subject, displaced, "the displaced directory"); err != nil || !cleared {
+			return rec, false, "", err
 		}
 	}
-	if cleared, err := r.clearForPromotion(canonical, "the canonical directory"); err != nil || !cleared {
-		return rec, false, err
+	if cleared, err := r.clearForPromotion(subject, canonical, "the canonical directory"); err != nil || !cleared {
+		return rec, false, "", err
 	}
 
 	started := rec.WithPromotionAt(prop, migrationPromotionStarted)
 	if err := r.store.Put(started); err != nil {
-		return rec, false, fmt.Errorf(
+		return rec, false, "", fmt.Errorf(
 			"record the promotion of property %q before renaming %q onto %q: %w", prop, staged, canonical, err)
 	}
 	rec = started
 
-	if err := r.rename(staged, canonical); err != nil {
-		return r.abandonPromotion(rec, prop, staged), false, err
+	if err := r.dirs.Promote(staged, canonical); err != nil {
+		return r.abandonPromotion(rec, prop, staged), false, "", err
 	}
 
 	finished := rec.WithPromotionAt(prop, migrationPromotionFinished)
 	if err := r.store.Put(finished); err != nil {
 		r.logger.WithField("record", subject.Key.String()).Errorf(
 			"record the finished promotion of property %q: %v", prop, err)
-		return rec, true, nil
+		return rec, true, "", nil
 	}
-	return finished, true, nil
+	return finished, true, "", nil
 }
 
-func (r *migrationReconciler) clearForPromotion(dir, what string) (cleared bool, err error) {
-	there, err := r.dirExists(dir)
+func (r *migrationReconciler) clearForPromotion(subject MigrationSubject, dir, what string) (cleared bool, err error) {
+	there, err := r.dirs.Exists(dir)
 	if err != nil {
 		return false, err
 	}
 	if !there {
 		return true, nil
 	}
-	if err := r.removeDir(r.lsmPath, dir, what+" the promotion replaces"); err != nil {
+	if subject.Unmirrored {
+		r.wedged(subject, migrationWedgeRemedy,
+			"cannot promote: %s %q still holds this property's data and a boot took writes into it with "+
+				"no double-write mirror armed, so the staged copy is behind it; promoting nothing.",
+			what, dir)
+		return false, nil
+	}
+	if err := r.dirs.Discard(dir, what+" the promotion replaces"); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -516,7 +592,7 @@ func (r *migrationReconciler) clearForPromotion(dir, what string) (cleared bool,
 func (r *migrationReconciler) confirmPromotionSurvives(rec MigrationRecordSwapped,
 	prop, canonical string,
 ) (MigrationRecordSwapped, bool, error) {
-	there, err := r.dirExists(canonical)
+	there, err := r.dirs.Exists(canonical)
 	if err != nil {
 		return rec, false, err
 	}
@@ -545,7 +621,7 @@ func (r *migrationReconciler) settleInterruptedPromotion(rec MigrationRecordSwap
 				"preserving the record and promoting nothing.", prop, staged)
 		return rec, false, nil
 	}
-	canonicalThere, err := r.dirExists(canonical)
+	canonicalThere, err := r.dirs.Exists(canonical)
 	if err != nil {
 		return rec, false, err
 	}
@@ -572,7 +648,7 @@ func (r *migrationReconciler) settleInterruptedPromotion(rec MigrationRecordSwap
 // rename that already ran. Taking the mark back then makes every later pass
 // read the promoted canonical directory as unpromoted.
 func (r *migrationReconciler) abandonPromotion(rec MigrationRecordSwapped, prop, staged string) MigrationRecordSwapped {
-	stagedThere, err := r.dirExists(staged)
+	stagedThere, err := r.dirs.Exists(staged)
 	if err != nil {
 		r.logger.WithField("record", rec.Subject().Key.String()).Errorf(
 			"cannot tell whether the staged directory %q of property %q survived its failed rename, "+
@@ -614,8 +690,13 @@ func (r *migrationReconciler) reconcilePromotedSealed(ctx context.Context, rec M
 	subject := rec.Subject()
 	all := r.store.Records()
 
-	if err := r.repromoteWhatTheRecordOutran(ctx, all, subject); err != nil {
+	withheld, err := r.repromoteWhatTheRecordOutran(ctx, all, subject)
+	if err != nil {
 		return err
+	}
+	// A withheld property's staged directory is the only copy of its data.
+	if len(withheld) > 0 {
+		return nil
 	}
 
 	remaining := r.reclaimOwnedDirs(ctx, subject)
@@ -652,8 +733,9 @@ func (r *migrationReconciler) reconcilePromotedSealed(ctx context.Context, rec M
 
 func (r *migrationReconciler) repromoteWhatTheRecordOutran(ctx context.Context, all []MigrationRecord,
 	subject MigrationSubject,
-) error {
+) (withheld []string, err error) {
 	var ambiguous, repromoted []string
+	deferring := errorcompounder.New()
 	// One line per record, not one per property: this runs on every load of a
 	// promoted record, and one interrupted pass leaves every property behind.
 	// Deferred, so a rename that fails partway still reports what it ran.
@@ -669,7 +751,7 @@ func (r *migrationReconciler) repromoteWhatTheRecordOutran(ctx context.Context, 
 
 	for _, prop := range subject.Properties() {
 		if err := ctx.Err(); err != nil {
-			return err
+			return nil, err
 		}
 		staged, canonical := subject.Props[prop].Staged, subject.Props[prop].Canonical
 		if staged == "" || canonical == "" {
@@ -678,38 +760,44 @@ func (r *migrationReconciler) repromoteWhatTheRecordOutran(ctx context.Context, 
 		if migrationPropertySuperseded(all, subject, prop) {
 			continue
 		}
-		stagedThere, err := r.dirExists(staged)
+		stagedThere, err := r.dirs.Exists(staged)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if !stagedThere {
 			continue
 		}
-		canonicalThere, err := r.dirExists(canonical)
+		canonicalThere, err := r.dirs.Exists(canonical)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if canonicalThere {
 			ambiguous = append(ambiguous, prop)
 			continue
 		}
+		if swept, why := migrationCanonicalSweptBySchema(r.deps.Class(), subject, prop); swept {
+			withheld = append(withheld, prop)
+			deferring.Addf("%s", why)
+			continue
+		}
 
 		repromoted = append(repromoted, prop)
-		if err := r.rename(staged, canonical); err != nil {
-			return err
+		if err := r.dirs.Promote(staged, canonical); err != nil {
+			return nil, err
 		}
 	}
+	r.deferredBySchema(subject, deferring)
 	if len(ambiguous) > 0 {
 		r.wedged(subject, migrationWedgeRemedy,
 			"%d propert(y/ies) recorded as promoted hold a directory at both their staged and canonical names: %s; "+
 				"nothing here can tell which one the promotion produced, so the record and both directories are preserved.",
 			len(ambiguous), strings.Join(migrationReportedNames(ambiguous), ", "))
-		return fmt.Errorf(
+		return withheld, fmt.Errorf(
 			"%d property/properties hold a directory at both their staged and canonical names: %s; "+
 				"nothing here can tell which one the promotion produced, so the record and both directories are preserved",
 			len(ambiguous), strings.Join(migrationReportedNames(ambiguous), ", "))
 	}
-	return nil
+	return withheld, nil
 }
 
 const migrationTaskMapUnreadable = "this node's task map cannot be read yet"
@@ -839,7 +927,13 @@ func (r *migrationReconciler) discardSealed(ctx context.Context, subject Migrati
 }
 
 // The record answers for every directory it names, so it goes last of all.
+// Mirrors are disarmed first: a still-armed mirror would copy into a directory just removed.
 func (r *migrationReconciler) reclaimRecordAndDirs(ctx context.Context, subject MigrationSubject) error {
+	if r.deps.Mirror != nil {
+		for _, prop := range subject.Properties() {
+			r.deps.Mirror.DisarmMigrationMirror(subject.Key, prop)
+		}
+	}
 	if remaining := r.reclaimOwnedDirs(ctx, subject); len(remaining) > 0 {
 		return fmt.Errorf("%d owned directory/directories survived", len(remaining))
 	}
@@ -863,7 +957,7 @@ func (r *migrationReconciler) closeStagedBuckets(ctx context.Context, dirs ...st
 // Reports a failed removal, which leaves a directory nothing else attributes:
 // the caller must keep its record so the next load retries.
 func (r *migrationReconciler) removeTrackerDir(subject MigrationSubject) error {
-	if err := r.removeDir(r.migrationsPath(), subject.TrackerDir, "the migration's tracker directory"); err != nil {
+	if err := r.dirs.Trackers().Discard(subject.TrackerDir, "the migration's tracker directory"); err != nil {
 		r.logger.WithField("dir", subject.TrackerDir).Errorf("%v", err)
 		return err
 	}
@@ -895,8 +989,8 @@ func (r *migrationReconciler) reclaimOwnedDirs(ctx context.Context,
 			remaining = append(remaining, dir)
 			continue
 		}
-		reclaiming.Add(r.removeDir(r.lsmPath, dir, "a migration directory"))
-		there, err := r.dirExists(dir)
+		reclaiming.Add(r.dirs.Discard(dir, "a migration directory"))
+		there, err := r.dirs.Exists(dir)
 		if err != nil {
 			reclaiming.AddWrapf(err, "confirm migration directory %q is gone", dir)
 		}
@@ -918,66 +1012,4 @@ func migrationOwnedDirs(subject MigrationSubject) []string {
 		dirs = append(dirs, migrationOwnCopyDirs(subject, prop)...)
 	}
 	return dirs
-}
-
-// Refused here, not at each caller: joining an empty or escaping handle
-// onto root resolves to root itself, and callers remove or rename the result.
-func (r *migrationReconciler) path(root, dir, what string) (string, error) {
-	if !migrationHandleIsOneElement(dir) {
-		return "", fmt.Errorf("refusing to act on %s %q: it does not name a single directory under %q",
-			what, dir, root)
-	}
-	return filepath.Join(root, dir), nil
-}
-
-func (r *migrationReconciler) removeDir(root, dir, what string) error {
-	if dir == "" {
-		return nil
-	}
-	path, err := r.path(root, dir, what)
-	if err != nil {
-		return err
-	}
-	if err := os.RemoveAll(path); err != nil {
-		return fmt.Errorf("remove %s %q: %w", what, dir, err)
-	}
-	return nil
-}
-
-func (r *migrationReconciler) migrationsPath() string {
-	return filepath.Join(r.lsmPath, migrationsDir)
-}
-
-func (r *migrationReconciler) dirExists(dir string) (bool, error) {
-	if dir == "" {
-		return false, nil
-	}
-	path, err := r.path(r.lsmPath, dir, "a recorded directory")
-	if err != nil {
-		return false, err
-	}
-	// Any stat failure besides ENOENT must stop the caller, or a promotion
-	// probe could take "cannot see it" as proof a rename already ran.
-	there, err := diskio.DirExists(path)
-	if err != nil {
-		return false, fmt.Errorf("stat migration directory %q: %w", path, err)
-	}
-	return there, nil
-}
-
-// The Promoted record written on this rename's strength is durable, so the
-// rename must be too, or a crash leaves it naming a path that was never made.
-func (r *migrationReconciler) rename(from, to string) error {
-	fromPath, err := r.path(r.lsmPath, from, "the directory to promote")
-	if err != nil {
-		return err
-	}
-	toPath, err := r.path(r.lsmPath, to, "the name to promote onto")
-	if err != nil {
-		return err
-	}
-	if err := diskio.RenameAndSync(fromPath, toPath); err != nil {
-		return fmt.Errorf("promote %q to %q: %w", from, to, err)
-	}
-	return nil
 }

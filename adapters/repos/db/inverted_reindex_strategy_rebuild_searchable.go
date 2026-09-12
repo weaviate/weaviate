@@ -32,6 +32,10 @@ func (s *RebuildSearchableStrategy) MigrationDirName() string {
 	return migrationDirWithProps(MigrationDirPrefixRebuildSearchable, s.propNames) + genSuffix(s.generation)
 }
 
+func (s *RebuildSearchableStrategy) StrategyCode() MigrationStrategyCode {
+	return StrategyCodeRebuildSearchable
+}
+
 func (s *RebuildSearchableStrategy) SourceBucketName(propName string) string {
 	return helpers.BucketSearchableFromPropNameLSM(propName)
 }
@@ -44,14 +48,8 @@ func (s *RebuildSearchableStrategy) IngestSuffix() string {
 	return "__rebuild_searchable_ingest" + genSuffix(s.generation)
 }
 
-func (s *RebuildSearchableStrategy) BackupSuffix() string {
-	return "__rebuild_searchable_backup" + genSuffix(s.generation)
-}
-
 func (s *RebuildSearchableStrategy) SourceStrategy() string { return lsmkv.StrategyInverted }
 func (s *RebuildSearchableStrategy) TargetStrategy() string { return lsmkv.StrategyInverted }
-func (s *RebuildSearchableStrategy) BackupStrategy() string { return lsmkv.StrategyInverted }
-
 func (s *RebuildSearchableStrategy) SourceIndexType() PropertyIndexType {
 	return IndexTypePropSearchableValue
 }
@@ -63,23 +61,15 @@ func (s *RebuildSearchableStrategy) WriteToReindexBucket(shard ShardLike, bucket
 }
 
 func (s *RebuildSearchableStrategy) MakeAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
+	armed armedMirror,
 ) onAddToPropertyValueIndex {
-	var swapFallbackNamer func(string) string
-	if forTargetStrategy {
-		swapFallbackNamer = s.SourceBucketName
-	}
-	return blockmaxSearchableAddCallback(bucketNamer, propsByName, swapFallbackNamer)
+	return blockmaxSearchableAddCallback(bucketNamer, armed, s.SourceBucketName)
 }
 
 func (s *RebuildSearchableStrategy) MakeDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
+	armed armedMirror,
 ) onDeleteFromPropertyValueIndex {
-	var swapFallbackNamer func(string) string
-	if forTargetStrategy {
-		swapFallbackNamer = s.SourceBucketName
-	}
-	return blockmaxSearchableDeleteCallback(bucketNamer, propsByName, swapFallbackNamer)
+	return blockmaxSearchableDeleteCallback(bucketNamer, armed, s.SourceBucketName)
 }
 
 // PreReindexHook is a no-op — the target BlockMax bucket already exists

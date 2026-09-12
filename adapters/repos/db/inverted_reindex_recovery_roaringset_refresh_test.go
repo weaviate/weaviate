@@ -21,17 +21,17 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // Recovery-convergence matrix for RoaringSetRefresh — the same-strategy
 // refresh of a filterable RoaringSet bucket (production code path
-// behind `repair-filterable`). Format-only, so one RunOnShard call
-// sequences the whole lifecycle.
+// behind `repair-filterable`). Inline runtimeSwap path.
 
 // newRoaringSetRefreshTask wraps RoaringSetRefreshStrategy.
-func newRoaringSetRefreshTask(t *testing.T, idx *Index) (*ShardReindexTaskGeneric, *roaringSetRefreshStrategyWrapper) {
+func newRoaringSetRefreshTask(t *testing.T, idx *Index, unitID string) (*ShardReindexTaskGeneric, *roaringSetRefreshStrategyWrapper) {
 	t.Helper()
 	wrapped := &roaringSetRefreshStrategyWrapper{
 		RoaringSetRefreshStrategy: RoaringSetRefreshStrategy{
@@ -43,12 +43,17 @@ func newRoaringSetRefreshTask(t *testing.T, idx *Index) (*ShardReindexTaskGeneri
 		reindexTaskConfig{
 			concurrency:                   2,
 			memtableOptFactor:             4,
-			backupMemtableOptFactor:       1,
 			processingDuration:            10 * time.Minute,
 			pauseDuration:                 1 * time.Second,
 			checkProcessingEveryNoObjects: 1000,
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		defaultIndexClosingGuard,
+	)
+	task.setMigrationIdentity(
+		distributedtask.TaskDescriptor{ID: "test-roaringset-refresh", Version: 1},
+		unitID,
+		&ReindexTaskPayload{MigrationType: ReindexTypeRepairFilterable},
 	)
 	return task, wrapped
 }
@@ -98,7 +103,7 @@ func TestRecoveryConvergence_RoaringSetRefresh_Baseline(t *testing.T) {
 	require.NotEmpty(t, preFP,
 		"pre-migration filterable fingerprint must be non-empty")
 
-	task, wrapped := newRoaringSetRefreshTask(t, idx)
+	task, wrapped := newRoaringSetRefreshTask(t, idx, shard.migrationUnit())
 	require.NoError(t, task.RunOnShard(ctx, shard))
 	require.True(t, wrapped.migrationCompleted,
 		"OnMigrationComplete must fire post-migration")
@@ -122,41 +127,29 @@ func TestRecoveryConvergence_RoaringSetRefresh_Baseline(t *testing.T) {
 		require.Equalf(t, preIDs, postIDs,
 			"term %q posting list changed across same-strategy refresh", term)
 	}
-
-	rt, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	require.True(t, rt.IsReindexed())
-	require.True(t, rt.IsPrepended())
-	require.True(t, rt.IsMerged())
-	require.True(t, rt.IsSwapped())
-	require.True(t, rt.IsTidied())
 }
 
-// TestRecoveryConvergence_RoaringSetRefresh_FromEachState pins the
-// #240 Symptom B invariant for the RoaringSetRefresh strategy: from any
-// on-disk state a replica could land in after a mid-migration restart,
-// the recovery code path converges on filterable-bucket content
-// bit-equivalent to the clean baseline run.
+// A restart from any recorded state converges on filterable-bucket content
+// bit-equal to a clean run (#240 Symptom B). A same-strategy refresh changes no
+// schema, so this is the row where the effect can never show in the schema.
 func TestRecoveryConvergence_RoaringSetRefresh_FromEachState(t *testing.T) {
 	const propName = "title"
-	const numObjects = 25
 
-	recoveryConvergenceMatrix[string]{
-		namePrefix: "RoaringSetRefresh",
+	migrationRestartMatrix[string]{
+		namePrefix: "RoaringSetRefreshRestart",
 		buildClass: func(className string) *models.Class {
 			return newTestClassWithProps(className, []string{propName})
 		},
-		seedObjects: func(t *testing.T, ctx context.Context, shard *Shard, className string) {
-			for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
-				require.NoError(t, shard.PutObject(ctx, obj))
-			}
-		},
-		buildTask: func(t *testing.T, idx *Index, _ string) (*ShardReindexTaskGeneric, func() bool) {
-			task, wrapped := newRoaringSetRefreshTask(t, idx)
+		seedObjects: seedConvergenceObjects,
+		buildTask: func(t *testing.T, f *migrationRestartFixture) (*ShardReindexTaskGeneric, func() bool) {
+			task, wrapped := newRoaringSetRefreshTask(t, f.idx,
+				testMigrationUnitFor(f.idx, f.shardName))
 			return task, func() bool { return wrapped.migrationCompleted }
 		},
-		bucketName:   helpers.BucketFromPropNameLSM(propName),
-		wantStrategy: lsmkv.StrategyRoaringSet,
-		fingerprint:  fingerprintRoaringSetBucket,
+		bucketName:            helpers.BucketFromPropNameLSM(propName),
+		wantStrategy:          lsmkv.StrategyRoaringSet,
+		servesBeforeMigration: true,
+		fingerprint:           fingerprintRoaringSetBucket,
+		checkBaseline:         checkConvergenceTokensIndexed,
 	}.run(t)
 }

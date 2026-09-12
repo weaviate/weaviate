@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -290,8 +291,7 @@ func TestCleanStalePartialReindexStateReportsATruncatedSweep(t *testing.T) {
 			}
 			for _, name := range tc.shards {
 				if tc.staleOnDisk {
-					mkTrackerDir(t, shardPathLSM(idx.path(), name),
-						"enable_filterable_title_1", "started.mig")
+					mkTrackerDir(t, shardPathLSM(idx.path(), name), "enable_filterable_title_1")
 				}
 				(*sync.Map)(&idx.shards).Store(name, &LazyLoadShard{
 					shardOpts:        &deferredShardOpts{name: name, index: idx, class: &models.Class{Class: "Movies"}},
@@ -409,8 +409,7 @@ func TestCleanStalePartialReindexStateRefusesAnAlreadyRequestedClose(t *testing.
 
 			monitor := &loadAttemptMonitor{}
 			for _, name := range []string{"shard-a", "shard-b"} {
-				mkTrackerDir(t, shardPathLSM(idx.path(), name),
-					"enable_filterable_title_1", "started.mig")
+				mkTrackerDir(t, shardPathLSM(idx.path(), name), "enable_filterable_title_1")
 				(*sync.Map)(&idx.shards).Store(name, &LazyLoadShard{
 					shardOpts:  &deferredShardOpts{name: name, index: idx, class: &models.Class{Class: "Movies"}},
 					memMonitor: monitor,
@@ -770,8 +769,7 @@ func TestIndexCleanStalePartialReindexStateLogsOneSummaryPerSweep(t *testing.T) 
 
 			for _, name := range []string{"tenant-a", "tenant-b"} {
 				if tc.staleOnDisk {
-					mkTrackerDir(t, shardPathLSM(idx.path(), name),
-						"enable_filterable_title_1", "started.mig")
+					mkTrackerDir(t, shardPathLSM(idx.path(), name), "enable_filterable_title_1")
 				}
 				storeUnloadableTenant(idx, name)
 			}
@@ -802,7 +800,7 @@ func TestIndexCleanStalePartialReindexStateReportsGatePayloadReads(t *testing.T)
 	// ["cat","dog"] sorts to exactly this name, so only the payload can say
 	// whether the dir belongs to the swept property.
 	lsm := shardPathLSM(idx.path(), "tenant-a")
-	mkTrackerDir(t, lsm, "enable_filterable_cat_dog_1", "started.mig")
+	mkTrackerDir(t, lsm, "enable_filterable_cat_dog_1")
 	mkRecoveryPayload(t, lsm, "enable_filterable_cat_dog_1", "cat", "dog")
 	storeUnloadableTenant(idx, "tenant-a")
 
@@ -835,7 +833,7 @@ func TestIndexCleanStalePartialReindexStateFailsOnAnUnknownShardImplementation(t
 // else reports.
 func TestDirNamesCacheReportsRefusedListings(t *testing.T) {
 	lsm := t.TempDir()
-	mkTrackerDir(t, lsm, "enable_filterable_title_1", "started.mig")
+	mkTrackerDir(t, lsm, "enable_filterable_title_1")
 
 	full := &dirNamesCache{cost: maxCachedDirNames}
 	names, err := full.list(filepath.Join(lsm, ".migrations"))
@@ -874,8 +872,7 @@ func TestIndexCleanStalePartialReindexStateReportsRefusedListingsPerSweep(t *tes
 	logger, hook := test.NewNullLogger()
 	idx, _, closeIndex := newSweepTestIndex(t, logger)
 	defer closeIndex()
-	mkTrackerDir(t, shardPathLSM(idx.path(), "tenant-a"),
-		"enable_filterable_title_1", "started.mig")
+	mkTrackerDir(t, shardPathLSM(idx.path(), "tenant-a"), "enable_filterable_title_1")
 	storeUnloadableTenant(idx, "tenant-a")
 
 	full := &dirNamesCache{cost: maxCachedDirNames}
@@ -901,6 +898,46 @@ func TestIndexCleanStalePartialReindexStateReportsRefusedListingsPerSweep(t *tes
 		"nothing about this sweep warrants raising it above its own outcome")
 	require.Positive(t, full.refusedListings(),
 		"the cache still carries the first sweep's refusals")
+}
+
+// An unloaded shard's record set is read by the sweep alone, so a read that
+// fails there reaches no other log: the count says how many, the reason says
+// whether an operator is looking at a permission fault or a broken disk.
+func TestIndexCleanStalePartialReindexStateReportsUnreadableRecordSets(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	idx, _, closeIndex := newSweepTestIndex(t, logger)
+	defer closeIndex()
+	lsm := shardPathLSM(idx.path(), "tenant-a")
+	require.NoError(t, os.MkdirAll(filepath.Join(lsm, ".migrations"), 0o755))
+	// A file where the record set's directory belongs: the read of it fails with
+	// a reason, which is the arm under test.
+	require.NoError(t, os.WriteFile(
+		filepath.Join(lsm, ".migrations", migrationRecordsDirName), nil, 0o600))
+	storeUnloadableTenant(idx, "tenant-a")
+
+	cache := &dirNamesCache{}
+	require.Error(t, idx.cleanStalePartialReindexState(
+		context.Background(), "title", "filterable", cache),
+		"a record set it cannot read leaves the sweep no choice but to hydrate")
+
+	summary := onlySweepSummary(t, hook)
+	require.Equal(t, 1, summary.Data["unreadable_record_sets"])
+	reasons, ok := summary.Data["unreadable_record_set_reasons"].(error)
+	require.True(t, ok, "the summary carries the reason, not only the count")
+	require.Contains(t, reasons.Error(), "read migration records dir")
+	require.Contains(t, reasons.Error(), lsm, "the reason names the shard it belongs to")
+
+	// One cache serves every sweep of a request, so a later sweep must not
+	// re-report what this one already did.
+	hook.Reset()
+	_, dropped := idx.shards.LoadAndDelete("tenant-a")
+	require.True(t, dropped)
+	require.NoError(t, idx.cleanStalePartialReindexState(
+		context.Background(), "title", "filterable", cache))
+
+	second := onlySweepSummary(t, hook)
+	require.NotContains(t, second.Data, "unreadable_record_sets")
+	require.Equal(t, logrus.InfoLevel, second.Level)
 }
 
 // Pins that a collection already gone is reported as dropped, not clean.

@@ -92,7 +92,7 @@ func TestReindex_ConcurrentWriteDuringEnableRangeable_NotLost(t *testing.T) {
 	shard, idx := newRangeableMigrationShard(t, ctx, newNoLiveIndexRangeableTestClass(className))
 	defer shard.Shutdown(ctx)
 
-	task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+	task, _ := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
 
 	// Drive to reindexed-but-not-swapped: iterator done, double-write live.
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))

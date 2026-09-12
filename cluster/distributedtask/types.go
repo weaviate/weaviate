@@ -492,8 +492,7 @@ func (t TaskStatus) IsTerminal() bool {
 // The exact negation of [TaskStatus.IsTerminal], so a status this build
 // does not recognize counts as in flight: reading it as done would admit
 // a second migration onto a property a newer node is still migrating, and
-// let the orphan audit and TTL sweep delete live state. See
-// docs/runtime-reindex.md §4.2.
+// let the TTL sweep delete live state. See docs/runtime-reindex.md §4.2.
 func (t TaskStatus) IsActive() bool {
 	return !t.IsTerminal()
 }
@@ -587,7 +586,7 @@ type Task struct {
 
 	// PostCompletionAcks records per-node confirmations that the node's
 	// SWAP phase (the second half of the split OnGroupCompleted —
-	// per-shard SwapBucketPointer tight loop + post-atomic tidy +
+	// per-shard SwapBucketPointer tight loop + post-atomic cleanup +
 	// per-strategy OnMigrationComplete) completed successfully. Keys are
 	// node IDs. Populated only after the task transitions to SWAPPING
 	// and only by the [Scheduler] tick firing

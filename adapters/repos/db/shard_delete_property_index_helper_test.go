@@ -27,8 +27,6 @@ func boolPtr(b bool) *bool {
 }
 
 func TestPropertyDeleteIndexHelper_IsPropertyIndexRemoved(t *testing.T) {
-	h := newPropertyDeleteIndexHelper()
-
 	tests := []struct {
 		name     string
 		setting  *bool
@@ -53,7 +51,7 @@ func TestPropertyDeleteIndexHelper_IsPropertyIndexRemoved(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, h.isPropertyIndexRemoved(tt.setting))
+			assert.Equal(t, tt.expected, propertyIndexRemoved(tt.setting))
 		})
 	}
 }

@@ -26,21 +26,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Full sentinel-aware [ShardReindexTaskGeneric.RunSwapOnShard] dispatch
-// matrix: 8 strategies × 5 sentinels = 40 cells (32 executed, 8 skipped).
-//
-// Extends [TestRunSwapOnShard_SentinelAwareDispatch] which only covers
-// MapToBlockmax at IsTidied / IsSwapped. weaviate/0-weaviate-issues#214
-// Phase 7c is the dispatch fix being pinned; without it a rolling
-// restart past markPrepended() would call runtimeSwap on a missing
-// reindex bucket, flip the cluster-wide task to FAILED, and leave the
-// already-swapped replicas inverted against the schema.
-//
-// IsPrepended cells are skipped: that branch's recoverRuntimeSwapBuckets
-// renames the live mmap'd main bucket dir, which corrupts the segment
-// registry in-process. Production reaches it only post-restart; the
-// recovery-convergence matrices in this directory cover that path.
-
 // dispatchMatrixStrategyCase describes one row in the strategy axis. The
 // closures cover everything that varies by strategy: class fixture
 // construction (some strategies need IndexFilterable=false, others need
@@ -59,7 +44,7 @@ type dispatchMatrixStrategyCase struct {
 	// migration. Each cell builds a new shard + task; the task is the
 	// same instance used for both driveToState and RunSwapOnShard
 	// (mirroring the production "cached task" preservation rule).
-	buildTask func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric
+	buildTask func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric
 	// fingerprintBucketName returns the canonical bucket name whose
 	// post-migration content we compare against the baseline. For
 	// EnableSearchable / RebuildSearchable / SearchableRetokenize this
@@ -78,11 +63,11 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, _, _ string) *ShardReindexTaskGeneric {
+			buildTask: func(t *testing.T, idx *Index, _, _, unitID string) *ShardReindexTaskGeneric {
 				strategy := &testMigrationStrategy{
 					MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1},
 				}
-				return newTestTask(idx.logger, strategy)
+				return newTestTask(idx.logger, strategy, unitID)
 			},
 			fingerprintBucketName: helpers.BucketSearchableFromPropNameLSM,
 			fingerprint: func(t *testing.T, shard *Shard, name string) map[string][]uint64 {
@@ -94,8 +79,8 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newRebuildSearchableTestClass(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
-				task, _ := newRebuildSearchableTask(t, idx, className, propName)
+			buildTask: func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric {
+				task, _ := newRebuildSearchableTask(t, idx, className, propName, unitID)
 				return task
 			},
 			fingerprintBucketName: helpers.BucketSearchableFromPropNameLSM,
@@ -108,8 +93,8 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, _, _ string) *ShardReindexTaskGeneric {
-				task, _ := newRoaringSetRefreshTask(t, idx)
+			buildTask: func(t *testing.T, idx *Index, _, _, unitID string) *ShardReindexTaskGeneric {
+				task, _ := newRoaringSetRefreshTask(t, idx, unitID)
 				return task
 			},
 			fingerprintBucketName: helpers.BucketFromPropNameLSM,
@@ -122,8 +107,8 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newFilterableToRangeableTestClass(className), filterableToRangeablePropName
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
-				task, _ := newFilterableToRangeableTask(t, idx, className, propName)
+			buildTask: func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric {
+				task, _ := newFilterableToRangeableTask(t, idx, className, propName, unitID)
 				return task
 			},
 			// FilterableToRangeable's target bucket is the rangeable
@@ -143,8 +128,8 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newEnableFilterableTestClass(className, "title"), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
-				task, _ := newEnableFilterableTask(t, idx, className, propName)
+			buildTask: func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric {
+				task, _ := newEnableFilterableTask(t, idx, className, unitID, propName)
 				return task
 			},
 			fingerprintBucketName: helpers.BucketFromPropNameLSM,
@@ -157,9 +142,9 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newEnableSearchableTestClass(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+			buildTask: func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric {
 				task, _ := newEnableSearchableTask(t, idx, className, propName,
-					models.PropertyTokenizationWord)
+					models.PropertyTokenizationWord, unitID)
 				return task
 			},
 			fingerprintBucketName: helpers.BucketSearchableFromPropNameLSM,
@@ -172,9 +157,9 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+			buildTask: func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric {
 				task, _ := newFilterableRetokenizeTask(t, idx, className, propName,
-					models.PropertyTokenizationField)
+					models.PropertyTokenizationField, unitID)
 				return task
 			},
 			fingerprintBucketName: helpers.BucketFromPropNameLSM,
@@ -187,7 +172,7 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 			buildClass: func(className string) (*models.Class, string) {
 				return newTestClassWithProps(className, []string{"title"}), "title"
 			},
-			buildTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+			buildTask: func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric {
 				// SearchableRetokenize needs to know the source bucket
 				// strategy (MapCollection here, given UsingBlockMaxWAND=false
 				// in newTestClassWithProps). Resolve it from the live shard
@@ -195,6 +180,7 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 				task, _ := newSearchableRetokenizeTask(t, idx, className, propName,
 					models.PropertyTokenizationField,
 					dispatchMatrixSearchableSourceStrategy(t, idx, className, propName),
+					unitID,
 				)
 				return task
 			},
@@ -206,10 +192,6 @@ func dispatchMatrixStrategyCases() []dispatchMatrixStrategyCase {
 	}
 }
 
-// dispatchMatrixSearchableSourceStrategy looks up the searchable bucket's
-// strategy on a freshly-built class. SearchableRetokenize requires this
-// at construction time so it can stamp the right BackupStrategy on the
-// tracker. Captured in a helper to keep the table init readable.
 func dispatchMatrixSearchableSourceStrategy(t *testing.T, idx *Index, className, propName string) string {
 	t.Helper()
 	// Build a transient shard with the same class to look up the source
@@ -243,30 +225,17 @@ func dispatchMatrixRangeableFingerprintAsString(t *testing.T, b *lsmkv.Bucket) m
 	return out
 }
 
-// dispatchMatrixDriveCell drives the test shard to the requested sentinel
-// state, skipping the one cell that is not safely reachable in-process.
-func dispatchMatrixDriveCell(
-	t *testing.T, ctx context.Context, shard *Shard, task *ShardReindexTaskGeneric,
-	sentinel reindexSentinelState,
-) {
+func dispatchMatrixRecordOf(t *testing.T, shard *Shard, task *ShardReindexTaskGeneric) MigrationRecord {
 	t.Helper()
-	if sentinel == sentinelStatePrepended {
-		// recoverRuntimeSwapBuckets renames the live main bucket dir
-		// while the in-memory store still mmaps its segments; that
-		// corrupts the segment registry and any subsequent path-based
-		// resolve. Production never reaches this dispatch branch in
-		// the same process — it's only entered post-restart on a node
-		// where FinalizeCompletedMigrations did not already advance
-		// the sentinel. See the file godoc above.
-		t.Skip("IsPrepended dispatch branch requires post-restart in-memory state; not safely reachable in a same-process unit test (recoverRuntimeSwapBuckets renames live mmap'd bucket dirs). Convergence matrices cover the post-restart path.")
-	}
-	driveToSentinelState(t, ctx, shard, task, sentinel)
+	rec, ok := shard.migrationRecords.Get(task.migrationRecordKey())
+	require.True(t, ok, "the migration should have a record on this shard")
+	return rec
 }
 
 // dispatchMatrixComputeBaseline computes the post-clean-migration
 // fingerprint on a throw-away shard for this strategy. Each strategy row
-// caches the baseline once and reuses it across the five sentinel cells
-// — every cell's post-RunSwapOnShard fingerprint must match it.
+// caches the baseline once and reuses it across its cells: every cell's
+// post-RunSwapOnShard fingerprint must match it.
 func dispatchMatrixComputeBaseline(
 	t *testing.T, sc dispatchMatrixStrategyCase, numObjects int,
 ) map[string][]uint64 {
@@ -282,8 +251,12 @@ func dispatchMatrixComputeBaseline(
 
 	dispatchMatrixSeedObjects(t, ctx, shard, sc, className, numObjects)
 
-	task := sc.buildTask(t, idx, className, propName)
-	driveToSentinelState(t, ctx, shard, task, sentinelStateTidied)
+	task := sc.buildTask(t, idx, className, propName, shard.migrationUnit())
+	driveToMigrationState(t, ctx, shard, task, MigrationStateSwapped)
+
+	rec := dispatchMatrixRecordOf(t, shard, task)
+	require.Equal(t, MigrationStateSwapped, rec.State())
+	require.Equal(t, []string{propName}, rec.(MigrationRecordSwapped).Flipped())
 
 	return sc.fingerprint(t, shard, sc.fingerprintBucketName(propName))
 }
@@ -308,11 +281,6 @@ func dispatchMatrixSeedObjects(
 	}
 }
 
-// TestRunSwapOnShard_DispatchMatrix: full sentinel × strategy cross
-// product. Each cell drives to the target sentinel via the strategy's
-// primitives, verifies the setup landed, calls RunSwapOnShard, and
-// asserts the target bucket fingerprint matches the baseline. See
-// file-level godoc for the IsPrepended skip rationale.
 func TestRunSwapOnShard_DispatchMatrix(t *testing.T) {
 	const numObjects = 10
 
@@ -326,26 +294,25 @@ func TestRunSwapOnShard_DispatchMatrix(t *testing.T) {
 				"baseline fingerprint for %s must be non-empty (a strategy whose clean migration produces no terms can't anchor convergence assertions)",
 				sc.strategyName)
 
-			for _, sentinel := range allReindexSentinelStates {
-				sentinel := sentinel
-				t.Run(string(sentinel), func(t *testing.T) {
-					dispatchMatrixRunCell(t, sc, sentinel, numObjects, baseline)
+			for _, state := range migrationStatesBeforePromotion {
+				state := state
+				t.Run(string(state), func(t *testing.T) {
+					dispatchMatrixRunCell(t, sc, state, numObjects, baseline)
 				})
 			}
 		})
 	}
 }
 
-// dispatchMatrixRunCell runs one (strategy, sentinel) cell.
 func dispatchMatrixRunCell(
 	t *testing.T,
 	sc dispatchMatrixStrategyCase,
-	sentinel reindexSentinelState,
+	state MigrationState,
 	numObjects int,
 	baseline map[string][]uint64,
 ) {
 	ctx := testCtx()
-	className := "DispatchMatrixCell_" + sc.strategyName + "_" + string(sentinel) + "_" + uuid.NewString()[:6]
+	className := "DispatchMatrixCell_" + sc.strategyName + "_" + string(state) + "_" + uuid.NewString()[:6]
 	class, propName := sc.buildClass(className)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
@@ -355,41 +322,22 @@ func dispatchMatrixRunCell(
 
 	dispatchMatrixSeedObjects(t, ctx, shard, sc, className, numObjects)
 
-	task := sc.buildTask(t, idx, className, propName)
+	task := sc.buildTask(t, idx, className, propName, shard.migrationUnit())
 
-	// driveToState may call t.Skip for unreachable cells; if so, the
-	// subtest is recorded as skipped (not failed). The defer-Shutdown
-	// above is still honored on the skip path.
-	dispatchMatrixDriveCell(t, ctx, shard, task, sentinel)
+	driveToMigrationState(t, ctx, shard, task, state)
 
-	// Verify the drive halted at the intended sentinel snapshot.
-	rt, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	want := expectedSentinelsAt(sentinel)
-	got := readReindexSentinels(rt)
-	for name, w := range want {
-		assert.Equalf(t, w, got[name],
-			"pre-RunSwapOnShard sentinel %q (strategy=%s state=%s): want=%v got=%v full=%v",
-			name, sc.strategyName, sentinel, w, got[name], got)
-	}
+	require.Equalf(t, state, dispatchMatrixRecordOf(t, shard, task).State(),
+		"the drive landed somewhere other than the state this cell dispatches from (strategy=%s)",
+		sc.strategyName)
 
 	// Call RunSwapOnShard — the dispatch under test.
-	require.NoError(t, task.RunSwapOnShard(ctx, shard),
+	require.NoErrorf(t, task.RunSwapOnShard(ctx, shard),
 		"RunSwapOnShard should succeed for (strategy=%s, state=%s)",
-		sc.strategyName, sentinel)
+		sc.strategyName, state)
 
-	// Post-call: every sentinel should be set (terminal state).
-	rtPost, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	postGot := readReindexSentinels(rtPost)
-	postWant := map[string]bool{
-		"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": true,
-	}
-	for name, w := range postWant {
-		assert.Equalf(t, w, postGot[name],
-			"post-RunSwapOnShard sentinel %q (strategy=%s state=%s): want=%v got=%v full=%v",
-			name, sc.strategyName, sentinel, w, postGot[name], postGot)
-	}
+	require.Equalf(t, MigrationStateSwapped, dispatchMatrixRecordOf(t, shard, task).State(),
+		"every dispatch branch must leave the flip durable and the promotion to the next load (strategy=%s state=%s)",
+		sc.strategyName, state)
 
 	// Fingerprint convergence: every term in the baseline must appear
 	// in the post-dispatch bucket with the same sorted docID list. We
@@ -404,11 +352,11 @@ func dispatchMatrixRunCell(
 		if !ok {
 			assert.Failf(t, "missing term post-RunSwapOnShard",
 				"term %q present in baseline but missing post-dispatch (strategy=%s state=%s)",
-				term, sc.strategyName, sentinel)
+				term, sc.strategyName, state)
 			continue
 		}
 		assert.Equalf(t, expectedIDs, gotIDs,
 			"term %q post-dispatch doc-id list diverges from baseline (strategy=%s state=%s)",
-			term, sc.strategyName, sentinel)
+			term, sc.strategyName, state)
 	}
 }

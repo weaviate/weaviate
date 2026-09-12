@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -30,8 +31,8 @@ import (
 // existing BlockMax bucket from objects. Source and target are both
 // StrategyInverted, so the test class needs UsingBlockMaxWAND=true.
 // Driven via the trio Run*OnShard methods even though production
-// dispatches via RunOnShard; recovery dispatches off the on-disk
-// sentinel, indifferent to invocation route.
+// dispatches via RunOnShard; recovery dispatches off the recorded
+// state, indifferent to invocation route.
 
 // newRebuildSearchableTestClass mirrors newTestClassWithProps but flips
 // UsingBlockMaxWAND to true so the searchable bucket for each property
@@ -67,9 +68,9 @@ func newRebuildSearchableTestClass(className string, propNames []string) *models
 // newFilterableRetokenizeTask but the strategy only carries propNames +
 // generation (no targetTokenization, no bucketStrategy — rebuild is
 // schema-stable). Config mirrors blockmaxSearchableTaskConfig with
-// selection enabled so getPropsToReindex picks up the requested
+// selection enabled so selectedProps picks up the requested
 // property even though discovery-by-strategy would also find it.
-func newRebuildSearchableTask(t *testing.T, idx *Index, className, propName string) (*ShardReindexTaskGeneric, *testRebuildSearchableStrategyWrapper) {
+func newRebuildSearchableTask(t *testing.T, idx *Index, className, propName, unitID string) (*ShardReindexTaskGeneric, *testRebuildSearchableStrategyWrapper) {
 	t.Helper()
 	wrapped := &testRebuildSearchableStrategyWrapper{
 		RebuildSearchableStrategy: RebuildSearchableStrategy{
@@ -82,7 +83,6 @@ func newRebuildSearchableTask(t *testing.T, idx *Index, className, propName stri
 		reindexTaskConfig{
 			concurrency:                   2,
 			memtableOptFactor:             4,
-			backupMemtableOptFactor:       1,
 			processingDuration:            10 * time.Minute,
 			pauseDuration:                 1 * time.Second,
 			checkProcessingEveryNoObjects: 1000,
@@ -96,6 +96,12 @@ func newRebuildSearchableTask(t *testing.T, idx *Index, className, propName stri
 			},
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		defaultIndexClosingGuard,
+	)
+	task.setMigrationIdentity(
+		distributedtask.TaskDescriptor{ID: "test-rebuild-searchable", Version: 1},
+		unitID,
+		&ReindexTaskPayload{MigrationType: ReindexTypeRebuildSearchable},
 	)
 	return task, wrapped
 }
@@ -148,8 +154,10 @@ func TestRecoveryConvergence_RebuildSearchable_Baseline(t *testing.T) {
 	require.NotEmpty(t, preFP,
 		"pre-migration searchable fingerprint must be non-empty (objects already inserted)")
 
-	task, wrapped := newRebuildSearchableTask(t, idx, className, propName)
-	require.NoError(t, task.RunOnShard(ctx, shard))
+	task, wrapped := newRebuildSearchableTask(t, idx, className, propName, shard.migrationUnit())
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+	require.NoError(t, task.RunSwapOnShard(ctx, shard))
 	require.True(t, wrapped.migrationCompleted,
 		"OnMigrationComplete must fire post-migration")
 
@@ -173,46 +181,30 @@ func TestRecoveryConvergence_RebuildSearchable_Baseline(t *testing.T) {
 			"term %q post-migration doc-id list diverges from pre-migration\n  pre  (%d): %v\n  post (%d): %v",
 			term, len(preIDs), preIDs, len(postIDs), postIDs)
 	}
-
-	rt, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	require.True(t, rt.IsReindexed())
-	require.True(t, rt.IsPrepended())
-	require.True(t, rt.IsMerged())
-	require.True(t, rt.IsSwapped())
-	require.True(t, rt.IsTidied())
 }
 
-// TestRecoveryConvergence_RebuildSearchable_FromEachState pins the
-// #240 Symptom B invariant for the RebuildSearchable strategy: from
-// any on-disk state a replica could land in after a mid-migration
-// restart, the recovery code path converges on bucket content
-// bit-equivalent to the clean baseline run.
-//
-// Five sentinel states, all reached via either production code (the
-// Run*OnShard trio) or — for the two atomic-method-internal states
-// (IsPrepended, IsSwapped) — synthetic removal of the later sentinel
-// file. Same scheme PR #11415 used for SearchableRetokenize.
+// A restart from any recorded state converges on bucket content bit-equal to a
+// clean run (#240 Symptom B). Source and target are both StrategyInverted, so
+// the property serves from the migrated bucket throughout and a load below the
+// flip must leave it serving the pre-migration data.
 func TestRecoveryConvergence_RebuildSearchable_FromEachState(t *testing.T) {
 	const propName = "title"
-	const numObjects = 25
 
-	recoveryConvergenceMatrix[string]{
-		namePrefix: "RebuildSearchable",
+	migrationRestartMatrix[string]{
+		namePrefix: "RebuildSearchableRestart",
 		buildClass: func(className string) *models.Class {
 			return newRebuildSearchableTestClass(className, []string{propName})
 		},
-		seedObjects: func(t *testing.T, ctx context.Context, shard *Shard, className string) {
-			for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
-				require.NoError(t, shard.PutObject(ctx, obj))
-			}
-		},
-		buildTask: func(t *testing.T, idx *Index, className string) (*ShardReindexTaskGeneric, func() bool) {
-			task, wrapped := newRebuildSearchableTask(t, idx, className, propName)
+		seedObjects: seedConvergenceObjects,
+		buildTask: func(t *testing.T, f *migrationRestartFixture) (*ShardReindexTaskGeneric, func() bool) {
+			task, wrapped := newRebuildSearchableTask(t, f.idx, f.class.Class, propName,
+				testMigrationUnitFor(f.idx, f.shardName))
 			return task, func() bool { return wrapped.migrationCompleted }
 		},
-		bucketName:   helpers.BucketSearchableFromPropNameLSM(propName),
-		wantStrategy: lsmkv.StrategyInverted,
-		fingerprint:  fingerprintInvertedBucket,
+		bucketName:            helpers.BucketSearchableFromPropNameLSM(propName),
+		wantStrategy:          lsmkv.StrategyInverted,
+		servesBeforeMigration: true,
+		fingerprint:           fingerprintInvertedBucket,
+		checkBaseline:         checkConvergenceTokensIndexed,
 	}.run(t)
 }

@@ -12,11 +12,19 @@
 package db
 
 import (
+	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // TestCleanStaleMigrationDirsAt_PreservedGensLogAtDebug pins that preserving a
@@ -31,7 +39,10 @@ func TestCleanStaleMigrationDirsAt_PreservedGensLogAtDebug(t *testing.T) {
 	const preservedGens = 3
 	for gen := 1; gen <= preservedGens; gen++ {
 		dir := migrationDirWithProps(MigrationDirPrefixEnableFilterable, []string{propName}) + genSuffix(gen)
-		mkTrackerDir(t, lsm, dir, "started.mig", "merged.mig", "tidied.mig")
+		mkTrackerDir(t, lsm, dir)
+		mkMigrationRecord(t, lsm, dir, MigrationStateSwapped, map[string]string{
+			propName: "property_" + propName + "__enable_filterable_ingest" + genSuffix(gen),
+		})
 	}
 
 	hookLogger, hook := test.NewNullLogger()
@@ -39,17 +50,94 @@ func TestCleanStaleMigrationDirsAt_PreservedGensLogAtDebug(t *testing.T) {
 
 	cleanStaleMigrationDirsAt(t.Context(), lsm, propName, indexType, hookLogger, nil)
 
-	var infoCount, debugCount int
+	var infoCount, preservedCount int
 	for _, e := range hook.AllEntries() {
-		switch e.Level {
-		case logrus.InfoLevel:
+		if e.Level == logrus.InfoLevel {
 			infoCount++
-		case logrus.DebugLevel:
-			debugCount++
-		default:
+		}
+		if e.Level == logrus.DebugLevel && strings.Contains(e.Message, "preserving a tracker dir") {
+			preservedCount++
 		}
 	}
 	require.Equal(t, 0, infoCount,
 		"preserving a deferred-finalize tracker dir must not log at Info inside the RAFT apply loop")
-	require.Equal(t, preservedGens, debugCount, "one Debug line per preserved generation")
+	require.Equal(t, preservedGens, preservedCount, "one Debug line per preserved generation")
+
+	// This read runs once per shard inside the apply, whose aggregate is the one
+	// line allowed.
+	for _, e := range hook.AllEntries() {
+		require.NotContains(t, e.Message, "read migration records",
+			"the record-set read is accounted for by the caller's aggregate, not per read")
+	}
+}
+
+// Sidecar half of the same rule: this runs inside the RAFT apply loop, so an
+// Info line here costs one per tenant.
+func TestCleanStaleSidecarDirsPreservedLogAtDebug(t *testing.T) {
+	root := t.TempDir()
+	hookLogger, hook := test.NewNullLogger()
+	hookLogger.SetLevel(logrus.DebugLevel)
+
+	shard := &Shard{
+		name:  "s1",
+		index: &Index{logger: hookLogger, Config: IndexConfig{RootPath: root, ClassName: "C"}},
+	}
+	require.NoError(t, os.MkdirAll(shard.pathLSM(), 0o777))
+
+	const mainBucket = "property_category_searchable"
+	const preserved = 3
+	dirs := map[string]bool{}
+	for gen := 1; gen <= preserved; gen++ {
+		name := mainBucket + "__enable_searchable_ingest" + genSuffix(gen)
+		require.NoError(t, os.MkdirAll(filepath.Join(shard.pathLSM(), name), 0o777))
+		dirs[name] = true
+	}
+
+	shard.cleanStaleSidecarDirsWithPreserved(mainBucket, migrationPreservingOnly(dirs))
+
+	var infoCount, preservedCount int
+	for _, e := range hook.AllEntries() {
+		if e.Level == logrus.InfoLevel {
+			infoCount++
+		}
+		if e.Level == logrus.DebugLevel && strings.Contains(e.Message, "preserving the sidecar dir") {
+			preservedCount++
+		}
+	}
+	require.Equal(t, 0, infoCount,
+		"preserving a committed migration's sidecar dir must not log at Info inside the RAFT apply loop")
+	require.Equal(t, preserved, preservedCount, "one Debug line per preserved sidecar dir")
+	for name := range dirs {
+		require.DirExists(t, filepath.Join(shard.pathLSM(), name), "a preserved sidecar dir must survive")
+	}
+}
+
+// The sweep is built once for the whole index-type loop; building it inside
+// would multiply every tenant's disk cost by the index-type count.
+func TestApplyPathReadsAShardsRecordsOncePerProperty(t *testing.T) {
+	ctx := testCtx()
+	className := "ApplyReadCount" + uuid.NewString()[:8]
+	class := newTestClassWithProps(className, []string{"title"})
+
+	// Every index type off, so the loop this read outlives runs more than once.
+	prop := class.Properties[0]
+	off := false
+	prop.IndexFilterable = &off
+	prop.IndexSearchable = &off
+	prop.IndexRangeFilters = &off
+
+	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	shard := shd.(*Shard)
+	defer shard.Shutdown(context.Background())
+
+	require.Greater(t, len(disabledIndexTypes(prop)), 1,
+		"the property must sweep several index types or this pins nothing")
+
+	var counts migrationSweepCounts
+	eg := enterrors.NewErrorGroupWrapper(shard.index.logger)
+	shard.updatePropertyBuckets(ctx, eg, prop, &counts)
+	require.NoError(t, eg.Wait())
+
+	require.Equal(t, int64(1), counts.recordSetReads.Load(),
+		"one record-set read for the shard, whatever the index-type count")
 }

@@ -83,7 +83,7 @@ func testChangeTokDeleteJourneys(t *testing.T, restURI string) {
 // dirs (one per ShardReindexTaskGeneric returned by createReindexTasks).
 // The DELETE wipes the searchable side's bucket. The filterable-only
 // retokenize should run against the still-present filterable bucket
-// with no contamination from the prior filterable retokenize sentinels.
+// with no contamination from the prior filterable retokenize's leftovers.
 func testChangeTokBothThenDeleteSearchableThenChangeTokFilterable(t *testing.T, restURI string) {
 	const class = "ChangeTokBothDeleteSearchableThenFilterable"
 	trueVal := true
@@ -120,7 +120,7 @@ func testChangeTokBothThenDeleteSearchableThenChangeTokFilterable(t *testing.T, 
 	deleteIndex(t, restURI, class, "name", "searchable")
 
 	// Step 3: filterable-only retokenize from field → word. With both
-	// the searchable bucket and its migration sentinels gone (or never
+	// the searchable bucket and its migration state gone (or never
 	// having existed if step 1 collapsed them properly), this should
 	// retokenize only the filterable bucket cleanly.
 	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, class, "name", "filterable",
@@ -401,10 +401,9 @@ func testChangeTokBothInFlightDeleteOneIndex(t *testing.T, restURI string) {
 // Journey 5: change-tok-filterable → change-tok-filterable (back-to-back)
 // =============================================================================
 // Pins that two consecutive filterable-only retokenizations on the
-// same property succeed end-to-end. The hazard: the first
-// retokenize's .migrations sentinels survive into the second submit,
-// causing it to short-circuit or fail with a "bucket already exists"
-// error from the staging buckets.
+// same property succeed end-to-end. The hazard: the first retokenize's
+// leftovers survive into the second submit, which then fails with a
+// "bucket already exists" error from the staging buckets.
 func testChangeTokFilterableBackToBack(t *testing.T, restURI string) {
 	const class = "ChangeTokFilterableBackToBack"
 	trueVal, falseVal := true, false

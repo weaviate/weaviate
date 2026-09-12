@@ -21,9 +21,9 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 )
 
-// The tracker-ownership and backup-gate rules live here rather than with
-// their REST wiring: both are statements about what this package treats
-// as a live reindex, and the transport layer only snapshots them.
+// The backup-gate rule lives here rather than with its REST wiring: it is
+// a statement about what this package treats as a live reindex, and the
+// transport layer only snapshots it.
 
 // lookupTask builds a task carrying payload, in status.
 func lookupTask(t *testing.T, id string, status distributedtask.TaskStatus,
@@ -40,7 +40,7 @@ func lookupTask(t *testing.T, id string, status distributedtask.TaskStatus,
 	}
 }
 
-// Pins: both lookups treat an unrecognized status as in-flight.
+// Pins: the lookup treats an unrecognized status as in-flight.
 func TestReindexLookups_LivenessRule(t *testing.T) {
 	payload := ReindexTaskPayload{
 		MigrationType: ReindexTypeEnableFilterable,
@@ -50,19 +50,6 @@ func TestReindexLookups_LivenessRule(t *testing.T) {
 	}
 
 	logger, _ := logrustest.NewNullLogger()
-
-	lookups := []struct {
-		name string
-		// inFlight reports whether the lookup considers the task live.
-		inFlight func(task *distributedtask.Task) bool
-	}{
-		{"backup gate", func(task *distributedtask.Task) bool {
-			return NewShardReindexActivityLookup([]*distributedtask.Task{task}, logger)("C", "shard-1")
-		}},
-		{"orphan audit", func(task *distributedtask.Task) bool {
-			return NewLiveReindexTrackerLookup([]*distributedtask.Task{task})("T1", 1)
-		}},
-	}
 
 	statuses := []struct {
 		status   distributedtask.TaskStatus
@@ -80,87 +67,16 @@ func TestReindexLookups_LivenessRule(t *testing.T) {
 		{distributedtask.TaskStatusCancelled, false},
 	}
 
-	for _, l := range lookups {
-		for _, s := range statuses {
-			name := string(s.status)
-			if name == "" {
-				name = "empty"
-			}
-			t.Run(l.name+"/"+name, func(t *testing.T) {
-				task := lookupTask(t, "T1", s.status, payload)
-				require.Equal(t, s.inFlight, l.inFlight(task),
-					"%s must read %q as in-flight=%v", l.name, s.status, s.inFlight)
-			})
+	for _, s := range statuses {
+		name := string(s.status)
+		if name == "" {
+			name = "empty"
 		}
-	}
-}
-
-// Pins: the lookup key includes TaskVersion, so two versions of one ID
-// (e.g. a dead v1 and a live v2) don't collide.
-func TestLiveReindexTrackerLookup_KeyIsIDAndVersion(t *testing.T) {
-	payload := ReindexTaskPayload{
-		MigrationType: ReindexTypeEnableFilterable,
-		Collection:    "C",
-		Properties:    []string{"foo"},
-	}
-	withVersion := func(id string, version uint64, status distributedtask.TaskStatus) *distributedtask.Task {
-		task := lookupTask(t, id, status, payload)
-		task.Version = version
-		return task
-	}
-
-	for _, tc := range []struct {
-		name         string
-		tasks        []*distributedtask.Task
-		queryID      string
-		queryVer     uint64
-		wantInFlight bool
-	}{
-		{
-			name:         "exact match is live",
-			tasks:        []*distributedtask.Task{withVersion("T1", 1, distributedtask.TaskStatusStarted)},
-			queryID:      "T1",
-			queryVer:     1,
-			wantInFlight: true,
-		},
-		{
-			name:         "version mismatch is not live",
-			tasks:        []*distributedtask.Task{withVersion("T1", 2, distributedtask.TaskStatusStarted)},
-			queryID:      "T1",
-			queryVer:     1,
-			wantInFlight: false,
-		},
-		{
-			name:         "unknown ID is not live",
-			tasks:        []*distributedtask.Task{withVersion("T1", 1, distributedtask.TaskStatusStarted)},
-			queryID:      "T2",
-			queryVer:     1,
-			wantInFlight: false,
-		},
-		{
-			name: "two versions of one ID keep separate answers",
-			tasks: []*distributedtask.Task{
-				withVersion("T1", 1, distributedtask.TaskStatusFinished),
-				withVersion("T1", 2, distributedtask.TaskStatusStarted),
-			},
-			queryID:      "T1",
-			queryVer:     1,
-			wantInFlight: false,
-		},
-		{
-			name: "two versions of one ID keep separate answers (live side)",
-			tasks: []*distributedtask.Task{
-				withVersion("T1", 1, distributedtask.TaskStatusFinished),
-				withVersion("T1", 2, distributedtask.TaskStatusStarted),
-			},
-			queryID:      "T1",
-			queryVer:     2,
-			wantInFlight: true,
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.wantInFlight,
-				NewLiveReindexTrackerLookup(tc.tasks)(tc.queryID, tc.queryVer))
+		t.Run(name, func(t *testing.T) {
+			task := lookupTask(t, "T1", s.status, payload)
+			require.Equal(t, s.inFlight,
+				NewShardReindexActivityLookup([]*distributedtask.Task{task}, logger)("C", "shard-1"),
+				"the backup gate must read %q as in-flight=%v", s.status, s.inFlight)
 		})
 	}
 }

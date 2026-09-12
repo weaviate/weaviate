@@ -14,40 +14,21 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
-// RecoveredReindex describes one in-flight reindex task discovered on
-// disk at startup, together with the [ShardReindexTaskGeneric] instances
-// reconstructed from the persisted payload. There is one
-// RecoveredReindex per (TaskDescriptor, unitID, shard) — i.e. per
-// migration directory observed on disk. For semantic migrations
-// (change-tokenization) there are two task instances per unit (one
-// searchable, one filterable); they share the same TaskDescriptor and
-// UnitID.
-//
-// Callers use these to:
-//
-//  1. Register the Tasks with the static [ShardReindexerV3] before
-//     [DB.WaitForStartup] runs, so the [OnAfterLsmInit] hook fires
-//     during shard load and re-installs the double-write callbacks
-//     BEFORE any post-restart write can reach the shard. Without this,
-//     writes that arrive between shard init and the swap that completes
-//     a deferred reindex go only to the old main bucket and are lost
-//     when the swap replaces it with the ingest bucket.
-//
-//  2. Pre-populate [ReindexProvider.reindexTasks] so that
-//     [OnGroupCompleted]'s swap phase reuses these same instances rather
-//     than creating fresh ones and re-running [OnAfterLsmInit] (which
-//     would attempt to load already-loaded ingest buckets).
 type RecoveredReindex struct {
 	Descriptor distributedtask.TaskDescriptor
 	UnitID     string
@@ -60,13 +41,6 @@ type RecoveredReindex struct {
 // .migrations/<migrationDir>/ at startup and reconstructs
 // [ShardReindexTaskGeneric] instances for the recovery window where the
 // reindex iteration is terminal but the swap has not yet completed.
-//
-// Reads payload.mig (the typed task payload persisted by
-// persistRecoveryRecord before the iteration ran) and consults the
-// sentinel files: started.mig (iteration started), reindexed.mig
-// (iteration terminal), merged.mig (PREP complete), swapped.mig
-// (in-memory swap complete), tidied.mig (swap fully tidied; no
-// recovery needed).
 //
 // Returns a flat slice; deduplication across sibling migration dirs
 // belonging to the same task is the caller's job.
@@ -87,6 +61,30 @@ func DiscoverInFlightReindexTasks(
 	}
 
 	var recovered []RecoveredReindex
+	// Faults are accumulated, not logged per shard: a per-shard line would follow the tenant count.
+	var (
+		unlistable   = map[string]struct{}{}
+		unlistErrs   = errorcompounder.New()
+		unreadable   = map[string]struct{}{}
+		unreadErrs   = errorcompounder.New()
+		partlyUnread = map[string]struct{}{}
+		shardsWalked int
+		recordReads  int
+
+		oversizedPayloads  = map[string]struct{}{}
+		oversizedErrs      = errorcompounder.New()
+		unreadablePayloads = map[string]struct{}{}
+		unreadableErrs     = errorcompounder.New()
+		malformedPayloads  = map[string]struct{}{}
+		malformedErrs      = errorcompounder.New()
+		noGenerationDirs   = map[string]struct{}{}
+		unbuildable        = map[string]struct{}{}
+		unbuildableErrs    = errorcompounder.New()
+
+		unmirroredRecords = map[string]struct{}{}
+		unmirroredNames   []string
+		unmirroredErrs    = errorcompounder.New()
+	)
 	for _, indexEntry := range indices {
 		if !indexEntry.IsDir() {
 			continue
@@ -100,40 +98,70 @@ func DiscoverInFlightReindexTasks(
 			if !shardEntry.IsDir() {
 				continue
 			}
+			shardsWalked++
 			shardName := shardEntry.Name()
+			shardKey := indexEntry.Name() + "/" + shardName
 			lsmPath := filepath.Join(indexPath, shardName, "lsm")
 			migrationsDir := filepath.Join(lsmPath, ".migrations")
 			migs, err := os.ReadDir(migrationsDir)
 			if err != nil {
-				// Most shards have no .migrations dir; that's the normal path.
+				if !os.IsNotExist(err) {
+					unlistable[shardKey] = struct{}{}
+					unlistErrs.AddWrapf(err, "%s", shardKey)
+				}
 				continue
 			}
+			recordReads++
+			store, someRecordsUnreadable, recordSetErr := migrationRecordStoreAt(lsmPath, logger)
+			if recordSetErr != nil {
+				unreadable[shardKey] = struct{}{}
+				unreadErrs.AddWrapf(recordSetErr, "%s", shardKey)
+				continue
+			}
+			if someRecordsUnreadable {
+				partlyUnread[shardKey] = struct{}{}
+			}
+			records := store.Records()
+			armable := map[string]struct{}{}
 			for _, migEntry := range migs {
 				if !migEntry.IsDir() {
 					continue
 				}
 				migDir := filepath.Join(migrationsDir, migEntry.Name())
-				rec, ok := loadReindexRecoveryRecord(migDir, logger)
-				if !ok {
+				rec, fault, faultErr := loadReindexRecoveryRecord(migDir, records)
+				trackerKey := shardKey + "/" + migEntry.Name()
+				switch fault {
+				case recoveryPayloadOK, recoveryPayloadNotApplicable:
+				case recoveryPayloadOversized:
+					oversizedPayloads[trackerKey] = struct{}{}
+					oversizedErrs.AddWrapf(faultErr, "%s", trackerKey)
+				case recoveryPayloadUnreadable:
+					unreadablePayloads[trackerKey] = struct{}{}
+					unreadableErrs.AddWrapf(faultErr, "%s", trackerKey)
+				case recoveryPayloadMalformed:
+					malformedPayloads[trackerKey] = struct{}{}
+					malformedErrs.AddWrapf(faultErr, "%s", trackerKey)
+				}
+				if fault != recoveryPayloadOK {
 					continue
 				}
 
 				// Generation comes from the dir name, like every other reader
 				// of this state: payload.mig is copied into every task dir
 				// for this migration, so it can't tell generations apart.
-				_, generation, hasGeneration := parseMigrationDirName(migEntry.Name())
+				trackerPrefix, generation, hasGeneration := parseMigrationDirName(migEntry.Name())
 				if !hasGeneration {
-					logger.WithField("migrationDir", migDir).
-						Warn("reindex recovery: migration dir name carries no generation; skipping")
+					noGenerationDirs[trackerKey] = struct{}{}
 					continue
 				}
 
-				tasks, err := buildRecoveryTasks(rec, shardName, generation, logger, schemaManager)
+				tasks, err := buildRecoveryTasks(rec, shardName, trackerPrefix, generation, logger, schemaManager)
 				if err != nil {
-					logger.WithField("migrationDir", migDir).
-						Warnf("reindex recovery: skipping migration; cannot build tasks: %v", err)
+					unbuildable[trackerKey] = struct{}{}
+					unbuildableErrs.AddWrapf(err, "%s", trackerKey)
 					continue
 				}
+				armable[migEntry.Name()] = struct{}{}
 				recovered = append(recovered, RecoveredReindex{
 					Descriptor: distributedtask.TaskDescriptor{
 						ID:      rec.TaskID,
@@ -145,71 +173,201 @@ func DiscoverInFlightReindexTasks(
 					Tasks:      tasks,
 				})
 			}
+			if someRecordsUnreadable {
+				// An unreadable record freezes the store and the reconciler, so nothing the stamp guards can run.
+				continue
+			}
+			stamped, stampErr := stampUnmirroredRecords(store, records, armable)
+			if len(stamped) > 0 {
+				unmirroredRecords[shardKey] = struct{}{}
+				unmirroredNames = append(unmirroredNames, stamped...)
+			}
+			if stampErr != nil {
+				unmirroredErrs.AddWrapf(stampErr, "%s", shardKey)
+			}
 		}
+	}
+
+	logger.WithField("shards", shardsWalked).WithField("record_set_reads", recordReads).
+		Debug("reindex recovery: read migration records")
+
+	if len(unlistable) > 0 {
+		logger.WithField("shards", reportedShardNames(unlistable)).
+			Warnf("reindex recovery: the migration directory of %d shard(s) could not be listed, so a migration "+
+				"awaiting its flip recovers unmirrored; recovering nothing on them: %v",
+				len(unlistable), unlistErrs.ToErrorLimited(maxReportedErrors))
+	}
+	if len(unreadable) > 0 {
+		logger.WithField("shards", reportedShardNames(unreadable)).
+			Warnf("reindex recovery: the migration records of %d shard(s) could not be read; "+
+				"recovering nothing on them: %v", len(unreadable), unreadErrs.ToErrorLimited(maxReportedErrors))
+	}
+	if len(partlyUnread) > 0 {
+		logger.WithField("shards", reportedShardNames(partlyUnread)).
+			Warnf("reindex recovery: some migration records of %d shard(s) could not be read; "+
+				"recovering only the trackers the rest name", len(partlyUnread))
+	}
+	if len(oversizedPayloads) > 0 {
+		logger.WithField("trackers", reportedShardNames(oversizedPayloads)).
+			Warnf("reindex recovery: the payload.mig of %d tracker(s) is beyond any size a migration can "+
+				"produce, so it is not read and those migrations' mirrors stay unarmed: %v",
+				len(oversizedPayloads), oversizedErrs.ToErrorLimited(maxReportedErrors))
+	}
+	if len(unreadablePayloads) > 0 {
+		logger.WithField("trackers", reportedShardNames(unreadablePayloads)).
+			Warnf("reindex recovery: %d migration(s) awaiting their flip have no readable payload.mig, "+
+				"so their double-write mirrors stay unarmed: %v",
+				len(unreadablePayloads), unreadableErrs.ToErrorLimited(maxReportedErrors))
+	}
+	if len(malformedPayloads) > 0 {
+		logger.WithField("trackers", reportedShardNames(malformedPayloads)).
+			Warnf("reindex recovery: the payload.mig of %d tracker(s) is malformed or names a property that "+
+				"is not a single directory inside the shard; those mirrors stay unarmed: %v",
+				len(malformedPayloads), malformedErrs.ToErrorLimited(maxReportedErrors))
+	}
+	if len(noGenerationDirs) > 0 {
+		logger.WithField("trackers", reportedShardNames(noGenerationDirs)).
+			Warnf("reindex recovery: the directory name of %d tracker(s) carries no generation, so the "+
+				"migration each holds cannot be rebuilt and its double-write mirror stays unarmed",
+				len(noGenerationDirs))
+	}
+	if len(unbuildable) > 0 {
+		logger.WithField("trackers", reportedShardNames(unbuildable)).
+			Warnf("reindex recovery: the payload.mig of %d tracker(s) builds no reindex task, so those "+
+				"migrations' mirrors stay unarmed: %v",
+				len(unbuildable), unbuildableErrs.ToErrorLimited(maxReportedErrors))
+	}
+	if len(unmirroredRecords) > 0 {
+		logger.WithField("shards", reportedShardNames(unmirroredRecords)).
+			WithField("record_count", len(unmirroredNames)).
+			Errorf("reindex recovery: %d migration(s) awaiting their flip could not be armed with a double-write "+
+				"mirror on %d shard(s), so writes this node takes now reach the pre-migration bucket only. "+
+				"Their staged data is stale and will not be promoted over it. %s",
+				len(unmirroredNames), len(unmirroredRecords), migrationUnmirroredRemedy)
+	}
+	if err := unmirroredErrs.ToErrorLimited(maxReportedErrors); err != nil {
+		logger.Errorf("reindex recovery: could not record that a migration's mirror stayed unarmed, "+
+			"so a later promotion may still rename its stale staged data over the live bucket: %v", err)
 	}
 	return recovered, nil
 }
 
-// loadReindexRecoveryRecord reads payload.mig from a migration directory
-// and returns the decoded record. Returns ok=false if:
-//   - payload.mig is missing (older migration without the recovery
-//     record, or no migration in progress);
-//   - started.mig is missing (nothing has happened yet, no callbacks to
-//     restore);
-//   - reindexed.mig is missing (the reindex iteration is not yet
-//     terminal — the DTM scheduler will call StartTask post-restart,
-//     which re-registers callbacks via OnAfterLsmInit on a fresh task
-//     instance; if we ALSO registered one here we'd end up with
-//     duplicate double-write callbacks);
-//   - tidied.mig is present (the migration is fully done — leftover
-//     state will be cleaned up by [FinalizeCompletedMigrations]).
-//
-// The reindexed-but-not-tidied window is exactly the bug fixed by this
-// recovery path: the unit is terminal in RAFT (so the scheduler will
-// NOT call StartTask post-restart) but the swap (driven by
-// OnGroupCompleted on the next scheduler tick) has not yet happened.
-// Any write that arrives between shard init and that tick must land in
-// the ingest bucket via a double-write callback, and the only way to
-// have those callbacks active that early is to re-register them during
-// shard init from on-disk state.
-func loadReindexRecoveryRecord(migDir string, logger logrus.FieldLogger) (reindexRecoveryRecord, bool) {
-	var rec reindexRecoveryRecord
-	if !fileExists(filepath.Join(migDir, "started.mig")) {
-		return rec, false
-	}
-	if !fileExists(filepath.Join(migDir, "reindexed.mig")) {
-		return rec, false
-	}
-	if fileExists(filepath.Join(migDir, "tidied.mig")) {
-		return rec, false
-	}
-	payloadPath := filepath.Join(migDir, reindexRecoveryPayloadFile)
-	data, err := os.ReadFile(payloadPath)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			logger.WithField("path", payloadPath).
-				Warnf("reindex recovery: failed to read payload.mig: %v", err)
+const migrationUnmirroredRemedy = "Submit a new migration covering the same properties once the cause is cleared."
+
+// stampUnmirroredRecords stops a later promotion from renaming stale staged data over the live bucket.
+func stampUnmirroredRecords(store *MigrationRecordStore, records []MigrationRecord,
+	armable map[string]struct{},
+) ([]string, error) {
+	var stamped []string
+	errs := errorcompounder.New()
+	for _, rec := range records {
+		subject := rec.Subject()
+		if subject.Unmirrored {
+			continue
 		}
-		return rec, false
+		if _, ok := armable[subject.TrackerDir]; ok {
+			continue
+		}
+		next, stampable := migrationRecordStampedUnmirrored(rec)
+		if !stampable {
+			continue
+		}
+		if err := store.Put(next); err != nil {
+			errs.AddWrapf(err, "%s", subject.Key)
+			continue
+		}
+		stamped = append(stamped, subject.Key.String())
 	}
-	if err := json.Unmarshal(data, &rec); err != nil {
-		logger.WithField("path", payloadPath).
-			Warnf("reindex recovery: malformed payload.mig; skipping: %v", err)
-		return rec, false
-	}
-	return rec, true
+	return stamped, errs.ToErrorLimited(maxReportedErrors)
 }
 
-// buildRecoveryTasks reconstructs the [ShardReindexTaskGeneric]
-// instances that processOneUnit would have created for this migration
-// type, but scoped to exactly the named shard. The scope is what makes
-// per-instance callbackDisableFuncs safe to share with [runtimeSwap]
-// later: the static reindexer iterates all registered tasks on every
-// shard init, but each task's isShardSelected filter drops everything
-// except the one shard the record came from.
+type recoveryPayloadFault int
+
+const (
+	recoveryPayloadOK recoveryPayloadFault = iota
+	recoveryPayloadNotApplicable
+	recoveryPayloadOversized
+	recoveryPayloadUnreadable
+	recoveryPayloadMalformed
+)
+
+func loadReindexRecoveryRecord(migDir string, records []MigrationRecord,
+) (reindexRecoveryRecord, recoveryPayloadFault, error) {
+	var rec reindexRecoveryRecord
+	state, ok := migrationRecordForTracker(records, filepath.Base(migDir))
+	if !ok || !state.IterationComplete() || state.State() == MigrationStatePromoted {
+		return rec, recoveryPayloadNotApplicable, nil
+	}
+	return readRecoveryPayload(migDir)
+}
+
+func readRecoveryPayload(migDir string) (reindexRecoveryRecord, recoveryPayloadFault, error) {
+	var rec reindexRecoveryRecord
+	payloadPath := filepath.Join(migDir, reindexRecoveryPayloadFile)
+	// errors.Is, not err != nil: a stat failure here is not an oversized payload.
+	if err := refuseOversizedRecoveryPayload(payloadPath, maxRecoveryWalkPayloadBytes); errors.Is(err, errRecoveryPayloadTooLarge) {
+		return rec, recoveryPayloadOversized, err
+	}
+	data, err := os.ReadFile(payloadPath)
+	if err != nil {
+		return rec, recoveryPayloadUnreadable, err
+	}
+	if err := json.Unmarshal(data, &rec); err != nil {
+		return rec, recoveryPayloadMalformed, err
+	}
+	for _, prop := range rec.Payload.Properties {
+		if !migrationHandleIsOneElement(prop) {
+			return reindexRecoveryRecord{}, recoveryPayloadMalformed,
+				fmt.Errorf("property %q is not a single directory inside the shard", prop)
+		}
+	}
+	return rec, recoveryPayloadOK, nil
+}
+
+// Only a tracker carrying a record is seeded, so a unit interrupted between its halves loses one.
+func migrationHalvesMissingFromCache(lsmPath string, desc distributedtask.TaskDescriptor,
+	unitID string, tasks []*ShardReindexTaskGeneric,
+) []string {
+	covered := map[string]struct{}{}
+	for _, t := range tasks {
+		if base, _, ok := parseMigrationDirName(t.strategy.MigrationDirName()); ok {
+			covered[base] = struct{}{}
+		}
+	}
+
+	entries, err := os.ReadDir(filepath.Join(lsmPath, migrationsDir))
+	if err != nil {
+		return nil
+	}
+
+	missing := map[string]struct{}{}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		base, _, ok := parseMigrationDirName(entry.Name())
+		if !ok {
+			continue
+		}
+		if _, there := covered[base]; there {
+			continue
+		}
+		rec, fault, _ := readRecoveryPayload(filepath.Join(lsmPath, migrationsDir, entry.Name()))
+		if fault != recoveryPayloadOK {
+			continue
+		}
+		if rec.TaskID != desc.ID || rec.TaskVersion != desc.Version || rec.UnitID != unitID {
+			continue
+		}
+		missing[base] = struct{}{}
+	}
+	return slices.Sorted(maps.Keys(missing))
+}
+
 func buildRecoveryTasks(
 	rec reindexRecoveryRecord,
 	shardName string,
+	trackerPrefix string,
 	generation int,
 	logger logrus.FieldLogger,
 	schemaManager *schema.Manager,
@@ -254,18 +412,27 @@ func buildRecoveryTasks(
 			return nil, fmt.Errorf("change-tokenization requires bucketStrategy")
 		}
 		propName := payload.Properties[0]
-		raw = []*ShardReindexTaskGeneric{
-			NewRuntimeSearchableRetokenizeTask(
-				logger, propName, payload.TargetTokenization,
-				payload.Collection, payload.BucketStrategy, payload.Collection,
-				generation,
-			),
-			NewRuntimeFilterableRetokenizeTask(
-				logger,
-				propName, payload.TargetTokenization,
-				payload.Collection, payload.Collection,
-				generation,
-			),
+		switch {
+		case strings.HasPrefix(trackerPrefix, MigrationDirPrefixSearchableRetokenize):
+			raw = []*ShardReindexTaskGeneric{
+				NewRuntimeSearchableRetokenizeTask(
+					logger, propName, payload.TargetTokenization,
+					payload.Collection, payload.BucketStrategy, payload.Collection,
+					generation,
+				),
+			}
+		case strings.HasPrefix(trackerPrefix, MigrationDirPrefixFilterableRetokenize):
+			raw = []*ShardReindexTaskGeneric{
+				NewRuntimeFilterableRetokenizeTask(
+					logger,
+					propName, payload.TargetTokenization,
+					payload.Collection, payload.Collection,
+					generation,
+				),
+			}
+		default:
+			return nil, fmt.Errorf(
+				"tracker directory %q names neither half of a change-tokenization migration", trackerPrefix)
 		}
 	case ReindexTypeChangeTokenizationFilterable:
 		if len(payload.Properties) != 1 {
@@ -287,13 +454,69 @@ func buildRecoveryTasks(
 		return nil, fmt.Errorf("unknown migration type %q", payload.MigrationType)
 	}
 
-	// Constrain each task to exactly this shard so multiple recovered
-	// instances (one per shard) don't fight over the same
-	// callbackDisableFuncs slice when [runtimeSwap] runs per-shard.
+	desc := distributedtask.TaskDescriptor{ID: rec.TaskID, Version: rec.TaskVersion}
 	for _, t := range raw {
 		t.constrainToShard(payload.Collection, shardName)
+		t.setMigrationIdentity(desc, rec.UnitID, &payload)
 	}
 	return raw, nil
+}
+
+func rebuildNeverStartedHalves(lsmPath, shardName string, desc distributedtask.TaskDescriptor,
+	unitID string, missing []string, logger logrus.FieldLogger, schemaManager *schema.Manager,
+) ([]*ShardReindexTaskGeneric, error) {
+	wanted := make(map[string]struct{}, len(missing))
+	for _, base := range missing {
+		wanted[base] = struct{}{}
+	}
+	entries, err := os.ReadDir(filepath.Join(lsmPath, migrationsDir))
+	if err != nil {
+		return nil, fmt.Errorf("list migration trackers: %w", err)
+	}
+
+	type neverStartedHalf struct {
+		rec        reindexRecoveryRecord
+		generation int
+	}
+	newest := map[string]neverStartedHalf{}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		base, generation, ok := parseMigrationDirName(entry.Name())
+		if !ok {
+			continue
+		}
+		if _, want := wanted[base]; !want {
+			continue
+		}
+		rec, fault, _ := readRecoveryPayload(filepath.Join(lsmPath, migrationsDir, entry.Name()))
+		if fault != recoveryPayloadOK {
+			continue
+		}
+		if rec.TaskID != desc.ID || rec.TaskVersion != desc.Version || rec.UnitID != unitID {
+			continue
+		}
+		if have, there := newest[base]; there && have.generation >= generation {
+			continue
+		}
+		newest[base] = neverStartedHalf{rec: rec, generation: generation}
+	}
+	if len(newest) != len(wanted) {
+		return nil, fmt.Errorf("rebuilt %d of %d missing half(s); the rest have no readable payload claiming this unit",
+			len(newest), len(wanted))
+	}
+
+	var out []*ShardReindexTaskGeneric
+	for _, base := range slices.Sorted(maps.Keys(newest)) {
+		half := newest[base]
+		tasks, err := buildRecoveryTasks(half.rec, shardName, base, half.generation, logger, schemaManager)
+		if err != nil {
+			return nil, fmt.Errorf("tracker %q: %w", base, err)
+		}
+		out = append(out, tasks...)
+	}
+	return out, nil
 }
 
 // NewShardReindexerV3FromRecovered wires recovered tasks into a

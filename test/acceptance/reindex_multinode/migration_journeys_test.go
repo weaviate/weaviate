@@ -30,17 +30,6 @@ import (
 // partial/stale shape from the second migration reusing the prior
 // migration's sidecar dirs.
 //
-// History: surfaced as
-// https://github.com/weaviate/0-weaviate-issues/issues/212 (Issue F)
-// — production reproduction (`74e6c1d`, post C+D fix) showed Phase 5
-// returning `path=1` (expected 7) on the back-to-original migration
-// and Phase 8-final returning `path=7` (expected 5) on the third
-// change-tokenization. Root cause: the second migration reused the
-// first migration's sidecar dirs, hitting an already-tidied tracker
-// state that short-circuited the work. Fixed by the per-migration
-// generation suffix (`4a0557ec67`) and the cluster-wide schema flip
-// move into OnTaskCompleted (`435b2c4a9f`).
-//
 // Shape (in-process, single restart-less journey):
 //
 //  1. Create class with a single text property `path`, tokenization=word.
@@ -58,12 +47,11 @@ import (
 //  5. Verify every replica returns N_field.
 //  6. Submit change-tokenization back to WORD. Await FINISHED. Sleep 3 s.
 //  7. Verify every replica returns N_word again — and importantly that
-//     the count is not 0, 1, or some degenerate partial value, which
-//     is the Phase-5 / Phase-8-final shape.
+//     the count is not 0, 1, or some degenerate partial value.
 //
 // The exact-value assertions are the headline check. The "≥ 2" sanity
-// check below also catches the Phase-5 `path=1` degenerate shape even
-// if my count math is off by a few in either direction.
+// check below also catches a degenerate collapse to 0 or 1 even if the
+// count math is off by a few in either direction.
 func TestMultiNode_BackToBackChangeTokenization_RoundTripCounts(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t)
@@ -105,9 +93,8 @@ func TestMultiNode_BackToBackChangeTokenization_RoundTripCounts(t *testing.T) {
 	//   FIELD → exact "shared" → 0 matches (no path equals just "shared")
 	//   WORD  → token "shared"     → 10000 matches (every path contains it)
 	//
-	// 0 vs 10000 makes the assertions trivial. The Phase-5 `path=1`
-	// shape would show up as 0 or 1 from the partial bucket regardless
-	// of which side we query under.
+	// 0 vs 10000 makes the assertions trivial. A partial bucket would
+	// show up as 0 or 1 regardless of which side we query under.
 	paths := []string{"red-shared", "green-shared", "blue-shared", "yellow-shared", "purple-shared"}
 
 	batchImportMultiProp(t, restURIOf(compose, 1), className, totalObjects, func(i int) map[string]interface{} {
@@ -163,9 +150,8 @@ func TestMultiNode_BackToBackChangeTokenization_RoundTripCounts(t *testing.T) {
 
 	// === Step 7: every replica must serve the WORD baseline again.
 	// AwaitReindexFinished only confirms node-1; poll all replicas (50ms)
-	// until convergence instead of a fixed settle. The degenerate "path=1"
-	// shape from the original production reproduction (Phase 5) would surface
-	// as `got=1` — captured via both the exact-count check and the
+	// until convergence instead of a fixed settle. A degenerate bucket
+	// surfaces as `got=1` — captured via both the exact-count check and the
 	// "must be > N/2" defense-in-depth check; a round-trip that never
 	// reconverges fails the poll loudly.
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
@@ -200,16 +186,6 @@ func TestMultiNode_BackToBackChangeTokenization_RoundTripCounts(t *testing.T) {
 // rolling restart + re-apply) converge to per-replica consistent
 // counts — no in-memory bucket-pointer divergence on any replica.
 //
-// History: surfaced as
-// https://github.com/weaviate/0-weaviate-issues/issues/212 — the
-// 1M-record production reproduction returned per-replica different
-// counts (e.g. `7×32, 3×30, 2×23, 6×5` histogram) on `spec_sheet_path`
-// queries across all 3 pods at Phase 7 (post-restart) and Phase
-// 8-final (post-restart-then-re-apply). Same family as Issue G
-// (post_restart_test.go) but the multi-generation pre-restart state
-// stresses different code paths: the recovery + finalize flow has to
-// resolve a deeper stack of merged-but-not-tidied trackers.
-//
 // What this test does differently than
 // TestMultiNode_PostRestartReapplyMigrations_ExactCountsAcrossReplicas:
 //
@@ -222,10 +198,9 @@ func TestMultiNode_BackToBackChangeTokenization_RoundTripCounts(t *testing.T) {
 //  2. **Per-replica histogram** — runs the same query 30 times PER
 //     REPLICA directly (90 total queries hitting all 3 replicas
 //     evenly), mirroring the LB-fanout poll pattern. The above test
-//     runs each query once per replica, which the `7×32, 3×30, 2×23,
-//     6×5` flap would only catch if the test's single poll happens to
-//     hit the bad replica. With 30 samples per replica we
-//     deterministically detect divergence.
+//     runs each query once per replica, which only catches a flapping
+//     replica if the test's single poll happens to hit it. With 30
+//     samples per replica we deterministically detect divergence.
 //  3. **Higher object count** — 25k objects (up from 10k in the
 //     simpler post-restart test). The bug is LSM-segment-layout
 //     sensitive; small datasets keep most data in the memtable and
@@ -409,7 +384,7 @@ func TestMultiNode_RepeatedParallelMigrationJourney_PerReplicaConsistency(t *tes
 	// Poll until every replica converges on all three migrated props, then
 	// run the histogram below as a post-convergence stability check.
 	// rollingRestartCluster only waits for /ready; a restarted node may
-	// still be loading buckets (FinalizeCompletedMigrations). Polling the
+	// still be loading buckets (reconciliation). Polling the
 	// real per-replica condition (50ms) instead of a fixed settle means a
 	// node that never converges fails loudly. testcontainers reallocates
 	// ports across stop+start, so restURIOf re-resolves on every call.
