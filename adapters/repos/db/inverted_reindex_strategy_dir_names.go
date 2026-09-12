@@ -137,11 +137,8 @@ func parseMigrationDirName(name string) (prefix string, generation int, ok bool)
 // provably missing. A stat error must not be read as absence, or a pending
 // migration gets marked complete without its index ever rebuilt.
 func migrationTrackerDirAbsent(lsmPath, dirName string) bool {
-	info, err := os.Stat(filepath.Join(lsmPath, migrationsDir, dirName))
-	if err != nil {
-		return os.IsNotExist(err)
-	}
-	return !info.IsDir()
+	there, err := shardBucketDirs(lsmPath).Trackers().Exists(dirName)
+	return err == nil && !there
 }
 
 // migrationDirPrefixesForIndexType returns the per-property migration

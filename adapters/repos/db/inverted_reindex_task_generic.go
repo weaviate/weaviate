@@ -111,7 +111,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -566,13 +565,13 @@ func (t *ShardReindexTaskGeneric) ensureReindexBucketsLoadedForSwap(
 	ctx context.Context, logger logrus.FieldLogger, shard *Shard, props []string,
 ) error {
 	store := shard.Store()
-	lsmPath := shard.pathLSM()
+	dirs := shardBucketDirs(shard.pathLSM())
 
 	var missingReindex, missingIngest []string
 	for _, propName := range props {
 		reindexName := t.reindexBucketName(propName)
 		if store.Bucket(reindexName) == nil {
-			there, err := diskio.DirExists(filepath.Join(lsmPath, reindexName))
+			there, err := dirs.Exists(reindexName)
 			if err != nil {
 				return fmt.Errorf("probe reindex bucket dir for %q: %w", propName, err)
 			}
@@ -582,7 +581,7 @@ func (t *ShardReindexTaskGeneric) ensureReindexBucketsLoadedForSwap(
 		}
 		ingestName := t.ingestBucketName(propName)
 		if store.Bucket(ingestName) == nil {
-			there, err := diskio.DirExists(filepath.Join(lsmPath, ingestName))
+			there, err := dirs.Exists(ingestName)
 			if err != nil {
 				return fmt.Errorf("probe ingest bucket dir for %q: %w", propName, err)
 			}
@@ -615,6 +614,7 @@ func (t *ShardReindexTaskGeneric) ensureReindexBucketsLoadedForSwap(
 func (t *ShardReindexTaskGeneric) stagedPropsStillOnDisk(logger logrus.FieldLogger,
 	shard ShardLike, subject MigrationSubject, props []string,
 ) ([]string, error) {
+	dirs := shardBucketDirs(shard.pathLSM())
 	kept := make([]string, 0, len(props))
 	var promoted, misnamed []string
 	for _, propName := range props {
@@ -623,7 +623,7 @@ func (t *ShardReindexTaskGeneric) stagedPropsStillOnDisk(logger logrus.FieldLogg
 			misnamed = append(misnamed, propName)
 			continue
 		}
-		there, err := diskio.DirExists(filepath.Join(shard.pathLSM(), staged))
+		there, err := dirs.Exists(staged)
 		if err != nil {
 			return nil, fmt.Errorf("probe staged dir for %q: %w", propName, err)
 		}
@@ -687,6 +687,7 @@ func (t *ShardReindexTaskGeneric) swapStillToRun(logger logrus.FieldLogger, shar
 // terminal, and a terminal task never re-enters here.
 func (t *ShardReindexTaskGeneric) requireCanonicalHoldsMigratedData(shard ShardLike, rec MigrationRecord) error {
 	subject := rec.Subject()
+	dirs := shardBucketDirs(shard.pathLSM())
 	for _, propName := range subject.Properties() {
 		if bucket := shard.Store().Bucket(t.strategy.SourceBucketName(propName)); bucket != nil {
 			serving := filepath.Base(bucket.GetDir())
@@ -702,7 +703,7 @@ func (t *ShardReindexTaskGeneric) requireCanonicalHoldsMigratedData(shard ShardL
 			return fmt.Errorf("stale migration state on shard %q: the record claims property %q is complete, but the canonical name does not serve this migration's staged directory and the migration is only %q, not promoted; refusing to report success",
 				shard.Name(), propName, rec.State())
 		}
-		canonicalThere, err := diskio.DirExists(filepath.Join(shard.pathLSM(), subject.Props[propName].Canonical))
+		canonicalThere, err := dirs.Exists(subject.Props[propName].Canonical)
 		if err != nil {
 			return fmt.Errorf("probe canonical dir for %q: %w", propName, err)
 		}
@@ -710,7 +711,7 @@ func (t *ShardReindexTaskGeneric) requireCanonicalHoldsMigratedData(shard ShardL
 			return fmt.Errorf("stale migration state on shard %q: the record claims property %q is promoted, but its canonical directory %q is gone; refusing to report success",
 				shard.Name(), propName, subject.Props[propName].Canonical)
 		}
-		stagedThere, err := diskio.DirExists(filepath.Join(shard.pathLSM(), subject.Props[propName].Staged))
+		stagedThere, err := dirs.Exists(subject.Props[propName].Staged)
 		if err != nil {
 			return fmt.Errorf("probe staged dir for %q: %w", propName, err)
 		}
@@ -1386,6 +1387,7 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 	// Phase 2b: only a shut-down bucket may be removed, and Bucket.Shutdown is what
 	// releases its path from lsmkv.GlobalBucketRegistry — skip it and the next
 	// in-process shard init at this name fails with ErrBucketAlreadyRegistered.
+	dirs := shardBucketDirs(shard.pathLSM())
 	for _, propName := range props {
 		oldMainBucket, ok := oldMainBuckets[propName]
 		if !ok {
@@ -1402,7 +1404,7 @@ func (t *ShardReindexTaskGeneric) runtimeSwap(ctx context.Context,
 					"and its retirement has not run yet", propName, key, role)
 			continue
 		}
-		if err := os.RemoveAll(oldMainBucket.GetDir()); err != nil {
+		if err := dirs.Discard(dir, "the displaced directory"); err != nil {
 			return fmt.Errorf("removing displaced dir for %q: %w", propName, err)
 		}
 	}
@@ -1448,12 +1450,13 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 			"trimming nothing")
 		return
 	}
-	lsmPath := concrete.pathLSM()
-	for _, path := range t.obsoleteSidecarDirs(logger, lsmPath, props, preserve) {
-		t.removeAllSafe(logger, path)
+	dirs := shardBucketDirs(concrete.pathLSM())
+	for _, name := range t.obsoleteSidecarDirs(logger, dirs, props, preserve) {
+		t.discardSafe(logger, dirs, name, "an obsolete sidecar directory")
 	}
-	for _, path := range t.obsoleteTrackerDirs(logger, lsmPath, preserve) {
-		t.removeAllSafe(logger, path)
+	trackers := dirs.Trackers()
+	for _, name := range t.obsoleteTrackerDirs(logger, trackers, preserve) {
+		t.discardSafe(logger, trackers, name, "an obsolete tracker directory")
 	}
 }
 
@@ -1487,9 +1490,9 @@ func (p migrationTrimPreserve) trackerDir(dir string) bool {
 }
 
 func (t *ShardReindexTaskGeneric) obsoleteSidecarDirs(logger logrus.FieldLogger,
-	lsmPath string, props []string, preserve migrationTrimPreserve,
+	dirs bucketDirs, props []string, preserve migrationTrimPreserve,
 ) []string {
-	entries, err := os.ReadDir(lsmPath)
+	entries, err := os.ReadDir(dirs.root)
 	if err != nil {
 		logger.Warnf("runtime swap: trim: failed to read LSM dir; skipping cleanup: %v", err)
 		return nil
@@ -1520,10 +1523,10 @@ func (t *ShardReindexTaskGeneric) obsoleteSidecarDirs(logger logrus.FieldLogger,
 			}
 			switch suffixBase {
 			case currentReindexBase:
-				out = append(out, filepath.Join(lsmPath, name))
+				out = append(out, name)
 			case currentIngestBase:
 				if suffixGen < currentGenN {
-					out = append(out, filepath.Join(lsmPath, name))
+					out = append(out, name)
 				}
 			}
 		}
@@ -1532,10 +1535,9 @@ func (t *ShardReindexTaskGeneric) obsoleteSidecarDirs(logger logrus.FieldLogger,
 }
 
 func (t *ShardReindexTaskGeneric) obsoleteTrackerDirs(logger logrus.FieldLogger,
-	lsmPath string, preserve migrationTrimPreserve,
+	trackers bucketDirs, preserve migrationTrimPreserve,
 ) []string {
-	migsDir := filepath.Join(lsmPath, ".migrations")
-	entries, err := os.ReadDir(migsDir)
+	entries, err := os.ReadDir(trackers.root)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			logger.Warnf("runtime swap: trim: failed to read .migrations dir; skipping cleanup: %v", err)
@@ -1556,15 +1558,17 @@ func (t *ShardReindexTaskGeneric) obsoleteTrackerDirs(logger logrus.FieldLogger,
 		if base != currentMigBase || gen >= currentGenN {
 			continue
 		}
-		out = append(out, filepath.Join(migsDir, entry.Name()))
+		out = append(out, entry.Name())
 	}
 	return out
 }
 
-func (t *ShardReindexTaskGeneric) removeAllSafe(logger logrus.FieldLogger, path string) {
-	if err := os.RemoveAll(path); err != nil {
-		logger.WithField("path", path).
-			Warnf("runtime swap: trim: failed to remove obsolete dir; it is left on disk: %v", err)
+func (t *ShardReindexTaskGeneric) discardSafe(logger logrus.FieldLogger,
+	dirs bucketDirs, name, what string,
+) {
+	if err := dirs.Discard(name, what); err != nil {
+		logger.WithField("dir", name).
+			Warnf("runtime swap: trim: %v; it is left on disk", err)
 	}
 }
 
@@ -1752,7 +1756,7 @@ func (t *ShardReindexTaskGeneric) removeReindexBucketsDirs(ctx context.Context, 
 func (t *ShardReindexTaskGeneric) removeBucketsDirs(ctx context.Context, logger logrus.FieldLogger,
 	shard ShardLike, props []string, bucketNamer func(string) string,
 ) error {
-	lsmPath := shard.pathLSM()
+	dirs := shardBucketDirs(shard.pathLSM())
 	eg, _ := enterrors.NewErrorGroupWithContextWrapper(logger, ctx)
 	eg.SetLimit(t.config.concurrency)
 	for i := range props {
@@ -1760,11 +1764,10 @@ func (t *ShardReindexTaskGeneric) removeBucketsDirs(ctx context.Context, logger 
 
 		eg.Go(func() error {
 			bucketName := bucketNamer(propName)
-			bucketPath := filepath.Join(lsmPath, bucketName)
 
 			logger.WithField("bucket", bucketName).Debug("removing bucket")
 
-			return os.RemoveAll(bucketPath)
+			return dirs.Discard(bucketName, "a migration bucket directory")
 		})
 	}
 	return eg.Wait()

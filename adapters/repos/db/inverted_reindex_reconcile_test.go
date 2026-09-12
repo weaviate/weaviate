@@ -26,7 +26,6 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -152,52 +151,6 @@ func (f *reconcileFixture) deps() migrationReconcileDeps {
 		},
 		Class:   func() *models.Class { return f.class },
 		Buckets: f.buckets,
-	}
-}
-
-func TestOnlyAHandleNamingOneDirectoryBecomesAPath(t *testing.T) {
-	tests := []struct {
-		name             string
-		dir              string
-		refusedAsPath    bool
-		refusedAsRemoval bool
-	}{
-		{name: "names none", dir: "", refusedAsPath: true, refusedAsRemoval: false},
-		{name: "the root itself", dir: ".", refusedAsPath: true, refusedAsRemoval: true},
-		{name: "the parent of the root", dir: "..", refusedAsPath: true, refusedAsRemoval: true},
-		{name: "a join back to the root", dir: "x/..", refusedAsPath: true, refusedAsRemoval: true},
-		{name: "a nested path", dir: "sub/dir", refusedAsPath: true, refusedAsRemoval: true},
-		{name: "an absolute path", dir: "/etc", refusedAsPath: true, refusedAsRemoval: true},
-		{name: "one directory", dir: "property_title_searchable", refusedAsPath: false, refusedAsRemoval: false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newReconcileFixture(t)
-			f.mkdirs(helpers.ObjectsBucketLSM, "property_title_searchable")
-			r := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps())
-
-			path, err := r.path(f.lsmPath, tt.dir, "a recorded directory")
-			if tt.refusedAsPath {
-				require.Error(t, err)
-				require.Empty(t, path)
-			} else {
-				require.NoError(t, err)
-				require.Equal(t, filepath.Join(f.lsmPath, tt.dir), path)
-			}
-
-			err = r.removeDir(f.lsmPath, tt.dir, "a recorded directory")
-			if tt.refusedAsRemoval {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-
-			require.DirExists(t, f.lsmPath, "the shard's LSM directory")
-			require.True(t, f.exists(helpers.ObjectsBucketLSM), "the shard's object store")
-			require.Equal(t, tt.refusedAsPath, f.exists("property_title_searchable"),
-				"only a handle that names one directory removes one")
-		})
 	}
 }
 
@@ -1418,53 +1371,6 @@ func TestPromotionWithholdsOnADirectoryItCannotStat(t *testing.T) {
 				"the canonical directory is never removed on a withheld promotion")
 			assert.False(t, f.store.Wedged(subject.Key),
 				"a stat that could not answer is transient: wedging it stops the periodic pass ever retrying")
-		})
-	}
-}
-
-// The probe every recorded directory is resolved through. A stat that could
-// not answer must not read as an absent directory: the promotion probe would
-// take "cannot see it" as proof the rename already ran.
-func TestDirExistsSeparatesAbsentFromUnreadable(t *testing.T) {
-	tests := []struct {
-		name     string
-		dir      string
-		sealRoot bool
-		want     bool
-		wantErr  bool
-	}{
-		{name: "a directory that is there", dir: "property_title_searchable", want: true},
-		{name: "nothing at that name", dir: "property_gone_searchable"},
-		{name: "a regular file is not a directory", dir: "afile"},
-		{name: "a handle naming none reads as absent, not as an error", dir: ""},
-		{name: "a handle that does not name one directory under the shard", dir: "sub/dir", wantErr: true},
-		{
-			name: "a directory the process may not stat is not an absent one",
-			dir:  "property_title_searchable", sealRoot: true, wantErr: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			f := newReconcileFixture(t)
-			f.mkdirs("property_title_searchable")
-			require.NoError(t, os.WriteFile(filepath.Join(f.lsmPath, "afile"), []byte("x"), 0o600))
-			if tt.sealRoot {
-				if os.Geteuid() == 0 {
-					t.Skip("root traverses a 0o000 directory, so the permission error cannot arise")
-				}
-				require.NoError(t, os.Chmod(f.lsmPath, 0o000))
-				t.Cleanup(func() { os.Chmod(f.lsmPath, 0o700) })
-			}
-
-			there, err := newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).dirExists(tt.dir)
-			if tt.wantErr {
-				require.Error(t, err)
-				require.False(t, there, "a probe that could not answer must not report a directory")
-				return
-			}
-			require.NoError(t, err)
-			require.Equal(t, tt.want, there)
 		})
 	}
 }

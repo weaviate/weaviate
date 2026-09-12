@@ -334,7 +334,7 @@ func cleanStaleMigrationDirsAt(ctx context.Context, lsmPath, propName, indexType
 		// A run the context stopped is not logged at all: the apply it serves
 		// already fails with that same cause, and a line per shard would follow
 		// the tenant count.
-		logger.WithField("path", filepath.Join(lsmPath, ".migrations")).
+		logger.WithField("path", shardBucketDirs(lsmPath).Trackers().root).
 			Errorf("stale-state cleanup after index DELETE: %v", err)
 	}
 }
@@ -351,8 +351,8 @@ func cleanStaleMigrationDirsAt(ctx context.Context, lsmPath, propName, indexType
 func cleanStaleMigrationDirsIn(ctx context.Context, scope migrationDirScope,
 	committed migrationPreservedState, logger logrus.FieldLogger,
 ) error {
-	migrationsRoot := filepath.Join(scope.lsmPath, ".migrations")
-	entries, err := os.ReadDir(migrationsRoot)
+	trackers := shardBucketDirs(scope.lsmPath).Trackers()
+	entries, err := os.ReadDir(trackers.root)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil
@@ -363,11 +363,11 @@ func cleanStaleMigrationDirsIn(ctx context.Context, scope migrationDirScope,
 	// pass opens a tracker payload per dir whose name leaves the property
 	// open, and nothing interrupts it once it starts.
 	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("stale-state cleanup stopped before reading %s: %w", migrationsRoot, err)
+		return fmt.Errorf("stale-state cleanup stopped before reading %s: %w", trackers.root, err)
 	}
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("stale-state cleanup stopped partway through %s: %w", migrationsRoot, err)
+			return fmt.Errorf("stale-state cleanup stopped partway through %s: %w", trackers.root, err)
 		}
 		if !entry.IsDir() {
 			continue
@@ -384,13 +384,12 @@ func cleanStaleMigrationDirsIn(ctx context.Context, scope migrationDirScope,
 			// finalize, not something to tell an operator once per tenant. The
 			// aggregate line on that call path counts payload reads, not
 			// preserved dirs, so it does not report this on their behalf.
-			logger.WithField("path", filepath.Join(migrationsRoot, name)).
+			logger.WithField("dir", name).
 				Debug("partial-reindex cleanup: preserving a tracker dir nothing on this shard proved stale")
 			continue
 		}
-		path := filepath.Join(migrationsRoot, name)
-		if err := os.RemoveAll(path); err != nil {
-			logger.WithField("path", path).
+		if err := trackers.Discard(name, "a stale migration tracker directory"); err != nil {
+			logger.WithField("dir", name).
 				Errorf("failed to clean up stale migration directory after index DELETE: %v; "+
 					"subsequent re-enable will fail loudly on the migration record until "+
 					"this directory is removed manually", err)
@@ -549,28 +548,35 @@ func (s *Shard) cleanStaleSidecarDirs(ctx context.Context, mainBucketName string
 }
 
 func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, committed migrationPreservedState) {
-	entries, err := os.ReadDir(s.pathLSM())
+	dirs := shardBucketDirs(s.pathLSM())
+	entries, err := os.ReadDir(dirs.root)
 	if err != nil {
-		s.index.logger.WithField("path", s.pathLSM()).
-			Error(fmt.Errorf("failed to enumerate LSM dir for sidecar cleanup after DELETE: %w; a subsequent re-enable may fail with 'file exists' when RunSwapOnShard tries to rotate buckets", err))
+		s.index.logger.WithField("path", dirs.root).
+			Errorf("failed to enumerate LSM dir for sidecar cleanup after DELETE: %v; a subsequent re-enable may fail with 'file exists' when RunSwapOnShard tries to rotate buckets", err)
 		return
 	}
+	const what = "a stale sidecar directory"
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
 		}
-		if !isSidecarDirOf(entry.Name(), mainBucketName) {
+		name := entry.Name()
+		if !isSidecarDirOf(name, mainBucketName) {
 			continue
 		}
-		if committed.preservesBucket(entry.Name()) {
+		if committed.preservesBucket(name) {
 			// Debug for the same reason the tracker-dir line above is: one call
 			// path here is updatePropertyBuckets, inside the RAFT apply loop, so
 			// the line count follows the tenant count.
-			s.index.logger.WithField("path", filepath.Join(s.pathLSM(), entry.Name())).
+			s.index.logger.WithField("dir", name).
 				Debug("partial-reindex cleanup: preserving the sidecar dir of a committed migration (live bucket pointer)")
 			continue
 		}
-		path := filepath.Join(s.pathLSM(), entry.Name())
+		path, err := dirs.Path(name, what)
+		if err != nil {
+			s.index.logger.WithField("dir", name).Errorf("stale sidecar cleanup after DELETE: %v", err)
+			continue
+		}
 		// Drop the registry entry BEFORE removing the dir. The reverse order
 		// is also correct (registry is a separate process-local store), but
 		// the chosen order matches Bucket.Shutdown's defer (registry.Remove
@@ -578,9 +584,9 @@ func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, commit
 		// who already knows that contract finds the same shape here. Either
 		// step is independently safe to retry / call when no entry exists.
 		lsmkv.GlobalBucketRegistry.Remove(path)
-		if err := os.RemoveAll(path); err != nil {
-			s.index.logger.WithField("path", path).
-				Error(fmt.Errorf("failed to remove stale sidecar bucket dir after index DELETE: %w", err))
+		if err := dirs.Discard(name, what); err != nil {
+			s.index.logger.WithField("dir", name).
+				Errorf("failed to remove stale sidecar bucket dir after index DELETE: %v", err)
 		}
 	}
 }

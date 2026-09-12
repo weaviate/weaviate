@@ -259,7 +259,7 @@ func (r *migrationReconciler) retireProperty(ctx context.Context, all []Migratio
 		if err := r.closeStagedBuckets(ctx, dir); err != nil {
 			return err
 		}
-		if err := r.removeDir(r.lsmPath, dir, "a directory of a superseded migration"); err != nil {
+		if err := r.dirs.Discard(dir, "a directory of a superseded migration"); err != nil {
 			return err
 		}
 	}

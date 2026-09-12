@@ -14,13 +14,10 @@ package db
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
-	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -51,7 +48,7 @@ type migrationReconcileDeps struct {
 
 type migrationReconciler struct {
 	store      *MigrationRecordStore
-	lsmPath    string
+	dirs       bucketDirs
 	wedgedKeys map[MigrationRecordKey]bool
 	logger     logrus.FieldLogger
 	deps       migrationReconcileDeps
@@ -60,7 +57,9 @@ type migrationReconciler struct {
 func newMigrationReconciler(store *MigrationRecordStore, lsmPath string,
 	logger logrus.FieldLogger, deps migrationReconcileDeps,
 ) *migrationReconciler {
-	return &migrationReconciler{store: store, lsmPath: lsmPath, logger: logger, deps: deps}
+	return &migrationReconciler{
+		store: store, dirs: shardBucketDirs(lsmPath), logger: logger, deps: deps,
+	}
 }
 
 type migrationVerdict uint8
@@ -264,7 +263,7 @@ func (r *migrationReconciler) reconcileUncommitted(ctx context.Context, rec Migr
 // resuming would swap in an incomplete bucket.
 func (r *migrationReconciler) restartIfRebuiltDataGone(subject MigrationSubject) (bool, error) {
 	for _, dir := range migrationOwnedDirs(subject) {
-		there, err := r.dirExists(dir)
+		there, err := r.dirs.Exists(dir)
 		if err != nil {
 			return false, err
 		}
@@ -327,7 +326,7 @@ func (r *migrationReconciler) commitMerged(subject MigrationSubject,
 				"refusing to commit the flip: property %q names no staged or canonical directory, "+
 					"so the flip it would record could never be promoted", prop)
 		}
-		there, err := r.dirExists(staged)
+		there, err := r.dirs.Exists(staged)
 		if err != nil {
 			return MigrationRecordSwapped{}, err
 		}
@@ -510,7 +509,7 @@ func (r *migrationReconciler) supersededPropertyIsRetired(all []MigrationRecord,
 	if migrationRetirementLeavesStagedDir(all, subject, staged) {
 		return true, ""
 	}
-	there, err := r.dirExists(staged)
+	there, err := r.dirs.Exists(staged)
 	if err != nil {
 		return false, fmt.Sprintf("property %q: staged directory %q could not be read: %v", prop, staged, err)
 	}
@@ -544,7 +543,7 @@ func (r *migrationReconciler) promoteProperty(rec MigrationRecordSwapped,
 		return rec, false, "", nil
 	default:
 	}
-	stagedThere, err := r.dirExists(staged)
+	stagedThere, err := r.dirs.Exists(staged)
 	if err != nil {
 		return rec, false, "", err
 	}
@@ -577,7 +576,7 @@ func (r *migrationReconciler) promoteProperty(rec MigrationRecordSwapped,
 	}
 	rec = started
 
-	if err := r.rename(staged, canonical); err != nil {
+	if err := r.dirs.Promote(staged, canonical); err != nil {
 		return r.abandonPromotion(rec, prop, staged), false, "", err
 	}
 
@@ -591,7 +590,7 @@ func (r *migrationReconciler) promoteProperty(rec MigrationRecordSwapped,
 }
 
 func (r *migrationReconciler) clearForPromotion(subject MigrationSubject, dir, what string) (cleared bool, err error) {
-	there, err := r.dirExists(dir)
+	there, err := r.dirs.Exists(dir)
 	if err != nil {
 		return false, err
 	}
@@ -607,7 +606,7 @@ func (r *migrationReconciler) clearForPromotion(subject MigrationSubject, dir, w
 			what, dir)
 		return false, nil
 	}
-	if err := r.removeDir(r.lsmPath, dir, what+" the promotion replaces"); err != nil {
+	if err := r.dirs.Discard(dir, what+" the promotion replaces"); err != nil {
 		return false, err
 	}
 	return true, nil
@@ -616,7 +615,7 @@ func (r *migrationReconciler) clearForPromotion(subject MigrationSubject, dir, w
 func (r *migrationReconciler) confirmPromotionSurvives(rec MigrationRecordSwapped,
 	prop, canonical string,
 ) (MigrationRecordSwapped, bool, error) {
-	there, err := r.dirExists(canonical)
+	there, err := r.dirs.Exists(canonical)
 	if err != nil {
 		return rec, false, err
 	}
@@ -645,7 +644,7 @@ func (r *migrationReconciler) settleInterruptedPromotion(rec MigrationRecordSwap
 				"preserving the record and promoting nothing.", prop, staged)
 		return rec, false, nil
 	}
-	canonicalThere, err := r.dirExists(canonical)
+	canonicalThere, err := r.dirs.Exists(canonical)
 	if err != nil {
 		return rec, false, err
 	}
@@ -672,7 +671,7 @@ func (r *migrationReconciler) settleInterruptedPromotion(rec MigrationRecordSwap
 // rename that already ran. Taking the mark back then makes every later pass
 // read the promoted canonical directory as unpromoted.
 func (r *migrationReconciler) abandonPromotion(rec MigrationRecordSwapped, prop, staged string) MigrationRecordSwapped {
-	stagedThere, err := r.dirExists(staged)
+	stagedThere, err := r.dirs.Exists(staged)
 	if err != nil {
 		r.logger.WithField("record", rec.Subject().Key.String()).Errorf(
 			"cannot tell whether the staged directory %q of property %q survived its failed rename, "+
@@ -787,14 +786,14 @@ func (r *migrationReconciler) repromoteWhatTheRecordOutran(ctx context.Context, 
 		if migrationPropertySuperseded(all, subject, prop) {
 			continue
 		}
-		stagedThere, err := r.dirExists(staged)
+		stagedThere, err := r.dirs.Exists(staged)
 		if err != nil {
 			return nil, err
 		}
 		if !stagedThere {
 			continue
 		}
-		canonicalThere, err := r.dirExists(canonical)
+		canonicalThere, err := r.dirs.Exists(canonical)
 		if err != nil {
 			return nil, err
 		}
@@ -809,7 +808,7 @@ func (r *migrationReconciler) repromoteWhatTheRecordOutran(ctx context.Context, 
 		}
 
 		repromoted = append(repromoted, prop)
-		if err := r.rename(staged, canonical); err != nil {
+		if err := r.dirs.Promote(staged, canonical); err != nil {
 			return nil, err
 		}
 	}
@@ -987,7 +986,7 @@ func (r *migrationReconciler) closeStagedBuckets(ctx context.Context, dirs ...st
 // Reports a failed removal, which leaves a directory nothing else attributes:
 // the caller must keep its record so the next load retries.
 func (r *migrationReconciler) removeTrackerDir(subject MigrationSubject) error {
-	if err := r.removeDir(r.migrationsPath(), subject.TrackerDir, "the migration's tracker directory"); err != nil {
+	if err := r.dirs.Trackers().Discard(subject.TrackerDir, "the migration's tracker directory"); err != nil {
 		r.logger.WithField("dir", subject.TrackerDir).Errorf("%v", err)
 		return err
 	}
@@ -1019,8 +1018,8 @@ func (r *migrationReconciler) reclaimOwnedDirs(ctx context.Context,
 			remaining = append(remaining, dir)
 			continue
 		}
-		reclaiming.Add(r.removeDir(r.lsmPath, dir, "a migration directory"))
-		there, err := r.dirExists(dir)
+		reclaiming.Add(r.dirs.Discard(dir, "a migration directory"))
+		there, err := r.dirs.Exists(dir)
 		if err != nil {
 			reclaiming.AddWrapf(err, "confirm migration directory %q is gone", dir)
 		}
@@ -1042,66 +1041,4 @@ func migrationOwnedDirs(subject MigrationSubject) []string {
 		dirs = append(dirs, migrationOwnCopyDirs(subject, prop)...)
 	}
 	return dirs
-}
-
-// Refused here, not at each caller: joining an empty or escaping handle
-// onto root resolves to root itself, and callers remove or rename the result.
-func (r *migrationReconciler) path(root, dir, what string) (string, error) {
-	if !migrationHandleIsOneElement(dir) {
-		return "", fmt.Errorf("refusing to act on %s %q: it does not name a single directory under %q",
-			what, dir, root)
-	}
-	return filepath.Join(root, dir), nil
-}
-
-func (r *migrationReconciler) removeDir(root, dir, what string) error {
-	if dir == "" {
-		return nil
-	}
-	path, err := r.path(root, dir, what)
-	if err != nil {
-		return err
-	}
-	if err := os.RemoveAll(path); err != nil {
-		return fmt.Errorf("remove %s %q: %w", what, dir, err)
-	}
-	return nil
-}
-
-func (r *migrationReconciler) migrationsPath() string {
-	return filepath.Join(r.lsmPath, migrationsDir)
-}
-
-func (r *migrationReconciler) dirExists(dir string) (bool, error) {
-	if dir == "" {
-		return false, nil
-	}
-	path, err := r.path(r.lsmPath, dir, "a recorded directory")
-	if err != nil {
-		return false, err
-	}
-	// Any stat failure besides ENOENT must stop the caller, or a promotion
-	// probe could take "cannot see it" as proof a rename already ran.
-	there, err := diskio.DirExists(path)
-	if err != nil {
-		return false, fmt.Errorf("stat migration directory %q: %w", path, err)
-	}
-	return there, nil
-}
-
-// The Promoted record written on this rename's strength is durable, so the
-// rename must be too, or a crash leaves it naming a path that was never made.
-func (r *migrationReconciler) rename(from, to string) error {
-	fromPath, err := r.path(r.lsmPath, from, "the directory to promote")
-	if err != nil {
-		return err
-	}
-	toPath, err := r.path(r.lsmPath, to, "the name to promote onto")
-	if err != nil {
-		return err
-	}
-	if err := diskio.RenameAndSync(fromPath, toPath); err != nil {
-		return fmt.Errorf("promote %q to %q: %w", from, to, err)
-	}
-	return nil
 }
