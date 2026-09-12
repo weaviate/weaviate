@@ -95,8 +95,8 @@ func TestShardIsLazyUnloaded(t *testing.T) {
 		want  bool
 	}{
 		{name: "absent tenant", shard: nil, want: false},
-		{name: "lazy shard not loaded", shard: &LazyLoadShard{loaded: false}, want: true},
-		{name: "lazy shard loaded", shard: &LazyLoadShard{loaded: true}, want: false},
+		{name: "lazy shard not loaded", shard: &LazyLoadShard{}, want: true},
+		{name: "lazy shard loaded", shard: loadedLazyShard(), want: false},
 		{name: "non-lazy shard", shard: &Shard{}, want: false},
 	}
 
@@ -312,4 +312,10 @@ func TestTenantTTLLoop_DeactivateUsesTimeout(t *testing.T) {
 
 	assert.True(t, call.ctxWasLive, "deactivation context must not be expired at call time")
 	assert.True(t, call.hasDeadline, "deactivation context must have a deadline (from WithTimeout)")
+}
+
+func loadedLazyShard() *LazyLoadShard {
+	l := &LazyLoadShard{}
+	l.loaded.Store(true)
+	return l
 }
