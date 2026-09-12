@@ -1595,6 +1595,16 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 			case distributedtask.TaskStatusFailed:
 				logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
 				p.autoCleanupAfterTerminal(task, payload, logger)
+				// No schema flip follows a failure, so an entry left here
+				// forces writes into a bucket the cleanup already tore out,
+				// and nothing re-sets it: the swap callbacks share this tick
+				// and skip terminal tasks. A tokenization change keeps its
+				// entry, whose flag was already on, so dropping it would
+				// analyze old-tokenized terms into a target-tokenized bucket.
+				if IsSemanticMigration(payload.MigrationType) &&
+					!IsTokenizationChangingMigration(payload.MigrationType) {
+					p.clearOverlaysOnLoadedShards(p.serverCtx, payload, logger)
+				}
 			case distributedtask.TaskStatusCancelled:
 				// The acks are not the whole story: a cancel can land while
 				// the task is still STARTED but this node has already

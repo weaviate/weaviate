@@ -235,26 +235,25 @@ func TestOnTaskCompletedOverlayClearLeavesUnloadedShardsAlone(t *testing.T) {
 			},
 		},
 		{
-			// A terminal task never flips the schema, so the overlay is
-			// the only thing placing writes into the swapped bucket.
-			name:      "failed: the partial swap's overlay stays",
+			// No schema flip ever follows a terminal task, so an entry
+			// left here outlives the bucket the cleanup tears out.
+			name:      "failed: the partial swap's overlay goes",
 			status:    distributedtask.TaskStatusFailed,
 			migration: ReindexTypeEnableFilterable,
 			overlay:   inverted.PropertyOverlay{ForceFilterable: true},
 			liveSchema: func(prop *models.Property) {
 				prop.IndexFilterable = boolPtr(false)
 			},
+			wantCleared: true,
 		},
 		{
-			// Same for the other terminal arm, which reaches the same
-			// answer past an extra local-post-merge probe.
-			name:      "cancelled: the partial swap's overlay stays",
-			status:    distributedtask.TaskStatusCancelled,
-			migration: ReindexTypeEnableFilterable,
-			overlay:   inverted.PropertyOverlay{ForceFilterable: true},
-			liveSchema: func(prop *models.Property) {
-				prop.IndexFilterable = boolPtr(false)
-			},
+			// A retokenize migration's schema flag was already on, so the
+			// bucket is demanded either way and the entry is the only
+			// thing keeping writes target-tokenized.
+			name:      "failed: a tokenization change keeps its overlay",
+			status:    distributedtask.TaskStatusFailed,
+			migration: ReindexTypeChangeTokenization,
+			overlay:   inverted.PropertyOverlay{Tokenization: "field"},
 		},
 	}
 
@@ -310,8 +309,8 @@ func TestOnTaskCompletedOverlayClearLeavesUnloadedShardsAlone(t *testing.T) {
 					"the shard the migration ran on holds the overlay, so its clear is the point of the walk")
 			} else {
 				assert.Equal(t, tc.overlay, loaded.SnapshotPropertyOverlay([]string{prop})[prop],
-					"this node's schema does not yet provide what the overlay overrides, so dropping "+
-						"it here indexes the next write nowhere")
+					"the live schema does not provide what the overlay overrides, so dropping "+
+						"it here misplaces the next write")
 			}
 			require.False(t, cold.isLoaded(),
 				"an unloaded shard holds no in-memory overlay; loading one to clear nothing is "+
