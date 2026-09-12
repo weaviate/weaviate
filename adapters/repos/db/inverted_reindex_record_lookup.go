@@ -28,7 +28,6 @@ func migrationRecordsAt(lsmPath string, logger logrus.FieldLogger) (records []Mi
 func migrationRecordStoreAt(lsmPath string, logger logrus.FieldLogger) (store *MigrationRecordStore, someRecordsUnreadable, recordSetUnreadable bool) {
 	store = NewMigrationRecordStore(lsmPath, logger)
 	if err := store.Load(); err != nil {
-		logger.WithField("path", store.Dir()).Errorf("read migration records: %v", err)
 		return nil, true, true
 	}
 	return store, len(store.Unreadable()) > 0, false

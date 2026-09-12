@@ -91,6 +91,64 @@ func TestRecoveryWalkReportsMissingPayloadsOnce(t *testing.T) {
 	require.Contains(t, names[len(names)-1], fmt.Sprintf("and %d more", shards-maxReportedErrors))
 }
 
+// One line per fault kind for the whole walk: both faults are per tracker per
+// shard, so reporting at the point of failure follows the tenant count at every boot.
+func TestRecoveryWalkReportsUnbuildableTrackersOnce(t *testing.T) {
+	const (
+		shards         = 12
+		noGenTracker   = "searchable_retokenize_title"
+		noTasksTracker = "filterable_retokenize_title_1"
+
+		buildable = `{"taskID":"t","taskVersion":1,"unitID":"u","payload":{` +
+			`"migrationType":"change-tokenization","collection":"Books","properties":["title"],` +
+			`"targetTokenization":"field","bucketStrategy":"inverted"}}`
+		// No collection: the arm that warns per tracker when no task can be built.
+		noTasks = `{"taskID":"t","taskVersion":1,"unitID":"u","payload":{` +
+			`"migrationType":"change-tokenization","properties":["title"]}}`
+	)
+	root := t.TempDir()
+	indexPath := filepath.Join(root, "books_abc")
+	fixtureLogger, _ := logrustest.NewNullLogger()
+
+	seed := func(shard int, tracker, payload string, code MigrationStrategyCode) {
+		lsm := filepath.Join(indexPath, fmt.Sprintf("tenant-%02d", shard), "lsm")
+		dir := filepath.Join(lsm, ".migrations", tracker)
+		require.NoError(t, os.MkdirAll(dir, 0o777))
+		require.NoError(t, os.WriteFile(
+			filepath.Join(dir, reindexRecoveryPayloadFile), []byte(payload), 0o600))
+
+		subject := testMigrationSubject(uint64(shard+1), code, "title")
+		subject.TrackerDir = tracker
+		require.NoError(t, NewMigrationRecordStore(lsm, fixtureLogger).
+			Put(NewMigrationRecordMerged(subject)))
+	}
+	for i := 0; i < shards; i++ {
+		seed(i, noGenTracker, buildable, StrategyCodeSearchableRetokenize)
+		seed(shards+i, noTasksTracker, noTasks, StrategyCodeFilterableRetokenize)
+	}
+
+	logger, hook := logrustest.NewNullLogger()
+	recovered, err := DiscoverInFlightReindexTasks(root, logger, nil)
+	require.NoError(t, err)
+	require.Empty(t, recovered, "neither fault recovers a task")
+
+	for _, needle := range []string{"carries no generation", "builds no reindex task"} {
+		about := entriesAbout(hook, needle)
+		require.Len(t, about, 1,
+			"one line for the whole walk, not one per tracker: %v", linesOf(about))
+		require.Equal(t, logrus.WarnLevel, about[0].Level)
+		require.Contains(t, about[0].Message, fmt.Sprintf("%d tracker(s)", shards),
+			"the one line carries the count the per-tracker lines used to carry")
+
+		// The names have to be capped, or the one line grows with the tenant count.
+		names, ok := about[0].Data["trackers"].([]string)
+		require.True(t, ok, "the line carries the tracker names it counted")
+		require.Len(t, names, maxReportedErrors+1,
+			"the capped names plus the one entry that says how many are unaccounted for")
+		require.Contains(t, names[len(names)-1], fmt.Sprintf("and %d more", shards-maxReportedErrors))
+	}
+}
+
 // One bounded line whatever the property count: both registrations name every
 // property, so a line per property is a line per property the user configured.
 func TestOverlayConflictReportsManyPropertiesInOneLine(t *testing.T) {

@@ -1927,10 +1927,18 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 		return false
 	}
 	recordReads := 0
+	// Faults are accumulated, not logged per shard: a per-shard line would follow the tenant count.
+	unreadable := map[string]struct{}{}
 	defer func() {
 		p.logger.WithField("collection", payload.Collection).
 			WithField("shards", len(shards)).WithField("record_set_reads", recordReads).
 			Debug("post-merge probe: read migration records")
+		if len(unreadable) > 0 {
+			p.logger.WithField("collection", payload.Collection).
+				WithField("shards", reportedShardNames(unreadable)).
+				Warnf("post-merge probe: the migration records of %d shard(s) could not be read, so this "+
+					"node reports post-merge state it could not confirm", len(unreadable))
+		}
 	}()
 	for _, shardName := range shards {
 		if ctx.Err() != nil {
@@ -1945,6 +1953,7 @@ func (p *ReindexProvider) hasLocalPostMergeState(ctx context.Context, payload *R
 		// nothing carries over between them anyway.
 		records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(lsmPath, p.logger)
 		if someRecordsUnreadable || recordSetUnreadable {
+			unreadable[shardName] = struct{}{}
 			return true
 		}
 		if migrationRecordFor(records, payload.MigrationType, payload.Properties, MigrationRecord.StagedDataComplete) {
@@ -2218,10 +2227,18 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 	}
 
 	recordReads := 0
+	// Faults are accumulated, not logged per shard: a per-shard line would follow the tenant count.
+	unreadable := map[string]struct{}{}
 	defer func() {
 		p.logger.WithField("collection", payload.Collection).
 			WithField("shards", len(hosted)).WithField("record_set_reads", recordReads).
 			Debug("local callbacks probe: read migration records")
+		if len(unreadable) > 0 {
+			p.logger.WithField("collection", payload.Collection).
+				WithField("shards", reportedShardNames(unreadable)).
+				Warnf("local callbacks probe: the migration records of %d shard(s) could not be read, so "+
+					"this node's local callbacks are reported as not done", len(unreadable))
+		}
 	}()
 	for shardName, isHosted := range hosted {
 		if !isHosted {
@@ -2229,8 +2246,11 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 		}
 		recordReads++
 		records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(shardPathLSM(idx.path(), shardName), p.logger)
-		if someRecordsUnreadable || recordSetUnreadable ||
-			migrationRecordFor(records, payload.MigrationType, payload.Properties, migrationRecordStagingIncomplete) {
+		if someRecordsUnreadable || recordSetUnreadable {
+			unreadable[shardName] = struct{}{}
+			return false
+		}
+		if migrationRecordFor(records, payload.MigrationType, payload.Properties, migrationRecordStagingIncomplete) {
 			return false
 		}
 	}

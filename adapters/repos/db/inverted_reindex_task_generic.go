@@ -327,8 +327,9 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 
 	switch {
 	case swapPending:
-		logger.WithField("props", props).Info(
-			"RunSwapOnShard: the flip decision stands but its data is still under the staged name; re-running the in-memory swap")
+		logger.WithField("property_count", len(props)).
+			WithField("props", migrationReportedNames(props)).
+			Info("RunSwapOnShard: the flip decision stands but its data is still under the staged name; re-running the in-memory swap")
 		if err := t.ensureCanonicalBucketsOpen(ctx, shard, props); err != nil {
 			return err
 		}
@@ -338,14 +339,18 @@ func (t *ShardReindexTaskGeneric) RunSwapOnShard(ctx context.Context, shard Shar
 		return t.runtimeSwap(ctx, logger, shard, props)
 
 	case entry.rec.FlipDecided():
-		logger.WithField("props", props).Info("RunSwapOnShard: flip already decided; running OnMigrationComplete only")
+		logger.WithField("property_count", len(props)).
+			WithField("props", migrationReportedNames(props)).
+			Info("RunSwapOnShard: flip already decided; running OnMigrationComplete only")
 		if err := t.requireCanonicalHoldsMigratedData(shard, entry.rec); err != nil {
 			return err
 		}
 		return t.finalizeMigrationAfterRecovery(ctx, logger, shard, props)
 
 	case entry.rec.StagedDataComplete():
-		logger.WithField("props", props).Info("RunSwapOnShard: resuming from merged state, in-memory atomic swap")
+		logger.WithField("property_count", len(props)).
+			WithField("props", migrationReportedNames(props)).
+			Info("RunSwapOnShard: resuming from merged state, in-memory atomic swap")
 		if err := t.ensureReindexBucketsLoadedForSwap(ctx, logger, concreteShard, props); err != nil {
 			return fmt.Errorf("ensure buckets loaded: %w", err)
 		}

@@ -76,6 +76,9 @@ func DiscoverInFlightReindexTasks(
 		unreadableErrs     = errorcompounder.New()
 		malformedPayloads  = map[string]struct{}{}
 		malformedErrs      = errorcompounder.New()
+		noGenerationDirs   = map[string]struct{}{}
+		unbuildable        = map[string]struct{}{}
+		unbuildableErrs    = errorcompounder.New()
 
 		unmirroredRecords = map[string]struct{}{}
 		unmirroredNames   []string
@@ -146,15 +149,14 @@ func DiscoverInFlightReindexTasks(
 				// for this migration, so it can't tell generations apart.
 				trackerPrefix, generation, hasGeneration := parseMigrationDirName(migEntry.Name())
 				if !hasGeneration {
-					logger.WithField("migrationDir", migDir).
-						Warn("reindex recovery: migration dir name carries no generation; skipping")
+					noGenerationDirs[trackerKey] = struct{}{}
 					continue
 				}
 
 				tasks, err := buildRecoveryTasks(rec, shardName, trackerPrefix, generation, logger, schemaManager)
 				if err != nil {
-					logger.WithField("migrationDir", migDir).
-						Warnf("reindex recovery: skipping migration; cannot build tasks: %v", err)
+					unbuildable[trackerKey] = struct{}{}
+					unbuildableErrs.AddWrapf(err, "%s", trackerKey)
 					continue
 				}
 				armable[migEntry.Name()] = struct{}{}
@@ -220,6 +222,18 @@ func DiscoverInFlightReindexTasks(
 			Warnf("reindex recovery: the payload.mig of %d tracker(s) is malformed or names a property that "+
 				"is not a single directory inside the shard; those mirrors stay unarmed: %v",
 				len(malformedPayloads), malformedErrs.ToErrorLimited(maxReportedErrors))
+	}
+	if len(noGenerationDirs) > 0 {
+		logger.WithField("trackers", reportedShardNames(noGenerationDirs)).
+			Warnf("reindex recovery: the directory name of %d tracker(s) carries no generation, so the "+
+				"migration each holds cannot be rebuilt and its double-write mirror stays unarmed",
+				len(noGenerationDirs))
+	}
+	if len(unbuildable) > 0 {
+		logger.WithField("trackers", reportedShardNames(unbuildable)).
+			Warnf("reindex recovery: the payload.mig of %d tracker(s) builds no reindex task, so those "+
+				"migrations' mirrors stay unarmed: %v",
+				len(unbuildable), unbuildableErrs.ToErrorLimited(maxReportedErrors))
 	}
 	if len(unmirroredRecords) > 0 {
 		logger.WithField("shards", reportedShardNames(unmirroredRecords)).
