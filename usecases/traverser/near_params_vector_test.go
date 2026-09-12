@@ -549,7 +549,7 @@ type fakeNearParamsSearcher struct {
 }
 
 func (f *fakeNearParamsSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID,
-	props search.SelectProperties, additional additional.Properties, tenant string,
+	props search.SelectProperties, additional additional.Properties, tenant, namespace string,
 ) (search.Results, error) {
 	return search.Results{
 		{Vector: []float32{1.0, 1.0, 1.0}},
@@ -627,7 +627,7 @@ func (f *fixedObjectSearcher) Object(ctx context.Context, className string, id s
 }
 
 func (f *fixedObjectSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID,
-	props search.SelectProperties, additional additional.Properties, tenant string,
+	props search.SelectProperties, additional additional.Properties, tenant, namespace string,
 ) (search.Results, error) {
 	if f.res == nil {
 		return nil, nil
