@@ -91,8 +91,6 @@ func TestOnlyAHandleNamingOneDirectoryBecomesAPath(t *testing.T) {
 	}
 }
 
-// The name a promotion renames onto is as capable of escaping the root as the
-// one it renames, so both are guarded.
 func TestPromoteGuardsBothHandles(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -103,8 +101,7 @@ func TestPromoteGuardsBothHandles(t *testing.T) {
 		{name: "the directory to promote escapes", from: "..", to: "property_title_searchable", refused: true},
 		{name: "the name to promote onto escapes", from: "property_title__g42_ingest", to: "..", refused: true},
 		{name: "neither names a directory", from: "", to: "", refused: true},
-		// The canonical name is free by the time a promotion runs; clearing it is
-		// the caller's step, not this one's.
+		// Promote doesn't clear the destination; that's the caller's job.
 		{name: "both name one directory", from: "property_title__g42_ingest", to: "property_title_rangeable"},
 	}
 
@@ -132,9 +129,8 @@ func TestPromoteGuardsBothHandles(t *testing.T) {
 	}
 }
 
-// The probe every recorded directory is resolved through. A stat that could
-// not answer must not read as an absent directory: the promotion probe would
-// take "cannot see it" as proof the rename already ran.
+// A stat failure must not read as absent, or a promotion probe takes
+// "cannot see it" as proof a rename already ran.
 func TestDirExistsSeparatesAbsentFromUnreadable(t *testing.T) {
 	tests := []struct {
 		name     string
