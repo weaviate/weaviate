@@ -60,10 +60,8 @@ func fireAllPropHooks(tasks []*ShardReindexTaskGeneric, props []string) int {
 	return fired
 }
 
-// The overlay a task installs comes from its strategy, so membership of the
-// [IsSemanticMigration] family is the whole gate: a new member arms here with
-// no wiring change. Tokenization is the one part no strategy carries, so it
-// comes off the payload.
+// Every [IsSemanticMigration] member must have a row here saying what
+// overlay it installs.
 func TestMaybeWirePerPropOverlaySet_SemanticFamilyCoverage(t *testing.T) {
 	tests := []struct {
 		name         string
@@ -189,13 +187,9 @@ func TestMaybeWirePerPropOverlaySet_NilTaskInSlice_Skipped(t *testing.T) {
 	assert.Equal(t, "field", s.TokenizationFor("name", "word"))
 }
 
-// The overlay is in-memory state the swap hook set on shards this node
-// loaded to run the migration on. A shard that is not loaded holds none,
-// so reaching into one to clear nothing loads a cold tenant on the success
-// path of every semantic migration. Which entries the walk then retires
-// depends on the arm: SWAPPING applied the flip here so it clears
-// unconditionally, while an arm keyed off the leader's view of the task
-// clears only what this node's own schema already provides.
+// An unloaded shard holds no in-memory overlay, so clearing it needlessly
+// loads a cold tenant. Which entries a loaded shard's overlay loses depends
+// on the arm — see each case below.
 func TestOnTaskCompletedOverlayClearLeavesUnloadedShardsAlone(t *testing.T) {
 	const (
 		prop   = "title"

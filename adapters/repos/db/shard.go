@@ -462,8 +462,8 @@ type Shard struct {
 	//      first sight of the task is FINISHED never runs the flip
 	//      itself, and FINISHED is the leader's view rather than this
 	//      node's, so it clears only the entries its own schema already
-	//      carries. One left behind is inert: both readers strip
-	//      whatever the live schema has caught up on.
+	//      carries. One left behind is harmless: it now overrides with
+	//      the same value live already provides.
 	//
 	// Read on every query and every write that touches the affected
 	// property, so kept under a fast RWMutex rather than a sync.Map

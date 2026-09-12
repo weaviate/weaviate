@@ -969,10 +969,8 @@ func TestIndexInverted(t *testing.T) {
 		})
 	})
 
-	// A migration's overlay makes the analyzer treat a property as indexed
-	// before the schema flag flips. Two things have to line up: the emitted
-	// index trio, and OverlayForcedOnly, which tells the write path that the
-	// property-length and null-state buckets do not exist yet.
+	// An overlay-forced property has no length/null bucket yet, so both the
+	// emitted index flags and OverlayForcedOnly must be right.
 	t.Run("has an index only the overlay forces on", func(t *testing.T) {
 		intProp := func(filterable, rangeable *bool) *models.Property {
 			return &models.Property{

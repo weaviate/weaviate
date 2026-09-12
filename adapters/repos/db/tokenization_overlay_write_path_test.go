@@ -30,7 +30,7 @@ import (
 )
 
 // Pins AnalyzeObject tokenizing writes against the overlay during the
-// SWAPPING window, matching the query path (weaviate/0-weaviate-issues#240).
+// SWAPPING window, matching the query path.
 func TestTokenizationOverlay_WritePath_HonorsOverlay(t *testing.T) {
 	ctx := testCtx()
 	className := "TokOverlayWrite_" + uuid.NewString()[:8]

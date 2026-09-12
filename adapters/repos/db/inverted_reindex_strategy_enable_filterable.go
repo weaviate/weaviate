@@ -138,11 +138,11 @@ func (s *EnableFilterableStrategy) PreReindexHook(shard *Shard, props []string) 
 	}
 }
 
-// AnalyzerOverlay forces IndexFilterable=true on the targeted properties
-// while the backfill iterator scans the objects bucket. Until
-// OnMigrationComplete flips the RAFT-stored schema flag, the analyzer would
-// otherwise skip the property entirely (see HasAnyInvertedIndex in
-// inverted/objects.go) and the new bucket would come out empty.
+// AnalyzerOverlay forces IndexFilterable=true so the backfill scan and, via
+// maybeWirePerPropOverlaySet, the SWAPPING-window write path both see the
+// property as filterable before the schema flag flips — otherwise the
+// analyzer skips the property (HasAnyInvertedIndex) and a window write is
+// indexed nowhere.
 func (s *EnableFilterableStrategy) AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay {
 	if len(props) == 0 {
 		return nil

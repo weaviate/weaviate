@@ -113,13 +113,11 @@ func (s *EnableSearchableStrategy) PreReindexHook(shard *Shard, props []string) 
 	shard.markSearchableBlockmaxProperties(props...)
 }
 
-// AnalyzerOverlay forces IndexSearchable=true and the target tokenization on
-// the targeted properties while the backfill iterator scans the objects
-// bucket. Without this override the analyzer would (a) skip the property
-// because HasSearchableIndex returns false for IndexSearchable=nil/false on
-// the live schema, and (b) even if it didn't skip, it would tokenize with
-// the wrong (stored) tokenization. The live RAFT-stored schema is never
-// mutated; both flags are flipped via OnMigrationComplete after backfill.
+// AnalyzerOverlay forces IndexSearchable=true and the target tokenization so
+// the backfill scan and, via maybeWirePerPropOverlaySet, the SWAPPING-window
+// write path both see the property as searchable before the schema flag
+// flips — otherwise the analyzer skips the property (HasSearchableIndex) or
+// tokenizes with the stale stored value.
 func (s *EnableSearchableStrategy) AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay {
 	if len(props) == 0 {
 		return nil

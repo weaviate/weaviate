@@ -91,13 +91,11 @@ type MigrationStrategy interface {
 	// e.g. shard.markSearchableBlockmaxProperties(props...)
 	PreReindexHook(shard *Shard, props []string)
 
-	// AnalyzerOverlay returns a per-property override map applied by the
-	// inverted analyzer during the backfill scan. It is used by
-	// "from-scratch" strategies (e.g. enable-filterable / enable-searchable)
-	// that build a brand-new inverted bucket while the corresponding
-	// schema flag is still false in the RAFT-stored schema. Without this
-	// override the analyzer would skip the targeted property and produce
-	// an empty target bucket.
+	// AnalyzerOverlay returns a per-property override map for "from-scratch"
+	// strategies (e.g. enable-filterable / enable-searchable) whose schema
+	// flag is still false. The backfill scan applies it directly; a semantic
+	// migration's swap hook also installs the same value on the shard for
+	// the SWAPPING window, so window writes see the property too.
 	//
 	// Strategies that don't need an overlay (the live schema flag is
 	// already true for the targeted properties — e.g. retokenize,

@@ -1453,9 +1453,8 @@ Lifecycle:
    runs that commit, so it clears on the FINISHED arm instead. It
    clears only the entries its own schema already carries, since
    FINISHED reports the leader's applied state, not this node's. An
-   entry left behind is inert once the schema arrives: both readers
-   drop whatever `PropertyOverlay.BeyondLiveSchema` reports as caught
-   up.
+   entry left behind is harmless: it now overrides with a value live
+   already provides.
 
 A property the overlay forced on has no property-length and no
 null-state bucket — shard init skips creating those for a property with
