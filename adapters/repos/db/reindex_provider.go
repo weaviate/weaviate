@@ -145,10 +145,11 @@ type phaseUnitResolution struct {
 
 // phaseResult is the aggregated outcome of a per-unit phase callback:
 // per-task error strings + the shutdown-cancellation signal the scheduler
-// needs for transient-vs-permanent ack routing.
+// needs for transient-vs-permanent ack routing, plus overlay-wiring failure.
 type phaseResult struct {
 	Errs               []string
 	SawContextCanceled bool
+	OverlayUnwrapErr   error
 }
 
 // NewReindexProvider creates a new ReindexProvider. The concurrency function
@@ -1212,8 +1213,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 	// see [maybeWirePerPropOverlaySet] for why the latter is a correctness bug.
 	setShard, setUnwrapErr := unwrapShard(ctx, shard)
 	if setUnwrapErr != nil && IsSemanticMigration(payload.MigrationType) {
-		logger.WithField("unit", unitID).WithField("shard", shardName).
-			Warnf("reindex provider: cannot wire property overlay — shard unwrap failed; during the SWAPPING window queries may observe stale results and writes to the migrated property may not be indexed: %v", setUnwrapErr)
+		out.OverlayUnwrapErr = setUnwrapErr
 	}
 	maybeWirePerPropOverlaySet(setShard, payload, unitTasks)
 
@@ -1276,6 +1276,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 	ctx := p.serverCtx
 	var agg phaseResult
 	var aggMu sync.Mutex
+	var overlayUnwrapFailures int
 
 	runOne := func(unitID string) {
 		res := p.resolveUnitForPhase(ctx, task, payload, unitID, idx, logger)
@@ -1304,6 +1305,12 @@ func (p *ReindexProvider) runPerUnitPhase(
 			if phase.SawContextCanceled {
 				agg.SawContextCanceled = true
 			}
+			if phase.OverlayUnwrapErr != nil {
+				overlayUnwrapFailures++
+				if agg.OverlayUnwrapErr == nil {
+					agg.OverlayUnwrapErr = phase.OverlayUnwrapErr
+				}
+			}
 		}()
 	}
 
@@ -1322,6 +1329,11 @@ func (p *ReindexProvider) runPerUnitPhase(
 		for _, unitID := range localGroupUnitIDs {
 			runOne(unitID)
 		}
+	}
+
+	if overlayUnwrapFailures > 0 {
+		logger.WithField("shards_skipped", overlayUnwrapFailures).
+			Warnf("reindex provider: cannot wire property overlay — shard unwrap failed; during the SWAPPING window queries may observe stale results and writes to the migrated property may not be indexed; first error: %v", agg.OverlayUnwrapErr)
 	}
 
 	if len(agg.Errs) == 0 {
@@ -1465,6 +1477,7 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 	if swap.SawContextCanceled {
 		out.SawContextCanceled = true
 	}
+	out.OverlayUnwrapErr = swap.OverlayUnwrapErr
 	return out
 }
 
@@ -1550,6 +1563,7 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 	if swap.SawContextCanceled {
 		out.SawContextCanceled = true
 	}
+	out.OverlayUnwrapErr = swap.OverlayUnwrapErr
 	return out
 }
 
@@ -1691,16 +1705,25 @@ func (p *ReindexProvider) forEachLoadedShardConcrete(
 	if idx == nil {
 		return
 	}
-	idx.ForEachLoadedShard(func(shardName string, sh ShardLike) error {
+	// ForEachLoadedShard walks sequentially, so the tally below needs no lock.
+	skipped := 0
+	var firstErr error
+	idx.ForEachLoadedShard(func(_ string, sh ShardLike) error {
 		concreteShard, err := unwrapShard(ctx, sh)
 		if err != nil {
-			logger.WithField("shard", shardName).
-				Warnf("reindex provider: per-shard overlay clear skipped (unwrap failed): %v", err)
+			skipped++
+			if firstErr == nil {
+				firstErr = err
+			}
 			return nil
 		}
 		fn(concreteShard)
 		return nil
 	})
+	if skipped > 0 {
+		logger.WithField("shards_skipped", skipped).
+			Warnf("reindex provider: per-shard overlay clear skipped (unwrap failed); first error: %v", firstErr)
+	}
 }
 
 // autoCleanupAfterTerminal runs on every node when a semantic migration
