@@ -108,7 +108,7 @@ A second class of opt-in guardrails that constrain **what kind** of class an ope
 | Variable | Type | Default | Effect |
 |---|---|---|---|
 | `ALLOWED_VECTOR_INDEX_TYPES` | comma-separated list | unset (no restriction) | Allow-list for class `vectorIndexType` and named-vector `vectorConfig[*].vectorIndexType`. Valid entries: `hnsw`, `flat`, `dynamic`, `hfresh`. |
-| `ALLOWED_COMPRESSION_TYPES` | comma-separated list | unset (no restriction) | Allow-list for the compression configured on a class's vector index. Valid entries: `none`, `pq`, `sq`, `rq-1`, `rq-8`, `bq` (same names accepted by `DEFAULT_QUANTIZATION`). Hfresh classes are exempt — hfresh has no compression knobs. |
+| `ALLOWED_COMPRESSION_TYPES` | comma-separated list | unset (no restriction) | Allow-list for the compression configured on a class's vector index. Valid entries: `none`, `pq`, `sq`, `rq-1`, `rq-4`, `rq-8`, `bq` (same names accepted by `DEFAULT_QUANTIZATION`). Hfresh classes are exempt — hfresh has no compression knobs. |
 | `RESTRICTIONS_ERROR_MESSAGE` | string | `"{value} is not allowed for {restriction}. Allowed values: {allowed}."` | Operator-overridable template for the user-facing message. Placeholders: `{restriction}`, `{value}`, `{allowed}`. |
 
 All three are **runtime-overrideable** via the runtime overrides YAML (`allowed_vector_index_types`, `allowed_compression_types`, `restrictions_error_message`).
