@@ -173,6 +173,10 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 		// twice costs megabytes inside the RAFT apply.
 		props := &taskPropsCache{}
 		defer func() { payloadReads.Add(int64(props.count())) }()
+		// One live-property memo for the whole loop, for the same reason the
+		// tracker memo above is shared: the sweep runs once per disabled index
+		// type and each build is a schema read inside the RAFT apply.
+		live := s.liveMainBuckets()
 		for _, indexType := range disabledIndexTypes(prop) {
 			// The whole loop runs inside the RAFT apply, once per shard. Every
 			// shard still queued for it drops out here rather than walking its
@@ -188,7 +192,7 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
 			}
 			s.cleanStaleMigrationDirs(ctx, prop.Name, indexType, props)
-			s.cleanStaleSidecarDirs(mainBucket)
+			s.cleanStaleSidecarDirs(mainBucket, live)
 		}
 		return nil
 	})
@@ -386,6 +390,9 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 	})
 
 	props := &taskPropsCache{}
+	// Read at most once, and only if a name below matches: a sweep with
+	// nothing to remove must not pay a schema read.
+	live := s.liveMainBuckets()
 	// Preserve sidecars of completed-but-deferred migrations: they back the
 	// live in-memory bucket pointer; wiping them is #10675-shape data loss.
 	scope := migrationDirsOf(s.pathLSM(), nil, propName, indexType).cachingProps(props)
@@ -395,6 +402,13 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 	var shutDown []string
 	for bucketName := range loaded {
 		if !isSidecarDirOf(bucketName, mainBucketName) {
+			continue
+		}
+		// A name match alone cannot authorize a shutdown: this bucket may be
+		// a live property's own main bucket wearing a sidecar-shaped name.
+		if live.has(bucketName) {
+			logger.WithField("bucket", bucketName).
+				Warn("partial-reindex cleanup: keeping bucket that is a live property's own main bucket")
 			continue
 		}
 		// Skip live sidecar buckets backing a completed-but-deferred
@@ -424,7 +438,7 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 	// Steps 2 + 3: remove sidecar dirs and migration dir. The helpers log
 	// per-directory removal failures rather than fail; preserved suffixes
 	// survive.
-	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, preserveSidecars)
+	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, preserveSidecars, live)
 	if err := cleanStaleMigrationDirsIn(ctx, scope, s.index.logger); err != nil {
 		return props.count(), err
 	}
@@ -478,8 +492,8 @@ func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 // fresh main into __backup.
 //
 // Sidecar names are <mainBucket>__<strategy>_<role>[_<gen>]; see
-// [isSidecarDirOf] for why matching on the role word (not the whole suffix)
-// avoids reading a property's own name as a sidecar.
+// [isSidecarDirOf] for why the whole suffix has to come from the strategy
+// registry before a dir is read as a sidecar.
 //
 // In addition to removing the on-disk dirs, this function ALSO drops the
 // dir's entry from [lsmkv.GlobalBucketRegistry]. Background: a successful
@@ -496,15 +510,23 @@ func mainBucketForPropertyIndex(propName, indexType string) (string, bool) {
 // the same hazard if any ShutdownBucket call along the way was skipped);
 // belt-and-suspenders is the right posture for a leak that produces
 // "FAILED" status on a follow-up migration with no clear remediation.
-func (s *Shard) cleanStaleSidecarDirs(mainBucketName string) {
-	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, nil)
+func (s *Shard) cleanStaleSidecarDirs(mainBucketName string, live *liveMainBuckets) {
+	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, nil, live)
 }
 
 // cleanStaleSidecarDirsWithPreserved removes matching sidecar dirs except
 // those in `preserveSidecars` (from [completedMigrationSidecarSuffixes]):
 // they back live completed-but-deferred migrations; wiping them is
 // #10675-shape silent data loss. Pass nil to wipe everything.
-func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, preserveSidecars map[string]bool) {
+func (s *Shard) cleanStaleSidecarDirsWithPreserved(
+	mainBucketName string, preserveSidecars map[string]bool, live *liveMainBuckets,
+) {
+	if live == nil {
+		// A caller with no memo to share still gets the guard, never a nil
+		// dereference and never a silent hole: building one costs a single
+		// schema read, and only if a name below matches.
+		live = s.liveMainBuckets()
+	}
 	entries, err := os.ReadDir(s.pathLSM())
 	if err != nil {
 		s.index.logger.WithField("path", s.pathLSM()).
@@ -516,6 +538,13 @@ func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, preser
 			continue
 		}
 		if !isSidecarDirOf(entry.Name(), mainBucketName) {
+			continue
+		}
+		// The name says sidecar; the class says whose dir it actually is.
+		// A live property's own main bucket is never this sweep's to remove.
+		if live.has(entry.Name()) {
+			s.index.logger.WithField("path", filepath.Join(s.pathLSM(), entry.Name())).
+				Warn("partial-reindex cleanup: keeping dir that is a live property's own main bucket")
 			continue
 		}
 		if suffix := strings.TrimPrefix(entry.Name(), mainBucketName); preserveSidecars[suffix] {
@@ -539,44 +568,158 @@ func (s *Shard) cleanStaleSidecarDirsWithPreserved(mainBucketName string, preser
 	}
 }
 
-// sidecarRoleWords are the words every migration sidecar suffix ends in, once
-// the numeric generation tail is off. Keep in lockstep with the strategies'
-// ReindexSuffix / IngestSuffix / BackupSuffix; [TestEverySidecarSuffixIsASidecar]
-// pins that a new strategy either reuses one of these or extends the list.
-var sidecarRoleWords = schema.SidecarRoleWords
+// sidecarSuffixes are the whole suffixes a migration sidecar dir carries,
+// before [genSuffix] appends "_<gen>". Read out of the strategy registry
+// rather than listed by hand so a new strategy cannot add a suffix the sweep
+// fails to recognize; [TestEverySidecarSuffixIsASidecar] pins that.
+var sidecarSuffixes = buildSidecarSuffixes()
+
+func buildSidecarSuffixes() []string {
+	var suffixes []string
+	for _, indexType := range []string{"filterable", "searchable", "rangeable"} {
+		migDirs := migrationDirPrefixesForIndexType(indexType)
+		if classDir, ok := classLevelMigrationDirForIndexType(indexType); ok {
+			migDirs = append(migDirs, classDir)
+		}
+		for _, migDir := range migDirs {
+			if recipe := migrationSuffixes(migDir); recipe != nil {
+				suffixes = append(suffixes, recipe.ingestSuffix, recipe.backupSuffix)
+			}
+			if reindex := reindexSuffixForFinalize(migDir); reindex != "" {
+				suffixes = append(suffixes, reindex)
+			}
+		}
+	}
+	slices.Sort(suffixes)
+	return slices.Compact(suffixes)
+}
 
 // isSidecarDirOf reports whether name is a per-property sidecar of
 // mainBucketName. "__" alone isn't enough: property names may contain "__"
-// too, so "property_a__b" is "a__b"'s own main bucket, not a sidecar of "a"
-// — the trailing role word decides instead. Shared with
+// too, so "property_a__b" is "a__b"'s own main bucket, not a sidecar of "a".
+// The whole suffix has to be one the strategy registry can name, which is
+// what [sidecarDirsForOrphan] already requires of the audit path. Shared with
 // [hasStalePartialReindexState] for the same hydrate-or-skip decision.
 //
 // The dir a crashed [lsmkv.Store.ReplaceBuckets] leaves behind is matched by
-// whole name, since "del" is no migration role word. It is swept here because
+// whole name, since no strategy names "___del". It is swept here because
 // nothing else removes it, and it can never be preserved: the preserve set
 // holds migration suffixes only ([completedMigrationSidecarSuffixes]).
 //
-// Still too weak: a property named "a__<word>_<role>" (or "a___del") reads as
-// a sidecar of "a" on all three index types, so sweeping "a" deletes that
-// property's live bucket. Whole-suffix matching against [migrationSuffixes]
-// ([sidecarDirsForOrphan] does this) would close it without an on-disk
-// rename. weaviate/weaviate#12621
+// The filename is all this sees, so it proposes and does not dispose: a
+// property literally named "a__blockmax_ingest" owns
+// "property_a__blockmax_ingest", which is byte-for-byte the name a sweep of
+// "a" looks for, and no rule over filenames can separate the two. Every
+// caller that goes on to shut down or remove what this matched has to put
+// the name past [liveMainBuckets.has] first. weaviate/weaviate#12621.
 func isSidecarDirOf(name, mainBucketName string) bool {
 	if name == mainBucketName+lsmkv.ReplacedBucketDirSuffix {
 		return true
 	}
-	suffix, ok := strings.CutPrefix(name, mainBucketName+"__")
+	suffix, ok := strings.CutPrefix(name, mainBucketName)
 	if !ok {
 		return false
 	}
-	return slices.Contains(sidecarRoleWords, sidecarRoleWord(suffix))
+	return slices.Contains(sidecarSuffixes, trimGenSuffix(suffix))
 }
 
-// sidecarRoleWord returns a sidecar suffix's trailing word, ignoring the
-// "_<gen>" tail [genSuffix] appends. Shared with the property-name check that
-// refuses a name of this shape at creation time.
-func sidecarRoleWord(suffix string) string {
-	return schema.SidecarRoleWord(suffix)
+// liveMainBuckets answers "is this dir a live property's own main bucket?"
+// for the length of one sweep.
+//
+// It is the half of the sidecar decision [isSidecarDirOf] cannot make: the
+// name match reads a dir's shape, this reads the class. Without it a class
+// holding a property named "a__blockmax_ingest" loses that property's data
+// the first time anything sweeps property "a", because the two names are
+// identical. weaviate/weaviate#12621.
+//
+// Built on first use, not at construction: a sweep that matches no sidecar —
+// the common case — never reads the schema, which keeps the DELETE path's
+// per-shard cost inside the RAFT apply where it was.
+type liveMainBuckets struct {
+	shard *Shard
+	names map[string]bool
+	built bool
+}
+
+func (s *Shard) liveMainBuckets() *liveMainBuckets {
+	return &liveMainBuckets{shard: s}
+}
+
+// has reports whether name is one of the class's live properties' own
+// buckets, and so is never this sweep's to shut down or remove.
+//
+// Fails open on a class it cannot read, logging once. Refusing to sweep is
+// not the safe side here: leaving the slate dirty is the Sev 1 this file's
+// header describes (the next submit short-circuits and reports success
+// against a partial bucket), while an unreadable class in these paths means
+// the class itself is going away, where removing its dirs is right anyway.
+func (l *liveMainBuckets) has(name string) bool {
+	if !l.built {
+		l.names = mainBucketNamesOf(l.shard.index.getClass())
+		l.built = true
+		if l.names == nil {
+			l.shard.index.logger.WithFields(map[string]any{
+				"shard": l.shard.Name(),
+				"class": l.shard.index.Config.ClassName.String(),
+			}).Error("partial-reindex cleanup: class not readable from the schema; " +
+				"sidecar sweep cannot exclude live properties' own main buckets")
+		}
+	}
+	return l.names[name]
+}
+
+// mainBucketNamesOf collects every LSM bucket name the class's properties
+// own. Returns nil, distinguishably from an empty set, for a class that
+// could not be read.
+//
+// Every name a property could own, not just the ones its current index
+// flags say exist: the guarantee wanted here is that no live property's
+// bucket is removed by a sidecar sweep, and a flag read at sweep time is a
+// weaker thing to rest that on than the property's existence.
+//
+// The cost is that a genuinely stale sidecar whose name collides with a live
+// property's bucket leaks instead of being removed. That is the safe side of
+// the name-collision family weaviate/weaviate#12574 tracks: a leaked dir
+// announces itself as "file exists" on the next swap, a deleted one is
+// silent data loss.
+func mainBucketNamesOf(class *models.Class) map[string]bool {
+	if class == nil {
+		return nil
+	}
+	names := make(map[string]bool, len(class.Properties)*6)
+	for _, prop := range class.Properties {
+		if prop == nil {
+			continue
+		}
+		for _, name := range []string{
+			helpers.BucketFromPropNameLSM(prop.Name),
+			helpers.BucketSearchableFromPropNameLSM(prop.Name),
+			helpers.BucketRangeableFromPropNameLSM(prop.Name),
+			helpers.BucketFromPropNameLengthLSM(prop.Name),
+			helpers.BucketFromPropNameNullLSM(prop.Name),
+			helpers.BucketFromPropNameMetaCountLSM(prop.Name),
+		} {
+			names[name] = true
+		}
+	}
+	return names
+}
+
+// trimGenSuffix drops the "_<gen>" tail [genSuffix] appends.
+//
+// Only an all-digit tail is dropped: a non-numeric tail is part of the
+// property's own name, not a generation. This also covers generation 0,
+// which a buggy writer could leave even though [parseMigrationDirName] only
+// accepts generations >= 1.
+func trimGenSuffix(suffix string) string {
+	if i := strings.LastIndexByte(suffix, '_'); i >= 0 && isAllDigits(suffix[i+1:]) {
+		return suffix[:i]
+	}
+	return suffix
+}
+
+func isAllDigits(s string) bool {
+	return s != "" && strings.TrimLeft(s, "0123456789") == ""
 }
 
 func (s *Shard) removeBucket(ctx context.Context, bucketName string) error {
