@@ -149,6 +149,44 @@ func TestRecoveryWalkReportsUnbuildableTrackersOnce(t *testing.T) {
 	}
 }
 
+// The count alone does not say what to fix, and the reason is the only thing
+// that tells a full disk from a permission fault.
+func TestRecoveryWalkReportsUnreadableRecordSetsWithTheirReason(t *testing.T) {
+	const shards = 12
+	root := t.TempDir()
+	indexPath := filepath.Join(root, "books_abc")
+
+	for i := 0; i < shards; i++ {
+		lsm := filepath.Join(indexPath, fmt.Sprintf("tenant-%02d", i), "lsm")
+		require.NoError(t, os.MkdirAll(filepath.Join(lsm, ".migrations"), 0o777))
+		// A file where the record set's directory belongs: the store's read of it
+		// fails with a reason, which is the arm under test.
+		require.NoError(t, os.WriteFile(
+			filepath.Join(lsm, ".migrations", migrationRecordsDirName), nil, 0o600))
+	}
+
+	logger, hook := logrustest.NewNullLogger()
+	recovered, err := DiscoverInFlightReindexTasks(root, logger, nil)
+	require.NoError(t, err)
+	require.Empty(t, recovered, "an unreadable record set recovers nothing")
+
+	about := entriesAbout(hook, "the migration records of")
+	require.Len(t, about, 1,
+		"one line for the whole walk, not one per shard: %v", linesOf(about))
+	require.Equal(t, logrus.WarnLevel, about[0].Level)
+	require.Contains(t, about[0].Message, fmt.Sprintf("%d shard(s)", shards))
+	require.Contains(t, about[0].Message, "read migration records dir",
+		"the reason the helper used to log has to reach this line")
+
+	// The reasons have to be capped, or the one line grows with the tenant count.
+	require.Contains(t, about[0].Message,
+		fmt.Sprintf("(and %d more)", shards-maxReportedErrors))
+	names, ok := about[0].Data["shards"].([]string)
+	require.True(t, ok, "the line carries the shard names it counted")
+	require.Len(t, names, maxReportedErrors+1,
+		"the capped names plus the one entry that says how many are unaccounted for")
+}
+
 // One bounded line whatever the property count: both registrations name every
 // property, so a line per property is a line per property the user configured.
 func TestOverlayConflictReportsManyPropertiesInOneLine(t *testing.T) {

@@ -667,7 +667,8 @@ func TestMigrationRecordStore(t *testing.T) {
 				require.Len(t, s.Unreadable(), 1)
 
 				logger, _ := test.NewNullLogger()
-				committed := migrationPreservedStateAt(filepath.Dir(filepath.Dir(s.Dir())), logger)
+				committed, err := migrationPreservedStateAt(filepath.Dir(filepath.Dir(s.Dir())), logger)
+				require.NoError(t, err)
 				require.True(t, committed.preservesBucket("a directory no readable record names"))
 				require.True(t, committed.preservesTracker("a directory no readable record names"))
 			},
@@ -721,8 +722,8 @@ func TestMigrationRecordStore(t *testing.T) {
 				require.Empty(t, s.Unreadable(), "a scratch file is not a record this build failed to read")
 
 				logger, _ := test.NewNullLogger()
-				_, _, recordSetUnreadable := migrationRecordsAt(filepath.Dir(filepath.Dir(s.Dir())), logger)
-				require.False(t, recordSetUnreadable)
+				_, _, recordSetErr := migrationRecordsAt(filepath.Dir(filepath.Dir(s.Dir())), logger)
+				require.NoError(t, recordSetErr)
 				_, err := os.Stat(scratch)
 				require.NoError(t, err, "a foreign reader must not delete a scratch file it does not own")
 
@@ -846,7 +847,8 @@ func TestMigrationRecordStore(t *testing.T) {
 				require.Contains(t, s.Unreadable()[0].Reason, "shard-1__node-9")
 
 				logger, _ := test.NewNullLogger()
-				committed := migrationPreservedStateAt(filepath.Dir(filepath.Dir(s.Dir())), logger)
+				committed, err := migrationPreservedStateAt(filepath.Dir(filepath.Dir(s.Dir())), logger)
+				require.NoError(t, err)
 				require.True(t, committed.preservesBucket("a directory no record names"))
 				require.Error(t, s.Put(merged(43, StrategyCodeEnableFilterable)),
 					"a frozen store must not take a write it cannot place among the records it could not attribute")

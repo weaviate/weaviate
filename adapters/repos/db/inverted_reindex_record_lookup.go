@@ -17,20 +17,20 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-func migrationRecordsAt(lsmPath string, logger logrus.FieldLogger) (records []MigrationRecord, someRecordsUnreadable, recordSetUnreadable bool) {
-	store, someRecordsUnreadable, recordSetUnreadable := migrationRecordStoreAt(lsmPath, logger)
-	if recordSetUnreadable {
-		return nil, true, true
+func migrationRecordsAt(lsmPath string, logger logrus.FieldLogger) (records []MigrationRecord, someRecordsUnreadable bool, recordSetErr error) {
+	store, someRecordsUnreadable, recordSetErr := migrationRecordStoreAt(lsmPath, logger)
+	if recordSetErr != nil {
+		return nil, true, recordSetErr
 	}
-	return store.Records(), someRecordsUnreadable, false
+	return store.Records(), someRecordsUnreadable, nil
 }
 
-func migrationRecordStoreAt(lsmPath string, logger logrus.FieldLogger) (store *MigrationRecordStore, someRecordsUnreadable, recordSetUnreadable bool) {
+func migrationRecordStoreAt(lsmPath string, logger logrus.FieldLogger) (store *MigrationRecordStore, someRecordsUnreadable bool, recordSetErr error) {
 	store = NewMigrationRecordStore(lsmPath, logger)
 	if err := store.Load(); err != nil {
-		return nil, true, true
+		return nil, true, err
 	}
-	return store, len(store.Unreadable()) > 0, false
+	return store, len(store.Unreadable()) > 0, nil
 }
 
 type migrationPreservedState struct {
@@ -41,9 +41,9 @@ type migrationPreservedState struct {
 	recordSetUnreadable bool
 }
 
-func migrationPreservedStateAt(lsmPath string, logger logrus.FieldLogger) migrationPreservedState {
-	records, someRecordsUnreadable, recordSetUnreadable := migrationRecordsAt(lsmPath, logger)
-	return migrationPreservedStateFromRecords(records, someRecordsUnreadable, recordSetUnreadable)
+func migrationPreservedStateAt(lsmPath string, logger logrus.FieldLogger) (migrationPreservedState, error) {
+	records, someRecordsUnreadable, recordSetErr := migrationRecordsAt(lsmPath, logger)
+	return migrationPreservedStateFromRecords(records, someRecordsUnreadable, recordSetErr != nil), recordSetErr
 }
 
 func migrationPreservedStateFromRecords(records []MigrationRecord, someRecordsUnreadable, recordSetUnreadable bool) migrationPreservedState {

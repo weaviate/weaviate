@@ -235,9 +235,12 @@ func (s *migrationSweepState) recordSetReads() int {
 }
 
 func migrationSweepStateFor(lsmPath string, logger logrus.FieldLogger) *migrationSweepState {
+	// Every caller holds a loaded shard, whose own load already reported a record
+	// set it could not read (reconcileMigrationRecords).
+	committed, _ := migrationPreservedStateAt(lsmPath, logger)
 	return &migrationSweepState{
 		recordReads: 1,
-		committed:   migrationPreservedStateAt(lsmPath, logger),
+		committed:   committed,
 		props:       &taskPropsCache{},
 	}
 }

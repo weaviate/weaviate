@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -897,6 +898,46 @@ func TestIndexCleanStalePartialReindexStateReportsRefusedListingsPerSweep(t *tes
 		"nothing about this sweep warrants raising it above its own outcome")
 	require.Positive(t, full.refusedListings(),
 		"the cache still carries the first sweep's refusals")
+}
+
+// An unloaded shard's record set is read by the sweep alone, so a read that
+// fails there reaches no other log: the count says how many, the reason says
+// whether an operator is looking at a permission fault or a broken disk.
+func TestIndexCleanStalePartialReindexStateReportsUnreadableRecordSets(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	idx, _, closeIndex := newSweepTestIndex(t, logger)
+	defer closeIndex()
+	lsm := shardPathLSM(idx.path(), "tenant-a")
+	require.NoError(t, os.MkdirAll(filepath.Join(lsm, ".migrations"), 0o755))
+	// A file where the record set's directory belongs: the read of it fails with
+	// a reason, which is the arm under test.
+	require.NoError(t, os.WriteFile(
+		filepath.Join(lsm, ".migrations", migrationRecordsDirName), nil, 0o600))
+	storeUnloadableTenant(idx, "tenant-a")
+
+	cache := &dirNamesCache{}
+	require.Error(t, idx.cleanStalePartialReindexState(
+		context.Background(), "title", "filterable", cache),
+		"a record set it cannot read leaves the sweep no choice but to hydrate")
+
+	summary := onlySweepSummary(t, hook)
+	require.Equal(t, 1, summary.Data["unreadable_record_sets"])
+	reasons, ok := summary.Data["unreadable_record_set_reasons"].(error)
+	require.True(t, ok, "the summary carries the reason, not only the count")
+	require.Contains(t, reasons.Error(), "read migration records dir")
+	require.Contains(t, reasons.Error(), lsm, "the reason names the shard it belongs to")
+
+	// One cache serves every sweep of a request, so a later sweep must not
+	// re-report what this one already did.
+	hook.Reset()
+	_, dropped := idx.shards.LoadAndDelete("tenant-a")
+	require.True(t, dropped)
+	require.NoError(t, idx.cleanStalePartialReindexState(
+		context.Background(), "title", "filterable", cache))
+
+	second := onlySweepSummary(t, hook)
+	require.NotContains(t, second.Data, "unreadable_record_sets")
+	require.Equal(t, logrus.InfoLevel, second.Level)
 }
 
 // Pins that a collection already gone is reported as dropped, not clean.

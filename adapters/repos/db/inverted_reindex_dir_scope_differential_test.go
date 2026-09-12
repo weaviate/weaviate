@@ -209,7 +209,8 @@ func TestWidenedMatchesAgreesWithTheNarrowGate(t *testing.T) {
 				continue
 			}
 			lsm, dirs := writeDiffTree(t, mode, committed)
-			state := migrationPreservedStateAt(lsm, logger)
+			state, err := migrationPreservedStateAt(lsm, logger)
+			require.NoError(t, err)
 			var diverged []divergence
 
 			for _, propName := range diffPropNames {
@@ -287,7 +288,8 @@ func TestWidenedSweepLeavesTheSameDirsBehind(t *testing.T) {
 			for _, propName := range diffPropNames {
 				for _, indexType := range diffIndexTypes {
 					refLSM, dirs := writeDiffTree(t, mode, committed)
-					refState := migrationPreservedStateAt(refLSM, logger)
+					refState, err := migrationPreservedStateAt(refLSM, logger)
+					require.NoError(t, err)
 					refScope := migrationDirsOf(refLSM, propName, indexType).
 						cachingProps(&taskPropsCache{}).knownFrom(refState)
 					var names []string

@@ -181,6 +181,7 @@ func (i *Index) cleanStalePartialReindexState(
 	// One cache serves every sweep of a request, so only the delta belongs to
 	// this one; its running total would re-report the first sweep's refusals.
 	refusedBefore := dirs.refusedListings()
+	unreadableBefore, _ := dirs.unreadableRecordSets()
 	// forEachShardStrict, not ForEachShard: a closing index must not read as a
 	// sweep that reached every shard.
 	walkErr := i.forEachShardStrict(func(name string, shardLike ShardLike) error {
@@ -246,14 +247,20 @@ func (i *Index) cleanStalePartialReindexState(
 		// a bound the cache silently hit has no other signal.
 		level = min(level, logrus.WarnLevel)
 	}
-	i.logger.WithFields(map[string]any{
+	fields := map[string]any{
 		"property":          propName,
 		"index_type":        indexType,
 		"operation":         "CleanStalePartialReindexState",
 		"skipped_shards":    skippedShards,
 		"payload_reads":     payloadReads,
 		"uncached_listings": uncachedListings,
-	}).Log(level, msg)
+	}
+	if unreadable, reasons := dirs.unreadableRecordSets(); unreadable > unreadableBefore {
+		level = min(level, logrus.WarnLevel)
+		fields["unreadable_record_sets"] = unreadable
+		fields["unreadable_record_set_reasons"] = reasons
+	}
+	i.logger.WithFields(fields).Log(level, msg)
 	return sweepErr
 }
 
@@ -344,20 +351,43 @@ type dirNamesCache struct {
 	refused int
 	// props is the tracker-payload memo of the same run; see
 	// [dirNamesCache.trackerProps].
-	props     taskPropsCache
-	committed map[string]migrationPreservedState
+	props             taskPropsCache
+	committed         map[string]migrationPreservedState
+	unreadableRecords map[string]struct{}
+	unreadableErrs    errorcompounder.ErrorCompounder
+}
+
+func (c *dirNamesCache) chargeUnreadableRecordSet(lsmPath string, err error) {
+	if err == nil {
+		return
+	}
+	if c.unreadableRecords == nil {
+		c.unreadableRecords = map[string]struct{}{}
+		c.unreadableErrs = errorcompounder.New()
+	}
+	c.unreadableRecords[lsmPath] = struct{}{}
+	c.unreadableErrs.AddWrapf(err, "%s", lsmPath)
+}
+
+func (c *dirNamesCache) unreadableRecordSets() (int, error) {
+	if c == nil || len(c.unreadableRecords) == 0 {
+		return 0, nil
+	}
+	return len(c.unreadableRecords), c.unreadableErrs.ToErrorLimited(maxReportedErrors)
 }
 
 func (c *dirNamesCache) committedMigrations(lsmPath string,
 	logger logrus.FieldLogger,
 ) migrationPreservedState {
 	if c == nil {
-		return migrationPreservedStateAt(lsmPath, logger)
+		state, _ := migrationPreservedStateAt(lsmPath, logger)
+		return state
 	}
 	if state, ok := c.committed[lsmPath]; ok {
 		return state
 	}
-	state := migrationPreservedStateAt(lsmPath, logger)
+	state, recordSetErr := migrationPreservedStateAt(lsmPath, logger)
+	c.chargeUnreadableRecordSet(lsmPath, recordSetErr)
 	if c.committed == nil {
 		c.committed = map[string]migrationPreservedState{}
 	}

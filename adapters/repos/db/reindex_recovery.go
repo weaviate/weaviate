@@ -66,6 +66,7 @@ func DiscoverInFlightReindexTasks(
 		unlistable   = map[string]struct{}{}
 		unlistErrs   = errorcompounder.New()
 		unreadable   = map[string]struct{}{}
+		unreadErrs   = errorcompounder.New()
 		partlyUnread = map[string]struct{}{}
 		shardsWalked int
 		recordReads  int
@@ -111,9 +112,10 @@ func DiscoverInFlightReindexTasks(
 				continue
 			}
 			recordReads++
-			store, someRecordsUnreadable, recordSetUnreadable := migrationRecordStoreAt(lsmPath, logger)
-			if recordSetUnreadable {
+			store, someRecordsUnreadable, recordSetErr := migrationRecordStoreAt(lsmPath, logger)
+			if recordSetErr != nil {
 				unreadable[shardKey] = struct{}{}
+				unreadErrs.AddWrapf(recordSetErr, "%s", shardKey)
 				continue
 			}
 			if someRecordsUnreadable {
@@ -198,7 +200,7 @@ func DiscoverInFlightReindexTasks(
 	if len(unreadable) > 0 {
 		logger.WithField("shards", reportedShardNames(unreadable)).
 			Warnf("reindex recovery: the migration records of %d shard(s) could not be read; "+
-				"recovering nothing on them", len(unreadable))
+				"recovering nothing on them: %v", len(unreadable), unreadErrs.ToErrorLimited(maxReportedErrors))
 	}
 	if len(partlyUnread) > 0 {
 		logger.WithField("shards", reportedShardNames(partlyUnread)).

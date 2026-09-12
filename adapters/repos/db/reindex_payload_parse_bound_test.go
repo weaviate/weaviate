@@ -231,9 +231,10 @@ func TestStaleMigrationDirCleanupStopsOnCancelledContext(t *testing.T) {
 	cancel()
 
 	props := &taskPropsCache{}
-	committed := migrationPreservedStateAt(lsm, logger)
+	committed, err := migrationPreservedStateAt(lsm, logger)
+	require.NoError(t, err)
 	scope := migrationDirsOf(lsm, "a", "filterable").cachingProps(props).knownFrom(committed)
-	err := cleanStaleMigrationDirsIn(ctx, scope, committed, logger)
+	err = cleanStaleMigrationDirsIn(ctx, scope, committed, logger)
 
 	require.ErrorIs(t, err, context.Canceled)
 	require.Zero(t, props.count(), "a cancelled walk must not parse a tracker payload")
