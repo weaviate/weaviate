@@ -187,8 +187,7 @@ type ShardReindexTaskGeneric struct {
 	// onPropSwapped runs inside the Phase 2a tight loop right after each
 	// bucket-pointer flip, so a query never observes overlay≠bucket for
 	// longer than one in-memory map write. Runs on the swap goroutine, so
-	// SetPropertyOverlay's own lock is enough. Wired for every semantic
-	// migration whose strategy supplies an overlay.
+	// SetPropertyOverlay's own lock is enough.
 	//
 	// Only the recovery/resume path still uses this; the live Phase-2a loop
 	// routes through swapPropAtomic when wired.
@@ -425,12 +424,6 @@ func (t *ShardReindexTaskGeneric) runReindexOnlyOnShard(ctx context.Context, sha
 // If rt.IsPrepended() && !rt.IsMerged() (mid-prep crash recovery),
 // finishes the cleanup and returns. Safe to call repeatedly from
 // rehydrate flows.
-//
-// MUST be called BEFORE the per-shard property overlay is set
-// by [reindex_provider.OnGroupCompleted]. Setting the overlay
-// before prep completes would expose the very gap the overlay was
-// supposed to close — query input would tokenize as NEW against the
-// still-OLD bucket while prep is doing seconds of disk I/O.
 //
 // Double-write callbacks registered during reindex MUST remain
 // active across this call (they fire on writes to MAIN to mirror
@@ -1505,13 +1498,6 @@ func (t *ShardReindexTaskGeneric) OnAfterLsmInitAsync(ctx context.Context, shard
 //
 // Then advances sentinels: markPrepended + removeReindexBucketsDirs
 // + markMerged.
-//
-// Bucket=OLD and schema=OLD throughout — queries on the live main
-// bucket continue correctly. The per-shard property overlay
-// MUST NOT yet be set: setting it before this call would expose the
-// very gap the overlay was supposed to close (query input
-// tokenized as NEW against the still-OLD bucket while prep does
-// disk I/O for seconds).
 //
 // Sentinel-aware: if rt.IsPrepended() is true (crash mid-prep) we
 // skip the per-prop loop and finish the merge-cleanup steps only.

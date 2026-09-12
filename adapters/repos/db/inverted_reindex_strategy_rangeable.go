@@ -166,10 +166,6 @@ func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []str
 	}
 }
 
-// AnalyzerOverlay forces IndexRangeFilters=true so the backfill scan and,
-// via maybeWirePerPropOverlaySet, the SWAPPING-window write path both see
-// the property as rangeable before the schema flag flips (see the type doc
-// for why an unset flag means silent data loss).
 func (s *FilterableToRangeableStrategy) AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay {
 	if len(props) == 0 {
 		return nil

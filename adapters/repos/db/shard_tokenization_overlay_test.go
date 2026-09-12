@@ -23,10 +23,7 @@ import (
 
 // TestShard_TokenizationOverlay_* pin the per-shard property overlay
 // lifecycle introduced for https://github.com/weaviate/0-weaviate-issues/issues/216 (Gap B). The overlay
-// bridges the per-replica window between a semantic migration's local
-// bucket swap (in OnGroupCompleted.RunSwapOnShard) and the cluster-wide
-// schema flip (in OnTaskCompleted's flipSemanticMigrationSchema). See the
-// [propertyOverlay] field godoc on Shard for the full rationale.
+// is documented on Shard's [propertyOverlay] field.
 //
 // We exercise the helper methods directly against a zero-valued Shard
 // struct because they touch only the per-shard map + mutex — no other

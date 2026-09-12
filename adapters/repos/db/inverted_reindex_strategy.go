@@ -91,11 +91,9 @@ type MigrationStrategy interface {
 	// e.g. shard.markSearchableBlockmaxProperties(props...)
 	PreReindexHook(shard *Shard, props []string)
 
-	// AnalyzerOverlay returns a per-property override map for "from-scratch"
-	// strategies (e.g. enable-filterable / enable-searchable) whose schema
-	// flag is still false. The backfill scan applies it directly; a semantic
-	// migration's swap hook also installs the same value on the shard for
-	// the SWAPPING window, so window writes see the property too.
+	// AnalyzerOverlay returns a per-property override map applied by the
+	// inverted analyzer during the backfill scan and to SWAPPING-window
+	// writes; without it the analyzer skips a property whose flag is false.
 	//
 	// Strategies that don't need an overlay (the live schema flag is
 	// already true for the targeted properties — e.g. retokenize,
@@ -113,9 +111,9 @@ type MigrationStrategy interface {
 	// godoc): OnMigrationComplete fires in Phase 2c — AFTER the per-prop
 	// SwapBucketPointer tight loop (Phase 2a) and AFTER the inline
 	// oldMain.Shutdown + oldMain→backup rename loop (Phase 2b), but still
-	// INSIDE the per-shard property-overlay window for every semantic
-	// migration except change-algorithm. The overlay is cleared later by
-	// the cluster-wide schema flip in [ReindexProvider.OnTaskCompleted].
+	// INSIDE the per-shard property-overlay window. The overlay is cleared
+	// later by the cluster-wide schema flip in
+	// [ReindexProvider.OnTaskCompleted].
 	//
 	// Allowed work in this position:
 	//

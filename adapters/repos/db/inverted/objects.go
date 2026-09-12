@@ -111,8 +111,6 @@ func (a *Analyzer) analyzeProps(propsMap map[string]*models.Property,
 			continue
 		}
 
-		// The live schema indexes this property nowhere, so only the overlay
-		// can have got us past the skip above. See Property.OverlayForcedOnly.
 		overlayForcedOnly := !HasAnyInvertedIndex(prop)
 		firstEmitted := len(out)
 

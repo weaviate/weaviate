@@ -32,10 +32,8 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// The swap window is the gap between a semantic migration's per-shard bucket
-// flip and the cluster-wide schema flip. Once the double-write mirror is torn
-// down, the write path gates on the still-off schema flag, so a write in the
-// window is stored but indexed nowhere (weaviate/etienne-claude-issues#449).
+// A write between a shard's bucket flip and the cluster-wide schema flip is
+// stored but indexed nowhere (weaviate/etienne-claude-issues#449).
 
 const semanticWindowSeedObjects = 25
 
@@ -44,18 +42,14 @@ const semanticWindowSeedObjects = 25
 const semanticWindowToken = "zulu"
 
 // semanticWindowScore is above every value makeFilterableToRangeableTestObjects
-// cycles through, so a range query over the corpus can only hit the object
-// written inside the window.
+// cycles through, so a range query can only hit the window's own write.
 const semanticWindowScore = int64(1000)
 
-// seedText returns the corpus to import plus the object to write once the shard
-// is inside the window.
 func seedText(t *testing.T, className string) ([]*storobj.Object, *storobj.Object) {
 	return makeConvergenceTestObjects(t, semanticWindowSeedObjects, className),
 		createTestObjectWithText(className, semanticWindowToken)
 }
 
-// seedRangeable is the numeric sibling of seedText.
 func seedRangeable(t *testing.T, className string) ([]*storobj.Object, *storobj.Object) {
 	return makeFilterableToRangeableTestObjects(t, semanticWindowSeedObjects, className),
 		&storobj.Object{
@@ -68,9 +62,6 @@ func seedRangeable(t *testing.T, className string) ([]*storobj.Object, *storobj.
 		}
 }
 
-// enterSemanticSwapWindow seeds a shard, runs the migration through its bucket flip,
-// and stops before the schema flip — the state the window's writes land in.
-// failAfterFlip breaks the swap after the flip instead of letting it finish.
 func enterSemanticSwapWindow(t *testing.T, ctx context.Context, class *models.Class, propName string,
 	corpus []*storobj.Object, migration ReindexMigrationType,
 	newTask func(*testing.T, *Index, string, string) *ShardReindexTaskGeneric,
@@ -93,8 +84,7 @@ func enterSemanticSwapWindow(t *testing.T, ctx context.Context, class *models.Cl
 
 	if failAfterFlip {
 		// rename(2) refuses to replace a non-empty directory, and the swap
-		// renames the displaced bucket onto this path only after it has
-		// flipped the bucket pointer.
+		// renames onto this path only after flipping the bucket pointer.
 		occupied := filepath.Join(shard.pathLSM(), task.backupBucketName(propName))
 		require.NoError(t, os.MkdirAll(occupied, 0o755))
 		require.NoError(t, os.WriteFile(filepath.Join(occupied, "blocker"), nil, 0o644))
@@ -116,9 +106,8 @@ func enterSemanticSwapWindow(t *testing.T, ctx context.Context, class *models.Cl
 	return shard
 }
 
-// noIndexAtAllClass gives the property neither a filterable nor a searchable
-// index, so shard init creates no buckets for it at all — not even the length
-// and null ones the class-level settings ask for.
+// noIndexAtAllClass leaves the property unindexed, so shard init creates no
+// buckets for it — not even the length and null ones the class asks for.
 func noIndexAtAllClass(className, propName string) *models.Class {
 	class := newTestClassWithProps(className, []string{propName})
 	class.Properties[0].IndexFilterable = boolPtr(false)
@@ -186,8 +175,7 @@ func TestWriteDuringSemanticMigrationSwapWindow(t *testing.T) {
 			seed:      seedRangeable,
 			migration: ReindexTypeEnableRangeable,
 			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
-				// The production strategy, whose OnMigrationComplete is what
-				// makes the swapped bucket queryable on this shard.
+				// Its OnMigrationComplete is what makes the bucket queryable.
 				return newFilterableToRangeableTaskWithStrategy(t, idx, className, propName,
 					&FilterableToRangeableStrategy{propNames: []string{propName}, generation: 1})
 			},
@@ -195,9 +183,8 @@ func TestWriteDuringSemanticMigrationSwapWindow(t *testing.T) {
 			find: findByGreaterThanFilter,
 		},
 		{
-			// The bucket pointer is already flipped when the swap gives up,
-			// so the overlay is the only thing routing the window's writes
-			// to the bucket that now holds the property.
+			// The pointer is already flipped when the swap gives up, so the
+			// overlay is all that routes writes to the new bucket.
 			name:      "enable-filterable where the swap fails after the bucket flip",
 			newClass:  newEnableFilterableTestClass,
 			seed:      seedText,
@@ -228,8 +215,6 @@ func TestWriteDuringSemanticMigrationSwapWindow(t *testing.T) {
 			require.NoError(t, shard.PutObject(ctx, windowObj),
 				"a write in the swap window must be accepted")
 
-			// The cluster-wide flip lands, which is when the migrated index
-			// starts serving queries.
 			tc.flip(class.Properties[0])
 
 			found := tc.find(t, ctx, shard, className, propName)

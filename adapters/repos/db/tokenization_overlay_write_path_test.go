@@ -29,8 +29,7 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// Pins AnalyzeObject tokenizing writes against the overlay during the
-// SWAPPING window, matching the query path.
+// Pins AnalyzeObject tokenizing writes against the overlay, as queries do.
 func TestTokenizationOverlay_WritePath_HonorsOverlay(t *testing.T) {
 	ctx := testCtx()
 	className := "TokOverlayWrite_" + uuid.NewString()[:8]
@@ -63,8 +62,7 @@ func TestTokenizationOverlay_WritePath_HonorsOverlay(t *testing.T) {
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 
-	// Simulate the SWAPPING window: production sets this per prop via the
-	// onPropSwapped hook while the schema's tokenization is still SOURCE.
+	// Production sets this per prop while the schema still says SOURCE.
 	shard.SetPropertyOverlay(propName, inverted.PropertyOverlay{
 		Tokenization: models.PropertyTokenizationField,
 	})
@@ -84,7 +82,6 @@ func TestTokenizationOverlay_WritePath_HonorsOverlay(t *testing.T) {
 	}
 	require.NoError(t, shard.PutObject(ctx, obj))
 
-	// Bucket is mapcollection-strategy on a non-blockmax class.
 	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
 	bucket := shard.store.Bucket(bucketName)
 	require.NotNilf(t, bucket, "searchable bucket %q must exist", bucketName)
@@ -93,7 +90,6 @@ func TestTokenizationOverlay_WritePath_HonorsOverlay(t *testing.T) {
 	sort.Strings(terms)
 	t.Logf("on-disk terms with overlay=field, live schema=word: %v", terms)
 
-	// Pin: the write path must honor the overlay.
 	expectedFieldTerms := []string{"two distinct words"}
 	assert.ElementsMatchf(t, expectedFieldTerms, terms,
 		"write path did not analyze against the overlay. A write in the "+
@@ -104,8 +100,7 @@ func TestTokenizationOverlay_WritePath_HonorsOverlay(t *testing.T) {
 		expectedFieldTerms, terms)
 }
 
-// readMapBucketTerms returns every term-key from a mapcollection bucket;
-// the term set alone is what discriminates word- from field-tokenized input.
+// The term set alone discriminates word- from field-tokenized input.
 func readMapBucketTerms(t *testing.T, ctx context.Context, b *lsmkv.Bucket) []string {
 	t.Helper()
 	c, err := b.MapCursor()

@@ -425,53 +425,9 @@ type Shard struct {
 	rangeableLocalReadyMu sync.RWMutex
 	rangeableLocalReady   map[string]bool
 
-	// propertyOverlayMu guards propertyOverlay. Holds the per-prop "what
-	// should the analyzer believe about this property on this shard?"
-	// override that closes the FINALIZING-window misalignment of a
-	// semantic migration, on both the query and the write path.
-	//
-	// Mechanism: a semantic migration's per-shard runtimeSwap flips the
-	// canonical bucket pointer to the migrated content BEFORE the
-	// cluster-wide schema flip in
-	// OnTaskCompleted.flipSemanticMigrationSchema commits via RAFT. During
-	// that seconds-long window on each replica:
-	//   - Bucket content on this shard: post-swap (new tokenization, or a
-	//     freshly built bucket for a newly enabled index type)
-	//   - Live schema as seen by the analyzer: pre-flip
-	//
-	// For a change-tokenization migration, query input gets tokenized
-	// against OLD while the lookup hits the NEW bucket, so counts don't
-	// match. The empirical signature is a per-replica count flap (e.g.
-	// `7→4→1→7→3→2`) on a steady probe across the window.
-	//
-	// For enable-filterable / enable-searchable the write path is what
-	// breaks: the double-write mirror is torn down when runtimeSwap
-	// returns, and the ordinary write path gates on a schema flag that is
-	// still false, so a write accepted in the window is indexed nowhere
-	// and nothing ever heals it (weaviate/etienne-claude-issues#449).
-	//
-	// Lifecycle (see reindex_provider.go's OnGroupCompleted +
-	// OnTaskCompleted):
-	//   1. SET: per prop, atomic with each bucket-pointer flip (onPropSwapped
-	//      hook), so the overlay≠bucket window is one in-memory map write.
-	//      See maybeWirePerPropOverlaySet for why setting it once up front
-	//      was a correctness bug.
-	//   2. CLEAR: once flipSemanticMigrationSchema commits the
-	//      cluster-wide schema flip, OnTaskCompleted clears the overlay
-	//      per-shard so the steady-state map is empty. A node whose
-	//      first sight of the task is FINISHED never runs the flip
-	//      itself, and FINISHED is the leader's view rather than this
-	//      node's, so it clears only the entries its own schema already
-	//      carries. One left behind is harmless: it now overrides with
-	//      the same value live already provides.
-	//
-	// Read on every query and every write that touches the affected
-	// property, so kept under a fast RWMutex rather than a sync.Map
-	// (consistent with rangeableLocalReady above). Per-shard, in-memory
-	// only — the cluster-wide schema flip is the authoritative
-	// cross-replica signal; this overlay just bridges the local
-	// seconds-long gap between bucket-swap-here and
-	// schema-flip-observed-here.
+	// Per-prop analyzer override bridging this shard's bucket swap and the
+	// cluster-wide schema flip: a write in that window is otherwise indexed
+	// nowhere and never healed (weaviate/etienne-claude-issues#449).
 	propertyOverlayMu sync.RWMutex
 	propertyOverlay   map[string]inverted.PropertyOverlay
 
@@ -812,15 +768,6 @@ func (s *Shard) setRangeableLocallyReady(propName string, ready bool) {
 	s.rangeableLocalReady[propName] = ready
 }
 
-// SetPropertyOverlay records that propName's analyzer view on this shard
-// should be `o` instead of the schema-stored one until the live schema
-// catches up. Set per property, atomically with that property's bucket
-// flip, by the migration's swap hook (reindex_provider.OnGroupCompleted).
-// The overlay is cleared explicitly by OnTaskCompleted. See the
-// [propertyOverlay] field godoc for the full rationale and lifecycle.
-//
-// An empty overlay is a no-op — used by the migration cleanup path to
-// avoid having every caller guard the call.
 func (s *Shard) SetPropertyOverlay(propName string, o inverted.PropertyOverlay) {
 	if propName == "" || o.Empty() {
 		return
@@ -838,10 +785,9 @@ func (s *Shard) SetPropertyOverlay(propName string, o inverted.PropertyOverlay) 
 // [Shard.PinTokenizationAndSearchableBucket]), so no query sees a mixed pair.
 //
 // CONTRACT: flip must not call Bucket.Shutdown or take lifetimeLock — a
-// multi-property query holds one property's pin while it takes
-// propertyOverlayMu for the next, so draining here would invert lock order
-// and deadlock. Phase-2b teardown must happen strictly after this method
-// returns.
+// query may hold another prop's pin and need propertyOverlayMu next, so
+// draining here would invert lock order and deadlock. Phase-2b teardown
+// must happen strictly after this method returns.
 func (s *Shard) SwapBucketAndSetOverlay(propName string, o inverted.PropertyOverlay,
 	flip func() (*lsmkv.Bucket, error),
 ) (*lsmkv.Bucket, error) {
@@ -864,7 +810,7 @@ func (s *Shard) SwapBucketAndSetOverlay(propName string, o inverted.PropertyOver
 }
 
 // PinTokenizationAndSearchableBucket resolves propName's tokenization AND
-// pins its searchable bucket under one propertyOverlayMu.RLock (write
+// pins its searchable bucket under one RLock (write
 // side: [Shard.SwapBucketAndSetOverlay]), so a query never sees a mixed
 // pre-/post-swap pair; the pin makes a concurrent swap's Shutdown drain
 // first. Caller MUST release exactly once (bucket may be nil). Lock order:
@@ -894,9 +840,6 @@ func (s *Shard) PinTokenizationAndSearchableBucket(propName, liveTokenization st
 	return overlay.Tokenization, bucket, release
 }
 
-// ClearPropertyOverlay removes any overlay entry for propName. Idempotent —
-// called once the cluster-wide schema flip has applied on this node and the
-// overlay is no longer needed.
 func (s *Shard) ClearPropertyOverlay(propName string) {
 	if propName == "" {
 		return
@@ -909,12 +852,8 @@ func (s *Shard) ClearPropertyOverlay(propName string) {
 	delete(s.propertyOverlay, propName)
 }
 
-// ClearPropertyOverlayIfCaughtUp removes propName's overlay entry only when
-// live already provides everything the entry overrides. For callers that
-// learned the migration finished from another node: this node's schema may
-// still be behind, and an entry dropped before it arrives leaves the next
-// write on this property indexed nowhere. A nil live property counts as
-// not caught up.
+// ClearPropertyOverlayIfCaughtUp drops propName's entry only once live
+// provides what it overrides; dropping it earlier loses the writes it places.
 func (s *Shard) ClearPropertyOverlayIfCaughtUp(propName string, live *models.Property) {
 	if propName == "" {
 		return
@@ -929,13 +868,6 @@ func (s *Shard) ClearPropertyOverlayIfCaughtUp(propName string, live *models.Pro
 }
 
 // TokenizationFor returns the active query-time tokenization for propName
-// on this shard: the overlay value when one is set, else liveTokenization.
-//
-// liveTokenization is the value the caller would have used in the
-// absence of any overlay — typically `prop.Tokenization`. Passing the
-// live value as a parameter (rather than re-reading the schema here)
-// keeps this helper cheap and avoids a schema-manager dependency in the
-// query hot path.
 func (s *Shard) TokenizationFor(propName, liveTokenization string) string {
 	if propName == "" {
 		return liveTokenization
@@ -952,16 +884,6 @@ func (s *Shard) TokenizationFor(propName, liveTokenization string) string {
 	return overlay.Tokenization
 }
 
-// SnapshotPropertyOverlay returns a fixed-allocation map of the overlay
-// entries that currently exist for the supplied propNames. Used by the
-// query and write setup paths that feed the analyzer's WithSchemaOverlay
-// mechanism (see adapters/repos/db/inverted/analyzer.go).
-//
-// Avoids cloning the entire underlying overlay map on every query or
-// write — only the requested props are snapshotted, and an empty result
-// returns nil so the analyzer can take its fast path.
-//
-// The returned map is owned by the caller.
 func (s *Shard) SnapshotPropertyOverlay(propNames []string) map[string]inverted.PropertyOverlay {
 	if len(propNames) == 0 {
 		return nil

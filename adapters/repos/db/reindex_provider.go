@@ -1197,9 +1197,6 @@ func (p *ReindexProvider) runShardPrepPhase(
 	return ok, out
 }
 
-// runShardSwapPhase. Partial success leaves the overlay set for the
-// flipped props only; un-swapped buckets keep their pre-migration content
-// and need operator rebuild.
 func (p *ReindexProvider) runShardSwapPhase(
 	ctx context.Context,
 	payload *ReindexTaskPayload,
@@ -1270,9 +1267,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 // When parallel=false the loop is sequential (legacy behavior). Used
 // by the PREP path where heavy IO (FlushAndSwitch, ShutdownBucket,
 // PrependSegmentsFromBucket) per shard would compound under
-// parallelism — and where the latency doesn't affect the user-
-// observable query-consistency window because queries during PREP
-// still see the pre-migration state (the overlay isn't set yet).
+// parallelism.
 func (p *ReindexProvider) runPerUnitPhase(
 	task *distributedtask.Task,
 	payload *ReindexTaskPayload,
@@ -1429,10 +1424,6 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	// billion-scale to RAFT propagation latency rather than per-node
 	// PREP duration.
 	ctx := p.serverCtx
-	// PREP path runs heavy IO per shard (FlushAndSwitch, ShutdownBucket,
-	// PrependSegmentsFromBucket). Sequential to avoid compounding IO
-	// contention; query consistency is not at stake here because queries
-	// during PREP still see the pre-migration state.
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
 		"group-completion", false,
 		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
@@ -1621,9 +1612,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 					logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
 				}
 			case distributedtask.TaskStatusFinished:
-				// Another node committed the schema flip in the same tick,
-				// so this node never runs the SWAPPING arm below and nothing
-				// else would retire its overlays.
+				// Another node's flip in the same tick skips the arm below.
 				if IsSemanticMigration(payload.MigrationType) {
 					p.clearCaughtUpOverlaysOnLoadedShards(p.serverCtx, payload, logger)
 				}
@@ -1651,9 +1640,7 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	ctx := p.serverCtx
 	if err := p.flipSemanticMigrationSchema(ctx, payload, logger); err != nil {
 		logger.Errorf("reindex provider: task-completion: schema flip failed; migration result is half-applied (bucket swapped on every node, schema still reflects pre-migration state): %v", err)
-		// Leave the overlay in place: buckets already hold the migrated
-		// content but the schema is still pre-flip on this node, so the
-		// overlay keeps queries and writes aligned until a retry lands.
+		// Leave the overlay: the schema is still pre-flip here until a retry.
 		return fmt.Errorf("schema flip: %w", err)
 	}
 
@@ -1662,8 +1649,6 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	return nil
 }
 
-// clearOverlaysOnLoadedShards retires the payload's property overlays on
-// every shard this node has loaded, which is every shard that can hold one.
 func (p *ReindexProvider) clearOverlaysOnLoadedShards(
 	ctx context.Context, payload *ReindexTaskPayload, logger logrus.FieldLogger,
 ) {
@@ -1674,12 +1659,6 @@ func (p *ReindexProvider) clearOverlaysOnLoadedShards(
 	})
 }
 
-// clearCaughtUpOverlaysOnLoadedShards retires only the overlay entries this
-// node's own schema already provides. Its caller learned the task finished
-// from the leader, which says nothing about what this node applied, and an
-// entry cleared ahead of the schema loses the writes it was placing. Leaving
-// one behind is harmless: it now overrides with a value live already
-// provides.
 func (p *ReindexProvider) clearCaughtUpOverlaysOnLoadedShards(
 	ctx context.Context, payload *ReindexTaskPayload, logger logrus.FieldLogger,
 ) {
@@ -1691,9 +1670,6 @@ func (p *ReindexProvider) clearCaughtUpOverlaysOnLoadedShards(
 	})
 }
 
-// livePropertiesByName reads the collection's properties from this node's
-// schema. Read once per walk: every shard answers to the same schema, and
-// each read clones the class.
 func (p *ReindexProvider) livePropertiesByName(collection string) map[string]*models.Property {
 	if p.db == nil {
 		return nil
@@ -1727,8 +1703,6 @@ func (p *ReindexProvider) forEachLoadedShardConcrete(
 		return
 	}
 	idx.ForEachLoadedShard(func(shardName string, sh ShardLike) error {
-		// Unwrap so fn reaches the concrete shard holding the state; a
-		// *LazyLoadShard would otherwise hide it.
 		concreteShard, err := unwrapShard(ctx, sh)
 		if err != nil {
 			logger.WithField("shard", shardName).
@@ -2164,10 +2138,7 @@ func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
 
 // logOperatorRepairGuidanceOnPartialSwap logs the REST command that
 // recovers from a semantic migration which stopped after some shards had
-// swapped. Those shards' buckets already hold the migrated content while
-// the schema flip was correctly skipped, so queries against the index
-// return wrong results until it is rebuilt. On the FAILED path that is a
-// state the task may be in rather than one it is known to be in.
+// swapped.
 func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *ReindexTaskPayload, outcome distributedtask.TaskStatus) {
 	if !IsSemanticMigration(payload.MigrationType) {
 		return
@@ -2634,23 +2605,8 @@ func IsTokenizationChangingMigration(mt ReindexMigrationType) bool {
 		mt == ReindexTypeChangeTokenizationFilterable
 }
 
-// maybeWirePerPropOverlaySet installs the per-prop swap hooks on every task
-// of a semantic migration so the per-shard property overlay is SET
-// atomically with each property's bucket-pointer flip, inside the swap's
-// Phase 2a tight loop. The overlay is the value the task's strategy already
-// hands the backfill scan, plus (for the two retokenize types, which don't
-// carry it) the payload's target tokenization.
-//
-// Both the query and the write path read it: between the flip here and the
-// cluster-wide schema flip in OnTaskCompleted, the live schema still
-// describes the pre-migration state. On the write path that gap is silent
-// data loss — the double-write mirror is already gone and the schema flag
-// still gates the property out (weaviate/etienne-claude-issues#449).
-//
-// Wired per-prop, not once up front, because RunSwapOnShard's disk-I/O
-// preamble runs between the loop start and the flip; setting the overlay
-// before the loop would expose overlay=NEW/bucket=OLD for that whole
-// window instead of one map write.
+// Set once up front rather than per flip, the overlay would be visible for
+// RunSwapOnShard's whole disk-I/O preamble instead of one map write.
 func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks []*ShardReindexTaskGeneric) {
 	if shard == nil || payload == nil {
 		return

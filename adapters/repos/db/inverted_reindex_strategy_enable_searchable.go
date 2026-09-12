@@ -113,11 +113,6 @@ func (s *EnableSearchableStrategy) PreReindexHook(shard *Shard, props []string) 
 	shard.markSearchableBlockmaxProperties(props...)
 }
 
-// AnalyzerOverlay forces IndexSearchable=true and the target tokenization so
-// the backfill scan and, via maybeWirePerPropOverlaySet, the SWAPPING-window
-// write path both see the property as searchable before the schema flag
-// flips — otherwise the analyzer skips the property (HasSearchableIndex) or
-// tokenizes with the stale stored value.
 func (s *EnableSearchableStrategy) AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay {
 	if len(props) == 0 {
 		return nil

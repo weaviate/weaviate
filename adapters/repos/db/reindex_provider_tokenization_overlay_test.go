@@ -31,9 +31,7 @@ import (
 // full provider+DB+index. Key invariant: the overlay is set only when
 // the per-prop hook fires, never eagerly at wiring time.
 
-// overlayTasks builds the task slice maybeWirePerPropOverlaySet inspects.
-// The wiring reads each task's strategy for the flags that migration turns
-// on, so a bare task struct is not enough. A nil entry stays nil.
+// The wiring reads each task's strategy, so a bare task struct is not enough.
 func overlayTasks(strategies ...MigrationStrategy) []*ShardReindexTaskGeneric {
 	tasks := make([]*ShardReindexTaskGeneric, len(strategies))
 	for i, strategy := range strategies {
@@ -201,9 +199,7 @@ func TestOnTaskCompletedOverlayClearLeavesUnloadedShardsAlone(t *testing.T) {
 		status    distributedtask.TaskStatus
 		migration ReindexMigrationType
 		overlay   inverted.PropertyOverlay
-		// liveSchema shapes the property this node's schema reader
-		// returns, which is what decides whether the overlay is still
-		// load-bearing here.
+		// liveSchema decides whether the overlay is still load-bearing.
 		liveSchema  func(*models.Property)
 		wantCleared bool
 	}{
@@ -215,8 +211,7 @@ func TestOnTaskCompletedOverlayClearLeavesUnloadedShardsAlone(t *testing.T) {
 			wantCleared: true,
 		},
 		{
-			// Another node committed the flip in the same tick, so this
-			// node's first sight of the task is already FINISHED.
+			// Another node flipped in the same tick.
 			name:        "finished: this node's schema already carries the flip",
 			status:      distributedtask.TaskStatusFinished,
 			migration:   ReindexTypeEnableFilterable,
@@ -224,8 +219,7 @@ func TestOnTaskCompletedOverlayClearLeavesUnloadedShardsAlone(t *testing.T) {
 			wantCleared: true,
 		},
 		{
-			// FINISHED is read from the leader, so it says the flip
-			// committed there, not that this node applied it.
+			// FINISHED is the leader's view, not this node's.
 			name:      "finished: this node's schema has not applied the flip yet",
 			status:    distributedtask.TaskStatusFinished,
 			migration: ReindexTypeEnableFilterable,
@@ -235,8 +229,7 @@ func TestOnTaskCompletedOverlayClearLeavesUnloadedShardsAlone(t *testing.T) {
 			},
 		},
 		{
-			// No schema flip ever follows a terminal task, so an entry
-			// left here outlives the bucket the cleanup tears out.
+			// An entry left here outlives the bucket cleanup tears out.
 			name:      "failed: the partial swap's overlay goes",
 			status:    distributedtask.TaskStatusFailed,
 			migration: ReindexTypeEnableFilterable,
@@ -247,9 +240,8 @@ func TestOnTaskCompletedOverlayClearLeavesUnloadedShardsAlone(t *testing.T) {
 			wantCleared: true,
 		},
 		{
-			// A retokenize migration's schema flag was already on, so the
-			// bucket is demanded either way and the entry is the only
-			// thing keeping writes target-tokenized.
+			// The flag was already on, so the entry is the only thing
+			// keeping writes target-tokenized.
 			name:      "failed: a tokenization change keeps its overlay",
 			status:    distributedtask.TaskStatusFailed,
 			migration: ReindexTypeChangeTokenization,

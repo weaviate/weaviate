@@ -34,10 +34,8 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// An enable-filterable migration flipped this shard's bucket pointer and set
-// the overlay with it, then the task reached FAILED. No schema flip follows,
-// so a later index delete on the property sweeps the very bucket the overlay
-// forces writes into. The write after that sweep must still succeed.
+// After a FAILED migration no schema flip follows, so a later index delete
+// sweeps the very bucket the overlay forces writes into.
 func TestWriteAfterFailedMigrationSweepsOverlaidBucket(t *testing.T) {
 	ctx := testCtx()
 	className := "FailedOverlaySweep_" + uuid.NewString()[:8]
@@ -53,7 +51,6 @@ func TestWriteAfterFailedMigrationSweepsOverlaidBucket(t *testing.T) {
 	shard, err := unwrapShard(ctx, hot)
 	require.NoError(t, err)
 
-	// The migration's per-shard swap: bucket published, overlay set with it.
 	require.NoError(t, shard.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(prop), lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
 	shard.SetPropertyOverlay(prop, inverted.PropertyOverlay{ForceFilterable: true})
@@ -77,8 +74,8 @@ func TestWriteAfterFailedMigrationSweepsOverlaidBucket(t *testing.T) {
 		Payload:        payload,
 	}))
 
-	// An index delete on the property drops every bucket the schema says is
-	// off, which includes the one the failed migration left behind.
+	// The delete drops every bucket the schema says is off, including the
+	// one the failed migration left behind.
 	class.Properties[0].IndexSearchable = boolPtr(false)
 	eg := enterrors.NewErrorGroupWrapper(shard.index.logger)
 	var reads atomic.Int64
