@@ -38,6 +38,8 @@ type Property struct {
 	HasRangeableIndex  bool // roaring set index for ranged queries
 	// OverlayForcedOnly: no property-length or null-state bucket exists yet.
 	OverlayForcedOnly bool
+	// OverlaySearchable means the overlay set the flag, so no tracker entry exists.
+	OverlaySearchable bool
 }
 
 type NilProperty struct {

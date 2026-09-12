@@ -244,7 +244,7 @@ func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket,
 
 func (s *Shard) SetPropertyLengths(props []inverted.Property) error {
 	for _, prop := range props {
-		if !prop.HasSearchableIndex {
+		if !prop.HasSearchableIndex || prop.OverlaySearchable {
 			continue
 		}
 
@@ -259,7 +259,7 @@ func (s *Shard) SetPropertyLengths(props []inverted.Property) error {
 
 func (s *Shard) subtractPropLengths(props []inverted.Property) error {
 	for _, prop := range props {
-		if !prop.HasSearchableIndex {
+		if !prop.HasSearchableIndex || prop.OverlaySearchable {
 			continue
 		}
 

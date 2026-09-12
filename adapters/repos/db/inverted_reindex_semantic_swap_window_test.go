@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -225,43 +226,102 @@ func TestWriteDuringSemanticMigrationSwapWindow(t *testing.T) {
 	}
 }
 
-// A property an overlay forces on has no length/null bucket yet; both write
-// legs must skip them or every write to the collection fails.
+// A property an overlay forces on has state the migration has not built yet:
+// no length or null bucket, or a BM25 length tracker that never saw it. Every
+// write leg must skip it until the schema flip makes the flag real.
 func TestWriteDuringSwapWindowSkipsAbsentLengthAndNullBuckets(t *testing.T) {
 	const propName = "title"
 
-	ctx := testCtx()
-	className := "SemanticWindowBuckets_" + uuid.NewString()[:8]
-	class := noIndexAtAllClass(className, propName)
-	require.True(t, class.InvertedIndexConfig.IndexPropertyLength)
-	require.True(t, class.InvertedIndexConfig.IndexNullState)
+	tests := []struct {
+		name      string
+		newClass  func(className, propName string) *models.Class
+		migration ReindexMigrationType
+		newTask   func(*testing.T, *Index, string, string) *ShardReindexTaskGeneric
+		flip      func(prop *models.Property)
+		find      func(*testing.T, context.Context, *Shard, string, string) []*storobj.Object
+		absent    func(*testing.T, *Shard, string)
+	}{
+		{
+			name:      "enable-filterable",
+			newClass:  noIndexAtAllClass,
+			migration: ReindexTypeEnableFilterable,
+			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+				task, _ := newEnableFilterableTask(t, idx, className, propName)
+				return task
+			},
+			flip:   func(prop *models.Property) { prop.IndexFilterable = boolPtr(true) },
+			find:   findByEqualFilter,
+			absent: requireLengthAndNullBucketsAbsent,
+		},
+		{
+			name: "enable-searchable",
+			newClass: func(className, propName string) *models.Class {
+				return newEnableSearchableTestClass(className, []string{propName})
+			},
+			migration: ReindexTypeEnableSearchable,
+			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+				task, _ := newEnableSearchableTask(t, idx, className, propName,
+					models.PropertyTokenizationWord)
+				return task
+			},
+			flip:   func(prop *models.Property) { prop.IndexSearchable = boolPtr(true) },
+			find:   findByBM25,
+			absent: requirePropertyLengthUntracked,
+		},
+	}
 
-	corpus, _ := seedText(t, className)
-	shard := enterSemanticSwapWindow(t, ctx, class, propName, corpus, ReindexTypeEnableFilterable,
-		func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
-			task, _ := newEnableFilterableTask(t, idx, className, propName)
-			return task
-		}, false)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "SemanticWindowBuckets_" + uuid.NewString()[:8]
+			class := tc.newClass(className, propName)
+			require.True(t, class.InvertedIndexConfig.IndexPropertyLength)
+			require.True(t, class.InvertedIndexConfig.IndexNullState)
 
+			corpus, _ := seedText(t, className)
+			shard := enterSemanticSwapWindow(t, ctx, class, propName, corpus, tc.migration,
+				tc.newTask, false)
+			tc.absent(t, shard, propName)
+
+			// A seed object predates the window, so this delete is the first leg
+			// to reach for state the window has not built.
+			require.NoError(t, shard.DeleteObject(ctx, corpus[0].ID(), time.Now()),
+				"a delete in the swap window must not reach absent state")
+
+			obj := createTestObjectWithText(className, semanticWindowToken)
+			require.NoError(t, shard.PutObject(ctx, obj),
+				"the add leg must not reach absent state")
+
+			// Overwriting the same id runs the previous version through the
+			// delete leg, which reaches for the same state.
+			overwrite := createTestObjectWithText(className, "yankee")
+			overwrite.Object.ID = obj.Object.ID
+			require.NoError(t, shard.PutObject(ctx, overwrite),
+				"the delete leg must not reach absent state")
+
+			tc.absent(t, shard, propName)
+
+			tc.flip(class.Properties[0])
+			require.Empty(t, objectIDs(tc.find(t, ctx, shard, className, propName)),
+				"the overwritten value must be gone from the migrated index")
+		})
+	}
+}
+
+func requireLengthAndNullBucketsAbsent(t *testing.T, shard *Shard, propName string) {
+	t.Helper()
 	require.Nil(t, shard.store.Bucket(helpers.BucketFromPropNameLengthLSM(propName)),
-		"precondition: the property-length bucket must be absent, or this test proves nothing")
+		"the property-length bucket must be absent, or this row proves nothing")
 	require.Nil(t, shard.store.Bucket(helpers.BucketFromPropNameNullLSM(propName)),
-		"precondition: the null-state bucket must be absent, or this test proves nothing")
+		"the null-state bucket must be absent, or this row proves nothing")
+}
 
-	obj := createTestObjectWithText(className, semanticWindowToken)
-	require.NoError(t, shard.PutObject(ctx, obj),
-		"the add leg must not reach the absent length and null buckets")
-
-	// Overwriting the same id runs the previous version through the delete
-	// leg, which reaches for the same two buckets.
-	overwrite := createTestObjectWithText(className, "yankee")
-	overwrite.Object.ID = obj.Object.ID
-	require.NoError(t, shard.PutObject(ctx, overwrite),
-		"the delete leg must not reach the absent length and null buckets")
-
-	class.Properties[0].IndexFilterable = boolPtr(true)
-	require.Empty(t, objectIDs(findByEqualFilter(t, ctx, shard, className, propName)),
-		"the overwritten value must be gone from the migrated index")
+func requirePropertyLengthUntracked(t *testing.T, shard *Shard, propName string) {
+	t.Helper()
+	sum, count, _, err := shard.GetPropertyLengthTracker().PropertyTally(propName)
+	require.NoError(t, err)
+	require.Equal(t, [2]int{0, 0}, [2]int{sum, count},
+		"the BM25 length tracker must not see a property the live schema still calls unsearchable")
 }
 
 func findByEqualFilter(t *testing.T, ctx context.Context, shard *Shard,
