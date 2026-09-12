@@ -1581,7 +1581,7 @@ func (t *ShardReindexTaskGeneric) obsoleteTrackerDirs(logger logrus.FieldLogger,
 func (t *ShardReindexTaskGeneric) removeAllSafe(logger logrus.FieldLogger, path string) {
 	if err := os.RemoveAll(path); err != nil {
 		logger.WithField("path", path).
-			Warnf("runtime swap: trim: failed to remove obsolete dir; the orphan audit reclaims it: %v", err)
+			Warnf("runtime swap: trim: failed to remove obsolete dir; it is left on disk: %v", err)
 	}
 }
 

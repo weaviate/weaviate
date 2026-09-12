@@ -1780,11 +1780,31 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	return nil
 }
 
+// migrationCleanupIndexTypes returns the inverted-index discriminators whose
+// sidecar state a migration type leaves on disk. Unlike
+// [semanticMigrationIndexTypes], format-only migrations appear here: they
+// write sidecars too, and a terminal task has to reclaim them.
+func migrationCleanupIndexTypes(mt ReindexMigrationType) []string {
+	switch mt {
+	case ReindexTypeChangeTokenization:
+		return []string{"searchable", "filterable"}
+	case ReindexTypeChangeTokenizationFilterable:
+		return []string{"filterable"}
+	case ReindexTypeEnableSearchable, ReindexTypeChangeAlgorithm, ReindexTypeRebuildSearchable:
+		return []string{"searchable"}
+	case ReindexTypeEnableFilterable, ReindexTypeRepairFilterable:
+		return []string{"filterable"}
+	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
+		return []string{"rangeable"}
+	}
+	return nil
+}
+
 // autoCleanupAfterTerminal runs on every node when a semantic migration
 // reaches FAILED or CANCELLED. Drains any still-running local
 // goroutine, then wipes partial sidecar state per (property, indexType).
-// Errors are logged and swallowed; the next-restart audit catches anything
-// missed.
+// Errors are logged and swallowed: a failure here leaves sidecar dirs on
+// disk, which costs space but never correctness.
 //
 // Backup-gate race avoidance: a backup landing AFTER the FSM has flipped
 // to FAILED/CANCELLED but BEFORE this routine finishes its sidecar
@@ -1807,7 +1827,7 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 		return
 	}
 	defer unseal()
-	indexTypes, _ := semanticMigrationIndexTypesForAudit(payload.MigrationType)
+	indexTypes := migrationCleanupIndexTypes(payload.MigrationType)
 	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
 		return
 	}

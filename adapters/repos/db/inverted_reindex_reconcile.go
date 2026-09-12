@@ -868,7 +868,6 @@ func (r *migrationReconciler) sealUnit(subject MigrationSubject) (func(), bool) 
 
 // A live worker keeps writing through pointers taken before its phase
 // began, into what the teardown would remove; decline and retry next pass.
-// The per-unit orphan audit takes the same seal separately.
 func (r *migrationReconciler) withSealedUnit(subject MigrationSubject, what string, run func() error) error {
 	release, sealed := r.sealUnit(subject)
 	if !sealed {

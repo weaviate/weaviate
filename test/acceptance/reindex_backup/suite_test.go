@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -29,14 +28,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
-	"github.com/weaviate/weaviate/adapters/repos/db"
 	clientbackups "github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
-	"github.com/weaviate/weaviate/test/acceptance/helpers/reindexrecords"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
@@ -98,27 +94,20 @@ func TestBackupVsReindexSuite(t *testing.T) {
 		testBackupSucceedsAfterMigrationFinishes(t, restURI)
 	})
 
-	t.Run("PostRestartOrphanAuditClearsTracker", func(t *testing.T) {
-		testPostRestartOrphanAuditClearsTracker(t, ctx, compose, restURI)
-	})
-
-	// The subtests below re-resolve URI each call because
-	// PostRestartOrphanAuditClearsTracker above does a Stop+Start that
-	// rebinds the container to a new dynamic port.
 	t.Run("CancelOnNoInFlightReturns202NoOp", func(t *testing.T) {
-		testCancelOnNoInFlightReturns202NoOp(t, compose.GetWeaviate().URI())
+		testCancelOnNoInFlightReturns202NoOp(t, restURI)
 	})
 
 	t.Run("AlgorithmVerbNoOpOnAlreadyBlockmaxRejectsWAND", func(t *testing.T) {
-		testAlgorithmVerb(t, compose.GetWeaviate().URI())
+		testAlgorithmVerb(t, restURI)
 	})
 
 	t.Run("MutationGuardBlocksDeleteClassDuringInFlight", func(t *testing.T) {
-		testMutationGuardBlocksDeleteClassDuringInFlight(t, compose.GetWeaviate().URI())
+		testMutationGuardBlocksDeleteClassDuringInFlight(t, restURI)
 	})
 
 	t.Run("CancelClearsTrackerDirsViaOnTaskCompleted", func(t *testing.T) {
-		testCancelClearsTrackerDirsViaOnTaskCompleted(t, ctx, compose, compose.GetWeaviate().URI())
+		testCancelClearsTrackerDirsViaOnTaskCompleted(t, ctx, compose, restURI)
 	})
 }
 
@@ -312,92 +301,6 @@ func submitChangeTokenization(t *testing.T, restURI, collection, property, targe
 	t.Helper()
 	return reindexhelpers.SubmitIndexUpsert(t, restURI, collection, property, "searchable",
 		fmt.Sprintf(`{"tokenization":%q}`, target))
-}
-
-func testPostRestartOrphanAuditClearsTracker(t *testing.T, ctx context.Context, compose *docker.DockerCompose, restURI string) {
-	const (
-		className   = "ReindexBackup_OrphanAudit"
-		shardLookup = "ReindexBackup_OrphanAudit"
-	)
-
-	helper.CreateClass(t, &models.Class{
-		Class: className,
-		Properties: []*models.Property{
-			{Name: "body", DataType: []string{"text"}, Tokenization: "word"},
-		},
-		Vectorizer: "none",
-	})
-	defer helper.DeleteClass(t, className)
-
-	importBodies(t, className, 500)
-	preCount := moduleshelper.GetClassCount(t, className, "")
-	require.EqualValues(t, 500, preCount)
-
-	shardName := reindexhelpers.GetFirstShardName(t, restURI, className)
-	require.NotEmpty(t, shardName, "could not resolve shard name for %s", className)
-
-	// Stop, stage orphan state, restart so the audit fires on it.
-	require.NoError(t, compose.StopAt(ctx, 0, nil))
-	require.NoError(t, compose.StartAt(ctx, 0))
-	helper.SetupClient(compose.GetWeaviate().URI())
-	container := compose.GetWeaviate().Container()
-
-	require.EqualValues(t, preCount, moduleshelper.GetClassCount(t, className, ""),
-		"baseline restart must not lose data")
-
-	lsmPath := fmt.Sprintf("/data/%s/%s/lsm", strings.ToLower(className), shardName)
-	const orphanGeneration = 999
-	orphanDir := reindexrecords.TrackerDir(t, db.StrategyCodeSearchableRetokenize,
-		[]string{"body"}, orphanGeneration)
-	handles := reindexrecords.HandlesFor(t, db.StrategyCodeSearchableRetokenize,
-		"body", orphanGeneration)
-	recordFile, recordJSON := reindexrecords.Encode(t, db.NewMigrationRecordIterating(db.MigrationSubject{
-		Key: db.MigrationRecordKey{
-			TaskVersion:  1,
-			StrategyCode: db.StrategyCodeSearchableRetokenize,
-			UnitID:       "u0",
-		},
-		TaskID:               "orphan-from-prefix-backup",
-		MigrationType:        db.ReindexTypeChangeTokenization,
-		TargetTokenization:   "lowercase",
-		OriginalTokenization: "word",
-		IterationCutoff:      time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
-		TrackerDir:           orphanDir,
-		Props: map[string]db.MigrationPropertyDirs{"body": {
-			Staged:    handles.Staged,
-			Canonical: handles.Canonical,
-			Sidecar:   handles.Sidecar,
-		}},
-	}, db.MigrationCheckpoint{}))
-	injectOrphanTrackerOnDisk(t, ctx, container, lsmPath, orphanDir, handles.Sidecar,
-		`{"taskID":"orphan-from-prefix-backup","taskVersion":1,"unitID":"u0","payload":{"collection":"`+className+`","migrationType":"change-tokenization","properties":["body"],"targetTokenization":"lowercase","bucketStrategy":"map_collection"}}`,
-		recordFile, recordJSON)
-
-	require.NoError(t, compose.StopAt(ctx, 0, nil))
-	require.NoError(t, compose.StartAt(ctx, 0))
-	helper.SetupClient(compose.GetWeaviate().URI())
-	container = compose.GetWeaviate().Container()
-
-	// The audit runs async after meta store ready + DTM bootstrap.
-	require.Eventually(t, func() bool {
-		code, _, _ := container.Exec(ctx, []string{
-			"test", "-d",
-			filepath.Join(lsmPath, ".migrations", orphanDir),
-		})
-		return code != 0
-	}, 60*time.Second, 50*time.Millisecond,
-		"orphan tracker dir was not cleaned up by the post-bootstrap audit")
-
-	// The sidecar dir is removed just after the tracker, so poll instead of
-	// asserting once.
-	require.Eventually(t, func() bool {
-		code, _, _ := container.Exec(ctx, []string{"test", "-d", filepath.Join(lsmPath, handles.Sidecar)})
-		return code != 0
-	}, 60*time.Second, 50*time.Millisecond,
-		"orphan sidecar bucket dir was not cleaned up by the post-bootstrap audit")
-
-	assert.EqualValues(t, preCount, moduleshelper.GetClassCount(t, className, ""),
-		"canonical data must survive the audit")
 }
 
 // testCancelOnNoInFlightReturns202NoOp: cancel with no task targeting the
@@ -739,59 +642,6 @@ func backupAndRestoreRoundTrip(t *testing.T, className, backupID string, preCoun
 
 	postCount := moduleshelper.GetClassCount(t, className, "")
 	assert.Equal(t, preCount, postCount, msg)
-}
-
-// injectOrphanTrackerOnDisk crafts the on-disk shape that a pre-fix
-// backup-restore would leave on a restored shard:
-//
-//   - .migrations/records/<taskVersion>_<strategyCode>_<unitID>.json (the state)
-//   - .migrations/<orphanDir>/payload.mig (with the supplied JSON body)
-//   - .migrations/<orphanDir>/audit_quarantined.mig (mtime pre-aged
-//     well past `reindexAuditQuarantineWindow` so the audit's S2
-//     two-pass safeguard collapses to a single destructive sweep —
-//     otherwise the test would need to wait the full quarantine
-//     window for a second audit pass that doesn't fire post-bootstrap)
-//   - <sidecarBucket>/marker.flag
-func injectOrphanTrackerOnDisk(t *testing.T, ctx context.Context, container testcontainers.Container,
-	lsmPath, orphanDir, sidecarBucket, payloadJSON, recordFile, recordJSON string,
-) {
-	t.Helper()
-	trackerDir := filepath.Join(lsmPath, ".migrations", orphanDir)
-	recordsDir := filepath.Join(lsmPath, ".migrations", "records")
-	// Compute the pre-aged timestamp host-side in POSIX touch -t form
-	// (YYYYMMDDhhmm.ss) so the inject works on the alpine/busybox base
-	// of the testcontainer (busybox touch lacks GNU `-d` relative dates).
-	agedTs := time.Now().Add(-time.Hour).UTC().Format("200601021504.05")
-	for _, cmd := range [][]string{
-		{"mkdir", "-p", trackerDir},
-		{"mkdir", "-p", recordsDir},
-		{"sh", "-c", fmt.Sprintf("cat > %s <<'EOF'\n%s\nEOF", filepath.Join(recordsDir, recordFile), recordJSON)},
-		{"sh", "-c", fmt.Sprintf("cat > %s <<'EOF'\n%s\nEOF", filepath.Join(trackerDir, "payload.mig"), payloadJSON)},
-		// Pre-aged quarantine sentinel: mirror the unit-test
-		// `writePreAgedQuarantineSentinel` helper. Without this,
-		// PostRestartOrphanAuditClearsTracker would race the 5-minute
-		// quarantine window and time out (the test only waits 60s).
-		{"touch", "-t", agedTs, filepath.Join(trackerDir, "audit_quarantined.mig")},
-		{"mkdir", "-p", filepath.Join(lsmPath, sidecarBucket)},
-		{"touch", filepath.Join(lsmPath, sidecarBucket, "marker.flag")},
-	} {
-		execInContainer(t, ctx, container, cmd...)
-	}
-}
-
-// execInContainer runs a command inside the testcontainer and fails
-// the test on non-zero exit.
-func execInContainer(t *testing.T, ctx context.Context, c testcontainers.Container, cmd ...string) {
-	t.Helper()
-	code, reader, err := c.Exec(ctx, cmd, tcexec.Multiplexed())
-	require.NoError(t, err, "exec %v", cmd)
-	output := ""
-	if reader != nil {
-		buf := new(strings.Builder)
-		_, _ = io.Copy(buf, reader)
-		output = buf.String()
-	}
-	require.Equal(t, 0, code, "exec %v exited %d; output: %s", cmd, code, output)
 }
 
 // awaitIndexingState polls GET /v1/schema/<class>/indexes until at

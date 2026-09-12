@@ -818,8 +818,7 @@ func TestShardCleanStalePartialReindexStateSweepsAMultiPropertyTracker(t *testin
 		{name: "left alone by a property it does not name", propName: "c", wantTracker: true},
 		// With no payload the name alone can't prove the tracker is this
 		// sweep's, so it survives while its sidecar — whose deletion is not
-		// payload-gated — goes; the orphan audit reclaims the leftover dir.
-		// See [migrationDirScope].
+		// payload-gated — goes. See [migrationDirScope].
 		{
 			name:     "a payload-less tracker survives while its sidecar goes",
 			propName: "a", noPayload: true, wantTracker: true, wantStale: true,

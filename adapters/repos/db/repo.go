@@ -115,23 +115,10 @@ type DB struct {
 	schemaReader   schemaUC.SchemaReader
 	replicationFSM types.ReplicationFSMReader
 
-	// reindexAuditMu guards the audit deps installed by
-	// [DB.SetReindexAuditDeps] and the backup-gate activity lookup
-	// installed by [DB.SetShardReindexActivityLookup] so they are
-	// safely visible from any post-restore goroutine.
-	//
-	// reindexAuditDeferredRequests counts the number of times
-	// [DB.AuditOrphanReindexTrackersIfReady] was called BEFORE deps
-	// were installed (typically from the per-class-dir restore hook
-	// firing during RAFT replay while the SetReindexAuditDeps
-	// goroutine is still waiting on metaStoreReady). On the first
-	// SetReindexAuditDeps call, if the counter is non-zero, the
-	// install path runs a single replay sweep so the deferred
-	// per-class audits are not silently lost. Closes B2.
+	// reindexAuditMu guards the two lookups below. Both are installed
+	// from the scheduler-start goroutine and read from the backup path,
+	// which runs concurrently with it.
 	reindexAuditMu                     sync.RWMutex
-	reindexAuditLookupBuilder          KnownReindexTaskLookupBuilder
-	reindexAuditLogger                 logrus.FieldLogger
-	reindexAuditDeferredRequests       int
 	shardReindexActivityLookupBuilder  ShardReindexActivityLookupBuilder
 	reindexCleanupInProgressLookupBldr CleanupInProgressLookupBuilder
 

@@ -91,38 +91,6 @@ func TestRecoveryWalkReportsMissingPayloadsOnce(t *testing.T) {
 	require.Contains(t, names[len(names)-1], fmt.Sprintf("and %d more", shards-maxReportedErrors))
 }
 
-// The audit's formatter caps its property list: the list is user-chosen and
-// unbounded, and one line per orphan is emitted for every shard on the node.
-func TestOrphanTrackerStringBoundsItsPropertyList(t *testing.T) {
-	const props = maxReportedErrors*2 + 5
-
-	names := make([]string, props)
-	for i := range names {
-		names[i] = fmt.Sprintf("prop_%02d", i)
-	}
-	beyondCap := names[props-1]
-
-	orphan := &orphanReindexTracker{
-		collection:  "Books",
-		shardName:   "tenant-00",
-		dirName:     "searchable_retokenize_title_1",
-		generation:  1,
-		taskID:      "Books:change-tokenization:title:ab12",
-		taskVersion: 42,
-		unitID:      "shard-1__node-0",
-		properties:  names,
-		indexTypes:  []string{"searchable"},
-	}
-
-	line := orphan.String()
-	require.Contains(t, line, fmt.Sprintf("property_count=%d", props),
-		"the count of properties survives the cap")
-	require.NotContains(t, line, beyondCap,
-		"a property past the cap must not reach the line")
-	require.Contains(t, line, fmt.Sprintf("(and %d more", props-maxReportedErrors),
-		"the line says how many names it left out")
-}
-
 // One bounded line whatever the property count: both registrations name every
 // property, so a line per property is a line per property the user configured.
 func TestOverlayConflictReportsManyPropertiesInOneLine(t *testing.T) {

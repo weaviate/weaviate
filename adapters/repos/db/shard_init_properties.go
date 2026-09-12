@@ -604,9 +604,7 @@ var sidecarRoleWords = schema.SidecarRoleWords
 //
 // Still too weak: a property named "a__<word>_<role>" (or "a___del") reads as
 // a sidecar of "a" on all three index types, so sweeping "a" deletes that
-// property's live bucket. Whole-suffix matching against [migrationSuffixes]
-// ([sidecarDirsForOrphan] does this) would close it without an on-disk
-// rename. weaviate/weaviate#12621
+// property's live bucket. weaviate/weaviate#12621
 func isSidecarDirOf(name, mainBucketName string) bool {
 	if name == mainBucketName+lsmkv.ReplacedBucketDirSuffix {
 		return true

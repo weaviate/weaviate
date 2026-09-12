@@ -24,16 +24,13 @@ import (
 // Migration directory names live under <shard>/lsm/.migrations/<name>/ and
 // uniquely identify a per-strategy in-progress migration on a shard.
 //
-// Three concerns need to agree on these names:
+// Two concerns need to agree on these names:
 //  1. Each strategy's MigrationDirName() return value (the writer side).
-//  2. The startup finalizer (migrationSuffixes in inverted_reindex_finalize.go),
-//     which scans .migrations/ before buckets are loaded and decides which
-//     directory rename / cleanup recipe to apply.
-//  3. Debug endpoints (handlers_debug_bmw_aux.go) that touch the migration
+//  2. Debug endpoints (handlers_debug_bmw_aux.go) that touch the migration
 //     directory directly.
 //
-// To prevent silent drift between writer / finalizer / debug, define each
-// name exactly once here and reference the constant from all three places.
+// To prevent silent drift between writer and debug, define each name exactly
+// once here and reference the constant from both places.
 //
 // Some strategies pin a single directory (e.g. searchable_map_to_blockmax),
 // others suffix per-property names onto a common prefix (e.g.
@@ -134,6 +131,17 @@ func parseMigrationDirName(name string) (prefix string, generation int, ok bool)
 		return "", 0, false
 	}
 	return name[:idx], gen, true
+}
+
+// migrationTrackerDirAbsent reports whether a migration's tracker dir is
+// provably missing. A stat error must not be read as absence, or a pending
+// migration gets marked complete without its index ever rebuilt.
+func migrationTrackerDirAbsent(lsmPath, dirName string) bool {
+	info, err := os.Stat(filepath.Join(lsmPath, migrationsDir, dirName))
+	if err != nil {
+		return os.IsNotExist(err)
+	}
+	return !info.IsDir()
 }
 
 // migrationDirPrefixesForIndexType returns the per-property migration
