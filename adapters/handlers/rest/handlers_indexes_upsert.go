@@ -109,11 +109,10 @@ func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertPara
 		return jsonResponder(http.StatusConflict, errorResponse(principal, plan.conflict))
 	}
 	if plan.noop {
-		// NO_OP still needs the tenants-contract check (mis-scoped must
-		// 400, not silently 200). No migrationType here, so semantic-ness
-		// comes from indexType directly: only rangeable is format-only.
+		// A mis-scoped NO_OP must 400, not silently 200. Every migration
+		// this endpoint can submit is semantic, hence the constant true.
 		isMT := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
-		if resp := h.validateTenantScope(ctx, principal, collection, isMT, indexType != "rangeable", params.Tenants); resp != nil {
+		if resp := h.validateTenantScope(ctx, principal, collection, isMT, true, params.Tenants); resp != nil {
 			return resp
 		}
 		return noopOrJoinResponder(principal, plan)

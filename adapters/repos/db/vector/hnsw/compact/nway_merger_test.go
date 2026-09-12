@@ -12,6 +12,7 @@
 package compact
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -56,6 +57,59 @@ func TestNWayMerger_SingleIterator(t *testing.T) {
 	nodeCommits, err = merger.Next()
 	require.NoError(t, err)
 	assert.Nil(t, nodeCommits)
+}
+
+func TestNWayMerger_EmptyLinksSurviveRepeatedMerges(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		delta     Commit
+		wantLinks []uint64
+	}{
+		{
+			name:      "empty add preserves older links",
+			delta:     &AddLinksAtLevelCommit{Source: 5, Level: 0},
+			wantLinks: []uint64{2},
+		},
+		{
+			name:  "empty replace removes older links",
+			delta: &ReplaceLinksAtLevelCommit{Source: 5, Level: 0},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger := logrus.New()
+			it, err := NewIterator(newFakeCommitReader([]Commit{tc.delta}), 1, logger)
+			require.NoError(t, err)
+			merger, err := NewNWayMerger([]IteratorLike{it}, logger)
+			require.NoError(t, err)
+			merged, err := merger.Next()
+			require.NoError(t, err)
+			require.NotNil(t, merged)
+			require.Len(t, merged.Commits, 1, "the empty link operation must survive a sorted-file merge")
+
+			// Merge that result with an older file. An empty replacement must
+			// still clear old links, while an empty addition must preserve them.
+			older, err := NewIterator(newFakeCommitReader([]Commit{
+				&AddNodeCommit{ID: 5, Level: 3},
+				&AddLinksAtLevelCommit{Source: 5, Level: 0, Targets: []uint64{2}},
+			}), 0, logger)
+			require.NoError(t, err)
+			newer, err := NewIterator(newFakeCommitReader(merged.Commits), 1, logger)
+			require.NoError(t, err)
+			merger, err = NewNWayMerger([]IteratorLike{older, newer}, logger)
+			require.NoError(t, err)
+			merged, err = merger.Next()
+			require.NoError(t, err)
+			require.NotNil(t, merged)
+			var buf bytes.Buffer
+			compactor := NewCompactor(DefaultCompactorConfig(t.TempDir()), logger)
+			require.NoError(t, compactor.writeNodeCommits(NewWALWriter(&buf), merged))
+			res, err := NewInMemoryReader(NewWALCommitReader(&buf, logger), logger).Do(nil, false)
+			require.NoError(t, err)
+			require.NotNil(t, res.Graph.Nodes[5])
+			require.Equal(t, 3, res.Graph.Nodes[5].Level)
+			require.ElementsMatch(t, tc.wantLinks, res.Graph.Nodes[5].Connections.GetLayer(0))
+		})
+	}
 }
 
 func TestNWayMerger_TwoIteratorsNoOverlap(t *testing.T) {

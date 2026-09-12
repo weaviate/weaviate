@@ -1160,13 +1160,46 @@ func (w *chunkWriter) Close() error {
 	return stderrors.Join(errs...)
 }
 
+// chunkTimeNow returns the timestamp used to name new chunk files.
+// It is a variable so tests can force a timestamp collision.
+var chunkTimeNow = func() int64 { return time.Now().UnixMicro() }
+
+// createChunkMaxAttempts bounds the number of names Create tries before
+// giving up. In practice a single retry is already rare: it requires two
+// chunks created within the same microsecond.
+const createChunkMaxAttempts = 1000
+
 func (w *chunkWriter) Create() error {
 	var err error
 
-	path := filepath.Join(w.dir, fmt.Sprintf(chunkFileFmt, time.Now().UnixMicro()))
-	w.f, err = os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
-	if err != nil {
-		return errors.Wrap(err, "failed to create chunk file")
+	// Chunk files are named after their creation time in microseconds, so
+	// two chunks created within the same microsecond collide on the same
+	// name. Without O_EXCL the second create would silently reopen the
+	// existing chunk and later header writes would clobber it. Create
+	// exclusively and bump the timestamp until a free name is found.
+	//
+	// The bump preserves per-writer chunk ordering, which is load-bearing:
+	// the filename doubles as the replay ordering key (chunks are reloaded
+	// in name order). It only ever moves the name forward from the current
+	// clock, and a later Create in the same microsecond starts at the same
+	// timestamp and re-collides with every name taken so far, so it always
+	// lands after this one.
+	ts := chunkTimeNow()
+	for i := 0; ; i++ {
+		path := filepath.Join(w.dir, fmt.Sprintf(chunkFileFmt, ts))
+		w.f, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o644)
+		if err == nil {
+			break
+		}
+		if !os.IsExist(err) {
+			return errors.Wrap(err, "failed to create chunk file")
+		}
+		// i+1 attempts have failed at this point, so this gives up after
+		// exactly createChunkMaxAttempts tries
+		if i+1 >= createChunkMaxAttempts {
+			return errors.Wrapf(err, "failed to create chunk file after %d attempts", createChunkMaxAttempts)
+		}
+		ts++
 	}
 
 	w.w.Reset(w.f)

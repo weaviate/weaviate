@@ -81,6 +81,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/multitenancy"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -1505,6 +1506,7 @@ type IndexConfig struct {
 	StartupShards                       *startupShardCounters
 	BucketLoadLimiter                   *loadlimiter.LoadLimiter
 	NamespacesExister                   namespaces.Exister
+	QueryAdmission                      *queryadmission.Limiter
 	ObjectsTTLBatchSize                 *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseEveryNoBatches       *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]

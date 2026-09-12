@@ -412,15 +412,11 @@ type Shard struct {
 	// False means the rangeable bucket is mid-migration on THIS replica:
 	// a PreReindexHook created an empty main bucket but the per-shard
 	// runtimeSwap that prepends ingest+reindex segments into it hasn't
-	// run yet on this node. During this window the cluster-wide schema
-	// flag may already be true (the first replica to swap fires
-	// strategy.OnMigrationComplete which RAFTs the flip cluster-wide),
-	// so the inverted query path would otherwise route range queries to
-	// the empty bucket and return partial / zero counts. The
-	// IsRangeableLocallyReady callback wired into the Searcher
-	// overrides hasRangeableIndex=false for this prop on this shard,
-	// forcing a fallback to the filterable bucket walk until our local
-	// swap catches up.
+	// run yet on this node.
+	//
+	// repair-rangeable is where the false earns its keep: it runs with
+	// the cluster-wide flag already true, so only this entry keeps range
+	// queries off the empty bucket until the local swap catches up.
 	//
 	// Read on every range-filter query plan, so kept under a fast
 	// RWMutex rather than a sync.Map. Default value (missing key)
@@ -788,14 +784,11 @@ func (s *Shard) isFallbackToSearchable() bool {
 //   - Shard init found an unreadable migration record that might have been
 //     a rangeable one. That answers false for EVERY property on the shard
 //     until the file is dealt with and the node restarts, OR
-//   - There is no explicit entry AND the rangeable bucket does not
-//     exist in the LSM store yet. This catches the narrow window where
-//     another replica's runtimeSwap has already flipped the
-//     cluster-wide schema flag to `IndexRangeFilters=true` but THIS
-//     replica's PreReindexHook hasn't fired yet — without this
-//     bucket-existence default-false, the inverted query path would
-//     try to look up a bucket that isn't there and return
-//     "bucket for prop %s not found - is it indexed?" to the LB.
+//   - There is no explicit entry AND the rangeable bucket does not exist in
+//     the LSM store yet. repair-rangeable runs with `IndexRangeFilters`
+//     already true, so between this replica joining the task and its
+//     PreReindexHook firing the query path would otherwise look up a bucket
+//     that isn't there and fail with "bucket for prop %s not found".
 func (s *Shard) IsRangeableLocallyReady(propName string) bool {
 	s.rangeableLocalReadyMu.RLock()
 	if s.rangeableLocalReady != nil {
