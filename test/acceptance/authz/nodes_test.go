@@ -125,6 +125,16 @@ func TestAuthzNodes(t *testing.T) {
 		require.Len(t, resp.Payload.Nodes, 1)
 	})
 
+	t.Run("minimal by class does not reveal whether the class exists", func(t *testing.T) {
+		for _, class := range []string{clsA.Class, "DoesNotExist"} {
+			resp, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithClassName(class).WithOutput(String("minimal")), helper.CreateAuth(customKey))
+			require.Nil(t, err, "class %q", class)
+			require.Len(t, resp.Payload.Nodes, 1)
+			require.Empty(t, resp.Payload.Nodes[0].Shards)
+			require.Nil(t, resp.Payload.Nodes[0].Stats)
+		}
+	})
+
 	t.Run("add read_cluster to custom role", func(t *testing.T) {
 		helper.AddPermissions(t, adminKey, customRole, &models.Permission{Action: &authorization.ReadCluster})
 	})
@@ -161,5 +171,80 @@ func TestAuthzNodes(t *testing.T) {
 		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams().WithOutput(String("verbose")), helper.CreateAuth(customKey))
 		require.Nil(t, err)
 		require.Len(t, resp.Payload.Nodes, 1)
+	})
+}
+
+// A verbose read_nodes grant on one collection also allows minimal output,
+// because minimal output carries no data about any class. A minimal request for
+// a named class answers 200 whether or not the class exists, so it cannot be
+// used to learn whether a class exists. A verbose request is still checked
+// against the granted collection and still answers 404 for an unknown class.
+func TestAuthzNodesVerboseImpliesMinimal(t *testing.T) {
+	adminKey := "admin-key"
+	customUser := "custom-user"
+	customKey := "custom-key"
+	roleName := "verbose-only"
+
+	_, down := composeUpShared(t)
+	defer down()
+
+	clsA := articles.ArticlesClass()
+	clsP := articles.ParagraphsClass()
+
+	helper.DeleteClassWithAuthz(t, clsP.Class, helper.CreateAuth(adminKey))
+	helper.DeleteClassWithAuthz(t, clsA.Class, helper.CreateAuth(adminKey))
+	helper.CreateClassAuth(t, clsP, adminKey)
+	helper.CreateClassAuth(t, clsA, adminKey)
+
+	helper.DeleteRole(t, adminKey, roleName)
+	defer helper.DeleteRole(t, adminKey, roleName)
+	helper.CreateRole(t, adminKey, &models.Role{Name: &roleName, Permissions: []*models.Permission{
+		helper.NewNodesPermission().WithAction(authorization.ReadNodes).WithVerbosity(verbosity.OutputVerbose).WithCollection(clsA.Class).Permission(),
+	}})
+	helper.AssignRoleToUser(t, adminKey, roleName, customUser)
+
+	minimal := String(verbosity.OutputMinimal)
+	verbose := String(verbosity.OutputVerbose)
+
+	requireMinimal := func(t *testing.T, payload *models.NodesStatusResponse) {
+		require.Len(t, payload.Nodes, 1)
+		require.Empty(t, payload.Nodes[0].Shards)
+		require.Nil(t, payload.Nodes[0].Stats)
+	}
+
+	t.Run("minimal for all nodes", func(t *testing.T) {
+		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams().WithOutput(minimal), helper.CreateAuth(customKey))
+		require.Nil(t, err)
+		requireMinimal(t, resp.Payload)
+	})
+
+	t.Run("minimal by class for granted, other, and unknown collections", func(t *testing.T) {
+		for _, class := range []string{clsA.Class, clsP.Class, "DoesNotExist"} {
+			resp, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithClassName(class).WithOutput(minimal), helper.CreateAuth(customKey))
+			require.Nil(t, err, "class %q", class)
+			requireMinimal(t, resp.Payload)
+		}
+	})
+
+	t.Run("minimal by unknown class answers 200 for admin too", func(t *testing.T) {
+		resp, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithClassName("DoesNotExist").WithOutput(minimal), helper.CreateAuth(adminKey))
+		require.Nil(t, err)
+		requireMinimal(t, resp.Payload)
+	})
+
+	t.Run("verbose stays denied on other and unknown collections", func(t *testing.T) {
+		for _, class := range []string{clsP.Class, "DoesNotExist"} {
+			_, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithClassName(class).WithOutput(verbose), helper.CreateAuth(customKey))
+			require.NotNil(t, err, "class %q", class)
+			var parsed *nodes.NodesGetClassForbidden
+			require.True(t, errors.As(err, &parsed), "class %q: %v", class, err)
+		}
+	})
+
+	t.Run("verbose by unknown class answers 404 for admin", func(t *testing.T) {
+		_, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithClassName("DoesNotExist").WithOutput(verbose), helper.CreateAuth(adminKey))
+		require.NotNil(t, err)
+		var parsed *nodes.NodesGetClassNotFound
+		require.True(t, errors.As(err, &parsed), "%v", err)
 	})
 }
