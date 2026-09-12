@@ -72,7 +72,8 @@ type LazyLoadShard struct {
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker,
-	shardLoadLimiter *loadlimiter.LoadLimiter, shardReindexer ShardReindexerV3,
+	shardLoadLimiter *loadlimiter.LoadLimiter,
+	recoveredReindexTasks []*ShardReindexTaskGeneric,
 	lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
 ) *LazyLoadShard {
 	if memMonitor == nil {
@@ -81,15 +82,15 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 	promMetrics.NewUnloadedshard()
 	return &LazyLoadShard{
 		shardOpts: &deferredShardOpts{
-			promMetrics:      promMetrics,
-			name:             shardName,
-			index:            index,
-			class:            class,
-			jobQueueCh:       jobQueueCh,
-			scheduler:        index.scheduler,
-			indexCheckpoints: indexCheckpoints,
-			shardReindexer:   shardReindexer,
-			bitmapBufPool:    bitmapBufPool,
+			promMetrics:           promMetrics,
+			name:                  shardName,
+			index:                 index,
+			class:                 class,
+			jobQueueCh:            jobQueueCh,
+			scheduler:             index.scheduler,
+			indexCheckpoints:      indexCheckpoints,
+			recoveredReindexTasks: recoveredReindexTasks,
+			bitmapBufPool:         bitmapBufPool,
 		},
 		memMonitor:       memMonitor,
 		shardLoadLimiter: shardLoadLimiter,
@@ -98,15 +99,15 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 }
 
 type deferredShardOpts struct {
-	promMetrics      *monitoring.PrometheusMetrics
-	name             string
-	index            *Index
-	class            *models.Class
-	jobQueueCh       chan job
-	scheduler        *queue.Scheduler
-	indexCheckpoints *indexcheckpoint.Checkpoints
-	shardReindexer   ShardReindexerV3
-	bitmapBufPool    roaringset.BitmapBufPool
+	promMetrics           *monitoring.PrometheusMetrics
+	name                  string
+	index                 *Index
+	class                 *models.Class
+	jobQueueCh            chan job
+	scheduler             *queue.Scheduler
+	indexCheckpoints      *indexcheckpoint.Checkpoints
+	recoveredReindexTasks []*ShardReindexTaskGeneric
+	bitmapBufPool         roaringset.BitmapBufPool
 }
 
 func (l *LazyLoadShard) mustLoad() {
@@ -160,7 +161,7 @@ func (l *LazyLoadShard) loadIfCold(ctx context.Context) (bool, error) {
 
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
 		class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
-		l.shardOpts.indexCheckpoints, l.shardOpts.shardReindexer, l.lazyLoadSegments,
+		l.shardOpts.indexCheckpoints, l.shardOpts.recoveredReindexTasks, l.lazyLoadSegments,
 		l.shardOpts.bitmapBufPool, monitoring.ShardRegistrationLazy)
 	if err != nil {
 		l.shardOpts.promMetrics.FailLoadingShard()

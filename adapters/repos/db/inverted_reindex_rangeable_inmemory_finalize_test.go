@@ -272,7 +272,7 @@ func TestRangeableFinalize_MultiReplica_FailedReplicaServesCorrectDiskResults(t 
 	require.NoError(t, shardB.Shutdown(ctxB))
 
 	taskB2, _ := newFilterableToRangeableTask(t, idxB, classNameB, propName, testMigrationUnitFor(idxB, shardName))
-	idxB.shardReindexer = &testShardReindexer{task: taskB2}
+	idxB.recoveredReindexTasks = []*ShardReindexTaskGeneric{taskB2}
 
 	migratedClass := newFilterableToRangeableTestClass(classNameB)
 	rangeable := true

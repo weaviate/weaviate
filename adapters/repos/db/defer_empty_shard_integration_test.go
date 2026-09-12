@@ -147,7 +147,7 @@ func TestDeferEmptyMultiTenantShardOnInit(t *testing.T) {
 				enthnsw.UserConfig{VectorCacheMaxObjects: 1000}, nil, mockRouter, shardResolver,
 				mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil,
 				class, nil, scheduler, nil, nil,
-				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+				nil, roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
 

@@ -174,7 +174,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 				enthnsw.UserConfig{
 					VectorCacheMaxObjects: 1000,
 				}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
-				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+				nil, roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
 
@@ -372,7 +372,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		scheduler,                         // scheduler
 		nil,                               // checkpoints
 		nil,                               // alloc checker
-		NewShardReindexerV3Noop(),         // shard reindexer
+		nil,                               // recovered reindex tasks
 		roaringset.NewBitmapBufPoolNoop(), // bitmap buffer pool
 		false,
 		nil,
@@ -474,7 +474,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		scheduler,                         // scheduler
 		nil,                               // checkpoints
 		nil,                               // alloc checker
-		NewShardReindexerV3Noop(),         // shard reindexer
+		nil,                               // recovered reindex tasks
 		roaringset.NewBitmapBufPoolNoop(), // bitmap buffer pool
 		false,
 		nil,

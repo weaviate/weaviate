@@ -73,7 +73,7 @@ func tornGuardReload(t *testing.T, ctx context.Context, shard *Shard, idx *Index
 	task := newTestTask(idx.logger, &testMigrationStrategy{
 		MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1},
 	}, testMigrationUnitFor(idx, shardName))
-	idx.shardReindexer = &testShardReindexer{task: task}
+	idx.recoveredReindexTasks = []*ShardReindexTaskGeneric{task}
 
 	shd, err := idx.initShard(ctx, shardName, class, nil, true, true)
 	require.NoError(t, err, "shard re-init must succeed")

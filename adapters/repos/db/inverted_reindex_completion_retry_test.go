@@ -83,7 +83,7 @@ func TestCompletionRetriesAfterASchemaEffectFailure(t *testing.T) {
 				t.Helper()
 				require.NoError(t, prev.Shutdown(ctx))
 				simulateProcessRestartBucketCleanup(t, lsmPath)
-				idx.shardReindexer = &noRecoveryTaskReindexer{}
+				idx.recoveredReindexTasks = nil
 				loaded, err := idx.initShard(ctx, shardName, class, nil, true, true)
 				require.NoError(t, err)
 				idx.shards.Store(shardName, loaded)

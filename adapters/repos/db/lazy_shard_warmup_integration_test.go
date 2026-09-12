@@ -125,7 +125,7 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 		mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{},
 		monitoring.GetMetrics(),
 		class, nil, scheduler, nil, allocChecker,
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		nil, roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 
 	return index, hook

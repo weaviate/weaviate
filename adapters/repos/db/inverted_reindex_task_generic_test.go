@@ -48,16 +48,6 @@ func (s *testMigrationStrategy) OnMigrationComplete(_ context.Context, _ ShardLi
 	return nil
 }
 
-// testShardReindexer wraps a single task into a ShardReindexerV3 for use
-// during shard initialization. It calls task methods synchronously.
-type testShardReindexer struct {
-	task *ShardReindexTaskGeneric
-}
-
-func (r *testShardReindexer) RunAfterLsmInit(ctx context.Context, shard *Shard) error {
-	return r.task.OnAfterLsmInit(ctx, shard)
-}
-
 func createTestObjectWithText(className, text string) *storobj.Object {
 	return &storobj.Object{
 		MarshallerVersion: 1,
@@ -260,7 +250,7 @@ func TestMapToBlockmaxMigration_RuntimeSwap_ThenRestart(t *testing.T) {
 
 	strategy2 := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
 	task2 := newTestTask(idx.logger, strategy2, testMigrationUnitFor(idx, shardName))
-	idx.shardReindexer = &testShardReindexer{task: task2}
+	idx.recoveredReindexTasks = []*ShardReindexTaskGeneric{task2}
 
 	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
 	require.NoError(t, err)

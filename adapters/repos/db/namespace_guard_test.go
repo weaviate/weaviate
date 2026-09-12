@@ -110,7 +110,7 @@ func newIndexForNamespaceTest(t *testing.T, className string, e namespaces.Exist
 		resolver.NewShardResolver(className, false, sg),
 		sg, reader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
 		memwatch.NewDummyMonitor(),
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		nil, roaringset.NewBitmapBufPoolNoop(), false, nil)
 	if err != nil {
 		return nil, err
 	}
