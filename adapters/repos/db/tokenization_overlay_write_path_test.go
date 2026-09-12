@@ -31,7 +31,7 @@ import (
 
 // Pins AnalyzeObject tokenizing writes against the overlay during the
 // SWAPPING window, matching the query path (weaviate/0-weaviate-issues#240).
-func TestTokenizationOverlay_WritePath_IgnoresOverlay(t *testing.T) {
+func TestTokenizationOverlay_WritePath_HonorsOverlay(t *testing.T) {
 	ctx := testCtx()
 	className := "TokOverlayWrite_" + uuid.NewString()[:8]
 	const propName = "text"
@@ -96,12 +96,11 @@ func TestTokenizationOverlay_WritePath_IgnoresOverlay(t *testing.T) {
 	// Pin: the write path must honor the overlay.
 	expectedFieldTerms := []string{"two distinct words"}
 	assert.ElementsMatchf(t, expectedFieldTerms, terms,
-		"write-path bug — overlay=field is being ignored. "+
-			"Production behavior: writes during SWAPPING window get tokenized "+
-			"against live (OLD) schema; the canonical bucket now NEW-tokenized "+
-			"so the new-tokenized OLD-tokens land in the NEW bucket → per-replica "+
-			"divergence (weaviate/0-weaviate-issues#240). "+
-			"Expected (overlay-respected): %v; got (overlay-ignored, current): %v",
+		"write path did not analyze against the overlay. A write in the "+
+			"SWAPPING window must use the overlay tokenization (field), not the "+
+			"live schema tokenization (word), or a replica writes old-tokenized "+
+			"terms into the new-tokenized bucket and replicas diverge. "+
+			"Expected terms: %v; got: %v",
 		expectedFieldTerms, terms)
 }
 
