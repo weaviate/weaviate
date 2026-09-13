@@ -99,8 +99,7 @@ func TestToRPCError(t *testing.T) {
 
 // RehydratePermanentRejection reconstructs the specific sentinel from
 // the (status.Code, message) pair after a gRPC round-trip. Every
-// sentinel must survive, so the table is permanentMarkers itself: a
-// hand-copied list goes stale the first time a sentinel is added.
+// sentinel must survive.
 func TestRehydratePermanentRejection_RoundTripsEverySentinel(t *testing.T) {
 	require.NotEmpty(t, permanentMarkers)
 	for _, marker := range permanentMarkers {

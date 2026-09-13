@@ -282,14 +282,6 @@ func TestShard_HaltForTransfer_OffloadIgnoresInFlightReindex(t *testing.T) {
 	require.NoError(t, shd.(*Shard).resumeMaintenanceCycles(ctx))
 }
 
-// TestReplicaSnapshotDefersWhileReindexInFlight pins the second half of the
-// reindex gate's refusal: the error a replica movement receives must carry
-// enterrors.ErrShardBusyStructuralOp.
-//
-// The sentinel is what turns the gRPC answer into codes.FailedPrecondition,
-// which the replication consumer reads as "wait". Without it every attempt
-// registers against the operation's MaxErrors budget and the FSM cancels the
-// movement, even though a reindex always reaches a terminal state.
 func TestReplicaSnapshotDefersWhileReindexInFlight(t *testing.T) {
 	index, shard := newSharedHaltTestShard(t)
 	ctx := context.Background()
@@ -306,15 +298,11 @@ func TestReplicaSnapshotDefersWhileReindexInFlight(t *testing.T) {
 		"the reindex sentinel must survive so the backup path keeps its own response")
 	require.True(t, errors.Is(err, enterrors.ErrShardBusyStructuralOp),
 		"the refusal must defer the movement, not burn its error budget")
-	// Over gRPC only the message text survives, and that is what the
-	// consumer matches on.
 	require.Contains(t, err.Error(), enterrors.ErrShardBusyStructuralOp.Error())
 
 	require.Zero(t, shard.haltForTransferCount.Load(),
 		"a refused halt must not leave the shard halted")
 
-	// Clearing the live task lets the retry through, which is what makes the
-	// deferral worth waiting for.
 	index.db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
 	files, err := index.IncomingCreateReplicaSnapshot(ctx, "shard1", "op-reindex-cleared")
 	require.NoError(t, err)

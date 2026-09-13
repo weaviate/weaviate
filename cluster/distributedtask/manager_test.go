@@ -144,7 +144,6 @@ func TestManager_AddTask_ConflictDetector(t *testing.T) {
 		require.Empty(t, tasks["test"],
 			"a refused task MUST NOT appear in the FSM-stored task list")
 
-		// Once the movement is gone the same submit is accepted.
 		h.manager.SetReplicationFSM(movingCollections{})
 		require.NoError(t, h.manager.AddTask(c, 101))
 	})
@@ -2485,7 +2484,6 @@ func TestManager_LocalUnrecognizedDistributedTasks(t *testing.T) {
 	}
 }
 
-// movingCollections is a replication FSM stub: the set of collections with a movement in flight.
 type movingCollections map[string]bool
 
 func (m movingCollections) HasActiveReplicationForCollection(c string) bool { return m[c] }

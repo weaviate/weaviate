@@ -92,8 +92,6 @@ var (
 	// [ErrPermanentRejection] to let the REST submit path map it to 409, not 500.
 	ErrTaskConflict = errors.New("task conflicts with an in-flight task")
 
-	// ErrTaskBlockedByReplicaMovement matches an [Manager.AddTask] refusal
-	// because the task's collection has a replica movement in flight.
 	ErrTaskBlockedByReplicaMovement = errors.New("task blocked by an in-flight replica movement")
 )
 
