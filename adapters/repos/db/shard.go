@@ -846,7 +846,9 @@ func (s *Shard) PinTokenizationAndSearchableBucket(propName, liveTokenization st
 	return overlay.Tokenization, bucket, release
 }
 
-func (s *Shard) ClearPropertyOverlay(propName string, armed inverted.PropertyOverlay) {
+// Runs immediately before the indexType bucket is removed, so no write is left
+// aimed at a bucket the shard no longer has.
+func (s *Shard) retirePropertyOverlay(propName, indexType string) {
 	if propName == "" {
 		return
 	}
@@ -856,31 +858,22 @@ func (s *Shard) ClearPropertyOverlay(propName string, armed inverted.PropertyOve
 	if !ok {
 		return
 	}
-	entry.ForceFilterable = entry.ForceFilterable && !armed.ForceFilterable
-	entry.ForceSearchable = entry.ForceSearchable && !armed.ForceSearchable
-	entry.ForceRangeable = entry.ForceRangeable && !armed.ForceRangeable
-	if armed.Tokenization != "" {
+	switch indexType {
+	case "filterable":
+		entry.ForceFilterable = false
+	case "searchable":
+		entry.ForceSearchable = false
 		entry.Tokenization = ""
+	case "rangeable":
+		entry.ForceRangeable = false
+	default:
+		return
 	}
 	if entry.Empty() {
 		delete(s.propertyOverlay, propName)
 		return
 	}
 	s.propertyOverlay[propName] = entry
-}
-
-// ClearPropertyOverlayIfCaughtUp: dropping early loses the writes it places.
-func (s *Shard) ClearPropertyOverlayIfCaughtUp(propName string, live *models.Property) {
-	if propName == "" {
-		return
-	}
-	s.propertyOverlayMu.Lock()
-	defer s.propertyOverlayMu.Unlock()
-	overlay, ok := s.propertyOverlay[propName]
-	if !ok || !overlay.BeyondLiveSchema(live).Empty() {
-		return
-	}
-	delete(s.propertyOverlay, propName)
 }
 
 // TokenizationFor returns the active query-time tokenization for propName

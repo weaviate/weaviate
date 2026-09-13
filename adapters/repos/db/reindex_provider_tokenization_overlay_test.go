@@ -12,19 +12,11 @@
 package db
 
 import (
-	"context"
-	"encoding/json"
 	"testing"
 
-	"github.com/google/uuid"
-	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/cluster/distributedtask"
-	"github.com/weaviate/weaviate/entities/models"
-	entschema "github.com/weaviate/weaviate/entities/schema"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // Unit coverage for the #216 Gap B overlay set/clear lifecycle without a
@@ -183,130 +175,4 @@ func TestMaybeWirePerPropOverlaySet_NilTaskInSlice_Skipped(t *testing.T) {
 	require.NotNil(t, tasks[1].onPropSwapped, "non-nil task must get the hook")
 	fireAllPropHooks(tasks, payload.Properties)
 	assert.Equal(t, "field", s.TokenizationFor("name", "word"))
-}
-
-// An unloaded shard holds no in-memory overlay, so clearing it needlessly
-// loads a cold tenant. Which entries a loaded shard's overlay loses depends
-// on the arm — see each case below.
-func TestOnTaskCompletedOverlayClearLeavesUnloadedShardsAlone(t *testing.T) {
-	const (
-		prop   = "title"
-		tenant = "cold-tenant"
-	)
-
-	tests := []struct {
-		name      string
-		status    distributedtask.TaskStatus
-		migration ReindexMigrationType
-		overlay   inverted.PropertyOverlay
-		// liveSchema decides whether the overlay is still load-bearing.
-		liveSchema  func(*models.Property)
-		wantCleared bool
-	}{
-		{
-			name:        "swapping: this node commits the cluster-wide schema flip",
-			status:      distributedtask.TaskStatusSwapping,
-			migration:   ReindexTypeChangeTokenization,
-			overlay:     inverted.PropertyOverlay{Tokenization: "field"},
-			wantCleared: true,
-		},
-		{
-			// Another node flipped in the same tick.
-			name:        "finished: this node's schema already carries the flip",
-			status:      distributedtask.TaskStatusFinished,
-			migration:   ReindexTypeEnableFilterable,
-			overlay:     inverted.PropertyOverlay{ForceFilterable: true},
-			wantCleared: true,
-		},
-		{
-			// FINISHED is the leader's view, not this node's.
-			name:      "finished: this node's schema has not applied the flip yet",
-			status:    distributedtask.TaskStatusFinished,
-			migration: ReindexTypeEnableFilterable,
-			overlay:   inverted.PropertyOverlay{ForceFilterable: true},
-			liveSchema: func(prop *models.Property) {
-				prop.IndexFilterable = boolPtr(false)
-			},
-		},
-		{
-			// An entry left here outlives the bucket cleanup tears out.
-			name:      "failed: the partial swap's overlay goes",
-			status:    distributedtask.TaskStatusFailed,
-			migration: ReindexTypeEnableFilterable,
-			overlay:   inverted.PropertyOverlay{ForceFilterable: true},
-			liveSchema: func(prop *models.Property) {
-				prop.IndexFilterable = boolPtr(false)
-			},
-			wantCleared: true,
-		},
-		{
-			// The flag was already on, so the entry is the only thing
-			// keeping writes target-tokenized.
-			name:      "failed: a tokenization change keeps its overlay",
-			status:    distributedtask.TaskStatusFailed,
-			migration: ReindexTypeChangeTokenization,
-			overlay:   inverted.PropertyOverlay{Tokenization: "field"},
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			ctx := testCtx()
-			className := "OverlayClear_" + uuid.NewString()[:8]
-			class := newTestClassWithProps(className, []string{prop})
-			if tc.liveSchema != nil {
-				tc.liveSchema(class.Properties[0])
-			}
-			hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
-			defer hot.Shutdown(context.Background())
-
-			loaded, err := unwrapShard(ctx, hot)
-			require.NoError(t, err)
-			loaded.SetPropertyOverlay(prop, tc.overlay)
-
-			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
-				false, idx.bitmapBufPool)
-			idx.shards.Store(tenant, cold)
-			defer func() {
-				if cold.isLoaded() {
-					require.NoError(t, cold.Shutdown(context.Background()))
-				}
-			}()
-
-			payload, err := json.Marshal(ReindexTaskPayload{
-				Collection:         className,
-				MigrationType:      tc.migration,
-				TargetTokenization: tc.overlay.Tokenization,
-				Properties:         []string{prop},
-				UnitToShard:        map[string]string{"u1": hot.Name()},
-			})
-			require.NoError(t, err)
-
-			logger, _ := logrustest.NewNullLogger()
-			p := NewReindexProvider(
-				&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
-				nil, nil, logger, "n1", nil, ctx)
-
-			require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
-				Namespace:      ReindexNamespace,
-				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_swap", Version: 1},
-				Status:         tc.status,
-				Payload:        payload,
-			}))
-
-			if tc.wantCleared {
-				assert.Nil(t, loaded.SnapshotPropertyOverlay([]string{prop}),
-					"the shard the migration ran on holds the overlay, so its clear is the point of the walk")
-			} else {
-				assert.Equal(t, tc.overlay, loaded.SnapshotPropertyOverlay([]string{prop})[prop],
-					"the live schema does not provide what the overlay overrides, so dropping "+
-						"it here misplaces the next write")
-			}
-			require.False(t, cold.isLoaded(),
-				"an unloaded shard holds no in-memory overlay; loading one to clear nothing is "+
-					"what the cutover path cannot afford")
-		})
-	}
 }

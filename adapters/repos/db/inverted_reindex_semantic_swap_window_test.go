@@ -430,3 +430,34 @@ func TestSwapPhaseFailsWhenTheOverlayCannotBeWired(t *testing.T) {
 	require.Empty(t, shard.SnapshotPropertyOverlay([]string{propName}),
 		"and it must stop before the swap that would need the overlay")
 }
+
+// change-algorithm is semantic but builds the new bucket from the live schema,
+// so there is no overlay to install and nothing for the swap window to lose.
+// Refusing its swap over a failed unwrap would abort a migration that never
+// needed the shard handle.
+func TestSwapPhaseRunsWhenThereIsNoOverlayToWire(t *testing.T) {
+	ctx := testCtx()
+	className := "NoOverlayToWire_" + uuid.NewString()[:8]
+	const propName = "title"
+
+	class := newTestClassWithProps(className, []string{propName})
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		true, false, false)
+	shard := shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(context.Background()) })
+
+	lazy := &LazyLoadShard{shardOpts: &deferredShardOpts{name: shard.Name(), index: idx}}
+	lazy.memMonitor = &allocCheckerLosingTheFirstReservation{lazy: lazy, shard: shard}
+
+	logger, _ := logrustest.NewNullLogger()
+	p := &ReindexProvider{logger: logger, localNode: "node1", serverCtx: ctx}
+	res := p.runShardSwapPhase(ctx, &ReindexTaskPayload{
+		MigrationType: ReindexTypeChangeAlgorithm,
+		Collection:    className,
+		Properties:    []string{propName},
+	}, "unit-1", shard.Name(), lazy,
+		[]*ShardReindexTaskGeneric{newTestTask(idx.logger, &MapToBlockmaxStrategy{})}, logger)
+
+	require.NoError(t, res.OverlayUnwrapErr,
+		"a unit with no overlay to wire must not report a wiring failure")
+}

@@ -1142,14 +1142,6 @@ func (i *Index) addProperty(ctx context.Context, props ...*models.Property) erro
 }
 
 func (i *Index) updateProperty(ctx context.Context, property *models.Property) error {
-	// The FSM applies the schema before this, so a declined overlay clear can retry.
-	i.ForEachLoadedShard(func(_ string, sh ShardLike) error {
-		if shard, err := unwrapShard(ctx, sh); err == nil {
-			shard.ClearPropertyOverlayIfCaughtUp(property.Name, property)
-		}
-		return nil
-	})
-
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 

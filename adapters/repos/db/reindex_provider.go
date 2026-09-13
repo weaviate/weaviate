@@ -1212,7 +1212,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 	// Wire a per-prop hook rather than setting the overlay once up front;
 	// see [maybeWirePerPropOverlaySet] for why the latter is a correctness bug.
 	setShard, setUnwrapErr := unwrapShard(ctx, shard)
-	if setUnwrapErr != nil && IsSemanticMigration(payload.MigrationType) {
+	if setUnwrapErr != nil && hasPropertyOverlayView(payload, unitTasks) {
 		// Swapping without it leaves this shard's whole window unindexed.
 		out.OverlayUnwrapErr = setUnwrapErr
 		out.Errs = append(out.Errs, fmt.Sprintf("unit %s overlay wiring: %v", unitID, setUnwrapErr))
@@ -1598,13 +1598,6 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 			switch task.Status {
 			case distributedtask.TaskStatusFailed:
 				logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
-				// Before the sweep: the mutation guard is already open here.
-				// Excludes a tokenization change: its flag was already on, so
-				// dropping the entry writes old-tokenized terms to the new bucket.
-				if IsSemanticMigration(payload.MigrationType) &&
-					!IsTokenizationChangingMigration(payload.MigrationType) {
-					p.clearOverlaysOnLoadedShards(p.serverCtx, payload, logger)
-				}
 				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusCancelled:
 				// The acks are not the whole story: a cancel can land while
@@ -1621,12 +1614,8 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				if tornLocally {
 					logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
 				}
-			case distributedtask.TaskStatusFinished:
-				// Another node's flip in the same tick skips the arm below.
-				if IsSemanticMigration(payload.MigrationType) {
-					p.clearCaughtUpOverlaysOnLoadedShards(p.serverCtx, payload, logger)
-				}
-			case distributedtask.TaskStatusStarted,
+			case distributedtask.TaskStatusFinished,
+				distributedtask.TaskStatusStarted,
 				distributedtask.TaskStatusPreparing,
 				distributedtask.TaskStatusSwapping:
 			}
@@ -1648,107 +1637,10 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	ctx := p.serverCtx
 	if err := p.flipSemanticMigrationSchema(ctx, payload, logger); err != nil {
 		logger.Errorf("reindex provider: task-completion: schema flip failed; migration result is half-applied (bucket swapped on every node, schema still reflects pre-migration state): %v", err)
-		// Leave the overlay: the schema is still pre-flip here until a retry.
 		return fmt.Errorf("schema flip: %w", err)
 	}
 
-	p.clearOverlaysOnLoadedShards(ctx, payload, logger)
-
 	return nil
-}
-
-func (p *ReindexProvider) clearOverlaysOnLoadedShards(
-	ctx context.Context, payload *ReindexTaskPayload, logger logrus.FieldLogger,
-) {
-	armed := armedPropertyOverlay(payload)
-	p.forEachLoadedShardConcrete(ctx, payload.Collection, logger, func(shard *Shard) {
-		for _, propName := range payload.Properties {
-			shard.ClearPropertyOverlay(propName, armed)
-		}
-	})
-}
-
-// Restates what [maybeWirePerPropOverlaySet] arms; the tasks are gone by now.
-func armedPropertyOverlay(payload *ReindexTaskPayload) inverted.PropertyOverlay {
-	var armed inverted.PropertyOverlay
-	switch payload.MigrationType {
-	case ReindexTypeEnableFilterable:
-		armed.ForceFilterable = true
-	case ReindexTypeEnableSearchable:
-		armed.ForceSearchable = true
-		armed.Tokenization = payload.TargetTokenization
-	case ReindexTypeEnableRangeable:
-		armed.ForceRangeable = true
-	case ReindexTypeChangeTokenization, ReindexTypeChangeTokenizationFilterable:
-		armed.Tokenization = payload.TargetTokenization
-	case ReindexTypeChangeAlgorithm, ReindexTypeRebuildSearchable,
-		ReindexTypeRepairFilterable, ReindexTypeRepairRangeable:
-	}
-	return armed
-}
-
-func (p *ReindexProvider) clearCaughtUpOverlaysOnLoadedShards(
-	ctx context.Context, payload *ReindexTaskPayload, logger logrus.FieldLogger,
-) {
-	live := p.livePropertiesByName(payload.Collection)
-	p.forEachLoadedShardConcrete(ctx, payload.Collection, logger, func(shard *Shard) {
-		for _, propName := range payload.Properties {
-			shard.ClearPropertyOverlayIfCaughtUp(propName, live[propName])
-		}
-	})
-}
-
-func (p *ReindexProvider) livePropertiesByName(collection string) map[string]*models.Property {
-	if p.db == nil {
-		return nil
-	}
-	idx := p.db.GetIndex(entschema.ClassName(collection))
-	if idx == nil || idx.getSchema == nil {
-		return nil
-	}
-	class := idx.getSchema.ReadOnlyClass(collection)
-	if class == nil {
-		return nil
-	}
-	live := make(map[string]*models.Property, len(class.Properties))
-	for _, prop := range class.Properties {
-		live[prop.Name] = prop
-	}
-	return live
-}
-
-// forEachLoadedShardConcrete runs fn on every loaded shard of the collection.
-// Loaded shards only: the per-shard state fn touches is in memory, so an
-// unloaded shard has none, and loading one for that alone stalls the swap.
-func (p *ReindexProvider) forEachLoadedShardConcrete(
-	ctx context.Context, collection string, logger logrus.FieldLogger, fn func(*Shard),
-) {
-	if p.db == nil {
-		return
-	}
-	idx := p.db.GetIndex(entschema.ClassName(collection))
-	if idx == nil {
-		return
-	}
-	// ForEachLoadedShard walks sequentially, so the tally below needs no lock.
-	skipped := 0
-	var firstErr error
-	idx.ForEachLoadedShard(func(_ string, sh ShardLike) error {
-		concreteShard, err := unwrapShard(ctx, sh)
-		if err != nil {
-			skipped++
-			if firstErr == nil {
-				firstErr = err
-			}
-			return nil
-		}
-		fn(concreteShard)
-		return nil
-	})
-	if skipped > 0 {
-		logger.WithField("shards_skipped", skipped).
-			Warnf("reindex provider: per-shard overlay clear skipped (unwrap failed); first error: %v", firstErr)
-	}
 }
 
 // autoCleanupAfterTerminal runs on every node when a semantic migration
@@ -2639,20 +2531,19 @@ func IsTokenizationChangingMigration(mt ReindexMigrationType) bool {
 		mt == ReindexTypeChangeTokenizationFilterable
 }
 
-// Per flip, not up front: that would expose it for the whole disk-I/O preamble.
-func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks []*ShardReindexTaskGeneric) {
-	if shard == nil || payload == nil {
-		return
-	}
-	if !IsSemanticMigration(payload.MigrationType) {
-		return
+// Positional per task: nil where that task installs nothing.
+func propertyOverlayViews(payload *ReindexTaskPayload, tasks []*ShardReindexTaskGeneric,
+) []map[string]inverted.PropertyOverlay {
+	if payload == nil || !IsSemanticMigration(payload.MigrationType) {
+		return nil
 	}
 	tokenization := ""
 	if IsTokenizationChangingMigration(payload.MigrationType) {
 		tokenization = payload.TargetTokenization
 	}
 
-	for _, task := range tasks {
+	views := make([]map[string]inverted.PropertyOverlay, len(tasks))
+	for i, task := range tasks {
 		if task == nil {
 			continue
 		}
@@ -2667,11 +2558,34 @@ func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks
 				overlay[propName] = o
 			}
 		}
-		if len(overlay) == 0 {
+		if len(overlay) > 0 {
+			views[i] = overlay
+		}
+	}
+	return views
+}
+
+func hasPropertyOverlayView(payload *ReindexTaskPayload, tasks []*ShardReindexTaskGeneric) bool {
+	for _, view := range propertyOverlayViews(payload, tasks) {
+		if view != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// Per flip, not up front: that would expose it for the whole disk-I/O preamble.
+func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks []*ShardReindexTaskGeneric) {
+	if shard == nil {
+		return
+	}
+
+	for i, overlay := range propertyOverlayViews(payload, tasks) {
+		if overlay == nil {
 			continue
 		}
 
-		task := task
+		task := tasks[i]
 		// onPropSwapped covers the recovery/resume path; the live Phase-2a
 		// loop uses swapPropAtomic (see the field docs on both).
 		task.onPropSwapped = func(propName string) {
