@@ -388,6 +388,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		Logger:           cfg.Logger,
 	})
 
+	distributedTasksManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
 	schemaManager.SetMutationGuard(distributedTasksManager)
 	schemaManager.SetDistributedTaskManager(distributedTasksManager)
 
