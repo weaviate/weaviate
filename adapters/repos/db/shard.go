@@ -776,7 +776,19 @@ func (s *Shard) SetPropertyOverlay(propName string, o inverted.PropertyOverlay) 
 	if s.propertyOverlay == nil {
 		s.propertyOverlay = map[string]inverted.PropertyOverlay{}
 	}
-	s.propertyOverlay[propName] = o
+	s.propertyOverlay[propName] = mergePropertyOverlay(s.propertyOverlay[propName], o)
+}
+
+// A tokenization change that failed after a partial swap keeps its entry on
+// purpose, so a second migration must fold into it rather than replace it.
+func mergePropertyOverlay(prev, o inverted.PropertyOverlay) inverted.PropertyOverlay {
+	o.ForceFilterable = o.ForceFilterable || prev.ForceFilterable
+	o.ForceSearchable = o.ForceSearchable || prev.ForceSearchable
+	o.ForceRangeable = o.ForceRangeable || prev.ForceRangeable
+	if o.Tokenization == "" {
+		o.Tokenization = prev.Tokenization
+	}
+	return o
 }
 
 // SwapBucketAndSetOverlay runs propName's bucket flip and overlay set as ONE
@@ -801,7 +813,7 @@ func (s *Shard) SwapBucketAndSetOverlay(propName string, o inverted.PropertyOver
 		if s.propertyOverlay == nil {
 			s.propertyOverlay = map[string]inverted.PropertyOverlay{}
 		}
-		s.propertyOverlay[propName] = o
+		s.propertyOverlay[propName] = mergePropertyOverlay(s.propertyOverlay[propName], o)
 	}
 
 	return oldMainBucket, nil
@@ -834,16 +846,27 @@ func (s *Shard) PinTokenizationAndSearchableBucket(propName, liveTokenization st
 	return overlay.Tokenization, bucket, release
 }
 
-func (s *Shard) ClearPropertyOverlay(propName string) {
+func (s *Shard) ClearPropertyOverlay(propName string, armed inverted.PropertyOverlay) {
 	if propName == "" {
 		return
 	}
 	s.propertyOverlayMu.Lock()
 	defer s.propertyOverlayMu.Unlock()
-	if s.propertyOverlay == nil {
+	entry, ok := s.propertyOverlay[propName]
+	if !ok {
 		return
 	}
-	delete(s.propertyOverlay, propName)
+	entry.ForceFilterable = entry.ForceFilterable && !armed.ForceFilterable
+	entry.ForceSearchable = entry.ForceSearchable && !armed.ForceSearchable
+	entry.ForceRangeable = entry.ForceRangeable && !armed.ForceRangeable
+	if armed.Tokenization != "" {
+		entry.Tokenization = ""
+	}
+	if entry.Empty() {
+		delete(s.propertyOverlay, propName)
+		return
+	}
+	s.propertyOverlay[propName] = entry
 }
 
 // ClearPropertyOverlayIfCaughtUp: dropping early loses the writes it places.

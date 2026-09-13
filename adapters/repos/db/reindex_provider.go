@@ -1656,11 +1656,31 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 func (p *ReindexProvider) clearOverlaysOnLoadedShards(
 	ctx context.Context, payload *ReindexTaskPayload, logger logrus.FieldLogger,
 ) {
+	armed := armedPropertyOverlay(payload)
 	p.forEachLoadedShardConcrete(ctx, payload.Collection, logger, func(shard *Shard) {
 		for _, propName := range payload.Properties {
-			shard.ClearPropertyOverlay(propName)
+			shard.ClearPropertyOverlay(propName, armed)
 		}
 	})
+}
+
+// Restates what [maybeWirePerPropOverlaySet] arms; the tasks are gone by now.
+func armedPropertyOverlay(payload *ReindexTaskPayload) inverted.PropertyOverlay {
+	var armed inverted.PropertyOverlay
+	switch payload.MigrationType {
+	case ReindexTypeEnableFilterable:
+		armed.ForceFilterable = true
+	case ReindexTypeEnableSearchable:
+		armed.ForceSearchable = true
+		armed.Tokenization = payload.TargetTokenization
+	case ReindexTypeEnableRangeable:
+		armed.ForceRangeable = true
+	case ReindexTypeChangeTokenization, ReindexTypeChangeTokenizationFilterable:
+		armed.Tokenization = payload.TargetTokenization
+	case ReindexTypeChangeAlgorithm, ReindexTypeRebuildSearchable,
+		ReindexTypeRepairFilterable, ReindexTypeRepairRangeable:
+	}
+	return armed
 }
 
 func (p *ReindexProvider) clearCaughtUpOverlaysOnLoadedShards(

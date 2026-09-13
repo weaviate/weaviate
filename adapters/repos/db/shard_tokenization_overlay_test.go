@@ -62,7 +62,7 @@ func TestShard_TokenizationOverlay_ClearExplicit(t *testing.T) {
 	s.SetPropertyOverlay("name", inverted.PropertyOverlay{Tokenization: "field"})
 	assert.Equal(t, "field", s.TokenizationFor("name", "word"))
 
-	s.ClearPropertyOverlay("name")
+	s.ClearPropertyOverlay("name", inverted.PropertyOverlay{Tokenization: "field"})
 	// Cleared → fall back to liveTokenization.
 	assert.Equal(t, "word", s.TokenizationFor("name", "word"))
 }
@@ -70,8 +70,8 @@ func TestShard_TokenizationOverlay_ClearExplicit(t *testing.T) {
 func TestShard_TokenizationOverlay_ClearUnsetIsNoOp(t *testing.T) {
 	s := &Shard{}
 	// Clearing a never-set entry is safe.
-	s.ClearPropertyOverlay("name")
-	s.ClearPropertyOverlay("")
+	s.ClearPropertyOverlay("name", inverted.PropertyOverlay{Tokenization: "field"})
+	s.ClearPropertyOverlay("", inverted.PropertyOverlay{Tokenization: "field"})
 	// Live fallback still works.
 	assert.Equal(t, "word", s.TokenizationFor("name", "word"))
 }
@@ -133,7 +133,7 @@ func TestShard_TokenizationOverlay_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
 				s.SetPropertyOverlay("name", inverted.PropertyOverlay{Tokenization: "field"})
-				s.ClearPropertyOverlay("name")
+				s.ClearPropertyOverlay("name", inverted.PropertyOverlay{Tokenization: "field"})
 			}
 		}()
 	}

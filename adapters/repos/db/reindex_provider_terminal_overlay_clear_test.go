@@ -205,3 +205,87 @@ func TestOverlayOutlivingFinishedIsClearedByTheLocalFlip(t *testing.T) {
 	require.NoError(t, shard.PutObject(ctx, obj),
 		"a write after the index delete must not demand a bucket the overlay forces")
 }
+
+// A change-tokenization that failed after a partial swap keeps its overlay on
+// purpose: the entry is the only thing aligning queries on that shard with the
+// bucket it already swapped. Conflict detection skips tasks that are no longer
+// active, so a second migration on the same property is admitted — and must
+// leave that entry standing.
+func TestSecondMigrationKeepsAFailedTokenizationOverlay(t *testing.T) {
+	tests := []struct {
+		name string
+		arm  func(*testing.T, *Shard, string, inverted.PropertyOverlay)
+	}{
+		{
+			name: "the live swap arms through SwapBucketAndSetOverlay",
+			arm: func(t *testing.T, shard *Shard, prop string, o inverted.PropertyOverlay) {
+				_, err := shard.SwapBucketAndSetOverlay(prop, o,
+					func() (*lsmkv.Bucket, error) { return nil, nil })
+				require.NoError(t, err)
+			},
+		},
+		{
+			name: "the resume path arms through SetPropertyOverlay",
+			arm: func(_ *testing.T, shard *Shard, prop string, o inverted.PropertyOverlay) {
+				shard.SetPropertyOverlay(prop, o)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "OverlayMerge_" + uuid.NewString()[:8]
+			const prop = "title"
+			const live = models.PropertyTokenizationWord
+			const swapped = models.PropertyTokenizationWhitespace
+
+			class := newTestClassWithProps(className, []string{prop})
+			class.Properties[0].IndexFilterable = boolPtr(false)
+			class.Properties[0].IndexSearchable = boolPtr(true)
+
+			hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			defer hot.Shutdown(context.Background())
+			shard, err := unwrapShard(ctx, hot)
+			require.NoError(t, err)
+
+			// change-tokenization swapped this shard's searchable bucket, then
+			// the task failed elsewhere and left the entry behind.
+			shard.SetPropertyOverlay(prop, inverted.PropertyOverlay{Tokenization: swapped})
+			require.Equal(t, swapped, shard.TokenizationFor(prop, live),
+				"the failed tokenization change must own the overlay, or this test proves nothing")
+
+			tc.arm(t, shard, prop, inverted.PropertyOverlay{ForceFilterable: true})
+
+			require.Equal(t, swapped, shard.TokenizationFor(prop, live),
+				"enabling the filterable index must not drop the tokenization override")
+			require.True(t, shard.SnapshotPropertyOverlay([]string{prop})[prop].ForceFilterable,
+				"and it must still arm its own flag")
+
+			payload, err := json.Marshal(ReindexTaskPayload{
+				Collection:    className,
+				MigrationType: ReindexTypeEnableFilterable,
+				Properties:    []string{prop},
+				UnitToShard:   map[string]string{"u1": hot.Name()},
+			})
+			require.NoError(t, err)
+
+			logger, _ := logrustest.NewNullLogger()
+			p := NewReindexProvider(
+				&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
+				nil, nil, logger, "n1", nil, ctx)
+			require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
+				Namespace:      ReindexNamespace,
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_second", Version: 1},
+				Status:         distributedtask.TaskStatusFailed,
+				Payload:        payload,
+			}))
+
+			require.False(t, shard.SnapshotPropertyOverlay([]string{prop})[prop].ForceFilterable,
+				"the second migration's own flag goes with it")
+			require.Equal(t, swapped, shard.TokenizationFor(prop, live),
+				"but retiring it must not take the first migration's tokenization along")
+		})
+	}
+}
