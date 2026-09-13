@@ -76,7 +76,7 @@ func (s *Shard) deleteFromInvertedIndicesLSM(props []inverted.Property, nilProps
 		}
 
 		// add non-nil properties to the null-state inverted index, but skip internal properties (__meta_count, _id etc)
-		if isMetaCountProperty(prop) || isInternalProperty(prop) {
+		if isMetaCountProperty(prop) || isInternalProperty(prop) || prop.OverlayForcedOnly {
 			continue
 		}
 

@@ -1,0 +1,463 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package db
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/searchparams"
+	"github.com/weaviate/weaviate/entities/storobj"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+)
+
+// A write between a shard's bucket flip and the cluster-wide schema flip is
+// stored but indexed nowhere (weaviate/etienne-claude-issues#449).
+
+const semanticWindowSeedObjects = 25
+
+// semanticWindowToken is absent from makeConvergenceTestObjects' dictionary, so a
+// hit on it can only come from the object written inside the window.
+const semanticWindowToken = "zulu"
+
+// semanticWindowScore is above every value makeFilterableToRangeableTestObjects
+// cycles through, so a range query can only hit the window's own write.
+const semanticWindowScore = int64(1000)
+
+func seedText(t *testing.T, className string) ([]*storobj.Object, *storobj.Object) {
+	return makeConvergenceTestObjects(t, semanticWindowSeedObjects, className),
+		createTestObjectWithText(className, semanticWindowToken)
+}
+
+func seedRangeable(t *testing.T, className string) ([]*storobj.Object, *storobj.Object) {
+	return makeFilterableToRangeableTestObjects(t, semanticWindowSeedObjects, className),
+		&storobj.Object{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID:         strfmt.UUID(uuid.NewString()),
+				Class:      className,
+				Properties: map[string]any{filterableToRangeablePropName: semanticWindowScore},
+			},
+		}
+}
+
+func enterSemanticSwapWindow(t *testing.T, ctx context.Context, class *models.Class, propName string,
+	corpus []*storobj.Object, migration ReindexMigrationType,
+	newTask func(*testing.T, *Index, string, string) *ShardReindexTaskGeneric,
+	failAfterFlip bool,
+) *Shard {
+	t.Helper()
+
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		true, false, false)
+	shard := shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(context.Background()) })
+
+	for _, obj := range corpus {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	task := newTask(t, idx, class.Class, propName)
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+
+	if failAfterFlip {
+		// rename(2) refuses to replace a non-empty directory, and the swap
+		// renames onto this path only after flipping the bucket pointer.
+		occupied := filepath.Join(shard.pathLSM(), task.backupBucketName(propName))
+		require.NoError(t, os.MkdirAll(occupied, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(occupied, "blocker"), nil, 0o644))
+	}
+
+	logger, _ := logrustest.NewNullLogger()
+	p := &ReindexProvider{logger: logger, localNode: "node1", serverCtx: ctx}
+	res := p.runShardSwapPhase(ctx, &ReindexTaskPayload{
+		MigrationType: migration,
+		Collection:    class.Class,
+		Properties:    []string{propName},
+	}, "unit-1", shard.Name(), shard, []*ShardReindexTaskGeneric{task}, logger)
+	if failAfterFlip {
+		require.NotEmpty(t, res.Errs, "the swap has to fail, or this row proves nothing")
+	} else {
+		require.Empty(t, res.Errs)
+	}
+
+	return shard
+}
+
+// noIndexAtAllClass leaves the property unindexed, so shard init creates no
+// buckets for it — not even the length and null ones the class asks for.
+func noIndexAtAllClass(className, propName string) *models.Class {
+	class := newTestClassWithProps(className, []string{propName})
+	class.Properties[0].IndexFilterable = boolPtr(false)
+	class.Properties[0].IndexSearchable = boolPtr(false)
+	return class
+}
+
+func TestWriteDuringSemanticMigrationSwapWindow(t *testing.T) {
+	const textPropName = "title"
+
+	tests := []struct {
+		name          string
+		newClass      func(className, propName string) *models.Class
+		seed          func(*testing.T, string) ([]*storobj.Object, *storobj.Object)
+		migration     ReindexMigrationType
+		newTask       func(*testing.T, *Index, string, string) *ShardReindexTaskGeneric
+		flip          func(prop *models.Property)
+		find          func(*testing.T, context.Context, *Shard, string, string) []*storobj.Object
+		failAfterFlip bool
+	}{
+		{
+			name:      "enable-filterable",
+			newClass:  newEnableFilterableTestClass,
+			seed:      seedText,
+			migration: ReindexTypeEnableFilterable,
+			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+				task, _ := newEnableFilterableTask(t, idx, className, propName)
+				return task
+			},
+			flip: func(prop *models.Property) { prop.IndexFilterable = boolPtr(true) },
+			find: findByEqualFilter,
+		},
+		{
+			name:      "enable-filterable on a property with no inverted index at all",
+			newClass:  noIndexAtAllClass,
+			seed:      seedText,
+			migration: ReindexTypeEnableFilterable,
+			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+				task, _ := newEnableFilterableTask(t, idx, className, propName)
+				return task
+			},
+			flip: func(prop *models.Property) { prop.IndexFilterable = boolPtr(true) },
+			find: findByEqualFilter,
+		},
+		{
+			name: "enable-searchable",
+			newClass: func(className, propName string) *models.Class {
+				return newEnableSearchableTestClass(className, []string{propName})
+			},
+			seed:      seedText,
+			migration: ReindexTypeEnableSearchable,
+			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+				task, _ := newEnableSearchableTask(t, idx, className, propName,
+					models.PropertyTokenizationWord)
+				return task
+			},
+			flip: func(prop *models.Property) { prop.IndexSearchable = boolPtr(true) },
+			find: findByBM25,
+		},
+		{
+			name: "enable-rangeable",
+			newClass: func(className, _ string) *models.Class {
+				return newNoLiveIndexRangeableTestClass(className)
+			},
+			seed:      seedRangeable,
+			migration: ReindexTypeEnableRangeable,
+			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+				// Its OnMigrationComplete is what makes the bucket queryable.
+				return newFilterableToRangeableTaskWithStrategy(t, idx, className, propName,
+					&FilterableToRangeableStrategy{propNames: []string{propName}, generation: 1})
+			},
+			flip: func(prop *models.Property) { prop.IndexRangeFilters = boolPtr(true) },
+			find: findByGreaterThanFilter,
+		},
+		{
+			// The pointer is already flipped when the swap gives up, so the
+			// overlay is all that routes writes to the new bucket.
+			name:      "enable-filterable where the swap fails after the bucket flip",
+			newClass:  newEnableFilterableTestClass,
+			seed:      seedText,
+			migration: ReindexTypeEnableFilterable,
+			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+				task, _ := newEnableFilterableTask(t, idx, className, propName)
+				return task
+			},
+			flip:          func(prop *models.Property) { prop.IndexFilterable = boolPtr(true) },
+			find:          findByEqualFilter,
+			failAfterFlip: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "SemanticWindow_" + uuid.NewString()[:8]
+			class := tc.newClass(className, textPropName)
+			propName := class.Properties[0].Name
+			corpus, windowObj := tc.seed(t, className)
+			shard := enterSemanticSwapWindow(t, ctx, class, propName, corpus, tc.migration,
+				tc.newTask, tc.failAfterFlip)
+
+			require.NotEmpty(t, shard.SnapshotPropertyOverlay([]string{propName}),
+				"the bucket pointer is flipped, so the overlay must outlive the swap phase")
+
+			require.NoError(t, shard.PutObject(ctx, windowObj),
+				"a write in the swap window must be accepted")
+
+			tc.flip(class.Properties[0])
+
+			found := tc.find(t, ctx, shard, className, propName)
+			require.Equal(t, []string{windowObj.ID().String()}, objectIDs(found),
+				"the object written during the swap window is missing from the migrated index — "+
+					"the write was accepted, stored, and indexed nowhere")
+		})
+	}
+}
+
+// A property an overlay forces on has state the migration has not built yet:
+// no length or null bucket, or a BM25 length tracker that never saw it. Every
+// write leg must skip it until the schema flip makes the flag real.
+func TestWriteDuringSwapWindowSkipsAbsentLengthAndNullBuckets(t *testing.T) {
+	const propName = "title"
+
+	tests := []struct {
+		name      string
+		newClass  func(className, propName string) *models.Class
+		migration ReindexMigrationType
+		newTask   func(*testing.T, *Index, string, string) *ShardReindexTaskGeneric
+		flip      func(prop *models.Property)
+		find      func(*testing.T, context.Context, *Shard, string, string) []*storobj.Object
+		absent    func(*testing.T, *Shard, string)
+	}{
+		{
+			name:      "enable-filterable",
+			newClass:  noIndexAtAllClass,
+			migration: ReindexTypeEnableFilterable,
+			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+				task, _ := newEnableFilterableTask(t, idx, className, propName)
+				return task
+			},
+			flip:   func(prop *models.Property) { prop.IndexFilterable = boolPtr(true) },
+			find:   findByEqualFilter,
+			absent: requireLengthAndNullBucketsAbsent,
+		},
+		{
+			name: "enable-searchable",
+			newClass: func(className, propName string) *models.Class {
+				return newEnableSearchableTestClass(className, []string{propName})
+			},
+			migration: ReindexTypeEnableSearchable,
+			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+				task, _ := newEnableSearchableTask(t, idx, className, propName,
+					models.PropertyTokenizationWord)
+				return task
+			},
+			flip:   func(prop *models.Property) { prop.IndexSearchable = boolPtr(true) },
+			find:   findByBM25,
+			absent: requirePropertyLengthUntracked,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "SemanticWindowBuckets_" + uuid.NewString()[:8]
+			class := tc.newClass(className, propName)
+			require.True(t, class.InvertedIndexConfig.IndexPropertyLength)
+			require.True(t, class.InvertedIndexConfig.IndexNullState)
+
+			corpus, _ := seedText(t, className)
+			shard := enterSemanticSwapWindow(t, ctx, class, propName, corpus, tc.migration,
+				tc.newTask, false)
+			tc.absent(t, shard, propName)
+
+			// A seed object predates the window, so this delete is the first leg
+			// to reach for state the window has not built.
+			require.NoError(t, shard.DeleteObject(ctx, corpus[0].ID(), time.Now()),
+				"a delete in the swap window must not reach absent state")
+
+			obj := createTestObjectWithText(className, semanticWindowToken)
+			require.NoError(t, shard.PutObject(ctx, obj),
+				"the add leg must not reach absent state")
+
+			// Overwriting the same id runs the previous version through the
+			// delete leg, which reaches for the same state.
+			overwrite := createTestObjectWithText(className, "yankee")
+			overwrite.Object.ID = obj.Object.ID
+			require.NoError(t, shard.PutObject(ctx, overwrite),
+				"the delete leg must not reach absent state")
+
+			tc.absent(t, shard, propName)
+
+			tc.flip(class.Properties[0])
+			require.Empty(t, objectIDs(tc.find(t, ctx, shard, className, propName)),
+				"the overwritten value must be gone from the migrated index")
+		})
+	}
+}
+
+func requireLengthAndNullBucketsAbsent(t *testing.T, shard *Shard, propName string) {
+	t.Helper()
+	require.Nil(t, shard.store.Bucket(helpers.BucketFromPropNameLengthLSM(propName)),
+		"the property-length bucket must be absent, or this row proves nothing")
+	require.Nil(t, shard.store.Bucket(helpers.BucketFromPropNameNullLSM(propName)),
+		"the null-state bucket must be absent, or this row proves nothing")
+}
+
+func requirePropertyLengthUntracked(t *testing.T, shard *Shard, propName string) {
+	t.Helper()
+	sum, count, _, err := shard.GetPropertyLengthTracker().PropertyTally(propName)
+	require.NoError(t, err)
+	require.Equal(t, [2]int{0, 0}, [2]int{sum, count},
+		"the BM25 length tracker must not see a property the live schema still calls unsearchable")
+}
+
+func findByEqualFilter(t *testing.T, ctx context.Context, shard *Shard,
+	className, propName string,
+) []*storobj.Object {
+	t.Helper()
+	found, _, err := shard.ObjectSearch(ctx, semanticWindowSeedObjects,
+		propEqualsFilter(className, propName, semanticWindowToken), nil, nil, nil,
+		additional.Properties{}, nil)
+	require.NoError(t, err)
+	return found
+}
+
+func findByGreaterThanFilter(t *testing.T, ctx context.Context, shard *Shard,
+	className, propName string,
+) []*storobj.Object {
+	t.Helper()
+	found, _, err := shard.ObjectSearch(ctx, semanticWindowSeedObjects,
+		&filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorGreaterThan,
+			On: &filters.Path{
+				Class:    schema.ClassName(className),
+				Property: schema.PropertyName(propName),
+			},
+			Value: &filters.Value{Value: int(semanticWindowScore) - 1, Type: schema.DataTypeInt},
+		}}, nil, nil, nil, additional.Properties{}, nil)
+	require.NoError(t, err)
+	return found
+}
+
+func findByBM25(t *testing.T, ctx context.Context, shard *Shard,
+	_, propName string,
+) []*storobj.Object {
+	t.Helper()
+	found, _, err := shard.ObjectSearch(ctx, semanticWindowSeedObjects, nil,
+		&searchparams.KeywordRanking{
+			Type:       "bm25",
+			Properties: []string{propName},
+			Query:      semanticWindowToken,
+		}, nil, nil, additional.Properties{}, []string{propName})
+	require.NoError(t, err)
+	return found
+}
+
+// allocCheckerLosingTheFirstReservation refuses one reservation and lets the
+// shard reach loaded anyway, which is what makes the swap phase's two unwraps
+// of the same lazy shard disagree.
+type allocCheckerLosingTheFirstReservation struct {
+	lazy   *LazyLoadShard
+	shard  *Shard
+	missed bool
+}
+
+func (c *allocCheckerLosingTheFirstReservation) CheckAlloc(int64) error { return nil }
+
+func (c *allocCheckerLosingTheFirstReservation) Refresh(bool) {}
+
+func (c *allocCheckerLosingTheFirstReservation) CheckMappingAndReserve(int64, int) error {
+	if c.missed {
+		return nil
+	}
+	c.missed = true
+	c.lazy.shard, c.lazy.loaded = c.shard, true
+	return errors.New("no mapping headroom")
+}
+
+// Wiring the overlay is what indexes the writes a shard accepts between its own
+// bucket flip and the cluster-wide schema flip. A unit that could not wire it
+// has to fail, or the migration acks success over a shard whose whole swap
+// window went unindexed for that property.
+func TestSwapPhaseFailsWhenTheOverlayCannotBeWired(t *testing.T) {
+	ctx := testCtx()
+	className := "OverlayWiringFailure_" + uuid.NewString()[:8]
+	const propName = "title"
+
+	class := newEnableFilterableTestClass(className, propName)
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		true, false, false)
+	shard := shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(context.Background()) })
+
+	for _, obj := range makeConvergenceTestObjects(t, semanticWindowSeedObjects, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	task, _ := newEnableFilterableTask(t, idx, className, propName)
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+
+	lazy := &LazyLoadShard{shardOpts: &deferredShardOpts{name: shard.Name(), index: idx}}
+	lazy.memMonitor = &allocCheckerLosingTheFirstReservation{lazy: lazy, shard: shard}
+
+	logger, _ := logrustest.NewNullLogger()
+	p := &ReindexProvider{logger: logger, localNode: "node1", serverCtx: ctx}
+	res := p.runShardSwapPhase(ctx, &ReindexTaskPayload{
+		MigrationType: ReindexTypeEnableFilterable,
+		Collection:    className,
+		Properties:    []string{propName},
+	}, "unit-1", shard.Name(), lazy, []*ShardReindexTaskGeneric{task}, logger)
+
+	require.Error(t, res.OverlayUnwrapErr,
+		"the wiring has to fail, or this test proves nothing")
+	require.NotEmpty(t, res.Errs,
+		"a unit that never wired its overlay must report a failure, not ack success")
+	require.Empty(t, shard.SnapshotPropertyOverlay([]string{propName}),
+		"and it must stop before the swap that would need the overlay")
+}
+
+// change-algorithm is semantic but builds the new bucket from the live schema,
+// so there is no overlay to install and nothing for the swap window to lose.
+// Refusing its swap over a failed unwrap would abort a migration that never
+// needed the shard handle.
+func TestSwapPhaseRunsWhenThereIsNoOverlayToWire(t *testing.T) {
+	ctx := testCtx()
+	className := "NoOverlayToWire_" + uuid.NewString()[:8]
+	const propName = "title"
+
+	class := newTestClassWithProps(className, []string{propName})
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		true, false, false)
+	shard := shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(context.Background()) })
+
+	lazy := &LazyLoadShard{shardOpts: &deferredShardOpts{name: shard.Name(), index: idx}}
+	lazy.memMonitor = &allocCheckerLosingTheFirstReservation{lazy: lazy, shard: shard}
+
+	logger, _ := logrustest.NewNullLogger()
+	p := &ReindexProvider{logger: logger, localNode: "node1", serverCtx: ctx}
+	res := p.runShardSwapPhase(ctx, &ReindexTaskPayload{
+		MigrationType: ReindexTypeChangeAlgorithm,
+		Collection:    className,
+		Properties:    []string{propName},
+	}, "unit-1", shard.Name(), lazy,
+		[]*ShardReindexTaskGeneric{newTestTask(idx.logger, &MapToBlockmaxStrategy{})}, logger)
+
+	require.NoError(t, res.OverlayUnwrapErr,
+		"a unit with no overlay to wire must not report a wiring failure")
+}

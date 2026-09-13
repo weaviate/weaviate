@@ -36,6 +36,10 @@ type Property struct {
 	HasFilterableIndex bool // roaring set index
 	HasSearchableIndex bool // map index (with frequencies)
 	HasRangeableIndex  bool // roaring set index for ranged queries
+	// OverlayForcedOnly: no property-length or null-state bucket exists yet.
+	OverlayForcedOnly bool
+	// OverlaySearchable means the overlay set the flag, so no tracker entry exists.
+	OverlaySearchable bool
 }
 
 type NilProperty struct {
@@ -115,6 +119,23 @@ type PropertyOverlay struct {
 	// duration of analysis. Used by EnableSearchableStrategy to tokenize
 	// with the target tokenization before the RAFT update applies it.
 	Tokenization string
+}
+
+func (o PropertyOverlay) Empty() bool {
+	return o == PropertyOverlay{}
+}
+
+func (o PropertyOverlay) BeyondLiveSchema(live *models.Property) PropertyOverlay {
+	if live == nil {
+		return o
+	}
+	o.ForceFilterable = o.ForceFilterable && !HasFilterableIndex(live)
+	o.ForceSearchable = o.ForceSearchable && !HasSearchableIndex(live)
+	o.ForceRangeable = o.ForceRangeable && !HasRangeableIndex(live)
+	if o.Tokenization == live.Tokenization {
+		o.Tokenization = ""
+	}
+	return o
 }
 
 type analyzerCacheEntry struct {

@@ -35,7 +35,7 @@ func (s *Shard) extendInvertedIndicesLSM(props []inverted.Property, nilProps []i
 		}
 
 		// add non-nil properties to the null-state inverted index, but skip internal properties (__meta_count, _id etc)
-		if isMetaCountProperty(prop) || isInternalProperty(prop) {
+		if isMetaCountProperty(prop) || isInternalProperty(prop) || prop.OverlayForcedOnly {
 			continue
 		}
 
@@ -244,7 +244,7 @@ func (s *Shard) batchExtendInvertedIndexItemsLSMNoFrequency(b *lsmkv.Bucket,
 
 func (s *Shard) SetPropertyLengths(props []inverted.Property) error {
 	for _, prop := range props {
-		if !prop.HasSearchableIndex {
+		if !prop.HasSearchableIndex || prop.OverlaySearchable {
 			continue
 		}
 
@@ -259,7 +259,7 @@ func (s *Shard) SetPropertyLengths(props []inverted.Property) error {
 
 func (s *Shard) subtractPropLengths(props []inverted.Property) error {
 	for _, prop := range props {
-		if !prop.HasSearchableIndex {
+		if !prop.HasSearchableIndex || prop.OverlaySearchable {
 			continue
 		}
 

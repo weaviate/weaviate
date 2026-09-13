@@ -12,24 +12,28 @@
 package db
 
 import (
-	"context"
-	"encoding/json"
 	"testing"
 
-	"github.com/google/uuid"
-	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/cluster/distributedtask"
-	entschema "github.com/weaviate/weaviate/entities/schema"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 )
 
 // Unit coverage for the #216 Gap B overlay set/clear lifecycle without a
 // full provider+DB+index. Key invariant: the overlay is set only when
-// the per-prop hook fires, never eagerly at wiring time. The all-failed
-// case (orig. Copilot finding, PR https://github.com/weaviate/weaviate/pull/11322 review comment 3254170106)
-// is the subtle one; see [maybeClearTokenizationOverlayOnAllFailed].
+// the per-prop hook fires, never eagerly at wiring time.
+
+// The wiring reads each task's strategy, so a bare task struct is not enough.
+func overlayTasks(strategies ...MigrationStrategy) []*ShardReindexTaskGeneric {
+	tasks := make([]*ShardReindexTaskGeneric, len(strategies))
+	for i, strategy := range strategies {
+		if strategy == nil {
+			continue
+		}
+		tasks[i] = &ShardReindexTaskGeneric{strategy: strategy}
+	}
+	return tasks
+}
 
 // fireAllPropHooks simulates a swap loop where every prop flipped.
 func fireAllPropHooks(tasks []*ShardReindexTaskGeneric, props []string) int {
@@ -46,78 +50,105 @@ func fireAllPropHooks(tasks []*ShardReindexTaskGeneric, props []string) int {
 	return fired
 }
 
-func TestMaybeWirePerPropOverlaySet_TokenizationChange_WiresAndSets(t *testing.T) {
-	s := &Shard{}
-	tasks := []*ShardReindexTaskGeneric{{}}
-	payload := &ReindexTaskPayload{
-		MigrationType:      ReindexTypeChangeTokenization,
-		TargetTokenization: "field",
-		Properties:         []string{"name", "description"},
+// Every [IsSemanticMigration] member must have a row here saying what
+// overlay it installs.
+func TestMaybeWirePerPropOverlaySet_SemanticFamilyCoverage(t *testing.T) {
+	tests := []struct {
+		name         string
+		migration    ReindexMigrationType
+		strategy     MigrationStrategy
+		tokenization string
+		wantWired    bool
+		wantOverlay  inverted.PropertyOverlay
+	}{
+		{
+			name:         "change-tokenization moves the tokenization only",
+			migration:    ReindexTypeChangeTokenization,
+			strategy:     &SearchableRetokenizeStrategy{},
+			tokenization: "field",
+			wantWired:    true,
+			wantOverlay:  inverted.PropertyOverlay{Tokenization: "field"},
+		},
+		{
+			name:         "change-tokenization-filterable does the same on the filterable bucket",
+			migration:    ReindexTypeChangeTokenizationFilterable,
+			strategy:     &FilterableRetokenizeStrategy{},
+			tokenization: "word",
+			wantWired:    true,
+			wantOverlay:  inverted.PropertyOverlay{Tokenization: "word"},
+		},
+		{
+			name:        "enable-filterable forces the filterable flag",
+			migration:   ReindexTypeEnableFilterable,
+			strategy:    &EnableFilterableStrategy{},
+			wantWired:   true,
+			wantOverlay: inverted.PropertyOverlay{ForceFilterable: true},
+		},
+		{
+			name:        "enable-searchable forces the searchable flag and its tokenization",
+			migration:   ReindexTypeEnableSearchable,
+			strategy:    &EnableSearchableStrategy{tokenization: "field"},
+			wantWired:   true,
+			wantOverlay: inverted.PropertyOverlay{ForceSearchable: true, Tokenization: "field"},
+		},
+		{
+			name:        "enable-rangeable forces the rangeable flag",
+			migration:   ReindexTypeEnableRangeable,
+			strategy:    &FilterableToRangeableStrategy{},
+			wantWired:   true,
+			wantOverlay: inverted.PropertyOverlay{ForceRangeable: true},
+		},
+		{
+			name:      "map-to-blockmax is semantic but changes no analyzer input",
+			migration: ReindexTypeChangeAlgorithm,
+			strategy:  &MapToBlockmaxStrategy{},
+			wantWired: false,
+		},
 	}
-	require.True(t, maybeWirePerPropOverlaySet(s, payload, tasks),
-		"change-tokenization migration with non-empty target must wire the per-prop hook")
 
-	// Wiring alone must NOT set the overlay; it is established only when
-	// the hook fires. Setting it before the flip is the bug being fixed.
-	assert.Equal(t, "word", s.TokenizationFor("name", "word"),
-		"wiring must not pre-set the overlay; that's the bug being fixed")
-
-	require.Equal(t, len(payload.Properties), fireAllPropHooks(tasks, payload.Properties),
-		"hook must be wired on the task")
-	assert.Equal(t, "field", s.TokenizationFor("name", "word"),
-		"after the per-prop hook fires, the overlay overrides the live schema value")
-	assert.Equal(t, "field", s.TokenizationFor("description", "word"))
-}
-
-func TestMaybeWirePerPropOverlaySet_FilterableVariant_WiresAndSets(t *testing.T) {
-	s := &Shard{}
-	tasks := []*ShardReindexTaskGeneric{{}}
-	payload := &ReindexTaskPayload{
-		MigrationType:      ReindexTypeChangeTokenizationFilterable,
-		TargetTokenization: "word",
-		Properties:         []string{"name"},
-	}
-	require.True(t, maybeWirePerPropOverlaySet(s, payload, tasks),
-		"change-tokenization-filterable migration must also wire the hook")
-	fireAllPropHooks(tasks, payload.Properties)
-	assert.Equal(t, "word", s.TokenizationFor("name", "field"))
-}
-
-func TestMaybeWirePerPropOverlaySet_NonTokenizationMigration_NoOp(t *testing.T) {
-	for _, mt := range []ReindexMigrationType{
-		ReindexTypeEnableFilterable,
-		ReindexTypeEnableSearchable,
-		ReindexTypeEnableRangeable,
-	} {
-		t.Run(string(mt), func(t *testing.T) {
+	covered := map[ReindexMigrationType]bool{}
+	for _, tc := range tests {
+		covered[tc.migration] = true
+		t.Run(tc.name, func(t *testing.T) {
 			s := &Shard{}
-			tasks := []*ShardReindexTaskGeneric{{}}
+			tasks := overlayTasks(tc.strategy)
 			payload := &ReindexTaskPayload{
-				MigrationType:      mt,
-				TargetTokenization: "field",
+				MigrationType:      tc.migration,
+				TargetTokenization: tc.tokenization,
 				Properties:         []string{"name"},
 			}
-			require.False(t, maybeWirePerPropOverlaySet(s, payload, tasks),
-				"non-tokenization-changing migration must NOT wire the hook")
-			assert.Nil(t, tasks[0].onPropSwapped,
-				"no hook should be installed for a non-tokenization migration")
-			assert.Equal(t, "word", s.TokenizationFor("name", "word"),
-				"no overlay set → fall back to live schema")
+			maybeWirePerPropOverlaySet(s, payload, tasks)
+			if !tc.wantWired {
+				assert.Nil(t, tasks[0].onPropSwapped)
+				assert.Nil(t, s.SnapshotPropertyOverlay([]string{"name"}))
+				return
+			}
+
+			assert.Nil(t, s.SnapshotPropertyOverlay([]string{"name"}),
+				"wiring must not pre-set the overlay; that's the bug being fixed")
+			fireAllPropHooks(tasks, payload.Properties)
+			assert.Equal(t, tc.wantOverlay, s.SnapshotPropertyOverlay([]string{"name"})["name"])
 		})
+	}
+
+	for _, mt := range allReindexMigrationTypesForTest {
+		if IsSemanticMigration(mt) {
+			assert.Truef(t, covered[mt], "semantic migration %q has no row saying what overlay it installs", mt)
+		}
 	}
 }
 
 func TestMaybeWirePerPropOverlaySet_EmptyTargetTokenization_NoOp(t *testing.T) {
 	s := &Shard{}
-	tasks := []*ShardReindexTaskGeneric{{}}
+	tasks := overlayTasks(&SearchableRetokenizeStrategy{})
 	payload := &ReindexTaskPayload{
 		MigrationType:      ReindexTypeChangeTokenization,
 		TargetTokenization: "", // payload missing target
 		Properties:         []string{"name"},
 	}
-	require.False(t, maybeWirePerPropOverlaySet(s, payload, tasks),
+	maybeWirePerPropOverlaySet(s, payload, tasks)
+	assert.Nil(t, tasks[0].onPropSwapped,
 		"empty target tokenization must skip wiring — better than writing an empty override")
-	assert.Nil(t, tasks[0].onPropSwapped)
 	assert.Equal(t, "word", s.TokenizationFor("name", "word"))
 }
 
@@ -126,209 +157,22 @@ func TestMaybeWirePerPropOverlaySet_NilInputs_NoOp(t *testing.T) {
 	// inputs are non-nil in production but defensive checks let the
 	// helper be tested via unit tests without bringing up a real
 	// shard.
-	require.False(t, maybeWirePerPropOverlaySet(nil, &ReindexTaskPayload{}, nil))
-	require.False(t, maybeWirePerPropOverlaySet(&Shard{}, nil, nil))
+	maybeWirePerPropOverlaySet(nil, &ReindexTaskPayload{}, nil)
+	maybeWirePerPropOverlaySet(&Shard{}, nil, nil)
 }
 
 func TestMaybeWirePerPropOverlaySet_NilTaskInSlice_Skipped(t *testing.T) {
 	// A nil task entry must not panic — defensive, mirrors the
 	// production loop's nil guard.
 	s := &Shard{}
-	tasks := []*ShardReindexTaskGeneric{nil, {}}
+	tasks := overlayTasks(nil, &SearchableRetokenizeStrategy{})
 	payload := &ReindexTaskPayload{
 		MigrationType:      ReindexTypeChangeTokenization,
 		TargetTokenization: "field",
 		Properties:         []string{"name"},
 	}
-	require.True(t, maybeWirePerPropOverlaySet(s, payload, tasks))
+	maybeWirePerPropOverlaySet(s, payload, tasks)
 	require.NotNil(t, tasks[1].onPropSwapped, "non-nil task must get the hook")
 	fireAllPropHooks(tasks, payload.Properties)
 	assert.Equal(t, "field", s.TokenizationFor("name", "word"))
-}
-
-func TestMaybeClearTokenizationOverlayOnAllFailed_AllFailed_Clears(t *testing.T) {
-	// #216 Gap B regression. Under per-prop-atomic wiring the all-failed
-	// path never fires the hook, so the overlay is never set. The
-	// defensive clear is an idempotent backstop that must leave the
-	// shard aligned with the live (OLD) schema either way.
-	s := &Shard{}
-	tasks := []*ShardReindexTaskGeneric{{}}
-	payload := &ReindexTaskPayload{
-		MigrationType:      ReindexTypeChangeTokenization,
-		TargetTokenization: "field",
-		Properties:         []string{"name", "description"},
-	}
-	wasSet := maybeWirePerPropOverlaySet(s, payload, tasks)
-	require.True(t, wasSet)
-
-	// All swaps failed → no hook fired → overlay never set.
-	require.Equal(t, "word", s.TokenizationFor("name", "word"),
-		"all-failed: overlay must not have been set (no flip → no hook)")
-
-	const anySwapped = false
-	require.True(t, maybeClearTokenizationOverlayOnAllFailed(s, payload, wasSet, anySwapped),
-		"defensive clear must apply when wasSet=true and anySwapped=false")
-
-	assert.Equal(t, "word", s.TokenizationFor("name", "word"),
-		"after all-failed clear: TokenizationFor must return live (OLD) value")
-	assert.Equal(t, "word", s.TokenizationFor("description", "word"))
-}
-
-func TestMaybeClearTokenizationOverlayOnAllFailed_AnySwapped_NoOp(t *testing.T) {
-	// Partial success path: at least one per-task swap returned nil
-	// → at least one bucket pointer flipped → its hook fired and set
-	// the overlay. The overlay must STAY set so the swapped index
-	// type's bucket content stays aligned with the query analyzer.
-	s := &Shard{}
-	tasks := []*ShardReindexTaskGeneric{{}}
-	payload := &ReindexTaskPayload{
-		MigrationType:      ReindexTypeChangeTokenization,
-		TargetTokenization: "field",
-		Properties:         []string{"name"},
-	}
-	require.True(t, maybeWirePerPropOverlaySet(s, payload, tasks))
-	fireAllPropHooks(tasks, payload.Properties) // a swap succeeded → hook fired
-
-	const wasSet, anySwapped = true, true
-	require.False(t, maybeClearTokenizationOverlayOnAllFailed(s, payload, wasSet, anySwapped),
-		"clear must NOT apply when at least one swap succeeded")
-
-	assert.Equal(t, "field", s.TokenizationFor("name", "word"),
-		"partial-success path: overlay must remain set")
-}
-
-func TestMaybeClearTokenizationOverlayOnAllFailed_WasNotSet_NoOp(t *testing.T) {
-	// Symmetric to the wiring helper's no-op cases (non-tokenization
-	// migrations, empty target): if wiring was skipped, CLEAR must also
-	// be a no-op regardless of anySwapped — there's nothing to clear.
-	s := &Shard{}
-	payload := &ReindexTaskPayload{
-		MigrationType: ReindexTypeEnableFilterable, // non-tokenization
-		Properties:    []string{"name"},
-	}
-
-	for _, anySwapped := range []bool{true, false} {
-		require.False(t, maybeClearTokenizationOverlayOnAllFailed(s, payload, false, anySwapped),
-			"wasSet=false: clear must be a no-op (anySwapped=%v)", anySwapped)
-	}
-}
-
-func TestMaybeClearTokenizationOverlayOnAllFailed_NilInputs_NoOp(t *testing.T) {
-	require.False(t, maybeClearTokenizationOverlayOnAllFailed(nil, &ReindexTaskPayload{}, true, false))
-	require.False(t, maybeClearTokenizationOverlayOnAllFailed(&Shard{}, nil, true, false))
-}
-
-// TestTokenizationOverlay_AllFailedSwap_EndToEndLifecycle pins the
-// end-to-end behavior on the shard for the canonical #216 Gap B
-// failure scenario: per-prop hook wired, every swap fails (so no hook
-// fires), post-loop CLEAR. Mirrors runShardSwapPhase's per-shard branch.
-func TestTokenizationOverlay_AllFailedSwap_EndToEndLifecycle(t *testing.T) {
-	s := &Shard{}
-	tasks := []*ShardReindexTaskGeneric{{}}
-	payload := &ReindexTaskPayload{
-		MigrationType:      ReindexTypeChangeTokenization,
-		TargetTokenization: "field",
-		Properties:         []string{"name"},
-	}
-
-	wasSet := maybeWirePerPropOverlaySet(s, payload, tasks)
-	require.True(t, wasSet)
-
-	// No flip happens, so the hook never fires.
-	const anySwapped = false
-
-	cleared := maybeClearTokenizationOverlayOnAllFailed(s, payload, wasSet, anySwapped)
-	require.True(t, cleared,
-		"end-to-end: defensive clear must fire on all-failed path")
-
-	// Overlay cleared, so the query returns the untouched OLD value
-	// rather than the misalignment the FAILED migration would leave.
-	assert.Equal(t, "word", s.TokenizationFor("name", "word"),
-		"end-to-end: post all-failed clear, TokenizationFor returns live (untouched OLD) value")
-}
-
-// TestTokenizationOverlay_AnySwapped_EndToEndLifecycle: a partial
-// success (≥1 flip) must leave the overlay set, so the defensive clear
-// is a no-op.
-func TestTokenizationOverlay_AnySwapped_EndToEndLifecycle(t *testing.T) {
-	s := &Shard{}
-	tasks := []*ShardReindexTaskGeneric{{}}
-	payload := &ReindexTaskPayload{
-		MigrationType:      ReindexTypeChangeTokenization,
-		TargetTokenization: "field",
-		Properties:         []string{"name"},
-	}
-
-	wasSet := maybeWirePerPropOverlaySet(s, payload, tasks)
-	require.True(t, wasSet)
-
-	fireAllPropHooks(tasks, payload.Properties)
-	const anySwapped = true
-
-	cleared := maybeClearTokenizationOverlayOnAllFailed(s, payload, wasSet, anySwapped)
-	require.False(t, cleared,
-		"partial-success path: defensive clear must NOT fire")
-
-	// Overlay stays set; queries tokenize input for the NEW value
-	// (matching the swapped bucket).
-	assert.Equal(t, "field", s.TokenizationFor("name", "word"))
-}
-
-// The overlay is in-memory state the swap hook set on shards this node
-// loaded to run the migration on. A shard that is not loaded holds none,
-// so reaching into one to clear nothing loads a cold tenant on the success
-// path of every change-tokenization migration.
-func TestOnTaskCompletedOverlayClearLeavesUnloadedShardsAlone(t *testing.T) {
-	const (
-		prop   = "title"
-		tenant = "cold-tenant"
-	)
-
-	ctx := testCtx()
-	className := "OverlayClear_" + uuid.NewString()[:8]
-	class := newTestClassWithProps(className, []string{prop})
-	hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	defer hot.Shutdown(context.Background())
-
-	loaded, err := unwrapShard(ctx, hot)
-	require.NoError(t, err)
-	loaded.SetTokenizationOverlay(prop, "field")
-
-	cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
-		false, idx.bitmapBufPool)
-	idx.shards.Store(tenant, cold)
-	defer func() {
-		if cold.isLoaded() {
-			require.NoError(t, cold.Shutdown(context.Background()))
-		}
-	}()
-
-	payload, err := json.Marshal(ReindexTaskPayload{
-		Collection:         className,
-		MigrationType:      ReindexTypeChangeTokenization,
-		TargetTokenization: "field",
-		Properties:         []string{prop},
-		UnitToShard:        map[string]string{"u1": hot.Name()},
-	})
-	require.NoError(t, err)
-
-	logger, _ := logrustest.NewNullLogger()
-	p := NewReindexProvider(
-		&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
-		nil, nil, logger, "n1", nil, ctx)
-
-	require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
-		Namespace:      ReindexNamespace,
-		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_swap", Version: 1},
-		Status:         distributedtask.TaskStatusSwapping,
-		Payload:        payload,
-	}))
-
-	assert.Equal(t, "word", loaded.TokenizationFor(prop, "word"),
-		"the shard the migration ran on holds the overlay, so its clear is the point of the walk")
-	require.False(t, cold.isLoaded(),
-		"an unloaded shard holds no in-memory overlay; loading one to clear nothing is "+
-			"what the cutover path cannot afford")
 }

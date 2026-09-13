@@ -145,10 +145,11 @@ type phaseUnitResolution struct {
 
 // phaseResult is the aggregated outcome of a per-unit phase callback:
 // per-task error strings + the shutdown-cancellation signal the scheduler
-// needs for transient-vs-permanent ack routing.
+// needs for transient-vs-permanent ack routing, plus overlay-wiring failure.
 type phaseResult struct {
 	Errs               []string
 	SawContextCanceled bool
+	OverlayUnwrapErr   error
 }
 
 // NewReindexProvider creates a new ReindexProvider. The concurrency function
@@ -1197,9 +1198,6 @@ func (p *ReindexProvider) runShardPrepPhase(
 	return ok, out
 }
 
-// runShardSwapPhase. Partial success leaves the overlay set for the
-// flipped props only; un-swapped buckets keep the old tokenization and
-// need operator rebuild.
 func (p *ReindexProvider) runShardSwapPhase(
 	ctx context.Context,
 	payload *ReindexTaskPayload,
@@ -1210,16 +1208,18 @@ func (p *ReindexProvider) runShardSwapPhase(
 	logger logrus.FieldLogger,
 ) (out phaseResult) {
 	allSwapped := true
-	anySwapped := false
 
 	// Wire a per-prop hook rather than setting the overlay once up front;
 	// see [maybeWirePerPropOverlaySet] for why the latter is a correctness bug.
 	setShard, setUnwrapErr := unwrapShard(ctx, shard)
-	if setUnwrapErr != nil && IsTokenizationChangingMigration(payload.MigrationType) {
-		logger.WithField("unit", unitID).WithField("shard", shardName).
-			Warnf("reindex provider: cannot wire tokenization overlay — shard unwrap failed; queries during SWAPPING window may observe stale-tokenization results: %v", setUnwrapErr)
+	if setUnwrapErr != nil && hasPropertyOverlayView(payload, unitTasks) {
+		// Swapping without it leaves this shard's whole window unindexed.
+		out.OverlayUnwrapErr = setUnwrapErr
+		out.Errs = append(out.Errs, fmt.Sprintf("unit %s overlay wiring: %v", unitID, setUnwrapErr))
+		out.SawContextCanceled = errors.Is(setUnwrapErr, context.Canceled)
+		return out
 	}
-	overlayWasSet := maybeWirePerPropOverlaySet(setShard, payload, unitTasks)
+	maybeWirePerPropOverlaySet(setShard, payload, unitTasks)
 
 	for _, reindexTask := range unitTasks {
 		if err := reindexTask.RunSwapOnShard(ctx, shard); err != nil {
@@ -1230,16 +1230,7 @@ func (p *ReindexProvider) runShardSwapPhase(
 				out.SawContextCanceled = true
 			}
 			allSwapped = false
-		} else {
-			anySwapped = true
 		}
-	}
-
-	// All swaps failed: tear the overlay back down so the analyzer stops
-	// claiming the new tokenization while buckets still hold old data.
-	if maybeClearTokenizationOverlayOnAllFailed(setShard, payload, overlayWasSet, anySwapped) {
-		logger.WithField("unit", unitID).WithField("shard", shardName).
-			Debug("reindex provider: cleared tokenization overlay — every swap sub-task failed; no bucket pointer was flipped on this shard")
 	}
 
 	if allSwapped {
@@ -1276,13 +1267,6 @@ func (p *ReindexProvider) runShardSwapPhase(
 // Provider-level shared state (p.payloads, p.runningHandles,
 // p.reindexTasks) is already mutex-protected via p.mu in
 // resolveUnitForPhase and its peers, so concurrent calls are safe.
-//
-// When parallel=false the loop is sequential (legacy behavior). Used
-// by the PREP path where heavy IO (FlushAndSwitch, ShutdownBucket,
-// PrependSegmentsFromBucket) per shard would compound under
-// parallelism — and where the latency doesn't affect the user-
-// observable query-consistency window because queries during PREP
-// still see the OLD tokenization.
 func (p *ReindexProvider) runPerUnitPhase(
 	task *distributedtask.Task,
 	payload *ReindexTaskPayload,
@@ -1296,6 +1280,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 	ctx := p.serverCtx
 	var agg phaseResult
 	var aggMu sync.Mutex
+	var overlayUnwrapFailures int
 
 	runOne := func(unitID string) {
 		res := p.resolveUnitForPhase(ctx, task, payload, unitID, idx, logger)
@@ -1324,6 +1309,12 @@ func (p *ReindexProvider) runPerUnitPhase(
 			if phase.SawContextCanceled {
 				agg.SawContextCanceled = true
 			}
+			if phase.OverlayUnwrapErr != nil {
+				overlayUnwrapFailures++
+				if agg.OverlayUnwrapErr == nil {
+					agg.OverlayUnwrapErr = phase.OverlayUnwrapErr
+				}
+			}
 		}()
 	}
 
@@ -1342,6 +1333,11 @@ func (p *ReindexProvider) runPerUnitPhase(
 		for _, unitID := range localGroupUnitIDs {
 			runOne(unitID)
 		}
+	}
+
+	if overlayUnwrapFailures > 0 {
+		logger.WithField("shards_skipped", overlayUnwrapFailures).
+			Warnf("reindex provider: cannot wire property overlay — shard unwrap failed; during the SWAPPING window queries may observe stale results and writes to the migrated property may not be indexed; first error: %v", agg.OverlayUnwrapErr)
 	}
 
 	if len(agg.Errs) == 0 {
@@ -1439,10 +1435,6 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	// billion-scale to RAFT propagation latency rather than per-node
 	// PREP duration.
 	ctx := p.serverCtx
-	// PREP path runs heavy IO per shard (FlushAndSwitch, ShutdownBucket,
-	// PrependSegmentsFromBucket). Sequential to avoid compounding IO
-	// contention; query consistency is not at stake here because queries
-	// during PREP still see OLD tokenization.
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
 		"group-completion", false,
 		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
@@ -1489,6 +1481,7 @@ func (p *ReindexProvider) onGroupCompletedRunPhaseForUnit(
 	if swap.SawContextCanceled {
 		out.SawContextCanceled = true
 	}
+	out.OverlayUnwrapErr = swap.OverlayUnwrapErr
 	return out
 }
 
@@ -1574,6 +1567,7 @@ func (p *ReindexProvider) onSwapRequestedRunPhaseForUnit(
 	if swap.SawContextCanceled {
 		out.SawContextCanceled = true
 	}
+	out.OverlayUnwrapErr = swap.OverlayUnwrapErr
 	return out
 }
 
@@ -1620,12 +1614,10 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				if tornLocally {
 					logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
 				}
-			case distributedtask.TaskStatusStarted,
+			case distributedtask.TaskStatusFinished,
+				distributedtask.TaskStatusStarted,
 				distributedtask.TaskStatusPreparing,
-				distributedtask.TaskStatusSwapping,
-				distributedtask.TaskStatusFinished:
-				// SWAPPING handled below; STARTED/PREPARING never reach
-				// OnTaskCompleted; FINISHED tidies via the swap pipeline.
+				distributedtask.TaskStatusSwapping:
 			}
 		}
 		return nil
@@ -1645,50 +1637,10 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	ctx := p.serverCtx
 	if err := p.flipSemanticMigrationSchema(ctx, payload, logger); err != nil {
 		logger.Errorf("reindex provider: task-completion: schema flip failed; migration result is half-applied (bucket swapped on every node, schema still reflects pre-migration state): %v", err)
-		// Leave the overlay in place: buckets are NEW-tokenized but the
-		// schema is still pre-flip on this node — the overlay keeps queries
-		// aligned until either a retry lands or TokenizationFor self-clears.
 		return fmt.Errorf("schema flip: %w", err)
 	}
 
-	if IsTokenizationChangingMigration(payload.MigrationType) {
-		p.forEachLoadedShardConcrete(ctx, payload.Collection, logger, func(shard *Shard) {
-			for _, propName := range payload.Properties {
-				shard.ClearTokenizationOverlay(propName)
-			}
-		})
-	}
-
 	return nil
-}
-
-// forEachLoadedShardConcrete runs fn on every loaded shard of the collection.
-// Loaded shards only: the per-shard state fn touches is in memory, so an
-// unloaded shard has none, and loading one for that alone stalls the swap.
-func (p *ReindexProvider) forEachLoadedShardConcrete(
-	ctx context.Context, collection string, logger logrus.FieldLogger, fn func(*Shard),
-) {
-	if p.db == nil {
-		return
-	}
-	idx := p.db.GetIndex(entschema.ClassName(collection))
-	if idx == nil {
-		return
-	}
-	idx.ForEachLoadedShard(func(shardName string, sh ShardLike) error {
-		// Unwrap so fn reaches the concrete shard holding the state; a
-		// *LazyLoadShard would otherwise hide it. On failure the
-		// tokenization overlay self-clears on the next read
-		// (TokenizationFor).
-		concreteShard, err := unwrapShard(ctx, sh)
-		if err != nil {
-			logger.WithField("shard", shardName).
-				Warnf("reindex provider: per-shard overlay clear skipped (unwrap failed): %v", err)
-			return nil
-		}
-		fn(concreteShard)
-		return nil
-	})
 }
 
 // autoCleanupAfterTerminal runs on every node when a semantic migration
@@ -2113,12 +2065,6 @@ func IsLiveReindexTaskStatus(status distributedtask.TaskStatus) bool {
 	return true
 }
 
-// logOperatorRepairGuidanceOnPartialSwap logs the REST command that
-// recovers from a semantic migration which stopped after some shards had
-// swapped. Those shards' buckets are NEW-tokenized while the schema flip
-// was correctly skipped, so queries against the index return 0 until it
-// is rebuilt. On the FAILED path that is a state the task may be in
-// rather than one it is known to be in.
 func logOperatorRepairGuidanceOnPartialSwap(logger logrus.FieldLogger, payload *ReindexTaskPayload, outcome distributedtask.TaskStatus) {
 	if !IsSemanticMigration(payload.MigrationType) {
 		return
@@ -2585,90 +2531,75 @@ func IsTokenizationChangingMigration(mt ReindexMigrationType) bool {
 		mt == ReindexTypeChangeTokenizationFilterable
 }
 
-// maybeWirePerPropOverlaySet installs the per-prop onPropSwapped hook
-// on every task of a tokenization-changing migration so the per-shard
-// tokenization overlay is SET atomically with each property's
-// bucket-pointer flip, inside the swap's Phase 2a tight loop. Returns
-// true iff the hook was wired (i.e. this is a tokenization-changing
-// migration with a non-empty target), so the caller can match
-// [maybeClearTokenizationOverlayOnAllFailed]'s clear decision.
-//
-// Why per-prop, not once up front: RunSwapOnShard's disk-I/O preamble
-// (MkdirAll, sentinel stats, prop read) runs between the loop start and
-// the flip. Setting the overlay before the loop exposes overlay=NEW /
-// bucket=OLD for that whole window, so a BM25 query returns a wrong
-// count (0 for reverse field→word). Per-flip wiring collapses it to one
-// map write; a swap that fails before any flip never sets it, keeping
-// the all-failed path clean.
-func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks []*ShardReindexTaskGeneric) bool {
-	if shard == nil || payload == nil {
-		return false
+// Positional per task: nil where that task installs nothing.
+func propertyOverlayViews(payload *ReindexTaskPayload, tasks []*ShardReindexTaskGeneric,
+) []map[string]inverted.PropertyOverlay {
+	if payload == nil || !IsSemanticMigration(payload.MigrationType) {
+		return nil
 	}
-	if !IsTokenizationChangingMigration(payload.MigrationType) {
-		return false
+	tokenization := ""
+	if IsTokenizationChangingMigration(payload.MigrationType) {
+		tokenization = payload.TargetTokenization
 	}
-	if payload.TargetTokenization == "" {
-		return false
-	}
-	target := payload.TargetTokenization
-	for _, task := range tasks {
+
+	views := make([]map[string]inverted.PropertyOverlay, len(tasks))
+	for i, task := range tasks {
 		if task == nil {
 			continue
 		}
-		task := task
+		overlay := task.strategy.AnalyzerOverlay(payload.Properties)
+		if tokenization != "" {
+			if overlay == nil {
+				overlay = make(map[string]inverted.PropertyOverlay, len(payload.Properties))
+			}
+			for _, propName := range payload.Properties {
+				o := overlay[propName]
+				o.Tokenization = tokenization
+				overlay[propName] = o
+			}
+		}
+		if len(overlay) > 0 {
+			views[i] = overlay
+		}
+	}
+	return views
+}
+
+func hasPropertyOverlayView(payload *ReindexTaskPayload, tasks []*ShardReindexTaskGeneric) bool {
+	for _, view := range propertyOverlayViews(payload, tasks) {
+		if view != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// Per flip, not up front: that would expose it for the whole disk-I/O preamble.
+func maybeWirePerPropOverlaySet(shard *Shard, payload *ReindexTaskPayload, tasks []*ShardReindexTaskGeneric) {
+	if shard == nil {
+		return
+	}
+
+	for i, overlay := range propertyOverlayViews(payload, tasks) {
+		if overlay == nil {
+			continue
+		}
+
+		task := tasks[i]
 		// onPropSwapped covers the recovery/resume path; the live Phase-2a
 		// loop uses swapPropAtomic (see the field docs on both).
 		task.onPropSwapped = func(propName string) {
-			shard.SetTokenizationOverlay(propName, target)
+			shard.SetPropertyOverlay(propName, overlay[propName])
 		}
 		task.swapPropAtomic = func(ctx context.Context, store *lsmkv.Store,
 			rt reindexTracker, propIdx int, propName string,
 		) (*lsmkv.Bucket, error) {
-			return shard.SwapBucketAndSetOverlay(propName, target,
+			return shard.SwapBucketAndSetOverlay(propName, overlay[propName],
 				func() (*lsmkv.Bucket, error) {
 					return task.processOneSwapPropFn(ctx, store, rt, propIdx, propName)
 				})
 		}
 	}
-	return true
-}
-
-// maybeClearTokenizationOverlayOnAllFailed is the defensive CLEAR
-// hook — called by [OnGroupCompleted] AFTER the per-task swap loop
-// on a shard. It clears the per-shard tokenization overlay iff (a)
-// the per-prop overlay hook was wired by
-// [maybeWirePerPropOverlaySet] (the `wasSet` argument) AND
-// (b) every per-task swap failed before flipping its bucket pointer
-// (the `anySwapped` argument is false).
-//
-// Idempotent backstop: with per-prop wiring a fully-failed swap never
-// sets the overlay. It still matters if a flip succeeded but the
-// migration then went FAILED, since the skipped cluster-wide schema flip
-// means nothing else would ever clear the overlay.
-//
-// Partial success (≥ 1 per-task swap returned nil → ≥ 1 bucket
-// pointer flipped) is intentionally left intact: the overlay aligns
-// with the swapped index type's content, which is strictly better
-// than letting partially-flipped buckets misroute against the OLD
-// schema tokenization. The partial-success case surfaces through the
-// FAILED-task repair_command log line in
-// [logOperatorRepairGuidanceOnPartialSwap].
-//
-// Returns true iff the clear was actually applied (for tests +
-// observability).
-func maybeClearTokenizationOverlayOnAllFailed(
-	shard *Shard, payload *ReindexTaskPayload, wasSet, anySwapped bool,
-) bool {
-	if shard == nil || payload == nil {
-		return false
-	}
-	if !wasSet || anySwapped {
-		return false
-	}
-	for _, propName := range payload.Properties {
-		shard.ClearTokenizationOverlay(propName)
-	}
-	return true
 }
 
 // WaitForLocalTaskDrain blocks until the local goroutine processing the

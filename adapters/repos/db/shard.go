@@ -425,52 +425,10 @@ type Shard struct {
 	rangeableLocalReadyMu sync.RWMutex
 	rangeableLocalReady   map[string]bool
 
-	// tokenizationOverlayMu guards tokenizationOverlay. Holds the per-prop
-	// "what tokenization should query input use on this shard?" override
-	// that closes the FINALIZING-window misalignment of a
-	// change-tokenization migration.
-	//
-	// Mechanism: a change-tokenization (or change-tokenization-filterable)
-	// migration's per-shard runtimeSwap flips the canonical bucket pointer
-	// to NEW-tokenization data BEFORE the cluster-wide schema flip in
-	// OnTaskCompleted.flipSemanticMigrationSchema commits via RAFT. During
-	// that seconds-long window on each replica:
-	//   - Bucket content on this shard: NEW tokenization (post-swap)
-	//   - Live schema as seen by the analyzer: OLD tokenization (pre-flip)
-	// Query input gets tokenized against OLD; lookup hits NEW bucket;
-	// counts don't match. The empirical signature is a per-replica count
-	// flap (e.g. `7→4→1→7→3→2`) on a steady probe across the window.
-	//
-	// Lifecycle (see reindex_provider.go's OnGroupCompleted +
-	// OnTaskCompleted):
-	//   1. SET: per prop, atomic with each bucket-pointer flip (onPropSwapped
-	//      hook), so the overlay≠bucket window is one in-memory map write.
-	//      See maybeWirePerPropOverlaySet for why setting it once up front
-	//      was a correctness bug.
-	//   2. CLEAR (defensive, all-failed path): if every per-task swap on
-	//      this shard fails before flipping its bucket pointer (e.g.
-	//      ctx.Canceled during graceful shutdown), the post-loop branch
-	//      clears the overlay. Without this, an all-failed swap path
-	//      would leave overlay=NEW against unchanged OLD buckets —
-	//      permanent misalignment because the FAILED transition skips
-	//      the cluster-wide schema flip and the explicit clear hook
-	//      never runs.
-	//   3. CLEAR (success path): once flipSemanticMigrationSchema
-	//      commits the cluster-wide schema flip, OnTaskCompleted clears
-	//      the overlay per-shard so the steady-state map is empty.
-	//   4. CLEAR (self-clear backstop): TokenizationFor below clears
-	//      the entry on the next read where the live schema has caught
-	//      up to the overlay value — defensive against any callback-
-	//      ordering edge case.
-	//
-	// Read on every query that touches the affected property, so kept
-	// under a fast RWMutex rather than a sync.Map (consistent with
-	// rangeableLocalReady above). Per-shard, in-memory only — the
-	// cluster-wide schema flip is the authoritative cross-replica
-	// signal; this overlay just bridges the local seconds-long gap
-	// between bucket-swap-here and schema-flip-observed-here.
-	tokenizationOverlayMu sync.RWMutex
-	tokenizationOverlay   map[string]string
+	// Bridges this shard's bucket swap and the cluster-wide schema flip: a
+	// write in that window is otherwise lost (weaviate/etienne-claude-issues#449).
+	propertyOverlayMu sync.RWMutex
+	propertyOverlay   map[string]inverted.PropertyOverlay
 
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
@@ -809,70 +767,60 @@ func (s *Shard) setRangeableLocallyReady(propName string, ready bool) {
 	s.rangeableLocalReady[propName] = ready
 }
 
-// SetTokenizationOverlay records that propName's query-time tokenization on
-// this shard should be `target` instead of the schema-stored value until
-// the live schema catches up. Set by the change-tokenization migration's
-// reindex hook (reindex_provider.OnGroupCompleted) just BEFORE the
-// per-task RunSwapOnShard loop kicks off — setting pre-swap means the
-// brief window between bucket-pointer flip and overlay visibility is
-// bounded by the in-memory swap latency (microseconds), not by the
-// cluster-wide cutover spread. The same caller clears the overlay if
-// every per-task swap failed (defensive: no bucket flipped → overlay
-// must not stay set against unchanged buckets). On success, the overlay
-// is cleared explicitly by OnTaskCompleted after the cluster-wide
-// schema flip commits, with [TokenizationFor]'s self-clear-on-catchup
-// branch as a backstop. See the [tokenizationOverlay] field godoc for
-// the full rationale and lifecycle.
-//
-// Empty target is a no-op — used by the migration cleanup path to avoid
-// having every caller guard the call.
-func (s *Shard) SetTokenizationOverlay(propName, target string) {
-	if propName == "" || target == "" {
+func (s *Shard) SetPropertyOverlay(propName string, o inverted.PropertyOverlay) {
+	if propName == "" || o.Empty() {
 		return
 	}
-	s.tokenizationOverlayMu.Lock()
-	defer s.tokenizationOverlayMu.Unlock()
-	if s.tokenizationOverlay == nil {
-		s.tokenizationOverlay = map[string]string{}
+	s.propertyOverlayMu.Lock()
+	defer s.propertyOverlayMu.Unlock()
+	if s.propertyOverlay == nil {
+		s.propertyOverlay = map[string]inverted.PropertyOverlay{}
 	}
-	s.tokenizationOverlay[propName] = target
+	s.propertyOverlay[propName] = mergePropertyOverlay(s.propertyOverlay[propName], o)
+}
+
+// A tokenization change that failed after a partial swap keeps its entry on
+// purpose, so a second migration must fold into it rather than replace it.
+func mergePropertyOverlay(prev, o inverted.PropertyOverlay) inverted.PropertyOverlay {
+	o.ForceFilterable = o.ForceFilterable || prev.ForceFilterable
+	o.ForceSearchable = o.ForceSearchable || prev.ForceSearchable
+	o.ForceRangeable = o.ForceRangeable || prev.ForceRangeable
+	if o.Tokenization == "" {
+		o.Tokenization = prev.Tokenization
+	}
+	return o
 }
 
 // SwapBucketAndSetOverlay runs propName's bucket flip and overlay set as ONE
-// critical section under tokenizationOverlayMu (read side:
-// [Shard.PinTokenizationAndSearchableBucket]), so no query sees a mixed pair.
+// critical section, so no query sees a mixed pair.
 //
 // CONTRACT: flip must not call Bucket.Shutdown or take lifetimeLock — a
-// pinned query may need tokenizationOverlayMu next (self-clear path), so
+// query may hold another prop's pin and need propertyOverlayMu next, so
 // draining here would invert lock order and deadlock. Phase-2b teardown
 // must happen strictly after this method returns.
-func (s *Shard) SwapBucketAndSetOverlay(propName, target string,
+func (s *Shard) SwapBucketAndSetOverlay(propName string, o inverted.PropertyOverlay,
 	flip func() (*lsmkv.Bucket, error),
 ) (*lsmkv.Bucket, error) {
-	s.tokenizationOverlayMu.Lock()
-	defer s.tokenizationOverlayMu.Unlock()
+	s.propertyOverlayMu.Lock()
+	defer s.propertyOverlayMu.Unlock()
 
 	oldMainBucket, err := flip()
 	if err != nil {
 		return nil, err
 	}
 
-	if propName != "" && target != "" {
-		if s.tokenizationOverlay == nil {
-			s.tokenizationOverlay = map[string]string{}
+	if propName != "" && !o.Empty() {
+		if s.propertyOverlay == nil {
+			s.propertyOverlay = map[string]inverted.PropertyOverlay{}
 		}
-		s.tokenizationOverlay[propName] = target
+		s.propertyOverlay[propName] = mergePropertyOverlay(s.propertyOverlay[propName], o)
 	}
 
 	return oldMainBucket, nil
 }
 
 // PinTokenizationAndSearchableBucket resolves propName's tokenization AND
-// pins its searchable bucket under one tokenizationOverlayMu.RLock (write
-// side: [Shard.SwapBucketAndSetOverlay]), so a query never sees a mixed
-// pre-/post-swap pair; the pin makes a concurrent swap's Shutdown drain
-// first. Caller MUST release exactly once (bucket may be nil). Lock order:
-// tokenizationOverlayMu → bucketAccessLock → lifetimeLock.
+// pins its bucket under one RLock. Lock order: propertyOverlayMu → bucketAccessLock → lifetimeLock.
 func (s *Shard) PinTokenizationAndSearchableBucket(propName, liveTokenization string,
 ) (string, *lsmkv.Bucket, func()) {
 	bucketName := helpers.BucketSearchableFromPropNameLSM(propName)
@@ -882,119 +830,83 @@ func (s *Shard) PinTokenizationAndSearchableBucket(propName, liveTokenization st
 		return liveTokenization, bucket, release
 	}
 
-	s.tokenizationOverlayMu.RLock()
-	overlay, ok := "", false
-	if s.tokenizationOverlay != nil {
-		overlay, ok = s.tokenizationOverlay[propName]
+	s.propertyOverlayMu.RLock()
+	var overlay inverted.PropertyOverlay
+	if s.propertyOverlay != nil {
+		overlay = s.propertyOverlay[propName]
 	}
 	// Pin the bucket pointer under the SAME RLock as the overlay so the
 	// (tokenization, pinned bucket) pair is a single consistent snapshot.
 	bucket, release := s.store.AcquireBucketForRead(bucketName)
-	s.tokenizationOverlayMu.RUnlock()
+	s.propertyOverlayMu.RUnlock()
 
-	if !ok {
+	if overlay.Tokenization == "" {
 		return liveTokenization, bucket, release
 	}
-	if overlay == liveTokenization {
-		// Live schema has caught up: self-clear so future calls take the
-		// fast path (same defensive self-clear as TokenizationFor).
-		s.tokenizationOverlayMu.Lock()
-		if s.tokenizationOverlay != nil {
-			if current, ok := s.tokenizationOverlay[propName]; ok && current == liveTokenization {
-				delete(s.tokenizationOverlay, propName)
-			}
-		}
-		s.tokenizationOverlayMu.Unlock()
-		return liveTokenization, bucket, release
-	}
-	return overlay, bucket, release
+	return overlay.Tokenization, bucket, release
 }
 
-// ClearTokenizationOverlay removes any tokenization-overlay entry for
-// propName. Idempotent — called by the schema-update callback when the
-// live schema's tokenization for propName matches the overlay's target,
-// indicating OnTaskCompleted's flipSemanticMigrationSchema has applied
-// on this node and the overlay is no longer needed.
-func (s *Shard) ClearTokenizationOverlay(propName string) {
+// Runs immediately before the indexType bucket is removed, so no write is left
+// aimed at a bucket the shard no longer has.
+func (s *Shard) retirePropertyOverlay(propName, indexType string) {
 	if propName == "" {
 		return
 	}
-	s.tokenizationOverlayMu.Lock()
-	defer s.tokenizationOverlayMu.Unlock()
-	if s.tokenizationOverlay == nil {
+	s.propertyOverlayMu.Lock()
+	defer s.propertyOverlayMu.Unlock()
+	entry, ok := s.propertyOverlay[propName]
+	if !ok {
 		return
 	}
-	delete(s.tokenizationOverlay, propName)
+	switch indexType {
+	case "filterable":
+		entry.ForceFilterable = false
+	case "searchable":
+		entry.ForceSearchable = false
+		entry.Tokenization = ""
+	case "rangeable":
+		entry.ForceRangeable = false
+	default:
+		return
+	}
+	if entry.Empty() {
+		delete(s.propertyOverlay, propName)
+		return
+	}
+	s.propertyOverlay[propName] = entry
 }
 
 // TokenizationFor returns the active query-time tokenization for propName
-// on this shard. Consults the overlay first; if the overlay's value
-// matches the live schema's `liveTokenization` the overlay is self-
-// cleared (defensive against schema-update-callback ordering) and the
-// live value is returned. Otherwise the overlay value is returned if
-// present, else liveTokenization.
-//
-// liveTokenization is the value the caller would have used in the
-// absence of any overlay — typically `prop.Tokenization`. Passing the
-// live value as a parameter (rather than re-reading the schema here)
-// keeps this helper cheap and avoids a schema-manager dependency in the
-// query hot path.
 func (s *Shard) TokenizationFor(propName, liveTokenization string) string {
 	if propName == "" {
 		return liveTokenization
 	}
-	s.tokenizationOverlayMu.RLock()
-	if s.tokenizationOverlay == nil {
-		s.tokenizationOverlayMu.RUnlock()
+	s.propertyOverlayMu.RLock()
+	var overlay inverted.PropertyOverlay
+	if s.propertyOverlay != nil {
+		overlay = s.propertyOverlay[propName]
+	}
+	s.propertyOverlayMu.RUnlock()
+	if overlay.Tokenization == "" {
 		return liveTokenization
 	}
-	overlay, ok := s.tokenizationOverlay[propName]
-	s.tokenizationOverlayMu.RUnlock()
-	if !ok {
-		return liveTokenization
-	}
-	if overlay == liveTokenization {
-		// Live schema has caught up. Self-clear so future calls take the
-		// fast path — write under the write lock so concurrent self-
-		// clears don't race the migration's explicit clear.
-		s.tokenizationOverlayMu.Lock()
-		if s.tokenizationOverlay != nil {
-			if current, ok := s.tokenizationOverlay[propName]; ok && current == liveTokenization {
-				delete(s.tokenizationOverlay, propName)
-			}
-		}
-		s.tokenizationOverlayMu.Unlock()
-		return liveTokenization
-	}
-	return overlay
+	return overlay.Tokenization
 }
 
-// SnapshotTokenizationOverlay returns a fixed-allocation map of
-// {propName → target} entries for the supplied propNames, restricted
-// to entries that currently exist in the overlay. Used by query setup
-// paths that need to populate inverted.PropertyOverlay values for the
-// analyzer's WithSchemaOverlay mechanism (see
-// adapters/repos/db/inverted/analyzer.go).
-//
-// Avoids cloning the entire underlying overlay map on every query —
-// only the requested props are snapshotted, and an empty result
-// returns nil so the analyzer can take its fast path.
-//
-// The returned map is owned by the caller.
-func (s *Shard) SnapshotTokenizationOverlay(propNames []string) map[string]string {
+func (s *Shard) SnapshotPropertyOverlay(propNames []string) map[string]inverted.PropertyOverlay {
 	if len(propNames) == 0 {
 		return nil
 	}
-	s.tokenizationOverlayMu.RLock()
-	defer s.tokenizationOverlayMu.RUnlock()
-	if len(s.tokenizationOverlay) == 0 {
+	s.propertyOverlayMu.RLock()
+	defer s.propertyOverlayMu.RUnlock()
+	if len(s.propertyOverlay) == 0 {
 		return nil
 	}
-	var out map[string]string
+	var out map[string]inverted.PropertyOverlay
 	for _, name := range propNames {
-		if v, ok := s.tokenizationOverlay[name]; ok {
+		if v, ok := s.propertyOverlay[name]; ok {
 			if out == nil {
-				out = make(map[string]string, len(propNames))
+				out = make(map[string]inverted.PropertyOverlay, len(propNames))
 			}
 			out[name] = v
 		}

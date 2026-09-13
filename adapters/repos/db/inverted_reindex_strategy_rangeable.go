@@ -166,10 +166,6 @@ func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []str
 	}
 }
 
-// AnalyzerOverlay forces IndexRangeFilters=true while the backfill scans and
-// while the double-write callbacks mirror live writes (see the type doc for
-// why an unset flag means silent data loss). It ends with those callbacks at
-// runtimeSwap's return.
 func (s *FilterableToRangeableStrategy) AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay {
 	if len(props) == 0 {
 		return nil

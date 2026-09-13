@@ -7,7 +7,7 @@ without dropping query availability on the affected property.
 This document is the entry-point for anyone reviewing or extending the
 feature. It covers the full surface area: REST API, architecture layer
 by layer, the migration-strategy catalogue, crash-safety contract,
-concurrency model, multi-tenancy, tokenization overlay, the
+concurrency model, multi-tenancy, property overlay, the
 deferred-finalize / per-migration generation design that closes the
 load-bearing #10675 family of data-loss bugs, and the test map.
 
@@ -80,7 +80,7 @@ together into a small REST surface rooted at
 > resubmitted once the flag is back on. With the flag on, the move is refused
 > and the replication engine retries it until the migration finishes.
 
-### `PUT /v1/schema/{class}/indexes/{property}`
+### `PUT /v1/schema/{className}/properties/{propertyName}/index/{indexType}`
 
 Declaratively upsert one inverted index. `{indexType}` is one of
 `filterable`, `searchable`, `rangeFilters` (`rangeable`, the former Preview
@@ -403,7 +403,6 @@ preceding a transition on the per-task field. Annotations
         │  Provider.OnTaskCompleted (per-node, semantic only)           │
         │   flipSemanticMigrationSchema — RAFT UpdatePropertyInternal   │
         │   (idempotent: every node fires, first commit wins)           │
-        │   ClearTokenizationOverlay on every loaded local shard        │
         └──────────────────────────────────┬─────────────────────────────┘
                                            │  scheduler marks finalized
                                   ┌────────▼────────┐
@@ -498,15 +497,15 @@ Two different scopes of atomicity carry weight here:
 The cluster-wide convergence guarantee is enforced by two independent
 mechanisms:
 
-1. **Per-shard tokenization overlay (the per-node bridge).** Between
-   the local `SwapBucketPointer` (bucket is now NEW) and the eventual
+1. **Per-shard property overlay (the per-node bridge).** Between the
+   local `SwapBucketPointer` (bucket is now NEW) and the eventual
    cluster-wide schema flip (schema flag is now NEW), this node's
-   queries need to tokenize input matching the new bucket content.
-   The overlay installs the new tokenization at the per-shard query
-   path so the per-node window between "swap committed locally" and
-   "schema flip committed cluster-wide" is correct on this node's
-   reads. The overlay is cleared from `OnTaskCompleted` after the
-   schema flip lands. See §10.
+   analyzer would still describe the property the pre-migration way.
+   The overlay installs the target view at the per-shard query and
+   write paths, so reads in that window tokenize against the content
+   the bucket now holds, and writes in it reach the migrated index.
+   The overlay is cleared from `OnTaskCompleted` after the schema flip
+   lands. See §10.
 2. **Two-phase ack barrier (the cross-node handshake).** For semantic
    migrations each node submits `RecordPreparationCompleteAck(Success=bool)`
    after its local PREP returns, then `RecordPostCompletionAck(Success=bool)`
@@ -820,8 +819,8 @@ own scheduled completion flip still works. Class-wide
 - `OnGroupCompleted` (semantic only) → the swap phase, per local
   shard. Three-phase: PREP → OVERLAY SET → ATOMIC SWAP. See §6.
 - `OnTaskCompleted` (semantic only) → `flipSemanticMigrationSchema`
-  via RAFT, then `ClearTokenizationOverlay` on every loaded local shard
-  (an unloaded shard holds no in-memory overlay).
+  via RAFT. It does not touch the property overlay: an entry describes
+  this shard's buckets, and no task status changes those (§10).
 - `CheckConflict` / `CheckPropertyUpdate` / `CheckClassMutation` /
   `CheckTenantMutation` — see §4.3 & §7.
 
@@ -867,7 +866,7 @@ shard's sweep always reads the filesystem directly and never acts on the
 cached snapshot.
 
 **`inverted_reindex_finalize.go`** — startup-time deferred dir rename
-(see §9), `migrationTrackerDirExists`, `completedMigrationGens`
+(see §9), `migrationTrackerDirAbsent`, `completedMigrationGens`
 (`parseMigrationDirName` lives in
 `inverted_reindex_strategy_dir_names.go`). The finalize algorithm
 handles every shape defensively: tidied / merged-but-not-
@@ -892,7 +891,7 @@ Eight strategy implementations, one file each:
 `change-tokenization` spawns TWO strategy instances per unit
 (`SearchableRetokenizeStrategy` + `FilterableRetokenizeStrategy`) so
 the searchable + filterable buckets retokenize in lock-step, with
-their per-shard swaps inside the same tokenization-overlay window.
+their per-shard swaps inside the same property-overlay window.
 Per-shard cleanup (`indexTypesFromMigrationType`) must wipe BOTH
 tracker dirs — see §4.1.
 
@@ -906,8 +905,8 @@ The strategy interface itself documents the per-method contract; see
 Of particular note is `OnMigrationComplete`'s phase contract — it
 fires in Phase 2c, AFTER the per-prop `SwapBucketPointer` tight loop
 and AFTER the inline `oldMain.Shutdown` + `oldMain → backup` rename
-loop, but still INSIDE the per-shard tokenization-overlay window for
-migrations that use one. The godoc enumerates what's allowed and
+loop, but still INSIDE the per-shard property-overlay window on a
+semantic migration. The godoc enumerates what's allowed and
 forbidden in that position and is the authoritative spec for adding
 a new strategy.
 
@@ -968,14 +967,14 @@ assertion).
 ## 5. Migration strategies — quick map
 
 ```
-                               semantic?   tokenization    analyzer
+                               semantic?   property        analyzer
                                            overlay (§10)   overlay (§11)
 change-tokenization              ✓              ✓
 change-tokenization-filterable   ✓              ✓
-enable-filterable                ✓                              ✓
-enable-searchable                ✓                              ✓
+enable-filterable                ✓              ✓               ✓
+enable-searchable                ✓              ✓               ✓
 change-algorithm                 ✓
-enable-rangeable                 ✓                              ✓
+enable-rangeable                 ✓              ✓               ✓
 repair-rangeable                                                ✓
 repair-filterable
 rebuild-searchable
@@ -983,12 +982,17 @@ rebuild-searchable
 
 The six semantic migrations take the cluster-wide barrier and the
 cluster-wide schema flip; the three format-only ones take neither. The
-two overlay columns are independent of that split. The tokenization
-overlay covers the per-shard window on a migration that changes
-tokenization (`IsTokenizationChangingMigration`); the analyzer overlay
-lets a from-scratch build see a property whose schema flag is still
-false (`MigrationStrategy.AnalyzerOverlay`). `change-algorithm` takes
-neither: it only swaps the searchable bucket strategy.
+analyzer overlay lets a from-scratch build see a property whose schema
+flag is still false (`MigrationStrategy.AnalyzerOverlay`). The property
+overlay is that same value again, now installed on the shard at the
+local bucket flip, plus the target tokenization for the two retokenize
+types (which no strategy carries). `change-algorithm` takes neither: it
+only swaps the searchable bucket strategy.
+
+So the property overlay column follows the analyzer overlay column, not
+the semantic column. Wherever the code asks "must this unit have an
+overlay", the answer comes from the strategy's value being non-empty,
+never from `IsSemanticMigration`.
 
 ## 6. Crash safety
 
@@ -1390,28 +1394,45 @@ Per namespace (strategy-prefix + props-suffix):
   left its bucket working copies would hand out a number already
   taken (§9.3).
 
-## 10. Per-shard tokenization overlay
+## 10. Per-shard property overlay
 
-Defined in [`adapters/repos/db/inverted/tokenization.go`](../adapters/repos/db/inverted/tokenization.go).
+The overlay value is [`inverted.PropertyOverlay`](../adapters/repos/db/inverted/analyzer.go);
+the query-side resolver is in [`adapters/repos/db/inverted/tokenization.go`](../adapters/repos/db/inverted/tokenization.go).
 
-The problem: on each replica, the bucket pointer flips to NEW-tokenized
-data at the end of `RunSwapOnShard` (Phase 2a), but the cluster-wide
+The problem: on each replica, the bucket pointer flips to the migrated
+content at the end of `RunSwapOnShard` (Phase 2a), but the cluster-wide
 schema flip (`OnTaskCompleted`'s RAFT commit) doesn't propagate to the
-local FSM for tens to hundreds of milliseconds afterward. Queries that
-arrive in that window tokenize their input against the still-OLD
-schema value and search a NEW-tokenized bucket — wrong results.
+local FSM for tens to hundreds of milliseconds afterward. In that window
+the analyzer still describes the property the pre-migration way, which
+breaks two things:
 
-The overlay closes this. `Shard.SetTokenizationOverlay(prop, newTok)`
-installs a per-shard map; every query path that needs a property's
-tokenization calls `inverted.ResolveTokenization(b.tokResolver, prop.Name, prop.Tokenization)`,
-which consults the overlay before falling back to the schema value. The
-searcher's `tokResolver` is `Shard.TokenizationFor`, attached via
+- **Reads**, on a change-tokenization migration. Query input is
+  tokenized against the OLD schema value and looked up in a
+  NEW-tokenized bucket — wrong results.
+- **Writes**, on a migration that enables an index type. The
+  double-write mirror comes down when `runtimeSwap` returns and the
+  ordinary write path gates on a schema flag that is still false, so a
+  write accepted here is acked, durable in the objects bucket, and
+  indexed nowhere. Nothing rescans afterwards, so it stays missing
+  (weaviate/etienne-claude-issues#449).
+
+The overlay closes both. `Shard.SetPropertyOverlay(prop, overlay)`
+installs a per-shard map of `inverted.PropertyOverlay` values, each
+saying which index flags to treat as on and which tokenization to use.
+The write path reads the whole value: `Shard.writePathAnalyzerOverlay`
+hands it to the analyzer's `WithSchemaOverlay`. The query path reads the
+tokenization half only, via
+`inverted.ResolveTokenization(b.tokResolver, prop.Name, prop.Tokenization)`;
+the searcher's `tokResolver` is `Shard.TokenizationFor`, attached via
 `WithTokenizationResolver` wherever the shard builds a `Searcher` or
 `BM25Searcher`.
 
-Lifecycle:
+An entry is a fact about this shard's buckets, never about a task and
+never about the schema. It claims only what is physically true here: a
+forced flag while that bucket exists, a tokenization while the
+searchable bucket's content uses it. Lifecycle:
 
-1. **Set** — `maybeWirePerPropOverlaySet` runs in Phase 2 of
+1. **Set at swap** — `maybeWirePerPropOverlaySet` runs in Phase 2 of
    `OnGroupCompleted`, between PREP and ATOMIC SWAP, installing a
    per-prop `swapPropAtomic` hook on each task (plus an `onPropSwapped`
    fallback the recovery/resume path still uses). The overlay for a prop
@@ -1419,33 +1440,38 @@ Lifecycle:
    that prop's bucket-pointer flip — one critical section via
    `Shard.SwapBucketAndSetOverlay` — not once-for-the-whole-shard up
    front (which opens a disk-I/O-sized `overlay=NEW`, `bucket=OLD`
-   window across `RunSwapOnShard`'s preamble). Only for
-   tokenization-changing migrations (`change-tokenization`,
-   `change-tokenization-filterable`).
-2. **Cover** — the entire Phase 2 (atomic swap + post-atomic tidy +
-   `OnMigrationComplete`) runs with the overlay active. Queries see
-   NEW-tokenized analyzer input against NEW-tokenized bucket content.
-3. **Clear** — `OnTaskCompleted` clears the overlay on every local
-   shard AFTER `flipSemanticMigrationSchema`'s RAFT commit succeeds.
-   The live schema's `prop.Tokenization` is now NEW, so subsequent
-   queries hit the right answer via the regular schema-lookup path.
-4. **Self-clear backstop** — `Shard.TokenizationFor` has a defensive
-   self-clear: if the live schema's tokenization for a prop now
-   matches the overlay value, the entry is removed. Catches the case
-   where the explicit clear in (3) was skipped (schema-flip failure)
-   — the next query touching the prop after the schema eventually
-   catches up will lazily clean up.
+   window across `RunSwapOnShard`'s preamble). The value is the one the
+   task's strategy already hands the backfill scan (§11) plus, for the
+   two retokenize types, the payload's target tokenization — the one
+   part no strategy carries. A second swap on the same property unions
+   its facts into the entry already there (`mergePropertyOverlay`); a
+   newer tokenization replaces an older one. A strategy handing an empty
+   value installs nothing, which is why `change-algorithm` gets no entry
+   despite being semantic (§5).
+2. **Reduced on read** — the whole of Phase 2 (atomic swap +
+   post-atomic tidy + `OnMigrationComplete`) and everything after it
+   runs with the entry active. Queries see analyzer input matching the
+   bucket content; writes reach the migrated bucket. Once the
+   cluster-wide flip lands, `PropertyOverlay.BeyondLiveSchema` — run per
+   write in `Shard.writePathAnalyzerOverlay`, and per query on the
+   tokenization half — finds the live schema already provides what the
+   entry overrides, and the entry contributes nothing. It is not
+   re-derived when the schema moves, because it never described the
+   schema.
+3. **Dropped with the bucket** — `Shard.updatePropertyBuckets` retires
+   the fields describing an index type's bucket immediately before
+   removing that bucket (`Shard.retirePropertyOverlay`). This is the
+   only retirement correctness requires: an entry that outlived its
+   bucket would aim the next write at a bucket the shard no longer has,
+   turning a silently-unindexed write into a failed one. No task status
+   and no schema status is consulted. Otherwise entries live until the
+   shard unloads.
 
-For migrations that DON'T change tokenization no tokenization overlay
-is needed, but `enable-filterable`, `enable-searchable` and
-`enable-rangeable` all leave one window uncovered. Their double-write
-callbacks come down when `runtimeSwap` returns; the cluster-wide
-schema flip lands one RAFT round later. A write in between is acked
-and durable in the objects bucket, but nothing rescans afterwards, so
-it stays missing from the new index. This affects every migration
-that takes the cluster-wide flip, so the remedy belongs to the family
-rather than to one type; it is fixed generically in
-[weaviate/weaviate#13001](https://github.com/weaviate/weaviate/pull/13001).
+A property the overlay forced on has no property-length and no
+null-state bucket — shard init skips creating those for a property with
+no inverted index. `inverted.Property.OverlayForcedOnly` marks such a
+property so both write legs skip those two buckets; without it every
+write to the collection would fail on the missing bucket.
 
 Range queries stay in their pre-migration state for the whole window.
 `HasRangeableIndex` is false on every shard until the flip, which is
@@ -1481,10 +1507,12 @@ schema flag is already true for the properties they target.
 reason: a rebuild must not change tokenization, which is a separate
 verb.
 
-Different from the tokenization overlay: the analyzer overlay is read
-by the backfill iterator (write-side); the tokenization overlay is
-read by the query analyzer (read-side). They operate on different
-phases of different concerns and don't share state.
+Related to the property overlay (§10) by value, not by lifetime. The
+analyzer overlay is a pure function of the strategy, read by the
+backfill iterator while the scan runs. A semantic migration's swap hook
+takes that same value and installs it on the shard, where it lives until
+the cluster-wide schema flip and is read by the ordinary write and query
+paths. One is the source, the other is a copy that outlives it.
 
 ## 12. Cancel + DELETE-property-index
 
@@ -1637,7 +1665,7 @@ already GC'd) resolves as WAND on the older binary until a re-migration.
 - [`adapters/repos/db/inverted_reindex_strategy_*.go`](../adapters/repos/db/) — one per strategy.
 - [`adapters/repos/db/inverted_reindex_strategy_dir_names.go`](../adapters/repos/db/inverted_reindex_strategy_dir_names.go) — `genSuffix`, `parseMigrationDirName`, strategy dir prefix constants.
 - [`adapters/repos/db/inverted_reindex_task_generic.go`](../adapters/repos/db/inverted_reindex_task_generic.go) — `ShardReindexTaskGeneric`, the **phase-contract godoc** at the top of the file is the authoritative spec.
-- [`adapters/repos/db/inverted_reindex_finalize.go`](../adapters/repos/db/inverted_reindex_finalize.go) — `FinalizeCompletedMigrations`, `migrationTrackerDirExists`, `completedMigrationGens`.
+- [`adapters/repos/db/inverted_reindex_finalize.go`](../adapters/repos/db/inverted_reindex_finalize.go) — `FinalizeCompletedMigrations`, `migrationTrackerDirAbsent`, `completedMigrationGens`.
 
 **LSM primitives**
 
@@ -1647,7 +1675,9 @@ already GC'd) resolves as WAND on the older binary until a re-migration.
 **Inverted analyzer / overlay**
 
 - [`adapters/repos/db/inverted/tokenization.go`](../adapters/repos/db/inverted/tokenization.go) — `TokenizationResolver`, `ResolveTokenization`.
-- [`adapters/repos/db/shard.go`](../adapters/repos/db/shard.go) — `SetTokenizationOverlay`, `ClearTokenizationOverlay`, `TokenizationFor` (with the self-clear backstop).
+- [`adapters/repos/db/inverted/analyzer.go`](../adapters/repos/db/inverted/analyzer.go) — `PropertyOverlay`, `BeyondLiveSchema`, `Property.OverlayForcedOnly`.
+- [`adapters/repos/db/shard.go`](../adapters/repos/db/shard.go) — `SetPropertyOverlay`, `SwapBucketAndSetOverlay`, `retirePropertyOverlay`, `SnapshotPropertyOverlay`, `TokenizationFor`.
+- [`adapters/repos/db/shard_write_inverted.go`](../adapters/repos/db/shard_write_inverted.go) — `writePathAnalyzerOverlay`, the write path's read of the overlay.
 
 **DTM**
 
@@ -1696,7 +1726,7 @@ with the modern testcontainer style.
 **Acceptance — multi-node** ([`test/acceptance/reindex_multinode/`](../test/acceptance/reindex_multinode/)):
 
 - `happy_path_test` — 3-node baseline.
-- `finalizing_window_test` — per-shard tokenization overlay coverage.
+- `finalizing_window_test` — per-shard property overlay coverage.
 - `finalizing_crash_test` — ack barrier rehydrate over restart.
 - `restart_matrix_test` — rolling restart × migration type.
 - `restart_test` — full restart at every sentinel boundary.
@@ -1763,9 +1793,15 @@ test packages.
   paths — `inverted_reindex_finalize_test.go`.
 - `OnGroupCompleted` cache + rehydrate —
   `reindex_provider_on_group_completed_test.go`.
-- Tokenization overlay set/clear/self-clear —
+- Property overlay set / retire, and the per-migration-type
+  wiring — `property_overlay_lifecycle_test.go`,
   `reindex_provider_tokenization_overlay_test.go`,
   `shard_tokenization_overlay_test.go`.
+- The overlay's effect on the analyzer, and what
+  `BeyondLiveSchema` leaves for it to do —
+  `inverted/objects_test.go` (`TestIndexInverted`).
+- A write landing in the swap window of each migration that enables an
+  index type — `inverted_reindex_semantic_swap_window_test.go`.
 - Shard CoW callbacks — `shard_callbacks_test.go`.
 - DTM finalizing + ack barrier — `cluster/distributedtask/manager_test.go`,
   `scheduler_multinode_test.go`, `errors_test.go`.
