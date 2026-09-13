@@ -55,7 +55,13 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	// matching resume.
 	if !offloading {
 		if blockedErr := s.index.refuseIfReindexInFlight(s.name); blockedErr != nil {
-			return blockedErr
+			// The refusal must also carry ErrShardBusyStructuralOp, the
+			// "not now, try later" contract stated on refuseIfEditOpsPending:
+			// without it a replica movement spends one of its MaxErrors on
+			// every attempt and is cancelled instead of retried. The reindex
+			// sentinel survives the wrap, so the backup path is unchanged.
+			return fmt.Errorf("%w: %w; transfer deferred until it completes",
+				enterrors.ErrShardBusyStructuralOp, blockedErr)
 		}
 		if busy, reason := s.structuralVectorOpInFlight(); busy {
 			return fmt.Errorf("%w: shard %q: %s; transfer deferred until it completes",
