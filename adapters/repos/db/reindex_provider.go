@@ -1594,13 +1594,14 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 			switch task.Status {
 			case distributedtask.TaskStatusFailed:
 				logOperatorRepairGuidanceOnPartialSwap(logger, payload, task.Status)
-				p.autoCleanupAfterTerminal(task, payload, logger)
+				// Before the sweep: the mutation guard is already open here.
 				// Excludes a tokenization change: its flag was already on, so
 				// dropping the entry writes old-tokenized terms to the new bucket.
 				if IsSemanticMigration(payload.MigrationType) &&
 					!IsTokenizationChangingMigration(payload.MigrationType) {
 					p.clearOverlaysOnLoadedShards(p.serverCtx, payload, logger)
 				}
+				p.autoCleanupAfterTerminal(task, payload, logger)
 			case distributedtask.TaskStatusCancelled:
 				// The acks are not the whole story: a cancel can land while
 				// the task is still STARTED but this node has already

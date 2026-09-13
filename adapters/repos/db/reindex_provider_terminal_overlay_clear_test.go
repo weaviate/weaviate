@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -35,75 +36,111 @@ import (
 )
 
 // After a FAILED migration no schema flip follows, so a later index delete
-// sweeps the very bucket the overlay forces writes into.
+// sweeps the very bucket the overlay forces writes into. The mutation guard
+// opens the moment the task fails, so the overlay has to be gone before the
+// terminal cleanup walks disk under its own multi-second budget.
 func TestWriteAfterFailedMigrationSweepsOverlaidBucket(t *testing.T) {
-	ctx := testCtx()
-	className := "FailedOverlaySweep_" + uuid.NewString()[:8]
-	const prop = "p"
-
-	class := newTestClassWithProps(className, []string{prop})
-	class.Properties[0].IndexFilterable = boolPtr(false)
-	class.Properties[0].IndexSearchable = boolPtr(true)
-
-	hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	defer hot.Shutdown(context.Background())
-	shard, err := unwrapShard(ctx, hot)
-	require.NoError(t, err)
-
-	require.NoError(t, shard.store.CreateOrLoadBucket(ctx,
-		helpers.BucketFromPropNameLSM(prop), lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
-	shard.SetPropertyOverlay(prop, inverted.PropertyOverlay{ForceFilterable: true})
-
-	payload, err := json.Marshal(ReindexTaskPayload{
-		Collection:    className,
-		MigrationType: ReindexTypeEnableFilterable,
-		Properties:    []string{prop},
-		UnitToShard:   map[string]string{"u1": hot.Name()},
-	})
-	require.NoError(t, err)
-
-	logger, _ := logrustest.NewNullLogger()
-	p := NewReindexProvider(
-		&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
-		nil, nil, logger, "n1", nil, ctx)
-	require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
-		Namespace:      ReindexNamespace,
-		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_failed", Version: 1},
-		Status:         distributedtask.TaskStatusFailed,
-		Payload:        payload,
-	}))
-
-	// The delete drops every bucket the schema says is off, including the
-	// one the failed migration left behind.
-	class.Properties[0].IndexSearchable = boolPtr(false)
-	eg := enterrors.NewErrorGroupWrapper(shard.index.logger)
-	var reads atomic.Int64
-	shard.updatePropertyBuckets(ctx, eg, class.Properties[0], &reads)
-	require.NoError(t, eg.Wait())
-	require.Nil(t, shard.store.Bucket(helpers.BucketFromPropNameLSM(prop)),
-		"the sweep must remove the bucket the overlay points at")
-
-	obj := &storobj.Object{
-		MarshallerVersion: 1,
-		Object: models.Object{
-			ID:         strfmt.UUID(uuid.NewString()),
-			Class:      className,
-			Properties: map[string]interface{}{prop: "alpha bravo"},
-		},
+	tests := []struct {
+		name         string
+		holdsCleanup bool
+	}{
+		{name: "the terminal cleanup has already finished"},
+		{name: "the terminal cleanup is still in flight", holdsCleanup: true},
 	}
-	require.NoError(t, shard.PutObject(ctx, obj),
-		"a write after the sweep must not demand the removed bucket")
 
-	analyzed, _, _, err := shard.AnalyzeObject(obj)
-	require.NoError(t, err)
-	names := make([]string, 0, len(analyzed))
-	for _, a := range analyzed {
-		names = append(names, a.Name)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			className := "FailedOverlaySweep_" + uuid.NewString()[:8]
+			const prop = "p"
+
+			class := newTestClassWithProps(className, []string{prop})
+			class.Properties[0].IndexFilterable = boolPtr(false)
+			class.Properties[0].IndexSearchable = boolPtr(true)
+
+			hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+				false, false, false)
+			defer hot.Shutdown(context.Background())
+			shard, err := unwrapShard(ctx, hot)
+			require.NoError(t, err)
+
+			require.NoError(t, shard.store.CreateOrLoadBucket(ctx,
+				helpers.BucketFromPropNameLSM(prop), lsmkv.WithStrategy(lsmkv.StrategyRoaringSet)))
+			shard.SetPropertyOverlay(prop, inverted.PropertyOverlay{ForceFilterable: true})
+
+			payload, err := json.Marshal(ReindexTaskPayload{
+				Collection:    className,
+				MigrationType: ReindexTypeEnableFilterable,
+				Properties:    []string{prop},
+				UnitToShard:   map[string]string{"u1": hot.Name()},
+			})
+			require.NoError(t, err)
+
+			logger, _ := logrustest.NewNullLogger()
+			p := NewReindexProvider(
+				&DB{indices: map[string]*Index{indexID(entschema.ClassName(className)): idx}},
+				nil, nil, logger, "n1", nil, ctx)
+			task := &distributedtask.Task{
+				Namespace:      ReindexNamespace,
+				TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_failed", Version: 1},
+				Status:         distributedtask.TaskStatusFailed,
+				Payload:        payload,
+			}
+
+			if tc.holdsCleanup {
+				// A worker still draining parks the cleanup on its first step.
+				handle := &reindexTaskHandle{cancel: func() {}, doneCh: make(chan struct{})}
+				p.mu.Lock()
+				p.runningHandles[task.TaskDescriptor] = handle
+				p.mu.Unlock()
+
+				completed := make(chan error, 1)
+				go func() { completed <- p.OnTaskCompleted(task) }()
+				defer func() {
+					close(handle.doneCh)
+					assert.NoError(t, <-completed)
+				}()
+
+				assert.Eventually(t, func() bool {
+					return len(shard.SnapshotPropertyOverlay([]string{prop})) == 0
+				}, 5*time.Second, 5*time.Millisecond,
+					"the overlay must be retired before the terminal cleanup runs, not after it")
+			} else {
+				require.NoError(t, p.OnTaskCompleted(task))
+			}
+
+			// The delete drops every bucket the schema says is off, including the
+			// one the failed migration left behind.
+			class.Properties[0].IndexSearchable = boolPtr(false)
+			eg := enterrors.NewErrorGroupWrapper(shard.index.logger)
+			var reads atomic.Int64
+			shard.updatePropertyBuckets(ctx, eg, class.Properties[0], &reads)
+			require.NoError(t, eg.Wait())
+			require.Nil(t, shard.store.Bucket(helpers.BucketFromPropNameLSM(prop)),
+				"the sweep must remove the bucket the overlay points at")
+
+			obj := &storobj.Object{
+				MarshallerVersion: 1,
+				Object: models.Object{
+					ID:         strfmt.UUID(uuid.NewString()),
+					Class:      className,
+					Properties: map[string]interface{}{prop: "alpha bravo"},
+				},
+			}
+			require.NoError(t, shard.PutObject(ctx, obj),
+				"a write after the sweep must not demand the removed bucket")
+
+			analyzed, _, _, err := shard.AnalyzeObject(obj)
+			require.NoError(t, err)
+			names := make([]string, 0, len(analyzed))
+			for _, a := range analyzed {
+				names = append(names, a.Name)
+			}
+			require.NotEmpty(t, names, "analysis still runs; only this property drops out")
+			assert.NotContains(t, names, prop,
+				"the schema indexes the property nowhere, so the analyzer must skip it")
+		})
 	}
-	require.NotEmpty(t, names, "analysis still runs; only this property drops out")
-	assert.NotContains(t, names, prop,
-		"the schema indexes the property nowhere, so the analyzer must skip it")
 }
 
 // A node can read FINISHED from the leader before its own schema flip
