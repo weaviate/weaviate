@@ -123,6 +123,31 @@ func TestManager_AddTask_ConflictDetector(t *testing.T) {
 			"rejected task MUST NOT appear in the FSM-stored task list")
 	})
 
+	t.Run("refused while the collection has a replica movement in flight", func(t *testing.T) {
+		h := newTestHarness(t).init(t)
+		h.manager.RegisterCollectionExtractor("test", func([]byte) (string, bool) { return "Movies", true })
+		h.manager.SetReplicationFSM(movingCollections{"Movies": true})
+
+		c := toCmd(t, &cmd.AddDistributedTaskRequest{
+			Namespace:             "test",
+			Id:                    "1",
+			SubmittedAtUnixMillis: time.Now().UnixMilli(),
+			UnitIds:               []string{"su-1"},
+		})
+
+		err := h.manager.AddTask(c, 100)
+		require.ErrorIs(t, err, ErrTaskBlockedByReplicaMovement)
+		require.ErrorIs(t, err, ErrPermanentRejection,
+			"the refusal must classify as permanent, or the gRPC round-trip turns it into a 500")
+		tasks, err := h.manager.ListDistributedTasks(context.Background())
+		require.NoError(t, err)
+		require.Empty(t, tasks["test"],
+			"a refused task MUST NOT appear in the FSM-stored task list")
+
+		h.manager.SetReplicationFSM(movingCollections{})
+		require.NoError(t, h.manager.AddTask(c, 101))
+	})
+
 	t.Run("hook nil-safe: SetConflictDetectors(nil) is a no-op", func(t *testing.T) {
 		h := newTestHarness(t).init(t)
 		h.manager.SetConflictDetectors(nil)
@@ -2458,3 +2483,7 @@ func TestManager_LocalUnrecognizedDistributedTasks(t *testing.T) {
 		})
 	}
 }
+
+type movingCollections map[string]bool
+
+func (m movingCollections) HasActiveReplicationForCollection(c string) bool { return m[c] }

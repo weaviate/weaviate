@@ -67,6 +67,8 @@ type Manager struct {
 	collectionExtractors   map[string]CollectionExtractor
 	targetVectorExtractors map[string]TargetVectorExtractor
 
+	replicationFSM replicationFSM
+
 	completedTaskTTL time.Duration
 
 	clock clockwork.Clock
@@ -95,6 +97,17 @@ func (m *Manager) SetConflictDetectors(detectors map[string]ConflictDetector) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.conflictDetectors = detectors
+}
+
+// replicationFSM is declared here so this package does not import cluster/replication.
+type replicationFSM interface {
+	HasActiveReplicationForCollection(collection string) bool
+}
+
+func (m *Manager) SetReplicationFSM(fsm replicationFSM) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.replicationFSM = fsm
 }
 
 // SetSchemaMutationDetectors installs the per-namespace registry
@@ -439,6 +452,13 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 			// the REST submit path classifies this as 409, not 500.
 			return wrapPermanent(ErrTaskConflict,
 				fmt.Sprintf("task %s/%s conflicts with existing task: %v", r.Namespace, r.Id, err))
+		}
+	}
+
+	if ex := m.collectionExtractors[r.Namespace]; ex != nil && m.replicationFSM != nil {
+		if coll, ok := ex(r.Payload); ok && m.replicationFSM.HasActiveReplicationForCollection(coll) {
+			return wrapPermanent(ErrTaskBlockedByReplicaMovement,
+				fmt.Sprintf("task %s/%s: collection %q has a replica movement in flight", r.Namespace, r.Id, coll))
 		}
 	}
 

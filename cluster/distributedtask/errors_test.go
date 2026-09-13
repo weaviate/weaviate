@@ -101,27 +101,18 @@ func TestToRPCError(t *testing.T) {
 // the (status.Code, message) pair after a gRPC round-trip. Every
 // sentinel must survive.
 func TestRehydratePermanentRejection_RoundTripsEverySentinel(t *testing.T) {
-	cases := []struct {
-		name     string
-		sentinel error
-	}{
-		{"task-not-running", ErrTaskNotRunning},
-		{"task-not-exist", ErrTaskDoesNotExist},
-		{"unit-already-terminal", ErrUnitAlreadyTerminal},
-		{"unit-wrong-node", ErrUnitWrongNode},
-		{"task-conflict", ErrTaskConflict},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	require.NotEmpty(t, permanentMarkers)
+	for _, marker := range permanentMarkers {
+		t.Run(marker.id, func(t *testing.T) {
 			// Simulate the leader's side: wrap → ToRPCError.
-			leaderErr := wrapPermanent(tc.sentinel, "any human message")
+			leaderErr := wrapPermanent(marker.sentinel, "any human message")
 			onWire := ToRPCError(leaderErr)
 			require.NotNil(t, onWire)
 
 			// Simulate the follower's side: status.FromError happens
 			// implicitly inside RehydratePermanentRejection.
 			rehydrated := RehydratePermanentRejection(onWire)
-			require.True(t, errors.Is(rehydrated, tc.sentinel),
+			require.True(t, errors.Is(rehydrated, marker.sentinel),
 				"after rehydration, the specific sentinel must be reachable via errors.Is")
 			require.True(t, errors.Is(rehydrated, ErrPermanentRejection),
 				"after rehydration, the umbrella sentinel must be reachable via errors.Is")
