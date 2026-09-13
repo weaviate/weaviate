@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -364,4 +365,68 @@ func findByBM25(t *testing.T, ctx context.Context, shard *Shard,
 		}, nil, nil, additional.Properties{}, []string{propName})
 	require.NoError(t, err)
 	return found
+}
+
+// allocCheckerLosingTheFirstReservation refuses one reservation and lets the
+// shard reach loaded anyway, which is what makes the swap phase's two unwraps
+// of the same lazy shard disagree.
+type allocCheckerLosingTheFirstReservation struct {
+	lazy   *LazyLoadShard
+	shard  *Shard
+	missed bool
+}
+
+func (c *allocCheckerLosingTheFirstReservation) CheckAlloc(int64) error { return nil }
+
+func (c *allocCheckerLosingTheFirstReservation) Refresh(bool) {}
+
+func (c *allocCheckerLosingTheFirstReservation) CheckMappingAndReserve(int64, int) error {
+	if c.missed {
+		return nil
+	}
+	c.missed = true
+	c.lazy.shard, c.lazy.loaded = c.shard, true
+	return errors.New("no mapping headroom")
+}
+
+// Wiring the overlay is what indexes the writes a shard accepts between its own
+// bucket flip and the cluster-wide schema flip. A unit that could not wire it
+// has to fail, or the migration acks success over a shard whose whole swap
+// window went unindexed for that property.
+func TestSwapPhaseFailsWhenTheOverlayCannotBeWired(t *testing.T) {
+	ctx := testCtx()
+	className := "OverlayWiringFailure_" + uuid.NewString()[:8]
+	const propName = "title"
+
+	class := newEnableFilterableTestClass(className, propName)
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
+		true, false, false)
+	shard := shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(context.Background()) })
+
+	for _, obj := range makeConvergenceTestObjects(t, semanticWindowSeedObjects, className) {
+		require.NoError(t, shard.PutObject(ctx, obj))
+	}
+
+	task, _ := newEnableFilterableTask(t, idx, className, propName)
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
+
+	lazy := &LazyLoadShard{shardOpts: &deferredShardOpts{name: shard.Name(), index: idx}}
+	lazy.memMonitor = &allocCheckerLosingTheFirstReservation{lazy: lazy, shard: shard}
+
+	logger, _ := logrustest.NewNullLogger()
+	p := &ReindexProvider{logger: logger, localNode: "node1", serverCtx: ctx}
+	res := p.runShardSwapPhase(ctx, &ReindexTaskPayload{
+		MigrationType: ReindexTypeEnableFilterable,
+		Collection:    className,
+		Properties:    []string{propName},
+	}, "unit-1", shard.Name(), lazy, []*ShardReindexTaskGeneric{task}, logger)
+
+	require.Error(t, res.OverlayUnwrapErr,
+		"the wiring has to fail, or this test proves nothing")
+	require.NotEmpty(t, res.Errs,
+		"a unit that never wired its overlay must report a failure, not ack success")
+	require.Empty(t, shard.SnapshotPropertyOverlay([]string{propName}),
+		"and it must stop before the swap that would need the overlay")
 }

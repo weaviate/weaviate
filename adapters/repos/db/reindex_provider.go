@@ -1213,7 +1213,11 @@ func (p *ReindexProvider) runShardSwapPhase(
 	// see [maybeWirePerPropOverlaySet] for why the latter is a correctness bug.
 	setShard, setUnwrapErr := unwrapShard(ctx, shard)
 	if setUnwrapErr != nil && IsSemanticMigration(payload.MigrationType) {
+		// Swapping without it leaves this shard's whole window unindexed.
 		out.OverlayUnwrapErr = setUnwrapErr
+		out.Errs = append(out.Errs, fmt.Sprintf("unit %s overlay wiring: %v", unitID, setUnwrapErr))
+		out.SawContextCanceled = errors.Is(setUnwrapErr, context.Canceled)
+		return out
 	}
 	maybeWirePerPropOverlaySet(setShard, payload, unitTasks)
 
