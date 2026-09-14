@@ -58,6 +58,8 @@ func (r *SimpleResponse) FirstError() error {
 // DeleteBatchResponse represents the response returned by DeleteObjects
 type DeleteBatchResponse struct {
 	Batch []UUID2Error `json:"batch,omitempty"`
+	// Errors holds why a replica refused a commit before running it.
+	Errors []replicaerrors.Error `json:"errors,omitempty"`
 }
 
 type UUID2Error struct {
@@ -67,6 +69,11 @@ type UUID2Error struct {
 
 // FirstError returns the first found error
 func (r *DeleteBatchResponse) FirstError() error {
+	for i := range r.Errors {
+		if !r.Errors[i].Empty() {
+			return &r.Errors[i]
+		}
+	}
 	for i, ue := range r.Batch {
 		if !ue.Error.Empty() {
 			return &r.Batch[i].Error

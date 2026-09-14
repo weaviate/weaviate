@@ -1129,14 +1129,54 @@ func (p batchDeleteParamsPayload) SetContentTypeHeaderReq(r *http.Request) {
 
 type batchDeleteResultsPayload struct{}
 
+// batchDeleteResultRow is the wire form of a BatchSimpleObject. Err carries the
+// error text, since encoding/json writes an error value as {} and cannot read
+// that back into an error.
+type batchDeleteResultRow struct {
+	UUID strfmt.UUID     `json:"UUID"`
+	Err  json.RawMessage `json:"Err"`
+}
+
 func (p batchDeleteResultsPayload) Unmarshal(in []byte) (objects.BatchSimpleObjects, error) {
-	var out objects.BatchSimpleObjects
-	err := json.Unmarshal(in, &out)
-	return out, err
+	var rows []batchDeleteResultRow
+	if err := json.Unmarshal(in, &rows); err != nil {
+		return nil, err
+	}
+	out := make(objects.BatchSimpleObjects, len(rows))
+	for i, row := range rows {
+		out[i] = objects.BatchSimpleObject{UUID: row.UUID, Err: batchDeleteRowError(row.Err)}
+	}
+	return out, nil
+}
+
+// batchDeleteRowError reads the Err of a row. A node whose Marshal hands
+// objects.BatchSimpleObjects straight to encoding/json sends {} for a failed
+// row, which reads as a failure without a message.
+func batchDeleteRowError(raw json.RawMessage) error {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	var msg string
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		return errors.New("remote node reported a failed delete without an error message")
+	}
+	return errors.New(msg)
 }
 
 func (p batchDeleteResultsPayload) Marshal(in objects.BatchSimpleObjects) ([]byte, error) {
-	return json.Marshal(in)
+	rows := make([]batchDeleteResultRow, len(in))
+	for i, obj := range in {
+		rows[i].UUID = obj.UUID
+		if obj.Err == nil {
+			continue
+		}
+		msg, err := json.Marshal(obj.Err.Error())
+		if err != nil {
+			return nil, fmt.Errorf("marshal error of object %q: %w", obj.UUID, err)
+		}
+		rows[i].Err = msg
+	}
+	return json.Marshal(rows)
 }
 
 func (p batchDeleteResultsPayload) MIME() string {

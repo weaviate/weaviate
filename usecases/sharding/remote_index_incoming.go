@@ -267,7 +267,7 @@ func (rii *RemoteIndexIncoming) DeleteObjectBatch(ctx context.Context, indexName
 ) objects.BatchSimpleObjects {
 	index, err := rii.IndexForIncomingWrite(ctx, indexName, schemaVersion)
 	if err != nil {
-		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
+		return objects.FailedBatchSimpleObjects(uuids, err)
 	}
 
 	return index.IncomingDeleteObjectBatch(ctx, shardName, uuids, deletionTime, dryRun, schemaVersion)

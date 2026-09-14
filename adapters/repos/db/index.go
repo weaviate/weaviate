@@ -50,6 +50,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
 	"github.com/weaviate/weaviate/entities/backup"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -2250,9 +2251,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 					for _, pos := range group.pos {
 						out[pos] = fmt.Errorf("an unexpected error occurred: %s", err)
 					}
-					fmt.Fprintf(os.Stderr, "panic: %s\n", err)
-					entsentry.Recover(err)
-					enterrors.PrintStack(i.logger)
+					i.reportRecoveredPanic(err)
 				}
 			}()
 			// All objects in the same shard group have the same tenant since in multi-tenant
@@ -2292,6 +2291,13 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	wg.Wait()
 
 	return out
+}
+
+// reportRecoveredPanic records a panic recovered in a per-shard batch goroutine.
+func (i *Index) reportRecoveredPanic(err any) {
+	fmt.Fprintf(os.Stderr, "panic: %s\n", err)
+	entsentry.Recover(err)
+	enterrors.PrintStack(i.logger)
 }
 
 func duplicateErr(in error, count int) []error {
@@ -4471,6 +4477,15 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 			defer wg.Done()
 
 			var objs objects.BatchSimpleObjects
+			defer func() {
+				if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+					if err := recover(); err != nil {
+						objs = objects.FailedBatchSimpleObjects(uuids, fmt.Errorf("an unexpected error occurred: %s", err))
+						i.reportRecoveredPanic(err)
+					}
+				}
+				ch <- result{objs}
+			}()
 			if i.shardHasMultipleReplicasWrite(tenant, shardName) {
 				objs = i.replicator.DeleteObjects(ctx, shardName, uuids, deletionTime,
 					dryRun, routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
@@ -4487,13 +4502,9 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 						return nil
 					})
 				if err != nil {
-					objs = objects.BatchSimpleObjects{
-						objects.BatchSimpleObject{Err: err},
-					}
+					objs = objects.FailedBatchSimpleObjects(uuids, err)
 				}
 			}
-
-			ch <- result{objs}
 		}
 		enterrors.GoWrapper(f, i.logger)
 	}
@@ -4520,9 +4531,7 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 		res = shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
 		return nil
 	}); err != nil {
-		return objects.BatchSimpleObjects{
-			objects.BatchSimpleObject{Err: err},
-		}
+		return objects.FailedBatchSimpleObjects(uuids, err)
 	}
 	return res
 }

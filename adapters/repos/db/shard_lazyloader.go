@@ -476,7 +476,9 @@ func (l *LazyLoadShard) AddReferencesBatch(ctx context.Context, refs objects.Bat
 }
 
 func (l *LazyLoadShard) DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects {
-	l.mustLoadCtx(ctx)
+	if err := l.Load(ctx); err != nil {
+		return objects.FailedBatchSimpleObjects(ids, err)
+	}
 	return l.shard.DeleteObjectBatch(ctx, ids, deletionTime, dryRun)
 }
 

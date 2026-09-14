@@ -263,6 +263,10 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 		if err == nil {
 			err = resp.FirstError()
 		}
+		// a replica that ran the commit answers every id, so a shorter batch is a commit it refused
+		if err == nil && len(resp.Batch) != len(uuids) {
+			err = fmt.Errorf("commit returned %d results for %d ids", len(resp.Batch), len(uuids))
+		}
 		if err != nil {
 			err = fmt.Errorf("%q: %w", host, err)
 		}
@@ -273,11 +277,12 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 		r.log.WithField("op", "push.deletes").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
 		err = fmt.Errorf("%s %q: %w", replicaerrors.MsgCLevel, l, replicaerrors.NewNotEnoughReplicasError(err))
-		errs := make([]objects.BatchSimpleObject, len(uuids))
-		for i := 0; i < len(uuids); i++ {
-			errs[i].Err = err
-		}
-		return errs
+		return objects.FailedBatchSimpleObjects(uuids, err)
+	}
+	// flattenDeletions leaves the id empty at every position no replica
+	// answered for, and position i always holds the result for uuids[i].
+	for i := range rs {
+		rs[i].UUID = uuids[i]
 	}
 	if err := firstBatchError(rs); err != nil {
 		r.log.WithField("op", "put.deletes").WithField("class", r.class).

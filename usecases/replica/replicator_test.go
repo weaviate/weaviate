@@ -13,6 +13,7 @@ package replica_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -93,10 +94,12 @@ func TestReplicatorReplicaNotFound(t *testing.T) {
 		t.Run(fmt.Sprintf("DeleteObjects_%v", tc.variant), func(t *testing.T) {
 			f := newFakeFactory(t, "C1", "S", []string{}, tc.isMultiTenant)
 			rep := f.newReplicator()
-			xs := rep.DeleteObjects(ctx, "S", []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2"), strfmt.UUID("3")}, time.Now(), false, types.ConsistencyLevelAll, 0)
+			ids := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2"), strfmt.UUID("3")}
+			xs := rep.DeleteObjects(ctx, "S", ids, time.Now(), false, types.ConsistencyLevelAll, 0)
 			assert.Equal(t, 3, len(xs))
-			for _, x := range xs {
+			for i, x := range xs {
 				assert.ErrorIs(t, x.Err, replicaerrors.ErrReplicas)
+				assert.Equal(t, ids[i], x.UUID, "a failed position must keep its id")
 			}
 		})
 
@@ -472,8 +475,9 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			}
 			result := factory.newReplicator().DeleteObjects(ctx, shard, docIDs, time.Now(), false, types.ConsistencyLevelAll, 123)
 			assert.Equal(t, len(result), 2)
-			for _, r := range result {
+			for i, r := range result {
 				assert.ErrorIs(t, r.Err, replicaerrors.ErrReplicas)
+				assert.Equal(t, docIDs[i], r.UUID, "a failed position must keep its id")
 			}
 		})
 
@@ -487,6 +491,33 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			}
 			result := factory.newReplicator().DeleteObjects(ctx, shard, docIDs, time.Now(), false, types.ConsistencyLevelAll, 123)
 			assert.Equal(t, len(result), 2)
+			for i, r := range result {
+				assert.Error(t, r.Err)
+				assert.Equal(t, docIDs[i], r.UUID, "a failed position must keep its id")
+			}
+		})
+
+		t.Run(fmt.Sprintf("PhaseTwoRefusedCommit_%v", tc.variant), func(t *testing.T) {
+			factory := newFakeFactory(t, "C1", shard, nodes, tc.isMultiTenant)
+			client := factory.WClient
+			docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
+			// the body a replica sends when its commit fails a precheck, decoded as the cluster API clients decode it
+			refused, err := json.Marshal(replica.SimpleResponse{Errors: []replicaerrors.Error{
+				*replicaerrors.NewError(replicaerrors.StatusClassNotFound, cls),
+			}})
+			assert.NoError(t, err)
+			for _, n := range nodes {
+				client.On("DeleteObjects", mock.Anything, n, cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(replica.SimpleResponse{}, nil)
+				client.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil).Run(func(args mock.Arguments) {
+					assert.NoError(t, json.Unmarshal(refused, args.Get(5)))
+				})
+			}
+			result := factory.newReplicator().DeleteObjects(ctx, shard, docIDs, time.Now(), false, types.ConsistencyLevelAll, 123)
+			assert.Equal(t, len(result), 2)
+			for i, r := range result {
+				assert.ErrorContains(t, r.Err, "class not found")
+				assert.Equal(t, docIDs[i], r.UUID, "a failed position must keep its id")
+			}
 		})
 
 		t.Run(fmt.Sprintf("PartialSuccess_%v", tc.variant), func(t *testing.T) {
