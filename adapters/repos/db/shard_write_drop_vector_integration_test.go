@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
+	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -841,4 +842,69 @@ func TestVectorLayoutBarrier_ReplicaSnapshotRejectsAChange(t *testing.T) {
 	_, err := shard.CreateReplicaSnapshot(ctx, t.TempDir())
 	require.ErrorIs(t, err, errVectorLayoutChanged)
 	assert.Zero(t, shard.haltForTransferCount.Load())
+}
+
+// The halt-for-duration fallback stops serving every file, the staged
+// bookkeeping copies and the live segments alike, once the layout changed
+// under its halt, so the copy fails instead of landing torn.
+func TestVectorLayoutBarrier_FallbackStopsServingAfterAChange(t *testing.T) {
+	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	shard.layoutWaitTimeout = 100 * time.Millisecond
+	const opID = "layout-fallback"
+	shard.index.replicaSnapshotOpLocks = esync.NewKeyRWLocker()
+	// a flushed object gives the listing a live segment next to the staged copies
+	require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
+
+	files, err := shard.index.IncomingCreateReplicaSnapshot(ctx, shard.name, opID)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, shard.index.IncomingReleaseReplicaSnapshot(ctx, opID)) }()
+
+	// the fallback stages the three bookkeeping copies and serves the rest live
+	stagingRoot := replicaStagingDir(shard.index.Config.RootPath, opID, schema.ClassName(shard.index.Config.ClassName))
+	var staged, live []string
+	for _, rel := range files {
+		if _, err := os.Stat(filepath.Join(stagingRoot, rel)); err == nil {
+			staged = append(staged, rel)
+		} else {
+			live = append(live, rel)
+		}
+	}
+	require.NotEmpty(t, staged)
+	require.NotEmpty(t, live)
+	for _, rel := range []string{staged[0], live[0]} {
+		_, err = shard.index.IncomingGetReplicaSnapshotFileMetadata(ctx, opID, rel)
+		require.NoError(t, err, "served before the change: %s", rel)
+	}
+
+	markDropped(class, "foo")
+	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+
+	for _, rel := range []string{staged[0], live[0]} {
+		_, err = shard.index.IncomingGetReplicaSnapshotFileMetadata(ctx, opID, rel)
+		require.ErrorIs(t, err, errVectorLayoutChanged, "metadata of %s", rel)
+		_, err = shard.index.IncomingGetReplicaSnapshotFile(ctx, opID, rel)
+		require.ErrorIs(t, err, errVectorLayoutChanged, "content of %s", rel)
+	}
+}
+
+// A change that lands during the fallback's own listing fails the snapshot
+// before its manifest is registered.
+func TestVectorLayoutBarrier_FallbackRejectsAChangeDuringListing(t *testing.T) {
+	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	shard.layoutWaitTimeout = 100 * time.Millisecond
+	markDropped(class, "foo")
+	shard.index.replicaSnapshotOpLocks = esync.NewKeyRWLocker()
+	shard.testHooks.afterHaltAdmission = func() error {
+		return shard.DropVectorIndex(ctx, "foo")
+	}
+
+	_, err := shard.index.IncomingCreateReplicaSnapshot(ctx, shard.name, "layout-listing")
+	require.ErrorIs(t, err, errVectorLayoutChanged)
+	assert.Zero(t, shard.haltForTransferCount.Load(), "the failed snapshot resumed the shard")
+	_, err = shard.index.IncomingGetReplicaSnapshotFileMetadata(ctx, "layout-listing", "anything")
+	require.ErrorContains(t, err, "no replica snapshot registered")
 }
