@@ -15,7 +15,9 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"path/filepath"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -23,8 +25,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
-
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -160,46 +162,6 @@ func TestDropVectorIndex_ClearsDimensionRows(t *testing.T) {
 			"the bucket", dropDimsKeep)
 }
 
-// TestDropVectorIndex_ClearsDimensionRowsOnUnloadedShard covers the cold route:
-// a drop against an inactive tenant is deferred, so the live path never runs
-// and the files-only sweep has to clear the rows from disk. This is the route
-// the reported incident hit.
-func TestDropVectorIndex_ClearsDimensionRowsOnUnloadedShard(t *testing.T) {
-	ctx := t.Context()
-	s, _ := setupDropDimsShard(t, ctx)
-
-	for i := 0; i < dropDimsCount; i++ {
-		require.NoError(t, s.PutObject(ctx, dropDimsObject(i)))
-	}
-
-	indexPath, shardName := s.index.path(), s.name
-	logger := logrus.New()
-	wantAll := dropDimsCount * dropDimsDim
-
-	// From here the only route to the bucket is from disk.
-	require.NoError(t, s.Shutdown(ctx))
-
-	before, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, logger, indexPath, shardName, dropDimsDropped)
-	require.NoError(t, err)
-	require.Equal(t, wantAll, before.Count*before.Dimensions,
-		"precondition: the unloaded shard must still report %q", dropDimsDropped)
-
-	require.NoError(t, shardusage.RemoveUnloadedTargetVectorDimensions(
-		ctx, logger, indexPath, shardName, dropDimsDropped))
-
-	after, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, logger, indexPath, shardName, dropDimsDropped)
-	require.NoError(t, err)
-	require.Equal(t, 0, after.Count*after.Dimensions,
-		"the dropped vector's rows survived the files-only sweep, so a cold tenant "+
-			"keeps them until something loads the shard")
-
-	keep, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, logger, indexPath, shardName, dropDimsKeep)
-	require.NoError(t, err)
-	require.Equal(t, wantAll, keep.Count*keep.Dimensions,
-		"the surviving sibling %q lost its rows: the sweep must clear one key "+
-			"range, not the shard's whole dimensions bucket", dropDimsKeep)
-}
-
 // TestDropVectorIndex_DimensionsPrefixIsNotEnough pins the key-length filter:
 // a shorter name is a byte prefix of every key the longer one owns.
 func TestDropVectorIndex_DimensionsPrefixIsNotEnough(t *testing.T) {
@@ -209,8 +171,8 @@ func TestDropVectorIndex_DimensionsPrefixIsNotEnough(t *testing.T) {
 	// Written straight to the bucket — these names need rows, not indexes.
 	const shortName, longName = "vec", "vec_extra"
 	for docID := uint64(0); docID < 3; docID++ {
-		require.NoError(t, s.extendDimensionTrackerLSM(dropDimsDim, docID, shortName))
-		require.NoError(t, s.extendDimensionTrackerLSM(dropDimsDim, docID, longName))
+		require.NoError(t, s.addToDimensionBucket(dropDimsDim, docID, shortName, false))
+		require.NoError(t, s.addToDimensionBucket(dropDimsDim, docID, longName, false))
 	}
 
 	got, err := s.Dimensions(ctx, longName)
@@ -286,4 +248,124 @@ func TestDropVectorIndex_ShardLoadClearsDimensionRows(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, wantAll, keep,
 		"the sweep took the surviving sibling %q's rows too", dropDimsKeep)
+}
+
+// TestDropVectorIndex_DimensionsClearSurvivesProcessCrash pins that a clear is
+// on disk when it returns. The unit is recorded complete straight after, and the
+// finalizer can then remove the marker, so no route ever retries a clear that a
+// crash undid: the rows would come back, and a re-created vector of the same
+// name would inherit them.
+func TestDropVectorIndex_DimensionsClearSurvivesProcessCrash(t *testing.T) {
+	ctx := t.Context()
+	s, _ := setupDropDimsShard(t, ctx)
+
+	const rows = 1000
+	for docID := uint64(0); docID < rows; docID++ {
+		require.NoError(t, s.addToDimensionBucket(dropDimsDim, docID, dropDimsDropped, false))
+	}
+	require.NoError(t, s.store.WriteWALs())
+	require.Equal(t, rows*dropDimsDim, dimensionsAfterCrash(t, ctx, s, dropDimsDropped),
+		"precondition: the seeded rows must survive a crash, or the assertion below proves nothing")
+
+	require.NoError(t, removeDimensionsForDroppedVector(ctx, s.index, s.name, dropDimsDropped))
+
+	require.Zero(t, dimensionsAfterCrash(t, ctx, s, dropDimsDropped),
+		"the clear's deletes were still in a write buffer when it returned; a crash now "+
+			"brings every row back")
+}
+
+// dimensionsAfterCrash reads what a restart after a kill at this moment would:
+// the dimensions bucket's directory as it stands on disk, recovered from its
+// segments and WAL, with nothing still buffered in memory.
+func dimensionsAfterCrash(t *testing.T, ctx context.Context, s *Shard, targetVector string) int {
+	t.Helper()
+	crashed := t.TempDir()
+	copyDirTree(t, filepath.Join(s.path(), "lsm", helpers.DimensionsBucketLSM),
+		filepath.Join(crashed, s.name, "lsm", helpers.DimensionsBucketLSM))
+	got, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, logrus.New(), crashed, s.name, targetVector)
+	require.NoError(t, err)
+	return got.Count * got.Dimensions
+}
+
+// TestDropVectorIndex_DimensionsClearStopsWhenShardIsDropped pins that a clear
+// gives way to a drop of its shard. Shard.drop cancels shutCtx once its bounded
+// reference drain gives up, and Store.Shutdown then waits on the clear's bucket
+// pin, so a clear that ignored the cancellation would hold the tenant or
+// collection delete, a RAFT apply, until it finished.
+func TestDropVectorIndex_DimensionsClearStopsWhenShardIsDropped(t *testing.T) {
+	ctx := t.Context()
+	s, _ := setupDropDimsShard(t, ctx)
+
+	const rows = 100
+	for docID := uint64(0); docID < rows; docID++ {
+		require.NoError(t, s.addToDimensionBucket(dropDimsDim, docID, dropDimsDropped, false))
+	}
+
+	s.shutCtxCancel(errors.New("shard dropped"))
+
+	require.ErrorContains(t, s.removeAllDimensionsLSM(ctx, dropDimsDropped), "shard dropped",
+		"the clear has to stop, and say why")
+
+	scan, err := shardusage.ScanTargetVectorDimensions(ctx,
+		s.store.Bucket(helpers.DimensionsBucketLSM), dropDimsDropped, 0)
+	require.NoError(t, err)
+	require.Equal(t, rows, scan.Raw.Count,
+		"the clear kept deleting after its shard's drop cancelled it")
+}
+
+// TestDropVectorIndex_DimensionsClearFailsWhenShardIsNotLoaded pins that the
+// unit's clear only ever goes through a loaded shard. Opened from disk instead,
+// the bucket's registry claim would be held for the whole clear under no shard
+// lock, and an activation, backup or delete of that tenant would collide with
+// it. Failing is safe: an uncredited unit is re-covered once the tenant loads,
+// and the load clears the rows itself.
+func TestDropVectorIndex_DimensionsClearFailsWhenShardIsNotLoaded(t *testing.T) {
+	ctx := t.Context()
+	s, class := setupDropDimsShard(t, ctx)
+	idx := s.index
+
+	require.ErrorIs(t, removeDimensionsForDroppedVector(ctx, idx, "absent", dropDimsDropped),
+		errDimensionsShardNotLoaded, "a shard this node does not hold")
+
+	const cold = "cold-tenant"
+	lazy := NewLazyLoadShard(ctx, nil, cold, idx, class, idx.centralJobQueue,
+		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		false, idx.bitmapBufPool)
+	idx.shards.Store(cold, lazy)
+	t.Cleanup(func() { idx.shards.LoadAndDelete(cold) })
+
+	require.ErrorIs(t, removeDimensionsForDroppedVector(ctx, idx, cold, dropDimsDropped),
+		errDimensionsShardNotLoaded, "a lazy shard that is not loaded")
+	require.False(t, lazy.isLoaded(), "the clear loaded a tenant; loading is the tenant's own business")
+}
+
+// TestDropVectorIndex_StaleWriteDoesNotRecreateDimensionRows pins the write
+// that read the class before the drop. Its dropped-vector check passed against
+// that stale copy, so it reaches dimension tracking after the index is gone
+// and the rows are cleared. Recording them there would hand them to a
+// re-created vector of the same name.
+func TestDropVectorIndex_StaleWriteDoesNotRecreateDimensionRows(t *testing.T) {
+	ctx := t.Context()
+	s, _ := setupDropDimsShard(t, ctx)
+
+	for i := 0; i < dropDimsCount; i++ {
+		require.NoError(t, s.PutObject(ctx, dropDimsObject(i)))
+	}
+	require.NoError(t, s.DropVectorIndex(ctx, dropDimsDropped))
+	require.NoError(t, removeDimensionsForDroppedVector(ctx, s.index, s.name, dropDimsDropped))
+
+	// The class this shard reads still lists the dropped vector as live, which
+	// is exactly what a write that read it before the marker applied sees.
+	require.Error(t, s.PutObject(ctx, dropDimsObject(dropDimsCount)),
+		"precondition: the stale write gets past the class check and fails on the missing index")
+
+	keep, err := s.Dimensions(ctx, dropDimsKeep)
+	require.NoError(t, err)
+	require.Equal(t, (dropDimsCount+1)*dropDimsDim, keep,
+		"precondition: the stale write has to reach dimension tracking, or the assertion below proves nothing")
+
+	dropped, err := s.Dimensions(ctx, dropDimsDropped)
+	require.NoError(t, err)
+	require.Zero(t, dropped,
+		"a write that read the class before the drop re-created the dropped vector's rows after the clear")
 }

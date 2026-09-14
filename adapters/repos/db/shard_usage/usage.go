@@ -256,34 +256,6 @@ func shutdownDimensionsBucket(ctx context.Context, bucket *lsmkv.Bucket, err *er
 	}
 }
 
-// RemoveUnloadedTargetVectorDimensions clears targetVector's rows from disk.
-// Callers must know the shard is unloaded: a loaded shard holds the bucket open
-// through its own store. A missing bucket is not created here.
-func RemoveUnloadedTargetVectorDimensions(ctx context.Context,
-	logger logrus.FieldLogger, path, tenantName, targetVector string,
-) (err error) {
-	bucketPath := shardPathDimensionsLSM(path, tenantName)
-	if _, err := os.Stat(bucketPath); err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("stat dimensions bucket: %w", err)
-	}
-
-	if err := unloadedDimensionsBucketLocks.LockWithContext(bucketPath, ctx); err != nil {
-		return fmt.Errorf("lock dimensions bucket: %w", err)
-	}
-	defer unloadedDimensionsBucketLocks.Unlock(bucketPath)
-
-	bucket, err := openUnloadedDimensionsBucket(ctx, logger, path, bucketPath)
-	if err != nil {
-		return err
-	}
-	defer shutdownDimensionsBucket(ctx, bucket, &err)
-
-	return RemoveTargetVectorDimensions(ctx, bucket, targetVector)
-}
-
 // CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
 func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLogger, path, tenantName, targetVector string) (_ types.Dimensionality, err error) {
 	bucketPath := shardPathDimensionsLSM(path, tenantName)
@@ -575,22 +547,33 @@ const contextCheckInterval = 1024
 // removeRoaringSetRow deletes one row's doc IDs in bounded batches, so neither
 // the WAL append nor the memtable lock is held for the whole set at once.
 //
-// The row is read through its own cursor rather than RoaringSetGet: an unloaded
-// dimensions bucket is opened without a bitmap buffer pool, which the segment
-// read path dereferences.
+// The IDs stay compressed until each batch is cut from the bitmap. A plain
+// vector keeps every object carrying it under one row, so expanding the row
+// costs eight bytes per object, and a bulk activation runs this for many
+// tenants at once.
 func removeRoaringSetRow(ctx context.Context, b *lsmkv.Bucket, key []byte) error {
-	values, err := roaringSetRowValues(ctx, b, key)
-	if err != nil || len(values) == 0 {
+	row, err := roaringSetRow(ctx, b, key)
+	if err != nil || row == nil {
 		return err
 	}
 
-	for start := 0; start < len(values); start += dimensionsDeleteChunk {
+	// Next reports exhaustion as 0, which is also a valid doc ID, so the count
+	// bounds the walk instead.
+	remaining := row.GetCardinality()
+	it := row.NewIterator()
+	// Reused across batches: the memtable and its commit log both copy the values.
+	batch := make([]uint64, 0, min(remaining, dimensionsDeleteChunk))
+	for remaining > 0 {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		end := min(start+dimensionsDeleteChunk, len(values))
+		batch = batch[:0]
+		for len(batch) < cap(batch) && remaining > 0 {
+			batch = append(batch, it.Next())
+			remaining--
+		}
 		if err := b.RoaringSetRemoveBatch([]lsmkv.RoaringSetBatchEntry{
-			{Key: key, Values: values[start:end]},
+			{Key: key, Values: batch},
 		}); err != nil {
 			return err
 		}
@@ -598,9 +581,11 @@ func removeRoaringSetRow(ctx context.Context, b *lsmkv.Bucket, key []byte) error
 	return nil
 }
 
-// roaringSetRowValues reads one row and closes the cursor before returning, so
-// the row's segments are not pinned while it is deleted.
-func roaringSetRowValues(ctx context.Context, b *lsmkv.Bucket, key []byte) ([]uint64, error) {
+// roaringSetRow reads one row into a bitmap of its own and closes the cursor
+// before returning, so the row's segments are not pinned while it is deleted.
+// It reads through a cursor rather than RoaringSetGet, which needs a bitmap
+// buffer pool a bucket can be opened without.
+func roaringSetRow(ctx context.Context, b *lsmkv.Bucket, key []byte) (*sroar.Bitmap, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -611,7 +596,7 @@ func roaringSetRowValues(ctx context.Context, b *lsmkv.Bucket, key []byte) ([]ui
 	if k == nil || !bytes.Equal(k, key) || v == nil {
 		return nil, nil
 	}
-	return v.ToArray(), nil
+	return v.Clone(), nil
 }
 
 // removeMapRow deletes one row's entries in bounded batches. The doc IDs are
@@ -634,9 +619,6 @@ func removeMapRow(ctx context.Context, b *lsmkv.Bucket, key []byte) error {
 		// doc IDs is a long uninterruptible stretch otherwise.
 		if i%dimensionsDeleteChunk == 0 {
 			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if err := flushIfMemtableFull(b); err != nil {
 				return err
 			}
 		}
@@ -668,19 +650,6 @@ func mapRowKeys(ctx context.Context, b *lsmkv.Bucket, key []byte) ([][]byte, err
 		mapKeys = append(mapKeys, bytes.Clone(pair.Key))
 	}
 	return mapKeys, nil
-}
-
-// flushIfMemtableFull switches the memtable once it passes the bucket's own
-// threshold. A dimensions bucket opened from disk runs on noop cycle callbacks,
-// so nothing else ever switches it and every tombstone this clear writes would
-// stay in memory until Shutdown — one per object on the map path. Flushing per
-// delete chunk instead would leave a segment per chunk behind, with no
-// compaction to merge them either.
-func flushIfMemtableFull(b *lsmkv.Bucket) error {
-	if b.ActiveMemtableSize() < b.GetMemtableThreshold() {
-		return nil
-	}
-	return b.FlushMemtable()
 }
 
 // dimensionsDeleteChunk bounds one delete batch. A dimensions row lists every

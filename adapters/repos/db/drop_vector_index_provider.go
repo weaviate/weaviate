@@ -387,7 +387,12 @@ func (p *DropVectorIndexProvider) drainUnit(
 		if ctx.Err() != nil {
 			return // shutdown: resume after restart, do not mark failed
 		}
-		p.failUnit(ctx, task, unitID, "clear dimension rows: "+err.Error())
+		msg := "clear dimension rows: " + err.Error()
+		if errors.Is(err, errDimensionsShardNotLoaded) {
+			msg += " (tenant deactivated, offloaded, or deleted after its drain; reconciliation " +
+				"re-covers the tenant on reactivation, and loading it clears the rows)"
+		}
+		p.failUnit(ctx, task, unitID, msg)
 		return
 	}
 

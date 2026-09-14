@@ -3930,11 +3930,6 @@ func (i *Index) dropShards(names []string) error {
 			i.shardCreateLocks.Lock(name)
 			defer i.shardCreateLocks.Unlock(name)
 
-			// Whether it was loaded or not: the shard is going away, and its
-			// usage-invalidation count is keyed by path with nothing else to
-			// remove it.
-			shardusage.ForgetComputedUsageGeneration(i.path(), name)
-
 			shard, ok := i.shards.LoadAndDelete(name)
 			if !ok {
 				// Ensure that if the shard is not loaded we delete any reference on disk for any data.
@@ -3953,6 +3948,11 @@ func (i *Index) dropShards(names []string) error {
 					i.logger.WithField("action", "drop_shard").WithField("shard", shard.ID()).Error(err)
 				}
 			}
+
+			// After the drop, not before: a drop-vector clear holding a reference
+			// on this shard invalidates its usage record as it finishes, which
+			// re-creates the count, and the drop is what waits that reference out.
+			shardusage.ForgetComputedUsageGeneration(i.path(), name)
 
 			return nil
 		})
