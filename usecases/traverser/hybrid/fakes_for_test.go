@@ -14,6 +14,7 @@ package hybrid
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -36,6 +37,7 @@ func (*fakeTargetVectorParamHelper) GetTargetVectorOrDefault(getClass func(strin
 }
 
 type fakeSchemaManager struct {
+	local.ClassReader
 	schema schema.Schema
 }
 

@@ -20,6 +20,7 @@ import (
 	"path"
 	"sync"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
@@ -29,13 +30,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storagestate"
-	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 type filterableToSearchableMigrator struct {
 	logger       logrus.FieldLogger
 	files        *filterableToSearchableMigrationFiles
-	schemaGetter schema.SchemaGetter
+	schemaGetter local.ClassReader
 	indexes      map[string]*Index
 }
 

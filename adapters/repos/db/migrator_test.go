@@ -72,7 +72,7 @@ func TestUpdateIndexTenants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
+			mockSchemaGetter := schemaUC.NewMockSchema(t)
 
 			class := &models.Class{
 				Class:               "TestClass",
@@ -115,7 +115,7 @@ func TestUpdateIndexTenants(t *testing.T) {
 				ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
-				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 			require.NoError(t, err)
 			shutdownIndexOnCleanup(t, index)
 
@@ -371,7 +371,7 @@ func TestUpdateIndexTenantsCompletesDespiteFailures(t *testing.T) {
 			}
 
 			idx, _ := newDropTestIndex(t)
-			sg := schemaUC.NewMockSchemaGetter(t)
+			sg := schemaUC.NewMockSchema(t)
 			sg.EXPECT().ReadOnlyClass(mock.Anything).
 				Return(&models.Class{Class: idx.Config.ClassName.String()}).Maybe()
 			idx.getSchema = sg
@@ -538,7 +538,7 @@ func TestUpdateIndexShards(t *testing.T) {
 			ctx := context.Background()
 			logger := logrus.New()
 
-			mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
+			mockSchemaGetter := schemaUC.NewMockSchema(t)
 
 			// Create a test class
 			class := &models.Class{
@@ -596,7 +596,7 @@ func TestUpdateIndexShards(t *testing.T) {
 				EnableLazyLoadShards: tt.lazyLoading, // Enable lazy loading when lazyLoading is true
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
-				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 			require.NoError(t, err)
 			shutdownIndexOnCleanup(t, index)
 
@@ -816,7 +816,7 @@ func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 			}
 
 			idx, _ := newDropTestIndex(t)
-			sg := schemaUC.NewMockSchemaGetter(t)
+			sg := schemaUC.NewMockSchema(t)
 			sg.EXPECT().ReadOnlyClass(mock.Anything).
 				Return(&models.Class{Class: idx.Config.ClassName.String()}).Maybe()
 			idx.getSchema = sg
@@ -913,7 +913,7 @@ func TestUpdateIndexAddsPropertiesDespiteShardFailure(t *testing.T) {
 				Properties: []*models.Property{{Name: "location", DataType: []string{"geoCoordinates"}}},
 			}
 
-			sg := schemaUC.NewMockSchemaGetter(t)
+			sg := schemaUC.NewMockSchema(t)
 			sg.EXPECT().ReadOnlyClass(mock.Anything).Return(class).Maybe()
 			idx.getSchema = sg
 			m := &Migrator{
@@ -1021,7 +1021,7 @@ func TestShardsStatusNonExistingIndexWrapsNotFound(t *testing.T) {
 }
 
 func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
-	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
+	mockSchemaGetter := schemaUC.NewMockSchema(t)
 
 	class := &models.Class{
 		Class:               "TestClass",
@@ -1063,7 +1063,7 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 	require.NoError(t, err)
 	shutdownIndexOnCleanup(t, index)
 	// HaltForTransfer's backup-gate would refuse the test's

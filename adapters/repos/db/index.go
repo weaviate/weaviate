@@ -252,7 +252,7 @@ type Index struct {
 	Config                  IndexConfig
 	globalreplicationConfig *replication.GlobalConfig
 
-	getSchema    schemaUC.SchemaGetter
+	getSchema    schemaUC.Schema
 	schemaReader local.SchemaReader
 
 	// replicationFSMReader is wired post-construction (migrator/init) while
@@ -379,10 +379,9 @@ type Index struct {
 
 	shardReindexer ShardReindexerV3
 
-	router         routerTypes.Router
-	shardResolver  *resolver.ShardResolver
-	bitmapBufPool  roaringset.BitmapBufPool
-	tenantsManager schemaUC.TenantsActivityManager
+	router        routerTypes.Router
+	shardResolver *resolver.ShardResolver
+	bitmapBufPool roaringset.BitmapBufPool
 
 	// usageLimits is inherited from the owning DB at index creation; nil
 	// means no enforcement. Read by Shards on the write path. See
@@ -428,7 +427,7 @@ func NewIndex(
 	vectorIndexUserConfigs map[string]schemaConfig.VectorIndexConfig,
 	router routerTypes.Router,
 	shardResolver *resolver.ShardResolver,
-	sg schemaUC.SchemaGetter,
+	sg schemaUC.Schema,
 	schemaReader local.SchemaReader,
 	cs inverted.ClassSearcher,
 	logger logrus.FieldLogger,
@@ -444,7 +443,6 @@ func NewIndex(
 	shardReindexer ShardReindexerV3,
 	bitmapBufPool roaringset.BitmapBufPool,
 	asyncIndexingEnabled bool,
-	tenantsManager schemaUC.TenantsActivityManager,
 ) (*Index, error) {
 	err := tokenizer.AddCustomDict(class.Class, invertedIndexConfig.TokenizerUserDict)
 	if err != nil {
@@ -488,7 +486,7 @@ func NewIndex(
 		stopwords:               sd,
 		partitioningEnabled:     multitenancy.IsMultiTenant(class.MultiTenancyConfig),
 		AsyncIndexingEnabled:    asyncIndexingEnabled,
-		remote:                  remote.NewIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
+		remote:                  remote.NewIndex(cfg.ClassName.String(), sg, sg, nodeResolver, remoteClient),
 		metrics:                 metrics,
 		centralJobQueue:         jobQueueCh,
 		backupLock:              esync.NewKeyRWLocker(),
@@ -504,7 +502,6 @@ func NewIndex(
 		router:                  router,
 		shardResolver:           shardResolver,
 		bitmapBufPool:           bitmapBufPool,
-		tenantsManager:          tenantsManager,
 	}
 	index.closeRequestedCtx, index.signalCloseRequested = context.WithCancelCause(context.Background())
 	index.stopwordProvider.Store(stopwords.NewProvider(sd, presetDetectors))
@@ -2626,7 +2623,7 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 		func() error {
 			var err error
 			if exists, err = i.remote.Exists(ctx, shardName, id); err != nil {
-				owner, _ := i.getSchema.ShardOwner(i.Config.ClassName.String(), shardName)
+				owner, _, _ := i.getSchema.ShardOwnerFromLeader(i.Config.ClassName.String(), shardName)
 				return fmt.Errorf("exists remotely: shard=%q owner=%q: %w", shardName, owner, err)
 			}
 			return nil
