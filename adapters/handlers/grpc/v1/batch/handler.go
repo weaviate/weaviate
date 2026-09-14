@@ -27,7 +27,6 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -36,11 +35,22 @@ type Handler struct {
 	authenticator     *auth.Handler
 	batchManager      *objects.BatchManager
 	logger            logrus.FieldLogger
-	schemaManager     *schema.Manager
+	schemaManager     schemaManager
 	namespacesEnabled bool
 }
 
-func NewHandler(authorizer authorization.Authorizer, batchManager *objects.BatchManager, logger logrus.FieldLogger, authenticator *auth.Handler, schemaManager *schema.Manager, namespacesEnabled bool) *Handler {
+// classTenant keys BatchObjects's per-request authorization memo. A struct keeps two different pairs
+// from sharing a key, which a joined string does once a name carries the separator.
+type classTenant struct {
+	class, tenant string
+}
+
+type authorizedClass struct {
+	class *models.Class
+	err   error
+}
+
+func NewHandler(authorizer authorization.Authorizer, batchManager *objects.BatchManager, logger logrus.FieldLogger, authenticator *auth.Handler, schemaManager schemaManager, namespacesEnabled bool) *Handler {
 	return &Handler{
 		authorizer:        authorizer,
 		authenticator:     authenticator,
@@ -66,41 +76,33 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	//   a combination of class+shard
 	// - to pass down the stack to reuse, index by classname so it can be found easily
 	knownClasses := map[string]versioned.Class{}
-	knownClassesAuthCheck := map[string]*models.Class{}
+	knownClassesAuthCheck := map[classTenant]authorizedClass{}
 	classGetter := func(classname, shard string) (string, *models.Class, error) {
 		resolved, qualifiedAlias, err := namespacing.Resolve(principal, h.schemaManager, h.namespacesEnabled, classname)
 		if err != nil {
 			return "", nil, err
 		}
-		classname = resolved
-		// use a letter that cannot be in class/shard name to not allow different combinations leading to the same combined name
-		classTenantName := classname + "#" + shard
-		class, ok := knownClassesAuthCheck[classTenantName]
-		if ok {
-			return resolved, class, nil
+		// knownClassesAuthCheck holds refusals too, so a refused pair is authorized and logged once per request.
+		key := classTenant{class: resolved, tenant: shard}
+		known, ok := knownClassesAuthCheck[key]
+		if !ok {
+			var vClass versioned.Class
+			vClass, known.err = h.authorizeObjectsWrite(ctx, principal, resolved, shard)
+			known.class = vClass.Class
+			knownClassesAuthCheck[key] = known
+			if known.err == nil {
+				knownClasses[resolved] = vClass
+			}
 		}
-
-		// batch is upsert
-		if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(classname, shard)...); err != nil {
-			return "", nil, err
+		if known.err != nil {
+			return "", nil, known.err
 		}
-
-		if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(classname, shard)...); err != nil {
-			return "", nil, err
+		// The guard runs per object because the key omits the alias. Without it the nil class falls into
+		// auto-schema and silently re-creates the deleted target.
+		if qualifiedAlias != "" && known.class == nil {
+			return "", nil, fmt.Errorf("alias %q points to collection %q which does not exist", qualifiedAlias, resolved)
 		}
-
-		// we don't leak any info that someone who inserts data does not have anyway
-		vClass, err := h.schemaManager.GetCachedClassNoAuth(ctx, classname)
-		if err != nil {
-			return "", nil, err
-		}
-		// Without this guard the nil class falls into auto-schema and silently re-creates the deleted target.
-		if qualifiedAlias != "" && vClass[classname].Class == nil {
-			return "", nil, fmt.Errorf("alias %q points to collection %q which does not exist", qualifiedAlias, classname)
-		}
-		knownClasses[classname] = vClass[classname]
-		knownClassesAuthCheck[classTenantName] = vClass[classname].Class
-		return resolved, vClass[classname].Class, nil
+		return resolved, known.class, nil
 	}
 	objs, objOriginalIndex, objectParsingErrors := BatchObjectsFromProto(req, classGetter, principal, h.namespacesEnabled)
 
@@ -143,6 +145,24 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 // named "https" cannot cut the link's scheme.
 func errorMessage(principal *models.Principal, err error) string {
 	return enterrors.AppendDocsLink(namespacing.StripErrorMessage(principal, fmt.Sprintf("%v", err)), err)
+}
+
+func (h *Handler) authorizeObjectsWrite(ctx context.Context, principal *models.Principal, classname, shard string) (versioned.Class, error) {
+	// batch is upsert
+	if err := h.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, classname, authorization.ShardsData(classname, shard)...); err != nil {
+		return versioned.Class{}, err
+	}
+
+	if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(classname, shard)...); err != nil {
+		return versioned.Class{}, err
+	}
+
+	// we don't leak any info that someone who inserts data does not have anyway
+	vClass, err := h.schemaManager.GetCachedClassNoAuth(ctx, classname)
+	if err != nil {
+		return versioned.Class{}, err
+	}
+	return vClass[classname], nil
 }
 
 func (h *Handler) BatchReferences(ctx context.Context, req *pb.BatchReferencesRequest) (reply *pb.BatchReferencesReply, retErr error) {

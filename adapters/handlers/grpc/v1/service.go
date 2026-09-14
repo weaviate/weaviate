@@ -227,7 +227,7 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 		return nil, err
 	}
 
-	if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.ShardsData(req.Collection, tenant)...); err != nil {
+	if err := s.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.DELETE, req.Collection, authorization.ShardsData(req.Collection, tenant)...); err != nil {
 		return nil, err
 	}
 
