@@ -625,13 +625,14 @@ func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
 }
 
 // DropVectorIndex routes to the loaded shard or to disk, deciding and acting
-// under l.mutex. Shutdown, drop and loadIfCold all take it, so none of them can
-// land between the decision and the removal.
+// under l.mutex, which Shutdown, drop and loadIfCold all take.
 //
-// Disk is only for a shard whose store is closed. A deactivation that timed out
-// on a held reference leaves the shard loaded, its shutdown pending and its
-// store open: deleting the vector's files under that store fails the pending
-// teardown, and the tenant cannot reactivate until the process restarts.
+// Disk is only for a shard whose teardown has finished. A deactivation that
+// timed out on a held reference leaves the shard loaded with its shutdown
+// pending, and the last reference's release later runs that teardown on its own
+// goroutine, without l.mutex. Deleting the vector's files while the store still
+// holds them, before or during that teardown, fails its flush, and the tenant
+// cannot reactivate until the process restarts.
 //
 // No reference is taken. This runs in the RAFT apply, and releasing a reference
 // runs a pending shutdown inline on the releasing goroutine.
@@ -639,7 +640,7 @@ func (l *LazyLoadShard) DropVectorIndex(ctx context.Context, targetVector string
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if l.loaded && l.shard != nil && !l.shard.shut.Load() {
+	if l.loaded && l.shard != nil && !l.shard.teardownFinished() {
 		return l.shard.DropVectorIndex(ctx, targetVector)
 	}
 	return l.dropUnloadedVectorIndex(targetVector)

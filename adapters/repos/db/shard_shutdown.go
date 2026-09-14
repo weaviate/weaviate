@@ -430,6 +430,16 @@ func (s *Shard) shutOrDropped() bool {
 	return s.shut.Load() || (s.shutCtx != nil && s.shutCtx.Err() != nil)
 }
 
+// teardownFinished reports that a shutdown has run to completion. shut alone
+// only says one has started: performShutdown sets it before flushing anything
+// and holds shutdownLock for writing until the store is closed, so taking the
+// read lock waits out a teardown in progress.
+func (s *Shard) teardownFinished() bool {
+	s.shutdownLock.RLock()
+	defer s.shutdownLock.RUnlock()
+	return s.shut.Load()
+}
+
 func (s *Shard) preventShutdown() (release func(), err error) {
 	if s.shutdownRequested.Load() {
 		return func() {}, errShutdownInProgress

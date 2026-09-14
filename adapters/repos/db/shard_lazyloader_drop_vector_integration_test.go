@@ -15,6 +15,8 @@ package db
 
 import (
 	"fmt"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,6 +24,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -31,31 +34,31 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-// TestLazyDropVectorIndex_PendingShutdownGoesThroughTheShard pins how a drop is
-// routed while a deactivation still waits on a held reference. The shard is
-// loaded, its shutdown pending and its store open, so the vector's files have
-// to go through that store. Removed from disk instead, the store's final flush
-// writes into directories that are gone once the reference is released: the
-// teardown fails, and the tenant cannot be loaded again until restart.
-func TestLazyDropVectorIndex_PendingShutdownGoesThroughTheShard(t *testing.T) {
+const (
+	lazyDropKeep    = "keep"
+	lazyDropDropped = "to_drop"
+)
+
+// newLazyDropTenant loads a lazy tenant with two named vectors and enough
+// writes that the dropped one's compressed bucket has a memtable to flush at
+// shutdown. BQ is what gives that vector a bucket every insert writes through
+// the store. reload opens the same tenant afresh.
+func newLazyDropTenant(t *testing.T) (lazy *LazyLoadShard, reload func() *LazyLoadShard) {
+	t.Helper()
 	ctx := t.Context()
 
 	const (
-		tenant  = "pending-shutdown"
-		keep    = "keep"
-		dropped = "to_drop"
+		tenant  = "lazy-drop"
 		dims    = 64
 		objects = 1500
 	)
 
 	keepCfg := hnsw.NewDefaultUserConfig()
-	// BQ gives the dropped vector a bucket that every insert writes through the
-	// store, which is the bucket a removal from disk pulls out from under it.
 	dropCfg := hnsw.NewDefaultUserConfig()
 	dropCfg.BQ = hnsw.BQConfig{Enabled: true}
 
 	class := &models.Class{
-		Class: "LazyDropPendingShutdown",
+		Class: "LazyDropVectorIndex",
 		InvertedIndexConfig: &models.InvertedIndexConfig{
 			UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 		},
@@ -65,19 +68,19 @@ func TestLazyDropVectorIndex_PendingShutdownGoesThroughTheShard(t *testing.T) {
 			Tokenization: models.PropertyTokenizationWord,
 		}},
 		VectorConfig: map[string]models.VectorConfig{
-			keep:    {VectorIndexType: keepCfg.IndexType(), VectorIndexConfig: keepCfg},
-			dropped: {VectorIndexType: dropCfg.IndexType(), VectorIndexConfig: dropCfg},
+			lazyDropKeep:    {VectorIndexType: keepCfg.IndexType(), VectorIndexConfig: keepCfg},
+			lazyDropDropped: {VectorIndexType: dropCfg.IndexType(), VectorIndexConfig: dropCfg},
 		},
 	}
 	_, idx := testShardWithSettings(t, ctx, class, hnsw.UserConfig{Distance: common.DefaultDistanceMetric},
 		false, true, false, func(i *Index) {
 			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
-				keep:    keepCfg,
-				dropped: dropCfg,
+				lazyDropKeep:    keepCfg,
+				lazyDropDropped: dropCfg,
 			}
 		})
 
-	newLazy := func() *LazyLoadShard {
+	reload = func() *LazyLoadShard {
 		return NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
 			idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
 			false, idx.bitmapBufPool)
@@ -90,7 +93,7 @@ func TestLazyDropVectorIndex_PendingShutdownGoesThroughTheShard(t *testing.T) {
 		return v
 	}
 
-	lazy := newLazy()
+	lazy = reload()
 	require.NoError(t, lazy.Load(ctx))
 	for i := 0; i < objects; i++ {
 		require.NoError(t, lazy.PutObject(ctx, &storobj.Object{
@@ -100,29 +103,94 @@ func TestLazyDropVectorIndex_PendingShutdownGoesThroughTheShard(t *testing.T) {
 				Class:      class.Class,
 				Properties: map[string]interface{}{"label": fmt.Sprintf("obj-%d", i)},
 			},
-			Vectors: map[string][]float32{keep: vector(i, 0), dropped: vector(i, 1000)},
+			Vectors: map[string][]float32{lazyDropKeep: vector(i, 0), lazyDropDropped: vector(i, 1000)},
 		}))
 	}
+	return lazy, reload
+}
 
-	// A request still holds the shard, so the deactivation gives up waiting and
-	// leaves its shutdown pending.
+// holdShutdownPending lets a deactivation time out on a held reference, which
+// leaves the shard loaded with its shutdown pending. Releasing the reference
+// runs that teardown on the releasing goroutine.
+func holdShutdownPending(t *testing.T, lazy *LazyLoadShard) (release func()) {
+	t.Helper()
 	release, err := lazy.shard.preventShutdown()
 	require.NoError(t, err)
-	require.ErrorIs(t, lazy.Shutdown(ctx), errShardStillInUse)
+	require.ErrorIs(t, lazy.Shutdown(t.Context()), errShardStillInUse)
 	require.True(t, lazy.isLoaded(), "precondition: a timed-out deactivation leaves the shard loaded")
+	return release
+}
 
-	require.NoError(t, lazy.DropVectorIndex(ctx, dropped))
+// requireTenantReloads asserts the tenant came through its teardown intact. A
+// failed teardown keeps its buckets registered, so a fresh load of the same
+// tenant fails until the process restarts.
+func requireTenantReloads(t *testing.T, lazy *LazyLoadShard, reload func() *LazyLoadShard) {
+	t.Helper()
+	require.NoError(t, shardTeardownError(lazy),
+		"the teardown failed: the drop removed the vector's files from disk while the store "+
+			"still held them, so its flush wrote into directories that were gone")
+	again := reload()
+	require.NoError(t, again.Load(t.Context()), "the tenant cannot be loaded again")
+	require.NoError(t, again.Shutdown(t.Context()))
+}
+
+// TestLazyDropVectorIndex_PendingShutdownGoesThroughTheShard pins a drop that
+// lands before the pending teardown starts. The store is open, so the vector's
+// files have to go through it.
+func TestLazyDropVectorIndex_PendingShutdownGoesThroughTheShard(t *testing.T) {
+	ctx := t.Context()
+	lazy, reload := newLazyDropTenant(t)
+	release := holdShutdownPending(t, lazy)
+
+	require.NoError(t, lazy.DropVectorIndex(ctx, lazyDropDropped))
 
 	release()
-	require.Eventually(t, func() bool { return lazy.shard.shut.Load() }, 10*time.Second, 50*time.Millisecond,
+	require.Eventually(t, lazy.shard.shut.Load, 10*time.Second, 50*time.Millisecond,
 		"precondition: releasing the last reference completes the pending shutdown")
-	require.NoError(t, shardTeardownError(lazy),
-		"the pending shutdown failed: the drop removed the vector's files from disk while the "+
-			"store still held them open, so its final flush wrote into directories that were gone")
+	requireTenantReloads(t, lazy, reload)
+}
 
-	again := newLazy()
-	require.NoError(t, again.Load(ctx),
-		"the tenant cannot be loaded again: a failed teardown keeps its buckets registered "+
-			"until the process restarts")
-	require.NoError(t, again.Shutdown(ctx))
+// TestLazyDropVectorIndex_WaitsOutATeardownInProgress pins a drop that lands
+// while the pending teardown is already running. A teardown marks the shard
+// shut before it flushes anything, so a drop that took that mark as a closed
+// store would delete the vector's files mid-flush.
+func TestLazyDropVectorIndex_WaitsOutATeardownInProgress(t *testing.T) {
+	ctx := t.Context()
+	lazy, reload := newLazyDropTenant(t)
+
+	compressed := helpers.GetCompressedBucketName(lazyDropDropped)
+	compressedDir := filepath.Join(lazy.shard.path(), "lsm", compressed)
+
+	// The pin stalls the store's shutdown at this bucket, before it is flushed.
+	bucket, unpinBucket := lazy.shard.store.AcquireBucketForRead(compressed)
+	require.NotNil(t, bucket, "precondition: the dropped vector has a compressed bucket")
+	unpin := sync.OnceFunc(unpinBucket)
+	t.Cleanup(unpin)
+
+	release := holdShutdownPending(t, lazy)
+	teardownDone := make(chan struct{})
+	go func() {
+		defer close(teardownDone)
+		release()
+	}()
+	require.Eventually(t, lazy.shard.shut.Load, 10*time.Second, 10*time.Millisecond,
+		"precondition: the teardown has started")
+
+	dropErr := make(chan error, 1)
+	go func() { dropErr <- lazy.DropVectorIndex(ctx, lazyDropDropped) }()
+
+	time.Sleep(300 * time.Millisecond)
+	select {
+	case err := <-dropErr:
+		t.Fatalf("the drop returned (err=%v) while the teardown was still flushing the store", err)
+	default:
+	}
+	require.DirExists(t, compressedDir,
+		"the drop deleted the vector's files while the teardown was still flushing them")
+
+	unpin()
+	<-teardownDone
+	require.NoError(t, <-dropErr)
+	require.NoDirExists(t, compressedDir, "once the teardown finished, the drop still has to remove the files")
+	requireTenantReloads(t, lazy, reload)
 }
