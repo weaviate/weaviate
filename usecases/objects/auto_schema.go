@@ -45,18 +45,18 @@ type objectFinder interface {
 }
 
 type AutoSchemaManager struct {
-	mutex         sync.RWMutex
-	schemaManager schemaManager
-	objectFinder  objectFinder
-	config        config.AutoSchema
-	logger        logrus.FieldLogger
+	mutex        sync.RWMutex
+	schemaWriter autoSchemaWriter
+	objectFinder objectFinder
+	config       config.AutoSchema
+	logger       logrus.FieldLogger
 
 	// Metrics without labels to avoid cardinality issues
 	opsDuration  *prometheus.HistogramVec
 	tenantsCount prometheus.Counter
 }
 
-func NewAutoSchemaManager(schemaManager schemaManager, objectFinder objectFinder,
+func NewAutoSchemaManager(schemaWriter autoSchemaWriter, objectFinder objectFinder,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
 	reg prometheus.Registerer,
 ) *AutoSchemaManager {
@@ -78,12 +78,12 @@ func NewAutoSchemaManager(schemaManager schemaManager, objectFinder objectFinder
 	)
 
 	return &AutoSchemaManager{
-		schemaManager: schemaManager,
-		objectFinder:  objectFinder,
-		config:        config.Config.AutoSchema,
-		logger:        logger,
-		tenantsCount:  tenantsCount,
-		opsDuration:   opDuration,
+		schemaWriter: schemaWriter,
+		objectFinder: objectFinder,
+		config:       config.Config.AutoSchema,
+		logger:       logger,
+		tenantsCount: tenantsCount,
+		opsDuration:  opDuration,
 	}
 }
 
@@ -136,7 +136,7 @@ func (m *AutoSchemaManager) autoSchema(ctx context.Context, principal *models.Pr
 		} else {
 			if newProperties := schema.DedupProperties(schemaClass.Properties, properties); len(newProperties) > 0 {
 				var err error
-				schemaClass, schemaVersion, err = m.schemaManager.AddClassProperty(ctx,
+				schemaClass, schemaVersion, err = m.schemaWriter.AddClassProperty(ctx,
 					principal, namespacing.StripOwnNamespace(principal, schemaClass.Class), true, newProperties...)
 				if err != nil {
 					return 0, fmt.Errorf("auto-schema: update collection: %w", err)
@@ -175,7 +175,7 @@ func (m *AutoSchemaManager) createClass(ctx context.Context, principal *models.P
 	m.logger.
 		WithField("auto_schema", "createClass").
 		Debugf("create class %s", className)
-	newClass, schemaVersion, err := m.schemaManager.AddClass(ctx, principal, class)
+	newClass, schemaVersion, err := m.schemaWriter.AddClass(ctx, principal, class)
 	return newClass, schemaVersion, err
 }
 
@@ -689,12 +689,12 @@ func (m *AutoSchemaManager) addTenants(ctx context.Context, principal *models.Pr
 		return 0, fmt.Errorf(
 			"tenants must be included for multitenant-enabled class %q", class)
 	}
-	version, err := m.schemaManager.AddTenants(ctx, principal, namespacing.StripOwnNamespace(principal, class), tenants)
+	version, err := m.schemaWriter.AddTenants(ctx, principal, namespacing.StripOwnNamespace(principal, class), tenants)
 	if err != nil {
 		return 0, err
 	}
 
-	err = m.schemaManager.WaitForUpdate(ctx, version)
+	err = m.schemaWriter.WaitForUpdate(ctx, version)
 	if err != nil {
 		return 0, fmt.Errorf("could not wait for update: %w", err)
 	}

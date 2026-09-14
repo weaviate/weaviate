@@ -661,10 +661,10 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 			Return(searchResults([]string{"Article"}), nil).Once()
 		logger, _ := test.NewNullLogger()
 		m := &AutoSchemaManager{
-			schemaManager: &fakeSchemaManager{},
-			objectFinder:  vectorRepo,
-			logger:        logger,
-			config:        tt.fields.config,
+			schemaWriter: &fakeSchemaManager{},
+			objectFinder: vectorRepo,
+			logger:       logger,
+			config:       tt.fields.config,
 		}
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := m.determineType(context.Background(), refTarget{}, tt.args.value, false)
@@ -741,8 +741,8 @@ func Test_autoSchemaManager_autoSchema_emptyRequest(t *testing.T) {
 	schemaManager := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
 	autoSchemaManager := &AutoSchemaManager{
-		schemaManager: schemaManager,
-		objectFinder:  vectorRepo,
+		schemaWriter: schemaManager,
+		objectFinder: vectorRepo,
 		config: config.AutoSchema{
 			Enabled:       runtime.NewDynamicValue(true),
 			DefaultString: schema.DataTypeText.String(),
@@ -768,8 +768,8 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 	schemaManager := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
 	autoSchemaManager := &AutoSchemaManager{
-		schemaManager: schemaManager,
-		objectFinder:  vectorRepo,
+		schemaWriter: schemaManager,
+		objectFinder: vectorRepo,
 		config: config.AutoSchema{
 			Enabled:       runtime.NewDynamicValue(true),
 			DefaultString: schema.DataTypeText.String(),
@@ -854,8 +854,8 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 		},
 	}
 	autoSchemaManager := &AutoSchemaManager{
-		schemaManager: schemaManager,
-		objectFinder:  vectorRepo,
+		schemaWriter: schemaManager,
+		objectFinder: vectorRepo,
 		config: config.AutoSchema{
 			Enabled:       runtime.NewDynamicValue(true),
 			DefaultString: schema.DataTypeText.String(),
@@ -1432,8 +1432,8 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 	}
 
 	manager := &AutoSchemaManager{
-		schemaManager: &fakeSchemaManager{},
-		objectFinder:  &fakeObjectFinder{},
+		schemaWriter: &fakeSchemaManager{},
+		objectFinder: &fakeObjectFinder{},
 		config: config.AutoSchema{
 			Enabled:       runtime.NewDynamicValue(true),
 			DefaultNumber: schema.DataTypeNumber.String(),
@@ -1721,9 +1721,9 @@ func searchResults(classNames []string) search.Results {
 func newBeaconTestManager(vectorRepo *fakeObjectFinder) *AutoSchemaManager {
 	logger, _ := test.NewNullLogger()
 	return &AutoSchemaManager{
-		schemaManager: &fakeSchemaManager{},
-		objectFinder:  vectorRepo,
-		logger:        logger,
+		schemaWriter: &fakeSchemaManager{},
+		objectFinder: vectorRepo,
+		logger:       logger,
 		config: config.AutoSchema{
 			Enabled:       runtime.NewDynamicValue(true),
 			DefaultNumber: schema.DataTypeNumber.String(),
@@ -2072,8 +2072,8 @@ func Test_autoSchemaManager_perform_withNested(t *testing.T) {
 		},
 	}
 	manager := &AutoSchemaManager{
-		schemaManager: schemaManager,
-		objectFinder:  &fakeObjectFinder{},
+		schemaWriter: schemaManager,
+		objectFinder: &fakeObjectFinder{},
 		config: config.AutoSchema{
 			Enabled:       runtime.NewDynamicValue(true),
 			DefaultNumber: schema.DataTypeNumber.String(),

@@ -300,7 +300,7 @@ func validateReference(ctx context.Context,
 }
 
 func validateReferenceMultiTenancy(ctx context.Context,
-	principal *models.Principal, schemaManager schemaManager,
+	principal *models.Principal, classes classGetter,
 	repo VectorRepo, source *crossref.RefSource, target *crossref.Ref,
 	tenant string, fetchedClasses map[string]versioned.Class,
 ) (uint64, error) {
@@ -309,7 +309,7 @@ func validateReferenceMultiTenancy(ctx context.Context,
 	}
 
 	sourceClass, targetClass, schemaVersion, err := getReferenceClasses(
-		ctx, principal, schemaManager, source.Class.String(), source.Property.String(), target.Class, fetchedClasses)
+		ctx, principal, classes, source.Class.String(), source.Property.String(), target.Class, fetchedClasses)
 	if err != nil {
 		return 0, err
 	}
@@ -344,7 +344,7 @@ func validateReferenceMultiTenancy(ctx context.Context,
 }
 
 func getReferenceClasses(ctx context.Context,
-	principal *models.Principal, schemaManager schemaManager,
+	principal *models.Principal, classes classGetter,
 	classFrom, fromProperty, toClassName string, fetchedClasses map[string]versioned.Class,
 ) (sourceClass *models.Class, targetClass *models.Class, schemaVersion uint64, err error) {
 	if classFrom == "" {
@@ -379,7 +379,7 @@ func getReferenceClasses(ctx context.Context,
 
 	toClass, ok := fetchedClasses[toClassName]
 	if !ok {
-		targetVclasses, err2 := schemaManager.GetCachedClass(ctx, principal, toClassName)
+		targetVclasses, err2 := classes.GetCachedClass(ctx, principal, toClassName)
 		if err2 != nil {
 			err = fmt.Errorf("get target class %q: %w", toClassName, err2)
 			return sourceClass, targetClass, schemaVersion, err
