@@ -888,6 +888,57 @@ func TestGetLastUsageMultinode(t *testing.T) {
 	})
 }
 
+func TestListUsersRolesMultinode(t *testing.T) {
+	compose, down := composeUpSharedCluster(t)
+	defer down()
+
+	const roleName = "list-users-multinode-role"
+	roleHolders := []string{"list-roles-holder-1", "list-roles-holder-2"}
+	const roleless = "list-roles-roleless"
+
+	helper.CreateRole(t, sharedRootKey, &models.Role{
+		Name: authorization.String(roleName),
+		Permissions: []*models.Permission{
+			helper.NewCollectionsPermission().WithAction(authorization.ReadCollections).WithCollection("*").Permission(),
+		},
+	})
+	for _, user := range append([]string{roleless}, roleHolders...) {
+		helper.CreateUser(t, user, sharedRootKey)
+	}
+	for _, user := range roleHolders {
+		helper.AssignRoleToUser(t, sharedRootKey, roleName, user)
+	}
+
+	// sharedRootUser is a static api-key user, whose root role is listed only if
+	// listUsers reads roles for static users.
+	want := map[string][]string{
+		roleHolders[0]: {roleName},
+		roleHolders[1]: {roleName},
+		roleless:       {},
+		sharedRootUser: {authorization.Root},
+	}
+	nodes := []*docker.DockerContainer{compose.GetWeaviate(), compose.GetWeaviateNode2(), compose.GetWeaviateNode3()}
+	for i, node := range nodes {
+		helper.SetupClient(node.URI())
+		// listUsers reads users and roles from the leader, which has applied every write
+		// above. The retry covers a leader change, since a new leader can answer before
+		// it catches up.
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			resp, err := helper.Client(t).Users.ListAllUsers(users.NewListAllUsersParams(), helper.CreateAuth(sharedRootKey))
+			if !assert.NoError(c, err) {
+				return
+			}
+			got := make(map[string][]string, len(want))
+			for _, user := range resp.Payload {
+				if _, ok := want[*user.UserID]; ok {
+					got[*user.UserID] = append([]string{}, user.Roles...)
+				}
+			}
+			assert.Equal(c, want, got)
+		}, 10*time.Second, 100*time.Millisecond, "roles listed by node %d", i+1)
+	}
+}
+
 func TestStaticUserImport(t *testing.T) {
 	rootKey := "root-key"
 	rootUser := "root-user"

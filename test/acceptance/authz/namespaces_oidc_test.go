@@ -344,6 +344,47 @@ func TestNamespacesOIDC(t *testing.T) {
 		assert.Equal(t, "customer1:Albums", stored.Class)
 	})
 
+	// The viewer binding keeps the listed user readable once admin is revoked. The
+	// listed user holds admin itself, so a hint decided from its roles rather than the
+	// caller's would show, and the viewer's row must hide that role.
+	t.Run("list users shows api-key first letters to an admin only via OIDC group", func(t *testing.T) {
+		const groupName = "AllUsers"
+		const memberSubject = "oidc-customer1-group-member"
+		const listedUser = "group-listed-user"
+
+		helper.AssignRoleToGroup(t, adminKey, authorization.Admin, groupName)
+		defer helper.RevokeRoleFromGroup(t, adminKey, authorization.Admin, groupName)
+		helper.AssignRoleToGroup(t, adminKey, authorization.Viewer, groupName)
+		defer helper.RevokeRoleFromGroup(t, adminKey, authorization.Viewer, groupName)
+
+		listedKey := helper.CreateUserWithNamespace(t, listedUser, "customer1", adminKey)
+		defer helper.DeleteUser(t, "customer1:"+listedUser, adminKey)
+		helper.AssignRoleToUser(t, adminKey, authorization.Admin, "customer1:"+listedUser)
+
+		token, _ := docker.GetTokensFromMockOIDCWithHelperFor(t, helperURI, memberSubject)
+		listedRow := func() *models.DBUserInfo {
+			list := helper.ListAllUsers(t, token)
+			ids := make([]string, 0, len(list))
+			for _, user := range list {
+				if *user.UserID == listedUser {
+					return user
+				}
+				ids = append(ids, *user.UserID)
+			}
+			require.Failf(t, "listed user missing", "%q not in %q", listedUser, ids)
+			return nil
+		}
+
+		row := listedRow()
+		require.Equal(t, listedKey[:3], row.APIKeyFirstLetters)
+		require.Contains(t, row.Roles, authorization.Admin)
+
+		helper.RevokeRoleFromGroup(t, adminKey, authorization.Admin, groupName)
+		row = listedRow()
+		require.Empty(t, row.APIKeyFirstLetters)
+		require.NotContains(t, row.Roles, authorization.Admin)
+	})
+
 	// Regression: GET /v1/authz/roles/{name}/users used to 500 once any
 	// namespaced principal was assigned to the role, because the internal
 	// casbin key for a namespaced DB user has three `:`-segments
