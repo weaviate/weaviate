@@ -55,6 +55,12 @@ type Manager struct {
 	namespacesEnabled bool
 	namespaces        NamespaceLister
 	restoreLock       sync.RWMutex
+	// rowsLock keeps a lookup's table reads on one state. Methods that change p or g
+	// rows under a restoreLock read hold take it for writing, and lookups take it for
+	// reading across their reads. Take it after restoreLock.
+	rowsLock sync.RWMutex
+	// beforeReadHook, when a test sets it, runs before each of copyRoleRows' two table reads.
+	beforeReadHook func()
 }
 
 func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool, namespaces NamespaceLister, logger logrus.FieldLogger) (*Manager, error) {
@@ -135,6 +141,9 @@ func (m *Manager) GetUsersOrGroupsWithRoles(isGroup bool, authType authenticatio
 }
 
 func (m *Manager) upsertRolesPermissions(roles map[string][]authorization.Policy) error {
+	m.rowsLock.Lock()
+	defer m.rowsLock.Unlock()
+
 	for roleName, policies := range roles {
 		// assign role to internal user to make sure to catch empty roles
 		// e.g. : g, user:wv_internal_empty, role:roleName
@@ -160,34 +169,13 @@ func (m *Manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
-	return m.getRoles(names...)
-}
-
-// getRoles is GetRoles for a caller that already holds restoreLock for reading.
-// Taking that read lock twice on one goroutine parks it forever once Restore is
-// queued for the write lock.
-func (m *Manager) getRoles(names ...string) (map[string][]authorization.Policy, error) {
-	if len(names) == 0 {
-		policyRows, groupingRows, err := m.copyRoleRows()
-		if err != nil {
-			return nil, err
-		}
-		return m.convertRoles(policyRows, groupingRows)
+	policyRows, groupingRows, err := m.copyRoleRows()
+	if err != nil {
+		return nil, err
 	}
-
-	var policyRows, groupingRows [][]string
-	for _, name := range names {
-		rows, err := m.casbin.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(name))
-		if err != nil {
-			return nil, fmt.Errorf("GetFilteredNamedPolicy: %w", err)
-		}
-		policyRows = append(policyRows, rows...)
-
-		rows, err = m.casbin.GetFilteredNamedGroupingPolicy("g", 1, conv.PrefixRoleName(name))
-		if err != nil {
-			return nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
-		}
-		groupingRows = append(groupingRows, rows...)
+	if len(names) > 0 {
+		selected := prefixedRoleNames(names)
+		policyRows, groupingRows = rowsForRoles(policyRows, 0, selected), rowsForRoles(groupingRows, 1, selected)
 	}
 	return m.convertRoles(policyRows, groupingRows)
 }
@@ -209,12 +197,17 @@ func (m *Manager) convertRoles(policyRows, groupingRows [][]string) (map[string]
 }
 
 // copyRoleRows returns every p row and every g row, from copyPolicies and
-// copyGroupingPolicies.
+// copyGroupingPolicies read under one rowsLock hold.
 func (m *Manager) copyRoleRows() (policyRows, groupingRows [][]string, err error) {
+	m.rowsLock.RLock()
+	defer m.rowsLock.RUnlock()
+
+	m.beforeRead()
 	policyRows, err = m.copyPolicies()
 	if err != nil {
 		return nil, nil, fmt.Errorf("GetFilteredNamedPolicy: %w", err)
 	}
+	m.beforeRead()
 	groupingRows, err = m.copyGroupingPolicies()
 	if err != nil {
 		return nil, nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
@@ -279,6 +272,21 @@ func (m *Manager) GetRolesForSubjects(subjects []authorization.Subject) (map[str
 		out[key] = subjectRoles
 	}
 	return out, nil
+}
+
+func (m *Manager) beforeRead() {
+	if m.beforeReadHook != nil {
+		m.beforeReadHook()
+	}
+}
+
+// prefixedRoleNames returns names with the role prefix p[0] and g[1] hold them under.
+func prefixedRoleNames(names []string) map[string]struct{} {
+	prefixed := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		prefixed[conv.PrefixRoleName(name)] = struct{}{}
+	}
+	return prefixed
 }
 
 // rowsForRoles returns the rows whose field holds one of the prefixed role names in roles.
@@ -376,6 +384,8 @@ func (m *Manager) CountNamespaceLocalRBAC(namespace string) (int, error) {
 func (m *Manager) RemovePermissions(roleName string, permissions []*authorization.Policy) error {
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
+	m.rowsLock.Lock()
+	defer m.rowsLock.Unlock()
 
 	changed := false
 	for _, permission := range permissions {
@@ -415,6 +425,8 @@ func (m *Manager) HasPermission(roleName string, permission *authorization.Polic
 func (m *Manager) DeleteRoles(roles ...string) error {
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
+	m.rowsLock.Lock()
+	defer m.rowsLock.Unlock()
 
 	changed := false
 	for _, roleName := range roles {
@@ -452,6 +464,8 @@ func (m *Manager) DeleteRoles(roles ...string) error {
 func (m *Manager) AddRolesForUser(user string, roles []string) error {
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
+	m.rowsLock.Lock()
+	defer m.rowsLock.Unlock()
 
 	if !conv.NameHasPrefix(user) {
 		return errors.New("user does not contain a prefix")
@@ -472,21 +486,12 @@ func (m *Manager) AddRolesForUser(user string, roles []string) error {
 }
 
 func (m *Manager) GetRolesForUserOrGroup(userName string, authType authentication.AuthType, isGroup bool) (map[string][]authorization.Policy, error) {
-	m.restoreLock.RLock()
-	defer m.restoreLock.RUnlock()
-
-	rolesNames, err := m.casbin.GetRolesForUser(conv.SubjectKey(authorization.Subject{ID: userName, AuthType: authType, IsGroup: isGroup}))
+	subject := authorization.Subject{ID: userName, AuthType: authType, IsGroup: isGroup}
+	roles, err := m.GetRolesForSubjects([]authorization.Subject{subject})
 	if err != nil {
 		return nil, fmt.Errorf("GetRolesForUserOrGroup: %w", err)
 	}
-	if len(rolesNames) == 0 {
-		return map[string][]authorization.Policy{}, err
-	}
-	roles, err := m.getRoles(rolesNames...)
-	if err != nil {
-		return nil, fmt.Errorf("GetRoles: %w", err)
-	}
-	return roles, err
+	return roles[conv.SubjectKey(subject)], nil
 }
 
 func (m *Manager) GetUsersOrGroupForRole(roleName string, authType authentication.AuthType, isGroup bool) ([]string, error) {
@@ -522,6 +527,8 @@ func (m *Manager) GetUsersOrGroupForRole(roleName string, authType authenticatio
 func (m *Manager) RevokeRolesForUser(userName string, roles ...string) error {
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
+	m.rowsLock.Lock()
+	defer m.rowsLock.Unlock()
 
 	if !conv.NameHasPrefix(userName) {
 		return errors.New("user does not contain a prefix")
@@ -541,22 +548,47 @@ func (m *Manager) RevokeRolesForUser(userName string, roles ...string) error {
 	return nil
 }
 
+// selectRoleRows returns the rows Snapshot serialises for the selected roles, taken
+// from every p and g row.
+func selectRoleRows(policyRows, groupingRows [][]string, roles []string) (policy, groupingPolicy [][]string, err error) {
+	selected := prefixedRoleNames(roles)
+	policy = rowsForRoles(policyRows, 0, selected)
+	groupingPolicy = rowsForRoles(groupingRows, 1, selected)
+
+	found := make(map[string]struct{}, len(selected))
+	for _, p := range policy {
+		found[p[0]] = struct{}{}
+	}
+	for _, g := range groupingPolicy {
+		found[g[1]] = struct{}{}
+	}
+	for _, name := range roles {
+		// Every live role has at least the db:wv_internal_empty placeholder g-row,
+		// so no rows at all means the role is not here. Fail rather than ship a
+		// backup that is quietly missing a role.
+		if _, ok := found[conv.PrefixRoleName(name)]; !ok {
+			return nil, nil, fmt.Errorf("role %q not found in snapshot source", name)
+		}
+	}
+	return policy, append(groupingPolicy, apiManagedBuiltInGroupings(groupingRows, roles)...), nil
+}
+
 // apiManagedBuiltInRoles are the built-in roles whose assignments are granted through
 // the API and therefore exist only in the policy store. Root and read-only are absent
 // on purpose: applyPredefinedRoles rebuilds their assignments from configuration on
 // every restore, so carrying them would be discarded work.
 var apiManagedBuiltInRoles = []string{authorization.Admin, authorization.Viewer}
 
-// apiManagedBuiltInGroupings returns the admin and viewer assignments held by subjects
-// qualified with a namespace the selection named. A built-in role can never be selected,
-// so without these rows a namespace's own admin is absent from the snapshot and a fresh
-// cluster has nothing to rebuild it from.
+// apiManagedBuiltInGroupings returns the admin and viewer assignments among groupingRows
+// held by subjects qualified with a namespace the selection named. A built-in role can
+// never be selected, so without these rows a namespace's own admin is absent from the
+// snapshot and a fresh cluster has nothing to rebuild it from.
 //
 // Anything outside that namespace stays behind. A db subject strips unconditionally, so
 // another namespace's admin would arrive on the restored cluster as a global identity
 // holding admin. A global or group subject belongs to the source cluster rather than to
 // the namespace being moved.
-func (m *Manager) apiManagedBuiltInGroupings(roles []string) ([][]string, error) {
+func apiManagedBuiltInGroupings(groupingRows [][]string, roles []string) [][]string {
 	namespaces := make(map[string]struct{}, len(roles))
 	for _, name := range roles {
 		if ns := namespacing.NamespaceFromQualified(name); ns != "" {
@@ -564,7 +596,7 @@ func (m *Manager) apiManagedBuiltInGroupings(roles []string) ([][]string, error)
 		}
 	}
 	if len(namespaces) == 0 {
-		return nil, nil
+		return nil
 	}
 
 	inScope := func(subject string) bool {
@@ -577,18 +609,12 @@ func (m *Manager) apiManagedBuiltInGroupings(roles []string) ([][]string, error)
 	}
 
 	var out [][]string
-	for _, role := range apiManagedBuiltInRoles {
-		gs, err := m.casbin.GetFilteredNamedGroupingPolicy("g", 1, conv.PrefixRoleName(role))
-		if err != nil {
-			return nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
-		}
-		for _, g := range gs {
-			if len(g) > 0 && inScope(g[0]) {
-				out = append(out, g)
-			}
+	for _, g := range rowsForRoles(groupingRows, 1, prefixedRoleNames(apiManagedBuiltInRoles)) {
+		if inScope(g[0]) {
+			out = append(out, g)
 		}
 	}
-	return out, nil
+	return out
 }
 
 // referencedNamespaces returns the namespaces the given rows refer to, in sorted order.
@@ -681,38 +707,15 @@ func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
-	var policy, groupingPolicy [][]string
-	if len(roles) == 0 {
-		var err error
-		policy, groupingPolicy, err = m.copyRoleRows()
+	policy, groupingPolicy, err := m.copyRoleRows()
+	if err != nil {
+		return nil, err
+	}
+	if len(roles) > 0 {
+		policy, groupingPolicy, err = selectRoleRows(policy, groupingPolicy, roles)
 		if err != nil {
 			return nil, err
 		}
-	} else {
-		for _, name := range roles {
-			prefixed := conv.PrefixRoleName(name)
-			ps, err := m.casbin.GetFilteredNamedPolicy("p", 0, prefixed)
-			if err != nil {
-				return nil, fmt.Errorf("GetFilteredNamedPolicy: %w", err)
-			}
-			gs, err := m.casbin.GetFilteredNamedGroupingPolicy("g", 1, prefixed)
-			if err != nil {
-				return nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
-			}
-			// Every live role has at least the db:wv_internal_empty placeholder g-row,
-			// so no rows at all means the role is not here. Fail rather than ship a
-			// backup that is quietly missing a role.
-			if len(ps) == 0 && len(gs) == 0 {
-				return nil, fmt.Errorf("role %q not found in snapshot source", name)
-			}
-			policy = append(policy, ps...)
-			groupingPolicy = append(groupingPolicy, gs...)
-		}
-		gs, err := m.apiManagedBuiltInGroupings(roles)
-		if err != nil {
-			return nil, err
-		}
-		groupingPolicy = append(groupingPolicy, gs...)
 	}
 
 	// Use a buffer to stream the JSON encoding

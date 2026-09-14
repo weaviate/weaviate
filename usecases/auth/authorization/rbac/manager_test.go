@@ -1662,6 +1662,163 @@ func TestWholeTableReadsDuringRemoval(t *testing.T) {
 	}
 }
 
+// TestRoleLookupsDuringWrites pins that a write starting during copyRoleRows' reads
+// waits for the lookup. Without that wait a lookup can show a role with no
+// permissions, or the rows of a role that no longer exists.
+func TestRoleLookupsDuringWrites(t *testing.T) {
+	const (
+		alice     = "db:alice"
+		heldRole  = "held-role"
+		otherRole = "other-role"
+		newRole   = "new-role"
+	)
+	readPolicy := func(collection string) authorization.Policy {
+		return authorization.Policy{Resource: authorization.Collections(collection)[0], Verb: authorization.READ, Domain: authorization.SchemaDomain}
+	}
+	createNewRole := func(m *Manager) error {
+		return m.CreateRolesPermissions(map[string][]authorization.Policy{newRole: {readPolicy("Books")}})
+	}
+	writes := map[string]func(*Manager) error{
+		"create role": createNewRole,
+		"create and assign role": func(m *Manager) error {
+			if err := createNewRole(m); err != nil {
+				return err
+			}
+			return m.AddRolesForUser(alice, []string{newRole})
+		},
+		"assign role": func(m *Manager) error { return m.AddRolesForUser(alice, []string{otherRole}) },
+		"delete role": func(m *Manager) error { return m.DeleteRoles(heldRole) },
+		"revoke role": func(m *Manager) error { return m.RevokeRolesForUser(alice, heldRole) },
+		"add permission": func(m *Manager) error {
+			return m.UpdateRolesPermissions(map[string][]authorization.Policy{heldRole: {readPolicy("Songs")}})
+		},
+		"remove permission": func(m *Manager) error {
+			p := readPolicy("Movies")
+			return m.RemovePermissions(heldRole, []*authorization.Policy{&p})
+		},
+	}
+	snapshot := func(roles ...string) func(*Manager) (any, error) {
+		return func(m *Manager) (any, error) {
+			blob, err := m.Snapshot(roles...)
+			return string(blob), err
+		}
+	}
+
+	tests := []struct {
+		name   string
+		lookup func(*Manager) (any, error)
+		// writes maps each write that changes what lookup returns to the read it starts
+		// before, where read 1 copies p rows and read 2 copies g rows. It is the read at
+		// which the lookup, without rowsLock, returns something other than the state before.
+		writes map[string]int
+	}{
+		{
+			name: "GetRolesForSubjects",
+			lookup: func(m *Manager) (any, error) {
+				return m.GetRolesForSubjects([]authorization.Subject{{ID: "alice", AuthType: authentication.AuthTypeDb}})
+			},
+			writes: map[string]int{"create and assign role": 2, "assign role": 2, "delete role": 2, "revoke role": 2, "add permission": 1, "remove permission": 1},
+		},
+		{
+			name:   "GetRoles every role",
+			lookup: func(m *Manager) (any, error) { return m.GetRoles() },
+			writes: map[string]int{"create role": 2, "create and assign role": 2, "delete role": 1, "add permission": 1, "remove permission": 1},
+		},
+		{
+			name:   "GetRoles named roles",
+			lookup: func(m *Manager) (any, error) { return m.GetRoles(newRole, heldRole) },
+			writes: map[string]int{"create role": 2, "create and assign role": 2, "delete role": 1, "add permission": 1, "remove permission": 1},
+		},
+		{
+			name: "GetRolesForUserOrGroup",
+			lookup: func(m *Manager) (any, error) {
+				return m.GetRolesForUserOrGroup("alice", authentication.AuthTypeDb, false)
+			},
+			writes: map[string]int{"create and assign role": 2, "assign role": 2, "delete role": 2, "revoke role": 2, "add permission": 1, "remove permission": 1},
+		},
+		{
+			name:   "Snapshot every role",
+			lookup: snapshot(),
+			writes: map[string]int{"create role": 2, "create and assign role": 2, "assign role": 2, "delete role": 2, "revoke role": 2, "add permission": 1, "remove permission": 1},
+		},
+		{
+			name:   "Snapshot named role",
+			lookup: snapshot(heldRole),
+			writes: map[string]int{"delete role": 2, "revoke role": 2, "add permission": 1, "remove permission": 1},
+		},
+	}
+
+	type outcome struct {
+		Value any
+		Err   string
+	}
+	observe := func(m *Manager, lookup func(*Manager) (any, error)) outcome {
+		value, err := lookup(m)
+		if err != nil {
+			return outcome{Err: err.Error()}
+		}
+		return outcome{Value: value}
+	}
+
+	for _, tt := range tests {
+		for _, write := range slices.Sorted(maps.Keys(tt.writes)) {
+			t.Run(tt.name+"/"+write, func(t *testing.T) {
+				require.Contains(t, writes, write)
+				logger, _ := test.NewNullLogger()
+				m, err := setupTestManager(t, logger)
+				require.NoError(t, err)
+				require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
+					heldRole:  {readPolicy("Movies")},
+					otherRole: {readPolicy("Albums")},
+				}))
+				require.NoError(t, m.AddRolesForUser(alice, []string{heldRole}))
+
+				before := observe(m, tt.lookup)
+
+				reads := 0
+				var writeErr error
+				written := make(chan struct{})
+				m.beforeReadHook = func() {
+					reads++
+					if reads != tt.writes[write] {
+						return
+					}
+					go func() {
+						defer close(written)
+						writeErr = writes[write](m)
+					}()
+					// Return once the write has finished, or is queued behind this
+					// lookup's hold of rowsLock.
+					for {
+						select {
+						case <-written:
+							return
+						default:
+						}
+						if !m.rowsLock.TryRLock() {
+							return
+						}
+						m.rowsLock.RUnlock()
+						time.Sleep(time.Millisecond)
+					}
+				}
+				got := observe(m, tt.lookup)
+				// a lookup that never reached its read fails the NotEqual below
+				if reads < tt.writes[write] {
+					close(written)
+				}
+				<-written
+				m.beforeReadHook = nil
+				require.NoError(t, writeErr)
+
+				after := observe(m, tt.lookup)
+				require.NotEqual(t, before, after)
+				require.Equal(t, before, got)
+			})
+		}
+	}
+}
+
 // TestRestoreInvalidatesEnforceCache verifies that Restore() properly
 // invalidates the enforce cache so that concurrent Enforce() calls during
 // Restore() do not re-populate the cache with stale results that persist
