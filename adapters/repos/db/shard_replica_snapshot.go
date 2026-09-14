@@ -44,10 +44,14 @@ func (s *Shard) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) (
 			err = fmt.Errorf("resume maintenance after replica snapshot: %w", rerr)
 		}
 	}()
+	token := s.haltLayoutToken()
 
 	files, err = s.collectShardRelativeFiles(ctx, stagingRoot, true)
 	if err != nil {
 		return nil, err
+	}
+	if s.layoutChangedSince(token) {
+		return nil, errVectorLayoutChanged
 	}
 	return files, nil
 }

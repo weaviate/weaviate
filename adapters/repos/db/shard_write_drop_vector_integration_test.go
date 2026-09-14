@@ -15,8 +15,10 @@ package db
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
@@ -589,4 +592,253 @@ func TestVectorLayoutBarrier_CreateWaitsForAHalt(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, "ready", rec.State)
+}
+
+// backupShardRel is the shard's directory relative to the root, the layout
+// a staging dir mirrors.
+func backupShardRel(t *testing.T, shard *Shard) string {
+	t.Helper()
+	rel, err := filepath.Rel(shard.index.Config.RootPath, shard.path())
+	require.NoError(t, err)
+	return rel
+}
+
+// restoreInPlace lands the backup the way the restore pipeline does: the
+// descriptor's three blobs are written at their paths (usecases/backup/zip.go
+// does this), then the staged shard directory replaces the live one and the
+// shard reopens.
+func restoreInPlace(t *testing.T, ctx context.Context, shard *Shard, class *models.Class, stagingRoot string, sd *backup.ShardDescriptor) *Shard {
+	t.Helper()
+	for _, blob := range []struct {
+		rel  string
+		data []byte
+	}{
+		{sd.DocIDCounterPath, sd.DocIDCounter},
+		{sd.PropLengthTrackerPath, sd.PropLengthTracker},
+		{sd.ShardVersionPath, sd.Version},
+	} {
+		require.NotEmpty(t, blob.rel, "the snapshot filled the descriptor")
+		require.NoError(t, os.WriteFile(filepath.Join(stagingRoot, blob.rel), blob.data, 0o600))
+	}
+	staged := filepath.Join(stagingRoot, backupShardRel(t, shard))
+	return reloadAfter(t, ctx, shard, class, func() {
+		require.NoError(t, os.RemoveAll(shard.path()))
+		require.NoError(t, os.Rename(staged, shard.path()))
+	})
+}
+
+// searchIDs runs a vector search on one target vector and returns the ids.
+func searchIDs(t *testing.T, ctx context.Context, shard *Shard, target string, vec []float32) []strfmt.UUID {
+	t.Helper()
+	objs, _, err := shard.ObjectVectorSearch(ctx, []models.Vector{vec}, []string{target},
+		0, 10, nil, nil, nil, additional.Properties{}, nil, nil)
+	require.NoError(t, err)
+	ids := make([]strfmt.UUID, 0, len(objs))
+	for _, obj := range objs {
+		ids = append(ids, obj.ID())
+	}
+	return ids
+}
+
+// addToSchema makes the class and the index config carry an hnsw vector, the
+// schema a restore reads after the backup captured it.
+func addToSchema(shard *Shard, class *models.Class, name string) {
+	class.VectorConfig[name] = models.VectorConfig{
+		VectorIndexType:   hnsw.NewDefaultUserConfig().IndexType(),
+		VectorIndexConfig: hnsw.NewDefaultUserConfig(),
+	}
+	shard.index.vectorIndexUserConfigLock.Lock()
+	shard.index.vectorIndexUserConfigs[name] = hnsw.NewDefaultUserConfig()
+	shard.index.vectorIndexUserConfigLock.Unlock()
+}
+
+// A create that arrives after the listing waits, the snapshot completes
+// without it, and the restore rebuilds the vector the schema carries.
+func TestVectorLayoutBarrier_CreateAfterListingIsRestoredAsNew(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	obj := dropVecObject(t, "one", true) // foo = {1, 2, 3}
+	require.NoError(t, shard.PutObject(ctx, obj))
+
+	createErr := make(chan error, 1)
+	shard.testHooks.afterListBackupFiles = func() {
+		go func() { createErr <- liveCreate(ctx, shard, "bar") }()
+		time.Sleep(300 * time.Millisecond)
+		_, ok, err := shard.mapping.Get("bar")
+		require.NoError(t, err)
+		assert.False(t, ok, "the create is waiting, nothing written")
+	}
+	stagingRoot := t.TempDir()
+	sd := &backup.ShardDescriptor{}
+	files, err := shard.CreateBackupSnapshot(ctx, sd, stagingRoot)
+	require.NoError(t, err)
+	require.NotEmpty(t, files)
+	require.NoError(t, <-createErr, "the create proceeded after the resume")
+
+	// the schema a restore reads was marshalled after the snapshots: it has bar
+	addToSchema(shard, class, "bar")
+	shard = restoreInPlace(t, ctx, shard, class, stagingRoot, sd)
+
+	rec, ok, err := shard.mapping.Get("bar")
+	require.NoError(t, err)
+	require.True(t, ok, "the load created the vector the schema carries")
+	assert.Equal(t, vectorIndexRecord{PhysicalID: "vectors_bar", IndexType: "hnsw", State: "ready"}, rec)
+
+	// what the backup held is back: the object and its foo vector
+	restored, err := shard.ObjectByID(ctx, obj.ID(), nil, additional.Properties{})
+	require.NoError(t, err)
+	require.NotNil(t, restored)
+	assert.Equal(t, "one", restored.Properties().(map[string]interface{})["label"])
+	assert.Equal(t, []strfmt.UUID{obj.ID()}, searchIDs(t, ctx, shard, "foo", []float32{1, 2, 3}))
+
+	// the rebuilt bar index is empty and takes new vectors
+	assert.Empty(t, searchIDs(t, ctx, shard, "bar", []float32{4, 5, 6}))
+	withBar := &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:         strfmt.UUID(uuid.NewString()),
+			Class:      dropVecClassName,
+			Properties: map[string]interface{}{"label": "two"},
+		},
+		Vectors: map[string][]float32{"bar": {4, 5, 6}},
+	}
+	require.NoError(t, shard.PutObject(ctx, withBar))
+	assert.Equal(t, []strfmt.UUID{withBar.ID()}, searchIDs(t, ctx, shard, "bar", []float32{4, 5, 6}))
+}
+
+// A create that outwaits the bound inside the snapshot fails the snapshot.
+func TestVectorLayoutBarrier_CreatePastTheBoundFailsTheSnapshot(t *testing.T) {
+	ctx := testCtx()
+	shard, _ := setupDropVectorShard(t, ctx)
+	shard.layoutWaitTimeout = 100 * time.Millisecond
+
+	shard.testHooks.afterListBackupFiles = func() {
+		require.NoError(t, liveCreate(ctx, shard, "bar"))
+	}
+	stagingRoot := t.TempDir()
+	_, err := shard.CreateBackupSnapshot(ctx, &backup.ShardDescriptor{}, stagingRoot)
+	require.ErrorIs(t, err, errVectorLayoutChanged)
+	assert.Zero(t, shard.haltForTransferCount.Load(), "the failed snapshot resumed the shard")
+
+	// the shard itself is fine: bar is live and recorded
+	rec, ok, err := shard.mapping.Get("bar")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "ready", rec.State)
+}
+
+// A create that outwaits the bound during the halt's preparation, and is
+// still unpublished when the snapshot lists, fails the snapshot: the token
+// predates the preparation.
+func TestVectorLayoutBarrier_CreateDuringPreparationFailsTheSnapshot(t *testing.T) {
+	ctx := testCtx()
+	shard, _ := setupDropVectorShard(t, ctx)
+	shard.layoutWaitTimeout = 100 * time.Millisecond
+
+	releasePrep := make(chan struct{})
+	shard.testHooks.afterHaltAdmission = func() error { <-releasePrep; return nil }
+	atPublish := make(chan struct{})
+	releasePublish := make(chan struct{})
+	shard.vectors.beforePublish = func() {
+		close(atPublish)
+		<-releasePublish
+	}
+
+	snapErr := make(chan error, 1)
+	go func() {
+		_, err := shard.CreateBackupSnapshot(ctx, &backup.ShardDescriptor{}, t.TempDir())
+		snapErr <- err
+	}()
+	require.Eventually(t, func() bool { return shard.haltedForTransfer() }, time.Second, 10*time.Millisecond)
+
+	createErr := make(chan error, 1)
+	go func() { createErr <- liveCreate(ctx, shard, "bar") }()
+	<-atPublish // the create outwaited the bound and built, and is not published
+
+	close(releasePrep)
+	require.ErrorIs(t, <-snapErr, errVectorLayoutChanged)
+
+	close(releasePublish)
+	require.NoError(t, <-createErr)
+}
+
+// A second halt, admitted after a change moved the generation under the
+// first, does not renew the token: the first snapshot still fails, and the
+// token stays put whether the second halt's preparation succeeds or fails.
+func TestVectorLayoutBarrier_SharedHaltKeepsTheFirstToken(t *testing.T) {
+	injected := errors.New("injected preparation failure")
+	for _, tc := range []struct {
+		name          string
+		secondPrepErr error
+	}{
+		{name: "second halt succeeds"},
+		{name: "second halt fails its preparation", secondPrepErr: injected},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			shard, class := setupDropVectorShard(t, ctx)
+			shard.layoutWaitTimeout = 100 * time.Millisecond
+			markDropped(class, "foo")
+
+			// the first halt is held in preparation until released, then in
+			// its listing until the second admission has been observed
+			releasePrep := make(chan struct{})
+			secondAdmitted := make(chan struct{})
+			var admissions atomic.Int32
+			shard.testHooks.afterHaltAdmission = func() error {
+				if admissions.Add(1) == 1 {
+					<-releasePrep
+					return nil
+				}
+				close(secondAdmitted)
+				return tc.secondPrepErr
+			}
+			shard.testHooks.afterListBackupFiles = func() { <-secondAdmitted }
+			shard.vectorLayoutGate.Lock()
+			before := shard.vectorLayoutGen
+			shard.vectorLayoutGate.Unlock()
+
+			snapErr := make(chan error, 1)
+			go func() {
+				_, err := shard.CreateBackupSnapshot(ctx, &backup.ShardDescriptor{}, t.TempDir())
+				snapErr <- err
+			}()
+			require.Eventually(t, func() bool { return shard.haltedForTransfer() }, time.Second, 10*time.Millisecond)
+
+			// moves the generation during the first halt's preparation
+			require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+
+			secondErr := make(chan error, 1)
+			go func() { secondErr <- shard.HaltForTransfer(ctx, false, 0) }()
+			close(releasePrep)
+
+			require.ErrorIs(t, <-snapErr, errVectorLayoutChanged)
+			err := <-secondErr
+			if tc.secondPrepErr != nil {
+				require.ErrorIs(t, err, injected)
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Equal(t, before, shard.haltLayoutToken(), "the shared halt kept the first token")
+			if err == nil {
+				require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+			}
+			assert.Zero(t, shard.haltForTransferCount.Load())
+		})
+	}
+}
+
+// The hardlink replica snapshot applies the same check.
+func TestVectorLayoutBarrier_ReplicaSnapshotRejectsAChange(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	shard.layoutWaitTimeout = 100 * time.Millisecond
+	markDropped(class, "foo")
+
+	shard.testHooks.afterHaltAdmission = func() error {
+		return shard.DropVectorIndex(ctx, "foo")
+	}
+	_, err := shard.CreateReplicaSnapshot(ctx, t.TempDir())
+	require.ErrorIs(t, err, errVectorLayoutChanged)
+	assert.Zero(t, shard.haltForTransferCount.Load())
 }

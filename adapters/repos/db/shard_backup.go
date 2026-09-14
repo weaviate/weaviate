@@ -382,10 +382,14 @@ func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescri
 		return nil, fmt.Errorf("halt for snapshot: %w", err)
 	}
 	defer s.resumeMaintenanceCycles(ctx)
+	token := s.haltLayoutToken()
 
 	files, err := s.ListBackupFiles(ctx, sd)
 	if err != nil {
 		return nil, fmt.Errorf("list backup files: %w", err)
+	}
+	if s.testHooks.afterListBackupFiles != nil {
+		s.testHooks.afterListBackupFiles()
 	}
 
 	staged := make(map[string]struct{})
@@ -437,6 +441,9 @@ func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescri
 		return nil, fmt.Errorf("hardlink backup files to staging: %w", err)
 	}
 
+	if s.layoutChangedSince(token) {
+		return nil, errVectorLayoutChanged
+	}
 	return files, nil
 }
 
