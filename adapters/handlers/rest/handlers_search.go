@@ -106,9 +106,8 @@ func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 }
 
 // searchErrPayload renders a search APIError as the standard REST error body,
-// with the docs link appended for a documented error. Err already has the
-// caller's namespace stripped by the search package; the link is matched on
-// the cause, which Err may have been shortened away from.
+// with the docs link appended for a documented error. Err is already stripped
+// for the caller, so the link is matched on the cause instead.
 func searchErrPayload(apiErr *restsearch.APIError) *models.ErrorResponse {
 	message := enterrors.AppendDocsLink(fmt.Sprintf("%v", apiErr.Err), apiErr.Cause())
 	return &models.ErrorResponse{

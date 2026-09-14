@@ -35,8 +35,7 @@ func makeCatchPanics(logger logrus.FieldLogger, metricRequestsTotal restApiReque
 }
 
 // panicResponseWriter records whether the handler wrote anything, so a
-// recovered panic can still answer 500 instead of net/http's implicit
-// empty 200.
+// recovered panic can answer 500 instead of net/http's implicit empty 200.
 type panicResponseWriter struct {
 	http.ResponseWriter
 	wrote bool

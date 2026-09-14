@@ -27,9 +27,8 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 )
 
-// TestGenerateQueryTermsAndStatsBoost pins the queryProperties boost parse:
-// a malformed boost must name the property and wrap the strconv error rather
-// than silently scoring the property at zero.
+// TestGenerateQueryTermsAndStatsBoost: a malformed boost must error instead of
+// silently scoring the property at zero.
 func TestGenerateQueryTermsAndStatsBoost(t *testing.T) {
 	tests := []struct {
 		name        string

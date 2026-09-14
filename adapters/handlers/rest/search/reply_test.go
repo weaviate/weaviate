@@ -218,9 +218,8 @@ func TestBuildResponseBm25ScoreMetadata(t *testing.T) {
 	assert.Nil(t, metadata.Certainty)
 }
 
-// TestBuildResponseNonFiniteMetadata: the reply is encoded after the 200
-// header is on the wire, so a NaN or infinite value is left out rather than
-// failing the whole response.
+// TestBuildResponseNonFiniteMetadata: a NaN or infinite metadata value is left
+// out rather than failing the already-200 response.
 func TestBuildResponseNonFiniteMetadata(t *testing.T) {
 	for name, additionalMap := range map[string]map[string]any{
 		"NaN score":           {"score": float32(math.NaN())},

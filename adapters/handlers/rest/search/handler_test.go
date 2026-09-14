@@ -147,9 +147,8 @@ func comicClass() *models.Class {
 	}
 }
 
-// catalogClass carries the property types the Movie fixture lacks: an
-// object, a geo and a phone property, a date, and an unindexed property.
-// nullState switches the collection's null-state index.
+// catalogClass carries the property types the Movie fixture lacks; nullState
+// switches the collection's null-state index.
 func catalogClass(nullState bool) *models.Class {
 	off := false
 	return &models.Class{
@@ -609,9 +608,8 @@ func TestHandlerAliasForbiddenNoExistenceOracle(t *testing.T) {
 		"alias and non-alias denials must be indistinguishable")
 }
 
-// TestAliasDenialKeepsAuthorizerShape: a caller allowed on the alias name but
-// denied on its target gets the authorizer's own denial, worded on the alias
-// — byte-identical to the denial a plain collection of that name would get.
+// TestAliasDenialKeepsAuthorizerShape: a denial on an alias target must be
+// byte-identical to one on a plain collection of the alias name.
 func TestAliasDenialKeepsAuthorizerShape(t *testing.T) {
 	aliased := newTestHandlerWithAliases(t, map[string]string{"Films": "Movie"})
 	aliased.handler.authorizer = &denyCollections{denied: map[string]bool{"Movie": true}}
@@ -859,8 +857,7 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 }
 
 // TestStatusFromErrorMessages: engine errors reach the client without the
-// traverser's wrap chain; failures whose detail can quote credentials get a
-// fixed message and keep the detail for the log.
+// traverser's wrap chain, and credential-bearing detail stays in the log.
 func TestStatusFromErrorMessages(t *testing.T) {
 	wrap := func(err error) error {
 		return fmt.Errorf("explorer: get class: vector search: object search at index movie: local shard object search movie_abc: %w", err)

@@ -168,9 +168,8 @@ func TestAddOperationalModeSearchRoutes(t *testing.T) {
 	})
 }
 
-// TestAddSearchBodyLimit covers the announced-length half of the body cap: a
-// Content-Length over the limit is refused before the request reaches the
-// handler, so an oversize body is never read.
+// TestAddSearchBodyLimit: a Content-Length over the cap is refused before the
+// handler reads the body.
 func TestAddSearchBodyLimit(t *testing.T) {
 	tests := []struct {
 		name          string

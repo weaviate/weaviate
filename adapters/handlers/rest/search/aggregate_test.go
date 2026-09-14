@@ -265,9 +265,8 @@ func TestAggregateGroupByValidation(t *testing.T) {
 	}
 }
 
-// TestAggregateGroupByDataType: the grouper cannot key on an object value,
-// nor on a reference once a where filter narrows the scan; everything else
-// the schema allows groups.
+// TestAggregateGroupByDataType: the grouper cannot key on an object value, nor
+// on a reference once a where filter narrows the scan.
 func TestAggregateGroupByDataType(t *testing.T) {
 	tests := []struct {
 		name       string

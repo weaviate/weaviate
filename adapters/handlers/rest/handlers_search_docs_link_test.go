@@ -75,8 +75,7 @@ func TestSearchErrPayloadDocsLink(t *testing.T) {
 	}
 }
 
-// failingSearch answers every search with err, the way the traverser reports a
-// failure from the engine below it.
+// failingSearch answers every search with err, as the traverser would.
 type failingSearch struct{ err error }
 
 func (f failingSearch) GetClass(context.Context, *models.Principal, dto.GetParams) ([]any, error) {
@@ -87,8 +86,7 @@ func (f failingSearch) Aggregate(context.Context, *models.Principal, *aggregatio
 	return nil, f.err
 }
 
-// searchableSchema is a real schema reader over one collection a keyword
-// search can run against.
+// searchableSchema is a real schema reader over one keyword-searchable collection.
 func searchableSchema(t *testing.T, name string) clusterSchema.SchemaReader {
 	t.Helper()
 	parser := fakes.NewMockParser()
@@ -113,10 +111,8 @@ func searchableSchema(t *testing.T, name string) clusterSchema.SchemaReader {
 	return sm.NewSchemaReader()
 }
 
-// TestSearchErrPayloadDocsLinkThroughHandler: the handler shortens an
-// internal failure's message, so the reply body's link has to come off the
-// cause it keeps. A documented failure keeps its own text and its page; an
-// undocumented one gets the generic message and no page.
+// TestSearchErrPayloadDocsLinkThroughHandler: the docs link must come off the
+// cause, since the handler shortens the client message.
 func TestSearchErrPayloadDocsLinkThroughHandler(t *testing.T) {
 	tests := []struct {
 		name string

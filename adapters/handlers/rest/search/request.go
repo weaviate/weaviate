@@ -185,10 +185,8 @@ func (h *Handler) buildBm25Params(class *models.Class, className string, body *m
 	return out, nil
 }
 
-// validateQueryProperties rejects a queryProperties entry that names no
-// schema property (400), names it twice (400), carries a malformed "^boost"
-// suffix (400; the searcher would silently read it as 0) or has no
-// searchable index (422), whatever the alpha.
+// validateQueryProperties rejects unknown, duplicate and unsearchable
+// properties, and a malformed "^boost" the searcher would otherwise read as 0.
 func validateQueryProperties(class *models.Class, queryProperties []string) *APIError {
 	seen := map[string]bool{}
 	for _, entry := range queryProperties {
@@ -942,9 +940,9 @@ func (h *Handler) parseWhere(where *models.WhereFilter, class *models.Class, cla
 		return nil, apiErr
 	}
 
-	// a denied hop stays 403 and a property without an inverted index 422
-	// (typed MissingIndexError); anything else the validator rejects is a
-	// bad value, never a 404 on a collection the caller never addressed
+	// keep the validator's 403 and 422; anything else it rejects is a bad
+	// filter value, so 400 — a 404 here would name a collection in the filter
+	// path, not the one the caller asked for
 	if err := filters.ValidateFilters(getClass, filter); err != nil {
 		apiErr := statusFromError(err)
 		switch apiErr.Status {

@@ -20,9 +20,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestWhereValidation: the where filter is validated before the engine sees
-// it, so a bad path, operator or value is a client error with a message
-// naming what is wrong.
+// TestWhereValidation: a bad path, operator or value is a client error naming
+// what is wrong, not an untyped 500 from the engine.
 func TestWhereValidation(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -129,9 +128,8 @@ func TestWhereValidation(t *testing.T) {
 	}
 }
 
-// TestWhereUnknownRefClassOnEveryEndpoint: the same reference-path mistake
-// answers 400 on every endpoint, never a 404 on a collection the caller
-// never addressed.
+// TestWhereUnknownRefClassOnEveryEndpoint: a bad reference path is 400 on
+// every endpoint, never a 404 for a collection the caller never asked for.
 func TestWhereUnknownRefClassOnEveryEndpoint(t *testing.T) {
 	where := `"where":{"path":["hasAuthor","NoSuchClass","name"],"operator":"Equal","valueText":"x"}`
 	run := map[string]func(*testDeps) *APIError{

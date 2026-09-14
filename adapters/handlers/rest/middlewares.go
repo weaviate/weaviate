@@ -262,10 +262,9 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 	})
 }
 
-// addSearchBodyLimit caps the body of search and aggregate requests. An
-// announced oversize body is refused up front; a streamed one is cut off by
-// MaxBytesReader and surfaces as a bind error the search ServeError maps to
-// 413.
+// addSearchBodyLimit caps search and aggregate request bodies: an announced
+// oversize body is refused here, a streamed one is cut off by MaxBytesReader
+// and surfaces as a bind error that ServeError maps to 413.
 func addSearchBodyLimit(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if restsearch.IsSearchRoute(r.URL.Path) || restsearch.IsAggregateRoute(r.URL.Path) {

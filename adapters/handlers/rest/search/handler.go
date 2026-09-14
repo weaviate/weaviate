@@ -109,8 +109,8 @@ type APIError struct {
 }
 
 // Cause returns the full error behind a shortened client message, or Err. It
-// is for the log and for matching documented errors; only Err's text, which
-// the handler has stripped, may be rendered to the client.
+// is for the log and for matching documented errors; only Err has been
+// stripped for the caller, so only Err may be shown to a client.
 func (e *APIError) Cause() error {
 	if e.cause != nil {
 		return e.cause
@@ -119,8 +119,8 @@ func (e *APIError) Cause() error {
 }
 
 // strippedForPrincipal is apiErr with the caller's namespace removed from the
-// message it shows. The cause rides along unrendered, so the reply can still
-// match a documented error behind a shortened message.
+// client message. The cause is carried over unchanged: it is never shown to
+// the client, but the reply still matches its docs link against it.
 func strippedForPrincipal(principal *models.Principal, apiErr *APIError) *APIError {
 	return &APIError{
 		Status: apiErr.Status,
@@ -148,11 +148,10 @@ type classGetterFunc func(string) (*models.Class, error)
 type buildParamsFunc func(class *models.Class, className string,
 	getClass classGetterFunc) (dto.GetParams, *APIError)
 
-// resolveAuthorizedClass runs the fixed first steps shared by every
-// endpoint of the family (search and aggregate): alias/namespace resolution,
-// then authorization BEFORE any schema access. The ordering is load-bearing:
-// a denied caller must not learn whether the collection exists.
-// Errors come back unstripped; the caller applies its namespace strip.
+// resolveAuthorizedClass runs the first steps shared by search and aggregate:
+// alias/namespace resolution, then authorization BEFORE any schema access, so
+// a denied caller cannot learn whether the collection exists. Errors come back
+// unstripped; the caller applies its namespace strip.
 func (h *Handler) resolveAuthorizedClass(ctx context.Context, principal *models.Principal,
 	collection, tenant string,
 ) (context.Context, *models.Class, string, classGetterFunc, *APIError) {
@@ -233,12 +232,10 @@ func (h *Handler) NearText(ctx context.Context, principal *models.Principal,
 	return h.execute(ctx, principal, "near-text", collection, body.Tenant, &body.SearchCommon, paramsBuilder)
 }
 
-// hideAliasTarget makes an alias denial indistinguishable from a denial on a
-// plain collection of the caller-supplied name: it re-runs the authorizer on
-// that name and, when that passes, rewords the target's denial onto the alias
-// name so the 403 keeps the authorizer's own shape and never names the
-// target. The access decision was already made by getClass; this only
-// reshapes it.
+// hideAliasTarget makes an alias denial indistinguishable from one on a plain
+// collection of the caller-supplied name: it re-runs the authorizer on that
+// name and, if that passes, rewords the target's denial onto the alias, so the
+// 403 keeps the authorizer's shape and never names the target.
 func (h *Handler) hideAliasTarget(ctx context.Context, principal *models.Principal,
 	collection, target, tenant string, aliasUsed bool, err error,
 ) *APIError {
@@ -255,8 +252,6 @@ func (h *Handler) hideAliasTarget(ctx context.Context, principal *models.Princip
 	return &APIError{Status: http.StatusForbidden, Err: errors.New(msg), cause: err}
 }
 
-// logAPIError records handler outcomes: server-side failures at error level
-// with their full cause, client errors at debug.
 func (h *Handler) logAPIError(op, collection string, apiErr *APIError) {
 	if h.logger == nil || apiErr == nil {
 		return
@@ -416,9 +411,9 @@ func statusFromError(err error) *APIError {
 		// a Like pattern or keyword query that tokenizes to nothing
 		return shortened(http.StatusBadRequest, dbinverted.ErrOnlyStopwords)
 	case errors.As(err, &vectorization):
-		// embedding provider failure — deliberately 500, not 502: Weaviate is
-		// not acting as a gateway (review decision on #12248). The provider's
-		// response can quote credentials, so it goes to the log, not the client.
+		// embedding provider failure — 500, not 502: Weaviate is not acting as
+		// a gateway. The provider's response can quote credentials, so it goes
+		// to the log, not to the client.
 		return &APIError{Status: http.StatusInternalServerError, Err: errVectorizationFailed, cause: err}
 	}
 

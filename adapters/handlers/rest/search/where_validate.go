@@ -62,9 +62,8 @@ func (h *Handler) validateWhere(clause *filters.Clause, class *models.Class, get
 }
 
 // validateWherePath follows a reference path hop by hop: every inner segment
-// must be a reference property of the current collection whose declared
-// targets include the class named next. The class of the last hop is
-// returned for the value checks.
+// must be a reference property whose declared targets include the class named
+// next. The class of the last hop is returned for the value checks.
 func (h *Handler) validateWherePath(p *filters.Path, class *models.Class, getClass classGetterFunc) (*models.Class, *APIError) {
 	for p.Child != nil {
 		name := schema.LowercaseFirstLetter(p.Property.String())
@@ -84,9 +83,9 @@ func (h *Handler) validateWherePath(p *filters.Path, class *models.Class, getCla
 				name, target, prop.DataType)
 		}
 
-		// authorized (403) and, since it is a declared target, expected to
-		// exist: a miss is a schema race and still a bad request, not a 404
-		// on a collection the caller never addressed
+		// a denial stays 403; a declared target that is missing is a schema
+		// race, so a bad request, not a 404 for a collection the caller never
+		// asked for
 		next, err := getClass(target)
 		if err != nil {
 			apiErr := statusFromError(err)
@@ -109,9 +108,6 @@ func contains(haystack []string, needle string) bool {
 	return false
 }
 
-// validateWhereValue checks the value against the operator: Contains*
-// operators take arrays, every other operator a single value; Like needs a
-// pattern; dates must be RFC3339; IsNull needs the null-state index.
 func validateWhereValue(clause *filters.Clause, class *models.Class) *APIError {
 	v := clause.Value
 	if v == nil {
@@ -161,7 +157,6 @@ func validateWhereValue(clause *filters.Clause, class *models.Class) *APIError {
 	return nil
 }
 
-// leafProperty is the property name the path ends on.
 func leafProperty(p *filters.Path) string {
 	for p.Child != nil {
 		p = p.Child

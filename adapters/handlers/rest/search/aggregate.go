@@ -115,9 +115,8 @@ func checkAggregateReservedFields(body *models.AggregateRequest) *APIError {
 }
 
 // checkGroupable rejects a groupBy property the grouper cannot key on: an
-// object value is a map it cannot hash, and a reference groups by beacon
-// only on the unfiltered scan — the filtered scan hands the grouper raw
-// reference maps.
+// object value is a map it cannot hash, and a reference only groups by beacon
+// on the unfiltered scan — the filtered scan hands it raw reference maps.
 func checkGroupable(prop *models.Property, filtered bool) *APIError {
 	if schema.IsRefDataType(prop.DataType) {
 		if filtered {
