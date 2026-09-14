@@ -163,8 +163,19 @@ func (m *Migrator) freeze(ctx context.Context, idx *Index, class string, freeze 
 					return fmt.Errorf("attempt to mark begin offloading: %w", err)
 				}
 			}
+			var token uint64
+			if sh := idx.shards.loaded(name); sh != nil {
+				token = sh.haltLayoutToken()
+			}
 
-			if err := m.cloud.Upload(ctx, class, name, m.nodeId); err != nil {
+			uploadErr := m.cloud.Upload(ctx, class, name, m.nodeId)
+			if uploadErr == nil {
+				// the uploaded files no longer match the uploaded index.db
+				if sh := idx.shards.loaded(name); sh != nil && sh.layoutChangedSince(token) {
+					uploadErr = fmt.Errorf("upload of tenant %q: %w", name, errVectorLayoutChanged)
+				}
+			}
+			if err := uploadErr; err != nil {
 				m.logger.WithFields(logrus.Fields{
 					"action": "upload_tenant_to_cloud",
 					"error":  err,

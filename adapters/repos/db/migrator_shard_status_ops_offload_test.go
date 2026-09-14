@@ -78,3 +78,63 @@ func TestFreezeAbortRestoresShardOnUploadFailure(t *testing.T) {
 		return tp.Op == command.TenantsProcess_OP_ABORT && tp.Tenant.Status == models.TenantActivityStatusHOT
 	}, 5*time.Second, 20*time.Millisecond, "freeze must record OP_ABORT back to HOT")
 }
+
+// layoutChangingOffloadCloud runs fn as the upload, for a change that lands
+// while the offload is uploading.
+type layoutChangingOffloadCloud struct {
+	fn func(ctx context.Context) error
+}
+
+func (c *layoutChangingOffloadCloud) VerifyBucket(context.Context) error { return nil }
+
+func (c *layoutChangingOffloadCloud) Upload(ctx context.Context, _, _, _ string) error {
+	return c.fn(ctx)
+}
+
+func (c *layoutChangingOffloadCloud) Download(context.Context, string, string, string) error {
+	return nil
+}
+
+func (c *layoutChangingOffloadCloud) Delete(context.Context, string, string, string) error {
+	return nil
+}
+
+// A freeze whose upload overlapped a vector index change aborts like a
+// failed upload: the uploaded files do not match the uploaded index.db.
+func TestFreezeAbortsOnVectorLayoutChangeDuringUpload(t *testing.T) {
+	ctx := context.Background()
+	const class = "FreezeAbortsOnLayoutChange"
+
+	sl, idx := testShard(t, ctx, class, asyncSchedulerOption(t, ctx))
+	s := concreteShard(t, sl)
+	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
+	setShardReplicas(t, idx, "node1", "node2")
+	s.layoutWaitTimeout = 100 * time.Millisecond
+
+	logger, _ := test.NewNullLogger()
+	m := NewMigrator(nil, logger, "node1")
+	m.SetNode("node1")
+	proc := &recordingProcessor{}
+	m.SetCluster(proc)
+	m.cloud = &layoutChangingOffloadCloud{fn: func(ctx context.Context) error {
+		// a drop of a vector the shard never had still counts as a change
+		return s.DropVectorIndex(ctx, "gone")
+	}}
+
+	ec := errorcompounder.New()
+	m.freeze(ctx, idx, class, []*schemaUC.UpdateTenantPayload{
+		{Name: s.name, PreFreezeStatus: models.TenantActivityStatusHOT},
+	}, ec)
+
+	require.EqualValues(t, 0, s.haltForTransferCount.Load(), "freeze abort must resume maintenance")
+	require.ErrorIs(t, ec.ToError(), errVectorLayoutChanged)
+	require.Eventually(t, func() bool {
+		proc.mu.Lock()
+		defer proc.mu.Unlock()
+		if proc.req == nil || len(proc.req.TenantsProcesses) != 1 {
+			return false
+		}
+		tp := proc.req.TenantsProcesses[0]
+		return tp.Op == command.TenantsProcess_OP_ABORT && tp.Tenant.Status == models.TenantActivityStatusHOT
+	}, 5*time.Second, 20*time.Millisecond, "freeze must record OP_ABORT back to HOT")
+}
