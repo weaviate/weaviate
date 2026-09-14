@@ -34,14 +34,11 @@ func objectPath(class string, id strfmt.UUID) string {
 }
 
 // TestNamespaces_SuspendedNamespaceRefusesObjectRequests drives the object
-// endpoints in Mode B, against the node holding the shard. Stopping a node tells
-// nothing apart here, because the shard guard refuses these verbs either way.
-//
-// Every row here discriminates. The six that pin 422 do it on the status, since
-// the shard guard never answers 422; validate does it by reading no shard at
-// all; and the last two do it on the message and on the shape of the failure.
-// The verbs whose refusal the shard guard renders the same way are left to
-// suspend_shards_test.go, which pins POST against both node roles.
+// endpoints in Mode B, against the node holding the shard. Each refusal row pins
+// 422 and fails without the gate. The shard guard never answers 422 for HEAD,
+// PATCH, the object list or the reference verbs, and validate reads no shard.
+// Verbs the shard guard refuses the same way, POST among them, are left to
+// suspend_shards_test.go.
 func TestNamespaces_SuspendedNamespaceRefusesObjectRequests(t *testing.T) {
 	t.Parallel()
 	pair := newGatePair(t, modeBNode, modeBNode)
@@ -80,10 +77,8 @@ func TestNamespaces_SuspendedNamespaceRefusesObjectRequests(t *testing.T) {
 		})
 	})
 
-	// Validation reads only the schema, so no shard guard refuses here and a
-	// reverted gate lets the suspended class validate. The first request shows the
-	// same body validating against the active namespace.
-	t.Run("validate is refused", func(t *testing.T) {
+	// The first request shows the same body validating in the active namespace.
+	t.Run("validate is refused with 422", func(t *testing.T) {
 		validate := func(class string) (int, map[string]any) {
 			return requestJSON(t, http.MethodPost, restURI, "/v1/objects/validate", adminKey,
 				map[string]any{"id": gatedObjectID, "class": class, "properties": map[string]any{"title": "validated"}})
@@ -91,7 +86,9 @@ func TestNamespaces_SuspendedNamespaceRefusesObjectRequests(t *testing.T) {
 		status, body := validate(pair.activeClass)
 		require.Equal(t, http.StatusOK, status, "%v", body)
 
-		requireRESTRefused(t, func() (int, map[string]any) { return validate(pair.suspendedClass) })
+		requireRESTRefusedAs(t, http.StatusUnprocessableEntity, func() (int, map[string]any) {
+			return validate(pair.suspendedClass)
+		})
 	})
 
 	t.Run("the object list is refused with 422", func(t *testing.T) {
@@ -129,14 +126,13 @@ func TestNamespaces_SuspendedNamespaceRefusesObjectRequests(t *testing.T) {
 		})
 	})
 
-	// The read below goes to a node that does not hold the shard, which is where
-	// the answer without this gate comes from Index.FetchObject and reads "shard
-	// does not exist locally" rather than naming the namespace. It therefore fails
-	// on the message alone if the gate is not there.
-	t.Run("a read on a node that does not hold the shard is refused", func(t *testing.T) {
+	// Without the gate, a read on a node that does not hold the shard fails in
+	// Index.FetchObject with "shard does not exist locally", which names no
+	// namespace. This row therefore fails on the message alone.
+	t.Run("a read on a node that does not hold the shard is refused with 422", func(t *testing.T) {
 		otherURI, _ := nodeURIs(t, modeARequestNode)
 
-		requireRESTRefused(t, func() (int, map[string]any) {
+		requireRESTRefusedAs(t, http.StatusUnprocessableEntity, func() (int, map[string]any) {
 			return requestJSON(t, http.MethodGet, otherURI,
 				objectPath(pair.suspendedClass, gatedObjectID), adminKey, nil)
 		})
@@ -148,7 +144,7 @@ func TestNamespaces_SuspendedNamespaceRefusesObjectRequests(t *testing.T) {
 	// before any object is written. Which class the error names is not asserted:
 	// batch_add.go ranges a map, so the one reported first varies.
 	t.Run("a REST batch naming the suspended class is refused as a whole", func(t *testing.T) {
-		requireRESTRefused(t, func() (int, map[string]any) {
+		requireRESTRefusedAs(t, http.StatusUnprocessableEntity, func() (int, map[string]any) {
 			return requestJSON(t, http.MethodPost, restURI, "/v1/batch/objects", adminKey,
 				map[string]any{"objects": []map[string]any{
 					{"class": pair.activeClass, "properties": map[string]any{"title": "first"}},

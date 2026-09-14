@@ -442,10 +442,8 @@ func TestNamespaces_SuspendedNamespaceLoadsNoShardsAfterRestart(t *testing.T) {
 
 	// A batch delete answers with one status for the whole request, on a ladder
 	// of its own, so the status the single-object endpoints give does not cover
-	// it. (A batch create cannot stand in here: it reports per-object failures
-	// inside a 200 and never reaches that ladder.) The request path refuses this
-	// before the shard is reached, so the message below is the gate's rather
-	// than the closed shard's.
+	// it. The request path refuses this before the shard is reached, so the
+	// message below is the gate's rather than the closed shard's.
 	t.Run("a batch delete in the suspended namespace is refused", func(t *testing.T) {
 		helper.SetupClient(uriForNode(t, shardOwner))
 		t.Cleanup(func() { helper.SetupClient(originalURI) })
