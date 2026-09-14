@@ -13,79 +13,25 @@
 // Manager provides methods for "regular" interaction, such as
 // add, get, delete, update, etc. Additionally BatchManager allows for
 // efficient batch-adding of object instances and references.
+//
+// The ports the managers depend on are declared in schema_ports.go (the schema
+// use case), ports.go (the object store, the modules and the clock) and
+// metrics.go (the operation counters).
 package objects
 
 import (
-	"context"
 	"fmt"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
-	"github.com/weaviate/weaviate/cluster/schema/local"
-	"github.com/weaviate/weaviate/entities/additional"
-	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/schema/crossref"
-	"github.com/weaviate/weaviate/entities/search"
-	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
-
-// CachedClassReader reads versioned classes through the schema manager's class cache,
-// skipping authorization: callers must have authorized the request already.
-type CachedClassReader interface {
-	GetCachedClassNoAuth(ctx context.Context, names ...string) (map[string]versioned.Class, error)
-}
-
-// ClassResolver resolves collection aliases and reads classes through the schema
-// manager's class cache. The objects layer and the gRPC batch path both use it.
-type ClassResolver interface {
-	CachedClassReader
-	local.AliasReader
-}
-
-// classGetter reads classes for an authorized request: the principal is checked,
-// unlike the cache read in CachedClassReader.
-type classGetter interface {
-	// GetClass returns the class, or nil when it does not exist.
-	GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, error)
-	// GetCachedClass extracts the classes from the context, fetching them first if
-	// the context does not carry them yet.
-	GetCachedClass(ctx context.Context, principal *models.Principal, names ...string,
-	) (map[string]versioned.Class, error)
-}
-
-// schemaManager is what the object read and write paths need of the schema use
-// case: class reads, alias resolution, and the two things a write does first —
-// activate the tenant it writes to, and wait for the schema version it was told.
-type schemaManager interface {
-	ClassResolver
-	local.ClassReader
-	local.UpdateWaiter
-	classGetter
-
-	// EnsureTenantActiveForWrite activates tenants when AutoTenantActivation is enabled.
-	// Returns the schema version from activation. callers must use it in WaitForUpdate before writes.
-	EnsureTenantActiveForWrite(ctx context.Context, class string, tenants ...string) (uint64, error)
-}
-
-// autoSchemaWriter is what the auto-schema path writes: it creates classes, upserts
-// properties and adds tenants, then waits for its own writes to be applied locally.
-type autoSchemaWriter interface {
-	AddClass(ctx context.Context, principal *models.Principal, class *models.Class) (*models.Class, uint64, error)
-	// AddClassProperty is an upsert: it adds properties to a class and updates
-	// existing ones when merge is true.
-	AddClassProperty(ctx context.Context, principal *models.Principal, className string, merge bool, prop ...*models.Property) (*models.Class, uint64, error)
-	AddTenants(ctx context.Context, principal *models.Principal, class string, tenants []*models.Tenant) (uint64, error)
-	local.UpdateWaiter
-}
 
 // Manager manages kind changes at a use-case level, i.e. agnostic of
 // underlying databases or storage providers
@@ -100,75 +46,6 @@ type Manager struct {
 	autoSchemaManager *AutoSchemaManager
 	metrics           objectsMetrics
 	allocChecker      *memwatch.Monitor
-}
-
-type objectsMetrics interface {
-	BatchInc()
-	BatchDec()
-	BatchRefInc()
-	BatchRefDec()
-	BatchDeleteInc()
-	BatchDeleteDec()
-	AddObjectInc()
-	AddObjectDec()
-	UpdateObjectInc()
-	UpdateObjectDec()
-	MergeObjectInc()
-	MergeObjectDec()
-	DeleteObjectInc()
-	DeleteObjectDec()
-	GetObjectInc()
-	GetObjectDec()
-	HeadObjectInc()
-	HeadObjectDec()
-	AddReferenceInc()
-	AddReferenceDec()
-	UpdateReferenceInc()
-	UpdateReferenceDec()
-	DeleteReferenceInc()
-	DeleteReferenceDec()
-	AddUsageDimensions(className, queryType, operation string, dims int)
-}
-
-type timeSource interface {
-	Now() int64
-}
-
-type VectorRepo interface {
-	PutObject(ctx context.Context, concept *models.Object, vector []float32,
-		vectors map[string][]float32, multiVectors map[string][][]float32,
-		repl *additional.ReplicationProperties, schemaVersion uint64) error
-	DeleteObject(ctx context.Context, className string, id strfmt.UUID, deletionTime time.Time,
-		repl *additional.ReplicationProperties, tenant string, schemaVersion uint64) error
-	// Object returns object of the specified class giving by its id
-	Object(ctx context.Context, class string, id strfmt.UUID, props search.SelectProperties,
-		additional additional.Properties, repl *additional.ReplicationProperties,
-		tenant string) (*search.Result, error)
-	// Exists returns true if an object of a giving class exists
-	Exists(ctx context.Context, class string, id strfmt.UUID,
-		repl *additional.ReplicationProperties, tenant string) (bool, error)
-	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties,
-		additional additional.Properties, tenant string) (*search.Result, error)
-	ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
-		sort []filters.Sort, additional additional.Properties, tenant string) (search.Results, error)
-	AddReference(ctx context.Context, source *crossref.RefSource,
-		target *crossref.Ref, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64) error
-	Merge(ctx context.Context, merge MergeDocument, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64) error
-	Query(context.Context, *QueryInput) (search.Results, *Error)
-}
-
-type ModulesProvider interface {
-	GetObjectAdditionalExtend(ctx context.Context, in *search.Result,
-		moduleParams map[string]interface{}) (*search.Result, error)
-	ListObjectsAdditionalExtend(ctx context.Context, in search.Results,
-		moduleParams map[string]interface{}) (search.Results, error)
-	UsingRef2Vec(className string) bool
-	UpdateVector(ctx context.Context, object *models.Object, class *models.Class, repo modulecapabilities.FindObjectFn,
-		logger logrus.FieldLogger) error
-	BatchUpdateVector(ctx context.Context, class *models.Class, objects []*models.Object,
-		findObjectFn modulecapabilities.FindObjectFn,
-		logger logrus.FieldLogger) (map[int]error, error)
-	VectorizerName(className string) (string, error)
 }
 
 // NewManager creates a new manager.
@@ -209,10 +86,4 @@ func generateUUID() (strfmt.UUID, error) {
 	}
 
 	return strfmt.UUID(id.String()), nil
-}
-
-type defaultTimeSource struct{}
-
-func (ts defaultTimeSource) Now() int64 {
-	return time.Now().UnixNano() / int64(time.Millisecond)
 }

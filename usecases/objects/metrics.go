@@ -18,6 +18,36 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
+// objectsMetrics counts the object operations in flight and the dimensions they
+// touch. *Metrics below is the implementation the server wires in.
+type objectsMetrics interface {
+	BatchInc()
+	BatchDec()
+	BatchRefInc()
+	BatchRefDec()
+	BatchDeleteInc()
+	BatchDeleteDec()
+	AddObjectInc()
+	AddObjectDec()
+	UpdateObjectInc()
+	UpdateObjectDec()
+	MergeObjectInc()
+	MergeObjectDec()
+	DeleteObjectInc()
+	DeleteObjectDec()
+	GetObjectInc()
+	GetObjectDec()
+	HeadObjectInc()
+	HeadObjectDec()
+	AddReferenceInc()
+	AddReferenceDec()
+	UpdateReferenceInc()
+	UpdateReferenceDec()
+	DeleteReferenceInc()
+	DeleteReferenceDec()
+	AddUsageDimensions(className, queryType, operation string, dims int)
+}
+
 type Metrics struct {
 	queriesCount       *prometheus.GaugeVec
 	batchTime          *prometheus.HistogramVec
