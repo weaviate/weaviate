@@ -1783,3 +1783,65 @@ func TestLabelErr(t *testing.T) {
 		})
 	}
 }
+
+// A skip flag means the coordinator's selector matched nothing. The uploader
+// must call neither snapshotter and leave both blobs absent, since restore
+// treats an absent blob as a no-op and a present one as a replacement.
+func TestUploaderSnapshotSkip(t *testing.T) {
+	const class = "Article"
+
+	tests := []struct {
+		name                string
+		sel                 snapshotSelection
+		wantUsers, wantRBAC bool
+	}{
+		{name: "whole-cluster default", sel: snapshotSelection{}, wantUsers: true, wantRBAC: true},
+		{name: "explicit selection", sel: snapshotSelection{users: []string{"u"}, roles: []string{"r"}}, wantUsers: true, wantRBAC: true},
+		{name: "users missed", sel: snapshotSelection{skipUsers: true, roles: []string{"r"}}, wantUsers: false, wantRBAC: true},
+		{name: "roles missed", sel: snapshotSelection{users: []string{"u"}, skipRoles: true}, wantUsers: true, wantRBAC: false},
+		{name: "both missed", sel: snapshotSelection{skipUsers: true, skipRoles: true}, wantUsers: false, wantRBAC: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			backupID := "skip-" + tt.name
+			descriptors := make(chan backup.ClassDescriptor, 1)
+			descriptors <- backup.ClassDescriptor{Name: class}
+			close(descriptors)
+
+			sourcer := &fakeSourcer{}
+			sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything).
+				Return((<-chan backup.ClassDescriptor)(descriptors))
+			sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
+
+			backend := newFakeBackend()
+			backend.On("SourceDataPath").Return(t.TempDir())
+			backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(nil)
+
+			logger := logrus.New()
+			logger.Out = io.Discard
+			bp := &backupper{logger: logger}
+			require.Empty(t, bp.lastOp.renew(backupID, "bucket/backups/"+backupID, "", ""))
+
+			rbac, users := &countingSnapshotter{}, &countingSnapshotter{}
+			store := nodeStore{objectStore{backend: backend, backupId: backupID}}
+			u := newUploader(config.Backup{}, sourcer, rbac, users, tt.sel, store, backupID, &bp.lastOp, logger)
+			desc := backup.BackupDescriptor{ID: backupID}
+			require.NoError(t, u.all(context.Background(), []string{class}, &desc, nil, "", ""))
+
+			assert.Equal(t, tt.wantRBAC, rbac.calls == 1, "rbac snapshotter calls: %d", rbac.calls)
+			assert.Equal(t, tt.wantRBAC, len(desc.RbacBackups) > 0)
+			assert.Equal(t, tt.wantUsers, users.calls == 1, "user snapshotter calls: %d", users.calls)
+			assert.Equal(t, tt.wantUsers, len(desc.UserBackups) > 0)
+		})
+	}
+}
+
+type countingSnapshotter struct{ calls int }
+
+func (s *countingSnapshotter) Snapshot(...string) ([]byte, error) {
+	s.calls++
+	return []byte(`{"v":1}`), nil
+}
+
+func (s *countingSnapshotter) Restore([]byte, bool) error { return nil }

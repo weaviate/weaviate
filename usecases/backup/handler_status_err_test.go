@@ -207,7 +207,7 @@ func TestHandlerOnStatusServesTheReasonAFailedUploadPublished(t *testing.T) {
 			require.Empty(t, bp.lastOp.renew(backupID, "bucket/backups/1", "", ""))
 
 			store := nodeStore{objectStore{backend: backend, backupId: backupID}}
-			uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, &bp.lastOp, logger)
+			uploader := newUploader(config.Backup{}, sourcer, nil, nil, snapshotSelection{}, store, backupID, &bp.lastOp, logger)
 			desc := backup.BackupDescriptor{ID: backupID}
 			require.ErrorIs(t, uploader.all(context.Background(), []string{class}, &desc, nil, "", ""), tc.uploadErr)
 
@@ -274,7 +274,7 @@ func TestUploaderPublishesSuccessOnlyOnceTheDescriptorIsWritten(t *testing.T) {
 			require.Empty(t, bp.lastOp.renew(backupID, "bucket/backups/1", "", ""))
 
 			store := nodeStore{objectStore{backend: backend, backupId: backupID}}
-			uploader := newUploader(config.Backup{}, sourcer, nil, nil, nil, nil, store, backupID, &bp.lastOp, logger)
+			uploader := newUploader(config.Backup{}, sourcer, nil, nil, snapshotSelection{}, store, backupID, &bp.lastOp, logger)
 			desc := backup.BackupDescriptor{ID: backupID}
 			err := uploader.all(context.Background(), []string{class}, &desc, nil, "", "")
 
@@ -326,7 +326,7 @@ func TestUploaderPublishesAnAbortAsCancelled(t *testing.T) {
 	rbac := &abortingSnapshotter{cancel: cancel, err: errors.New("roles snapshot interrupted")}
 
 	store := nodeStore{objectStore{backend: backend, backupId: backupID}}
-	uploader := newUploader(config.Backup{}, sourcer, rbac, nil, nil, nil, store, backupID, &bp.lastOp, logger)
+	uploader := newUploader(config.Backup{}, sourcer, rbac, nil, snapshotSelection{}, store, backupID, &bp.lastOp, logger)
 	desc := backup.BackupDescriptor{ID: backupID}
 	require.Error(t, uploader.all(ctx, []string{class}, &desc, nil, "", ""))
 

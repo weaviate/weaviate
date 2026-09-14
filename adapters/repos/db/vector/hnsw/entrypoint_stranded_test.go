@@ -27,8 +27,9 @@ import (
 
 // TestDeleteEntrypoint_CandidatesUnderMaintenance deletes the entrypoint while
 // every other node is under maintenance, stranding the entrypoint on the
-// tombstoned node: cleanup must not wipe the live nodes and the next search
-// must repair the entrypoint.
+// tombstoned node: cleanup must not wipe the live nodes, must keep the
+// stranded entrypoint's tombstone for a retry, and the next cycle (once the
+// candidates left maintenance) must repair the entrypoint.
 func TestDeleteEntrypoint_CandidatesUnderMaintenance(t *testing.T) {
 	ctx := context.Background()
 	vectors := vectorsForEntrypointRepairTest()
@@ -117,7 +118,19 @@ func TestDeleteEntrypoint_CandidatesUnderMaintenance(t *testing.T) {
 	assert.NotEmpty(t, ids, "search must still find the live nodes")
 	assert.NotContains(t, ids, oldEP, "results must not contain the deleted node")
 
+	// the stranded entrypoint keeps its tombstone (removing it would leave
+	// a dangling entrypoint no cycle revisits), so with the candidates out
+	// of maintenance the next cleanup cycle repairs the entrypoint
+	index.tombstoneLock.Lock()
+	_, tombstoned := index.tombstones[oldEP]
+	index.tombstoneLock.Unlock()
+	assert.True(t, tombstoned, "stranded entrypoint must keep its tombstone for a retry")
+
+	_, err = index.cleanUpTombstonedNodes(neverStop)
+	require.NoError(t, err)
+
 	newEP := index.getEntrypoint()
-	assert.NotEqual(t, oldEP, newEP, "search must have repaired the entrypoint")
+	assert.NotEqual(t, oldEP, newEP, "next cleanup cycle must have repaired the entrypoint")
 	assert.NotNil(t, index.nodeByID(newEP), "repaired entrypoint must be a live node")
+	assert.Equal(t, 0, tombstoneCountOf(index), "tombstone must drain once the entrypoint moved")
 }
