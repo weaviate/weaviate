@@ -517,6 +517,12 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 			return saved.ShardUsage, nil
 		}
 	}
+	// Read before anything is measured. A concurrent drop clears this shard's
+	// files and dimension rows and bumps the generation last, so a value read
+	// after any measurement can already describe a shard the measurement does
+	// not. The save refuses to publish when the count moved.
+	usageGeneration := shardusage.ComputedUsageGeneration(i.path(), shardName)
+
 	lsmPath := shardPathLSM(i.path(), shardName)
 
 	directories, err := diskio.GetSubdirNames(lsmPath)
@@ -555,10 +561,6 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		}
 		encodedDimensions[targetVector] = i.muveraEncodedDimensions(shardName, targetVector, cfg)
 	}
-	// Read before the scan: everything below is computed from rows a concurrent
-	// drop may clear, and the save refuses to publish if that happened.
-	usageGeneration := shardusage.ComputedUsageGeneration(i.path(), shardName)
-
 	// open the dimensions bucket once for all target vectors
 	scansAll, err := shardusage.CalculateUnloadedDimensionsUsageAll(ctx, i.logger, i.path(), shardName, encodedDimensions)
 	if err != nil {

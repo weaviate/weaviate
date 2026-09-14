@@ -320,9 +320,9 @@ func (s *Shard) removeDimensionsLSM(dimLength int, docID uint64, targetVector st
 // that can race a teardown hold preventShutdown; this is what catches the ones
 // that forget.
 func (s *Shard) removeAllDimensionsLSM(ctx context.Context, targetVector string) error {
-	// Pinned, not just fetched: the clear holds a cursor open across the whole
-	// scan and write, and resetDimensionsLSM can swap this bucket underneath it
-	// (Store.ReplaceBuckets). The pin also covers the segments the cursor reads,
+	// Pinned, not just fetched: the clear walks the bucket and then writes to
+	// it, and resetDimensionsLSM can swap this bucket underneath it
+	// (Store.ReplaceBuckets). The pin also covers the segments its cursors read,
 	// which a concurrent Shutdown would otherwise unmap.
 	b, release := s.store.AcquireBucketForRead(helpers.DimensionsBucketLSM)
 	defer release()

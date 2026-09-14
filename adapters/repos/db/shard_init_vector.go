@@ -430,21 +430,13 @@ func dropOneVectorIndex(ctx context.Context, index VectorIndex) error {
 // DropVectorIndex shuts down and removes the named vector index and its queue
 // from this shard, deleting associated files from disk. It also removes the
 // LSM buckets that store the raw and compressed vector data.
+//
+// The vector's dimension rows are not cleared here. This runs inline in the
+// RAFT apply, for every shard of the collection, and that clear is O(objects)
+// where everything else here is O(files). The drop task clears the rows per
+// unit instead, and a shard that was inactive throughout clears them when it
+// next loads.
 func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error {
-	if err := s.dropVectorIndexArtifacts(ctx, targetVector); err != nil {
-		return err
-	}
-
-	// Outside vectorIndexMu on purpose. Everything above is O(files); this is
-	// O(objects), and every vector read and write on the shard takes that lock.
-	// The rows are usage accounting, not part of the state the mutex guards.
-	if err := s.removeAllDimensionsLSM(ctx, targetVector); err != nil {
-		return fmt.Errorf("remove dimensions for vector %q: %w", targetVector, err)
-	}
-	return nil
-}
-
-func (s *Shard) dropVectorIndexArtifacts(ctx context.Context, targetVector string) error {
 	s.vectorIndexMu.Lock()
 	defer s.vectorIndexMu.Unlock()
 

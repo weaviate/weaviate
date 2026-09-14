@@ -91,6 +91,32 @@ func ComputedUsageGeneration(indexPath, shardName string) uint64 {
 	return computedUsageGenerationFor(indexPath, shardName).Load()
 }
 
+// ForgetComputedUsageGeneration drops a shard's invalidation count. Call it
+// when the shard is deleted: the counts are keyed by path and nothing else
+// removes them, so a collection with tenant churn would otherwise accumulate
+// one entry per tenant ever created, for the life of the process.
+//
+// A scan still in flight for a deleted shard loses its count and declines to
+// publish, or writes into a directory that is going away and fails; either way
+// nothing reads that record again.
+func ForgetComputedUsageGeneration(indexPath, shardName string) {
+	computedUsageGenerations.Delete(usageTmpFilePath(indexPath, shardName))
+}
+
+// ForgetComputedUsageGenerationsUnder drops the counts of every shard of one
+// index, for a whole-collection drop where the shard names are not to hand.
+func ForgetComputedUsageGenerationsUnder(indexPath string) {
+	// usageTmpFilePath builds its keys with path.Join, so they are always
+	// slash-separated regardless of platform.
+	prefix := path.Join(indexPath) + "/"
+	computedUsageGenerations.Range(func(key, _ any) bool {
+		if name, ok := key.(string); ok && strings.HasPrefix(name, prefix) {
+			computedUsageGenerations.Delete(name)
+		}
+		return true
+	})
+}
+
 // RemoveComputedUsageDataForUnloadedShard removes pre-calculated shard usage data from disk
 func RemoveComputedUsageDataForUnloadedShard(indexPath, shardName string) error {
 	// Bumped before the file is touched, so a scan that is already assembling a
@@ -546,10 +572,6 @@ type DimensionsScan struct {
 
 const contextCheckInterval = 1024
 
-// ScanTargetVectorDimensions calculates dimensions and object count for a target vector from an
-// LSMKV bucket. A non-zero encodedDimensions reports that fixed dimensionality against the object
-// count summed across all rows, which costs a scan of the whole prefix instead of stopping at the
-// first complete row.
 // removeRoaringSetRow deletes one row's doc IDs in bounded batches, so neither
 // the WAL append nor the memtable lock is held for the whole set at once.
 //
@@ -577,7 +599,7 @@ func removeRoaringSetRow(ctx context.Context, b *lsmkv.Bucket, key []byte) error
 }
 
 // roaringSetRowValues reads one row and closes the cursor before returning, so
-// nothing is written while it is open.
+// the row's segments are not pinned while it is deleted.
 func roaringSetRowValues(ctx context.Context, b *lsmkv.Bucket, key []byte) ([]uint64, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -592,18 +614,89 @@ func roaringSetRowValues(ctx context.Context, b *lsmkv.Bucket, key []byte) ([]ui
 	return v.ToArray(), nil
 }
 
+// removeMapRow deletes one row's entries in bounded batches. The doc IDs are
+// read a row at a time rather than collected for every row up front: a row
+// lists every object carrying the vector, and a multi-vector records one row
+// per dimensionality it has seen.
+//
+// The row is read through its own cursor rather than MapList, which returns
+// nothing for an entry whose value is empty once that entry reaches a segment —
+// and this bucket carries the doc ID in the map key with no value at all. The
+// keys are cloned because the memtable keeps what it is handed and the cursor
+// reuses its buffers.
+func removeMapRow(ctx context.Context, b *lsmkv.Bucket, key []byte) error {
+	mapKeys, err := mapRowKeys(ctx, b, key)
+	if err != nil {
+		return err
+	}
+	for i, mapKey := range mapKeys {
+		// One lock and one WAL append each, so a row holding the whole shard's
+		// doc IDs is a long uninterruptible stretch otherwise.
+		if i%dimensionsDeleteChunk == 0 {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if err := flushIfMemtableFull(b); err != nil {
+				return err
+			}
+		}
+		if err := b.MapDeleteKey(key, mapKey); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// mapRowKeys reads one row's map keys and closes the cursor before returning,
+// so the row's segments are not pinned while it is deleted.
+func mapRowKeys(ctx context.Context, b *lsmkv.Bucket, key []byte) ([][]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	c, err := b.MapCursor()
+	if err != nil {
+		return nil, fmt.Errorf("create cursor: %w", err)
+	}
+	defer c.Close()
+
+	k, pairs := c.Seek(ctx, key)
+	if k == nil || !bytes.Equal(k, key) {
+		return nil, nil
+	}
+	mapKeys := make([][]byte, 0, len(pairs))
+	for _, pair := range pairs {
+		mapKeys = append(mapKeys, bytes.Clone(pair.Key))
+	}
+	return mapKeys, nil
+}
+
+// flushIfMemtableFull switches the memtable once it passes the bucket's own
+// threshold. A dimensions bucket opened from disk runs on noop cycle callbacks,
+// so nothing else ever switches it and every tombstone this clear writes would
+// stay in memory until Shutdown — one per object on the map path. Flushing per
+// delete chunk instead would leave a segment per chunk behind, with no
+// compaction to merge them either.
+func flushIfMemtableFull(b *lsmkv.Bucket) error {
+	if b.ActiveMemtableSize() < b.GetMemtableThreshold() {
+		return nil
+	}
+	return b.FlushMemtable()
+}
+
 // dimensionsDeleteChunk bounds one delete batch. A dimensions row lists every
 // object carrying the vector, so an unchunked delete is O(objects) in one
 // allocation and in one uninterruptible stretch.
 const dimensionsDeleteChunk = 10_000
 
 // RemoveTargetVectorDimensions deletes every row targetVector owns. Keys are
-// <name><LE uint32 dims>, so a longer name sorts among the target's own keys:
-// the length check separates them, the prefix alone does not. An empty name is
-// the legacy unnamed vector.
+// <name><LE uint32 dims>, so a longer name sorts among the target's own keys
+// rather than after them: the length check separates the two, and because they
+// interleave, a key of the wrong length ends nothing. An empty name is the
+// legacy unnamed vector.
 //
-// Rows are collected before anything is deleted — writing through an open
-// cursor is not safe.
+// Row keys are collected before any row is deleted, so the walk's cursor
+// releases its segment refcounts before the deletes begin instead of pinning
+// every input segment on disk for the length of the clear.
 func RemoveTargetVectorDimensions(ctx context.Context, b *lsmkv.Bucket, targetVector string) error {
 	if err := lsmkv.CheckExpectedStrategy(b.Strategy(), lsmkv.StrategyMapCollection, lsmkv.StrategyRoaringSet); err != nil {
 		return fmt.Errorf("removeTargetVectorDimensions: %w", err)
@@ -613,62 +706,38 @@ func RemoveTargetVectorDimensions(ctx context.Context, b *lsmkv.Bucket, targetVe
 	nameLen := len(targetVector)
 	expectedKeyLen := nameLen + 4
 
+	var keys [][]byte
 	switch b.Strategy() {
 	case lsmkv.StrategyMapCollection:
 		// Since weaviate 1.34 default dimension bucket strategy is StrategyRoaringSet.
 		// For backward compatibility StrategyMapCollection is still supported.
-		type row struct {
-			key     []byte
-			mapKeys [][]byte
-		}
-		var rows []row
-
 		c, err := b.MapCursor()
 		if err != nil {
 			return fmt.Errorf("create cursor: %w", err)
 		}
 		var k []byte
-		var v []lsmkv.MapPair
 		if nameLen == 0 {
-			k, v = c.First(ctx)
+			k, _ = c.First(ctx)
 		} else {
-			k, v = c.Seek(ctx, prefix)
+			k, _ = c.Seek(ctx, prefix)
 		}
-		for ; k != nil && bytes.HasPrefix(k, prefix); k, v = c.Next(ctx) {
+		for ; k != nil && bytes.HasPrefix(k, prefix); k, _ = c.Next(ctx) {
 			if len(k) != expectedKeyLen {
 				continue
 			}
-			r := row{key: bytes.Clone(k)}
-			for _, pair := range v {
-				r.mapKeys = append(r.mapKeys, bytes.Clone(pair.Key))
-			}
-			rows = append(rows, r)
+			keys = append(keys, bytes.Clone(k))
 		}
 		c.Close()
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
-		for _, r := range rows {
-			for i, mapKey := range r.mapKeys {
-				// One lock and one WAL append each, so a row holding the whole
-				// shard's doc IDs is a long uninterruptible stretch otherwise.
-				if i%dimensionsDeleteChunk == 0 && ctx.Err() != nil {
-					return ctx.Err()
-				}
-				if err := b.MapDeleteKey(r.key, mapKey); err != nil {
-					return fmt.Errorf("delete dimensions entry for %q: %w", targetVector, err)
-				}
+		for _, key := range keys {
+			if err := removeMapRow(ctx, b, key); err != nil {
+				return fmt.Errorf("delete dimensions entry for %q: %w", targetVector, err)
 			}
 		}
 	default:
-		// Only the keys are collected while the cursor is open: a row's value is
-		// one entry per object carrying the vector, so retaining every row's
-		// doc IDs at once is the whole shard's set several times over. Each row
-		// is then read and deleted on its own, and one row's bitmap is the floor
-		// — sroar exposes no iterator, so ToArray is the only way in.
-		var keys [][]byte
-
 		c := b.CursorRoaringSet()
 		var k []byte
 		if nameLen == 0 {
@@ -696,6 +765,10 @@ func RemoveTargetVectorDimensions(ctx context.Context, b *lsmkv.Bucket, targetVe
 	return nil
 }
 
+// ScanTargetVectorDimensions calculates dimensions and object count for a target vector from an
+// LSMKV bucket. A non-zero encodedDimensions reports that fixed dimensionality against the object
+// count summed across all rows, which costs a scan of the whole prefix instead of stopping at the
+// first complete row.
 func ScanTargetVectorDimensions(ctx context.Context, b *lsmkv.Bucket, targetVector string,
 	encodedDimensions int,
 ) (DimensionsScan, error) {

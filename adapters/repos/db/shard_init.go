@@ -57,7 +57,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("shard %q: remove nonexistent property index buckets: %w", shardName, err)
 	}
 
-	if err := newVectorDropIndexHelper().ensureFilesAreRemovedForDroppedVectorIndexes(ctx, index.logger, index.path(), shardName, class); err != nil {
+	if err := newVectorDropIndexHelper().ensureFilesAreRemovedForDroppedVectorIndexes(index.path(), shardName, class); err != nil {
 		return nil, fmt.Errorf("shard %q: remove dropped vector index files: %w", shardName, err)
 	}
 
@@ -171,6 +171,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if err := s.initNonVector(ctx, class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
+
+	// Needs the dimensions bucket, which initNonVector opens.
+	s.clearDroppedVectorDimensions(ctx, class)
 
 	if err = s.initShardVectors(ctx); err != nil {
 		return nil, fmt.Errorf("init shard vectors: %w", err)

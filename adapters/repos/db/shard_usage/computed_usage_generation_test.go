@@ -14,6 +14,7 @@ package shardusage
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -81,12 +82,11 @@ func TestSaveComputedUsageData_Generation(t *testing.T) {
 		require.NoFileExists(t, usageTmpFilePath(indexPath, shardName))
 	})
 
-	// SaveComputedUsageData checks the generation before the write and again
-	// after it. The second check covers a window a single-threaded test cannot
-	// reach: an invalidation that passes the first check, finds no file to
-	// remove, and is then overwritten by this save. Run concurrently instead,
-	// asserting the invariant both checks exist to hold — a published record is
-	// never one that was invalidated while it was being written.
+	// Run concurrently: the window this guards, an invalidation that finds no
+	// file to remove because the save has not written yet, cannot be scheduled
+	// from a single goroutine. Only the end state is asserted. A save that
+	// publishes and returns before the invalidation runs is correct too, and
+	// the invalidation then removes what it published.
 	t.Run("concurrent invalidation never leaves a published stale record", func(t *testing.T) {
 		for range 200 {
 			indexPath := newShard(t)
@@ -98,18 +98,13 @@ func TestSaveComputedUsageData_Generation(t *testing.T) {
 				_ = RemoveComputedUsageDataForUnloadedShard(indexPath, shardName)
 			}()
 
-			saved, err := SaveComputedUsageData(indexPath, shardName, usage, "fp", gen)
+			_, err := SaveComputedUsageData(indexPath, shardName, usage, "fp", gen)
 			require.NoError(t, err)
 			<-done
 
-			if !saved {
-				require.NoFileExists(t, usageTmpFilePath(indexPath, shardName),
-					"a declined save must leave nothing for the next collection to serve")
-				continue
-			}
-			require.Equal(t, gen, ComputedUsageGeneration(indexPath, shardName),
-				"a record was published even though the shard was invalidated while "+
-					"it was written; the next collection will serve pre-drop numbers")
+			require.NoFileExists(t, usageTmpFilePath(indexPath, shardName),
+				"a record outlived an invalidation that ran alongside its save; the "+
+					"next collection will serve pre-drop numbers")
 		}
 	})
 
@@ -123,6 +118,36 @@ func TestSaveComputedUsageData_Generation(t *testing.T) {
 		require.True(t, saved, "invalidation must not wedge the cache permanently")
 	})
 
+	t.Run("a deleted shard's count is forgotten", func(t *testing.T) {
+		indexPath := newShard(t)
+
+		require.NoError(t, RemoveComputedUsageDataForUnloadedShard(indexPath, shardName))
+		require.Equal(t, uint64(1), ComputedUsageGeneration(indexPath, shardName),
+			"precondition: the shard must have a count to forget")
+		require.Equal(t, 1, generationEntriesUnder(indexPath))
+
+		ForgetComputedUsageGeneration(indexPath, shardName)
+		require.Zero(t, generationEntriesUnder(indexPath),
+			"nothing else removes these: a collection with tenant churn would keep "+
+				"one entry per tenant ever created until the process restarts")
+	})
+
+	t.Run("dropping a collection forgets every shard under it", func(t *testing.T) {
+		indexPath := newShard(t)
+		other := newShard(t)
+
+		for _, name := range []string{shardName, "cold-tenant"} {
+			require.NoError(t, RemoveComputedUsageDataForUnloadedShard(indexPath, name))
+		}
+		require.NoError(t, RemoveComputedUsageDataForUnloadedShard(other, shardName))
+		require.Equal(t, 2, generationEntriesUnder(indexPath))
+
+		ForgetComputedUsageGenerationsUnder(indexPath)
+		require.Zero(t, generationEntriesUnder(indexPath))
+		require.Equal(t, 1, generationEntriesUnder(other),
+			"another collection's counts must survive")
+	})
+
 	t.Run("generations are per shard", func(t *testing.T) {
 		indexPath := newShard(t)
 		require.NoError(t, os.MkdirAll(filepath.Join(indexPath, "other"), 0o700))
@@ -134,4 +159,17 @@ func TestSaveComputedUsageData_Generation(t *testing.T) {
 		require.NoError(t, err)
 		require.True(t, saved, "another shard's drop must not stop this one caching")
 	})
+}
+
+// generationEntriesUnder counts the invalidation counts held for one index.
+func generationEntriesUnder(indexPath string) int {
+	prefix := indexPath + "/"
+	n := 0
+	computedUsageGenerations.Range(func(key, _ any) bool {
+		if name, ok := key.(string); ok && strings.HasPrefix(name, prefix) {
+			n++
+		}
+		return true
+	})
+	return n
 }

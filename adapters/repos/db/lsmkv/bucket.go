@@ -615,6 +615,17 @@ func (b *Bucket) GetMemtableThreshold() uint64 {
 	return b.memtableThreshold
 }
 
+// ActiveMemtableSize reports the size of the memtable currently taking writes.
+// A bucket opened with a noop flush cycle never switches on its own, so a bulk
+// writer on one has to watch this against GetMemtableThreshold and call
+// FlushMemtable itself.
+func (b *Bucket) ActiveMemtableSize() uint64 {
+	b.flushLock.RLock()
+	defer b.flushLock.RUnlock()
+
+	return b.active.Size()
+}
+
 func (b *Bucket) GetWalThreshold() uint64 {
 	return b.walThreshold
 }

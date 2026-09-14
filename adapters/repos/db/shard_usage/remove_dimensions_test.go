@@ -90,6 +90,20 @@ func TestRemoveTargetVectorDimensions(t *testing.T) {
 			want:   map[string]int{"vec": 0, "vec_extra": 3},
 		},
 		{
+			// 384 is not decoration. The key is <name><LE uint32 dims>, so the
+			// byte after "vec" is the low byte of the dimensionality: 0x08 at 8
+			// dims, which sorts before "_" (0x5F), but 0x80 at 384, which sorts
+			// after it. Only here does the sibling's key come FIRST, which is
+			// what makes the length check a skip rather than a stop.
+			name: "the sibling sorts first when the dimensionality says so",
+			seed: []dimRow{
+				{name: "vec", dims: 384, docIDs: []uint64{1, 2}},
+				{name: "vec_extra", dims: 384, docIDs: []uint64{3, 4, 5}},
+			},
+			remove: "vec",
+			want:   map[string]int{"vec": 0, "vec_extra": 3},
+		},
+		{
 			name: "the target itself may be the longer name",
 			seed: []dimRow{
 				{name: "vec", dims: dims, docIDs: []uint64{1, 2}},

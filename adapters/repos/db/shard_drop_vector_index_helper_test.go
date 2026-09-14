@@ -17,7 +17,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -214,7 +213,7 @@ func TestVectorDropIndexHelper_EnsureFilesAreRemovedForDroppedVectorIndexes(t *t
 			VectorConfig: nil,
 		}
 
-		err := h.ensureFilesAreRemovedForDroppedVectorIndexes(t.Context(), logrus.New(), indexPath, shardName, class)
+		err := h.ensureFilesAreRemovedForDroppedVectorIndexes(indexPath, shardName, class)
 		require.NoError(t, err)
 	})
 
@@ -233,7 +232,7 @@ func TestVectorDropIndexHelper_EnsureFilesAreRemovedForDroppedVectorIndexes(t *t
 			},
 		}
 
-		err := h.ensureFilesAreRemovedForDroppedVectorIndexes(t.Context(), logrus.New(), indexPath, shardName, class)
+		err := h.ensureFilesAreRemovedForDroppedVectorIndexes(indexPath, shardName, class)
 		require.NoError(t, err)
 
 		assert.True(t, pathExists(filepath.Join(indexPath, shardName, "lsm", "vectors_flat_bq")))
@@ -258,7 +257,7 @@ func TestVectorDropIndexHelper_EnsureFilesAreRemovedForDroppedVectorIndexes(t *t
 			},
 		}
 
-		err := h.ensureFilesAreRemovedForDroppedVectorIndexes(t.Context(), logrus.New(), indexPath, shardName, class)
+		err := h.ensureFilesAreRemovedForDroppedVectorIndexes(indexPath, shardName, class)
 		require.NoError(t, err)
 
 		assert.False(t, pathExists(filepath.Join(indexPath, shardName, "lsm", "vectors_flat_bq")))
@@ -285,7 +284,7 @@ func TestVectorDropIndexHelper_EnsureFilesAreRemovedForDroppedVectorIndexes(t *t
 			},
 		}
 
-		err := h.ensureFilesAreRemovedForDroppedVectorIndexes(t.Context(), logrus.New(), indexPath, shardName, class)
+		err := h.ensureFilesAreRemovedForDroppedVectorIndexes(indexPath, shardName, class)
 		require.NoError(t, err)
 
 		assert.False(t, pathExists(filepath.Join(indexPath, shardName, "lsm", "vectors_flat_bq")))
@@ -322,7 +321,7 @@ func TestVectorDropIndexHelper_EnsureFilesAreRemovedForDroppedVectorIndexes(t *t
 			},
 		}
 
-		require.NoError(t, h.ensureFilesAreRemovedForDroppedVectorIndexes(t.Context(), logrus.New(), indexPath, shardName, class))
+		require.NoError(t, h.ensureFilesAreRemovedForDroppedVectorIndexes(indexPath, shardName, class))
 
 		assert.True(t, pathExists(filepath.Join(indexPath, shardName, "lsm", helpers.GetVectorsBucketName(sibling))),
 			"%s is a live vector's own bucket and must survive dropping %s", sibling, dropped)
@@ -340,7 +339,7 @@ func TestVectorDropIndexHelper_EnsureFilesAreRemovedForDroppedVectorIndexes(t *t
 			},
 		}
 
-		err := h.ensureFilesAreRemovedForDroppedVectorIndexes(t.Context(), logrus.New(), indexPath, shardName, class)
+		err := h.ensureFilesAreRemovedForDroppedVectorIndexes(indexPath, shardName, class)
 		require.NoError(t, err)
 	})
 }

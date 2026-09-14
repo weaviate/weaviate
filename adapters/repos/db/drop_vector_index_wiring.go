@@ -111,25 +111,60 @@ func (db *DB) EnsureDroppedVectorFilesRemoved(collection, shardName string, targ
 			otherTargetVectors(class, target)); err != nil {
 			return err
 		}
-		if err := removeDimensionsForDroppedVector(idx, shardName, target); err != nil {
+	}
+	return nil
+}
+
+// RemoveDroppedVectorDimensions clears the dropped vectors' dimension rows on
+// one shard and drops its saved usage record.
+//
+// It runs per unit, before that unit is recorded complete, so a failure fails
+// the unit and the next round retries it. Group completion would be too late:
+// a completed unit stays credited even when its round fails, so the next round
+// would skip the shard and the rows could outlive the drop.
+func (db *DB) RemoveDroppedVectorDimensions(ctx context.Context, collection, shardName string, targets []string) error {
+	idx := db.GetIndex(entschema.ClassName(collection))
+	if idx == nil {
+		return fmt.Errorf("index for collection %q not found", collection)
+	}
+	for _, target := range targets {
+		if err := removeDimensionsForDroppedVector(ctx, idx, shardName, target); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+const (
+	// dimensionsClaimAttempts bounds the wait for a bucket claim held by a shard
+	// that is loading or shutting down. Exhausting it fails the unit, which the
+	// next round retries.
+	dimensionsClaimAttempts = 4
+	dimensionsClaimBackoff  = 250 * time.Millisecond
+)
+
 // removeDimensionsForDroppedVector clears target's dimension rows on one shard.
-// The route has to branch: this callback re-fires over loaded units too, and a
-// loaded shard holds the bucket open through its own store.
+// The route has to branch: a loaded shard holds the bucket open through its own
+// store, an unloaded one is opened from disk.
 //
-// A shard that finishes loading between the routing decision and the open takes
-// the same registry claim, which TryAdd reports at once instead of waiting. One
-// retry re-resolves it and goes through the store that won.
-func removeDimensionsForDroppedVector(idx *Index, shardName, target string) error {
-	ctx := context.Background()
-	err := removeDimensionsOnShard(ctx, idx, shardName, target)
-	if errors.Is(err, lsmkv.ErrBucketAlreadyRegistered) {
-		err = removeDimensionsOnShard(ctx, idx, shardName, target)
+// Either end of that decision can lose the bucket's registry claim to the
+// other. A shard that finishes loading takes it, and a shard that is shutting
+// down holds it until its teardown completes. TryAdd reports both at once
+// rather than waiting, so the retries are spaced: an immediate one re-reads the
+// same state.
+func removeDimensionsForDroppedVector(ctx context.Context, idx *Index, shardName, target string) error {
+	var err error
+	for attempt := range dimensionsClaimAttempts {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(time.Duration(attempt) * dimensionsClaimBackoff):
+			}
+		}
+		if err = removeDimensionsOnShard(ctx, idx, shardName, target); !errors.Is(err, lsmkv.ErrBucketAlreadyRegistered) {
+			break
+		}
 	}
 	if err != nil {
 		return err

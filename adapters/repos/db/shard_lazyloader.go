@@ -628,9 +628,8 @@ func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
 // under l.mutex and committed to before the lock is released: a loaded shard's
 // reference is taken first, so a deactivation cannot blank its store in
 // between, and the cold branch keeps the lock because loadIfCold holds it
-// across the whole of NewShard — released early, a concurrent load would open
-// the dimensions bucket that dropUnloadedVectorIndex is about to open from
-// disk, and one of the two would lose the registry claim.
+// across the whole of NewShard — released early, the files this removes could
+// be re-opened by a load that started in between.
 func (l *LazyLoadShard) DropVectorIndex(ctx context.Context, targetVector string) error {
 	l.mutex.Lock()
 	if l.loaded && l.shard != nil {
@@ -642,10 +641,10 @@ func (l *LazyLoadShard) DropVectorIndex(ctx context.Context, targetVector string
 		}
 	}
 	defer l.mutex.Unlock()
-	return l.dropUnloadedVectorIndex(ctx, targetVector)
+	return l.dropUnloadedVectorIndex(targetVector)
 }
 
-func (l *LazyLoadShard) dropUnloadedVectorIndex(ctx context.Context, targetVector string) error {
+func (l *LazyLoadShard) dropUnloadedVectorIndex(targetVector string) error {
 	// Shard is not loaded — remove files directly from disk. Delegate to the
 	// shared helper so file path logic is defined in one place.
 	// The collection's other vector names guard against removing a sibling whose
@@ -667,18 +666,14 @@ func (l *LazyLoadShard) dropUnloadedVectorIndex(ctx context.Context, targetVecto
 		}
 	}
 
-	// Last, so a failure here cannot leave the checkpoint entry behind: a
-	// re-created vector would then resume async indexing from that doc ID and
-	// never index the objects below it.
-	if err := shardusage.RemoveUnloadedTargetVectorDimensions(ctx,
-		l.shardOpts.index.logger, l.shardOpts.index.path(), l.shardOpts.name,
-		targetVector); err != nil {
-		return err
-	}
-
-	// The saved usage record is keyed by a hash of the active vector configs
-	// alone, so re-creating this name with the same config would serve the
-	// pre-drop numbers again.
+	// The dimension rows stay for now: opening the bucket from disk to clear
+	// them would put an O(objects) walk inside the RAFT apply, for every
+	// inactive tenant of the collection, under this shard's mutex. The drop
+	// task clears them per unit, and this tenant clears them when it next
+	// loads. Dropping the saved usage record is what stops the gap being
+	// visible: the record is keyed by a hash of the active vector configs
+	// alone, so without this a re-created name with the same config would
+	// serve the pre-drop numbers straight from cache.
 	return shardusage.RemoveComputedUsageDataForUnloadedShard(
 		l.shardOpts.index.path(), l.shardOpts.name)
 }

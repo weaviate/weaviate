@@ -110,11 +110,15 @@ func dropDimsObject(i int) *storobj.Object {
 	}
 }
 
-// TestDropVectorIndex_ClearsDimensionRows pins that a drop takes the vector's
+// TestDropVectorIndex_ClearsDimensionRows pins that the drop takes the vector's
 // rows out of the shard's dimensions bucket. Nothing else reclaims them: the
 // drop strips the vector from the object bytes, so a later update or delete
 // finds nothing to tombstone, and the rows are inherited by the next vector
 // created under the same name.
+//
+// The clear is deliberately NOT part of Shard.DropVectorIndex — that runs
+// inline in the RAFT apply — so this drives the route the drop task takes for
+// one unit, and asserts the split on the way.
 func TestDropVectorIndex_ClearsDimensionRows(t *testing.T) {
 	ctx := t.Context()
 	s, _ := setupDropDimsShard(t, ctx)
@@ -135,10 +139,18 @@ func TestDropVectorIndex_ClearsDimensionRows(t *testing.T) {
 
 	gotDropped, err = s.Dimensions(ctx, dropDimsDropped)
 	require.NoError(t, err)
+	require.Equal(t, wantAll, gotDropped,
+		"the index drop cleared the rows itself; it runs inline in the RAFT apply "+
+			"for every shard of the collection, and this clear is O(objects)")
+
+	require.NoError(t, removeDimensionsForDroppedVector(ctx, s.index, s.name, dropDimsDropped))
+
+	gotDropped, err = s.Dimensions(ctx, dropDimsDropped)
+	require.NoError(t, err)
 	require.Equal(t, 0, gotDropped,
-		"the dropped vector's dimension rows survived the drop; a vector re-created "+
-			"under the name %q would inherit them and be counted before it holds a "+
-			"single vector", dropDimsDropped)
+		"the dropped vector's dimension rows survived the unit's clear; a vector "+
+			"re-created under the name %q would inherit them and be counted before it "+
+			"holds a single vector", dropDimsDropped)
 
 	gotKeep, err = s.Dimensions(ctx, dropDimsKeep)
 	require.NoError(t, err)
@@ -241,21 +253,19 @@ func TestDropVectorIndex_DimensionsClearOnShutDownStoreIsNotSilent(t *testing.T)
 	require.ErrorIs(t, err, errAlreadyShutdown)
 }
 
-// TestDropVectorIndex_ShardInitSweepClearsDimensionRows drives the shard-init
-// sweep, the route a cold tenant takes when it is activated after a drop it was
-// too inactive to take part in. The three tests above reach the clear directly;
-// this one reaches it the way NewShard does.
-func TestDropVectorIndex_ShardInitSweepClearsDimensionRows(t *testing.T) {
+// TestDropVectorIndex_ShardLoadClearsDimensionRows drives the route a cold
+// tenant takes when it is activated after a drop it was too inactive to take
+// part in. NewShard calls this once its store is open; the rows are cleared
+// through the shard's own dimensions bucket rather than a second open of it
+// from disk.
+func TestDropVectorIndex_ShardLoadClearsDimensionRows(t *testing.T) {
 	ctx := t.Context()
 	s, class := setupDropDimsShard(t, ctx)
 
 	for i := 0; i < dropDimsCount; i++ {
 		require.NoError(t, s.PutObject(ctx, dropDimsObject(i)))
 	}
-	indexPath, shardName := s.index.path(), s.name
-	logger := logrus.New()
 	wantAll := dropDimsCount * dropDimsDim
-	require.NoError(t, s.Shutdown(ctx))
 
 	// The marker the sweep keys off: the drop rewrites the entry's index type
 	// to "none" and keeps the name until the finalizer removes it.
@@ -263,17 +273,17 @@ func TestDropVectorIndex_ShardInitSweepClearsDimensionRows(t *testing.T) {
 		VectorIndexType: modelsext.VectorIndexTypeNone,
 	}
 
-	require.NoError(t, newVectorDropIndexHelper().ensureFilesAreRemovedForDroppedVectorIndexes(
-		ctx, logger, indexPath, shardName, class))
+	s.clearDroppedVectorDimensions(ctx, class)
 
-	dropped, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, logger, indexPath, shardName, dropDimsDropped)
+	dropped, err := s.Dimensions(ctx, dropDimsDropped)
 	require.NoError(t, err)
-	require.Equal(t, 0, dropped.Count*dropped.Dimensions,
-		"the shard-init sweep left %q's rows behind, so an activated cold tenant "+
-			"keeps them", dropDimsDropped)
+	require.Equal(t, 0, dropped,
+		"the load-time sweep left %q's rows behind, so an activated cold tenant "+
+			"keeps them: no other route revisits that shard once the drop task is done",
+		dropDimsDropped)
 
-	keep, err := shardusage.CalculateUnloadedDimensionsUsage(ctx, logger, indexPath, shardName, dropDimsKeep)
+	keep, err := s.Dimensions(ctx, dropDimsKeep)
 	require.NoError(t, err)
-	require.Equal(t, wantAll, keep.Count*keep.Dimensions,
+	require.Equal(t, wantAll, keep,
 		"the sweep took the surviving sibling %q's rows too", dropDimsKeep)
 }

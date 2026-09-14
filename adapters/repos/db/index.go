@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -3838,6 +3839,10 @@ func (i *Index) drop() error {
 	// otherwise leave the shard un-dropped without failing the call
 	ec.Add(eg.Wait())
 
+	// Covers the inactive tenants too: they were never in i.shards, but a cold
+	// usage scan creates a count for any shard it reads.
+	shardusage.ForgetComputedUsageGenerationsUnder(i.path())
+
 	// 1s target contract per weaviate/0-weaviate-issues#250; ctx errors
 	// are best-effort (flush doesn't honor ctx yet — separable follow-up).
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -3924,6 +3929,11 @@ func (i *Index) dropShards(names []string) error {
 			defer i.backupLock.RUnlock(name)
 			i.shardCreateLocks.Lock(name)
 			defer i.shardCreateLocks.Unlock(name)
+
+			// Whether it was loaded or not: the shard is going away, and its
+			// usage-invalidation count is keyed by path with nothing else to
+			// remove it.
+			shardusage.ForgetComputedUsageGeneration(i.path(), name)
 
 			shard, ok := i.shards.LoadAndDelete(name)
 			if !ok {
