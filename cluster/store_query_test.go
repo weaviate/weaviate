@@ -28,11 +28,8 @@ import (
 	clusterrbac "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/dbuser"
-	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey/keys"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
@@ -114,13 +111,7 @@ func TestQueryUserIdentifierExistsDispatch(t *testing.T) {
 }
 
 func TestQueryGetRolesForSubjectsDispatch(t *testing.T) {
-	// The three subjects share an id, so a response that mixes up their key
-	// prefixes hands one subject another's role.
-	subjects := []authorization.Subject{
-		{ID: "alice", AuthType: authentication.AuthTypeDb},
-		{ID: "alice", AuthType: authentication.AuthTypeOIDC},
-		{ID: "alice", AuthType: authentication.AuthTypeOIDC, IsGroup: true},
-	}
+	_, subjectRoles := subjectsSharingAnID()
 	// Literal wire bytes and keys, so a change to Subject's fields or to the key
 	// format breaks this test instead of silently changing the wire format.
 	validSubCommand := []byte(`{"Subjects":[` +
@@ -145,11 +136,7 @@ func TestQueryGetRolesForSubjectsDispatch(t *testing.T) {
 			name:       "db user, oidc user and group each get their own role",
 			withRBAC:   true,
 			subCommand: validSubCommand,
-			wantRoles: map[string][]string{
-				"db:alice":    {"db-role"},
-				"oidc:alice":  {"oidc-role"},
-				"group:alice": {"group-role"},
-			},
+			wantRoles:  subjectRoles,
 		},
 		{
 			name:       "a stored role that cannot be converted fails the lookup",
@@ -179,10 +166,7 @@ func TestQueryGetRolesForSubjectsDispatch(t *testing.T) {
 				if tt.snapshot != nil {
 					require.NoError(t, rbacStores.authZ.Restore(tt.snapshot, false))
 				}
-				for i, role := range []string{"db-role", "oidc-role", "group-role"} {
-					rbacStores.createRole(t, role)
-					require.NoError(t, rbacStores.authZ.AddRolesForUser(conv.SubjectKey(subjects[i]), []string{role}))
-				}
+				rbacStores.assignRoles(t, subjectRoles)
 				ms.store.authZManager = rbacStores.authZManager
 			}
 

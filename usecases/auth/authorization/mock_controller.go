@@ -254,6 +254,64 @@ func (_c *MockController_GetRoles_Call) RunAndReturn(run func(...string) (map[st
 	return _c
 }
 
+// GetRolesForSubjects provides a mock function with given fields: subjects
+func (_m *MockController) GetRolesForSubjects(subjects []Subject) (map[string]map[string][]Policy, error) {
+	ret := _m.Called(subjects)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetRolesForSubjects")
+	}
+
+	var r0 map[string]map[string][]Policy
+	var r1 error
+	if rf, ok := ret.Get(0).(func([]Subject) (map[string]map[string][]Policy, error)); ok {
+		return rf(subjects)
+	}
+	if rf, ok := ret.Get(0).(func([]Subject) map[string]map[string][]Policy); ok {
+		r0 = rf(subjects)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]map[string][]Policy)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func([]Subject) error); ok {
+		r1 = rf(subjects)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockController_GetRolesForSubjects_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetRolesForSubjects'
+type MockController_GetRolesForSubjects_Call struct {
+	*mock.Call
+}
+
+// GetRolesForSubjects is a helper method to define mock.On call
+//   - subjects []Subject
+func (_e *MockController_Expecter) GetRolesForSubjects(subjects interface{}) *MockController_GetRolesForSubjects_Call {
+	return &MockController_GetRolesForSubjects_Call{Call: _e.mock.On("GetRolesForSubjects", subjects)}
+}
+
+func (_c *MockController_GetRolesForSubjects_Call) Run(run func(subjects []Subject)) *MockController_GetRolesForSubjects_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].([]Subject))
+	})
+	return _c
+}
+
+func (_c *MockController_GetRolesForSubjects_Call) Return(_a0 map[string]map[string][]Policy, _a1 error) *MockController_GetRolesForSubjects_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockController_GetRolesForSubjects_Call) RunAndReturn(run func([]Subject) (map[string]map[string][]Policy, error)) *MockController_GetRolesForSubjects_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetRolesForUserOrGroup provides a mock function with given fields: user, authMethod, isGroup
 func (_m *MockController) GetRolesForUserOrGroup(user string, authMethod authentication.AuthType, isGroup bool) (map[string][]Policy, error) {
 	ret := _m.Called(user, authMethod, isGroup)
@@ -649,7 +707,8 @@ func (_c *MockController_UpdateRolesPermissions_Call) RunAndReturn(run func(map[
 func NewMockController(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockController {
+},
+) *MockController {
 	mock := &MockController{}
 	mock.Mock.Test(t)
 

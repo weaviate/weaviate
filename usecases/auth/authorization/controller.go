@@ -22,6 +22,7 @@ type Controller interface {
 	DeleteRoles(roles ...string) error
 	AddRolesForUser(user string, roles []string) error
 	GetRolesForUserOrGroup(user string, authMethod authentication.AuthType, isGroup bool) (map[string][]Policy, error)
+	GetRolesForSubjects(subjects []Subject) (map[string]map[string][]Policy, error)
 	GetUsersOrGroupForRole(role string, authMethod authentication.AuthType, IsGroup bool) ([]string, error)
 	RevokeRolesForUser(user string, roles ...string) error
 	RemovePermissions(role string, permissions []*Policy) error

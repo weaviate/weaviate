@@ -90,6 +90,17 @@ func (s *rolesAndUsersStores) createRole(t *testing.T, name string) {
 	}))
 }
 
+// assignRoles creates every role in roles and assigns it to the subject key it is listed under.
+func (s *rolesAndUsersStores) assignRoles(t *testing.T, roles map[string][]string) {
+	t.Helper()
+	for key, names := range roles {
+		for _, name := range names {
+			s.createRole(t, name)
+		}
+		require.NoError(t, s.authZ.AddRolesForUser(key, names))
+	}
+}
+
 func (s *rolesAndUsersStores) createUser(t *testing.T, id, namespace string) {
 	t.Helper()
 	_, hash, identifier, err := keys.CreateApiKeyAndHash()

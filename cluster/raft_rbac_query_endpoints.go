@@ -14,12 +14,20 @@ package cluster
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
+
+	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 )
 
 func (s *Raft) GetRoles(names ...string) (map[string][]authorization.Policy, error) {
@@ -107,6 +115,90 @@ func (s *Raft) GetRolesForUserOrGroup(user string, authType authentication.AuthT
 	}
 
 	return response.Roles, nil
+}
+
+func (s *Raft) GetRolesForSubjects(subjects []authorization.Subject) (map[string]map[string][]authorization.Policy, error) {
+	query := func(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
+		return s.Query(context.Background(), req)
+	}
+	single := func(subject authorization.Subject) (map[string][]authorization.Policy, error) {
+		return s.GetRolesForUserOrGroup(subject.ID, subject.AuthType, subject.IsGroup)
+	}
+	return getRolesForSubjectsWithFallback(query, single, subjects, s.log)
+}
+
+// getRolesForSubjectsWithFallback asks for every subject's roles in one query, and calls
+// single per subject when the leader does not know that query type. It re-asks on every
+// call, because leadership can move between nodes of different versions.
+func getRolesForSubjectsWithFallback(
+	query func(*cmd.QueryRequest) (*cmd.QueryResponse, error),
+	single func(authorization.Subject) (map[string][]authorization.Policy, error),
+	subjects []authorization.Subject,
+	log logrus.FieldLogger,
+) (map[string]map[string][]authorization.Policy, error) {
+	if len(subjects) == 0 {
+		return map[string]map[string][]authorization.Policy{}, nil
+	}
+
+	subCommand, err := json.Marshal(&cmd.QueryGetRolesForSubjectsRequest{Subjects: subjects})
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	command := &cmd.QueryRequest{
+		Type:       cmd.QueryRequest_TYPE_GET_ROLES_FOR_USER_LIST,
+		SubCommand: subCommand,
+	}
+	queryResp, err := query(command)
+	// TYPE_GET_ROLES_FOR_USER_LIST is new in the 1.39 patch after v1.39.4. A leader on
+	// v1.39.4 or earlier, including every 1.38 and older release, does not know it and
+	// answers codes.Internal. The per-subject fallback uses TYPE_GET_ROLES_FOR_USER,
+	// which those leaders do serve.
+	if isUnknownQueryType(err) {
+		log.Warnf("leader does not know query type %s, likely a version skew during a rolling upgrade; "+
+			"looking up roles for %d subjects one at a time: %v", command.Type, len(subjects), err)
+		return getRolesPerSubject(single, subjects)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	response := cmd.QueryGetRolesForSubjectsResponse{}
+	err = json.Unmarshal(queryResp.Payload, &response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal query result: %w", err)
+	}
+
+	return response.Roles, nil
+}
+
+func getRolesPerSubject(
+	single func(authorization.Subject) (map[string][]authorization.Policy, error),
+	subjects []authorization.Subject,
+) (map[string]map[string][]authorization.Policy, error) {
+	roles := make(map[string]map[string][]authorization.Policy, len(subjects))
+	for _, subject := range subjects {
+		key := conv.SubjectKey(subject)
+		subjectRoles, err := single(subject)
+		if err != nil {
+			return nil, fmt.Errorf("get roles for %q: %w", key, err)
+		}
+		roles[key] = subjectRoles
+	}
+	return roles, nil
+}
+
+// isUnknownQueryType reports whether the leader has no handler for the query type. A
+// leader whose gRPC server does not map types.ErrUnknownCommand answers codes.Internal
+// with "unknown command type <n>" instead. Drop that match once no supported upgrade
+// starts from such a leader.
+func isUnknownQueryType(err error) bool {
+	if errors.Is(err, types.ErrUnknownCommand) {
+		return true
+	}
+	st, ok := status.FromError(err)
+	return ok && st.Code() == codes.Internal &&
+		strings.Contains(st.Message(), "unknown command type")
 }
 
 func (s *Raft) GetUsersOrGroupForRole(role string, authType authentication.AuthType, isGroup bool) ([]string, error) {

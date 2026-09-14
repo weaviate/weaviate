@@ -70,6 +70,7 @@ type dynUserHandler struct {
 type DbUserAndRolesGetter interface {
 	apikey.DBUsers
 	GetRolesForUserOrGroup(user string, authTyoes authentication.AuthType, isGroup bool) (map[string][]authorization.Policy, error)
+	GetRolesForSubjects(subjects []authorization.Subject) (map[string]map[string][]authorization.Policy, error)
 	RevokeRolesForUser(userName string, roles ...string) error
 }
 

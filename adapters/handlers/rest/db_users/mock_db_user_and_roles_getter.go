@@ -410,6 +410,64 @@ func (_c *MockDbUserAndRolesGetter_ExportUsers_Call) RunAndReturn(run func(...st
 	return _c
 }
 
+// GetRolesForSubjects provides a mock function with given fields: subjects
+func (_m *MockDbUserAndRolesGetter) GetRolesForSubjects(subjects []authorization.Subject) (map[string]map[string][]authorization.Policy, error) {
+	ret := _m.Called(subjects)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetRolesForSubjects")
+	}
+
+	var r0 map[string]map[string][]authorization.Policy
+	var r1 error
+	if rf, ok := ret.Get(0).(func([]authorization.Subject) (map[string]map[string][]authorization.Policy, error)); ok {
+		return rf(subjects)
+	}
+	if rf, ok := ret.Get(0).(func([]authorization.Subject) map[string]map[string][]authorization.Policy); ok {
+		r0 = rf(subjects)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]map[string][]authorization.Policy)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func([]authorization.Subject) error); ok {
+		r1 = rf(subjects)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockDbUserAndRolesGetter_GetRolesForSubjects_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetRolesForSubjects'
+type MockDbUserAndRolesGetter_GetRolesForSubjects_Call struct {
+	*mock.Call
+}
+
+// GetRolesForSubjects is a helper method to define mock.On call
+//   - subjects []authorization.Subject
+func (_e *MockDbUserAndRolesGetter_Expecter) GetRolesForSubjects(subjects interface{}) *MockDbUserAndRolesGetter_GetRolesForSubjects_Call {
+	return &MockDbUserAndRolesGetter_GetRolesForSubjects_Call{Call: _e.mock.On("GetRolesForSubjects", subjects)}
+}
+
+func (_c *MockDbUserAndRolesGetter_GetRolesForSubjects_Call) Run(run func(subjects []authorization.Subject)) *MockDbUserAndRolesGetter_GetRolesForSubjects_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].([]authorization.Subject))
+	})
+	return _c
+}
+
+func (_c *MockDbUserAndRolesGetter_GetRolesForSubjects_Call) Return(_a0 map[string]map[string][]authorization.Policy, _a1 error) *MockDbUserAndRolesGetter_GetRolesForSubjects_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockDbUserAndRolesGetter_GetRolesForSubjects_Call) RunAndReturn(run func([]authorization.Subject) (map[string]map[string][]authorization.Policy, error)) *MockDbUserAndRolesGetter_GetRolesForSubjects_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetRolesForUserOrGroup provides a mock function with given fields: user, authTyoes, isGroup
 func (_m *MockDbUserAndRolesGetter) GetRolesForUserOrGroup(user string, authTyoes authentication.AuthType, isGroup bool) (map[string][]authorization.Policy, error) {
 	ret := _m.Called(user, authTyoes, isGroup)
@@ -658,7 +716,8 @@ func (_c *MockDbUserAndRolesGetter_RotateKey_Call) RunAndReturn(run func(context
 func NewMockDbUserAndRolesGetter(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockDbUserAndRolesGetter {
+},
+) *MockDbUserAndRolesGetter {
 	mock := &MockDbUserAndRolesGetter{}
 	mock.Mock.Test(t)
 
