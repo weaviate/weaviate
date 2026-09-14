@@ -553,6 +553,64 @@ func countedIn(t *testing.T, shard *Shard, n int) {
 	}, time.Second, 10*time.Millisecond)
 }
 
+// layoutGen reads the layout generation.
+func layoutGen(shard *Shard) uint64 {
+	shard.vectorLayoutGate.Lock()
+	defer shard.vectorLayoutGate.Unlock()
+	return shard.vectorLayoutGen
+}
+
+// pausableIndex wraps a slot's index so a test can hold a halt inside its
+// preparation or a snapshot between its listing and its index.db copy. Both
+// calls run under the slots' read lock: a change paused behind them cannot
+// publish or remove until the pause is released, so such a change runs in a
+// goroutine and the test waits for its generation bump instead.
+type pausableIndex struct {
+	VectorIndex
+	prepare  func(call int) error // nil passes through
+	snapshot func()               // nil passes through
+	calls    atomic.Int32
+}
+
+func (p *pausableIndex) PrepareForBackup(ctx context.Context) error {
+	if p.prepare != nil {
+		err := p.prepare(int(p.calls.Add(1)))
+		if err != nil {
+			return err
+		}
+	}
+	return p.VectorIndex.PrepareForBackup(ctx)
+}
+
+func (p *pausableIndex) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+	if p.snapshot != nil {
+		p.snapshot()
+	}
+	return p.VectorIndex.SnapshotMutableFiles(ctx, basePath, stagingDir)
+}
+
+// pauseIndex installs a pausableIndex on the named vector.
+func pauseIndex(t *testing.T, shard *Shard, name string) *pausableIndex {
+	t.Helper()
+	slot, ok := shard.vectors.get(name)
+	require.True(t, ok)
+	p := &pausableIndex{VectorIndex: slot.index}
+	require.True(t, shard.vectors.Replace(name, p))
+	return p
+}
+
+// dropPastTheBound drops a vector the shard never had, a change with no
+// files, in a goroutine, and returns once it moved the generation. The drop
+// itself completes when the slots' write lock is free.
+func dropPastTheBound(t *testing.T, ctx context.Context, shard *Shard) <-chan error {
+	t.Helper()
+	before := layoutGen(shard)
+	done := make(chan error, 1)
+	go func() { done <- shard.DropVectorIndex(ctx, "gone") }()
+	require.Eventually(t, func() bool { return layoutGen(shard) > before }, 5*time.Second, 10*time.Millisecond)
+	return done
+}
+
 // A halt is refused while a create is in flight and not yet published.
 func TestVectorLayoutBarrier_HaltRefusedDuringCreate(t *testing.T) {
 	ctx := testCtx()
@@ -671,7 +729,7 @@ func TestVectorLayoutBarrier_CreateAfterListingIsRestoredAsNew(t *testing.T) {
 	require.NoError(t, shard.PutObject(ctx, obj))
 
 	createErr := make(chan error, 1)
-	shard.testHooks.afterListBackupFiles = func() {
+	pauseIndex(t, shard, "mv").snapshot = func() {
 		go func() { createErr <- liveCreate(ctx, shard, "bar") }()
 		time.Sleep(300 * time.Millisecond)
 		_, ok, err := shard.mapping.Get("bar")
@@ -722,13 +780,17 @@ func TestVectorLayoutBarrier_CreatePastTheBoundFailsTheSnapshot(t *testing.T) {
 	shard, _ := setupDropVectorShard(t, ctx)
 	shard.layoutWaitTimeout = 100 * time.Millisecond
 
-	shard.testHooks.afterListBackupFiles = func() {
-		require.NoError(t, liveCreate(ctx, shard, "bar"))
+	createErr := make(chan error, 1)
+	pauseIndex(t, shard, "mv").snapshot = func() {
+		before := layoutGen(shard)
+		go func() { createErr <- liveCreate(ctx, shard, "bar") }()
+		require.Eventually(t, func() bool { return layoutGen(shard) > before }, 5*time.Second, 10*time.Millisecond)
 	}
 	stagingRoot := t.TempDir()
 	_, err := shard.CreateBackupSnapshot(ctx, &backup.ShardDescriptor{}, stagingRoot)
 	require.ErrorIs(t, err, errVectorLayoutChanged)
 	assert.Zero(t, shard.haltForTransferCount.Load(), "the failed snapshot resumed the shard")
+	require.NoError(t, <-createErr)
 
 	// the shard itself is fine: bar is live and recorded
 	rec, ok, err := shard.mapping.Get("bar")
@@ -746,7 +808,7 @@ func TestVectorLayoutBarrier_CreateDuringPreparationFailsTheSnapshot(t *testing.
 	shard.layoutWaitTimeout = 100 * time.Millisecond
 
 	releasePrep := make(chan struct{})
-	shard.testHooks.afterHaltAdmission = func() error { <-releasePrep; return nil }
+	pauseIndex(t, shard, "mv").prepare = func(int) error { <-releasePrep; return nil }
 	release := holdCreates(shard)
 
 	snapErr := make(chan error, 1)
@@ -759,11 +821,7 @@ func TestVectorLayoutBarrier_CreateDuringPreparationFailsTheSnapshot(t *testing.
 	createErr := make(chan error, 1)
 	go func() { createErr <- liveCreate(ctx, shard, "bar") }()
 	// the create outwaits the bound and moves the generation, still unpublished
-	require.Eventually(t, func() bool {
-		shard.vectorLayoutGate.Lock()
-		defer shard.vectorLayoutGate.Unlock()
-		return shard.vectorLayoutGen > 0
-	}, time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return layoutGen(shard) > 0 }, time.Second, 10*time.Millisecond)
 
 	close(releasePrep)
 	require.ErrorIs(t, <-snapErr, errVectorLayoutChanged)
@@ -786,27 +844,24 @@ func TestVectorLayoutBarrier_SharedHaltKeepsTheFirstToken(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := testCtx()
-			shard, class := setupDropVectorShard(t, ctx)
+			shard, _ := setupDropVectorShard(t, ctx)
 			shard.layoutWaitTimeout = 100 * time.Millisecond
-			markDropped(class, "foo")
 
-			// the first halt is held in preparation until released, then in
-			// its listing until the second admission has been observed
+			// the first halt is held in preparation until released, then its
+			// snapshot is held until the second admission has been observed
 			releasePrep := make(chan struct{})
 			secondAdmitted := make(chan struct{})
-			var admissions atomic.Int32
-			shard.testHooks.afterHaltAdmission = func() error {
-				if admissions.Add(1) == 1 {
+			paused := pauseIndex(t, shard, "mv")
+			paused.prepare = func(call int) error {
+				if call == 1 {
 					<-releasePrep
 					return nil
 				}
 				close(secondAdmitted)
 				return tc.secondPrepErr
 			}
-			shard.testHooks.afterListBackupFiles = func() { <-secondAdmitted }
-			shard.vectorLayoutGate.Lock()
-			before := shard.vectorLayoutGen
-			shard.vectorLayoutGate.Unlock()
+			paused.snapshot = func() { <-secondAdmitted }
+			before := layoutGen(shard)
 
 			snapErr := make(chan error, 1)
 			go func() {
@@ -815,12 +870,15 @@ func TestVectorLayoutBarrier_SharedHaltKeepsTheFirstToken(t *testing.T) {
 			}()
 			require.Eventually(t, func() bool { return shard.haltedForTransfer() }, time.Second, 10*time.Millisecond)
 
-			// moves the generation during the first halt's preparation
-			require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+			// moves the generation during the first halt's preparation, and
+			// completes once the preparation lets the slots' write lock go
+			dropErr := dropPastTheBound(t, ctx, shard)
+			close(releasePrep)
+			require.NoError(t, <-dropErr)
 
+			// admitted alongside the first, which is paused in its snapshot
 			secondErr := make(chan error, 1)
 			go func() { secondErr <- shard.HaltForTransfer(ctx, false, 0) }()
-			close(releasePrep)
 
 			require.ErrorIs(t, <-snapErr, errVectorLayoutChanged)
 			err := <-secondErr
@@ -841,16 +899,18 @@ func TestVectorLayoutBarrier_SharedHaltKeepsTheFirstToken(t *testing.T) {
 // The hardlink replica snapshot applies the same check.
 func TestVectorLayoutBarrier_ReplicaSnapshotRejectsAChange(t *testing.T) {
 	ctx := testCtx()
-	shard, class := setupDropVectorShard(t, ctx)
+	shard, _ := setupDropVectorShard(t, ctx)
 	shard.layoutWaitTimeout = 100 * time.Millisecond
-	markDropped(class, "foo")
 
-	shard.testHooks.afterHaltAdmission = func() error {
-		return shard.DropVectorIndex(ctx, "foo")
+	var dropErr <-chan error
+	pauseIndex(t, shard, "mv").prepare = func(int) error {
+		dropErr = dropPastTheBound(t, ctx, shard)
+		return nil
 	}
 	_, err := shard.CreateReplicaSnapshot(ctx, t.TempDir())
 	require.ErrorIs(t, err, errVectorLayoutChanged)
 	assert.Zero(t, shard.haltForTransferCount.Load())
+	require.NoError(t, <-dropErr)
 }
 
 // The halt-for-duration fallback stops serving every file, the staged
@@ -903,17 +963,19 @@ func TestVectorLayoutBarrier_FallbackStopsServingAfterAChange(t *testing.T) {
 func TestVectorLayoutBarrier_FallbackRejectsAChangeDuringListing(t *testing.T) {
 	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
 	ctx := testCtx()
-	shard, class := setupDropVectorShard(t, ctx)
+	shard, _ := setupDropVectorShard(t, ctx)
 	shard.layoutWaitTimeout = 100 * time.Millisecond
-	markDropped(class, "foo")
 	shard.index.replicaSnapshotOpLocks = esync.NewKeyRWLocker()
-	shard.testHooks.afterHaltAdmission = func() error {
-		return shard.DropVectorIndex(ctx, "foo")
+	var dropErr <-chan error
+	pauseIndex(t, shard, "mv").prepare = func(int) error {
+		dropErr = dropPastTheBound(t, ctx, shard)
+		return nil
 	}
 
 	_, err := shard.index.IncomingCreateReplicaSnapshot(ctx, shard.name, "layout-listing")
 	require.ErrorIs(t, err, errVectorLayoutChanged)
 	assert.Zero(t, shard.haltForTransferCount.Load(), "the failed snapshot resumed the shard")
+	require.NoError(t, <-dropErr)
 	_, err = shard.index.IncomingGetReplicaSnapshotFileMetadata(ctx, "layout-listing", "anything")
 	require.ErrorContains(t, err, "no replica snapshot registered")
 }

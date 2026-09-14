@@ -111,13 +111,6 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		}
 	}()
 
-	if s.testHooks.afterHaltAdmission != nil {
-		err = s.testHooks.afterHaltAdmission()
-		if err != nil {
-			return err
-		}
-	}
-
 	// Pause steps run only on the first halt. Re-pausing per halt would strand the
 	// per-bucket pause-timer refcount (1 pause : 1 stop) and never observe the
 	// Prometheus pause-duration timer.
@@ -387,9 +380,6 @@ func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescri
 	files, err := s.ListBackupFiles(ctx, sd)
 	if err != nil {
 		return nil, fmt.Errorf("list backup files: %w", err)
-	}
-	if s.testHooks.afterListBackupFiles != nil {
-		s.testHooks.afterListBackupFiles()
 	}
 
 	staged := make(map[string]struct{})
