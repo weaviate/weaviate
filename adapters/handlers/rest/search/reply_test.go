@@ -12,6 +12,8 @@
 package search
 
 import (
+	"encoding/json"
+	"math"
 	"testing"
 	"time"
 
@@ -214,6 +216,40 @@ func TestBuildResponseBm25ScoreMetadata(t *testing.T) {
 	assert.Equal(t, "BM25F: term frequency", *metadata.ExplainScore)
 	assert.Nil(t, metadata.Distance)
 	assert.Nil(t, metadata.Certainty)
+}
+
+// TestBuildResponseNonFiniteMetadata: the reply is encoded after the 200
+// header is on the wire, so a NaN or infinite value is left out rather than
+// failing the whole response.
+func TestBuildResponseNonFiniteMetadata(t *testing.T) {
+	for name, additionalMap := range map[string]map[string]any{
+		"NaN score":           {"score": float32(math.NaN())},
+		"infinite score":      {"score": float32(math.Inf(1))},
+		"NaN distance":        {"distance": float32(math.NaN())},
+		"infinite certainty":  {"certainty": math.Inf(-1)},
+		"finite score stands": {"score": float32(1.5)},
+	} {
+		t.Run(name, func(t *testing.T) {
+			res := []any{
+				map[string]any{
+					"id":          strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+					"title":       "Dune",
+					"_additional": additionalMap,
+				},
+			}
+			params := dto.GetParams{
+				Properties: selectProps("title"),
+				AdditionalProperties: additional.Properties{
+					ID: true, Score: true, Distance: true, Certainty: true,
+				},
+			}
+
+			reply, err := buildResponse(res, params, nil, time.Millisecond)
+			require.NoError(t, err)
+			_, err = json.Marshal(reply)
+			require.NoError(t, err)
+		})
+	}
 }
 
 // TestBuildResponseMetadataOmittedWhenIDOnly: the id is carried on the

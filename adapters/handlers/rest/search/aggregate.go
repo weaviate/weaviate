@@ -55,7 +55,8 @@ func (h *Handler) Aggregate(ctx context.Context, principal *models.Principal,
 
 	// error messages must never leak cross-namespace schema
 	strip := func(apiErr *APIError) *APIError {
-		return &APIError{Status: apiErr.Status, Err: namespacing.StripErrForPrincipal(principal, apiErr.Err)}
+		h.logAPIError("aggregate", collection, apiErr)
+		return strippedForPrincipal(principal, apiErr)
 	}
 
 	// reserved fields are rejected before any schema access, so an
@@ -113,6 +114,25 @@ func checkAggregateReservedFields(body *models.AggregateRequest) *APIError {
 	return nil
 }
 
+// checkGroupable rejects a groupBy property the grouper cannot key on: an
+// object value is a map it cannot hash, and a reference groups by beacon
+// only on the unfiltered scan — the filtered scan hands the grouper raw
+// reference maps.
+func checkGroupable(prop *models.Property, filtered bool) *APIError {
+	if schema.IsRefDataType(prop.DataType) {
+		if filtered {
+			return newAPIError(http.StatusUnprocessableEntity,
+				"groupBy on reference property %q is not supported together with a where filter", prop.Name)
+		}
+		return nil
+	}
+	if isNestedDataType(prop.DataType) {
+		return newAPIError(http.StatusUnprocessableEntity,
+			"groupBy is not supported on %s property %q", prop.DataType[0], prop.Name)
+	}
+	return nil
+}
+
 // buildAggregateParams converts the aggregate request into the
 // aggregation.Params consumed by traverser.Aggregate. Behavior must stay in
 // sync with the gRPC parser (adapters/handlers/grpc/v1/
@@ -145,6 +165,9 @@ func (h *Handler) buildAggregateParams(class *models.Class, className string,
 			return nil, false, &APIError{Status: http.StatusBadRequest, Err: err}
 		}
 		groupByIsRef = schema.IsRefDataType(prop.DataType)
+		if apiErr := checkGroupable(prop, body.Where != nil); apiErr != nil {
+			return nil, false, apiErr
+		}
 		params.GroupBy = &filters.Path{
 			Class:    schema.ClassName(className),
 			Property: schema.PropertyName(normalized),
@@ -164,7 +187,7 @@ func (h *Handler) buildAggregateParams(class *models.Class, className string,
 		params.Limit = &limit
 	}
 
-	filter, apiErr := parseWhere(body.Where, className, h.namespacesEnabled, principal, getClass)
+	filter, apiErr := h.parseWhere(body.Where, class, className, h.namespacesEnabled, principal, getClass)
 	if apiErr != nil {
 		return nil, false, apiErr
 	}

@@ -17,12 +17,14 @@ import (
 	"fmt"
 	"net/http"
 	"path"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
 
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
+	dbinverted "github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -31,7 +33,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
@@ -69,7 +70,6 @@ type HandlerConfig struct {
 	// CrossRefDepthLimit is QUERY_CROSS_REFERENCE_DEPTH_LIMIT; the handler
 	// rejects deeper returnReferences nesting than the traverser would.
 	CrossRefDepthLimit int
-	Enabled            *runtime.DynamicValue[bool]
 	Logger             logrus.FieldLogger
 }
 
@@ -83,7 +83,6 @@ type Handler struct {
 	defaultLimit       int64
 	maximumResults     int64
 	crossRefDepthLimit int
-	enabled            *runtime.DynamicValue[bool]
 	logger             logrus.FieldLogger
 }
 
@@ -96,16 +95,38 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		defaultLimit:       cfg.DefaultLimit,
 		maximumResults:     cfg.MaximumResults,
 		crossRefDepthLimit: cfg.CrossRefDepthLimit,
-		enabled:            cfg.Enabled,
 		logger:             cfg.Logger,
 	}
 }
 
 // APIError couples an error with the HTTP status it maps to. The rest
-// package translates it into the matching generated responder.
+// package translates it into the matching generated responder. Err is what
+// the client sees; cause, when set, is the full error kept for the log.
 type APIError struct {
 	Status int
 	Err    error
+	cause  error
+}
+
+// Cause returns the full error behind a shortened client message, or Err. It
+// is for the log and for matching documented errors; only Err's text, which
+// the handler has stripped, may be rendered to the client.
+func (e *APIError) Cause() error {
+	if e.cause != nil {
+		return e.cause
+	}
+	return e.Err
+}
+
+// strippedForPrincipal is apiErr with the caller's namespace removed from the
+// message it shows. The cause rides along unrendered, so the reply can still
+// match a documented error behind a shortened message.
+func strippedForPrincipal(principal *models.Principal, apiErr *APIError) *APIError {
+	return &APIError{
+		Status: apiErr.Status,
+		Err:    namespacing.StripErrForPrincipal(principal, apiErr.Err),
+		cause:  apiErr.cause,
+	}
 }
 
 func newAPIError(status int, format string, args ...any) *APIError {
@@ -129,10 +150,8 @@ type buildParamsFunc func(class *models.Class, className string,
 
 // resolveAuthorizedClass runs the fixed first steps shared by every
 // endpoint of the family (search and aggregate): alias/namespace resolution,
-// authorization BEFORE any schema access, then the experimental-feature
-// gate. The ordering is load-bearing: a denied caller must learn neither
-// whether the collection exists nor whether the feature is enabled, and an
-// authorized caller hits the not-enabled 422 before any existence 404.
+// then authorization BEFORE any schema access. The ordering is load-bearing:
+// a denied caller must not learn whether the collection exists.
 // Errors come back unstripped; the caller applies its namespace strip.
 func (h *Handler) resolveAuthorizedClass(ctx context.Context, principal *models.Principal,
 	collection, tenant string,
@@ -149,21 +168,9 @@ func (h *Handler) resolveAuthorizedClass(ctx context.Context, principal *models.
 	if err != nil {
 		var forbidden autherrs.Forbidden
 		if errors.As(err, &forbidden) {
-			// 403 before the not-enabled/existence checks, with the alias target hidden
-			return ctx, nil, "", nil, statusFromError(h.hideAliasTarget(ctx, principal, collection, tenant, aliasUsed != "", err))
+			// 403 before the existence check, with the alias target hidden
+			return ctx, nil, "", nil, h.hideAliasTarget(ctx, principal, collection, resolved, tenant, aliasUsed != "", err)
 		}
-		// authorized but not found: fall through so the not-enabled check still wins over 404
-	}
-
-	// after authz, so a denied caller can't learn the endpoint is off
-	// (parity with DISABLE_GRAPHQL); the feature is experimental and gated
-	// off by default
-	if !h.enabled.Get() {
-		return ctx, nil, "", nil, newAPIError(http.StatusUnprocessableEntity,
-			"rest search api is experimental and not enabled; set EXPERIMENTAL_REST_SEARCH_ENABLED=true to enable")
-	}
-
-	if err != nil {
 		return ctx, nil, "", nil, statusFromError(err)
 	}
 
@@ -174,14 +181,15 @@ func (h *Handler) resolveAuthorizedClass(ctx context.Context, principal *models.
 // the search-type-specific dto.GetParams construction is delegated to
 // buildParams. The authz-before-schema ordering is load-bearing: a caller
 // must not learn whether a collection exists before passing authorization.
-func (h *Handler) execute(ctx context.Context, principal *models.Principal,
+func (h *Handler) execute(ctx context.Context, principal *models.Principal, op string,
 	collection, tenant string, common *models.SearchCommon, buildParams buildParamsFunc,
 ) (*models.SearchResponse, *APIError) {
 	before := time.Now()
 
 	// error messages must never leak cross-namespace schema
 	strip := func(apiErr *APIError) *APIError {
-		return &APIError{Status: apiErr.Status, Err: namespacing.StripErrForPrincipal(principal, apiErr.Err)}
+		h.logAPIError(op, collection, apiErr)
+		return strippedForPrincipal(principal, apiErr)
 	}
 
 	// reserved fields are rejected before any schema access, so an
@@ -222,30 +230,43 @@ func (h *Handler) NearText(ctx context.Context, principal *models.Principal,
 	paramsBuilder := func(class *models.Class, className string, getClass classGetterFunc) (dto.GetParams, *APIError) {
 		return h.buildNearTextParams(class, className, body, getClass, principal)
 	}
-	return h.execute(ctx, principal, collection, body.Tenant, &body.SearchCommon, paramsBuilder)
+	return h.execute(ctx, principal, "near-text", collection, body.Tenant, &body.SearchCommon, paramsBuilder)
 }
 
 // hideAliasTarget makes an alias denial indistinguishable from a denial on a
 // plain collection of the caller-supplied name: it re-runs the authorizer on
-// that name so the 403 matches in wording and never names the alias target.
-// The access decision was already made by getClass; this only reshapes it.
+// that name and, when that passes, rewords the target's denial onto the alias
+// name so the 403 keeps the authorizer's own shape and never names the
+// target. The access decision was already made by getClass; this only
+// reshapes it.
 func (h *Handler) hideAliasTarget(ctx context.Context, principal *models.Principal,
-	collection, tenant string, aliasUsed bool, err error,
-) error {
+	collection, target, tenant string, aliasUsed bool, err error,
+) *APIError {
 	var forbidden autherrs.Forbidden
 	if !aliasUsed || !errors.As(err, &forbidden) {
-		return err
+		return statusFromError(err)
 	}
 	if reauth := h.authorizer.Authorize(ctx, principal, authorization.READ, dataResources(collection, tenant)...); reauth != nil {
-		return reauth
+		return statusFromError(reauth)
 	}
 	// authorized on the alias name but denied on its target: still deny,
-	// without naming the target
-	deniedPrincipal := principal
-	if deniedPrincipal == nil {
-		deniedPrincipal = &models.Principal{Username: "anonymous"}
+	// wording the target's denial as one on the alias
+	msg := regexp.MustCompile(`\b`+regexp.QuoteMeta(target)+`\b`).ReplaceAllLiteralString(err.Error(), collection)
+	return &APIError{Status: http.StatusForbidden, Err: errors.New(msg), cause: err}
+}
+
+// logAPIError records handler outcomes: server-side failures at error level
+// with their full cause, client errors at debug.
+func (h *Handler) logAPIError(op, collection string, apiErr *APIError) {
+	if h.logger == nil || apiErr == nil {
+		return
 	}
-	return autherrs.NewForbidden(deniedPrincipal, authorization.READ, dataResources(collection, tenant)...)
+	entry := h.logger.WithFields(logrus.Fields{"action": "rest_search", "op": op, "collection": collection, "status": apiErr.Status})
+	if apiErr.Status >= http.StatusInternalServerError {
+		entry.Errorf("%s failed: %v", op, apiErr.Cause())
+		return
+	}
+	entry.Debugf("%s rejected: %v", op, apiErr.Cause())
 }
 
 // Bm25 executes a keyword (BM25F) search over collection, supplying execute
@@ -257,7 +278,7 @@ func (h *Handler) Bm25(ctx context.Context, principal *models.Principal,
 	paramsBuilder := func(class *models.Class, className string, getClass classGetterFunc) (dto.GetParams, *APIError) {
 		return h.buildBm25Params(class, className, body, getClass, principal)
 	}
-	return h.execute(ctx, principal, collection, body.Tenant, &body.SearchCommon, paramsBuilder)
+	return h.execute(ctx, principal, "bm25", collection, body.Tenant, &body.SearchCommon, paramsBuilder)
 }
 
 // NearObject executes a similarity search over collection anchored at an
@@ -270,7 +291,7 @@ func (h *Handler) NearObject(ctx context.Context, principal *models.Principal,
 	paramsBuilder := func(class *models.Class, className string, getClass classGetterFunc) (dto.GetParams, *APIError) {
 		return h.buildNearObjectParams(class, className, body, getClass, principal)
 	}
-	return h.execute(ctx, principal, collection, body.Tenant, &body.SearchCommon, paramsBuilder)
+	return h.execute(ctx, principal, "near-object", collection, body.Tenant, &body.SearchCommon, paramsBuilder)
 }
 
 // Hybrid executes a hybrid (keyword + vector) search over collection,
@@ -282,7 +303,7 @@ func (h *Handler) Hybrid(ctx context.Context, principal *models.Principal,
 	paramsBuilder := func(class *models.Class, className string, getClass classGetterFunc) (dto.GetParams, *APIError) {
 		return h.buildHybridParams(class, className, body, getClass, principal)
 	}
-	return h.execute(ctx, principal, collection, body.Tenant, &body.SearchCommon, paramsBuilder)
+	return h.execute(ctx, principal, "hybrid", collection, body.Tenant, &body.SearchCommon, paramsBuilder)
 }
 
 // dataResources is the authorization resource set for a collection's (or
@@ -345,51 +366,99 @@ func statusFromError(err error) *APIError {
 		return &APIError{Status: http.StatusTooManyRequests, Err: err}
 	}
 
+	// typed errors answer with their own message: the wrap chain above them
+	// names traverser stages and shard ids the caller cannot act on
+	var (
+		multiTenancy  objects.ErrMultiTenancy
+		noVectorizer  enterrors.ErrNoVectorizerModule
+		srcNotFound   enterrors.ErrSourceObjectNotFound
+		srcNoVector   enterrors.ErrSourceObjectNoVector
+		dirtyRead     objects.ErrDirtyReadOfDeletedObject
+		certainty     enterrors.ErrCertaintyIncompatible
+		missingIndex  inverted.MissingIndexError
+		vectorization enterrors.ErrQueryVectorization
+	)
+	shortened := func(status int, e error) *APIError { return &APIError{Status: status, Err: e, cause: err} }
+	shortenedChain := func(status int) *APIError {
+		return &APIError{Status: status, Err: errors.New(stripEngineWrap(err.Error())), cause: err}
+	}
 	switch {
 	case errors.Is(err, enterrors.ErrTenantNotFound):
-		return &APIError{Status: http.StatusNotFound, Err: err}
+		return shortenedChain(http.StatusNotFound)
 	case errors.Is(err, enterrors.ErrTenantNotActive):
-		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
-	case errors.As(err, &objects.ErrMultiTenancy{}):
+		return shortenedChain(http.StatusUnprocessableEntity)
+	case errors.As(err, &multiTenancy):
 		// tenant-vs-collection mismatch (tenant sentinels checked above)
-		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
+		return shortened(http.StatusUnprocessableEntity, multiTenancy)
 	case errors.Is(err, errCollectionNotFound):
 		return &APIError{Status: http.StatusNotFound, Err: err}
-	case errors.As(err, &enterrors.ErrNoVectorizerModule{}):
+	case errors.As(err, &noVectorizer):
 		// must stay above ErrQueryVectorization (see func doc)
-		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
-	case errors.As(err, &enterrors.ErrSourceObjectNotFound{}):
+		return shortened(http.StatusUnprocessableEntity, noVectorizer)
+	case errors.As(err, &srcNotFound):
 		// near-object: the id names no object — a bad body value, like an
 		// unknown targetVector (must stay above ErrQueryVectorization)
-		return &APIError{Status: http.StatusBadRequest, Err: err}
-	case errors.As(err, &enterrors.ErrSourceObjectNoVector{}):
+		return shortened(http.StatusBadRequest, srcNotFound)
+	case errors.As(err, &srcNoVector):
 		// near-object: the object exists but its stored vectors cannot
 		// anchor this search (must stay above ErrQueryVectorization)
-		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
-	case errors.As(err, &objects.ErrDirtyReadOfDeletedObject{}):
+		return shortened(http.StatusUnprocessableEntity, srcNoVector)
+	case errors.As(err, &dirtyRead):
 		// near-object: the source object is mid-delete across replicas, which
 		// every other read path treats as gone (usecases/objects head, merge)
-		return &APIError{Status: http.StatusBadRequest, Err: err}
-	case errors.As(err, &enterrors.ErrCertaintyIncompatible{}):
-		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
-	case errors.As(err, &inverted.MissingIndexError{}):
+		return shortened(http.StatusBadRequest, dirtyRead)
+	case errors.As(err, &certainty):
+		return shortened(http.StatusUnprocessableEntity, certainty)
+	case errors.As(err, &missingIndex):
 		// filter on a property whose inverted index is disabled
-		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
-	case errors.As(err, &enterrors.ErrQueryVectorization{}):
+		return shortened(http.StatusUnprocessableEntity, missingIndex)
+	case errors.Is(err, dbinverted.ErrOnlyStopwords):
+		// a Like pattern or keyword query that tokenizes to nothing
+		return shortened(http.StatusBadRequest, dbinverted.ErrOnlyStopwords)
+	case errors.As(err, &vectorization):
 		// embedding provider failure — deliberately 500, not 502: Weaviate is
-		// not acting as a gateway (review decision on #12248); distinguishable
-		// from other 500s only by message
-		return &APIError{Status: http.StatusInternalServerError, Err: err}
+		// not acting as a gateway (review decision on #12248). The provider's
+		// response can quote credentials, so it goes to the log, not the client.
+		return &APIError{Status: http.StatusInternalServerError, Err: errVectorizationFailed, cause: err}
 	}
 
 	msg := err.Error()
+	_, documented := enterrors.Documented(err)
 	switch {
 	case strings.Contains(msg, errClassNotFoundMarker):
-		return &APIError{Status: http.StatusNotFound, Err: err}
+		return shortenedChain(http.StatusNotFound)
 	case strings.Contains(msg, "invalid 'where' filter"):
 		// this wrap is ours (parseWhere), not upstream-fragile
 		return &APIError{Status: http.StatusBadRequest, Err: err}
+	case documented:
+		// a documented failure explains itself and the reply appends its page,
+		// so the caller keeps that message instead of the generic one
+		return shortenedChain(http.StatusInternalServerError)
 	default:
-		return &APIError{Status: http.StatusInternalServerError, Err: err}
+		return &APIError{Status: http.StatusInternalServerError, Err: errInternal, cause: err}
 	}
+}
+
+// Client-facing messages for failures whose detail belongs in the log.
+var (
+	errVectorizationFailed = errors.New("vectorizing the query failed; the vectorizer module's response is in the server log")
+	errInternal            = errors.New("internal server error; details are in the server log")
+)
+
+// engineWrapSegment matches the wrap segments the traverser and db prepend
+// on the way up ("explorer: get class: vector search: object search at index
+// x: local shard object search x_abc: ..."), which name internals the caller
+// cannot act on.
+var engineWrapSegment = regexp.MustCompile(`^(explorer|get class|list class|search|vector search|hybrid|keyword search|` +
+	`object search at index \S+|local shard object search \S+|concurrentTargetVectorSearch|nearObject params|` +
+	`determine shard|identify groups|scan|shard \S+|aggregate|filtered aggregate|unfiltered aggregate)$`)
+
+// stripEngineWrap drops the leading engine wrap segments of an error message.
+func stripEngineWrap(msg string) string {
+	segments := strings.Split(msg, ": ")
+	i := 0
+	for i < len(segments)-1 && engineWrapSegment.MatchString(segments[i]) {
+		i++
+	}
+	return strings.Join(segments[i:], ": ")
 }

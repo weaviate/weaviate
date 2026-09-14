@@ -226,7 +226,6 @@ type Config struct {
 	ReindexSetToRoaringsetAtStartup     bool                           `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
 	IndexMissingTextFilterableAtStartup bool                           `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
 	DisableGraphQL                      *runtime.DynamicValue[bool]    `json:"disable_graphql" yaml:"disable_graphql"`
-	ExperimentalRESTSearchEnabled       *runtime.DynamicValue[bool]    `json:"rest_search_enabled" yaml:"rest_search_enabled"`
 	AvoidMmap                           bool                           `json:"avoid_mmap" yaml:"avoid_mmap"`
 	CORS                                CORS                           `json:"cors" yaml:"cors"`
 	DisableTelemetry                    bool                           `json:"disable_telemetry" yaml:"disable_telemetry"`
