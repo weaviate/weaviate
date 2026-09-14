@@ -72,8 +72,9 @@ func (f *ResourceFilter[T]) Filter(
 		}
 	}
 
-	// If all items share the same parent, one wildcard check covers them. Skipped when
-	// any resource ends in "/#" (the collection itself): its wildcard is the tenant shape.
+	// If all items share the same parent, one wildcard check covers them. Not used when
+	// a resource ends in "/#" (the collection itself): replacing "#" with "*" gives the
+	// all-tenants resource, which a tenant grant covers.
 	if allSameParent && !hasCollectionMarker {
 		if err := f.authorizer.Authorize(ctx, principal, verb, authorization.WildcardPath(firstResource)); err == nil {
 			return items

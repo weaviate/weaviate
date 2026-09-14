@@ -87,7 +87,7 @@ func TestMCPTransport(t *testing.T) {
 	})
 
 	t.Run("a protocol version header alone is enough for tools/list and tools/call", func(t *testing.T) {
-		versionHeader := http.Header{"MCP-Protocol-Version": {mcplib.LATEST_PROTOCOL_VERSION}}
+		versionHeader := http.Header{"MCP-Protocol-Version": {mcplib.LATEST_LEGACY_PROTOCOL_VERSION}}
 
 		status, _, body := helper.RawMCPRequest(newCtx(t), t, http.MethodPost, testMCPURL, testAPIKey, toolsListBody, "", versionHeader)
 		require.Equal(t, http.StatusOK, status, string(body))
@@ -107,9 +107,10 @@ func TestMCPTransport(t *testing.T) {
 	})
 
 	t.Run("an unsupported protocol version is refused with 400", func(t *testing.T) {
-		bogus := http.Header{"MCP-Protocol-Version": {"bogus"}}
-		status, _, body := helper.RawMCPRequest(newCtx(t), t, http.MethodPost, testMCPURL, testAPIKey, toolsListBody, "", bogus)
+		unknown := http.Header{"MCP-Protocol-Version": {"2024-01-01"}}
+		status, _, body := helper.RawMCPRequest(newCtx(t), t, http.MethodPost, testMCPURL, testAPIKey, toolsListBody, "", unknown)
 		require.Equal(t, http.StatusBadRequest, status, string(body))
-		require.JSONEq(t, `{"error":"unsupported MCP protocol version: bogus"}`, string(body))
+		want := "unsupported MCP protocol version: 2024-01-01. Supported versions: " + strings.Join(mcplib.ValidProtocolVersions, ", ")
+		require.JSONEq(t, `{"error":"`+want+`"}`, string(body))
 	})
 }

@@ -534,10 +534,8 @@ func TestMCPTenantsListAuthZ(t *testing.T) {
 		require.Empty(t, resp.Tenants)
 	})
 
-	// The wildcard-tenant read_tenants grant covers ".../shards/*". Pre-fix,
-	// the schema list-filter's same-parent shortcut wildcarded the collection
-	// resource ".../shards/#" into that shape and leaked the whole schema
-	// whenever it held a single class.
+	// A read_tenants grant on all tenants covers ".../shards/*"; it must not
+	// reveal the collection itself.
 	t.Run("read_tenants alone reveals no schema", func(t *testing.T) {
 		resp, err := helper.Client(t).Schema.SchemaDump(clschema.NewSchemaDumpParams(), helper.CreateAuth(tenantReadKey))
 		require.NoError(t, err)

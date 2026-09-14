@@ -571,17 +571,20 @@ func TestHybrid_StructuredFilterFlowsThrough(t *testing.T) {
 }
 
 // TestHybrid_ArgumentValidation pins the alpha and limit checks and the
-// fusion default the traverser receives.
+// defaults the traverser receives.
 func TestHybrid_ArgumentValidation(t *testing.T) {
 	alpha := func(v float64) *float64 { return &v }
 	limit := func(v int) *int { return &v }
 
 	cases := []struct {
-		name      string
-		alpha     *float64
-		limit     *int
-		wantErr   string
-		wantAlpha float64
+		name            string
+		alpha           *float64
+		limit           *int
+		targetVectors   []string
+		wantErr         string
+		wantAlpha       float64
+		wantLimit       int // 0: no pagination, so the default limit applies
+		wantCombination *dto.TargetCombination
 	}{
 		{name: "alpha below 0", alpha: alpha(-0.1), wantErr: "alpha must be between 0 and 1"},
 		{name: "alpha above 1", alpha: alpha(1.5), wantErr: "alpha must be between 0 and 1"},
@@ -589,13 +592,23 @@ func TestHybrid_ArgumentValidation(t *testing.T) {
 		{name: "alpha 1", alpha: alpha(1), wantAlpha: 1},
 		{name: "alpha omitted uses the default", wantAlpha: common_filters.DefaultAlpha},
 		{name: "limit below 0", limit: limit(-1), wantErr: "limit must be 0 or greater"},
+		{name: "limit 0 uses the default", limit: limit(0), wantAlpha: common_filters.DefaultAlpha},
+		{name: "limit 5", limit: limit(5), wantAlpha: common_filters.DefaultAlpha, wantLimit: 5},
+		{name: "one target vector has no combination", targetVectors: []string{"a"}, wantAlpha: common_filters.DefaultAlpha},
+		{
+			name:            "two target vectors use the default combination",
+			alpha:           alpha(0.5),
+			targetVectors:   []string{"a", "b"},
+			wantAlpha:       0.5,
+			wantCombination: &dto.TargetCombination{Type: dto.DefaultTargetCombinationType},
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s, trav := newSearcher(t, &models.Principal{}, false, nil)
 			_, err := s.Hybrid(context.Background(), bearerReq(), QueryHybridArgs{
-				CollectionName: "Things", Query: "x", Alpha: tc.alpha, Limit: tc.limit,
+				CollectionName: "Things", Query: "x", Alpha: tc.alpha, Limit: tc.limit, TargetVectors: tc.targetVectors,
 			})
 			if tc.wantErr != "" {
 				require.EqualError(t, err, tc.wantErr)
@@ -605,10 +618,11 @@ func TestHybrid_ArgumentValidation(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, tc.wantAlpha, trav.gotParams.HybridSearch.Alpha)
 			require.Equal(t, common_filters.HybridFusionDefault, trav.gotParams.HybridSearch.FusionAlgorithm)
-			if tc.limit == nil {
+			require.Equal(t, tc.wantCombination, trav.gotParams.TargetVectorCombination)
+			if tc.wantLimit == 0 {
 				require.Nil(t, trav.gotParams.Pagination)
 			} else {
-				require.Equal(t, *tc.limit, trav.gotParams.Pagination.Limit)
+				require.Equal(t, tc.wantLimit, trav.gotParams.Pagination.Limit)
 			}
 		})
 	}

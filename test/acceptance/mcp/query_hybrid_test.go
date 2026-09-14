@@ -255,7 +255,7 @@ func TestQueryHybridWithLimit(t *testing.T) {
 	})
 	assert.Equal(t, 2, len(results.Results), "should return exactly 2 results")
 
-	// Test with limit=0
+	// Test with limit=0, which uses the default limit
 	limit = 0
 	results = executeHybridQuery(t, ctx, &search.QueryHybridArgs{
 		CollectionName: cls.Class,
@@ -263,7 +263,7 @@ func TestQueryHybridWithLimit(t *testing.T) {
 		Alpha:          &alpha,
 		Limit:          &limit,
 	})
-	assert.Len(t, results.Results, 0, "limit=0 should return no results")
+	assert.Len(t, results.Results, 3, "limit=0 should use the default limit")
 }
 
 // Test 3: Return specific properties
@@ -925,8 +925,8 @@ func TestQueryHybridTargetVectors(t *testing.T) {
 	}
 }
 
-// The tool uses relative score fusion like every other API, so the best pure
-// BM25 match scores 1.0. Ranked fusion would give 1/61.
+// The tool uses relative score fusion, so the best pure BM25 match scores 1.0.
+// Ranked fusion would give 1/60.
 func TestQueryHybridScoresUseRelativeScoreFusion(t *testing.T) {
 	cls, ctx, cleanup, alpha := setupQueryHybridTestWithData(t)
 	defer cleanup()

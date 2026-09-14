@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"strings"
 
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
@@ -70,9 +71,12 @@ func mcpGate(enabled func() bool, server http.Handler) http.Handler {
 			writeMCPError(w, http.StatusServiceUnavailable, []byte(mcpDisabledBody))
 			return
 		}
-		// mcp-go accepts any value here; the spec asks for 400 on an unsupported one.
-		if v := r.Header.Get("MCP-Protocol-Version"); v != "" && !slices.Contains(mcplib.ValidProtocolVersions, v) {
-			body, _ := json.Marshal(map[string]string{"error": "unsupported MCP protocol version: " + v})
+		// mcp-go checks versions from 2026-07-28 on itself and lists the supported
+		// ones so clients can fall back. It accepts older unknown values, but the
+		// spec asks for 400.
+		if v := r.Header.Get("MCP-Protocol-Version"); v != "" && !mcplib.IsModernProtocol(v) && !slices.Contains(mcplib.ValidProtocolVersions, v) {
+			body, _ := json.Marshal(map[string]string{"error": "unsupported MCP protocol version: " + v +
+				". Supported versions: " + strings.Join(mcplib.ValidProtocolVersions, ", ")})
 			writeMCPError(w, http.StatusBadRequest, body)
 			return
 		}

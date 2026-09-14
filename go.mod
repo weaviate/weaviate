@@ -64,7 +64,7 @@ require (
 	github.com/klauspost/compress v1.19.1
 	github.com/launchdarkly/go-sdk-common/v3 v3.5.0
 	github.com/launchdarkly/go-server-sdk/v7 v7.15.4
-	github.com/mark3labs/mcp-go v0.58.0
+	github.com/mark3labs/mcp-go v1.0.0
 	github.com/maypok86/otter/v2 v2.2.1
 	github.com/minio/minio-go/v7 v7.2.1
 	github.com/netresearch/go-cron v0.15.1

@@ -95,9 +95,16 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 		FusionAlgorithm: common_filters.HybridFusionDefault,
 	}
 
-	// Build pagination
+	// The vector search fails without a combination when it has more than one
+	// target vector; use the same default as gRPC.
+	var targetCombination *dto.TargetCombination
+	if len(args.TargetVectors) > 1 {
+		targetCombination = &dto.TargetCombination{Type: dto.DefaultTargetCombinationType}
+	}
+
+	// A limit of 0 uses the default limit, as in gRPC.
 	var pagination *filters.Pagination
-	if args.Limit != nil {
+	if args.Limit != nil && *args.Limit > 0 {
 		pagination = &filters.Pagination{
 			Limit: *args.Limit,
 		}
@@ -131,6 +138,8 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 		Pagination:           pagination,
 		Filters:              localFilter,
 		AdditionalProperties: additionalProps,
+
+		TargetVectorCombination: targetCombination,
 	})
 	if err != nil {
 		log.Warnf("hybrid query failed: %v", err)
@@ -155,8 +164,8 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 	return &QueryHybridResp{Results: res}, nil
 }
 
-// validateHybridArgs rejects values the search layer does not check itself:
-// an out-of-range alpha is used as-is and a negative limit panics.
+// validateHybridArgs rejects values the search layer does not check itself: an
+// alpha outside 0..1 and a negative limit.
 func validateHybridArgs(args QueryHybridArgs) error {
 	if args.Alpha != nil && (*args.Alpha < 0 || *args.Alpha > 1) {
 		return errors.New("alpha must be between 0 and 1")

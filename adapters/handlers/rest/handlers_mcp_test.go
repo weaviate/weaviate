@@ -14,6 +14,7 @@ package rest
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
@@ -21,7 +22,8 @@ import (
 )
 
 func TestMCPGate(t *testing.T) {
-	const bogusVersionBody = `{"error":"unsupported MCP protocol version: bogus"}`
+	unknownVersionBody := `{"error":"unsupported MCP protocol version: 2024-01-01. Supported versions: ` +
+		strings.Join(mcplib.ValidProtocolVersions, ", ") + `"}`
 
 	tests := []struct {
 		name       string
@@ -72,15 +74,23 @@ func TestMCPGate(t *testing.T) {
 			name:       "POST with an unsupported protocol version reports 400",
 			method:     http.MethodPost,
 			enabled:    true,
-			version:    "bogus",
+			version:    "2024-01-01",
 			wantStatus: http.StatusBadRequest,
-			wantBody:   bogusVersionBody,
+			wantBody:   unknownVersionBody,
+		},
+		{
+			name:       "POST with a newer protocol version is left to the MCP server",
+			method:     http.MethodPost,
+			enabled:    true,
+			version:    "2099-01-01",
+			wantStatus: http.StatusOK,
+			wantServed: true,
 		},
 		{
 			name:       "an unsupported protocol version while disabled still reports 503",
 			method:     http.MethodPost,
 			enabled:    false,
-			version:    "bogus",
+			version:    "2024-01-01",
 			wantStatus: http.StatusServiceUnavailable,
 			wantBody:   mcpDisabledBody,
 		},

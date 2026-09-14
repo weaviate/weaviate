@@ -9,18 +9,24 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package filter
+package filter_test
 
 import (
 	"context"
-	"errors"
+	"path/filepath"
 	"testing"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestFilter(t *testing.T) {
@@ -44,7 +50,7 @@ func TestFilter(t *testing.T) {
 	authorizer := mocks.NewMockAuthorizer()
 	for _, tt := range tests {
 		t.Run(tt.Name, func(t *testing.T) {
-			resourceFilter := New[*models.Object](authorizer, tt.Config)
+			resourceFilter := filter.New[*models.Object](authorizer, tt.Config)
 			filteredObjects := resourceFilter.Filter(
 				context.Background(),
 				&models.Principal{Username: "user"},
@@ -60,76 +66,87 @@ func TestFilter(t *testing.T) {
 	}
 }
 
-// ruleAuthorizer allows exactly the listed resource strings, mirroring an RBAC
-// grant that covers ".../shards/*" but not the ".../shards/#" resource.
-type ruleAuthorizer struct {
-	allowed map[string]bool
-}
-
-func (a *ruleAuthorizer) Authorize(_ context.Context, _ *models.Principal, _ string, resources ...string) error {
-	for _, resource := range resources {
-		if !a.allowed[resource] {
-			return errors.New("forbidden: " + resource)
-		}
-	}
-	return nil
-}
-
-func (a *ruleAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resources ...string) error {
-	return a.Authorize(ctx, principal, verb, resources...)
-}
-
-func (a *ruleAuthorizer) FilterAuthorizedResources(_ context.Context, _ *models.Principal, _ string, resources ...string) ([]string, error) {
-	allowed := make([]string, 0, len(resources))
-	for _, resource := range resources {
-		if a.allowed[resource] {
-			allowed = append(allowed, resource)
-		}
-	}
-	return allowed, nil
-}
-
-// TestFilterSameParentShortcut pins when the single wildcard-parent check may
-// stand in for per-item checks: never for a "#" (collection-itself) resource,
-// whose wildcard form is the tenant permission shape ".../shards/*".
+// TestFilterSameParentShortcut runs the filter against real RBAC roles. The
+// shortcut, one check on the shared parent, must not let a tenant grant cover
+// the collection itself.
 func TestFilterSameParentShortcut(t *testing.T) {
-	tenantWildcardGrant := map[string]bool{
-		authorization.ShardsMetadata("Cls")[0]: true, // schema/collections/Cls/shards/*
+	const user, roleName = "user", "filter-test-role"
+	cls := "Cls"
+	tenantGrant := func(tenant string) *models.Permission {
+		return &models.Permission{
+			Action:  &authorization.ReadTenants,
+			Tenants: &models.PermissionTenants{Collection: &cls, Tenant: &tenant},
+		}
 	}
+	collectionGrant := &models.Permission{
+		Action:      &authorization.ReadCollections,
+		Collections: &models.PermissionCollections{Collection: &cls},
+	}
+
 	tests := []struct {
-		name    string
-		items   []string
-		allowed map[string]bool
-		want    []string
+		name  string
+		grant *models.Permission
+		items []string
+		want  []string
 	}{
 		{
-			name:    "collection metadata '#' is not covered by a tenant wildcard grant",
-			items:   authorization.CollectionsMetadata("Cls"),
-			allowed: tenantWildcardGrant,
-			want:    []string{},
+			name:  "grant on all tenants does not cover the collection",
+			grant: tenantGrant("*"),
+			items: authorization.CollectionsMetadata("Cls"),
+			want:  []string{},
 		},
 		{
-			name:    "tenant items still use the wildcard-parent shortcut",
-			items:   authorization.ShardsMetadata("Cls", "T1", "T2"),
-			allowed: tenantWildcardGrant,
-			want:    authorization.ShardsMetadata("Cls", "T1", "T2"),
+			name:  "grant on all tenants covers every tenant",
+			grant: tenantGrant("*"),
+			items: authorization.ShardsMetadata("Cls", "T1", "T2"),
+			want:  authorization.ShardsMetadata("Cls", "T1", "T2"),
 		},
 		{
-			name:  "a '#' item anywhere in a mixed list disables the shortcut",
+			name:  "grant on all tenants covers the tenant but not the collection in a mixed list",
+			grant: tenantGrant("*"),
 			items: append(authorization.ShardsMetadata("Cls", "T1"), authorization.CollectionsMetadata("Cls")...),
-			allowed: map[string]bool{
-				authorization.ShardsMetadata("Cls")[0]:       true, // schema/collections/Cls/shards/*
-				authorization.ShardsMetadata("Cls", "T1")[0]: true,
-			},
-			want: authorization.ShardsMetadata("Cls", "T1"),
+			want:  authorization.ShardsMetadata("Cls", "T1"),
+		},
+		{
+			name:  "grant on one tenant covers only that tenant",
+			grant: tenantGrant("T1"),
+			items: authorization.ShardsMetadata("Cls", "T1", "T2"),
+			want:  authorization.ShardsMetadata("Cls", "T1"),
+		},
+		{
+			name:  "grant on one tenant does not cover the collection",
+			grant: tenantGrant("T1"),
+			items: authorization.CollectionsMetadata("Cls"),
+			want:  []string{},
+		},
+		{
+			name:  "collection grant covers the collection",
+			grant: collectionGrant,
+			items: authorization.CollectionsMetadata("Cls"),
+			want:  authorization.CollectionsMetadata("Cls"),
+		},
+		{
+			name:  "collection grant covers only its own collection",
+			grant: collectionGrant,
+			items: authorization.CollectionsMetadata("Cls", "Other"),
+			want:  authorization.CollectionsMetadata("Cls"),
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			f := New[string](&ruleAuthorizer{allowed: tt.allowed}, rbacconf.Config{Enabled: true})
-			got := f.Filter(
+			logger, _ := test.NewNullLogger()
+			authN := config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{user}}}
+			m, err := rbac.New(filepath.Join(t.TempDir(), "policy.csv"), rbacconf.Config{Enabled: true}, authN, false, nil, logger)
+			require.NoError(t, err)
+			name := roleName
+			policies, err := conv.RolesToPolicies(&models.Role{Name: &name, Permissions: []*models.Permission{tt.grant}})
+			require.NoError(t, err)
+			require.NoError(t, m.UpdateRolesPermissions(policies))
+			require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId(user, authentication.AuthTypeDb), []string{roleName}))
+
+			got := filter.New[string](m, rbacconf.Config{Enabled: true}).Filter(
 				context.Background(),
-				&models.Principal{Username: "user"},
+				&models.Principal{Username: user, UserType: models.UserTypeInputDb},
 				tt.items,
 				authorization.READ,
 				func(resource string) string { return resource },

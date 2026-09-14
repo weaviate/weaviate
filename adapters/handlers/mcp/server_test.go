@@ -14,6 +14,10 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
@@ -30,20 +34,28 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-// TestToolFilter_WriteDisabled pins that a tools/call for a write tool still
-// reaches the handler and gets the write-disabled hint.
-func TestToolFilter_WriteDisabled(t *testing.T) {
+// newTestServer builds a server with the production options and tool filter,
+// the real tools and a "read-tool" that answers "ok". The real tools have no
+// backing services, so tests only call them in ways that fail before one is used.
+func newTestServer(t *testing.T, writeEnabled bool) (*MCPServer, *prometheus.Registry) {
+	t.Helper()
 	logger, _ := test.NewNullLogger()
 	composer := func(string, []string) (*models.Principal, error) { return &models.Principal{}, nil }
 	authHandler := auth.NewAuth(false, composer, &authorization.DummyAuthorizer{}, nil)
-	creator := create.NewWeaviateCreator(authHandler, nil, logger, func() bool { return false })
+	writeAccessEnabled := func() bool { return writeEnabled }
+	reg := prometheus.NewRegistry()
+	m := metrics.New(reg, writeAccessEnabled)
+	creator := create.NewWeaviateCreator(authHandler, nil, logger, writeAccessEnabled)
 
 	s := &MCPServer{
-		server:         server.NewMCPServer("test", "0", server.WithToolCapabilities(true)),
+		server:         server.NewMCPServer("test", "0", serverOptions(m, writeAccessEnabled)...),
 		creator:        creator,
+		metrics:        m,
 		writeToolNames: map[string]bool{},
 	}
-	writeTools := create.Tools(creator, nil, nil)
+	s.server.AddTools(search.Tools(nil, nil, m)...)
+	s.server.AddTools(read.Tools(nil, nil, m)...)
+	writeTools := create.Tools(creator, nil, m)
 	for _, tool := range writeTools {
 		s.writeToolNames[tool.Tool.Name] = true
 	}
@@ -55,38 +67,54 @@ func TestToolFilter_WriteDisabled(t *testing.T) {
 		},
 	})
 	s.registerToolFilter()
-
-	t.Run("tools/call reaches the handler", func(t *testing.T) {
-		called := handleMessage(t, s, `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"weaviate-objects-upsert","arguments":{"collection_name":"Things","objects":[{"properties":{}}]}}}`)
-		require.Contains(t, called, "write access is disabled")
-		require.NotContains(t, called, "not found")
-	})
+	return s, reg
 }
 
-// handleMessage runs one raw JSON-RPC message through the server and returns
-// the marshaled response.
+// handleMessage posts one JSON-RPC message to the server's HTTP handler the way
+// a proxy on the same host does: over loopback, with a non-localhost Host.
 func handleMessage(t *testing.T, s *MCPServer, body string) string {
 	t.Helper()
-	raw, err := json.Marshal(s.server.HandleMessage(context.Background(), []byte(body)))
-	require.NoError(t, err)
-	return string(raw)
+	req := httptest.NewRequest(http.MethodPost, "http://weaviate:8080/v1/mcp", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	loopback := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8080}
+	req = req.WithContext(context.WithValue(req.Context(), http.LocalAddrContextKey, loopback))
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	return w.Body.String()
+}
+
+// TestToolFilter pins that tools/list shows write tools only while write access
+// is enabled.
+func TestToolFilter(t *testing.T) {
+	const listBody = `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`
+
+	tests := []struct {
+		name         string
+		writeEnabled bool
+		wantUpsert   bool
+	}{
+		{name: "write access enabled lists write tools", writeEnabled: true, wantUpsert: true},
+		{name: "write access disabled hides write tools", writeEnabled: false, wantUpsert: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, _ := newTestServer(t, tt.writeEnabled)
+			got := handleMessage(t, s, listBody)
+			require.Contains(t, got, `"weaviate-query-hybrid"`)
+			require.Equal(t, tt.wantUpsert, strings.Contains(got, `"weaviate-objects-upsert"`), got)
+		})
+	}
 }
 
 // TestInputSchemaValidation pins that tool calls are checked against the
-// advertised input schema before the handler runs: unknown keys and missing
-// required arguments are rejected, valid calls still reach the handler.
+// advertised input schema before the handler runs: unknown keys, missing
+// required arguments and null values are rejected, valid calls still reach the
+// handler.
 func TestInputSchemaValidation(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	composer := func(string, []string) (*models.Principal, error) { return &models.Principal{}, nil }
-	authHandler := auth.NewAuth(false, composer, &authorization.DummyAuthorizer{}, nil)
 	// Write access stays off so a call that passes validation answers with the
-	// deterministic write-disabled hint instead of reaching the nil manager.
-	writeDisabled := func() bool { return false }
-	creator := create.NewWeaviateCreator(authHandler, nil, logger, writeDisabled)
-
-	s := &MCPServer{server: server.NewMCPServer("test", "0", serverOptions(nil, writeDisabled)...)}
-	s.server.AddTools(create.Tools(creator, nil, nil)...)
-	s.server.AddTools(search.Tools(nil, nil, nil)...)
+	// write-disabled error instead of reaching the nil manager.
+	s, _ := newTestServer(t, false)
 
 	call := func(name, args string) string {
 		return `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"` + name + `","arguments":` + args + `}}`
@@ -107,8 +135,6 @@ func TestInputSchemaValidation(t *testing.T) {
 			notWant: []string{"write access is disabled"},
 		},
 		{
-			// the original incident: "vector" instead of "vectors" was silently
-			// dropped and the object re-vectorized
 			name: "unknown key inside an object is rejected too",
 			body: call("weaviate-objects-upsert", `{"collection_name":"Things","objects":[{"properties":{},"vector":[0.1]}]}`),
 			want: []string{validationFailed, "/objects/0", "vector"},
@@ -119,10 +145,22 @@ func TestInputSchemaValidation(t *testing.T) {
 			want: []string{validationFailed, "collection_name"},
 		},
 		{
+			name:    "null for an optional argument is rejected",
+			body:    call("weaviate-query-hybrid", `{"query":"q","collection_name":"Things","tenant_name":null}`),
+			want:    []string{validationFailed, "tenant_name"},
+			notWant: []string{"write access is disabled"},
+		},
+		{
+			name: "null for an optional field inside an object is rejected",
+			body: call("weaviate-objects-upsert", `{"collection_name":"Things","objects":[{"properties":{},"uuid":null}]}`),
+			want: []string{validationFailed, "/objects/0/uuid"},
+		},
+		{
+			// also pins that the tool filter lets the call through
 			name:    "valid upsert call reaches the handler",
 			body:    call("weaviate-objects-upsert", `{"collection_name":"Things","objects":[{"properties":{}}]}`),
 			want:    []string{"write access is disabled"},
-			notWant: []string{validationFailed},
+			notWant: []string{validationFailed, "not found"},
 		},
 		{
 			name: "unknown key on hybrid is rejected even with filters present",
@@ -143,34 +181,10 @@ func TestInputSchemaValidation(t *testing.T) {
 	}
 }
 
-// TestToolsListedMetric pins that the tools-listed counter tracks tools/list
-// requests only. The tool filter also runs for every tools/call, which used
-// to count each read-tool call as a listing.
+// TestToolsListedMetric pins that the tools-listed counter counts tools/list
+// requests only, not tool calls.
 func TestToolsListedMetric(t *testing.T) {
-	logger, _ := test.NewNullLogger()
-	composer := func(string, []string) (*models.Principal, error) { return &models.Principal{}, nil }
-	authHandler := auth.NewAuth(false, composer, &authorization.DummyAuthorizer{}, nil)
-	writeEnabled := func() bool { return true }
-	reg := prometheus.NewRegistry()
-	m := metrics.New(reg, writeEnabled)
-	creator := create.NewWeaviateCreator(authHandler, nil, logger, writeEnabled)
-
-	s := &MCPServer{
-		server: server.NewMCPServer("test", "0",
-			server.WithToolCapabilities(true),
-			server.WithHooks(listMetricsHooks(m, writeEnabled)),
-		),
-		creator:        creator,
-		metrics:        m,
-		writeToolNames: map[string]bool{},
-	}
-	s.server.AddTools(server.ServerTool{
-		Tool: mcplib.NewTool("read-tool"),
-		Handler: func(context.Context, mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-			return mcplib.NewToolResultText("ok"), nil
-		},
-	})
-	s.registerToolFilter()
+	s, reg := newTestServer(t, true)
 
 	listedTotal := func(t *testing.T) float64 {
 		t.Helper()
@@ -203,9 +217,7 @@ func TestToolsListedMetric(t *testing.T) {
 
 	for _, step := range steps {
 		t.Run(step.name, func(t *testing.T) {
-			raw, err := json.Marshal(s.server.HandleMessage(context.Background(), []byte(step.body)))
-			require.NoError(t, err)
-			require.NotContains(t, string(raw), `"error"`)
+			require.NotContains(t, handleMessage(t, s, step.body), `"error"`)
 			require.Equal(t, step.wantListed, listedTotal(t))
 		})
 	}
