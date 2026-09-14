@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -34,12 +35,13 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/queryadmission"
 )
 
 // TestQueryAdmissionConcurrency bursts concurrent filtered+BM25 shard
-// searches to verify clean shedding, bounded goroutine fan-out, and that the
+// searches to verify clean shedding, a bounded admission budget, and that the
 // runtime kill switch disables shedding live.
 func TestQueryAdmissionConcurrency(t *testing.T) {
 	const (
@@ -52,7 +54,7 @@ func TestQueryAdmissionConcurrency(t *testing.T) {
 
 	ctx := context.Background()
 	disabled := configRuntime.NewDynamicValue(false)
-	repo, shard := setupAdmissionRepo(t, className, budget, maxQueue, disabled)
+	repo, shard, reg := setupAdmissionRepo(t, className, budget, maxQueue, disabled)
 
 	importAdmissionObjects(t, repo, className, numObjects)
 
@@ -71,12 +73,14 @@ func TestQueryAdmissionConcurrency(t *testing.T) {
 	kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"body"}, Query: "alpha"}
 	props := []string{"body", "category"}
 
-	// burst fires `concurrency` searches at once and reports shed count and
-	// peak goroutine delta above the pre-burst baseline.
-	burst := func(t *testing.T) (shed int, peakDelta int) {
+	// burst fires `concurrency` searches at once and reports shed count, the
+	// peak goroutine delta above the pre-burst baseline, and the peak admission
+	// budget in use.
+	burst := func(t *testing.T) (shed, peakDelta int, peakUsed int64) {
 		baseline := runtime.NumGoroutine()
 		var peak atomic.Int64
 		peak.Store(int64(baseline))
+		var used atomic.Int64
 		stop := make(chan struct{})
 		go func() {
 			ticker := time.NewTicker(200 * time.Microsecond)
@@ -88,6 +92,9 @@ func TestQueryAdmissionConcurrency(t *testing.T) {
 				case <-ticker.C:
 					if g := int64(runtime.NumGoroutine()); g > peak.Load() {
 						peak.Store(g)
+					}
+					if u := int64(readAdmissionGauge(reg, "query_admission_used_budget")); u > used.Load() {
+						used.Store(u)
 					}
 				}
 			}
@@ -121,35 +128,37 @@ func TestQueryAdmissionConcurrency(t *testing.T) {
 		if v := badErr.Load(); v != nil {
 			t.Fatalf("unexpected search error (not nil/overloaded/deadline): %v", v)
 		}
-		return int(shedCount.Load()), int(peak.Load()) - baseline
+		return int(shedCount.Load()), int(peak.Load()) - baseline, used.Load()
 	}
 
 	// Only ~budget+queue can be in flight, so the limiter sheds most of the burst.
-	shedEnabled, peakEnabled := burst(t)
-	t.Logf("enabled:  shed=%d/%d peakGoroutineDelta=%d gomaxprocs=%d",
-		shedEnabled, concurrency, peakEnabled, runtime.GOMAXPROCS(0))
+	shedEnabled, peakEnabled, usedEnabled := burst(t)
+	t.Logf("enabled:  shed=%d/%d peakGoroutineDelta=%d peakUsedBudget=%d/%d gomaxprocs=%d",
+		shedEnabled, concurrency, peakEnabled, usedEnabled, budget, runtime.GOMAXPROCS(0))
 	require.Positive(t, shedEnabled, "expected shedding at %d concurrent vs budget %d / queue %d",
 		concurrency, budget, maxQueue)
 
 	// The kill switch makes Admit a passthrough on an already-built limiter.
 	require.NoError(t, disabled.SetValue(true))
-	shedDisabled, peakDisabled := burst(t)
+	shedDisabled, peakDisabled, _ := burst(t)
 	require.NoError(t, disabled.SetValue(false))
 	t.Logf("disabled: shed=%d/%d peakGoroutineDelta=%d",
 		shedDisabled, concurrency, peakDisabled)
 	require.Zero(t, shedDisabled, "disabled admission must never shed")
 
-	// Admission caps concurrent queries, bounding aggregate fan-out below the
-	// unbounded baseline; only observable with real parallelism (GOMAXPROCS>=2).
-	if runtime.GOMAXPROCS(0) >= 2 {
-		require.Less(t, peakEnabled, peakDisabled,
-			"admission should bound goroutine fan-out below the unbounded baseline")
-	}
+	// Admission bounds aggregate fan-out by its goroutine-equivalent budget.
+	// Assert that bound on the sampled budget in use: a sampler can miss a peak
+	// but never invent one, so the bound cannot flake. The goroutine peaks are
+	// only logged: under CPU pressure the sampler misses the unbounded burst's
+	// peak, which made comparing the two peaks fail about one run in ten.
+	require.Positive(t, usedEnabled, "expected the burst to hold admission grants")
+	require.LessOrEqual(t, usedEnabled, int64(budget),
+		"admission must never hand out more than its budget")
 }
 
 func setupAdmissionRepo(t *testing.T, className string, budget, maxQueue int,
 	disabled *configRuntime.DynamicValue[bool],
-) (*db.DB, db.ShardLike) {
+) (*db.DB, db.ShardLike, *prometheus.Registry) {
 	t.Helper()
 	vFalse, vTrue := false, true
 	class := &models.Class{
@@ -172,11 +181,17 @@ func setupAdmissionRepo(t *testing.T, className string, budget, maxQueue int,
 			},
 		},
 	}
-	return newAdmissionRepo(t, admissionRepoParams{
-		budget:   budget,
-		maxQueue: maxQueue,
-		disabled: disabled,
+	// A fresh registry makes the admission gauges readable in isolation.
+	reg := prometheus.NewRegistry()
+	pm := *monitoring.GetMetrics()
+	pm.Registerer = reg
+	repo, shard := newAdmissionRepo(t, admissionRepoParams{
+		budget:      budget,
+		maxQueue:    maxQueue,
+		disabled:    disabled,
+		promMetrics: &pm,
 	}, className, class)
+	return repo, shard, reg
 }
 
 // importAdmissionObjects imports count objects. Nothing here searches their
