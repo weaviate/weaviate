@@ -243,17 +243,17 @@ func (f *fakeSchemaManager) EnsureTenantActiveForWrite(ctx context.Context, clas
 	return 0, nil
 }
 
-type fakeVectorRepo struct {
+type fakeObjectFinder struct {
 	mock.Mock
 	CapturedSchemaVersion uint64
 }
 
-func (f *fakeVectorRepo) Exists(ctx context.Context, class string, id strfmt.UUID, repl *additional.ReplicationProperties, tenant string) (bool, error) {
+func (f *fakeObjectFinder) Exists(ctx context.Context, class string, id strfmt.UUID, repl *additional.ReplicationProperties, tenant string) (bool, error) {
 	args := f.Called(class, id)
 	return args.Bool(0), args.Error(1)
 }
 
-func (f *fakeVectorRepo) Object(ctx context.Context, cls string, id strfmt.UUID,
+func (f *fakeObjectFinder) Object(ctx context.Context, cls string, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
 	repl *additional.ReplicationProperties, tenant string,
 ) (*search.Result, error) {
@@ -264,7 +264,7 @@ func (f *fakeVectorRepo) Object(ctx context.Context, cls string, id strfmt.UUID,
 	return nil, args.Error(1)
 }
 
-func (f *fakeVectorRepo) ObjectByID(ctx context.Context, id strfmt.UUID,
+func (f *fakeObjectFinder) ObjectByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
 	tenant string,
 ) (*search.Result, error) {
@@ -275,7 +275,7 @@ func (f *fakeVectorRepo) ObjectByID(ctx context.Context, id strfmt.UUID,
 	return nil, args.Error(1)
 }
 
-func (f *fakeVectorRepo) ObjectsByID(ctx context.Context, id strfmt.UUID,
+func (f *fakeObjectFinder) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
 	tenant, namespace string,
 ) (search.Results, error) {
@@ -286,21 +286,21 @@ func (f *fakeVectorRepo) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	return nil, args.Error(1)
 }
 
-func (f *fakeVectorRepo) ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
+func (f *fakeObjectFinder) ObjectSearch(ctx context.Context, offset, limit int, filters *filters.LocalFilter,
 	sort []filters.Sort, additional additional.Properties, tenant string,
 ) (search.Results, error) {
 	args := f.Called(offset, limit, sort, filters, additional)
 	return args.Get(0).([]search.Result), args.Error(1)
 }
 
-func (f *fakeVectorRepo) Query(ctx context.Context, q *QueryInput) (search.Results, *Error) {
+func (f *fakeObjectFinder) Query(ctx context.Context, q *QueryInput) (search.Results, *Error) {
 	args := f.Called(q)
 	var customEr *Error
 	errors.As(args.Error(1), &customEr)
 	return args.Get(0).([]search.Result), customEr
 }
 
-func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object, vector []float32,
+func (f *fakeObjectFinder) PutObject(ctx context.Context, concept *models.Object, vector []float32,
 	vectors map[string][]float32, multiVectors map[string][][]float32, repl *additional.ReplicationProperties, schemaVersion uint64,
 ) error {
 	f.CapturedSchemaVersion = schemaVersion
@@ -308,14 +308,14 @@ func (f *fakeVectorRepo) PutObject(ctx context.Context, concept *models.Object, 
 	return args.Error(0)
 }
 
-func (f *fakeVectorRepo) BatchPutObjects(ctx context.Context, batch BatchObjects,
+func (f *fakeObjectFinder) BatchPutObjects(ctx context.Context, batch BatchObjects,
 	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (BatchObjects, error) {
 	args := f.Called(batch)
 	return batch, args.Error(0)
 }
 
-func (f *fakeVectorRepo) AddBatchReferences(ctx context.Context, batch BatchReferences,
+func (f *fakeObjectFinder) AddBatchReferences(ctx context.Context, batch BatchReferences,
 	repl *additional.ReplicationProperties, schemaVersion uint64,
 ) (BatchReferences, error) {
 	f.CapturedSchemaVersion = schemaVersion
@@ -323,7 +323,7 @@ func (f *fakeVectorRepo) AddBatchReferences(ctx context.Context, batch BatchRefe
 	return batch, args.Error(0)
 }
 
-func (f *fakeVectorRepo) BatchDeleteObjects(ctx context.Context, params BatchDeleteParams,
+func (f *fakeObjectFinder) BatchDeleteObjects(ctx context.Context, params BatchDeleteParams,
 	deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) (BatchDeleteResult, error) {
 	f.CapturedSchemaVersion = schemaVersion
@@ -331,12 +331,12 @@ func (f *fakeVectorRepo) BatchDeleteObjects(ctx context.Context, params BatchDel
 	return args.Get(0).(BatchDeleteResult), args.Error(1)
 }
 
-func (f *fakeVectorRepo) Merge(ctx context.Context, merge MergeDocument, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64) error {
+func (f *fakeObjectFinder) Merge(ctx context.Context, merge MergeDocument, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64) error {
 	args := f.Called(merge)
 	return args.Error(0)
 }
 
-func (f *fakeVectorRepo) DeleteObject(ctx context.Context, className string,
+func (f *fakeObjectFinder) DeleteObject(ctx context.Context, className string,
 	id strfmt.UUID, deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
 	f.CapturedSchemaVersion = schemaVersion
@@ -344,14 +344,14 @@ func (f *fakeVectorRepo) DeleteObject(ctx context.Context, className string,
 	return args.Error(0)
 }
 
-func (f *fakeVectorRepo) AddReference(ctx context.Context, source *crossref.RefSource,
+func (f *fakeObjectFinder) AddReference(ctx context.Context, source *crossref.RefSource,
 	target *crossref.Ref, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
 	args := f.Called(source, target)
 	return args.Error(0)
 }
 
-func (f *fakeVectorRepo) ReferenceVectorSearch(ctx context.Context,
+func (f *fakeObjectFinder) ReferenceVectorSearch(ctx context.Context,
 	obj *models.Object, refProps map[string]struct{},
 ) ([][]float32, error) {
 	return nil, nil

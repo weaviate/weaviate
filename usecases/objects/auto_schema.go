@@ -56,7 +56,7 @@ type AutoSchemaManager struct {
 	tenantsCount prometheus.Counter
 }
 
-func NewAutoSchemaManager(schemaManager schemaManager, vectorRepo objectFinder,
+func NewAutoSchemaManager(schemaManager schemaManager, objectFinder objectFinder,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
 	reg prometheus.Registerer,
 ) *AutoSchemaManager {
@@ -79,7 +79,7 @@ func NewAutoSchemaManager(schemaManager schemaManager, vectorRepo objectFinder,
 
 	return &AutoSchemaManager{
 		schemaManager: schemaManager,
-		objectFinder:  vectorRepo,
+		objectFinder:  objectFinder,
 		config:        config.Config.AutoSchema,
 		logger:        logger,
 		tenantsCount:  tenantsCount,

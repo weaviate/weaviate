@@ -34,7 +34,7 @@ import (
 
 func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 	var (
-		vectorRepo      *fakeVectorRepo
+		objectFinder    *fakeObjectFinder
 		modulesProvider *fakeModulesProvider
 		manager         *BatchManager
 	)
@@ -59,7 +59,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 	}
 
 	resetAutoSchema := func(autoSchema bool) {
-		vectorRepo = &fakeVectorRepo{}
+		objectFinder = &fakeObjectFinder{}
 		config := &config.WeaviateConfig{
 			Config: config.Config{
 				AutoSchema: config.AutoSchema{
@@ -74,8 +74,8 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
-		manager = NewBatchManager(vectorRepo, modulesProvider, schemaManager, config, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, config, logger, prometheus.NewPedanticRegistry()))
+		manager = NewBatchManager(objectFinder, modulesProvider, schemaManager, config, logger, authorizer, nil,
+			NewAutoSchemaManager(schemaManager, objectFinder, config, logger, prometheus.NewPedanticRegistry()))
 	}
 
 	reset := func() {
@@ -95,7 +95,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 
 	t.Run("with objects without IDs", func(t *testing.T) {
 		reset()
-		vectorRepo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+		objectFinder.On("BatchPutObjects", mock.Anything).Return(nil).Once()
 		objects := []*models.Object{
 			{
 				Class:  "Foo",
@@ -113,7 +113,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
-		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
+		repoCalledWithObjects := objectFinder.Calls[0].Arguments[0].(BatchObjects)
 
 		assert.Nil(t, err)
 		require.Len(t, repoCalledWithObjects, 2)
@@ -131,7 +131,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 
 	t.Run("object without class", func(t *testing.T) {
 		reset()
-		vectorRepo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+		objectFinder.On("BatchPutObjects", mock.Anything).Return(nil).Once()
 		objects := []*models.Object{
 			{
 				Class:  "",
@@ -149,7 +149,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		resp, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
-		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
+		repoCalledWithObjects := objectFinder.Calls[0].Arguments[0].(BatchObjects)
 		assert.Nil(t, err)
 		assert.NotNil(t, resp)
 		require.Len(t, repoCalledWithObjects, 2)
@@ -161,7 +161,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 
 	t.Run("with objects without IDs and nonexistent class and auto schema enabled", func(t *testing.T) {
 		resetAutoSchema(true)
-		vectorRepo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+		objectFinder.On("BatchPutObjects", mock.Anything).Return(nil).Once()
 		objects := []*models.Object{
 			{
 				Class:  "NonExistentFoo",
@@ -179,7 +179,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
-		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
+		repoCalledWithObjects := objectFinder.Calls[0].Arguments[0].(BatchObjects)
 
 		assert.Nil(t, err)
 		require.Len(t, repoCalledWithObjects, 2)
@@ -203,7 +203,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 
 	t.Run("with user-specified IDs", func(t *testing.T) {
 		reset()
-		vectorRepo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+		objectFinder.On("BatchPutObjects", mock.Anything).Return(nil).Once()
 		id1 := strfmt.UUID("2d3942c3-b412-4d80-9dfa-99a646629cd2")
 		id2 := strfmt.UUID("cf918366-3d3b-4b90-9bc6-bc5ea8762ff6")
 		objects := []*models.Object{
@@ -225,7 +225,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
-		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
+		repoCalledWithObjects := objectFinder.Calls[0].Arguments[0].(BatchObjects)
 
 		assert.Nil(t, err)
 		require.Len(t, repoCalledWithObjects, 2)
@@ -241,7 +241,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 
 	t.Run("with an invalid user-specified IDs", func(t *testing.T) {
 		reset()
-		vectorRepo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+		objectFinder.On("BatchPutObjects", mock.Anything).Return(nil).Once()
 		id1 := strfmt.UUID("invalid")
 		id2 := strfmt.UUID("cf918366-3d3b-4b90-9bc6-bc5ea8762ff6")
 		objects := []*models.Object{
@@ -263,7 +263,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
-		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
+		repoCalledWithObjects := objectFinder.Calls[0].Arguments[0].(BatchObjects)
 
 		assert.Nil(t, err)
 		require.Len(t, repoCalledWithObjects, 2)
@@ -280,7 +280,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		// indexing is not skipped. In this case only the individual element is
 		// skipped. See https://github.com/weaviate/weaviate/issues/1800
 		reset()
-		vectorRepo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+		objectFinder.On("BatchPutObjects", mock.Anything).Return(nil).Once()
 		objects := []*models.Object{
 			{
 				Class: "Foo",
@@ -296,7 +296,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
-		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
+		repoCalledWithObjects := objectFinder.Calls[0].Arguments[0].(BatchObjects)
 
 		assert.Nil(t, err)
 		require.Len(t, repoCalledWithObjects, 2)
@@ -307,7 +307,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 
 func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 	var (
-		vectorRepo      *fakeVectorRepo
+		objectFinder    *fakeObjectFinder
 		modulesProvider *fakeModulesProvider
 		manager         *BatchManager
 	)
@@ -325,7 +325,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 	}
 
 	reset := func() {
-		vectorRepo = &fakeVectorRepo{}
+		objectFinder = &fakeObjectFinder{}
 		config := &config.WeaviateConfig{}
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
@@ -333,8 +333,8 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
-		manager = NewBatchManager(vectorRepo, modulesProvider, schemaManager, config, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, config, logger, prometheus.NewPedanticRegistry()))
+		manager = NewBatchManager(objectFinder, modulesProvider, schemaManager, config, logger, authorizer, nil,
+			NewAutoSchemaManager(schemaManager, objectFinder, config, logger, prometheus.NewPedanticRegistry()))
 	}
 
 	ctx := context.Background()
@@ -351,7 +351,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 
 	t.Run("with objects without IDs", func(t *testing.T) {
 		reset()
-		vectorRepo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+		objectFinder.On("BatchPutObjects", mock.Anything).Return(nil).Once()
 		expectedVector := models.C11yVector{0, 1, 2}
 		objects := []*models.Object{
 			{
@@ -368,7 +368,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
-		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
+		repoCalledWithObjects := objectFinder.Calls[0].Arguments[0].(BatchObjects)
 
 		assert.Nil(t, err)
 		require.Len(t, repoCalledWithObjects, 2)
@@ -384,7 +384,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 
 	t.Run("with user-specified IDs", func(t *testing.T) {
 		reset()
-		vectorRepo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+		objectFinder.On("BatchPutObjects", mock.Anything).Return(nil).Once()
 		id1 := strfmt.UUID("2d3942c3-b412-4d80-9dfa-99a646629cd2")
 		id2 := strfmt.UUID("cf918366-3d3b-4b90-9bc6-bc5ea8762ff6")
 		objects := []*models.Object{
@@ -404,7 +404,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
-		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
+		repoCalledWithObjects := objectFinder.Calls[0].Arguments[0].(BatchObjects)
 
 		assert.Nil(t, err)
 		require.Len(t, repoCalledWithObjects, 2)
@@ -414,7 +414,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 
 	t.Run("with an invalid user-specified IDs", func(t *testing.T) {
 		reset()
-		vectorRepo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+		objectFinder.On("BatchPutObjects", mock.Anything).Return(nil).Once()
 		id1 := strfmt.UUID("invalid")
 		id2 := strfmt.UUID("cf918366-3d3b-4b90-9bc6-bc5ea8762ff6")
 		objects := []*models.Object{
@@ -434,7 +434,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 		}
 
 		_, err := manager.AddObjects(ctx, nil, objects, []*string{}, nil)
-		repoCalledWithObjects := vectorRepo.Calls[0].Arguments[0].(BatchObjects)
+		repoCalledWithObjects := objectFinder.Calls[0].Arguments[0].(BatchObjects)
 
 		assert.Nil(t, err)
 		require.Len(t, repoCalledWithObjects, 2)
@@ -445,7 +445,7 @@ func Test_BatchManager_AddObjects_WithExternalVectorizerModule(t *testing.T) {
 
 func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 	var (
-		vectorRepo      *fakeVectorRepo
+		objectFinder    *fakeObjectFinder
 		modulesProvider *fakeModulesProvider
 		manager         *BatchManager
 	)
@@ -468,8 +468,8 @@ func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 		},
 	}
 	reset := func() {
-		vectorRepo = &fakeVectorRepo{}
-		vectorRepo.On("BatchPutObjects", mock.Anything).Return(nil).Once()
+		objectFinder = &fakeObjectFinder{}
+		objectFinder.On("BatchPutObjects", mock.Anything).Return(nil).Once()
 		config := &config.WeaviateConfig{}
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
@@ -477,8 +477,8 @@ func Test_BatchManager_AddObjectsEmptyProperties(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider = getFakeModulesProvider()
-		manager = NewBatchManager(vectorRepo, modulesProvider, schemaManager, config, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, config, logger, prometheus.NewPedanticRegistry()))
+		manager = NewBatchManager(objectFinder, modulesProvider, schemaManager, config, logger, authorizer, nil,
+			NewAutoSchemaManager(schemaManager, objectFinder, config, logger, prometheus.NewPedanticRegistry()))
 	}
 	reset()
 	objects := []*models.Object{
@@ -527,8 +527,8 @@ func Test_BatchManager_AddObjects_KeepsAutoSchemaError(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			vectorRepo := &fakeVectorRepo{}
-			vectorRepo.On("BatchPutObjects", mock.Anything).Return(nil)
+			objectFinder := &fakeObjectFinder{}
+			objectFinder.On("BatchPutObjects", mock.Anything).Return(nil)
 			cfg := &config.WeaviateConfig{Config: config.Config{AutoSchema: config.AutoSchema{
 				Enabled:       runtime.NewDynamicValue(true),
 				DefaultNumber: schema.DataTypeNumber.String(),
@@ -539,9 +539,9 @@ func Test_BatchManager_AddObjects_KeepsAutoSchemaError(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 			modulesProvider := getFakeModulesProvider()
 			modulesProvider.On("BatchUpdateVector").Return(nil, nil)
-			manager := NewBatchManager(vectorRepo, modulesProvider, schemaManager, cfg, logger,
+			manager := NewBatchManager(objectFinder, modulesProvider, schemaManager, cfg, logger,
 				mocks.NewMockAuthorizer(), nil,
-				NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+				NewAutoSchemaManager(schemaManager, objectFinder, cfg, logger, prometheus.NewPedanticRegistry()))
 
 			// A value determineType does not recognize makes getProperties fail.
 			added, err := manager.AddObjects(context.Background(), nil, []*models.Object{{

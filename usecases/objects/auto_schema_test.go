@@ -654,7 +654,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		vectorRepo := &fakeVectorRepo{}
+		vectorRepo := &fakeObjectFinder{}
 		vectorRepo.On("ObjectsByID", strfmt.UUID("df48b9f6-ba48-470c-bf6a-57657cb07390"), mock.Anything, mock.Anything, "", "").
 			Return(searchResults([]string{"Publication"}), nil).Once()
 		vectorRepo.On("ObjectsByID", strfmt.UUID("df48b9f6-ba48-470c-bf6a-57657cb07391"), mock.Anything, mock.Anything, "", "").
@@ -735,7 +735,7 @@ func Test_couldBeUUID(t *testing.T) {
 
 func Test_autoSchemaManager_autoSchema_emptyRequest(t *testing.T) {
 	// given
-	vectorRepo := &fakeVectorRepo{}
+	vectorRepo := &fakeObjectFinder{}
 	vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&search.Result{ClassName: "Publication"}, nil).Once()
 	schemaManager := &fakeSchemaManager{}
@@ -762,7 +762,7 @@ func Test_autoSchemaManager_autoSchema_emptyRequest(t *testing.T) {
 
 func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 	// given
-	vectorRepo := &fakeVectorRepo{}
+	vectorRepo := &fakeObjectFinder{}
 	vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&search.Result{ClassName: "Publication"}, nil).Once()
 	schemaManager := &fakeSchemaManager{}
@@ -832,7 +832,7 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 
 func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	// given
-	vectorRepo := &fakeVectorRepo{}
+	vectorRepo := &fakeObjectFinder{}
 	vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&search.Result{ClassName: "Publication"}, nil).Once()
 	logger, _ := test.NewNullLogger()
@@ -1433,7 +1433,7 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 
 	manager := &AutoSchemaManager{
 		schemaManager: &fakeSchemaManager{},
-		objectFinder:  &fakeVectorRepo{},
+		objectFinder:  &fakeObjectFinder{},
 		config: config.AutoSchema{
 			Enabled:       runtime.NewDynamicValue(true),
 			DefaultNumber: schema.DataTypeNumber.String(),
@@ -1622,7 +1622,7 @@ func Test_autoSchemaManager_getProperties_beaconWithoutClass(t *testing.T) {
 	id := strfmt.UUID("00000000-1111-2222-3333-444444444444")
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			vectorRepo := &fakeVectorRepo{}
+			vectorRepo := &fakeObjectFinder{}
 			vectorRepo.On("ObjectsByID", id, mock.Anything, mock.Anything, "", tc.lookupIn).
 				Return(searchResults(tc.repoClasses), tc.repoErr).Once()
 			manager := newBeaconTestManager(vectorRepo)
@@ -1679,7 +1679,7 @@ func Test_autoSchemaManager_getProperties_beaconWithoutClassMixedArray(t *testin
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			vectorRepo := &fakeVectorRepo{}
+			vectorRepo := &fakeObjectFinder{}
 			vectorRepo.On("ObjectsByID", ownID, mock.Anything, mock.Anything, "", "customer1").
 				Return(searchResults([]string{"customer1:Movies"}), nil)
 			vectorRepo.On("ObjectsByID", otherID, mock.Anything, mock.Anything, "", "customer1").
@@ -1718,7 +1718,7 @@ func searchResults(classNames []string) search.Results {
 	return results
 }
 
-func newBeaconTestManager(vectorRepo *fakeVectorRepo) *AutoSchemaManager {
+func newBeaconTestManager(vectorRepo *fakeObjectFinder) *AutoSchemaManager {
 	logger, _ := test.NewNullLogger()
 	return &AutoSchemaManager{
 		schemaManager: &fakeSchemaManager{},
@@ -2073,7 +2073,7 @@ func Test_autoSchemaManager_perform_withNested(t *testing.T) {
 	}
 	manager := &AutoSchemaManager{
 		schemaManager: schemaManager,
-		objectFinder:  &fakeVectorRepo{},
+		objectFinder:  &fakeObjectFinder{},
 		config: config.AutoSchema{
 			Enabled:       runtime.NewDynamicValue(true),
 			DefaultNumber: schema.DataTypeNumber.String(),
