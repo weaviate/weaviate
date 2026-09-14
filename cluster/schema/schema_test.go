@@ -578,7 +578,8 @@ func restoreClasses(t *testing.T, sc *schema, names ...string) {
 	for _, name := range names {
 		classes[name] = &metaClass{Class: models.Class{Class: name}}
 	}
-	require.NoError(t, sc.Restore(mustMarshal(t, classes), &fixedParser{}))
+	_, err := sc.Restore(mustMarshal(t, classes), &fixedParser{})
+	require.NoError(t, err)
 }
 
 // Test_UpdateClass_MovementRejection verifies that an UpdateClass which would rewrite on-disk
@@ -906,7 +907,7 @@ func TestSchemaRestoreLegacyWithEmptyClasses(t *testing.T) {
 		// Test RestoreLegacy
 		mockParser := NewMockParser(t)
 
-		err := s.RestoreLegacy([]byte(snapData), mockParser)
+		_, err := s.RestoreLegacy([]byte(snapData), mockParser)
 		require.NoError(t, err)
 
 		// Verify that s.classes is an empty map, not nil
@@ -933,7 +934,7 @@ func TestSchemaRestoreLegacyWithNilClasses(t *testing.T) {
 
 		// Test RestoreLegacy
 		mockParser := NewMockParser(t)
-		err = s.RestoreLegacy(snapData, mockParser)
+		_, err = s.RestoreLegacy(snapData, mockParser)
 		require.NoError(t, err)
 
 		// Verify that s.classes is initialized, not nil
@@ -950,7 +951,7 @@ func TestSchemaAddClassAfterRestoreWithEmptyClasses(t *testing.T) {
 		// First restore with empty classes
 		snapData := `{"node_id":"test-node","snapshot_id":"test-snapshot","classes":{}}`
 		mockParser := NewMockParser(t)
-		err := s.RestoreLegacy([]byte(snapData), mockParser)
+		_, err := s.RestoreLegacy([]byte(snapData), mockParser)
 		require.NoError(t, err)
 
 		// Verify s.classes is not nil
@@ -984,7 +985,7 @@ func TestSchemaAddClassAfterRestoreWithNilClasses(t *testing.T) {
 		require.NoError(t, err)
 
 		mockParser := NewMockParser(t)
-		err = s.RestoreLegacy(snapData, mockParser)
+		_, err = s.RestoreLegacy(snapData, mockParser)
 		require.NoError(t, err)
 
 		// Verify s.classes is not nil
@@ -1345,7 +1346,8 @@ func TestRestore_RejectedSnapshotLeavesStateIntact(t *testing.T) {
 	data := mustMarshal(t, map[string]*metaClass{
 		"customer2:Books": {Class: models.Class{Class: "customer2:Books"}},
 	})
-	require.Error(t, sc.Restore(data, failingParser{}))
+	_, err := sc.Restore(data, failingParser{})
+	require.Error(t, err)
 
 	assert.Equal(t, 2, testutil.CollectAndCount(sc.collectionsCount))
 	assert.Equal(t, float64(1), testutil.ToFloat64(sc.collectionsCount.WithLabelValues("customer1")))
@@ -1494,7 +1496,8 @@ func TestCollectionsCount_ConcurrentAccess(t *testing.T) {
 		defer wg.Done()
 		for i := 0; i < 200; i++ {
 			// assert, not require: only the test goroutine may call FailNow.
-			assert.NoError(t, sc.Restore(snapshot, &fixedParser{}))
+			_, err := sc.Restore(snapshot, &fixedParser{})
+			assert.NoError(t, err)
 		}
 	}()
 
@@ -1505,7 +1508,8 @@ func TestCollectionsCount_ConcurrentAccess(t *testing.T) {
 
 	// The racing writers leave an arbitrary map; a final restore settles it so
 	// the counts are deterministic.
-	require.NoError(t, sc.Restore(snapshot, &fixedParser{}))
+	_, err = sc.Restore(snapshot, &fixedParser{})
+	require.NoError(t, err)
 	assert.Equal(t, 1, sc.CollectionsCount("customer2"))
 	assert.Equal(t, 0, sc.CollectionsCount("customer1"))
 }
