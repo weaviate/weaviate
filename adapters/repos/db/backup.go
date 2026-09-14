@@ -251,15 +251,20 @@ func (db *DB) Shards(ctx context.Context, class string) ([]string, error) {
 	return nodes, nil
 }
 
-// ShardReplicas returns shard name -> replica node names for class, omitting empty names and replica-less shards.
+// ShardReplicas returns shard name -> replica node names for class, omitting empty names, replica-less shards and non-HOT tenants (unloaded shards never register a checkpoint, so they can only fall back).
 func (db *DB) ShardReplicas(ctx context.Context, class string) (map[string][]string, error) {
 	shardReplicas := make(map[string][]string)
 
+	skippedNonHot := 0
 	err := db.schemaReader.Read(class, true, func(_ *models.Class, state *sharding.State) error {
 		if state == nil {
 			return fmt.Errorf("unable to retrieve sharding state for class %s", class)
 		}
 		for shardName, shard := range state.Physical {
+			if shard.ActivityStatus() != models.TenantActivityStatusHOT {
+				skippedNonHot++
+				continue
+			}
 			validNodes := make([]string, 0, len(shard.BelongsToNodes))
 			for _, node := range shard.BelongsToNodes {
 				if node != "" {
@@ -274,6 +279,10 @@ func (db *DB) ShardReplicas(ctx context.Context, class string) (map[string][]str
 	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to read sharding state for class %s: %w", class, err)
+	}
+	if skippedNonHot > 0 {
+		db.logger.WithField("action", "backup_dedupe").WithField("class", class).
+			Debugf("replica dedupe: %d non-HOT tenants excluded from checkpoint candidates", skippedNonHot)
 	}
 
 	return shardReplicas, nil

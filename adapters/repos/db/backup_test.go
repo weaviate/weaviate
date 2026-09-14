@@ -1278,6 +1278,26 @@ func TestDB_ShardReplicas(t *testing.T) {
 		assert.Equal(t, map[string][]string{"shard1": {"node1"}}, replicas)
 	})
 
+	t.Run("non-HOT tenants omitted, empty status kept", func(t *testing.T) {
+		className := "TenantStatusClass"
+		db := newDB(t, className, &sharding.State{
+			Physical: map[string]sharding.Physical{
+				"hot":       {Name: "hot", BelongsToNodes: []string{"node1", "node2"}, Status: models.TenantActivityStatusHOT},
+				"cold":      {Name: "cold", BelongsToNodes: []string{"node1", "node2"}, Status: models.TenantActivityStatusCOLD},
+				"frozen":    {Name: "frozen", BelongsToNodes: []string{"node1", "node2"}, Status: models.TenantActivityStatusFROZEN},
+				"freezing":  {Name: "freezing", BelongsToNodes: []string{"node1", "node2"}, Status: models.TenantActivityStatusFREEZING},
+				"no-status": {Name: "no-status", BelongsToNodes: []string{"node1", "node2"}},
+			},
+		})
+
+		replicas, err := db.ShardReplicas(ctx, className)
+		require.NoError(t, err)
+		assert.Equal(t, map[string][]string{
+			"hot":       {"node1", "node2"},
+			"no-status": {"node1", "node2"},
+		}, replicas)
+	})
+
 	t.Run("nil sharding state", func(t *testing.T) {
 		className := "NilStateClass"
 		db := newDB(t, className, nil)
