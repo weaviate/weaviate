@@ -35,7 +35,7 @@ func TestWhereFilter_SingleNode_Numerical(t *testing.T) {
 
 	t.Run("with rangeable on disk", func(t *testing.T) {
 		compose, err := docker.New().
-			WithWeaviateExposeGRPCPort().
+			WithWeaviateWithGRPC().
 			Start(ctx)
 		require.NoError(t, err)
 		defer func() {
@@ -48,7 +48,7 @@ func TestWhereFilter_SingleNode_Numerical(t *testing.T) {
 
 	t.Run("with rangeable in memory", func(t *testing.T) {
 		compose, err := docker.New().
-			WithWeaviateExposeGRPCPort().
+			WithWeaviateWithGRPC().
 			WithWeaviateEnv("INDEX_RANGEABLE_IN_MEMORY", "true").
 			Start(ctx)
 		require.NoError(t, err)
