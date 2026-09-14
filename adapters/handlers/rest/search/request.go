@@ -228,7 +228,7 @@ func parseQueryProperty(entry string) (string, *APIError) {
 			"queryProperties: %q: nested fields cannot be keyword-searched, name the property itself", entry)
 	}
 	if len(parts) == 2 {
-		boost, err := strconv.ParseFloat(parts[1], 64)
+		boost, err := strconv.ParseFloat(parts[1], 32)
 		if err != nil || math.IsNaN(boost) || math.IsInf(boost, 0) || boost <= 0 {
 			return "", newAPIError(http.StatusBadRequest,
 				"queryProperties: %q: boost must be a positive number, e.g. title^2", entry)
