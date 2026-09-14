@@ -15,6 +15,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1298,91 +1300,274 @@ func TestRestoreEmptyData(t *testing.T) {
 	require.Len(t, policies, 5)
 }
 
-// TestGetRolesForUserOrGroupDuringRestore pins that a role lookup keeps making
-// progress while Restore runs. A second read acquisition inside the lookup parks
-// both goroutines once Restore is queued for the write lock.
-func TestGetRolesForUserOrGroupDuringRestore(t *testing.T) {
+// TestRoleLookupsDuringRestore pins that a role lookup keeps making progress
+// while Restore runs. A second read acquisition inside the lookup parks both
+// goroutines once Restore is queued for the write lock.
+func TestRoleLookupsDuringRestore(t *testing.T) {
+	tests := []struct {
+		name   string
+		lookup func(*Manager) (map[string][]authorization.Policy, error)
+	}{
+		{
+			name: "GetRolesForUserOrGroup",
+			lookup: func(m *Manager) (map[string][]authorization.Policy, error) {
+				return m.GetRolesForUserOrGroup("restore-user", authentication.AuthTypeDb, false)
+			},
+		},
+		{
+			name: "GetRolesForSubjects",
+			lookup: func(m *Manager) (map[string][]authorization.Policy, error) {
+				roles, err := m.GetRolesForSubjects([]authorization.Subject{{ID: "restore-user", AuthType: authentication.AuthTypeDb}})
+				return roles["db:restore-user"], err
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			m, err := setupTestManager(t, logger)
+			require.NoError(t, err)
+
+			require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
+				"restore-role": {{Resource: authorization.Collections("Movies")[0], Verb: authorization.READ, Domain: authorization.SchemaDomain}},
+			}))
+			require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("restore-user", authentication.AuthTypeDb), []string{"restore-role"}))
+
+			// restore-user holds a role, so GetRolesForUserOrGroup gets past its early return to getRoles
+			roles, err := tt.lookup(m)
+			require.NoError(t, err)
+			require.Len(t, roles, 1)
+
+			blob, err := m.Snapshot()
+			require.NoError(t, err)
+
+			stop := make(chan struct{})
+			defer close(stop)
+			errs := make(chan error, 2)
+			var lookups, restores atomic.Int64
+
+			// listUsers looks up roles while a restore may be applied
+			go func() {
+				for {
+					select {
+					case <-stop:
+						return
+					default:
+					}
+					roles, err := tt.lookup(m)
+					if err != nil {
+						errs <- err
+						return
+					}
+					if len(roles) != 1 {
+						errs <- fmt.Errorf("lookup returned %d roles, want 1", len(roles))
+						return
+					}
+					lookups.Add(1)
+				}
+			}()
+
+			// applyRestoreRolesAndUsers reaches Restore on the FSM apply goroutine
+			go func() {
+				for {
+					select {
+					case <-stop:
+						return
+					default:
+					}
+					if err := m.Restore(blob, false); err != nil {
+						errs <- err
+						return
+					}
+					restores.Add(1)
+				}
+			}()
+
+			const (
+				runFor       = 5 * time.Second
+				poll         = 200 * time.Millisecond
+				stallsToFail = 10
+			)
+			deadline := time.Now().Add(runFor)
+			var last int64
+			stalls := 0
+			for time.Now().Before(deadline) {
+				time.Sleep(poll)
+				done := lookups.Load() + restores.Load()
+				if done == last {
+					stalls++
+				} else {
+					stalls = 0
+				}
+				require.Less(t, stalls, stallsToFail, "lookup and restore both stopped making progress")
+				last = done
+			}
+
+			select {
+			case err := <-errs:
+				require.NoError(t, err)
+			default:
+			}
+			require.Positive(t, lookups.Load())
+			require.Positive(t, restores.Load())
+		})
+	}
+}
+
+// seedSubjectRoles gives the same id different roles under its db, oidc and
+// group keys, and adds a role without permissions and a built-in role.
+func seedSubjectRoles(t *testing.T, m *Manager) {
+	t.Helper()
+	policy := func(collection string) []authorization.Policy {
+		return []authorization.Policy{{Resource: authorization.Collections(collection)[0], Verb: authorization.READ, Domain: authorization.SchemaDomain}}
+	}
+	require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
+		"db-role":    policy("Movies"),
+		"oidc-role":  policy("Books"),
+		"group-role": policy("Songs"),
+		"empty-role": {},
+	}))
+	for subject, roles := range map[string][]string{
+		"db:alice":         {"db-role"},
+		"oidc:alice":       {"oidc-role"},
+		"group:alice":      {"group-role"},
+		"db:bob":           {"db-role", "oidc-role"},
+		"db:stale":         {"empty-role"},
+		"db:admin-holder":  {authorization.Admin},
+		"db:customer1:bob": {"group-role"},
+	} {
+		require.NoError(t, m.AddRolesForUser(subject, roles))
+	}
+}
+
+func TestGetRolesForSubjects(t *testing.T) {
+	db := func(id string) authorization.Subject {
+		return authorization.Subject{ID: id, AuthType: authentication.AuthTypeDb}
+	}
+	oidc := func(id string) authorization.Subject {
+		return authorization.Subject{ID: id, AuthType: authentication.AuthTypeOIDC}
+	}
+	group := func(id string, authType authentication.AuthType) authorization.Subject {
+		return authorization.Subject{ID: id, AuthType: authType, IsGroup: true}
+	}
+
+	fixtures := []struct {
+		name  string
+		setup func(*testing.T) (*Manager, error)
+	}{
+		{
+			name: "namespaces disabled",
+			setup: func(t *testing.T) (*Manager, error) {
+				logger, _ := test.NewNullLogger()
+				return setupTestManager(t, logger)
+			},
+		},
+		{
+			name: "namespaces enabled",
+			setup: func(t *testing.T) (*Manager, error) {
+				logger, _ := test.NewNullLogger()
+				return setupNSEnabledTestManager(t, logger)
+			},
+		},
+	}
+	tests := []struct {
+		name     string
+		subjects []authorization.Subject
+		// want maps each returned subject key to the role names it holds
+		want map[string][]string
+	}{
+		{name: "no subjects", subjects: nil, want: map[string][]string{}},
+		{name: "one user", subjects: []authorization.Subject{db("alice")}, want: map[string][]string{"db:alice": {"db-role"}}},
+		{
+			name:     "many users",
+			subjects: []authorization.Subject{db("alice"), db("bob"), db("stale")},
+			want:     map[string][]string{"db:alice": {"db-role"}, "db:bob": {"db-role", "oidc-role"}, "db:stale": {"empty-role"}},
+		},
+		{name: "user without roles", subjects: []authorization.Subject{db("nobody")}, want: map[string][]string{"db:nobody": nil}},
+		{name: "role without permissions", subjects: []authorization.Subject{db("stale")}, want: map[string][]string{"db:stale": {"empty-role"}}},
+		{name: "built-in role", subjects: []authorization.Subject{db("admin-holder")}, want: map[string][]string{"db:admin-holder": {authorization.Admin}}},
+		{name: "empty id", subjects: []authorization.Subject{db("")}, want: map[string][]string{"db:": nil}},
+		{name: "duplicate subject", subjects: []authorization.Subject{db("alice"), db("alice")}, want: map[string][]string{"db:alice": {"db-role"}}},
+		{
+			name:     "one id under db, oidc and group",
+			subjects: []authorization.Subject{db("alice"), oidc("alice"), group("alice", authentication.AuthTypeOIDC)},
+			want:     map[string][]string{"db:alice": {"db-role"}, "oidc:alice": {"oidc-role"}, "group:alice": {"group-role"}},
+		},
+		{
+			name:     "group ignores auth type",
+			subjects: []authorization.Subject{group("alice", authentication.AuthTypeDb), group("alice", authentication.AuthTypeOIDC)},
+			want:     map[string][]string{"group:alice": {"group-role"}},
+		},
+		{name: "group named like a db user", subjects: []authorization.Subject{group("bob", authentication.AuthTypeOIDC)}, want: map[string][]string{"group:bob": nil}},
+		{name: "namespace-qualified id", subjects: []authorization.Subject{db("customer1:bob")}, want: map[string][]string{"db:customer1:bob": {"group-role"}}},
+	}
+	for _, fx := range fixtures {
+		t.Run(fx.name, func(t *testing.T) {
+			m, err := fx.setup(t)
+			require.NoError(t, err)
+			seedSubjectRoles(t, m)
+
+			for _, tt := range tests {
+				t.Run(tt.name, func(t *testing.T) {
+					got, err := m.GetRolesForSubjects(tt.subjects)
+					require.NoError(t, err)
+
+					names := make(map[string][]string, len(got))
+					for key, roles := range got {
+						names[key] = slices.Sorted(maps.Keys(roles))
+					}
+					require.Equal(t, tt.want, names)
+
+					for _, s := range tt.subjects {
+						single, err := m.GetRolesForUserOrGroup(s.ID, s.AuthType, s.IsGroup)
+						require.NoError(t, err)
+						require.Equal(t, single, got[conv.SubjectKey(s)])
+					}
+				})
+			}
+		})
+	}
+}
+
+// TestGetRolesForSubjectsUnconvertiblePolicy pins that a p row CasbinPolicies rejects
+// fails only a lookup that includes a subject holding its role.
+func TestGetRolesForSubjectsUnconvertiblePolicy(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	m, err := setupTestManager(t, logger)
 	require.NoError(t, err)
-
-	require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
-		"restore-role": {{Resource: authorization.Collections("Movies")[0], Verb: authorization.READ, Domain: authorization.SchemaDomain}},
-	}))
-	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("restore-user", authentication.AuthTypeDb), []string{"restore-role"}))
-
-	// a user holding no role returns before the nested lookup and never nests
-	roles, err := m.GetRolesForUserOrGroup("restore-user", authentication.AuthTypeDb, false)
+	seedSubjectRoles(t, m)
+	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("broken-role"), "not-a-resource", authorization.READ, authorization.SchemaDomain)
 	require.NoError(t, err)
-	require.Len(t, roles, 1)
+	require.NoError(t, m.AddRolesForUser("db:broken-holder", []string{"broken-role"}))
 
-	blob, err := m.Snapshot()
-	require.NoError(t, err)
-
-	stop := make(chan struct{})
-	defer close(stop)
-	errs := make(chan error, 2)
-	var lookups, restores atomic.Int64
-
-	// listUsers makes one lookup per listed user
-	go func() {
-		for {
-			select {
-			case <-stop:
-				return
-			default:
-			}
-			if _, err := m.GetRolesForUserOrGroup("restore-user", authentication.AuthTypeDb, false); err != nil {
-				errs <- err
-				return
-			}
-			lookups.Add(1)
-		}
-	}()
-
-	// applyRestoreRolesAndUsers reaches Restore on the FSM apply goroutine
-	go func() {
-		for {
-			select {
-			case <-stop:
-				return
-			default:
-			}
-			if err := m.Restore(blob, false); err != nil {
-				errs <- err
-				return
-			}
-			restores.Add(1)
-		}
-	}()
-
-	const (
-		runFor       = 5 * time.Second
-		poll         = 200 * time.Millisecond
-		stallsToFail = 10
-	)
-	deadline := time.Now().Add(runFor)
-	var last int64
-	stalls := 0
-	for time.Now().Before(deadline) {
-		time.Sleep(poll)
-		done := lookups.Load() + restores.Load()
-		if done == last {
-			stalls++
-		} else {
-			stalls = 0
-		}
-		require.Less(t, stalls, stallsToFail, "lookup and restore both stopped making progress")
-		last = done
+	alice := authorization.Subject{ID: "alice", AuthType: authentication.AuthTypeDb}
+	holder := authorization.Subject{ID: "broken-holder", AuthType: authentication.AuthTypeDb}
+	tests := []struct {
+		name     string
+		subjects []authorization.Subject
+		wantErr  bool
+	}{
+		{name: "no subject holds the role", subjects: []authorization.Subject{alice}},
+		{name: "a subject holds the role", subjects: []authorization.Subject{holder}, wantErr: true},
+		{name: "one of several subjects holds the role", subjects: []authorization.Subject{alice, holder}, wantErr: true},
 	}
-
-	select {
-	case err := <-errs:
-		require.NoError(t, err)
-	default:
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := m.GetRolesForSubjects(tt.subjects)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Nil(t, got)
+				return
+			}
+			require.NoError(t, err)
+			for _, s := range tt.subjects {
+				single, err := m.GetRolesForUserOrGroup(s.ID, s.AuthType, s.IsGroup)
+				require.NoError(t, err)
+				require.NotEmpty(t, got[conv.SubjectKey(s)])
+				require.Equal(t, single, got[conv.SubjectKey(s)])
+			}
+		})
 	}
-	require.Positive(t, lookups.Load())
-	require.Positive(t, restores.Load())
 }
 
 // TestWholeTableReadsDuringRemoval pins that a read of every p or g row does not
@@ -1411,6 +1596,14 @@ func TestWholeTableReadsDuringRemoval(t *testing.T) {
 			name: "Snapshot",
 			read: func(m *Manager) error {
 				_, err := m.Snapshot()
+				return err
+			},
+		},
+		{
+			// one subject, because a call with no subjects returns before reading either table
+			name: "GetRolesForSubjects",
+			read: func(m *Manager) error {
+				_, err := m.GetRolesForSubjects([]authorization.Subject{{ID: "user-0", AuthType: authentication.AuthTypeDb}})
 				return err
 			},
 		},

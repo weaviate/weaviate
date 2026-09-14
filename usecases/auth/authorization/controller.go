@@ -28,3 +28,11 @@ type Controller interface {
 	HasPermission(role string, permission *Policy) (bool, error)
 	GetUsersOrGroupsWithRoles(isGroup bool, authMethod authentication.AuthType) ([]string, error)
 }
+
+// Subject is a db or oidc user a role lookup asks about, or an oidc group when
+// IsGroup is set. ID carries no auth-type prefix.
+type Subject struct {
+	ID       string
+	AuthType authentication.AuthType
+	IsGroup  bool
+}

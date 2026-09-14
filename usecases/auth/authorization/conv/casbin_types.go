@@ -659,6 +659,14 @@ func UserNameWithTypeFromId(username string, authType authentication.AuthType) s
 	return fmt.Sprintf("%s:%s", authType, username)
 }
 
+// SubjectKey returns the casbin key s holds its role assignments under.
+func SubjectKey(s authorization.Subject) string {
+	if s.IsGroup {
+		return PrefixGroupName(s.ID)
+	}
+	return UserNameWithTypeFromId(s.ID, s.AuthType)
+}
+
 func TrimRoleNamePrefix(name string) string {
 	return strings.TrimPrefix(name, ROLE_NAME_PREFIX)
 }

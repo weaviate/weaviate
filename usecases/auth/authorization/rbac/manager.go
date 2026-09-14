@@ -167,54 +167,59 @@ func (m *Manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 // Taking that read lock twice on one goroutine parks it forever once Restore is
 // queued for the write lock.
 func (m *Manager) getRoles(names ...string) (map[string][]authorization.Policy, error) {
-	var (
-		casbinStoragePolicies    [][][]string
-		casbinStoragePoliciesMap = make(map[string]struct{})
-	)
-
 	if len(names) == 0 {
-		// get all roles
-		polices, err := m.copyPolicies()
+		policyRows, groupingRows, err := m.copyRoleRows()
+		if err != nil {
+			return nil, err
+		}
+		return m.convertRoles(policyRows, groupingRows)
+	}
+
+	var policyRows, groupingRows [][]string
+	for _, name := range names {
+		rows, err := m.casbin.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(name))
 		if err != nil {
 			return nil, fmt.Errorf("GetFilteredNamedPolicy: %w", err)
 		}
-		casbinStoragePolicies = append(casbinStoragePolicies, polices)
+		policyRows = append(policyRows, rows...)
 
-		for _, p := range polices {
-			// e.g. policy line in casbin -> role:roleName resource verb domain, that's why p[0]
-			casbinStoragePoliciesMap[p[0]] = struct{}{}
-		}
-
-		polices, err = m.copyGroupingPolicies()
+		rows, err = m.casbin.GetFilteredNamedGroupingPolicy("g", 1, conv.PrefixRoleName(name))
 		if err != nil {
 			return nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
 		}
-		casbinStoragePolicies = collectStaleRoles(polices, casbinStoragePoliciesMap, casbinStoragePolicies)
-	} else {
-		for _, name := range names {
-			polices, err := m.casbin.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName(name))
-			if err != nil {
-				return nil, fmt.Errorf("GetFilteredNamedPolicy: %w", err)
-			}
-			casbinStoragePolicies = append(casbinStoragePolicies, polices)
-
-			for _, p := range polices {
-				// e.g. policy line in casbin -> role:roleName resource verb domain, that's why p[0]
-				casbinStoragePoliciesMap[p[0]] = struct{}{}
-			}
-
-			polices, err = m.casbin.GetFilteredNamedGroupingPolicy("g", 1, conv.PrefixRoleName(name))
-			if err != nil {
-				return nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
-			}
-			casbinStoragePolicies = collectStaleRoles(polices, casbinStoragePoliciesMap, casbinStoragePolicies)
-		}
+		groupingRows = append(groupingRows, rows...)
 	}
-	policies, err := conv.CasbinPolicies(m.namespacesEnabled, casbinStoragePolicies...)
+	return m.convertRoles(policyRows, groupingRows)
+}
+
+// convertRoles converts p rows into each role's policies. A role with g rows but no
+// p rows gets a placeholder policy per g row, so a role without permissions is kept.
+func (m *Manager) convertRoles(policyRows, groupingRows [][]string) (map[string][]authorization.Policy, error) {
+	withPolicies := make(map[string]struct{}, len(policyRows))
+	for _, p := range policyRows {
+		// e.g. policy line in casbin -> role:roleName resource verb domain, that's why p[0]
+		withPolicies[p[0]] = struct{}{}
+	}
+	rows := collectStaleRoles(groupingRows, withPolicies, [][][]string{policyRows})
+	policies, err := conv.CasbinPolicies(m.namespacesEnabled, rows...)
 	if err != nil {
 		return nil, fmt.Errorf("CasbinPolicies: %w", err)
 	}
 	return policies, nil
+}
+
+// copyRoleRows returns every p row and every g row, from copyPolicies and
+// copyGroupingPolicies.
+func (m *Manager) copyRoleRows() (policyRows, groupingRows [][]string, err error) {
+	policyRows, err = m.copyPolicies()
+	if err != nil {
+		return nil, nil, fmt.Errorf("GetFilteredNamedPolicy: %w", err)
+	}
+	groupingRows, err = m.copyGroupingPolicies()
+	if err != nil {
+		return nil, nil, fmt.Errorf("GetFilteredNamedGroupingPolicy: %w", err)
+	}
+	return policyRows, groupingRows, nil
 }
 
 // copyPolicies returns every p row in a slice casbin does not hold. GetNamedPolicy
@@ -228,6 +233,63 @@ func (m *Manager) copyPolicies() ([][]string, error) {
 // rewrites in place.
 func (m *Manager) copyGroupingPolicies() ([][]string, error) {
 	return m.casbin.GetFilteredNamedGroupingPolicy("g", 0)
+}
+
+// GetRolesForSubjects returns each subject's roles keyed by conv.SubjectKey. It reads the
+// p and g tables once each and converts only the roles the subjects hold. A subject gets
+// an empty map when its id holds roles only under another prefix, or none at all.
+func (m *Manager) GetRolesForSubjects(subjects []authorization.Subject) (map[string]map[string][]authorization.Policy, error) {
+	m.restoreLock.RLock()
+	defer m.restoreLock.RUnlock()
+
+	out := make(map[string]map[string][]authorization.Policy, len(subjects))
+	if len(subjects) == 0 {
+		return out, nil
+	}
+
+	policyRows, groupingRows, err := m.copyRoleRows()
+	if err != nil {
+		return nil, err
+	}
+
+	roleNames := make(map[string][]string, len(subjects))
+	for _, s := range subjects {
+		roleNames[conv.SubjectKey(s)] = nil
+	}
+	held := make(map[string]struct{})
+	for _, g := range groupingRows {
+		if names, ok := roleNames[g[0]]; ok {
+			roleNames[g[0]] = append(names, g[1])
+			held[g[1]] = struct{}{}
+		}
+	}
+	roles, err := m.convertRoles(rowsForRoles(policyRows, 0, held), rowsForRoles(groupingRows, 1, held))
+	if err != nil {
+		return nil, err
+	}
+
+	for key, names := range roleNames {
+		subjectRoles := make(map[string][]authorization.Policy, len(names))
+		for _, name := range names {
+			name = conv.TrimRoleNamePrefix(name)
+			if policies, ok := roles[name]; ok {
+				subjectRoles[name] = policies
+			}
+		}
+		out[key] = subjectRoles
+	}
+	return out, nil
+}
+
+// rowsForRoles returns the rows whose field holds one of the prefixed role names in roles.
+func rowsForRoles(rows [][]string, field int, roles map[string]struct{}) [][]string {
+	var kept [][]string
+	for _, r := range rows {
+		if _, ok := roles[r[field]]; ok {
+			kept = append(kept, r)
+		}
+	}
+	return kept
 }
 
 // ListGroupingSubjects returns the subject key of every role-assignment row
@@ -413,18 +475,9 @@ func (m *Manager) GetRolesForUserOrGroup(userName string, authType authenticatio
 	m.restoreLock.RLock()
 	defer m.restoreLock.RUnlock()
 
-	var rolesNames []string
-	var err error
-	if isGroup {
-		rolesNames, err = m.casbin.GetRolesForUser(conv.PrefixGroupName(userName))
-		if err != nil {
-			return nil, fmt.Errorf("GetRolesForUserOrGroup: %w", err)
-		}
-	} else {
-		rolesNames, err = m.casbin.GetRolesForUser(conv.UserNameWithTypeFromId(userName, authType))
-		if err != nil {
-			return nil, fmt.Errorf("GetRolesForUserOrGroup: %w", err)
-		}
+	rolesNames, err := m.casbin.GetRolesForUser(conv.SubjectKey(authorization.Subject{ID: userName, AuthType: authType, IsGroup: isGroup}))
+	if err != nil {
+		return nil, fmt.Errorf("GetRolesForUserOrGroup: %w", err)
 	}
 	if len(rolesNames) == 0 {
 		return map[string][]authorization.Policy{}, err
@@ -631,11 +684,7 @@ func (m *Manager) Snapshot(roles ...string) ([]byte, error) {
 	var policy, groupingPolicy [][]string
 	if len(roles) == 0 {
 		var err error
-		policy, err = m.copyPolicies()
-		if err != nil {
-			return nil, err
-		}
-		groupingPolicy, err = m.copyGroupingPolicies()
+		policy, groupingPolicy, err = m.copyRoleRows()
 		if err != nil {
 			return nil, err
 		}
