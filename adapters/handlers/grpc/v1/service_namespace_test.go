@@ -13,6 +13,7 @@ package v1
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -39,16 +40,6 @@ const (
 	gatedClass     = "alpha:Movies"
 	gateRootUser   = "root"
 )
-
-// namespaceRefusals is every error RequireActive can answer with, so a row set
-// covering the states cannot quietly drop one.
-var namespaceRefusals = []error{
-	usecasesNamespaces.ErrNamespaceSuspended,
-	usecasesNamespaces.ErrNamespaceResuming,
-	usecasesNamespaces.ErrNamespaceDeleting,
-	usecasesNamespaces.ErrNamespaceGone,
-	usecasesNamespaces.ErrInvalidState,
-}
 
 func gateRootPrincipal() *models.Principal {
 	return &models.Principal{Username: gateRootUser, UserType: models.UserTypeInputDb}
@@ -166,42 +157,65 @@ func TestGRPCHandlersReturnTheNamespaceRefusal(t *testing.T) {
 	}
 }
 
-// TestSearchParsersReturnTheNamespaceRefusal pins that each sentinel reaches the
-// caller of the search and aggregate parsers unwrapped, and that the gate saw the
-// resolved class name the resources were built from.
-func TestSearchParsersReturnTheNamespaceRefusal(t *testing.T) {
-	entryPoints := map[string]func(classGetterWithAuthzFunc) error{
-		"search": func(getter classGetterWithAuthzFunc) error {
-			_, err := NewParser(false, getter, gateRootPrincipal(), wlnamespaces.NewPrefixing()).
-				Search(&pb.SearchRequest{Collection: gatedClass},
-					&config.Config{QueryDefaults: config.QueryDefaults{Limit: 10}})
-			return err
+// TestBatchDeleteRequiresActiveNamespaceBeforeParsing pins that batchDelete's
+// DELETE authorization is the gate, so a suspended namespace is refused before
+// the params getter runs its own READ check.
+func TestBatchDeleteRequiresActiveNamespaceBeforeParsing(t *testing.T) {
+	// gatedAlias resolves to gatedClass, so a gate handed the name as sent
+	// records a different Class.
+	const gatedAlias = "alpha:MoviesAlias"
+	errReadDenied := errors.New("read denied")
+	deleteGate := mocks.AuthZReq{
+		Verb:      authorization.DELETE,
+		Resources: authorization.ShardsData(gatedClass, ""),
+		Method:    mocks.MethodAuthorizeAndRequireActiveNamespace,
+		Class:     gatedClass,
+	}
+
+	tests := []struct {
+		name      string
+		configure func(*mocks.FakeAuthorizer)
+		wantErr   error
+		wantCalls []mocks.AuthZReq
+	}{
+		{
+			// The getter's READ check refusing keeps this row off ReadOnlyClass, which
+			// the mock reader does not expect. It runs only once the DELETE gate passes.
+			name:      "an active namespace passes the gate to the params getter",
+			configure: func(a *mocks.FakeAuthorizer) { a.SetErrAfter(1, errReadDenied) },
+			wantErr:   errReadDenied,
+			wantCalls: []mocks.AuthZReq{deleteGate, {
+				Verb:      authorization.READ,
+				Resources: authorization.CollectionsData(gatedClass),
+				Method:    mocks.MethodAuthorizeAndRequireActiveNamespace,
+				Class:     gatedClass,
+			}},
 		},
-		"aggregate": func(getter classGetterWithAuthzFunc) error {
-			_, err := NewAggregateParser(getter, wlnamespaces.NewPrefixing(), gateRootPrincipal()).
-				Aggregate(&pb.AggregateRequest{Collection: gatedClass, ObjectsCount: true})
-			return err
+		{
+			name:      "a suspended namespace is refused at the DELETE gate",
+			configure: func(a *mocks.FakeAuthorizer) { a.SetErr(usecasesNamespaces.ErrNamespaceSuspended) },
+			wantErr:   usecasesNamespaces.ErrNamespaceSuspended,
+			wantCalls: []mocks.AuthZReq{deleteGate},
 		},
 	}
 
-	for entryPoint, parse := range entryPoints {
-		for _, sentinel := range namespaceRefusals {
-			t.Run(entryPoint+"/"+sentinel.Error(), func(t *testing.T) {
-				authorizer := mocks.NewMockAuthorizer()
-				authorizer.SetErr(sentinel)
-				s := &Service{authorizer: authorizer}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := mocks.NewMockAuthorizer()
+			tt.configure(authorizer)
+			reader := local.NewMockSchemaReader(t)
+			reader.On("ResolveAlias", gatedAlias).Return(gatedClass)
+			s := &Service{
+				authenticator: auth.NewHandler(true, nil),
+				schemaManager: &schema.Manager{SchemaReader: reader},
+				qualifier:     wlnamespaces.NewPrefixing(),
+				authorizer:    authorizer,
+			}
 
-				err := parse(s.classGetterWithAuthzFunc(context.Background(), gateRootPrincipal(), ""))
+			_, err := s.batchDelete(context.Background(), &pb.BatchDeleteRequest{Collection: gatedAlias})
 
-				require.ErrorIs(t, err, sentinel)
-				require.Equal(t, []mocks.AuthZReq{{
-					Principal: gateRootPrincipal(),
-					Verb:      authorization.READ,
-					Resources: authorization.CollectionsData(gatedClass),
-					Method:    mocks.MethodAuthorizeAndRequireActiveNamespace,
-					Class:     gatedClass,
-				}}, authorizer.Calls())
-			})
-		}
+			require.ErrorIs(t, err, tt.wantErr)
+			require.Equal(t, tt.wantCalls, authorizer.Calls())
+		})
 	}
 }

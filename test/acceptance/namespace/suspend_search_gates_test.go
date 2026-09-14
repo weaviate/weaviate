@@ -136,39 +136,6 @@ func TestNamespaces_SuspendedNamespaceRefusesAggregate(t *testing.T) {
 	})
 }
 
-// TestNamespaces_SuspendedNamespaceRefusesBatchDelete drives gRPC BatchDelete on
-// the node holding the shard. Mode B. The gate answers at parameter parsing,
-// before any shard is touched, where the same request without it reaches the
-// closed shard.
-func TestNamespaces_SuspendedNamespaceRefusesBatchDelete(t *testing.T) {
-	t.Parallel()
-	pair := newGatePair(t, modeBNode, modeBNode)
-	_, grpcURI := nodeURIs(t, modeBNode)
-
-	client := grpcTo(t, grpcURI)
-	deleteFrom := func(collection string) error {
-		_, err := client.BatchDelete(authCtx(adminKey), &pb.BatchDeleteRequest{
-			Collection: collection,
-			DryRun:     true,
-			Filters: &pb.Filters{
-				Operator:  pb.Filters_OPERATOR_EQUAL,
-				Target:    &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "title"}},
-				TestValue: &pb.Filters_ValueText{ValueText: gateSearchTitle},
-			},
-		})
-		return err
-	}
-
-	// An active namespace takes the same request, so the row below is not green on
-	// a filter shape that would have been rejected anyway.
-	require.NoError(t, deleteFrom(pair.activeClass))
-
-	// The shard-load guard answers this verb with the same sentinel text, and it
-	// reaches the caller through "batch delete: " at service.go:207. Only the gate
-	// answers at parameter parsing, so only the gate's refusal carries this wrap.
-	requireRefused(t, func() error { return deleteFrom(pair.suspendedClass) }, "batch delete params: ")
-}
-
 // TestNamespaces_SuspendedNamespaceKeepsDenialsOpaque pins that the gate does not
 // turn an unauthorized request into a namespace-state probe. A global operator
 // holding no permission gets the same answer whether the namespace is suspended or
