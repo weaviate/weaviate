@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"sync"
 	"time"
 
@@ -135,16 +136,36 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 		},
 	)
 
+	// GetRolesForSubjects answers only what the rows below render, and a non-root
+	// caller who may read no db user gets no row.
+	if len(filteredUsers) == 0 && !isRootUser {
+		return users.NewListAllUsersOK().WithPayload([]*models.DBUserInfo{})
+	}
+
+	var staticUsers []string
+	if isRootUser {
+		staticUsers = h.staticUsersToList(filteredUsers)
+	}
+	var adminSubjects []authorization.Subject
+	if !isRootUser {
+		adminSubjects = h.callerAdminSubjects(principal)
+	}
+	roles, err := h.dbUsers.GetRolesForSubjects(listingSubjects(filteredUsers, staticUsers, adminSubjects))
+	if err != nil {
+		return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+
 	var usersWithTime map[string]time.Time
 	if params.IncludeLastUsedTime != nil && *params.IncludeLastUsedTime {
 		usersWithTime = h.getLastUsed(filteredUsers)
 	}
 
 	exposeNamespace := principal != nil && principal.IsGlobalOperator
-	showAPIKeyFirstLetters := isRootUser || h.callerHasAdminRole(principal)
+	showAPIKeyFirstLetters := isRootUser || slices.ContainsFunc(adminSubjects, func(s authorization.Subject) bool {
+		return hasAdminRole(roles[conv.SubjectKey(s)])
+	})
 
-	allDynamicUsers := map[string]struct{}{}
-	response := make([]*models.DBUserInfo, 0, len(filteredUsers))
+	response := make([]*models.DBUserInfo, 0, len(filteredUsers)+len(staticUsers))
 	for _, dbUser := range filteredUsers {
 		apiKeyFirstLetter := ""
 		if showAPIKeyFirstLetters {
@@ -160,37 +181,51 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 		}
 		// dbUser.Id is the qualified storage key; show the short form to namespaced callers.
 		displayID := namespacing.StripOwnNamespace(principal, dbUser.Id)
-		response, err = h.addToListAllResponse(ctx, principal, response, dbUser.Id, displayID, string(models.UserTypeOutputDbUser), dbUser.Active, apiKeyFirstLetter, namespace, &dbUser.CreatedAt, &lastUsedTime)
-		if err != nil {
-			return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
-		}
-		if isRootUser {
-			allDynamicUsers[dbUser.Id] = struct{}{}
-		}
+		response = h.addToListAllResponse(ctx, principal, response, dbUser.Id, displayID, roles[conv.SubjectKey(dbUserSubject(dbUser.Id))], string(models.UserTypeOutputDbUser), dbUser.Active, apiKeyFirstLetter, namespace, &dbUser.CreatedAt, &lastUsedTime)
 	}
 
-	if isRootUser {
-		for _, staticUser := range h.staticApiKeysConfigs.Users {
-			if _, ok := allDynamicUsers[staticUser]; ok {
-				// don't overwrite dynamic users with the same name. Can happen after import
-				continue
-			}
-			response, err = h.addToListAllResponse(ctx, principal, response, staticUser, staticUser, string(models.UserTypeOutputDbEnvUser), true, "", "", nil, nil)
-			if err != nil {
-				return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
-			}
-		}
+	for _, staticUser := range staticUsers {
+		response = h.addToListAllResponse(ctx, principal, response, staticUser, staticUser, roles[conv.SubjectKey(dbUserSubject(staticUser))], string(models.UserTypeOutputDbEnvUser), true, "", "", nil, nil)
 	}
 
 	return users.NewListAllUsersOK().WithPayload(response)
 }
 
-func (h *dynUserHandler) addToListAllResponse(ctx context.Context, principal *models.Principal, response []*models.DBUserInfo, internalID, displayID, userType string, active bool, apiKeyFirstLetter, namespace string, createdAt *time.Time, lastusedAt *time.Time) ([]*models.DBUserInfo, error) {
-	roles, err := h.dbUsers.GetRolesForUserOrGroup(internalID, authentication.AuthTypeDb, false)
-	if err != nil {
-		return response, err
+// staticUsersToList returns the static api-key users a root caller's listing adds.
+// It skips a static user whose name a listed dynamic user also holds, which
+// importing that static user causes.
+func (h *dynUserHandler) staticUsersToList(dynamicUsers []apikey.UserView) []string {
+	dynamicIDs := make(map[string]struct{}, len(dynamicUsers))
+	for _, dbUser := range dynamicUsers {
+		dynamicIDs[dbUser.Id] = struct{}{}
 	}
+	staticUsers := make([]string, 0, len(h.staticApiKeysConfigs.Users))
+	for _, staticUser := range h.staticApiKeysConfigs.Users {
+		if _, ok := dynamicIDs[staticUser]; !ok {
+			staticUsers = append(staticUsers, staticUser)
+		}
+	}
+	return staticUsers
+}
 
+// listingSubjects returns the subjects listUsers reads roles for, the listed
+// dynamic and static users followed by adminSubjects.
+func listingSubjects(dynamicUsers []apikey.UserView, staticUsers []string, adminSubjects []authorization.Subject) []authorization.Subject {
+	subjects := make([]authorization.Subject, 0, len(dynamicUsers)+len(staticUsers)+len(adminSubjects))
+	for _, dbUser := range dynamicUsers {
+		subjects = append(subjects, dbUserSubject(dbUser.Id))
+	}
+	for _, staticUser := range staticUsers {
+		subjects = append(subjects, dbUserSubject(staticUser))
+	}
+	return append(subjects, adminSubjects...)
+}
+
+func dbUserSubject(id string) authorization.Subject {
+	return authorization.Subject{ID: id, AuthType: authentication.AuthTypeDb}
+}
+
+func (h *dynUserHandler) addToListAllResponse(ctx context.Context, principal *models.Principal, response []*models.DBUserInfo, internalID, displayID string, roles map[string][]authorization.Policy, userType string, active bool, apiKeyFirstLetter, namespace string, createdAt *time.Time, lastusedAt *time.Time) []*models.DBUserInfo {
 	own := principal != nil && internalID == principal.Username && principal.UserType == models.UserTypeInputDb
 	resp := &models.DBUserInfo{
 		Active:             &active,
@@ -207,8 +242,7 @@ func (h *dynUserHandler) addToListAllResponse(ctx context.Context, principal *mo
 		resp.LastUsedAt = strfmt.DateTime(*lastusedAt)
 	}
 
-	response = append(response, resp)
-	return response, nil
+	return append(response, resp)
 }
 
 // visibleRoleNames returns the role names to expose for a db user, matching the
@@ -969,26 +1003,34 @@ func (h *dynUserHandler) isRequestFromRootUser(principal *models.Principal) bool
 // namespace-enabled clusters. A role lookup that errors is treated as non-admin
 // so the api-key hint stays hidden.
 func (h *dynUserHandler) callerHasAdminRole(principal *models.Principal) bool {
-	if principal == nil || !h.namespacesEnabled || !h.rbacConfig.Enabled {
-		return false
-	}
-	authType := authentication.AuthType(principal.UserType)
-	if h.subjectHasAdminRole(principal.Username, authType, false) {
-		return true
-	}
-	for _, group := range principal.Groups {
-		if h.subjectHasAdminRole(group, authType, true) {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(h.callerAdminSubjects(principal), h.subjectHasAdminRole)
 }
 
-func (h *dynUserHandler) subjectHasAdminRole(subject string, authType authentication.AuthType, isGroup bool) bool {
-	roles, err := h.dbUsers.GetRolesForUserOrGroup(subject, authType, isGroup)
+// callerAdminSubjects returns the principal and each of its groups, the subjects
+// whose roles decide its admin verdict. It returns none for a nil principal or on
+// a cluster without namespaces or RBAC, where that verdict is never consulted.
+func (h *dynUserHandler) callerAdminSubjects(principal *models.Principal) []authorization.Subject {
+	if principal == nil || !h.namespacesEnabled || !h.rbacConfig.Enabled {
+		return nil
+	}
+	authType := authentication.AuthType(principal.UserType)
+	subjects := make([]authorization.Subject, 0, 1+len(principal.Groups))
+	subjects = append(subjects, authorization.Subject{ID: principal.Username, AuthType: authType})
+	for _, group := range principal.Groups {
+		subjects = append(subjects, authorization.Subject{ID: group, AuthType: authType, IsGroup: true})
+	}
+	return subjects
+}
+
+func (h *dynUserHandler) subjectHasAdminRole(subject authorization.Subject) bool {
+	roles, err := h.dbUsers.GetRolesForUserOrGroup(subject.ID, subject.AuthType, subject.IsGroup)
 	if err != nil {
 		return false
 	}
+	return hasAdminRole(roles)
+}
+
+func hasAdminRole(roles map[string][]authorization.Policy) bool {
 	_, ok := roles[authorization.Admin]
 	return ok
 }

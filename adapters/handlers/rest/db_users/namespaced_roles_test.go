@@ -105,33 +105,59 @@ func TestGetUserNamespacedOwnRolesKept(t *testing.T) {
 }
 
 // TestListUsersNamespacedRolesStrippedAndFiltered pins the same strip-and-filter
-// behavior on the list endpoint.
+// behavior on the list endpoint, which only a db user listing itself skips.
 func TestListUsersNamespacedRolesStrippedAndFiltered(t *testing.T) {
-	principal := &models.Principal{Username: "customer1:admin", UserType: models.UserTypeInputDb, Namespace: "customer1"}
-	authorizer := nsRolesAuthorizer(t, authorization.Users("customer1:bob")[0])
-	// Resource filter authorizes the shared parent of the returned users.
-	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, mock.Anything).Return(nil).Maybe()
-
-	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers").Return(map[string]apikey.UserView{"customer1:bob": {Id: "customer1:bob"}}, nil)
-	dynUser.On("GetRolesForUserOrGroup", "customer1:admin", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
-	dynUser.On("GetRolesForUserOrGroup", "customer1:bob", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{
-		"customer1:editor": {},
-		"customer2:secret": {},
-		"restricted":       {collPolicy(authorization.CREATE, "Secret")},
-	}, nil)
-
-	h := dynUserHandler{
-		dbUsers:           dynUser,
-		authorizer:        authorizer,
-		rbacConfig:        rbacconf.Config{Enabled: true, RootUsers: []string{"root"}},
-		dbUserEnabled:     true,
-		namespacesEnabled: true,
+	tests := []struct {
+		name      string
+		principal *models.Principal
+		wantRoles []string
+	}{
+		{
+			name:      "another db user sees own-namespace roles only",
+			principal: &models.Principal{Username: "customer1:admin", UserType: models.UserTypeInputDb, Namespace: "customer1"},
+			wantRoles: []string{"editor"},
+		},
+		{
+			name:      "db user listing itself keeps every role",
+			principal: &models.Principal{Username: "customer1:bob", UserType: models.UserTypeInputDb, Namespace: "customer1"},
+			wantRoles: []string{"editor", "customer2:secret", "restricted"},
+		},
+		{
+			name:      "oidc user with the listed user's name sees own-namespace roles only",
+			principal: &models.Principal{Username: "customer1:bob", UserType: models.UserTypeInputOidc, Namespace: "customer1"},
+			wantRoles: []string{"editor"},
+		},
 	}
 
-	res := h.listUsers(users.ListAllUsersParams{HTTPRequest: req}, principal)
-	parsed, ok := res.(*users.ListAllUsersOK)
-	require.True(t, ok, "got %T", res)
-	require.Len(t, parsed.Payload, 1)
-	require.Equal(t, []string{"editor"}, parsed.Payload[0].Roles)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := nsRolesAuthorizer(t, authorization.Users("customer1:bob")[0])
+			// Resource filter authorizes the shared parent of the returned users.
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, mock.Anything).Return(nil).Maybe()
+
+			dynUser := NewMockDbUserAndRolesGetter(t)
+			dynUser.On("GetUsers").Return(map[string]apikey.UserView{"customer1:bob": {Id: "customer1:bob"}}, nil)
+			dynUser.On("GetRolesForSubjects", mock.Anything).Return(map[string]map[string][]authorization.Policy{
+				"db:customer1:bob": {
+					"customer1:editor": {},
+					"customer2:secret": {},
+					"restricted":       {collPolicy(authorization.CREATE, "Secret")},
+				},
+			}, nil).Once()
+
+			h := dynUserHandler{
+				dbUsers:           dynUser,
+				authorizer:        authorizer,
+				rbacConfig:        rbacconf.Config{Enabled: true, RootUsers: []string{"root"}},
+				dbUserEnabled:     true,
+				namespacesEnabled: true,
+			}
+
+			res := h.listUsers(users.ListAllUsersParams{HTTPRequest: req}, tt.principal)
+			parsed, ok := res.(*users.ListAllUsersOK)
+			require.True(t, ok, "got %T", res)
+			require.Len(t, parsed.Payload, 1)
+			require.ElementsMatch(t, tt.wantRoles, parsed.Payload[0].Roles)
+		})
+	}
 }
