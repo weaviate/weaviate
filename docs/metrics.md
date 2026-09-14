@@ -366,7 +366,7 @@ This document is the single source of truth for Prometheus metrics exposed by We
 | `weaviate_vectorizer_request_tokens` | Number of tokens in the request sent to an external vectorizer | `Histogram` | `api, inout` | ❌ High 
 | `weaviate_module_request_single_count` | Number of single-item external API requests | `Counter` | `api, op` | ❌ High 
 | `weaviate_module_request_batch_count` | Number of batched module requests | `Counter` | `api, op` | ❌ High 
-| `weaviate_module_error_total` | Number of OpenAI errors | `Counter` | `endpoint, module, op, status_code` | ❌ High 
+| `weaviate_module_error_total` | Number of module errors from external APIs | `Counter` | `endpoint, module, op, status_code` | - Low (bounded values; pre-fix series carried error text in `endpoint` and drain on process restart) 
 | `weaviate_module_call_error_total` | Number of module errors (related to external calls) | `Counter` | `endpoint, module, status_code` | ❌ High 
 | `weaviate_module_response_status_total` | Number of API response statuses | `Counter` | `endpoint, op, status` | ❌ High 
 | `weaviate_module_batch_error_total` | Number of batch errors | `Counter` | `class_name, operation` | ❌ High 
