@@ -1096,7 +1096,11 @@ func FromEnv(config *Config) error {
 
 	config.Replication.AsyncReplicationDisabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED")))
 
-	config.Replication.ReplicaMovementEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICA_MOVEMENT_ENABLED")))
+	if v := os.Getenv("REPLICA_MOVEMENT_ENABLED"); v != "" {
+		config.ReplicaMovementEnabled = entcfg.Enabled(v)
+	}
+
+	config.Replication.ReplicaMovementEnabled = configRuntime.NewDynamicValue(config.ReplicaMovementEnabled)
 	config.Replication.ReplicaMovementCleanupEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICA_MOVEMENT_CLEANUP_ENABLED")))
 	config.Replication.ReplicaMovementCleanupIncludeCancelled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICA_MOVEMENT_CLEANUP_INCLUDE_CANCELLED")))
 
