@@ -467,10 +467,11 @@ func TestService_Usage_WithDedupedBackup(t *testing.T) {
 	nodeName := "test-node-2"
 	size1GB := int64(1073741824)
 
+	readOnly := models.Schema{Classes: []*models.Class{}}
 	mockSchema := schemaUC.NewMockSchemaGetter(t)
-	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
-		Objects: &models.Schema{Classes: []*models.Class{}},
-	})
+	mockSchema.EXPECT().ReadOnlySchema().Return(readOnly).Maybe()
+	classReader := local.NewMockSchemaReader(t)
+	classReader.EXPECT().ReadOnlySchema().Return(readOnly)
 
 	shardingState := &sharding.State{Physical: map[string]sharding.Physical{}}
 	shardingState.SetLocalName(nodeName)
@@ -497,7 +498,7 @@ func TestService_Usage_WithDedupedBackup(t *testing.T) {
 	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{mockBackupBackend})
 
 	logger, _ := logrus.NewNullLogger()
-	service := NewService(mockSchema, clustermocks.NewMockNodeSelector(nodeName), repo, mockBackupProvider, logger)
+	service := NewService(classReader, clustermocks.NewMockNodeSelector(nodeName), repo, mockBackupProvider, logger)
 
 	result, err := service.Usage(ctx, false)
 
