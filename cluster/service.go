@@ -102,6 +102,7 @@ type Service struct {
 
 	// closing channels
 	cancelReplicationEngine context.CancelFunc
+	engineDone              chan struct{}
 	cancelOpCleaner         context.CancelFunc
 	closeBootstrapper       chan struct{}
 	closeOnFSMCaughtUp      chan struct{}
@@ -189,29 +190,24 @@ func New(cfg Config, authZController authorization.Controller, svrMetrics *monit
 	}
 }
 
+// onFSMCaughtUp waits for the metadata FSM to catch up, then runs the
+// replication engine on the calling goroutine until ctx is cancelled.
 func (c *Service) onFSMCaughtUp(ctx context.Context) {
 	ticker := time.NewTicker(catchUpInterval)
 	defer ticker.Stop()
-	for {
+	for !c.Raft.store.FSMHasCaughtUp() {
 		select {
+		case <-ctx.Done():
+			return
 		case <-c.closeOnFSMCaughtUp:
 			return
 		case <-ticker.C:
-			if c.Raft.store.FSMHasCaughtUp() {
-				c.logger.Infof("Metadata FSM reported caught up, starting replication engine")
-				engineCtx, engineCancel := context.WithCancel(ctx)
-				c.cancelReplicationEngine = engineCancel
-				enterrors.GoWrapper(func() {
-					// The context is cancelled by the engine itself when it is stopped
-					if err := c.replicationEngine.Start(engineCtx); err != nil {
-						if !errors.Is(err, context.Canceled) {
-							c.logger.WithError(err).Error("replication engine failed to start after FSM caught up")
-						}
-					}
-				}, c.logger)
-				return
-			}
 		}
+	}
+
+	c.logger.Infof("Metadata FSM reported caught up, starting replication engine")
+	if err := c.replicationEngine.Start(ctx); err != nil && !errors.Is(err, context.Canceled) {
+		c.logger.WithError(err).Error("replication engine failed to start after FSM caught up")
 	}
 }
 
@@ -271,8 +267,12 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		return fmt.Errorf("restore database: %w", err)
 	}
 
+	engineCtx, engineCancel := context.WithCancel(ctx)
+	c.cancelReplicationEngine = engineCancel
+	c.engineDone = make(chan struct{})
 	enterrors.GoWrapper(func() {
-		c.onFSMCaughtUp(ctx)
+		defer close(c.engineDone)
+		c.onFSMCaughtUp(engineCtx)
 	}, c.logger)
 
 	if c.opCleaner != nil {
@@ -296,11 +296,11 @@ func (c *Service) Close(ctx context.Context) error {
 		c.closeOnFSMCaughtUp <- struct{}{}
 	}, c.logger)
 
-	c.logger.Info("closing replication engine ...")
 	if c.cancelReplicationEngine != nil {
+		c.logger.Info("closing replication engine ...")
 		c.cancelReplicationEngine()
+		<-c.engineDone
 	}
-	c.replicationEngine.Stop()
 
 	if c.cancelOpCleaner != nil {
 		c.cancelOpCleaner()
