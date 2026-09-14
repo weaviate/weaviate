@@ -1429,15 +1429,26 @@ func TestCanCommitBookingAndAttempt(t *testing.T) {
 		})
 	}
 
-	t.Run("refusal abort carries the attempt id to every contacted node", func(t *testing.T) {
+	t.Run("refusal abort carries the attempt id to the acked nodes only", func(t *testing.T) {
 		t.Parallel()
 		fc := newFakeCoordinator(nodeResolver)
 		ack := &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: maxBooking(false)}
-		fc.client.On("CanCommit", mock.Anything, "N1", mock.Anything).Return(ack, nil).Maybe()
-		fc.client.On("CanCommit", mock.Anything, "N2", mock.Anything).Return(&CanCommitResponse{}, nil)
-		aborts := make(chan *AbortRequest, 2)
+		n1Acked := make(chan struct{})
+		fc.client.On("CanCommit", mock.Anything, "N1", mock.Anything).
+			Run(func(mock.Arguments) { close(n1Acked) }).
+			Return(ack, nil)
+		fc.client.On("CanCommit", mock.Anything, "N2", mock.Anything).
+			Run(func(mock.Arguments) { <-n1Acked }).
+			Return(&CanCommitResponse{}, nil)
+		type abortCall struct {
+			host string
+			req  *AbortRequest
+		}
+		aborts := make(chan abortCall, 2)
 		fc.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).
-			Run(func(args mock.Arguments) { aborts <- args.Get(2).(*AbortRequest) }).
+			Run(func(args mock.Arguments) {
+				aborts <- abortCall{args.Get(1).(string), args.Get(2).(*AbortRequest)}
+			}).
 			Return(nil)
 
 		coordinator := *fc.coordinator()
@@ -1453,13 +1464,14 @@ func TestCanCommitBookingAndAttempt(t *testing.T) {
 		require.ErrorIs(t, err, errCannotCommit)
 
 		close(aborts)
-		var n int
+		var calls []abortCall
 		for abort := range aborts {
-			n++
-			assert.Equal(t, "attempt-1", abort.AttemptID)
-			assert.Equal(t, backupID, abort.ID)
+			calls = append(calls, abort)
 		}
-		assert.NotZero(t, n)
+		require.Len(t, calls, 1)
+		assert.Equal(t, "N1", calls[0].host)
+		assert.Equal(t, "attempt-1", calls[0].req.AttemptID)
+		assert.Equal(t, backupID, calls[0].req.ID)
 	})
 }
 
