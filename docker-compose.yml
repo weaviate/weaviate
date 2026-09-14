@@ -103,7 +103,6 @@ services:
       - "8012:8080"
   backup-s3:
     image: cgr.dev/chainguard/minio
-    user: root
     ports:
       - "9000:9000"
       - "9001:9001"
