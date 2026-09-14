@@ -632,7 +632,7 @@ func TestAutoTenantActivation_TransitionalStateRejected(t *testing.T) {
 			},
 		}
 
-		_, _, err := m.TenantsShardsWithVersion(ctx, className, tenantName)
+		_, _, err := m.TenantsShardsWithActivation(ctx, className, tenantName)
 
 		require.Error(t, err)
 		require.ErrorIs(t, err, clusterSchema.ErrTenantTransitionalState)

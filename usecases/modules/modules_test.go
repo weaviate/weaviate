@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tailor-platform/graphql"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -32,7 +33,6 @@ import (
 	enitiesSchema "github.com/weaviate/weaviate/entities/schema"
 	ubackup "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/config"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 func TestModulesProvider(t *testing.T) {
@@ -47,7 +47,7 @@ func TestModulesProvider(t *testing.T) {
 		schema := &models.Schema{
 			Classes: []*models.Class{class},
 		}
-		schemaGetter := getMockSchemaGetter(t)
+		schemaGetter := getMockSchemaReader(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		params := map[string]interface{}{}
@@ -76,7 +76,7 @@ func TestModulesProvider(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
-		schemaGetter := getMockSchemaGetter(t)
+		schemaGetter := getMockSchemaReader(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
@@ -92,7 +92,7 @@ func TestModulesProvider(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
-		schemaGetter := getMockSchemaGetter(t)
+		schemaGetter := getMockSchemaReader(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
@@ -119,7 +119,7 @@ func TestModulesProvider(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
-		schemaGetter := getMockSchemaGetter(t)
+		schemaGetter := getMockSchemaReader(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
@@ -154,7 +154,7 @@ func TestModulesProvider(t *testing.T) {
 		schema := &models.Schema{
 			Classes: []*models.Class{class},
 		}
-		schemaGetter := getMockSchemaGetter(t)
+		schemaGetter := getMockSchemaReader(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		params := map[string]interface{}{}
@@ -196,7 +196,7 @@ func TestModulesProvider(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
-		schemaGetter := getMockSchemaGetter(t)
+		schemaGetter := getMockSchemaReader(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
@@ -220,7 +220,7 @@ func TestModulesProvider(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
-		schemaGetter := getMockSchemaGetter(t)
+		schemaGetter := getMockSchemaReader(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
@@ -275,7 +275,7 @@ func TestModulesProvider(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
-		schemaGetter := getMockSchemaGetter(t)
+		schemaGetter := getMockSchemaReader(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
@@ -454,7 +454,7 @@ func (m *dummyAdditionalModule) AdditionalProperties() map[string]modulecapabili
 	return m.additionalProperties
 }
 
-func getMockSchemaGetter(t *testing.T) *schemaUC.MockSchemaGetter {
+func getMockSchemaReader(t *testing.T) *local.MockSchemaReader {
 	sch := enitiesSchema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
@@ -488,7 +488,7 @@ func getMockSchemaGetter(t *testing.T) *schemaUC.MockSchemaGetter {
 			},
 		},
 	}
-	return newMockSchemaGetter(t, sch)
+	return newMockSchemaReader(t, sch)
 }
 
 type dummyBackupModuleWithAltNames struct{}
@@ -554,7 +554,7 @@ func (m *dummyBackupModuleWithAltNames) Initialize(ctx context.Context, backupID
 func TestVectorFromSearchParamNoVectorizerTypedError(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	p := NewProvider(logger, config.Config{})
-	p.SetSchemaGetter(getMockSchemaGetter(t))
+	p.SetSchemaGetter(getMockSchemaReader(t))
 
 	_, err := p.VectorFromSearchParam(context.Background(),
 		"ClassOne", "", "", "nearText", nil, nil)

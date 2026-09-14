@@ -92,7 +92,7 @@ func TestProvider_UsingRef2Vec(t *testing.T) {
 			}},
 		}}
 		p := NewProvider(logger, config.Config{})
-		p.SetSchemaGetter(newMockSchemaGetter(t, sch))
+		p.SetSchemaGetter(newMockSchemaReader(t, sch))
 		p.Register(mod)
 		assert.True(t, p.UsingRef2Vec(className))
 	})
@@ -110,7 +110,7 @@ func TestProvider_UsingRef2Vec(t *testing.T) {
 			}},
 		}}
 		p := NewProvider(logger, config.Config{})
-		p.SetSchemaGetter(newMockSchemaGetter(t, sch))
+		p.SetSchemaGetter(newMockSchemaReader(t, sch))
 		p.Register(mod)
 		assert.False(t, p.UsingRef2Vec(className))
 	})
@@ -120,7 +120,7 @@ func TestProvider_UsingRef2Vec(t *testing.T) {
 		mod := newDummyModule("", "")
 
 		p := NewProvider(logger, config.Config{})
-		p.SetSchemaGetter(newMockSchemaGetter(t, schema.Schema{}))
+		p.SetSchemaGetter(newMockSchemaReader(t, schema.Schema{}))
 		p.Register(mod)
 		assert.False(t, p.UsingRef2Vec(className))
 	})
@@ -135,7 +135,7 @@ func TestProvider_UsingRef2Vec(t *testing.T) {
 			}},
 		}}
 		p := NewProvider(logger, config.Config{})
-		p.SetSchemaGetter(newMockSchemaGetter(t, sch))
+		p.SetSchemaGetter(newMockSchemaReader(t, sch))
 		p.Register(mod)
 		assert.False(t, p.UsingRef2Vec(className))
 	})
@@ -152,7 +152,7 @@ func TestProvider_UsingRef2Vec(t *testing.T) {
 			}},
 		}}
 		p := NewProvider(logger, config.Config{})
-		p.SetSchemaGetter(newMockSchemaGetter(t, sch))
+		p.SetSchemaGetter(newMockSchemaReader(t, sch))
 		assert.False(t, p.UsingRef2Vec(className))
 	})
 }
@@ -191,7 +191,7 @@ func dropVectorTestProvider(t *testing.T, class *models.Class, modName string) (
 	p := NewProvider(logger, config.Config{})
 	p.Register(newDummyModule(modName, modulecapabilities.Text2Vec))
 	sch := schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
-	p.SetSchemaGetter(newMockSchemaGetter(t, sch))
+	p.SetSchemaGetter(newMockSchemaReader(t, sch))
 	return p, logger
 }
 
@@ -267,7 +267,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 
 		p := NewProvider(logger, config.Config{})
 		p.Register(mod)
-		p.SetSchemaGetter(newMockSchemaGetter(t, sch))
+		p.SetSchemaGetter(newMockSchemaReader(t, sch))
 
 		obj := &models.Object{Class: className, ID: newUUID()}
 		err := p.UpdateVector(ctx, obj, &class, repo.Object, logger)
@@ -286,7 +286,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 
 		p := NewProvider(logger, config.Config{})
 		p.Register(mod)
-		p.SetSchemaGetter(newMockSchemaGetter(t, schema.Schema{}))
+		p.SetSchemaGetter(newMockSchemaReader(t, schema.Schema{}))
 
 		obj := &models.Object{Class: class.Class, ID: newUUID()}
 		err := p.UpdateVector(ctx, obj, class, (&fakeObjectsRepo{}).Object, logger)
@@ -355,7 +355,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 				logger, _ := test.NewNullLogger()
 
 				p := NewProvider(logger, config.Config{})
-				p.SetSchemaGetter(newMockSchemaGetter(t, sch))
+				p.SetSchemaGetter(newMockSchemaReader(t, sch))
 
 				tt.object.ID = newUUID()
 				err := p.UpdateVector(ctx, tt.object, class, (&fakeObjectsRepo{}).Object, logger)
@@ -400,7 +400,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 
 		p := NewProvider(logger, config.Config{})
 		p.Register(mod)
-		p.SetSchemaGetter(newMockSchemaGetter(t, sch))
+		p.SetSchemaGetter(newMockSchemaReader(t, sch))
 
 		obj := &models.Object{Class: className, ID: newUUID()}
 		err := p.UpdateVector(ctx, obj, class, repo.Object, logger)
@@ -428,7 +428,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 
 		p := NewProvider(logger, config.Config{})
 		p.Register(mod)
-		p.SetSchemaGetter(newMockSchemaGetter(t, sch))
+		p.SetSchemaGetter(newMockSchemaReader(t, sch))
 
 		obj := &models.Object{Class: className, ID: newUUID()}
 
@@ -463,7 +463,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 
 		p := NewProvider(logger, config.Config{})
 		p.Register(mod)
-		p.SetSchemaGetter(newMockSchemaGetter(t, sch))
+		p.SetSchemaGetter(newMockSchemaReader(t, sch))
 
 		obj := &models.Object{Class: className, ID: newUUID()}
 		err := p.UpdateVector(ctx, obj, &class, repo.Object, logger)

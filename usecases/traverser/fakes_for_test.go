@@ -21,6 +21,7 @@ import (
 	"github.com/tailor-platform/graphql"
 	"github.com/tailor-platform/graphql/language/ast"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -202,6 +203,7 @@ func (f *fakeExplorer) CrossClassVectorSearch(ctx context.Context, p ExplorePara
 }
 
 type fakeSchemaGetter struct {
+	local.SchemaReader
 	schema schema.Schema
 }
 
@@ -234,57 +236,8 @@ func (f *fakeSchemaGetter) ReadOnlyClass(className string) *models.Class {
 	return f.schema.GetClass(className)
 }
 
-func (f *fakeSchemaGetter) ShardOwner(class, shard string) (string, error) {
-	return shard, nil
-}
-
-func (f *fakeSchemaGetter) ShardReplicas(class, shard string) ([]string, error) {
-	return []string{shard}, nil
-}
-
-func (f *fakeSchemaGetter) TenantsShards(_ context.Context, class string, tenants ...string) (map[string]string, error) {
-	res := map[string]string{}
-	for _, t := range tenants {
-		res[t] = models.TenantActivityStatusHOT
-	}
-	return res, nil
-}
-
-func (f *fakeSchemaGetter) OptimisticTenantStatus(_ context.Context, class string, tenant string, _ bool) (map[string]string, error) {
-	res := map[string]string{}
-	res[tenant] = models.TenantActivityStatusHOT
-	return res, nil
-}
-
-func (f *fakeSchemaGetter) ShardFromUUID(class string, uuid []byte) string { return string(uuid) }
-
-func (f *fakeSchemaGetter) Nodes() []string {
-	panic("not implemented")
-}
-
-func (f *fakeSchemaGetter) NodeName() string {
-	panic("not implemented")
-}
-
-func (f *fakeSchemaGetter) ClusterHealthScore() int {
-	panic("not implemented")
-}
-
-func (f *fakeSchemaGetter) ResolveParentNodes(string, string,
-) (map[string]string, error) {
-	panic("not implemented")
-}
-
-func (f *fakeSchemaGetter) Statistics() map[string]any {
-	panic("not implemented")
-}
-
 func (f *fakeSchemaGetter) ResolveAlias(string) string {
 	return ""
-}
-
-func (f *fakeSchemaGetter) GetAliasesForClass(string) []*models.Alias {
-	return nil
 }
 
 type fakeInterpretation struct{}

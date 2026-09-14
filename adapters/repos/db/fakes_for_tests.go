@@ -23,6 +23,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -41,6 +42,7 @@ import (
 )
 
 type fakeSchemaGetter struct {
+	local.ClassReader
 	nodeName   string
 	schema     schema.Schema
 	shardState *sharding.State

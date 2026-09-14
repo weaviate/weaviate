@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/filterext"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -32,7 +33,6 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/objects"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
@@ -57,7 +57,7 @@ func (f classificationFilters) TrainingSet() *libfilters.LocalFilter {
 type distancer func(a, b []float32) (float32, error)
 
 type Classifier struct {
-	schemaGetter          schemaUC.SchemaGetter
+	schemaGetter          local.ClassReader
 	repo                  Repo
 	vectorRepo            vectorRepo
 	vectorClassSearchRepo modulecapabilities.VectorClassSearchRepo
@@ -74,7 +74,7 @@ type ModulesProvider interface {
 		params modulecapabilities.ClassifyParams) (modulecapabilities.ClassifyItemFn, error)
 }
 
-func New(sg schemaUC.SchemaGetter, cr Repo, vr vectorRepo, authorizer authorization.Authorizer,
+func New(sg local.ClassReader, cr Repo, vr vectorRepo, authorizer authorization.Authorizer,
 	logger logrus.FieldLogger, modulesProvider ModulesProvider,
 ) *Classifier {
 	return &Classifier{
