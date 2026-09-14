@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
@@ -1181,13 +1182,212 @@ func TestSchedulerList(t *testing.T) {
 	})
 
 	t.Run("EmptyList", func(t *testing.T) {
+		authorizer := mocks.NewMockAuthorizer()
 		fs := newFakeScheduler(nil)
+		fs.auth = authorizer
 		fs.backend.On("AllBackups", mock.Anything).Return([]*backup.DistributedBackupDescriptor{}, nil)
 
 		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
 		assert.Nil(t, err)
 		assert.NotNil(t, resp)
 		assert.Len(t, *resp, 0)
+		assert.Empty(t, authorizer.Calls(),
+			"an empty listing must not reach the authorizer: rbac rejects a filter carrying zero resources")
+	})
+
+	t.Run("AuthorizesTheWholeListingAtOnceForABlanketReader", func(t *testing.T) {
+		authorizer := mocks.NewMockAuthorizer()
+		fs := newFakeScheduler(nil)
+		fs.auth = authorizer
+		fs.backend.On("AllBackups", mock.Anything).Return([]*backup.DistributedBackupDescriptor{
+			{
+				ID:     backupID1,
+				Status: backup.Success,
+				Nodes:  map[string]*backup.NodeDescriptor{"node1": {Classes: []string{cls1, cls2}}},
+			},
+			{
+				ID:     backupID2,
+				Status: backup.Success,
+				Nodes:  map[string]*backup.NodeDescriptor{"node1": {Classes: []string{cls1, cls2}}},
+			},
+		}, nil)
+
+		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
+		require.NoError(t, err)
+		require.Len(t, *resp, 2)
+
+		calls := authorizer.Calls()
+		require.Len(t, calls, 2, "blanket backup READ covers the listing, so no collection is authorized on its own")
+		for _, call := range calls {
+			assert.Equal(t, authorization.READ, call.Verb)
+			assert.Equal(t, authorization.Backups(), call.Resources)
+		}
+		assert.True(t, calls[0].Silent, "the probe must not log a denial for callers who hold no blanket READ")
+		assert.False(t, calls[1].Silent,
+			"nothing else authorizes this endpoint, so the grant must reach the audit log")
+	})
+
+	t.Run("AuthorizesEachCollectionOnceForTheWholeListing", func(t *testing.T) {
+		authorizer := mocks.NewMockAuthorizer()
+		authorizer.Deny(authorization.Backups()...)
+		fs := newFakeScheduler(nil)
+		fs.auth = authorizer
+		backups := []*backup.DistributedBackupDescriptor{
+			{
+				ID:     backupID1,
+				Status: backup.Success,
+				Nodes:  map[string]*backup.NodeDescriptor{"node1": {Classes: []string{cls1, cls2}}},
+			},
+			{
+				ID:     backupID2,
+				Status: backup.Success,
+				Nodes:  map[string]*backup.NodeDescriptor{"node1": {Classes: []string{cls1, cls2}}},
+			},
+		}
+		fs.backend.On("AllBackups", mock.Anything).Return(backups, nil)
+
+		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
+		require.NoError(t, err)
+		require.Len(t, *resp, 2)
+
+		calls := authorizer.Calls()
+		require.Len(t, calls, 2, "the blanket probe, then one call covering the collections both backups name")
+		assert.Equal(t, authorization.Backups(), calls[0].Resources)
+		assert.Equal(t, authorization.READ, calls[1].Verb)
+		assert.ElementsMatch(t, authorization.Backups(cls1, cls2), calls[1].Resources)
+	})
+
+	t.Run("AuthorizesEachCollectionOnceForADeniedCaller", func(t *testing.T) {
+		authorizer := mocks.NewMockAuthorizer()
+		authorizer.Deny(append(authorization.Backups(cls1, cls2), authorization.Backups()...)...)
+		fs := newFakeScheduler(nil)
+		fs.auth = authorizer
+		backups := []*backup.DistributedBackupDescriptor{
+			{
+				ID:     backupID1,
+				Status: backup.Success,
+				Nodes:  map[string]*backup.NodeDescriptor{"node1": {Classes: []string{cls1, cls2}}},
+			},
+			{
+				ID:     backupID2,
+				Status: backup.Success,
+				Nodes:  map[string]*backup.NodeDescriptor{"node1": {Classes: []string{cls1, cls2}}},
+			},
+		}
+		fs.backend.On("AllBackups", mock.Anything).Return(backups, nil)
+
+		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
+		require.NoError(t, err)
+		require.Len(t, *resp, 0)
+		require.Len(t, authorizer.Calls(), 2, "a caller who may read nothing still costs the blanket probe and one filter")
+	})
+
+	t.Run("FiltersByReadPermission", func(t *testing.T) {
+		var (
+			withoutClasses = "backup-without-classes"
+			withOneClass   = "backup-with-one-class"
+			withTwoClasses = "backup-with-two-classes"
+			timestamp      = time.Now()
+		)
+		tests := []struct {
+			name    string
+			denied  []string
+			wantIDs []string
+		}{
+			{
+				name:    "nothing denied lists every backup",
+				wantIDs: []string{withTwoClasses, withOneClass, withoutClasses},
+			},
+			{
+				// A caller denied cls2 holds no blanket READ either, so deny
+				// both. The wildcard authorizes the backup naming no collection.
+				name:    "one denied collection hides every backup naming it",
+				denied:  append(authorization.Backups(cls2), authorization.Backups()...),
+				wantIDs: []string{withOneClass},
+			},
+			{
+				name:    "denying only the wildcard hides the backup naming no collection",
+				denied:  authorization.Backups(),
+				wantIDs: []string{withTwoClasses, withOneClass},
+			},
+			{
+				name:    "denying everything lists nothing",
+				denied:  append(authorization.Backups(cls1, cls2), authorization.Backups()...),
+				wantIDs: []string{},
+			},
+		}
+
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				authorizer := mocks.NewMockAuthorizer()
+				authorizer.Deny(test.denied...)
+				fs := newFakeScheduler(nil)
+				fs.auth = authorizer
+				backups := []*backup.DistributedBackupDescriptor{
+					{
+						ID:        withoutClasses,
+						Status:    backup.Success,
+						StartedAt: timestamp.Add(-3 * time.Minute),
+					},
+					{
+						ID:        withOneClass,
+						Status:    backup.Success,
+						StartedAt: timestamp.Add(-2 * time.Minute),
+						Nodes:     map[string]*backup.NodeDescriptor{"node1": {Classes: []string{cls1}}},
+					},
+					{
+						ID:        withTwoClasses,
+						Status:    backup.Success,
+						StartedAt: timestamp.Add(-1 * time.Minute),
+						Nodes:     map[string]*backup.NodeDescriptor{"node1": {Classes: []string{cls1, cls2}}},
+					},
+				}
+				fs.backend.On("AllBackups", mock.Anything).Return(backups, nil)
+
+				resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
+				require.NoError(t, err)
+				gotIDs := make([]string, 0, len(*resp))
+				for _, item := range *resp {
+					gotIDs = append(gotIDs, item.ID)
+				}
+				assert.Equal(t, test.wantIDs, gotIDs)
+			})
+		}
+	})
+
+	t.Run("ForbiddenFilterListsNothing", func(t *testing.T) {
+		authorizer := mocks.NewMockAuthorizer()
+		authorizer.SetErr(authzerrors.NewForbidden(&models.Principal{}, authorization.READ, authorization.Backups(cls1)...))
+		fs := newFakeScheduler(nil)
+		fs.auth = authorizer
+		fs.backend.On("AllBackups", mock.Anything).Return([]*backup.DistributedBackupDescriptor{
+			{
+				ID:     backupID1,
+				Status: backup.Success,
+				Nodes:  map[string]*backup.NodeDescriptor{"node1": {Classes: []string{cls1}}},
+			},
+		}, nil)
+
+		resp, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
+		require.NoError(t, err)
+		assert.Len(t, *resp, 0)
+	})
+
+	t.Run("AuthorizerErrorFailsTheListing", func(t *testing.T) {
+		authorizer := mocks.NewMockAuthorizer()
+		authorizer.SetErr(ErrAny)
+		fs := newFakeScheduler(nil)
+		fs.auth = authorizer
+		fs.backend.On("AllBackups", mock.Anything).Return([]*backup.DistributedBackupDescriptor{
+			{
+				ID:     backupID1,
+				Status: backup.Success,
+				Nodes:  map[string]*backup.NodeDescriptor{"node1": {Classes: []string{cls1}}},
+			},
+		}, nil)
+
+		_, err := fs.scheduler().List(ctx, nil, backendName, defaultListOrdering, false)
+		require.ErrorIs(t, err, ErrAny)
 	})
 
 	t.Run("SortedList", func(t *testing.T) {
@@ -1266,6 +1466,72 @@ func TestSchedulerList(t *testing.T) {
 			}
 		})
 	})
+}
+
+func TestSchedulerLogsOperationDuration(t *testing.T) {
+	t.Parallel()
+	const (
+		backendName = "s3"
+		backupID    = "backup-1"
+		delay       = 50 * time.Millisecond
+	)
+	ctx := context.Background()
+
+	tests := []struct {
+		name   string
+		action string
+		// slowCall is the backend method the scheduler waits on, delayed so the
+		// logged duration has something to cover.
+		slowCall func(fs *fakeScheduler)
+		invoke   func(s *Scheduler) error
+	}{
+		{
+			name:   "list",
+			action: "list_backup",
+			slowCall: func(fs *fakeScheduler) {
+				fs.backend.On("AllBackups", mock.Anything).
+					Return([]*backup.DistributedBackupDescriptor{}, nil).
+					Run(func(mock.Arguments) { time.Sleep(delay) })
+			},
+			invoke: func(s *Scheduler) error {
+				_, err := s.List(ctx, nil, backendName, func(o string) *string { return &o }("desc"), false)
+				return err
+			},
+		},
+		{
+			name:   "restoration status",
+			action: "restoration_status",
+			slowCall: func(fs *fakeScheduler) {
+				fs.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Return(nil, ErrAny).
+					Run(func(mock.Arguments) { time.Sleep(delay) })
+			},
+			invoke: func(s *Scheduler) error {
+				_, err := s.RestorationStatus(ctx, nil, backendName, backupID, "", "")
+				return err
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := test.NewNullLogger()
+			fs := newFakeScheduler(nil)
+			fs.log = logger
+			tc.slowCall(fs)
+
+			tc.invoke(fs.scheduler())
+
+			var took time.Duration
+			for _, entry := range hook.AllEntries() {
+				if entry.Data["action"] == tc.action {
+					took, _ = entry.Data["took"].(time.Duration)
+				}
+			}
+			require.GreaterOrEqual(t, took, delay,
+				"took must measure the whole operation, not the instant it finished")
+		})
+	}
 }
 
 type fakeScheduler struct {
