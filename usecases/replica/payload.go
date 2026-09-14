@@ -33,6 +33,9 @@ const CompareDigestsFlagDeleted byte = 0x01
 // diffBatchSize × CompareDigestsRecordLength; tests guard the headroom.
 const CompareDigestsMaxBodyBytes = 4 * 1024 * 1024
 
+// AsyncCheckpointMaxBodyBytes caps async-checkpoint create/delete REST bodies; chunks fit by construction (tested).
+const AsyncCheckpointMaxBodyBytes = 64 * 1024
+
 // Digest payload encodings negotiated on the gRPC HashTreeLevel RPC. Zero is
 // JSON so payloads from/to older nodes (which never set the field) keep
 // decoding as before; binary is only used when explicitly requested.
