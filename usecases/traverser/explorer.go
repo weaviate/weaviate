@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 
@@ -40,7 +41,6 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
-	uc "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/traverser/grouper"
 )
 
@@ -53,7 +53,7 @@ type Explorer struct {
 	searcher          objectsSearcher
 	logger            logrus.FieldLogger
 	modulesProvider   ModulesProvider
-	schemaGetter      uc.SchemaGetter
+	schemaGetter      local.ClassReader
 	nearParamsVector  *nearParamsVector
 	targetParamHelper *TargetVectorParamHelper
 	metrics           explorerMetrics
@@ -127,7 +127,7 @@ func NewExplorer(searcher objectsSearcher, logger logrus.FieldLogger, modulesPro
 	}
 }
 
-func (e *Explorer) SetSchemaGetter(sg uc.SchemaGetter) {
+func (e *Explorer) SetSchemaGetter(sg local.ClassReader) {
 	e.schemaGetter = sg
 }
 
