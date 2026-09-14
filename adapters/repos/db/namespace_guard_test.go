@@ -86,7 +86,7 @@ func newIndexForNamespaceTest(t *testing.T, className string, e namespaces.Exist
 		InvertedIndexConfig: &models.InvertedIndexConfig{},
 	}
 
-	sg := schemaUC.NewMockSchemaGetter(t)
+	sg := schemaUC.NewMockSchema(t)
 	sg.On("ReadOnlyClass", className).Return(class).Maybe()
 
 	ss := &sharding.State{Physical: map[string]sharding.Physical{}}
@@ -111,7 +111,7 @@ func newIndexForNamespaceTest(t *testing.T, className string, e namespaces.Exist
 		resolver.NewShardResolver(className, false, sg),
 		sg, reader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler,
 		memwatch.NewDummyMonitor(),
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 	if err != nil {
 		return nil, err
 	}
@@ -1825,7 +1825,7 @@ func TestEmptyTenantStatusBootVsReload(t *testing.T) {
 		shard.EXPECT().Shutdown(mock.Anything).Return(nil)
 		idx.shards.Store("empty1", shard)
 
-		sg := schemaUC.NewMockSchemaGetter(t)
+		sg := schemaUC.NewMockSchema(t)
 		m := &Migrator{db: &DB{localNodeName: "node1", schemaGetter: sg}}
 
 		incoming := &sharding.State{Physical: map[string]sharding.Physical{"empty1": localPhysical("empty1")}}
@@ -2025,7 +2025,7 @@ func dbForReopen(t *testing.T, className string, e namespaces.Exister) (*DB, *In
 	t.Helper()
 
 	idx := indexForGuardTest(t, className, e)
-	sg := schemaUC.NewMockSchemaGetter(t)
+	sg := schemaUC.NewMockSchema(t)
 	sg.EXPECT().ReadOnlyClass(className).Return(&models.Class{Class: className}).Maybe()
 	idx.getSchema = sg
 

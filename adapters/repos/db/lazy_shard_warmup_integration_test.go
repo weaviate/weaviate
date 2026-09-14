@@ -90,11 +90,11 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 		}).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 
-	mockSchema := schemaUC.NewMockSchemaGetter(t)
+	mockSchema := schemaUC.NewMockSchema(t)
 	mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 	mockSchema.EXPECT().ReadOnlyClass(warmupClassName).Maybe().Return(class)
-	mockSchema.EXPECT().TenantsShardsStatus(mock.Anything, warmupClassName, mock.Anything).Maybe().
-		Return(tenantStatus, nil)
+	mockSchema.EXPECT().TenantsShardsStatusWithActivation(mock.Anything, warmupClassName, mock.Anything).Maybe().
+		Return(tenantStatus, uint64(0), nil)
 
 	mockRouter := types.NewMockRouter(t)
 	mockRouter.EXPECT().GetWriteReplicasLocation(warmupClassName, mock.Anything, mock.Anything).
@@ -126,7 +126,7 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 		mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{},
 		monitoring.GetMetrics(),
 		class, nil, scheduler, allocChecker,
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 	require.NoError(t, err)
 
 	return index, hook

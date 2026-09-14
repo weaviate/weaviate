@@ -21,6 +21,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/schema/leader"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 
@@ -39,25 +41,23 @@ import (
 )
 
 type Index struct {
-	class        string
-	stateGetter  shardingStateGetter
+	class string
+	// leader resolves the owner of the shard a single-shard request is routed to.
+	leader leader.ShardReader
+	// local resolves the replicas a search fans out to.
+	local        local.ShardReader
 	client       IndexClient
 	nodeResolver cluster.HostnameResolver
 }
 
-type shardingStateGetter interface {
-	// ShardOwner returns id of owner node
-	ShardOwner(class, shard string) (string, error)
-	ShardReplicas(class, shard string) ([]string, error)
-}
-
 func NewIndex(className string,
-	stateGetter shardingStateGetter, nodeResolver cluster.HostnameResolver,
-	client IndexClient,
+	leaderReader leader.ShardReader, localReader local.ShardReader,
+	nodeResolver cluster.HostnameResolver, client IndexClient,
 ) *Index {
 	return &Index{
 		class:        className,
-		stateGetter:  stateGetter,
+		leader:       leaderReader,
+		local:        localReader,
 		client:       client,
 		nodeResolver: nodeResolver,
 	}
@@ -110,7 +110,7 @@ type IndexClient interface {
 func (ri *Index) PutObject(ctx context.Context, shardName string,
 	obj *storobj.Object, schemaVersion uint64,
 ) error {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, _, err := ri.leader.ShardOwnerFromLeader(ri.class, shardName)
 	if err != nil {
 		return fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
@@ -136,7 +136,7 @@ func duplicateErr(in error, count int) []error {
 func (ri *Index) BatchPutObjects(ctx context.Context, shardName string,
 	objs []*storobj.Object, schemaVersion uint64,
 ) []error {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, _, err := ri.leader.ShardOwnerFromLeader(ri.class, shardName)
 	if err != nil {
 		return duplicateErr(fmt.Errorf("class %s has no physical shard %q: %w",
 			ri.class, shardName, err), len(objs))
@@ -154,7 +154,7 @@ func (ri *Index) BatchPutObjects(ctx context.Context, shardName string,
 func (ri *Index) BatchAddReferences(ctx context.Context, shardName string,
 	refs objects.BatchReferences, schemaVersion uint64,
 ) []error {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, _, err := ri.leader.ShardOwnerFromLeader(ri.class, shardName)
 	if err != nil {
 		return duplicateErr(fmt.Errorf("class %s has no physical shard %q: %w",
 			ri.class, shardName, err), len(refs))
@@ -172,7 +172,7 @@ func (ri *Index) BatchAddReferences(ctx context.Context, shardName string,
 func (ri *Index) Exists(ctx context.Context, shardName string,
 	id strfmt.UUID,
 ) (bool, error) {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, _, err := ri.leader.ShardOwnerFromLeader(ri.class, shardName)
 	if err != nil {
 		return false, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
@@ -188,7 +188,7 @@ func (ri *Index) Exists(ctx context.Context, shardName string,
 func (ri *Index) DeleteObject(ctx context.Context, shardName string,
 	id strfmt.UUID, deletionTime time.Time, schemaVersion uint64,
 ) error {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, _, err := ri.leader.ShardOwnerFromLeader(ri.class, shardName)
 	if err != nil {
 		return fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
@@ -204,7 +204,7 @@ func (ri *Index) DeleteObject(ctx context.Context, shardName string,
 func (ri *Index) MergeObject(ctx context.Context, shardName string,
 	mergeDoc objects.MergeDocument, schemaVersion uint64,
 ) error {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, _, err := ri.leader.ShardOwnerFromLeader(ri.class, shardName)
 	if err != nil {
 		return fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
@@ -221,7 +221,7 @@ func (ri *Index) GetObject(ctx context.Context, shardName string,
 	id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties,
 ) (*storobj.Object, error) {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, _, err := ri.leader.ShardOwnerFromLeader(ri.class, shardName)
 	if err != nil {
 		return nil, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
@@ -237,7 +237,7 @@ func (ri *Index) GetObject(ctx context.Context, shardName string,
 func (ri *Index) MultiGetObjects(ctx context.Context, shardName string,
 	ids []strfmt.UUID,
 ) ([]*storobj.Object, error) {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, _, err := ri.leader.ShardOwnerFromLeader(ri.class, shardName)
 	if err != nil {
 		return nil, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
@@ -344,7 +344,7 @@ func (ri *Index) Aggregate(
 func (ri *Index) FindUUIDs(ctx context.Context, shardName string,
 	filters *filters.LocalFilter, limit int,
 ) ([]strfmt.UUID, error) {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, _, err := ri.leader.ShardOwnerFromLeader(ri.class, shardName)
 	if err != nil {
 		return nil, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
@@ -360,7 +360,7 @@ func (ri *Index) FindUUIDs(ctx context.Context, shardName string,
 func (ri *Index) DeleteObjectBatch(ctx context.Context, shardName string,
 	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
 ) objects.BatchSimpleObjects {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, _, err := ri.leader.ShardOwnerFromLeader(ri.class, shardName)
 	if err != nil {
 		err := fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
@@ -376,7 +376,7 @@ func (ri *Index) DeleteObjectBatch(ctx context.Context, shardName string,
 }
 
 func (ri *Index) GetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, _, err := ri.leader.ShardOwnerFromLeader(ri.class, shardName)
 	if err != nil {
 		return 0, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
@@ -399,7 +399,7 @@ func (ri *Index) GetShardStatus(ctx context.Context, shardName, nodeName string)
 }
 
 func (ri *Index) UpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
-	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
+	owner, _, err := ri.leader.ShardOwnerFromLeader(ri.class, shardName)
 	if err != nil {
 		return fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
@@ -419,7 +419,7 @@ func (ri *Index) queryAllReplicas(
 	do func(nodeName, host string) (ReplicasSearchResult, error),
 	localNode string,
 ) (resp []ReplicasSearchResult, err error) {
-	replicas, err := ri.stateGetter.ShardReplicas(ri.class, shard)
+	replicas, err := ri.local.ShardReplicas(ri.class, shard)
 	if err != nil || len(replicas) == 0 {
 		return nil, fmt.Errorf("class %q has no physical shard %q: %w", ri.class, shard, err)
 	}
@@ -494,7 +494,7 @@ func (ri *Index) queryReplicas(
 	shard string,
 	do func(nodeName, host string) (interface{}, error),
 ) (resp interface{}, node string, err error) {
-	replicas, err := ri.stateGetter.ShardReplicas(ri.class, shard)
+	replicas, err := ri.local.ShardReplicas(ri.class, shard)
 	if err != nil || len(replicas) == 0 {
 		return nil,
 			"",

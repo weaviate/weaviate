@@ -43,7 +43,7 @@ packages:
       VectorIndexConfig:
   github.com/weaviate/weaviate/usecases/schema:
     interfaces:
-      SchemaGetter:
+      Schema:
   github.com/weaviate/weaviate/usecases/auth/authorization:
     interfaces:
       Controller:

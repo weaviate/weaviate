@@ -19,6 +19,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/autocut"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -26,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
-	uc "github.com/weaviate/weaviate/usecases/schema"
 )
 
 type Params struct {
@@ -74,7 +74,7 @@ type targetVectorParamHelper interface {
 // Search executes sparse and dense searches and combines the result sets using Reciprocal Rank Fusion.
 // The two sets are unioned, never intersected, and alpha can skip either one, so each search func must
 // apply the query's filter itself.
-func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc, denseSearch denseSearchFunc, postProc postProcFunc, modules modulesProvider, schemaGetter uc.SchemaGetter, targetVectorParamHelper targetVectorParamHelper) ([]search.Result, error) {
+func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, sparseSearch sparseSearchFunc, denseSearch denseSearchFunc, postProc postProcFunc, modules modulesProvider, schemaGetter local.ClassReader, targetVectorParamHelper targetVectorParamHelper) ([]search.Result, error) {
 	var (
 		found   [][]*search.Result
 		weights []float64
@@ -222,7 +222,7 @@ func processSparseSearch(results []*storobj.Object, scores []float32, err error)
 
 func processDenseSearch(ctx context.Context,
 	denseSearch denseSearchFunc, params *Params, modules modulesProvider,
-	schemaGetter uc.SchemaGetter, targetVectorParamHelper targetVectorParamHelper,
+	schemaGetter local.ClassReader, targetVectorParamHelper targetVectorParamHelper,
 ) ([]*search.Result, error) {
 	query := params.Query
 	vector := params.Vector
@@ -257,7 +257,7 @@ func processDenseSearch(ctx context.Context,
 
 func decideSearchVector(ctx context.Context,
 	class, query string, targetVectors []string, vector models.Vector, modules modulesProvider,
-	schemaGetter uc.SchemaGetter, targetVectorParamHelper targetVectorParamHelper,
+	schemaGetter local.ClassReader, targetVectorParamHelper targetVectorParamHelper,
 ) (models.Vector, error) {
 	isVectorEmpty, err := dto.IsVectorEmpty(vector)
 	if err != nil {

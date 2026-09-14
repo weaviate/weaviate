@@ -72,7 +72,7 @@ func (v *singleTenantValidator) ValidateTenants(ctx context.Context, tenants ...
 // operations on cold or frozen tenant data.
 type multiTenantValidator struct {
 	className string
-	schema    schema.SchemaGetter
+	schema    schema.Schema
 }
 
 // newMultiTenantValidator creates a validator for multi-tenant collections.
@@ -83,7 +83,7 @@ type multiTenantValidator struct {
 //   - schemaReader: provides access to schema and tenant status information
 //
 // Returns a configured multiTenantValidator.
-func newMultiTenantValidator(className string, schemaGetter schema.SchemaGetter) *multiTenantValidator {
+func newMultiTenantValidator(className string, schemaGetter schema.Schema) *multiTenantValidator {
 	return &multiTenantValidator{
 		className: className,
 		schema:    schemaGetter,
@@ -121,7 +121,7 @@ func (v *multiTenantValidator) ValidateTenants(ctx context.Context, tenants ...s
 
 	tenants = deduplicateTenants(tenants)
 
-	statusMap, err := v.schema.TenantsShardsStatus(ctx, v.className, tenants...)
+	statusMap, _, err := v.schema.TenantsShardsStatusWithActivation(ctx, v.className, tenants...)
 	if err != nil {
 		return fmt.Errorf("fetch tenant status for class %q: %w", v.className, err)
 	}
@@ -218,7 +218,7 @@ func (v *TenantValidator) ValidateTenants(ctx context.Context, tenants ...string
 //   - schemaReader: provides access to schema operations for tenant validation
 //
 // Returns a configured TenantValidator that uses the appropriate validation strategy.
-func NewTenantValidator(className string, multiTenancyEnabled bool, schemaGetter schema.SchemaGetter) *TenantValidator {
+func NewTenantValidator(className string, multiTenancyEnabled bool, schemaGetter schema.Schema) *TenantValidator {
 	if multiTenancyEnabled {
 		validator := newMultiTenantValidator(className, schemaGetter)
 		return &TenantValidator{

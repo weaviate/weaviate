@@ -200,7 +200,7 @@ type vectorRepo interface {
 	objects.BatchVectorRepo
 	traverser.VectorSearcher
 	classification.VectorRepo
-	SetSchemaGetter(schema.SchemaGetter)
+	SetSchemaGetter(schema.Schema)
 	WaitForStartup(ctx context.Context) error
 	Shutdown(ctx context.Context) error
 }
@@ -791,7 +791,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	repo.SetSchemaReader(appState.ClusterService.SchemaReader())
 	repo.SetReplicationFSM(appState.ClusterService.ReplicationFsm())
 	repo.SetSchemaGetter(appState.SchemaManager)
-	repo.SetTenantsActivityManager(appState.SchemaManager)
 	repo.SetRaftMembership(appState.ClusterService.Raft)
 
 	// initialize needed services after all components are ready

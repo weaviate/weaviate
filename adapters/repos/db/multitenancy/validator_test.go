@@ -25,11 +25,16 @@ import (
 )
 
 type fakeSchemaReader struct {
-	schemaUC.SchemaGetter
+	schemaUC.Schema
 
 	tenantShards    map[string]string
 	tenantsShardErr error
 	classExists     bool
+}
+
+func (f *fakeSchemaReader) TenantsShardsStatusWithActivation(ctx context.Context, class string, tenants ...string) (map[string]string, uint64, error) {
+	res, err := f.TenantsShardsStatus(ctx, class, tenants...)
+	return res, 0, err
 }
 
 // TenantsShardsStatus returns tenant status for requested tenants or the configured error.

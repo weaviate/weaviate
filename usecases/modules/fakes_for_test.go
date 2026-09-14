@@ -181,7 +181,7 @@ func (m dummyNonVectorizerModule) Type() modulecapabilities.ModuleType {
 	return non
 }
 
-// newMockSchemaGetter returns a generated SchemaGetter mock that serves
+// newMockSchemaReader returns a generated local schema reader mock that serves
 // ReadOnlyClass from sch. The expectation is optional so setups that never
 // look up a class don't fail the mock's cleanup assertion.
 func newMockSchemaReader(t *testing.T, sch schema.Schema) *local.MockSchemaReader {

@@ -41,7 +41,7 @@ import (
 // call's release deletes the other's dir mid-hardlink. With the lock,
 // callers serialize and all return a consistent file list.
 func TestIncomingCreateReplicaSnapshotConcurrent(t *testing.T) {
-	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
+	mockSchemaGetter := schemaUC.NewMockSchema(t)
 
 	class := &models.Class{
 		Class:               "TestClass",
@@ -81,7 +81,7 @@ func TestIncomingCreateReplicaSnapshotConcurrent(t *testing.T) {
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader,
 		nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 	require.NoError(t, err)
 	shutdownIndexOnCleanup(t, index)
 	index.db = stubDBWithNoLiveReindex()

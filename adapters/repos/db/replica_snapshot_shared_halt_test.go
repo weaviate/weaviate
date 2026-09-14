@@ -232,7 +232,7 @@ func putSharedHaltObject(t *testing.T, index *Index, id strfmt.UUID, docID uint6
 func newSharedHaltTestShard(t *testing.T) (*Index, *Shard) {
 	t.Helper()
 
-	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
+	mockSchemaGetter := schemaUC.NewMockSchema(t)
 
 	class := &models.Class{
 		Class:               "TestClass",
@@ -272,7 +272,7 @@ func newSharedHaltTestShard(t *testing.T) (*Index, *Shard) {
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader,
 		nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 	require.NoError(t, err)
 	shutdownIndexOnCleanup(t, index)
 	index.db = stubDBWithNoLiveReindex()
