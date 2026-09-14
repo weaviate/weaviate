@@ -26,11 +26,12 @@ import (
 	uco "github.com/weaviate/weaviate/usecases/objects"
 )
 
-// TestObjectHandlers_UnprocessableEntityArms asserts each endpoint whose manager
-// now answers StatusUnprocessableEntity writes 422 to the wire. All six, because
-// an endpoint whose switch has no 422 arm falls to default and answers 500.
+// TestObjectHandlers_UnprocessableEntityArms asserts each object endpoint writes
+// 422 to the wire for the error its manager answers 422 with. An endpoint whose
+// switch has no arm for that error falls to default and answers 500.
 func TestObjectHandlers_UnprocessableEntityArms(t *testing.T) {
 	refused := &uco.Error{Code: uco.StatusUnprocessableEntity, Msg: "namespace is suspended"}
+	invalidClass := uco.NewErrInvalidUserInput("'Foo:Bar' is not a valid class name")
 
 	newHandlers := func(m *fakeManager) *objectHandlers {
 		return &objectHandlers{
@@ -105,6 +106,59 @@ func TestObjectHandlers_UnprocessableEntityArms(t *testing.T) {
 					HTTPRequest: httptest.NewRequest("DELETE", "/v1/objects/alpha:Movies/123/references/related", nil),
 					ClassName:   "alpha:Movies", ID: "123", PropertyName: "related",
 					Body: &models.SingleRef{Beacon: "weaviate://localhost/Animal/123"},
+				}, nil)
+			},
+		},
+		// These five managers answer a class name the prefix check refuses, such as
+		// Foo:Bar without namespaces, with ErrInvalidUserInput rather than an *Error.
+		{
+			name: "POST /v1/objects",
+			call: func() middleware.Responder {
+				h := newHandlers(&fakeManager{addObjectErr: invalidClass})
+				return h.addObject(objects.ObjectsCreateParams{
+					HTTPRequest: httptest.NewRequest("POST", "/v1/objects", nil),
+					Body:        &models.Object{Class: "Foo:Bar"},
+				}, nil)
+			},
+		},
+		{
+			name: "POST /v1/objects/validate",
+			call: func() middleware.Responder {
+				h := newHandlers(&fakeManager{validateObjectErr: invalidClass})
+				return h.validateObject(objects.ObjectsValidateParams{
+					HTTPRequest: httptest.NewRequest("POST", "/v1/objects/validate", nil),
+					Body:        &models.Object{Class: "Foo:Bar"},
+				}, nil)
+			},
+		},
+		{
+			name: "GET /v1/objects/{class}/{id}",
+			call: func() middleware.Responder {
+				h := newHandlers(&fakeManager{getObjectErr: invalidClass})
+				return h.getObject(objects.ObjectsClassGetParams{
+					HTTPRequest: httptest.NewRequest("GET", "/v1/objects/Foo:Bar/123", nil),
+					ClassName:   "Foo:Bar", ID: "123",
+				}, nil)
+			},
+		},
+		{
+			name: "PUT /v1/objects/{class}/{id}",
+			call: func() middleware.Responder {
+				h := newHandlers(&fakeManager{updateObjectErr: invalidClass})
+				return h.updateObject(objects.ObjectsClassPutParams{
+					HTTPRequest: httptest.NewRequest("PUT", "/v1/objects/Foo:Bar/123", nil),
+					ClassName:   "Foo:Bar", ID: "123",
+					Body: &models.Object{Class: "Foo:Bar"},
+				}, nil)
+			},
+		},
+		{
+			name: "DELETE /v1/objects/{class}/{id}",
+			call: func() middleware.Responder {
+				h := newHandlers(&fakeManager{deleteObjectReturn: invalidClass})
+				return h.deleteObject(objects.ObjectsClassDeleteParams{
+					HTTPRequest: httptest.NewRequest("DELETE", "/v1/objects/Foo:Bar/123", nil),
+					ClassName:   "Foo:Bar", ID: "123",
 				}, nil)
 			},
 		},
