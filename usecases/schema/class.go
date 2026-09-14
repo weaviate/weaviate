@@ -564,15 +564,15 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		return err
 	}
 
-	// A vector-less class (no legacy vectorizer, last named vector dropped
-	// or already gone) keeps its legacy fields genuinely empty. The defaults
-	// above just filled them into the body (they cannot know better) —
-	// re-clear, so the update that reaches the parser and the RAFT apply is
-	// exactly the stored shape and no synthetic vectorizer can ever land.
-	if cur != nil && modelsext.IsVectorlessUpdate(cur, updated) {
-		updated.Vectorizer = ""
-		updated.VectorIndexType = ""
-		updated.VectorIndexConfig = nil
+	// A vector-less class (created without any vector, or its last named
+	// vector dropped) keeps its legacy fields genuinely empty. The defaults
+	// above never fill them for such a class, so any legacy field set here
+	// came from the caller. Reject it: silently dropping it would answer 200
+	// to a change that was never made. A class-level index cannot be added
+	// after creation; a named vector can.
+	if cur != nil && modelsext.IsVectorlessUpdate(cur, updated) && modelsext.ClassHasLegacyVectorIndex(updated) {
+		return fmt.Errorf("%w: collection %q has no vector index: a class-level vectorizer or vector index "+
+			"cannot be added through an update, add a named vector instead", ErrValidation, className)
 	}
 
 	if updated.ReplicationConfig != nil {

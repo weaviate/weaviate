@@ -98,6 +98,22 @@ func testCreateClassWithoutVectorIndex() func(t *testing.T) {
 				require.NotEmpty(t, errs)
 			})
 
+			t.Run("a class-level vector index cannot be added afterwards", func(t *testing.T) {
+				for _, body := range []*models.Class{
+					{Class: className, Vectorizer: "none"},
+					{Class: className, VectorIndexType: "hnsw"},
+					{Class: className, VectorIndexConfig: map[string]any{"distance": "dot"}},
+				} {
+					_, err := helper.Client(t).Schema.SchemaObjectsUpdate(
+						clschema.NewSchemaObjectsUpdateParams().
+							WithClassName(className).WithObjectClass(body), nil)
+					require.Error(t, err, "a legacy field on an update must be rejected, not dropped")
+					var unprocessable *clschema.SchemaObjectsUpdateUnprocessableEntity
+					require.ErrorAs(t, err, &unprocessable)
+				}
+				assertVectorless(t, helper.GetClass(t, className))
+			})
+
 			t.Run("a named vector can be added afterwards", func(t *testing.T) {
 				got := helper.GetClass(t, className)
 				require.NotNil(t, got)

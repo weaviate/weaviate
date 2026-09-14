@@ -2304,6 +2304,61 @@ func Test_UpdateClass(t *testing.T) {
 				expectedError: fmt.Errorf(`missing config for vector "second"`),
 			},
 			{
+				name:    "adding a vectorizer to a collection created without vectors",
+				initial: &models.Class{Class: "InitialName", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+				update: &models.Class{
+					Class:             "InitialName",
+					Vectorizer:        "text2vec-contextionary",
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				expectedError: fmt.Errorf("has no vector index"),
+			},
+			{
+				name:    "adding a vector index type to a collection created without vectors",
+				initial: &models.Class{Class: "InitialName", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+				update: &models.Class{
+					Class:             "InitialName",
+					VectorIndexType:   hnswT,
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				expectedError: fmt.Errorf("has no vector index"),
+			},
+			{
+				name:    "adding a vector index config to a collection created without vectors",
+				initial: &models.Class{Class: "InitialName", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+				update: &models.Class{
+					Class:             "InitialName",
+					VectorIndexConfig: map[string]interface{}{"distance": "dot"},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				expectedError: fmt.Errorf("has no vector index"),
+			},
+			{
+				name:    "updating a collection created without vectors keeps it vector-less",
+				initial: &models.Class{Class: "InitialName", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+				update: &models.Class{
+					Class:             "InitialName",
+					Description:       "still no vectors",
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+			},
+			{
+				name:    "adding a named vector to a collection created without vectors",
+				initial: &models.Class{Class: "InitialName", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+				update: &models.Class{
+					Class: "InitialName",
+					VectorConfig: map[string]models.VectorConfig{
+						"added": {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+			},
+			{
 				name: "removing existing legacy vector",
 				initial: &models.Class{
 					Class:             "InitialName",
