@@ -741,7 +741,8 @@ func (m *Migrator) updateTenants(ctx context.Context, class *models.Class, updat
 					idx.logger.WithFields(logrus.Fields{
 						"action": "tenant_activation_lazy_load_shard",
 						"shard":  name,
-					}).Errorf("loading shard %q failed: %v", name, err)
+					}).WithFields(enterrors.DocsLinkFields(err)).
+						Errorf("loading shard %q failed: %v", name, err)
 				}
 				return nil
 			})
