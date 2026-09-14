@@ -23,7 +23,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
-	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // allScopedRolesPermission is the escalation-grade permission that may never be
@@ -58,7 +57,6 @@ func TestCreateRoleAllScopedRolesDeniedOnNamespaceCluster(t *testing.T) {
 	h := &authZHandlers{
 		authorizer:        permissiveAuthorizer(t),
 		controller:        controller,
-		schemaReader:      schema.NewMockSchemaGetter(t),
 		logger:            logger,
 		rbacconfig:        rbacconf.Config{Enabled: true},
 		namespacesEnabled: true,
@@ -87,7 +85,6 @@ func TestAddPermissionsAllScopedRolesDeniedOnNamespaceCluster(t *testing.T) {
 	h := &authZHandlers{
 		authorizer:        permissiveAuthorizer(t),
 		controller:        controller,
-		schemaReader:      schema.NewMockSchemaGetter(t),
 		logger:            logger,
 		rbacconfig:        rbacconf.Config{Enabled: true},
 		namespacesEnabled: true,
@@ -122,7 +119,6 @@ func TestAuthorizeRoleScopesIgnoresAllGrantForNamespaced(t *testing.T) {
 	h := &authZHandlers{
 		authorizer:        authorizer,
 		controller:        controller,
-		schemaReader:      schema.NewMockSchemaGetter(t),
 		logger:            logger,
 		rbacconfig:        rbacconf.Config{Enabled: true},
 		namespacesEnabled: true,

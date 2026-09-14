@@ -95,7 +95,7 @@ func TestContextualClassifier_Classify(t *testing.T) {
 	// so we can reuse it for follow up requests, such as checking the status
 
 	t.Run("with valid data", func(t *testing.T) {
-		sg := &fakeSchemaGetter{testSchema()}
+		sg := &fakeSchemaGetter{schema: testSchema()}
 		repo := newFakeClassificationRepo()
 		authorizer := mocks.NewMockAuthorizer()
 
@@ -172,7 +172,7 @@ func TestContextualClassifier_Classify(t *testing.T) {
 	})
 
 	t.Run("when errors occur during classification", func(t *testing.T) {
-		sg := &fakeSchemaGetter{testSchema()}
+		sg := &fakeSchemaGetter{schema: testSchema()}
 		repo := newFakeClassificationRepo()
 		authorizer := mocks.NewMockAuthorizer()
 		vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())
@@ -221,7 +221,7 @@ func TestContextualClassifier_Classify(t *testing.T) {
 	})
 
 	t.Run("when there is nothing to be classified", func(t *testing.T) {
-		sg := &fakeSchemaGetter{testSchema()}
+		sg := &fakeSchemaGetter{schema: testSchema()}
 		repo := newFakeClassificationRepo()
 		authorizer := mocks.NewMockAuthorizer()
 		vectorRepo := newFakeVectorRepoKNN(nil, testDataAlreadyClassified())

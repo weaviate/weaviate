@@ -37,7 +37,7 @@ func newNullLogger() *logrus.Logger {
 
 func Test_Classifier_KNN(t *testing.T) {
 	t.Run("with invalid data", func(t *testing.T) {
-		sg := &fakeSchemaGetter{testSchema()}
+		sg := &fakeSchemaGetter{schema: testSchema()}
 		_, err := New(sg, nil, nil, mocks.NewMockAuthorizer(), newNullLogger(), nil).
 			Schedule(context.Background(), nil, models.Classification{})
 		assert.NotNil(t, err, "should error with invalid user input")
@@ -47,7 +47,7 @@ func Test_Classifier_KNN(t *testing.T) {
 	// so we can reuse it for follow up requests, such as checking the status
 
 	t.Run("with valid data", func(t *testing.T) {
-		sg := &fakeSchemaGetter{testSchema()}
+		sg := &fakeSchemaGetter{schema: testSchema()}
 		repo := newFakeClassificationRepo()
 		authorizer := mocks.NewMockAuthorizer()
 		vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())
@@ -121,7 +121,7 @@ func Test_Classifier_KNN(t *testing.T) {
 	})
 
 	t.Run("when errors occur during classification", func(t *testing.T) {
-		sg := &fakeSchemaGetter{testSchema()}
+		sg := &fakeSchemaGetter{schema: testSchema()}
 		repo := newFakeClassificationRepo()
 		authorizer := mocks.NewMockAuthorizer()
 		vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())
@@ -170,7 +170,7 @@ func Test_Classifier_KNN(t *testing.T) {
 	})
 
 	t.Run("when there is nothing to be classified", func(t *testing.T) {
-		sg := &fakeSchemaGetter{testSchema()}
+		sg := &fakeSchemaGetter{schema: testSchema()}
 		repo := newFakeClassificationRepo()
 		authorizer := mocks.NewMockAuthorizer()
 		vectorRepo := newFakeVectorRepoKNN(nil, testDataAlreadyClassified())
@@ -213,7 +213,7 @@ func Test_Classifier_Custom_Classifier(t *testing.T) {
 	// so we can reuse it for follow up requests, such as checking the status
 
 	t.Run("with unreconginzed custom module classifier name", func(t *testing.T) {
-		sg := &fakeSchemaGetter{testSchema()}
+		sg := &fakeSchemaGetter{schema: testSchema()}
 		repo := newFakeClassificationRepo()
 		authorizer := mocks.NewMockAuthorizer()
 
@@ -262,7 +262,7 @@ func Test_Classifier_Custom_Classifier(t *testing.T) {
 	})
 
 	t.Run("with valid data", func(t *testing.T) {
-		sg := &fakeSchemaGetter{testSchema()}
+		sg := &fakeSchemaGetter{schema: testSchema()}
 		repo := newFakeClassificationRepo()
 		authorizer := mocks.NewMockAuthorizer()
 
@@ -338,7 +338,7 @@ func Test_Classifier_Custom_Classifier(t *testing.T) {
 	})
 
 	t.Run("when errors occur during classification", func(t *testing.T) {
-		sg := &fakeSchemaGetter{testSchema()}
+		sg := &fakeSchemaGetter{schema: testSchema()}
 		repo := newFakeClassificationRepo()
 		authorizer := mocks.NewMockAuthorizer()
 		vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())
@@ -387,7 +387,7 @@ func Test_Classifier_Custom_Classifier(t *testing.T) {
 	})
 
 	t.Run("when there is nothing to be classified", func(t *testing.T) {
-		sg := &fakeSchemaGetter{testSchema()}
+		sg := &fakeSchemaGetter{schema: testSchema()}
 		repo := newFakeClassificationRepo()
 		authorizer := mocks.NewMockAuthorizer()
 		vectorRepo := newFakeVectorRepoKNN(nil, testDataAlreadyClassified())
@@ -428,7 +428,7 @@ func Test_Classifier_Custom_Classifier(t *testing.T) {
 
 func Test_Classifier_WhereFilterValidation(t *testing.T) {
 	t.Run("when invalid whereFilters are received", func(t *testing.T) {
-		sg := &fakeSchemaGetter{testSchema()}
+		sg := &fakeSchemaGetter{schema: testSchema()}
 		repo := newFakeClassificationRepo()
 		authorizer := mocks.NewMockAuthorizer()
 		vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())
@@ -512,7 +512,7 @@ func Test_Classifier_WhereFilterValidation(t *testing.T) {
 	})
 
 	t.Run("[deprecated string] when valueString whereFilters are received", func(t *testing.T) {
-		sg := &fakeSchemaGetter{testSchema()}
+		sg := &fakeSchemaGetter{schema: testSchema()}
 		repo := newFakeClassificationRepo()
 		authorizer := mocks.NewMockAuthorizer()
 		vectorRepo := newFakeVectorRepoKNN(testDataToBeClassified(), testDataAlreadyClassified())

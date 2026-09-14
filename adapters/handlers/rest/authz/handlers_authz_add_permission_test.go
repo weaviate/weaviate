@@ -20,7 +20,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/usecases/schema"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
@@ -115,7 +114,6 @@ func TestAddPermissionsSuccess(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
 			controller := NewMockControllerAndGetUsers(t)
-			schemaReader := schema.NewMockSchemaGetter(t)
 			logger, _ := test.NewNullLogger()
 
 			policies, err := conv.RolesToPolicies(&models.Role{
@@ -133,10 +131,9 @@ func TestAddPermissionsSuccess(t *testing.T) {
 			controller.On("UpdateRolesPermissions", policies).Return(nil)
 
 			h := &authZHandlers{
-				authorizer:   authorizer,
-				controller:   controller,
-				schemaReader: schemaReader,
-				logger:       logger,
+				authorizer: authorizer,
+				controller: controller,
+				logger:     logger,
 			}
 			res := h.addPermissions(tt.params, tt.principal)
 			parsed, ok := res.(*authz.AddPermissionsOK)
@@ -190,13 +187,11 @@ func TestAddPermissionsBadRequest(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			authorizer := authorization.NewMockAuthorizer(t)
-			schemaReader := schema.NewMockSchemaGetter(t)
 			logger, _ := test.NewNullLogger()
 			h := &authZHandlers{
-				controller:   controller,
-				authorizer:   authorizer,
-				schemaReader: schemaReader,
-				logger:       logger,
+				controller: controller,
+				authorizer: authorizer,
+				logger:     logger,
 			}
 			res := h.addPermissions(tt.params, tt.principal)
 			parsed, ok := res.(*authz.AddPermissionsBadRequest)

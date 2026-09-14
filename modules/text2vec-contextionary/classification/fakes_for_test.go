@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	libfilters "github.com/weaviate/weaviate/entities/filters"
@@ -28,10 +29,10 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	usecasesclassfication "github.com/weaviate/weaviate/usecases/classification"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 type fakeSchemaGetter struct {
+	local.ClassReader
 	schema schema.Schema
 }
 
@@ -44,58 +45,6 @@ func (f *fakeSchemaGetter) ReadOnlySchema() models.Schema {
 
 func (f *fakeSchemaGetter) ReadOnlyClass(class string) *models.Class {
 	return f.schema.GetClass(class)
-}
-
-func (f *fakeSchemaGetter) ResolveAlias(string) string {
-	return ""
-}
-
-func (f *fakeSchemaGetter) GetAliasesForClass(string) []*models.Alias {
-	return nil
-}
-
-func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {
-	panic("not implemented")
-}
-
-func (f *fakeSchemaGetter) ShardOwner(class, shard string) (string, error)      { return "", nil }
-func (f *fakeSchemaGetter) ShardReplicas(class, shard string) ([]string, error) { return nil, nil }
-
-func (f *fakeSchemaGetter) TenantsShardsStatus(_ context.Context, class string, tenants ...string) (map[string]string, error) {
-	res := map[string]string{}
-	for _, t := range tenants {
-		res[t] = models.TenantActivityStatusHOT
-	}
-	return res, nil
-}
-
-func (f *fakeSchemaGetter) OptimisticTenantStatus(_ context.Context, class string, tenant string, _ bool) (map[string]string, error) {
-	res := map[string]string{}
-	res[tenant] = models.TenantActivityStatusHOT
-	return res, nil
-}
-
-func (f *fakeSchemaGetter) ShardFromUUID(class string, uuid []byte) string { return "" }
-
-func (f *fakeSchemaGetter) Nodes() []string {
-	panic("not implemented")
-}
-
-func (f *fakeSchemaGetter) NodeName() string {
-	panic("not implemented")
-}
-
-func (f *fakeSchemaGetter) ClusterHealthScore() int {
-	panic("not implemented")
-}
-
-func (f *fakeSchemaGetter) Statistics() map[string]any {
-	panic("not implemented")
-}
-
-func (f *fakeSchemaGetter) ResolveParentNodes(string, string,
-) (map[string]string, error) {
-	panic("not implemented")
 }
 
 type fakeClassificationRepo struct {

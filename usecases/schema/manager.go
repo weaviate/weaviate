@@ -54,6 +54,9 @@ type Manager struct {
 	local.SchemaReader
 }
 
+// Manager serves the local schema reads itself; its own methods must not shadow them.
+var _ local.SchemaReader = (*Manager)(nil)
+
 type VectorConfigParser func(in interface{}, vectorIndexType string, isMultiVector bool) (schemaConfig.VectorIndexConfig, error)
 
 type InvertedConfigValidator func(in *models.InvertedIndexConfig) error
@@ -239,13 +242,15 @@ func NewManager(validator validator,
 }
 
 func (m *Manager) TenantsShardsStatus(ctx context.Context, class string, tenants ...string) (map[string]string, error) {
-	status, _, err := m.TenantsShardsStatusWithVersion(ctx, class, tenants...)
+	status, _, err := m.TenantsShardsStatusWithActivation(ctx, class, tenants...)
 	return status, err
 }
 
-// TenantsShardsStatusWithVersion returns tenant status and the schema version from any implicit activation.
+// TenantsShardsStatusWithActivation asks the RAFT leader for the tenants' status and, when the class
+// has auto tenant activation enabled, activates every tenant that is not HOT (a RAFT write).
+// It returns the schema version of that activation, 0 if none was needed.
 // Callers performing writes should use the returned schemaVersion in WaitForUpdate before proceeding.
-func (m *Manager) TenantsShardsStatusWithVersion(ctx context.Context, class string, tenants ...string) (map[string]string, uint64, error) {
+func (m *Manager) TenantsShardsStatusWithActivation(ctx context.Context, class string, tenants ...string) (map[string]string, uint64, error) {
 	slices.Sort(tenants)
 	tenants = slices.Compact(tenants)
 	status, version, err := m.schemaManager.TenantsShardsFromLeader(class, tenants...)
@@ -403,7 +408,7 @@ func (m *Manager) changeTenantsActivityStatus(ctx context.Context, class string,
 // EnsureTenantActiveForWrite activates COLD tenants when AutoTenantActivation is enabled.
 // Returns the schema version from activation. callers must pass this to WaitForUpdate
 func (m *Manager) EnsureTenantActiveForWrite(ctx context.Context, class string, tenants ...string) (uint64, error) {
-	_, schemaVersion, err := m.TenantsShardsStatusWithVersion(ctx, class, tenants...)
+	_, schemaVersion, err := m.TenantsShardsStatusWithActivation(ctx, class, tenants...)
 	return schemaVersion, err
 }
 

@@ -36,7 +36,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rolevisibility"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -50,7 +49,6 @@ var validateRoleNameRegex = regexp.MustCompile(`^` + roleNameRegexCore + `$`)
 type authZHandlers struct {
 	authorizer        authorization.Authorizer
 	controller        ControllerAndGetUsers
-	schemaReader      schemaUC.SchemaGetter
 	logger            logrus.FieldLogger
 	metrics           *monitoring.PrometheusMetrics
 	apiKeysConfigs    config.StaticAPIKey
@@ -64,13 +62,12 @@ type ControllerAndGetUsers interface {
 	GetUsers(userIds ...string) (map[string]apikey.UserView, error)
 }
 
-func SetupHandlers(api *operations.WeaviateAPI, controller ControllerAndGetUsers, schemaReader schemaUC.SchemaGetter,
+func SetupHandlers(api *operations.WeaviateAPI, controller ControllerAndGetUsers,
 	apiKeysConfigs config.StaticAPIKey, oidcConfigs config.OIDC, rconfig rbacconf.Config, namespacesEnabled bool, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
 ) {
 	h := &authZHandlers{
 		controller:        controller,
 		authorizer:        authorizer,
-		schemaReader:      schemaReader,
 		rbacconfig:        rconfig,
 		oidcConfigs:       oidcConfigs,
 		apiKeysConfigs:    apiKeysConfigs,

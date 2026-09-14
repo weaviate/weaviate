@@ -144,6 +144,7 @@ func singleShard(t *testing.T, repo *db.DB, className string) db.ShardLike {
 }
 
 type fakeSchemaGetter struct {
+	local.ClassReader
 	schema     schema.Schema
 	shardState *sharding.State
 }
