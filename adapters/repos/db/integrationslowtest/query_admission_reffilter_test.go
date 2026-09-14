@@ -160,11 +160,12 @@ func TestQueryAdmissionRefFilterSingleGrant(t *testing.T) {
 	}
 	close(stop)
 
-	// The upper bound below is only meaningful once we know the sampler actually
-	// saw grants: an absent or renamed gauge reads as 0, which would satisfy the
-	// bound without the queries having been admitted at all.
-	require.Positive(t, peak.Load(),
-		"expected the ref-filter queries to hold admission grants (inflight > 0)")
+	// The upper bound below is only meaningful once we know grants were handed
+	// out: an absent or renamed metric reads as 0, which would satisfy the bound
+	// without the queries having been admitted at all. The grant count is
+	// cumulative, so unlike the sampled peak it cannot be missed under load.
+	require.Positive(t, admissionGrantCount(reg),
+		"expected the ref-filter queries to hold admission grants")
 
 	// (c) One grant per query: peak in-flight grants must not exceed the number
 	// of concurrent queries. A value above numQueries means a query held both a
@@ -194,6 +195,27 @@ func readAdmissionGauge(reg *prometheus.Registry, name string) float64 {
 		}
 		for _, m := range mf.GetMetric() {
 			return m.GetGauge().GetValue()
+		}
+	}
+	return 0
+}
+
+// admissionGrantCount returns how many admission grants the limiter has handed
+// out, read from the cumulative grant-size histogram. Unlike a sampled gauge the
+// count cannot be missed: it is observed when the grant is taken and persists, so
+// asserting on it cannot fail spuriously when the sampler is starved of CPU.
+// Returns 0 when the metric is absent or gathering fails.
+func admissionGrantCount(reg *prometheus.Registry) uint64 {
+	mfs, err := reg.Gather()
+	if err != nil {
+		return 0
+	}
+	for _, mf := range mfs {
+		if mf.GetName() != "query_admission_grant_size" {
+			continue
+		}
+		for _, m := range mf.GetMetric() {
+			return m.GetHistogram().GetSampleCount()
 		}
 	}
 	return 0
@@ -504,8 +526,8 @@ func TestObjectVectorSearchHoldsGrantForWholeSearch(t *testing.T) {
 	close(stop)
 	require.NoError(t, err)
 
-	require.True(t, sawPositive.Load(),
-		"expected the search to hold an admission grant (used_budget > 0)")
+	require.Positive(t, admissionGrantCount(reg),
+		"expected the search to hold an admission grant")
 	require.False(t, sawZeroWhileRunning.Load(),
 		"used_budget dropped to zero while ObjectVectorSearch was still running: "+
 			"the grant must be held through the vector phase")
@@ -521,7 +543,7 @@ func TestPureVectorSearchIsAdmitted(t *testing.T) {
 	const (
 		budget     = 4
 		maxQueue   = 8
-		numAuthors = 10000 // enough vectors to make the vector phase samplable
+		numAuthors = 10000 // enough vectors to keep the vector phase measurable
 	)
 
 	ctx := context.Background()
@@ -529,33 +551,14 @@ func TestPureVectorSearchIsAdmitted(t *testing.T) {
 
 	searchVec := []models.Vector{[]float32{0.1, 0.2, 0.3}}
 
-	var sawPositive atomic.Bool
-	stop := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(100 * time.Microsecond)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-stop:
-				return
-			case <-ticker.C:
-				if readAdmissionGauge(reg, "query_admission_used_budget") > 0 {
-					sawPositive.Store(true)
-				}
-			}
-		}
-	}()
-
 	// No filter: the whole query is the vector phase. limit<0 forces a
-	// brute-force distance search over every vector so it runs long enough
-	// to be sampled.
+	// brute-force distance search over every vector.
 	_, _, err := shard.ObjectVectorSearch(ctx, searchVec, []string{""}, 100, -1,
 		nil, nil, nil, additional.Properties{}, nil, []string{"title"})
-	close(stop)
 	require.NoError(t, err)
 
-	require.True(t, sawPositive.Load(),
-		"expected the pure-vector search to hold an admission grant (used_budget > 0)")
+	require.Positive(t, admissionGrantCount(reg),
+		"expected the pure-vector search to hold an admission grant")
 	require.Eventually(t, func() bool {
 		return readAdmissionGauge(reg, "query_admission_used_budget") == 0
 	}, 2*time.Second, 5*time.Millisecond, "used budget did not drain to zero")
