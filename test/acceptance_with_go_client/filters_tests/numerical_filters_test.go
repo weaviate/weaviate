@@ -17,31 +17,25 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
-	"github.com/weaviate/weaviate-go-client/v5/weaviate/filters"
-	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate-go-client/v6"
+	"github.com/weaviate/weaviate-go-client/v6/batch"
+	"github.com/weaviate/weaviate-go-client/v6/collections"
+	"github.com/weaviate/weaviate-go-client/v6/data"
+	"github.com/weaviate/weaviate-go-client/v6/query"
+	"github.com/weaviate/weaviate-go-client/v6/query/filter"
 )
 
-func testNumericalFilters(host string) func(t *testing.T) {
+func testNumericalFilters(c *weaviate.Client) func(t *testing.T) {
 	return func(t *testing.T) {
-		className := "NumericalClass"
+		require.NoError(t, c.Collections.DeleteAll(t.Context()))
+		t.Cleanup(func() {
+			require.NoError(t, c.Collections.DeleteAll(context.Background()))
+		})
 
-		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: host})
-		require.NoError(t, err)
-
-		cleanup := func() {
-			err := client.Schema().AllDeleter().Do(context.Background())
-			require.Nil(t, err)
-		}
-		cleanup()
-		defer cleanup()
-
+		collectionName := "NumericalClass"
 		randPool := 100
 		randInts := make([]int64, randPool)
 		randNumbers := make([]float64, randPool)
@@ -52,61 +46,57 @@ func testNumericalFilters(host string) func(t *testing.T) {
 		batches := 50
 		perBatch := 200
 
-		t.Run("create schema", func(t *testing.T) {
-			vTrue := true
-			vFalse := false
+		var h *collections.Handle
+		var err error
 
-			class := &models.Class{
-				Class:      className,
-				Vectorizer: "none",
-				Properties: []*models.Property{
+		t.Run("create schema", func(t *testing.T) {
+			h, err = c.Collections.Create(t.Context(), collections.Collection{
+				Name: collectionName,
+				Properties: []collections.Property{
 					{
-						Name:              "filterable_int",
-						DataType:          schema.DataTypeInt.PropString(),
-						IndexFilterable:   &vTrue,
-						IndexRangeFilters: &vFalse,
+						Name:            "filterable_int",
+						DataType:        collections.DataTypeInt,
+						IndexFilterable: new(true),
+						IndexRangeable:  new(false),
 					},
 					{
-						Name:              "rangeable_int",
-						DataType:          schema.DataTypeInt.PropString(),
-						IndexFilterable:   &vFalse,
-						IndexRangeFilters: &vTrue,
+						Name:            "rangeable_int",
+						DataType:        collections.DataTypeInt,
+						IndexFilterable: new(false),
+						IndexRangeable:  new(true),
 					},
 					{
-						Name:              "filterable_number",
-						DataType:          schema.DataTypeNumber.PropString(),
-						IndexFilterable:   &vTrue,
-						IndexRangeFilters: &vFalse,
+						Name:            "filterable_number",
+						DataType:        collections.DataTypeNumber,
+						IndexFilterable: new(true),
+						IndexRangeable:  new(false),
 					},
 					{
-						Name:              "rangeable_number",
-						DataType:          schema.DataTypeNumber.PropString(),
-						IndexFilterable:   &vFalse,
-						IndexRangeFilters: &vTrue,
+						Name:            "rangeable_number",
+						DataType:        collections.DataTypeNumber,
+						IndexFilterable: new(false),
+						IndexRangeable:  new(true),
 					},
 					{
-						Name:              "filterable_date",
-						DataType:          schema.DataTypeDate.PropString(),
-						IndexFilterable:   &vTrue,
-						IndexRangeFilters: &vFalse,
+						Name:            "filterable_date",
+						DataType:        collections.DataTypeDate,
+						IndexFilterable: new(true),
+						IndexRangeable:  new(false),
 					},
 					{
-						Name:              "rangeable_date",
-						DataType:          schema.DataTypeDate.PropString(),
-						IndexFilterable:   &vFalse,
-						IndexRangeFilters: &vTrue,
+						Name:            "rangeable_date",
+						DataType:        collections.DataTypeDate,
+						IndexFilterable: new(false),
+						IndexRangeable:  new(true),
 					},
 					{
 						Name:     "delete",
-						DataType: schema.DataTypeBoolean.PropString(),
+						DataType: collections.DataTypeBool,
 					},
 				},
-			}
-
-			err = client.Schema().ClassCreator().
-				WithClass(class).
-				Do(context.Background())
+			})
 			require.NoError(t, err)
+			require.NotNilf(t, h, "%h collection handle", collectionName)
 		})
 
 		t.Run("generate random data", func(t *testing.T) {
@@ -117,24 +107,20 @@ func testNumericalFilters(host string) func(t *testing.T) {
 			}
 
 			uniqueSelectedRandIds := map[int]struct{}{}
-			objects := make([]*models.Object, 0, perBatch)
-			for batch := 0; batch < batches; batch++ {
-				objects = objects[:0]
-
+			b := h.Batch(t.Context())
+			var tasks []*batch.Task
+			for range batches {
 				for i := 0; i < perBatch; i++ {
 					randId := r.Intn(randPool)
-					toDelete := i%2 == 0
 					// collect only the ones not to be deleted later on
+					toDelete := i%2 == 0
 					if !toDelete {
 						uniqueSelectedRandIds[randId] = struct{}{}
 					}
-					uuid_, err := uuid.NewRandom()
-					require.NoError(t, err)
-
-					objects = append(objects, &models.Object{
-						Class: className,
-						ID:    strfmt.UUID(uuid_.String()),
-						Properties: map[string]interface{}{
+					id := uuid.New()
+					task, err := b.Object(t.Context(), &data.Object{
+						UUID: &id,
+						Properties: map[string]any{
 							"filterable_int":    randInts[randId],
 							"rangeable_int":     randInts[randId],
 							"filterable_number": randNumbers[randId],
@@ -144,18 +130,15 @@ func testNumericalFilters(host string) func(t *testing.T) {
 							"delete":            toDelete,
 						},
 					})
+					if assert.NoErrorf(t, err, "add object %q", id) {
+						require.NotNil(t, task, "task %q", id)
+						tasks = append(tasks, task)
+					}
 				}
-
-				responses, err := client.Batch().ObjectsBatcher().
-					WithObjects(objects...).
-					Do(context.Background())
-				require.NoError(t, err)
-				require.Len(t, responses, perBatch)
-
-				for _, response := range responses {
-					s := response.Result.Status
-					require.Equal(t, "SUCCESS", *s)
-				}
+			}
+			require.NoError(t, b.Close(), "close batch")
+			for _, task := range tasks {
+				require.NoError(t, task.Wait(), "task %q", task.ID())
 			}
 
 			i, c := 0, cap(selectedRandIds)
@@ -171,132 +154,55 @@ func testNumericalFilters(host string) func(t *testing.T) {
 			}
 		})
 
-		gqlGet := func(where *filters.WhereBuilder) []string {
-			resp, err := client.GraphQL().Get().
-				WithClassName(className).
-				WithLimit(batches * perBatch).
-				WithWhere(where).
-				WithFields(graphql.Field{
-					Name: "_additional", Fields: []graphql.Field{{Name: "id"}},
-				}).
-				Do(context.Background())
+		get := func(f filter.Expr) []uuid.UUID {
+			r, err := h.Query.OverAll(t.Context(), query.OverAll{
+				Filter: f,
+				Limit:  batches * perBatch,
+			})
 			require.NoError(t, err)
-			require.Empty(t, resp.Errors)
+			require.NotNil(t, r, "query response")
 
-			results := resp.Data["Get"].(map[string]interface{})[className].([]interface{})
-			ids := make([]string, len(results))
-			for i := range ids {
-				ids[i] = results[i].(map[string]interface{})["_additional"].(map[string]interface{})["id"].(string)
+			var got []uuid.UUID
+			for i := range r.Objects {
+				got = append(got, r.Objects[i].UUID)
 			}
-			return ids
+			return got
 		}
-		equalInt := func(propName string, val int64) []string {
-			return gqlGet(filters.Where().
-				WithPath([]string{propName}).
-				WithOperator(filters.Equal).
-				WithValueInt(val))
+
+		queryEqual := func(propName string, val any) []uuid.UUID {
+			return get(filter.Cond{
+				Target:   propName,
+				Operator: filter.Equal,
+				Value:    val,
+			})
 		}
-		equalNumber := func(propName string, val float64) []string {
-			return gqlGet(filters.Where().
-				WithPath([]string{propName}).
-				WithOperator(filters.Equal).
-				WithValueNumber(val))
+		queryUnion := func(propName string, lt, gte any) []uuid.UUID {
+			return get(filter.Or{
+				filter.Cond{
+					Target:   propName,
+					Operator: filter.LessThan,
+					Value:    lt,
+				},
+				filter.Cond{
+					Target:   propName,
+					Operator: filter.GreaterThanEqual,
+					Value:    gte,
+				},
+			})
 		}
-		equalDate := func(propName string, val time.Time) []string {
-			return gqlGet(filters.Where().
-				WithPath([]string{propName}).
-				WithOperator(filters.Equal).
-				WithValueDate(val))
-		}
-		unionInt := func(propName string, val1, val2 int64) []string {
-			return gqlGet(filters.Where().
-				WithOperator(filters.Or).
-				WithOperands(
-					[]*filters.WhereBuilder{
-						filters.Where().
-							WithPath([]string{propName}).
-							WithOperator(filters.LessThan).
-							WithValueInt(val1),
-						filters.Where().
-							WithPath([]string{propName}).
-							WithOperator(filters.GreaterThanEqual).
-							WithValueInt(val2),
-					}))
-		}
-		unionNumber := func(propName string, val1, val2 float64) []string {
-			return gqlGet(filters.Where().
-				WithOperator(filters.Or).
-				WithOperands(
-					[]*filters.WhereBuilder{
-						filters.Where().
-							WithPath([]string{propName}).
-							WithOperator(filters.LessThan).
-							WithValueNumber(val1),
-						filters.Where().
-							WithPath([]string{propName}).
-							WithOperator(filters.GreaterThanEqual).
-							WithValueNumber(val2),
-					}))
-		}
-		unionDate := func(propName string, val1, val2 time.Time) []string {
-			return gqlGet(filters.Where().
-				WithOperator(filters.Or).
-				WithOperands(
-					[]*filters.WhereBuilder{
-						filters.Where().
-							WithPath([]string{propName}).
-							WithOperator(filters.LessThan).
-							WithValueDate(val1),
-						filters.Where().
-							WithPath([]string{propName}).
-							WithOperator(filters.GreaterThanEqual).
-							WithValueDate(val2),
-					}))
-		}
-		intersectionInt := func(propName string, val1, val2 int64) []string {
-			return gqlGet(filters.Where().
-				WithOperator(filters.And).
-				WithOperands(
-					[]*filters.WhereBuilder{
-						filters.Where().
-							WithPath([]string{propName}).
-							WithOperator(filters.GreaterThanEqual).
-							WithValueInt(val1),
-						filters.Where().
-							WithPath([]string{propName}).
-							WithOperator(filters.LessThanEqual).
-							WithValueInt(val2),
-					}))
-		}
-		intersectionNumber := func(propName string, val1, val2 float64) []string {
-			return gqlGet(filters.Where().
-				WithOperator(filters.And).
-				WithOperands(
-					[]*filters.WhereBuilder{
-						filters.Where().
-							WithPath([]string{propName}).
-							WithOperator(filters.GreaterThanEqual).
-							WithValueNumber(val1),
-						filters.Where().
-							WithPath([]string{propName}).
-							WithOperator(filters.LessThanEqual).
-							WithValueNumber(val2),
-					}))
-		}
-		intersectionDate := func(propName string, val1, val2 time.Time) []string {
-			return gqlGet(filters.Where().
-				WithOperator(filters.And).
-				WithOperands(
-					[]*filters.WhereBuilder{
-						filters.Where().
-							WithPath([]string{propName}).
-							WithOperator(filters.GreaterThanEqual).
-							WithValueDate(val1),
-						filters.Where().
-							WithPath([]string{propName}).
-							WithOperator(filters.LessThanEqual).
-							WithValueDate(val2),
-					}))
+		queryIntersection := func(propName string, lte, gte any) []uuid.UUID {
+			return get(filter.And{
+				filter.Cond{
+					Target:   propName,
+					Operator: filter.LessThanEqual,
+					Value:    lte,
+				},
+				filter.Cond{
+					Target:   propName,
+					Operator: filter.GreaterThanEqual,
+					Value:    gte,
+				},
+			})
 		}
 
 		randId1 := selectedRandIds[0]
@@ -310,13 +216,13 @@ func testNumericalFilters(host string) func(t *testing.T) {
 			t.Run("equal int", func(t *testing.T) {
 				int1, int2 := randInts[randId1], randInts[randId2]
 
-				filterableUuids1 := equalInt("filterable_int", int1)
-				rangeableUuids1 := equalInt("rangeable_int", int1)
+				filterableUuids1 := queryEqual("filterable_int", int1)
+				rangeableUuids1 := queryEqual("rangeable_int", int1)
 				assert.GreaterOrEqual(t, len(filterableUuids1), 1)
 				assert.ElementsMatch(t, filterableUuids1, rangeableUuids1)
 
-				filterableUuids2 := equalInt("filterable_int", int2)
-				rangeableUuids2 := equalInt("rangeable_int", int2)
+				filterableUuids2 := queryEqual("filterable_int", int2)
+				rangeableUuids2 := queryEqual("rangeable_int", int2)
 				assert.GreaterOrEqual(t, len(filterableUuids2), 1)
 				assert.ElementsMatch(t, filterableUuids2, rangeableUuids2)
 			})
@@ -324,13 +230,13 @@ func testNumericalFilters(host string) func(t *testing.T) {
 			t.Run("equal number", func(t *testing.T) {
 				number1, number2 := randNumbers[randId1], randNumbers[randId2]
 
-				filterableUuids1 := equalNumber("filterable_number", number1)
-				rangeableUuids1 := equalNumber("rangeable_number", number1)
+				filterableUuids1 := queryEqual("filterable_number", number1)
+				rangeableUuids1 := queryEqual("rangeable_number", number1)
 				assert.GreaterOrEqual(t, len(filterableUuids1), 1)
 				assert.ElementsMatch(t, filterableUuids1, rangeableUuids1)
 
-				filterableUuids2 := equalNumber("filterable_number", number2)
-				rangeableUuids2 := equalNumber("rangeable_number", number2)
+				filterableUuids2 := queryEqual("filterable_number", number2)
+				rangeableUuids2 := queryEqual("rangeable_number", number2)
 				assert.GreaterOrEqual(t, len(filterableUuids2), 1)
 				assert.ElementsMatch(t, filterableUuids2, rangeableUuids2)
 			})
@@ -338,13 +244,13 @@ func testNumericalFilters(host string) func(t *testing.T) {
 			t.Run("equal date", func(t *testing.T) {
 				date1, date2 := randDates[randId1], randDates[randId2]
 
-				filterableUuids1 := equalDate("filterable_date", date1)
-				rangeableUuids1 := equalDate("rangeable_date", date1)
+				filterableUuids1 := queryEqual("filterable_date", date1)
+				rangeableUuids1 := queryEqual("rangeable_date", date1)
 				assert.GreaterOrEqual(t, len(filterableUuids1), 1)
 				assert.ElementsMatch(t, filterableUuids1, rangeableUuids1)
 
-				filterableUuids2 := equalDate("filterable_date", date2)
-				rangeableUuids2 := equalDate("rangeable_date", date2)
+				filterableUuids2 := queryEqual("filterable_date", date2)
+				rangeableUuids2 := queryEqual("rangeable_date", date2)
 				assert.GreaterOrEqual(t, len(filterableUuids2), 1)
 				assert.ElementsMatch(t, filterableUuids2, rangeableUuids2)
 			})
@@ -355,8 +261,8 @@ func testNumericalFilters(host string) func(t *testing.T) {
 					int1, int2 = int2, int1
 				}
 
-				filterableUuids := unionInt("filterable_int", int1, int2)
-				rangeableUuids := unionInt("rangeable_int", int1, int2)
+				filterableUuids := queryUnion("filterable_int", int1, int2)
+				rangeableUuids := queryUnion("rangeable_int", int1, int2)
 				assert.GreaterOrEqual(t, len(filterableUuids), 1)
 				assert.ElementsMatch(t, filterableUuids, rangeableUuids)
 			})
@@ -367,8 +273,8 @@ func testNumericalFilters(host string) func(t *testing.T) {
 					number1, number2 = number2, number1
 				}
 
-				filterableUuids := unionNumber("filterable_number", number1, number2)
-				rangeableUuids := unionNumber("rangeable_number", number1, number2)
+				filterableUuids := queryUnion("filterable_number", number1, number2)
+				rangeableUuids := queryUnion("rangeable_number", number1, number2)
 				assert.GreaterOrEqual(t, len(filterableUuids), 1)
 				assert.ElementsMatch(t, filterableUuids, rangeableUuids)
 			})
@@ -379,8 +285,8 @@ func testNumericalFilters(host string) func(t *testing.T) {
 					date1, date2 = date2, date1
 				}
 
-				filterableUuids := unionDate("filterable_date", date1, date2)
-				rangeableUuids := unionDate("rangeable_date", date1, date2)
+				filterableUuids := queryUnion("filterable_date", date1, date2)
+				rangeableUuids := queryUnion("rangeable_date", date1, date2)
 				assert.GreaterOrEqual(t, len(filterableUuids), 1)
 				assert.ElementsMatch(t, filterableUuids, rangeableUuids)
 			})
@@ -391,8 +297,8 @@ func testNumericalFilters(host string) func(t *testing.T) {
 					int1, int2 = int2, int1
 				}
 
-				filterableUuids := intersectionInt("filterable_int", int1, int2)
-				rangeableUuids := intersectionInt("rangeable_int", int1, int2)
+				filterableUuids := queryIntersection("filterable_int", int2, int1)
+				rangeableUuids := queryIntersection("rangeable_int", int2, int1)
 				assert.GreaterOrEqual(t, len(filterableUuids), 1)
 				assert.ElementsMatch(t, filterableUuids, rangeableUuids)
 			})
@@ -403,8 +309,8 @@ func testNumericalFilters(host string) func(t *testing.T) {
 					number1, number2 = number2, number1
 				}
 
-				filterableUuids := intersectionNumber("filterable_number", number1, number2)
-				rangeableUuids := intersectionNumber("rangeable_number", number1, number2)
+				filterableUuids := queryIntersection("filterable_number", number2, number1)
+				rangeableUuids := queryIntersection("rangeable_number", number2, number1)
 				assert.GreaterOrEqual(t, len(filterableUuids), 1)
 				assert.ElementsMatch(t, filterableUuids, rangeableUuids)
 			})
@@ -415,8 +321,8 @@ func testNumericalFilters(host string) func(t *testing.T) {
 					date1, date2 = date2, date1
 				}
 
-				filterableUuids := intersectionDate("filterable_date", date1, date2)
-				rangeableUuids := intersectionDate("rangeable_date", date1, date2)
+				filterableUuids := queryIntersection("filterable_date", date2, date1)
+				rangeableUuids := queryIntersection("rangeable_date", date2, date1)
 				assert.GreaterOrEqual(t, len(filterableUuids), 1)
 				assert.ElementsMatch(t, filterableUuids, rangeableUuids)
 			})
@@ -425,16 +331,19 @@ func testNumericalFilters(host string) func(t *testing.T) {
 		t.Run("queries before delete", runQueries)
 
 		t.Run("delete some data", func(t *testing.T) {
-			resp, err := client.Batch().ObjectsBatchDeleter().
-				WithClassName(className).
-				WithWhere(filters.Where().
-					WithOperator(filters.Equal).
-					WithPath([]string{"delete"}).
-					WithValueBoolean(true)).
-				Do(context.Background())
+			r, err := h.Data.DeleteSelected(t.Context(), data.DeleteSelected{
+				Filter: filter.Cond{
+					Target:   "delete",
+					Operator: filter.Equal,
+					Value:    true,
+				},
+			})
 			require.NoError(t, err)
-			require.Equal(t, int64(0), resp.Results.Failed)
-			require.Equal(t, int64(batches*perBatch/2), resp.Results.Successful)
+			require.EqualValues(t, r.Matches, batches*perBatch/2, "values matched by delete filter")
+
+			count, err := h.Count(t.Context())
+			require.NoError(t, err)
+			require.EqualValues(t, batches*perBatch/2, count, "remaining items after deletion")
 		})
 
 		t.Run("queries after delete", runQueries)

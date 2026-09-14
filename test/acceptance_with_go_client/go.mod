@@ -13,7 +13,7 @@ require (
 	github.com/tailor-platform/graphql v0.6.0
 	github.com/weaviate/weaviate v1.36.0
 	github.com/weaviate/weaviate-go-client/v5 v5.7.3-0.20260413120914-0d665cebe735
-	github.com/weaviate/weaviate-go-client/v6 v6.0.0-beta.2.0.20260908143328-6dc6f0db0b42
+	github.com/weaviate/weaviate-go-client/v6 v6.0.0-beta.2.0.20260910152802-228b6704d91f
 	golang.org/x/sync v0.22.0
 	google.golang.org/grpc v1.83.2
 )
