@@ -41,6 +41,8 @@ type vectorIndexSlots struct {
 	createMu sync.Mutex
 	// drainTimeout overrides slotDrainTimeout when set; tests shorten it
 	drainTimeout time.Duration
+	// beforePublish is nil in production; a test pauses a create here
+	beforePublish func()
 }
 
 // vectorIndexSlot is one logical vector's index and queue. They are
@@ -84,6 +86,9 @@ func (v *vectorIndexSlots) Create(name string, build func() (VectorIndex, *Vecto
 	index, queue, err := build()
 	if err != nil {
 		return false, err
+	}
+	if v.beforePublish != nil {
+		v.beforePublish()
 	}
 	err = v.Publish(name, index, queue)
 	if err != nil {

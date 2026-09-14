@@ -527,3 +527,66 @@ func TestVectorLayoutBarrier_DropCancelledWhileWaiting(t *testing.T) {
 	assert.Zero(t, shard.vectorLayoutChanges, "the drop counted itself out")
 	shard.vectorLayoutGate.Unlock()
 }
+
+// liveCreate runs the live creation of an hnsw vector named name.
+func liveCreate(ctx context.Context, shard *Shard, name string) error {
+	return shard.index.updateVectorIndexConfigs(ctx, map[string]schemaConfig.VectorIndexConfig{
+		name: hnsw.NewDefaultUserConfig(),
+	})
+}
+
+// A halt is refused while a create is built but not yet published.
+func TestVectorLayoutBarrier_HaltRefusedBeforePublish(t *testing.T) {
+	ctx := testCtx()
+	shard, _ := setupDropVectorShard(t, ctx)
+
+	atPublish := make(chan struct{})
+	releasePublish := make(chan struct{})
+	shard.vectors.beforePublish = func() {
+		close(atPublish)
+		<-releasePublish
+	}
+	createErr := make(chan error, 1)
+	go func() { createErr <- liveCreate(ctx, shard, "bar") }()
+	<-atPublish
+
+	err := shard.HaltForTransfer(ctx, false, 0)
+	require.ErrorIs(t, err, enterrors.ErrShardBusyStructuralOp)
+	assert.Zero(t, shard.haltForTransferCount.Load())
+
+	close(releasePublish)
+	require.NoError(t, <-createErr)
+	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+	require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+}
+
+// A create started under a halt writes nothing, not even its record, until
+// the resume.
+func TestVectorLayoutBarrier_CreateWaitsForAHalt(t *testing.T) {
+	ctx := testCtx()
+	shard, _ := setupDropVectorShard(t, ctx)
+	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+
+	createErr := make(chan error, 1)
+	go func() { createErr <- liveCreate(ctx, shard, "bar") }()
+	select {
+	case err := <-createErr:
+		t.Fatalf("the create ran under the halt: %v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+	_, ok, err := shard.mapping.Get("bar")
+	require.NoError(t, err)
+	assert.False(t, ok, "no record before the resume")
+
+	require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+	select {
+	case err := <-createErr:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the create did not proceed after the resume")
+	}
+	rec, ok, err := shard.mapping.Get("bar")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "ready", rec.State)
+}
