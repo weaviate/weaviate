@@ -13,6 +13,8 @@ package cluster
 
 import (
 	"encoding/json"
+	"maps"
+	"slices"
 	"testing"
 	"time"
 
@@ -23,10 +25,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	clusterrbac "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/dbuser"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey/keys"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
@@ -105,6 +111,106 @@ func TestQueryUserIdentifierExistsDispatch(t *testing.T) {
 		require.NoError(t, json.Unmarshal(resp.Payload, &out))
 		require.False(t, out.Exists)
 	})
+}
+
+func TestQueryGetRolesForSubjectsDispatch(t *testing.T) {
+	// The three subjects share an id, so a response that mixes up their key
+	// prefixes hands one subject another's role.
+	subjects := []authorization.Subject{
+		{ID: "alice", AuthType: authentication.AuthTypeDb},
+		{ID: "alice", AuthType: authentication.AuthTypeOIDC},
+		{ID: "alice", AuthType: authentication.AuthTypeOIDC, IsGroup: true},
+	}
+	// Literal wire bytes and keys, so a change to Subject's fields or to the key
+	// format breaks this test instead of silently changing the wire format.
+	validSubCommand := []byte(`{"Subjects":[` +
+		`{"ID":"alice","AuthType":"db","IsGroup":false},` +
+		`{"ID":"alice","AuthType":"oidc","IsGroup":false},` +
+		`{"ID":"alice","AuthType":"oidc","IsGroup":true}]}`)
+	// casbin stores this role, but conv.CasbinPolicies cannot convert its
+	// resource, so a lookup that reaches alice's db roles fails on the leader.
+	brokenRoleSnapshot := []byte(`{"roles_policies":[["role:broken-role","not-a-resource","R","schema"]],` +
+		`"grouping_policies":[["db:alice","role:broken-role"]],"version":1}`)
+
+	tests := []struct {
+		name       string
+		withRBAC   bool
+		snapshot   []byte
+		subCommand []byte
+		wantRoles  map[string][]string
+		wantErr    error
+		wantFault  bool
+	}{
+		{
+			name:       "db user, oidc user and group each get their own role",
+			withRBAC:   true,
+			subCommand: validSubCommand,
+			wantRoles: map[string][]string{
+				"db:alice":    {"db-role"},
+				"oidc:alice":  {"oidc-role"},
+				"group:alice": {"group-role"},
+			},
+		},
+		{
+			name:       "a stored role that cannot be converted fails the lookup",
+			withRBAC:   true,
+			snapshot:   brokenRoleSnapshot,
+			subCommand: validSubCommand,
+			wantFault:  true,
+		},
+		{
+			name:       "malformed sub-command is a bad request",
+			withRBAC:   true,
+			subCommand: []byte("not json"),
+			wantErr:    clusterrbac.ErrBadRequest,
+		},
+		{
+			name:       "RBAC disabled answers an empty map",
+			subCommand: validSubCommand,
+			wantRoles:  map[string][]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ms := NewMockStore(t, "node-1", 0)
+			if tt.withRBAC {
+				rbacStores := newRolesAndUsersStores(t, usecasesNamespaces.NewMockExisterInState(t, nil))
+				if tt.snapshot != nil {
+					require.NoError(t, rbacStores.authZ.Restore(tt.snapshot, false))
+				}
+				for i, role := range []string{"db-role", "oidc-role", "group-role"} {
+					rbacStores.createRole(t, role)
+					require.NoError(t, rbacStores.authZ.AddRolesForUser(conv.SubjectKey(subjects[i]), []string{role}))
+				}
+				ms.store.authZManager = rbacStores.authZManager
+			}
+
+			resp, err := ms.store.Query(&cmd.QueryRequest{
+				Type:       cmd.QueryRequest_TYPE_GET_ROLES_FOR_USER_LIST,
+				SubCommand: tt.subCommand,
+			})
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			if tt.wantFault {
+				require.Error(t, err)
+				require.NotErrorIs(t, err, types.ErrUnknownCommand)
+				require.NotErrorIs(t, err, clusterrbac.ErrBadRequest)
+				return
+			}
+			require.NoError(t, err)
+
+			var out cmd.QueryGetRolesForSubjectsResponse
+			require.NoError(t, json.Unmarshal(resp.Payload, &out))
+			gotRoles := make(map[string][]string, len(out.Roles))
+			for key, roles := range out.Roles {
+				gotRoles[key] = slices.Sorted(maps.Keys(roles))
+			}
+			require.Equal(t, tt.wantRoles, gotRoles)
+		})
+	}
 }
 
 func TestQueryUnknownType(t *testing.T) {

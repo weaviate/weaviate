@@ -88,6 +88,11 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get RBAC permissions: %w", err)
 		}
+	case cmd.QueryRequest_TYPE_GET_ROLES_FOR_USER_LIST:
+		payload, err = st.authZManager.GetRolesForSubjects(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get RBAC roles for subjects: %w", err)
+		}
 	case cmd.QueryRequest_TYPE_GET_USERS_OR_GROUPS_WITH_ROLES:
 		payload, err = st.authZManager.GetUsersOrGroupsWithRoles(req)
 		if err != nil {

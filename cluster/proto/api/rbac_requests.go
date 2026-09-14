@@ -112,6 +112,15 @@ type QueryGetRolesForUserOrGroupResponse struct {
 	Roles map[string][]authorization.Policy
 }
 
+type QueryGetRolesForSubjectsRequest struct {
+	Subjects []authorization.Subject
+}
+
+// QueryGetRolesForSubjectsResponse keys Roles by conv.SubjectKey.
+type QueryGetRolesForSubjectsResponse struct {
+	Roles map[string]map[string][]authorization.Policy
+}
+
 type QueryGetUsersForRoleRequest struct {
 	Role     string
 	UserType authentication.AuthType
