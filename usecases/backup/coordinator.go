@@ -54,7 +54,7 @@ const (
 	_BookingPeriod      = time.Second * 20
 	_TimeoutNodeDown    = 7 * time.Minute
 	_TimeoutQueryStatus = 5 * time.Second
-	// 30s (was 8s when the transport ignored it): the client now honors the ctx, and canCommit covers participant backend Initialize calls that can be slow on remote object stores.
+	// Sizes the advertised booking; the transport does not enforce it as an RPC deadline, so participant backend Initialize calls that are slow on remote object stores never fail on time alone.
 	_TimeoutCanCommit = 30 * time.Second
 	// Fan-out restore participants read every source's descriptor inside canCommit; N reads of large descriptors need more than the create budget.
 	_TimeoutDedupeRestoreCanCommit = 120 * time.Second
