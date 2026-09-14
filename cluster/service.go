@@ -190,10 +190,6 @@ func New(cfg Config, authZController authorization.Controller, svrMetrics *monit
 }
 
 func (c *Service) onFSMCaughtUp(ctx context.Context) {
-	if !c.config.ReplicaMovementEnabled {
-		return
-	}
-
 	ticker := time.NewTicker(catchUpInterval)
 	defer ticker.Stop()
 	for {
@@ -279,9 +275,6 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		c.onFSMCaughtUp(ctx)
 	}, c.logger)
 
-	// Outside onFSMCaughtUp: that function returns early when
-	// ReplicaMovementEnabled is false while the FSM keeps accumulating ops, so
-	// the sweeper must not inherit that gate.
 	if c.opCleaner != nil {
 		cleanerCtx, cleanerCancel := context.WithCancel(ctx)
 		c.cancelOpCleaner = cleanerCancel
@@ -303,17 +296,12 @@ func (c *Service) Close(ctx context.Context) error {
 		c.closeOnFSMCaughtUp <- struct{}{}
 	}, c.logger)
 
-	if c.config.ReplicaMovementEnabled {
-		c.logger.Info("closing replication engine ...")
-		if c.cancelReplicationEngine != nil {
-			c.cancelReplicationEngine()
-		}
-		c.replicationEngine.Stop()
+	c.logger.Info("closing replication engine ...")
+	if c.cancelReplicationEngine != nil {
+		c.cancelReplicationEngine()
 	}
+	c.replicationEngine.Stop()
 
-	// Outside the conditional: the cleanup loop runs regardless of
-	// ReplicaMovementEnabled. Nil-guarded because Open has early-return paths
-	// that leave the cancel unset.
 	if c.cancelOpCleaner != nil {
 		c.cancelOpCleaner()
 	}

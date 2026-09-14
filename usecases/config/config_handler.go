@@ -250,8 +250,6 @@ type Config struct {
 
 	RuntimeOverrides RuntimeOverrides `json:"runtime_overrides" yaml:"runtime_overrides"`
 
-	ReplicaMovementEnabled bool `json:"replica_movement_enabled" yaml:"replica_movement_enabled"`
-
 	// RuntimeReindexEnabled gates runtime reindex (RUNTIME_REINDEX_ENABLED),
 	// off by default. With it off, new reindex submissions are refused and
 	// the backup path performs no reindex check.
