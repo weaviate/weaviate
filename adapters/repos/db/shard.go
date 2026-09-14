@@ -242,6 +242,13 @@ type onDeleteFromPropertyValueIndex func(shard *Shard, docID uint64, property *i
 // Shard is the smallest completely-contained index unit. A shard manages
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
+// shardTestHooks are nil in production; a test pauses a halt or a snapshot
+// at the point a hook names.
+type shardTestHooks struct {
+	afterHaltAdmission   func() error // a returned error fails the preparation
+	afterListBackupFiles func()
+}
+
 type Shard struct {
 	index             *Index // a reference to the underlying index, which in turn contains schema information
 	class             *models.Class
@@ -356,6 +363,19 @@ type Shard struct {
 	// Mutations under haltForTransferMux; atomic so halt probes read lock-free.
 	haltForTransferCount     atomic.Int64
 	haltForTransferCtxCancel context.CancelFunc
+	// vectorLayoutGate orders a create or drop against a halt: a change
+	// counts itself in and reads the halt under it, a halt reads the count
+	// and takes its token under it, so neither slips past the other.
+	vectorLayoutGate    sync.Mutex
+	vectorLayoutChanges int
+	// vectorLayoutGen moves when a change proceeds under a halt past its
+	// wait; haltLayoutBaseline is its value when the first of the halts now
+	// held was admitted, fixed until the last of them resumes
+	vectorLayoutGen    uint64
+	haltLayoutBaseline uint64
+	// layoutWaitTimeout overrides vectorLayoutWaitTimeout when set; tests shorten it
+	layoutWaitTimeout time.Duration
+	testHooks         shardTestHooks
 
 	status              ShardStatus
 	statusLock          sync.RWMutex

@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/entities/additional"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
@@ -415,4 +416,114 @@ func reopenMapping(t *testing.T, shardDir string) (map[string]vectorIndexRecord,
 	require.NoError(t, err)
 	defer db.Close()
 	return newVectorIndexMapping(db).Load()
+}
+
+// A halt, offload included, is refused while a drop is in flight and
+// admitted once it is done.
+func TestVectorLayoutBarrier_HaltRefusedDuringDrop(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	shard.vectors.drainTimeout = 2 * time.Second
+
+	// a held lease keeps the drop in its drain for the whole drainTimeout
+	slot, ok := shard.vectors.Acquire("foo")
+	require.True(t, ok)
+	markDropped(class, "foo")
+
+	dropErr := make(chan error, 1)
+	go func() { dropErr <- shard.DropVectorIndex(ctx, "foo") }()
+	require.Eventually(t, func() bool {
+		shard.vectorLayoutGate.Lock()
+		defer shard.vectorLayoutGate.Unlock()
+		return shard.vectorLayoutChanges == 1
+	}, time.Second, 10*time.Millisecond)
+
+	for _, offloading := range []bool{false, true} {
+		err := shard.HaltForTransfer(ctx, offloading, 0)
+		require.ErrorIs(t, err, enterrors.ErrShardBusyStructuralOp, "offloading=%v", offloading)
+		assert.Zero(t, shard.haltForTransferCount.Load(), "a refusal leaves the shard unhalted")
+	}
+
+	slot.release()
+	require.NoError(t, <-dropErr)
+
+	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+	require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+}
+
+// A drop started under a halt removes nothing until the resume.
+func TestVectorLayoutBarrier_DropWaitsForAHalt(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+	token := shard.haltLayoutToken()
+
+	markDropped(class, "foo")
+	dropErr := make(chan error, 1)
+	go func() { dropErr <- shard.DropVectorIndex(ctx, "foo") }()
+
+	select {
+	case err := <-dropErr:
+		t.Fatalf("the drop ran under the halt: %v", err)
+	case <-time.After(500 * time.Millisecond):
+	}
+	commitLog := filepath.Join(shard.path(), helpers.GetHNSWCommitLogDirName("foo"))
+	_, err := os.Stat(commitLog)
+	require.NoError(t, err, "the files are still there for the backup")
+
+	require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+	select {
+	case err := <-dropErr:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("the drop did not proceed after the resume")
+	}
+	_, err = os.Stat(commitLog)
+	assert.True(t, os.IsNotExist(err))
+	assert.False(t, shard.layoutChangedSince(token), "a drop that waited does not fail the snapshot")
+}
+
+// A drop that outwaits the bound proceeds under the halt and marks the
+// halt's snapshot as changed.
+func TestVectorLayoutBarrier_DropProceedsAfterTheBound(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	shard.layoutWaitTimeout = 200 * time.Millisecond
+	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+	defer func() { require.NoError(t, shard.resumeMaintenanceCycles(ctx)) }()
+	token := shard.haltLayoutToken()
+
+	markDropped(class, "foo")
+	start := time.Now()
+	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+	assert.Less(t, time.Since(start), 2*time.Second)
+	assert.Equal(t, int64(1), shard.haltForTransferCount.Load(), "the halt is still held")
+	assert.True(t, shard.layoutChangedSince(token))
+
+	found, err := shard.WithVectorIndex("foo", func(VectorIndex) error { return nil })
+	require.NoError(t, err)
+	assert.False(t, found)
+}
+
+// A cancelled context ends the wait without removing anything.
+func TestVectorLayoutBarrier_DropCancelledWhileWaiting(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+	defer func() { require.NoError(t, shard.resumeMaintenanceCycles(ctx)) }()
+
+	markDropped(class, "foo")
+	dropCtx, cancel := context.WithCancel(ctx)
+	dropErr := make(chan error, 1)
+	go func() { dropErr <- shard.DropVectorIndex(dropCtx, "foo") }()
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+	require.ErrorIs(t, <-dropErr, context.Canceled)
+
+	found, err := shard.WithVectorIndex("foo", func(VectorIndex) error { return nil })
+	require.NoError(t, err)
+	assert.True(t, found, "nothing was removed")
+	shard.vectorLayoutGate.Lock()
+	assert.Zero(t, shard.vectorLayoutChanges, "the drop counted itself out")
+	shard.vectorLayoutGate.Unlock()
 }
