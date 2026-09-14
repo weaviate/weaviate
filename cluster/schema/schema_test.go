@@ -1581,7 +1581,7 @@ func Test_PendingShardProcesses(t *testing.T) {
 
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
-			s := NewSchema(nodeID, nil, prometheus.NewPedanticRegistry())
+			s := NewSchema(nodeID, prometheus.NewPedanticRegistry())
 			require.NoError(t, s.addClass(&models.Class{
 				Class:              className,
 				MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
@@ -1608,7 +1608,7 @@ func Test_PendingShardProcessesTenantNameWithSeparator(t *testing.T) {
 	const nodeID = "testNode"
 	name := "tenant-ACTION_FREEZING-x"
 
-	s := NewSchema(nodeID, nil, prometheus.NewPedanticRegistry())
+	s := NewSchema(nodeID, prometheus.NewPedanticRegistry())
 	require.NoError(t, s.addClass(&models.Class{
 		Class:              "TestClass",
 		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
