@@ -47,7 +47,7 @@ type objectFinder interface {
 type AutoSchemaManager struct {
 	mutex         sync.RWMutex
 	schemaManager schemaManager
-	vectorRepo    objectFinder
+	objectFinder  objectFinder
 	config        config.AutoSchema
 	logger        logrus.FieldLogger
 
@@ -79,7 +79,7 @@ func NewAutoSchemaManager(schemaManager schemaManager, vectorRepo objectFinder,
 
 	return &AutoSchemaManager{
 		schemaManager: schemaManager,
-		vectorRepo:    vectorRepo,
+		objectFinder:  vectorRepo,
 		config:        config.Config.AutoSchema,
 		logger:        logger,
 		tenantsCount:  tenantsCount,
@@ -510,7 +510,7 @@ func (m *AutoSchemaManager) asRef(ctx context.Context, target refTarget,
 	}
 	// Asking a multi-tenant collection for a tenant can activate that tenant, so
 	// the lookup names none and ObjectsByID passes those collections over.
-	results, err := m.vectorRepo.ObjectsByID(ctx, ref.TargetID, search.SelectProperties{},
+	results, err := m.objectFinder.ObjectsByID(ctx, ref.TargetID, search.SelectProperties{},
 		additional.Properties{}, "", target.sourceNamespace)
 	if err != nil {
 		// Typing the property from a lookup that did not run stores every later

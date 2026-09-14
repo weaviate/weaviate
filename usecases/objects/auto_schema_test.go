@@ -662,7 +662,7 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		m := &AutoSchemaManager{
 			schemaManager: &fakeSchemaManager{},
-			vectorRepo:    vectorRepo,
+			objectFinder:  vectorRepo,
 			logger:        logger,
 			config:        tt.fields.config,
 		}
@@ -742,7 +742,7 @@ func Test_autoSchemaManager_autoSchema_emptyRequest(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	autoSchemaManager := &AutoSchemaManager{
 		schemaManager: schemaManager,
-		vectorRepo:    vectorRepo,
+		objectFinder:  vectorRepo,
 		config: config.AutoSchema{
 			Enabled:       runtime.NewDynamicValue(true),
 			DefaultString: schema.DataTypeText.String(),
@@ -769,7 +769,7 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	autoSchemaManager := &AutoSchemaManager{
 		schemaManager: schemaManager,
-		vectorRepo:    vectorRepo,
+		objectFinder:  vectorRepo,
 		config: config.AutoSchema{
 			Enabled:       runtime.NewDynamicValue(true),
 			DefaultString: schema.DataTypeText.String(),
@@ -855,7 +855,7 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	}
 	autoSchemaManager := &AutoSchemaManager{
 		schemaManager: schemaManager,
-		vectorRepo:    vectorRepo,
+		objectFinder:  vectorRepo,
 		config: config.AutoSchema{
 			Enabled:       runtime.NewDynamicValue(true),
 			DefaultString: schema.DataTypeText.String(),
@@ -1433,7 +1433,7 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 
 	manager := &AutoSchemaManager{
 		schemaManager: &fakeSchemaManager{},
-		vectorRepo:    &fakeVectorRepo{},
+		objectFinder:  &fakeVectorRepo{},
 		config: config.AutoSchema{
 			Enabled:       runtime.NewDynamicValue(true),
 			DefaultNumber: schema.DataTypeNumber.String(),
@@ -1722,7 +1722,7 @@ func newBeaconTestManager(vectorRepo *fakeVectorRepo) *AutoSchemaManager {
 	logger, _ := test.NewNullLogger()
 	return &AutoSchemaManager{
 		schemaManager: &fakeSchemaManager{},
-		vectorRepo:    vectorRepo,
+		objectFinder:  vectorRepo,
 		logger:        logger,
 		config: config.AutoSchema{
 			Enabled:       runtime.NewDynamicValue(true),
@@ -2073,7 +2073,7 @@ func Test_autoSchemaManager_perform_withNested(t *testing.T) {
 	}
 	manager := &AutoSchemaManager{
 		schemaManager: schemaManager,
-		vectorRepo:    &fakeVectorRepo{},
+		objectFinder:  &fakeVectorRepo{},
 		config: config.AutoSchema{
 			Enabled:       runtime.NewDynamicValue(true),
 			DefaultNumber: schema.DataTypeNumber.String(),
