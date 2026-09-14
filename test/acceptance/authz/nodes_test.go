@@ -107,6 +107,16 @@ func TestAuthzNodes(t *testing.T) {
 		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
 	})
 
+	// A verbose request for all collections still needs read_nodes. It returns
+	// the node name, version and batch stats however its shards are filtered.
+	t.Run("fail to get verbose nodes on all collections without read_nodes", func(t *testing.T) {
+		_, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams().WithOutput(String(verbosity.OutputVerbose)), helper.CreateAuth(customKey))
+		require.Error(t, err)
+		var parsed *nodes.NodesGetForbidden
+		require.True(t, errors.As(err, &parsed), "%v", err)
+		require.Contains(t, parsed.Payload.Error[0].Message, "forbidden")
+	})
+
 	t.Run("fail to get cluster stats without read_cluster", func(t *testing.T) {
 		_, err := helper.Client(t).Cluster.ClusterGetStatistics(cluster.NewClusterGetStatisticsParams(), helper.CreateAuth(customKey))
 		require.NotNil(t, err)

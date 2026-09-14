@@ -370,6 +370,7 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 
 func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
+	schemaManager.SetMetadataOnly(cfg.MetadataOnlyVoters)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
 	if dv := cfg.MaxTenantsPerCollection; dv != nil {
@@ -659,6 +660,7 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 		if st.IsLeader() {
 			st.maybeCommitClusterID()
 		}
+
 		return
 	}
 }

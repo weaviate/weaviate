@@ -57,10 +57,15 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 	// filter output after getting results if info about all shards is requested
 	filterOutput := verbosityString == verbosity.OutputVerbose && className == "" && m.rbacconfig.Enabled
 
-	if !filterOutput {
-		if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Nodes(verbosityString, className)...); err != nil {
-			return nil, err
-		}
+	// A filtered request still needs minimal access. Every verbosity returns the
+	// node name, version and batch stats, and the loop below rewrites only Shards
+	// and Stats. Any verbose grant implies minimal access.
+	resources := authorization.Nodes(verbosityString, className)
+	if filterOutput {
+		resources = authorization.Nodes(verbosity.OutputMinimal)
+	}
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, resources...); err != nil {
+		return nil, err
 	}
 
 	if verbosityString != verbosity.OutputVerbose {

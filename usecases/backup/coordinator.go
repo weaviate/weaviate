@@ -209,6 +209,8 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		BaseBackupID:    req.BaseBackupID,
 		Users:           req.Users,
 		Roles:           req.Roles,
+		SkipUsers:       req.SkipUsers,
+		SkipRoles:       req.SkipRoles,
 	}
 
 	for key := range c.Participants {
@@ -591,6 +593,8 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 				Classes:           gr.Classes,
 				Users:             req.Users,
 				Roles:             req.Roles,
+				SkipUsers:         req.SkipUsers,
+				SkipRoles:         req.SkipRoles,
 				Duration:          _BookingPeriod,
 				NodeMapping:       c.descriptor.NodeMapping,
 				Compression:       req.Compression,
@@ -736,6 +740,15 @@ func (c *coordinator) commit(ctx context.Context,
 					}
 
 					if meta, err := nodeStore.Meta(ctx, req.ID, req.Bucket, req.Path); err == nil {
+						// A node predating Request.SkipUsers/SkipRoles ignores the flag
+						// and uploads a whole-cluster snapshot. Fail rather than leave a
+						// backup that older restore code would apply in full.
+						if (c.descriptor.SkipUsers && len(meta.UserBackups) > 0) ||
+							(c.descriptor.SkipRoles && len(meta.RbacBackups) > 0) {
+							status = backup.Failed
+							st.Status = backup.Failed
+							reason = fmt.Sprintf("node %q uploaded a user or RBAC snapshot the request excluded; it predates the includeUsers/includeRoles skip, retry after the upgrade", node)
+						}
 						st.PreCompressionSizeBytes = meta.PreCompressionSizeBytes
 						totalPreCompressionSize += meta.PreCompressionSizeBytes
 						c.log.WithFields(logrus.Fields{
