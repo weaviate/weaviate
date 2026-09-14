@@ -499,3 +499,100 @@ func TestMemtableArmsCommitLogSync(t *testing.T) {
 		})
 	}
 }
+
+// TestMemtableRoaringSetEmptyWriteSkipsCommitLog pins that a write the tree
+// ignores never reaches the commit log, since replay could not materialise it.
+func TestMemtableRoaringSetEmptyWriteSkipsCommitLog(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	newFixture := func(t *testing.T) *Memtable {
+		t.Helper()
+
+		memPath := path.Join(t.TempDir(), "fake")
+		cl, err := newCommitLogger(memPath, StrategyRoaringSet, 0)
+		require.NoError(t, err)
+
+		m, err := newMemtable(cl, nil, logger, nil, memtableConfig{
+			path:     memPath,
+			strategy: StrategyRoaringSet,
+		})
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, m.commitlog.close()) })
+
+		return m
+	}
+
+	key := []byte("key")
+
+	tests := []struct {
+		name  string
+		write func(m *Memtable) error
+	}{
+		{"add list, nil", func(m *Memtable) error {
+			return m.roaringSetAddList(key, nil)
+		}},
+		{"add list, empty slice", func(m *Memtable) error {
+			return m.roaringSetAddList(key, []uint64{})
+		}},
+		{"remove list, nil", func(m *Memtable) error {
+			return m.roaringSetRemoveList(key, nil)
+		}},
+		{"add bitmap, empty", func(m *Memtable) error {
+			return m.roaringSetAddBitmap(key, sroar.NewBitmap())
+		}},
+		{"remove bitmap, empty", func(m *Memtable) error {
+			return m.roaringSetRemoveBitmap(key, sroar.NewBitmap())
+		}},
+		{"add remove slices, both empty", func(m *Memtable) error {
+			return m.roaringSetAddRemoveSlices(key, nil, nil)
+		}},
+		{"add batch, empty values", func(m *Memtable) error {
+			return m.roaringSetAddBatch([]RoaringSetBatchEntry{{Key: key}})
+		}},
+		{"remove batch, empty values", func(m *Memtable) error {
+			return m.roaringSetRemoveBatch([]RoaringSetBatchEntry{{Key: key}})
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			m := newFixture(t)
+
+			require.NoError(t, test.write(m))
+
+			assert.Zero(t, m.commitlogSize(), "an empty write must not be logged")
+			assert.Zero(t, m.Size(), "an empty write must not grow the memtable")
+		})
+	}
+
+	t.Run("a write carrying values is still logged", func(t *testing.T) {
+		m := newFixture(t)
+
+		require.NoError(t, m.roaringSetAddList(key, []uint64{7}))
+
+		assert.Greater(t, m.commitlogSize(), int64(0))
+		assert.Greater(t, m.Size(), uint64(0))
+	})
+
+	t.Run("a batch logs only the entries carrying values", func(t *testing.T) {
+		mixed := newFixture(t)
+		require.NoError(t, mixed.roaringSetAddBatch([]RoaringSetBatchEntry{
+			{Key: []byte("empty")},
+			{Key: key, Values: []uint64{7}},
+		}))
+
+		alone := newFixture(t)
+		require.NoError(t, alone.roaringSetAddBatch([]RoaringSetBatchEntry{
+			{Key: key, Values: []uint64{7}},
+		}))
+
+		assert.Equal(t, alone.commitlogSize(), mixed.commitlogSize(),
+			"an empty entry must not add commit-log bytes")
+		assert.Equal(t, alone.Size(), mixed.Size(),
+			"an empty entry must not add a node")
+
+		layer, err := mixed.roaringSetGet(key)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []uint64{7}, layer.Additions.ToArray())
+	})
+}

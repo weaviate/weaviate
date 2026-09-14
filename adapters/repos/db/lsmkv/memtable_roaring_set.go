@@ -27,6 +27,11 @@ func (m *Memtable) roaringSetAddList(key []byte, values []uint64) error {
 	if err := CheckStrategyRoaringSet(m.strategy); err != nil {
 		return err
 	}
+	// The tree ignores a write carrying no values, so commit-logging one records
+	// an entry replay can never materialise.
+	if len(values) == 0 {
+		return nil
+	}
 
 	node, err := roaringset.NewSegmentNodeList(key, values, []uint64{})
 	if err != nil {
@@ -53,9 +58,13 @@ func (m *Memtable) roaringSetAddBatch(entries []RoaringSetBatchEntry) error {
 		return err
 	}
 
-	// Pre-allocate all commit log nodes outside the lock.
+	// Pre-allocate all commit log nodes outside the lock. nodes[i] stays nil for
+	// an empty write, which the loop below skips.
 	nodes := make([]*roaringset.SegmentNodeList, len(entries))
 	for i, e := range entries {
+		if len(e.Values) == 0 {
+			continue
+		}
 		node, err := roaringset.NewSegmentNodeList(e.Key, e.Values, []uint64{})
 		if err != nil {
 			return fmt.Errorf("create node for commit log: %w", err)
@@ -67,6 +76,9 @@ func (m *Memtable) roaringSetAddBatch(entries []RoaringSetBatchEntry) error {
 	defer m.Unlock()
 
 	for i, node := range nodes {
+		if node == nil {
+			continue
+		}
 		if err := m.roaringSetAddCommitLog(node); err != nil {
 			m.roaringSetAdjustMeta()
 			return err
@@ -83,7 +95,12 @@ func (m *Memtable) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 		return err
 	}
 
+	if bm.IsEmpty() {
+		return nil
+	}
+
 	array := bm.ToArray()
+
 	node, err := roaringset.NewSegmentNodeList(key, array, []uint64{})
 	if err != nil {
 		return fmt.Errorf("create node for commit log: %w", err)
@@ -109,6 +126,9 @@ func (m *Memtable) roaringSetRemoveOne(key []byte, value uint64) error {
 func (m *Memtable) roaringSetRemoveList(key []byte, values []uint64) error {
 	if err := CheckStrategyRoaringSet(m.strategy); err != nil {
 		return err
+	}
+	if len(values) == 0 {
+		return nil
 	}
 
 	node, err := roaringset.NewSegmentNodeList(key, []uint64{}, values)
@@ -137,9 +157,13 @@ func (m *Memtable) roaringSetRemoveBatch(entries []RoaringSetBatchEntry) error {
 		return err
 	}
 
-	// Pre-allocate all commit log nodes outside the lock.
+	// Pre-allocate all commit log nodes outside the lock. nodes[i] stays nil for
+	// an empty write, which the loop below skips.
 	nodes := make([]*roaringset.SegmentNodeList, len(entries))
 	for i, e := range entries {
+		if len(e.Values) == 0 {
+			continue
+		}
 		node, err := roaringset.NewSegmentNodeList(e.Key, []uint64{}, e.Values)
 		if err != nil {
 			return fmt.Errorf("create node for commit log: %w", err)
@@ -151,6 +175,9 @@ func (m *Memtable) roaringSetRemoveBatch(entries []RoaringSetBatchEntry) error {
 	defer m.Unlock()
 
 	for i, node := range nodes {
+		if node == nil {
+			continue
+		}
 		if err := m.roaringSetAddCommitLog(node); err != nil {
 			m.roaringSetAdjustMeta()
 			return err
@@ -167,7 +194,12 @@ func (m *Memtable) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error {
 		return err
 	}
 
+	if bm.IsEmpty() {
+		return nil
+	}
+
 	array := bm.ToArray()
+
 	node, err := roaringset.NewSegmentNodeList(key, []uint64{}, array)
 	if err != nil {
 		return fmt.Errorf("create node for commit log: %w", err)
@@ -189,6 +221,9 @@ func (m *Memtable) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error {
 func (m *Memtable) roaringSetAddRemoveSlices(key []byte, additions []uint64, deletions []uint64) error {
 	if err := CheckStrategyRoaringSet(m.strategy); err != nil {
 		return err
+	}
+	if len(additions) == 0 && len(deletions) == 0 {
+		return nil
 	}
 
 	node, err := roaringset.NewSegmentNodeList(key, additions, deletions)
