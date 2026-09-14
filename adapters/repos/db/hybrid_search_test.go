@@ -1033,7 +1033,7 @@ func (f *fakeObjectSearcher) Object(ctx context.Context, className string, id st
 	return nil, nil
 }
 
-func (f *fakeObjectSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties, tenant string) (search.Results, error) {
+func (f *fakeObjectSearcher) ObjectsByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties, tenant, namespace string) (search.Results, error) {
 	return nil, nil
 }
 

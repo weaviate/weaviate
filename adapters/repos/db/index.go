@@ -750,6 +750,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				i.logger.
 					WithField("action", "load_shard").
 					WithField("shard_name", shardName).
+					WithFields(enterrors.DocsLinkFields(err)).
 					Errorf("failed to load shard, loading the rest anyway: %v", err)
 				// A failure says nothing about the shards behind this one: memory
 				// pressure is node-wide and transient, anything else is specific
@@ -4233,7 +4234,7 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 //
 //	map[string]map[string]string{
 //		"shard-0": { "node-0": "READY", "node-1": "READONLY" },
-//		"shard-1": { "node-1": "READY", "node-1": "READONLY" },
+//		"shard-1": { "node-1": "READY", "node-2": "READONLY" },
 //	}
 //
 // The second return value are shard statuses mirroring the legacy implementation,
@@ -4269,7 +4270,9 @@ func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[
 				oneNodeStatus atomic.Value
 				perNodeStatus = make(map[string]string, len(replicas))
 			)
+
 			for _, nodeName := range replicas {
+				perNodeStatus[nodeName] = storagestate.StatusUnavailable.String()
 				var err error
 				if nodeName == thisNode {
 					var (
@@ -4287,6 +4290,8 @@ func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[
 						status := shard.GetStatus().String()
 						oneNodeStatus.Store(status)
 						perNodeStatus[nodeName] = status
+					} else {
+						oneNodeStatus.Store(storagestate.StatusUnavailable.String())
 					}
 					release()
 				} else {
@@ -4294,6 +4299,8 @@ func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[
 					if status, err = i.remote.GetShardStatus(ctx, shardName, nodeName); err == nil {
 						oneNodeStatus.CompareAndSwap(nil, status)
 						perNodeStatus[nodeName] = status
+					} else {
+						oneNodeStatus.CompareAndSwap(nil, storagestate.StatusUnavailable.String())
 					}
 				}
 

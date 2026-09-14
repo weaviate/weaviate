@@ -58,6 +58,12 @@ func (e *executor) Open(ctx context.Context) error {
 	return e.migrator.WaitForStartup(ctx)
 }
 
+// DropOrphanedClass returns its error, unlike DeleteClass, so the next reload
+// can retry a failed drop.
+func (e *executor) DropOrphanedClass(ctx context.Context, cls string, hasFrozen bool) error {
+	return e.migrator.DropOrphanedClass(ctx, cls, hasFrozen)
+}
+
 // ReloadLocalDB reloads the local database using the latest schema.
 func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassRequest) error {
 	cs := make([]*models.Class, len(all))
@@ -76,7 +82,9 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 			cs[i] = u.Class
 
 			if err := e.migrator.UpdateIndex(ctx, u.Class, u.State); err != nil {
-				e.logger.WithField("index", u.Class.Class).WithError(err).Error("failed to reload local index")
+				e.logger.WithField("index", u.Class.Class).
+					WithFields(enterrors.DocsLinkFields(err)).
+					WithError(err).Error("failed to reload local index")
 				err := fmt.Errorf("failed to reload local index %d: %w", i, err)
 
 				errMutex.Lock()
@@ -328,7 +336,8 @@ func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest, pr
 		e.logger.WithFields(logrus.Fields{
 			"action": "update_tenants",
 			"class":  class,
-		}).WithError(err).Error("error updating tenants")
+		}).WithFields(enterrors.DocsLinkFields(err)).
+			WithError(err).Error("error updating tenants")
 		return err
 	}
 	return nil
@@ -361,7 +370,8 @@ func (e *executor) UpdateTenantsProcess(class string, req *api.TenantProcessRequ
 			"action":     "update_tenants_process",
 			"sub-action": "update_tenants",
 			"class":      class,
-		}).Errorf("error updating tenants: %v", err)
+		}).WithFields(enterrors.DocsLinkFields(err)).
+			Errorf("error updating tenants: %v", err)
 		return err
 	}
 	return nil

@@ -437,9 +437,9 @@ func (m *commitMerger) result() *NodeCommits {
 
 	for _, level := range levels {
 		links := m.linksPerLevel[level]
-		if len(links) == 0 {
-			continue
-		}
+		// Empty link records still carry state: they can be the only record
+		// of an isolated level-0 node, or replace links from an older file.
+		// Dropping them can erase the node or resurrect its old links.
 
 		if m.linksReplaced[level] {
 			commits = append(commits, &ReplaceLinksAtLevelCommit{

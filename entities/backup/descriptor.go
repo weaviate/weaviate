@@ -57,6 +57,11 @@ type DistributedBackupDescriptor struct {
 	BaseBackupID            string                     `json:"baseBackupId"`
 	Users                   []string                   `json:"users,omitempty"`
 	Roles                   []string                   `json:"roles,omitempty"`
+	// SkipUsers/SkipRoles record that includeUsers/includeRoles was given but
+	// matched nothing. Restore discards any user or RBAC blob a node uploaded
+	// anyway, which a participant predating the request-level skip flag does.
+	SkipUsers bool `json:"skipUsers,omitempty"`
+	SkipRoles bool `json:"skipRoles,omitempty"`
 }
 
 // Len returns how many nodes exist in d
