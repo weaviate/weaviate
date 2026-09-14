@@ -12,13 +12,18 @@
 package rest
 
 import (
+	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/batch"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -80,4 +85,61 @@ func TestReferencesResponse_FailedRowWithNilBeaconsDoesNotPanic(t *testing.T) {
 	// Empty beacons are acceptable here — what matters is no panic and the
 	// failure is preserved in Result.Errors.
 	assert.NotNil(t, got[0].Result.Errors)
+}
+
+// stubRequestsTotal swallows the metric calls addObjects makes on its error
+// paths.
+type stubRequestsTotal struct{}
+
+func (stubRequestsTotal) logError(string, error)       {}
+func (stubRequestsTotal) logOk(string)                 {}
+func (stubRequestsTotal) logUserError(string)          {}
+func (stubRequestsTotal) logServerError(string, error) {}
+
+func TestBatchObjectHandlers_AddObjects(t *testing.T) {
+	t.Run("records the caller's namespace before validation rejects the batch", func(t *testing.T) {
+		tests := []struct {
+			name      string
+			principal *models.Principal
+			want      string
+		}{
+			{name: "nil principal yields empty label", principal: nil, want: ""},
+			{
+				name:      "global operator yields empty label",
+				principal: &models.Principal{Username: "admin", Namespace: "ns_a", IsGlobalOperator: true},
+				want:      "",
+			},
+			{
+				name:      "namespace-less principal yields empty label",
+				principal: &models.Principal{Username: "legacy"},
+				want:      "",
+			},
+			{
+				name:      "namespaced user yields its namespace",
+				principal: &models.Principal{Username: "ns_a:alice", Namespace: "ns_a"},
+				want:      "ns_a",
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				ctx, slot := restCtx.WithBatchNamespaceSlot(context.Background())
+				r := httptest.NewRequest(http.MethodPost, "/v1/batch/objects", nil).WithContext(ctx)
+				// An unknown consistency level fails validation on the line
+				// after the slot write, which keeps the batch manager out of
+				// this test.
+				badLevel := "not-a-level"
+
+				h := &batchObjectHandlers{metricRequestsTotal: stubRequestsTotal{}}
+				res := h.addObjects(batch.BatchObjectsCreateParams{
+					HTTPRequest:      r,
+					ConsistencyLevel: &badLevel,
+					Body:             batch.BatchObjectsCreateBody{},
+				}, tc.principal)
+
+				require.IsType(t, &batch.BatchObjectsCreateBadRequest{}, res)
+				assert.Equal(t, tc.want, slot.Namespace)
+			})
+		}
+	})
 }

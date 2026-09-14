@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -41,6 +42,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -563,7 +565,7 @@ func Test_DisableDimensionTracking(t *testing.T) {
 	publishVectorMetricsFromDB(t, db)
 	shardName := getSingleShardNameFromRepo(db, "Test")
 	t.Run("observe that dimension tracking metrics are not updated", func(t *testing.T) {
-		metric, err := db.promMetrics.VectorDimensionsSum.GetMetricWithLabelValues("Test", shardName)
+		metric, err := db.promMetrics.VectorDimensionsSum.GetMetricWithLabelValues("Test", shardName, "")
 		require.NoError(t, err)
 		assert.Equal(t, 0.0, testutil.ToFloat64(metric), "dimensions should not be reported, expect 0")
 	})
@@ -752,11 +754,11 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 
 				assertTotalMetrics = func(expectDims, expectSegs float64) {
 					metrics := monitoring.GetMetrics()
-					metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues(class.Class, shardName)
+					metric, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues(class.Class, shardName, "")
 					require.NoError(t, err)
 					require.Equal(t, expectDims, testutil.ToFloat64(metric))
 
-					metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues(class.Class, shardName)
+					metric, err = metrics.VectorSegmentsSum.GetMetricWithLabelValues(class.Class, shardName, "")
 					require.NoError(t, err)
 					require.Equal(t, expectSegs, testutil.ToFloat64(metric))
 				}
@@ -1081,6 +1083,25 @@ func TestGetDimensionCategory(t *testing.T) {
 	}
 }
 
+// activeNamespaces is a namespace lookup reporting the named namespaces as
+// Active. An unqualified class never reaches this lookup: stateForShardDecision
+// returns early for an empty namespace, so the zero value stands in for a
+// cluster with namespaces off.
+type activeNamespaces []string
+
+func (a activeNamespaces) GetNamespace(name string) (cmd.Namespace, bool) {
+	for _, known := range a {
+		if known == name {
+			return cmd.Namespace{
+				Name:      name,
+				HomeNodes: []string{"node1"},
+				State:     cmd.NamespaceStateActive,
+			}, true
+		}
+	}
+	return cmd.Namespace{}, false
+}
+
 func TestDimensionTrackingWithGrouping(t *testing.T) {
 	const (
 		nClasses          = 2
@@ -1092,15 +1113,20 @@ func TestDimensionTrackingWithGrouping(t *testing.T) {
 	)
 
 	testCases := []struct {
-		name               string
-		groupingEnabled    bool
-		expectedLabels     []string // class-shard label pairs
-		expectedDimensions []int    // expectedDimensions for a label pair
+		name            string
+		groupingEnabled bool
+		// classNamespace qualifies every class as "<ns>:<class>", the shape a
+		// namespaced cluster stores.
+		classNamespace     string
+		expectedLabels     []string // class-shard-namespace label triples
+		expectedDimensions []int    // expectedDimensions for a label triple
 	}{
 		{
-			name:               "with_grouping_enabled",
-			groupingEnabled:    true,
-			expectedLabels:     []string{"n/a", "n/a"},
+			name:            "with_grouping_enabled",
+			groupingEnabled: true,
+			// Without namespaces every index sits in the empty one, so grouping
+			// still publishes the single series it always did.
+			expectedLabels:     []string{"n/a", "n/a", ""},
 			expectedDimensions: []int{expectTotalDim},
 		},
 		{
@@ -1109,6 +1135,22 @@ func TestDimensionTrackingWithGrouping(t *testing.T) {
 			// Will be set dynamically
 			expectedLabels:     nil,
 			expectedDimensions: nil,
+		},
+		{
+			name:               "namespaced_class_with_grouping_disabled",
+			groupingEnabled:    false,
+			classNamespace:     "ns_a",
+			expectedLabels:     nil,
+			expectedDimensions: nil,
+		},
+		{
+			name:            "namespaced_class_with_grouping_enabled",
+			groupingEnabled: true,
+			classNamespace:  "ns_a",
+			// Grouping drops the class and shard, never the namespace: the
+			// namespace carries the total and the empty bucket stays at 0.
+			expectedLabels:     []string{"n/a", "n/a", "ns_a", "n/a", "n/a", ""},
+			expectedDimensions: []int{expectTotalDim, 0},
 		},
 	}
 
@@ -1122,7 +1164,7 @@ func TestDimensionTrackingWithGrouping(t *testing.T) {
 			classes := make([]*models.Class, nClasses)
 			for i := range classes {
 				classes[i] = &models.Class{
-					Class:               fmt.Sprintf("%s_%d", tc.name, i),
+					Class:               namespacing.QualifiedName(tc.classNamespace, fmt.Sprintf("%s_%d", tc.name, i)),
 					VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
 					InvertedIndexConfig: invertedConfig(),
 					MultiTenancyConfig: &models.MultiTenancyConfig{
@@ -1133,7 +1175,8 @@ func TestDimensionTrackingWithGrouping(t *testing.T) {
 				}
 			}
 
-			db := createTestDatabaseWithClass(t, &metrics, classes...)
+			db := createTestDatabaseWithNamespaces(t, &metrics,
+				activeNamespaces{tc.classNamespace}, classes...)
 
 			// Insert test data
 			for _, class := range classes {
@@ -1157,7 +1200,7 @@ func TestDimensionTrackingWithGrouping(t *testing.T) {
 
 					// Set expected labels for non-grouping case
 					if !tc.groupingEnabled {
-						tc.expectedLabels = append(tc.expectedLabels, class.Class, shardName)
+						tc.expectedLabels = append(tc.expectedLabels, class.Class, shardName, tc.classNamespace)
 						tc.expectedDimensions = append(tc.expectedDimensions, expectDimPerShard)
 					}
 				}
@@ -1166,22 +1209,82 @@ func TestDimensionTrackingWithGrouping(t *testing.T) {
 			// Publish metrics
 			publishVectorMetricsFromDB(t, db)
 
-			// Check expected dimensions for each pair of labels
-			for i := 0; i < len(tc.expectedLabels); i += 2 {
-				className, shardName := tc.expectedLabels[i], tc.expectedLabels[i+1]
+			// Check expected dimensions for each triple of labels
+			for i := 0; i < len(tc.expectedLabels); i += 3 {
+				className, shardName, namespace := tc.expectedLabels[i], tc.expectedLabels[i+1], tc.expectedLabels[i+2]
 
 				// Verify dimension metrics
-				dim, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues(className, shardName)
+				dim, err := metrics.VectorDimensionsSum.GetMetricWithLabelValues(className, shardName, namespace)
 				require.NoError(t, err, "get vector_dimensions_sum metric")
-				require.Equal(t, float64(tc.expectedDimensions[0]), testutil.ToFloat64(dim),
-					"vector_dimensions_sum{class=%s,shard=%s}", className, shardName)
+				require.Equal(t, float64(tc.expectedDimensions[i/3]), testutil.ToFloat64(dim),
+					"vector_dimensions_sum{class=%s,shard=%s,collection_namespace=%s}", className, shardName, namespace)
 
 				// Verify segment metrics (should be 0 for standard vectors)
-				segments, err := metrics.VectorSegmentsSum.GetMetricWithLabelValues(className, shardName)
+				segments, err := metrics.VectorSegmentsSum.GetMetricWithLabelValues(className, shardName, namespace)
 				require.NoError(t, err, "get vector_segments_sum metric")
 				require.Equal(t, float64(0), testutil.ToFloat64(segments),
-					"vector_segments_sum{class=%s,shard=%s}", className, shardName)
+					"vector_segments_sum{class=%s,shard=%s,collection_namespace=%s}", className, shardName, namespace)
 			}
 		})
 	}
+}
+
+// TestPublishVectorMetrics covers what a single publish cannot: the grouped
+// observer's view of a namespace across two passes.
+func TestPublishVectorMetrics(t *testing.T) {
+	const (
+		objectCount  = 5
+		dimPerVector = 64
+		expectDim    = objectCount * dimPerVector
+	)
+
+	metrics := *monitoring.GetMetrics()
+	metrics.Group = true
+	takeGroupedSeries(t, metrics.VectorDimensionsSum, metrics.VectorSegmentsSum)
+
+	classes := make([]*models.Class, 0, 2)
+	for _, ns := range []string{"ns_a", "ns_b"} {
+		classes = append(classes, &models.Class{
+			Class:               namespacing.QualifiedName(ns, "Docs"),
+			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+			InvertedIndexConfig: invertedConfig(),
+		})
+	}
+
+	db := createTestDatabaseWithNamespaces(t, &metrics,
+		activeNamespaces{"ns_a", "ns_b"}, classes...)
+
+	for _, class := range classes {
+		for i := range objectCount {
+			err := db.PutObject(context.Background(),
+				&models.Object{Class: class.Class, ID: intToUUID(i)},
+				randVector(dimPerVector), nil, nil, nil, 0)
+			require.NoError(t, err, "put object")
+		}
+	}
+
+	// One observer across both passes: the second pass prunes what the first
+	// published. It is not db.metricsObserver, whose own goroutine publishes on
+	// a timer and owns that state.
+	observer := &nodeWideMetricsObserver{db: db}
+
+	t.Run("grouped: one series per namespace plus the empty bucket", func(t *testing.T) {
+		observer.publishVectorMetrics(t.Context())
+
+		assert.Equal(t, map[string]float64{"": 0, "ns_a": expectDim, "ns_b": expectDim},
+			groupedGaugeValues(t, metrics.VectorDimensionsSum))
+		assert.Equal(t, map[string]float64{"": 0, "ns_a": 0, "ns_b": 0},
+			groupedGaugeValues(t, metrics.VectorSegmentsSum))
+	})
+
+	t.Run("grouped: a namespace whose last index is dropped is zeroed, not deleted", func(t *testing.T) {
+		require.NoError(t, db.DeleteIndex(schema.ClassName(classes[1].Class)))
+
+		observer.publishVectorMetrics(t.Context())
+
+		// Zeroed rather than deleted: billing reads these two gauges after the
+		// data is gone, which is the same reason a dropped shard zeroes them.
+		assert.Equal(t, map[string]float64{"": 0, "ns_a": expectDim, "ns_b": 0},
+			groupedGaugeValues(t, metrics.VectorDimensionsSum))
+	})
 }
