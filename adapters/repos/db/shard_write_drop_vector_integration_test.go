@@ -436,11 +436,7 @@ func TestVectorLayoutBarrier_HaltRefusedDuringDrop(t *testing.T) {
 
 	dropErr := make(chan error, 1)
 	go func() { dropErr <- shard.DropVectorIndex(ctx, "foo") }()
-	require.Eventually(t, func() bool {
-		shard.vectorLayoutGate.Lock()
-		defer shard.vectorLayoutGate.Unlock()
-		return shard.vectorLayoutChanges == 1
-	}, time.Second, 10*time.Millisecond)
+	countedIn(t, shard, 1)
 
 	for _, offloading := range []bool{false, true} {
 		err := shard.HaltForTransfer(ctx, offloading, 0)
@@ -539,26 +535,39 @@ func liveCreate(ctx context.Context, shard *Shard, name string) error {
 	})
 }
 
-// A halt is refused while a create is built but not yet published.
-func TestVectorLayoutBarrier_HaltRefusedBeforePublish(t *testing.T) {
+// holdCreates blocks every create between its count-in and its build, and
+// returns the release. Create takes createMu through publication, so the
+// create is in flight and unpublished for as long as the test holds it.
+func holdCreates(shard *Shard) (release func()) {
+	shard.vectors.createMu.Lock()
+	return shard.vectors.createMu.Unlock
+}
+
+// countedIn waits until n creates or drops are counted in.
+func countedIn(t *testing.T, shard *Shard, n int) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		shard.vectorLayoutGate.Lock()
+		defer shard.vectorLayoutGate.Unlock()
+		return shard.vectorLayoutChanges == n
+	}, time.Second, 10*time.Millisecond)
+}
+
+// A halt is refused while a create is in flight and not yet published.
+func TestVectorLayoutBarrier_HaltRefusedDuringCreate(t *testing.T) {
 	ctx := testCtx()
 	shard, _ := setupDropVectorShard(t, ctx)
 
-	atPublish := make(chan struct{})
-	releasePublish := make(chan struct{})
-	shard.vectors.beforePublish = func() {
-		close(atPublish)
-		<-releasePublish
-	}
+	release := holdCreates(shard)
 	createErr := make(chan error, 1)
 	go func() { createErr <- liveCreate(ctx, shard, "bar") }()
-	<-atPublish
+	countedIn(t, shard, 1)
 
 	err := shard.HaltForTransfer(ctx, false, 0)
 	require.ErrorIs(t, err, enterrors.ErrShardBusyStructuralOp)
 	assert.Zero(t, shard.haltForTransferCount.Load())
 
-	close(releasePublish)
+	release()
 	require.NoError(t, <-createErr)
 	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
 	require.NoError(t, shard.resumeMaintenanceCycles(ctx))
@@ -738,12 +747,7 @@ func TestVectorLayoutBarrier_CreateDuringPreparationFailsTheSnapshot(t *testing.
 
 	releasePrep := make(chan struct{})
 	shard.testHooks.afterHaltAdmission = func() error { <-releasePrep; return nil }
-	atPublish := make(chan struct{})
-	releasePublish := make(chan struct{})
-	shard.vectors.beforePublish = func() {
-		close(atPublish)
-		<-releasePublish
-	}
+	release := holdCreates(shard)
 
 	snapErr := make(chan error, 1)
 	go func() {
@@ -754,12 +758,17 @@ func TestVectorLayoutBarrier_CreateDuringPreparationFailsTheSnapshot(t *testing.
 
 	createErr := make(chan error, 1)
 	go func() { createErr <- liveCreate(ctx, shard, "bar") }()
-	<-atPublish // the create outwaited the bound and built, and is not published
+	// the create outwaits the bound and moves the generation, still unpublished
+	require.Eventually(t, func() bool {
+		shard.vectorLayoutGate.Lock()
+		defer shard.vectorLayoutGate.Unlock()
+		return shard.vectorLayoutGen > 0
+	}, time.Second, 10*time.Millisecond)
 
 	close(releasePrep)
 	require.ErrorIs(t, <-snapErr, errVectorLayoutChanged)
 
-	close(releasePublish)
+	release()
 	require.NoError(t, <-createErr)
 }
 
