@@ -224,12 +224,9 @@ type uploader struct {
 	sourcer        Sourcer
 	rbacSourcer    RBACSnapshotter
 	dynUserSourcer dynUserSnapshotter
-	// Resolved includeUsers ids; empty → whole-cluster snapshot.
-	users []string
-	// Resolved includeRoles names; empty → whole-cluster RBAC snapshot.
-	roles    []string
-	backend  nodeStore
-	backupID string
+	selection      snapshotSelection
+	backend        nodeStore
+	backupID       string
 	// class -> shard -> archiving node; nil = every local shard.
 	shardDesignations map[string]map[string]string
 	zipConfig
@@ -247,7 +244,15 @@ type statusPublisher interface {
 	setFailed(reason string)
 }
 
-func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer RBACSnapshotter, dynUserSourcer dynUserSnapshotter, users, roles []string, backend nodeStore,
+// snapshotSelection is what the scheduler resolved from includeUsers and
+// includeRoles. Empty users/roles mean the whole-cluster snapshot; the skip
+// flags mean the selector matched nothing and no snapshot is uploaded.
+type snapshotSelection struct {
+	users, roles         []string
+	skipUsers, skipRoles bool
+}
+
+func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer RBACSnapshotter, dynUserSourcer dynUserSnapshotter, selection snapshotSelection, backend nodeStore,
 	backupID string, slot statusPublisher, l logrus.FieldLogger,
 ) *uploader {
 	return &uploader{
@@ -255,8 +260,7 @@ func newUploader(cfg config.Backup, sourcer Sourcer, rbacSourcer RBACSnapshotter
 		sourcer:        sourcer,
 		rbacSourcer:    rbacSourcer,
 		dynUserSourcer: dynUserSourcer,
-		users:          users,
-		roles:          roles,
+		selection:      selection,
 		backend:        backend,
 		backupID:       backupID,
 		zipConfig: newZipConfig(Compression{
@@ -457,27 +461,31 @@ Loop:
 
 	if err := ctx.Err(); err != nil {
 		return contextChecker(ctx)
+	} else if u.selection.skipRoles {
+		u.log.Info("includeRoles matched no role, skipping RBAC backup")
 	} else if u.rbacSourcer != nil {
 		u.log.Info("start uploading RBAC backups")
-		descrp, err := u.rbacSourcer.Snapshot(u.roles...)
+		descrp, err := u.rbacSourcer.Snapshot(u.selection.roles...)
 		if err != nil {
 			return err
 		}
 		desc.RbacBackups = descrp
-	} else if len(u.roles) > 0 {
+	} else if len(u.selection.roles) > 0 {
 		return fmt.Errorf("includeRoles requested but RBAC is not enabled")
 	}
 
 	if err := ctx.Err(); err != nil {
 		return contextChecker(ctx)
+	} else if u.selection.skipUsers {
+		u.log.Info("includeUsers matched no user, skipping dynamic user backup")
 	} else if u.dynUserSourcer != nil {
 		u.log.Info("start uploading dynamic user backups")
-		descrp, err := u.dynUserSourcer.Snapshot(u.users...)
+		descrp, err := u.dynUserSourcer.Snapshot(u.selection.users...)
 		if err != nil {
 			return err
 		}
 		desc.UserBackups = descrp
-	} else if len(u.users) > 0 {
+	} else if len(u.selection.users) > 0 {
 		return fmt.Errorf("includeUsers requested but DB Users are not enabled")
 	}
 

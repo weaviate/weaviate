@@ -92,15 +92,21 @@ func TestNamespaces_RBACSurfaces(t *testing.T) {
 	})
 
 	t.Run("nodes status: namespaced denied, root allowed", func(t *testing.T) {
-		_, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), helper.CreateAuth(user1Key))
-		require.Error(t, err)
-		var forbidden *nodes.NodesGetForbidden
-		require.True(t, errors.As(err, &forbidden), "expected NodesGetForbidden, got %T: %v", err, err)
+		// user1 must get a 403 for verbose output too. Without a class, GetNodeStatus
+		// sends verbose output down a separate branch that filters shards one by one.
+		for _, output := range []string{"minimal", "verbose"} {
+			params := nodes.NewNodesGetParams().WithOutput(&output)
 
-		resp, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), helper.CreateAuth(adminKey))
-		require.NoError(t, err)
-		require.NotNil(t, resp.Payload)
-		assert.NotEmpty(t, resp.Payload.Nodes)
+			_, err := helper.Client(t).Nodes.NodesGet(params, helper.CreateAuth(user1Key))
+			require.Error(t, err, output)
+			var forbidden *nodes.NodesGetForbidden
+			require.True(t, errors.As(err, &forbidden), "%s: expected NodesGetForbidden, got %T: %v", output, err, err)
+
+			resp, err := helper.Client(t).Nodes.NodesGet(params, helper.CreateAuth(adminKey))
+			require.NoError(t, err, output)
+			require.NotNil(t, resp.Payload)
+			assert.NotEmpty(t, resp.Payload.Nodes, output)
+		}
 	})
 
 	t.Run("cluster statistics: namespaced denied, root allowed", func(t *testing.T) {
@@ -317,6 +323,19 @@ func TestNamespaces_CustomRoleCannotReachOperatorDomains(t *testing.T) {
 			nodes.NewNodesGetClassParams().WithClassName(ownClass).WithOutput(&verbose),
 			helper.CreateAuth(adminKey))
 		require.False(t, errors.As(err, &forbidden), "root must not be forbidden on nodes; got %v", err)
+
+		// u1 must get a 403 without a class too. GetNodeStatus sends that
+		// request down a separate branch that filters shards one by one.
+		var forbiddenAll *nodes.NodesGetForbidden
+		_, err = helper.Client(t).Nodes.NodesGet(
+			nodes.NewNodesGetParams().WithOutput(&verbose), helper.CreateAuth(u1Key))
+		require.Error(t, err)
+		require.True(t, errors.As(err, &forbiddenAll), "expected NodesGetForbidden, got %T: %v", err, err)
+
+		resp, err := helper.Client(t).Nodes.NodesGet(
+			nodes.NewNodesGetParams().WithOutput(&verbose), helper.CreateAuth(adminKey))
+		require.NoError(t, err)
+		require.NotEmpty(t, resp.Payload.Nodes)
 	})
 
 	t.Run("replicate: namespaced role denied own and foreign, root passes authz", func(t *testing.T) {
