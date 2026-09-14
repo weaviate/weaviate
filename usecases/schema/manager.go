@@ -52,35 +52,45 @@ type Manager struct {
 	Handler
 
 	local.SchemaReader
+	leaderSchemaReader
 }
 
-// Manager serves the local schema reads itself; its own methods must not shadow them.
-var _ local.SchemaReader = (*Manager)(nil)
+// leaderSchemaReader lets Manager embed leader.SchemaReader next to
+// local.SchemaReader, whose embedded field would otherwise have the same name.
+type leaderSchemaReader = leader.SchemaReader
+
+// Manager serves the local and leader schema reads itself; its own methods must
+// not shadow them.
+var _ Schema = (*Manager)(nil)
 
 type VectorConfigParser func(in interface{}, vectorIndexType string, isMultiVector bool) (schemaConfig.VectorIndexConfig, error)
 
 type InvertedConfigValidator func(in *models.InvertedIndexConfig) error
 
-type SchemaGetter interface {
-	ReadOnlySchema() models.Schema
-	ReadOnlyClass(string) *models.Class
-	ResolveAlias(string) string
-	GetAliasesForClass(class string) []*models.Alias
-
-	ShardOwner(class, shard string) (string, error)
-	TenantsShards(ctx context.Context, class string, tenants ...string) (map[string]string, error)
-	// OptimisticTenantStatus tries to query the local state first
-	// allowImplicitActivation may only be set by callers acting for an external user request;
-	// because it lets the lookup activate a COLD tenant under auto tenant activation and leader lookup.
-	OptimisticTenantStatus(ctx context.Context, class string, tenants string, allowImplicitActivation bool) (map[string]string, error)
-	ShardFromUUID(class string, uuid []byte) string
-	ShardReplicas(class, shard string) ([]string, error)
+// Schema is the use-case layer's schema: the local and leader reads plus tenant
+// activation, all served by *Manager. Depend on the narrowest part that covers the
+// caller: a local or leader reader, or TenantActivator.
+type Schema interface {
+	local.SchemaReader
+	leader.SchemaReader
+	TenantActivator
 }
 
-type TenantsActivityManager interface {
-	ActivateTenants(ctx context.Context, class string, tenants ...string) error
+// TenantActivator reads tenant status on behalf of requests and changes tenant
+// activity. Unlike leader.TenantReader it may activate tenants: with auto tenant
+// activation enabled on the class, a tenant that is not HOT is made HOT, which is a
+// RAFT write.
+type TenantActivator interface {
+	// OptimisticTenantStatus reads the local state first and only asks the leader when
+	// the local answer does not show the tenant HOT. allowImplicitActivation may only be
+	// set by callers acting for an external user request, because it lets the lookup
+	// activate a COLD tenant under auto tenant activation.
+	OptimisticTenantStatus(ctx context.Context, class string, tenant string, allowImplicitActivation bool) (map[string]string, error)
+	// TenantsShardsWithActivation asks the leader for the tenants' status, activating
+	// any that are not HOT under auto tenant activation. It returns the schema version
+	// of that activation; writers must pass it to WaitForUpdate before proceeding.
+	TenantsShardsWithActivation(ctx context.Context, class string, tenants ...string) (map[string]string, uint64, error)
 	DeactivateTenants(ctx context.Context, class string, tenants ...string) error
-	TenantsStatus(class string, tenants ...string) (map[string]string, error)
 }
 
 type VectorizerValidator interface {
@@ -229,21 +239,17 @@ func NewManager(validator validator,
 		return nil, fmt.Errorf("cannot init handler: %w", err)
 	}
 	m := &Manager{
-		validator:    validator,
-		repo:         repo,
-		logger:       logger,
-		clusterState: clusterState,
-		Handler:      handler,
-		SchemaReader: schemaReader,
-		Authorizer:   authorizer,
+		validator:          validator,
+		repo:               repo,
+		logger:             logger,
+		clusterState:       clusterState,
+		Handler:            handler,
+		SchemaReader:       schemaReader,
+		leaderSchemaReader: schemaManager,
+		Authorizer:         authorizer,
 	}
 
 	return m, nil
-}
-
-func (m *Manager) TenantsShards(ctx context.Context, class string, tenants ...string) (map[string]string, error) {
-	status, _, err := m.TenantsShardsWithActivation(ctx, class, tenants...)
-	return status, err
 }
 
 // TenantsShardsWithActivation asks the RAFT leader for the tenants' status and, when the class
@@ -316,7 +322,8 @@ func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tena
 		return map[string]string{tenant: status}, nil
 	}
 
-	return m.TenantsShards(ctx, class, tenant)
+	statuses, _, err := m.TenantsShardsWithActivation(ctx, class, tenant)
+	return statuses, err
 }
 
 func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
@@ -366,11 +373,6 @@ func (m *Manager) AllowImplicitTenantActivation(class string) bool {
 	return allow
 }
 
-func (m *Manager) TenantsStatus(class string, tenants ...string) (map[string]string, error) {
-	tenantsMap, _, err := m.schemaManager.TenantsShardsFromLeader(class, tenants...)
-	return tenantsMap, err
-}
-
 func (m *Manager) ActivateTenants(ctx context.Context, class string, tenants ...string) error {
 	return m.changeTenantsActivityStatus(ctx, class, tenants, models.TenantActivityStatusHOT)
 }
@@ -410,12 +412,4 @@ func (m *Manager) changeTenantsActivityStatus(ctx context.Context, class string,
 func (m *Manager) EnsureTenantActiveForWrite(ctx context.Context, class string, tenants ...string) (uint64, error) {
 	_, schemaVersion, err := m.TenantsShardsWithActivation(ctx, class, tenants...)
 	return schemaVersion, err
-}
-
-func (m *Manager) ShardOwner(class, shard string) (string, error) {
-	owner, _, err := m.schemaManager.ShardOwnerFromLeader(class, shard)
-	if err != nil {
-		return "", err
-	}
-	return owner, nil
 }

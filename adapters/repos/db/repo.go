@@ -57,7 +57,7 @@ import (
 type DB struct {
 	logger                    logrus.FieldLogger
 	localNodeName             string
-	schemaGetter              schemaUC.SchemaGetter
+	schemaGetter              schemaUC.Schema
 	config                    Config
 	indices                   map[string]*Index
 	remoteIndex               remote.IndexClient
@@ -152,7 +152,6 @@ type DB struct {
 
 	AsyncIndexingEnabled bool
 
-	tenantsManager schemaUC.TenantsActivityManager
 	// membership reports RAFT statistics for the node status.
 	membership cluster.RaftMembership
 
@@ -174,10 +173,6 @@ func (db *DB) SetUsageLimits(m *usagelimits.Manager) {
 	db.usageLimits = m
 }
 
-func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
-	return db.schemaGetter
-}
-
 func (db *DB) GetSchema() schema.Schema {
 	s := db.schemaGetter.ReadOnlySchema()
 	return schema.Schema{Objects: &s}
@@ -191,7 +186,7 @@ func (db *DB) GetRemoteIndex() remote.IndexClient {
 	return db.remoteIndex
 }
 
-func (db *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
+func (db *DB) SetSchemaGetter(sg schemaUC.Schema) {
 	db.schemaGetter = sg
 }
 
@@ -787,10 +782,6 @@ func (db *DB) SetReplicationFSM(replicationFsm *clusterReplication.ShardReplicat
 func (db *DB) SetBitmapBufPool(bufPool roaringset.BitmapBufPool, close func()) {
 	db.bitmapBufPool = bufPool
 	db.bitmapBufPoolClose = close
-}
-
-func (db *DB) SetTenantsActivityManager(tenantsManager schemaUC.TenantsActivityManager) {
-	db.tenantsManager = tenantsManager
 }
 
 func (db *DB) SetRaftMembership(membership cluster.RaftMembership) {

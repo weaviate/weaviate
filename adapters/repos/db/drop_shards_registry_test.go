@@ -48,7 +48,7 @@ func newEmptyMTIndex(t *testing.T) *Index {
 	rootPath := t.TempDir()
 	logger := logrus.New()
 
-	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
+	mockSchemaGetter := schemaUC.NewMockSchema(t)
 
 	class := &models.Class{
 		Class:               "TestClass",
@@ -80,7 +80,7 @@ func newEmptyMTIndex(t *testing.T) *Index {
 		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = index.Shutdown(context.Background()) })
 	return index

@@ -46,6 +46,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/sharding/remote"
 )
@@ -238,11 +239,24 @@ func (r fakeDynUserBackupWrapper) Restore([]byte, bool) error {
 
 type fakeSchemaManager struct {
 	// Left unset: only the methods defined below are expected.
-	local.VersionedReader
-	local.ClassReader
+	schemaUC.Schema
 	schema       schema.Schema
 	shardState   *sharding.State
 	nodeResolver *nodeResolver
+}
+
+func (f *fakeSchemaManager) ShardOwnerFromLeader(class, shard string) (string, uint64, error) {
+	owner, err := f.ShardOwner(class, shard)
+	return owner, 0, err
+}
+
+func (f *fakeSchemaManager) TenantsShardsWithActivation(ctx context.Context, class string, tenants ...string) (map[string]string, uint64, error) {
+	res, err := f.TenantsShards(ctx, class, tenants...)
+	return res, 0, err
+}
+
+func (f *fakeSchemaManager) TenantsShardsFromLeader(class string, tenants ...string) (map[string]string, uint64, error) {
+	return f.TenantsShardsWithActivation(context.Background(), class, tenants...)
 }
 
 func (f *fakeSchemaManager) ReadOnlySchema() models.Schema {

@@ -81,6 +81,7 @@ func newLockTestMigrator(t *testing.T, reachIndex bool) *Migrator {
 	idx.remote = remote.NewIndex(
 		lockTestClass,
 		idx.getSchema,
+		idx.getSchema,
 		nodeResolver,
 		&FakeRemoteClient{shardStatus: shardStatus},
 	)

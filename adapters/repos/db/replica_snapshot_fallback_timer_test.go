@@ -51,7 +51,7 @@ func TestReplicaSnapshotFallbackInactivityTimerIsReset(t *testing.T) {
 		activeWindow      = 700 * time.Millisecond
 	)
 
-	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
+	mockSchemaGetter := schemaUC.NewMockSchema(t)
 
 	class := &models.Class{
 		Class:               "TestClass",
@@ -92,7 +92,7 @@ func TestReplicaSnapshotFallbackInactivityTimerIsReset(t *testing.T) {
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader,
 		nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 	require.NoError(t, err)
 	shutdownIndexOnCleanup(t, index)
 	index.db = stubDBWithNoLiveReindex()

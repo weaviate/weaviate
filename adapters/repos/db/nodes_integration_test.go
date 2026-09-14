@@ -227,14 +227,14 @@ func TestLazyLoadedShards(t *testing.T) {
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 
 	// Create mock schema getter
-	mockSchema := schemaUC.NewMockSchemaGetter(t)
+	mockSchema := schemaUC.NewMockSchema(t)
 	mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		return readFunc(class, shardState)
 	}).Maybe()
-	mockSchema.EXPECT().TenantsShards(ctx, className, tenantNamePopulated).Maybe().
-		Return(map[string]string{tenantNamePopulated: models.TenantActivityStatusHOT}, nil)
+	mockSchema.EXPECT().TenantsShardsWithActivation(ctx, className, tenantNamePopulated).Maybe().
+		Return(map[string]string{tenantNamePopulated: models.TenantActivityStatusHOT}, uint64(0), nil)
 
 	mockRouter := types.NewMockRouter(t)
 	mockRouter.EXPECT().GetWriteReplicasLocation(className, mock.Anything, tenantNamePopulated).
@@ -262,7 +262,7 @@ func TestLazyLoadedShards(t *testing.T) {
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
 		}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil,
-		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 	require.NoError(t, err)
 
 	// make sure that getting the node status does not trigger loading of lazy shards

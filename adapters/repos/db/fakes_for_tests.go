@@ -23,7 +23,6 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -37,15 +36,30 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 type fakeSchemaGetter struct {
-	local.ClassReader
+	schemaUC.Schema
 	nodeName   string
 	schema     schema.Schema
 	shardState *sharding.State
+}
+
+func (f *fakeSchemaGetter) ShardOwnerFromLeader(class, shard string) (string, uint64, error) {
+	owner, err := f.ShardOwner(class, shard)
+	return owner, 0, err
+}
+
+func (f *fakeSchemaGetter) TenantsShardsWithActivation(ctx context.Context, class string, tenants ...string) (map[string]string, uint64, error) {
+	res, err := f.TenantsShards(ctx, class, tenants...)
+	return res, 0, err
+}
+
+func (f *fakeSchemaGetter) TenantsShardsFromLeader(class string, tenants ...string) (map[string]string, uint64, error) {
+	return f.TenantsShardsWithActivation(context.Background(), class, tenants...)
 }
 
 func (f *fakeSchemaGetter) ReadOnlySchema() models.Schema {

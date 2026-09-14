@@ -152,11 +152,11 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 			mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 			// Create mock schema getter
-			mockSchema := schemaUC.NewMockSchemaGetter(t)
+			mockSchema := schemaUC.NewMockSchema(t)
 			mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 			mockSchema.EXPECT().ReadOnlyClass(tt.className).Maybe().Return(class)
 			mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return(tt.shardName).Maybe()
-			mockSchema.EXPECT().ShardOwner(tt.className, tt.shardName).Maybe().Return("test-node", nil)
+			mockSchema.EXPECT().ShardOwnerFromLeader(tt.className, tt.shardName).Maybe().Return("test-node", uint64(0), nil)
 
 			mockRouter := types.NewMockRouter(t)
 			mockRouter.EXPECT().GetWriteReplicasLocation(tt.className, mock.Anything, tt.shardName).
@@ -175,7 +175,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 				enthnsw.UserConfig{
 					VectorCacheMaxObjects: 1000,
 				}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil,
-				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
+				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
 
@@ -323,12 +323,12 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	// Create mock schema getter
-	mockSchema := schemaUC.NewMockSchemaGetter(t)
+	mockSchema := schemaUC.NewMockSchema(t)
 	mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
-	mockSchema.EXPECT().ShardOwner(className, tenantNamePopulated).Maybe().Return("test-node", nil)
-	mockSchema.EXPECT().TenantsShards(ctx, className, tenantNamePopulated).Maybe().
-		Return(map[string]string{tenantNamePopulated: models.TenantActivityStatusHOT}, nil)
+	mockSchema.EXPECT().ShardOwnerFromLeader(className, tenantNamePopulated).Maybe().Return("test-node", uint64(0), nil)
+	mockSchema.EXPECT().TenantsShardsWithActivation(ctx, className, tenantNamePopulated).Maybe().
+		Return(map[string]string{tenantNamePopulated: models.TenantActivityStatusHOT}, uint64(0), nil)
 
 	mockRouter := types.NewMockRouter(t)
 	mockRouter.EXPECT().GetWriteReplicasLocation(className, mock.Anything, mock.Anything).
@@ -375,7 +375,6 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		NewShardReindexerV3Noop(),         // shard reindexer
 		roaringset.NewBitmapBufPoolNoop(), // bitmap buffer pool
 		false,
-		nil,
 	)
 	require.NoError(t, err)
 
@@ -477,7 +476,6 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		NewShardReindexerV3Noop(),         // shard reindexer
 		roaringset.NewBitmapBufPoolNoop(), // bitmap buffer pool
 		false,
-		nil,
 	)
 	require.NoError(t, err)
 	defer newIndex.Shutdown(ctx)

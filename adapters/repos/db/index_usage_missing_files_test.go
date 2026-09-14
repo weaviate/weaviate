@@ -242,12 +242,12 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageInde
 		return readerFunc(class, shardState)
 	}).Maybe()
 
-	mockSchema := schemaUC.NewMockSchemaGetter(t)
+	mockSchema := schemaUC.NewMockSchema(t)
 	mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
-	mockSchema.EXPECT().ShardOwner(className, tenantName).Maybe().Return("test-node", nil)
-	mockSchema.EXPECT().TenantsShards(ctx, className, tenantName).Maybe().
-		Return(map[string]string{tenantName: models.TenantActivityStatusHOT}, nil)
+	mockSchema.EXPECT().ShardOwnerFromLeader(className, tenantName).Maybe().Return("test-node", uint64(0), nil)
+	mockSchema.EXPECT().TenantsShardsWithActivation(ctx, className, tenantName).Maybe().
+		Return(map[string]string{tenantName: models.TenantActivityStatusHOT}, uint64(0), nil)
 
 	mockRouter := types.NewMockRouter(t)
 	mockRouter.EXPECT().GetWriteReplicasLocation(className, mock.Anything, mock.Anything).
@@ -290,7 +290,6 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageInde
 			NewShardReindexerV3Noop(),
 			roaringset.NewBitmapBufPoolNoop(),
 			false,
-			nil,
 		)
 		require.NoError(t, err)
 		return idx

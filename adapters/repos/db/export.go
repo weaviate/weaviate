@@ -316,7 +316,7 @@ func cleanupSnapshotResults(results []export.ShardSnapshotResult) {
 // the tenant — a transient RAFT failure should not produce an incomplete
 // export.
 func (i *Index) shouldSkipTenant(class *models.Class, shardName string) (string, error) {
-	statuses, err := i.tenantsManager.TenantsStatus(class.Class, shardName)
+	statuses, _, err := i.getSchema.TenantsShardsFromLeader(class.Class, shardName)
 	if err != nil {
 		return "", fmt.Errorf("get tenant status for %s/%s: %w", class.Class, shardName, err)
 	}
