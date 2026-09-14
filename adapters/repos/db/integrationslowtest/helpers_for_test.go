@@ -37,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
@@ -144,8 +145,23 @@ func singleShard(t *testing.T, repo *db.DB, className string) db.ShardLike {
 }
 
 type fakeSchemaGetter struct {
+	schemaUC.Schema
 	schema     schema.Schema
 	shardState *sharding.State
+}
+
+func (f *fakeSchemaGetter) ShardOwnerFromLeader(class, shard string) (string, uint64, error) {
+	owner, err := f.ShardOwner(class, shard)
+	return owner, 0, err
+}
+
+func (f *fakeSchemaGetter) TenantsShardsWithActivation(ctx context.Context, class string, tenants ...string) (map[string]string, uint64, error) {
+	res, err := f.TenantsShards(ctx, class, tenants...)
+	return res, 0, err
+}
+
+func (f *fakeSchemaGetter) TenantsShardsFromLeader(class string, tenants ...string) (map[string]string, uint64, error) {
+	return f.TenantsShardsWithActivation(context.Background(), class, tenants...)
 }
 
 func (f *fakeSchemaGetter) ReadOnlySchema() models.Schema {

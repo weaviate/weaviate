@@ -29,7 +29,6 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
-	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/versioned"
@@ -52,40 +51,40 @@ type ClassResolver interface {
 	local.AliasReader
 }
 
-type schemaManager interface {
-	AddClass(ctx context.Context, principal *models.Principal, class *models.Class) (*models.Class, uint64, error)
-	AddTenants(ctx context.Context, principal *models.Principal, class string, tenants []*models.Tenant) (uint64, error)
+// classGetter reads classes for an authorized request: the principal is checked,
+// unlike the cache read in CachedClassReader.
+type classGetter interface {
+	// GetClass returns the class, or nil when it does not exist.
 	GetClass(ctx context.Context, principal *models.Principal, name string) (*models.Class, error)
-	// ReadOnlyClass return class model.
-	local.ClassReader
-	// AddClassProperty it is upsert operation. it adds properties to a class and updates
-	// existing properties if the merge bool passed true.
-	AddClassProperty(ctx context.Context, principal *models.Principal, className string, merge bool, prop ...*models.Property) (*models.Class, uint64, error)
-
-	// Consistent methods with the consistency flag.
-	// This is used to ensure that internal users will not miss-use the flag and it doesn't need to be set to a default
-	// value everytime we use the Manager.
-
-	// GetConsistentClass overrides the default implementation to consider the consistency flag
-	GetConsistentClass(ctx context.Context, principal *models.Principal,
-		name string, consistency bool,
-	) (*models.Class, uint64, error)
-
-	// GetCachedClass extracts class from context. If class was not set it is fetched first
+	// GetCachedClass extracts the classes from the context, fetching them first if
+	// the context does not carry them yet.
 	GetCachedClass(ctx context.Context, principal *models.Principal, names ...string,
 	) (map[string]versioned.Class, error)
+}
 
+// schemaManager is what the object read and write paths need of the schema use
+// case: class reads, alias resolution, and the two things a write does first —
+// activate the tenant it writes to, and wait for the schema version it was told.
+type schemaManager interface {
 	ClassResolver
-
-	// WaitForUpdate ensures that the local schema has caught up to schemaVersion
+	local.ClassReader
 	local.UpdateWaiter
-
-	// GetConsistentSchema retrieves a locally cached copy of the schema
-	GetConsistentSchema(ctx context.Context, principal *models.Principal, consistency bool) (schema.Schema, error)
+	classGetter
 
 	// EnsureTenantActiveForWrite activates tenants when AutoTenantActivation is enabled.
 	// Returns the schema version from activation. callers must use it in WaitForUpdate before writes.
 	EnsureTenantActiveForWrite(ctx context.Context, class string, tenants ...string) (uint64, error)
+}
+
+// autoSchemaWriter is what the auto-schema path writes: it creates classes, upserts
+// properties and adds tenants, then waits for its own writes to be applied locally.
+type autoSchemaWriter interface {
+	AddClass(ctx context.Context, principal *models.Principal, class *models.Class) (*models.Class, uint64, error)
+	// AddClassProperty is an upsert: it adds properties to a class and updates
+	// existing ones when merge is true.
+	AddClassProperty(ctx context.Context, principal *models.Principal, className string, merge bool, prop ...*models.Property) (*models.Class, uint64, error)
+	AddTenants(ctx context.Context, principal *models.Principal, class string, tenants []*models.Tenant) (uint64, error)
+	local.UpdateWaiter
 }
 
 // Manager manages kind changes at a use-case level, i.e. agnostic of

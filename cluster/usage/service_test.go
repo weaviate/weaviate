@@ -468,7 +468,7 @@ func TestService_Usage_WithDedupedBackup(t *testing.T) {
 	size1GB := int64(1073741824)
 
 	readOnly := models.Schema{Classes: []*models.Class{}}
-	mockSchema := schemaUC.NewMockSchemaGetter(t)
+	mockSchema := schemaUC.NewMockSchema(t)
 	mockSchema.EXPECT().ReadOnlySchema().Return(readOnly).Maybe()
 	classReader := local.NewMockSchemaReader(t)
 	classReader.EXPECT().ReadOnlySchema().Return(readOnly)
