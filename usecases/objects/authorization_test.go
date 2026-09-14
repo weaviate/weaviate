@@ -224,7 +224,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 				cfg := &config.WeaviateConfig{}
 				authorizer := mocks.NewMockAuthorizer()
 				authorizer.SetErrAfter(len(test.precedingCalls), errAuthzFake)
-				vectorRepo := &fakeVectorRepo{}
+				vectorRepo := &fakeObjectFinder{}
 				manager := NewManager(schemaManager,
 					cfg, logger, authorizer,
 					vectorRepo, getFakeModulesProvider(), &fakeMetrics{}, nil,
@@ -345,7 +345,7 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 				cfg := &config.WeaviateConfig{}
 				authorizer := mocks.NewMockAuthorizer()
 				authorizer.SetErrAfter(len(test.precedingCalls), errAuthzFake)
-				vectorRepo := &fakeVectorRepo{}
+				vectorRepo := &fakeObjectFinder{}
 				modulesProvider := getFakeModulesProvider()
 				manager := NewBatchManager(vectorRepo, modulesProvider, schemaManager, cfg, logger, authorizer, nil,
 					NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
