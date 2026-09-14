@@ -198,8 +198,6 @@ type Config struct {
 	// and weaviate/0-weaviate-issues#231.
 	DistributedTaskCollectionExtractors map[string]distributedtask.CollectionExtractor
 
-	ReplicaMovementEnabled bool
-
 	// DrainSleep is the time the node will wait for the cluster to process any ongoing
 	// operations before shutting down.
 	DrainSleep time.Duration
