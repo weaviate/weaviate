@@ -94,7 +94,7 @@ func (t ShardTargets) Len() int { return len(t) }
 // consistent routing for the same object across requests.
 type byUUIDShardResolver struct {
 	className       string
-	schemaReader    schema.SchemaGetter
+	schemaReader    schema.Schema
 	tenantValidator *multitenancy.TenantValidator
 }
 
@@ -139,7 +139,7 @@ func (r *byUUIDShardResolver) ResolveShardByObjectID(ctx context.Context, object
 //   - schemaReader: provides access to schema operations for UUID-to-shard mapping
 //
 // Returns a configured byUUIDShardResolver.
-func newByUUIDShardResolver(className string, schemaReader schema.SchemaGetter) *byUUIDShardResolver {
+func newByUUIDShardResolver(className string, schemaReader schema.Schema) *byUUIDShardResolver {
 	return &byUUIDShardResolver{
 		className:       className,
 		schemaReader:    schemaReader,
@@ -213,7 +213,7 @@ func (r *byUUIDShardResolver) ResolveShards(ctx context.Context, objects []*stor
 // isolated in its own shard, with the tenant name directly mapping to the shard name.
 type byTenantShardResolver struct {
 	className       string
-	schemaReader    schema.SchemaGetter
+	schemaReader    schema.Schema
 	tenantValidator *multitenancy.TenantValidator
 }
 
@@ -250,7 +250,7 @@ func (r *byTenantShardResolver) ResolveShardByObjectID(ctx context.Context, _ st
 //   - schemaReader: provides access to schema operations for tenant validation
 //
 // Returns a configured byTenantShardResolver.
-func newByTenantShardResolver(className string, schemaReader schema.SchemaGetter) *byTenantShardResolver {
+func newByTenantShardResolver(className string, schemaReader schema.Schema) *byTenantShardResolver {
 	return &byTenantShardResolver{
 		className:       className,
 		schemaReader:    schemaReader,
@@ -420,7 +420,7 @@ func (r *ShardResolver) ResolveShards(ctx context.Context, objects []*storobj.Ob
 //   - schemaReader: provides access to schema operations
 //
 // Returns a configured ShardResolver that uses the appropriate strategy.
-func NewShardResolver(className string, multiTenancyEnabled bool, schemaReader schema.SchemaGetter) *ShardResolver {
+func NewShardResolver(className string, multiTenancyEnabled bool, schemaReader schema.Schema) *ShardResolver {
 	if multiTenancyEnabled {
 		resolver := newByTenantShardResolver(className, schemaReader)
 		return &ShardResolver{

@@ -901,7 +901,7 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 		}
 	}
 	clusterState := clusterMocks.NewMockNodeSelector(nodes...)
-	schemaGetterMock := schema.NewMockSchemaGetter(f.t)
+	schemaGetterMock := schema.NewMockSchema(f.t)
 	schemaGetterMock.EXPECT().OptimisticTenantStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(ctx context.Context, class string, tenant string, _ bool) (map[string]string, error) {
 			return map[string]string{

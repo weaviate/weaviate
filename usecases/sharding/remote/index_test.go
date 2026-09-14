@@ -16,6 +16,9 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+
+	"github.com/weaviate/weaviate/cluster/schema/leader"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 )
 
 var errAny = errors.New("anyErr")
@@ -60,7 +63,7 @@ func TestQueryReplica(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		rindex := Index{"C", &test.schema, nil, &test.resolver}
+		rindex := Index{class: "C", leader: &test.schema, local: &test.schema, nodeResolver: &test.resolver}
 		got, lastNode, err := rindex.queryReplicas(test.ctx, "S", doIf(test.targetNode))
 		if !test.success {
 			if got != nil {
@@ -89,7 +92,7 @@ func newFakeSchema(fromNode, toNode int) fakeSchema {
 	for i := fromNode; i < toNode; i++ {
 		nodes = append(nodes, fmt.Sprintf("N%d", i))
 	}
-	return fakeSchema{nodes}
+	return fakeSchema{nodes: nodes}
 }
 
 type fakeNodeResolver struct {
@@ -111,12 +114,18 @@ func (f *fakeNodeResolver) NodeHostname(name string) (string, bool) {
 	return host, ok
 }
 
+// leaderShardReader lets fakeSchema embed both readers, whose embedded fields
+// would otherwise have the same name.
+type leaderShardReader = leader.ShardReader
+
 type fakeSchema struct {
+	leaderShardReader
+	local.ShardReader
 	nodes []string
 }
 
-func (f *fakeSchema) ShardOwner(class, shard string) (string, error) {
-	return "", nil
+func (f *fakeSchema) ShardOwnerFromLeader(class, shard string) (string, uint64, error) {
+	return "", 0, nil
 }
 
 func (f *fakeSchema) ShardReplicas(class, shard string) ([]string, error) {

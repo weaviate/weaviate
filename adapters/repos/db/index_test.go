@@ -459,6 +459,7 @@ func TestIndex_getShardsStorageStatus(t *testing.T) {
 	index.remote = remote.NewIndex(
 		"Songs",
 		index.getSchema,
+		index.getSchema,
 		nodeResolver,
 		&FakeRemoteClient{shardStatus: shardStatus},
 	)

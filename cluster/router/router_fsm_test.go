@@ -132,7 +132,7 @@ func TestReadRoutingWithFSM(t *testing.T) {
 			shardReplicationFSM := replication.NewShardReplicationFSM(reg)
 			clusterState := clusterMocks.NewMockNodeSelector(testCase.allShardNodes...)
 			schemaReaderMock := local.NewMockSchemaReader(t)
-			schemaGetterMock := schema.NewMockSchemaGetter(t)
+			schemaGetterMock := schema.NewMockSchema(t)
 			schemaGetterMock.EXPECT().OptimisticTenantStatus(mock.Anything, "collection1", "shard1", mock.Anything).Return(
 				map[string]string{
 					"shard1": models.TenantActivityStatusHOT,
@@ -312,7 +312,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 			shardReplicationFSM := replication.NewShardReplicationFSM(reg)
 			clusterState := clusterMocks.NewMockNodeSelector(testCase.allShardNodes...)
 			schemaReaderMock := local.NewMockSchemaReader(t)
-			schemaGetterMock := schema.NewMockSchemaGetter(t)
+			schemaGetterMock := schema.NewMockSchema(t)
 			schemaGetterMock.EXPECT().OptimisticTenantStatus(mock.Anything, "collection1", "shard1", mock.Anything).Return(
 				map[string]string{
 					"shard1": models.TenantActivityStatusHOT,

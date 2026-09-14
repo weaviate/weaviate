@@ -30,11 +30,16 @@ import (
 )
 
 type fakeSchemaReader struct {
-	schemaUC.SchemaGetter
+	schemaUC.Schema
 
 	shards          []string
 	tenantShards    map[string]string
 	tenantsShardErr error
+}
+
+func (f *fakeSchemaReader) TenantsShardsStatusWithActivation(ctx context.Context, class string, tenants ...string) (map[string]string, uint64, error) {
+	res, err := f.TenantsShardsStatus(ctx, class, tenants...)
+	return res, 0, err
 }
 
 // ShardFromUUID assigns a shard by hashing the first byte of the UUID and
