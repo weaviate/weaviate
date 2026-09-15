@@ -251,18 +251,23 @@ func (db *DB) Shards(ctx context.Context, class string) ([]string, error) {
 	return nodes, nil
 }
 
-// ShardReplicas returns shard name -> replica node names for class, omitting empty names, replica-less shards and non-HOT tenants (unloaded shards never register a checkpoint, so they can only fall back).
+// tenantHasLocalData: HOT and COLD shards are complete on disk; FROZEN and the transitional statuses are not.
+func tenantHasLocalData(status string) bool {
+	return status == models.TenantActivityStatusHOT || status == models.TenantActivityStatusCOLD
+}
+
+// ShardReplicas returns shard name -> replica node names for class, omitting empty names, replica-less shards and tenants without local data.
 func (db *DB) ShardReplicas(ctx context.Context, class string) (map[string][]string, error) {
 	shardReplicas := make(map[string][]string)
 
-	skippedNonHot := 0
+	skippedNoLocalData := 0
 	err := db.schemaReader.Read(class, true, func(_ *models.Class, state *sharding.State) error {
 		if state == nil {
 			return fmt.Errorf("unable to retrieve sharding state for class %s", class)
 		}
 		for shardName, shard := range state.Physical {
-			if shard.ActivityStatus() != models.TenantActivityStatusHOT {
-				skippedNonHot++
+			if !tenantHasLocalData(shard.ActivityStatus()) {
+				skippedNoLocalData++
 				continue
 			}
 			validNodes := make([]string, 0, len(shard.BelongsToNodes))
@@ -280,9 +285,9 @@ func (db *DB) ShardReplicas(ctx context.Context, class string) (map[string][]str
 	if err != nil {
 		return nil, fmt.Errorf("failed to read sharding state for class %s: %w", class, err)
 	}
-	if skippedNonHot > 0 {
+	if skippedNoLocalData > 0 {
 		db.logger.WithField("action", "backup_dedupe").WithField("class", class).
-			Debugf("replica dedupe: %d non-HOT tenants excluded from checkpoint candidates", skippedNonHot)
+			Debugf("replica dedupe: %d tenants without local data excluded from checkpoint candidates", skippedNoLocalData)
 	}
 
 	return shardReplicas, nil

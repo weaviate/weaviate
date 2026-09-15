@@ -24,9 +24,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 )
 
-// createAsyncCheckpoint applies a fan-out create. createdAt must be the
-// initiator's timestamp (convergence tie-breaker). Returns nil for shards
-// not hosted on this node so a class-wide broadcast can no-op safely.
+// createAsyncCheckpoint applies a fan-out create; createdAt is the initiator's tie-breaker.
+// An unloaded shard answers from its persisted hashtree without loading; otherwise nil when not hosted, 412 when unloaded.
 func (i *Index) createAsyncCheckpoint(ctx context.Context, shardName string, cutoffMs int64, createdAt time.Time) error {
 	// Never load a shard from async replication.
 	shard, release, err := i.getLoadedShard(shardName)
@@ -34,13 +33,10 @@ func (i *Index) createAsyncCheckpoint(ctx context.Context, shardName string, cut
 		return fmt.Errorf("get shard %q: %w", shardName, err)
 	}
 	if shard == nil {
-		// Not hosted here is benign for a fan-out create; hosted-but-unloaded is a visible 412.
-		if i.shards.Load(shardName) == nil {
-			return nil
-		}
-		return fmt.Errorf("%w: shard %q not loaded on this node", errAsyncReplicationNotActive, shardName)
+		return i.createUnloadedAsyncCheckpoint(ctx, shardName, cutoffMs, createdAt)
 	}
 	defer release()
+	i.unloadedCheckpoints.delete(shardName)
 	return shard.CreateAsyncCheckpoint(ctx, cutoffMs, createdAt)
 }
 
@@ -100,8 +96,9 @@ func (i *Index) deleteAsyncCheckpointShards(ctx context.Context, shardNames []st
 	return errors.Join(errs...)
 }
 
-// deleteAsyncCheckpoint is idempotent; checkpoints are not persisted, so an unloaded shard has nothing to delete.
+// deleteAsyncCheckpoint is idempotent.
 func (i *Index) deleteAsyncCheckpoint(ctx context.Context, shardName string) error {
+	i.unloadedCheckpoints.delete(shardName)
 	shard, release, err := i.getLoadedShard(shardName)
 	if err != nil {
 		return fmt.Errorf("get shard %q: %w", shardName, err)
@@ -113,7 +110,7 @@ func (i *Index) deleteAsyncCheckpoint(ctx context.Context, shardName string) err
 	return shard.DeleteAsyncCheckpoint(ctx)
 }
 
-// getAsyncCheckpointShardStatus omits shards not loaded here (without loading them) so the aggregator can distinguish "not on this node" from "loaded but inactive" (CutoffMs == 0).
+// getAsyncCheckpointShardStatus omits unloaded shards without a persisted-hashtree checkpoint, so absence still means "not on this node" and CutoffMs == 0 "loaded but inactive".
 // Per-shard failures are logged and dropped so one bad shard can't deny status for the rest.
 func (i *Index) getAsyncCheckpointShardStatus(ctx context.Context, shardNames []string) (map[string]replica.AsyncCheckpointShardStatus, error) {
 	out := make(map[string]replica.AsyncCheckpointShardStatus, len(shardNames))
@@ -138,9 +135,17 @@ func (i *Index) getAsyncCheckpointShardStatus(ctx context.Context, shardNames []
 				return nil
 			}
 			if shard == nil {
+				status, ok := i.unloadedAsyncCheckpointStatus(shardName)
+				if !ok {
+					return nil
+				}
+				mu.Lock()
+				out[shardName] = status
+				mu.Unlock()
 				return nil
 			}
 			defer release()
+			i.unloadedCheckpoints.delete(shardName)
 			if lazy, ok := shard.(*LazyLoadShard); ok && !lazy.IsAsyncCheckpointHostable() {
 				return nil
 			}

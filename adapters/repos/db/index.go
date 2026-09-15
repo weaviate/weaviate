@@ -364,6 +364,8 @@ type Index struct {
 	// it between steps and aborts so a schema apply never waits on a full rebuild
 	asyncReplicationApplyWaiters atomic.Int32
 	asyncReplicationScheduler    *AsyncReplicationScheduler
+	// unloadedCheckpoints answers the async-checkpoint protocol for shards that are not loaded, from their persisted .ht root.
+	unloadedCheckpoints unloadedCheckpointRegistry
 
 	shardLoadLimiter  *loadlimiter.LoadLimiter
 	bucketLoadLimiter *loadlimiter.LoadLimiter
@@ -4016,6 +4018,7 @@ func (i *Index) dropShards(names []string) error {
 			// on this shard invalidates its usage record as it finishes, which
 			// re-creates the count, and the drop is what waits that reference out.
 			shardusage.ForgetComputedUsageGeneration(i.path(), name)
+			i.unloadedCheckpoints.delete(name)
 
 			return nil
 		})
