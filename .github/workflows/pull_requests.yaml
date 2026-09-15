@@ -948,16 +948,6 @@ jobs:
         with:
           name: binaries-macos-unsigned
           path: dist/weaviate_darwin_all
-      - name: Upload windows
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: binaries-windows-amd64
-          path: dist/weaviate_windows_amd64_v1
-      - name: Upload windows
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: binaries-windows-arm64
-          path: dist/weaviate_windows_arm64
       - name: Upload linux amd64
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -968,32 +958,3 @@ jobs:
         with:
           name: binaries-linux-arm64
           path: dist/weaviate_linux_arm64
-  Acceptance-Tests-windows:
-    name: acceptance (windows)
-    needs: Compile-and-upload-binaries
-    runs-on: windows-latest
-    env:
-      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: true
-      PERSISTENCE_DATA_PATH: /tmp
-      QUERY_DEFAULTS_LIMIT: 20
-      CLUSTER_HOSTNAME: node1
-      RAFT_BOOTSTRAP_EXPECT: 1
-      RAFT_JOIN: node1
-      GRPC_PORT: 50052
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Download binaries
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: binaries-windows-amd64
-      - name: Set up Go
-        uses: ./.github/actions/setup-go
-      - name: start weaviate
-        shell: bash
-        # Weaviate is started without a Vectorizer as running text2vec-contextionary on GH actions is difficult:
-        # - docker on GHA only supports windows container - which we currently are not build
-        # - building those containers without a windows machine is difficult to figure out
-        run: ./weaviate.exe --scheme http --port 8080 &
-      - name: run acceptance tests
-        shell: bash
-        run: go test -count 1 -race test/acceptance/actions/*.go  # tests that don't need a Vectorizer
