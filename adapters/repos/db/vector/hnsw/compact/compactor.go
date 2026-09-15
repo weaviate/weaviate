@@ -19,6 +19,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 )
 
 // Action represents the type of compaction action to perform.
@@ -381,66 +382,64 @@ func (c *Compactor) decideAction(state *DirectoryState) Action {
 	snapshotSize := state.TotalSnapshotSize()
 	sortedSize := state.TotalSortedSize()
 	totalSize := snapshotSize + sortedSize
-	sortedCount := len(state.SortedFiles)
+	var sortedRatio float64
+	if totalSize > 0 {
+		sortedRatio = float64(sortedSize) / float64(totalSize)
+	}
 
-	log := c.logger.WithFields(logrus.Fields{
+	action, reason := c.chooseAction(state, totalSize, sortedRatio)
+
+	// RunCycle decides on every maintenance cycle, so skip building fields a
+	// logger below debug would discard.
+	if !logrusext.LevelEnabled(c.logger, logrus.DebugLevel) {
+		return action
+	}
+	c.logger.WithFields(logrus.Fields{
 		"action":        "hnsw_compactor_decide",
 		"snapshot_size": snapshotSize,
 		"sorted_size":   sortedSize,
-		"sorted_count":  sortedCount,
+		"sorted_count":  len(state.SortedFiles),
+		"sorted_ratio":  sortedRatio,
 		"has_snapshot":  state.Snapshot != nil,
 		"threshold":     c.config.SnapshotThreshold,
 		"max_files":     c.config.MaxFilesPerMerge,
-	})
+		"reason":        reason,
+	}).Debugf("decision: %s", action)
+	return action
+}
+
+// chooseAction returns the action decideAction takes and the reason it logs.
+func (c *Compactor) chooseAction(state *DirectoryState, totalSize int64, sortedRatio float64) (Action, string) {
+	sortedCount := len(state.SortedFiles)
 
 	if totalSize == 0 {
-		log.Debug("decision: no action - no data to compact (total size is 0)")
-		return ActionNone
+		return ActionNone, "no data to compact (total size is 0)"
 	}
 
-	sortedRatio := float64(sortedSize) / float64(totalSize)
-	log = log.WithField("sorted_ratio", sortedRatio)
-
 	if state.Snapshot == nil {
-		// No snapshot exists yet
 		if sortedCount > c.config.MaxFilesPerMerge {
-			log.WithField("reason", "no snapshot exists, but too many sorted files to snapshot at once").
-				Debugf("decision: merge sorted files first (%d files > max %d)", sortedCount, c.config.MaxFilesPerMerge)
-			return ActionMergeSorted
+			return ActionMergeSorted, "no snapshot exists, but too many sorted files to snapshot at once"
 		}
 		if sortedCount > 0 {
-			log.WithField("reason", "no snapshot exists, creating initial snapshot").
-				Debugf("decision: create snapshot from %d sorted file(s)", sortedCount)
-			return ActionCreateSnapshot
+			return ActionCreateSnapshot, "no snapshot exists, creating initial snapshot"
 		}
-		log.Debug("decision: no action - no snapshot and no sorted files")
-		return ActionNone
+		return ActionNone, "no snapshot and no sorted files"
 	}
 
 	// Snapshot exists - decide based on sorted ratio vs threshold
 	if sortedRatio > c.config.SnapshotThreshold {
 		// Sorted files are large relative to snapshot - worth creating new snapshot
 		if sortedCount > c.config.MaxFilesPerMerge {
-			log.WithField("reason", "sorted ratio exceeds threshold, but too many files to snapshot at once").
-				Debugf("decision: merge sorted files first (%d files > max %d, ratio %.1f%% > threshold %.1f%%)",
-					sortedCount, c.config.MaxFilesPerMerge, sortedRatio*100, c.config.SnapshotThreshold*100)
-			return ActionMergeSorted
+			return ActionMergeSorted, "sorted ratio exceeds threshold, but too many files to snapshot at once"
 		}
-		log.WithField("reason", "sorted ratio exceeds threshold, write amplification is acceptable").
-			Debugf("decision: create snapshot (ratio %.1f%% > threshold %.1f%%)",
-				sortedRatio*100, c.config.SnapshotThreshold*100)
-		return ActionCreateSnapshot
+		return ActionCreateSnapshot, "sorted ratio exceeds threshold, write amplification is acceptable"
 	}
 
 	// Sorted ratio is below threshold - write amplification not worth it
 	if sortedCount > 1 {
-		log.WithField("reason", "sorted ratio below threshold, merging sorted files to reduce count").
-			Debugf("decision: merge %d sorted files (ratio %.1f%% <= threshold %.1f%%)",
-				sortedCount, sortedRatio*100, c.config.SnapshotThreshold*100)
-		return ActionMergeSorted
+		return ActionMergeSorted, "sorted ratio below threshold, merging sorted files to reduce count"
 	}
-
-	return ActionNone
+	return ActionNone, "sorted ratio below threshold, a single sorted file has nothing to merge with"
 }
 
 // mergeSorted merges the oldest N sorted files into one.

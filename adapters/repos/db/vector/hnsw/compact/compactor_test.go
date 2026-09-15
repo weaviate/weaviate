@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -245,6 +246,81 @@ func TestCompactor_DecideAction_WithSnapshot(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			action := compactor.decideAction(tt.state)
 			assert.Equal(t, tt.expected, action)
+		})
+	}
+}
+
+// RunCycle calls decideAction on every maintenance cycle, so it must not
+// allocate log fields unless the logger keeps debug entries.
+func TestCompactor_DecideAction_Logging(t *testing.T) {
+	sorted := func(n int, size int64) []FileInfo {
+		files := make([]FileInfo, n)
+		for i := range files {
+			files[i] = FileInfo{StartTS: int64(1000 * (i + 1)), Size: size}
+		}
+		return files
+	}
+
+	states := []struct {
+		name     string
+		state    *DirectoryState
+		expected Action
+	}{
+		{name: "no data", state: &DirectoryState{}, expected: ActionNone},
+		{name: "initial snapshot", state: &DirectoryState{SortedFiles: sorted(1, 1000)}, expected: ActionCreateSnapshot},
+		{name: "merge before initial snapshot", state: &DirectoryState{SortedFiles: sorted(6, 100)}, expected: ActionMergeSorted},
+		{
+			name:     "merge before snapshot above threshold",
+			state:    &DirectoryState{Snapshot: &FileInfo{Size: 100}, SortedFiles: sorted(6, 100)},
+			expected: ActionMergeSorted,
+		},
+		{
+			name:     "snapshot above threshold",
+			state:    &DirectoryState{Snapshot: &FileInfo{Size: 100}, SortedFiles: sorted(1, 100)},
+			expected: ActionCreateSnapshot,
+		},
+		{
+			name:     "merge below threshold",
+			state:    &DirectoryState{Snapshot: &FileInfo{Size: 1000}, SortedFiles: sorted(2, 50)},
+			expected: ActionMergeSorted,
+		},
+		{
+			name:     "one sorted file below threshold",
+			state:    &DirectoryState{Snapshot: &FileInfo{Size: 1000}, SortedFiles: sorted(1, 100)},
+			expected: ActionNone,
+		},
+	}
+
+	for _, tc := range states {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Run("info level", func(t *testing.T) {
+				logger, hook := test.NewNullLogger()
+				logger.SetLevel(logrus.InfoLevel)
+				compactor := NewCompactor(DefaultCompactorConfig(t.TempDir()), logger.WithField("id", "main"))
+
+				var got Action
+				allocs := testing.AllocsPerRun(10, func() {
+					got = compactor.decideAction(tc.state)
+				})
+				assert.Equal(t, tc.expected, got)
+				assert.Zero(t, allocs)
+				assert.Empty(t, hook.AllEntries())
+			})
+
+			t.Run("debug level", func(t *testing.T) {
+				logger, hook := test.NewNullLogger()
+				logger.SetLevel(logrus.DebugLevel)
+				compactor := NewCompactor(DefaultCompactorConfig(t.TempDir()), logger)
+
+				assert.Equal(t, tc.expected, compactor.decideAction(tc.state))
+				require.Len(t, hook.AllEntries(), 1)
+				entry := hook.LastEntry()
+				assert.Equal(t, logrus.DebugLevel, entry.Level)
+				assert.Equal(t, "decision: "+tc.expected.String(), entry.Message)
+				assert.Equal(t, "hnsw_compactor_decide", entry.Data["action"])
+				assert.NotEmpty(t, entry.Data["reason"])
+				assert.Equal(t, len(tc.state.SortedFiles), entry.Data["sorted_count"])
+			})
 		})
 	}
 }
