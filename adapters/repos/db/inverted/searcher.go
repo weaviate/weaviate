@@ -13,7 +13,6 @@ package inverted
 
 import (
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"strconv"
@@ -217,18 +216,6 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 	if limit == 0 {
 		limit = int(config.DefaultQueryMaximumResults)
 	}
-	outlen := it.Len()
-	if outlen > limit {
-		outlen = limit
-	}
-
-	out := make([]*storobj.Object, outlen)
-	docIDBytes := make([]byte, 8)
-
-	// Reused across iterations and grown to fit the largest object seen. Safe to
-	// reuse because FromBinary*Disk copies every value out of the returned bytes
-	// before the next lookup overwrites the buffer.
-	var objBuf []byte
 
 	propertyPaths := make([][]string, len(properties))
 	for j := range properties {
@@ -256,45 +243,29 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		}
 	}()
 
-	i := 0
-	loop := 0
-	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
-		if loop%1000 == 0 && ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		loop++
-
-		binary.LittleEndian.PutUint64(docIDBytes, docID)
-		res, newBuf, err := bucket.GetBySecondaryWithBuffer(ctx, 0, docIDBytes, objBuf)
-		if err != nil {
-			return nil, err
-		}
-		objBuf = newBuf
-
+	out, err := storobj.ReadObjectsByDocID(ctx, bucket, it, limit, func(docID uint64, res []byte) (*storobj.Object, bool, error) {
 		if res == nil {
 			handleDeletedId(docID)
-			continue
+			return nil, false, nil
 		}
 
 		var unmarshalled *storobj.Object
+		var err error
 		if additional.ReferenceQuery {
 			unmarshalled, err = storobj.FromBinaryUUIDOnlyDisk(res, className)
 		} else {
 			unmarshalled, err = storobj.FromBinaryOptionalDisk(res, className, additional, props)
 		}
 		if err != nil {
-			return nil, fmt.Errorf("unmarshal data object at position %d: %w", i, err)
+			return nil, false, fmt.Errorf("unmarshal data object for doc id %d: %w", docID, err)
 		}
-
-		out[i] = unmarshalled
-		i++
-
-		if i >= limit {
-			break
-		}
+		return unmarshalled, true, nil
+	})
+	lsmkv.ReduceSlowLogEntries(ctx, "lsm_get_by_secondary_with_view")
+	if err != nil {
+		return nil, err
 	}
-
-	return out[:i], nil
+	return out, nil
 }
 
 // DocIDs is similar to Objects, but does not actually resolve the docIDs to
