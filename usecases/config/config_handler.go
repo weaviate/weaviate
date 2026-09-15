@@ -369,8 +369,10 @@ type Config struct {
 	DisableDimensionMetrics *runtime.DynamicValue[bool] `json:"disable_dimension_metrics" yaml:"disable_dimension_metrics"`
 
 	// WeaviateLicense gates the functionality that is licensed under the
-	// Weaviate License (the "wl" directory) instead of BSD-3-Clause.
-	WeaviateLicense *runtime.DynamicValue[bool] `json:"weaviate_license" yaml:"weaviate_license"`
+	// Weaviate License (the "wl" directory) instead of BSD-3-Clause. It is set
+	// once at startup from the LICENSE_KEY form check and cannot be overridden
+	// at runtime.
+	WeaviateLicense bool `json:"weaviate_license" yaml:"weaviate_license"`
 }
 
 type CollectionPropsTenants struct {
