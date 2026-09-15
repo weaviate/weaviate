@@ -310,8 +310,8 @@ func (s *schema) ShardReplicas(class, shard string) ([]string, uint64, error) {
 	return meta.ShardReplicas(shard)
 }
 
-// TenantsShards returns shard name for the provided tenant and its activity status
-func (s *schema) TenantsShards(class string, tenants ...string) (map[string]string, uint64) {
+// TenantsShardsStatus returns shard name for the provided tenant and its activity status
+func (s *schema) TenantsShardsStatus(class string, tenants ...string) (map[string]string, uint64) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -320,7 +320,7 @@ func (s *schema) TenantsShards(class string, tenants ...string) (map[string]stri
 		return nil, 0
 	}
 
-	return meta.TenantsShards(class, tenants...)
+	return meta.TenantsShardsStatus(class, tenants...)
 }
 
 func (s *schema) CopyShardingState(class string) (*sharding.State, uint64) {

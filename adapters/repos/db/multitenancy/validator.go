@@ -121,7 +121,7 @@ func (v *multiTenantValidator) ValidateTenants(ctx context.Context, tenants ...s
 
 	tenants = deduplicateTenants(tenants)
 
-	statusMap, err := v.schema.TenantsShards(ctx, v.className, tenants...)
+	statusMap, err := v.schema.TenantsShardsStatus(ctx, v.className, tenants...)
 	if err != nil {
 		return fmt.Errorf("fetch tenant status for class %q: %w", v.className, err)
 	}

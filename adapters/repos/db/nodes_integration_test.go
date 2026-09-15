@@ -231,7 +231,7 @@ func TestLazyLoadedShards(t *testing.T) {
 		return readFunc(class, shardState)
 	}).Maybe()
 	mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
-	mockSchema.EXPECT().TenantsShards(ctx, className, tenantNamePopulated).Maybe().
+	mockSchema.EXPECT().TenantsShardsStatus(ctx, className, tenantNamePopulated).Maybe().
 		Return(map[string]string{tenantNamePopulated: models.TenantActivityStatusHOT}, nil)
 
 	mockRouter := types.NewMockRouter(t)

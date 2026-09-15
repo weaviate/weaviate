@@ -448,7 +448,7 @@ func testConcurrentTenantOperations(t *testing.T, s *schema) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < iterations; j++ {
-				shards, _ := s.TenantsShards("TestClass", "tenant1", "tenant2")
+				shards, _ := s.TenantsShardsStatus("TestClass", "tenant1", "tenant2")
 				if len(shards) > 0 {
 					assert.Contains(t, shards, "HOT")
 				}
