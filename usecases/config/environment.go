@@ -2403,34 +2403,41 @@ func (c *Config) parseBackupGCSConfig() error {
 }
 
 func (c *Config) parseBatchStreamConfig() error {
-	if err := parsePercentage("BATCH_STREAM_GATE_RATIO",
-		func(val float64) { c.BatchStream.GateRatio = val },
-		c.BatchStream.GateRatio); err != nil {
-		return err
+	if os.Getenv("BATCH_STREAM_GATE_RATIO") != "" {
+		if err := parsePercentage("BATCH_STREAM_GATE_RATIO",
+			func(val float64) { c.BatchStream.gateRatio = &val }, 0); err != nil {
+			return err
+		}
 	}
 
-	if err := parsePercentage("BATCH_STREAM_ENGAGE_RATIO",
-		func(val float64) { c.BatchStream.EngageRatio = val },
-		c.BatchStream.EngageRatio); err != nil {
-		return err
+	if os.Getenv("BATCH_STREAM_ENGAGE_RATIO") != "" {
+		if err := parsePercentage("BATCH_STREAM_ENGAGE_RATIO",
+			func(val float64) { c.BatchStream.engageRatio = &val }, 0); err != nil {
+			return err
+		}
 	}
 
-	if err := parsePositiveDuration("BATCH_STREAM_MAX_ACK_DELAY",
-		func(val time.Duration) { c.BatchStream.MaxAckDelay = val },
-		c.BatchStream.MaxAckDelay); err != nil {
-		return err
+	if v := os.Getenv("BATCH_STREAM_MAX_ACK_DELAY"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse BATCH_STREAM_MAX_ACK_DELAY as duration: %w", err)
+		}
+		if d < 0 {
+			return fmt.Errorf("BATCH_STREAM_MAX_ACK_DELAY must be a duration of 0 or more. Got: %v", d)
+		}
+		c.BatchStream.maxAckDelay = &d
 	}
 
-	if err := parsePositiveInt("BATCH_STREAM_HOLD_SECONDS",
-		func(val int) { c.BatchStream.HoldSeconds = val },
-		c.BatchStream.HoldSeconds); err != nil {
-		return err
+	if os.Getenv("BATCH_STREAM_HOLD_SECONDS") != "" {
+		if err := parseNonNegativeInt("BATCH_STREAM_HOLD_SECONDS",
+			func(val int) { c.BatchStream.holdSeconds = &val }, 0); err != nil {
+			return err
+		}
 	}
 
-	c.BatchStream = c.BatchStream.WithDefaults()
-	if c.BatchStream.GateRatio <= c.BatchStream.EngageRatio {
+	if c.BatchStream.GateRatio() <= c.BatchStream.EngageRatio() {
 		return fmt.Errorf("BATCH_STREAM_GATE_RATIO (%v) must be above BATCH_STREAM_ENGAGE_RATIO (%v)",
-			c.BatchStream.GateRatio, c.BatchStream.EngageRatio)
+			c.BatchStream.GateRatio(), c.BatchStream.EngageRatio())
 	}
 
 	return nil

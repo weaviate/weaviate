@@ -49,7 +49,7 @@ func (h *StreamHandler) delayAck(ctx context.Context, heapRatio float64) {
 // heap ratio. It uses exponential linear normalization between the engage and gate ratios,
 // with ackDelayExponent defined as above (quadratic as it stands).
 func ackDelay(cfg config.BatchStream, ratio float64) time.Duration {
-	if cfg.GateRatio <= cfg.EngageRatio {
+	if cfg.GateRatio() <= cfg.EngageRatio() {
 		return 0
 	}
 	switch {
@@ -58,24 +58,20 @@ func ackDelay(cfg config.BatchStream, ratio float64) time.Duration {
 	case ratio > 1:
 		ratio = 1
 	}
-	if ratio <= cfg.EngageRatio {
+	if ratio <= cfg.EngageRatio() {
 		return 0
 	}
-	if ratio >= cfg.GateRatio {
-		return cfg.MaxAckDelay
+	if ratio >= cfg.GateRatio() {
+		return cfg.MaxAckDelay()
 	}
-	scaled := (ratio - cfg.EngageRatio) / (cfg.GateRatio - cfg.EngageRatio)
-	return time.Duration(float64(cfg.MaxAckDelay) * math.Pow(scaled, ackDelayExponent))
+	scaled := (ratio - cfg.EngageRatio()) / (cfg.GateRatio() - cfg.EngageRatio())
+	return time.Duration(float64(cfg.MaxAckDelay()) * math.Pow(scaled, ackDelayExponent))
 }
 
 // wait waits for duration d or until the context or shutting down context is done, whichever comes first.
-//
-// It returns true if the wait ran to completion, and false otherwise.
 func (h *StreamHandler) wait(ctx context.Context, d time.Duration) error {
-	timer := time.NewTimer(d)
-	defer timer.Stop()
 	select {
-	case <-timer.C:
+	case <-time.After(d):
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -107,7 +103,7 @@ func (h *StreamHandler) holdForMemory(ctx context.Context, size int64) (float64,
 		return heapRatio, nil
 	}
 
-	deadline := time.Now().Add(time.Duration(h.config.HoldSeconds) * time.Second)
+	deadline := time.Now().Add(time.Duration(h.config.HoldSeconds()) * time.Second)
 	for {
 		wait := min(holdRecheckInterval, time.Until(deadline))
 		if wait <= 0 {

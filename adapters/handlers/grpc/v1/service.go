@@ -85,7 +85,7 @@ func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *sta
 		NUMCPU,
 		state.Logger,
 		state.ServerConfig.Config.Namespaces.Enabled,
-		batch.WithBackpressure(state.ServerConfig.Config.BatchStream),
+		batch.WithStreamConfig(state.ServerConfig.Config.BatchStream),
 	)
 	return &Service{
 		traverser:            state.Traverser,

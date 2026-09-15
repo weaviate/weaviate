@@ -941,41 +941,72 @@ const (
 )
 
 // BatchStream configures the backpressure the BatchStream receiver applies to a
-// client.
+// client. A nil field takes its default; a field set to zero is kept.
 type BatchStream struct {
-	// GateRatio is the fraction of GOMEMLIMIT at which live heap stops a message
+	// gateRatio is the fraction of GOMEMLIMIT at which live heap stops a message
 	// being admitted. It is the threshold of the batch stream's own memory
 	// monitor, and the top of the ack delay curve.
-	GateRatio float64 `json:"gate_ratio" yaml:"gate_ratio"`
+	gateRatio *float64 `json:"gate_ratio" yaml:"gate_ratio"`
 
 	// EngageRatio is the live heap ratio below which acks are not delayed.
 	// Between it and GateRatio the delay grows convexly to MaxAckDelay. A
 	// GateRatio at or below it disables the delay entirely.
-	EngageRatio float64 `json:"engage_ratio" yaml:"engage_ratio"`
+	engageRatio *float64 `json:"engage_ratio" yaml:"engage_ratio"`
 
-	// MaxAckDelay is the ack delay applied at and above GateRatio.
-	MaxAckDelay time.Duration `json:"max_ack_delay" yaml:"max_ack_delay"`
+	// maxAckDelay is the ack delay applied at and above GateRatio. Zero switches
+	// the ack delay off.
+	maxAckDelay *time.Duration `json:"max_ack_delay" yaml:"max_ack_delay"`
 
-	// HoldSeconds bounds how long a receiver waits for memory after a failed
-	// admission check before it fails the stream.
-	HoldSeconds int `json:"hold_seconds" yaml:"hold_seconds"`
+	// holdSeconds bounds how long a receiver waits for memory after a failed
+	// admission check before it fails the stream. Zero fails the stream on the
+	// first failed check.
+	holdSeconds *int `json:"hold_seconds" yaml:"hold_seconds"`
 }
 
-// WithDefaults returns b with each zero field replaced by its default.
-func (b BatchStream) WithDefaults() BatchStream {
-	if b.GateRatio == 0 {
-		b.GateRatio = DefaultBatchStreamGateRatio
+func NewBatchStream(gateRatio, engageRatio *float64, maxAckDelay *time.Duration, holdSeconds *int) BatchStream {
+	return BatchStream{
+		gateRatio:   gateRatio,
+		engageRatio: engageRatio,
+		maxAckDelay: maxAckDelay,
+		holdSeconds: holdSeconds,
 	}
-	if b.EngageRatio == 0 {
-		b.EngageRatio = DefaultBatchStreamEngageRatio
+}
+
+func (b BatchStream) GateRatio() float64 {
+	if b.gateRatio == nil {
+		return DefaultBatchStreamGateRatio
 	}
-	if b.MaxAckDelay == 0 {
-		b.MaxAckDelay = DefaultBatchStreamMaxAckDelay
+	return *b.gateRatio
+}
+
+func (b BatchStream) EngageRatio() float64 {
+	if b.engageRatio == nil {
+		return DefaultBatchStreamEngageRatio
 	}
-	if b.HoldSeconds == 0 {
-		b.HoldSeconds = DefaultBatchStreamHoldSeconds
+	return *b.engageRatio
+}
+
+func (b BatchStream) MaxAckDelay() time.Duration {
+	if b.maxAckDelay == nil {
+		return DefaultBatchStreamMaxAckDelay
 	}
-	return b
+	return *b.maxAckDelay
+}
+
+func (b BatchStream) HoldSeconds() int {
+	if b.holdSeconds == nil {
+		return DefaultBatchStreamHoldSeconds
+	}
+	return *b.holdSeconds
+}
+
+func (b BatchStream) WithHoldSeconds(holdSeconds int) BatchStream {
+	return BatchStream{
+		gateRatio:   b.gateRatio,
+		engageRatio: b.engageRatio,
+		maxAckDelay: b.maxAckDelay,
+		holdSeconds: &holdSeconds,
+	}
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided

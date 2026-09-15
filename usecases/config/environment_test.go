@@ -2280,10 +2280,10 @@ func TestBatchStreamFromEnv(t *testing.T) {
 		require.NoError(t, err)
 
 		expected := BatchStream{
-			GateRatio:   0.8,
-			EngageRatio: 0.4,
-			MaxAckDelay: 1500 * time.Millisecond,
-			HoldSeconds: 12,
+			gateRatio:   new(0.8),
+			engageRatio: new(0.4),
+			maxAckDelay: new(1500 * time.Millisecond),
+			holdSeconds: new(12),
 		}
 		require.Equal(t, expected, config.BatchStream)
 
@@ -2300,17 +2300,17 @@ func TestBatchStreamFromEnv(t *testing.T) {
 		t.Setenv("BATCH_STREAM_HOLD_SECONDS", "7")
 
 		config := Config{BatchStream: BatchStream{
-			GateRatio:   0.99,
-			EngageRatio: 0.98,
-			MaxAckDelay: time.Minute,
-			HoldSeconds: 99,
+			gateRatio:   new(0.99),
+			engageRatio: new(0.98),
+			maxAckDelay: new(time.Minute),
+			holdSeconds: new(99),
 		}}
 		require.NoError(t, FromEnv(&config))
 		require.Equal(t, BatchStream{
-			GateRatio:   0.6,
-			EngageRatio: 0.2,
-			MaxAckDelay: 750 * time.Millisecond,
-			HoldSeconds: 7,
+			gateRatio:   new(0.6),
+			engageRatio: new(0.2),
+			maxAckDelay: new(750 * time.Millisecond),
+			holdSeconds: new(7),
 		}, config.BatchStream)
 	})
 
@@ -2324,7 +2324,7 @@ func TestBatchStreamFromEnv(t *testing.T) {
 	})
 
 	t.Run("a gate at or below the engage ratio is rejected", func(t *testing.T) {
-		for _, gate := range []string{"0.5", "0.4"} {
+		for _, gate := range []string{"0.5", "0.4", "0"} {
 			unsetAll(t)
 			// engage stays at its 0.5 default
 			t.Setenv("BATCH_STREAM_GATE_RATIO", gate)
@@ -2333,16 +2333,24 @@ func TestBatchStreamFromEnv(t *testing.T) {
 		}
 	})
 
-	t.Run("unset variables leave the defaults in place", func(t *testing.T) {
+	t.Run("an explicit zero is kept", func(t *testing.T) {
 		unsetAll(t)
+		t.Setenv("BATCH_STREAM_ENGAGE_RATIO", "0")
+		t.Setenv("BATCH_STREAM_MAX_ACK_DELAY", "0s")
+		t.Setenv("BATCH_STREAM_HOLD_SECONDS", "0")
 		config := Config{}
 		require.NoError(t, FromEnv(&config))
-		require.Equal(t, BatchStream{}.WithDefaults(), config.BatchStream)
+		require.Equal(t, BatchStream{
+			gateRatio:   new(DefaultBatchStreamGateRatio),
+			engageRatio: new(0.0),
+			maxAckDelay: new(time.Duration(0)),
+			holdSeconds: new(0),
+		}, config.BatchStream)
 	})
 
-	t.Run("a non-positive hold or delay is rejected", func(t *testing.T) {
+	t.Run("a negative hold or delay is rejected", func(t *testing.T) {
 		for name, value := range map[string]string{
-			"BATCH_STREAM_HOLD_SECONDS":  "0",
+			"BATCH_STREAM_HOLD_SECONDS":  "-1",
 			"BATCH_STREAM_MAX_ACK_DELAY": "-1s",
 		} {
 			unsetAll(t)
