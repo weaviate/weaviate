@@ -66,6 +66,8 @@ type DistributedBackupDescriptor struct {
 	DedupeCutoffsMs map[string]int64 `json:"dedupeCutoffsMs,omitempty"`
 	// DedupeDesignations (class→shard→archiving node) lets a later incremental keep the designee — the only replica whose node-local diff can skip.
 	DedupeDesignations map[string]map[string]string `json:"dedupeDesignations,omitempty"`
+	// DedupeSkippedBytes: bytes attributed to skipping replicas; real archived ≈ PreCompressionSizeBytes − DedupeSkippedBytes.
+	DedupeSkippedBytes int64 `json:"dedupeSkippedBytes,omitempty"`
 	// SkipUsers/SkipRoles record that includeUsers/includeRoles was given but
 	// matched nothing. Restore discards any user or RBAC blob a node uploaded
 	// anyway, which a participant predating the request-level skip flag does.
@@ -280,6 +282,8 @@ type ShardDescriptor struct {
 	Files                 []string               `json:"files,omitempty"`
 	BigFilesChunk         map[string]BigFileInfo `json:"bigFilesChunk,omitempty"`
 	IncrementalBackupInfo IncrementalBackupInfos `json:"incrementalBackupInfo"`
+	// PreCompressionSizeBytes: archived bytes before compression, incl. incremental-skipped bytes.
+	PreCompressionSizeBytes int64 `json:"preCompressionSizeBytes,omitempty"`
 
 	DocIDCounterPath      string `json:"docIdCounterPath,omitempty"`
 	DocIDCounter          []byte `json:"docIdCounter,omitempty"`

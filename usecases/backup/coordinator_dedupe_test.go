@@ -759,6 +759,7 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		assert.Zero(t, got.DedupeFallbackShards)
 		assert.Nil(t, got.DedupeCutoffsMs)
 		assert.Nil(t, got.DedupeDesignations)
+		assert.Zero(t, got.DedupeSkippedBytes)
 	})
 
 	t.Run("deduped base pins the version stamp with zero designations", func(t *testing.T) {
@@ -881,9 +882,56 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		got := fc.backend.glMeta
 		assert.Equal(t, backup.Failed, got.Status)
 		assert.Contains(t, got.Error, "designated shard")
+		assert.Zero(t, got.DedupeSkippedBytes, "failed backup must not attribute sizes")
 		reason, ok := c.lastOp.rememberedFailure(backupID)
 		require.True(t, ok, "coverage failure must be published to the slot, not only the stored descriptor")
 		assert.Contains(t, reason, "designated shard")
+	})
+
+	t.Run("success attributes logical sizes to skipping replicas", func(t *testing.T) {
+		t.Parallel()
+		state := []byte(`{"physical":{"s1":{"belongsToNodes":["N1","N2"]}}}`)
+		n1Meta := backup.BackupDescriptor{Status: backup.Success, PreCompressionSizeBytes: 1000, Classes: []backup.ClassDescriptor{
+			{Name: "Class-A", ShardingState: state, PreCompressionSizeBytes: 1000, Shards: []*backup.ShardDescriptor{{Name: "s1", Node: "N1", PreCompressionSizeBytes: 1000}}},
+		}}
+		n2Meta := backup.BackupDescriptor{Status: backup.Success, Classes: []backup.ClassDescriptor{{Name: "Class-A", ShardingState: state}}}
+		getObject := func(fc *fakeCoordinator) {
+			fc.backend.On("GetObject", any, backupID+"/N1", any, any, any).Return(marshalMeta(n1Meta), nil)
+			fc.backend.On("GetObject", any, backupID+"/N2", any, any, any).Return(marshalMeta(n2Meta), nil)
+		}
+		fc, _, c := runCommittedDedupeBackup(t, backup.BackupDescriptor{}, any, getObject, nil)
+
+		got := fc.backend.glMeta
+		assert.Equal(t, backup.Success, got.Status)
+		assert.Equal(t, int64(2000), got.PreCompressionSizeBytes)
+		assert.Equal(t, int64(1000), got.DedupeSkippedBytes)
+		assert.Equal(t, int64(1000), got.Nodes["N1"].PreCompressionSizeBytes)
+		assert.Equal(t, int64(1000), got.Nodes["N2"].PreCompressionSizeBytes)
+		assert.Equal(t, len(nodes), countGetObjectCalls(t, fc, c), "attribution must reuse the descriptors commit already read")
+	})
+
+	t.Run("attribution survives a transient commit meta read failure", func(t *testing.T) {
+		t.Parallel()
+		state := []byte(`{"physical":{"s1":{"belongsToNodes":["N1","N2"]}}}`)
+		n1Meta := backup.BackupDescriptor{Status: backup.Success, PreCompressionSizeBytes: 1000, Classes: []backup.ClassDescriptor{
+			{Name: "Class-A", ShardingState: state, PreCompressionSizeBytes: 1000, Shards: []*backup.ShardDescriptor{{Name: "s1", Node: "N1", PreCompressionSizeBytes: 1000}}},
+		}}
+		n2Meta := backup.BackupDescriptor{Status: backup.Success, Classes: []backup.ClassDescriptor{{Name: "Class-A", ShardingState: state}}}
+		getObject := func(fc *fakeCoordinator) {
+			fc.backend.On("GetObject", any, backupID+"/N1", any, any, any).Return(nil, ErrAny).Once()
+			fc.backend.On("GetObject", any, backupID, any, any, any).Return(nil, ErrAny)
+			fc.backend.On("GetObject", any, backupID+"/N1", any, any, any).Return(marshalMeta(n1Meta), nil)
+			fc.backend.On("GetObject", any, backupID+"/N2", any, any, any).Return(marshalMeta(n2Meta), nil)
+		}
+		fc, _, c := runCommittedDedupeBackup(t, backup.BackupDescriptor{}, any, getObject, nil)
+
+		got := fc.backend.glMeta
+		assert.Equal(t, backup.Success, got.Status)
+		assert.Zero(t, got.Nodes["N1"].PreCompressionSizeBytes)
+		assert.Equal(t, int64(1000), got.Nodes["N2"].PreCompressionSizeBytes)
+		assert.Equal(t, int64(1000), got.PreCompressionSizeBytes)
+		assert.Equal(t, int64(1000), got.DedupeSkippedBytes)
+		assert.Equal(t, 4, countGetObjectCalls(t, fc, c), "one failed commit read, its legacy-detect probe, one commit read, one verify fallback re-read")
 	})
 
 	t.Run("flag off keeps wire payload legacy", func(t *testing.T) {
@@ -902,5 +950,212 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		assert.False(t, legacy.DedupeReplicas)
 		assert.False(t, legacy.DedupeEffective)
 		assert.Nil(t, legacy.ShardDesignations)
+	})
+}
+
+func TestAttributeDedupedShardSizes(t *testing.T) {
+	log, _ := test.NewNullLogger()
+	state := func(shards map[string][]string) []byte {
+		physical := make(map[string]map[string][]string, len(shards))
+		for name, replicas := range shards {
+			physical[name] = map[string][]string{"belongsToNodes": replicas}
+		}
+		raw, err := json.Marshal(map[string]interface{}{"physical": physical})
+		require.NoError(t, err)
+		return raw
+	}
+	shard := func(name string, size int64) *backup.ShardDescriptor {
+		return &backup.ShardDescriptor{Name: name, PreCompressionSizeBytes: size}
+	}
+	class := func(name string, shardingState []byte, shards ...*backup.ShardDescriptor) backup.ClassDescriptor {
+		return backup.ClassDescriptor{Name: name, ShardingState: shardingState, Shards: shards}
+	}
+	meta := func(classes ...backup.ClassDescriptor) *backup.BackupDescriptor {
+		return &backup.BackupDescriptor{Status: backup.Success, Classes: classes}
+	}
+	desc := func(designations map[string]map[string]string, nodeSizes map[string]int64) *backup.DistributedBackupDescriptor {
+		nodes := make(map[string]*backup.NodeDescriptor, len(nodeSizes))
+		var total int64
+		for n, size := range nodeSizes {
+			nodes[n] = &backup.NodeDescriptor{PreCompressionSizeBytes: size}
+			total += size
+		}
+		return &backup.DistributedBackupDescriptor{Leader: "N1", Nodes: nodes, DedupeDesignations: designations, PreCompressionSizeBytes: total}
+	}
+	rf2 := state(map[string][]string{"s1": {"N1", "N2"}})
+
+	tests := []struct {
+		name        string
+		desc        *backup.DistributedBackupDescriptor
+		metas       map[string]*backup.BackupDescriptor
+		wantNodes   map[string]int64
+		wantSkipped int64
+	}{
+		{
+			name: "rf2 single shard",
+			desc: desc(map[string]map[string]string{"Class-A": {"s1": "N1"}}, map[string]int64{"N1": 1000, "N2": 0}),
+			metas: map[string]*backup.BackupDescriptor{
+				"N1": meta(class("Class-A", rf2, shard("s1", 1000))),
+				"N2": meta(class("Class-A", rf2)),
+			},
+			wantNodes:   map[string]int64{"N1": 1000, "N2": 1000},
+			wantSkipped: 1000,
+		},
+		{
+			name: "rf3 two skipping replicas",
+			desc: desc(map[string]map[string]string{"Class-A": {"s1": "N1"}}, map[string]int64{"N1": 700, "N2": 0, "N3": 0}),
+			metas: map[string]*backup.BackupDescriptor{
+				"N1": meta(class("Class-A", state(map[string][]string{"s1": {"N1", "N2", "N3"}}), shard("s1", 700))),
+				"N2": meta(class("Class-A", nil)),
+				"N3": meta(class("Class-A", nil)),
+			},
+			wantNodes:   map[string]int64{"N1": 700, "N2": 700, "N3": 700},
+			wantSkipped: 1400,
+		},
+		{
+			name: "multiple classes and shards with spread archivers",
+			desc: desc(map[string]map[string]string{"Class-A": {"s1": "N1", "s2": "N2"}, "Class-B": {"t1": "N2"}}, map[string]int64{"N1": 100, "N2": 250}),
+			metas: map[string]*backup.BackupDescriptor{
+				"N1": meta(class("Class-A", state(map[string][]string{"s1": {"N1", "N2"}, "s2": {"N1", "N2"}}), shard("s1", 100)), class("Class-B", state(map[string][]string{"t1": {"N1", "N2"}}))),
+				"N2": meta(class("Class-A", nil, shard("s2", 200)), class("Class-B", nil, shard("t1", 50))),
+			},
+			wantNodes:   map[string]int64{"N1": 350, "N2": 350},
+			wantSkipped: 350,
+		},
+		{
+			name: "fallback shard untouched",
+			desc: desc(map[string]map[string]string{"Class-A": {"s1": "N1"}}, map[string]int64{"N1": 180, "N2": 90}),
+			metas: map[string]*backup.BackupDescriptor{
+				"N1": meta(class("Class-A", state(map[string][]string{"s1": {"N1", "N2"}, "s2": {"N1", "N2"}}), shard("s1", 100), shard("s2", 80))),
+				"N2": meta(class("Class-A", nil, shard("s2", 90))),
+			},
+			wantNodes:   map[string]int64{"N1": 180, "N2": 190},
+			wantSkipped: 100,
+		},
+		{
+			name:        "class with empty designations",
+			desc:        desc(map[string]map[string]string{"Class-A": {}}, map[string]int64{"N1": 100, "N2": 100}),
+			metas:       map[string]*backup.BackupDescriptor{"N1": meta(class("Class-A", rf2, shard("s1", 100)))},
+			wantNodes:   map[string]int64{"N1": 100, "N2": 100},
+			wantSkipped: 0,
+		},
+		{
+			name: "replica not a participant",
+			desc: desc(map[string]map[string]string{"Class-A": {"s1": "N1"}}, map[string]int64{"N1": 100}),
+			metas: map[string]*backup.BackupDescriptor{
+				"N1": meta(class("Class-A", state(map[string][]string{"s1": {"N1", "NX"}}), shard("s1", 100))),
+			},
+			wantNodes:   map[string]int64{"N1": 100},
+			wantSkipped: 0,
+		},
+		{
+			name: "replica archived the shard anyway",
+			desc: desc(map[string]map[string]string{"Class-A": {"s1": "N1"}}, map[string]int64{"N1": 1000, "N2": 950}),
+			metas: map[string]*backup.BackupDescriptor{
+				"N1": meta(class("Class-A", rf2, shard("s1", 1000))),
+				"N2": meta(class("Class-A", nil, shard("s1", 950))),
+			},
+			wantNodes:   map[string]int64{"N1": 1000, "N2": 950},
+			wantSkipped: 0,
+		},
+		{
+			name: "archiver meta missing",
+			desc: desc(map[string]map[string]string{"Class-A": {"s1": "N1"}}, map[string]int64{"N1": 0, "N2": 0}),
+			metas: map[string]*backup.BackupDescriptor{
+				"N2": meta(class("Class-A", rf2)),
+			},
+			wantNodes:   map[string]int64{"N1": 0, "N2": 0},
+			wantSkipped: 0,
+		},
+		{
+			name: "archiver meta lacks the shard",
+			desc: desc(map[string]map[string]string{"Class-A": {"s1": "N1"}}, map[string]int64{"N1": 0, "N2": 0}),
+			metas: map[string]*backup.BackupDescriptor{
+				"N1": meta(class("Class-A", rf2)),
+				"N2": meta(class("Class-A", nil)),
+			},
+			wantNodes:   map[string]int64{"N1": 0, "N2": 0},
+			wantSkipped: 0,
+		},
+		{
+			name: "pre-field archiver reports zero size",
+			desc: desc(map[string]map[string]string{"Class-A": {"s1": "N1", "s2": "N1"}}, map[string]int64{"N1": 400, "N2": 0}),
+			metas: map[string]*backup.BackupDescriptor{
+				"N1": meta(class("Class-A", state(map[string][]string{"s1": {"N1", "N2"}, "s2": {"N1", "N2"}}), shard("s1", 0), shard("s2", 400))),
+				"N2": meta(class("Class-A", nil)),
+			},
+			wantNodes:   map[string]int64{"N1": 400, "N2": 400},
+			wantSkipped: 400,
+		},
+		{
+			name: "corrupt leader state falls back to the archiver",
+			desc: desc(map[string]map[string]string{"Class-A": {"s1": "N2"}}, map[string]int64{"N1": 0, "N2": 300}),
+			metas: map[string]*backup.BackupDescriptor{
+				"N1": meta(class("Class-A", []byte("{"))),
+				"N2": meta(class("Class-A", rf2, shard("s1", 300))),
+			},
+			wantNodes:   map[string]int64{"N1": 300, "N2": 300},
+			wantSkipped: 300,
+		},
+		{
+			name: "unresolvable state skips only that class",
+			desc: desc(map[string]map[string]string{"Class-A": {"s1": "N1"}, "Class-B": {"t1": "N1"}}, map[string]int64{"N1": 150, "N2": 0}),
+			metas: map[string]*backup.BackupDescriptor{
+				"N1": meta(class("Class-A", []byte("{"), shard("s1", 100)), class("Class-B", state(map[string][]string{"t1": {"N1", "N2"}}), shard("t1", 50))),
+				"N2": meta(class("Class-A", []byte("{")), class("Class-B", nil)),
+			},
+			wantNodes:   map[string]int64{"N1": 150, "N2": 50},
+			wantSkipped: 50,
+		},
+		{
+			name: "empty and duplicate replica entries",
+			desc: desc(map[string]map[string]string{"Class-A": {"s1": "N1"}}, map[string]int64{"N1": 100, "N2": 0}),
+			metas: map[string]*backup.BackupDescriptor{
+				"N1": meta(class("Class-A", state(map[string][]string{"s1": {"", "N2", "N2", "N1"}}), shard("s1", 100))),
+				"N2": meta(class("Class-A", nil)),
+			},
+			wantNodes:   map[string]int64{"N1": 100, "N2": 100},
+			wantSkipped: 100,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := attributeDedupedShardSizes(log, tc.desc, tc.metas)
+			assert.Equal(t, tc.wantSkipped, got)
+			assert.Equal(t, tc.wantSkipped, tc.desc.DedupeSkippedBytes)
+			var sum int64
+			for node, want := range tc.wantNodes {
+				require.Contains(t, tc.desc.Nodes, node)
+				assert.Equal(t, want, tc.desc.Nodes[node].PreCompressionSizeBytes, node)
+			}
+			for _, nd := range tc.desc.Nodes {
+				sum += nd.PreCompressionSizeBytes
+			}
+			assert.Equal(t, sum, tc.desc.PreCompressionSizeBytes)
+		})
+	}
+
+	t.Run("mapped replica lands on its original node entry", func(t *testing.T) {
+		d := desc(map[string]map[string]string{"Class-A": {"s1": "N1"}}, map[string]int64{"N1": 100, "N2": 0})
+		d.NodeMapping = map[string]string{"N2": "N2x"}
+		metas := map[string]*backup.BackupDescriptor{
+			"N1":  meta(class("Class-A", state(map[string][]string{"s1": {"N1", "N2x"}}), shard("s1", 100))),
+			"N2x": meta(class("Class-A", nil)),
+		}
+		require.Equal(t, int64(100), attributeDedupedShardSizes(log, d, metas))
+		assert.Equal(t, int64(100), d.Nodes["N2"].PreCompressionSizeBytes)
+	})
+
+	t.Run("second call is a no-op", func(t *testing.T) {
+		d := desc(map[string]map[string]string{"Class-A": {"s1": "N1"}}, map[string]int64{"N1": 1000, "N2": 0})
+		metas := map[string]*backup.BackupDescriptor{
+			"N1": meta(class("Class-A", rf2, shard("s1", 1000))),
+			"N2": meta(class("Class-A", nil)),
+		}
+		require.Equal(t, int64(1000), attributeDedupedShardSizes(log, d, metas))
+		require.Zero(t, attributeDedupedShardSizes(log, d, metas))
+		assert.Equal(t, int64(1000), d.Nodes["N2"].PreCompressionSizeBytes)
+		assert.Equal(t, int64(2000), d.PreCompressionSizeBytes)
+		assert.Equal(t, int64(1000), d.DedupeSkippedBytes)
 	})
 }
