@@ -239,7 +239,7 @@ type Store struct {
 	// dbLoaded is set when the DB is loaded at startup
 	dbLoaded atomic.Bool
 
-	dbLoad dbLoader
+	dbLoad *dbLoader
 
 	// raft implementation from external library
 	raft          *raft.Raft
@@ -326,9 +326,7 @@ type storeMetrics struct {
 
 	// leaderFSMBarriers counts catch-up barriers. Once per leadership change
 	// when healthy, so a climbing rate reads as leadership churn.
-	leaderFSMBarriers prometheus.Counter
-	// localDBLoadFailures counts local DB loads that did not open everything
-	// the schema names. See [Store.reportIncompleteLoad].
+	leaderFSMBarriers   prometheus.Counter
 	localDBLoadFailures prometheus.Counter
 }
 
@@ -378,6 +376,8 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
 	schemaManager.SetMetadataOnly(cfg.MetadataOnlyVoters)
+	dbLoad := newDBLoader(cfg.Logger)
+	schemaManager.SetStoreWriteDeferrer(dbLoad.deferStoreWrite)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
 	if dv := cfg.MaxTenantsPerCollection; dv != nil {
@@ -435,6 +435,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 			LocalAddress:       net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
 		}),
 		schemaManager:           schemaManager,
+		dbLoad:                  dbLoad,
 		tenantAddLocks:          entsync.NewKeyLocker(),
 		authZController:         authZController,
 		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger),
@@ -708,9 +709,7 @@ func (st *Store) Close(ctx context.Context) error {
 
 	st.open.Store(false)
 
-	// Only now that raft is down can the loader finish: while Apply still runs,
-	// deferred writes keep asking it for another pass. Cancel and wait before
-	// the DB is closed underneath it.
+	// after raft: Apply queues writes behind the load until then
 	st.dbLoad.stop()
 
 	// close log store after raft shutdown to persist final log entries
@@ -1034,32 +1033,11 @@ func (st *Store) openDatabase(ctx context.Context) {
 	st.log.WithField("n", st.schemaManager.NewSchemaReader().Len()).Info("schema manager loaded")
 }
 
-// reloadDBFromSchema makes the local DB match the schema, repeating while
-// commands keep deferring their DB writes to it.
-//
-// Restore calls it directly, since raft requires it not to overlap other
-// commands. Apply hands it to dbLoad.start: Apply is raft's FSM goroutine, and
-// a load of minutes to hours there stalls every other command, bootstrap joins
-// included, so a cold start times out and kills the node.
+// reloadDBFromSchema loads the local DB, then runs the DB writes queued behind
+// it. Apply runs it in the background so a long load does not stall the FSM.
 func (st *Store) reloadDBFromSchema(ctx context.Context) {
-	loaded := true
-	for {
-		loaded = st.loadDBFromSchema(ctx) && loaded
-
-		deletes, done := st.dbLoad.finish()
-		if done {
-			break
-		}
-		loaded = st.dropDeferredDeletes(deletes) && loaded
-		st.log.Info("applying schema changes that landed while the local DB loaded")
-	}
-	if !loaded && ctx.Err() == nil {
-		st.reportIncompleteLoad()
-	}
-
-	if err := st.schemaManager.ResumeShardProcesses(); err != nil {
-		st.log.Errorf("resuming tenant offloads after the local DB loaded: %v", err)
-	}
+	st.loadDBFromSchema(ctx)
+	st.dbLoad.drain(ctx)
 	st.dbLoaded.Store(true)
 }
 
@@ -1099,25 +1077,18 @@ func (st *Store) fsmCaughtUpForTerm(term uint64) bool {
 	return term != 0 && st.fsmCaughtUpTerm.Load() == term
 }
 
-// reportIncompleteLoad records that the DB does not match the schema.
-//
-// The node goes ready regardless and serves what it did open, as it did before
-// the load moved off the FSM goroutine. Refusing to go ready is safer, but
-// WaitUntilDBRestored has no timeout of its own, so that turns a partial load
-// into a node hung at startup. Measure it first, then decide.
+// reportIncompleteLoad counts a load that did not open everything. The node
+// still goes ready: WaitUntilDBRestored has no timeout.
 func (st *Store) reportIncompleteLoad() {
 	st.metrics.localDBLoadFailures.Inc()
 	st.log.Error("local DB did not load fully; going ready anyway, some data may be missing")
 }
 
-func (st *Store) loadDBFromSchema(ctx context.Context) bool {
+func (st *Store) loadDBFromSchema(ctx context.Context) {
 	if st.cfg.MetadataOnlyVoters {
 		st.log.Info("skipping reload DB from schema as the node is metadata only")
-		return true
+		return
 	}
-	// Progress is the only sign of life during a load, and nothing else reports
-	// on it now that it runs off the FSM goroutine. The ticker stops before the
-	// summary line so the two cannot interleave.
 	err := func() error {
 		stop := st.trackDBLoadProgress()
 		defer stop()
@@ -1125,42 +1096,21 @@ func (st *Store) loadDBFromSchema(ctx context.Context) bool {
 	}()
 	if err != nil {
 		st.log.Errorf("reload local DB from schema: %v", err)
-		return false
+		if ctx.Err() == nil {
+			st.reportIncompleteLoad()
+		}
+		return
 	}
 
 	st.log.WithFields(st.dbLoadProgressFields()).Info("local DB loaded from schema")
-	return true
 }
 
-// dropDeferredDeletes applies the deletes a pass skipped. A class re-added
-// since is dropped all the same and the next pass rebuilds it empty; leaving it
-// would hand the new class the old one's shards.
-func (st *Store) dropDeferredDeletes(deletes map[string]bool) bool {
-	ok := true
-	for class, hasFrozen := range deletes {
-		if err := st.schemaManager.DeleteClassFromDB(class, hasFrozen); err != nil {
-			st.log.Errorf("dropping class %q deleted while the local DB loaded: %v", class, err)
-			ok = false
-		}
-	}
-	return ok
-}
+var errStartupLoadPending = errors.New("local DB still loading after restart")
 
-// deferDBWrite reports whether cmd must skip its DB write because the local DB
-// is still loading. hasFrozen is sampled here, the last point at which the
-// schema still lists the tenants that answer it.
-func (st *Store) deferDBWrite(cmd *api.ApplyRequest) bool {
-	if !st.dbLoad.inFlight.Load() {
-		return false
-	}
-	var (
-		deleted   string
-		hasFrozen bool
-	)
-	if cmd.GetType() == api.ApplyRequest_TYPE_DELETE_CLASS {
-		deleted, hasFrozen = cmd.Class, st.schemaManager.HasFrozenTenants(cmd.Class)
-	}
-	return st.dbLoad.deferWrite(deleted, hasFrozen)
+// startupLoadPending reports whether a node restarted with state has not yet
+// loaded its local DB.
+func (st *Store) startupLoadPending() bool {
+	return st.lastAppliedIndexToDB.Load() != 0 && !st.dbLoaded.Load()
 }
 
 func (st *Store) FSMHasCaughtUp() bool {

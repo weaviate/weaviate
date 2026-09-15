@@ -63,6 +63,11 @@ func (s *fsmSnapshot) Release() {
 // serializes in-memory state under its manager's lock — quick enough for the
 // apply thread; the actual sink IO stays in Persist.
 func (st *Store) Snapshot() (raft.FSMSnapshot, error) {
+	// A snapshot taken mid-startup would cover deletes whose data is not
+	// dropped yet; a restart from it replays nothing that records them again.
+	if st.startupLoadPending() {
+		return nil, errStartupLoadPending
+	}
 	st.log.Info("capturing snapshot")
 
 	schemaSnapshot, err := st.schemaManager.SchemaSnapshot()
@@ -206,7 +211,9 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 
 		snapIndex := lastSnapshotIndex(st.snapshotStore)
 		if st.lastAppliedIndexToDB.Load() <= snapIndex {
-			// db shall reload after snapshot applied to schema
+			// db shall reload after snapshot applied to schema; a running load
+			// is superseded by it
+			st.dbLoad.stop()
 			st.reloadDBFromSchema(context.Background())
 		}
 

@@ -22,9 +22,7 @@ import (
 
 type MockSchemaExecutor struct {
 	mock.Mock
-	// ReloadLocalDBHook, when set, runs at the start of ReloadLocalDB, letting
-	// a test hold the load open where the real one is slow.
-	ReloadLocalDBHook func()
+	ReloadLocalDBHook func(ctx context.Context)
 	ReloadLocalDBErr  error
 }
 
@@ -82,13 +80,14 @@ func (m *MockSchemaExecutor) UpdateIndex(req cmd.UpdateClassRequest) error {
 
 func (m *MockSchemaExecutor) ReloadLocalDB(ctx context.Context, all []cmd.UpdateClassRequest) error {
 	if m.ReloadLocalDBHook != nil {
-		m.ReloadLocalDBHook()
+		m.ReloadLocalDBHook(ctx)
 	}
 	return m.ReloadLocalDBErr
 }
 
 func (m *MockSchemaExecutor) DropOrphanedClass(ctx context.Context, class string, hasFrozen bool) error {
-	return nil
+	args := m.Called(ctx, class, hasFrozen)
+	return args.Error(0)
 }
 
 func (m *MockSchemaExecutor) DeleteClass(name string, hasFrozen bool) error {

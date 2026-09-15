@@ -383,9 +383,6 @@ func TestExecutor(t *testing.T) {
 	})
 }
 
-// TestReloadLocalDBStopsOnCancel pins that the load is cancellable. It runs for
-// minutes to hours off the FSM goroutine, and Close waits for it, so without a
-// cancellation point shutdown is held open for the rest of the load.
 func TestReloadLocalDBStopsOnCancel(t *testing.T) {
 	cls := &models.Class{Class: "C", ReplicationConfig: &models.ReplicationConfig{Factor: 1}}
 	state := &sharding.State{Physical: map[string]sharding.Physical{"S0": {Name: "S0"}}}
@@ -402,14 +399,8 @@ func TestReloadLocalDBStopsOnCancel(t *testing.T) {
 	migrator.AssertNotCalled(t, "UpdateIndex", mock.Anything, mock.Anything)
 }
 
-// TestReloadLocalDBSkipsClassDeletedMidReload pins that a class deleted while a
-// reload is in flight does not fail the reload.
-//
-// ReloadLocalDB works from a snapshot taken when it started. A class deleted
-// after that is still in the snapshot but gone from the schema, so rebuilding
-// its index fails on the sharding state it no longer has. Counting that as a
-// failed reload makes an ordinary delete look like data loss, and the caller
-// reports the node's DB as incomplete on the strength of it.
+// TestReloadLocalDBSkipsClassDeletedMidReload pins that a class deleted
+// after the reload started does not fail it.
 func TestReloadLocalDBSkipsClassDeletedMidReload(t *testing.T) {
 	ctx := context.Background()
 

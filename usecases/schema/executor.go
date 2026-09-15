@@ -78,8 +78,6 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 		i, u := i, u
 
 		g.Go(func() error {
-			// The load queues class by class behind the limiter, so the queue
-			// is where a cancelled ctx has to land.
 			if err := ctx.Err(); err != nil {
 				return err
 			}
@@ -88,9 +86,7 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 
 			if err := e.migrator.UpdateIndex(ctx, u.Class, u.State); err != nil {
 				if !e.schemaReader.ClassInfo(u.Class.Class).Exists {
-					// Deleted since this reload's snapshot was taken. Rebuilding
-					// it from that snapshot is what fails, and is also the last
-					// thing we want, so treat it as done.
+					// deleted since the reload's snapshot was taken
 					e.logger.WithField("index", u.Class.Class).
 						Info("skipping reload of a class deleted since the reload began")
 					return nil
