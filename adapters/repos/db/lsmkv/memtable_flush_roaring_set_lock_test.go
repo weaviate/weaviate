@@ -75,7 +75,7 @@ func TestFlushRoaringSetConcurrentWrite(t *testing.T) {
 	written := make(chan error, 1)
 	enterrors.GoWrapper(func() {
 		for i := 0; i < 200; i++ {
-			if err := m.roaringSetAddList([]byte("additions"), []uint64{uint64(i)}); err != nil {
+			if err := m.roaringSetAddList([]byte("deletions"), []uint64{uint64(i)}); err != nil {
 				written <- err
 				return
 			}
