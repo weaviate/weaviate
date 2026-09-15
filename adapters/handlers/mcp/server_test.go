@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -109,8 +110,8 @@ func TestToolFilter(t *testing.T) {
 
 // TestInputSchemaValidation pins that tool calls are checked against the
 // advertised input schema before the handler runs: unknown keys, missing
-// required arguments and null values are rejected, valid calls still reach the
-// handler.
+// required arguments and null for a required argument are rejected, while null
+// for an optional argument and other valid calls reach the handler.
 func TestInputSchemaValidation(t *testing.T) {
 	// Write access stays off so a call that passes validation answers with the
 	// write-disabled error instead of reaching the nil manager.
@@ -145,15 +146,21 @@ func TestInputSchemaValidation(t *testing.T) {
 			want: []string{validationFailed, "collection_name"},
 		},
 		{
-			name:    "null for an optional argument is rejected",
-			body:    call("weaviate-query-hybrid", `{"query":"q","collection_name":"Things","tenant_name":null}`),
-			want:    []string{validationFailed, "tenant_name"},
+			name:    "null for optional arguments means not set",
+			body:    call("weaviate-objects-upsert", `{"collection_name":"Things","tenant_name":null,"objects":[{"properties":{},"uuid":null,"vectors":null}]}`),
+			want:    []string{"write access is disabled"},
+			notWant: []string{validationFailed},
+		},
+		{
+			name:    "null for a required argument is rejected",
+			body:    call("weaviate-objects-upsert", `{"collection_name":"Things","objects":null}`),
+			want:    []string{validationFailed, "/objects"},
 			notWant: []string{"write access is disabled"},
 		},
 		{
-			name: "null for an optional field inside an object is rejected",
-			body: call("weaviate-objects-upsert", `{"collection_name":"Things","objects":[{"properties":{},"uuid":null}]}`),
-			want: []string{validationFailed, "/objects/0/uuid"},
+			name: "null for a required field inside an object is rejected",
+			body: call("weaviate-objects-upsert", `{"collection_name":"Things","objects":[{"properties":null}]}`),
+			want: []string{validationFailed, "/objects/0/properties"},
 		},
 		{
 			// also pins that the tool filter lets the call through
@@ -223,8 +230,9 @@ func TestToolsListedMetric(t *testing.T) {
 	}
 }
 
-// TestToolInputSchemas pins that every tool advertises its arguments; the
-// schema generator leaves the schema empty when it cannot build one.
+// TestToolInputSchemas pins that every tool advertises its arguments and that
+// only optional arguments accept null; the schema generator leaves the schema
+// empty when it cannot build one.
 func TestToolInputSchemas(t *testing.T) {
 	var tools []server.ServerTool
 	tools = append(tools, search.Tools(nil, nil, nil)...)
@@ -274,6 +282,11 @@ func TestToolInputSchemas(t *testing.T) {
 				require.Contains(t, schema.Properties, name)
 			}
 			require.ElementsMatch(t, tc.required, schema.Required)
+			for name, prop := range schema.Properties {
+				types, _ := prop.(map[string]any)["type"].([]any)
+				require.Equal(t, !slices.Contains(tc.required, name), slices.Contains(types, any("null")),
+					"argument %q should accept null only when it is optional", name)
+			}
 		})
 	}
 }

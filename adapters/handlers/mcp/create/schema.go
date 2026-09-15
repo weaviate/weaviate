@@ -57,6 +57,7 @@ func Tools(creator *WeaviateCreator, configs map[string]internal.ToolConfig, m *
 		mcp.WithIdempotentHintAnnotation(true),
 	)
 	internal.ApplySchemaDescriptions(&tool, toolName, configs)
+	internal.AllowNullForOptionalArguments(&tool)
 	return []server.ServerTool{
 		{Tool: tool, Handler: mcp.NewStructuredToolHandler(mcpmetrics.Instrument(m, toolName, creator.UpsertObject))},
 	}

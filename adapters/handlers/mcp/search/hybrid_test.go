@@ -433,7 +433,7 @@ func TestHybrid_FilterSchemaExposed(t *testing.T) {
 
 	filterSchema, ok := props["filters"].(map[string]any)
 	require.True(t, ok, "filters must be advertised in the tool input schema")
-	assert.Equal(t, "object", filterSchema["type"])
+	assert.Equal(t, []any{"object", "null"}, filterSchema["type"])
 
 	fprops, ok := filterSchema["properties"].(map[string]any)
 	require.True(t, ok, "filters must expose structured sub-properties")
@@ -444,7 +444,7 @@ func TestHybrid_FilterSchemaExposed(t *testing.T) {
 
 	operands, ok := fprops["operands"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "array", operands["type"], "operands carries nested filters")
+	assert.Equal(t, []any{"array", "null"}, operands["type"], "operands carries nested filters")
 }
 
 // TestHybrid_FilterSchemaValueFields: every non-deprecated value* field on
@@ -509,9 +509,11 @@ func TestHybrid_FilterSchemaOperatorEnum(t *testing.T) {
 	fprops := schema["properties"].(map[string]any)["filters"].(map[string]any)["properties"].(map[string]any)
 	enumAny, ok := fprops["operator"].(map[string]any)["enum"].([]any)
 	require.True(t, ok, "operator must declare an enum")
-	got := make([]string, len(enumAny))
-	for i, v := range enumAny {
-		got[i] = v.(string)
+	got := make([]string, 0, len(enumAny))
+	for _, v := range enumAny {
+		if v != nil { // null: the operator is optional
+			got = append(got, v.(string))
+		}
 	}
 	assert.ElementsMatch(t, canonical, got, "advertised operator enum must match the model's enum")
 }
