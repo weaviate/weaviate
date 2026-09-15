@@ -283,6 +283,14 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 					Op: command.TenantsProcess_OP_ABORT,
 				}
 			} else {
+				// A pre-fix artifact may carry a .ht that activation would trust verbatim.
+				if err := os.RemoveAll(shardPathHashTree(idx.path(), name)); err != nil {
+					m.logger.WithFields(logrus.Fields{
+						"action": "download_tenant_from_cloud",
+						"name":   class,
+						"tenant": name,
+					}).Warnf("discard downloaded hashtree snapshot: %v", err)
+				}
 				cmd.TenantsProcesses[uidx] = &command.TenantsProcess{
 					Tenant: &command.Tenant{
 						Name: name,

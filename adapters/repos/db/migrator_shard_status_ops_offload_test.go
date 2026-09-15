@@ -78,3 +78,48 @@ func TestFreezeAbortRestoresShardOnUploadFailure(t *testing.T) {
 		return tp.Op == command.TenantsProcess_OP_ABORT && tp.Tenant.Status == models.TenantActivityStatusHOT
 	}, 5*time.Second, 20*time.Millisecond, "freeze must record OP_ABORT back to HOT")
 }
+
+// plantingOffloadCloud downloads a pre-fix artifact: one that carries a .ht.
+type plantingOffloadCloud struct{ dir string }
+
+func (c *plantingOffloadCloud) VerifyBucket(context.Context) error { return nil }
+
+func (c *plantingOffloadCloud) Upload(context.Context, string, string, string) error { return nil }
+
+func (c *plantingOffloadCloud) Download(context.Context, string, string, string) error {
+	if err := os.MkdirAll(c.dir, os.ModePerm); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(c.dir, "hashtree-0000000000000001.ht"), []byte("stale snapshot"), 0o600)
+}
+
+func (c *plantingOffloadCloud) Delete(context.Context, string, string, string) error { return nil }
+
+// TestUnfreezeDiscardsDownloadedHashtree: activation trusts a .ht verbatim, so an artifact's copy must not survive the download.
+func TestUnfreezeDiscardsDownloadedHashtree(t *testing.T) {
+	ctx := context.Background()
+	const class = "UnfreezeDiscardsHashtree"
+
+	sl, idx := testShard(t, ctx, class, asyncSchedulerOption(t, ctx))
+	s := concreteShard(t, sl)
+	t.Cleanup(func() { require.NoError(t, sl.Shutdown(context.Background())) })
+
+	logger, _ := test.NewNullLogger()
+	m := NewMigrator(nil, logger, "node1")
+	m.SetNode("node1")
+	proc := &recordingProcessor{}
+	m.SetCluster(proc)
+	m.cloud = &plantingOffloadCloud{dir: s.pathHashTree()}
+
+	ec := errorcompounder.New()
+	m.unfreeze(ctx, idx, class, []string{s.name + "#node1"}, ec)
+
+	require.NoError(t, ec.ToError())
+	require.Empty(t, htFilesInDir(t, s.pathHashTree()))
+	require.Eventually(t, func() bool {
+		proc.mu.Lock()
+		defer proc.mu.Unlock()
+		return proc.req != nil && len(proc.req.TenantsProcesses) == 1 &&
+			proc.req.TenantsProcesses[0].Op == command.TenantsProcess_OP_DONE
+	}, 5*time.Second, 20*time.Millisecond)
+}
