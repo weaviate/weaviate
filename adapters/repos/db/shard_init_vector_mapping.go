@@ -12,8 +12,6 @@
 package db
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -38,7 +36,7 @@ import (
 //     then marked ready.
 //
 // A record the schema no longer has is deleted; its storage is left alone.
-func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[string]schemaConfig.VectorIndexConfig,
+func (s *Shard) reconcileVectorIndexMapping(active map[string]schemaConfig.VectorIndexConfig,
 	records map[string]vectorIndexRecord,
 ) (map[string]vectorIndexRecord, error) {
 	toBuild := make(map[string]vectorIndexRecord, len(active))
@@ -57,7 +55,7 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[stri
 				name, rec.IndexType, rec.PhysicalID, cfg.IndexType())
 		}
 		if rec.State == vectorIndexStateReady {
-			rebuild, err := s.readyVectorIndexNeedsRebuild(ctx, name, cfg, rec)
+			rebuild, err := s.readyVectorIndexNeedsRebuild(name, rec)
 			if err != nil {
 				return nil, err
 			}
@@ -81,14 +79,12 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[stri
 	return toBuild, nil
 }
 
-// errVectorIndexStorageMissing: a ready record whose directories are gone.
-// An empty index in their place would serve nothing where there was data.
-var errVectorIndexStorageMissing = errors.New("vector index storage is missing")
-
 // readyVectorIndexNeedsRebuild probes a ready record's storage. Present:
-// nothing to do. Missing with vectors to index: the load is refused. Missing
-// with nothing to index: the index is rebuilt.
-func (s *Shard) readyVectorIndexNeedsRebuild(ctx context.Context, name string, cfg schemaConfig.VectorIndexConfig, rec vectorIndexRecord) (bool, error) {
+// nothing to do. Missing: the index is rebuilt at its recorded ID, as before
+// the mapping. A backup or transfer carries no directory for an index that
+// has written nothing, which under async indexing includes one whose vectors
+// are all still queued.
+func (s *Shard) readyVectorIndexNeedsRebuild(name string, rec vectorIndexRecord) (bool, error) {
 	dirs, err := s.vectorIndexStorageDirsFor(rec)
 	if err != nil {
 		return false, fmt.Errorf("vector %q: %w", name, err)
@@ -97,18 +93,7 @@ func (s *Shard) readyVectorIndexNeedsRebuild(ctx context.Context, name string, c
 	if err != nil {
 		return false, fmt.Errorf("vector %q: %w", name, err)
 	}
-	if exists {
-		return false, nil
-	}
-	hasVectors, err := s.hasVectorsFor(ctx, name, cfg.IsMultiVector())
-	if err != nil {
-		return false, fmt.Errorf("vector %q: %w", name, err)
-	}
-	if hasVectors {
-		return false, fmt.Errorf("%w: vector %q is recorded ready at %q, expected %v on disk",
-			errVectorIndexStorageMissing, name, rec.PhysicalID, dirs)
-	}
-	return true, nil
+	return !exists, nil
 }
 
 // commitVectorIndexRecords makes the indexes just built durable in the
@@ -157,33 +142,6 @@ func vectorIndexConfigsByStorage(legacy schemaConfig.VectorIndexConfig,
 		}
 	}
 	return active, skipped
-}
-
-// errVectorFound stops the object scan at the first vector.
-var errVectorFound = errors.New("vector found")
-
-// hasVectorsFor reports whether any object holds a vector for name.
-func (s *Shard) hasVectorsFor(ctx context.Context, name string, multi bool) (bool, error) {
-	var err error
-	if multi {
-		err = s.iterateOnLSMMultiVectors(ctx, 0, name, func(_ uint64, v [][]float32) error {
-			if len(v) > 0 {
-				return errVectorFound
-			}
-			return nil
-		})
-	} else {
-		err = s.iterateOnLSMVectors(ctx, 0, name, func(_ uint64, v []float32) error {
-			if len(v) > 0 {
-				return errVectorFound
-			}
-			return nil
-		})
-	}
-	if errors.Is(err, errVectorFound) {
-		return true, nil
-	}
-	return false, err
 }
 
 // vectorIndexHasStorage is false for a skipped hnsw config: a no-op index
