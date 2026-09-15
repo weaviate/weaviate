@@ -1473,6 +1473,47 @@
         "grpcMaxMessageSize": {
           "description": "Max message size for GRPC connection in bytes.",
           "type": "integer"
+        },
+        "license": {
+          "description": "License state of this Weaviate instance.",
+          "$ref": "#/definitions/MetaLicense"
+        }
+      },
+      "type": "object"
+    },
+    "MetaLicense": {
+      "description": "License state of the current Weaviate instance.",
+      "properties": {
+        "status": {
+          "description": "Current license status.",
+          "type": "string"
+        },
+        "licenseId": {
+          "description": "The non-secret id of the configured license, empty when unlicensed.",
+          "type": "string"
+        },
+        "expiresAt": {
+          "description": "When the license expires, if known.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "lastCheckedAt": {
+          "description": "When the license was last verified with the license service, if ever.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "graceEndsAt": {
+          "description": "When the grace period ends, if the license is not currently valid.",
+          "format": "date-time",
+          "type": "string"
+        },
+        "enforcing": {
+          "description": "Whether license enforcement is active.",
+          "type": "boolean"
+        },
+        "clusterMismatch": {
+          "description": "Whether the license is used on a cluster other than the one it was issued for.",
+          "type": "boolean"
         }
       },
       "type": "object"
