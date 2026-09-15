@@ -23,6 +23,7 @@ message BatchDeleteReply {
   int64 matches = 3;
   int64 successful = 4;
   repeated BatchDeleteObject objects = 5;
+  int64 limit = 6;  // the most objects one call deletes, from QUERY_MAXIMUM_RESULTS
 }
 
 message BatchDeleteObject {

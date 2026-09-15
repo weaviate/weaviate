@@ -109,6 +109,7 @@ type BatchDeleteReply struct {
 	Matches       int64                  `protobuf:"varint,3,opt,name=matches,proto3" json:"matches,omitempty"`
 	Successful    int64                  `protobuf:"varint,4,opt,name=successful,proto3" json:"successful,omitempty"`
 	Objects       []*BatchDeleteObject   `protobuf:"bytes,5,rep,name=objects,proto3" json:"objects,omitempty"`
+	Limit         int64                  `protobuf:"varint,6,opt,name=limit,proto3" json:"limit,omitempty"` // the most objects one call deletes, from QUERY_MAXIMUM_RESULTS
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -176,6 +177,13 @@ func (x *BatchDeleteReply) GetObjects() []*BatchDeleteObject {
 		return x.Objects
 	}
 	return nil
+}
+
+func (x *BatchDeleteReply) GetLimit() int64 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
 }
 
 type BatchDeleteObject struct {
@@ -253,7 +261,7 @@ const file_v1_batch_delete_proto_rawDesc = "" +
 	"\x11consistency_level\x18\x05 \x01(\x0e2\x1d.weaviate.v1.ConsistencyLevelH\x00R\x10consistencyLevel\x88\x01\x01\x12\x1b\n" +
 	"\x06tenant\x18\x06 \x01(\tH\x01R\x06tenant\x88\x01\x01B\x14\n" +
 	"\x12_consistency_levelB\t\n" +
-	"\a_tenant\"\xb2\x01\n" +
+	"\a_tenant\"\xc8\x01\n" +
 	"\x10BatchDeleteReply\x12\x12\n" +
 	"\x04took\x18\x01 \x01(\x02R\x04took\x12\x16\n" +
 	"\x06failed\x18\x02 \x01(\x03R\x06failed\x12\x18\n" +
@@ -261,7 +269,8 @@ const file_v1_batch_delete_proto_rawDesc = "" +
 	"\n" +
 	"successful\x18\x04 \x01(\x03R\n" +
 	"successful\x128\n" +
-	"\aobjects\x18\x05 \x03(\v2\x1e.weaviate.v1.BatchDeleteObjectR\aobjects\"l\n" +
+	"\aobjects\x18\x05 \x03(\v2\x1e.weaviate.v1.BatchDeleteObjectR\aobjects\x12\x14\n" +
+	"\x05limit\x18\x06 \x01(\x03R\x05limit\"l\n" +
 	"\x11BatchDeleteObject\x12\x12\n" +
 	"\x04uuid\x18\x01 \x01(\fR\x04uuid\x12\x1e\n" +
 	"\n" +

@@ -107,6 +107,7 @@ func batchDeleteReplyFromObjects(response objects.BatchDeleteResult, verbose boo
 		Successful: successful,
 		Failed:     failed,
 		Matches:    response.Matches,
+		Limit:      response.Limit,
 		Objects:    objs,
 	}
 
