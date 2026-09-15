@@ -633,8 +633,8 @@ func (h *StreamHandler) enqueue(ctx context.Context, stream pb.Weaviate_BatchStr
 }
 
 // push enqueues one message for the workers. size is the reservation that
-// enqueue holds. Once the queue send succeeds, the worker's onComplete owns
-// that reservation. push never writes memInFlight itself.
+// enqueue holds. Once the queue send succeeds, the worker's onComplete must
+// release that reservation.
 func (h *StreamHandler) push(ctx context.Context, streamId string, consistencyLevel *pb.ConsistencyLevel, wg *sync.WaitGroup, objs []*pb.BatchObject, refs []*pb.BatchReference, usesVectorisationByCollection map[string]bool, size int64) {
 	// Update metrics based on how many objects are being pushed
 	howMany := len(objs) + len(refs)
