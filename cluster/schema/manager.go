@@ -1215,8 +1215,9 @@ func migratePropertiesIfNecessary(class *models.Class) {
 }
 
 func migrateNestedPropertiesIfNecessary(nprop *models.NestedProperty) {
-	// migrate this nested property
-	nprop.IndexRangeFilters = func() *bool { f := false; return &f }()
+	if nprop.IndexRangeFilters == nil {
+		nprop.IndexRangeFilters = func() *bool { f := false; return &f }()
+	}
 	// Recurse on all nested properties this one has
 	for _, recurseNestedProperty := range nprop.NestedProperties {
 		migrateNestedPropertiesIfNecessary(recurseNestedProperty)
