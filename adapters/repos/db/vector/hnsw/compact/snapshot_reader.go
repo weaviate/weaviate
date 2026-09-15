@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	// snapshotConcurrency is the number of goroutines used for concurrent block reading.
+	// snapshotConcurrency is the maximum number of goroutines used for concurrent block reading.
 	snapshotConcurrency = 8
 )
 
@@ -59,7 +59,7 @@ type ReadSeekReaderAt interface {
 // to ensure format compatibility.
 //
 // Notes:
-//   - Uses concurrent block reading with 8 goroutines for performance
+//   - Uses concurrent block reading with up to 8 goroutines for performance
 //   - Supports PQ, SQ, RQ, BRQ compression
 //   - Supports Muvera encoder
 type SnapshotReader struct {
@@ -680,15 +680,19 @@ func (r *SnapshotReader) readBodyConcurrent(reader ReadSeekReaderAt, res *ent.De
 
 	// Setup concurrent block reading
 	var mu sync.Mutex
-	ranges := make([]snapshotBlockRange, 0, (bodySize+int(r.blockSize)-1)/int(r.blockSize))
+	blockCount := (bodySize + int(r.blockSize) - 1) / int(r.blockSize)
+	// Each worker allocates a blockSize buffer, so a snapshot with few blocks
+	// gets no more workers than it has blocks.
+	workers := min(snapshotConcurrency, blockCount)
+	ranges := make([]snapshotBlockRange, 0, blockCount)
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(r.logger, context.Background())
-	eg.SetLimit(snapshotConcurrency)
+	eg.SetLimit(workers)
 
 	// Channel for distributing block offsets to workers
-	ch := make(chan int, snapshotConcurrency)
+	ch := make(chan int, workers)
 
 	// Start worker goroutines
-	for i := 0; i < snapshotConcurrency; i++ {
+	for i := 0; i < workers; i++ {
 		eg.Go(func() error {
 			buf := make([]byte, r.blockSize)
 
