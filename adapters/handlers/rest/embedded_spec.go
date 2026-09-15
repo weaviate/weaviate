@@ -8525,7 +8525,7 @@ func init() {
           "x-nullable": true
         },
         "dryRun": {
-          "description": "If true, the call will show which objects would be matched using the specified filter without deleting any objects. \u003cbr/\u003e\u003cbr/\u003eDepending on the configured verbosity, you will either receive a count of affected objects, or a list of IDs.",
+          "description": "If true, the call reports what the filter matches and deletes nothing. \u003cbr/\u003e\u003cbr/\u003eDepending on the configured verbosity, you will either receive a count of matched objects, or a list of IDs. A dry run is bounded the same way a real delete is: the count stops at one more than ` + "`" + `limit` + "`" + `, and the list holds at most ` + "`" + `limit` + "`" + ` IDs.",
           "type": "boolean",
           "default": false
         },
@@ -8604,7 +8604,7 @@ func init() {
               "x-omitempty": false
             },
             "matches": {
-              "description": "How many objects were matched by the filter.",
+              "description": "How many objects the filter matched, counted up to one more than ` + "`" + `limit` + "`" + `. A value above ` + "`" + `limit` + "`" + ` means more objects match than this call deletes, so call again.",
               "type": "number",
               "format": "int64",
               "x-omitempty": false
@@ -21122,7 +21122,7 @@ func init() {
           "x-nullable": true
         },
         "dryRun": {
-          "description": "If true, the call will show which objects would be matched using the specified filter without deleting any objects. \u003cbr/\u003e\u003cbr/\u003eDepending on the configured verbosity, you will either receive a count of affected objects, or a list of IDs.",
+          "description": "If true, the call reports what the filter matches and deletes nothing. \u003cbr/\u003e\u003cbr/\u003eDepending on the configured verbosity, you will either receive a count of matched objects, or a list of IDs. A dry run is bounded the same way a real delete is: the count stops at one more than ` + "`" + `limit` + "`" + `, and the list holds at most ` + "`" + `limit` + "`" + ` IDs.",
           "type": "boolean",
           "default": false
         },
@@ -21217,7 +21217,7 @@ func init() {
               "x-omitempty": false
             },
             "matches": {
-              "description": "How many objects were matched by the filter.",
+              "description": "How many objects the filter matched, counted up to one more than ` + "`" + `limit` + "`" + `. A value above ` + "`" + `limit` + "`" + ` means more objects match than this call deletes, so call again.",
               "type": "number",
               "format": "int64",
               "x-omitempty": false
@@ -21271,7 +21271,7 @@ func init() {
           "x-omitempty": false
         },
         "matches": {
-          "description": "How many objects were matched by the filter.",
+          "description": "How many objects the filter matched, counted up to one more than ` + "`" + `limit` + "`" + `. A value above ` + "`" + `limit` + "`" + ` means more objects match than this call deletes, so call again.",
           "type": "number",
           "format": "int64",
           "x-omitempty": false
