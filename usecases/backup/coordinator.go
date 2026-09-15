@@ -287,7 +287,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 
 	// A Cancel that lands during planning only marks the slot; honor it here so
 	// no participant is ever contacted for a cancelled backup.
-	if c.lastOp.get().Status == backup.Cancelled {
+	if c.lastOp.get().cancelSignalled() {
 		c.descriptor.Status = backup.Cancelled
 		c.descriptor.Error = errCancelled.Error()
 		c.descriptor.CompletedAt = time.Now().UTC()
@@ -324,24 +324,25 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	f := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
-		// The slot must never read Success while the coverage gate can still flip it to Failed: pollers latch terminal statuses.
-		deferPublish := dedupeEffective
-		nodeMetas := c.commit(ctx, &statusReq, nodes, false, deferPublish)
+		// The terminal status is published only after the descriptor carrying it is durable, so polls never get ahead of the backend.
+		nodeMetas := c.commit(ctx, &statusReq, nodes, false, true)
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
-		if deferPublish {
-			if c.descriptor.Status == backup.Success {
-				if err := c.verifyDesignatedCoverage(ctx, &statusReq, plan, nodeMetas); err != nil {
-					c.descriptor.Status = backup.Failed
-					c.descriptor.Error = err.Error()
-					c.log.WithFields(logFields).Errorf("coordinator: designated-shard coverage check failed: %v", err)
-				} else if attributed := attributeDedupedShardSizes(c.log, c.descriptor, nodeMetas); attributed > 0 {
-					c.log.WithFields(logFields).Debugf("coordinator: %d bytes attributed to skipping replicas for logical backup size", attributed)
-				}
+		if dedupeEffective && c.descriptor.Status == backup.Success {
+			if err := c.verifyDesignatedCoverage(ctx, &statusReq, plan, nodeMetas); err != nil {
+				c.descriptor.Status = backup.Failed
+				c.descriptor.Error = err.Error()
+				c.log.WithFields(logFields).Errorf("coordinator: designated-shard coverage check failed: %v", err)
+			} else if attributed := attributeDedupedShardSizes(c.log, c.descriptor, nodeMetas); attributed > 0 {
+				c.log.WithFields(logFields).Debugf("coordinator: %d bytes attributed to skipping replicas for logical backup size", attributed)
 			}
-			c.publishStatus()
 		}
-		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath); err != nil {
+		err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath)
+		if err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
+		}
+		// A poll must never read SUCCESS or CANCELED while the backend contradicts it; a failure always publishes so its reason survives the slot.
+		if err == nil || c.descriptor.Status == backup.Failed {
+			c.publishStatus()
 		}
 		if c.descriptor.Status == backup.Success {
 			c.log.WithFields(logFields).Info("coordinator: backup completed successfully")
@@ -469,7 +470,7 @@ func (c *coordinator) Restore(
 		// Only proceed if staging was successful (Transferred = staging complete)
 		if c.descriptor.Status == backup.Transferred {
 			// Check for external cancellation via lastOp (same-node cancellation)
-			if c.lastOp.get().Status == backup.Cancelled {
+			if c.lastOp.get().cancelSignalled() {
 				c.descriptor.Status = backup.Cancelled
 				c.descriptor.Error = errCancelled.Error()
 			} else {
@@ -774,7 +775,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupeP
 // commit tells each participant to commit its backup operation
 // It stores the final result in the provided backend
 // It returns the per-node descriptors read while aggregating sizes (creates only), so callers can reuse them instead of re-reading.
-// deferFinalPublish skips the terminal slot publish so a caller-side gate can settle the status first.
+// deferFinalPublish skips the terminal slot publish so the caller can write the descriptor first; restores keep the inline publish.
 func (c *coordinator) commit(ctx context.Context,
 	req *StatusRequest,
 	node2Addr map[string]string,
@@ -788,10 +789,11 @@ func (c *coordinator) commit(ctx context.Context,
 	}
 
 	// Check for external cancellation before starting
-	if c.lastOp.get().Status == backup.Cancelled {
+	if c.lastOp.get().cancelSignalled() {
 		c.log.WithField("backup_id", req.ID).Info("commit aborted: operation was cancelled externally")
 		c.descriptor.Status = backup.Cancelled
 		c.descriptor.Error = errCancelled.Error()
+		c.descriptor.CompletedAt = time.Now().UTC()
 		return nil
 	}
 
@@ -800,7 +802,7 @@ func (c *coordinator) commit(ctx context.Context,
 	canContinue := len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
 	for canContinue {
 		// Check for external cancellation in polling loop
-		if c.lastOp.get().Status == backup.Cancelled {
+		if c.lastOp.get().cancelSignalled() {
 			c.log.WithField("backup_id", req.ID).Info("commit polling aborted: operation was cancelled externally")
 			// Mark remaining nodes as cancelled
 			for node := range node2Host {
@@ -811,6 +813,7 @@ func (c *coordinator) commit(ctx context.Context,
 			}
 			c.descriptor.Status = backup.Cancelled
 			c.descriptor.Error = errCancelled.Error()
+			c.descriptor.CompletedAt = time.Now().UTC()
 			return nil
 		}
 
@@ -821,6 +824,7 @@ func (c *coordinator) commit(ctx context.Context,
 			c.log.WithField("backup_id", req.ID).Info("commit polling aborted: context cancelled")
 			c.descriptor.Status = backup.Cancelled
 			c.descriptor.Error = "restore cancelled: context cancelled"
+			c.descriptor.CompletedAt = time.Now().UTC()
 			return nil
 		}
 		retryAfter = c.timeoutNextRound
@@ -911,12 +915,11 @@ func (c *coordinator) commit(ctx context.Context,
 		groups[node] = st
 	}
 	c.descriptor.Status = status
-	// Respect external cancellation from CancelRestore() - if lastOp was already
-	// set to Cancelled, propagate that to descriptor so storage writes are consistent
-	if c.lastOp.get().Status == backup.Cancelled {
+	// A cancel that arrived after the last poll still wins, so the stored descriptor never contradicts it.
+	if c.lastOp.get().cancelSignalled() {
 		c.descriptor.Status = backup.Cancelled
 		if reason == "" {
-			reason = "restore canceled by user"
+			reason = errCancelled.Error()
 		}
 	}
 	c.descriptor.Error = reason

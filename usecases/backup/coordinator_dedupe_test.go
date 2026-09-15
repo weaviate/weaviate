@@ -578,6 +578,22 @@ func TestPlanDesignatedShards(t *testing.T) {
 		assert.Equal(t, []string{"C1"}, f.deleteCalls)
 	})
 
+	t.Run("a cancel request through the slot stops planning early", func(t *testing.T) {
+		f := newFakeCheckpointer()
+		f.shardReplicas["C1"] = map[string][]string{"s1": {"n1", "n2"}}
+		f.diverge["C1/s1"] = true
+		c := newDedupeCoordinator(f)
+		c.dedupeConvergenceBudget = 10 * time.Second
+		require.Empty(t, c.lastOp.renew("x", "", "p", "", ""))
+		require.True(t, c.lastOp.cancelIfInFlight("x"))
+
+		begin := time.Now()
+		plan := c.planDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2"), nil)
+		assert.Less(t, time.Since(begin), 5*time.Second)
+		assert.Equal(t, 0, plan.designated())
+		assert.Equal(t, []string{"C1"}, f.deleteCalls)
+	})
+
 	t.Run("cancel during a wedged status RPC unblocks planning", func(t *testing.T) {
 		f := newFakeCheckpointer()
 		f.shardReplicas["C1"] = map[string][]string{"s1": {"n1", "n2"}}
@@ -870,6 +886,7 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		<-fc.backend.doneChan
 		assert.Equal(t, backup.Failed, fc.backend.glMeta.Status)
 		assert.Contains(t, fc.backend.glMeta.Error, "designated shard")
+		require.Eventually(t, func() bool { return coordinator.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
 		reason, ok := coordinator.lastOp.rememberedFailure(backupID)
 		require.True(t, ok)
 		assert.Contains(t, reason, "designated shard")
@@ -883,6 +900,7 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		assert.Equal(t, backup.Failed, got.Status)
 		assert.Contains(t, got.Error, "designated shard")
 		assert.Zero(t, got.DedupeSkippedBytes, "failed backup must not attribute sizes")
+		require.Eventually(t, func() bool { return c.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
 		reason, ok := c.lastOp.rememberedFailure(backupID)
 		require.True(t, ok, "coverage failure must be published to the slot, not only the stored descriptor")
 		assert.Contains(t, reason, "designated shard")

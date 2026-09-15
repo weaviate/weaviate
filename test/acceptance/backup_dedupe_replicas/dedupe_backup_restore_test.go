@@ -264,26 +264,7 @@ func isObjectNotFound(err error) bool {
 }
 
 func restoreErrorMessage(err error) string {
-	var payload *models.ErrorResponse
-	var uerr *backups.BackupsRestoreUnprocessableEntity
-	var ierr *backups.BackupsRestoreInternalServerError
-	var nerr *backups.BackupsRestoreNotFound
-	switch {
-	case errors.As(err, &uerr):
-		payload = uerr.Payload
-	case errors.As(err, &ierr):
-		payload = ierr.Payload
-	case errors.As(err, &nerr):
-		payload = nerr.Payload
-	}
-	if payload == nil {
-		return err.Error()
-	}
-	parts := make([]string, 0, len(payload.Error))
-	for _, item := range payload.Error {
-		parts = append(parts, item.Message)
-	}
-	return strings.Join(parts, "; ")
+	return helper.BackupRestoreErrorMessage(err)
 }
 
 // dumpNodeLogs surfaces backup-relevant container log lines on failure.
