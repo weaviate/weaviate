@@ -55,7 +55,9 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	// matching resume.
 	if !offloading {
 		if blockedErr := s.index.refuseIfReindexInFlight(s.name); blockedErr != nil {
-			return blockedErr
+			// Without the sentinel the movement spends an error credit per attempt and is cancelled, not retried.
+			return fmt.Errorf("%w: %w; transfer deferred until it completes",
+				enterrors.ErrShardBusyStructuralOp, blockedErr)
 		}
 		if busy, reason := s.structuralVectorOpInFlight(); busy {
 			return fmt.Errorf("%w: shard %q: %s; transfer deferred until it completes",

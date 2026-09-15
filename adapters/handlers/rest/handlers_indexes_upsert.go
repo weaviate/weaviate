@@ -828,6 +828,10 @@ func (h *indexesHandlers) mapSubmitTaskError(principal *models.Principal, collec
 			"a conflicting reindex task on the same property is already in flight "+
 				"(a concurrent submit won the race); wait for it to finish or cancel it before retrying"))
 	}
+	if errors.Is(err, distributedtask.ErrTaskBlockedByReplicaMovement) {
+		return jsonResponder(http.StatusConflict, errorResponse(principal,
+			fmt.Sprintf("collection %q has a replica movement in flight; retry after it completes", collection)))
+	}
 	return jsonResponder(http.StatusInternalServerError, errorResponse(principal,
 		fmt.Sprintf("submitting task: %v", err)))
 }

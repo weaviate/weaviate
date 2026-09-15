@@ -12,14 +12,17 @@
 package db
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
@@ -277,4 +280,32 @@ func TestShard_HaltForTransfer_OffloadIgnoresInFlightReindex(t *testing.T) {
 
 	require.NoError(t, shd.HaltForTransfer(ctx, true, 100*time.Millisecond))
 	require.NoError(t, shd.(*Shard).resumeMaintenanceCycles(ctx))
+}
+
+func TestReplicaSnapshotDefersWhileReindexInFlight(t *testing.T) {
+	index, shard := newSharedHaltTestShard(t)
+	ctx := context.Background()
+
+	putSharedHaltObject(t, index, strfmt.UUID("2b1d4bd0-3f52-4f0f-9f75-b0cb2e29b3a3"), 0)
+
+	index.db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{
+		{"TestClass", "shard1"}: true,
+	}))
+
+	_, err := index.IncomingCreateReplicaSnapshot(ctx, "shard1", "op-reindex-in-flight")
+	require.Error(t, err)
+	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex),
+		"the reindex sentinel must survive so the backup path keeps its own response")
+	require.True(t, errors.Is(err, enterrors.ErrShardBusyStructuralOp),
+		"the refusal must defer the movement, not burn its error budget")
+	require.Contains(t, err.Error(), enterrors.ErrShardBusyStructuralOp.Error())
+
+	require.Zero(t, shard.haltForTransferCount.Load(),
+		"a refused halt must not leave the shard halted")
+
+	index.db.SetShardReindexActivityLookup(makeActivityBuilder(map[[2]string]bool{}))
+	files, err := index.IncomingCreateReplicaSnapshot(ctx, "shard1", "op-reindex-cleared")
+	require.NoError(t, err)
+	require.NotEmpty(t, files)
+	require.NoError(t, index.IncomingReleaseReplicaSnapshot(ctx, "op-reindex-cleared"))
 }
