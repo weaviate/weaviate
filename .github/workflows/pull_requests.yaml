@@ -366,6 +366,8 @@ jobs:
             test: "--integration-vector-package-only"
           - name: "without vector"
             test: "--integration-without-vector-package"
+          - name: "integrationslowtest"
+            test: "--integration-slow-package-only"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
@@ -923,11 +925,16 @@ jobs:
         with:
           name: coverage-report-integration--integration-vector-package-only
           path: coverage-integration-vector-package-only.txt
+      - name: Download coverage integration slow package only
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: coverage-report-integration--integration-slow-package-only
+          path: coverage-integration-slow-package-only.txt
       - name: Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6
         with:
           fail_ci_if_error: false
-          files: ./coverage-integration-without-vector-package.txt, ./coverage-integration-vector-package-only.txt, ./coverage-unit-adapters/coverage-unit.txt, ./coverage-unit-non-adapters/coverage-unit.txt
+          files: ./coverage-integration-without-vector-package.txt, ./coverage-integration-vector-package-only.txt, ./coverage-integration-slow-package-only.txt, ./coverage-unit-adapters/coverage-unit.txt, ./coverage-unit-non-adapters/coverage-unit.txt
           verbose: true
   Compile-and-upload-binaries:
     name: compile and upload binaries
