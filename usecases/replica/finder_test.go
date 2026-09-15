@@ -1256,3 +1256,44 @@ func TestFinderCountObjects(t *testing.T) {
 		})
 	}
 }
+
+func TestFinderFindUUIDs(t *testing.T) {
+	var (
+		cls   = "C1"
+		shard = "SH1"
+		nodes = []string{"A", "B", "C"}
+		ctx   = context.Background()
+	)
+
+	tests := []struct {
+		name string
+		// perReplica uuids per replica, non-overlapping, so union == their sum.
+		perReplica int
+		limit      int
+		want       int
+	}{
+		{name: "limit cuts the union", perReplica: 5, limit: 5, want: 5},
+		{name: "limit above the union keeps everything", perReplica: 2, limit: 10, want: 6},
+		{name: "no limit keeps everything", perReplica: 2, limit: 0, want: 6},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFakeFactory(t, cls, shard, nodes, false)
+			finder := f.newFinder("A")
+
+			for i, node := range nodes {
+				uuids := make([]strfmt.UUID, tt.perReplica)
+				for j := range uuids {
+					uuids[j] = strfmt.UUID(fmt.Sprintf("uuid-%d-%d", i, j))
+				}
+				f.RClient.EXPECT().FindUUIDs(anyVal, node, cls, shard, anyVal, tt.limit).
+					Return(uuids, nil)
+			}
+
+			got, err := finder.FindUUIDs(ctx, cls, shard, nil, types.ConsistencyLevelAll, tt.limit)
+			require.NoError(t, err)
+			require.Len(t, got, tt.want)
+		})
+	}
+}
