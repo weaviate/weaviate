@@ -48,7 +48,6 @@ func (f *fakeDropEnqueuer) EnqueueDropVectorIndex(ctx context.Context, collectio
 
 func newDropVectorHandler(t *testing.T, cls *models.Class) (*Handler, *fakeSchemaManager, *fakeDropEnqueuer) {
 	t.Helper()
-	t.Setenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true")
 	h, sm := newTestHandler(t, nil)
 	enq := &fakeDropEnqueuer{}
 	h.dropVectorEnqueuer = enq
@@ -188,14 +187,6 @@ func TestDeleteClassVectorIndex_ReTrigger_EnqueueFailure_StillSucceeds(t *testin
 // TestDeleteClassVectorIndex_GuardBranches pins every early-return guard: none
 // may set the marker (UpdateClass) or reach the enqueuer.
 func TestDeleteClassVectorIndex_GuardBranches(t *testing.T) {
-	t.Run("endpoint disabled", func(t *testing.T) {
-		t.Setenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "false")
-		h, sm := newTestHandler(t, nil)
-		err := h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo")
-		require.ErrorContains(t, err, "experimental")
-		sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)
-	})
-
 	t.Run("empty vector index name", func(t *testing.T) {
 		cls := classWithVectors(map[string]models.VectorConfig{"foo": {VectorIndexType: "hnsw"}})
 		h, sm, enq := newDropVectorHandler(t, cls)
@@ -207,7 +198,6 @@ func TestDeleteClassVectorIndex_GuardBranches(t *testing.T) {
 	})
 
 	t.Run("class not found", func(t *testing.T) {
-		t.Setenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true")
 		h, sm := newTestHandler(t, nil)
 		sm.On("QueryReadOnlyClasses", []string{"C"}).Return(map[string]versioned.Class{}, nil)
 		err := h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo")

@@ -612,18 +612,6 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		// from an update that never applied. (Moving the purge below the
 		// assignments is no safer: the refusal above must not fire after the
 		// meta was already mutated.)
-		//
-		// ROLLING UPGRADE: the purge and the refusal below are new behavior in
-		// a deterministic apply, so a mixed-version cluster diverges on this
-		// very log entry — a node without this code neither purges nor refuses,
-		// and the two FSMs stay disagreeing after the upgrade completes. The
-		// AddTask apply has the same exposure (CheckConflict's claim re-check
-		// rejects on new binaries, accepts on old). An in-apply version check
-		// cannot fix it: reading node-local version state during apply is
-		// itself non-deterministic, so any fence has to sit proposal-side.
-		// Accepted while the endpoint is experimental
-		// (ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT); revisit
-		// before the feature is promoted to a supported release.
 		if introduced := introducedDroppedVectorConfigs(&meta.Class, u); len(introduced) > 0 {
 			if s.distributedTaskManager == nil {
 				// Mirrors cascadeDeleteDistributedTasks: a marker introduced
