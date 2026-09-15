@@ -517,6 +517,12 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 			return saved.ShardUsage, nil
 		}
 	}
+	// Read before anything is measured. A concurrent drop clears this shard's
+	// files and dimension rows and bumps the generation last, so a value read
+	// after any measurement can already describe a shard the measurement does
+	// not. The save refuses to publish when the count moved.
+	usageGeneration := shardusage.ComputedUsageGeneration(i.path(), shardName)
+
 	lsmPath := shardPathLSM(i.path(), shardName)
 
 	directories, err := diskio.GetSubdirNames(lsmPath)
@@ -591,10 +597,17 @@ func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName strin
 		FullShardStorageBytes: vectorCommitLogsStorageSize + otherNonLSMFoldersStorageSize + indexUsage + uint64(objectUsage.StorageBytes) + uint64(vectorMetrics.StorageBytes),
 		NamedVectors:          namedVectors,
 	}
-	if err := shardusage.SaveComputedUsageData(i.path(), shardName, shardUsage, vectorConfigsFingerprint); err != nil {
+	saved, err := shardusage.SaveComputedUsageData(i.path(), shardName, shardUsage,
+		vectorConfigsFingerprint, usageGeneration)
+	if err != nil {
 		return nil, fmt.Errorf("save usage to disk: %w", err)
 	}
-	return shardUsage, err
+	if !saved {
+		// The caller still gets this reading; only the cache is skipped, so the
+		// next collection recomputes from the rows the drop left behind.
+		i.logger.Debugf("shard %s: usage invalidated while it was computed; not caching this reading", shardName)
+	}
+	return shardUsage, nil
 }
 
 // splitObjectsBucketSize divides the objects bucket's measured size into the objects themselves and

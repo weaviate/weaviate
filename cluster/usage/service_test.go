@@ -459,6 +459,52 @@ func TestService_Usage_WithBackups_3node_cluster(t *testing.T) {
 	mockBackupBackend.AssertExpectations(t)
 }
 
+func TestService_Usage_WithDedupedBackup(t *testing.T) {
+	ctx := context.Background()
+
+	nodeName := "test-node-2"
+	size1GB := int64(1073741824)
+
+	mockSchema := schemaUC.NewMockSchemaGetter(t)
+	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
+		Objects: &models.Schema{Classes: []*models.Class{}},
+	})
+	mockSchema.EXPECT().NodeName().Return(nodeName)
+
+	shardingState := &sharding.State{Physical: map[string]sharding.Physical{}}
+	shardingState.SetLocalName(nodeName)
+	repo := createTestDb(t, mockSchema, shardingState, nil, nodeName)
+
+	mockBackupBackend := modulecapabilities.NewMockBackupBackend(t)
+	backups := []*backup.DistributedBackupDescriptor{
+		{
+			ID:                      "deduped-1",
+			Status:                  backup.Success,
+			CompletedAt:             time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
+			DedupeReplicas:          true,
+			DedupeSkippedBytes:      size1GB,
+			PreCompressionSizeBytes: 2 * size1GB,
+			Nodes: map[string]*backup.NodeDescriptor{
+				"test-node-1": {Classes: []string{"Class1"}, PreCompressionSizeBytes: size1GB},
+				"test-node-2": {Classes: []string{"Class1"}, PreCompressionSizeBytes: size1GB},
+			},
+		},
+	}
+	mockBackupBackend.EXPECT().AllBackups(ctx).Return(backups, nil)
+
+	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
+	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{mockBackupBackend})
+
+	logger, _ := logrus.NewNullLogger()
+	service := NewService(mockSchema, repo, mockBackupProvider, logger)
+
+	result, err := service.Usage(ctx, false)
+
+	require.NoError(t, err)
+	require.Len(t, result.Backups, 1)
+	assert.Equal(t, 1.0, result.Backups[0].SizeInGib, "skipping replica must report its attributed logical size")
+}
+
 func TestService_Usage_EmptyCollections(t *testing.T) {
 	ctx := context.Background()
 

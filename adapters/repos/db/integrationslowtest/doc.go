@@ -9,17 +9,8 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package moduletools
-
-type StorageProvider interface {
-	Storage(name string) (Storage, error)
-	DataPath() string
-}
-
-type ScanFn func(k, v []byte) (bool, error)
-
-type Storage interface {
-	Get(key []byte) ([]byte, error)
-	Scan(scan ScanFn) error
-	Put(key, value []byte) error
-}
+// Package integrationslowtest holds the slowest integration tests of the
+// adapters/repos/db package. They run as their own test binary so the db
+// package's own suite stays well inside the CI timeout, and they use only
+// the exported db API.
+package integrationslowtest
