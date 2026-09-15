@@ -55,6 +55,10 @@ type Manager struct {
 	namespacesEnabled bool
 	namespaces        NamespaceLister
 	restoreLock       sync.RWMutex
+
+	// onRoleAssignmentsRemoved, when a test sets it, runs in DeleteRoles after a
+	// role's g rows are removed and before its p rows are.
+	onRoleAssignmentsRemoved func(roleName string)
 }
 
 func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool, namespaces NamespaceLister, logger logrus.FieldLogger) (*Manager, error) {
@@ -356,15 +360,19 @@ func (m *Manager) DeleteRoles(roles ...string) error {
 
 	changed := false
 	for _, roleName := range roles {
-		// remove role
-		roleRemoved, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(roleName))
-		if err != nil {
-			return fmt.Errorf("RemoveFilteredNamedPolicy: %w", err)
-		}
-		// remove role assignment
+		// Assignments go before permissions. getRoles reads p rows before g rows and
+		// returns g rows with no p rows as a role with no permissions. Callers who lack
+		// the deleted role's permissions may see such a role.
 		roleAssignmentsRemoved, err := m.casbin.RemoveFilteredGroupingPolicy(1, conv.PrefixRoleName(roleName))
 		if err != nil {
 			return fmt.Errorf("RemoveFilteredGroupingPolicy: %w", err)
+		}
+		if m.onRoleAssignmentsRemoved != nil {
+			m.onRoleAssignmentsRemoved(roleName)
+		}
+		roleRemoved, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(roleName))
+		if err != nil {
+			return fmt.Errorf("RemoveFilteredNamedPolicy: %w", err)
 		}
 
 		// deletes are idempotent: an already-absent role is a no-op, but other
