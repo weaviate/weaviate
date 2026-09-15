@@ -15,9 +15,11 @@ package db
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -44,7 +46,8 @@ import (
 // failing the test.
 func TestTTLSkipsLazyUnloadedTenant(t *testing.T) {
 	ctx := context.Background()
-	logger, _ := test.NewNullLogger()
+	logger, hook := test.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
 
 	const (
 		className = "TestTTLLazyClass"
@@ -114,11 +117,22 @@ func TestTTLSkipsLazyUnloadedTenant(t *testing.T) {
 	require.False(t, lazy.isLoaded(), "tenant must be unloaded before the sweep")
 
 	eg := enterrors.NewErrorGroupWrapper(logger)
-	ec := errorcompounder.New()
+	ec := errorcompounder.NewSafe()
 	index.incomingDeleteObjectsExpired(ctx, eg, ec, "expiresAt", time.Now(), time.Now(),
 		func(int32) {}, 0)
-	eg.Wait()
+	require.NoError(t, eg.Wait())
 
 	require.NoError(t, ec.ToError())
 	require.False(t, lazy.isLoaded(), "TTL sweep must not force-load a lazy-unloaded tenant")
+
+	// a skipped tenant is swept only once something else loads it, so the count
+	// is the only thing telling an operator the class was swept in part
+	var skipped string
+	for _, entry := range hook.AllEntries() {
+		if strings.Contains(entry.Message, "lazy-unloaded tenants") {
+			skipped = entry.Message
+		}
+	}
+	require.Equal(t, "skipped 1 of 1 lazy-unloaded tenants", skipped,
+		"the sweep must say how many tenants it left alone")
 }

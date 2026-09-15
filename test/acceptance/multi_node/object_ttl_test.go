@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"slices"
@@ -187,6 +188,15 @@ func TestObjectTTLMultiNode(t *testing.T) {
 			require.NoError(ct, err)
 			require.Len(ct, objs, 6) // 0..4 should be deleted => 11 - 5 = 6
 		}, time.Second*5, 500*time.Millisecond)
+	})
+
+	t.Run("abort with nothing running", func(t *testing.T) {
+		answer := abortTTL(t, secondNode)
+
+		require.Equal(t, false, answer["aborted"], "nothing was running, so nothing was cancelled")
+		require.Equal(t, false, answer["local_running"],
+			"and this node has nothing left draining; aborted is ORed across the cluster")
+		require.Equal(t, "", answer["error"])
 	})
 
 	t.Run("Object TTL MT with tenant on single node", func(t *testing.T) {
@@ -481,4 +491,26 @@ func deleteTTL(t *testing.T, node string, deletionTime time.Time, ownNode bool) 
 	defer resp.Body.Close()
 
 	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+
+	body, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	require.Empty(t, string(body), "a completed sweep answers a bodiless 202")
+}
+
+// abortTTL posts to the abort route and returns what it answered.
+func abortTTL(t *testing.T, node string) map[string]any {
+	t.Helper()
+
+	u := url.URL{Scheme: "http", Host: node, Path: "/debug/ttl/abort"}
+
+	client := &http.Client{Timeout: time.Minute}
+	resp, err := client.Post(u.String(), "", nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	var answer map[string]any
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&answer))
+	return answer
 }

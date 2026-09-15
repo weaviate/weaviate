@@ -313,3 +313,150 @@ func TestTenantTTLLoop_DeactivateUsesTimeout(t *testing.T) {
 	assert.True(t, call.ctxWasLive, "deactivation context must not be expired at call time")
 	assert.True(t, call.hasDeadline, "deactivation context must have a deadline (from WithTimeout)")
 }
+
+func TestShardsToDelete(t *testing.T) {
+	cases := []struct {
+		name         string
+		shards2uuids map[string][]strfmt.UUID
+		want         []string
+	}{
+		{
+			name:         "no shards",
+			shards2uuids: map[string][]strfmt.UUID{},
+		},
+		{
+			name:         "one shard with uuids",
+			shards2uuids: map[string][]strfmt.UUID{"s1": {"a"}},
+			want:         []string{"s1"},
+		},
+		{
+			name:         "two shards with uuids",
+			shards2uuids: map[string][]strfmt.UUID{"s1": {"a"}, "s2": {"b"}},
+			want:         []string{"s1", "s2"},
+		},
+		{
+			name:         "an empty shard is not dispatched",
+			shards2uuids: map[string][]strfmt.UUID{"s1": {"a"}, "empty": {}},
+			want:         []string{"s1"},
+		},
+		{
+			name:         "a nil shard is not dispatched",
+			shards2uuids: map[string][]strfmt.UUID{"s1": {"a"}, "nil": nil},
+			want:         []string{"s1"},
+		},
+		{
+			name:         "every shard empty",
+			shards2uuids: map[string][]strfmt.UUID{"a": {}, "b": nil},
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			require.ElementsMatch(t, tt.want, shardsToDelete(tt.shards2uuids, nil))
+		})
+	}
+}
+
+func TestShardsToDelete_SkipsFailed(t *testing.T) {
+	cases := []struct {
+		name         string
+		shards2uuids map[string][]strfmt.UUID
+		failed       map[string]struct{}
+		want         []string
+	}{
+		{
+			name:         "none failed",
+			shards2uuids: map[string][]strfmt.UUID{"s1": {"a"}, "s2": {"b"}},
+			failed:       map[string]struct{}{},
+			want:         []string{"s1", "s2"},
+		},
+		{
+			name:         "one failed earlier this sweep",
+			shards2uuids: map[string][]strfmt.UUID{"s1": {"a"}, "s2": {"b"}},
+			failed:       map[string]struct{}{"s2": {}},
+			want:         []string{"s1"},
+		},
+		{
+			name:         "every shard failed",
+			shards2uuids: map[string][]strfmt.UUID{"s1": {"a"}},
+			failed:       map[string]struct{}{"s1": {}},
+			want:         []string{},
+		},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			require.ElementsMatch(t, tt.want, shardsToDelete(tt.shards2uuids, tt.failed))
+		})
+	}
+}
+
+// TestTenantTTLLoop_BatchErrorEndsTheLoop guards the caller's half of the
+// contract: a processBatch error ends the loop, so a tenant that refuses its
+// delete is not retried forever. The production closure's matching half — that
+// it returns the error instead of filing it and continuing — is built inline
+// and untested here; it needs an Index and a failing shard to reach.
+func TestTenantTTLLoop_BatchErrorEndsTheLoop(t *testing.T) {
+	mgr := &fakeTTLTenantsManager{
+		statusMap: map[string]string{"tenant_0": models.TenantActivityStatusHOT},
+	}
+
+	rounds := 0
+	loop := newTestLoop(t, mgr, false,
+		func(ctx context.Context) ([]strfmt.UUID, error) {
+			rounds++
+			// bounds a regression: without the exit this loop never returns
+			require.Less(t, rounds, 5, "a batch that cannot delete must end the loop, not repeat it")
+			return []strfmt.UUID{"uuid-1"}, nil
+		},
+		func(ctx context.Context, _ []strfmt.UUID) error {
+			return errors.New("batch delete: shard is read-only")
+		},
+	)
+
+	ec := errorcompounder.New()
+	loop.run(context.Background(), ec)
+
+	assert.Equal(t, 1, rounds, "the same uuids are not searched for again")
+	require.ErrorContains(t, ec.ToError(), "shard is read-only")
+}
+
+// TestTenantsNeverReached guards which tenants the count leaves out. A tenant
+// the loop skipped as lazily unloaded was still visited, so counting it as
+// never reached would report a loss the cancellation did not cause.
+func TestTenantsNeverReached(t *testing.T) {
+	cases := []struct {
+		name       string
+		total      int
+		skipped    int
+		dispatched int
+		want       int
+	}{
+		{
+			name:  "cancelled after the first of five it could dispatch",
+			total: 10, skipped: 5, dispatched: 1, want: 4,
+		},
+		{
+			name:  "cancelled after the last tenant",
+			total: 10, skipped: 0, dispatched: 10, want: 0,
+		},
+		{
+			name:  "cancelled once every remaining tenant had been skipped",
+			total: 10, skipped: 5, dispatched: 5, want: 0,
+		},
+		{
+			name:  "every tenant skipped",
+			total: 10, skipped: 10, dispatched: 0, want: 0,
+		},
+		{
+			name:  "one tenant, cancelled before it was reached",
+			total: 1, skipped: 0, dispatched: 0, want: 1,
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want,
+				tenantsNeverReached(tt.total, tt.skipped, tt.dispatched),
+				"tenants the cancellation left unvisited")
+		})
+	}
+}

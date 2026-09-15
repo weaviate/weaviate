@@ -13,6 +13,7 @@ package cron
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"sync"
 	"time"
@@ -193,8 +194,12 @@ func (c *cronsObjectsTTL) createJob(ctx context.Context, jobLogger logrus.FieldL
 		jobLogger.Debug("trigger ttl deletion started")
 		defer func() {
 			jobLogger := jobLogger.WithField("took", time.Since(started))
+			if stderrors.Is(err, objectttl.ErrStoppedEarly) {
+				jobLogger.Warnf("trigger ttl deletion stopped early: %v", err)
+				return
+			}
 			if err != nil {
-				jobLogger.WithError(err).Error("trigger ttl deletion failed")
+				jobLogger.Errorf("trigger ttl deletion failed: %v", err)
 				return
 			}
 			jobLogger.Debug("trigger ttl deletion finished")

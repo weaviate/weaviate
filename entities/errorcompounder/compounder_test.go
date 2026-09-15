@@ -12,10 +12,12 @@
 package errorcompounder
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestErrorCompounder(t *testing.T) {
@@ -78,7 +80,7 @@ func TestErrorCompounder(t *testing.T) {
 		run(t, NewSafe())
 	})
 
-	t.Run("a limited error only exposes the errors it reports", func(t *testing.T) {
+	t.Run("a limited error caps its message but not its chain", func(t *testing.T) {
 		run := func(t *testing.T, ec ErrorCompounder) {
 			t.Helper()
 
@@ -90,7 +92,7 @@ func TestErrorCompounder(t *testing.T) {
 			assert.EqualError(t, err, "111, 222 (and 1 more)")
 			assert.ErrorIs(t, err, err1)
 			assert.ErrorIs(t, err, err2)
-			assert.NotErrorIs(t, err, err3)
+			assert.ErrorIs(t, err, err3, "the third is counted and unrendered, not discarded")
 		}
 
 		run(t, New())
@@ -438,4 +440,46 @@ func TestErrorCompounder(t *testing.T) {
 		run(t, func() ErrorCompounder { return New() })
 		run(t, func() ErrorCompounder { return NewSafe() })
 	})
+}
+
+// TestGroupNames guards that every var reaches the group path, so an error is
+// never filed somewhere its caller did not name.
+func TestGroupNames(t *testing.T) {
+	cases := []struct {
+		name string
+		vars []interface{}
+		want []string
+	}{
+		{name: "no vars", want: []string{}},
+		{name: "collection and shard", vars: []interface{}{"Books", "shard-1"}, want: []string{"Books", "shard-1"}},
+		{name: "a non-string is rendered", vars: []interface{}{"Books", 7}, want: []string{"Books", "7"}},
+		{name: "nil is rendered", vars: []interface{}{"Books", nil}, want: []string{"Books", "<nil>"}},
+		{name: "no strings at all", vars: []interface{}{7, nil}, want: []string{"7", "<nil>"}},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, GroupNames(tt.vars...))
+		})
+	}
+}
+
+// TestLimitedMessageIsDeterministic guards that a limit names the same groups
+// every render, not a different subset depending on map iteration order.
+func TestLimitedMessageIsDeterministic(t *testing.T) {
+	build := func() ErrorCompounder {
+		ec := New()
+		for _, group := range []string{"Books", "Movies", "Games", "Music", "Photos"} {
+			for i := 0; i < 3; i++ {
+				ec.AddGroups(fmt.Errorf("%s failure %d", group, i), group)
+			}
+		}
+		return ec
+	}
+
+	first := build().ToErrorLimited(10).Error()
+	for i := 0; i < 20; i++ {
+		require.Equal(t, first, build().ToErrorLimited(10).Error(),
+			"the same failure must render the same message")
+	}
+	require.Contains(t, first, "(and 5 more)")
 }
