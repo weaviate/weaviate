@@ -387,3 +387,31 @@ func TestVectorDropIndexHelper_EnsureFilesAreRemovedForDroppedVectorIndexes(t *t
 		require.NoError(t, err)
 	})
 }
+
+// The sweep spares the legacy vector's quantized bucket when a named vector
+// called "compressed" is dropped next to it; without a legacy vector the
+// bucket was the named vector's alone and goes.
+func TestVectorDropIndexHelper_SweepSparesTheLegacyVector(t *testing.T) {
+	h := newVectorDropIndexHelper()
+	named := map[string]models.VectorConfig{"compressed": {VectorIndexType: vectorindex.VectorIndexTypeHNSW}}
+	tests := []struct {
+		name     string
+		class    *models.Class
+		survives bool
+	}{
+		{name: "next to a legacy vector", class: &models.Class{Class: "C", VectorIndexType: vectorindex.VectorIndexTypeHNSW, VectorConfig: named}, survives: true},
+		{name: "without a legacy vector", class: &models.Class{Class: "C", VectorConfig: named}, survives: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			indexPath, shardName := t.TempDir(), "shard1"
+			bucket := filepath.Join(indexPath, shardName, "lsm", helpers.VectorsCompressedBucketLSM)
+			require.NoError(t, os.MkdirAll(bucket, 0o755))
+
+			require.NoError(t, h.removeVectorIndexFiles(indexPath, shardName, "compressed", otherTargetVectors(tt.class, "compressed")))
+
+			_, err := os.Stat(bucket)
+			assert.Equal(t, tt.survives, err == nil)
+		})
+	}
+}
