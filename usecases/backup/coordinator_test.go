@@ -1357,3 +1357,30 @@ func TestRestoreRolesAndUsersGatedOnStagingNotClasses(t *testing.T) {
 		assert.Contains(t, f.coord.descriptor.Error, authErr.Error())
 	})
 }
+
+// commitAll starts one worker per node. The last worker to finish closes the
+// result channel. With no node, nothing closes it and the consumer blocks
+// forever.
+func TestCommitAllEmptyNodes(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns zero failures without blocking", func(t *testing.T) {
+		ctx := context.Background()
+		fc := newFakeCoordinator(newFakeNodeResolver(nil))
+		c := fc.coordinator()
+		req := &StatusRequest{Method: OpRestore, ID: "empty-nodes", Backend: "s3"}
+
+		done := make(chan int, 1)
+		enterrors.GoWrapper(func() {
+			done <- c.commitAll(ctx, req, map[string]string{})
+		}, c.log)
+
+		select {
+		case nFailures := <-done:
+			assert.Equal(t, 0, nFailures)
+		case <-time.After(5 * time.Second):
+			t.Fatal("commitAll blocked on an empty node map")
+		}
+		fc.client.AssertNotCalled(t, "Commit", mock.Anything, mock.Anything, mock.Anything)
+	})
+}

@@ -59,7 +59,8 @@ func TestSelectiveRBACBackupRestore(t *testing.T) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 	defer helper.ResetClient()
 
-	// A backup needs at least one class, so every subtest carries this one.
+	// Subtests that need a collection create this one. The class-less subtests
+	// rely on its absence.
 	par := articles.ParagraphsClass()
 
 	t.Run("RestoreReplacesTheStore", func(t *testing.T) {
@@ -70,14 +71,14 @@ func TestSelectiveRBACBackupRestore(t *testing.T) {
 		helper.CreateClassAuth(t, par, adminKey)
 		defer helper.DeleteClassWithAuthz(t, par.Class, helper.CreateAuth(adminKey))
 
-		createSelectiveBackup(t, par.Class, backupID,
+		createSelectiveBackup(t, []string{par.Class}, backupID,
 			[]string{roleName(1), roleName(2)},
 			[]string{userName(1), userName(2)})
 
 		// Nothing is deleted here. The restore itself is what removes roles 3 to 5 and
 		// users 3 to 5, because it clears the store and reloads it from the blob.
 		helper.DeleteClassWithAuthz(t, par.Class, helper.CreateAuth(adminKey))
-		restoreAll(t, par.Class, backupID)
+		restoreAll(t, []string{par.Class}, backupID)
 
 		gotRoles := customRoleNames(t)
 		assert.ElementsMatch(t, []string{roleName(1), roleName(2)}, gotRoles)
@@ -94,7 +95,7 @@ func TestSelectiveRBACBackupRestore(t *testing.T) {
 		helper.CreateClassAuth(t, par, adminKey)
 		defer helper.DeleteClassWithAuthz(t, par.Class, helper.CreateAuth(adminKey))
 
-		createSelectiveBackup(t, par.Class, backupID,
+		createSelectiveBackup(t, []string{par.Class}, backupID,
 			[]string{roleName(1), roleName(2)},
 			[]string{userName(1), userName(2)})
 
@@ -106,7 +107,7 @@ func TestSelectiveRBACBackupRestore(t *testing.T) {
 		require.Empty(t, dynamicUserNames(t))
 
 		helper.DeleteClassWithAuthz(t, par.Class, helper.CreateAuth(adminKey))
-		restoreAll(t, par.Class, backupID)
+		restoreAll(t, []string{par.Class}, backupID)
 
 		assert.ElementsMatch(t, []string{roleName(1), roleName(2)}, customRoleNames(t))
 		assert.ElementsMatch(t, []string{userName(1), userName(2)}, dynamicUserNames(t))
@@ -129,11 +130,11 @@ func TestSelectiveRBACBackupRestore(t *testing.T) {
 
 		// No selection at all. This is the branch that must stay byte-compatible with
 		// the behaviour that shipped before includeRoles existed.
-		createSelectiveBackup(t, par.Class, backupID, nil, nil)
+		createSelectiveBackup(t, []string{par.Class}, backupID, nil, nil)
 
 		deleteAllSeeded(t)
 		helper.DeleteClassWithAuthz(t, par.Class, helper.CreateAuth(adminKey))
-		restoreAll(t, par.Class, backupID)
+		restoreAll(t, []string{par.Class}, backupID)
 
 		assert.ElementsMatch(t, allRoleNames(), customRoleNames(t))
 		assert.ElementsMatch(t, allUserNames(), dynamicUserNames(t))
@@ -149,7 +150,7 @@ func TestSelectiveRBACBackupRestore(t *testing.T) {
 
 		// Nothing is named "no-such-*". The backup must still succeed and carry no
 		// RBAC or user blob, so a restore with both options set changes nothing.
-		createSelectiveBackup(t, par.Class, backupID, []string{"no-such-*"}, []string{"no-such-*"})
+		createSelectiveBackup(t, []string{par.Class}, backupID, []string{"no-such-*"}, []string{"no-such-*"})
 
 		// Deleting one pair before the restore separates the three outcomes: a
 		// whole-cluster blob would bring role 5 and user 5 back, an empty blob
@@ -161,7 +162,7 @@ func TestSelectiveRBACBackupRestore(t *testing.T) {
 		}
 
 		helper.DeleteClassWithAuthz(t, par.Class, helper.CreateAuth(adminKey))
-		restoreAll(t, par.Class, backupID)
+		restoreAll(t, []string{par.Class}, backupID)
 
 		assert.ElementsMatch(t, survivors(roleName), customRoleNames(t))
 		assert.ElementsMatch(t, survivors(userName), dynamicUserNames(t))
@@ -208,6 +209,74 @@ func TestSelectiveRBACBackupRestore(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("ClassLessBackupWithNoCollections", func(t *testing.T) {
+		backupID := "no-collections"
+		_, err := helper.GetClassAuthWithReturn(t, par.Class, adminKey)
+		require.Error(t, err, "this subtest needs a cluster without collections")
+
+		seedRBAC(t)
+		defer cleanupRBAC(t)
+
+		resp := createSelectiveBackup(t, nil, backupID,
+			[]string{roleName(1), roleName(2)},
+			[]string{userName(1), userName(2)})
+		assert.Empty(t, resp.Classes)
+		assertBackupListed(t, backupID)
+
+		deleteAllSeeded(t)
+		require.Empty(t, customRoleNames(t))
+		require.Empty(t, dynamicUserNames(t))
+
+		restoreAll(t, nil, backupID)
+
+		assert.ElementsMatch(t, []string{roleName(1), roleName(2)}, customRoleNames(t))
+		assert.ElementsMatch(t, []string{userName(1), userName(2)}, dynamicUserNames(t))
+		_, err = helper.GetClassAuthWithReturn(t, par.Class, adminKey)
+		assert.Error(t, err, "a class-less restore must not create a collection")
+	})
+
+	t.Run("ClassLessBackupWithIncludeMiss", func(t *testing.T) {
+		backupID := "include-miss"
+		_, err := helper.GetClassAuthWithReturn(t, par.Class, adminKey)
+		require.Error(t, err, "the previous subtest must have left no collection behind")
+
+		seedRBAC(t)
+		defer cleanupRBAC(t)
+
+		helper.CreateClassAuth(t, par, adminKey)
+		defer helper.DeleteClassWithAuthz(t, par.Class, helper.CreateAuth(adminKey))
+
+		resp := createSelectiveBackup(t, []string{"NoSuch*"}, backupID,
+			[]string{roleName(1), roleName(2)},
+			[]string{userName(1), userName(2)})
+		assert.Empty(t, resp.Classes)
+		assertBackupListed(t, backupID)
+
+		deleteAllSeeded(t)
+		require.Empty(t, customRoleNames(t))
+		require.Empty(t, dynamicUserNames(t))
+
+		restoreAll(t, nil, backupID)
+
+		assert.ElementsMatch(t, []string{roleName(1), roleName(2)}, customRoleNames(t))
+		assert.ElementsMatch(t, []string{userName(1), userName(2)}, dynamicUserNames(t))
+		_, err = helper.GetClassAuthWithReturn(t, par.Class, adminKey)
+		assert.NoError(t, err, "a class-less restore must leave the existing collection alone")
+	})
+}
+
+// assertBackupListed fails unless the list endpoint reports backupID. That
+// endpoint resolves a zero-class backup to the backups/collections/* resource.
+func assertBackupListed(t *testing.T, backupID string) {
+	t.Helper()
+	resp, err := helper.ListBackupsWithAuthz(t, backend, auth())
+	require.Nil(t, err)
+	var ids []string
+	for _, b := range resp.Payload {
+		ids = append(ids, b.ID)
+	}
+	assert.Contains(t, ids, backupID)
 }
 
 func roleName(i int) string { return fmt.Sprintf("backup-role-%d", i) }
@@ -327,14 +396,15 @@ func roleNamesForUser(t *testing.T, user string) []string {
 }
 
 // createSelectiveBackup posts a backup carrying includeRoles and includeUsers, which the
-// shared helper does not expose, then waits for it to finish.
-func createSelectiveBackup(t *testing.T, className, backupID string, roles, users []string) {
+// shared helper does not expose, then waits for it to finish. A nil include selects
+// every collection the cluster has, which is none for the class-less subtests.
+func createSelectiveBackup(t *testing.T, include []string, backupID string, roles, users []string) *models.BackupCreateResponse {
 	t.Helper()
 	params := backups.NewBackupsCreateParams().
 		WithBackend(backend).
 		WithBody(&models.BackupCreateRequest{
 			ID:           backupID,
-			Include:      []string{className},
+			Include:      include,
 			IncludeRoles: roles,
 			IncludeUsers: users,
 			Config:       helper.DefaultBackupConfig(),
@@ -346,18 +416,29 @@ func createSelectiveBackup(t *testing.T, className, backupID string, roles, user
 
 	helper.ExpectBackupEventuallyCreated(t, backupID, backend, auth(),
 		helper.WithPollInterval(helper.MinPollInterval), helper.WithDeadline(helper.MaxDeadline))
+	return resp.Payload
 }
 
 // restoreAll restores with both RBAC options set, since the API defaults both to
-// noRestore and would otherwise leave roles and users untouched.
-func restoreAll(t *testing.T, className, backupID string) {
+// noRestore and would otherwise leave roles and users untouched. The request is built
+// here rather than through helper.RestoreBackupWithAuthz. That helper always sets a
+// one-entry include, so it cannot express a class-less restore.
+func restoreAll(t *testing.T, include []string, backupID string) {
 	t.Helper()
 	all := "all"
 	cfg := helper.DefaultRestoreConfig()
 	cfg.RolesOptions = &all
 	cfg.UsersOptions = &all
 
-	resp, err := helper.RestoreBackupWithAuthz(t, cfg, className, backend, backupID, map[string]string{}, auth())
+	params := backups.NewBackupsRestoreParams().
+		WithBackend(backend).
+		WithID(backupID).
+		WithBody(&models.BackupRestoreRequest{
+			Include:     include,
+			NodeMapping: map[string]string{},
+			Config:      cfg,
+		})
+	resp, err := helper.Client(t).Backups.BackupsRestore(params, auth())
 	require.Nil(t, err)
 	require.NotNil(t, resp.Payload)
 	require.Equal(t, "", resp.Payload.Error)
