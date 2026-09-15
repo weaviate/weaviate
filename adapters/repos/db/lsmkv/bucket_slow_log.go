@@ -12,9 +12,21 @@
 package lsmkv
 
 import (
+	"context"
 	"sort"
 	"time"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
+
+// ReduceSlowLogEntries replaces the per-lookup slow-log entries under key with
+// their stats, so a slow query logs one fixed-size summary instead of one
+// entry per key.
+func ReduceSlowLogEntries(ctx context.Context, key string) {
+	helpers.ReplaceSlowQueryEntry(ctx, key, func(old []BucketSlowLogEntry) BucketSlowLogEntryStats {
+		return BucketSlowLogEntries(old).Reduce()
+	})
+}
 
 type BucketSlowLogEntry struct {
 	Total            time.Duration
