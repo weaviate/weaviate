@@ -1832,6 +1832,86 @@ func TestDeleteRoles(t *testing.T) {
 	}
 }
 
+// TestDeleteRolesReadDuringDelete pins that a read while DeleteRoles is part way
+// through deleting a role returns the role with all its permissions or no role. A
+// role read back with no permissions is shown to namespaced callers who lack them.
+func TestDeleteRolesReadDuringDelete(t *testing.T) {
+	perm := authorization.Policy{Resource: authorization.CollectionsMetadata("Foo")[0], Verb: authorization.READ, Domain: authorization.SchemaDomain}
+	roles := []string{"role-a", "role-b"}
+	userOf := func(role string) string { return "user-of-" + role }
+
+	// The hook runs inside DeleteRoles, which holds restoreLock for reading, so
+	// reads go through getRoles. GetRolesForUserOrGroup takes the read lock again,
+	// which is safe here because no Restore is waiting for the write lock.
+	tests := []struct {
+		name     string
+		assigned bool
+		read     func(m *Manager, role string) (map[string][]authorization.Policy, error)
+	}{
+		{
+			name:     "roles of the assigned user",
+			assigned: true,
+			read: func(m *Manager, role string) (map[string][]authorization.Policy, error) {
+				return m.GetRolesForUserOrGroup(userOf(role), authentication.AuthTypeDb, false)
+			},
+		},
+		{
+			name:     "assigned role by name",
+			assigned: true,
+			read: func(m *Manager, role string) (map[string][]authorization.Policy, error) {
+				return m.getRoles(role)
+			},
+		},
+		{
+			name: "unassigned role by name",
+			read: func(m *Manager, role string) (map[string][]authorization.Policy, error) {
+				return m.getRoles(role)
+			},
+		},
+		{
+			name:     "every role, assigned",
+			assigned: true,
+			read: func(m *Manager, _ string) (map[string][]authorization.Policy, error) {
+				return m.getRoles()
+			},
+		},
+		{
+			name: "every role, unassigned",
+			read: func(m *Manager, _ string) (map[string][]authorization.Policy, error) {
+				return m.getRoles()
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			m, err := setupTestManager(t, logger)
+			require.NoError(t, err)
+
+			for _, role := range roles {
+				require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{role: {perm}}))
+				if tt.assigned {
+					require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId(userOf(role), authentication.AuthTypeDb), []string{role}))
+				}
+			}
+
+			var deleting []string
+			m.onRoleAssignmentsRemoved = func(role string) {
+				deleting = append(deleting, role)
+				got, err := tt.read(m, role)
+				require.NoError(t, err)
+				if policies, ok := got[role]; ok {
+					assert.Equal(t, []authorization.Policy{perm}, policies, "role %q read with its permissions half removed", role)
+				}
+			}
+
+			require.NoError(t, m.DeleteRoles(roles...))
+			require.Equal(t, roles, deleting)
+		})
+	}
+}
+
 func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 	tests := []struct {
 		name              string
