@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
@@ -182,4 +183,81 @@ func TestNewPrimitiveValue(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestNewNestedValueGeoAndPhoneShapedObjects(t *testing.T) {
+	float32p := func(f float32) *float32 { return &f }
+
+	geoParent := &Property{Property: &models.Property{
+		Name: "location",
+		NestedProperties: []*models.NestedProperty{
+			{Name: "latitude", DataType: []string{"number"}},
+			{Name: "longitude", DataType: []string{"number"}},
+		},
+	}}
+	geoSelect := search.SelectProperty{
+		Name:     "location",
+		IsObject: true,
+		Props: []search.SelectProperty{
+			{Name: "latitude", IsPrimitive: true},
+			{Name: "longitude", IsPrimitive: true},
+		},
+	}
+
+	phoneParent := &Property{Property: &models.Property{
+		Name: "phone",
+		NestedProperties: []*models.NestedProperty{
+			{Name: "input", DataType: []string{"string"}},
+			{Name: "internationalFormatted", DataType: []string{"string"}},
+			{Name: "nationalFormatted", DataType: []string{"string"}},
+			{Name: "national", DataType: []string{"number"}},
+			{Name: "countryCode", DataType: []string{"number"}},
+			{Name: "valid", DataType: []string{"boolean"}},
+		},
+	}}
+	phoneSelect := search.SelectProperty{
+		Name:     "phone",
+		IsObject: true,
+		Props: []search.SelectProperty{
+			{Name: "input", IsPrimitive: true},
+			{Name: "internationalFormatted", IsPrimitive: true},
+			{Name: "nationalFormatted", IsPrimitive: true},
+			{Name: "national", IsPrimitive: true},
+			{Name: "countryCode", IsPrimitive: true},
+			{Name: "valid", IsPrimitive: true},
+		},
+	}
+
+	t.Run("geo-shaped object property stored as GeoCoordinates", func(t *testing.T) {
+		m := NewMapping()
+		in := &models.GeoCoordinates{Latitude: float32p(45.67), Longitude: float32p(-12.34)}
+		out, err := m.NewNestedValue(in, schema.DataTypeObject, geoParent, geoSelect)
+		require.NoError(t, err)
+		require.NotNil(t, out.GetObjectValue())
+		fields := out.GetObjectValue().GetFields()
+		require.Equal(t, float64(*in.Latitude), fields["latitude"].GetNumberValue())
+		require.Equal(t, float64(*in.Longitude), fields["longitude"].GetNumberValue())
+	})
+
+	t.Run("phone-shaped object property stored as PhoneNumber", func(t *testing.T) {
+		m := NewMapping()
+		in := &models.PhoneNumber{
+			Input:                  "123456789",
+			InternationalFormatted: "+48 12 345 67 89",
+			NationalFormatted:      "12 345 67 89",
+			National:               123456789,
+			CountryCode:            48,
+			Valid:                  true,
+		}
+		out, err := m.NewNestedValue(in, schema.DataTypeObject, phoneParent, phoneSelect)
+		require.NoError(t, err)
+		require.NotNil(t, out.GetObjectValue())
+		fields := out.GetObjectValue().GetFields()
+		require.Equal(t, in.Input, fields["input"].GetTextValue())
+		require.Equal(t, in.InternationalFormatted, fields["internationalFormatted"].GetTextValue())
+		require.Equal(t, in.NationalFormatted, fields["nationalFormatted"].GetTextValue())
+		require.Equal(t, float64(in.National), fields["national"].GetNumberValue())
+		require.Equal(t, float64(in.CountryCode), fields["countryCode"].GetNumberValue())
+		require.Equal(t, in.Valid, fields["valid"].GetBoolValue())
+	})
 }
