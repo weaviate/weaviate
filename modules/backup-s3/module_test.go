@@ -44,7 +44,7 @@ func TestInit_SkipAccessCheckWiring(t *testing.T) {
 
 			params := moduletools.NewMockModuleInitParams(t)
 			params.EXPECT().GetLogger().Return(logrus.New())
-			params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+			params.EXPECT().GetDataPath().Return(t.TempDir())
 			params.EXPECT().GetConfig().Return(cfg)
 
 			m := New()
@@ -53,12 +53,4 @@ func TestInit_SkipAccessCheckWiring(t *testing.T) {
 			assert.Equal(t, tt.exportFlag, m.exportClient.config.SkipAccessCheck, "export client")
 		})
 	}
-}
-
-type fakeStorageProvider struct {
-	dataPath string
-}
-
-func (f *fakeStorageProvider) DataPath() string {
-	return f.dataPath
 }

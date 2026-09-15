@@ -19,7 +19,7 @@ import (
 )
 
 type ModuleInitParams interface {
-	GetStorageProvider() StorageProvider
+	GetDataPath() string
 	GetAppState() any
 	GetLogger() logrus.FieldLogger
 	GetConfig() *config.Config
@@ -27,21 +27,21 @@ type ModuleInitParams interface {
 }
 
 type InitParams struct {
-	storageProvider StorageProvider
-	appState        any
-	config          *config.Config
-	logger          logrus.FieldLogger
-	registerer      prometheus.Registerer
+	dataPath   string
+	appState   any
+	config     *config.Config
+	logger     logrus.FieldLogger
+	registerer prometheus.Registerer
 }
 
 func NewInitParams(dataPath string, appState any,
 	config *config.Config, logger logrus.FieldLogger, registerer prometheus.Registerer,
 ) ModuleInitParams {
-	return &InitParams{&storageProvider{dataPath}, appState, config, logger, registerer}
+	return &InitParams{dataPath, appState, config, logger, registerer}
 }
 
-func (p *InitParams) GetStorageProvider() StorageProvider {
-	return p.storageProvider
+func (p *InitParams) GetDataPath() string {
+	return p.dataPath
 }
 
 func (p *InitParams) GetAppState() any {
