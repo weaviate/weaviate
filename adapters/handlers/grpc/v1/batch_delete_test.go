@@ -254,6 +254,23 @@ func TestBatchDeleteReply(t *testing.T) {
 			}},
 		},
 		{
+			// Matches above the cap: the reply must carry the cap so a client
+			// can tell the call deleted only part of what it matched.
+			name:     "capped delete reports the limit",
+			response: objects.BatchDeleteResult{Matches: 5, Limit: 2, Objects: objects.BatchSimpleObjects{{UUID: UUID1, Err: errors.New("error")}, {UUID: UUID2, Err: nil}}},
+			out:      &pb.BatchDeleteReply{Matches: 5, Successful: 1, Failed: 1, Limit: 2},
+		},
+		{
+			name:     "uncapped delete reports the limit",
+			response: objects.BatchDeleteResult{Matches: 1, Limit: 10000, Objects: objects.BatchSimpleObjects{{UUID: UUID1, Err: nil}}},
+			out:      &pb.BatchDeleteReply{Matches: 1, Successful: 1, Failed: 0, Limit: 10000},
+		},
+		{
+			name:     "no matches still reports the limit",
+			response: objects.BatchDeleteResult{Matches: 0, Limit: 10000},
+			out:      &pb.BatchDeleteReply{Matches: 0, Successful: 0, Failed: 0, Limit: 10000},
+		},
+		{
 			name:      "verbose error message strips principal's namespace",
 			response:  objects.BatchDeleteResult{Matches: 1, Objects: objects.BatchSimpleObjects{{UUID: UUID1, Err: errors.New("leaked customer1:TestClass not found")}}},
 			verbose:   true,
