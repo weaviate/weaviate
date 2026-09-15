@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -267,6 +268,9 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 		if err == nil && len(resp.Batch) != len(uuids) {
 			err = fmt.Errorf("commit returned %d results for %d ids", len(resp.Batch), len(uuids))
 		}
+		if err == nil && slices.ContainsFunc(resp.Batch, unwrittenRow) {
+			err = errNoDeleteResult
+		}
 		if err != nil {
 			err = fmt.Errorf("%q: %w", host, err)
 		}
@@ -402,6 +406,9 @@ func (*Replicator) flattenDeletions(batchSize int,
 			if !x.Error.Empty() && ret[i].Err == nil {
 				ret[i].Err = x.Error.Clone()
 			}
+			if unwrittenRow(x) && ret[i].Err == nil {
+				ret[i].Err = errNoDeleteResult
+			}
 			if ret[i].UUID == "" && x.UUID != "" {
 				ret[i].UUID = strfmt.UUID(x.UUID)
 			}
@@ -439,6 +446,14 @@ func firstError(es []error) error {
 		}
 	}
 	return nil
+}
+
+var errNoDeleteResult = errors.New("replica returned no result for this id")
+
+// unwrittenRow reports a row with neither id nor error, which is one
+// deleteSingleBatchInLSM never wrote.
+func unwrittenRow(x UUID2Error) bool {
+	return x.UUID == "" && x.Error.Empty()
 }
 
 func firstBatchError(xs []objects.BatchSimpleObject) error {

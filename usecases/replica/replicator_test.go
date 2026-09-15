@@ -520,6 +520,55 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			}
 		})
 
+		t.Run(fmt.Sprintf("PhaseTwoRowWithoutResult_%v", tc.variant), func(t *testing.T) {
+			// unwritten is the batch a replica sends when a panic left a row unwritten
+			unwritten := []replica.UUID2Error{{UUID: "1"}, {}}
+			written := []replica.UUID2Error{{UUID: "1"}, {UUID: "2"}}
+			for _, c := range []struct {
+				name        string
+				level       types.ConsistencyLevel
+				batches     map[string][]replica.UUID2Error
+				wantRow2Err bool
+			}{
+				{"EveryReplicaLeftRowEmpty", types.ConsistencyLevelAll, map[string][]replica.UUID2Error{"A": unwritten, "B": unwritten}, true},
+				{"OneReplicaLeftRowEmptyAtAll", types.ConsistencyLevelAll, map[string][]replica.UUID2Error{"A": written, "B": unwritten}, true},
+				{"OnlyReplicaLeftRowEmptyAtOne", types.ConsistencyLevelOne, map[string][]replica.UUID2Error{"A": unwritten}, true},
+				{"OneReplicaLeftRowEmptyAtOne", types.ConsistencyLevelOne, map[string][]replica.UUID2Error{"A": written, "B": unwritten}, false},
+				{"OneReplicaLeftRowEmptyAtQuorum", types.ConsistencyLevelQuorum, map[string][]replica.UUID2Error{"A": written, "B": written, "C": unwritten}, false},
+			} {
+				t.Run(c.name, func(t *testing.T) {
+					replicaNodes := []string{"A", "B", "C"}[:max(len(c.batches), 2)]
+					factory := newFakeFactory(t, "C1", shard, replicaNodes, tc.isMultiTenant)
+					client := factory.WClient
+					docIDs := []strfmt.UUID{strfmt.UUID("1"), strfmt.UUID("2")}
+					var wg sync.WaitGroup
+					for _, n := range replicaNodes {
+						batch, ok := c.batches[n]
+						if !ok {
+							client.On("DeleteObjects", mock.Anything, n, cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(replica.SimpleResponse{}, errAny)
+							continue
+						}
+						client.On("DeleteObjects", mock.Anything, n, cls, shard, anyVal, docIDs, anyVal, false, uint64(123)).Return(replica.SimpleResponse{}, nil)
+						wg.Add(1)
+						client.On("Commit", ctx, n, cls, shard, anyVal, anyVal).Return(nil).RunFn = func(args mock.Arguments) {
+							defer wg.Done()
+							*args[5].(*replica.DeleteBatchResponse) = replica.DeleteBatchResponse{Batch: batch}
+						}
+					}
+					result := factory.newReplicator().DeleteObjects(ctx, shard, docIDs, time.Now(), false, c.level, 123)
+					wg.Wait()
+					assert.Len(t, result, 2)
+					assert.Equal(t, objects.BatchSimpleObject{UUID: "1"}, result[0])
+					assert.Equal(t, docIDs[1], result[1].UUID)
+					if c.wantRow2Err {
+						assert.ErrorContains(t, result[1].Err, "no result for this id")
+					} else {
+						assert.NoError(t, result[1].Err)
+					}
+				})
+			}
+		})
+
 		t.Run(fmt.Sprintf("PartialSuccess_%v", tc.variant), func(t *testing.T) {
 			factory := newFakeFactory(t, "C1", shard, nodes, tc.isMultiTenant)
 			client := factory.WClient
