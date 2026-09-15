@@ -985,10 +985,10 @@ func TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords(t *testing.T)
 	})
 
 	t.Run("the vector-less flip stores nothing synthetic", func(t *testing.T) {
-		// UpdateClassInternal clears the legacy fields the defaults filled
-		// into the body before proposing, so the apply stores the genuinely
-		// empty shape; Vectorizer/VectorIndexType are never copied from
-		// updates in any case.
+		// The defaults never fill legacy fields into a vector-less body and
+		// UpdateClassInternal rejects a caller who sets them, so the body
+		// reaching the apply carries the genuinely empty shape;
+		// Vectorizer/VectorIndexType are never copied from updates in any case.
 		deleter := &fakeCascadeDeleter{}
 		initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": {VectorIndexType: none}}}
 		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{}}
