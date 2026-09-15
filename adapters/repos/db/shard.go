@@ -846,8 +846,8 @@ func (s *Shard) PinTokenizationAndSearchableBucket(propName, liveTokenization st
 	return overlay.Tokenization, bucket, release
 }
 
-// Runs immediately before the indexType bucket is removed, so no write is left
-// aimed at a bucket the shard no longer has.
+// Runs ahead of the indexType bucket's removal, so a removal that fails after
+// the store dropped the bucket leaves no overlay field aimed at it.
 func (s *Shard) retirePropertyOverlay(propName, indexType string) {
 	if propName == "" {
 		return

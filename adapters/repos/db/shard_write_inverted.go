@@ -101,8 +101,8 @@ func (s *Shard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []in
 	}
 
 	analyzer := inverted.NewAnalyzer(s.isFallbackToSearchable, object.Class().String())
-	// Mirror the query-path overlay handling (BM25Searcher.effectiveTokenization)
-	// so window writes index under the target schema. weaviate/0-weaviate-issues#240.
+	// Applies the shard's migration override where the live schema lacks it, so a
+	// write in a swap window is analyzed the way the migrated index is built.
 	if overlay := s.writePathAnalyzerOverlay(c.Properties); overlay != nil {
 		analyzer = analyzer.WithSchemaOverlay(overlay)
 	}

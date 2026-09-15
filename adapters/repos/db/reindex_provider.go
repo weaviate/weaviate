@@ -1438,6 +1438,9 @@ func (p *ReindexProvider) OnGroupCompleted(task *distributedtask.Task, groupID s
 	// PREP duration.
 	ctx := p.serverCtx
 	return p.runPerUnitPhase(task, payload, localGroupUnitIDs, idx, logger,
+		// Sequential: prep is heavy disk work on every shard (flush, bucket
+		// shutdown, segment prepend), and until its swap a shard's queries
+		// still read its old buckets.
 		"group-completion", false,
 		func(unitID string, shard ShardLike, unitTasks []*ShardReindexTaskGeneric, rehydrate bool) phaseResult {
 			return p.onGroupCompletedRunPhaseForUnit(ctx, task, payload, unitID, shard, unitTasks, rehydrate, logger)
@@ -1620,6 +1623,8 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 				distributedtask.TaskStatusStarted,
 				distributedtask.TaskStatusPreparing,
 				distributedtask.TaskStatusSwapping:
+				// FINISHED comes from the leader's task list, not this node's
+				// schema, and only removing an index retires its overlay fields.
 			}
 		}
 		return nil

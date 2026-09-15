@@ -98,10 +98,10 @@ func DedupItems(props []Property) []Property {
 }
 
 // PropertyOverlay describes inverted-index flags and (optionally) a
-// tokenization to apply to a single property *for the duration of a single
-// analyzer call*. It is used by runtime reindex migrations that build a new
-// inverted bucket before the corresponding schema flag has been flipped via
-// RAFT (see EnableFilterableStrategy / EnableSearchableStrategy).
+// tokenization to apply to a single property while it is analyzed. A runtime
+// reindex strategy may hand one to its backfill scan, and a shard keeps one
+// from its bucket swap on: writes apply what the live schema lacks, and
+// queries read its tokenization.
 //
 // The overlay is read by Analyzer.analyzeProps which, when an entry exists
 // for the property name, treats the property as if its IndexFilterable /
@@ -115,9 +115,8 @@ type PropertyOverlay struct {
 	ForceFilterable bool
 	ForceSearchable bool
 	ForceRangeable  bool
-	// Tokenization, when non-empty, overrides prop.Tokenization for the
-	// duration of analysis. Used by EnableSearchableStrategy to tokenize
-	// with the target tokenization before the RAFT update applies it.
+	// Tokenization, when non-empty, replaces prop.Tokenization during analysis:
+	// the tokenization the migrated bucket is built with.
 	Tokenization string
 }
 

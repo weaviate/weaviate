@@ -504,8 +504,9 @@ mechanisms:
    The overlay installs the target view at the per-shard query and
    write paths, so reads in that window tokenize against the content
    the bucket now holds, and writes in it reach the migrated index.
-   The overlay is cleared from `OnTaskCompleted` after the schema flip
-   lands. See §10.
+   No task status clears it: only the schema-update sweep that removes a
+   disabled index's bucket retires an entry's fields, and otherwise the
+   entry lives until the shard unloads. See §10.
 2. **Two-phase ack barrier (the cross-node handshake).** For semantic
    migrations each node submits `RecordPreparationCompleteAck(Success=bool)`
    after its local PREP returns, then `RecordPostCompletionAck(Success=bool)`
@@ -989,10 +990,10 @@ local bucket flip, plus the target tokenization for the two retokenize
 types (which no strategy carries). `change-algorithm` takes neither: it
 only swaps the searchable bucket strategy.
 
-So the property overlay column follows the analyzer overlay column, not
-the semantic column. Wherever the code asks "must this unit have an
-overlay", the answer comes from the strategy's value being non-empty,
-never from `IsSemanticMigration`.
+So a unit gets a property overlay only when two things hold
+(`propertyOverlayViews`): the migration is semantic, and it is a
+tokenization change or its strategy's value is non-empty.
+`change-algorithm` fails the second, `repair-rangeable` the first.
 
 ## 6. Crash safety
 
@@ -1451,13 +1452,13 @@ searchable bucket's content uses it. Lifecycle:
 2. **Reduced on read** — the whole of Phase 2 (atomic swap +
    post-atomic tidy + `OnMigrationComplete`) and everything after it
    runs with the entry active. Queries see analyzer input matching the
-   bucket content; writes reach the migrated bucket. Once the
-   cluster-wide flip lands, `PropertyOverlay.BeyondLiveSchema` — run per
-   write in `Shard.writePathAnalyzerOverlay`, and per query on the
-   tokenization half — finds the live schema already provides what the
-   entry overrides, and the entry contributes nothing. It is not
-   re-derived when the schema moves, because it never described the
-   schema.
+   bucket content; writes reach the migrated bucket. Each write reduces
+   the entry against this node's schema (`PropertyOverlay.BeyondLiveSchema`
+   in `Shard.writePathAnalyzerOverlay`), so once the cluster-wide flip
+   lands, the parts it made real drop out. Queries read the stored
+   tokenization as is; it matches the schema once the flip of the
+   migration that stored it lands. It is not re-derived when the schema
+   moves, because it never described the schema.
 3. **Dropped with the bucket** — `Shard.updatePropertyBuckets` retires
    the fields describing an index type's bucket immediately before
    removing that bucket (`Shard.retirePropertyOverlay`). This is the
@@ -1511,8 +1512,9 @@ Related to the property overlay (§10) by value, not by lifetime. The
 analyzer overlay is a pure function of the strategy, read by the
 backfill iterator while the scan runs. A semantic migration's swap hook
 takes that same value and installs it on the shard, where it lives until
-the cluster-wide schema flip and is read by the ordinary write and query
-paths. One is the source, the other is a copy that outlives it.
+the schema-update sweep removes the index it describes or the shard
+unloads, and is read by the ordinary write and query paths. One is the
+source, the other is a copy that outlives it.
 
 ## 12. Cancel + DELETE-property-index
 
