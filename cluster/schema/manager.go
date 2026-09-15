@@ -394,8 +394,10 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	cs := make([]command.UpdateClassRequest, len(classes))
 	i := 0
 	for _, v := range classes {
-		migratePropertiesIfNecessary(&v.Class)
-		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
+		// Shards keep the class pointer, and &v.Class would keep v.Sharding alive with it.
+		class := v.Class
+		migratePropertiesIfNecessary(&class)
+		cs[i] = command.UpdateClassRequest{Class: &class, State: &v.Sharding}
 		i++
 	}
 	s.db.TriggerSchemaUpdateCallbacks()
