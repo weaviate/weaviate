@@ -276,24 +276,21 @@ func (st *Store) Apply(l *raft.Log) any {
 	catchingUp := l.Index != 0 && l.Index <= st.lastAppliedIndexToDB.Load()
 	// TODO: get rid off schema only as it causes more trouble than it's worth
 	// T-Nr: DB-306
-	// deferDBWrite stays last: it records that a DB write was deferred, and a
-	// command already schema-only for another reason has nothing to defer.
-	schemaOnly := catchingUp || st.cfg.MetadataOnlyVoters || st.deferDBWrite(&cmd)
+	schemaOnly := catchingUp || st.cfg.MetadataOnlyVoters
 	defer func() {
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
 		// we do this at the beginning to handle situation were schema was catching up
 		// and to make sure no matter is the error status we are going to open the db on startup
 		// we reload the db only if we have a previous state and the db is not loaded
-		dbReloadRequired := st.lastAppliedIndexToDB.Load() != 0 && !st.dbLoaded.Load()
-		if dbReloadRequired && l.Index != 0 && l.Index >= st.lastAppliedIndexToDB.Load() {
+		if st.startupLoadPending() && l.Index != 0 && l.Index >= st.lastAppliedIndexToDB.Load() {
 			st.log.WithFields(logrus.Fields{
 				"log_type":                     l.Type,
 				"log_name":                     l.Type.String(),
 				"log_index":                    l.Index,
 				"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
 			}).Info("reloading local DB as RAFT and local DB are now caught up")
-			st.dbLoad.start(st.reloadDBFromSchema, st.log)
+			st.dbLoad.start(st.reloadDBFromSchema)
 		}
 
 		// we update no mater the error status to avoid any edge cases in the DB layer for already released versions,

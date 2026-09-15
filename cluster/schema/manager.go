@@ -27,7 +27,6 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
@@ -109,6 +108,8 @@ type SchemaManager struct {
 
 	// metadataOnly nodes never reload, so a record would never be drained.
 	metadataOnly bool
+
+	deferStoreWrite StoreWriteDeferrer
 
 	orphansMu sync.Mutex
 	// orphanedClasses maps classes dropped while the store went untouched to
@@ -239,6 +240,14 @@ func (s *SchemaManager) NewSchemaReaderWithWaitFunc(f func(context.Context, uint
 
 func (s *SchemaManager) SetIndexer(idx Indexer) {
 	s.db = idx
+}
+
+// StoreWriteDeferrer reports whether it took write to run later, in order.
+type StoreWriteDeferrer func(op string, write func() error) bool
+
+// SetStoreWriteDeferrer must be called before any apply.
+func (s *SchemaManager) SetStoreWriteDeferrer(d StoreWriteDeferrer) {
+	s.deferStoreWrite = d
 }
 
 // SetMetadataOnly marks a node that stores no class data.
@@ -415,8 +424,6 @@ func (s *SchemaManager) Load(ctx context.Context, nodeID string) error {
 	return nil
 }
 
-// ReloadDBFromSchema rebuilds the local DB from the schema. ctx lets shutdown
-// cut a load short.
 func (s *SchemaManager) ReloadDBFromSchema(ctx context.Context) error {
 	classes := s.schema.MetaClasses()
 
@@ -435,36 +442,6 @@ func (s *SchemaManager) ReloadDBFromSchema(ctx context.Context) error {
 	// ReloadLocalDB only opens classes the schema still names.
 	s.dropOrphanedClasses()
 	return s.db.ReloadLocalDB(ctx, cs)
-}
-
-// ResumeShardProcesses restarts the offloads this node registered and never
-// reported on.
-func (s *SchemaManager) ResumeShardProcesses() error {
-	var errs error
-	for class, byAction := range s.schema.pendingShardProcesses() {
-		for action, tenants := range byAction {
-			status := types.TenantActivityStatusFREEZING
-			if action == command.TenantProcessRequest_ACTION_UNFREEZING {
-				status = types.TenantActivityStatusUNFREEZING
-			}
-
-			req := &command.UpdateTenantsRequest{Tenants: make([]*command.Tenant, len(tenants))}
-			for i, tenant := range tenants {
-				req.Tenants[i] = &command.Tenant{Name: tenant, Status: status}
-			}
-
-			s.log.WithFields(logrus.Fields{
-				"class":   class,
-				"tenants": tenants,
-				"status":  status,
-			}).Info("resuming a tenant offload this node registered but never ran")
-
-			if err := s.db.UpdateTenants(class, req, nil); err != nil {
-				errs = errors.Join(errs, fmt.Errorf("resume %s for class %q: %w", status, class, err))
-			}
-		}
-	}
-	return errs
 }
 
 func (s *SchemaManager) Close(ctx context.Context) (err error) {
@@ -756,10 +733,11 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 		}
 	}
 
-	// Sampled here, not inside updateStore: updateSchema drops the class, and
-	// its tenants go with it, so by then there is nothing left to ask.
+	// Sampled here, not inside updateStore: apply() runs updateSchema (which
+	// drops the class from the schema)
 	hasFrozen := s.HasFrozenTenants(cmd.Class)
 
+	var existed bool
 	return s.apply(
 		applyOp{
 			op: cmd.GetType().String(),
@@ -768,7 +746,8 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 				// DeleteClass validates nothing, so a name that was never a
 				// collection would otherwise be recorded too. Whether the
 				// directory is really ours is settled at the drop.
-				if s.schema.deleteClass(cmd.Class) && schemaOnly {
+				existed = s.schema.deleteClass(cmd.Class)
+				if existed && schemaOnly {
 					s.recordOrphan(cmd.Class, hasFrozen)
 				}
 				// Cascade lives in updateSchema (not updateStore) so it
@@ -785,7 +764,14 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 				return nil
 			},
 			updateStore: func() error {
-				return s.db.DeleteClass(cmd.Class, hasFrozen)
+				if !existed {
+					return s.db.DeleteClass(cmd.Class, hasFrozen)
+				}
+				// DeleteClass leaves the files of a class with no loaded index.
+				if err := s.db.DropOrphanedClass(context.Background(), cmd.Class, hasFrozen); err != nil {
+					s.log.WithField("class", cmd.Class).Errorf("could not drop data of deleted class: %v", err)
+				}
+				return nil
 			},
 			schemaOnly:           schemaOnly,
 			enableSchemaCallback: enableSchemaCallback,
@@ -1204,6 +1190,10 @@ func (s *SchemaManager) apply(op applyOp) error {
 		callbackBegin := time.Now()
 		s.db.TriggerSchemaUpdateCallbacks()
 		callbackTook = time.Since(callbackBegin)
+	}
+
+	if !op.schemaOnly && s.deferStoreWrite != nil && s.deferStoreWrite(op.op, op.updateStore) {
+		op.schemaOnly = true
 	}
 
 	if !op.schemaOnly {
