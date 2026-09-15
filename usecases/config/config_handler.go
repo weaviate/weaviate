@@ -259,6 +259,7 @@ type Config struct {
 
 	RuntimeOverrides RuntimeOverrides `json:"runtime_overrides" yaml:"runtime_overrides"`
 
+	// Kept for BC with config files, value piped into Replication.ReplicaMovementEnabled as runtime config
 	ReplicaMovementEnabled bool `json:"replica_movement_enabled" yaml:"replica_movement_enabled"`
 
 	// RuntimeReindexEnabled gates runtime reindex (RUNTIME_REINDEX_ENABLED),
