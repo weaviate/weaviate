@@ -38,6 +38,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
+// TestSuccessListAll pins that listed roles come from the node's local RBAC
+// state, and that no user has roles when RBAC is disabled.
 func TestSuccessListAll(t *testing.T) {
 	dbUser := "user1"
 	staticUser := "static"
@@ -45,50 +47,125 @@ func TestSuccessListAll(t *testing.T) {
 		name          string
 		principal     *models.Principal
 		includeStatic bool
+		rbacDisabled  bool
+		wantRoles     map[string][]string
 	}{
 		{
-			name:          "only db user",
-			principal:     &models.Principal{Username: "not-root"},
-			includeStatic: false,
+			name:      "only db user",
+			principal: &models.Principal{Username: "not-root"},
+			wantRoles: map[string][]string{dbUser: {"db-role"}},
 		},
 		{
 			name:          "db + static user",
 			principal:     &models.Principal{Username: "root"},
 			includeStatic: true,
+			wantRoles:     map[string][]string{dbUser: {"db-role"}, staticUser: {"static-role"}},
+		},
+		{
+			name:          "rbac disabled",
+			principal:     &models.Principal{Username: "root"},
+			includeStatic: true,
+			rbacDisabled:  true,
+			wantRoles:     map[string][]string{dbUser: {}, staticUser: {}},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
-			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, authorization.Users()[0]).Return(nil)
-			dynUser := NewMockDbUserAndRolesGetter(t)
-			dynUser.On("GetUsers").Return(map[string]apikey.UserView{dbUser: {Id: dbUser}}, nil)
-			dynUser.On("GetRolesForUserOrGroup", dbUser, authentication.AuthTypeDb, false).Return(
-				map[string][]authorization.Policy{"role": {}}, nil)
-			if tt.includeStatic {
-				dynUser.On("GetRolesForUserOrGroup", staticUser, authentication.AuthTypeDb, false).Return(
-					map[string][]authorization.Policy{"role": {}}, nil)
+			// With RBAC off the filter authorizes the first item, not the wildcard.
+			resource := authorization.Users()[0]
+			if tt.rbacDisabled {
+				resource = authorization.Users(dbUser)[0]
 			}
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, resource).Return(nil)
+			// dynUser has no expectations, so a RAFT read of users or roles fails the test.
+			dynUser := NewMockDbUserAndRolesGetter(t)
+			localUsers := NewMockDbUserAndRolesGetter(t)
+			localUsers.On("GetUsers").Return(map[string]apikey.UserView{dbUser: {Id: dbUser}}, nil)
 
 			h := dynUserHandler{
 				dbUsers:              dynUser,
+				localUsers:           localUsers,
+				authorizer:           authorizer,
+				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{staticUser}, AllowedKeys: []string{"static"}},
+				rbacConfig:           rbacconf.Config{Enabled: !tt.rbacDisabled, RootUsers: []string{"root"}},
+				dbUserEnabled:        true,
+			}
+			if !tt.rbacDisabled {
+				localRoles := authorization.NewMockController(t)
+				localRoles.On("GetRolesForUserOrGroup", dbUser, authentication.AuthTypeDb, false).Return(
+					map[string][]authorization.Policy{"db-role": {}}, nil)
+				if tt.includeStatic {
+					localRoles.On("GetRolesForUserOrGroup", staticUser, authentication.AuthTypeDb, false).Return(
+						map[string][]authorization.Policy{"static-role": {}}, nil)
+				}
+				h.localRoles = localRoles
+			}
+
+			res := h.listUsers(users.ListAllUsersParams{HTTPRequest: req}, tt.principal)
+			parsed, ok := res.(*users.ListAllUsersOK)
+			require.True(t, ok, "got %T", res)
+
+			gotRoles := make(map[string][]string, len(parsed.Payload))
+			for _, user := range parsed.Payload {
+				gotRoles[*user.UserID] = user.Roles
+			}
+			require.Equal(t, tt.wantRoles, gotRoles)
+		})
+	}
+}
+
+// TestListUsersLocalReadError pins that a failed local read fails the whole
+// list. The failing read is the user list, or a role lookup in either loop.
+func TestListUsersLocalReadError(t *testing.T) {
+	dbUser := "user1"
+	staticUser := "static"
+	tests := []struct {
+		name       string
+		usersErr   error
+		failedUser string
+		wantErr    string
+	}{
+		{name: "user list read fails", usersErr: errors.New("user store read failed"), wantErr: "user store read failed"},
+		{name: "db user role lookup fails", failedUser: dbUser, wantErr: "casbin read failed"},
+		{name: "static user role lookup fails after db user", failedUser: staticUser, wantErr: "casbin read failed"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			principal := &models.Principal{Username: "root"}
+			authorizer := authorization.NewMockAuthorizer(t)
+			localUsers := NewMockDbUserAndRolesGetter(t)
+			localRoles := authorization.NewMockController(t)
+			if tt.usersErr != nil {
+				localUsers.On("GetUsers").Return(nil, tt.usersErr)
+			} else {
+				authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users()[0]).Return(nil)
+				localUsers.On("GetUsers").Return(map[string]apikey.UserView{dbUser: {Id: dbUser}}, nil)
+				for _, user := range []string{dbUser, staticUser} {
+					if user == tt.failedUser {
+						localRoles.On("GetRolesForUserOrGroup", user, authentication.AuthTypeDb, false).Return(nil, errors.New("casbin read failed"))
+						break
+					}
+					localRoles.On("GetRolesForUserOrGroup", user, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
+				}
+			}
+
+			h := dynUserHandler{
+				dbUsers:              NewMockDbUserAndRolesGetter(t),
+				localUsers:           localUsers,
+				localRoles:           localRoles,
 				authorizer:           authorizer,
 				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{staticUser}, AllowedKeys: []string{"static"}},
 				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root"}},
 				dbUserEnabled:        true,
 			}
 
-			res := h.listUsers(users.ListAllUsersParams{HTTPRequest: req}, tt.principal)
-			parsed, ok := res.(*users.ListAllUsersOK)
-			assert.True(t, ok)
-			assert.NotNil(t, parsed)
-
-			if tt.includeStatic {
-				require.Equal(t, len(parsed.Payload), 2)
-			} else {
-				require.Len(t, parsed.Payload, 1)
-			}
+			res := h.listUsers(users.ListAllUsersParams{HTTPRequest: req}, principal)
+			parsed, ok := res.(*users.ListAllUsersInternalServerError)
+			require.True(t, ok, "got %T", res)
+			require.Contains(t, parsed.Payload.Error[0].Message, tt.wantErr)
 		})
 	}
 }
@@ -148,9 +225,11 @@ func TestListUsersAPIKeyFirstLettersVisibility(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
 			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, authorization.Users()[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
-			dynUser.On("GetUsers").Return(map[string]apikey.UserView{dbUser: {Id: dbUser, ApiKeyFirstLetters: "abc"}}, nil)
+			localUsers := NewMockDbUserAndRolesGetter(t)
+			localUsers.On("GetUsers").Return(map[string]apikey.UserView{dbUser: {Id: dbUser, ApiKeyFirstLetters: "abc"}}, nil)
+			localRoles := authorization.NewMockController(t)
 			// role-less target so role visibility never authorizes
-			dynUser.On("GetRolesForUserOrGroup", dbUser, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
+			localRoles.On("GetRolesForUserOrGroup", dbUser, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
 			if tt.callerRoles != nil {
 				// Maybe: not consulted on non-namespaced clusters.
 				dynUser.On("GetRolesForUserOrGroup", tt.principal.Username, authentication.AuthTypeDb, false).Return(tt.callerRoles, nil).Maybe()
@@ -161,6 +240,8 @@ func TestListUsersAPIKeyFirstLettersVisibility(t *testing.T) {
 
 			h := dynUserHandler{
 				dbUsers:           dynUser,
+				localUsers:        localUsers,
+				localRoles:        localRoles,
 				authorizer:        authorizer,
 				rbacConfig:        rbacconf.Config{Enabled: true, RootUsers: []string{"root"}},
 				dbUserEnabled:     true,
@@ -181,12 +262,16 @@ func TestSuccessListAllAfterImport(t *testing.T) {
 	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", mock.Anything, &models.Principal{Username: "root"}, authorization.READ, authorization.Users()[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers").Return(map[string]apikey.UserView{exStaticUser: {Id: exStaticUser, Active: true}}, nil)
-	dynUser.On("GetRolesForUserOrGroup", exStaticUser, authentication.AuthTypeDb, false).Return(
+	localUsers := NewMockDbUserAndRolesGetter(t)
+	localUsers.On("GetUsers").Return(map[string]apikey.UserView{exStaticUser: {Id: exStaticUser, Active: true}}, nil)
+	localRoles := authorization.NewMockController(t)
+	localRoles.On("GetRolesForUserOrGroup", exStaticUser, authentication.AuthTypeDb, false).Return(
 		map[string][]authorization.Policy{"role": {}}, nil)
 
 	h := dynUserHandler{
 		dbUsers:              dynUser,
+		localUsers:           localUsers,
+		localRoles:           localRoles,
 		authorizer:           authorizer,
 		staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{exStaticUser}, AllowedKeys: []string{"static"}},
 		rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root"}},
@@ -283,9 +368,11 @@ func TestSuccessListAllUserMultiNode(t *testing.T) {
 				usersRet[user] = apikey.UserView{Id: user, LastUsedAt: baseTime}
 			}
 
-			dynUser.On("GetUsers").Return(usersRet, nil)
+			localUsers := NewMockDbUserAndRolesGetter(t)
+			localUsers.On("GetUsers").Return(usersRet, nil)
+			localRoles := authorization.NewMockController(t)
 			for _, user := range tt.userIds {
-				dynUser.On("GetRolesForUserOrGroup", user, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{"role": {}}, nil)
+				localRoles.On("GetRolesForUserOrGroup", user, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{"role": {}}, nil)
 			}
 
 			var nodes []string
@@ -301,6 +388,8 @@ func TestSuccessListAllUserMultiNode(t *testing.T) {
 
 			h := dynUserHandler{
 				dbUsers:              dynUser,
+				localUsers:           localUsers,
+				localRoles:           localRoles,
 				authorizer:           authorizer,
 				staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"static"}, AllowedKeys: []string{"static"}},
 				rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root"}}, dbUserEnabled: true,
@@ -326,11 +415,15 @@ func TestSuccessListForbidden(t *testing.T) {
 	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, mock.Anything).Return(errors.New("some error"))
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers").Return(map[string]apikey.UserView{"test": {Id: "test"}}, nil)
+	localUsers := NewMockDbUserAndRolesGetter(t)
+	localUsers.On("GetUsers").Return(map[string]apikey.UserView{"test": {Id: "test"}}, nil)
 
 	log, _ := test.NewNullLogger()
 	h := dynUserHandler{
-		dbUsers:       dynUser,
+		dbUsers:    dynUser,
+		localUsers: localUsers,
+		// localRoles has no expectations, so a role lookup for a filtered-out user fails the test.
+		localRoles:    authorization.NewMockController(t),
 		authorizer:    authorizer,
 		logger:        log,
 		dbUserEnabled: true,
@@ -394,11 +487,15 @@ func TestListUsers_Namespaces(t *testing.T) {
 			authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(storedUser.Id)[0]).Return(nil)
 
 			dynUser := NewMockDbUserAndRolesGetter(t)
-			dynUser.On("GetUsers").Return(map[string]apikey.UserView{storedUser.Id: storedUser}, nil)
-			dynUser.On("GetRolesForUserOrGroup", storedUser.Id, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
+			localUsers := NewMockDbUserAndRolesGetter(t)
+			localUsers.On("GetUsers").Return(map[string]apikey.UserView{storedUser.Id: storedUser}, nil)
+			localRoles := authorization.NewMockController(t)
+			localRoles.On("GetRolesForUserOrGroup", storedUser.Id, authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
 
 			h := dynUserHandler{
 				dbUsers:           dynUser,
+				localUsers:        localUsers,
+				localRoles:        localRoles,
 				authorizer:        authorizer,
 				dbUserEnabled:     true,
 				namespacesEnabled: true,
@@ -437,12 +534,17 @@ func TestListUsers_CrossNamespaceIsolation(t *testing.T) {
 		Return([]string{"users/customer1:bob"}, nil)
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers").Return(stored, nil)
-	dynUser.On("GetRolesForUserOrGroup", "customer1:bob", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
+	localUsers := NewMockDbUserAndRolesGetter(t)
+	localUsers.On("GetUsers").Return(stored, nil)
+	// callerHasAdminRole reads the caller's roles through RAFT.
 	dynUser.On("GetRolesForUserOrGroup", "", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
+	localRoles := authorization.NewMockController(t)
+	localRoles.On("GetRolesForUserOrGroup", "customer1:bob", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{}, nil)
 
 	h := dynUserHandler{
 		dbUsers:           dynUser,
+		localUsers:        localUsers,
+		localRoles:        localRoles,
 		authorizer:        authorizer,
 		dbUserEnabled:     true,
 		namespacesEnabled: true,
