@@ -575,6 +575,9 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	// Report slow queries if this method takes longer than expected
 	startTime := time.Now()
 	defer func() {
+		lsmkv.ReduceSlowLogEntries(ctx, "lsm_get_by_secondary")
+		lsmkv.ReduceSlowLogEntries(ctx, "lsm_get_by_secondary_with_view")
+
 		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
 			"collection":      s.index.Config.ClassName,
 			"shard":           s.ID(),
@@ -696,10 +699,8 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	startTime := time.Now()
 
 	defer func() {
-		// reduce lsm stats
-		helpers.ReplaceSlowQueryEntry(ctx, "lsm_get_by_secondary", func(old []lsmkv.BucketSlowLogEntry) lsmkv.BucketSlowLogEntryStats {
-			return lsmkv.BucketSlowLogEntries(old).Reduce()
-		})
+		lsmkv.ReduceSlowLogEntries(ctx, "lsm_get_by_secondary")
+		lsmkv.ReduceSlowLogEntries(ctx, "lsm_get_by_secondary_with_view")
 
 		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
 			"collection": s.index.Config.ClassName,
@@ -1015,28 +1016,6 @@ func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter
 	}
 
 	return list, nil
-}
-
-func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
-	bucket, release, err := s.objectsBucket()
-	if err != nil {
-		return "", err
-	}
-	defer release()
-
-	docIDBytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(docIDBytes, docID)
-	res, err := bucket.GetBySecondary(context.TODO(), 0, docIDBytes) // TODO: context
-	if err != nil {
-		return "", fmt.Errorf("get object by doc id: %w", err)
-	}
-
-	prop, _, err := storobj.ParseAndExtractProperty(res, "id")
-	if err != nil {
-		return "", fmt.Errorf("parse and extract property: %w", err)
-	}
-
-	return strfmt.UUID(prop[0]), nil
 }
 
 func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
