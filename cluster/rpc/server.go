@@ -240,6 +240,9 @@ func toRPCError(err error) error {
 	case errors.Is(err, types.ErrNotOpen),
 		errors.Is(err, types.ErrFSMNotCaughtUp):
 		ec = codes.Unavailable
+	case errors.Is(err, types.ErrUnknownCommand):
+		// This node, or a node the request was forwarded to, has no handler for this command type.
+		ec = codes.Unimplemented
 	case errors.Is(err, namespaces.ErrNamespaceGone),
 		errors.Is(err, namespaces.ErrNotFound):
 		ec = codes.NotFound
