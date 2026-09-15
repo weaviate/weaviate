@@ -25,6 +25,7 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/cluster"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/license"
 )
 
 const DefaultGoroutineFactor = 1.5
@@ -1222,6 +1223,8 @@ func TestEnvironmentWeaviateLicense(t *testing.T) {
 		require.NoError(t, FromEnv(&conf))
 
 		require.True(t, conf.WeaviateLicense)
+		require.Equal(t, license.StatusValid, conf.License.Status)
+		require.Equal(t, "lic_01ARZ3NDEKTSV4RRFFQ69G5FAV", conf.License.LicenseID)
 	})
 
 	t.Run("malformed key disables the gate and logs a warning", func(t *testing.T) {
@@ -1233,6 +1236,8 @@ func TestEnvironmentWeaviateLicense(t *testing.T) {
 		require.NoError(t, FromEnv(&conf))
 
 		require.False(t, conf.WeaviateLicense)
+		require.Equal(t, license.StatusUnlicensed, conf.License.Status)
+		require.Empty(t, conf.License.LicenseID)
 		entry := hook.LastEntry()
 		require.NotNil(t, entry)
 		require.Equal(t, logrus.WarnLevel, entry.Level)
@@ -1253,6 +1258,7 @@ func TestEnvironmentWeaviateLicense(t *testing.T) {
 		require.NoError(t, FromEnv(&conf))
 
 		require.False(t, conf.WeaviateLicense)
+		require.Equal(t, license.StatusUnlicensed, conf.License.Status)
 		for _, entry := range hook.AllEntries() {
 			require.NotContains(t, entry.Message, "LICENSE_KEY")
 		}
@@ -1274,6 +1280,8 @@ func TestEnvironmentLicenseKeyFile(t *testing.T) {
 		require.NoError(t, FromEnv(&conf))
 
 		require.True(t, conf.WeaviateLicense)
+		require.Equal(t, license.StatusValid, conf.License.Status)
+		require.Equal(t, "lic_01ARZ3NDEKTSV4RRFFQ69G5FAV", conf.License.LicenseID)
 	})
 
 	t.Run("trailing newline in the file is ignored", func(t *testing.T) {
