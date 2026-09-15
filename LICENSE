@@ -12,6 +12,7 @@ repository:
   wl/LICENSE-WEAVIATE.
 
 Weaviate-licensed features are enabled by setting the LICENSE_KEY environment
-variable to a Weaviate license key. When the variable is unset or does not
-contain a well-formed key, only BSD-3-Clause-licensed code is executed.
+variable to a Weaviate license key, or by pointing LICENSE_KEY_FILE at a file
+containing one. When neither is set, or the key is not well-formed, only
+BSD-3-Clause-licensed code is executed.
 

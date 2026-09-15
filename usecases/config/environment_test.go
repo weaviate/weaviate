@@ -14,6 +14,7 @@ package config
 import (
 	"math"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -1255,6 +1256,79 @@ func TestEnvironmentWeaviateLicense(t *testing.T) {
 		for _, entry := range hook.AllEntries() {
 			require.NotContains(t, entry.Message, "LICENSE_KEY")
 		}
+	})
+}
+
+func TestEnvironmentLicenseKeyFile(t *testing.T) {
+	writeKeyFile := func(t *testing.T, contents string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "license-key")
+		require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
+		return path
+	}
+
+	t.Run("file with well-formed key enables the gate", func(t *testing.T) {
+		t.Setenv("LICENSE_KEY", "")
+		t.Setenv("LICENSE_KEY_FILE", writeKeyFile(t, wellFormedLicenseKey()))
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+
+		require.True(t, conf.WeaviateLicense)
+	})
+
+	t.Run("trailing newline in the file is ignored", func(t *testing.T) {
+		t.Setenv("LICENSE_KEY", "")
+		t.Setenv("LICENSE_KEY_FILE", writeKeyFile(t, wellFormedLicenseKey()+"\n"))
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+
+		require.True(t, conf.WeaviateLicense)
+	})
+
+	t.Run("both LICENSE_KEY and LICENSE_KEY_FILE set is a startup error", func(t *testing.T) {
+		t.Setenv("LICENSE_KEY", wellFormedLicenseKey())
+		t.Setenv("LICENSE_KEY_FILE", writeKeyFile(t, wellFormedLicenseKey()))
+		conf := Config{}
+		require.ErrorContains(t, FromEnv(&conf), "mutually exclusive")
+	})
+
+	t.Run("unreadable file is a startup error", func(t *testing.T) {
+		t.Setenv("LICENSE_KEY", "")
+		t.Setenv("LICENSE_KEY_FILE", filepath.Join(t.TempDir(), "does-not-exist"))
+		conf := Config{}
+		require.ErrorContains(t, FromEnv(&conf), "LICENSE_KEY_FILE")
+	})
+
+	t.Run("file with malformed key disables the gate and logs a warning", func(t *testing.T) {
+		hook := logrustest.NewGlobal()
+		defer hook.Reset()
+
+		t.Setenv("LICENSE_KEY", "")
+		t.Setenv("LICENSE_KEY_FILE", writeKeyFile(t, "not-a-license-key"))
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+
+		require.False(t, conf.WeaviateLicense)
+		entry := hook.LastEntry()
+		require.NotNil(t, entry)
+		require.Equal(t, logrus.WarnLevel, entry.Level)
+		require.NotContains(t, entry.Message, "not-a-license-key",
+			"the warning must never contain the key itself")
+	})
+
+	t.Run("empty file disables the gate and logs a warning", func(t *testing.T) {
+		hook := logrustest.NewGlobal()
+		defer hook.Reset()
+
+		t.Setenv("LICENSE_KEY", "")
+		t.Setenv("LICENSE_KEY_FILE", writeKeyFile(t, ""))
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+
+		require.False(t, conf.WeaviateLicense)
+		entry := hook.LastEntry()
+		require.NotNil(t, entry)
+		require.Contains(t, entry.Message, "LICENSE_KEY_FILE")
 	})
 }
 
