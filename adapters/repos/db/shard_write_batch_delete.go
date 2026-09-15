@@ -23,8 +23,10 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -184,41 +186,56 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 
 	fetchStart := time.Now()
 	it := allowList.LimitedIterator(limit) // ensures only up to [limit] docIDs will be returned
-	uuids = make([]strfmt.UUID, it.Len())
-	currIdx := 0
 
 	defer func() {
 		logger := logger.WithFields(logrus.Fields{
 			"took":           time.Since(start).String(),
 			"filter_took":    fetchStart.Sub(start).String(),
 			"docids_found":   it.Len(),
-			"uuids_resolved": currIdx,
+			"uuids_resolved": len(uuids),
 		})
 		if err != nil {
-			// log as debug
-			logger.WithError(err).Debug("Shard::FindUUIDs failed")
+			logger.Debugf("Shard::FindUUIDs failed: %v", err)
 			return
 		}
 		logger.Debug("Shard::FindUUIDs finished")
 	}()
 
-	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
-		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("uuids loop: %w", ctx.Err())
-		default:
-		}
-
-		uuid, err := s.uuidFromDocID(docID)
-		if err != nil {
-			// TODO: More than likely this will occur due to an object which has already been deleted.
-			//       However, this is not a guarantee. This can be improved by logging, or handling
-			//       errors other than `id not found` rather than skipping them entirely.
-			s.index.logger.WithField("op", "shard.find_uuids").WithField("docID", docID).WithError(err).Debug("failed to find UUID for docID")
-			continue
-		}
-		uuids[currIdx] = uuid
-		currIdx++
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return nil, err
 	}
-	return uuids[:currIdx], nil
+	defer release()
+
+	// Objects whose stored bytes carry no readable id are skipped and counted
+	// once; a bucket read error fails the whole call instead.
+	var unreadableMu sync.Mutex
+	unreadable, firstUnreadable := 0, error(nil)
+	uuids, err = storobj.ReadObjectsByDocID(ctx, bucket, it, it.Len(), func(docID uint64, object []byte) (strfmt.UUID, bool, error) {
+		if object == nil { // deleted after the allow list was built
+			return "", false, nil
+		}
+		prop, _, err := storobj.ParseAndExtractProperty(object, "id")
+		if err == nil && len(prop) == 0 {
+			err = errors.New("no id property")
+		}
+		if err != nil {
+			unreadableMu.Lock()
+			defer unreadableMu.Unlock()
+			if unreadable++; firstUnreadable == nil {
+				firstUnreadable = fmt.Errorf("doc id %d: %w", docID, err)
+			}
+			return "", false, nil
+		}
+		return strfmt.UUID(prop[0]), true, nil
+	})
+	lsmkv.ReduceSlowLogEntries(ctx, "lsm_get_by_secondary_with_view")
+	if unreadable > 0 {
+		logger.WithField("op", "shard.find_uuids").
+			Debugf("skipped %d doc ids without a readable id, first: %v", unreadable, firstUnreadable)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("resolve uuids: %w", err)
+	}
+	return uuids, nil
 }
