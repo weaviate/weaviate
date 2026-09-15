@@ -21,48 +21,28 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-// dbLoader owns the background shard load. Its zero value is idle.
-//
-// While a load runs, commands still apply to the schema in full; only their DB
-// writes are deferred, and the loader applies those on a later pass.
+// dbLoader runs the startup shard load off the FSM goroutine. DB writes applied
+// meanwhile are queued and run in log order once the load is done.
 type dbLoader struct {
-	// Read by every Apply, so it stays outside the lock. A load never restarts
-	// once finished, keeping the common path lock-free.
-	inFlight atomic.Bool
+	log logrus.FieldLogger
+
+	inFlight atomic.Bool // read on every apply, outside mu
 
 	mu      sync.Mutex
 	started bool
-	stale   bool // a command deferred a DB write during this pass
-	// Classes a deferred command deleted, and whether each had frozen tenants.
-	// A pass rebuilds what the schema still lists, so a deferred addition needs
-	// no record; a deletion does, being absent from that list.
-	deletes map[string]bool
-	// cancel ends the load stop waits for. Only the background load has one:
-	// Close reaches stop only after raft.Shutdown, which already waits out a
-	// load running inline on the FSM goroutine.
-	cancel context.CancelFunc
+	queued  []func()
+	cancel  context.CancelFunc
 
 	wg sync.WaitGroup
 }
 
-// start runs load in the background unless a load has already run, and reports
-// whether it did. The context it hands load is cancelled by stop.
-func (l *dbLoader) start(load func(context.Context), log logrus.FieldLogger) bool {
-	ctx, ok := l.begin()
-	if !ok {
-		return false
-	}
-	enterrors.GoWrapper(func() {
-		defer l.wg.Done()
-		load(ctx)
-	}, log)
-	return true
+func newDBLoader(log logrus.FieldLogger) *dbLoader {
+	return &dbLoader{log: log}
 }
 
-// begin reports whether this call owns the load, and gives it its context.
-// One-shot: inFlight clears just before dbLoaded is published and Apply's guard
-// is !dbLoaded, so a command landing in between would otherwise start a second
-// concurrent loader.
+// begin reports whether this call owns the load; the caller must call l.wg.Done.
+// One-shot: inFlight clears before dbLoaded is set, so Apply could otherwise
+// start a second loader in between.
 func (l *dbLoader) begin() (context.Context, bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -77,9 +57,24 @@ func (l *dbLoader) begin() (context.Context, bool) {
 	return ctx, true
 }
 
-// stop ends a running load and waits for it, so a load of minutes to hours
-// cannot hold shutdown open.
+// start runs load in the background unless a load has already run.
+func (l *dbLoader) start(load func(context.Context)) bool {
+	ctx, ok := l.begin()
+	if !ok {
+		return false
+	}
+	enterrors.GoWrapper(func() {
+		defer l.wg.Done()
+		load(ctx)
+	}, l.log)
+	return true
+}
+
+// stop cancels a running load and waits for it.
 func (l *dbLoader) stop() {
+	if l == nil {
+		return
+	}
 	l.mu.Lock()
 	cancel := l.cancel
 	l.mu.Unlock()
@@ -90,13 +85,9 @@ func (l *dbLoader) stop() {
 	l.wg.Wait()
 }
 
-// deferWrite reports whether a command must skip its DB write because a load is
-// mid-pass, recording deletedClass so the loader can finish the job.
-//
-// The record shares the lock with stale: taken separately, a class recorded
-// just after the loader drained would have no pass left to act on it, and its
-// shards would stay on disk for good.
-func (l *dbLoader) deferWrite(deletedClass string, hasFrozen bool) bool {
+// deferWrite queues write if a load is running. The check shares mu with drain,
+// so a write cannot be queued after drain found the queue empty.
+func (l *dbLoader) deferWrite(write func()) bool {
 	if !l.inFlight.Load() {
 		return false
 	}
@@ -105,28 +96,38 @@ func (l *dbLoader) deferWrite(deletedClass string, hasFrozen bool) bool {
 	if !l.inFlight.Load() {
 		return false
 	}
-	l.stale = true
-	if deletedClass != "" {
-		if l.deletes == nil {
-			l.deletes = map[string]bool{}
-		}
-		// OR, never overwrite: a class deleted frozen, re-added, then deleted
-		// hot still has the first incarnation's cloud data to clean up.
-		l.deletes[deletedClass] = l.deletes[deletedClass] || hasFrozen
-	}
+	l.queued = append(l.queued, write)
 	return true
 }
 
-// finish ends the load unless a command deferred a write during the pass, in
-// which case the loader owes another and gets the classes to drop first.
-func (l *dbLoader) finish() (deletes map[string]bool, done bool) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if !l.stale {
-		l.inFlight.Store(false)
-		return nil, true
+// deferStoreWrite adapts deferWrite to [schema.StoreWriteDeferrer].
+func (l *dbLoader) deferStoreWrite(op string, write func() error) bool {
+	if !l.inFlight.Load() {
+		return false
 	}
-	l.stale = false
-	deletes, l.deletes = l.deletes, nil
-	return deletes, false
+	return l.deferWrite(func() {
+		if err := write(); err != nil {
+			l.log.WithField("op", op).Errorf("DB write deferred behind the local DB load: %v", err)
+		}
+	})
+}
+
+// drain runs queued writes in order until none are left, then ends the load.
+// On cancellation the queue is dropped.
+func (l *dbLoader) drain(ctx context.Context) {
+	for {
+		l.mu.Lock()
+		batch := l.queued
+		l.queued = nil
+		if len(batch) == 0 || ctx.Err() != nil {
+			l.inFlight.Store(false)
+			l.mu.Unlock()
+			return
+		}
+		l.mu.Unlock()
+
+		for _, write := range batch {
+			write()
+		}
+	}
 }

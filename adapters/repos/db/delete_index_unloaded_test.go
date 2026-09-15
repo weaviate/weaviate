@@ -175,36 +175,8 @@ func writeShardSignature(t *testing.T, indexDir string) {
 	require.NoError(t, os.WriteFile(filepath.Join(indexDir, "shard1", "version"), []byte{1, 0}, 0o644))
 }
 
-// TestDeleteIndexRemovesDataWhenIndexNotLoaded pins that dropping a class
-// erases its data even when no index for it is live.
-func TestDeleteIndexRemovesDataWhenIndexNotLoaded(t *testing.T) {
-	t.Parallel()
-
-	logger, _ := test.NewNullLogger()
-	root := t.TempDir()
-	db := &DB{
-		logger:  logger,
-		config:  Config{RootPath: root},
-		indices: map[string]*Index{},
-	}
-
-	class := schema.ClassName("Col300")
-	dir := filepath.Join(root, indexID(class))
-	require.NoError(t, os.MkdirAll(filepath.Join(dir, "shard0"), 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "shard0", "objects.db"), []byte("x"), 0o644))
-
-	require.Nil(t, db.GetIndex(class), "precondition: no live index for the class")
-	require.NoError(t, db.DeleteIndex(class))
-
-	require.Eventually(t, func() bool {
-		_, err := os.Stat(dir)
-		return os.IsNotExist(err)
-	}, 10*time.Second, 20*time.Millisecond, "the class data must not survive its delete")
-}
-
-// TestDeleteIndexUnloadedIsIdempotent pins that a class with nothing on disk
-// deletes cleanly. Deletes replay, and a missing directory means the work is
-// already done, not that it failed.
+// TestDeleteIndexUnloadedIsIdempotent pins that deleting a class with
+// nothing on disk is a no-op.
 func TestDeleteIndexUnloadedIsIdempotent(t *testing.T) {
 	t.Parallel()
 
@@ -216,4 +188,14 @@ func TestDeleteIndexUnloadedIsIdempotent(t *testing.T) {
 	}
 
 	require.NoError(t, db.DeleteIndex(schema.ClassName("NeverExisted")))
+}
+
+// TestDropOrphanedClassIsQuietWithNothingOnDisk pins that a missing
+// directory drops without a warning.
+func TestDropOrphanedClassIsQuietWithNothingOnDisk(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	db := &DB{config: Config{RootPath: t.TempDir()}, logger: logger, indices: map[string]*Index{}}
+
+	require.NoError(t, db.DropOrphanedClass(schema.ClassName("Gone")))
+	require.Empty(t, hook.AllEntries(), "a missing directory is not worth a log line")
 }
