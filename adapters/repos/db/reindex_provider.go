@@ -1280,7 +1280,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 	ctx := p.serverCtx
 	var agg phaseResult
 	var aggMu sync.Mutex
-	var overlayUnwrapFailures int
+	refused := map[string]struct{}{}
 
 	runOne := func(unitID string) {
 		res := p.resolveUnitForPhase(ctx, task, payload, unitID, idx, logger)
@@ -1310,7 +1310,7 @@ func (p *ReindexProvider) runPerUnitPhase(
 				agg.SawContextCanceled = true
 			}
 			if phase.OverlayUnwrapErr != nil {
-				overlayUnwrapFailures++
+				refused[payload.UnitToShard[unitID]] = struct{}{}
 				if agg.OverlayUnwrapErr == nil {
 					agg.OverlayUnwrapErr = phase.OverlayUnwrapErr
 				}
@@ -1335,9 +1335,11 @@ func (p *ReindexProvider) runPerUnitPhase(
 		}
 	}
 
-	if overlayUnwrapFailures > 0 {
-		logger.WithField("shards_skipped", overlayUnwrapFailures).
-			Warnf("reindex provider: cannot wire property overlay — shard unwrap failed; during the SWAPPING window queries may observe stale results and writes to the migrated property may not be indexed; first error: %v", agg.OverlayUnwrapErr)
+	// The task error drops acks from nodes that fail after the first one, so
+	// this line is the only record such a node leaves.
+	if len(refused) > 0 {
+		logger.WithField("shards", reportedShardNames(refused)).
+			Errorf("reindex provider: swap refused on %d shard(s): property overlay could not be installed; first error: %v", len(refused), agg.OverlayUnwrapErr)
 	}
 
 	if len(agg.Errs) == 0 {

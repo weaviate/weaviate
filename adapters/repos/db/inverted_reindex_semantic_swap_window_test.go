@@ -16,15 +16,18 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -415,20 +418,37 @@ func TestSwapPhaseFailsWhenTheOverlayCannotBeWired(t *testing.T) {
 	lazy := &LazyLoadShard{shardOpts: &deferredShardOpts{name: shard.Name(), index: idx}}
 	lazy.memMonitor = &allocCheckerLosingTheFirstReservation{lazy: lazy, shard: shard}
 
-	logger, _ := logrustest.NewNullLogger()
-	p := &ReindexProvider{logger: logger, localNode: "node1", serverCtx: ctx}
-	res := p.runShardSwapPhase(ctx, &ReindexTaskPayload{
+	const unitID = "unit-1"
+	logger, hook := logrustest.NewNullLogger()
+	p := NewReindexProvider(nil, nil, nil, logger, "node1", nil, ctx)
+	desc := distributedtask.TaskDescriptor{ID: "T", Version: 1}
+	p.cacheReindexTasks(desc, unitID, []*ShardReindexTaskGeneric{task})
+	payload := &ReindexTaskPayload{
 		MigrationType: ReindexTypeEnableFilterable,
 		Collection:    className,
 		Properties:    []string{propName},
-	}, "unit-1", shard.Name(), lazy, []*ShardReindexTaskGeneric{task}, logger)
+		UnitToShard:   map[string]string{unitID: shard.Name()},
+	}
 
-	require.Error(t, res.OverlayUnwrapErr,
-		"the wiring has to fail, or this test proves nothing")
-	require.NotEmpty(t, res.Errs,
+	err := p.runPerUnitPhase(&distributedtask.Task{TaskDescriptor: desc}, payload,
+		[]string{unitID}, idx, logger, "swap-requested", true,
+		func(unitID string, _ ShardLike, unitTasks []*ShardReindexTaskGeneric, _ bool) phaseResult {
+			return p.runShardSwapPhase(ctx, payload, unitID, shard.Name(), lazy, unitTasks, logger)
+		})
+
+	require.ErrorContains(t, err, "overlay wiring",
 		"a unit that never wired its overlay must report a failure, not ack success")
 	require.Empty(t, shard.SnapshotPropertyOverlay([]string{propName}),
 		"and it must stop before the swap that would need the overlay")
+
+	var refusals []*logrus.Entry
+	for _, entry := range hook.AllEntries() {
+		if entry.Level == logrus.ErrorLevel && strings.Contains(entry.Message, "swap refused") {
+			refusals = append(refusals, entry)
+		}
+	}
+	require.Len(t, refusals, 1, "the scheduler logs no group error, so this line is the node's only record")
+	require.Equal(t, []string{shard.Name()}, refusals[0].Data["shards"])
 }
 
 // change-algorithm is semantic but builds the new bucket from the live schema,
