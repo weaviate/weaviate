@@ -334,6 +334,8 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 					c.descriptor.Status = backup.Failed
 					c.descriptor.Error = err.Error()
 					c.log.WithFields(logFields).Errorf("coordinator: designated-shard coverage check failed: %v", err)
+				} else if attributed := attributeDedupedShardSizes(c.log, c.descriptor, nodeMetas); attributed > 0 {
+					c.log.WithFields(logFields).Debugf("coordinator: %d bytes attributed to skipping replicas for logical backup size", attributed)
 				}
 			}
 			c.publishStatus()

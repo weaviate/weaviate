@@ -652,11 +652,13 @@ func (u *uploader) uploadShard(ctx context.Context, cu *classUpload, shard *back
 
 	cu.mu.Lock()
 	defer cu.mu.Unlock()
+	var shardBytes int64
 	for _, c := range chunks {
 		cu.desc.Chunks[c.chunk] = c.shards
-		cu.desc.PreCompressionSizeBytes += c.preCompressionSize
+		shardBytes += c.preCompressionSize
 	}
-	cu.desc.PreCompressionSizeBytes += shard.IncrementalBackupInfo.TotalSize
+	shard.PreCompressionSizeBytes = shardBytes + shard.IncrementalBackupInfo.TotalSize
+	cu.desc.PreCompressionSizeBytes += shard.PreCompressionSizeBytes
 	cu.shardsDone.Add(1)
 	return nil
 }
