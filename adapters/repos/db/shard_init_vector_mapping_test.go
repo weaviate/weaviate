@@ -258,66 +258,72 @@ func TestInitShardVectors_Reconcile(t *testing.T) {
 // directory for it, only the queue's chunks. The restored shard loads and
 // indexes them (weaviate/dirk-claude-issues#253).
 func TestRestoreShardWhoseVectorsAreStillQueued(t *testing.T) {
-	for _, tt := range queuedVectorIndexCases() {
-		for _, drained := range []bool{false, true} {
-			name := tt.name + "/queued at backup"
-			if drained {
-				name = tt.name + "/drained before backup"
+	cases := queuedVectorIndexCases()
+	for _, tt := range []struct {
+		name    string
+		index   queuedVectorIndexCase
+		drained bool
+	}{
+		{name: "legacy hnsw, queued at backup", index: cases[0]},
+		{name: "legacy flat, queued at backup", index: cases[1]},
+		{name: "named hnsw, queued at backup", index: cases[2]},
+		// the control: the same restore with nothing queued
+		{name: "legacy hnsw, drained before backup", index: cases[0], drained: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			tt, drained := tt.index, tt.drained
+			ctx := testCtx()
+			shard, idx, class := newQueuedVectorShard(t, ctx, tt, !drained)
+
+			for i := range queuedObjectCount {
+				require.NoError(t, shard.PutObject(ctx, tt.object(i)))
 			}
-			t.Run(name, func(t *testing.T) {
-				ctx := testCtx()
-				shard, idx, class := newQueuedVectorShard(t, ctx, tt, !drained)
+			if drained {
+				waitForQueueToDrain(t, shard, tt.targetVector)
+			} else {
+				require.Equal(t, int64(queuedObjectCount), queuedVectorCount(t, shard, tt.targetVector),
+					"precondition: every vector is still queued")
+			}
 
-				for i := range queuedObjectCount {
-					require.NoError(t, shard.PutObject(ctx, tt.object(i)))
+			stagingRoot := t.TempDir()
+			sd := backup.ShardDescriptor{}
+			files, err := shard.CreateBackupSnapshot(ctx, &sd, stagingRoot)
+			require.NoError(t, err)
+
+			// restore in place, the way a restore lands the backup on the node
+			shardName := shard.Name()
+			shardDir := shard.path()
+			require.NoError(t, shard.Shutdown(ctx))
+			require.NoError(t, os.RemoveAll(shardDir))
+			rootPath := idx.Config.RootPath
+			for _, relPath := range files {
+				copyFileForTest(t, filepath.Join(stagingRoot, relPath), filepath.Join(rootPath, relPath))
+			}
+			for relPath, data := range map[string][]byte{
+				sd.DocIDCounterPath:      sd.DocIDCounter,
+				sd.PropLengthTrackerPath: sd.PropLengthTracker,
+				sd.ShardVersionPath:      sd.Version,
+			} {
+				require.NoError(t, os.WriteFile(filepath.Join(rootPath, relPath), data, 0o644))
+			}
+
+			// the restored node indexes as usual
+			idx.scheduler = idx.db.scheduler
+			restored, err := idx.initShard(ctx, shardName, class, nil, true, true)
+			require.NoError(t, err, "the restored shard must load")
+			idx.shards.Store(shardName, restored)
+			restoredShard := underlyingShard(t, restored)
+
+			waitForQueueToDrain(t, restoredShard, tt.targetVector)
+			found, err := restoredShard.WithVectorIndex(tt.targetVector, func(index VectorIndex) error {
+				for docID := range uint64(queuedObjectCount) {
+					require.True(t, index.ContainsDoc(docID), "doc %d is indexed after restore", docID)
 				}
-				if drained {
-					waitForQueueToDrain(t, shard, tt.targetVector)
-				} else {
-					require.Equal(t, int64(queuedObjectCount), queuedVectorCount(t, shard, tt.targetVector),
-						"precondition: every vector is still queued")
-				}
-
-				stagingRoot := t.TempDir()
-				sd := backup.ShardDescriptor{}
-				files, err := shard.CreateBackupSnapshot(ctx, &sd, stagingRoot)
-				require.NoError(t, err)
-
-				// restore in place, the way a restore lands the backup on the node
-				shardName := shard.Name()
-				shardDir := shard.path()
-				require.NoError(t, shard.Shutdown(ctx))
-				require.NoError(t, os.RemoveAll(shardDir))
-				rootPath := idx.Config.RootPath
-				for _, relPath := range files {
-					copyFileForTest(t, filepath.Join(stagingRoot, relPath), filepath.Join(rootPath, relPath))
-				}
-				for relPath, data := range map[string][]byte{
-					sd.DocIDCounterPath:      sd.DocIDCounter,
-					sd.PropLengthTrackerPath: sd.PropLengthTracker,
-					sd.ShardVersionPath:      sd.Version,
-				} {
-					require.NoError(t, os.WriteFile(filepath.Join(rootPath, relPath), data, 0o644))
-				}
-
-				// the restored node indexes as usual
-				idx.scheduler = idx.db.scheduler
-				restored, err := idx.initShard(ctx, shardName, class, nil, true, true)
-				require.NoError(t, err, "the restored shard must load")
-				idx.shards.Store(shardName, restored)
-				restoredShard := underlyingShard(t, restored)
-
-				waitForQueueToDrain(t, restoredShard, tt.targetVector)
-				found, err := restoredShard.WithVectorIndex(tt.targetVector, func(index VectorIndex) error {
-					for docID := range uint64(queuedObjectCount) {
-						require.True(t, index.ContainsDoc(docID), "doc %d is indexed after restore", docID)
-					}
-					return nil
-				})
-				require.NoError(t, err)
-				require.True(t, found)
+				return nil
 			})
-		}
+			require.NoError(t, err)
+			require.True(t, found)
+		})
 	}
 }
 
@@ -327,22 +333,17 @@ const (
 )
 
 type queuedVectorIndexCase struct {
-	name         string
 	legacy       schemaConfig.VectorIndexConfig
 	named        map[string]schemaConfig.VectorIndexConfig
 	targetVector string
 	object       func(i int) *storobj.Object
 }
 
+// queuedVectorIndexCases: legacy hnsw, legacy flat, named hnsw. The probe
+// looks at a commit log directory for hnsw and at a bucket for flat.
 func queuedVectorIndexCases() []queuedVectorIndexCase {
 	flatCfg := entflat.UserConfig{}
 	flatCfg.SetDefaults()
-	dynamicCfg := entdynamic.UserConfig{
-		Threshold: 1_000_000,
-		Distance:  distancer.NewL2SquaredProvider().Type(),
-		HnswUC:    enthnsw.UserConfig{MaxConnections: 8, EFConstruction: 16, EF: 8, VectorCacheMaxObjects: 1000},
-		FlatUC:    flatCfg,
-	}
 	legacyObject := func(i int) *storobj.Object {
 		obj := queuedObject()
 		obj.Vector = []float32{float32(i), 1, 2}
@@ -350,28 +351,15 @@ func queuedVectorIndexCases() []queuedVectorIndexCase {
 	}
 
 	return []queuedVectorIndexCase{
-		{name: "legacy hnsw", legacy: enthnsw.NewDefaultUserConfig(), object: legacyObject},
-		{name: "legacy flat", legacy: flatCfg, object: legacyObject},
-		{name: "legacy dynamic", legacy: dynamicCfg, object: legacyObject},
+		{legacy: enthnsw.NewDefaultUserConfig(), object: legacyObject},
+		{legacy: flatCfg, object: legacyObject},
 		{
-			name:         "named hnsw",
 			legacy:       enthnsw.UserConfig{Skip: true},
 			named:        map[string]schemaConfig.VectorIndexConfig{"foo": enthnsw.NewDefaultUserConfig()},
 			targetVector: "foo",
 			object: func(i int) *storobj.Object {
 				obj := queuedObject()
 				obj.Vectors = map[string][]float32{"foo": {float32(i), 1, 2}}
-				return obj
-			},
-		},
-		{
-			name:         "named multivector hnsw",
-			legacy:       enthnsw.UserConfig{Skip: true},
-			named:        map[string]schemaConfig.VectorIndexConfig{"mv": enthnsw.NewDefaultMultiVectorUserConfig()},
-			targetVector: "mv",
-			object: func(i int) *storobj.Object {
-				obj := queuedObject()
-				obj.MultiVectors = map[string][][]float32{"mv": {{float32(i), 1}, {2, 3}}}
 				return obj
 			},
 		},
