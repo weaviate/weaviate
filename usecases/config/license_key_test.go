@@ -13,6 +13,7 @@ package config
 
 import (
 	"encoding/base64"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -55,6 +56,9 @@ func TestLicenseKeyWellFormed(t *testing.T) {
 		{"seed too short", "wv8.lic_01ARZ3NDEKTSV4RRFFQ69G5FAV.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", false},
 		{"seed too long", "wv8.lic_01ARZ3NDEKTSV4RRFFQ69G5FAV.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", false},
 		{"seed with standard base64 char", "wv8.lic_01ARZ3NDEKTSV4RRFFQ69G5FAV.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA+A", false},
+		{"seed with non-zero trailing bits", "wv8.lic_01ARZ3NDEKTSV4RRFFQ69G5FAV.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAB", false},
+		{"seed with embedded newline", strings.Replace(valid, "AA", "A\nA", 1), false},
+		{"seed with embedded carriage return", strings.Replace(valid, "AA", "A\rA", 1), false},
 	}
 	for _, tt := range factors {
 		t.Run(tt.name, func(t *testing.T) {

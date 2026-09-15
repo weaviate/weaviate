@@ -1244,6 +1244,10 @@ func TestEnvironmentWeaviateLicense(t *testing.T) {
 		hook := logrustest.NewGlobal()
 		defer hook.Reset()
 
+		// Explicitly empty so the test is hermetic even when the process
+		// environment has LICENSE_KEY set; os.Getenv sees the same branch.
+		t.Setenv("LICENSE_KEY", "")
+
 		conf := Config{}
 		require.NoError(t, FromEnv(&conf))
 

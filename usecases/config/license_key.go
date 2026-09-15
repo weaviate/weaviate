@@ -32,7 +32,12 @@ func licenseKeyWellFormed(key string) bool {
 		return false
 	}
 	seed, err := base64.RawURLEncoding.DecodeString(parts[2])
-	return err == nil && len(seed) == 32
+	if err != nil || len(seed) != 32 {
+		return false
+	}
+	// Require the canonical encoding: DecodeString alone ignores CR/LF and
+	// accepts non-zero trailing bits.
+	return base64.RawURLEncoding.EncodeToString(seed) == parts[2]
 }
 
 func licenseIDWellFormed(id string) bool {
