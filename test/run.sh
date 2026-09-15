@@ -35,6 +35,7 @@ function main() {
   run_integration_tests=false
   run_integration_tests_only_vector_package=false
   run_integration_tests_without_vector_package=false
+  run_integration_tests_only_slow_package=false
   run_benchmark=false
   run_module_only_backup_tests=false
   run_module_only_offload_tests=false
@@ -70,6 +71,7 @@ function main() {
           --integration-only|-i) run_all_tests=false; run_integration_tests=true;;
           --integration-vector-package-only|-ivpo) run_all_tests=false; run_integration_tests=true; run_integration_tests_only_vector_package=true;;
           --integration-without-vector-package|-iwvp) run_all_tests=false; run_integration_tests=true; run_integration_tests_without_vector_package=true;;
+          --integration-slow-package-only|-ispo) run_all_tests=false; run_integration_tests=true; run_integration_tests_only_slow_package=true;;
           --acceptance-only|--e2e-only|-a) run_all_tests=false; run_acceptance_tests=true ;;
           --acceptance-only-fast|-aof) run_all_tests=false; run_acceptance_only_fast_group_1=true; run_acceptance_only_fast_group_2=true; run_acceptance_only_fast_group_3=true; run_acceptance_only_fast_group_4=true; run_acceptance_only_fast_group_5=true;;
           --acceptance-only-fast-group-1|-aof-g1) run_all_tests=false; run_acceptance_only_fast_group_1=true;;
@@ -128,6 +130,9 @@ function main() {
               "--unit-only-non-adapters | -una"\
               "--unit-and-integration-only | -ui"\
               "--integration-only | -i"\
+              "--integration-vector-package-only | -ivpo"\
+              "--integration-without-vector-package | -iwvp"\
+              "--integration-slow-package-only | -ispo"\
               "--acceptance-only | -a"\
               "--acceptance-only-fast | -aof"\
               "--acceptance-only-fast-group-1 | -aof-g1"\
@@ -476,6 +481,8 @@ function run_integration_tests() {
     ./test/integration/run.sh --include-slow --only-vector-pkg
   elif $run_integration_tests_without_vector_package; then
     ./test/integration/run.sh --include-slow --without-vector-pkg
+  elif $run_integration_tests_only_slow_package; then
+    ./test/integration/run.sh --include-slow --only-slow-pkg
   else
     ./test/integration/run.sh --include-slow
   fi
