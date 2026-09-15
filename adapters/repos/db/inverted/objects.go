@@ -650,6 +650,14 @@ func toInt64(v any) (int64, error) {
 	case int:
 		return int64(val), nil
 	case json.Number:
+		// Int64 keeps every digit. Going through Float64 first rounds anything
+		// past 2^53, and rounds the largest int64 up past its own range, so the
+		// conversion below hands back the smallest int64 instead. A value that
+		// is not integral has no Int64 reading and still goes through Float64,
+		// as before.
+		if i, err := val.Int64(); err == nil {
+			return i, nil
+		}
 		f, err := val.Float64()
 		if err != nil {
 			return 0, err
