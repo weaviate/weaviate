@@ -69,7 +69,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
-	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -2460,16 +2459,15 @@ func postInitModules(appState *state.State) {
 }
 
 func initModules(ctx context.Context, appState *state.State) error {
-	storageProvider, err := modulestorage.NewRepo(
-		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
-	if err != nil {
-		return errors.Wrap(err, "init storage provider")
-	}
-
 	// TODO: gh-1481 don't pass entire appState in, but only what's needed. Probably only
 	// config?
-	moduleParams := moduletools.NewInitParams(storageProvider, appState,
-		&appState.ServerConfig.Config, appState.Logger, prometheus.DefaultRegisterer)
+	moduleParams := moduletools.NewInitParams(
+		appState.ServerConfig.Config.Persistence.DataPath,
+		appState,
+		&appState.ServerConfig.Config,
+		appState.Logger,
+		prometheus.DefaultRegisterer,
+	)
 
 	appState.Logger.
 		WithField("action", "startup").

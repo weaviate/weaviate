@@ -12,14 +12,13 @@
 package moduletools
 
 type StorageProvider interface {
-	Storage(name string) (Storage, error)
 	DataPath() string
 }
 
-type ScanFn func(k, v []byte) (bool, error)
+type storageProvider struct {
+	dataPath string
+}
 
-type Storage interface {
-	Get(key []byte) ([]byte, error)
-	Scan(scan ScanFn) error
-	Put(key, value []byte) error
+func (s *storageProvider) DataPath() string {
+	return s.dataPath
 }

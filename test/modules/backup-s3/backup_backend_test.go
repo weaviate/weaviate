@@ -262,10 +262,6 @@ type fakeStorageProvider struct {
 	dataPath string
 }
 
-func (f *fakeStorageProvider) Storage(name string) (moduletools.Storage, error) {
-	return nil, nil
-}
-
 func (f *fakeStorageProvider) DataPath() string {
 	return f.dataPath
 }
