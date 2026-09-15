@@ -31,16 +31,17 @@ func (st *Store) Join(id, addr string, voter bool) error {
 	if !st.open.Load() {
 		return types.ErrNotOpen
 	}
-	if st.raft.State() != raft.Leader {
+	rn := st.raft.Load()
+	if rn == nil || rn.State() != raft.Leader {
 		return types.ErrNotLeader
 	}
 
 	rID, rAddr := raft.ServerID(id), raft.ServerAddress(addr)
 
 	if !voter {
-		return st.assertFuture(st.raft.AddNonvoter(rID, rAddr, 0, 0))
+		return st.assertFuture(rn.AddNonvoter(rID, rAddr, 0, 0))
 	}
-	return st.assertFuture(st.raft.AddVoter(rID, rAddr, 0, 0))
+	return st.assertFuture(rn.AddVoter(rID, rAddr, 0, 0))
 }
 
 // Remove removes this peer from the cluster
@@ -48,7 +49,8 @@ func (st *Store) Remove(id string) error {
 	if !st.open.Load() {
 		return types.ErrNotOpen
 	}
-	if st.raft.State() != raft.Leader {
+	rn := st.raft.Load()
+	if rn == nil || rn.State() != raft.Leader {
 		return types.ErrNotLeader
 	}
 	// A namespace can only place shards on its home_node, so losing that node
@@ -62,7 +64,7 @@ func (st *Store) Remove(id string) error {
 		return fmt.Errorf("cannot remove node %q: it is the home_node of namespace(s) %s",
 			id, strings.Join(pinned, ", "))
 	}
-	return st.assertFuture(st.raft.RemoveServer(raft.ServerID(id), 0, 0))
+	return st.assertFuture(rn.RemoveServer(raft.ServerID(id), 0, 0))
 }
 
 // namespacesWithHomeNode returns the names of the namespaces whose home_node is
@@ -118,7 +120,7 @@ func (st *Store) Notify(id, addr string) (err error) {
 		"candidates": candidates,
 	}).Info("starting cluster bootstrapping")
 
-	fut := st.raft.BootstrapCluster(raft.Configuration{Servers: candidates})
+	fut := st.raft.Load().BootstrapCluster(raft.Configuration{Servers: candidates})
 	if err := fut.Error(); err != nil {
 		if !errors.Is(err, raft.ErrCantBootstrap) {
 			st.log.WithField("action", "bootstrap").WithError(err).Error("could not bootstrapping cluster")
