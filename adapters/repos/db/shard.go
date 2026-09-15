@@ -535,7 +535,7 @@ func (s *Shard) pathLSM() string {
 const hashTreeDirName = "hashtree_uuid"
 
 func (s *Shard) pathHashTree() string {
-	return path.Join(s.path(), hashTreeDirName)
+	return shardPathHashTree(s.index.path(), s.name)
 }
 
 func (s *Shard) vectorIndexID(targetVector string) string {
@@ -984,6 +984,10 @@ func shardPath(indexPath, shardName string) string {
 
 func shardPathLSM(indexPath, shardName string) string {
 	return path.Join(indexPath, shardName, "lsm")
+}
+
+func shardPathHashTree(indexPath, shardName string) string {
+	return path.Join(indexPath, shardName, hashTreeDirName)
 }
 
 func bucketKeyPropertyLength(length int) ([]byte, error) {
