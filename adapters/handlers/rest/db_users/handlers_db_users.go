@@ -16,7 +16,9 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"sync"
 	"time"
 
@@ -128,10 +130,7 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 		return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	allUsers := make([]apikey.UserView, 0, len(allDbUsers))
-	for _, dbUser := range allDbUsers {
-		allUsers = append(allUsers, dbUser)
-	}
+	allUsers := slices.Collect(maps.Values(allDbUsers))
 
 	resourceFilter := filter.New[apikey.UserView](h.authorizer, h.rbacConfig)
 	filteredUsers := resourceFilter.Filter(
