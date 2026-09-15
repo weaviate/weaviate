@@ -199,14 +199,22 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 		return objects.BatchDeleteResult{}, errors.Errorf("cannot find index for class %v", className)
 	}
 
-	// find all DocIDs in all shards that match the filter
-	shardDocIDs, err := idx.findUUIDs(ctx, params.Filters, tenant, repl, 0)
+	limit := db.config.QueryMaximumResults
+
+	// Resolving a UUID per match costs a read each, so ask every shard for one more than this
+	// call can delete instead of for the whole match set. The extra one keeps "matches > limit"
+	// as the signal that more objects match than were deleted.
+	perShardLimit := 0
+	if limit > 0 {
+		perShardLimit = int(limit) + 1
+	}
+
+	shardDocIDs, err := idx.findUUIDs(ctx, params.Filters, tenant, repl, perShardLimit)
 	if err != nil {
 		return objects.BatchDeleteResult{}, errors.Wrapf(err, "cannot find objects")
 	}
 	// prepare to be deleted list of DocIDs from all shards
 	toDelete := map[string][]strfmt.UUID{}
-	limit := db.config.QueryMaximumResults
 
 	matches := int64(0)
 	for shardName, docIDs := range shardDocIDs {
