@@ -684,10 +684,9 @@ type NarrowedConsistentView struct {
 // WithoutEmptyActiveMemtable returns a view with an active memtable that has
 // taken no writes dropped.
 //
-// Size only ever rises, so a zero read proves the memtable held nothing at that
-// instant, and a racing write is one this view legitimately predates. Callers
-// opening several readers want that decision made once, up front, or readers
-// disagree when a write lands between two of them.
+// Only a roaring-set bucket may narrow a view: every row of one costs a fixed
+// minimum, so a zero size proves the memtable holds no rows, and a racing write
+// is one this view legitimately predates.
 func (cv BucketConsistentView) WithoutEmptyActiveMemtable() NarrowedConsistentView {
 	if cv.Active != nil && cv.Active.Size() == 0 {
 		cv.Active = nil
