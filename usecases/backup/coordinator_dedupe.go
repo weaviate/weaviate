@@ -13,11 +13,14 @@ package backup
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
 	"sort"
 	"time"
+
+	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -469,6 +472,7 @@ func (c *coordinator) verifyDesignatedCoverage(ctx context.Context, req *StatusR
 			if err != nil {
 				return fmt.Errorf("verify designated shards of node %q: %w", node, err)
 			}
+			nodeMetas[node] = meta
 		}
 		classNames := make([]string, 0, len(byNode[node]))
 		for class := range byNode[node] {
@@ -513,6 +517,118 @@ func (c *coordinator) readNodeMeta(ctx context.Context, req *StatusRequest, node
 			return nil, err
 		}
 	}
+}
+
+// attributeDedupedShardSizes lifts the global descriptor to the logical size: each designated shard's bytes are added to every replica whose descriptor lacks it; second call is a no-op.
+func attributeDedupedShardSizes(log logrus.FieldLogger, desc *backup.DistributedBackupDescriptor, nodeMetas map[string]*backup.BackupDescriptor) int64 {
+	if desc.DedupeSkippedBytes != 0 {
+		return 0
+	}
+	var skipped int64
+	classes := make([]string, 0, len(desc.DedupeDesignations))
+	for class := range desc.DedupeDesignations {
+		classes = append(classes, class)
+	}
+	sort.Strings(classes)
+	for _, class := range classes {
+		shards := desc.DedupeDesignations[class]
+		state, err := classShardingState(desc, nodeMetas, class, shards)
+		if err != nil {
+			log.WithField("class", class).Warnf("dedupe size attribution skips class: %v", err)
+			continue
+		}
+		shardNames := make([]string, 0, len(shards))
+		for shard := range shards {
+			shardNames = append(shardNames, shard)
+		}
+		sort.Strings(shardNames)
+		for _, shard := range shardNames {
+			archiver := shards[shard]
+			am := nodeMetas[archiver]
+			if am == nil {
+				continue
+			}
+			acd := am.GetClassDescriptor(class)
+			if acd == nil {
+				continue
+			}
+			sd := acd.GetShardDescriptor(shard)
+			// pre-field archiver: keep physical accounting
+			if sd == nil || sd.PreCompressionSizeBytes == 0 {
+				continue
+			}
+			for replica := range uniqueNonEmpty(state.Physical[shard].BelongsToNodes) {
+				if replica == archiver {
+					continue
+				}
+				nd := desc.Nodes[desc.ToOriginalNodeName(replica)]
+				if nd == nil {
+					continue
+				}
+				// replica archived it anyway (mid-backup churn): bytes already counted
+				if rm := nodeMetas[replica]; rm != nil {
+					if rcd := rm.GetClassDescriptor(class); rcd != nil && rcd.GetShardDescriptor(shard) != nil {
+						continue
+					}
+				}
+				nd.PreCompressionSizeBytes += sd.PreCompressionSizeBytes
+				desc.PreCompressionSizeBytes += sd.PreCompressionSizeBytes
+				skipped += sd.PreCompressionSizeBytes
+			}
+		}
+	}
+	desc.DedupeSkippedBytes = skipped
+	return skipped
+}
+
+// classShardingState resolves the archived sharding state: leader, then archivers, then any holder.
+func classShardingState(desc *backup.DistributedBackupDescriptor, nodeMetas map[string]*backup.BackupDescriptor, class string, shards map[string]string) (*shardingStateSubset, error) {
+	archivers := make([]string, 0, len(shards))
+	for _, archiver := range shards {
+		archivers = append(archivers, archiver)
+	}
+	sort.Strings(archivers)
+	holders := make([]string, 0, len(nodeMetas))
+	for node := range nodeMetas {
+		holders = append(holders, node)
+	}
+	sort.Strings(holders)
+	candidates := make([]string, 0, 1+len(archivers)+len(holders))
+	candidates = append(candidates, desc.Leader)
+	candidates = append(candidates, archivers...)
+	candidates = append(candidates, holders...)
+
+	var firstErr error
+	tried := make(map[string]struct{}, len(candidates))
+	for _, node := range candidates {
+		if node == "" {
+			continue
+		}
+		if _, ok := tried[node]; ok {
+			continue
+		}
+		tried[node] = struct{}{}
+		meta := nodeMetas[node]
+		if meta == nil {
+			continue
+		}
+		cd := meta.GetClassDescriptor(class)
+		if cd == nil || len(cd.ShardingState) == 0 {
+			continue
+		}
+		var state shardingStateSubset
+		if err := json.Unmarshal(cd.ShardingState, &state); err != nil {
+			if firstErr == nil {
+				firstErr = fmt.Errorf("unmarshal archived sharding state from node %q: %w", node, err)
+			}
+			continue
+		}
+		return &state, nil
+	}
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	return nil, errors.New("no node descriptor carries the archived sharding state")
 }
 
 func uniqueNonEmpty(nodes []string) map[string]struct{} {

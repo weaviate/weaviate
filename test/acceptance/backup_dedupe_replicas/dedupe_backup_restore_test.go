@@ -183,6 +183,27 @@ func shardHolders(t *testing.T, client *minio.Client, backupID, className string
 	return holders, metas
 }
 
+// assertLogicalSizeInvariants pins global == Σ node entries and dedupeSkippedBytes == global − Σ per-node physical sizes; holds for deduped (skipped > 0) and plain (skipped == 0) artifacts alike.
+func assertLogicalSizeInvariants(t *testing.T, client *minio.Client, backupID string) entbackup.DistributedBackupDescriptor {
+	t.Helper()
+	var global entbackup.DistributedBackupDescriptor
+	require.True(t, readJSONObject(t, client, fmt.Sprintf("%s/%s", backupID, ubak.GlobalBackupFile), &global))
+	var nodeSum int64
+	for _, nd := range global.Nodes {
+		nodeSum += nd.PreCompressionSizeBytes
+	}
+	require.Equal(t, global.PreCompressionSizeBytes, nodeSum)
+	var physical int64
+	for _, node := range nodeNames {
+		var meta entbackup.BackupDescriptor
+		if readJSONObject(t, client, fmt.Sprintf("%s/%s/%s", backupID, node, ubak.BackupFile), &meta) {
+			physical += meta.PreCompressionSizeBytes
+		}
+	}
+	require.Equal(t, global.PreCompressionSizeBytes-physical, global.DedupeSkippedBytes)
+	return global
+}
+
 func backupTotalSize(t *testing.T, client *minio.Client, backupID string) int64 {
 	t.Helper()
 	total := int64(0)
@@ -405,6 +426,54 @@ func TestBackupDedupeReplicas(t *testing.T) {
 		deduped, allReplica := backupTotalSize(t, minioC, backupID), backupTotalSize(t, minioC, controlBackupID)
 		assert.Less(t, deduped, allReplica*60/100,
 			"deduped backup (%d bytes) should be well under 60%% of the all-replica one (%d bytes)", deduped, allReplica)
+	})
+
+	t.Run("reported size is logical and matches the all-replica control", func(t *testing.T) {
+		global := assertLogicalSizeInvariants(t, minioC, backupID)
+		control := assertLogicalSizeInvariants(t, minioC, controlBackupID)
+
+		require.Positive(t, control.PreCompressionSizeBytes)
+		require.InEpsilon(t, control.PreCompressionSizeBytes, global.PreCompressionSizeBytes, 0.15,
+			"deduped backup must report the logical size of the all-replica control")
+		assert.Positive(t, global.DedupeSkippedBytes)
+		assert.Zero(t, control.DedupeSkippedBytes)
+
+		_, metas := shardHolders(t, minioC, backupID, className)
+		skipperFound := false
+		for node, meta := range metas {
+			assert.Positive(t, global.Nodes[node].PreCompressionSizeBytes, "node %s entry", node)
+			if global.Nodes[node].PreCompressionSizeBytes > meta.PreCompressionSizeBytes {
+				skipperFound = true
+			}
+		}
+		assert.True(t, skipperFound, "at least one skipping node must report more than it archived")
+
+		statusResp, err := helper.Client(t).Backups.BackupsCreateStatus(
+			backups.NewBackupsCreateStatusParams().WithBackend(backendS3).WithID(backupID), nil)
+		require.NoError(t, err)
+		assert.InDelta(t, float64(global.PreCompressionSizeBytes)/(1024*1024*1024), statusResp.Payload.Size, 1e-9)
+	})
+
+	t.Run("mixed eligibility keeps size invariants", func(t *testing.T) {
+		const soloClass = "DedupeSolo"
+		const mixedID = "dedupe-mixed-1"
+		helper.CreateClass(t, &models.Class{
+			Class:      soloClass,
+			Vectorizer: "none",
+			Properties: []*models.Property{{Name: "contents", DataType: []string{"text"}}},
+		})
+		defer helper.DeleteClass(t, soloClass)
+		seedObjects(t, host, soloClass, 200)
+
+		params := backups.NewBackupsCreateParams().WithBackend(backendS3).
+			WithBody(&models.BackupCreateRequest{ID: mixedID, Include: []string{className, soloClass}, Config: dedupeBackupConfig()})
+		_, err := helper.Client(t).Backups.BackupsCreate(params, nil)
+		require.NoError(t, err)
+		helper.ExpectBackupEventuallyCreated(t, mixedID, backendS3, nil, helper.WithDeadline(4*time.Minute))
+
+		global := assertLogicalSizeInvariants(t, minioC, mixedID)
+		require.True(t, global.DedupeReplicas)
+		assert.Positive(t, global.DedupeSkippedBytes)
 	})
 
 	t.Run("restore with a non-injective node mapping is refused", func(t *testing.T) {

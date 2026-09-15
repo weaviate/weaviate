@@ -155,6 +155,25 @@ func TestBackupDedupeIncremental(t *testing.T) {
 		assert.False(t, global.DedupeReplicas)
 	})
 
+	t.Run("chain sizes stay logical at every link", func(t *testing.T) {
+		base := assertLogicalSizeInvariants(t, minioC, baseID)
+		deduped := assertLogicalSizeInvariants(t, minioC, dedupedIncrID)
+		second := assertLogicalSizeInvariants(t, minioC, incr2ID)
+		plain := assertLogicalSizeInvariants(t, minioC, plainIncrID)
+		flagOff := assertLogicalSizeInvariants(t, minioC, flagOffID)
+
+		require.Positive(t, base.DedupeSkippedBytes)
+		require.Positive(t, deduped.DedupeSkippedBytes)
+		require.InEpsilon(t, plain.PreCompressionSizeBytes, deduped.PreCompressionSizeBytes, 0.15,
+			"deduped incremental must report the plain incremental's logical size")
+		assert.Greater(t, deduped.PreCompressionSizeBytes, base.PreCompressionSizeBytes,
+			"incremental over grown data must report a larger logical size than its base")
+		require.InEpsilon(t, deduped.PreCompressionSizeBytes, second.PreCompressionSizeBytes, 0.15,
+			"unchanged data keeps the second hop's logical size")
+		assert.Zero(t, plain.DedupeSkippedBytes, "plain incremental accounting must stay untouched")
+		assert.Zero(t, flagOff.DedupeSkippedBytes, "flag-off accounting must stay untouched even over a deduped base")
+	})
+
 	t.Run("restore first-hop incremental fans out its base chunks", func(t *testing.T) {
 		helper.DeleteClass(t, className)
 		restoreAndVerify(t, host, className, dedupedIncrID, ids)
@@ -193,6 +212,8 @@ func TestBackupDedupeIncremental(t *testing.T) {
 		for shard, node := range global.DedupeDesignations[className] {
 			assert.NotEqual(t, "ghost-node", node, "shard %q designated to the ghost", shard)
 		}
+		moved := assertLogicalSizeInvariants(t, minioC, ghostIncrID)
+		assert.Positive(t, moved.DedupeSkippedBytes, "moved designees must still attribute logical sizes")
 
 		helper.DeleteClass(t, className)
 		restoreAndVerify(t, host, className, ghostIncrID, ids)
@@ -233,6 +254,13 @@ func TestBackupDedupeIncremental(t *testing.T) {
 			assert.Len(t, nodes, 1, "shard %q archived by %v, want exactly one node", shard, nodes)
 		}
 		assert.Positive(t, countSkipEntries(metas, v2ClassName), "any designee skips against a complete v2 base")
+
+		v2Base := assertLogicalSizeInvariants(t, minioC, v2BaseID)
+		v2Incr := assertLogicalSizeInvariants(t, minioC, v2IncrID)
+		assert.Zero(t, v2Base.DedupeSkippedBytes)
+		assert.Positive(t, v2Incr.DedupeSkippedBytes)
+		assert.Greater(t, v2Incr.PreCompressionSizeBytes, v2Base.PreCompressionSizeBytes,
+			"deduped incremental over a grown v2 base must report a larger logical size")
 
 		helper.DeleteClass(t, v2ClassName)
 		restoreAndVerify(t, host, v2ClassName, v2IncrID, v2IDs)
