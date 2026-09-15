@@ -2270,6 +2270,7 @@ func newTestMemtableReplace(initialData map[string][]byte) *testMemtable {
 		key:       &binarySearchTree{},
 		commitlog: newDummyCommitLogger(),
 		metrics:   metrics,
+		logger:    nullLogger(),
 	}
 
 	for k, v := range initialData {
@@ -2291,6 +2292,7 @@ func newTestMemtableRoaringSet(initialData map[string][]uint64) *testMemtable {
 		roaringSet: &roaringset.BinarySearchTree{},
 		commitlog:  newDummyCommitLogger(),
 		metrics:    metrics,
+		logger:     nullLogger(),
 	}
 
 	for k, v := range initialData {
@@ -2313,6 +2315,7 @@ func newTestMemtableRoaringSetRange(initialData map[uint64][]uint64) *testMemtab
 		roaringSetRange: roaringsetrange.NewMemtable(logger),
 		commitlog:       newDummyCommitLogger(),
 		metrics:         metrics,
+		logger:          logger,
 	}
 
 	for k, v := range initialData {
@@ -2334,6 +2337,7 @@ func newTestMemtableSet(initialData map[string][][]byte) *testMemtable {
 		keyMulti:  &binarySearchTreeMulti{},
 		commitlog: newDummyCommitLogger(),
 		metrics:   metrics,
+		logger:    nullLogger(),
 	}
 
 	for k, v := range initialData {
@@ -2354,6 +2358,7 @@ func newTestMemtableMap(initialData map[string][]MapPair) *testMemtable {
 		keyMap:    &binarySearchTreeMap{},
 		commitlog: newDummyCommitLogger(),
 		metrics:   metrics,
+		logger:    nullLogger(),
 	}
 
 	for k, v := range initialData {
@@ -2378,6 +2383,7 @@ func newTestMemtableInverted(initialData map[string][]MapPair) *testMemtable {
 		metrics:          metrics,
 		tombstones:       sroar.NewBitmap(),
 		propLengthExists: sroar.NewBitmap(),
+		logger:           nullLogger(),
 	}
 
 	for k, v := range initialData {

@@ -119,6 +119,7 @@ type Memtable struct {
 	roaringSetRange *roaringsetrange.Memtable
 	commitlog       memtableCommitLogger
 	allocChecker    memwatch.AllocChecker
+	logger          logrus.FieldLogger
 	size            uint64
 	// netCountAdditions approximates the net live keys this memtable adds on
 	// top of the rest of the LSM tree. Whether a key already exists further
@@ -202,6 +203,7 @@ func newMemtable(cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldL
 		roaringSet:                   &roaringset.BinarySearchTree{},
 		roaringSetRange:              roaringsetrange.NewMemtable(logger),
 		commitlog:                    cl,
+		logger:                       logger,
 		path:                         config.path,
 		strategy:                     config.strategy,
 		secondaryIndices:             config.secondaryIndices,
