@@ -356,6 +356,18 @@ type Shard struct {
 	// Mutations under haltForTransferMux; atomic so halt probes read lock-free.
 	haltForTransferCount     atomic.Int64
 	haltForTransferCtxCancel context.CancelFunc
+	// vectorLayoutGate orders a create or drop against a halt: a change
+	// counts itself in and reads the halt under it, a halt reads the count
+	// and takes its token under it, so neither slips past the other.
+	vectorLayoutGate    sync.Mutex
+	vectorLayoutChanges int
+	// vectorLayoutGen moves when a change proceeds under a halt past its
+	// wait; haltLayoutBaseline is its value when the first of the halts now
+	// held was admitted, fixed until the last of them resumes
+	vectorLayoutGen    uint64
+	haltLayoutBaseline uint64
+	// layoutWaitTimeout overrides vectorLayoutWaitTimeout when set; tests shorten it
+	layoutWaitTimeout time.Duration
 
 	status              ShardStatus
 	statusLock          sync.RWMutex

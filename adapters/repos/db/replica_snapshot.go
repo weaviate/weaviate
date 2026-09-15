@@ -36,6 +36,8 @@ type replicaSnapshotState struct {
 	shardName string
 	// isSnapshot=false means halt-for-duration mode; Release must resume the shard.
 	isSnapshot bool
+	// layoutToken is the halt's admission token; serving stops once it moved
+	layoutToken uint64
 }
 
 func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, opID string) ([]string, error) {
@@ -83,15 +85,24 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 		return nil, fmt.Errorf("halt shard %q for transfer: %w", shardName, err)
 	}
 
+	var token uint64
+	if sh := i.shards.loaded(shardName); sh != nil {
+		token = sh.haltLayoutToken()
+	}
+
 	files, err := shard.ListReplicaSnapshotFiles(ctx, stagingRoot)
 	if err != nil {
 		i.cleanupFailedReplicaSnapshot(stagingRoot, opID, true, shard)
 		return nil, fmt.Errorf("shard %q could not list replica snapshot files: %w", shardName, err)
 	}
+	if sh := i.shards.loaded(shardName); sh != nil && sh.layoutChangedSince(token) {
+		i.cleanupFailedReplicaSnapshot(stagingRoot, opID, true, shard)
+		return nil, fmt.Errorf("shard %q: %w", shardName, errVectorLayoutChanged)
+	}
 
 	i.logger.WithField("op_id", opID).WithField("shard", shardName).
 		Debugf("created replica snapshot: %d files", len(files))
-	i.recordReplicaSnapshot(opID, replicaSnapshotState{shardName: shardName, isSnapshot: false})
+	i.recordReplicaSnapshot(opID, replicaSnapshotState{shardName: shardName, isSnapshot: false, layoutToken: token})
 	return files, nil
 }
 
@@ -163,6 +174,14 @@ func (i *Index) resolveReplicaSnapshotPath(opID, rel string) (string, error) {
 	i.replicaSnapshotsMu.Unlock()
 	if !ok {
 		return "", fmt.Errorf("no replica snapshot registered for op %q", opID)
+	}
+
+	// the fallback serves its files while the halt is held; nothing is
+	// served once a change proceeded under that halt
+	if !st.isSnapshot {
+		if sh := i.shards.loaded(st.shardName); sh != nil && sh.layoutChangedSince(st.layoutToken) {
+			return "", errVectorLayoutChanged
+		}
 	}
 
 	stagingRoot := replicaStagingDir(i.Config.RootPath, opID, schema.ClassName(i.Config.ClassName))

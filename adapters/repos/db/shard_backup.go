@@ -13,12 +13,15 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -62,7 +65,19 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		}
 	}
 
-	s.haltForTransferCount.Add(1)
+	// not skipped for offloading: the offload uploads the files a drop removes
+	s.vectorLayoutGate.Lock()
+	if n := s.vectorLayoutChanges; n > 0 {
+		s.vectorLayoutGate.Unlock()
+		return fmt.Errorf("%w: shard %q: %d vector index create(s) or drop(s) in flight; transfer deferred until they complete",
+			enterrors.ErrShardBusyStructuralOp, s.name, n)
+	}
+	// taken before preparation, which can outlast a change's wait, and only
+	// by the first halt: a shared halt keeps the token its predecessor took
+	if s.haltForTransferCount.Add(1) == 1 {
+		s.haltLayoutBaseline = s.vectorLayoutGen
+	}
+	s.vectorLayoutGate.Unlock()
 
 	defer func() {
 		if err != nil {
@@ -196,6 +211,72 @@ func (s *Shard) structuralVectorOpInFlight() (busy bool, reason string) {
 	return
 }
 
+// vectorLayoutWaitTimeout bounds how long a create or drop waits for a halt.
+// Both run in the schema apply, so past the bound they proceed and the
+// snapshot the halt serves is failed instead.
+const vectorLayoutWaitTimeout = 30 * time.Second
+
+var errVectorLayoutChanged = errors.New("vector index layout changed under the halt, the snapshot is inconsistent")
+
+// enterVectorLayoutChange counts a create or drop in, which refuses new
+// halts, then waits for a held halt to end. Past the bound it moves the
+// generation every snapshot under this halt compares against, and proceeds.
+func (s *Shard) enterVectorLayoutChange(ctx context.Context, targetVector string) (leave func(), err error) {
+	s.vectorLayoutGate.Lock()
+	s.vectorLayoutChanges++
+	halted := s.haltedForTransfer()
+	s.vectorLayoutGate.Unlock()
+
+	leave = func() {
+		s.vectorLayoutGate.Lock()
+		s.vectorLayoutChanges--
+		s.vectorLayoutGate.Unlock()
+	}
+	if !halted {
+		return leave, nil
+	}
+
+	timeout := s.layoutWaitTimeout
+	if timeout == 0 {
+		timeout = vectorLayoutWaitTimeout
+	}
+	deadline := time.Now().Add(timeout)
+	for s.haltedForTransfer() {
+		if ctx.Err() != nil {
+			leave()
+			return nil, ctx.Err()
+		}
+		if time.Now().After(deadline) {
+			s.vectorLayoutGate.Lock()
+			s.vectorLayoutGen++
+			s.vectorLayoutGate.Unlock()
+			s.index.logger.WithFields(logrus.Fields{
+				"action":        "vector_index_layout_change",
+				"target_vector": targetVector,
+			}).Warn("changing the vector index layout under a transfer halt that did not end in time; its snapshot will be rejected")
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	return leave, nil
+}
+
+// haltLayoutToken is the generation the halt the caller holds was admitted
+// at. Compare it with layoutChangedSince once the snapshot is fully staged.
+func (s *Shard) haltLayoutToken() uint64 {
+	s.vectorLayoutGate.Lock()
+	defer s.vectorLayoutGate.Unlock()
+	return s.haltLayoutBaseline
+}
+
+// layoutChangedSince reports whether a create or drop proceeded under the
+// halt admitted at token.
+func (s *Shard) layoutChangedSince(token uint64) bool {
+	s.vectorLayoutGate.Lock()
+	defer s.vectorLayoutGate.Unlock()
+	return s.vectorLayoutGen != token
+}
+
 func (s *Shard) mayUpdateInactivityTimeout(inactivityTimeout time.Duration) {
 	if s.haltForTransferInactivityTimeout != 0 && s.haltForTransferInactivityTimeout <= inactivityTimeout {
 		// no need to update current inactivity timeout
@@ -294,6 +375,7 @@ func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescri
 		return nil, fmt.Errorf("halt for snapshot: %w", err)
 	}
 	defer s.resumeMaintenanceCycles(ctx)
+	token := s.haltLayoutToken()
 
 	files, err := s.ListBackupFiles(ctx, sd)
 	if err != nil {
@@ -349,6 +431,9 @@ func (s *Shard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescri
 		return nil, fmt.Errorf("hardlink backup files to staging: %w", err)
 	}
 
+	if s.layoutChangedSince(token) {
+		return nil, errVectorLayoutChanged
+	}
 	return files, nil
 }
 

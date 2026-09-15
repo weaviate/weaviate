@@ -374,7 +374,13 @@ func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg s
 		return s.createVectorIndex(ctx, targetVector, s.vectorIndexID(targetVector), cfg, lazyLoadSegments)
 	}
 	rec := vectorIndexRecordFor(targetVector, cfg, vectorIndexStateCreating)
-	_, err := s.vectors.Create(targetVector, func() (VectorIndex, *VectorIndexQueue, error) {
+	// the gate covers publication, not only the build
+	leave, err := s.enterVectorLayoutChange(ctx, targetVector)
+	if err != nil {
+		return err
+	}
+	defer leave()
+	_, err = s.vectors.Create(targetVector, func() (VectorIndex, *VectorIndexQueue, error) {
 		err := s.refuseVectorIndexCollision(targetVector, rec.PhysicalID)
 		if err != nil {
 			return nil, nil, err
@@ -466,7 +472,13 @@ func dropOneVectorIndex(ctx context.Context, index VectorIndex) error {
 // unit instead, and a shard that was inactive throughout clears them when it
 // next loads.
 func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error {
-	err := s.vectors.Remove(ctx, targetVector, s.index.logger, func(index VectorIndex, queue *VectorIndexQueue) error {
+	leave, err := s.enterVectorLayoutChange(ctx, targetVector)
+	if err != nil {
+		return err
+	}
+	defer leave()
+
+	err = s.vectors.Remove(ctx, targetVector, s.index.logger, func(index VectorIndex, queue *VectorIndexQueue) error {
 		if queue != nil {
 			if err := queue.Drop(ctx); err != nil {
 				return fmt.Errorf("drop queue for vector %q: %w", targetVector, err)
