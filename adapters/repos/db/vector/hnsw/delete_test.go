@@ -2038,6 +2038,13 @@ func Test_DeleteTombstoneMetrics(t *testing.T) {
 
 	metrics := monitoring.GetMetrics()
 
+	// The metrics registry is a process-wide singleton, so this gauge still
+	// holds whatever an earlier test -- or an earlier iteration under
+	// -count=2 -- left in it, and the assertions below compare against an
+	// absolute value. Start from a known state and leave one behind.
+	metrics.VectorIndexTombstones.DeleteLabelValues("", "")
+	t.Cleanup(func() { metrics.VectorIndexTombstones.DeleteLabelValues("", "") })
+
 	t.Run("import the test vectors", func(t *testing.T) {
 		index, err := New(Config{
 			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
