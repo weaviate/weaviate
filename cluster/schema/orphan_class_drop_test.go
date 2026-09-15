@@ -33,22 +33,16 @@ import (
 type recordingIndexer struct {
 	Indexer
 
-<<<<<<< HEAD
-	deleted  []string
-	frozen   map[string]bool
-	dropErr  error
-	onReload func([]command.UpdateClassRequest)
-=======
 	deleted      []string
 	frozen       map[string]bool
 	dropErr      error
+	onReload     func([]command.UpdateClassRequest)
 	indexDeletes []string
 }
 
 func (r *recordingIndexer) DeleteClass(class string, _ bool) error {
 	r.indexDeletes = append(r.indexDeletes, class)
 	return nil
->>>>>>> a17be97a9c (fix(cluster): queue DB writes behind the startup load)
 }
 
 func (r *recordingIndexer) DropOrphanedClass(_ context.Context, class string, hasFrozen bool) error {
