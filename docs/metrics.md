@@ -48,7 +48,7 @@ This document is the single source of truth for Prometheus metrics exposed by We
 #### Object Operations
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
-| `object_count` | Number of currently ongoing async operations | `Gauge` | `class_name, shard_name` | ❌ High 
+| `object_count` | Number of objects in the shard | `Gauge` | `class_name, shard_name` | ❌ High 
 
 #### Query Operations
 | Name | Description | Type | Labels | High Cardinality |
