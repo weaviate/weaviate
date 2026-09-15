@@ -318,11 +318,13 @@ func TestBatchedContains(t *testing.T) {
 	})
 
 	// Two callers reach the fold by a route Get does not: batch delete through
-	// DocIDsLimited, and Aggregate through a Searcher of its own. Neither can be
-	// checked against the log — AnnotateSlowQueryLog discards the fold's fields
-	// unless the context carries slow_query_details, which only the
-	// object-search paths install — so these assert the answer instead.
+	// DocIDsLimited, and Aggregate through a Searcher of its own. Aggregate
+	// cannot be checked against the log: AnnotateSlowQueryLog discards the
+	// fold's fields unless the context carries slow_query_details, which its
+	// path does not install.
 	t.Run("batch delete answers through DocIDsLimited", func(t *testing.T) {
+		before := weaviate.logs(t, ctx, "fold_strategy")
+
 		// Dry run, so the corpus every other case reads is untouched.
 		resp, err := weaviate.client.Batch().ObjectsBatchDeleter().
 			WithClassName(className).
@@ -336,6 +338,17 @@ func TestBatchedContains(t *testing.T) {
 		require.NotNil(t, resp.Results)
 		require.EqualValues(t, splitValues, resp.Results.Matches,
 			"batch delete must match what the same filter returns through Get")
+
+		// The entry itself arrives whichever resolver ran, so its presence
+		// proves nothing. FindUUIDs installs the details map the fold writes
+		// its plan into; without that installation the same entry arrives
+		// carrying no resolver fields at all.
+		added := strings.TrimPrefix(
+			weaviate.logsMatching(t, ctx, findUUIDsQueryRE), before)
+		require.Contains(t, added, "fold_workers",
+			"the delete recorded no fold, so its filter never took the batched path")
+		require.NotContains(t, added, "contains_desugared",
+			"the delete's filter fell back to the desugared per-value path")
 	})
 
 	t.Run("aggregate answers through its own allow list", func(t *testing.T) {
@@ -354,6 +367,95 @@ func TestBatchedContains(t *testing.T) {
 		require.EqualValues(t, splitValues, aggregateCount(t, resp),
 			"aggregate must count what the same filter returns through Get")
 	})
+
+	// The searcher can batch a len() Contains filter, and no supported API can
+	// send one: ValidateFilters admits only (not) equal and greater/less than
+	// (equal) on a length path. This pins that boundary, so widening the
+	// whitelist fails here until the shape gets coverage of its own.
+	//
+	// The class does index property lengths, so the refusal is about the
+	// operator rather than about the lengths being unavailable.
+	t.Run("a len() Contains filter is refused before it reaches the searcher", func(t *testing.T) {
+		tagsPerObject := int64(1 + commonTags)
+
+		_, err := queryIDsErr(ctx, weaviate.client,
+			filters.Where().WithPath([]string{"len(tags)"}).
+				WithOperator(filters.ContainsAny).
+				WithValueInt(tagsPerObject, tagsPerObject+1))
+		require.ErrorContains(t, err,
+			"Filtering for property length supports operators (not) equal and greater/less than (equal)",
+			"a len() Contains filter must be refused by the operator whitelist, not by anything else")
+
+		matched := queryIDs(t, ctx, weaviate.client,
+			filters.Where().WithPath([]string{"len(tags)"}).
+				WithOperator(filters.Equal).
+				WithValueInt(tagsPerObject))
+		require.Len(t, matched, objectCount,
+			"every object carries the same tag count, so Equal must match all of them")
+	})
+
+	// Shard.buildAllowList is reached only by a filtered vector search, and no
+	// other case here takes it. The filter decides which IDs come back.
+	t.Run("a filtered vector search answers through buildAllowList", func(t *testing.T) {
+		before := weaviate.logs(t, ctx, "fold_strategy")
+
+		where := filters.Where().WithPath([]string{"num"}).
+			WithOperator(filters.ContainsAny).
+			WithValueInt(0, 1, 2)
+
+		resp, err := weaviate.client.GraphQL().Get().
+			WithClassName(className).
+			WithNearVector(weaviate.client.GraphQL().NearVectorArgBuilder().
+				WithVector(vectorOf(0))).
+			WithWhere(where).
+			WithLimit(objectCount).
+			WithFields(graphql.Field{
+				Name:   "_additional",
+				Fields: []graphql.Field{{Name: "id"}},
+			}).
+			Do(ctx)
+		require.NoError(t, err)
+		require.Empty(t, resp.Errors)
+
+		require.ElementsMatch(t,
+			[]string{idOf(0), idOf(1), idOf(2)},
+			acceptance_with_go_client.GetIds(t, resp, className),
+			"the vector search must return exactly what the filter matched")
+
+		// Those IDs are the same whichever resolver produced them, so the
+		// route's own entry is the only evidence it batched.
+		added := strings.TrimPrefix(
+			weaviate.logs(t, ctx, objectVectorSearchQuery), before)
+		require.Contains(t, added, "fold_workers",
+			"the vector search recorded no fold, so its filter never took the batched path")
+		require.NotContains(t, added, "contains_desugared",
+			"the vector search's filter fell back to the desugared per-value path")
+	})
+}
+
+// TestBatchedContainsDisabled runs the one setting that turns the fold off.
+// Every other case here proves the default batches, which says nothing about
+// whether a deployment can still opt out — the lever an operator reaches for
+// when the fold is the suspect.
+func TestBatchedContainsDisabled(t *testing.T) {
+	ctx := context.Background()
+
+	weaviate := startWeaviate(t, ctx, "QUERY_BATCHED_CONTAINS_ENABLED", "false")
+	seed(t, ctx, weaviate.client)
+
+	got := queryIDs(t, ctx, weaviate.client,
+		filters.Where().WithPath([]string{"tag"}).
+			WithOperator(filters.ContainsAny).
+			WithValueText(valuesUpTo(splitValues, tagOf)...))
+	require.Len(t, got, splitValues,
+		"the desugared path must answer the same filter the batched one does")
+
+	logs := weaviate.logs(t, ctx, "contains_desugared")
+	// the reason containsDeclineNotEnabled renders as; the constant is
+	// unexported and this module cannot import it
+	require.Contains(t, logs, "not-enabled",
+		"the filter desugared, but for some reason other than the setting")
+	require.Empty(t, foldWorkers(logs), "a fold ran with the setting turned off")
 }
 
 // aggregateCount reads meta.count out of an Aggregate response, asserting its
@@ -386,18 +488,25 @@ type instance struct {
 	container *docker.DockerContainer
 }
 
-// startWeaviate brings up one instance with the batched Contains path enabled.
+// startWeaviate brings up one instance. env carries extra settings as
+// name/value pairs; a caller that passes none gets QUERY_BATCHED_CONTAINS_ENABLED
+// unset, so the run proves the shipped default still batches.
 //
 // Slow-query logging is on with a threshold that every query clears, because
 // that log is where the fold records the plan it chose. The threshold cannot be
 // zero: the reporter reads a non-positive one as unset and substitutes its own
 // default, which would log almost nothing.
-func startWeaviate(t *testing.T, ctx context.Context) *instance {
+func startWeaviate(t *testing.T, ctx context.Context, env ...string) *instance {
 	t.Helper()
+	require.Truef(t, len(env)%2 == 0, "env must be name/value pairs, got %d values", len(env))
 
-	compose, err := docker.New().
-		WithWeaviate().
-		WithWeaviateEnv("QUERY_BATCHED_CONTAINS_ENABLED", "true").
+	compose := docker.New().
+		WithWeaviate()
+	for i := 0; i < len(env); i += 2 {
+		compose = compose.WithWeaviateEnv(env[i], env[i+1])
+	}
+
+	composed, err := compose.
 		WithWeaviateEnv("QUERY_SLOW_LOG_ENABLED", "true").
 		WithWeaviateEnv("QUERY_SLOW_LOG_THRESHOLD", "1ns").
 		// The planner takes min(budget, GOMAXPROCS, keys/32), so without this
@@ -409,13 +518,13 @@ func startWeaviate(t *testing.T, ctx context.Context) *instance {
 		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "1").
 		Start(ctx)
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, compose.Terminate(ctx)) })
+	t.Cleanup(func() { require.NoError(t, composed.Terminate(ctx)) })
 
 	client, err := wvt.NewClient(wvt.Config{
-		Scheme: "http", Host: compose.GetWeaviate().URI(),
+		Scheme: "http", Host: composed.GetWeaviate().URI(),
 	})
 	require.NoError(t, err)
-	return &instance{client: client, container: compose.GetWeaviate()}
+	return &instance{client: client, container: composed.GetWeaviate()}
 }
 
 // readLogs returns everything the instance has written so far. It reports an
@@ -481,6 +590,33 @@ func (in *instance) logs(t *testing.T, ctx context.Context, waitFor string) stri
 // `fold_workers:4` inside a formatted map otherwise.
 var foldWorkersRE = regexp.MustCompile(`fold_workers"?\s*[:=]\s*"?(\d+)`)
 
+// logsMatching returns the instance's output once re matches it, for a caller
+// whose evidence is a log field rather than a bare token.
+func (in *instance) logsMatching(t *testing.T, ctx context.Context, re *regexp.Regexp) string {
+	t.Helper()
+
+	var out string
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		s, err := in.readLogs(ctx)
+		if !assert.NoError(c, err) {
+			return
+		}
+		out = s
+		assert.Regexp(c, re, s)
+	}, 10*time.Second, 100*time.Millisecond,
+		"the delete path recorded no slow-query entry, so which resolver ran is unrecoverable")
+	return out
+}
+
+// findUUIDsQueryRE matches the slow-query entry the delete path writes, under
+// either log format, and not the plain debug lines naming the same method.
+var findUUIDsQueryRE = regexp.MustCompile(`query"?\s*[:=]\s*"?FindUUIDs`)
+
+// objectVectorSearchQuery names the slow-query entry the filtered vector search
+// writes. No other case here reaches that method, so waiting on it waits on
+// this request rather than returning on one an earlier case left behind.
+const objectVectorSearchQuery = "ObjectVectorSearch"
+
 func foldWorkers(logs string) []int {
 	matches := foldWorkersRE.FindAllStringSubmatch(logs, -1)
 	out := make([]int, 0, len(matches))
@@ -504,6 +640,10 @@ func idOf(i int) string        { return fmt.Sprintf("00000000-0000-0000-0000-%01
 func codeOf(i int) string      { return fmt.Sprintf("00000000-0000-0000-0001-%012d", i+1) }
 func scoreOf(i int) float64    { return float64(i) / 4 } // quarters are exact in binary
 func seedTime() time.Time      { return time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC) }
+
+// vectorOf gives each object a distinct vector, so a nearVector search has
+// something to score.
+func vectorOf(i int) []float32 { return []float32{float32(i), 1, 0, 0} }
 
 func whenOf(b time.Time, i int) time.Time {
 	return b.Add(time.Duration(i) * time.Hour)
@@ -620,8 +760,10 @@ func seed(t *testing.T, ctx context.Context, client *wvt.Client) {
 
 	class := &models.Class{
 		Class: className,
-		// the fold is a filter path; vectors would only slow the seed down
+		// vectors are supplied per object, for the one filtered vector search
 		Vectorizer: "none",
+		// so len(tags) has a length bucket to read
+		InvertedIndexConfig: &models.InvertedIndexConfig{IndexPropertyLength: true},
 		Properties: []*models.Property{
 			text("tag", schema.DataTypeText),
 			// the refused shape: word tokenization can turn one value into zero
@@ -657,8 +799,9 @@ func seed(t *testing.T, ctx context.Context, client *wvt.Client) {
 		tags := append([]string{tagOf(i)}, common...)
 
 		batcher.WithObjects(&models.Object{
-			Class: className,
-			ID:    strfmt.UUID(idOf(i)),
+			Class:  className,
+			ID:     strfmt.UUID(idOf(i)),
+			Vector: vectorOf(i),
 			Properties: map[string]interface{}{
 				"tag":     tagOf(i),
 				"wordTag": tagOf(i),
@@ -718,7 +861,13 @@ func queryIDsErr(ctx context.Context, client *wvt.Client,
 		return nil, err
 	}
 	if len(resp.Errors) > 0 {
-		return nil, fmt.Errorf("graphql errors: %v", resp.Errors)
+		// the messages, not the slice: %v on []*GraphQLError prints addresses,
+		// so a caller asserting on the text has nothing to match
+		msgs := make([]string, len(resp.Errors))
+		for i, e := range resp.Errors {
+			msgs[i] = e.Message
+		}
+		return nil, fmt.Errorf("graphql errors: %s", strings.Join(msgs, "; "))
 	}
 	return resp, nil
 }

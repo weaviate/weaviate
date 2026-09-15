@@ -73,8 +73,8 @@ type Aggregator struct {
 	// built by this aggregator. See [inverted.SearchableBucketPinningResolver].
 	bucketPinResolver inverted.SearchableBucketPinningResolver
 	// batchedContainsEnabled is propagated to the inverted.Searcher built
-	// by this aggregator. Nil (the default) means the batched Contains
-	// resolution stays off.
+	// by this aggregator. Nil (the default) leaves the batched Contains
+	// resolution on. See [inverted.Searcher.WithBatchedContainsEnabled].
 	batchedContainsEnabled *runtime.DynamicValue[bool]
 }
 
@@ -87,7 +87,7 @@ func (a *Aggregator) WithSearchableBucketPinningResolver(
 }
 
 // WithBatchedContainsEnabled: nil (the default) keeps the batched Contains
-// resolution off. See [inverted.Searcher.WithBatchedContainsEnabled].
+// resolution on. See [inverted.Searcher.WithBatchedContainsEnabled].
 func (a *Aggregator) WithBatchedContainsEnabled(v *runtime.DynamicValue[bool]) *Aggregator {
 	a.batchedContainsEnabled = v
 	return a

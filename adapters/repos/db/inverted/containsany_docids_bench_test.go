@@ -36,7 +36,6 @@ import (
 	entinverted "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
-	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // Go-level A/B instrument for ContainsAny/ContainsAll fan-out cost.
@@ -187,13 +186,28 @@ func newContainsFixture(tb testing.TB, numDocs int) *containsFixture {
 	require.NoError(tb, boolBucket.RoaringSetAddList([]byte{0}, containsFamilySharedDocIDs))
 	require.NoError(tb, boolBucket.FlushAndSwitch())
 
+	// Length corpus for benchPropName. A document holds exactly one length, so
+	// several docs share each key and ContainsAll over two distinct lengths is
+	// necessarily empty — both properties the differential rows below rest on.
+	lengthBucketName := helpers.BucketFromPropNameLengthLSM(benchPropName)
+	require.NoError(tb, store.CreateOrLoadBucket(context.Background(), lengthBucketName,
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet),
+		lsmkv.WithBitmapBufPool(bufPool),
+	))
+	lengthBucket := store.Bucket(lengthBucketName)
+	for i := 0; i < containsFamilyDocs; i++ {
+		key, err := entinverted.LexicographicallySortableInt64(int64(benchLength(i)))
+		require.NoError(tb, err)
+		require.NoError(tb, lengthBucket.RoaringSetAddList(key, []uint64{uint64(i)}))
+	}
+	require.NoError(tb, lengthBucket.FlushAndSwitch())
+
 	maxDocID := uint64(numDocs + 1)
 	bitmapFactory := roaringset.NewBitmapFactory(bufPool, newFakeMaxIDGetter(maxDocID))
 	searcher := NewSearcher(logger, store, createSchema().GetClass, nil, nil,
 		stopwords.NewProvider(fakeStopwordDetector{}, nil), 2, func() bool { return false },
 		func(string) bool { return false }, "",
-		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory).
-		WithBatchedContainsEnabled(configRuntime.NewDynamicValue(true))
+		config.DefaultQueryNestedCrossReferenceLimit, bitmapFactory)
 
 	return &containsFixture{searcher: searcher, store: store, numDocs: numDocs}
 }
@@ -226,6 +240,12 @@ var (
 	containsFamilySharedDocIDs = []uint64{7, 9}
 	containsSharedUUIDValue    = benchUUIDValue(999_999)
 )
+
+// benchLength spreads the corpus over a handful of lengths so each key is held
+// by several docs, the shape a real length index has.
+func benchLength(i int) int { return i%7 + 1 }
+
+const benchLengthPropPath = "len(" + benchPropName + ")"
 
 func benchUUIDValue(i int) string {
 	return fmt.Sprintf("00000000-0000-0000-0000-%012d", i)
@@ -346,6 +366,18 @@ func (f *containsFixture) resolveDocIDs(t *testing.T, ctx context.Context, filte
 	return sorted
 }
 
+// resolveDocIDsBatched resolves filter and fails if any Contains leaf
+// desugared. Without the check a differential row passes however the
+// classifier answered.
+func (f *containsFixture) resolveDocIDsBatched(t *testing.T, ctx context.Context, filter *filters.LocalFilter) []uint64 {
+	t.Helper()
+	ctx = helpers.InitSlowQueryDetails(ctx)
+	got := f.resolveDocIDs(t, ctx, filter)
+	require.Empty(t, extractContainsDesugaredReason(t, ctx),
+		"the row must compare the batched path, not the desugared path with itself")
+	return got
+}
+
 // equalCompoundFilter builds the compound the desugared path would produce
 // for the same values: OperatorEqual leaves under Or (ContainsAny) / And
 // (ContainsAll) / Not-of-Or (ContainsNone). The batch gate only intercepts
@@ -419,7 +451,7 @@ func TestDocIDs_BatchedMatchesDesugared(t *testing.T) {
 			for _, tc := range cases {
 				t.Run(fmt.Sprintf("%s/%s/workers=%d", op.Name(), tc.name, workers), func(t *testing.T) {
 					forceContainsWorkers(t, workers)
-					batched := f.resolveDocIDs(t, ctx, containsFilter(op, tc.values))
+					batched := f.resolveDocIDsBatched(t, ctx, containsFilter(op, tc.values))
 					desugared := f.resolveDocIDs(t, ctx, equalCompoundFilter(op, tc.values))
 					require.Equal(t, desugared, batched,
 						"batched Contains must resolve the same doc IDs as the desugared Equal compound")
@@ -434,6 +466,72 @@ func TestDocIDs_BatchedMatchesDesugared(t *testing.T) {
 	// tests but never exercised through a real bucket. Each list mixes present
 	// values with absent ones so the two paths are compared on a non-empty
 	// result.
+	// A len(prop) batch reads the length bucket rather than the value bucket,
+	// so it is the one family where an encoding that matched would still read
+	// the wrong rows. Lengths repeat across docs, which makes ContainsAll over
+	// two distinct lengths empty by construction and a duplicated length the
+	// only non-empty ContainsAll — both compared against the desugared path.
+	t.Run("length batches match the desugared path", func(t *testing.T) {
+		for _, tc := range []struct {
+			name    string
+			lengths []int
+		}{
+			{"several present lengths", []int{1, 3, 5}},
+			{"every present length", []int{1, 2, 3, 4, 5, 6, 7}},
+			{"duplicated length", []int{3, 3}},
+			{"present and absent", []int{2, 99}},
+			{"all absent", []int{98, 99}},
+		} {
+			for _, op := range []filters.Operator{filters.ContainsAny, filters.ContainsAll, filters.ContainsNone} {
+				// pinned because the planner would give every case here one
+				// worker; applyWorkersOverride caps the count at the number of
+				// distinct keys, so a case with fewer keys runs fewer workers
+				// than its name
+				for _, workers := range []int{1, 2, 5} {
+					t.Run(fmt.Sprintf("%s/%s/workers=%d", op.Name(), tc.name, workers), func(t *testing.T) {
+						forceContainsWorkers(t, workers)
+						leaves := make([]interface{}, len(tc.lengths))
+						for i, l := range tc.lengths {
+							leaves[i] = l
+						}
+						batched := f.resolveDocIDsBatched(t, ctx,
+							containsFilterOn(op, benchLengthPropPath, schema.DataTypeInt, tc.lengths))
+						desugared := f.resolveDocIDs(t, ctx,
+							equalCompoundFilterOn(op, benchLengthPropPath, schema.DataTypeInt, leaves))
+						require.Equal(t, desugared, batched,
+							"batched len() must resolve the same doc IDs as the desugared Equal compound")
+					})
+				}
+			}
+		}
+	})
+
+	// TestDocIDs_BatchedMatchesDesugared's doc comment claims mixed execution
+	// across two shards, which this case does not reach. Within one filter the
+	// gate is read per leaf, so a single-value leaf desugars on the value count
+	// while its sibling batches.
+	t.Run("one filter mixing a batched and a desugared leaf", func(t *testing.T) {
+		values := []string{benchValue(3), benchValue(5), benchValue(7)}
+		one := containsFilterOn(filters.ContainsAny, benchPropName, schema.DataTypeText, values[:1])
+		many := containsFilterOn(filters.ContainsAny, benchPropName, schema.DataTypeText, values)
+
+		ctx := helpers.InitSlowQueryDetails(ctx)
+		mixed := f.resolveDocIDs(t, ctx, &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorOr,
+			Operands: []filters.Clause{*one.Root, *many.Root},
+		}})
+		require.Equal(t, containsDeclineFewerThanTwoValues, extractContainsDesugaredReason(t, ctx),
+			"exactly one leaf must have desugared, or this compares two leaves of the same kind")
+
+		// Or over values held by different docs: an And with the single-value
+		// leaf would mask any wrong answer from the batched leaf, whose values
+		// are a superset of it
+		desugared := f.resolveDocIDs(t, ctx, equalCompoundFilter(filters.ContainsAny, values))
+		require.NotEmpty(t, desugared, "the fixture must give these values a non-empty result")
+		require.Equal(t, desugared, mixed,
+			"a query mixing a batched and a desugared leaf must answer as the desugared equivalent")
+	})
+
 	t.Run("large batches reach the radix branches", func(t *testing.T) {
 		// 250 uuids with no shared prefix, past the two-word cutoff.
 		uuids := make([]interface{}, 0, 250)

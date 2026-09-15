@@ -2318,3 +2318,44 @@ func TestEnvironmentQueryAdmissionControlDisabled(t *testing.T) {
 		})
 	}
 }
+
+// TestFromEnv_QueryBatchedContainsEnabled pins QUERY_BATCHED_CONTAINS_ENABLED
+// against entcfg.Enabled, whose accepted set is "on"/"enabled"/"1"/"true".
+// "yes" is not in it and turns the batched Contains resolution off.
+func TestFromEnv_QueryBatchedContainsEnabled(t *testing.T) {
+	seededOff := false
+	tests := []struct {
+		name string
+		env  string
+		// seed is the value a config file already put on Config before FromEnv
+		// runs; nil for the common case of no config file.
+		seed *bool
+		want bool
+	}{
+		{name: "unset or empty keeps it on", env: "", want: true},
+		{name: "true", env: "true", want: true},
+		{name: "on", env: "on", want: true},
+		{name: "1", env: "1", want: true},
+		{name: "enabled", env: "enabled", want: true},
+		{name: "false turns it off", env: "false", want: false},
+		{name: "0 turns it off", env: "0", want: false},
+		{name: "case is ignored", env: "TRUE", want: true},
+		{name: "unrecognized value turns it off", env: "yes", want: false},
+		{name: "a config-file false survives an unset variable", env: "", seed: &seededOff, want: false},
+		{name: "the variable wins over a config-file value", env: "true", seed: &seededOff, want: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("QUERY_BATCHED_CONTAINS_ENABLED", tt.env)
+
+			conf := Config{}
+			if tt.seed != nil {
+				conf.QueryBatchedContainsEnabled = configRuntime.NewDynamicValue(*tt.seed)
+			}
+			require.NoError(t, FromEnv(&conf))
+			require.NotNil(t, conf.QueryBatchedContainsEnabled,
+				"FromEnv must leave the field set, or Get would answer false for every row")
+			require.Equal(t, tt.want, conf.QueryBatchedContainsEnabled.Get())
+		})
+	}
+}
