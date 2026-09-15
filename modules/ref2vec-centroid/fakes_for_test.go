@@ -12,9 +12,6 @@
 package modcentroid
 
 import (
-	"testing"
-
-	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -47,21 +44,4 @@ func (f fakeClassConfig) PropertiesDataTypes() map[string]schema.DataType {
 
 func (f fakeClassConfig) Config() *config.Config {
 	return nil
-}
-
-func newFakeStorageProvider(t *testing.T) *fakeStorageProvider {
-	dirName := t.TempDir()
-	return &fakeStorageProvider{dirName}
-}
-
-type fakeStorageProvider struct {
-	dataPath string
-}
-
-func (sp fakeStorageProvider) Storage(name string) (moduletools.Storage, error) {
-	return nil, nil
-}
-
-func (sp fakeStorageProvider) DataPath() string {
-	return sp.dataPath
 }
