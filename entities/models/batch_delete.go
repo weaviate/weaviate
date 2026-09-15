@@ -32,7 +32,7 @@ type BatchDelete struct {
 	// Timestamp of deletion in milliseconds since epoch UTC.
 	DeletionTimeUnixMilli *int64 `json:"deletionTimeUnixMilli,omitempty"`
 
-	// If true, the call will show which objects would be matched using the specified filter without deleting any objects. <br/><br/>Depending on the configured verbosity, you will either receive a count of affected objects, or a list of IDs.
+	// If true, the call reports what the filter matches and deletes nothing. <br/><br/>Depending on the configured verbosity, you will either receive a count of matched objects, or a list of IDs. A dry run is bounded the same way a real delete is: the count stops once it shows that more match than one call deletes, and the list holds at most `limit` IDs.
 	DryRun *bool `json:"dryRun,omitempty"`
 
 	// match

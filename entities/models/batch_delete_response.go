@@ -277,7 +277,7 @@ type BatchDeleteResponseResults struct {
 	// The most amount of objects that can be deleted in a single query, equals [`QUERY_MAXIMUM_RESULTS`](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS).
 	Limit int64 `json:"limit"`
 
-	// How many objects were matched by the filter.
+	// How many objects matched, counted only far enough to show whether more match than one call deletes. A value above `limit` means more objects match, so call again.
 	Matches int64 `json:"matches"`
 
 	// With output set to `minimal` only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to `verbose` will list all of the objects with their respective statuses.
