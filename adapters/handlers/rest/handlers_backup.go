@@ -111,9 +111,13 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 ) middleware.Responder {
 	overrideBucket := ""
 	overridePath := ""
+	dedupeReplicas := false
+	dedupeConvergenceTimeoutSeconds := 0
 	if params.Body.Config != nil {
 		overrideBucket = params.Body.Config.Bucket
 		overridePath = params.Body.Config.Path
+		dedupeReplicas = params.Body.Config.DedupeReplicas
+		dedupeConvergenceTimeoutSeconds = int(params.Body.Config.DedupeConvergenceTimeoutSeconds)
 	}
 	baseBackupID := ""
 	if params.Body.IncrementalBaseBackupID != nil {
@@ -125,16 +129,18 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 	}
 
 	meta, err := s.manager.Backup(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
-		ID:           params.Body.ID,
-		Backend:      params.Backend,
-		Bucket:       overrideBucket,
-		Path:         overridePath,
-		Include:      params.Body.Include,
-		Exclude:      params.Body.Exclude,
-		IncludeUsers: params.Body.IncludeUsers,
-		IncludeRoles: params.Body.IncludeRoles,
-		Compression:  compressionFromBCfg(params.Body.Config),
-		BaseBackupID: baseBackupID,
+		ID:                              params.Body.ID,
+		Backend:                         params.Backend,
+		Bucket:                          overrideBucket,
+		Path:                            overridePath,
+		Include:                         params.Body.Include,
+		Exclude:                         params.Body.Exclude,
+		IncludeUsers:                    params.Body.IncludeUsers,
+		IncludeRoles:                    params.Body.IncludeRoles,
+		Compression:                     compressionFromBCfg(params.Body.Config),
+		BaseBackupID:                    baseBackupID,
+		DedupeReplicas:                  dedupeReplicas,
+		DedupeConvergenceTimeoutSeconds: dedupeConvergenceTimeoutSeconds,
 	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)

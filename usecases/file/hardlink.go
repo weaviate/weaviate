@@ -89,10 +89,9 @@ func HardlinkFiles(pairs []HardlinkPair) error {
 }
 
 // CopyFile copies src to dst with an independent inode — unlike a hardlink,
-// later writes to src can't corrupt dst. The destination is fsynced.
-//
-// NOTE: not atomic (in-place write, no temp+rename), so a crash mid-copy can
-// leave a partial dst. Does not create dst's parent directory.
+// later writes to src can't corrupt dst. CopyFile neither fsyncs dst nor writes
+// it atomically, so a crash can leave dst partial. Callers must create dst's
+// parent directory and copy only into staging that startup deletes.
 func CopyFile(src, dst string) (err error) {
 	in, err := os.Open(src)
 	if err != nil {
@@ -114,5 +113,5 @@ func CopyFile(src, dst string) (err error) {
 		return fmt.Errorf("copy data: %w", err)
 	}
 
-	return out.Sync()
+	return nil
 }

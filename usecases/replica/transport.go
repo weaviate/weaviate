@@ -14,6 +14,7 @@ package replica
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -324,6 +325,77 @@ func (fc FinderClient) fullReadChunk(ctx context.Context,
 		}
 	}
 	return part, nil
+}
+
+// AsyncCheckpointMaxShardsPerChunk bounds shards per checkpoint RPC: 512 worst-case 64-char names fit AsyncCheckpointMaxBodyBytes and the ~60 KiB sidecar header budget of the status GET query (tested).
+const AsyncCheckpointMaxShardsPerChunk = 512
+
+// MaxConcurrentAsyncCheckpointRequests bounds in-flight chunks per host so wide fan-outs don't overrun the checkpoint cutoff lead.
+const MaxConcurrentAsyncCheckpointRequests = 8
+
+// CreateAsyncCheckpoint fans shardNames out in bounded chunks; any failed chunk fails the call.
+func (fc FinderClient) CreateAsyncCheckpoint(ctx context.Context,
+	host, index string, shardNames []string, cutoffMs int64, createdAt time.Time,
+) error {
+	if len(shardNames) <= AsyncCheckpointMaxShardsPerChunk {
+		return fc.cl.CreateAsyncCheckpoint(ctx, host, index, shardNames, cutoffMs, createdAt)
+	}
+	return fc.forEachAsyncCheckpointChunk(ctx, shardNames, func(ctx context.Context, chunk []string) error {
+		return fc.cl.CreateAsyncCheckpoint(ctx, host, index, chunk, cutoffMs, createdAt)
+	})
+}
+
+// DeleteAsyncCheckpoint fans shardNames out in bounded chunks; any failed chunk fails the call.
+func (fc FinderClient) DeleteAsyncCheckpoint(ctx context.Context,
+	host, index string, shardNames []string,
+) error {
+	if len(shardNames) <= AsyncCheckpointMaxShardsPerChunk {
+		return fc.cl.DeleteAsyncCheckpoint(ctx, host, index, shardNames)
+	}
+	return fc.forEachAsyncCheckpointChunk(ctx, shardNames, func(ctx context.Context, chunk []string) error {
+		return fc.cl.DeleteAsyncCheckpoint(ctx, host, index, chunk)
+	})
+}
+
+// GetAsyncCheckpointStatus fans shardNames out in bounded chunks and merges the results; any failed chunk fails the call so absent entries stay conservative.
+func (fc FinderClient) GetAsyncCheckpointStatus(ctx context.Context,
+	host, index string, shardNames []string,
+) (map[string]AsyncCheckpointShardStatus, error) {
+	if len(shardNames) <= AsyncCheckpointMaxShardsPerChunk {
+		return fc.cl.GetAsyncCheckpointStatus(ctx, host, index, shardNames)
+	}
+	out := make(map[string]AsyncCheckpointShardStatus, len(shardNames))
+	var mu sync.Mutex
+	err := fc.forEachAsyncCheckpointChunk(ctx, shardNames, func(ctx context.Context, chunk []string) error {
+		part, err := fc.cl.GetAsyncCheckpointStatus(ctx, host, index, chunk)
+		if err != nil {
+			return err
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		for shard, status := range part {
+			out[shard] = status
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (fc FinderClient) forEachAsyncCheckpointChunk(ctx context.Context,
+	shardNames []string, fn func(ctx context.Context, chunk []string) error,
+) error {
+	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(fc.log, ctx)
+	gr.SetLimit(MaxConcurrentAsyncCheckpointRequests)
+	for start := 0; start < len(shardNames); start += AsyncCheckpointMaxShardsPerChunk {
+		chunk := shardNames[start:min(start+AsyncCheckpointMaxShardsPerChunk, len(shardNames))]
+		gr.Go(func() error {
+			return fn(ctx, chunk)
+		})
+	}
+	return gr.Wait()
 }
 
 // Overwrite specified object with most recent contents

@@ -33,9 +33,10 @@ import (
 type recordingIndexer struct {
 	Indexer
 
-	deleted []string
-	frozen  map[string]bool
-	dropErr error
+	deleted  []string
+	frozen   map[string]bool
+	dropErr  error
+	onReload func([]command.UpdateClassRequest)
 }
 
 func (r *recordingIndexer) DropOrphanedClass(_ context.Context, class string, hasFrozen bool) error {
@@ -49,7 +50,10 @@ func (r *recordingIndexer) DropOrphanedClass(_ context.Context, class string, ha
 
 func (r *recordingIndexer) TriggerSchemaUpdateCallbacks() {}
 
-func (r *recordingIndexer) ReloadLocalDB(context.Context, []command.UpdateClassRequest) error {
+func (r *recordingIndexer) ReloadLocalDB(_ context.Context, all []command.UpdateClassRequest) error {
+	if r.onReload != nil {
+		r.onReload(all)
+	}
 	return nil
 }
 
