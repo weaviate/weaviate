@@ -18,16 +18,23 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/backup"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/storobj"
 	entdynamic "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	entflat "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
@@ -186,11 +193,16 @@ func TestInitShardVectors_Reconcile(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, foo, records["foo"])
 
-	// with a vector to index, the same loss refuses the load
+	// with vectors in the object store the same loss is rebuilt too: under
+	// async indexing they may all still be queued, and a backup taken then
+	// carries no directory for the index
 	require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "a", true)))
-	reloadExpectingError(t, ctx, shard, class, `vector "foo"`, removeFooDir)
-	require.NoError(t, os.MkdirAll(fooDir, 0o755))
-	shard = reload(t, ctx, shard, class)
+	shard = reloadAfter(t, ctx, shard, class, removeFooDir)
+	_, err = os.Stat(fooDir)
+	require.NoError(t, err)
+	records, _, err = shard.mapping.Load()
+	require.NoError(t, err)
+	assert.Equal(t, foo, records["foo"])
 
 	// a creating record resumes: built, synced, flipped to ready
 	creating := foo
@@ -239,4 +251,191 @@ func TestInitShardVectors_Reconcile(t *testing.T) {
 	shard = reload(t, ctx, shard, class)
 	_, _, err = shard.mapping.Load()
 	require.NoError(t, err)
+}
+
+// With async indexing, a backup can land while every vector still waits in
+// the queue. The index has written nothing, so the backup carries no
+// directory for it, only the queue's chunks. The restored shard loads and
+// indexes them (weaviate/dirk-claude-issues#253).
+func TestRestoreShardWhoseVectorsAreStillQueued(t *testing.T) {
+	for _, tt := range queuedVectorIndexCases() {
+		for _, drained := range []bool{false, true} {
+			name := tt.name + "/queued at backup"
+			if drained {
+				name = tt.name + "/drained before backup"
+			}
+			t.Run(name, func(t *testing.T) {
+				ctx := testCtx()
+				shard, idx, class := newQueuedVectorShard(t, ctx, tt, !drained)
+
+				for i := range queuedObjectCount {
+					require.NoError(t, shard.PutObject(ctx, tt.object(i)))
+				}
+				if drained {
+					waitForQueueToDrain(t, shard, tt.targetVector)
+				} else {
+					require.Equal(t, int64(queuedObjectCount), queuedVectorCount(t, shard, tt.targetVector),
+						"precondition: every vector is still queued")
+				}
+
+				stagingRoot := t.TempDir()
+				sd := backup.ShardDescriptor{}
+				files, err := shard.CreateBackupSnapshot(ctx, &sd, stagingRoot)
+				require.NoError(t, err)
+
+				// restore in place, the way a restore lands the backup on the node
+				shardName := shard.Name()
+				shardDir := shard.path()
+				require.NoError(t, shard.Shutdown(ctx))
+				require.NoError(t, os.RemoveAll(shardDir))
+				rootPath := idx.Config.RootPath
+				for _, relPath := range files {
+					copyFileForTest(t, filepath.Join(stagingRoot, relPath), filepath.Join(rootPath, relPath))
+				}
+				for relPath, data := range map[string][]byte{
+					sd.DocIDCounterPath:      sd.DocIDCounter,
+					sd.PropLengthTrackerPath: sd.PropLengthTracker,
+					sd.ShardVersionPath:      sd.Version,
+				} {
+					require.NoError(t, os.WriteFile(filepath.Join(rootPath, relPath), data, 0o644))
+				}
+
+				// the restored node indexes as usual
+				idx.scheduler = idx.db.scheduler
+				restored, err := idx.initShard(ctx, shardName, class, nil, true, true)
+				require.NoError(t, err, "the restored shard must load")
+				idx.shards.Store(shardName, restored)
+				restoredShard := underlyingShard(t, restored)
+
+				waitForQueueToDrain(t, restoredShard, tt.targetVector)
+				found, err := restoredShard.WithVectorIndex(tt.targetVector, func(index VectorIndex) error {
+					for docID := range uint64(queuedObjectCount) {
+						require.True(t, index.ContainsDoc(docID), "doc %d is indexed after restore", docID)
+					}
+					return nil
+				})
+				require.NoError(t, err)
+				require.True(t, found)
+			})
+		}
+	}
+}
+
+const (
+	queuedClassName   = "QueuedAtBackup"
+	queuedObjectCount = 20
+)
+
+type queuedVectorIndexCase struct {
+	name         string
+	legacy       schemaConfig.VectorIndexConfig
+	named        map[string]schemaConfig.VectorIndexConfig
+	targetVector string
+	object       func(i int) *storobj.Object
+}
+
+func queuedVectorIndexCases() []queuedVectorIndexCase {
+	flatCfg := entflat.UserConfig{}
+	flatCfg.SetDefaults()
+	dynamicCfg := entdynamic.UserConfig{
+		Threshold: 1_000_000,
+		Distance:  distancer.NewL2SquaredProvider().Type(),
+		HnswUC:    enthnsw.UserConfig{MaxConnections: 8, EFConstruction: 16, EF: 8, VectorCacheMaxObjects: 1000},
+		FlatUC:    flatCfg,
+	}
+	legacyObject := func(i int) *storobj.Object {
+		obj := queuedObject()
+		obj.Vector = []float32{float32(i), 1, 2}
+		return obj
+	}
+
+	return []queuedVectorIndexCase{
+		{name: "legacy hnsw", legacy: enthnsw.NewDefaultUserConfig(), object: legacyObject},
+		{name: "legacy flat", legacy: flatCfg, object: legacyObject},
+		{name: "legacy dynamic", legacy: dynamicCfg, object: legacyObject},
+		{
+			name:         "named hnsw",
+			legacy:       enthnsw.UserConfig{Skip: true},
+			named:        map[string]schemaConfig.VectorIndexConfig{"foo": enthnsw.NewDefaultUserConfig()},
+			targetVector: "foo",
+			object: func(i int) *storobj.Object {
+				obj := queuedObject()
+				obj.Vectors = map[string][]float32{"foo": {float32(i), 1, 2}}
+				return obj
+			},
+		},
+		{
+			name:         "named multivector hnsw",
+			legacy:       enthnsw.UserConfig{Skip: true},
+			named:        map[string]schemaConfig.VectorIndexConfig{"mv": enthnsw.NewDefaultMultiVectorUserConfig()},
+			targetVector: "mv",
+			object: func(i int) *storobj.Object {
+				obj := queuedObject()
+				obj.MultiVectors = map[string][][]float32{"mv": {{float32(i), 1}, {2, 3}}}
+				return obj
+			},
+		},
+	}
+}
+
+// newQueuedVectorShard builds an async-indexing shard for tt. With stall, its
+// scheduler never starts, so nothing leaves the queue.
+func newQueuedVectorShard(t *testing.T, ctx context.Context, tt queuedVectorIndexCase, stall bool) (*Shard, *Index, *models.Class) {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
+
+	class := &models.Class{Class: queuedClassName}
+	for name, cfg := range tt.named {
+		if class.VectorConfig == nil {
+			class.VectorConfig = map[string]models.VectorConfig{}
+		}
+		class.VectorConfig[name] = models.VectorConfig{VectorIndexType: cfg.IndexType(), VectorIndexConfig: cfg}
+	}
+
+	shardLike, idx := testShardWithSettings(t, ctx, class, tt.legacy, false, true, func(i *Index) {
+		if stall {
+			i.scheduler = queue.NewScheduler(queue.SchedulerOptions{Logger: logger})
+		}
+		if tt.named != nil {
+			i.vectorIndexUserConfigs = tt.named
+		}
+	})
+	return underlyingShard(t, shardLike), idx, class
+}
+
+func queuedObject() *storobj.Object {
+	return &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:    strfmt.UUID(uuid.NewString()),
+			Class: queuedClassName,
+		},
+	}
+}
+
+func waitForQueueToDrain(t *testing.T, s *Shard, targetVector string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		return queuedVectorCount(t, s, targetVector) == 0
+	}, 30*time.Second, 50*time.Millisecond, "the queue drains")
+}
+
+func queuedVectorCount(t *testing.T, s *Shard, targetVector string) int64 {
+	t.Helper()
+	var size int64
+	found, err := s.WithVectorIndexQueue(targetVector, func(q *VectorIndexQueue) error {
+		size = q.Size()
+		return nil
+	})
+	require.NoError(t, err)
+	require.True(t, found, "shard has a queue for %q", targetVector)
+	return size
+}
+
+func copyFileForTest(t *testing.T, src, dst string) {
+	t.Helper()
+	data, err := os.ReadFile(src)
+	require.NoError(t, err)
+	require.NoError(t, os.MkdirAll(filepath.Dir(dst), 0o755))
+	require.NoError(t, os.WriteFile(dst, data, 0o644))
 }
