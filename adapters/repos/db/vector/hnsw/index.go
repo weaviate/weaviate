@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
@@ -64,11 +65,6 @@ type hnsw struct {
 	// indicates the index is shutting down
 	shutdownCtx       context.Context
 	shutdownCtxCancel context.CancelFunc
-	// prefillWg tracks the background cache prefill so Shutdown can wait for it.
-	// The prefiller reads the shard's objects bucket, and the shard tears that
-	// bucket down as soon as the vector indexes report they are shut.
-	prefillWg sync.WaitGroup
-
 	// make sure the very first insert happens just once, otherwise we
 	// accidentally overwrite previous entrypoints on parallel imports on an
 	// empty graph
@@ -125,6 +121,12 @@ type hnsw struct {
 	waitForCachePrefill bool
 	cachePrefilled      atomic.Bool
 	releaseVectorsOnce  sync.Once
+	// lifecycleMu serializes registration against teardown; see disablePostStartup
+	lifecycleMu   sync.Mutex
+	tornDown      bool
+	prefillCancel context.CancelFunc
+	prefillWG     sync.WaitGroup
+	hfreshMode    bool
 
 	commitLog CommitLogger
 
@@ -373,8 +375,9 @@ func New(cfg Config, uc ent.UserConfig,
 		efMax:    int64(uc.DynamicEFMax),
 		efFactor: int64(uc.DynamicEFFactor),
 
-		metrics:   newMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName, cfg.HFreshMode),
-		shardName: cfg.ShardName,
+		metrics:    newMetrics(cfg.PrometheusMetrics, cfg.ClassName, cfg.ShardName, cfg.HFreshMode),
+		hfreshMode: cfg.HFreshMode,
+		shardName:  cfg.ShardName,
 
 		randFunc:                          rand.Float64,
 		compressActionLock:                &sync.RWMutex{},
@@ -765,7 +768,86 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	return h.nodes[id]
 }
 
+// disablePostStartup ends any cache prefill and closes the index to further PostStartup
+// work, permanently. Must run before the cache is dropped or the store shut down: a
+// scan reading a closed lsmkv segment reads unmapped memory.
+//
+// Cancelling alone would not be enough, since a scan polls its context only between
+// rows and can be blocked inside a read. Holding lifecycleMu across the wait is what
+// stops a concurrent PostStartup slipping in behind it.
+func (h *hnsw) disablePostStartup() {
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
+
+	h.tornDown = true
+	if h.prefillCancel != nil {
+		h.prefillCancel()
+	}
+	h.waitForPrefillStop()
+}
+
+// waitForPrefillStop is deliberately unbounded: abandoning the wait reintroduces the
+// closed-segment read it exists to prevent. Shard.drop budgets ~20s for the whole
+// teardown and cannot see this, so an overrun says so rather than passing in silence.
+func (h *hnsw) waitForPrefillStop() {
+	const warnAfter = 5 * time.Second
+
+	stopped := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		defer close(stopped)
+		h.prefillWG.Wait()
+	}, h.logger)
+
+	t := time.NewTicker(warnAfter)
+	defer t.Stop()
+	for {
+		select {
+		case <-stopped:
+			return
+		case <-t.C:
+			h.logger.WithFields(logrus.Fields{
+				"action":   "hnsw_vector_cache_prefill",
+				"index_id": h.id,
+			}).Warn("still waiting for the vector cache prefill to stop")
+		}
+	}
+}
+
+// initMaintenanceUnlessTornDown registers the commit log's maintenance callbacks,
+// reporting false once the index is torn down. Under the same lock as the teardown
+// so the two cannot interleave: Drop unregisters those callbacks and then removes the
+// commit log directory, and a registration landing after that leaves cycles running
+// against deleted files with nothing left to unregister them.
+func (h *hnsw) initMaintenanceUnlessTornDown() bool {
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
+
+	if h.tornDown {
+		return false
+	}
+	h.commitLog.InitMaintenance()
+	return true
+}
+
+// registerPrefill reports false once disablePostStartup has run: the index is torn down.
+// It also refuses a second live prefill. No current PostStartup caller produces one,
+// but overwriting prefillCancel would strand the first prefill with no way to cancel
+// it, so teardown would wait on it forever rather than log a skip.
+func (h *hnsw) registerPrefill(cancel context.CancelFunc) bool {
+	h.lifecycleMu.Lock()
+	defer h.lifecycleMu.Unlock()
+
+	if h.tornDown || h.prefillCancel != nil {
+		return false
+	}
+	h.prefillCancel = cancel
+	h.prefillWG.Add(1)
+	return true
+}
+
 func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
+	h.disablePostStartup()
+
 	// cancel tombstone cleanup goroutine
 	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
 		return errors.Wrap(err, "hnsw drop")
@@ -787,7 +869,7 @@ func (h *hnsw) Drop(ctx context.Context, keepFiles bool) error {
 
 func (h *hnsw) Shutdown(ctx context.Context) error {
 	h.shutdownCtxCancel()
-	h.prefillWg.Wait()
+	h.disablePostStartup()
 
 	ec := errorcompounder.New()
 	ec.AddWrapf(h.commitLog.Shutdown(ctx), "shutdown commit log")

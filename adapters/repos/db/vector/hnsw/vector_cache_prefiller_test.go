@@ -149,12 +149,14 @@ func (f *fakeCache) Reset() {
 	f.store = map[uint64]struct{}{}
 }
 
+// Len is the allocated span, which the real cache grows past its occupancy and
+// rounds up; the fake overstates it so a caller that confuses the two fails here.
 func (f *fakeCache) Len() int32 {
-	return int32(len(f.store))
+	return int32(len(f.store)) + 32
 }
 
 func (f *fakeCache) CountVectors() int64 {
-	panic("not implemented")
+	return int64(len(f.store))
 }
 
 func (f *fakeCache) GetKeys(id uint64) (uint64, uint64) {
