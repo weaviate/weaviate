@@ -101,7 +101,8 @@ func TestAddAndRemoveObjectClass(t *testing.T) {
 	assert.NotContains(t, GetObjectClassNames(t), randomObjectClassName)
 
 	tc := &models.Class{
-		Class: randomObjectClassName,
+		Class:      randomObjectClassName,
+		Vectorizer: "text2vec-contextionary",
 		ModuleConfig: map[string]interface{}{
 			"text2vec-contextionary": map[string]interface{}{
 				"vectorizeClassName": true,
@@ -168,6 +169,9 @@ func TestUpdateHNSWSettingsAfterAddingRefProps(t *testing.T) {
 					Tokenization: models.PropertyTokenizationWhitespace,
 				},
 			},
+			// the update below edits the class-level hnsw settings, so the
+			// class has to ask for a class-level index
+			Vectorizer: "none",
 		}
 
 		params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(c)

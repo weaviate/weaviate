@@ -15,12 +15,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -252,9 +250,6 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.Principal,
 	className, vectorIndexName string,
 ) error {
-	if !entcfg.Enabled(os.Getenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT")) {
-		return fmt.Errorf("alter schema drop vector index endpoint is experimental and disabled by default, set the environment variable ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT=true to enable it")
-	}
 	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrValidation, err)

@@ -30,7 +30,27 @@ func TestVectors(t *testing.T) {
 		obj    *models.Object
 		objNew *models.Object
 		expErr bool
+		errMsg string
 	}{
+		"vector-less collection with a legacy vector": {
+			class:  &models.Class{Class: "Vectorless"},
+			obj:    &models.Object{Vector: []float32{1, 2, 3}},
+			expErr: true,
+			errMsg: "collection Vectorless is configured without a vector index, but received a vector",
+		},
+		"vector-less collection with named vectors": {
+			class: &models.Class{Class: "Vectorless"},
+			obj: &models.Object{
+				Vectors: models.Vectors{"first": []float32{1, 2, 3}},
+			},
+			expErr: true,
+			errMsg: "collection Vectorless does not have configuration for vector first",
+		},
+		"vector-less collection without vectors": {
+			class:  &models.Class{Class: "Vectorless"},
+			obj:    &models.Object{},
+			expErr: false,
+		},
 		"multiple named vectors with 'old' vector": {
 			class: &models.Class{
 				VectorConfig: map[string]models.VectorConfig{"first": {}, "second": {}, "third": {}}, // content does not matter
@@ -153,6 +173,9 @@ func TestVectors(t *testing.T) {
 
 			if spec.expErr {
 				require.Error(t, gotErr)
+				if spec.errMsg != "" {
+					require.EqualError(t, gotErr, spec.errMsg)
+				}
 				return
 			}
 			require.NoError(t, gotErr)

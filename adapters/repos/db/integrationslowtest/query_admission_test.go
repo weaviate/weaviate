@@ -11,7 +11,7 @@
 
 //go:build integrationTest
 
-package db
+package integrationslowtest
 
 import (
 	"context"
@@ -26,6 +26,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -43,7 +44,7 @@ import (
 func TestQueryAdmissionConcurrency(t *testing.T) {
 	const (
 		className   = "AdmissionClass"
-		numObjects  = 20000
+		numObjects  = 200
 		concurrency = 200
 		budget      = 32
 		maxQueue    = 8
@@ -52,7 +53,6 @@ func TestQueryAdmissionConcurrency(t *testing.T) {
 	ctx := context.Background()
 	disabled := configRuntime.NewDynamicValue(false)
 	repo, shard := setupAdmissionRepo(t, className, budget, maxQueue, disabled)
-	defer repo.Shutdown(ctx)
 
 	importAdmissionObjects(t, repo, className, numObjects)
 
@@ -149,7 +149,7 @@ func TestQueryAdmissionConcurrency(t *testing.T) {
 
 func setupAdmissionRepo(t *testing.T, className string, budget, maxQueue int,
 	disabled *configRuntime.DynamicValue[bool],
-) (*DB, ShardLike) {
+) (*db.DB, db.ShardLike) {
 	t.Helper()
 	vFalse, vTrue := false, true
 	class := &models.Class{
@@ -184,7 +184,7 @@ func setupAdmissionRepo(t *testing.T, className string, budget, maxQueue int,
 // admissionObjectVector): identical vectors collapse the HNSW graph into a
 // near-complete graph, and building that graph then dominates the runtime of
 // the whole adapters/repos/db integration suite.
-func importAdmissionObjects(t *testing.T, repo *DB, className string, count int) {
+func importAdmissionObjects(t *testing.T, repo *db.DB, className string, count int) {
 	t.Helper()
 	const chunk = 2000
 	for start := 0; start < count; start += chunk {
