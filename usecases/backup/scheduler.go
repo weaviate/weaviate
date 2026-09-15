@@ -545,7 +545,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 
 // cancelCoordinatorOp lets a remote DELETE's abort fan-out cancel a create this node
 // coordinates; only user aborts qualify (empty AttemptID — coordinator cleanup aborts
-// carry theirs and must not flip their own op to Cancelled).
+// carry theirs and must not flag their own op cancelled).
 func (s *Scheduler) cancelCoordinatorOp(method Op, id, attemptID string) bool {
 	if method != OpCreate || attemptID != "" {
 		return false

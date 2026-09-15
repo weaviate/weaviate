@@ -44,6 +44,12 @@ type reqState struct {
 	OverrideBucket string
 	OverridePath   string
 	AttemptID      string
+	// CancelRequested is a user cancel awaiting the durable CANCELED descriptor; polls keep seeing the current status until then.
+	CancelRequested bool
+}
+
+func (r reqState) cancelSignalled() bool {
+	return r.CancelRequested || r.Status == backup.Cancelled
 }
 
 type backupStat struct {
@@ -86,6 +92,7 @@ func (s *backupStat) renew(id, attemptID, path, overrideBucket, overridePath str
 	s.reqState.Starttime = time.Now().UTC()
 	s.reqState.Status = backup.Started
 	s.reqState.Err = ""
+	s.reqState.CancelRequested = false
 	if s.rememberedFailureID == id {
 		// A retry under the same id: the earlier failure is no longer the
 		// answer to a poll for it.
@@ -94,15 +101,14 @@ func (s *backupStat) renew(id, attemptID, path, overrideBucket, overridePath str
 	return ""
 }
 
-// cancelIfInFlight marks the slot Cancelled iff it currently holds id.
+// cancelIfInFlight requests cancellation of the op holding id; the status only turns Cancelled once the descriptor is durable.
 func (s *backupStat) cancelIfInFlight(id string) bool {
 	s.Lock()
 	defer s.Unlock()
 	if id == "" || s.reqState.ID != id {
 		return false
 	}
-	s.reqState.Status = backup.Cancelled
-	s.reqState.Err = errCancelled.Error()
+	s.reqState.CancelRequested = true
 	return true
 }
 
@@ -115,6 +121,7 @@ func (s *backupStat) reset() {
 	s.reqState.Err = ""
 	s.reqState.OverrideBucket = ""
 	s.reqState.OverridePath = ""
+	s.reqState.CancelRequested = false
 	s.Unlock()
 }
 

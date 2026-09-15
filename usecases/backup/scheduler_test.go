@@ -3615,14 +3615,14 @@ func TestRemoteAbortCancelsCoordinatorCreatePlanning(t *testing.T) {
 	s, fs, errCh := startPlanningBackup(t, id)
 
 	require.False(t, s.cancelCoordinatorOp(OpCreate, id, "foreign-attempt"))
-	require.Equal(t, backup.Started, s.backupper.lastOp.get().Status)
+	require.False(t, s.backupper.lastOp.get().CancelRequested)
 	ownAttempt := s.backupper.lastOp.get().AttemptID
 	require.NotEmpty(t, ownAttempt)
 	require.False(t, s.cancelCoordinatorOp(OpCreate, id, ownAttempt),
-		"the coordinator's own cleanup abort must not flip its op to Cancelled")
-	require.Equal(t, backup.Started, s.backupper.lastOp.get().Status)
+		"the coordinator's own cleanup abort must not flag its op cancelled")
+	require.False(t, s.backupper.lastOp.get().CancelRequested)
 	require.False(t, s.cancelCoordinatorOp(OpRestore, id, ""))
-	require.Equal(t, backup.Started, s.backupper.lastOp.get().Status)
+	require.False(t, s.backupper.lastOp.get().CancelRequested)
 
 	require.True(t, s.cancelCoordinatorOp(OpCreate, id, ""))
 	expectPlanningCancelled(t, s, fs, errCh)
@@ -3647,13 +3647,155 @@ func TestCancelCoordinatorOpGuards(t *testing.T) {
 			s := fs.scheduler()
 			require.Empty(t, s.backupper.lastOp.renew("b1", "a1", "p", "", ""))
 			require.Equal(t, tc.want, s.cancelCoordinatorOp(tc.method, tc.reqID, tc.reqAtt))
-			wantStatus := backup.Started
-			if tc.want {
-				wantStatus = backup.Cancelled
-			}
-			require.Equal(t, wantStatus, s.backupper.lastOp.get().Status)
+			require.Equal(t, backup.Started, s.backupper.lastOp.get().Status)
+			require.Equal(t, tc.want, s.backupper.lastOp.get().CancelRequested)
 		})
 	}
+}
+
+// After DELETE a poll keeps reporting the running status until the CANCELED descriptor is durable, so restore validation can never disagree with it.
+func TestSchedulerCancelPublishesCanceledOnlyAfterDescriptorWrite(t *testing.T) {
+	var (
+		ctx      = context.Background()
+		cls      = "Class-A"
+		node     = "N1"
+		backupID = "cancel-window"
+		any      = mock.Anything
+	)
+	fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+	fs.backend.serveWrittenGlobalBackupMeta = true
+	fs.selector.On("ListClasses", any).Return([]string{cls})
+	fs.selector.On("Backupable", any, []string{cls}).Return(nil)
+	fs.selector.On("Shards", any, cls).Return([]string{node}, nil)
+	fs.backend.On("HomeDir", any, any, any).Return("bucket/backups/" + backupID)
+	fs.backend.On("GetObject", any, backupID, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+	fs.backend.On("GetObject", any, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
+	fs.backend.On("Initialize", any, any).Return(nil)
+	fs.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil)
+	fs.client.On("CanCommit", any, node, any).Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: maxBooking(false)}, nil)
+	fs.client.On("Commit", any, node, any).Return(nil)
+	fs.client.On("Abort", any, node, any).Return(nil)
+
+	statusEntered := make(chan struct{}, 1)
+	statusGate := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-statusGate:
+		default:
+			close(statusGate)
+		}
+	})
+	fs.client.On("Status", any, node, any).
+		Run(func(mock.Arguments) {
+			select {
+			case statusEntered <- struct{}{}:
+			default:
+			}
+			<-statusGate
+		}).
+		Return(&StatusResponse{Status: backup.Transferring, ID: backupID, Method: OpCreate}, nil)
+
+	s := fs.scheduler()
+	_, err := s.Backup(ctx, nil, &BackupRequest{ID: backupID, Backend: "s3", Include: []string{cls}})
+	require.NoError(t, err)
+	select {
+	case <-statusEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("commit never reached its polling loop")
+	}
+
+	require.NoError(t, s.Cancel(ctx, nil, "s3", backupID, "", ""))
+	st, err := s.BackupStatus(ctx, nil, "s3", backupID, "", "")
+	require.NoError(t, err)
+	require.Equal(t, backup.Started, st.Status, "a poll must not read CANCELED before the descriptor write")
+	require.Equal(t, backup.Started, fs.backend.globalMetaStatus())
+
+	close(statusGate)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		st, err := s.BackupStatus(ctx, nil, "s3", backupID, "", "")
+		require.NoError(t, err)
+		if st.Status == backup.Cancelled {
+			require.Equal(t, backup.Cancelled, fs.backend.globalMetaStatus(), "a poll read CANCELED before the descriptor did")
+			break
+		}
+		require.Equal(t, backup.Started, st.Status)
+		require.True(t, time.Now().Before(deadline), "cancellation never completed")
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	require.Eventually(t, func() bool { return s.backupper.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+	_, err = s.Restore(ctx, nil, &BackupRequest{ID: backupID, Backend: "s3"}, false)
+	require.Error(t, err)
+	require.IsType(t, backup.ErrUnprocessable{}, err)
+	require.ErrorContains(t, err, "status: "+string(backup.Cancelled))
+	require.NotContains(t, err.Error(), "status: "+string(backup.Started))
+}
+
+// When the CANCELED descriptor write fails, polls keep reporting STARTED so they never contradict restore validation reading the stale descriptor.
+func TestSchedulerCancelKeepsStartedWhenDescriptorWriteFails(t *testing.T) {
+	var (
+		ctx      = context.Background()
+		cls      = "Class-A"
+		node     = "N1"
+		backupID = "cancel-put-meta-fails"
+		any      = mock.Anything
+	)
+	fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+	fs.backend.serveWrittenGlobalBackupMeta = true
+	fs.selector.On("ListClasses", any).Return([]string{cls})
+	fs.selector.On("Backupable", any, []string{cls}).Return(nil)
+	fs.selector.On("Shards", any, cls).Return([]string{node}, nil)
+	fs.backend.On("HomeDir", any, any, any).Return("bucket/backups/" + backupID)
+	fs.backend.On("GetObject", any, backupID, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+	fs.backend.On("GetObject", any, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
+	fs.backend.On("Initialize", any, any).Return(nil)
+	fs.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Once()
+	fs.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(ErrAny)
+	fs.client.On("CanCommit", any, node, any).Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: maxBooking(false)}, nil)
+	fs.client.On("Commit", any, node, any).Return(nil)
+	fs.client.On("Abort", any, node, any).Return(nil)
+
+	statusEntered := make(chan struct{}, 1)
+	statusGate := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-statusGate:
+		default:
+			close(statusGate)
+		}
+	})
+	fs.client.On("Status", any, node, any).
+		Run(func(mock.Arguments) {
+			select {
+			case statusEntered <- struct{}{}:
+			default:
+			}
+			<-statusGate
+		}).
+		Return(&StatusResponse{Status: backup.Transferring, ID: backupID, Method: OpCreate}, nil)
+
+	s := fs.scheduler()
+	_, err := s.Backup(ctx, nil, &BackupRequest{ID: backupID, Backend: "s3", Include: []string{cls}})
+	require.NoError(t, err)
+	select {
+	case <-statusEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("commit never reached its polling loop")
+	}
+
+	require.NoError(t, s.Cancel(ctx, nil, "s3", backupID, "", ""))
+	close(statusGate)
+	require.Eventually(t, func() bool { return s.backupper.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+
+	st, err := s.BackupStatus(ctx, nil, "s3", backupID, "", "")
+	require.NoError(t, err)
+	require.Equal(t, backup.Started, st.Status, "an unwritten cancellation must not be served as CANCELED")
+	require.Equal(t, backup.Started, fs.backend.globalMetaStatus())
+
+	_, err = s.Restore(ctx, nil, &BackupRequest{ID: backupID, Backend: "s3"}, false)
+	require.Error(t, err)
+	require.ErrorContains(t, err, "status: "+string(backup.Started))
 }
 
 func TestValidateBackupRequestBaseChainFloor(t *testing.T) {

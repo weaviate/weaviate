@@ -937,6 +937,25 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 		assert.Equal(t, backup.Cancelled, coordinator.Participants["N1"].Status)
 		assert.Contains(t, coordinator.Participants["N1"].Reason, context.Canceled.Error())
 	})
+
+	t.Run("CancelRequestShortCircuitsCommit", func(t *testing.T) {
+		fc := newFakeCoordinator(nodeResolver)
+		coordinator := fc.coordinator()
+		coordinator.descriptor = &backup.DistributedBackupDescriptor{
+			ID:          backupID,
+			NodeMapping: make(map[string]string),
+			Nodes:       map[string]*backup.NodeDescriptor{"N1": {Classes: []string{"Class1"}}},
+		}
+		require.Empty(t, coordinator.lastOp.renew(backupID, "", "p", "", ""))
+		require.True(t, coordinator.lastOp.cancelIfInFlight(backupID))
+
+		got := coordinator.commit(ctx, &StatusRequest{Method: OpCreate, ID: backupID, Backend: backendName}, map[string]string{"N1": "N1"}, false, true)
+
+		require.Nil(t, got)
+		assert.Equal(t, backup.Cancelled, coordinator.descriptor.Status)
+		assert.Equal(t, errCancelled.Error(), coordinator.descriptor.Error)
+		fc.client.AssertNotCalled(t, "Commit", any, any, any)
+	})
 }
 
 // TestCoordinator_TypesErrorFromRemoteErrKind verifies that a refused

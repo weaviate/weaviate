@@ -89,7 +89,7 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 	// Scaled per class so wide backups' serial create fan-outs don't eat the convergence budget.
 	ctx, cancel := context.WithTimeout(ctx, c.dedupeCutoffLead+budget+c.dedupePlanningSlack+time.Duration(len(classes))*time.Second)
 	defer cancel()
-	// A user Cancel only flips lastOp.Status; propagate it into the ctx so in-flight checkpointer RPCs unblock.
+	// A user Cancel only flags the slot; propagate it into the ctx so in-flight checkpointer RPCs unblock.
 	watchDone := make(chan struct{})
 	defer close(watchDone)
 	enterrors.GoWrapper(func() {
@@ -100,7 +100,7 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 			case <-watchDone:
 				return
 			case <-t.C:
-				if c.lastOp.get().Status == backup.Cancelled {
+				if c.lastOp.get().cancelSignalled() {
 					cancel()
 					return
 				}
@@ -194,7 +194,7 @@ func (c *coordinator) planDesignatedShards(ctx context.Context, classes []string
 	}
 	if !c.sleepUnlessCancelled(ctx, time.UnixMilli(latestCutoffMs)) {
 		// A user Cancel kills the whole backup; anything else is the planning deadline silently degrading every candidate.
-		if c.lastOp.get().Status != backup.Cancelled {
+		if !c.lastOp.get().cancelSignalled() {
 			remaining := 0
 			for _, shards := range candidates {
 				remaining += len(shards)
@@ -644,7 +644,7 @@ func uniqueNonEmpty(nodes []string) map[string]struct{} {
 // sleepUnlessCancelled is sleepUntil plus the operation's external cancel signal, polled once per second so Cancel works during planning.
 func (c *coordinator) sleepUnlessCancelled(ctx context.Context, t time.Time) bool {
 	for {
-		if c.lastOp.get().Status == backup.Cancelled {
+		if c.lastOp.get().cancelSignalled() {
 			return false
 		}
 		next := time.Now().Add(time.Second)

@@ -154,6 +154,59 @@ func TestBackupStatRemembersAFailureBeyondTheSlot(t *testing.T) {
 	})
 }
 
+// A cancel only requests: the served status must not change until the CANCELED descriptor is durable.
+func TestBackupStatCancelIfInFlight(t *testing.T) {
+	const id = "1"
+
+	t.Run("empty slot refuses", func(t *testing.T) {
+		var s backupStat
+		require.False(t, s.cancelIfInFlight(id))
+		require.False(t, s.get().CancelRequested)
+	})
+
+	t.Run("wrong id refuses", func(t *testing.T) {
+		var s backupStat
+		require.Empty(t, s.renew(id, "", "bucket/backups/1", "", ""))
+		require.False(t, s.cancelIfInFlight("2"))
+		require.False(t, s.get().CancelRequested)
+	})
+
+	t.Run("a matching id is flagged without touching the served status", func(t *testing.T) {
+		var s backupStat
+		require.Empty(t, s.renew(id, "", "bucket/backups/1", "", ""))
+		require.True(t, s.cancelIfInFlight(id))
+		got := s.get()
+		require.True(t, got.CancelRequested)
+		require.True(t, got.cancelSignalled())
+		require.Equal(t, backup.Started, got.Status)
+		require.Empty(t, got.Err)
+	})
+
+	t.Run("repeated cancel is idempotent", func(t *testing.T) {
+		var s backupStat
+		require.Empty(t, s.renew(id, "", "bucket/backups/1", "", ""))
+		require.True(t, s.cancelIfInFlight(id))
+		require.True(t, s.cancelIfInFlight(id))
+		require.Equal(t, backup.Started, s.get().Status)
+	})
+
+	t.Run("a published outcome is not disturbed", func(t *testing.T) {
+		var s backupStat
+		require.Empty(t, s.renew(id, "", "bucket/backups/1", "", ""))
+		s.set(backup.Success)
+		require.True(t, s.cancelIfInFlight(id))
+		require.Equal(t, backup.Success, s.get().Status)
+	})
+
+	t.Run("reset clears the request", func(t *testing.T) {
+		var s backupStat
+		require.Empty(t, s.renew(id, "", "bucket/backups/1", "", ""))
+		require.True(t, s.cancelIfInFlight(id))
+		s.reset()
+		require.False(t, s.get().CancelRequested)
+	})
+}
+
 // The reason has to survive the whole way out of the uploader, including the
 // meta write that may itself be what failed.
 func TestHandlerOnStatusServesTheReasonAFailedUploadPublished(t *testing.T) {
@@ -545,11 +598,7 @@ func TestHandlerOnStatusPrefersTheDescriptorOverARememberedFailure(t *testing.T)
 	require.Empty(t, res.Err)
 }
 
-// The coordinator publishes the outcome on its slot and only then writes the
-// global descriptor, which is a round trip to object storage. A user polling
-// GET /backups/{backend}/{id} in between is answered from the slot, so a FAILED
-// with no reason there is the same bug one level up, on the path an operator
-// actually hits.
+// A poll answered from the slot before the global descriptor exists must never read FAILED without the reason next to it.
 func TestCoordinatorOnStatusServesTheReasonBeforeTheGlobalDescriptorIsWritten(t *testing.T) {
 	const (
 		backupID    = "coordinated"

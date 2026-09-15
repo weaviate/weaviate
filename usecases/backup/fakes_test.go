@@ -81,6 +81,14 @@ type fakeBackend struct {
 	files    map[string][]byte
 	chunks   map[string][]byte
 	doneChan chan bool
+	// serveWrittenGlobalBackupMeta opts a test into reading GlobalBackupFile back as written, like GlobalRestoreFile already is.
+	serveWrittenGlobalBackupMeta bool
+}
+
+func (fb *fakeBackend) globalMetaStatus() backup.Status {
+	fb.RLock()
+	defer fb.RUnlock()
+	return fb.glMeta.Status
 }
 
 func (fb *fakeBackend) getMetaStatus() (backup.Status, string) {
@@ -171,6 +179,10 @@ func (fb *fakeBackend) GetObject(ctx context.Context, backupID, key, overrideBuc
 			return nil, err
 		}
 		return bytes, nil
+	}
+
+	if key == GlobalBackupFile && fb.serveWrittenGlobalBackupMeta && fb.glMeta.ID != "" {
+		return json.Marshal(fb.glMeta)
 	}
 
 	args := fb.Called(ctx, backupID, key)
