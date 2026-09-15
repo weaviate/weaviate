@@ -1220,7 +1220,7 @@ func TestEnvironmentWeaviateLicense(t *testing.T) {
 		conf := Config{}
 		require.NoError(t, FromEnv(&conf))
 
-		require.True(t, conf.WeaviateLicense.Get())
+		require.True(t, conf.WeaviateLicense)
 	})
 
 	t.Run("malformed key disables the gate and logs a warning", func(t *testing.T) {
@@ -1231,7 +1231,7 @@ func TestEnvironmentWeaviateLicense(t *testing.T) {
 		conf := Config{}
 		require.NoError(t, FromEnv(&conf))
 
-		require.False(t, conf.WeaviateLicense.Get())
+		require.False(t, conf.WeaviateLicense)
 		entry := hook.LastEntry()
 		require.NotNil(t, entry)
 		require.Equal(t, logrus.WarnLevel, entry.Level)
@@ -1251,7 +1251,7 @@ func TestEnvironmentWeaviateLicense(t *testing.T) {
 		conf := Config{}
 		require.NoError(t, FromEnv(&conf))
 
-		require.False(t, conf.WeaviateLicense.Get())
+		require.False(t, conf.WeaviateLicense)
 		for _, entry := range hook.AllEntries() {
 			require.NotContains(t, entry.Message, "LICENSE_KEY")
 		}

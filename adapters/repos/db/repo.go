@@ -491,7 +491,7 @@ type Config struct {
 
 	// Plumbed through for future callers under the "wl" directory; nothing in
 	// the DB layer reads it yet.
-	WeaviateLicense *configRuntime.DynamicValue[bool]
+	WeaviateLicense bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

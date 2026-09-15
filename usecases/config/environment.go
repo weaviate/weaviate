@@ -1091,7 +1091,7 @@ func FromEnv(config *Config) error {
 		logrus.Warn("LICENSE_KEY is set but is not a well-formed Weaviate license key; " +
 			"Weaviate-licensed functionality is disabled")
 	}
-	config.WeaviateLicense = configRuntime.NewDynamicValue(licenseKeyWellFormed(licenseKey))
+	config.WeaviateLicense = licenseKeyWellFormed(licenseKey)
 
 	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
 	if config.Namespaces.Enabled {
