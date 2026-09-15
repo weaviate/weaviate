@@ -98,42 +98,160 @@ func (e *comparableValueExtractor) extractFromObject(object *storobj.Object, pro
 		return nil
 	}
 
+	// A live object's property arrives in whichever shape the object carries:
+	// typed values from a parsed request, or the generic JSON shapes
+	// ([]interface{}, map[string]interface{}) of an object unmarshaled from
+	// storage. A value matching neither shape extracts as nil, the same as a
+	// missing property — a sort must degrade to "no value", never panic the
+	// query.
 	switch e.dataTypesHelper.getType(propName) {
-	case schema.DataTypeBlob, schema.DataTypeBlobHash:
-		s := value.(string)
-		return &s
-	case schema.DataTypeText:
-		s := value.(string)
-		return &s
+	case schema.DataTypeBlob, schema.DataTypeBlobHash, schema.DataTypeText:
+		if s, ok := value.(string); ok {
+			return &s
+		}
 	case schema.DataTypeTextArray:
-		sa := value.([]string)
-		return &sa
+		if sa, ok := asStringSlice(value); ok {
+			return &sa
+		}
 	case schema.DataTypeDate:
-		d := e.mustExtractDates([]string{value.(string)})[0]
-		return &d
+		if s, ok := value.(string); ok {
+			d := e.mustExtractDates([]string{s})[0]
+			return &d
+		}
 	case schema.DataTypeDateArray:
-		da := e.mustExtractDates(value.([]string))
-		return &da
+		if sa, ok := asStringSlice(value); ok {
+			da := e.mustExtractDates(sa)
+			return &da
+		}
 	case schema.DataTypeNumber, schema.DataTypeInt:
-		n := value.(float64)
-		return &n
+		if n, ok := value.(float64); ok {
+			return &n
+		}
 	case schema.DataTypeNumberArray, schema.DataTypeIntArray:
-		na := value.([]float64)
-		return &na
+		if na, ok := asFloat64Slice(value); ok {
+			return &na
+		}
 	case schema.DataTypeBoolean:
-		b := value.(bool)
-		return &b
+		if b, ok := value.(bool); ok {
+			return &b
+		}
 	case schema.DataTypeBooleanArray:
-		ba := value.([]bool)
-		return &ba
+		if ba, ok := asBoolSlice(value); ok {
+			return &ba
+		}
 	case schema.DataTypePhoneNumber:
-		fa := e.toFloatArrayFromPhoneNumber(value.(*models.PhoneNumber))
-		return &fa
+		if pn, ok := asPhoneNumber(value); ok {
+			fa := e.toFloatArrayFromPhoneNumber(pn)
+			return &fa
+		}
 	case schema.DataTypeGeoCoordinates:
-		fa := e.toFloatArrayFromGeoCoordinates(value.(*models.GeoCoordinates))
-		return &fa
+		if gc, ok := asGeoCoordinates(value); ok {
+			fa := e.toFloatArrayFromGeoCoordinates(gc)
+			return &fa
+		}
+	}
+	return nil
+}
+
+// asStringSlice accepts the two shapes a stored string-array property takes
+// on a live object: a typed []string, or the []interface{} of a JSON-decoded
+// object.
+func asStringSlice(value interface{}) ([]string, bool) {
+	switch v := value.(type) {
+	case []string:
+		return v, true
+	case []interface{}:
+		out := make([]string, len(v))
+		for i := range v {
+			s, ok := v[i].(string)
+			if !ok {
+				return nil, false
+			}
+			out[i] = s
+		}
+		return out, true
 	default:
-		return nil
+		return nil, false
+	}
+}
+
+func asFloat64Slice(value interface{}) ([]float64, bool) {
+	switch v := value.(type) {
+	case []float64:
+		return v, true
+	case []interface{}:
+		out := make([]float64, len(v))
+		for i := range v {
+			n, ok := v[i].(float64)
+			if !ok {
+				return nil, false
+			}
+			out[i] = n
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+func asBoolSlice(value interface{}) ([]bool, bool) {
+	switch v := value.(type) {
+	case []bool:
+		return v, true
+	case []interface{}:
+		out := make([]bool, len(v))
+		for i := range v {
+			b, ok := v[i].(bool)
+			if !ok {
+				return nil, false
+			}
+			out[i] = b
+		}
+		return out, true
+	default:
+		return nil, false
+	}
+}
+
+// asPhoneNumber accepts the typed *models.PhoneNumber of a parsed request or
+// the map[string]interface{} of a JSON-decoded object, converting the latter
+// through its JSON form.
+func asPhoneNumber(value interface{}) (*models.PhoneNumber, bool) {
+	switch v := value.(type) {
+	case *models.PhoneNumber:
+		return v, v != nil
+	case map[string]interface{}:
+		data, err := json.Marshal(v)
+		if err != nil {
+			return nil, false
+		}
+		var pn models.PhoneNumber
+		if err := json.Unmarshal(data, &pn); err != nil {
+			return nil, false
+		}
+		return &pn, true
+	default:
+		return nil, false
+	}
+}
+
+// asGeoCoordinates mirrors asPhoneNumber for geo properties.
+func asGeoCoordinates(value interface{}) (*models.GeoCoordinates, bool) {
+	switch v := value.(type) {
+	case *models.GeoCoordinates:
+		return v, v != nil
+	case map[string]interface{}:
+		data, err := json.Marshal(v)
+		if err != nil {
+			return nil, false
+		}
+		var gc models.GeoCoordinates
+		if err := json.Unmarshal(data, &gc); err != nil {
+			return nil, false
+		}
+		return &gc, true
+	default:
+		return nil, false
 	}
 }
 
