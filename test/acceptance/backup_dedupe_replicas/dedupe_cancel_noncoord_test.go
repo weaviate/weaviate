@@ -82,4 +82,10 @@ func TestBackupDedupeCancelViaNonCoordinator(t *testing.T) {
 		require.NotNil(ct, status.Payload.Status)
 		require.Equal(ct, string(entbackup.Cancelled), *status.Payload.Status)
 	}, 30*time.Second, time.Second)
+
+	_, err = helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backendS3, backupID, nil, false)
+	require.Error(t, err, "restore of a canceled backup must be rejected")
+	msg := restoreErrorMessage(err)
+	require.Contains(t, msg, "status: "+string(entbackup.Cancelled))
+	require.NotContains(t, msg, "status: "+string(entbackup.Started))
 }
