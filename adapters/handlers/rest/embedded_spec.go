@@ -8699,99 +8699,12 @@ func init() {
         }
       }
     },
-    "C11yExtension": {
-      "description": "A resource describing an extension to the contextinoary, containing both the identifier and the definition of the extension",
-      "properties": {
-        "concept": {
-          "description": "The new concept you want to extend. Must be an all-lowercase single word, or a space delimited compound word. Examples: 'foobarium', 'my custom concept'",
-          "type": "string",
-          "example": "foobarium"
-        },
-        "definition": {
-          "description": "A list of space-delimited words or a sentence describing what the custom concept is about. Avoid using the custom concept itself. An Example definition for the custom concept 'foobarium': would be 'a naturally occurring element which can only be seen by programmers'",
-          "type": "string"
-        },
-        "weight": {
-          "description": "Weight of the definition of the new concept where 1='override existing definition entirely' and 0='ignore custom definition'. Note that if the custom concept is not present in the contextionary yet, the weight cannot be less than 1.",
-          "type": "number",
-          "format": "float"
-        }
-      }
-    },
-    "C11yNearestNeighbors": {
-      "description": "C11y function to show the nearest neighbors to a word.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "distance": {
-            "type": "number",
-            "format": "float"
-          },
-          "word": {
-            "type": "string"
-          }
-        }
-      }
-    },
     "C11yVector": {
       "description": "A vector representation of the object in the Contextionary. If provided at object creation, this wil take precedence over any vectorizer setting.",
       "type": "array",
       "items": {
         "type": "number",
         "format": "float"
-      }
-    },
-    "C11yWordsResponse": {
-      "description": "An array of available words and contexts.",
-      "properties": {
-        "concatenatedWord": {
-          "description": "Weighted results for all words",
-          "type": "object",
-          "properties": {
-            "concatenatedNearestNeighbors": {
-              "$ref": "#/definitions/C11yNearestNeighbors"
-            },
-            "concatenatedVector": {
-              "$ref": "#/definitions/C11yVector"
-            },
-            "concatenatedWord": {
-              "type": "string"
-            },
-            "singleWords": {
-              "type": "array",
-              "items": {
-                "format": "string"
-              }
-            }
-          }
-        },
-        "individualWords": {
-          "description": "Weighted results for per individual word",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "info": {
-                "type": "object",
-                "properties": {
-                  "nearestNeighbors": {
-                    "$ref": "#/definitions/C11yNearestNeighbors"
-                  },
-                  "vector": {
-                    "$ref": "#/definitions/C11yVector"
-                  }
-                }
-              },
-              "present": {
-                "type": "boolean"
-              },
-              "word": {
-                "type": "string"
-              }
-            }
-          }
-        }
       }
     },
     "Class": {
@@ -21450,137 +21363,12 @@ func init() {
         }
       }
     },
-    "C11yExtension": {
-      "description": "A resource describing an extension to the contextinoary, containing both the identifier and the definition of the extension",
-      "properties": {
-        "concept": {
-          "description": "The new concept you want to extend. Must be an all-lowercase single word, or a space delimited compound word. Examples: 'foobarium', 'my custom concept'",
-          "type": "string",
-          "example": "foobarium"
-        },
-        "definition": {
-          "description": "A list of space-delimited words or a sentence describing what the custom concept is about. Avoid using the custom concept itself. An Example definition for the custom concept 'foobarium': would be 'a naturally occurring element which can only be seen by programmers'",
-          "type": "string"
-        },
-        "weight": {
-          "description": "Weight of the definition of the new concept where 1='override existing definition entirely' and 0='ignore custom definition'. Note that if the custom concept is not present in the contextionary yet, the weight cannot be less than 1.",
-          "type": "number",
-          "format": "float"
-        }
-      }
-    },
-    "C11yNearestNeighbors": {
-      "description": "C11y function to show the nearest neighbors to a word.",
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/C11yNearestNeighborsItems0"
-      }
-    },
-    "C11yNearestNeighborsItems0": {
-      "type": "object",
-      "properties": {
-        "distance": {
-          "type": "number",
-          "format": "float"
-        },
-        "word": {
-          "type": "string"
-        }
-      }
-    },
     "C11yVector": {
       "description": "A vector representation of the object in the Contextionary. If provided at object creation, this wil take precedence over any vectorizer setting.",
       "type": "array",
       "items": {
         "type": "number",
         "format": "float"
-      }
-    },
-    "C11yWordsResponse": {
-      "description": "An array of available words and contexts.",
-      "properties": {
-        "concatenatedWord": {
-          "description": "Weighted results for all words",
-          "type": "object",
-          "properties": {
-            "concatenatedNearestNeighbors": {
-              "$ref": "#/definitions/C11yNearestNeighbors"
-            },
-            "concatenatedVector": {
-              "$ref": "#/definitions/C11yVector"
-            },
-            "concatenatedWord": {
-              "type": "string"
-            },
-            "singleWords": {
-              "type": "array",
-              "items": {
-                "format": "string"
-              }
-            }
-          }
-        },
-        "individualWords": {
-          "description": "Weighted results for per individual word",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/C11yWordsResponseIndividualWordsItems0"
-          }
-        }
-      }
-    },
-    "C11yWordsResponseConcatenatedWord": {
-      "description": "Weighted results for all words",
-      "type": "object",
-      "properties": {
-        "concatenatedNearestNeighbors": {
-          "$ref": "#/definitions/C11yNearestNeighbors"
-        },
-        "concatenatedVector": {
-          "$ref": "#/definitions/C11yVector"
-        },
-        "concatenatedWord": {
-          "type": "string"
-        },
-        "singleWords": {
-          "type": "array",
-          "items": {
-            "format": "string"
-          }
-        }
-      }
-    },
-    "C11yWordsResponseIndividualWordsItems0": {
-      "type": "object",
-      "properties": {
-        "info": {
-          "type": "object",
-          "properties": {
-            "nearestNeighbors": {
-              "$ref": "#/definitions/C11yNearestNeighbors"
-            },
-            "vector": {
-              "$ref": "#/definitions/C11yVector"
-            }
-          }
-        },
-        "present": {
-          "type": "boolean"
-        },
-        "word": {
-          "type": "string"
-        }
-      }
-    },
-    "C11yWordsResponseIndividualWordsItems0Info": {
-      "type": "object",
-      "properties": {
-        "nearestNeighbors": {
-          "$ref": "#/definitions/C11yNearestNeighbors"
-        },
-        "vector": {
-          "$ref": "#/definitions/C11yVector"
-        }
       }
     },
     "Class": {
