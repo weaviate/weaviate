@@ -22,9 +22,11 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 var (
@@ -379,4 +381,56 @@ func TestExecutor(t *testing.T) {
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.UpdateShardStatus(req))
 	})
+}
+
+func TestReloadLocalDBStopsOnCancel(t *testing.T) {
+	cls := &models.Class{Class: "C", ReplicationConfig: &models.ReplicationConfig{Factor: 1}}
+	state := &sharding.State{Physical: map[string]sharding.Physical{"S0": {Name: "S0"}}}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	migrator := &fakeMigrator{}
+	store := &fakeSchemaManager{}
+
+	err := newMockExecutor(migrator, store).ReloadLocalDB(ctx, []api.UpdateClassRequest{{Class: cls, State: state}})
+
+	require.ErrorIs(t, err, context.Canceled)
+	migrator.AssertNotCalled(t, "UpdateIndex", mock.Anything, mock.Anything)
+}
+
+// TestReloadLocalDBSkipsClassDeletedMidReload pins that a class deleted
+// after the reload started does not fail it.
+func TestReloadLocalDBSkipsClassDeletedMidReload(t *testing.T) {
+	ctx := context.Background()
+
+	cls := &models.Class{Class: "Gone", ReplicationConfig: &models.ReplicationConfig{Factor: 1}}
+	state := &sharding.State{Physical: map[string]sharding.Physical{"S0": {Name: "S0"}}}
+	req := []api.UpdateClassRequest{{Class: cls, State: state}}
+
+	tests := []struct {
+		name    string
+		exists  bool
+		wantErr bool
+	}{
+		{name: "still in the schema", exists: true, wantErr: true},
+		{name: "deleted mid-reload", exists: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := &fakeSchemaManager{}
+			store.On("ClassInfo", "Gone").Return(clusterSchema.ClassInfo{Exists: test.exists})
+
+			migrator := &fakeMigrator{}
+			migrator.On("UpdateIndex", cls, state).Return(ErrAny)
+
+			err := newMockExecutor(migrator, store).ReloadLocalDB(ctx, req)
+			if test.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
 }

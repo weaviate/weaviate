@@ -33,10 +33,16 @@ import (
 type recordingIndexer struct {
 	Indexer
 
-	deleted  []string
-	frozen   map[string]bool
-	dropErr  error
-	onReload func([]command.UpdateClassRequest)
+	deleted      []string
+	frozen       map[string]bool
+	dropErr      error
+	onReload     func([]command.UpdateClassRequest)
+	indexDeletes []string
+}
+
+func (r *recordingIndexer) DeleteClass(class string, _ bool) error {
+	r.indexDeletes = append(r.indexDeletes, class)
+	return nil
 }
 
 func (r *recordingIndexer) DropOrphanedClass(_ context.Context, class string, hasFrozen bool) error {
@@ -171,7 +177,7 @@ func TestReloadDropsClassesTheSchemaNoLongerNames(t *testing.T) {
 			sm := NewSchemaManager("node1", idx, parser, prometheus.NewPedanticRegistry(), logrus.New())
 
 			tt.seed(t, sm)
-			sm.ReloadDBFromSchema()
+			require.NoError(t, sm.ReloadDBFromSchema(context.Background()))
 
 			require.ElementsMatch(t, tt.wantDeleted, idx.deleted)
 		})
@@ -208,11 +214,11 @@ func TestFailedDropIsRetriedOnTheNextReload(t *testing.T) {
 	addClass(t, sm, "Orphan")
 	deleteClassSchemaOnly(t, sm, "Orphan")
 
-	sm.ReloadDBFromSchema()
+	require.NoError(t, sm.ReloadDBFromSchema(context.Background()))
 	require.Equal(t, []string{"Orphan"}, idx.deleted)
 
 	idx.dropErr = nil
-	sm.ReloadDBFromSchema()
+	require.NoError(t, sm.ReloadDBFromSchema(context.Background()))
 	require.Equal(t, []string{"Orphan", "Orphan"}, idx.deleted)
 }
 
@@ -262,7 +268,7 @@ func TestRestoreCarriesTheFrozenFlag(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sm.Restore(empty, sm.parser))
 
-	sm.ReloadDBFromSchema()
+	require.NoError(t, sm.ReloadDBFromSchema(context.Background()))
 
 	require.ElementsMatch(t, []string{"Frozen", "Hot"}, idx.deleted)
 	require.True(t, idx.frozen["Frozen"], "the offloaded class lost its frozen flag")
@@ -291,4 +297,58 @@ func addFrozenTenantClass(t *testing.T, sm *SchemaManager, class string) {
 	require.NoError(t, sm.AddClass(&command.ApplyRequest{
 		Type: command.ApplyRequest_TYPE_ADD_CLASS, Class: class, SubCommand: sub,
 	}, "node1", true, false))
+}
+
+// TestDeleteClassDropsDataTheIndexNeverLoaded pins that deleting a class the
+// schema held drops its data even with no index loaded, and that an unknown
+// name never touches the filesystem.
+func TestDeleteClassDropsDataTheIndexNeverLoaded(t *testing.T) {
+	tests := []struct {
+		name             string
+		seed             func(t *testing.T, sm *SchemaManager)
+		delete           string
+		wantDropped      []string
+		wantFrozen       bool
+		wantIndexDeletes []string
+	}{
+		{
+			name:        "a class the schema held",
+			seed:        func(t *testing.T, sm *SchemaManager) { addClass(t, sm, "C") },
+			delete:      "C",
+			wantDropped: []string{"C"},
+		},
+		{
+			name:        "a class with frozen tenants keeps the flag",
+			seed:        func(t *testing.T, sm *SchemaManager) { addFrozenTenantClass(t, sm, "C") },
+			delete:      "C",
+			wantDropped: []string{"C"},
+			wantFrozen:  true,
+		},
+		{
+			name:             "a name that was never a class",
+			seed:             func(t *testing.T, sm *SchemaManager) { addClass(t, sm, "Kept") },
+			delete:           "Raft",
+			wantIndexDeletes: []string{"Raft"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			idx := &recordingIndexer{}
+			parser := fakes.NewMockParser()
+			parser.On("ParseClass", mock.Anything).Return(nil)
+			sm := NewSchemaManager("node1", idx, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			tt.seed(t, sm)
+
+			require.NoError(t, sm.DeleteClass(&command.ApplyRequest{
+				Type: command.ApplyRequest_TYPE_DELETE_CLASS, Class: tt.delete,
+			}, false, false))
+
+			require.Equal(t, tt.wantDropped, idx.deleted)
+			require.Equal(t, tt.wantIndexDeletes, idx.indexDeletes)
+			if tt.wantDropped != nil {
+				require.Equal(t, tt.wantFrozen, idx.frozen[tt.delete])
+			}
+		})
+	}
 }

@@ -12,12 +12,16 @@
 package cluster
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"reflect"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -34,6 +38,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	clustermocks "github.com/weaviate/weaviate/cluster/mocks"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/utils"
@@ -285,7 +290,7 @@ func TestStoreApply(t *testing.T) {
 				nil)},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
-				m.indexer.On("DeleteClass", mock.Anything).Return(nil)
+				m.indexer.On("DeleteClass", mock.Anything, mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 				m.replicationFSM.On("DeleteReplicationsByCollection", mock.Anything).Return(nil)
 			},
@@ -304,7 +309,7 @@ func TestStoreApply(t *testing.T) {
 				nil)},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
-				m.indexer.On("DeleteClass", mock.Anything).Return(nil)
+				m.indexer.On("DeleteClass", mock.Anything, mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 				m.replicationFSM.On("DeleteReplicationsByCollection", mock.Anything).Return(fmt.Errorf("any error"))
 			},
@@ -1538,7 +1543,7 @@ func TestStoreReloadDBFromSchemaReportsProgressDuringReload(t *testing.T) {
 		}).Return()
 	})
 
-	st.reloadDBFromSchema()
+	st.reloadDBFromSchema(context.Background())
 
 	require.True(t, st.dbLoaded.Load())
 	require.True(t, logged("local DB loaded from schema"))
@@ -1690,5 +1695,231 @@ func TestStoreWaitToRestoreDBAnnouncesOnce(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("WaitToRestoreDB did not return once dbLoaded flipped")
+	}
+}
+
+// TestStoreApplyDoesNotBlockOnShardLoad pins that the shard load does not
+// run on the FSM goroutine.
+func TestStoreApplyDoesNotBlockOnShardLoad(t *testing.T) {
+	t.Parallel()
+
+	ms := NewMockStore(t, t.Name(), utils.MustGetFreeTCPPort())
+	st := ms.store
+	st.raft = &raft.Raft{}
+
+	release := make(chan struct{})
+	loading := make(chan struct{})
+	var once sync.Once
+	ms.indexer.On("TriggerSchemaUpdateCallbacks").Run(func(mock.Arguments) {
+		once.Do(func() { close(loading) })
+		<-release
+	}).Return()
+
+	returned := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		defer close(returned)
+		st.dbLoad.start(st.reloadDBFromSchema)
+	}, ms.logger)
+
+	select {
+	case <-returned:
+	case <-time.After(5 * time.Second):
+		close(release)
+		t.Fatal("reloadDBFromSchema blocked on the shard load; the FSM goroutine is still occupied")
+	}
+
+	select {
+	case <-loading:
+	case <-time.After(5 * time.Second):
+		close(release)
+		t.Fatal("the background load never started")
+	}
+	require.False(t, st.dbLoaded.Load(), "dbLoaded must not be set until the load finishes")
+
+	close(release)
+	require.True(t, tryNTimesWithWait(200, 10*time.Millisecond, st.dbLoaded.Load),
+		"dbLoaded must be set once the load finishes")
+}
+
+func TestStoreApplyQueuesDBWritesWhileLoading(t *testing.T) {
+	t.Parallel()
+
+	cls := &models.Class{Class: "C", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
+	ss := &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0"}}}
+
+	addClass := func(index uint64) *raft.Log {
+		return &raft.Log{
+			Index: index,
+			Type:  raft.LogCommand,
+			Data: cmdAsBytes("C", cmd.ApplyRequest_TYPE_ADD_CLASS,
+				cmd.AddClassRequest{Class: cls, State: ss}, nil),
+		}
+	}
+
+	newStore := func(t *testing.T) *MockStore {
+		ms := NewMockStore(t, t.Name(), utils.MustGetFreeTCPPort())
+		ms.parser.On("ParseClass", mock.Anything).Return(nil)
+		ms.indexer.On("AddClass", mock.Anything).Return(nil)
+		ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+		ms.indexer.On("Open", mock.Anything).Return(nil)
+		return &ms
+	}
+
+	t.Run("nothing loading: the command reaches the DB", func(t *testing.T) {
+		ms := newStore(t)
+		ms.store.Apply(addClass(1))
+		ms.indexer.AssertCalled(t, "AddClass", mock.Anything)
+	})
+
+	t.Run("loading: the DB write waits for the load", func(t *testing.T) {
+		ms := newStore(t)
+		ctx, ok := ms.store.dbLoad.begin()
+		require.True(t, ok)
+
+		resp := ms.store.Apply(addClass(1)).(Response)
+		require.NoError(t, resp.Error)
+		require.True(t, ms.store.SchemaReader().ClassInfo("C").Exists, "the schema half must land at once")
+		ms.indexer.AssertNotCalled(t, "AddClass", mock.Anything)
+
+		ms.store.dbLoad.drain(ctx)
+		ms.indexer.AssertCalled(t, "AddClass", mock.Anything)
+	})
+}
+
+// TestStoreRestorePathStaysSynchronous pins that Restore still loads inline.
+func TestStoreRestorePathStaysSynchronous(t *testing.T) {
+	source := NewMockStore(t, "restore-sync-source", utils.MustGetFreeTCPPort())
+	setupTestSchema(t, source)
+	snapshot, err := source.store.Snapshot()
+	require.NoError(t, err)
+	sink := &clustermocks.SnapshotSink{Buffer: bytes.NewBuffer(nil)}
+	require.NoError(t, snapshot.Persist(sink))
+
+	target := NewMockStore(t, "restore-sync-target", utils.MustGetFreeTCPPort())
+	target.store.init()
+	require.Nil(t, target.store.raft, "precondition: Restore runs before raft is constructed")
+	target.parser.On("ParseClass", mock.Anything).Return(nil)
+	target.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	target.indexer.On("RestoreClassDir", mock.Anything).Return(nil)
+	target.indexer.On("UpdateShardStatus", mock.Anything).Return(nil)
+	target.indexer.On("AddClass", mock.Anything).Return(nil)
+
+	loading, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	target.indexer.ReloadLocalDBHook = func(context.Context) {
+		once.Do(func() { close(loading) })
+		<-release
+	}
+
+	restored := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		restored <- target.store.Restore(io.NopCloser(bytes.NewReader(sink.Buffer.Bytes())))
+	}, target.logger)
+
+	<-loading
+	select {
+	case <-restored:
+		t.Fatal("Restore returned while the local DB was still loading; raft requires the restore not to overlap other commands, and the applied-index bookkeeping must land before raft.NewRaft returns")
+	case <-time.After(250 * time.Millisecond):
+	}
+
+	close(release)
+	require.NoError(t, <-restored)
+	require.True(t, target.store.dbLoaded.Load(), "dbLoaded must be set before Restore returns")
+}
+
+func TestStoreDeferredDeleteClassReachesTheDB(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		tenant     sharding.Physical
+		wantFrozen bool
+	}{
+		{name: "hot tenant", tenant: sharding.Physical{Name: "T0", Status: models.TenantActivityStatusHOT}},
+		{name: "frozen tenant", tenant: sharding.Physical{Name: "T0", Status: models.TenantActivityStatusFROZEN}, wantFrozen: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			ms := NewMockStore(t, t.Name(), utils.MustGetFreeTCPPort())
+			st := ms.store
+			st.raft = &raft.Raft{}
+
+			cls := &models.Class{Class: "C", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
+			ss := &sharding.State{
+				PartitioningEnabled: true,
+				Physical:            map[string]sharding.Physical{test.tenant.Name: test.tenant},
+			}
+
+			ms.parser.On("ParseClass", mock.Anything).Return(nil)
+			ms.indexer.On("Open", mock.Anything).Return(nil)
+			ms.indexer.On("AddClass", mock.Anything).Return(nil)
+			ms.indexer.On("DropOrphanedClass", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			ms.replicationFSM.On("DeleteReplicationsByCollection", mock.Anything).Return(nil)
+
+			st.Apply(&raft.Log{Index: 1, Type: raft.LogCommand, Data: cmdAsBytes("C",
+				cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil)})
+
+			release := make(chan struct{})
+			loading := make(chan struct{})
+			var first atomic.Bool
+			ms.indexer.On("TriggerSchemaUpdateCallbacks").Run(func(mock.Arguments) {
+				if first.CompareAndSwap(false, true) {
+					close(loading)
+					<-release
+				}
+			}).Return()
+
+			st.dbLoad.start(st.reloadDBFromSchema)
+			<-loading
+
+			st.Apply(&raft.Log{Index: 2, Type: raft.LogCommand, Data: cmdAsBytes("C",
+				cmd.ApplyRequest_TYPE_DELETE_CLASS, cmd.DeleteClassRequest{Name: "C"}, nil)})
+			ms.indexer.AssertNotCalled(t, "DropOrphanedClass", mock.Anything, mock.Anything, mock.Anything)
+
+			close(release)
+			require.True(t, tryNTimesWithWait(200, 10*time.Millisecond, st.dbLoaded.Load),
+				"the load must finish")
+
+			ms.indexer.AssertCalled(t, "DropOrphanedClass", mock.Anything, "C", test.wantFrozen)
+			ms.replicationFSM.AssertCalled(t, "DeleteReplicationsByCollection", "C")
+		})
+	}
+}
+
+// TestStoreIncompleteLoadStillGoesReady pins that a partial load still goes
+// ready and is counted.
+func TestStoreIncompleteLoadStillGoesReady(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		run  func(st *Store)
+	}{
+		{name: "called directly", run: func(st *Store) { st.reloadDBFromSchema(context.Background()) }},
+		{name: "started in the background", run: func(st *Store) {
+			st.dbLoad.start(st.reloadDBFromSchema)
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			ms := NewMockStore(t, t.Name(), utils.MustGetFreeTCPPort())
+			st := ms.store
+			ms.indexer.ReloadLocalDBErr = fmt.Errorf("shard did not open")
+			ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+
+			test.run(st)
+
+			require.True(t, tryNTimesWithWait(200, 10*time.Millisecond, st.dbLoaded.Load),
+				"a partial load must still report ready")
+			require.Equal(t, float64(1), testutil.ToFloat64(st.metrics.localDBLoadFailures),
+				"a partial load must be counted; it is the only signal that the node's data is incomplete")
+		})
 	}
 }

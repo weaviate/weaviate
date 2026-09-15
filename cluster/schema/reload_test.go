@@ -12,6 +12,7 @@
 package schema
 
 import (
+	"context"
 	"runtime"
 	"testing"
 	"time"
@@ -47,7 +48,7 @@ func TestReloadReleasesShardingStateCopies(t *testing.T) {
 	addClass(t, sm, "A")
 	addClass(t, sm, "B")
 
-	sm.ReloadDBFromSchema()
+	require.NoError(t, sm.ReloadDBFromSchema(context.Background()))
 
 	require.Len(t, states, 2)
 	require.Eventually(t, func() bool {
