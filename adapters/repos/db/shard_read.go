@@ -702,6 +702,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	defer func() {
 		lsmkv.ReduceSlowLogEntries(ctx, "lsm_get_by_secondary")
+		lsmkv.ReduceSlowLogEntries(ctx, "lsm_get_by_secondary_with_view")
 
 		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
 			"collection": s.index.Config.ClassName,

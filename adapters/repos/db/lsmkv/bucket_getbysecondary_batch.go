@@ -34,7 +34,8 @@ const secondaryBatchWorkers = 16
 // GetBySecondaryBatch resolves keys (Replace strategy only) under one
 // consistent view, held until it returns, on up to secondaryBatchWorkers
 // goroutines. visit runs concurrently, at most once per key and only for found
-// keys; value is valid only during the call. The first error ends the call.
+// keys; value is valid only until visit returns. The first error ends the call
+// after visit may already have run for other keys.
 func (b *Bucket) GetBySecondaryBatch(ctx context.Context, pos int, keys [][]byte, visit func(i int, value []byte) error) error {
 	if len(keys) == 0 {
 		return nil
@@ -83,9 +84,8 @@ func (b *Bucket) GetBySecondaryBatch(ctx context.Context, pos int, keys [][]byte
 	return eg.Wait()
 }
 
-// resolveSecondaryChunk looks up keys[i] for every i in idxs, reusing buffer
-// across lookups, and hands each found value to visit before the next lookup
-// can overwrite it. It returns the grown buffer for the next chunk.
+// resolveSecondaryChunk reuses buffer across lookups in idxs order, so visit
+// must consume each value before the next lookup overwrites it.
 func (b *Bucket) resolveSecondaryChunk(ctx context.Context, pos int, keys [][]byte, idxs []int,
 	buffer []byte, view BucketConsistentView, visit func(i int, value []byte) error,
 ) ([]byte, error) {

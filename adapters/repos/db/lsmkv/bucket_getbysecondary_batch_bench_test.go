@@ -21,10 +21,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
 
-// BenchmarkGetBySecondaryBatch compares one batch call against the per-key
-// loop it replaces, warm, over a bucket of 20k 1 KiB objects in 4 segments.
-// The slowlog variant carries slow-query details in the ctx, which makes
-// every lookup append an entry under one shared mutex.
+// BenchmarkGetBySecondaryBatch compares batched vs per-key lookups, including
+// a slowlog variant that serializes each lookup under one shared mutex.
 func BenchmarkGetBySecondaryBatch(b *testing.B) {
 	const (
 		numDocs   = 20_000

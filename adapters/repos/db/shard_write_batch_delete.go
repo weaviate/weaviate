@@ -232,7 +232,7 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 	lsmkv.ReduceSlowLogEntries(ctx, "lsm_get_by_secondary_with_view")
 	if unreadable > 0 {
 		logger.WithField("op", "shard.find_uuids").
-			Debugf("skipped %d doc ids without a readable id, first: %v", unreadable, firstUnreadable)
+			Warnf("skipped %d doc ids without a readable id, first: %v", unreadable, firstUnreadable)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("resolve uuids: %w", err)

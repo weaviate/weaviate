@@ -41,12 +41,10 @@ type docIDSlot[T any] struct {
 	kept    bool
 }
 
-// ReadObjectsByDocID reads the objects for the doc ids it yields, a few hundred
-// per bucket call, and returns the kept decode results in iteration order, at
-// most limit of them (limit <= 0 reads nothing). decode runs concurrently for
-// each found object while its bytes are valid, and sequentially after the call
-// with nil bytes for each missing one; ok=false skips a doc id uncounted.
-// ObjectsByDocIDWithEmpty is not reused: it needs an id slice and decodes all.
+// ReadObjectsByDocID reads its ids in bucket-call-sized batches, returning up
+// to limit kept results in order (limit <= 0 reads nothing). decode runs
+// concurrently per batch while object bytes are valid, then sequentially with
+// nil bytes for misses (unlike ObjectsByDocIDWithEmpty, which needs ids upfront).
 func ReadObjectsByDocID[T any](ctx context.Context, bucket docIDBatchBucket, it docIDIterator, limit int,
 	decode func(docID uint64, object []byte) (T, bool, error),
 ) ([]T, error) {
