@@ -59,6 +59,13 @@ func (s *sortedMapMerger) do(ctx context.Context, segments [][]MapPair) ([]MapPa
 // same as .do() but does not remove the tombstone if the most latest version
 // of a key is a tombstone. It can thus also be used in compactions
 func (s *sortedMapMerger) doKeepTombstones(segments [][]MapPair) ([]MapPair, error) {
+	if len(segments) == 2 {
+		// same contract as the K-way loop below: rightmost wins on equal
+		// keys, tombstones preserved; each segment must already be sorted
+		// by Key and deduped
+		return mergeSortedPairs(segments[0], segments[1]), nil
+	}
+
 	if err := s.init(segments); err != nil {
 		return nil, errors.Wrap(err, "init sorted map decoder")
 	}
