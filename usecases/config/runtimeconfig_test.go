@@ -1110,13 +1110,29 @@ func TestBuildRegisteredRuntimeConfig_RegistersReplicaMovementCleanup(t *testing
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupIncludeCancelled, registered.ReplicaMovementCleanupIncludeCancelled)
 }
 
-// Same guard for the Weaviate License switch: without the registration line the
-// runtime override is parsed, accepted and then dropped on the floor.
-func TestBuildRegisteredRuntimeConfig_RegistersWeaviateLicense(t *testing.T) {
-	cfg := &Config{}
-	cfg.WeaviateLicense = runtime.NewDynamicValue(true)
+// Regression guard: the license gate must not be runtime-overridable. It is
+// set exclusively from the LICENSE_KEY form check at startup; a
+// weaviate_license entry in the runtime overrides file must never reach it.
+func TestWeaviateLicenseNotRuntimeOverridable(t *testing.T) {
+	log := logrus.New()
+	log.SetOutput(io.Discard)
 
-	registered := BuildRegisteredRuntimeConfig(cfg)
+	t.Run("weaviate_license is not part of the runtime config surface", func(t *testing.T) {
+		yd, err := yaml.Marshal(WeaviateRuntimeConfig{})
+		require.NoError(t, err)
+		require.NotContains(t, string(yd), "weaviate_license")
+	})
 
-	require.Same(t, cfg.WeaviateLicense, registered.WeaviateLicense)
+	t.Run("an overrides entry cannot flip the gate", func(t *testing.T) {
+		cfg := &Config{}
+		cfg.WeaviateLicense = runtime.NewDynamicValue(false)
+
+		registered := BuildRegisteredRuntimeConfig(cfg)
+
+		parsed, err := ParseRuntimeConfig([]byte("weaviate_license: true"))
+		require.NoError(t, err)
+		require.NoError(t, UpdateRuntimeConfig(log, registered, parsed, nil, nil))
+
+		require.False(t, cfg.WeaviateLicense.Get())
+	})
 }
