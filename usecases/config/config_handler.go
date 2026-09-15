@@ -375,8 +375,9 @@ type Config struct {
 	// at runtime.
 	WeaviateLicense bool `json:"weaviate_license" yaml:"weaviate_license"`
 
-	// License is the license state derived from LICENSE_KEY at startup, for
-	// observability (meta endpoint, metrics, logs).
+	// License is the license state derived from LICENSE_KEY or
+	// LICENSE_KEY_FILE at startup, for observability (meta endpoint, metrics,
+	// logs).
 	License license.State `json:"license" yaml:"license"`
 }
 

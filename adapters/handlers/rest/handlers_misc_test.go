@@ -70,6 +70,10 @@ func TestMetaGetLicense(t *testing.T) {
 			require.Equal(t, tc.wantLicenseID, body.License.LicenseID)
 			require.False(t, body.License.Enforcing)
 			require.False(t, body.License.ClusterMismatch)
+			for _, key := range []string{"expiresAt", "lastCheckedAt", "graceEndsAt"} {
+				require.NotContains(t, rec.Body.String(), key,
+					"unknown timestamps must be absent, not serialized as zero values")
+			}
 			require.NotContains(t, rec.Body.String(), "wv8.",
 				"key material must never appear in the meta response")
 		})

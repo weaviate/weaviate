@@ -38,15 +38,15 @@ type MetaLicense struct {
 
 	// When the license expires, if known.
 	// Format: date-time
-	ExpiresAt strfmt.DateTime `json:"expiresAt,omitempty"`
+	ExpiresAt *strfmt.DateTime `json:"expiresAt,omitempty"`
 
 	// When the grace period ends, if the license is not currently valid.
 	// Format: date-time
-	GraceEndsAt strfmt.DateTime `json:"graceEndsAt,omitempty"`
+	GraceEndsAt *strfmt.DateTime `json:"graceEndsAt,omitempty"`
 
 	// When the license was last verified with the license service, if ever.
 	// Format: date-time
-	LastCheckedAt strfmt.DateTime `json:"lastCheckedAt,omitempty"`
+	LastCheckedAt *strfmt.DateTime `json:"lastCheckedAt,omitempty"`
 
 	// The non-secret id of the configured license, empty when unlicensed.
 	LicenseID string `json:"licenseId,omitempty"`

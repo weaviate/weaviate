@@ -1495,17 +1495,20 @@
         "expiresAt": {
           "description": "When the license expires, if known.",
           "format": "date-time",
-          "type": "string"
+          "type": "string",
+          "x-nullable": true
         },
         "lastCheckedAt": {
           "description": "When the license was last verified with the license service, if ever.",
           "format": "date-time",
-          "type": "string"
+          "type": "string",
+          "x-nullable": true
         },
         "graceEndsAt": {
           "description": "When the grace period ends, if the license is not currently valid.",
           "format": "date-time",
-          "type": "string"
+          "type": "string",
+          "x-nullable": true
         },
         "enforcing": {
           "description": "Whether license enforcement is active.",

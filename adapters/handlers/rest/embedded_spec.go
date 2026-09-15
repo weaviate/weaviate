@@ -9732,17 +9732,20 @@ func init() {
         "expiresAt": {
           "description": "When the license expires, if known.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "graceEndsAt": {
           "description": "When the grace period ends, if the license is not currently valid.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "lastCheckedAt": {
           "description": "When the license was last verified with the license service, if ever.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "licenseId": {
           "description": "The non-secret id of the configured license, empty when unlicensed.",
@@ -22618,17 +22621,20 @@ func init() {
         "expiresAt": {
           "description": "When the license expires, if known.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "graceEndsAt": {
           "description": "When the grace period ends, if the license is not currently valid.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "lastCheckedAt": {
           "description": "When the license was last verified with the license service, if ever.",
           "type": "string",
-          "format": "date-time"
+          "format": "date-time",
+          "x-nullable": true
         },
         "licenseId": {
           "description": "The non-secret id of the configured license, empty when unlicensed.",
