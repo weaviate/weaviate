@@ -13,8 +13,29 @@ package config
 
 import (
 	"encoding/base64"
+	"fmt"
+	"os"
 	"strings"
 )
+
+// licenseKeyFromEnv returns the license key configured via LICENSE_KEY or
+// LICENSE_KEY_FILE. The two are mutually exclusive, and an unreadable file is
+// a startup error: both are clear misconfigurations that should fail fast
+// rather than silently fall back to free mode.
+func licenseKeyFromEnv() (string, error) {
+	key, keyFile := os.Getenv("LICENSE_KEY"), os.Getenv("LICENSE_KEY_FILE")
+	if key != "" && keyFile != "" {
+		return "", fmt.Errorf("LICENSE_KEY and LICENSE_KEY_FILE are mutually exclusive; set only one")
+	}
+	if keyFile == "" {
+		return key, nil
+	}
+	contents, err := os.ReadFile(keyFile)
+	if err != nil {
+		return "", fmt.Errorf("cannot read LICENSE_KEY_FILE: %w", err)
+	}
+	return strings.TrimSpace(string(contents)), nil
+}
 
 // licenseKeyWellFormed reports whether key has the form of a Weaviate
 // license key: "wv8.<license_id>.<seed>", where license_id is "lic_"
