@@ -14,6 +14,7 @@ package roaringset
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"math/rand"
 	"testing"
 	"time"
@@ -208,6 +209,121 @@ func TestBSTRoaringSet_Flatten(t *testing.T) {
 			}
 		})
 	})
+
+	t.Run("the flattened copy sheds the source bitmap's slack", func(t *testing.T) {
+		// A range mostly removed again leaves the container sized for what it
+		// held, so a copy that keeps the source's size is a buffer copy and one
+		// that shrinks reclaimed the slack. 1000 keeps the container
+		// array-backed, which is the shape a cursor over a memtable that has
+		// seen deletes actually holds.
+		bst := new(BinarySearchTree)
+		bst.Insert([]byte("key"), Insert{Additions: slice(0, 1000)})
+		bst.Insert([]byte("key"), Insert{Deletions: slice(10, 1000)})
+
+		flat := bst.FlattenInOrder()
+		require.Len(t, flat, 1)
+
+		source := bst.root.Value.Additions.ToBuffer()
+		copied := flat[0].Value.Additions.ToBuffer()
+
+		require.Greater(t, len(source), len(bst.root.Value.Additions.Compacted().ToBuffer()),
+			"the fixture no longer carries slack to reclaim; sroar's array/bitmap container threshold may have moved")
+		assert.Less(t, len(copied), len(source),
+			"a copy the size of the source means the buffer was copied, slack and all")
+		assert.ElementsMatch(t, slice(0, 10), flat[0].Value.Additions.ToArray(),
+			"shedding slack must not shed values")
+	})
+
+	t.Run("the flattened copy keeps a nil side nil", func(t *testing.T) {
+		// sroar's Compacted returns an allocated empty bitmap for a nil
+		// receiver, so the per-side guard is what stops a nil side coming back
+		// as one holding nothing.
+		bst := new(BinarySearchTree)
+		bst.Insert([]byte("key"), Insert{Additions: slice(0, 4)})
+		bst.root.Value.Deletions = nil
+
+		flat := bst.FlattenInOrder()
+		require.Len(t, flat, 1)
+		assert.Nil(t, flat[0].Value.Deletions)
+	})
+}
+
+func TestBinarySearchTreeCountsDistinctKeys(t *testing.T) {
+	ascendingKeys := func(n int) [][]byte {
+		keys := make([][]byte, n)
+		for i := range keys {
+			keys[i] = []byte(fmt.Sprintf("key-%05d", i))
+		}
+		return keys
+	}
+
+	tests := []struct {
+		name    string
+		inserts [][]byte
+		values  Insert
+		want    int
+	}{
+		{name: "no inserts", values: Insert{Additions: []uint64{1}}, want: 0},
+		{
+			name:    "one key",
+			inserts: [][]byte{[]byte("a")},
+			values:  Insert{Additions: []uint64{1}},
+			want:    1,
+		},
+		{
+			name:    "the same key twice merges",
+			inserts: [][]byte{[]byte("a"), []byte("a")},
+			values:  Insert{Additions: []uint64{1}},
+			want:    1,
+		},
+		{
+			name:    "the same key twice, not adjacent",
+			inserts: [][]byte{[]byte("b"), []byte("a"), []byte("b")},
+			values:  Insert{Additions: []uint64{1}},
+			want:    2,
+		},
+		{
+			// Ascending keys rebalance, so the root moves and insert returns a new
+			// one on rows a nil return would have counted as a merge.
+			name:    "ascending keys rebalance and still count once each",
+			inserts: ascendingKeys(64),
+			values:  Insert{Additions: []uint64{1}},
+			want:    64,
+		},
+		{
+			// The duplicate lands below the root, where insert relays the subtree's
+			// answer rather than deciding it.
+			name:    "a key re-inserted below the root merges",
+			inserts: [][]byte{[]byte("b"), []byte("a"), []byte("c"), []byte("c")},
+			values:  Insert{Additions: []uint64{1}},
+			want:    3,
+		},
+		{
+			name:    "a zero-length key is a key",
+			inserts: [][]byte{{}, []byte("a")},
+			values:  Insert{Additions: []uint64{1}},
+			want:    2,
+		},
+		{
+			name:    "a key carrying only deletions is a key",
+			inserts: [][]byte{[]byte("deleted")},
+			values:  Insert{Deletions: []uint64{7}},
+			want:    1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tree := new(BinarySearchTree)
+			for _, key := range tt.inserts {
+				tree.Insert(key, tt.values)
+			}
+
+			require.Equal(t, tt.want, tree.Count())
+			require.Len(t, tree.FlattenInOrder(), tt.want,
+				"Count must match the nodes a walk of the tree yields")
+		})
+	}
 }
 
 func BenchmarkBinarySearchTreeInsert(b *testing.B) {
@@ -264,8 +380,69 @@ func BenchmarkBinarySearchTreeFlatten(b *testing.B) {
 		m.Insert(keys[value], insert)
 	}
 
+	b.ReportAllocs()
+	b.ResetTimer()
+
 	for i := 0; i < b.N; i++ {
 		m.FlattenInOrder()
+	}
+}
+
+// BenchmarkBinarySearchTreeCopyWithSlack sweeps the per-node copy shallowCopy
+// could use, over bitmaps carrying container slack that
+// BenchmarkBinarySearchTreeFlatten's single-value nodes have none of: a buffer copy keeps the slack,
+// a union rebuilds the values, and a compacted copy sizes each container to what
+// it holds. Reading the three together is what says which one a cursor should
+// pay for.
+//
+// retained-B is the held size. B/op cannot stand in for it: it also counts
+// sroar's buffer slop beyond what ToBuffer reports, which understates the
+// difference between the copies.
+func BenchmarkBinarySearchTreeCopyWithSlack(b *testing.B) {
+	const keys = 200
+
+	bst := new(BinarySearchTree)
+	for i := 0; i < keys; i++ {
+		key := []byte(fmt.Sprintf("key-%05d", i))
+		bst.Insert(key, Insert{Additions: slice(0, 1000)})
+		bst.Insert(key, Insert{Deletions: slice(10, 1000)})
+	}
+
+	copies := []struct {
+		name string
+		copy func(BitmapLayer) BitmapLayer
+	}{
+		{"compacted", func(l BitmapLayer) BitmapLayer { return l.Compacted() }},
+		{"clone", func(l BitmapLayer) BitmapLayer { return l.Clone() }},
+		{"condense", func(l BitmapLayer) BitmapLayer {
+			return BitmapLayer{Additions: Condense(l.Additions), Deletions: Condense(l.Deletions)}
+		}},
+	}
+
+	// The tree's own nodes, not FlattenInOrder's output: that output is already a
+	// copy, so copying it again would measure every candidate against the one
+	// shallowCopy chose rather than against the source.
+	var walk func(*BinarySearchNode, func(BitmapLayer) BitmapLayer) int
+	walk = func(n *BinarySearchNode, candidate func(BitmapLayer) BitmapLayer) int {
+		if n == nil {
+			return 0
+		}
+		copied := candidate(n.Value)
+		return walk(n.left, candidate) + copied.LenInBytes() + walk(n.right, candidate)
+	}
+
+	for _, cp := range copies {
+		b.Run(cp.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+
+			var retained int
+			for i := 0; i < b.N; i++ {
+				retained = walk(bst.root, cp.copy)
+			}
+
+			b.ReportMetric(float64(retained), "retained-B")
+		})
 	}
 }
 

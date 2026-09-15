@@ -496,7 +496,7 @@ func (sg *SegmentGroup) compactOnceAbortable(ctx context.Context,
 	case segmentindex.StrategyRoaringSet:
 		c := roaringset.NewCompactor(f, left.newRoaringSetCursor(), right.newRoaringSetCursor(),
 			level, cleanupTombstones,
-			sg.enableChecksumValidation, maxNewFileSize, sg.allocChecker)
+			sg.enableChecksumValidation, maxNewFileSize)
 
 		aborted, err := runCompactor(c.Do)
 		if err != nil {
