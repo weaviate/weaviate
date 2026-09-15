@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -1213,33 +1215,43 @@ func TestEnvironmentExperimentalRESTSearchEnabled(t *testing.T) {
 }
 
 func TestEnvironmentWeaviateLicense(t *testing.T) {
-	factors := []struct {
-		name     string
-		value    []string
-		expected bool
-	}{
-		{"Valid: true", []string{"true"}, true},
-		{"Valid: on", []string{"on"}, true},
-		{"Valid: enabled", []string{"enabled"}, true},
-		{"Valid: 1", []string{"1"}, true},
-		{"Valid: false", []string{"false"}, false},
-		{"Valid: off", []string{"off"}, false},
-		{"Valid: 0", []string{"0"}, false},
-		{"Unrecognized value counts as off", []string{"yes"}, false},
-		{"Empty value counts as off", []string{""}, false},
-		{"not given", []string{}, false},
-	}
-	for _, tt := range factors {
-		t.Run(tt.name, func(t *testing.T) {
-			if len(tt.value) == 1 {
-				t.Setenv("WEAVIATE_LICENSE", tt.value[0])
-			}
-			conf := Config{}
-			require.NoError(t, FromEnv(&conf))
+	t.Run("well-formed key enables the license gate", func(t *testing.T) {
+		t.Setenv("LICENSE_KEY", wellFormedLicenseKey())
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
 
-			require.Equal(t, tt.expected, conf.WeaviateLicense.Get())
-		})
-	}
+		require.True(t, conf.WeaviateLicense.Get())
+	})
+
+	t.Run("malformed key disables the gate and logs a warning", func(t *testing.T) {
+		hook := logrustest.NewGlobal()
+		defer hook.Reset()
+
+		t.Setenv("LICENSE_KEY", "not-a-license-key")
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+
+		require.False(t, conf.WeaviateLicense.Get())
+		entry := hook.LastEntry()
+		require.NotNil(t, entry)
+		require.Equal(t, logrus.WarnLevel, entry.Level)
+		require.Contains(t, entry.Message, "LICENSE_KEY")
+		require.NotContains(t, entry.Message, "not-a-license-key",
+			"the warning must never contain the key itself")
+	})
+
+	t.Run("unset key disables the gate without a warning", func(t *testing.T) {
+		hook := logrustest.NewGlobal()
+		defer hook.Reset()
+
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+
+		require.False(t, conf.WeaviateLicense.Get())
+		for _, entry := range hook.AllEntries() {
+			require.NotContains(t, entry.Message, "LICENSE_KEY")
+		}
+	})
 }
 
 func TestEnvironmentCORS_Headers(t *testing.T) {
