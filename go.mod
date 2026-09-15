@@ -36,7 +36,7 @@ require (
 	github.com/getsentry/sentry-go v0.30.0
 	github.com/go-ego/gse v0.80.3
 	github.com/go-jose/go-jose/v4 v4.1.4
-	github.com/go-openapi/errors v0.22.4
+	github.com/go-openapi/errors v0.22.8
 	github.com/go-openapi/loads v0.23.2
 	github.com/go-openapi/runtime v0.29.2
 	github.com/go-openapi/spec v0.22.6
