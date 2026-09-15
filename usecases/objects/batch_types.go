@@ -12,6 +12,8 @@
 package objects
 
 import (
+	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -70,6 +72,50 @@ type BatchReferences []BatchReference
 type BatchSimpleObject struct {
 	UUID strfmt.UUID
 	Err  error
+}
+
+// MarshalJSON carries Err as text in ErrMsg, and keeps writing the legacy Err
+// key beside it. An error has no exported fields, so stock JSON writes it as
+// {}, which a decoder without this codec fails on loudly. Dropping the key
+// would instead let that decoder read a failed delete as a nil Err.
+func (b BatchSimpleObject) MarshalJSON() ([]byte, error) {
+	var (
+		msg    string
+		legacy json.RawMessage
+	)
+	if b.Err != nil {
+		msg = b.Err.Error()
+		legacy = json.RawMessage("{}")
+	}
+	return json.Marshal(struct {
+		UUID   strfmt.UUID     `json:"UUID"`
+		Err    json.RawMessage `json:"Err,omitempty"`
+		ErrMsg string          `json:"ErrMsg,omitempty"`
+	}{b.UUID, legacy, msg})
+}
+
+// UnmarshalJSON rebuilds Err from ErrMsg. A peer without the codec writes a
+// non-nil error as "Err":{}, carrying no text, so a stand-in takes its place.
+// A slot that failed is never read as one that succeeded.
+func (b *BatchSimpleObject) UnmarshalJSON(in []byte) error {
+	var row struct {
+		UUID   strfmt.UUID     `json:"UUID"`
+		Err    json.RawMessage `json:"Err"`
+		ErrMsg string          `json:"ErrMsg"`
+	}
+	if err := json.Unmarshal(in, &row); err != nil {
+		return err
+	}
+	b.UUID = row.UUID
+	switch {
+	case row.ErrMsg != "":
+		b.Err = errors.New(row.ErrMsg)
+	case len(row.Err) > 0 && string(row.Err) != "null":
+		b.Err = errors.New("remote shard reported an error it could not transmit")
+	default:
+		b.Err = nil
+	}
+	return nil
 }
 
 type BatchSimpleObjects []BatchSimpleObject
