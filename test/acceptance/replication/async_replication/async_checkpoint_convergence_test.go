@@ -137,7 +137,8 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			perShard := map[string]map[string]string{} // shard → node → root
 			for i, cluster := range nodeClusters {
-				statuses := common.AsyncCheckpointStatus(t, cluster, paragraphClass.Class, shards)
+				statuses, err := common.TryAsyncCheckpointStatus(cluster, paragraphClass.Class, shards)
+				require.NoError(ct, err)
 				for shard, entry := range statuses {
 					if entry.CutoffMs == 0 {
 						// Record asymmetry so the all-nodes-agree check fails loudly.
@@ -283,7 +284,8 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_RestartDro
 	// Pre-restart: every node has an active checkpoint.
 	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 		for _, c := range []string{node1Cluster, node2Cluster, node3Cluster} {
-			st := common.AsyncCheckpointStatus(t, c, paragraphClass.Class, shards)
+			st, err := common.TryAsyncCheckpointStatus(c, paragraphClass.Class, shards)
+			require.NoError(ct, err)
 			for _, e := range st {
 				assert.NotZero(ct, e.CutoffMs, "all nodes should have active checkpoints before restart")
 			}
@@ -297,7 +299,8 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_RestartDro
 
 	postNode3Cluster := compose.GetWeaviateNode(3).ClusterURI()
 	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-		st := common.AsyncCheckpointStatus(t, postNode3Cluster, paragraphClass.Class, shards)
+		st, err := common.TryAsyncCheckpointStatus(postNode3Cluster, paragraphClass.Class, shards)
+		require.NoError(ct, err)
 		for shard, e := range st {
 			assert.Equal(ct, int64(0), e.CutoffMs,
 				"shard %q on the restarted node must report inactive (in-memory durability contract)", shard)

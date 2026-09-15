@@ -1118,6 +1118,11 @@ func FromEnv(config *Config) error {
 
 	config.Replication.AsyncReplicationDisabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED")))
 
+	if v := os.Getenv("REPLICA_MOVEMENT_ENABLED"); v != "" {
+		config.ReplicaMovementEnabled = entcfg.Enabled(v)
+	}
+
+	config.Replication.ReplicaMovementEnabled = configRuntime.NewDynamicValue(config.ReplicaMovementEnabled)
 	config.Replication.ReplicaMovementCleanupEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICA_MOVEMENT_CLEANUP_ENABLED")))
 	config.Replication.ReplicaMovementCleanupIncludeCancelled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("REPLICA_MOVEMENT_CLEANUP_INCLUDE_CANCELLED")))
 
@@ -1504,10 +1509,6 @@ func FromEnv(config *Config) error {
 		func(val *configRuntime.DynamicValue[int]) { config.DistributedTasks.ReindexConcurrency = val },
 	); err != nil {
 		return err
-	}
-
-	if v := os.Getenv("REPLICA_MOVEMENT_ENABLED"); v != "" {
-		config.ReplicaMovementEnabled = entcfg.Enabled(v)
 	}
 
 	// Assign only when set, so an absent env var does not overwrite a

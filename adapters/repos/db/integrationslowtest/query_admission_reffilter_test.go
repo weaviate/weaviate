@@ -11,7 +11,7 @@
 
 //go:build integrationTest
 
-package db
+package integrationslowtest
 
 import (
 	"context"
@@ -26,6 +26,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/concurrency"
@@ -61,8 +62,7 @@ func TestQueryAdmissionRefFilterNoWedge(t *testing.T) {
 	)
 
 	ctx := context.Background()
-	repo, shard, reg := setupRefAdmissionRepo(t, budget, maxQueue, numAuthors)
-	defer repo.Shutdown(ctx)
+	_, shard, reg := setupRefAdmissionRepo(t, budget, maxQueue, numAuthors)
 
 	refFilter := articleRefNameLike("*a*")
 
@@ -133,8 +133,7 @@ func TestQueryAdmissionRefFilterSingleGrant(t *testing.T) {
 	budget := 3 * numQueries * want
 
 	ctx := context.Background()
-	repo, shard, reg := setupRefAdmissionRepo(t, budget, maxQueue, numAuthors)
-	defer repo.Shutdown(ctx)
+	_, shard, reg := setupRefAdmissionRepo(t, budget, maxQueue, numAuthors)
 
 	refFilter := articleRefNameLike("*a*")
 
@@ -204,7 +203,7 @@ func readAdmissionGauge(reg *prometheus.Registry, name string) float64 {
 // reports whether all complete within 30s; the per-query 60s deadline alone
 // can't interrupt the buggy build's nested-Admit wedge, so callers handle a
 // false return with their own wedge diagnostics.
-func burstRefFilterSearches(t *testing.T, qctx context.Context, shard ShardLike,
+func burstRefFilterSearches(t *testing.T, qctx context.Context, shard db.ShardLike,
 	refFilter *filters.LocalFilter, numQueries int,
 ) bool {
 	t.Helper()
@@ -267,7 +266,7 @@ func articleRefNameLike(pattern string) *filters.LocalFilter {
 // cross-reference schema and a query-admission limiter whose metrics register
 // to the returned isolated registry, so tests can read the real gauges without
 // any test-only accessor on the limiter.
-func setupRefAdmissionRepo(t *testing.T, budget, maxQueue, numAuthors int) (*DB, ShardLike, *prometheus.Registry) {
+func setupRefAdmissionRepo(t *testing.T, budget, maxQueue, numAuthors int) (*db.DB, db.ShardLike, *prometheus.Registry) {
 	t.Helper()
 
 	// Copy the global metrics struct (its metric vectors stay valid) but point
@@ -330,7 +329,7 @@ func setupRefAdmissionRepo(t *testing.T, budget, maxQueue, numAuthors int) (*DB,
 // identical vectors collapse the HNSW graph into a near-complete graph,
 // making construction super-linear and slow enough to hang CI. The watchdog
 // below turns any regression into a fast, labelled failure instead of a hang.
-func importRefAdmissionObjects(t *testing.T, repo *DB, numAuthors int) {
+func importRefAdmissionObjects(t *testing.T, repo *db.DB, numAuthors int) {
 	t.Helper()
 
 	// Order-of-magnitude above a healthy import but well under the suite
@@ -359,7 +358,7 @@ func importRefAdmissionObjects(t *testing.T, repo *DB, numAuthors int) {
 
 // writeRefAdmissionObjects does the batched import and returns the first
 // error; it runs on its own goroutine, so it must not touch *testing.T.
-func writeRefAdmissionObjects(repo *DB, numAuthors int) error {
+func writeRefAdmissionObjects(repo *db.DB, numAuthors int) error {
 	const chunk = 1000
 
 	authorIDs := make([]strfmt.UUID, numAuthors)
@@ -446,8 +445,7 @@ func TestObjectVectorSearchHoldsGrantForWholeSearch(t *testing.T) {
 	)
 
 	ctx := context.Background()
-	repo, shard, reg := setupRefAdmissionRepo(t, budget, maxQueue, numAuthors)
-	defer repo.Shutdown(ctx)
+	_, shard, reg := setupRefAdmissionRepo(t, budget, maxQueue, numAuthors)
 
 	// Matches every Article, so the allow-list grant is observable and the
 	// vector phase after it dominates the query.
@@ -527,8 +525,7 @@ func TestPureVectorSearchIsAdmitted(t *testing.T) {
 	)
 
 	ctx := context.Background()
-	repo, shard, reg := setupRefAdmissionRepo(t, budget, maxQueue, numAuthors)
-	defer repo.Shutdown(ctx)
+	_, shard, reg := setupRefAdmissionRepo(t, budget, maxQueue, numAuthors)
 
 	searchVec := []models.Vector{[]float32{0.1, 0.2, 0.3}}
 
@@ -581,7 +578,6 @@ func TestQueryAdmissionAggregateRefFilterSheds(t *testing.T) {
 
 	ctx := context.Background()
 	repo, _, reg := setupRefAdmissionRepo(t, budget, maxQueue, numAuthors)
-	defer repo.Shutdown(ctx)
 
 	plainFilter := &filters.LocalFilter{Root: &filters.Clause{
 		Operator: filters.OperatorLike,

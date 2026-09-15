@@ -40,6 +40,8 @@ func TestGQLAggregateTenantObjects(t *testing.T) {
 				DataType: schema.DataTypeText.PropString(),
 			},
 		},
+		// the aggregate cases below include a nearObject filter
+		Vectorizer: "text2vec-contextionary",
 	}
 	tenantName1 := "Tenant1"
 	tenantName2 := "Tenant2"

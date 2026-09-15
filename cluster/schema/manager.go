@@ -420,8 +420,10 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	cs := make([]command.UpdateClassRequest, len(classes))
 	i := 0
 	for _, v := range classes {
-		migratePropertiesIfNecessary(&v.Class)
-		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
+		// Shards keep the class pointer, and &v.Class would keep v.Sharding alive with it.
+		class := v.Class
+		migratePropertiesIfNecessary(&class)
+		cs[i] = command.UpdateClassRequest{Class: &class, State: &v.Sharding}
 		i++
 	}
 	s.db.TriggerSchemaUpdateCallbacks()
@@ -612,18 +614,6 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		// from an update that never applied. (Moving the purge below the
 		// assignments is no safer: the refusal above must not fire after the
 		// meta was already mutated.)
-		//
-		// ROLLING UPGRADE: the purge and the refusal below are new behavior in
-		// a deterministic apply, so a mixed-version cluster diverges on this
-		// very log entry — a node without this code neither purges nor refuses,
-		// and the two FSMs stay disagreeing after the upgrade completes. The
-		// AddTask apply has the same exposure (CheckConflict's claim re-check
-		// rejects on new binaries, accepts on old). An in-apply version check
-		// cannot fix it: reading node-local version state during apply is
-		// itself non-deterministic, so any fence has to sit proposal-side.
-		// Accepted while the endpoint is experimental
-		// (ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT); revisit
-		// before the feature is promoted to a supported release.
 		if introduced := introducedDroppedVectorConfigs(&meta.Class, u); len(introduced) > 0 {
 			if s.distributedTaskManager == nil {
 				// Mirrors cascadeDeleteDistributedTasks: a marker introduced
@@ -1229,8 +1219,9 @@ func migratePropertiesIfNecessary(class *models.Class) {
 }
 
 func migrateNestedPropertiesIfNecessary(nprop *models.NestedProperty) {
-	// migrate this nested property
-	nprop.IndexRangeFilters = func() *bool { f := false; return &f }()
+	if nprop.IndexRangeFilters == nil {
+		nprop.IndexRangeFilters = func() *bool { f := false; return &f }()
+	}
 	// Recurse on all nested properties this one has
 	for _, recurseNestedProperty := range nprop.NestedProperties {
 		migrateNestedPropertiesIfNecessary(recurseNestedProperty)
