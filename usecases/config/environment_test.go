@@ -2293,6 +2293,19 @@ func TestBatchStreamFromEnv(t *testing.T) {
 		require.Equal(t, expected, config.BatchStream)
 	})
 
+	t.Run("a json config file loads the same fields", func(t *testing.T) {
+		configJSON := `{"batch_stream": {"gate_ratio": 0.8, "engage_ratio": 0.4, "max_ack_delay": 1500000000, "hold_seconds": 12}}`
+		weaviateConfig := &WeaviateConfig{}
+		config, err := weaviateConfig.parseConfigFile([]byte(configJSON), "config.json")
+		require.NoError(t, err)
+		require.Equal(t, BatchStream{
+			gateRatio:   new(0.8),
+			engageRatio: new(0.4),
+			maxAckDelay: new(1500 * time.Millisecond),
+			holdSeconds: new(12),
+		}, config.BatchStream)
+	})
+
 	t.Run("each variable overrides its field", func(t *testing.T) {
 		t.Setenv("BATCH_STREAM_GATE_RATIO", "0.6")
 		t.Setenv("BATCH_STREAM_ENGAGE_RATIO", "0.2")
@@ -2341,11 +2354,11 @@ func TestBatchStreamFromEnv(t *testing.T) {
 		config := Config{}
 		require.NoError(t, FromEnv(&config))
 		require.Equal(t, BatchStream{
-			gateRatio:   new(DefaultBatchStreamGateRatio),
 			engageRatio: new(0.0),
 			maxAckDelay: new(time.Duration(0)),
 			holdSeconds: new(0),
 		}, config.BatchStream)
+		require.Equal(t, DefaultBatchStreamGateRatio, config.BatchStream.GateRatio())
 	})
 
 	t.Run("a negative hold or delay is rejected", func(t *testing.T) {

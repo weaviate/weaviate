@@ -947,21 +947,21 @@ type BatchStream struct {
 	// gateRatio is the fraction of GOMEMLIMIT at which live heap stops a message
 	// being admitted. It is the threshold of the batch stream's own memory
 	// monitor, and the top of the ack delay curve.
-	gateRatio *float64 `json:"gate_ratio" yaml:"gate_ratio"`
+	gateRatio *float64
 
 	// EngageRatio is the live heap ratio below which acks are not delayed.
 	// Between it and GateRatio the delay grows convexly to MaxAckDelay. A
 	// GateRatio at or below it disables the delay entirely.
-	engageRatio *float64 `json:"engage_ratio" yaml:"engage_ratio"`
+	engageRatio *float64
 
 	// maxAckDelay is the ack delay applied at and above GateRatio. Zero switches
 	// the ack delay off.
-	maxAckDelay *time.Duration `json:"max_ack_delay" yaml:"max_ack_delay"`
+	maxAckDelay *time.Duration
 
 	// holdSeconds bounds how long a receiver waits for memory after a failed
 	// admission check before it fails the stream. Zero fails the stream on the
 	// first failed check.
-	holdSeconds *int `json:"hold_seconds" yaml:"hold_seconds"`
+	holdSeconds *int
 }
 
 func NewBatchStream(gateRatio, engageRatio *float64, maxAckDelay *time.Duration, holdSeconds *int) BatchStream {
@@ -1008,6 +1008,33 @@ func (b BatchStream) WithHoldSeconds(holdSeconds int) BatchStream {
 		maxAckDelay: b.maxAckDelay,
 		holdSeconds: &holdSeconds,
 	}
+}
+
+// batchStreamFile is the config-file shape of BatchStream. The yaml and json
+// decoders skip unexported fields, so BatchStream decodes through it.
+type batchStream struct {
+	GateRatio   *float64       `json:"gate_ratio" yaml:"gate_ratio"`
+	EngageRatio *float64       `json:"engage_ratio" yaml:"engage_ratio"`
+	MaxAckDelay *time.Duration `json:"max_ack_delay" yaml:"max_ack_delay"`
+	HoldSeconds *int           `json:"hold_seconds" yaml:"hold_seconds"`
+}
+
+func (b *BatchStream) UnmarshalYAML(node *yaml.Node) error {
+	var f batchStream
+	if err := node.Decode(&f); err != nil {
+		return err
+	}
+	*b = NewBatchStream(f.GateRatio, f.EngageRatio, f.MaxAckDelay, f.HoldSeconds)
+	return nil
+}
+
+func (b *BatchStream) UnmarshalJSON(data []byte) error {
+	var f batchStream
+	if err := json.Unmarshal(data, &f); err != nil {
+		return err
+	}
+	*b = NewBatchStream(f.GateRatio, f.EngageRatio, f.MaxAckDelay, f.HoldSeconds)
+	return nil
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided
