@@ -1085,20 +1085,11 @@ func FromEnv(config *Config) error {
 
 	config.DisableGraphQL = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("DISABLE_GRAPHQL")))
 	config.ExperimentalRESTSearchEnabled = configRuntime.NewDynamicValue(entcfg.Enabled(os.Getenv("EXPERIMENTAL_REST_SEARCH_ENABLED")))
-	licenseKey, err := licenseKeyFromEnv()
+	weaviateLicense, err := weaviateLicenseEnabled()
 	if err != nil {
 		return err
 	}
-	// Never log the key itself.
-	switch {
-	case licenseKey == "" && os.Getenv("LICENSE_KEY_FILE") != "":
-		logrus.Warn("LICENSE_KEY_FILE is set but the file contains no key; " +
-			"Weaviate-licensed functionality is disabled")
-	case licenseKey != "" && !licenseKeyWellFormed(licenseKey):
-		logrus.Warn("the license key configured via LICENSE_KEY or LICENSE_KEY_FILE is not a " +
-			"well-formed Weaviate license key; Weaviate-licensed functionality is disabled")
-	}
-	config.WeaviateLicense = licenseKeyWellFormed(licenseKey)
+	config.WeaviateLicense = weaviateLicense
 
 	config.Namespaces.Enabled = entcfg.Enabled(os.Getenv("NAMESPACES_ENABLED"))
 	if config.Namespaces.Enabled {
