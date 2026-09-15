@@ -26,6 +26,10 @@ import (
 // matches; call sites translate it into a 404.
 var ErrRoleNotFound = errors.New("role not found")
 
+// ErrInvalidRoleName is wrapped around a role name containing ':'. It lets a
+// ResolveRoleName caller tell a client error from a failed role lookup.
+var ErrInvalidRoleName = errors.New("not a valid role name")
+
 // QualifyRoleNameForCreate returns the stored name for a freshly created role.
 // A namespaced caller creates a local role auto-prefixed with its namespace; a
 // global caller creates an unprefixed global role. Neither may carry a ':' in
@@ -35,7 +39,7 @@ func QualifyRoleNameForCreate(principal *models.Principal, namespacesEnabled boo
 		return raw, nil
 	}
 	if strings.Contains(raw, schema.NamespaceSeparator) {
-		return "", fmt.Errorf("'%s' is not a valid role name", raw)
+		return "", fmt.Errorf("'%s' is %w", raw, ErrInvalidRoleName)
 	}
 	if ConfinedNamespace(principal) == "" {
 		return raw, nil
@@ -61,7 +65,7 @@ func ResolveRoleName(principal *models.Principal, namespacesEnabled bool, raw st
 		return raw, nil
 	}
 	if qualified {
-		return "", fmt.Errorf("'%s' is not a valid role name", raw)
+		return "", fmt.Errorf("'%s' is %w", raw, ErrInvalidRoleName)
 	}
 	local := QualifiedName(principal.Namespace, raw)
 	switch ok, err := exists(local); {

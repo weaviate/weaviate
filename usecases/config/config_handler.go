@@ -258,6 +258,7 @@ type Config struct {
 
 	RuntimeOverrides RuntimeOverrides `json:"runtime_overrides" yaml:"runtime_overrides"`
 
+	// Kept for BC with config files, value piped into Replication.ReplicaMovementEnabled as runtime config
 	ReplicaMovementEnabled bool `json:"replica_movement_enabled" yaml:"replica_movement_enabled"`
 
 	// RuntimeReindexEnabled gates runtime reindex (RUNTIME_REINDEX_ENABLED),
@@ -367,8 +368,10 @@ type Config struct {
 	DisableDimensionMetrics *runtime.DynamicValue[bool] `json:"disable_dimension_metrics" yaml:"disable_dimension_metrics"`
 
 	// WeaviateLicense gates the functionality that is licensed under the
-	// Weaviate License (the "wl" directory) instead of BSD-3-Clause.
-	WeaviateLicense *runtime.DynamicValue[bool] `json:"weaviate_license" yaml:"weaviate_license"`
+	// Weaviate License (the "wl" directory) instead of BSD-3-Clause. It is set
+	// once at startup from the LICENSE_KEY form check and cannot be overridden
+	// at runtime.
+	WeaviateLicense bool `json:"weaviate_license" yaml:"weaviate_license"`
 }
 
 type CollectionPropsTenants struct {

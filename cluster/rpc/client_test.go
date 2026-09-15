@@ -143,11 +143,8 @@ func TestClient_Query_ParseError(t *testing.T) {
 	require.Equal(t, codes.NotFound, st.Code())
 }
 
-// TestFromRPCError_SentinelRoundTrip covers the round-trip from
-// toRPCError on the server to fromRPCError on the client for every
-// namespace, leadership and db-user sentinel. After this round-trip a caller must
-// be able to errors.Is the returned error to the original sentinel — the
-// RPC pair is the only sentinel re-chain point.
+// TestFromRPCError_SentinelRoundTrip pins that each sentinel below still matches
+// errors.Is after toRPCError turns it into a gRPC status and fromRPCError re-attaches it.
 func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 	tests := []struct {
 		name string
@@ -175,6 +172,7 @@ func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 		{name: "ErrLeaderNotFound", send: types.ErrLeaderNotFound},
 		{name: "ErrUserIdentifierExists", send: apikey.ErrUserIdentifierExists},
 		{name: "ErrUserExists", send: apikey.ErrUserExists},
+		{name: "ErrUnknownCommand", send: types.ErrUnknownCommand},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

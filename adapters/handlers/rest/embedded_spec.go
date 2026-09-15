@@ -5157,6 +5157,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -8176,6 +8182,20 @@ func init() {
         "Path": {
           "description": "Path or key within the bucket.",
           "type": "string"
+        },
+        "dedupeConvergenceTimeoutSeconds": {
+          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
+          "type": "integer",
+          "default": 60,
+          "maximum": 600,
+          "minimum": 1,
+          "x-nullable": false
+        },
+        "dedupeReplicas": {
+          "description": "If true, shards of replicated collections that are provably in sync (via async-replication checkpoints) are archived by a single replica instead of every replica, and a restore copies them back to all replicas. Shards that cannot be proven in sync fall back to being archived by every replica. The proof is the one async replication itself uses (matching object UUIDs and update timestamps at a checkpoint), and the archived copy is the designated replica's state at archive time: it provably contains every write acknowledged at or before the per-class checkpoint cutoff taken shortly after the backup starts (persisted as dedupeCutoffsMs in the backup descriptor), while writes concurrent with the backup are included best-effort, as in any backup mode. Requires async replication on replicated collections and a cluster where every node supports this option. A backup where at least one shard was deduplicated can only be restored by versions that support this option, and its restore requires every replica node of the archived sharding state to be resolvable (or mapped via node_mapping). Restoring such a backup can block the restore request for up to two minutes while participants read all source descriptors; size client timeouts accordingly. If no shard could be deduplicated, the backup is written in the legacy format and restores like any other backup. The option must be enabled on the cluster (env BACKUP_DEDUPE_ENABLED=true); otherwise requests carrying it are rejected with 422, while restores of existing deduplicated backups always work.",
+          "type": "boolean",
+          "default": false,
+          "x-nullable": false
         }
       }
     },
@@ -8693,99 +8713,12 @@ func init() {
         }
       }
     },
-    "C11yExtension": {
-      "description": "A resource describing an extension to the contextinoary, containing both the identifier and the definition of the extension",
-      "properties": {
-        "concept": {
-          "description": "The new concept you want to extend. Must be an all-lowercase single word, or a space delimited compound word. Examples: 'foobarium', 'my custom concept'",
-          "type": "string",
-          "example": "foobarium"
-        },
-        "definition": {
-          "description": "A list of space-delimited words or a sentence describing what the custom concept is about. Avoid using the custom concept itself. An Example definition for the custom concept 'foobarium': would be 'a naturally occurring element which can only be seen by programmers'",
-          "type": "string"
-        },
-        "weight": {
-          "description": "Weight of the definition of the new concept where 1='override existing definition entirely' and 0='ignore custom definition'. Note that if the custom concept is not present in the contextionary yet, the weight cannot be less than 1.",
-          "type": "number",
-          "format": "float"
-        }
-      }
-    },
-    "C11yNearestNeighbors": {
-      "description": "C11y function to show the nearest neighbors to a word.",
-      "type": "array",
-      "items": {
-        "type": "object",
-        "properties": {
-          "distance": {
-            "type": "number",
-            "format": "float"
-          },
-          "word": {
-            "type": "string"
-          }
-        }
-      }
-    },
     "C11yVector": {
       "description": "A vector representation of the object in the Contextionary. If provided at object creation, this wil take precedence over any vectorizer setting.",
       "type": "array",
       "items": {
         "type": "number",
         "format": "float"
-      }
-    },
-    "C11yWordsResponse": {
-      "description": "An array of available words and contexts.",
-      "properties": {
-        "concatenatedWord": {
-          "description": "Weighted results for all words",
-          "type": "object",
-          "properties": {
-            "concatenatedNearestNeighbors": {
-              "$ref": "#/definitions/C11yNearestNeighbors"
-            },
-            "concatenatedVector": {
-              "$ref": "#/definitions/C11yVector"
-            },
-            "concatenatedWord": {
-              "type": "string"
-            },
-            "singleWords": {
-              "type": "array",
-              "items": {
-                "format": "string"
-              }
-            }
-          }
-        },
-        "individualWords": {
-          "description": "Weighted results for per individual word",
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "info": {
-                "type": "object",
-                "properties": {
-                  "nearestNeighbors": {
-                    "$ref": "#/definitions/C11yNearestNeighbors"
-                  },
-                  "vector": {
-                    "$ref": "#/definitions/C11yVector"
-                  }
-                }
-              },
-              "present": {
-                "type": "boolean"
-              },
-              "word": {
-                "type": "string"
-              }
-            }
-          }
-        }
       }
     },
     "Class": {
@@ -17818,6 +17751,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -20837,6 +20776,20 @@ func init() {
         "Path": {
           "description": "Path or key within the bucket.",
           "type": "string"
+        },
+        "dedupeConvergenceTimeoutSeconds": {
+          "description": "How long the coordinator waits for replica convergence proof before shards fall back to being archived by every replica. Only used when dedupeReplicas is set. The wait happens synchronously inside the backup creation request, which blocks for roughly 10 seconds plus up to this timeout; size client timeouts accordingly.",
+          "type": "integer",
+          "default": 60,
+          "maximum": 600,
+          "minimum": 1,
+          "x-nullable": false
+        },
+        "dedupeReplicas": {
+          "description": "If true, shards of replicated collections that are provably in sync (via async-replication checkpoints) are archived by a single replica instead of every replica, and a restore copies them back to all replicas. Shards that cannot be proven in sync fall back to being archived by every replica. The proof is the one async replication itself uses (matching object UUIDs and update timestamps at a checkpoint), and the archived copy is the designated replica's state at archive time: it provably contains every write acknowledged at or before the per-class checkpoint cutoff taken shortly after the backup starts (persisted as dedupeCutoffsMs in the backup descriptor), while writes concurrent with the backup are included best-effort, as in any backup mode. Requires async replication on replicated collections and a cluster where every node supports this option. A backup where at least one shard was deduplicated can only be restored by versions that support this option, and its restore requires every replica node of the archived sharding state to be resolvable (or mapped via node_mapping). Restoring such a backup can block the restore request for up to two minutes while participants read all source descriptors; size client timeouts accordingly. If no shard could be deduplicated, the backup is written in the legacy format and restores like any other backup. The option must be enabled on the cluster (env BACKUP_DEDUPE_ENABLED=true); otherwise requests carrying it are rejected with 422, while restores of existing deduplicated backups always work.",
+          "type": "boolean",
+          "default": false,
+          "x-nullable": false
         }
       }
     },
@@ -21445,137 +21398,12 @@ func init() {
         }
       }
     },
-    "C11yExtension": {
-      "description": "A resource describing an extension to the contextinoary, containing both the identifier and the definition of the extension",
-      "properties": {
-        "concept": {
-          "description": "The new concept you want to extend. Must be an all-lowercase single word, or a space delimited compound word. Examples: 'foobarium', 'my custom concept'",
-          "type": "string",
-          "example": "foobarium"
-        },
-        "definition": {
-          "description": "A list of space-delimited words or a sentence describing what the custom concept is about. Avoid using the custom concept itself. An Example definition for the custom concept 'foobarium': would be 'a naturally occurring element which can only be seen by programmers'",
-          "type": "string"
-        },
-        "weight": {
-          "description": "Weight of the definition of the new concept where 1='override existing definition entirely' and 0='ignore custom definition'. Note that if the custom concept is not present in the contextionary yet, the weight cannot be less than 1.",
-          "type": "number",
-          "format": "float"
-        }
-      }
-    },
-    "C11yNearestNeighbors": {
-      "description": "C11y function to show the nearest neighbors to a word.",
-      "type": "array",
-      "items": {
-        "$ref": "#/definitions/C11yNearestNeighborsItems0"
-      }
-    },
-    "C11yNearestNeighborsItems0": {
-      "type": "object",
-      "properties": {
-        "distance": {
-          "type": "number",
-          "format": "float"
-        },
-        "word": {
-          "type": "string"
-        }
-      }
-    },
     "C11yVector": {
       "description": "A vector representation of the object in the Contextionary. If provided at object creation, this wil take precedence over any vectorizer setting.",
       "type": "array",
       "items": {
         "type": "number",
         "format": "float"
-      }
-    },
-    "C11yWordsResponse": {
-      "description": "An array of available words and contexts.",
-      "properties": {
-        "concatenatedWord": {
-          "description": "Weighted results for all words",
-          "type": "object",
-          "properties": {
-            "concatenatedNearestNeighbors": {
-              "$ref": "#/definitions/C11yNearestNeighbors"
-            },
-            "concatenatedVector": {
-              "$ref": "#/definitions/C11yVector"
-            },
-            "concatenatedWord": {
-              "type": "string"
-            },
-            "singleWords": {
-              "type": "array",
-              "items": {
-                "format": "string"
-              }
-            }
-          }
-        },
-        "individualWords": {
-          "description": "Weighted results for per individual word",
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/C11yWordsResponseIndividualWordsItems0"
-          }
-        }
-      }
-    },
-    "C11yWordsResponseConcatenatedWord": {
-      "description": "Weighted results for all words",
-      "type": "object",
-      "properties": {
-        "concatenatedNearestNeighbors": {
-          "$ref": "#/definitions/C11yNearestNeighbors"
-        },
-        "concatenatedVector": {
-          "$ref": "#/definitions/C11yVector"
-        },
-        "concatenatedWord": {
-          "type": "string"
-        },
-        "singleWords": {
-          "type": "array",
-          "items": {
-            "format": "string"
-          }
-        }
-      }
-    },
-    "C11yWordsResponseIndividualWordsItems0": {
-      "type": "object",
-      "properties": {
-        "info": {
-          "type": "object",
-          "properties": {
-            "nearestNeighbors": {
-              "$ref": "#/definitions/C11yNearestNeighbors"
-            },
-            "vector": {
-              "$ref": "#/definitions/C11yVector"
-            }
-          }
-        },
-        "present": {
-          "type": "boolean"
-        },
-        "word": {
-          "type": "string"
-        }
-      }
-    },
-    "C11yWordsResponseIndividualWordsItems0Info": {
-      "type": "object",
-      "properties": {
-        "nearestNeighbors": {
-          "$ref": "#/definitions/C11yNearestNeighbors"
-        },
-        "vector": {
-          "$ref": "#/definitions/C11yVector"
-        }
       }
     },
     "Class": {

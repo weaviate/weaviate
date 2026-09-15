@@ -35,7 +35,6 @@ services:
       TRACK_VECTOR_DIMENSIONS: "true"
       QUERY_MAXIMUM_RESULTS: 10005
       OBJECTS_TTL_DELETE_SCHEDULE: "@every 12h"
-      ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT: "true"
       WEAVIATE_PREVIEW_NESTED_FILTERING: "true"
       DEBUG_ENDPOINTS_ENABLED: "true"
       # necessary for the metrics tests, some metrics only exist once segments
@@ -49,5 +48,3 @@ services:
       - "9999:9999"
     environment:
       OCCURRENCE_WEIGHT_LINEAR_FACTOR: 0.75
-      EXTENSIONS_STORAGE_MODE: weaviate
-      EXTENSIONS_STORAGE_ORIGIN: http://weaviate:8080

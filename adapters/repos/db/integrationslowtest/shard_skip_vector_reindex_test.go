@@ -11,7 +11,7 @@
 
 //go:build integrationTest
 
-package db
+package integrationslowtest
 
 import (
 	"context"
@@ -24,6 +24,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -295,7 +296,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 	filterUuidNotNil := filterNil(false, class.Class, "uuid")
 	filterUuidNil := filterNil(true, class.Class, "uuid")
 
-	search := func(t *testing.T, shard ShardLike, filter *filters.LocalFilter) []*storobj.Object {
+	search := func(t *testing.T, shard db.ShardLike, filter *filters.LocalFilter) []*storobj.Object {
 		searchLimit := 10
 		found, _, err := shard.ObjectSearch(ctx, searchLimit, filter,
 			nil, nil, nil, additional.Properties{}, props)
@@ -303,7 +304,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		return found
 	}
 
-	verifySearchAfterAdd := func(shard ShardLike) func(t *testing.T) {
+	verifySearchAfterAdd := func(shard db.ShardLike) func(t *testing.T) {
 		return func(t *testing.T) {
 			t.Run("to be found", func(t *testing.T) {
 				for name, filter := range map[string]*filters.LocalFilter{
@@ -405,7 +406,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 		}
 	}
-	verifySearchAfterUpdate := func(shard ShardLike) func(t *testing.T) {
+	verifySearchAfterUpdate := func(shard db.ShardLike) func(t *testing.T) {
 		return func(t *testing.T) {
 			t.Run("to be found", func(t *testing.T) {
 				for name, filter := range map[string]*filters.LocalFilter{
@@ -507,7 +508,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 		}
 	}
-	verifyVectorSearch := func(shard ShardLike, vectorToBeFound, vectorNotToBeFound []float32) func(t *testing.T) {
+	verifyVectorSearch := func(shard db.ShardLike, vectorToBeFound, vectorNotToBeFound []float32) func(t *testing.T) {
 		vectorSearchLimit := -1 // negative to limit results by distance
 		vectorSearchDist := float32(1)
 		targetVector := ""
@@ -536,13 +537,15 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		}
 	}
 
-	createShard := func(t *testing.T, asyncIndexingEnabled bool) (ShardLike, *VectorIndexQueue) {
-		vectorIndexConfig := hnsw.UserConfig{Distance: common.DefaultDistanceMetric}
-		shard, _ := testShardWithSettings(t, ctx, class, vectorIndexConfig, true, asyncIndexingEnabled)
+	createShard := func(t *testing.T, asyncIndexingEnabled bool) (db.ShardLike, *db.VectorIndexQueue) {
+		class.VectorIndexConfig = hnsw.UserConfig{Distance: common.DefaultDistanceMetric}
+		repo, _ := newRepo(t, repoParams{config: func(c *db.Config) {
+			c.AsyncIndexingEnabled = asyncIndexingEnabled
+		}}, class)
+		shard := singleShard(t, repo, class.Class)
 		queue, release, ok := shard.AcquireVectorIndexQueue("")
 		require.True(t, ok)
 		defer release()
-		require.True(t, ok)
 		return shard, queue
 	}
 

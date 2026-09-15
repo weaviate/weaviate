@@ -557,6 +557,8 @@ func TestRestart(t *testing.T) {
 
 	class := &models.Class{
 		Class: className,
+		// the objects below are imported with their own vectors
+		Vectorizer: "none",
 		Properties: []*models.Property{
 			{
 				Name:     "first",

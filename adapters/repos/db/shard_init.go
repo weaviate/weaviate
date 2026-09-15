@@ -180,6 +180,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
+	// Needs the dimensions bucket, which initNonVector opens.
+	s.clearDroppedVectorDimensions(ctx, class)
+
 	if err = s.initShardVectors(ctx); err != nil {
 		return nil, fmt.Errorf("init shard vectors: %w", err)
 	}

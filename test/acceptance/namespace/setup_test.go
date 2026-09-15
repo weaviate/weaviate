@@ -117,7 +117,6 @@ func TestMain(m *testing.M) {
 		WithWeaviateEnv("EXPORT_ENABLED", "true").
 		WithWeaviateEnv("EXPORT_DEFAULT_BUCKET", "backups").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
-		WithWeaviateEnv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true").
 		WithWeaviateClusterWithGRPC().
 		Start(ctx)
 	if err != nil {

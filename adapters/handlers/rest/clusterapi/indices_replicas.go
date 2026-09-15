@@ -1159,8 +1159,6 @@ func (i *replicatedIndices) postRefs() http.Handler {
 	})
 }
 
-const asyncCheckpointMaxBodyBytes = 64 * 1024
-
 // Rolling upgrades: pre-feature nodes return 404; the broadcast helper in finder.go
 // logs and continues, so convergence resumes once rollout completes.
 
@@ -1184,7 +1182,7 @@ type asyncCheckpointStatusEntry struct {
 
 func readAsyncCheckpointBody(w http.ResponseWriter, r *http.Request, out interface{}) (int, error) {
 	defer r.Body.Close()
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, asyncCheckpointMaxBodyBytes))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, replica.AsyncCheckpointMaxBodyBytes))
 	if err != nil {
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {

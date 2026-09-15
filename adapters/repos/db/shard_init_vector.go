@@ -75,7 +75,7 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 		return fmt.Errorf("shard %q: %w", s.ID(), err)
 	}
 	if initialized {
-		records, err = s.reconcileVectorIndexMapping(ctx, active, records)
+		records, err = s.reconcileVectorIndexMapping(active, records)
 		if err != nil {
 			return fmt.Errorf("shard %q: %w", s.ID(), err)
 		}
@@ -424,6 +424,12 @@ func dropOneVectorIndex(ctx context.Context, index VectorIndex) error {
 // DropVectorIndex shuts down and removes the named vector index and its queue
 // from this shard, deleting associated files from disk. It also removes the
 // LSM buckets that store the raw and compressed vector data.
+//
+// The vector's dimension rows are not cleared here. This runs inline in the
+// RAFT apply, for every shard of the collection, and that clear is O(objects)
+// where everything else here is O(files). The drop task clears the rows per
+// unit instead, and a shard that was inactive throughout clears them when it
+// next loads.
 func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error {
 	err := s.vectors.Remove(ctx, targetVector, s.index.logger, func(index VectorIndex, queue *VectorIndexQueue) error {
 		if queue != nil {
