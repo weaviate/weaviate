@@ -408,6 +408,7 @@ func (s *MigrationRecordStore) Put(rec MigrationRecord) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.records[rec.Subject().Key] = rec
+	delete(s.wedged, rec.Subject().Key)
 	return nil
 }
 
@@ -462,6 +463,10 @@ func (s *MigrationRecordStore) removeSynced(key MigrationRecordKey, sync func(st
 	return nil
 }
 
+const migrationFrozenStoreRemedy = "The named file under <shard>/lsm/.migrations/records/ is the only " +
+	"thing that attributes the directories it names, so nothing here may write past it. " +
+	"Run the build that wrote it, or remove that file by hand once you have confirmed what it claims"
+
 // Any fault at all holds back every write, not only one naming this record's
 // own file. A record this build could not read may name the same directories,
 // so a write decided without it is decided on a state nobody here can see.
@@ -474,13 +479,14 @@ func (s *MigrationRecordStore) mayWrite(key MigrationRecordKey) error {
 	name := key.fileName()
 	for _, u := range s.unreadable {
 		if u.Scope == MigrationRecordFaultFile && u.FileName == name {
-			return fmt.Errorf("refusing to write migration record %q over a file this build could not read: %s",
-				key, u.Reason)
+			return fmt.Errorf("refusing to write migration record %q over a file this build could not read: %s. "+
+				"%s", key, u.Reason, migrationFrozenStoreRemedy)
 		}
 	}
 	u := s.unreadable[0]
 	return fmt.Errorf("refusing to write migration record %q: this build could not read %q, "+
-		"so it cannot tell what is already recorded here: %s", key, u.FileName, u.Reason)
+		"so it cannot tell what is already recorded here: %s. "+
+		"%s", key, u.FileName, u.Reason, migrationFrozenStoreRemedy)
 }
 
 func (s *MigrationRecordStore) Get(key MigrationRecordKey) (MigrationRecord, bool) {
@@ -523,7 +529,7 @@ func (s *MigrationRecordStore) HasUndecided() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	for key, rec := range s.records {
-		if !rec.PointerSwapped() && !s.wedged[key] {
+		if !rec.FlipDecided() && !s.wedged[key] {
 			return true
 		}
 	}

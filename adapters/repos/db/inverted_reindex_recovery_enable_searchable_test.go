@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -72,7 +73,7 @@ func newEnableSearchableTestClass(className string, propNames []string) *models.
 // would let the test pass while production fails the same convergence
 // invariant.
 func newEnableSearchableTask(
-	t *testing.T, idx *Index, className, propName, tokenization string,
+	t *testing.T, idx *Index, className, propName, tokenization, unitID string,
 ) (*ShardReindexTaskGeneric, *testEnableSearchableStrategyWrapper) {
 	t.Helper()
 	wrapped := &testEnableSearchableStrategyWrapper{
@@ -88,7 +89,6 @@ func newEnableSearchableTask(
 		reindexTaskConfig{
 			concurrency:                   2,
 			memtableOptFactor:             4,
-			backupMemtableOptFactor:       1,
 			processingDuration:            10 * time.Minute,
 			pauseDuration:                 1 * time.Second,
 			checkProcessingEveryNoObjects: 1000,
@@ -102,6 +102,15 @@ func newEnableSearchableTask(
 			},
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		defaultIndexClosingGuard,
+	)
+	task.setMigrationIdentity(
+		distributedtask.TaskDescriptor{ID: "test-enable-searchable", Version: 1},
+		unitID,
+		&ReindexTaskPayload{
+			MigrationType:      ReindexTypeEnableSearchable,
+			TargetTokenization: tokenization,
+		},
 	)
 	return task, wrapped
 }
@@ -150,7 +159,7 @@ func TestRecoveryConvergence_EnableSearchable_Baseline(t *testing.T) {
 		"pre-migration searchable bucket must NOT exist (IndexSearchable=false)")
 
 	task, wrapped := newEnableSearchableTask(t, idx, className, propName,
-		models.PropertyTokenizationWord)
+		models.PropertyTokenizationWord, shard.migrationUnit())
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 	require.NoError(t, task.RunSwapOnShard(ctx, shard))
@@ -170,26 +179,11 @@ func TestRecoveryConvergence_EnableSearchable_Baseline(t *testing.T) {
 	// Under word tokenization our 25-token cycling dictionary produces
 	// 25 distinct terms (same shape as the MapToBlockmax baseline's
 	// expectedTokens block at convergence_test.go:264-274).
-	expectedTokens := []string{
-		"alpha", "bravo", "charlie", "delta", "echo",
-		"foxtrot", "golf", "hotel", "india", "juliett",
-		"kilo", "lima", "mike", "november", "oscar",
-		"papa", "quebec", "romeo", "sierra", "tango",
-		"uniform", "victor", "whiskey", "xray", "yankee",
-	}
-	for _, tok := range expectedTokens {
+	for _, tok := range convergenceTokens {
 		docIDs, ok := postFP[tok]
 		require.Truef(t, ok,
 			"baseline fingerprint missing token %q (post-migration bucket should contain every dictionary word)", tok)
 		require.NotEmptyf(t, docIDs,
 			"baseline fingerprint token %q has no docIDs (posting list is empty)", tok)
 	}
-
-	rt, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	require.True(t, rt.IsReindexed())
-	require.True(t, rt.IsPrepended())
-	require.True(t, rt.IsMerged())
-	require.True(t, rt.IsSwapped())
-	require.True(t, rt.IsTidied())
 }

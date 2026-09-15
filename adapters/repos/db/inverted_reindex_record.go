@@ -49,20 +49,35 @@ const (
 	StrategyCodeRebuildSearchable           MigrationStrategyCode = MigrationDirPrefixRebuildSearchable
 )
 
-func (c MigrationStrategyCode) valid() bool {
-	switch c {
-	case StrategyCodeSearchableMapToBlockmax, StrategyCodeFilterableRoaringsetRefresh,
-		StrategyCodeFilterableToRangeable, StrategyCodeSearchableRetokenize,
-		StrategyCodeFilterableRetokenize, StrategyCodeEnableFilterable,
-		StrategyCodeEnableSearchable, StrategyCodeRebuildSearchable:
-		return true
-	default:
-		return false
-	}
+// A valid code missing from this list reads out of a record file name as no code at all.
+var migrationStrategyCodes = []MigrationStrategyCode{
+	StrategyCodeSearchableMapToBlockmax, StrategyCodeFilterableRoaringsetRefresh,
+	StrategyCodeFilterableToRangeable, StrategyCodeSearchableRetokenize,
+	StrategyCodeFilterableRetokenize, StrategyCodeEnableFilterable,
+	StrategyCodeEnableSearchable, StrategyCodeRebuildSearchable,
 }
 
-// TaskVersion is not the generation: that's a separate per-node counter
-// nodes routinely disagree on.
+func (c MigrationStrategyCode) valid() bool {
+	return slices.Contains(migrationStrategyCodes, c)
+}
+
+func migrationStrategyCodeOfRecordFile(name string) (MigrationStrategyCode, bool) {
+	rest, isJSON := strings.CutSuffix(name, ".json")
+	if !isJSON {
+		return "", false
+	}
+	version, rest, split := strings.Cut(rest, "_")
+	if !split || version == "" || strings.TrimLeft(version, "0123456789") != "" {
+		return "", false
+	}
+	for _, code := range migrationStrategyCodes {
+		if unit, ok := strings.CutPrefix(rest, string(code)+"_"); ok && unit != "" {
+			return code, true
+		}
+	}
+	return "", false
+}
+
 type MigrationRecordKey struct {
 	TaskVersion  uint64                `json:"taskVersion"`
 	StrategyCode MigrationStrategyCode `json:"strategyCode"`
@@ -117,6 +132,9 @@ type MigrationSubject struct {
 	IterationCutoff time.Time `json:"iterationCutoff"`
 
 	TrackerDir string `json:"trackerDir,omitempty"`
+
+	// Writes in the unmirrored window reached the canonical bucket only, so the staged copy must never rename over it.
+	Unmirrored bool `json:"unmirrored,omitempty"`
 
 	Props map[string]MigrationPropertyDirs `json:"props,omitempty"`
 }
@@ -600,6 +618,16 @@ var migrationHandleGroups = []migrationHandleGroup{
 		shape:              migrationShapePropertyBucket,
 		displacesCanonical: true,
 	},
+}
+
+func migrationRolesWithShape(shape migrationHandleShape) []migrationDirRole {
+	var out []migrationDirRole
+	for _, group := range migrationHandleGroups {
+		if group.shape == shape {
+			out = append(out, migrationDirRole(group.field))
+		}
+	}
+	return out
 }
 
 func (e migrationRecordEnvelope) displacedDirs() map[string]string {

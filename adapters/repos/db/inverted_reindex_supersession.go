@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"slices"
 
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
@@ -81,7 +82,7 @@ func migrationSoleSupersessorOf(all []MigrationRecord, subject MigrationSubject)
 
 func migrationSupersedes(candidate MigrationRecord, subject MigrationSubject) bool {
 	key := candidate.Subject().Key
-	return key != subject.Key && key.TaskVersion > subject.Key.TaskVersion && candidate.PointerSwapped()
+	return key != subject.Key && key.TaskVersion > subject.Key.TaskVersion && candidate.FlipDecided()
 }
 
 type migrationDirRole string
@@ -91,6 +92,39 @@ const (
 	migrationRoleStaged    migrationDirRole = "staged directory"
 	migrationRoleSidecar   migrationDirRole = "sidecar directory"
 )
+
+var migrationLiveDataRoles = migrationRolesWithShape(migrationShapeSidecar)
+
+var migrationReclaimBlockingRoles = append(slices.Clone(migrationLiveDataRoles), migrationRoleCanonical)
+
+// [validateOneOwnerPerDirectory] sees one record at a time, so two valid records can collide.
+func migrationDirHeldByAnotherRecord(all []MigrationRecord, subject MigrationSubject,
+	dir string, roles []migrationDirRole,
+) (MigrationRecordKey, migrationDirRole, bool) {
+	for _, other := range all {
+		key := other.Subject().Key
+		if key == subject.Key {
+			continue
+		}
+		for _, role := range roles {
+			for _, held := range migrationDirsInRole(other.Subject(), role) {
+				if held == dir {
+					return key, role, true
+				}
+			}
+		}
+	}
+	return MigrationRecordKey{}, "", false
+}
+
+func migrationDirsInRole(subject MigrationSubject, role migrationDirRole) map[string]string {
+	for _, group := range migrationHandleGroups {
+		if group.field == string(role) && group.dirs != nil {
+			return group.dirs(migrationRecordEnvelope{Subject: subject})
+		}
+	}
+	return nil
+}
 
 // The canonical directory is the property's live bucket, never one of these.
 func migrationOwnCopyDirs(subject MigrationSubject, prop string) []string {
@@ -164,7 +198,7 @@ func migrationRetirable(rec MigrationRecord, superseded []string) bool {
 	if rec.StagedDataComplete() {
 		return true
 	}
-	return !rec.PointerSwapped() && len(superseded) == len(rec.Subject().Props)
+	return !rec.FlipDecided() && len(superseded) == len(rec.Subject().Props)
 }
 
 func supersededProperties(all []MigrationRecord, subject MigrationSubject) []string {
@@ -211,19 +245,32 @@ func (r *migrationReconciler) retireOneSealed(ctx context.Context, all []Migrati
 func (r *migrationReconciler) retireProperty(ctx context.Context, all []MigrationRecord,
 	subject MigrationSubject, prop string,
 ) error {
+	if r.deps.Mirror != nil {
+		r.deps.Mirror.DisarmMigrationMirror(subject.Key, prop)
+	}
 	// Every directory holding this record's own copy of the property, not the
 	// staged one alone: the record stops answering for the property here, and a
 	// sidecar left behind is data at a name nothing attributes any more.
 	for _, dir := range migrationOwnCopyDirs(subject, prop) {
-		if migrationDirClaimedAsDisplaced(all, subject, dir) {
+		if migrationRetirementLeavesStagedDir(all, subject, dir) {
 			continue
 		}
 		if err := r.closeStagedBuckets(ctx, dir); err != nil {
 			return err
 		}
-		if err := r.removeDir(r.lsmPath, dir, "a directory of a superseded migration"); err != nil {
+		if err := r.dirs.Discard(dir, "a directory of a superseded migration"); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func migrationRetirementLeavesStagedDir(all []MigrationRecord,
+	subject MigrationSubject, dir string,
+) bool {
+	if dir == "" || migrationDirClaimedAsDisplaced(all, subject, dir) {
+		return true
+	}
+	_, _, held := migrationDirHeldByAnotherRecord(all, subject, dir, migrationReclaimBlockingRoles)
+	return held
 }

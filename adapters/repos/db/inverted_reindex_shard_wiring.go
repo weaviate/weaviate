@@ -14,19 +14,9 @@ package db
 import (
 	"context"
 
-	"github.com/weaviate/weaviate/cluster/distributedtask"
-
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
-
-// Every step of a shard load that renames or removes a migration directory,
-// in the order they run: both must stay ahead of bucket loading, or a bucket
-// opens at a name one of them is about to move.
-func (s *Shard) settleMigrationDirectories(ctx context.Context, class *models.Class) {
-	FinalizeCompletedMigrations(s.pathLSM(), class, s.index.logger)
-	s.reconcileMigrationRecords(ctx, class)
-}
 
 func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Class) {
 	s.migrationRecords = NewMigrationRecordStoreForUnit(s.pathLSM(), s.migrationUnit(), s.index.logger)
@@ -40,9 +30,7 @@ func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Cla
 		reconciler.WedgedCount(), len(s.migrationRecords.Unreadable()))
 }
 
-// Empty where the index or schema getter is missing: reading every record as
-// local is what this store did before it could tell them apart. An unwired
-// node name is not caught and reaches MigrationUnitID.
+// Empty where the node name is not wired: such a shard must not set records aside.
 func (s *Shard) migrationUnit() string {
 	if s.index == nil || s.index.getSchema == nil {
 		return ""
@@ -54,20 +42,17 @@ func (s *Shard) migrationReconciler(class func() *models.Class) *migrationReconc
 	return newMigrationReconciler(s.migrationRecords, s.pathLSM(),
 		s.index.logger.WithField("shard", s.ID()),
 		migrationReconcileDeps{
-			Class:   class,
-			Buckets: s,
-			// A grant nobody contends: no task writes a record on this
-			// build. The cutover wires the real worker registry here.
-			SealUnit: func(distributedtask.TaskDescriptor, string) (func(), bool) {
-				return func() {}, true
-			},
+			LocalTasks: s.migrations().LocalTasks,
+			SealUnit:   s.migrations().SealUnit,
+			Class:      class,
+			Mirror:     s,
+			Buckets:    s,
 		})
 }
 
 // Resolves the record's own copy of the property and closes that. The
 // reconciler names directories instead, because it has to decide before it
-// closes; both land on ShutdownStagedBucketsAt. Called by the cutover, where
-// a worker closes the copy it is done writing.
+// closes; both land on ShutdownStagedBucketsAt.
 func (s *Shard) ShutdownStagedBuckets(ctx context.Context, key MigrationRecordKey, prop string) error {
 	if s.migrationRecords == nil {
 		return nil
@@ -107,4 +92,16 @@ func (l *LazyLoadShard) migrationRecordStore() *MigrationRecordStore {
 		return nil
 	}
 	return l.shard.migrationRecordStore()
+}
+
+func (s *Shard) migrationMirrorRegistry() *migrationMirrorRegistry { return &s.migrationMirrors }
+
+func (l *LazyLoadShard) migrationMirrorRegistry() *migrationMirrorRegistry {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if !l.loaded {
+		return nil
+	}
+	return l.shard.migrationMirrorRegistry()
 }
