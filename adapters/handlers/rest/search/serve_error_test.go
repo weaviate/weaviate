@@ -13,6 +13,8 @@ package search
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -64,6 +66,56 @@ func TestServeErrorSingleContentType(t *testing.T) {
 	got := rec.Result().Header["Content-Type"]
 	require.Len(t, got, 1, "exactly one Content-Type header")
 	assert.Equal(t, "application/json", got[0])
+}
+
+// TestServeErrorRewritesBindMessages: bind errors name request fields
+// instead of Go types, and a body cut off by the cap is a 413.
+func TestServeErrorRewritesBindMessages(t *testing.T) {
+	tests := []struct {
+		name       string
+		err        error
+		wantStatus int
+		want       string
+	}{
+		{
+			name:       "type mismatch names the field",
+			err:        openapierrors.NewParseError("body", "body", "", errors.New(`json: cannot unmarshal string into Go struct field SearchCommon.tenant of type string`)),
+			wantStatus: http.StatusBadRequest,
+			want:       `invalid request body: field "tenant" must be string, got string`,
+		},
+		{
+			name:       "nested field type mismatch",
+			err:        openapierrors.NewParseError("body", "body", "", errors.New(`json: cannot unmarshal string into Go struct field .alpha of type float64`)),
+			wantStatus: http.StatusBadRequest,
+			want:       `invalid request body: field "alpha" must be float64, got string`,
+		},
+		{
+			name:       "non-object body",
+			err:        openapierrors.NewParseError("body", "body", "", errors.New(`json: cannot unmarshal array into Go value of type models.SearchBm25Request`)),
+			wantStatus: http.StatusBadRequest,
+			want:       "invalid request body: the body must be a JSON object, got array",
+		},
+		{
+			name:       "oversize body is a 413",
+			err:        openapierrors.NewParseError("body", "body", "", errors.New("http: request body too large")),
+			wantStatus: http.StatusRequestEntityTooLarge,
+			want:       fmt.Sprintf("request body exceeds the %d byte limit", MaxBodyBytes),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/v1/search/Movie/bm25", nil)
+			rec := httptest.NewRecorder()
+
+			ServeError(rec, req, tt.err)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			var payload models.ErrorResponse
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+			require.Len(t, payload.Error, 1)
+			assert.Equal(t, tt.want, payload.Error[0].Message)
+		})
+	}
 }
 
 func TestServeErrorCompositeValidation(t *testing.T) {

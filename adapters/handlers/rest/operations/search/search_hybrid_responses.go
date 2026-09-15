@@ -249,11 +249,56 @@ func (o *SearchHybridNotFound) WriteResponse(rw http.ResponseWriter, producer ru
 	}
 }
 
+// SearchHybridRequestEntityTooLargeCode is the HTTP code returned for type SearchHybridRequestEntityTooLarge
+const SearchHybridRequestEntityTooLargeCode int = 413
+
+/*
+SearchHybridRequestEntityTooLarge The request body exceeded the 4194304 byte (4 MiB) limit.
+
+swagger:response searchHybridRequestEntityTooLarge
+*/
+type SearchHybridRequestEntityTooLarge struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewSearchHybridRequestEntityTooLarge creates SearchHybridRequestEntityTooLarge with default headers values
+func NewSearchHybridRequestEntityTooLarge() *SearchHybridRequestEntityTooLarge {
+
+	return &SearchHybridRequestEntityTooLarge{}
+}
+
+// WithPayload adds the payload to the search hybrid request entity too large response
+func (o *SearchHybridRequestEntityTooLarge) WithPayload(payload *models.ErrorResponse) *SearchHybridRequestEntityTooLarge {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the search hybrid request entity too large response
+func (o *SearchHybridRequestEntityTooLarge) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *SearchHybridRequestEntityTooLarge) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(413)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // SearchHybridUnprocessableEntityCode is the HTTP code returned for type SearchHybridUnprocessableEntity
 const SearchHybridUnprocessableEntityCode int = 422
 
 /*
-SearchHybridUnprocessableEntity Either a request-schema violation (a missing or null required `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while `alpha` is above 0, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).
+SearchHybridUnprocessableEntity Either a request-schema violation (a missing or null required `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while `alpha` is above 0, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.
 
 swagger:response searchHybridUnprocessableEntity
 */

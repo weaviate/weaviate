@@ -13,7 +13,9 @@ package search
 
 import (
 	"fmt"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
@@ -101,7 +103,7 @@ func (h *Handler) fillSelectionAndFilter(out *dto.GetParams, class *models.Class
 		out.AdditionalProperties.NoProps = true
 	}
 
-	filter, apiErr := parseWhere(common.Where, className, h.namespacesEnabled, principal, getClass)
+	filter, apiErr := h.parseWhere(common.Where, class, className, h.namespacesEnabled, principal, getClass)
 	if apiErr != nil {
 		return apiErr
 	}
@@ -183,24 +185,59 @@ func (h *Handler) buildBm25Params(class *models.Class, className string, body *m
 	return out, nil
 }
 
-// validateQueryProperties rejects a queryProperties entry that names no
-// schema property with 400, matching returnProperties. Whether an existing
-// property is searchable stays the searcher's check (a typed
-// MissingIndexError, mapped to 422). A "^boost" suffix is stripped before
-// the lookup, mirroring the searcher.
+// validateQueryProperties rejects unknown, duplicate and unsearchable
+// properties, and a malformed "^boost" the searcher would otherwise read as 0.
 func validateQueryProperties(class *models.Class, queryProperties []string) *APIError {
+	seen := map[string]bool{}
 	for _, entry := range queryProperties {
-		name := schema.LowercaseFirstLetter(strings.Split(entry, "^")[0])
+		name, apiErr := parseQueryProperty(entry)
+		if apiErr != nil {
+			return apiErr
+		}
 		if _, err := schema.GetPropertyByName(class, name); err != nil {
 			return &APIError{Status: http.StatusBadRequest, Err: err}
+		}
+		if seen[name] {
+			return newAPIError(http.StatusBadRequest, "queryProperties: %q is listed more than once", name)
+		}
+		seen[name] = true
+		if !searchparams.PropertyHasSearchableIndex(class, name) {
+			return newAPIError(http.StatusUnprocessableEntity,
+				"queryProperties: property %q has no searchable index; enable indexSearchable on it", name)
 		}
 	}
 	return nil
 }
 
+// parseQueryProperty splits "name^boost" and validates the boost: a single
+// "^", a finite positive number.
+func parseQueryProperty(entry string) (string, *APIError) {
+	parts := strings.Split(entry, "^")
+	if len(parts) > 2 {
+		return "", newAPIError(http.StatusBadRequest,
+			"queryProperties: %q has more than one ^boost suffix", entry)
+	}
+	name := parts[0]
+	if name == "" {
+		return "", newAPIError(http.StatusBadRequest, "queryProperties entries must not be empty")
+	}
+	if strings.Contains(name, ".") {
+		return "", newAPIError(http.StatusBadRequest,
+			"queryProperties: %q: nested fields cannot be keyword-searched, name the property itself", entry)
+	}
+	if len(parts) == 2 {
+		boost, err := strconv.ParseFloat(parts[1], 32)
+		if err != nil || math.IsNaN(boost) || math.IsInf(boost, 0) || boost <= 0 {
+			return "", newAPIError(http.StatusBadRequest,
+				"queryProperties: %q: boost must be a positive number, e.g. title^2", entry)
+		}
+	}
+	return schema.LowercaseFirstLetter(name), nil
+}
+
 // checkKeywordSearchable: empty queryProperties over a collection with no
 // searchable property is a 422 here — the engine's all-properties expansion
-// errors untyped (a 500). Explicit properties are the searcher's.
+// errors untyped (a 500). Explicit ones are validateQueryProperties'.
 func checkKeywordSearchable(class *models.Class, queryProperties []string) *APIError {
 	if len(queryProperties) > 0 {
 		return nil
@@ -650,6 +687,10 @@ func parseReturnProperties(class *models.Class, returnProperties []string) (sear
 		if entry == "" {
 			return nil, newAPIError(http.StatusBadRequest, "returnProperties entries must not be empty")
 		}
+		if strings.Contains(entry, ".") {
+			return nil, newAPIError(http.StatusBadRequest,
+				"returnProperties: %q: nested fields are returned by naming the object property, dot paths are not supported", entry)
+		}
 
 		normalized := schema.LowercaseFirstLetter(entry)
 		schemaProp, err := schema.GetPropertyByName(class, normalized)
@@ -708,6 +749,10 @@ func (h *Handler) parseReturnReferences(class *models.Class, className string,
 		}
 		if selector.LinkOn == nil || *selector.LinkOn == "" {
 			return nil, newAPIError(http.StatusBadRequest, "returnReferences: linkOn must not be empty")
+		}
+		if strings.Contains(*selector.LinkOn, ".") {
+			return nil, newAPIError(http.StatusBadRequest,
+				"returnReferences: linkOn %q must be a reference property name; deeper hops nest a returnReferences selector", *selector.LinkOn)
 		}
 		name := schema.LowercaseFirstLetter(*selector.LinkOn)
 
@@ -879,8 +924,8 @@ func refDepth(props search.SelectProperties, currDepth, limit int) int {
 	return maxDepth + 1
 }
 
-func parseWhere(where *models.WhereFilter, className string, namespacesEnabled bool,
-	principal *models.Principal, getClass classGetterFunc,
+func (h *Handler) parseWhere(where *models.WhereFilter, class *models.Class, className string,
+	namespacesEnabled bool, principal *models.Principal, getClass classGetterFunc,
 ) (*filters.LocalFilter, *APIError) {
 	if where == nil {
 		return nil, nil
@@ -891,12 +936,20 @@ func parseWhere(where *models.WhereFilter, className string, namespacesEnabled b
 		return nil, &APIError{Status: http.StatusBadRequest, Err: err}
 	}
 
+	if apiErr := h.validateWhere(filter.Root, class, getClass); apiErr != nil {
+		return nil, apiErr
+	}
+
+	// keep the validator's 403 and 422; anything else it rejects is a bad
+	// filter value, so 400 — a 404 here would name a collection in the filter
+	// path, not the one the caller asked for
 	if err := filters.ValidateFilters(getClass, filter); err != nil {
 		apiErr := statusFromError(err)
-		if apiErr.Status == http.StatusInternalServerError {
-			apiErr = &APIError{Status: http.StatusBadRequest, Err: fmt.Errorf("invalid 'where' filter: %w", err)}
+		switch apiErr.Status {
+		case http.StatusForbidden, http.StatusUnprocessableEntity:
+			return nil, apiErr
 		}
-		return nil, apiErr
+		return nil, &APIError{Status: http.StatusBadRequest, Err: fmt.Errorf("invalid 'where' filter: %w", err)}
 	}
 
 	return filter, nil

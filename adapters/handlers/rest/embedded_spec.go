@@ -210,8 +210,14 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
-            "description": "Either a request-schema violation (an invalid enum or field type in the where filter), or a well-formed request that cannot run: a reserved (not yet supported) parameter or returnMetrics entry is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (an invalid enum or field type in the where filter), or a well-formed request that cannot run: a reserved (not yet supported) parameter or returnMetrics entry is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7104,8 +7110,14 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
-            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7191,8 +7203,14 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
-            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7278,8 +7296,14 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
-            "description": "Either a request-schema violation (a missing, null or structurally invalid required ` + "`" + `id` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: the source object has no stored vector for the (target) vector searched, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (a missing, null or structurally invalid required ` + "`" + `id` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: the source object has no stored vector for the (target) vector searched, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7365,8 +7389,14 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
-            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12706,8 +12736,14 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
-            "description": "Either a request-schema violation (an invalid enum or field type in the where filter), or a well-formed request that cannot run: a reserved (not yet supported) parameter or returnMetrics entry is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (an invalid enum or field type in the where filter), or a well-formed request that cannot run: a reserved (not yet supported) parameter or returnMetrics entry is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19698,8 +19734,14 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
-            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19785,8 +19827,14 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
-            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while ` + "`" + `alpha` + "`" + ` is above 0, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19872,8 +19920,14 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
-            "description": "Either a request-schema violation (a missing, null or structurally invalid required ` + "`" + `id` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: the source object has no stored vector for the (target) vector searched, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (a missing, null or structurally invalid required ` + "`" + `id` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: the source object has no stored vector for the (target) vector searched, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -19959,8 +20013,14 @@ func init() {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "422": {
-            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).",
+            "description": "Either a request-schema violation (a missing required field such as ` + "`" + `query` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
