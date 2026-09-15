@@ -420,8 +420,10 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	cs := make([]command.UpdateClassRequest, len(classes))
 	i := 0
 	for _, v := range classes {
-		migratePropertiesIfNecessary(&v.Class)
-		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
+		// Shards keep the class pointer, and &v.Class would keep v.Sharding alive with it.
+		class := v.Class
+		migratePropertiesIfNecessary(&class)
+		cs[i] = command.UpdateClassRequest{Class: &class, State: &v.Sharding}
 		i++
 	}
 	s.db.TriggerSchemaUpdateCallbacks()
@@ -1217,8 +1219,9 @@ func migratePropertiesIfNecessary(class *models.Class) {
 }
 
 func migrateNestedPropertiesIfNecessary(nprop *models.NestedProperty) {
-	// migrate this nested property
-	nprop.IndexRangeFilters = func() *bool { f := false; return &f }()
+	if nprop.IndexRangeFilters == nil {
+		nprop.IndexRangeFilters = func() *bool { f := false; return &f }()
+	}
 	// Recurse on all nested properties this one has
 	for _, recurseNestedProperty := range nprop.NestedProperties {
 		migrateNestedPropertiesIfNecessary(recurseNestedProperty)
