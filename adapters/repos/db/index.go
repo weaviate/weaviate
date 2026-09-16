@@ -1252,6 +1252,10 @@ func (i *Index) pinLoadedShard(name string, shard ShardLike) (release func(), ok
 	i.shardCreateLocks.RLock(name)
 	defer i.shardCreateLocks.RUnlock(name)
 
+	// Never Load a recovering shard: it has no store to pin until its promote.
+	if rec, isRec := shard.(*RecoveringShard); isRec && rec.IsRecovering() {
+		return func() {}, false
+	}
 	if lazy, isLazy := shard.(*LazyLoadShard); isLazy && !lazy.isLoaded() {
 		return func() {}, true
 	}
@@ -3806,7 +3810,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 	// directory's file locks. Same reasoning as getLoadedShard.
 	shard, release, err = i.pinResidentShard(shardName, ensureInit)
 	if err != nil || shard != nil {
-		return shard, release, err
+		return shard, release, recoveringAsUnprocessable(err)
 	}
 	if !ensureInit {
 		return nil, func() {}, nil
@@ -3842,15 +3846,18 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 	// Still under the write lock, so a lazy shard's load inside the pin cannot race a teardown.
 	release, err = shard.preventShutdown()
 	if err != nil {
-		err = fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)
-		// 422 (retriable on a replica), not a 500: the shard is mid-recovery.
-		if enterrors.IsShardRecovering(err) {
-			err = enterrors.NewErrUnprocessable(err)
-		}
-		return nil, func() {}, err
+		return nil, func() {}, recoveringAsUnprocessable(fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err))
 	}
 
 	return shard, release, nil
+}
+
+// recoveringAsUnprocessable: 422 (retriable on a replica), not a 500, when the shard is mid-recovery.
+func recoveringAsUnprocessable(err error) error {
+	if enterrors.IsShardRecovering(err) {
+		return enterrors.NewErrUnprocessable(err)
+	}
+	return err
 }
 
 // pinResidentShard looks the shard up and pins it under one read lock. A nil
