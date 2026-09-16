@@ -159,6 +159,7 @@ func requireSweepTally(t *testing.T, hook *test.Hook, want map[monitoring.Warmup
 		monitoring.WarmupSkippedAlreadyLoaded,
 		monitoring.WarmupSkippedEmpty,
 		monitoring.WarmupSkippedBelowThreshold,
+		monitoring.WarmupSkippedRecovering,
 	} {
 		require.Equal(t, want[outcome], tally[string(outcome)], "shards reported as %q", outcome)
 	}

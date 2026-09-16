@@ -45,13 +45,21 @@ func TestRecoveringShardLoadKeepsBlock(t *testing.T) {
 	require.True(t, r.isLoadBlocked(), "Load must not clear the recovery block")
 }
 
-func TestRecoveringShardPromoteClearsBlock(t *testing.T) {
+func TestRecoveringShardUnblockReturnsInner(t *testing.T) {
 	r := &RecoveringShard{LazyLoadShard: &LazyLoadShard{}}
 	r.blockLoad(enterrors.ErrShardRecovering)
 
-	defer func() {
-		_ = recover()
-		require.False(t, r.isLoadBlocked())
-	}()
-	_ = r.Promote(context.Background())
+	inner := r.unblock()
+	require.Same(t, r.LazyLoadShard, inner)
+	require.False(t, r.isLoadBlocked())
+}
+
+func TestClearLoadBlockDropsColdCount(t *testing.T) {
+	l := &LazyLoadShard{}
+	n := int64(7)
+	l.unloadedCount = &n
+	l.blockLoad(enterrors.ErrShardRecovering)
+
+	l.clearLoadBlock()
+	require.Nil(t, l.unloadedCount)
 }
