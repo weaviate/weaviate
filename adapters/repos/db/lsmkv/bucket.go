@@ -331,6 +331,17 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 		return nil, errors.New("strategy needs to be explicitly set for all buckets")
 	}
 
+	// These strategies write their own index and skip the shared writer, so none
+	// of them emits the secondary-index offsets table a header claiming one
+	// needs. Refusing here rather than at the first flush means the bucket never
+	// accepts a write it cannot flush: roaring set and its range sibling would
+	// record a count of zero and lose the option silently, while inverted stamps
+	// the count it was given and then cannot load the segment it just wrote.
+	if b.secondaryIndices != 0 && !strategyUsesSharedIndexWriter(b.strategy) {
+		return nil, fmt.Errorf("strategy %s cannot carry %d secondary indexes",
+			b.strategy, b.secondaryIndices)
+	}
+
 	if !b.immutable && IsSnapshotDir(dir) {
 		return nil, fmt.Errorf("cannot open a snapshot directory (%q) with NewBucket; use NewSnapshotBucket instead", dir)
 	}
@@ -1809,6 +1820,16 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 	}
 
 	b.flushLock.Lock()
+	// getActiveMemtableForWrite releases the read lock before its caller writes,
+	// so flushLock alone does not say the memtable is idle. A write past that
+	// point would land in a memtable this flush has already serialized, behind a
+	// commit log it has already closed, so nothing replays it.
+	//
+	// This closes only that window. A writer that has not yet reached
+	// getActiveMemtableForWrite parks on flushLock instead, and once Shutdown
+	// releases it, writes into the memtable that was just flushed.
+	b.waitForZeroWriters(b.active)
+
 	if b.active.getStrategy() == StrategyInverted {
 
 		// we need to calculate it outside of b.GetAveragePropertyLength()
