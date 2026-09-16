@@ -1016,7 +1016,7 @@ func (i *Index) shouldRecoverShardFromPeer(ctx context.Context, shardName string
 	return true
 }
 
-// ensureShardDir plants the folder a lazy registration would otherwise defer to first load, so a missing folder at startup always means a wipe.
+// ensureShardDir: a missing folder at startup then always means a wipe.
 func (i *Index) ensureShardDir(shardName string) error {
 	return os.MkdirAll(shardPath(i.path(), shardName), os.ModePerm)
 }
