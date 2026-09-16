@@ -74,6 +74,7 @@ function main() {
   run_acceptance_backup_dedupe_incremental=false
   run_acceptance_backup_dedupe_misc=false
   run_acceptance_self_recovery=false
+  run_acceptance_self_recovery_lazy=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -147,6 +148,7 @@ function main() {
           --acceptance-backup-dedupe-incremental|-abdi) run_all_tests=false; run_acceptance_backup_dedupe_incremental=true;;
           --acceptance-backup-dedupe-misc|-abdm) run_all_tests=false; run_acceptance_backup_dedupe_misc=true;;
           --acceptance-self-recovery|-asr) run_all_tests=false; run_acceptance_self_recovery=true;;
+          --acceptance-self-recovery-lazy|-asrl) run_all_tests=false; run_acceptance_self_recovery_lazy=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -205,6 +207,7 @@ function main() {
               "--acceptance-backup-dedupe-incremental | -abdi"\
               "--acceptance-backup-dedupe-misc | -abdm"\
               "--acceptance-self-recovery | -asr"\
+              "--acceptance-self-recovery-lazy | -asrl"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -515,6 +518,11 @@ function main() {
   if $run_acceptance_self_recovery || $run_acceptance_tests || $run_all_tests; then
     echo "running self-recovery acceptance tests"
     run_acceptance_self_recovery
+  fi
+
+  if $run_acceptance_self_recovery_lazy || $run_acceptance_tests || $run_all_tests; then
+    echo "running self-recovery lazy-loading acceptance tests"
+    run_acceptance_self_recovery_lazy
   fi
   echo "Done!"
 }
@@ -1156,7 +1164,14 @@ function run_acceptance_reindex_backup() {
 }
 function run_acceptance_self_recovery() {
   build_weaviate_test_image
-  run_aof_group "self-recovery" test/acceptance/selfrecovery
+  AOF_GROUP_SKIP='^TestSelfRecoveryLazy' \
+    run_aof_group "self-recovery" test/acceptance/selfrecovery
+}
+
+function run_acceptance_self_recovery_lazy() {
+  build_weaviate_test_image
+  AOF_GROUP_RUN='^TestSelfRecoveryLazy' \
+    run_aof_group "self-recovery-lazy" test/acceptance/selfrecovery
 }
 
 
