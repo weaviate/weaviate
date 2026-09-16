@@ -75,7 +75,7 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 		return fmt.Errorf("shard %q: %w", s.ID(), err)
 	}
 	if initialized {
-		records, err = s.reconcileVectorIndexMapping(active, records)
+		records, err = s.reconcileVectorIndexMapping(ctx, active, records)
 		if err != nil {
 			return fmt.Errorf("shard %q: %w", s.ID(), err)
 		}

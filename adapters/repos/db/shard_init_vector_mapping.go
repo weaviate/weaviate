@@ -12,6 +12,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"maps"
 	"slices"
@@ -29,18 +30,30 @@ import (
 // cold, or lost files. It returns the record each schema vector is built
 // from, in name order so a failure is deterministic:
 //   - a ready record whose storage is on disk builds at the recorded ID;
-//   - a ready record whose storage is gone refuses the load if the object
-//     store holds a vector for it: an empty index in its place would silently
-//     serve nothing where there was data. With nothing to index it is
-//     rebuilt: a backup or a transfer carries no directory for an empty index;
+//   - a ready record whose storage is gone is rebuilt: a backup or a
+//     transfer carries no directory for an index that wrote nothing;
 //   - a creating record (a crash between the two writes of a creation) and a
 //     missing record (a vector added while the shard was cold) are built,
 //     then marked ready.
 //
-// A record the schema no longer has is deleted; its storage is left alone.
-func (s *Shard) reconcileVectorIndexMapping(active map[string]schemaConfig.VectorIndexConfig,
+// A dropping record is finished first: its files, its state key, then the
+// record. A record the schema no longer has is deleted; its storage is left
+// alone.
+func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[string]schemaConfig.VectorIndexConfig,
 	records map[string]vectorIndexRecord,
 ) (map[string]vectorIndexRecord, error) {
+	for name, rec := range records {
+		if rec.State != vectorIndexStateDropping {
+			continue
+		}
+		// a deferred deletion the process did not live to finish
+		err := s.removeVectorIndexArtifacts(ctx, name)
+		if err != nil {
+			return nil, err
+		}
+		delete(records, name)
+	}
+
 	toBuild := make(map[string]vectorIndexRecord, len(active))
 	owners := vectorIndexOwners(records)
 	for _, name := range slices.Sorted(maps.Keys(active)) {
