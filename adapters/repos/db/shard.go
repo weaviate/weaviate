@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
@@ -356,6 +357,13 @@ type Shard struct {
 	// Mutations under haltForTransferMux; atomic so halt probes read lock-free.
 	haltForTransferCount     atomic.Int64
 	haltForTransferCtxCancel context.CancelFunc
+	// vectorDeletions counts drops between their halt check and their file
+	// removal; a halt waits for them, so a listing never sees a file vanish
+	vectorDeletions common.SharedGauge
+	// pendingVectorDrops are drops that ran under a halt and left their files;
+	// the last resume deletes them
+	pendingVectorDropsMu sync.Mutex
+	pendingVectorDrops   []string
 
 	status              ShardStatus
 	statusLock          sync.RWMutex

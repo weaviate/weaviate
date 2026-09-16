@@ -484,3 +484,84 @@ func TestDropVectorIndex_MarksTheRecordDroppingFirst(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, ok, "the record goes with the files")
 }
+
+// A drop under a halt tears the slot down, keeps every file, and the resume
+// deletes them.
+func TestDropVectorIndex_DeferredWhileHalted(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
+	markDropped(class, "foo")
+	before := entriesNamed(t, shard, "foo")
+	require.NotEmpty(t, before)
+
+	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+	start := time.Now()
+	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+	assert.Less(t, time.Since(start), 2*time.Second, "no wait")
+
+	found, err := shard.WithVectorIndex("foo", func(VectorIndex) error { return nil })
+	require.NoError(t, err)
+	assert.False(t, found, "the slot is gone")
+	assert.Equal(t, before, entriesNamed(t, shard, "foo"), "the files are not")
+	rec, ok, err := shard.mapping.Get("foo")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, vectorIndexStateDropping, rec.State)
+
+	// a retry while still halted stays deferred and is not an error
+	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+
+	require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+	require.Eventually(t, func() bool { return len(entriesNamed(t, shard, "foo")) == 0 }, 5*time.Second, 20*time.Millisecond)
+	_, ok, err = shard.mapping.Get("foo")
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
+// A halt waits for a drop that already read the shard as not halted, so the
+// listing never sees a file vanish.
+func TestDropVectorIndex_HaltWaitsForADeletionInFlight(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	markDropped(class, "foo")
+	shard.vectors.drainTimeout = 2 * time.Second
+
+	// a held lease keeps the drop in its drain, past its halt check
+	slot, ok := shard.vectors.Acquire("foo")
+	require.True(t, ok)
+	dropErr := make(chan error, 1)
+	go func() { dropErr <- shard.DropVectorIndex(ctx, "foo") }()
+	require.Eventually(t, func() bool { return shard.vectorDeletions.Count() == 1 }, time.Second, 10*time.Millisecond)
+
+	haltErr := make(chan error, 1)
+	go func() { haltErr <- shard.HaltForTransfer(ctx, false, 0) }()
+	select {
+	case err := <-haltErr:
+		t.Fatalf("the halt did not wait for the deletion: %v", err)
+	case <-time.After(300 * time.Millisecond):
+	}
+
+	slot.release()
+	require.NoError(t, <-dropErr)
+	require.NoError(t, <-haltErr)
+	assert.Empty(t, entriesNamed(t, shard, "foo"), "deleted before the halt was admitted")
+	require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+}
+
+// A shared halt keeps the deferral: the files go only at the last resume.
+func TestDropVectorIndex_DeferredUntilTheLastResume(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	markDropped(class, "foo")
+	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+
+	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+	require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+	time.Sleep(200 * time.Millisecond)
+	assert.NotEmpty(t, entriesNamed(t, shard, "foo"), "one halt is still held")
+
+	require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+	require.Eventually(t, func() bool { return len(entriesNamed(t, shard, "foo")) == 0 }, 5*time.Second, 20*time.Millisecond)
+}

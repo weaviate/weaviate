@@ -492,7 +492,13 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 	if err != nil {
 		return fmt.Errorf("mark vector index %q dropping: %w", targetVector, err)
 	}
+	deferred, leave := s.enterVectorDeletion()
+	defer leave()
 	err = s.vectors.Remove(ctx, targetVector, s.index.logger, func(index VectorIndex, queue *VectorIndexQueue) error {
+		if deferred {
+			// a halt may be listing these files: shut down, delete at the resume
+			return shutdownVectorIndex(ctx, index, queue)
+		}
 		if queue != nil {
 			if err := queue.Drop(ctx); err != nil {
 				return fmt.Errorf("drop queue for vector %q: %w", targetVector, err)
@@ -508,5 +514,27 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 	if err != nil {
 		return err
 	}
+	if deferred {
+		s.deferVectorDrop(targetVector)
+		return nil
+	}
 	return s.removeVectorIndexArtifacts(ctx, targetVector)
+}
+
+// shutdownVectorIndex closes the index and queue and keeps every file, the
+// teardown of a drop that runs under a transfer halt.
+func shutdownVectorIndex(ctx context.Context, index VectorIndex, queue *VectorIndexQueue) error {
+	if queue != nil {
+		err := queue.Close(ctx)
+		if err != nil {
+			return fmt.Errorf("close queue: %w", err)
+		}
+	}
+	if index != nil {
+		err := index.Shutdown(ctx)
+		if err != nil {
+			return fmt.Errorf("shut vector index down: %w", err)
+		}
+	}
+	return nil
 }
