@@ -17,6 +17,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -415,4 +416,71 @@ func reopenMapping(t *testing.T, shardDir string) (map[string]vectorIndexRecord,
 	require.NoError(t, err)
 	defer db.Close()
 	return newVectorIndexMapping(db).Load()
+}
+
+// entriesNamed lists every entry under the shard directory and its lsm
+// directory whose name contains the vector's physical id.
+func entriesNamed(t *testing.T, shard *Shard, name string) []string {
+	t.Helper()
+	id := helpers.VectorIndexIDForTarget(name)
+	var out []string
+	for _, dir := range []string{shard.path(), shard.pathLSM()} {
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		for _, e := range entries {
+			if strings.Contains(e.Name(), id) {
+				out = append(out, filepath.Join(dir, e.Name()))
+			}
+		}
+	}
+	return out
+}
+
+// A drop leaves nothing of the vector behind: no slot, no file, no record,
+// and the sibling untouched.
+func TestDropVectorIndex_LeavesNothingBehind(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
+	require.NotEmpty(t, entriesNamed(t, shard, "foo"))
+	markDropped(class, "foo")
+
+	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+
+	found, err := shard.WithVectorIndex("foo", func(VectorIndex) error { return nil })
+	require.NoError(t, err)
+	assert.False(t, found)
+	assert.Empty(t, entriesNamed(t, shard, "foo"), "no file of foo under the shard")
+	_, ok, err := shard.mapping.Get("foo")
+	require.NoError(t, err)
+	assert.False(t, ok)
+	found, err = shard.WithVectorIndex("mv", func(VectorIndex) error { return nil })
+	require.NoError(t, err)
+	assert.True(t, found, "the sibling is untouched")
+}
+
+// The record is dropping from before the teardown, so a crash mid-drop is
+// finished at the next load.
+func TestDropVectorIndex_MarksTheRecordDroppingFirst(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	markDropped(class, "foo")
+
+	// a held lease keeps the drop in its drain, after the record write
+	shard.vectors.drainTimeout = time.Second
+	slot, ok := shard.vectors.Acquire("foo")
+	require.True(t, ok)
+	dropErr := make(chan error, 1)
+	go func() { dropErr <- shard.DropVectorIndex(ctx, "foo") }()
+	require.Eventually(t, func() bool {
+		rec, ok, err := shard.mapping.Get("foo")
+		require.NoError(t, err)
+		return ok && rec.State == vectorIndexStateDropping
+	}, time.Second, 10*time.Millisecond)
+
+	slot.release()
+	require.NoError(t, <-dropErr)
+	_, ok, err := shard.mapping.Get("foo")
+	require.NoError(t, err)
+	assert.False(t, ok, "the record goes with the files")
 }

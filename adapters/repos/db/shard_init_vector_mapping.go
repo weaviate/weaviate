@@ -152,6 +152,18 @@ func (s *Shard) markVectorIndexReady(name string, rec vectorIndexRecord) error {
 	return s.mapping.Put(name, rec)
 }
 
+// markVectorIndexDropping flips name's record to dropping before the
+// teardown, so a crash before the files go is finished at the next load. A
+// vector without a record has nothing to mark.
+func (s *Shard) markVectorIndexDropping(name string) error {
+	rec, ok, err := s.mapping.Get(name)
+	if err != nil || !ok {
+		return err
+	}
+	rec.State = vectorIndexStateDropping
+	return s.mapping.Put(name, rec)
+}
+
 // vectorIndexConfigsByStorage splits the schema's vectors, the legacy one
 // under the empty name, into those that own storage and the skipped ones.
 func vectorIndexConfigsByStorage(legacy schemaConfig.VectorIndexConfig,

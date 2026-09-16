@@ -342,6 +342,15 @@ func UpgradedInState(state StateOps, rootPath, id string) (bool, error) {
 	return upgradedFromVerdict(v, rootPath, id), nil
 }
 
+// RemoveStateKeyIn is RemoveStateKey through a loaded shard's own handle.
+func RemoveStateKeyIn(state StateOps, id string) error {
+	err := state.Delete(dbKeyForID(id))
+	if err != nil {
+		return fmt.Errorf("delete dynamic state for %q: %w", id, err)
+	}
+	return nil
+}
+
 // upgradedFromVerdict decodes a verdict as the index's load does: a value
 // wins; none falls back to the commit log directory for a named vector only,
 // since an unnamed vector's load deletes that directory.
