@@ -593,7 +593,10 @@ func (b *bodyStreamer) writeSlot(slotID uint64, entry []byte) error {
 		return errors.Errorf("node %d entry of %d bytes exceeds block capacity %d", slotID, len(entry), b.maxBlockSize-8)
 	}
 
-	if len(entry)+b.block.Len() < b.maxBlockSize {
+	// An entry that exactly fills the block fits. Pushing it to the next block
+	// would flush an otherwise-empty first block, which shares its
+	// start-node-ID with the block after it.
+	if len(entry)+b.block.Len() <= b.maxBlockSize {
 		_, err := b.block.Write(entry)
 		return err
 	}

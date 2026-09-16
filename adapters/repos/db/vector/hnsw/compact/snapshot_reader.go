@@ -840,6 +840,12 @@ func (r *SnapshotReader) readBlockConcurrent(buf []byte, res *ent.Deserializatio
 // mid-block cut fails the per-block checksum. So an interior gap is
 // unambiguously the old writer, not corruption.
 //
+// An empty block (start == end) covers no slots and is skipped. Older writers
+// emitted one ahead of a first node that exactly filled a block, with the same
+// start as the block holding that node. Blocks are gathered in whatever order
+// the workers finish, so the empty block could otherwise sort after its twin
+// and fail as an overlap.
+//
 // Overlap, a trailing shortfall (truncation), and a node count beyond the
 // metadata still fail closed.
 func validateSnapshotBlockRanges(ranges []snapshotBlockRange, nodeCount int, logger logrus.FieldLogger) error {
@@ -859,6 +865,9 @@ func validateSnapshotBlockRanges(ranges []snapshotBlockRange, nodeCount int, log
 	for _, blockRange := range ranges {
 		if blockRange.end < blockRange.start {
 			return fmt.Errorf("snapshot block range [%d,%d) is invalid", blockRange.start, blockRange.end)
+		}
+		if blockRange.start == blockRange.end {
+			continue
 		}
 		if blockRange.start < expected {
 			return fmt.Errorf("snapshot body has overlapping ranges: expected node %d, got range [%d,%d)",

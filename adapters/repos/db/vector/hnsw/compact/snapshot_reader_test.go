@@ -44,6 +44,9 @@ func TestValidateSnapshotBlockRanges(t *testing.T) {
 		{"multiple interior gaps tolerated", []snapshotBlockRange{{0, 5}, {6, 10}, {11, 15}}, 15, 2, false},
 		{"leading gap tolerated", []snapshotBlockRange{{2, 10}}, 10, 2, false},
 		{"overlap fails", []snapshotBlockRange{{0, 6}, {5, 10}}, 10, 0, true},
+		{"empty block before its twin", []snapshotBlockRange{{0, 0}, {0, 5}, {5, 10}}, 10, 0, false},
+		{"empty block after its twin", []snapshotBlockRange{{0, 5}, {0, 0}, {5, 10}}, 10, 0, false},
+		{"only an empty block fails", []snapshotBlockRange{{0, 0}}, 10, 0, true},
 		{"trailing shortfall fails", []snapshotBlockRange{{0, 5}}, 10, 0, true},
 		{"beyond node count fails", []snapshotBlockRange{{0, 12}}, 10, 0, true},
 		{"invalid range fails", []snapshotBlockRange{{5, 3}}, 10, 0, true},
@@ -108,6 +111,43 @@ func TestSnapshotReader_ToleratesLegacyInteriorGap(t *testing.T) {
 		}
 	}
 	require.True(t, warned, "expected a WARN about missing nodes")
+}
+
+// TestSnapshotReader_LoadsEmptyBlock reads the body older writers emitted when
+// node 0 exactly filled a block: an empty block starting at 0, then the block
+// holding node 0, also starting at 0. The reader gathers block ranges in
+// whatever order its workers finish, so both on-disk orders are read.
+func TestSnapshotReader_LoadsEmptyBlock(t *testing.T) {
+	const (
+		blockSize = 128
+		nodeCount = 3
+	)
+
+	empty := snapshotBlock(t, blockSize, 0, 0)
+	full := snapshotBlock(t, blockSize, 0, nodeCount)
+
+	tests := []struct {
+		name   string
+		blocks [][]byte
+	}{
+		{name: "empty block first, as older writers wrote it", blocks: [][]byte{empty, full}},
+		{name: "empty block last", blocks: [][]byte{full, empty}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			data := snapshotMetadataHeader(t, blockSize, nodeCount)
+			for _, block := range tt.blocks {
+				data = append(data, block...)
+			}
+
+			result, err := NewSnapshotReaderWithBlockSize(logrus.New(), blockSize).Read(bytes.NewReader(data))
+			require.NoError(t, err)
+			require.Len(t, result.Graph.Nodes, nodeCount)
+			for id := 0; id < nodeCount; id++ {
+				require.NotNilf(t, result.Graph.Nodes[id], "node %d must load", id)
+			}
+		})
+	}
 }
 
 // TestSnapshotReader_BlockBuffersCappedByBlockCount pins that Read allocates one
