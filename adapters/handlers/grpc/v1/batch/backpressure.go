@@ -41,6 +41,7 @@ func (h *StreamHandler) delayAck(ctx context.Context, heapRatio float64) {
 	}
 
 	if delay := ackDelay(h.config, heapRatio); delay > 0 {
+		h.logger.Infof("Delaying ack for %v due to heap ratio %v", delay, heapRatio)
 		h.wait(ctx, delay)
 	}
 }
@@ -109,6 +110,7 @@ func (h *StreamHandler) holdForMemory(ctx context.Context, size int64) (float64,
 		if wait <= 0 {
 			return 0, err
 		}
+		h.logger.Infof("Holding for memory for %v due to heap ratio %v", wait, heapRatio)
 		if wErr := h.wait(ctx, wait); wErr != nil {
 			return 0, wErr
 		}
