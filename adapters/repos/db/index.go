@@ -1138,7 +1138,12 @@ func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard S
 // pinLoadedShard takes a shutdown refcount so bucket work scheduled onto an
 // error group outlives the shard walk. A cold lazy shard has no store to
 // refcount; its file surgery holds shardCreateLocks in shard_lazyloader.go.
-func pinLoadedShard(shard ShardLike) (release func(), ok bool) {
+// The create lock spans the loaded check and the pin: a teardown between them
+// would have the pin rebuild the shard on a wrapper already out of the map.
+func (i *Index) pinLoadedShard(name string, shard ShardLike) (release func(), ok bool) {
+	i.shardCreateLocks.RLock(name)
+	defer i.shardCreateLocks.RUnlock(name)
+
 	if lazy, isLazy := shard.(*LazyLoadShard); isLazy && !lazy.isLoaded() {
 		return func() {}, true
 	}
@@ -1164,7 +1169,7 @@ func (i *Index) addProperty(ctx context.Context, props ...*models.Property) erro
 	// Skip cold shards: they'd only be force-loaded to create empty buckets,
 	// which they build from the refreshed class at their next load anyway.
 	i.ForEachLoadedShard(func(key string, shard ShardLike) error {
-		release, ok := pinLoadedShard(shard)
+		release, ok := i.pinLoadedShard(key, shard)
 		if !ok {
 			return nil
 		}
@@ -1192,7 +1197,7 @@ func (i *Index) updateProperty(ctx context.Context, property *models.Property) e
 
 	var payloadReads atomic.Int64
 	i.ForEachShard(func(key string, shard ShardLike) error {
-		release, ok := pinLoadedShard(shard)
+		release, ok := i.pinLoadedShard(key, shard)
 		if !ok {
 			return nil
 		}
@@ -1225,7 +1230,7 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 ) error {
 	// an updated is not specific to one shard, but rather all
 	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		release, ok := pinLoadedShard(shard)
+		release, ok := i.pinLoadedShard(name, shard)
 		if !ok {
 			return nil
 		}
@@ -1255,7 +1260,7 @@ func (i *Index) updateVectorIndexConfigs(ctx context.Context,
 	updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
 	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		release, ok := pinLoadedShard(shard)
+		release, ok := i.pinLoadedShard(name, shard)
 		if !ok {
 			return nil
 		}
@@ -1290,7 +1295,7 @@ func (i *Index) dropVectorIndex(ctx context.Context, targetVector string) error 
 	}()
 
 	if err := i.ForEachShardConcurrently(func(name string, shard ShardLike) error {
-		release, ok := pinLoadedShard(shard)
+		release, ok := i.pinLoadedShard(name, shard)
 		if !ok {
 			return nil
 		}
@@ -3643,69 +3648,87 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		return nil, func() {}, err
 	}
 
-	// make sure same shard is not inited in parallel. In case it is not loaded yet, switch to a RW lock and initialize
-	// the shard
-	func() {
-		i.shardCreateLocks.RLock(shardName)
-		defer i.shardCreateLocks.RUnlock(shardName)
-		shard = i.shards.Load(shardName)
-	}()
-
-	// A torn shard (deep teardown failure) is held in the map as the last
-	// reference to its leaked handles; surface the cause instead of a bare
-	// errAlreadyShutdown. Unavailable until restart.
-	if shard != nil && ensureInit {
-		if terr := shardTeardownError(shard); terr != nil {
-			return nil, func() {}, fmt.Errorf("shard %q: %w", shardName, terr)
-		}
+	// Lookup and pin share one read lock: a lazy shard's preventShutdown loads
+	// it, and a teardown landing between the two would rebuild it on a wrapper
+	// that already left the map — an orphan nothing can shut down, holding the
+	// directory's file locks. Same reasoning as getLoadedShard.
+	shard, release, err = i.pinResidentShard(shardName, ensureInit)
+	if err != nil || shard != nil {
+		return shard, release, err
+	}
+	if !ensureInit {
+		return nil, func() {}, nil
 	}
 
-	// A map hit on a shard that CLEANLY completed a shutdown (the deferred
-	// ref-drain one after a failed-but-restored close) must not pin the tenant
-	// on errAlreadyShutdown forever: the init path below re-creates it, same
-	// as the reactivation belt in initLocalShardWithForcedLoading. Read-only
-	// callers (ensureInit=false) keep surfacing the terminal error — the
-	// eventual-shutdown contract pins GetShard to errAlreadyShutdown.
-	if shard == nil || (ensureInit && shardKnownShut(shard)) {
-		if !ensureInit {
-			return nil, func() {}, nil
-		}
-
-		className := i.Config.ClassName.String()
-		class := i.getSchema.ReadOnlyClass(className)
-		if class == nil {
-			return nil, func() {}, fmt.Errorf("init local shard %q: class %s not found in schema", shardName, className)
-		}
-
-		i.shardCreateLocks.Lock(shardName)
-		defer i.shardCreateLocks.Unlock(shardName)
-
-		// double check if loaded in the meantime by concurrent call, if not load it
-		shard = i.shards.Load(shardName)
-		if shard != nil && shardKnownShut(shard) {
-			i.evictShutShard(shardName)
-			shard = nil
-		}
-		if shard == nil {
-			// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
-			if _, protected := i.backupProtectedShards.Load(shardName); protected {
-				return nil, func() {}, fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)
-			}
-			shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
-			if err != nil {
-				return nil, func() {}, fmt.Errorf("init local shard %q of index %s: %w", shardName, i.ID(), err)
-			}
-			i.publishShard(shardName, shard)
-		}
+	className := i.Config.ClassName.String()
+	class := i.getSchema.ReadOnlyClass(className)
+	if class == nil {
+		return nil, func() {}, fmt.Errorf("init local shard %q: class %s not found in schema", shardName, className)
 	}
 
-	// If ensureInit is true, ensure the shard is loaded. For lazy shards, preventShutdown()
-	// will call Load() internally
+	i.shardCreateLocks.Lock(shardName)
+	defer i.shardCreateLocks.Unlock(shardName)
+
+	// double check if loaded in the meantime by concurrent call, if not load it
+	shard = i.shards.Load(shardName)
+	if shard != nil && shardKnownShut(shard) {
+		i.evictShutShard(shardName)
+		shard = nil
+	}
+	if shard == nil {
+		// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
+		if _, protected := i.backupProtectedShards.Load(shardName); protected {
+			return nil, func() {}, fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)
+		}
+		shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
+		if err != nil {
+			return nil, func() {}, fmt.Errorf("init local shard %q of index %s: %w", shardName, i.ID(), err)
+		}
+		i.publishShard(shardName, shard)
+	}
+
+	// Still under the write lock, so a lazy shard's load inside the pin cannot race a teardown.
 	release, err = shard.preventShutdown()
 	if err != nil {
 		return nil, func() {}, fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)
 	}
 
+	return shard, release, nil
+}
+
+// pinResidentShard looks the shard up and pins it under one read lock. A nil
+// shard with a nil error means absent or, with ensureInit, cleanly shut: the
+// caller re-checks and initializes under the write lock. Read-only callers keep
+// surfacing errAlreadyShutdown from the pin — the eventual-shutdown contract
+// pins GetShard to it.
+func (i *Index) pinResidentShard(shardName string, ensureInit bool) (shard ShardLike, release func(), err error) {
+	i.shardCreateLocks.RLock(shardName)
+	defer i.shardCreateLocks.RUnlock(shardName)
+
+	shard = i.shards.Load(shardName)
+	if shard == nil {
+		return nil, func() {}, nil
+	}
+	if ensureInit {
+		// A torn shard (deep teardown failure) is held in the map as the last
+		// reference to its leaked handles; surface the cause instead of a bare
+		// errAlreadyShutdown. Unavailable until restart.
+		if terr := shardTeardownError(shard); terr != nil {
+			return nil, func() {}, fmt.Errorf("shard %q: %w", shardName, terr)
+		}
+		// A shard that CLEANLY completed a shutdown (the deferred ref-drain one
+		// after a failed-but-restored close) must not pin the tenant on
+		// errAlreadyShutdown forever: the caller re-creates it, same as the
+		// reactivation belt in initLocalShardWithForcedLoading.
+		if shardKnownShut(shard) {
+			return nil, func() {}, nil
+		}
+	}
+
+	release, err = shard.preventShutdown()
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)
+	}
 	return shard, release, nil
 }
 
