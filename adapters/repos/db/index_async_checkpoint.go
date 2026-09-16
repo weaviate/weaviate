@@ -319,6 +319,7 @@ func (i *Index) getAsyncCheckpointStatus(ctx context.Context, shards []string, b
 		})
 	}
 
+	// Debug: convergence planning polls this every few seconds per class.
 	i.logger.WithFields(logrus.Fields{
 		"action":           "async_checkpoint",
 		"op":               "status",
@@ -327,6 +328,6 @@ func (i *Index) getAsyncCheckpointStatus(ctx context.Context, shards []string, b
 		"local_present":    len(localStatuses),
 		"remote_successes": remoteSuccesses,
 		"remote_failures":  remoteFailures,
-	}).Info("async-checkpoint status completed")
+	}).Debug("async-checkpoint status completed")
 	return out, nil
 }

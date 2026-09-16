@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -486,7 +488,7 @@ type Config struct {
 
 	// Plumbed through for future callers under the "wl" directory; nothing in
 	// the DB layer reads it yet.
-	WeaviateLicense *configRuntime.DynamicValue[bool]
+	WeaviateLicense bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
@@ -595,6 +597,65 @@ func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) sharding.R
 func (db *DB) droppingIndex(id string) *Index {
 	if idx, ok := db.dropping.Load(id); ok {
 		return idx.(*Index)
+	}
+	return nil
+}
+
+// DropOrphanedClass removes the data of a class the schema already dropped.
+// Unlike DeleteIndex it removes files with no index loaded, the state a
+// schema-only delete leaves behind, so callers must know this node held it.
+func (db *DB) DropOrphanedClass(className schema.ClassName) error {
+	if idx := db.GetIndex(className); idx != nil {
+		if err := db.DeleteIndex(className); err != nil {
+			return err
+		}
+	}
+
+	// The caller knows the class was ours; only the directory knows the path is.
+	path := filepath.Join(db.config.RootPath, indexID(className))
+	if !hasShardStore(path) {
+		db.logger.WithFields(logrus.Fields{
+			"action": "drop_orphaned_class",
+			"class":  className.String(),
+			"path":   path,
+		}).Warn("left class data in place: no shard store, so not our index")
+		return nil
+	}
+	return db.dropIndexData(className)
+}
+
+// hasShardStore reports whether path holds a shard directory: a child with the
+// lsm store and the version file every shard writes on init. BACKUP_FILESYSTEM_PATH
+// takes any absolute directory, so <RootPath>/backups is legal and a collection
+// named Backups maps onto it.
+func hasShardStore(path string) bool {
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		lsm, err := os.Stat(filepath.Join(path, e.Name(), "lsm"))
+		if err != nil || !lsm.IsDir() {
+			continue
+		}
+		if v, err := os.Stat(filepath.Join(path, e.Name(), "version")); err == nil && !v.IsDir() {
+			return true
+		}
+	}
+	return false
+}
+
+func (db *DB) dropIndexData(className schema.ClassName) error {
+	deleted, err := renameForAsyncDelete(
+		filepath.Join(db.config.RootPath, indexID(className)), db.logger)
+	if err != nil {
+		return fmt.Errorf("rename index for async delete: %w", err)
+	}
+	if deleted != "" {
+		spawnAsyncDelete(deleted, db.logger)
 	}
 	return nil
 }

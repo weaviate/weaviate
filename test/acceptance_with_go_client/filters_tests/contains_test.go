@@ -48,6 +48,9 @@ func testContains(host string) func(t *testing.T) {
 			cleanup()
 			class := &models.Class{
 				Class: className,
+				// one of the cases below filters with nearText, which needs a
+				// vectorizer module
+				Vectorizer: "text2vec-contextionary",
 				Properties: []*models.Property{
 					{
 						Name:     "color",

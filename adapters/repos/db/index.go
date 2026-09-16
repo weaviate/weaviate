@@ -39,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -750,6 +751,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				i.logger.
 					WithField("action", "load_shard").
 					WithField("shard_name", shardName).
+					WithFields(enterrors.DocsLinkFields(err)).
 					Errorf("failed to load shard, loading the rest anyway: %v", err)
 				// A failure says nothing about the shards behind this one: memory
 				// pressure is node-wide and transient, anything else is specific
@@ -3900,6 +3902,10 @@ func (i *Index) drop() error {
 	// otherwise leave the shard un-dropped without failing the call
 	ec.Add(eg.Wait())
 
+	// Covers the inactive tenants too: they were never in i.shards, but a cold
+	// usage scan creates a count for any shard it reads.
+	shardusage.ForgetComputedUsageGenerationsUnder(i.path())
+
 	// 1s target contract per weaviate/0-weaviate-issues#250; ctx errors
 	// are best-effort (flush doesn't honor ctx yet — separable follow-up).
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -4005,6 +4011,11 @@ func (i *Index) dropShards(names []string) error {
 					i.logger.WithField("action", "drop_shard").WithField("shard", shard.ID()).Error(err)
 				}
 			}
+
+			// After the drop, not before: a drop-vector clear holding a reference
+			// on this shard invalidates its usage record as it finishes, which
+			// re-creates the count, and the drop is what waits that reference out.
+			shardusage.ForgetComputedUsageGeneration(i.path(), name)
 
 			return nil
 		})

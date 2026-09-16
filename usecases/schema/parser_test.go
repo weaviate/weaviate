@@ -651,10 +651,10 @@ func TestParseClassUpdate_VectorlessFlip(t *testing.T) {
 	}
 
 	t.Run("the flip parses with a cleared body", func(t *testing.T) {
-		// UpdateClassInternal re-clears the legacy fields setClassDefaults
-		// filled into a vector-less body, so the update reaching this parse
-		// carries the stored shape and the immutability checks pass
-		// naturally ("" == "").
+		// The defaults never fill legacy fields into a vector-less body and
+		// UpdateClassInternal rejects a caller who sets them, so the update
+		// reaching this parse carries the stored shape and the immutability
+		// checks pass naturally ("" == "").
 		initial := &models.Class{Class: "C", VectorConfig: dropped, ShardingConfig: sc}
 		updated := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{}}
 		_, err := p.ParseClassUpdate(initial, updated)

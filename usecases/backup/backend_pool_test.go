@@ -102,6 +102,7 @@ func (p *uploadProbe) Backupable(context.Context, []string) error { return nil }
 // stops between classes once ctx is cancelled, as DB.BackupDescriptors does. A
 // test can then observe the pool while a later class has not been snapshotted yet.
 func (p *uploadProbe) BackupDescriptors(ctx context.Context, _ string, _ []string, _ []*backup.BackupDescriptor,
+	_ map[string]map[string]string,
 ) <-chan backup.ClassDescriptor {
 	ch := make(chan backup.ClassDescriptor, len(p.descs))
 	go func() {
@@ -257,7 +258,7 @@ func newProbeUploader(t *testing.T, p *uploadProbe, poolSize int) (*uploader, *b
 	logger, _ := test.NewNullLogger()
 	store := nodeStore{objectStore{backend: p, backupId: "backup-1"}}
 	stat := &backupStat{}
-	u := newUploader(config.Backup{}, p, nil, nil, nil, nil, store, "backup-1", stat, logger).
+	u := newUploader(config.Backup{}, p, nil, nil, snapshotSelection{}, store, "backup-1", stat, logger).
 		withCompression(zipConfig{Level: int(NoCompression), GoPoolSize: poolSize})
 
 	desc := &backup.BackupDescriptor{ID: "backup-1", Classes: make([]backup.ClassDescriptor, 0, len(names))}
@@ -409,9 +410,13 @@ func TestUploaderAllClassDescriptors(t *testing.T) {
 					require.Len(t, shards, 1)
 					covered[shards[0]] = true
 				}
+				var shardTotal int64
 				for _, shard := range c.Shards {
 					assert.True(t, covered[shard.Name], "no chunk recorded for shard %s of %s", shard.Name, c.Name)
+					assert.Positive(t, shard.PreCompressionSizeBytes, "shard %s of %s must record its size", shard.Name, c.Name)
+					shardTotal += shard.PreCompressionSizeBytes
 				}
+				assert.Equal(t, shardTotal, c.PreCompressionSizeBytes)
 				total += c.PreCompressionSizeBytes
 			}
 			assert.Equal(t, total, desc.PreCompressionSizeBytes)
@@ -425,6 +430,25 @@ func TestUploaderAllClassDescriptors(t *testing.T) {
 			}, probeTimeout, time.Millisecond, "every class must be released")
 		})
 	}
+}
+
+func TestUploaderShardSizeIncludesIncrementalSkippedBytes(t *testing.T) {
+	sourcePath := t.TempDir()
+	p := newUploadProbe(sourcePath, genClassDescriptions(t, sourcePath, "Class-A")...)
+	desc, err := runUpload(t, context.Background(), p, 2)
+	require.NoError(t, err)
+	baseline := desc.Classes[0].Shards[0].PreCompressionSizeBytes
+	require.Positive(t, baseline)
+
+	withSkipped := genClassDescriptions(t, sourcePath, "Class-A")
+	withSkipped[0].Shards[0].IncrementalBackupInfo.TotalSize = 512
+	p = newUploadProbe(sourcePath, withSkipped...)
+	desc, err = runUpload(t, context.Background(), p, 2)
+	require.NoError(t, err)
+	got := desc.Classes[0].Shards[0]
+	assert.Equal(t, baseline+512, got.PreCompressionSizeBytes)
+	assert.Equal(t, got.PreCompressionSizeBytes, desc.Classes[0].PreCompressionSizeBytes)
+	assert.Equal(t, got.PreCompressionSizeBytes, desc.PreCompressionSizeBytes)
 }
 
 func countChunks(classes []backup.ClassDescriptor) int {

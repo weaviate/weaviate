@@ -1218,6 +1218,15 @@ func (s *BackupTestSuite) RunCancellationTest(t *testing.T) {
 		// Accept either Cancelled or Success (backup might complete before cancel)
 		assert.True(t, status == string(backup.Cancelled) || status == string(backup.Success),
 			"backup status should be Cancelled or Success, got: %s", status)
+
+		// A poll only reads CANCELED once the descriptor is durable, so restore validation must agree with it.
+		if status == string(backup.Cancelled) {
+			_, rerr := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), s.config.ClassName, s.config.BackendType, backupID, nil, false)
+			require.Error(t, rerr, "restore of a canceled backup must be rejected")
+			msg := helper.BackupRestoreErrorMessage(rerr)
+			assert.Contains(t, msg, "status: "+string(backup.Cancelled))
+			assert.NotContains(t, msg, "status: "+string(backup.Started))
+		}
 	})
 
 	t.Run("cleanup", func(t *testing.T) {

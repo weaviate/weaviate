@@ -850,7 +850,6 @@ func (pdt *fakePropertyDataType) ContainsClass(name schema.ClassName) bool {
 }
 
 func TestHandler_DeleteClassVectorIndex(t *testing.T) {
-	t.Setenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true")
 	ctx := context.Background()
 
 	t.Run("class not found returns error", func(t *testing.T) {
@@ -1440,7 +1439,6 @@ func TestDeleteClassPropertyIndex_NoOpWhenFlagAlreadyOff(t *testing.T) {
 func boolPtr(b bool) *bool { return &b }
 
 func TestDeleteClassVectorIndex_Namespacing(t *testing.T) {
-	t.Setenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true")
 	cases := []struct {
 		name         string
 		enabled      bool

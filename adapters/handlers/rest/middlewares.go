@@ -14,7 +14,6 @@ package rest
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -30,7 +29,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/swagger_middleware"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 )
@@ -66,28 +64,6 @@ func addHandleRoot(next http.Handler) http.Handler {
 	})
 }
 
-func makeAddModuleHandlers(modules *modules.Provider) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		mux := http.NewServeMux()
-
-		for _, mod := range modules.GetAllWithHTTPHandlers() {
-			prefix := fmt.Sprintf("/v1/modules/%s", mod.Name())
-			mux.Handle(fmt.Sprintf("%s/", prefix),
-				http.StripPrefix(prefix, mod.RootHandler()))
-		}
-
-		prefix := "/v1/modules"
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if url := r.URL.String(); len(url) > len(prefix) && url[:len(prefix)] == prefix {
-				mux.ServeHTTP(w, r)
-				return
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
 // The middleware configuration happens before anything, this middleware also applies to serving the swagger.json document.
 // So this is a good place to plug in a panic handling middleware, logging and metrics
 // Contains "x-api-key", "x-api-token" for legacy reasons, older interfaces might need these headers.
@@ -108,7 +84,6 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		handler = addPreflight(handler, appState.ServerConfig.Config.CORS)
 		handler = addLiveAndReadyness(appState, handler)
 		handler = addHandleRoot(handler)
-		handler = makeAddModuleHandlers(appState.Modules)(handler)
 		// Add client tracking middleware early in the chain to capture all requests
 		if telemeter != nil {
 			handler = telemetry.ClientTrackingMiddleware(telemeter.GetClientTracker(), telemeter.GetIntegrationTracker())(handler)
