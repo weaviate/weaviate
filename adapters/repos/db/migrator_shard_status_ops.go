@@ -267,7 +267,7 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 
 			// An artifact's .ht would be trusted verbatim on load, so none may survive the download on either leg.
 			discardHashtree := func() {
-				if err := os.RemoveAll(shardPathHashTree(idx.path(), name)); err != nil {
+				if err := os.RemoveAll(idx.shardPathHashTree(name)); err != nil {
 					m.logger.WithFields(logrus.Fields{
 						"action": "download_tenant_from_cloud",
 						"name":   class,

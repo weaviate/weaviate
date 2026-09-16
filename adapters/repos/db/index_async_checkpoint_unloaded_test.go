@@ -53,7 +53,7 @@ func newUnloadedCheckpointFixture(t *testing.T, className string, replicated boo
 		addPropertyLazyFixture: f,
 		name:                   name,
 		lazy:                   lazy,
-		dir:                    shardPathHashTree(f.index.path(), name),
+		dir:                    f.index.shardPathHashTree(name),
 	}
 }
 

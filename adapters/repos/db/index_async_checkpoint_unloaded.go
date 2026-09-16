@@ -124,7 +124,7 @@ func (i *Index) createUnloadedAsyncCheckpoint(ctx context.Context, shardName str
 			return fmt.Errorf("%w: shard %q not loaded on this node: %s", errAsyncReplicationNotActive, shardName, reason)
 		}
 
-		root, filename, err := newestPersistedHashTreeRoot(shardPathHashTree(i.path(), shardName))
+		root, filename, err := newestPersistedHashTreeRoot(i.shardPathHashTree(shardName))
 		if err != nil {
 			if !errors.Is(err, errNoPersistedHashtree) {
 				logger.Warnf("persisted hashtree unusable for checkpoint: %v", err)
