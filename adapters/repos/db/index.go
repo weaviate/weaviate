@@ -975,8 +975,7 @@ func (i *Index) recoverShardFromPeerIfNeeded(ctx context.Context, class *models.
 
 	// Install before submit so a fast worker can't clobber the wrapper; a declined submit reverts it.
 	i.installRecoveringShard(ctx, class, shardName, promMetrics)
-	fromBootstrap := i.Config.RaftBootstrapComplete != nil && !i.Config.RaftBootstrapComplete()
-	if !orch.SubmitRecovery(context.Background(), collection, shardName, fromBootstrap) {
+	if !orch.SubmitRecovery(context.Background(), collection, shardName, enterrors.IsStartedWithoutRaftState(ctx)) {
 		i.shards.LoadAndDelete(shardName)
 		i.logger.WithFields(logFields).
 			Warn("self-recovery: submission was not queued (feature disabled or shutting down); falling back to normal shard init")
@@ -1729,8 +1728,6 @@ type IndexConfig struct {
 
 	// Consulted at startup for shards whose dir is missing; nil-safe.
 	SelfRecoveryOrchestrator SelfRecoveryOrchestrator
-	// Captured at submit as fromBootstrap: bootstrap-window all-peers-empty reads as class-added-during-downtime, not a wipe. Nil ⇒ post-bootstrap.
-	RaftBootstrapComplete func() bool
 	// Seeded before initAndStoreShards so the startup recovery check can read it.
 	ReplicationFSM replicationTypes.ReplicationFSMReader
 

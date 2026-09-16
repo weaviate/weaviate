@@ -298,6 +298,7 @@ func dummyValidateInvertedConfig(in *models.InvertedIndexConfig) error {
 
 type fakeMigrator struct {
 	mock.Mock
+	onUpdateIndex func(context.Context)
 }
 
 func (f *fakeMigrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
@@ -431,6 +432,9 @@ func (f *fakeMigrator) Shutdown(ctx context.Context) error {
 }
 
 func (f *fakeMigrator) UpdateIndex(ctx context.Context, class *models.Class, shardingState *sharding.State) error {
+	if f.onUpdateIndex != nil {
+		f.onUpdateIndex(ctx)
+	}
 	args := f.Called(class, shardingState)
 	return args.Error(0)
 }
