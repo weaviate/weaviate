@@ -391,3 +391,35 @@ func TestEditOpBucketsSkipRecoveringShard(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, buckets)
 }
+
+func TestPinLoadedShardSkipsRecoveringShard(t *testing.T) {
+	idx := newRecoveringIndex(t)
+
+	release, ok := idx.pinLoadedShard("S", idx.shards.Load("S"))
+	release()
+	require.False(t, ok)
+	require.NoDirExists(t, shardPath(idx.path(), "S"))
+	_, stillRecovering := idx.shards.Load("S").(*RecoveringShard)
+	require.True(t, stillRecovering)
+}
+
+func TestUpdatePropertySkipsRecoveringShard(t *testing.T) {
+	idx := newRecoveringIndex(t)
+
+	prop := &models.Property{Name: "p", DataType: schema.DataTypeText.PropString()}
+	require.NoError(t, idx.updateProperty(context.Background(), prop))
+	require.NoDirExists(t, shardPath(idx.path(), "S"))
+	rec, stillRecovering := idx.shards.Load("S").(*RecoveringShard)
+	require.True(t, stillRecovering)
+	require.True(t, rec.IsRecovering())
+}
+
+func TestLoadedShardForDimensionsClearSkipsRecoveringShard(t *testing.T) {
+	idx := newRecoveringIndex(t)
+
+	shard, release, err := loadedShardForDimensionsClear(idx, "S")
+	require.ErrorIs(t, err, errDimensionsShardNotLoaded)
+	require.Nil(t, shard)
+	require.Nil(t, release)
+	require.NoDirExists(t, shardPath(idx.path(), "S"))
+}
