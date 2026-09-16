@@ -244,6 +244,8 @@ func (h *Handler) hideAliasTarget(ctx context.Context, principal *models.Princip
 	if !aliasUsed || !errors.As(err, &forbidden) {
 		return statusFromError(err)
 	}
+	// This runs only after the caller was denied the target. A namespace refusal
+	// here would replace the 403 and tell that denied caller a namespace's state.
 	if reauth := h.authorizer.Authorize(ctx, principal, authorization.READ, dataResources(collection, tenant)...); reauth != nil {
 		return statusFromError(reauth)
 	}
