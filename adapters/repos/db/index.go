@@ -4926,16 +4926,16 @@ func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector st
 	return nil
 }
 
+// tenantDirExists reports whether the tenant holds data on disk; an empty folder is a lazy registration that never loaded.
 func (i *Index) tenantDirExists(tenantName string) (bool, error) {
-	tenantPath := shardPath(i.path(), tenantName)
-	if _, err := os.Stat(tenantPath); err != nil {
-		// when inactive tenant is not populated, its directory does not exist yet
+	entries, err := os.ReadDir(shardPath(i.path(), tenantName))
+	if err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
 			return false, err
 		}
 		return false, nil
 	}
-	return true, nil
+	return len(entries) > 0, nil
 }
 
 func (i *Index) buildReadRoutingPlan(cl routerTypes.ConsistencyLevel, tenantName string) (routerTypes.ReadRoutingPlan, error) {

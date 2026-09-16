@@ -19,9 +19,11 @@ import (
 	"testing"
 
 	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -451,6 +453,42 @@ func TestLazyRegistrationCreatesShardDir(t *testing.T) {
 
 	require.False(t, idx.recoverShardFromPeerIfNeeded(schemaReloadCtx(), class, "T", monitoring.GetMetrics()))
 	require.Zero(t, orch.submitCalls)
+}
+
+func TestListInactiveShardFilesTreatsEmptyFolderAsNoLocalData(t *testing.T) {
+	idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{})
+	idx.getSchema = &fakeSchemaGetter{}
+	shardDir := shardPath(idx.path(), "S")
+	require.NoError(t, os.MkdirAll(shardDir, os.ModePerm))
+
+	_, err := idx.listInactiveShardFiles("S", &backup.ShardDescriptor{})
+	require.ErrorIs(t, err, errShardNoLocalData)
+
+	require.NoError(t, os.WriteFile(filepath.Join(shardDir, "indexcount"), nil, 0o644))
+	_, err = idx.listInactiveShardFiles("S", &backup.ShardDescriptor{})
+	require.Error(t, err)
+	require.NotErrorIs(t, err, errShardNoLocalData)
+}
+
+func TestUsageForShardTreatsEmptyFolderAsZero(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{})
+	idx.logger = logger
+	idx.Config.EnableLazyLoadShards = true
+	idx.closingCtx = context.Background()
+	idx.shardCreateLocks = esync.NewKeyRWLocker()
+	shard, err := idx.initShard(context.Background(), "S", &models.Class{Class: "C"}, monitoring.GetMetrics(), false, false)
+	require.NoError(t, err)
+	idx.shards.Store("S", shard)
+	require.DirExists(t, shardPath(idx.path(), "S"))
+
+	usage, err := idx.usageForShard(context.Background(), "S", false, nil, "")
+	require.NoError(t, err)
+	require.True(t, usage.LazyUnloaded)
+	require.Zero(t, usage.ObjectsCount)
+	for _, entry := range hook.AllEntries() {
+		require.Greater(t, entry.Level, logrus.WarnLevel, entry.Message)
+	}
 }
 
 func TestPromoteRecoveringLocalShardFollowsLazyPolicy(t *testing.T) {
