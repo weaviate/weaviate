@@ -111,24 +111,24 @@ func searchableSchema(t *testing.T, name string) clusterSchema.SchemaReader {
 	return sm.NewSchemaReader()
 }
 
-// TestSearchErrPayloadDocsLinkThroughHandler: the docs link must come off the
-// cause, since the handler shortens the client message.
+// TestSearchErrPayloadDocsLinkThroughHandler: the body carries the engine's
+// own error, and a documented one also carries its page.
 func TestSearchErrPayloadDocsLinkThroughHandler(t *testing.T) {
 	tests := []struct {
-		name string
-		err  error
-		want string
+		name         string
+		err          error
+		wantContains []string
 	}{
 		{
 			name: "documented failure keeps its message and page",
 			err: fmt.Errorf("explorer: get class: local shard object search movie_abc: cannot init shard: %w",
 				enterrors.ErrNotEnoughMappings),
-			want: "cannot init shard: not enough memory mappings (see https://docs.weaviate.io/e/core-mem001)",
+			wantContains: []string{"not enough memory mappings", "(see https://docs.weaviate.io/e/core-mem001)"},
 		},
 		{
-			name: "undocumented failure is generic",
-			err:  fmt.Errorf("explorer: get class: local shard object search movie_abc: cannot parse stored value"),
-			want: "internal server error; details are in the server log",
+			name:         "undocumented failure keeps its message",
+			err:          fmt.Errorf("explorer: get class: local shard object search movie_abc: cannot parse stored value"),
+			wantContains: []string{"cannot parse stored value"},
 		},
 	}
 
@@ -146,7 +146,9 @@ func TestSearchErrPayloadDocsLinkThroughHandler(t *testing.T) {
 				require.Equal(t, http.StatusInternalServerError, apiErr.Status)
 				payload := searchErrPayload(apiErr)
 				require.Len(t, payload.Error, 1)
-				assert.Equal(t, tt.want, payload.Error[0].Message)
+				for _, want := range tt.wantContains {
+					assert.Contains(t, payload.Error[0].Message, want)
+				}
 			}
 
 			query := "space"

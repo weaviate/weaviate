@@ -856,43 +856,41 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 	}
 }
 
-// TestStatusFromErrorMessages: engine errors reach the client without the
-// traverser's wrap chain, and credential-bearing detail stays in the log.
+// TestStatusFromErrorMessages: engine errors reach the client with their wrap
+// chain intact, for parity with GraphQL and gRPC. The one exception is the
+// provider response, whose credential-bearing detail stays in the log.
 func TestStatusFromErrorMessages(t *testing.T) {
 	wrap := func(err error) error {
 		return fmt.Errorf("explorer: get class: vector search: object search at index movie: local shard object search movie_abc: %w", err)
 	}
 	tests := []struct {
-		name           string
-		err            error
+		name string
+		err  error
+		// wantMsg empty means the client sees err's own message, unchanged
 		wantStatus     int
 		wantMsg        string
 		wantCause      string
 		wantDocumented bool
 	}{
 		{
-			name:       "source object not found keeps only its own message",
+			name:       "source object not found keeps the full chain",
 			err:        wrap(enterrors.NewErrSourceObjectNotFound(errors.New("nearObject search-object with id 123 not found"))),
 			wantStatus: http.StatusBadRequest,
-			wantMsg:    "nearObject search-object with id 123 not found",
 		},
 		{
-			name:       "multi-tenancy mismatch keeps only its own message",
+			name:       "multi-tenancy mismatch keeps the full chain",
 			err:        wrap(objects.NewErrMultiTenancy(errors.New("class Movie has multi-tenancy disabled, but request was with tenant"))),
 			wantStatus: http.StatusUnprocessableEntity,
-			wantMsg:    "class Movie has multi-tenancy disabled, but request was with tenant",
 		},
 		{
-			name:       "tenant not found drops the engine prefix",
+			name:       "tenant not found keeps the full chain",
 			err:        wrap(fmt.Errorf("%w: tenant \"t1\"", enterrors.ErrTenantNotFound)),
 			wantStatus: http.StatusNotFound,
-			wantMsg:    enterrors.ErrTenantNotFound.Error() + ": tenant \"t1\"",
 		},
 		{
 			name:       "only-stopwords pattern is a 400",
 			err:        wrap(dbinverted.ErrOnlyStopwords),
 			wantStatus: http.StatusBadRequest,
-			wantMsg:    dbinverted.ErrOnlyStopwords.Error(),
 		},
 		{
 			name:       "provider failure is a fixed 500 with the detail as cause",
@@ -902,17 +900,15 @@ func TestStatusFromErrorMessages(t *testing.T) {
 			wantCause:  "sk-bad",
 		},
 		{
-			name:       "unknown failure is a fixed 500 with the detail as cause",
+			name:       "unclassified failure is a 500 carrying the chain",
 			err:        wrap(errors.New("trying parse time as RFC3339 string: cannot parse")),
 			wantStatus: http.StatusInternalServerError,
-			wantMsg:    errInternal.Error(),
 			wantCause:  "RFC3339",
 		},
 		{
-			name:           "documented failure keeps its own message",
+			name:           "documented failure keeps the chain and matches its page",
 			err:            wrap(fmt.Errorf("cannot init shard: %w", enterrors.ErrNotEnoughMappings)),
 			wantStatus:     http.StatusInternalServerError,
-			wantMsg:        "cannot init shard: " + enterrors.ErrNotEnoughMappings.Error(),
 			wantCause:      "explorer:",
 			wantDocumented: true,
 		},
@@ -921,8 +917,11 @@ func TestStatusFromErrorMessages(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			apiErr := statusFromError(tt.err)
 			assert.Equal(t, tt.wantStatus, apiErr.Status)
-			assert.Equal(t, tt.wantMsg, apiErr.Error())
-			assert.NotContains(t, apiErr.Error(), "explorer:")
+			wantMsg := tt.wantMsg
+			if wantMsg == "" {
+				wantMsg = tt.err.Error()
+			}
+			assert.Equal(t, wantMsg, apiErr.Error())
 			if tt.wantCause != "" {
 				assert.Contains(t, apiErr.Cause().Error(), tt.wantCause)
 			}
@@ -931,20 +930,6 @@ func TestStatusFromErrorMessages(t *testing.T) {
 				assert.True(t, ok, "the reply matches the docs link on the cause")
 			}
 		})
-	}
-}
-
-func TestStripEngineWrap(t *testing.T) {
-	tests := []struct {
-		in, want string
-	}{
-		{"explorer: get class: vector search: class Movie has multi-tenancy disabled", "class Movie has multi-tenancy disabled"},
-		{"shard bRfAepQ3iqkD: identify groups: scan: context canceled", "context canceled"},
-		{"could not find class Movie in schema", "could not find class Movie in schema"},
-		{"explorer", "explorer"},
-	}
-	for _, tt := range tests {
-		assert.Equal(t, tt.want, stripEngineWrap(tt.in), tt.in)
 	}
 }
 

@@ -361,8 +361,6 @@ func statusFromError(err error) *APIError {
 		return &APIError{Status: http.StatusTooManyRequests, Err: err}
 	}
 
-	// typed errors answer with their own message: the wrap chain above them
-	// names traverser stages and shard ids the caller cannot act on
 	var (
 		multiTenancy  objects.ErrMultiTenancy
 		noVectorizer  enterrors.ErrNoVectorizerModule
@@ -373,43 +371,39 @@ func statusFromError(err error) *APIError {
 		missingIndex  inverted.MissingIndexError
 		vectorization enterrors.ErrQueryVectorization
 	)
-	shortened := func(status int, e error) *APIError { return &APIError{Status: status, Err: e, cause: err} }
-	shortenedChain := func(status int) *APIError {
-		return &APIError{Status: status, Err: errors.New(stripEngineWrap(err.Error())), cause: err}
-	}
 	switch {
 	case errors.Is(err, enterrors.ErrTenantNotFound):
-		return shortenedChain(http.StatusNotFound)
+		return &APIError{Status: http.StatusNotFound, Err: err}
 	case errors.Is(err, enterrors.ErrTenantNotActive):
-		return shortenedChain(http.StatusUnprocessableEntity)
+		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.As(err, &multiTenancy):
 		// tenant-vs-collection mismatch (tenant sentinels checked above)
-		return shortened(http.StatusUnprocessableEntity, multiTenancy)
+		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.Is(err, errCollectionNotFound):
 		return &APIError{Status: http.StatusNotFound, Err: err}
 	case errors.As(err, &noVectorizer):
 		// must stay above ErrQueryVectorization (see func doc)
-		return shortened(http.StatusUnprocessableEntity, noVectorizer)
+		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.As(err, &srcNotFound):
 		// near-object: the id names no object — a bad body value, like an
 		// unknown targetVector (must stay above ErrQueryVectorization)
-		return shortened(http.StatusBadRequest, srcNotFound)
+		return &APIError{Status: http.StatusBadRequest, Err: err}
 	case errors.As(err, &srcNoVector):
 		// near-object: the object exists but its stored vectors cannot
 		// anchor this search (must stay above ErrQueryVectorization)
-		return shortened(http.StatusUnprocessableEntity, srcNoVector)
+		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.As(err, &dirtyRead):
 		// near-object: the source object is mid-delete across replicas, which
 		// every other read path treats as gone (usecases/objects head, merge)
-		return shortened(http.StatusBadRequest, dirtyRead)
+		return &APIError{Status: http.StatusBadRequest, Err: err}
 	case errors.As(err, &certainty):
-		return shortened(http.StatusUnprocessableEntity, certainty)
+		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.As(err, &missingIndex):
 		// filter on a property whose inverted index is disabled
-		return shortened(http.StatusUnprocessableEntity, missingIndex)
+		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.Is(err, dbinverted.ErrOnlyStopwords):
 		// a Like pattern or keyword query that tokenizes to nothing
-		return shortened(http.StatusBadRequest, dbinverted.ErrOnlyStopwords)
+		return &APIError{Status: http.StatusBadRequest, Err: err}
 	case errors.As(err, &vectorization):
 		// embedding provider failure — 500, not 502: Weaviate is not acting as
 		// a gateway. The provider's response can quote credentials, so it goes
@@ -418,42 +412,17 @@ func statusFromError(err error) *APIError {
 	}
 
 	msg := err.Error()
-	_, documented := enterrors.Documented(err)
 	switch {
 	case strings.Contains(msg, errClassNotFoundMarker):
-		return shortenedChain(http.StatusNotFound)
+		return &APIError{Status: http.StatusNotFound, Err: err}
 	case strings.Contains(msg, "invalid 'where' filter"):
 		// this wrap is ours (parseWhere), not upstream-fragile
 		return &APIError{Status: http.StatusBadRequest, Err: err}
-	case documented:
-		// a documented failure explains itself and the reply appends its page,
-		// so the caller keeps that message instead of the generic one
-		return shortenedChain(http.StatusInternalServerError)
 	default:
-		return &APIError{Status: http.StatusInternalServerError, Err: errInternal, cause: err}
+		return &APIError{Status: http.StatusInternalServerError, Err: err}
 	}
 }
 
-// Client-facing messages for failures whose detail belongs in the log.
-var (
-	errVectorizationFailed = errors.New("vectorizing the query failed; the vectorizer module's response is in the server log")
-	errInternal            = errors.New("internal server error; details are in the server log")
-)
-
-// engineWrapSegment matches the wrap segments the traverser and db prepend
-// on the way up ("explorer: get class: vector search: object search at index
-// x: local shard object search x_abc: ..."), which name internals the caller
-// cannot act on.
-var engineWrapSegment = regexp.MustCompile(`^(explorer|get class|list class|search|vector search|hybrid|keyword search|` +
-	`object search at index \S+|local shard object search \S+|concurrentTargetVectorSearch|nearObject params|` +
-	`determine shard|identify groups|scan|shard \S+|aggregate|filtered aggregate|unfiltered aggregate)$`)
-
-// stripEngineWrap drops the leading engine wrap segments of an error message.
-func stripEngineWrap(msg string) string {
-	segments := strings.Split(msg, ": ")
-	i := 0
-	for i < len(segments)-1 && engineWrapSegment.MatchString(segments[i]) {
-		i++
-	}
-	return strings.Join(segments[i:], ": ")
-}
+// errVectorizationFailed is the client-facing message for a provider failure,
+// whose detail belongs in the log.
+var errVectorizationFailed = errors.New("vectorizing the query failed; the vectorizer module's response is in the server log")
