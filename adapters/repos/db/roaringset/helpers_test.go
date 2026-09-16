@@ -274,6 +274,14 @@ func TestBitmap_Condense(t *testing.T) {
 		assert.Greater(t, bmLen, condensedLen)
 		assert.ElementsMatch(t, bm.ToArray(), condensed.ToArray())
 	})
+
+	t.Run("nil", func(t *testing.T) {
+		condensed := Condense(nil)
+
+		require.NotNil(t, condensed,
+			"Condense builds a fresh bitmap on every path, so no caller has to nil-check the result")
+		assert.Empty(t, condensed.ToArray())
+	})
 }
 
 func slice(from, to uint64) []uint64 {

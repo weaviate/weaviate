@@ -74,7 +74,9 @@ func (m *Memtable) roaringSetRangeAddRemove(key uint64, additions []uint64, dele
 }
 
 func (m *Memtable) roaringSetRangeAdjustMeta(entriesChanged int) {
-	// TODO roaring-set-range new estimations
+	// TODO aliszka:roaring-set-range this strategy holds two Go maps, not a tree
+	// of bitmaps, so the roaring-set heap model does not port to it. Measuring it
+	// needs a map-heap model of its own, in its own change.
 
 	// in the worst case roaring bitmaps take 2 bytes per entry. A reasonable
 	// estimation is therefore to take the changed entries and multiply them by
@@ -86,6 +88,8 @@ func (m *Memtable) roaringSetRangeAdjustMeta(entriesChanged int) {
 
 func (m *Memtable) roaringSetRangeAddCommitLog(key uint64, additions []uint64, deletions []uint64) error {
 	// TODO roaring-set-range improved commit log
+
+	m.writesSinceLastSync = true // for the reason roaringSetAddCommitLog gives
 
 	keyBuf := make([]byte, 8)
 	binary.BigEndian.PutUint64(keyBuf, key)
