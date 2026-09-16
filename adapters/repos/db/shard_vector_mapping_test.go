@@ -77,6 +77,17 @@ func TestVectorIndexMapping_Load(t *testing.T) {
 		assert.Empty(t, records)
 	})
 
+	// a deferred deletion the process did not finish; the next load does
+	t.Run("a dropping record loads", func(t *testing.T) {
+		m, db := newTestVectorIndexMapping(t)
+		put(t, db, ".format_version", "1")
+		put(t, db, "title", `{"physical_id":"vectors_title","index_type":"hnsw","state":"dropping"}`)
+		records, initialized, err := m.Load()
+		require.NoError(t, err)
+		assert.True(t, initialized)
+		assert.Equal(t, vectorIndexRecord{PhysicalID: "vectors_title", IndexType: "hnsw", State: "dropping"}, records["title"])
+	})
+
 	t.Run("reads every record under its logical name", func(t *testing.T) {
 		m, db := newTestVectorIndexMapping(t)
 		put(t, db, ".format_version", "1")

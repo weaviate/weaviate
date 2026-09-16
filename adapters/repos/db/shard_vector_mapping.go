@@ -36,6 +36,8 @@ const (
 const (
 	vectorIndexStateCreating = "creating"
 	vectorIndexStateReady    = "ready"
+	// dropping: the slot is gone, the files are not yet; the next load finishes it
+	vectorIndexStateDropping = "dropping"
 )
 
 var (
@@ -92,10 +94,12 @@ func (r vectorIndexRecord) validate() error {
 	if r.IndexType == "" {
 		return errors.New("empty index type")
 	}
-	if r.State != vectorIndexStateCreating && r.State != vectorIndexStateReady {
+	switch r.State {
+	case vectorIndexStateCreating, vectorIndexStateReady, vectorIndexStateDropping:
+		return nil
+	default:
 		return fmt.Errorf("unknown state %q", r.State)
 	}
-	return nil
 }
 
 // Load reads every record, keyed by logical name. initialized is false when
