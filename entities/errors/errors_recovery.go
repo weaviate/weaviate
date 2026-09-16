@@ -43,3 +43,15 @@ func IsStartupDBLoad(ctx context.Context) bool {
 	v, _ := ctx.Value(startupDBLoadKey{}).(bool)
 	return v
 }
+
+// startedWithoutRaftStateKey marks a load pass on a node that had no RAFT log or snapshot at Open.
+type startedWithoutRaftStateKey struct{}
+
+func WithStartedWithoutRaftState(ctx context.Context) context.Context {
+	return context.WithValue(ctx, startedWithoutRaftStateKey{}, true)
+}
+
+func IsStartedWithoutRaftState(ctx context.Context) bool {
+	v, _ := ctx.Value(startedWithoutRaftStateKey{}).(bool)
+	return v
+}

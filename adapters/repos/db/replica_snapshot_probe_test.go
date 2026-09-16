@@ -109,7 +109,7 @@ func TestIncomingProbeShardDataRecoveringShard(t *testing.T) {
 }
 
 func TestIncomingProbeShardDataAbsentShard(t *testing.T) {
-	idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{}, nil)
+	idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{})
 	idx.closingCtx = context.Background()
 	idx.shardCreateLocks = esync.NewKeyRWLocker()
 

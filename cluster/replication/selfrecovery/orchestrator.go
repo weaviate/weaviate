@@ -112,8 +112,8 @@ type Orchestrator struct {
 type submission struct {
 	ctx context.Context
 	ref ShardRef
-	// captured at submit so the classification can't flip if bootstrap completes mid-probe
-	fromBootstrap bool
+	// fixed per node start; picks the benign empty-fallback bucket
+	startedWithoutRaftState bool
 }
 
 type Config struct {
@@ -185,7 +185,7 @@ func shufflePeers(peers []string) {
 }
 
 // Submit queues recovery (never drops); false = won't run and the caller MUST fall back to normal init.
-func (o *Orchestrator) Submit(ctx context.Context, ref ShardRef, fromBootstrap bool) bool {
+func (o *Orchestrator) Submit(ctx context.Context, ref ShardRef, startedWithoutRaftState bool) bool {
 	if !o.enabled {
 		return false
 	}
@@ -203,7 +203,7 @@ func (o *Orchestrator) Submit(ctx context.Context, ref ShardRef, fromBootstrap b
 	if o.closed {
 		return false
 	}
-	o.pending.PushBack(submission{ctx: ctx, ref: ref, fromBootstrap: fromBootstrap})
+	o.pending.PushBack(submission{ctx: ctx, ref: ref, startedWithoutRaftState: startedWithoutRaftState})
 	o.queueCond.Signal()
 	return true
 }
@@ -214,8 +214,8 @@ func (o *Orchestrator) Enabled() bool {
 }
 
 // SubmitRecovery is the primitive-typed Submit for callers that can't import this package.
-func (o *Orchestrator) SubmitRecovery(ctx context.Context, collection, shard string, fromBootstrap bool) bool {
-	return o.Submit(ctx, ShardRef{Collection: collection, Shard: shard}, fromBootstrap)
+func (o *Orchestrator) SubmitRecovery(ctx context.Context, collection, shard string, startedWithoutRaftState bool) bool {
+	return o.Submit(ctx, ShardRef{Collection: collection, Shard: shard}, startedWithoutRaftState)
 }
 
 // Restart cancels in-flight ops and waits terminal (copier vs rmrf race), erases "<shard>.recovering/", resubmits; rejects live-dir and not-in-schema shards.
@@ -446,7 +446,7 @@ func (o *Orchestrator) AcceptEmpty(ctx context.Context, ref ShardRef) (string, e
 }
 
 // runOne probes peers, acts, and backs off up to maxAttempts; give-up leaves the shard RECOVERING for operator recovery.
-func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, fromBootstrap bool) {
+func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, startedWithoutRaftState bool) {
 	unlock := o.lockShard(ref)
 	defer unlock()
 	// The shard may have been torn down or re-created while queued.
@@ -531,7 +531,7 @@ func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, fromBootstrap b
 				return
 			}
 		case actionEmptyFallback:
-			o.handleEmptyFallback(ctx, ref, decision, startedAt, fromBootstrap, logger)
+			o.handleEmptyFallback(ctx, ref, decision, startedAt, startedWithoutRaftState, logger)
 			return
 		case actionRetry:
 			logger.WithField("retry_in", backoff.String()).Debug("self-recovery: peers unreachable, will retry")
@@ -587,9 +587,9 @@ func (o *Orchestrator) handleRegisterDecision(ctx context.Context, ref ShardRef,
 	}
 }
 
-// handleEmptyFallback materialises an empty live dir and promotes; fromBootstrap selects the gentler log/metric treatment.
+// handleEmptyFallback materialises an empty live dir and promotes; startedWithoutRaftState selects the gentler log/metric treatment.
 func (o *Orchestrator) handleEmptyFallback(ctx context.Context, ref ShardRef, decision probeDecision,
-	startedAt time.Time, fromBootstrap bool, logger logrus.FieldLogger,
+	startedAt time.Time, startedWithoutRaftState bool, logger logrus.FieldLogger,
 ) {
 	if err := o.emptyFallback(ref); err != nil {
 		logger.WithError(err).Error("self-recovery empty-fallback failed")
@@ -639,7 +639,7 @@ func (o *Orchestrator) handleEmptyFallback(ctx context.Context, ref ShardRef, de
 		}
 	}
 	if o.metrics != nil {
-		if fromBootstrap {
+		if startedWithoutRaftState {
 			o.metrics.NoDataDuringBootstrapTotal.Inc()
 		} else {
 			o.metrics.NoDataEmptyTotal.Inc()
@@ -655,9 +655,9 @@ func (o *Orchestrator) handleEmptyFallback(ctx context.Context, ref ShardRef, de
 		"shard":        ref.Shard,
 		"action_taken": "created_empty_shard",
 	}
-	if fromBootstrap {
+	if startedWithoutRaftState {
 		logger.WithFields(fallbackFields).
-			Info("no peer has data for shard during RAFT bootstrap; treating as fresh class")
+			Info("no peer has data for shard and this node started without RAFT state; treating as created while it was away")
 	} else {
 		fallbackFields["recoverable"] = false
 		fallbackFields["operator_note"] = "if data is recoverable from backup, restore now"
@@ -969,7 +969,7 @@ func (o *Orchestrator) initPool() {
 				o.pending.Remove(front)
 				o.queueMu.Unlock()
 				sub := front.Value.(submission)
-				o.runOne(sub.ctx, sub.ref, sub.fromBootstrap)
+				o.runOne(sub.ctx, sub.ref, sub.startedWithoutRaftState)
 			}
 		}, o.logger)
 	}

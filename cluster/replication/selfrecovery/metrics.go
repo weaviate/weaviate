@@ -59,11 +59,11 @@ func GlobalMetrics() *Metrics {
 			}, []string{"result"}),
 			NoDataEmptyTotal: promauto.NewCounter(prometheus.CounterOpts{
 				Name: "weaviate_self_recovery_no_data_empty_total",
-				Help: "Self-recovery occurrences where all probed peers definitively reported no data after RAFT bootstrap completed (catastrophic-wipe). Alert on this.",
+				Help: "Empty-fallbacks on a node that started with RAFT state: a shard folder vanished from an otherwise intact node and no peer has data. Alert on this.",
 			}),
 			NoDataDuringBootstrapTotal: promauto.NewCounter(prometheus.CounterOpts{
 				Name: "weaviate_self_recovery_no_data_during_bootstrap_total",
-				Help: "Self-recovery occurrences during the RAFT bootstrap window where all probed peers reported no data (likely a class added during this node's downtime, not data loss).",
+				Help: "Empty-fallbacks on a node that started without RAFT state (wiped or fresh); likely a class or tenant created while it was away, not data loss.",
 			}),
 			UnreachablePeerTotal: promauto.NewCounterVec(prometheus.CounterOpts{
 				Name: "weaviate_self_recovery_unreachable_peer_total",

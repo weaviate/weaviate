@@ -296,7 +296,7 @@ func TestRunOne_EmptyFallbackBootstrapSeverity(t *testing.T) {
 			stubSchema{replicas: []string{"self", "peer1"}}, ns, clientFactory, stubPathResolver{root: root}), root
 	}
 
-	t.Run("during bootstrap", func(t *testing.T) {
+	t.Run("started without raft state", func(t *testing.T) {
 		o, _ := mkOrch(t)
 		before := testutil.ToFloat64(o.metrics.NoDataDuringBootstrapTotal)
 		beforeOther := testutil.ToFloat64(o.metrics.NoDataEmptyTotal)
@@ -304,7 +304,7 @@ func TestRunOne_EmptyFallbackBootstrapSeverity(t *testing.T) {
 		require.InDelta(t, before+1, testutil.ToFloat64(o.metrics.NoDataDuringBootstrapTotal), 0.001)
 		require.InDelta(t, beforeOther, testutil.ToFloat64(o.metrics.NoDataEmptyTotal), 0.001)
 	})
-	t.Run("post bootstrap", func(t *testing.T) {
+	t.Run("started with raft state", func(t *testing.T) {
 		o, _ := mkOrch(t)
 		before := testutil.ToFloat64(o.metrics.NoDataEmptyTotal)
 		beforeOther := testutil.ToFloat64(o.metrics.NoDataDuringBootstrapTotal)
@@ -381,7 +381,7 @@ func TestRunOne_EmptyFallbackSuccessRecordsEmptyFallbackLabel(t *testing.T) {
 	require.InDelta(t, beforeSuccess, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("success")), 0.001,
 		"empty-fallback must NOT inflate the success label (CompletedTotal must distinguish a data-pulled recovery from an empty shard)")
 	require.InDelta(t, beforeFailure, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("failure")), 0.001,
-		"empty-fallback must NOT inflate the failure label (the benign bootstrap-window case would generate spurious failure alerts)")
+		"empty-fallback must NOT inflate the failure label (the benign fresh-node case would generate spurious failure alerts)")
 }
 
 func TestProbeErrorClassifiers(t *testing.T) {
