@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"encoding/binary"
+	"fmt"
 )
 
 // bufferedKeyAndTombstoneExtractor is a tool to build up the count stats for
@@ -38,9 +39,20 @@ type bufferedKeyAndTombstoneExtractor struct {
 type keyAndTombstoneCallbackFn func(key []byte, tombstone bool)
 
 func newBufferedKeyAndTombstoneExtractor(rawSegment []byte, initialOffset uint64,
-	end uint64, outputBufferSize uint64, secondaryIndexCount uint16,
+	end uint64, maxOutputBufferSize uint64, secondaryIndexCount uint16,
 	callback keyAndTombstoneCallbackFn,
 ) *bufferedKeyAndTombstoneExtractor {
+	// readSingleEntry buffers less of an entry than it reads, as it skips the
+	// value and the secondary keys. A buffer the size of the input range
+	// therefore never runs full.
+	outputBufferSize := uint64(0)
+	if end > initialOffset {
+		outputBufferSize = end - initialOffset
+		if outputBufferSize > maxOutputBufferSize {
+			outputBufferSize = maxOutputBufferSize
+		}
+	}
+
 	return &bufferedKeyAndTombstoneExtractor{
 		rawSegment:          rawSegment,
 		offset:              initialOffset,
@@ -52,21 +64,28 @@ func newBufferedKeyAndTombstoneExtractor(rawSegment []byte, initialOffset uint64
 	}
 }
 
-func (e *bufferedKeyAndTombstoneExtractor) do() {
-	for {
-		if e.offset >= e.end {
-			break
+// do calls the callback for every key in the input range. It returns an error
+// when an entry does not fit the whole output buffer, as flushing frees nothing
+// and the scan would never get past that entry.
+func (e *bufferedKeyAndTombstoneExtractor) do() error {
+	for e.offset < e.end {
+		// readSingleEntry returns false when the entry did not fit the buffer
+		if e.readSingleEntry() {
+			continue
 		}
 
-		// returns false if the output buffer ran full
-		ok := e.readSingleEntry()
-		if !ok {
-			e.flushAndCallback()
+		if e.outputBufferOffset == 0 {
+			return fmt.Errorf("entry at offset %d does not fit the %d byte output buffer",
+				e.offset, len(e.outputBuffer))
 		}
+
+		e.flushAndCallback()
 	}
 
 	// one final callback
 	e.flushAndCallback()
+
+	return nil
 }
 
 // returns true if the cycle completed, returns false if the cycle did not

@@ -73,9 +73,13 @@ func (s *segment) computeNetAdditions(exists existsOnLowerSegmentsFn) int {
 		}
 	}
 
+	const maxBufferSize = 10e6
 	extr := newBufferedKeyAndTombstoneExtractor(s.contents, s.dataStartPos,
-		s.dataEndPos, 10e6, s.secondaryIndexCount, cb)
-	extr.do()
+		s.dataEndPos, maxBufferSize, s.secondaryIndexCount, cb)
+	if err := extr.do(); err != nil {
+		s.logger.WithField("path", s.path).
+			Errorf("object count is incomplete, segment scan stopped: %v", err)
+	}
 
 	if lookupErr != nil {
 		s.logger.WithField("path", s.path).
