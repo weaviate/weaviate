@@ -39,10 +39,10 @@ transfer type and reject it). Same caveat as `REPLICA_MOVEMENT_ENABLED`.
 |---|---|---|---|
 | `weaviate_self_recovery_in_progress` | gauge | — | how many recoveries are running on this node? |
 | `weaviate_self_recovery_started_total` | counter | `source_node` | how many were kicked off, by source peer? |
-| `weaviate_self_recovery_completed_total` | counter | `result` (success\|failure\|empty_fallback\|cancelled) | terminal outcomes — `empty_fallback` is its own bucket so the benign bootstrap-window case does not inflate failures |
+| `weaviate_self_recovery_completed_total` | counter | `result` (success\|failure\|empty_fallback\|cancelled) | terminal outcomes — `empty_fallback` is its own bucket so the benign fresh-node case does not inflate failures |
 | `weaviate_self_recovery_duration_seconds` | histogram | `result` (same label set as `completed_total`) | end-to-end recovery time |
-| `weaviate_self_recovery_no_data_empty_total` | counter | — | catastrophic-wipe occurrences (post-bootstrap; alert on this) |
-| `weaviate_self_recovery_no_data_during_bootstrap_total` | counter | — | empty-fallback during the RAFT bootstrap window (likely a class added during this node's downtime — benign; informational) |
+| `weaviate_self_recovery_no_data_empty_total` | counter | — | empty-fallback on a node that started **with** RAFT state: a shard folder vanished from an otherwise intact node and no peer has data (alert on this) |
+| `weaviate_self_recovery_no_data_during_bootstrap_total` | counter | — | empty-fallback on a node that started **without** RAFT state (wiped or fresh) — likely a class or tenant created while it was away; informational (name kept for continuity) |
 | `weaviate_self_recovery_unreachable_peer_total` | counter | `peer` | peer reachability problems |
 | `weaviate_self_recovery_giveup_total` | counter | — | retries exhausted |
 | `weaviate_self_recovery_accept_empty_total` | counter | — | operator escape-hatch invocations |
@@ -107,10 +107,12 @@ missing thousands of shards queues them all, and `SELF_RECOVERY_CONCURRENCY`
 workers drain the queue. Shards still queued at shutdown are re-submitted
 on the next restart (their live dir is still missing).
 
-## Runbook: `no_data_empty_total > 0` after a restart
+## Runbook: `no_data_empty_total > 0` after a restart of a node that kept its RAFT state
 
 This counter increments when **all probed peers definitively reported no
-data** for a shard the orchestrator was trying to recover. Either:
+data** for a shard the orchestrator was trying to recover on a node that
+started with RAFT state (a wiped or fresh node counts under
+`no_data_during_bootstrap_total` instead). Either:
 
 1. **Catastrophic full-cluster wipe** (every replica of the shard lost data).
 2. **Genuinely-new shard added while the node was offline** (e.g. an
@@ -138,6 +140,27 @@ caught its schema up to the cluster's committed state. It fires
 regardless of *how* the node caught up: a RAFT snapshot install and a
 replay of committed log entries both converge on the same load pass, and
 a shard folder found missing during it triggers recovery either way.
+
+### Promotion
+
+Once the copy is renamed into the live folder (or the empty fallback
+created one), the `RecoveringShard` wrapper is replaced in the shard map
+by an ordinary lazy shard. On an eager-loading index it then loads. On a
+lazy-loading index it follows the startup sweep's rules instead: a
+multi-tenant shard that never held objects, a shard at or below
+`LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS`, or any shard while background warmup
+is disabled stays cold and loads on first access; anything else loads.
+Tenant activation and replica movement always load. A wiped node thus
+ends up with the loaded set a plain restart would have given it.
+
+### Peer probe
+
+A peer asked whether it holds data for a shard answers for a cold lazy
+shard from the persisted object counter, without loading it or creating
+its folder; a loaded shard answers with its exact count; a shard the peer
+is itself recovering answers "not usable now" (retried); a shard the peer
+does not host answers "no data". Only the peer chosen as the copy source
+loads its shard.
 
 ### Wiped-node log-replay rejoin (no operator-forced snapshot)
 
@@ -172,8 +195,10 @@ a metadata-only voter keep the legacy eager-ready behaviour. The whole
 mechanism is gated on `SELF_RECOVERY_ENABLED`; off ⇒ startup is unchanged.
 
 Runtime collection/tenant creation is **not** part of the load pass: a
-genuinely new shard has its folder created at creation time, so it is
-never mistaken for a wiped one and never triggers recovery.
+genuinely new shard has its folder created at creation time — by the
+shard itself in eager mode, as an empty folder at registration in lazy
+mode — so it is never mistaken for a wiped one and never triggers
+recovery.
 
 ## Limitations
 
