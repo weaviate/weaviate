@@ -375,6 +375,10 @@ type Index struct {
 	// empty for an unqualified class name.
 	namespacesExister namespaces.Exister
 	namespace         string
+	// lastRefusal is the refusal namespaceState last logged, so it can log a repeat
+	// at Debug instead of Error. A successful read clears it. It is atomic because
+	// a search calls namespaceState for all its shards in parallel.
+	lastRefusal atomic.Pointer[error]
 
 	closed bool
 
@@ -747,15 +751,16 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 
 		i.logger.
 			WithFields(logrus.Fields{
-				"action":                  "load_all_shards",
-				"class":                   i.Config.ClassName.String(),
-				"took":                    time.Since(now).String(),
-				"loaded":                  tally[monitoring.WarmupLoaded],
-				"failed":                  tally[monitoring.WarmupFailed],
-				"skipped_shard_gone":      tally[monitoring.WarmupSkippedShardGone],
-				"skipped_already_loaded":  tally[monitoring.WarmupSkippedAlreadyLoaded],
-				"skipped_empty":           tally[monitoring.WarmupSkippedEmpty],
-				"skipped_below_threshold": tally[monitoring.WarmupSkippedBelowThreshold],
+				"action":                    "load_all_shards",
+				"class":                     i.Config.ClassName.String(),
+				"took":                      time.Since(now).String(),
+				"loaded":                    tally[monitoring.WarmupLoaded],
+				"failed":                    tally[monitoring.WarmupFailed],
+				"skipped_shard_gone":        tally[monitoring.WarmupSkippedShardGone],
+				"skipped_already_loaded":    tally[monitoring.WarmupSkippedAlreadyLoaded],
+				"skipped_empty":             tally[monitoring.WarmupSkippedEmpty],
+				"skipped_below_threshold":   tally[monitoring.WarmupSkippedBelowThreshold],
+				"skipped_namespace_unknown": tally[monitoring.WarmupSkippedNamespaceUnknown],
 			}).
 			Debug("finished loading all shards")
 	}
@@ -832,8 +837,8 @@ func (i *Index) warmupCandidate(shardName string) (bool, monitoring.WarmupOutcom
 }
 
 // loadLocalShardIfActive loads a shard the startup sweep picked and reports the
-// outcome to record. An empty outcome means the index refused the load for a
-// reason that says nothing about this shard.
+// outcome to record. With a nil error, an empty outcome means the index is
+// closing or its namespace is in a state that keeps shards closed. Neither counts.
 func (i *Index) loadLocalShardIfActive(shardName string) (monitoring.WarmupOutcome, error) {
 	// Index.Shutdown skips a lazy shard that is not loaded yet, so a build racing
 	// its sweep leaves an open store nothing will ever close. The refcount holds
@@ -845,13 +850,12 @@ func (i *Index) loadLocalShardIfActive(shardName string) (monitoring.WarmupOutco
 	defer i.exitRead()
 
 	// The namespace state read at boot goes stale as initLazyShardsInBackground
-	// walks its shard list, so re-read it here. A refusal returns nil because an
-	// error would end that loop for every shard behind this one.
+	// walks its shard list, so re-read it here. A refusal returns nil because the
+	// loop would count an error as a failed load.
 	state, err := i.namespaceState()
 	if err != nil {
-		// The refusal is swallowed, so namespaceState's line is the only
-		// evidence of it.
-		return "", nil
+		// namespaceState already logged the refusal.
+		return monitoring.WarmupSkippedNamespaceUnknown, nil
 	}
 	if !namespaces.ShardsShouldBeOpen(state) {
 		return "", nil
@@ -3403,11 +3407,8 @@ func (i *Index) LoadLocalShardForTenantProcess(ctx context.Context, shardName st
 }
 
 // loadLocalShardForReload opens a shard for the reload replaying committed
-// schema. A namespace that keeps no shards open, and a state no case covers,
-// both open none and return nil. An error here would skip the tenant drops and
-// property adds the same reload owes, and nothing re-runs a reload. A suspended
-// namespace's skip is silent. namespaceState logs a state no case covers at
-// Error. mustLoad preserves the eager load each call site did before.
+// schema. A namespace refusal opens none and returns nil, since ReloadLocalDB
+// would log it as the whole class failing to reload.
 func (i *Index) loadLocalShardForReload(ctx context.Context, shardName string, mustLoad bool) error {
 	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, false, callerReload)
 	if namespaceRefusedShardLoad(err) {

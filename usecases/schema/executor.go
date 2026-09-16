@@ -84,7 +84,7 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 			if err := e.migrator.UpdateIndex(ctx, u.Class, u.State); err != nil {
 				e.logger.WithField("index", u.Class.Class).
 					WithFields(enterrors.DocsLinkFields(err)).
-					WithError(err).Error("failed to reload local index")
+					Errorf("failed to reload local index: %v", err)
 				err := fmt.Errorf("failed to reload local index %d: %w", i, err)
 
 				errMutex.Lock()
