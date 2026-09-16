@@ -27,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
-	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -63,10 +62,6 @@ type leaderSchemaReader = leader.SchemaReader
 // not shadow them.
 var _ Schema = (*Manager)(nil)
 
-type VectorConfigParser func(in interface{}, vectorIndexType string, isMultiVector bool) (schemaConfig.VectorIndexConfig, error)
-
-type InvertedConfigValidator func(in *models.InvertedIndexConfig) error
-
 // Schema is the use-case layer's schema: the local and leader reads plus tenant
 // activation, all served by *Manager. Depend on the narrowest part that covers the
 // caller: a local or leader reader, or TenantActivator.
@@ -91,116 +86,6 @@ type TenantActivator interface {
 	// of that activation; writers must pass it to WaitForUpdate before proceeding.
 	TenantsShardsStatusWithActivation(ctx context.Context, class string, tenants ...string) (map[string]string, uint64, error)
 	DeactivateTenants(ctx context.Context, class string, tenants ...string) error
-}
-
-type VectorizerValidator interface {
-	ValidateVectorizer(moduleName string) error
-}
-
-type ModuleConfig interface {
-	SetClassDefaults(class *models.Class)
-	SetSinglePropertyDefaults(class *models.Class, props ...*models.Property)
-	ValidateClass(ctx context.Context, class *models.Class) error
-	GetByName(name string) modulecapabilities.Module
-	IsGenerative(string) bool
-	IsReranker(string) bool
-	IsMultiVector(string) bool
-}
-
-// State is a cached copy of the schema that can also be saved into a remote
-// storage, as specified by Repo
-type State struct {
-	ObjectSchema  *models.Schema `json:"object"`
-	ShardingState map[string]*sharding.State
-}
-
-// NewState returns a new state with room for nClasses classes
-func NewState(nClasses int) State {
-	return State{
-		ObjectSchema: &models.Schema{
-			Classes: make([]*models.Class, 0, nClasses),
-		},
-		ShardingState: make(map[string]*sharding.State, nClasses),
-	}
-}
-
-func (s State) EqualEnough(other *State) bool {
-	// Same number of classes
-	eqClassLen := len(s.ObjectSchema.Classes) == len(other.ObjectSchema.Classes)
-	if !eqClassLen {
-		return false
-	}
-
-	// Same sharding state length
-	eqSSLen := len(s.ShardingState) == len(other.ShardingState)
-	if !eqSSLen {
-		return false
-	}
-
-	for cls, ss1ss := range s.ShardingState {
-		// Same sharding state keys
-		ss2ss, ok := other.ShardingState[cls]
-		if !ok {
-			return false
-		}
-
-		// Same number of physical shards
-		eqPhysLen := len(ss1ss.Physical) == len(ss2ss.Physical)
-		if !eqPhysLen {
-			return false
-		}
-
-		for shard, ss1phys := range ss1ss.Physical {
-			// Same physical shard contents and status
-			ss2phys, ok := ss2ss.Physical[shard]
-			if !ok {
-				return false
-			}
-			eqActivStat := ss1phys.ActivityStatus() == ss2phys.ActivityStatus()
-			if !eqActivStat {
-				return false
-			}
-		}
-	}
-
-	return true
-}
-
-// SchemaStore is responsible for persisting the schema
-// by providing support for both partial and complete schema updates
-// Deprecated: instead schema now is persistent via RAFT
-// see : usecase/schema/handler.go & cluster/store/store.go
-// Load and save are left to support backward compatibility
-type SchemaStore interface {
-	// Save saves the complete schema to the persistent storage
-	Save(ctx context.Context, schema State) error
-
-	// Load loads the complete schema from the persistent storage
-	Load(context.Context) (State, error)
-}
-
-// KeyValuePair is used to serialize shards updates
-type KeyValuePair struct {
-	Key   string
-	Value []byte
-}
-
-// ClassPayload is used to serialize class updates
-type ClassPayload struct {
-	Name          string
-	Metadata      []byte
-	ShardingState []byte
-	Shards        []KeyValuePair
-	ReplaceShards bool
-	Error         error
-}
-
-type clusterState interface {
-	cluster.NodeSelector
-	cluster.MemberLister
-
-	SchemaSyncIgnored() bool
-	SkipSchemaRepair() bool
 }
 
 // NewManager creates a new manager
