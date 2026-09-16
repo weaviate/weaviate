@@ -43,9 +43,9 @@ var (
 	// case for, so a wiring fault does not read as a namespace state.
 	errUnknownShardLoadCaller = errors.New("unknown shard load caller")
 
-	// errUnknownNamespaceState is returned for a namespace state that is not a key
-	// of stateTransitions. stateForShardDecision refuses on it rather than reading
-	// it as a namespace that keeps none of its shards open.
+	// errUnknownNamespaceState is what stateForShardDecision returns for a state not
+	// in stateTransitions, rather than reading it as keeping no shard open. The refusal
+	// also matches namespaces.ErrInvalidState, which REST and the cluster RPC classify.
 	errUnknownNamespaceState = errors.New("unknown namespace state")
 
 	// errNoShardingState is returned when the schema holds the class but carries
@@ -115,7 +115,7 @@ func stateForShardDecision(e namespaces.Exister, namespace string) (api.Namespac
 // compatibility event for the committed applies that reach it.
 func requireKnownNamespaceState(state api.NamespaceState) error {
 	if !namespaces.IsKnownState(state) {
-		return fmt.Errorf("%w: %q", errUnknownNamespaceState, state)
+		return fmt.Errorf("%w: %w: %q", namespaces.ErrInvalidState, errUnknownNamespaceState, state)
 	}
 	return nil
 }

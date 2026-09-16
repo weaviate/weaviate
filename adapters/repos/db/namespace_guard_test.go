@@ -249,6 +249,7 @@ func TestNamespaceGuard(t *testing.T) {
 
 				err := idx.requireNamespaceAllowsShardLoad(tc.caller)
 				require.ErrorIs(t, err, errUnknownNamespaceState)
+				require.ErrorIs(t, err, namespaces.ErrInvalidState)
 				require.NotErrorIs(t, err, errShardNamespaceClosed)
 			})
 		}
