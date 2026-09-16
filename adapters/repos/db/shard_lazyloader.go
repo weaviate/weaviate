@@ -200,6 +200,7 @@ func (l *LazyLoadShard) clearLoadBlock() {
 	defer l.mutex.Unlock()
 	l.loadBlocked = false
 	l.loadBlockedErr = nil
+	l.unloadedCount = nil // stale once the copy is renamed in
 }
 
 func (l *LazyLoadShard) isLoadBlocked() bool {

@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -353,10 +354,16 @@ func TestDBLoadLocalShardUnknownCollection(t *testing.T) {
 
 func newRecoveringIndex(t *testing.T) *Index {
 	t.Helper()
+	return newRecoveringIndexWith(t, func(*Index) {})
+}
+
+func newRecoveringIndexWith(t *testing.T, configure func(*Index)) *Index {
+	t.Helper()
 	idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{enabled: true, submitOK: true}, nil)
 	idx.closingCtx = context.Background()
 	idx.shardCreateLocks = esync.NewKeyRWLocker()
 	idx.getSchema = &fakeSchemaGetter{}
+	configure(idx)
 	require.True(t, idx.recoverShardFromPeerIfNeeded(schemaReloadCtx(), &models.Class{Class: "C"}, "S", monitoring.GetMetrics()))
 	return idx
 }
@@ -442,4 +449,91 @@ func TestLazyRegistrationCreatesShardDir(t *testing.T) {
 
 	require.False(t, idx.recoverShardFromPeerIfNeeded(schemaReloadCtx(), class, "T", monitoring.GetMetrics()))
 	require.Zero(t, orch.submitCalls)
+}
+
+func TestPromoteRecoveringLocalShardFollowsLazyPolicy(t *testing.T) {
+	mkdir := func(t *testing.T, dir string) { require.NoError(t, os.MkdirAll(dir, os.ModePerm)) }
+	cases := []struct {
+		name      string
+		configure func(*Index)
+		prepare   func(*testing.T, string)
+		wantLoad  bool
+	}{
+		{
+			name: "lazy multi-tenant empty dir stays cold",
+			configure: func(i *Index) {
+				i.Config.EnableLazyLoadShards = true
+				i.partitioningEnabled = true
+			},
+			prepare: mkdir,
+		},
+		{
+			name: "lazy below threshold stays cold",
+			configure: func(i *Index) {
+				i.Config.EnableLazyLoadShards = true
+				i.Config.LazyLoadShardWarmupMinObjects = 5
+			},
+			prepare: func(t *testing.T, dir string) { mkdir(t, filepath.Join(dir, "lsm", "objects")) },
+		},
+		{
+			name: "lazy warmup disabled stays cold",
+			configure: func(i *Index) {
+				i.Config.EnableLazyLoadShards = true
+				i.Config.LazyLoadShardWarmupMinObjects = -1
+			},
+			prepare: mkdir,
+		},
+		{
+			name:      "lazy above threshold loads",
+			configure: func(i *Index) { i.Config.EnableLazyLoadShards = true },
+			prepare:   mkdir,
+			wantLoad:  true,
+		},
+		{
+			name: "eager multi-tenant empty dir loads",
+			configure: func(i *Index) {
+				i.Config.EnableLazyLoadShards = false
+				i.partitioningEnabled = true
+			},
+			prepare:  mkdir,
+			wantLoad: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			idx := newRecoveringIndexWith(t, func(i *Index) {
+				i.allocChecker = failingAllocChecker{}
+				tc.configure(i)
+			})
+			tc.prepare(t, shardPath(idx.path(), "S"))
+
+			err := idx.PromoteRecoveringLocalShard(context.Background(), "S")
+			if tc.wantLoad {
+				require.ErrorIs(t, err, errInjectedMemoryPressure)
+			} else {
+				require.NoError(t, err)
+			}
+			_, stillRecovering := idx.shards.Load("S").(*RecoveringShard)
+			require.False(t, stillRecovering)
+			lazy, ok := idx.shards.Load("S").(*LazyLoadShard)
+			require.True(t, ok)
+			require.False(t, lazy.isLoadBlocked())
+			require.False(t, lazy.isLoaded())
+			require.NoFileExists(t, filepath.Join(shardPath(idx.path(), "S"), "indexcount"))
+		})
+	}
+}
+
+func TestLoadLocalShardForMovementLoadsPromotedShard(t *testing.T) {
+	idx := newRecoveringIndexWith(t, func(i *Index) {
+		i.allocChecker = failingAllocChecker{}
+		i.Config.EnableLazyLoadShards = true
+		i.partitioningEnabled = true
+	})
+	require.NoError(t, os.MkdirAll(shardPath(idx.path(), "S"), os.ModePerm))
+
+	require.ErrorIs(t, idx.LoadLocalShardForMovement(context.Background(), "S"), errInjectedMemoryPressure)
+	lazy, ok := idx.shards.Load("S").(*LazyLoadShard)
+	require.True(t, ok)
+	require.False(t, lazy.isLoadBlocked())
 }
