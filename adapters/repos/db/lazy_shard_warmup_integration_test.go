@@ -131,39 +131,6 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 	return index, hook
 }
 
-// sweepDoneMessage is what the startup sweep logs once it has walked every shard.
-const sweepDoneMessage = "finished loading all shards"
-
-// requireSweepTally asserts how many shards the startup sweep reported under
-// each outcome, waiting for it to finish. An outcome absent from want must have
-// counted nothing.
-func requireSweepTally(t *testing.T, hook *test.Hook, want map[monitoring.WarmupOutcome]int) {
-	t.Helper()
-
-	var tally logrus.Fields
-	require.Eventually(t, func() bool {
-		for _, entry := range hook.AllEntries() {
-			if entry.Message != sweepDoneMessage {
-				continue
-			}
-			tally = entry.Data
-			return true
-		}
-		return false
-	}, 30*time.Second, 50*time.Millisecond, "the sweep should log what it did with every shard")
-
-	for _, outcome := range []monitoring.WarmupOutcome{
-		monitoring.WarmupLoaded,
-		monitoring.WarmupFailed,
-		monitoring.WarmupSkippedShardGone,
-		monitoring.WarmupSkippedAlreadyLoaded,
-		monitoring.WarmupSkippedEmpty,
-		monitoring.WarmupSkippedBelowThreshold,
-	} {
-		require.Equal(t, want[outcome], tally[string(outcome)], "shards reported as %q", outcome)
-	}
-}
-
 // coldWarmupShard returns a tenant's shard, asserting it is an unloaded lazy one.
 func coldWarmupShard(t *testing.T, index *Index, tenant string) *LazyLoadShard {
 	t.Helper()

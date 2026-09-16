@@ -17,6 +17,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -159,7 +161,7 @@ func TestNamespaceGuard(t *testing.T) {
 	t.Run("a namespaced class refuses on a missing lookup and on a missing namespace", func(t *testing.T) {
 		noLookup, noLookupHook := indexForNamespace(t, "alpha:Product", nil)
 		require.ErrorIs(t, noLookup.requireNamespaceAllowsShardLoad(callerUserRequest), errNoNamespaceLookup)
-		assertRefusedMaterializationLogged(t, noLookupHook, "alpha:Product", "alpha", errNoNamespaceLookup)
+		assertNamespaceRefusalLogged(t, noLookupHook, "alpha:Product", "alpha", errNoNamespaceLookup)
 
 		e := namespaces.NewMockExister(t)
 		e.EXPECT().GetNamespace("alpha").Return(api.Namespace{}, false)
@@ -206,7 +208,7 @@ func TestNamespaceGuard(t *testing.T) {
 
 		require.ErrorIs(t, idx.requireNamespaceAllowsShardLoad(callerUserRequest), ErrNamespaceUnknownLocally)
 
-		assertRefusedMaterializationLogged(t, hook, "alpha:Product", "alpha", ErrNamespaceUnknownLocally)
+		assertNamespaceRefusalLogged(t, hook, "alpha:Product", "alpha", ErrNamespaceUnknownLocally)
 	})
 
 	// An active namespace admits every caller the switch knows, so a refusal here
@@ -1067,6 +1069,7 @@ func indexForGuardTestWithHook(t *testing.T, className string, e namespaces.Exis
 	t.Helper()
 
 	logger, hook := logrustest.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
 	// shutdownOrRestoreShard dereferences idx.metrics, so an index without one
 	// panics when a test deactivates a tenant. Passing nil for prom produces the
 	// same *Metrics a node without monitoring has, one whose baseMetrics is nil.
@@ -1088,22 +1091,54 @@ func indexForGuardTestWithHook(t *testing.T, className string, e namespaces.Exis
 	return idx, hook
 }
 
-// assertRefusedMaterializationLogged pins the line an operator greps for when a
-// shard was not opened. The message is asserted, not just the level and the
-// fields, because nothing else in the tree matches on that sentence, so a
-// reworded one would go unnoticed.
-func assertRefusedMaterializationLogged(t *testing.T, hook *logrustest.Hook,
+// assertNamespaceRefusalLogged pins the one line an operator greps for when a
+// shard was not opened. The sentence is asserted because nothing else matches on
+// it, and entries are counted so a refusal that writes a second line fails.
+func assertNamespaceRefusalLogged(t *testing.T, hook *logrustest.Hook,
 	class, namespace string, wantErr error,
 ) {
 	t.Helper()
 
-	entry := hook.LastEntry()
-	require.NotNil(t, entry, "a refusal must be logged")
-	assert.Equal(t, logrus.ErrorLevel, entry.Level)
-	assert.Equal(t, class, entry.Data["class"])
-	assert.Equal(t, namespace, entry.Data["namespace"])
-	assert.Contains(t, entry.Message, "refusing shard materialization")
-	assert.Contains(t, entry.Message, wantErr.Error())
+	refusals := refusalEntries(hook)
+	require.Len(t, refusals, 1, "a refusal must be logged exactly once")
+	require.Len(t, infoOrAbove(hook), 1, "the refusal must be the only line at Info or above")
+	assert.Equal(t, logrus.ErrorLevel, refusals[0].Level)
+	assert.Equal(t, class, refusals[0].Data["class"])
+	assert.Equal(t, namespace, refusals[0].Data["namespace"])
+	assert.Contains(t, refusals[0].Message, wantErr.Error())
+}
+
+// refusalEntries returns the entries carrying the refusal sentence, in the order
+// they were written, so a caller can assert the level of each in turn.
+func refusalEntries(hook *logrustest.Hook) []*logrus.Entry {
+	var refusals []*logrus.Entry
+	for _, entry := range hook.AllEntries() {
+		if strings.Contains(entry.Message, "namespace refuses to open or serve this class's shards") {
+			refusals = append(refusals, entry)
+		}
+	}
+	return refusals
+}
+
+// refusalLevels returns the level of every refusal line, in the order written.
+func refusalLevels(hook *logrustest.Hook) []logrus.Level {
+	levels := []logrus.Level{}
+	for _, entry := range refusalEntries(hook) {
+		levels = append(levels, entry.Level)
+	}
+	return levels
+}
+
+// infoOrAbove returns the entries a logger at the default Info level writes,
+// whatever their wording.
+func infoOrAbove(hook *logrustest.Hook) []*logrus.Entry {
+	var lines []*logrus.Entry
+	for _, entry := range hook.AllEntries() {
+		if entry.Level <= logrus.InfoLevel {
+			lines = append(lines, entry)
+		}
+	}
+	return lines
 }
 
 // namespaceLookupRefusals returns both fail-closed arms of the chokepoint: a
@@ -1895,6 +1930,159 @@ func TestGuardRequestPath(t *testing.T) {
 		require.ErrorIs(t, err, ErrNamespaceUnknownLocally)
 	})
 
+	// A peer reading this node's replica sees the refusal, not a claim that the
+	// shard is missing from disk.
+	t.Run("a replica read carries the refusal", func(t *testing.T) {
+		reads := []struct {
+			name string
+			read func(*Index) error
+		}{
+			{"DigestObjects", func(idx *Index) error {
+				_, err := idx.DigestObjects(ctx, "t1", nil)
+				return err
+			}},
+			{"CountObjects", func(idx *Index) error {
+				_, err := idx.CountObjects(ctx, "t1")
+				return err
+			}},
+			{"FetchObject", func(idx *Index) error {
+				_, err := idx.FetchObject(ctx, "t1", "")
+				return err
+			}},
+			{"FetchObjects", func(idx *Index) error {
+				_, err := idx.FetchObjects(ctx, "t1", nil)
+				return err
+			}},
+		}
+		for _, r := range reads {
+			t.Run(r.name, func(t *testing.T) {
+				idx := indexForGuardTest(t, class, existerWithState(t, api.NamespaceStateSuspended))
+
+				err := r.read(idx)
+				require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
+				assert.Contains(t, err.Error(), `shard "t1"`)
+			})
+		}
+	})
+
+	// One search fans out over every local shard, so an unmetered refusal costs
+	// one Error line per shard. Each row spells out the whole sequence, since a
+	// two-entry assertion alone passes an implementation that never meters.
+	t.Run("a repeated refusal is metered down to Debug", func(t *testing.T) {
+		// The lookup answers whichever way the test last set it, so one index can
+		// be driven through a change of fault and back to a clean read.
+		type switchableExister struct {
+			ns    api.Namespace
+			found bool
+		}
+		refuseWithMissingNamespace := func(e *switchableExister) { e.ns, e.found = api.Namespace{}, false }
+		refuseWithUnknownState := func(e *switchableExister) {
+			e.ns, e.found = api.Namespace{Name: "alpha", State: api.NamespaceState("gone")}, true
+		}
+		admit := func(e *switchableExister) {
+			e.ns, e.found = api.Namespace{Name: "alpha", State: api.NamespaceStateActive}, true
+		}
+
+		tests := []struct {
+			name       string
+			sequence   []func(*switchableExister)
+			wantLevels []logrus.Level
+		}{
+			{
+				name:     "the same refusal twice reports once",
+				sequence: []func(*switchableExister){refuseWithMissingNamespace, refuseWithMissingNamespace},
+				wantLevels: []logrus.Level{
+					logrus.ErrorLevel, logrus.DebugLevel,
+				},
+			},
+			{
+				// requireKnownNamespaceState builds a fresh error per read, so only a
+				// comparison on the sentinel sees the second as a repeat.
+				name:       "an unrecognised state twice reports once",
+				sequence:   []func(*switchableExister){refuseWithUnknownState, refuseWithUnknownState},
+				wantLevels: []logrus.Level{logrus.ErrorLevel, logrus.DebugLevel},
+			},
+			{
+				name: "a changed fault is never swallowed",
+				sequence: []func(*switchableExister){
+					refuseWithMissingNamespace, refuseWithMissingNamespace, refuseWithUnknownState,
+				},
+				wantLevels: []logrus.Level{
+					logrus.ErrorLevel, logrus.DebugLevel, logrus.ErrorLevel,
+				},
+			},
+			{
+				name: "a successful read resets the meter",
+				sequence: []func(*switchableExister){
+					refuseWithMissingNamespace, refuseWithMissingNamespace, admit, refuseWithMissingNamespace,
+				},
+				wantLevels: []logrus.Level{
+					logrus.ErrorLevel, logrus.DebugLevel, logrus.ErrorLevel,
+				},
+			},
+		}
+
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				state := &switchableExister{}
+				e := namespaces.NewMockExister(t)
+				e.EXPECT().GetNamespace("alpha").
+					RunAndReturn(func(string) (api.Namespace, bool) {
+						return state.ns, state.found
+					}).Maybe()
+				idx, hook := indexForGuardTestWithHook(t, class, e)
+
+				for _, step := range tc.sequence {
+					step(state)
+					_, _, _ = idx.GetShard(ctx, "t1")
+				}
+
+				assert.Equal(t, tc.wantLevels, refusalLevels(hook))
+			})
+		}
+	})
+
+	// The field is written from every arm of a fanned-out search at once, so a
+	// plain value here is a data race -race reports. The arms are held at the
+	// lookup until all arrive, and Swap still lets only one log at Error.
+	t.Run("concurrent refusals on one index do not race", func(t *testing.T) {
+		const arms = 16
+		var arrived atomic.Int32
+		release := make(chan struct{})
+		e := namespaces.NewMockExister(t)
+		e.EXPECT().GetNamespace("alpha").RunAndReturn(func(string) (api.Namespace, bool) {
+			if arrived.Add(1) == arms {
+				close(release)
+			}
+			select {
+			case <-release:
+			case <-time.After(5 * time.Second):
+			}
+			return api.Namespace{}, false
+		}).Maybe()
+		idx, hook := indexForGuardTestWithHook(t, class, e)
+
+		var wg sync.WaitGroup
+		for range arms {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				_, _, _ = idx.GetShard(ctx, "t1")
+			}()
+		}
+		wg.Wait()
+
+		levels := refusalLevels(hook)
+		require.Len(t, levels, arms, "every refusal must be reported at some level")
+		errorLines := 0
+		for _, level := range levels {
+			if level == logrus.ErrorLevel {
+				errorLines++
+			}
+		}
+		assert.Equal(t, 1, errorLines, "a burst of one refusal writes one Error line")
+	})
+
 	// The allow side. An absent shard is the one case that reaches a clean return
 	// without a collaborator, so it is what the admitted states assert on: a guard
 	// refusing every read would pass every refusal above.
@@ -2204,6 +2392,7 @@ func indexForBootTest(t *testing.T, className string, e namespaces.Exister, read
 	t.Helper()
 
 	logger, hook := logrustest.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
@@ -2272,7 +2461,7 @@ func TestGuardBoot(t *testing.T) {
 		assert.Empty(t, registeredShards(t, idx))
 		assert.False(t, idx.allShardsReady.Load(),
 			"a class whose shards were never enumerated must not report ready")
-		assertRefusedMaterializationLogged(t, hook, className, "alpha", wantErr)
+		assertNamespaceRefusalLogged(t, hook, className, "alpha", wantErr)
 	}
 
 	// Red if the filter is the request-path check, which rejects resuming.
@@ -2294,8 +2483,10 @@ func TestGuardBoot(t *testing.T) {
 			assert.Equal(t, want, registeredShards(t, idx))
 
 			if tc.wantLoad {
-				assert.Empty(t, hook.AllEntries(),
-					"a class that opens shards must not report registering none")
+				// The fixture logs at Debug, so the warmup loop's own lines are here
+				// too. What a logger at the default Info level writes is barred.
+				assert.Empty(t, infoOrAbove(hook),
+					"a class that opens shards must log nothing at Info or above")
 				return
 			}
 			// An index with nothing to load is ready. Left false, it would stop
@@ -2372,6 +2563,12 @@ func TestGuardBackgroundLoad(t *testing.T) {
 			idx.shards.Store("t1", &LazyLoadShard{memMonitor: failingAllocChecker{}})
 
 			outcome, err := idx.loadLocalShardIfActive("t1")
+			if tc.refusedAsUnknownState() {
+				require.NoError(t, err)
+				require.Equal(t, monitoring.WarmupSkippedNamespaceUnknown, outcome,
+					"a namespace the sweep cannot decide about is counted, not dropped")
+				return
+			}
 			require.Empty(t, outcome,
 				"a refused load and a failed one both count against no shard")
 			if tc.wantLoad {
@@ -2395,9 +2592,9 @@ func TestGuardBackgroundLoad(t *testing.T) {
 		require.Empty(t, outcome, "a closing index counts against no shard")
 	})
 
-	// A state that cannot be read refuses the load like a closed namespace does,
-	// and returns nil for the same reason: one unreadable read must not stop the
-	// shards behind it from being tried.
+	// A state that cannot be read refuses the load like a closed namespace does.
+	// It returns nil rather than an error the loop would count as a failed load,
+	// and is counted as skipped_namespace_unknown so the close line reports it.
 	for _, tc := range namespaceLookupRefusals() {
 		t.Run(tc.name+" loads nothing", func(t *testing.T) {
 			idx, hook := indexForGuardTestWithHook(t, class, tc.exister(t))
@@ -2405,8 +2602,9 @@ func TestGuardBackgroundLoad(t *testing.T) {
 
 			outcome, err := idx.loadLocalShardIfActive("t1")
 			require.NoError(t, err)
-			require.Empty(t, outcome, "an unreadable namespace counts against no shard")
-			assertRefusedMaterializationLogged(t, hook, class, "alpha", tc.wantErr)
+			require.Equal(t, monitoring.WarmupSkippedNamespaceUnknown, outcome,
+				"a namespace the sweep cannot decide about is counted, not dropped")
+			assertNamespaceRefusalLogged(t, hook, class, "alpha", tc.wantErr)
 		})
 	}
 
@@ -2439,6 +2637,40 @@ func TestGuardBackgroundLoad(t *testing.T) {
 		}
 		assert.Equal(t, []string{"t1", "t2"}, registeredShards(t, idx),
 			"a refused shard stays registered, so a resumed namespace still has something to load")
+	})
+
+	// Every lookup after the boot read misses the namespace, so every tenant the
+	// loop reaches is refused. Logging each at Error and not counting it would cost
+	// one Error per tenant and a close line with every count at zero.
+	t.Run("a lookup miss after boot reports once and counts every tenant", func(t *testing.T) {
+		var lookups atomic.Int32
+		e := namespaces.NewMockExister(t)
+		e.EXPECT().GetNamespace("alpha").RunAndReturn(func(string) (api.Namespace, bool) {
+			if lookups.Add(1) == 1 {
+				// The first read is boot's, which has to admit or no loop starts.
+				return api.Namespace{Name: "alpha", State: api.NamespaceStateActive}, true
+			}
+			return api.Namespace{}, false
+		}).Maybe()
+
+		shards := map[string]sharding.Physical{
+			"t1": hotPhysical("t1"), "t2": hotPhysical("t2"), "t3": hotPhysical("t3"),
+		}
+		idx, hook := indexForBootTest(t, class, e, readerForShards(t, class, shards))
+
+		require.NoError(t, idx.initAndStoreShards(context.Background(), &models.Class{Class: class}, nil))
+
+		requireSweepTally(t, hook, map[monitoring.WarmupOutcome]int{
+			monitoring.WarmupSkippedNamespaceUnknown: len(shards),
+		})
+
+		levels := refusalLevels(hook)
+		require.Len(t, levels, len(shards), "every refusal must be reported at some level")
+		assert.Equal(t, logrus.ErrorLevel, levels[0])
+		for _, level := range levels[1:] {
+			assert.Equal(t, logrus.DebugLevel, level, "a repeat must not cost a second Error")
+		}
+		assert.Len(t, infoOrAbove(hook), 1, "the sweep must write one line at Info or above, not one per tenant")
 	})
 }
 

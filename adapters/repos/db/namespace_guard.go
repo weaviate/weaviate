@@ -239,17 +239,47 @@ func (db *DB) ReopenShard(ctx context.Context, className, shardName string) erro
 	return index.initLocalShardWithForcedLoading(ctx, index.getClass(), shardName, true, false, callerResume)
 }
 
-// namespaceState reads this index's namespace state and logs at Error when it
-// cannot. loadLocalShardIfActive returns nil on that error, so without this
-// line nothing records the refusal.
+// namespaceState reads this index's namespace state and logs when it cannot,
+// which is the only record of why once loadLocalShardIfActive swallows the error.
+// A repeat of the last refusal with no successful read between goes to Debug.
 func (i *Index) namespaceState() (api.NamespaceState, error) {
 	state, err := stateForShardDecision(i.namespacesExister, i.namespace)
-	if err != nil {
-		i.logger.WithFields(logrus.Fields{
-			"class": i.Config.ClassName.String(), "namespace": i.namespace,
-		}).Errorf("refusing shard materialization: %v", err)
+	if err == nil {
+		// Every shard access reaches this arm, so an unconditional write here makes
+		// parallel reads of one index contend. Only a stored refusal needs clearing.
+		// Not a CompareAndSwap: one that fails keeps a refusal past this read and
+		// hides the next episode's Error line, where Store at worst repeats one.
+		if i.lastRefusal.Load() != nil {
+			i.lastRefusal.Store(nil)
+		}
+		return state, nil
+	}
+
+	sentinel := refusalSentinel(err)
+	previous := i.lastRefusal.Swap(&sentinel)
+	entry := i.logger.WithFields(logrus.Fields{
+		"class": i.Config.ClassName.String(), "namespace": i.namespace,
+	})
+	if previous != nil && errors.Is(err, *previous) {
+		entry.Debugf("namespace refuses to open or serve this class's shards: %v", err)
+	} else {
+		entry.Errorf("namespace refuses to open or serve this class's shards: %v", err)
 	}
 	return state, err
+}
+
+// refusalSentinel returns the sentinel err carries. requireKnownNamespaceState
+// builds a fresh value per call, so the stored error is the sentinel rather than
+// the value, which is what lets a repeat be recognised.
+func refusalSentinel(err error) error {
+	for _, sentinel := range []error{
+		errNoNamespaceLookup, ErrNamespaceUnknownLocally, errUnknownNamespaceState,
+	} {
+		if errors.Is(err, sentinel) {
+			return sentinel
+		}
+	}
+	return err
 }
 
 // requireNamespaceAllowsShardLoad returns nil when the namespace's state lets
