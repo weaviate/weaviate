@@ -500,7 +500,6 @@ func TestInitShardVectors_RecoveryFromARefusedLoad(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, found)
 }
-||||||| 77063adc74
 
 // With async indexing, a backup can land while every vector still waits in
 // the queue. The index has written nothing, so the backup carries no
