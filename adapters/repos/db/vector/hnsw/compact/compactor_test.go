@@ -12,6 +12,7 @@
 package compact
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 )
 
 func TestCompactor_IsolatedNode(t *testing.T) {
@@ -324,6 +326,116 @@ func TestCompactor_DecideAction_Logging(t *testing.T) {
 		})
 	}
 }
+
+// The debug logs RunCycle reaches past decideAction must not build their fields
+// unless the logger keeps debug entries. A logger whose level LevelEnabled cannot
+// read still builds them, which gives each case its baseline.
+func TestCompactor_DebugLogging(t *testing.T) {
+	sortedInputs := func(t *testing.T, dir string) []FileInfo {
+		files := []FileInfo{
+			{Path: filepath.Join(dir, "1000.sorted"), StartTS: 1000, EndTS: 1000, Type: FileTypeSorted},
+			{Path: filepath.Join(dir, "2000.sorted"), StartTS: 2000, EndTS: 2000, Type: FileTypeSorted},
+		}
+		for _, f := range files {
+			file, err := os.Create(f.Path)
+			require.NoError(t, err)
+			w := NewWALWriter(file)
+			require.NoError(t, w.WriteSetEntryPointMaxLevel(0, 0))
+			require.NoError(t, w.WriteAddNode(0, 0))
+			require.NoError(t, file.Close())
+		}
+		return files
+	}
+
+	testCases := []struct {
+		name     string
+		run      func(t *testing.T, c *Compactor)
+		messages []string
+	}{
+		{
+			name: "resolveOverlaps",
+			run: func(t *testing.T, c *Compactor) {
+				state := &DirectoryState{Overlaps: []Overlap{{
+					MergedFile:    FileInfo{Path: filepath.Join(c.config.Dir, "1000_3000.sorted")},
+					ContainedFile: FileInfo{Path: filepath.Join(c.config.Dir, "2000.sorted")},
+				}}}
+				require.NoError(t, c.resolveOverlaps(state))
+			},
+			messages: []string{"removing file contained in merged range"},
+		},
+		{
+			name: "convertFileToSorted",
+			run: func(t *testing.T, c *Compactor) {
+				createEmptyFile(t, c.config.Dir, "1000")
+				raw := FileInfo{Path: filepath.Join(c.config.Dir, "1000"), StartTS: 1000, EndTS: 1000, Type: FileTypeRaw}
+				_, err := c.convertFileToSorted(raw)
+				require.NoError(t, err)
+			},
+			messages: []string{"converting file to sorted format", "converted file to sorted format"},
+		},
+		{
+			name: "mergeSorted",
+			run: func(t *testing.T, c *Compactor) {
+				state := &DirectoryState{SortedFiles: sortedInputs(t, c.config.Dir)}
+				require.NoError(t, c.mergeSorted(state, nil))
+			},
+			messages: []string{"merging sorted files", "merged sorted files"},
+		},
+		{
+			name: "createSnapshot",
+			run: func(t *testing.T, c *Compactor) {
+				state := &DirectoryState{SortedFiles: sortedInputs(t, c.config.Dir)}
+				require.NoError(t, c.createSnapshot(state, nil))
+			},
+			messages: []string{"creating snapshot", "created snapshot"},
+		},
+		{
+			name: "InMemoryReader.Do",
+			run: func(t *testing.T, c *Compactor) {
+				var buf bytes.Buffer
+				require.NoError(t, NewWALWriter(&buf).WriteSetEntryPointMaxLevel(0, 0))
+				_, err := NewInMemoryReader(NewWALCommitReader(&buf, c.logger), c.logger).Do(nil, false)
+				require.NoError(t, err)
+			},
+			messages: []string{"hnsw commit logger " + SetEntryPointMaxLevel.String()},
+		},
+		{
+			name: "growIndexToAccommodateNode",
+			run: func(t *testing.T, c *Compactor) {
+				_, grown, err := growIndexToAccommodateNode(nil, 0, c.logger)
+				require.NoError(t, err)
+				require.True(t, grown)
+			},
+			messages: []string{fmt.Sprintf("index grown from 0 to %d", cache.MinimumIndexGrowthDelta)},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			allocs := func(logger logrus.FieldLogger) float64 {
+				c := NewCompactor(DefaultCompactorConfig(t.TempDir()), logger)
+				return testing.AllocsPerRun(10, func() { tc.run(t, c) })
+			}
+			infoLogger, infoHook := test.NewNullLogger()
+			infoLogger.SetLevel(logrus.InfoLevel)
+			assert.Less(t, allocs(infoLogger), allocs(unreadableLogger{infoLogger}))
+			assert.Empty(t, infoHook.AllEntries())
+
+			debugLogger, debugHook := test.NewNullLogger()
+			debugLogger.SetLevel(logrus.DebugLevel)
+			tc.run(t, NewCompactor(DefaultCompactorConfig(t.TempDir()), debugLogger))
+			var messages []string
+			for _, entry := range debugHook.AllEntries() {
+				assert.Equal(t, logrus.DebugLevel, entry.Level)
+				messages = append(messages, entry.Message)
+			}
+			assert.Equal(t, tc.messages, messages)
+		})
+	}
+}
+
+// unreadableLogger is a FieldLogger whose level LevelEnabled cannot inspect.
+type unreadableLogger struct{ logrus.FieldLogger }
 
 func TestCompactor_ResolveOverlaps(t *testing.T) {
 	dir := t.TempDir()

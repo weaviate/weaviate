@@ -209,6 +209,11 @@ func (c *Compactor) RunCycle(shouldAbort func() bool) (Action, error) {
 	return action, nil
 }
 
+// debugEnabled reports whether c.logger keeps debug entries.
+func (c *Compactor) debugEnabled() bool {
+	return logrusext.LevelEnabled(c.logger, logrus.DebugLevel)
+}
+
 // isAborted is a small helper that tolerates a nil callback.
 func isAborted(shouldAbort func() bool) bool {
 	return shouldAbort != nil && shouldAbort()
@@ -222,11 +227,13 @@ func (c *Compactor) cleanup() error {
 // resolveOverlaps removes files that are contained within merged ranges.
 func (c *Compactor) resolveOverlaps(state *DirectoryState) error {
 	for _, overlap := range state.Overlaps {
-		c.logger.WithFields(logrus.Fields{
-			"action":         "hnsw_compactor_resolve_overlap",
-			"merged_file":    filepath.Base(overlap.MergedFile.Path),
-			"contained_file": filepath.Base(overlap.ContainedFile.Path),
-		}).Debug("removing file contained in merged range")
+		if c.debugEnabled() {
+			c.logger.WithFields(logrus.Fields{
+				"action":         "hnsw_compactor_resolve_overlap",
+				"merged_file":    filepath.Base(overlap.MergedFile.Path),
+				"contained_file": filepath.Base(overlap.ContainedFile.Path),
+			}).Debug("removing file contained in merged range")
+		}
 
 		if err := c.fs.Remove(overlap.ContainedFile.Path); err != nil && !os.IsNotExist(err) {
 			return errors.Wrapf(err, "remove contained file %s", overlap.ContainedFile.Path)
@@ -320,11 +327,13 @@ func (c *Compactor) discardFilesBeforeReset(boundaryTS int64) error {
 // convertFileToSorted converts a single file to sorted format, returning
 // whether it contained a ResetIndex commit.
 func (c *Compactor) convertFileToSorted(f FileInfo) (bool, error) {
-	c.logger.WithFields(logrus.Fields{
-		"action": "hnsw_compactor_convert",
-		"file":   filepath.Base(f.Path),
-		"type":   f.Type.String(),
-	}).Debug("converting file to sorted format")
+	if c.debugEnabled() {
+		c.logger.WithFields(logrus.Fields{
+			"action": "hnsw_compactor_convert",
+			"file":   filepath.Base(f.Path),
+			"type":   f.Type.String(),
+		}).Debug("converting file to sorted format")
+	}
 
 	// Open source file
 	srcFile, err := c.fs.Open(f.Path)
@@ -361,11 +370,13 @@ func (c *Compactor) convertFileToSorted(f FileInfo) (bool, error) {
 		return false, errors.Wrap(err, "commit sorted file")
 	}
 
-	c.logger.WithFields(logrus.Fields{
-		"action":   "hnsw_compactor_convert",
-		"original": filepath.Base(f.Path),
-		"output":   outFilename,
-	}).Debug("converted file to sorted format")
+	if c.debugEnabled() {
+		c.logger.WithFields(logrus.Fields{
+			"action":   "hnsw_compactor_convert",
+			"original": filepath.Base(f.Path),
+			"output":   outFilename,
+		}).Debug("converted file to sorted format")
+	}
 
 	return inMemReader.HasReset(), nil
 }
@@ -391,7 +402,7 @@ func (c *Compactor) decideAction(state *DirectoryState) Action {
 
 	// RunCycle decides on every maintenance cycle, so skip building fields a
 	// logger below debug would discard.
-	if !logrusext.LevelEnabled(c.logger, logrus.DebugLevel) {
+	if !c.debugEnabled() {
 		return action
 	}
 	c.logger.WithFields(logrus.Fields{
@@ -458,10 +469,12 @@ func (c *Compactor) mergeSorted(state *DirectoryState, shouldAbort func() bool) 
 		return ErrCompactionAborted
 	}
 
-	c.logger.WithFields(logrus.Fields{
-		"action":     "hnsw_compactor_merge",
-		"file_count": len(filesToMerge),
-	}).Debug("merging sorted files")
+	if c.debugEnabled() {
+		c.logger.WithFields(logrus.Fields{
+			"action":     "hnsw_compactor_merge",
+			"file_count": len(filesToMerge),
+		}).Debug("merging sorted files")
+	}
 
 	// Create iterators for each file
 	// Track opened files for cleanup
@@ -544,11 +557,13 @@ func (c *Compactor) mergeSorted(state *DirectoryState, shouldAbort func() bool) 
 		}
 	}
 
-	c.logger.WithFields(logrus.Fields{
-		"action":       "hnsw_compactor_merge",
-		"output":       outFilename,
-		"merged_count": len(filesToMerge),
-	}).Debug("merged sorted files")
+	if c.debugEnabled() {
+		c.logger.WithFields(logrus.Fields{
+			"action":       "hnsw_compactor_merge",
+			"output":       outFilename,
+			"merged_count": len(filesToMerge),
+		}).Debug("merged sorted files")
+	}
 
 	return nil
 }
@@ -575,12 +590,14 @@ func (c *Compactor) createSnapshot(state *DirectoryState, shouldAbort func() boo
 		return allInputFiles[i].StartTS < allInputFiles[j].StartTS
 	})
 
-	c.logger.WithFields(logrus.Fields{
-		"action":       "hnsw_compactor_snapshot",
-		"input_count":  len(allInputFiles),
-		"has_snapshot": state.Snapshot != nil,
-		"sorted_count": len(state.SortedFiles),
-	}).Debug("creating snapshot")
+	if c.debugEnabled() {
+		c.logger.WithFields(logrus.Fields{
+			"action":       "hnsw_compactor_snapshot",
+			"input_count":  len(allInputFiles),
+			"has_snapshot": state.Snapshot != nil,
+			"sorted_count": len(state.SortedFiles),
+		}).Debug("creating snapshot")
+	}
 
 	// Track opened files for cleanup
 	openedFiles := make([]common.File, 0, len(allInputFiles))
@@ -663,11 +680,13 @@ func (c *Compactor) createSnapshot(state *DirectoryState, shouldAbort func() boo
 		}
 	}
 
-	c.logger.WithFields(logrus.Fields{
-		"action":      "hnsw_compactor_snapshot",
-		"output":      outFilename,
-		"input_count": len(allInputFiles),
-	}).Debug("created snapshot")
+	if c.debugEnabled() {
+		c.logger.WithFields(logrus.Fields{
+			"action":      "hnsw_compactor_snapshot",
+			"output":      outFilename,
+			"input_count": len(allInputFiles),
+		}).Debug("created snapshot")
+	}
 
 	return nil
 }
