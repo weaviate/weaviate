@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
+	"github.com/casbin/casbin/v2/persist"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1832,54 +1834,82 @@ func TestDeleteRoles(t *testing.T) {
 	}
 }
 
-// TestDeleteRolesReadDuringDelete pins that a read while DeleteRoles is part way
-// through deleting a role returns the role with all its permissions or no role. A
-// role read back with no permissions is shown to namespaced callers who lack them.
-func TestDeleteRolesReadDuringDelete(t *testing.T) {
+// recordingAdapter records the section each policy removal targets, in the order
+// casbin calls the adapter. The file adapter under it answers "not implemented",
+// which casbin ignores.
+type recordingAdapter struct {
+	persist.Adapter
+	removed []string
+}
+
+func (a *recordingAdapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex int, fieldValues ...string) error {
+	a.removed = append(a.removed, sec+" "+strings.Join(fieldValues, " "))
+	return a.Adapter.RemoveFilteredPolicy(sec, ptype, fieldIndex, fieldValues...)
+}
+
+// TestDeleteRolesRemovesAssignmentsFirst pins that DeleteRoles removes a role's g
+// rows before its p rows. The other order leaves the role readable with no
+// permissions, which callers who lack them are shown.
+func TestDeleteRolesRemovesAssignmentsFirst(t *testing.T) {
 	perm := authorization.Policy{Resource: authorization.CollectionsMetadata("Foo")[0], Verb: authorization.READ, Domain: authorization.SchemaDomain}
 	roles := []string{"role-a", "role-b"}
-	userOf := func(role string) string { return "user-of-" + role }
 
-	// The hook runs inside DeleteRoles, which holds restoreLock for reading, so
-	// reads go through getRoles. GetRolesForUserOrGroup takes the read lock again,
-	// which is safe here because no Restore is waiting for the write lock.
+	logger, _ := test.NewNullLogger()
+	m, err := setupTestManager(t, logger)
+	require.NoError(t, err)
+
+	for _, role := range roles {
+		require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{role: {perm}}))
+		require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("user-of-"+role, authentication.AuthTypeDb), []string{role}))
+	}
+
+	// casbin hands every removal to the adapter, which is how the test sees the
+	// order without a seam in Manager.
+	adapter := &recordingAdapter{Adapter: m.casbin.GetAdapter()}
+	m.casbin.SetAdapter(adapter)
+
+	require.NoError(t, m.DeleteRoles(roles...))
+
+	var want []string
+	for _, role := range roles {
+		want = append(want, "g "+conv.PrefixRoleName(role), "p "+conv.PrefixRoleName(role))
+	}
+	assert.Equal(t, want, adapter.removed)
+}
+
+// TestReadRoleWithAssignmentsRemoved pins what a read returns between DeleteRoles'
+// two removals, with a role's g rows gone and its p rows still there. A role read
+// back with no permissions is shown to callers who lack them.
+func TestReadRoleWithAssignmentsRemoved(t *testing.T) {
+	perm := authorization.Policy{Resource: authorization.CollectionsMetadata("Foo")[0], Verb: authorization.READ, Domain: authorization.SchemaDomain}
+	role := "role-a"
+	user := "user-of-" + role
+
 	tests := []struct {
 		name     string
-		assigned bool
-		read     func(m *Manager, role string) (map[string][]authorization.Policy, error)
+		read     func(m *Manager) (map[string][]authorization.Policy, error)
+		wantRole bool
 	}{
 		{
-			name:     "roles of the assigned user",
-			assigned: true,
-			read: func(m *Manager, role string) (map[string][]authorization.Policy, error) {
-				return m.GetRolesForUserOrGroup(userOf(role), authentication.AuthTypeDb, false)
+			// The assignment is what this path reads, so the role goes with it.
+			name: "roles of the user it was assigned to",
+			read: func(m *Manager) (map[string][]authorization.Policy, error) {
+				return m.GetRolesForUserOrGroup(user, authentication.AuthTypeDb, false)
 			},
 		},
 		{
-			name:     "assigned role by name",
-			assigned: true,
-			read: func(m *Manager, role string) (map[string][]authorization.Policy, error) {
+			name: "role by name",
+			read: func(m *Manager) (map[string][]authorization.Policy, error) {
 				return m.getRoles(role)
 			},
+			wantRole: true,
 		},
 		{
-			name: "unassigned role by name",
-			read: func(m *Manager, role string) (map[string][]authorization.Policy, error) {
-				return m.getRoles(role)
-			},
-		},
-		{
-			name:     "every role, assigned",
-			assigned: true,
-			read: func(m *Manager, _ string) (map[string][]authorization.Policy, error) {
+			name: "every role",
+			read: func(m *Manager) (map[string][]authorization.Policy, error) {
 				return m.getRoles()
 			},
-		},
-		{
-			name: "every role, unassigned",
-			read: func(m *Manager, _ string) (map[string][]authorization.Policy, error) {
-				return m.getRoles()
-			},
+			wantRole: true,
 		},
 	}
 
@@ -1889,25 +1919,19 @@ func TestDeleteRolesReadDuringDelete(t *testing.T) {
 			m, err := setupTestManager(t, logger)
 			require.NoError(t, err)
 
-			for _, role := range roles {
-				require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{role: {perm}}))
-				if tt.assigned {
-					require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId(userOf(role), authentication.AuthTypeDb), []string{role}))
-				}
-			}
+			require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{role: {perm}}))
+			require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId(user, authentication.AuthTypeDb), []string{role}))
 
-			var deleting []string
-			m.onRoleAssignmentsRemoved = func(role string) {
-				deleting = append(deleting, role)
-				got, err := tt.read(m, role)
-				require.NoError(t, err)
-				if policies, ok := got[role]; ok {
-					assert.Equal(t, []authorization.Policy{perm}, policies, "role %q read with its permissions half removed", role)
-				}
-			}
+			_, err = m.casbin.RemoveFilteredGroupingPolicy(1, conv.PrefixRoleName(role))
+			require.NoError(t, err)
 
-			require.NoError(t, m.DeleteRoles(roles...))
-			require.Equal(t, roles, deleting)
+			got, err := tt.read(m)
+			require.NoError(t, err)
+			if !tt.wantRole {
+				assert.NotContains(t, got, role)
+				return
+			}
+			assert.Equal(t, []authorization.Policy{perm}, got[role], "role %q read with its permissions half removed", role)
 		})
 	}
 }

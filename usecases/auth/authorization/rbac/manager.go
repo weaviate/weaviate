@@ -55,10 +55,6 @@ type Manager struct {
 	namespacesEnabled bool
 	namespaces        NamespaceLister
 	restoreLock       sync.RWMutex
-
-	// onRoleAssignmentsRemoved, when a test sets it, runs in DeleteRoles after a
-	// role's g rows are removed and before its p rows are.
-	onRoleAssignmentsRemoved func(roleName string)
 }
 
 func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, namespacesEnabled bool, namespaces NamespaceLister, logger logrus.FieldLogger) (*Manager, error) {
@@ -366,9 +362,6 @@ func (m *Manager) DeleteRoles(roles ...string) error {
 		roleAssignmentsRemoved, err := m.casbin.RemoveFilteredGroupingPolicy(1, conv.PrefixRoleName(roleName))
 		if err != nil {
 			return fmt.Errorf("RemoveFilteredGroupingPolicy: %w", err)
-		}
-		if m.onRoleAssignmentsRemoved != nil {
-			m.onRoleAssignmentsRemoved(roleName)
 		}
 		roleRemoved, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(roleName))
 		if err != nil {
