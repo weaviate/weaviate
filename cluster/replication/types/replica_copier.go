@@ -30,6 +30,9 @@ type ReplicaCopier interface {
 	// PromoteRecoveryFolder see cluster/replication/copier.Copier.PromoteRecoveryFolder
 	PromoteRecoveryFolder(collectionName, shardName string) error
 
+	// PromoteRecoveredShard see cluster/replication/copier.Copier.PromoteRecoveredShard
+	PromoteRecoveredShard(ctx context.Context, collectionName, shardName string) error
+
 	// LoadLocalShard see cluster/replication/copier.Copier.LoadLocalShard
 	LoadLocalShard(ctx context.Context, collectionName, shardName string) error
 
