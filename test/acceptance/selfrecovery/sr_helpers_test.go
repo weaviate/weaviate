@@ -13,6 +13,7 @@ package selfrecovery
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -71,6 +72,9 @@ type srClusterCfg struct {
 	debugPort        bool // /debug/* endpoints (forceRaftSnapshot, smoke wiring)
 	raftTrailingLogs bool // RAFT_TRAILING_LOGS=1 to force snapshot-based rejoin
 	asyncDisabled    bool // sync replication (tests that assert exact counts mid-recovery)
+	lazyLoading      bool // force lazy shard loading with warmupMinObjects as the sweep threshold
+	warmupMinObjects int
+	persistentData   bool // keep /data across a stop/start (tmpfs is lost on stop)
 }
 
 // startSelfRecoveryCluster boots a 3-node cluster, registers teardown, points the client at node-0.
@@ -80,8 +84,14 @@ func startSelfRecoveryCluster(ctx context.Context, t *testing.T, cfg srClusterCf
 		WithWeaviateCluster(3).
 		WithWeaviateEnv("SELF_RECOVERY_ENABLED", "true").
 		WithWeaviateEnv("SELF_RECOVERY_CONCURRENCY", "2").
-		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
-		WithWeaviateTmpfsData()
+		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true")
+	if !cfg.persistentData {
+		b = b.WithWeaviateTmpfsData()
+	}
+	if cfg.lazyLoading {
+		b = b.WithWeaviateEnv("LAZY_LOAD_SHARD_COUNT_THRESHOLD", "0").
+			WithWeaviateEnv("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS", strconv.Itoa(cfg.warmupMinObjects))
+	}
 	if cfg.asyncDisabled {
 		b = b.WithWeaviateEnv("ASYNC_REPLICATION_DISABLED", "true")
 	}
@@ -138,6 +148,22 @@ func waitShardsLoaded(t *testing.T, class string, shardsPerNode int) {
 	}, 3*time.Minute, 1*time.Second)
 }
 
+// waitShardsPresent: every node lists shardsPerNode shards of class, loaded or not.
+func waitShardsPresent(t *testing.T, class string, shardsPerNode int) {
+	t.Helper()
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		verbose := verbosity.OutputVerbose
+		body, err := helper.Client(t).Nodes.NodesGetClass(
+			nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(class), nil)
+		require.NoError(ct, err)
+		require.NotNil(ct, body.Payload)
+		require.Len(ct, body.Payload.Nodes, 3)
+		for _, n := range body.Payload.Nodes {
+			require.Len(ct, n.Shards, shardsPerNode, "node %s shard count", n.Name)
+		}
+	}, 3*time.Minute, 1*time.Second)
+}
+
 // submitBatch retries until the batch succeeds with no per-object errors; cl="" = default.
 func submitBatch(t *testing.T, objs []*models.Object, cl types.ConsistencyLevel) {
 	t.Helper()
@@ -187,6 +213,64 @@ func assertNoActiveRecovery(t *testing.T, nodeNames []string, d time.Duration) {
 			return found
 		}, d, 1*time.Second, "unexpected active SELF_RECOVERY op for %s", node)
 	}
+}
+
+func shardStatusesOnNode(t *testing.T, class, node string) (map[string]*models.NodeShardStatus, error) {
+	t.Helper()
+	verbose := verbosity.OutputVerbose
+	body, err := helper.Client(t).Nodes.NodesGetClass(
+		nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(class), nil)
+	if err != nil {
+		return nil, err
+	}
+	statuses := map[string]*models.NodeShardStatus{}
+	for _, n := range body.Payload.Nodes {
+		if n.Name != node {
+			continue
+		}
+		for _, s := range n.Shards {
+			statuses[s.Name] = s
+		}
+	}
+	return statuses, nil
+}
+
+// waitNoShardRecovering: queued submissions are invisible to the op list, so wait on shard status too.
+func waitNoShardRecovering(t *testing.T, class, node string) {
+	t.Helper()
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		statuses, err := shardStatusesOnNode(t, class, node)
+		require.NoError(ct, err)
+		require.NotEmpty(ct, statuses)
+		for shard, s := range statuses {
+			require.NotEqual(ct, "RECOVERING", s.VectorIndexingStatus, "node %s shard %s still recovering", node, shard)
+		}
+	}, 5*time.Minute, 1*time.Second, "node %s still has a recovering shard of %s", node, class)
+}
+
+// assertShardLoadedState blocks until node reports each named shard with the wanted Loaded flag.
+func assertShardLoadedState(t *testing.T, class, node string, want map[string]bool) {
+	t.Helper()
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		statuses, err := shardStatusesOnNode(t, class, node)
+		require.NoError(ct, err)
+		for shard, loaded := range want {
+			require.Contains(ct, statuses, shard, "node %s shard %s", node, shard)
+			assert.Equal(ct, loaded, statuses[shard].Loaded, "node %s shard %s loaded", node, shard)
+		}
+	}, 3*time.Minute, 1*time.Second, "node %s never reported the wanted loaded state", node)
+}
+
+// assertShardObjectCount blocks until node reports the shard loaded with wantCount objects.
+func assertShardObjectCount(t *testing.T, class, node, shard string, wantCount int64) {
+	t.Helper()
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		statuses, err := shardStatusesOnNode(t, class, node)
+		require.NoError(ct, err)
+		require.Contains(ct, statuses, shard)
+		require.True(ct, statuses[shard].Loaded, "node %s shard %s loaded", node, shard)
+		assert.Equal(ct, wantCount, statuses[shard].ObjectCount, "node %s shard %s object count", node, shard)
+	}, 3*time.Minute, 1*time.Second, "node %s shard %s never reported %d objects", node, shard, wantCount)
 }
 
 // assertNodeRecovered blocks until node reports wantShards loaded shards with wantCount objects each.
