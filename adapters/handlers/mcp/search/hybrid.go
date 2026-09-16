@@ -34,8 +34,13 @@ import (
 )
 
 func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, args QueryHybridArgs) (resp *QueryHybridResp, retErr error) {
-	if err := validateHybridArgs(args); err != nil {
-		return nil, err
+	// The search layer does not check these itself: an alpha outside 0..1 is
+	// used as-is and a negative limit panics.
+	if args.Alpha != nil && (*args.Alpha < 0 || *args.Alpha > 1) {
+		return nil, errors.New("alpha must be between 0 and 1")
+	}
+	if args.Limit != nil && *args.Limit < 0 {
+		return nil, errors.New("limit must be 0 or greater")
 	}
 
 	// Authorize the request: first check MCP-level permission, then collection-level data permission
@@ -162,18 +167,6 @@ func (s *WeaviateSearcher) Hybrid(ctx context.Context, req mcp.CallToolRequest, 
 	res = stripResultsOwnNamespace(principal, res)
 
 	return &QueryHybridResp{Results: res}, nil
-}
-
-// validateHybridArgs rejects values the search layer does not check itself: an
-// alpha outside 0..1 and a negative limit.
-func validateHybridArgs(args QueryHybridArgs) error {
-	if args.Alpha != nil && (*args.Alpha < 0 || *args.Alpha > 1) {
-		return errors.New("alpha must be between 0 and 1")
-	}
-	if args.Limit != nil && *args.Limit < 0 {
-		return errors.New("limit must be 0 or greater")
-	}
-	return nil
 }
 
 // allSelectProperties returns all non-ref, non-blob properties of the class,
