@@ -108,17 +108,6 @@ func (p *Provider) GetAll() []modulecapabilities.Module {
 	return out
 }
 
-func (p *Provider) GetAllWithHTTPHandlers() []modulecapabilities.ModuleWithHTTPHandlers {
-	out := make([]modulecapabilities.ModuleWithHTTPHandlers, 0)
-	for _, mod := range p.registered {
-		if modWithHTTPHandlers, ok := mod.(modulecapabilities.ModuleWithHTTPHandlers); ok {
-			out = append(out, modWithHTTPHandlers)
-		}
-	}
-
-	return out
-}
-
 func (p *Provider) GetAllExclude(module string) []modulecapabilities.Module {
 	filtered := []modulecapabilities.Module{}
 	for _, mod := range p.GetAll() {
