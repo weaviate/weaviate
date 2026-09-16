@@ -356,15 +356,16 @@ func (m *Manager) DeleteRoles(roles ...string) error {
 
 	changed := false
 	for _, roleName := range roles {
-		// remove role
-		roleRemoved, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(roleName))
-		if err != nil {
-			return fmt.Errorf("RemoveFilteredNamedPolicy: %w", err)
-		}
-		// remove role assignment
+		// Assignments go before permissions. getRoles reads p rows before g rows and
+		// returns g rows with no p rows as a role with no permissions. Callers who lack
+		// the deleted role's permissions may see such a role.
 		roleAssignmentsRemoved, err := m.casbin.RemoveFilteredGroupingPolicy(1, conv.PrefixRoleName(roleName))
 		if err != nil {
 			return fmt.Errorf("RemoveFilteredGroupingPolicy: %w", err)
+		}
+		roleRemoved, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(roleName))
+		if err != nil {
+			return fmt.Errorf("RemoveFilteredNamedPolicy: %w", err)
 		}
 
 		// deletes are idempotent: an already-absent role is a no-op, but other
