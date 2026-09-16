@@ -819,7 +819,7 @@ func TestGetLastUsageMultinode(t *testing.T) {
 		require.Less(t, lastLoginTime, user.LastUsedAt)
 		require.Less(t, user.LastUsedAt, time.Now())
 
-		allUsers := helper.ListAllUsersWithIncludeTime(t, adminKey, true)
+		allUsers := helper.WaitForUsersListedWithIncludeTime(t, adminKey, true, dynUser)
 		for _, user := range allUsers {
 			if *user.UserID != dynUser {
 				continue
@@ -877,7 +877,7 @@ func TestGetLastUsageMultinode(t *testing.T) {
 		require.Less(t, userNode2.LastUsedAt, time.Now())
 		require.Equal(t, userNode2.LastUsedAt, user.LastUsedAt)
 
-		allUsers := helper.ListAllUsersWithIncludeTime(t, adminKey, true)
+		allUsers := helper.WaitForUsersListedWithIncludeTime(t, adminKey, true, dynUser)
 		for _, user := range allUsers {
 			if *user.UserID != dynUser {
 				continue

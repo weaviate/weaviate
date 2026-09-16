@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"path/filepath"
 	"sync"
@@ -96,7 +97,7 @@ type memtable interface {
 	roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error
 	roaringSetAddRemoveSlices(key []byte, additions []uint64, deletions []uint64) error
 	roaringSetGet(key []byte) (roaringset.BitmapLayer, error)
-	roaringSetAdjustMeta(entriesChanged int)
+	roaringSetAdjustMeta()
 	roaringSetAddCommitLog(node *roaringset.SegmentNodeList) error
 
 	roaringSetRangeAdd(key uint64, values ...uint64) error
@@ -111,7 +112,7 @@ type memtable interface {
 	flushDataMap(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
 	flushDataCollection(f *segmentindex.SegmentFile, flat []*binarySearchNodeMulti) ([]segmentindex.Key, error)
 	flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.MeteredWriter, bufw *bufio.Writer) ([]segmentindex.Key, *sroar.Bitmap, error)
-	flushDataRoaringSet(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
+	flushDataRoaringSet(f *segmentindex.SegmentFile, ogF io.WriteSeeker, bufw *bufio.Writer) error
 	flushDataRoaringSetRange(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
 
 	incWriterCount()
