@@ -651,6 +651,9 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		eg.Go(func() error {
 			switch {
 			case i.Config.EnableLazyLoadShards:
+				if err := i.ensureShardDir(shardName); err != nil {
+					return fmt.Errorf("init lazy shard %s of index %s: %w", shardName, i.ID(), err)
+				}
 				lazyShard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue,
 					i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true, i.bitmapBufPool)
 				i.shards.Store(shardName, lazyShard)
@@ -1008,6 +1011,11 @@ func (i *Index) shouldRecoverShardFromPeer(ctx context.Context, shardName string
 	return true
 }
 
+// ensureShardDir plants the folder a lazy registration would otherwise defer to first load, so a missing folder at startup always means a wipe.
+func (i *Index) ensureShardDir(shardName string) error {
+	return os.MkdirAll(shardPath(i.path(), shardName), os.ModePerm)
+}
+
 // used to init/create shard in different moments of index's lifecycle, therefore it needs to be called
 // within shardCreateLocks to prevent parallel create/init of the same shard
 func (i *Index) initShard(ctx context.Context, shardName string, class *models.Class,
@@ -1035,6 +1043,9 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 		return shard, nil
 	}
 
+	if err := i.ensureShardDir(shardName); err != nil {
+		return nil, fmt.Errorf("init lazy shard %s of index %s: %w", shardName, i.ID(), err)
+	}
 	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue,
 		i.allocChecker, i.shardLoadLimiter, i.shardReindexer, implicitShardLoading, i.bitmapBufPool)
 	return shard, nil

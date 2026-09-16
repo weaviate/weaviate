@@ -423,3 +423,23 @@ func TestLoadedShardForDimensionsClearSkipsRecoveringShard(t *testing.T) {
 	require.Nil(t, release)
 	require.NoDirExists(t, shardPath(idx.path(), "S"))
 }
+
+func TestLazyRegistrationCreatesShardDir(t *testing.T) {
+	orch := &fakeSelfRecoveryOrch{enabled: true, submitOK: true}
+	idx := newTestIndexForRecovery(t, orch, nil)
+	idx.Config.EnableLazyLoadShards = true
+	idx.closingCtx = context.Background()
+	idx.shardCreateLocks = esync.NewKeyRWLocker()
+	idx.getSchema = &fakeSchemaGetter{}
+	class := &models.Class{Class: "C"}
+
+	shard, err := idx.initShard(context.Background(), "T", class, monitoring.GetMetrics(), false, false)
+	require.NoError(t, err)
+	lazy, ok := shard.(*LazyLoadShard)
+	require.True(t, ok)
+	require.False(t, lazy.isLoaded())
+	require.DirExists(t, shardPath(idx.path(), "T"))
+
+	require.False(t, idx.recoverShardFromPeerIfNeeded(schemaReloadCtx(), class, "T", monitoring.GetMetrics()))
+	require.Zero(t, orch.submitCalls)
+}
