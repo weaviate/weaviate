@@ -13,14 +13,17 @@ package roaringset
 
 import (
 	"bytes"
+	"unsafe"
 
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rbtree"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 type BinarySearchTree struct {
-	root  *BinarySearchNode
-	count int
+	root        *BinarySearchNode
+	count       int
+	sizeInBytes int
 }
 
 type Insert struct {
@@ -28,32 +31,52 @@ type Insert struct {
 	Deletions []uint64
 }
 
+// Insert keeps the key slice it is given, so a caller whose key windows into a
+// larger buffer must copy it first. A write carrying neither additions nor
+// deletions is ignored, since a node for it would be charged its own structure;
+// Get then reports lsmkv.NotFound rather than an empty layer, which
+// LayerMerger.Add folds to the same result.
 func (t *BinarySearchTree) Insert(key []byte, values Insert) {
-	if t.root == nil {
-		t.root = &BinarySearchNode{
-			Key: key,
-			Value: BitmapLayer{
-				Additions: NewBitmap(values.Additions...),
-				Deletions: NewBitmap(values.Deletions...),
-			},
-			colourIsRed: false, // root node is always black
-		}
-		t.count++
+	if len(values.Additions) == 0 && len(values.Deletions) == 0 {
 		return
 	}
 
-	newRoot, created := t.root.insert(key, values)
+	if t.root == nil {
+		// assigned rather than accumulated: a nil root means no nodes, so both
+		// totals are re-established here whatever they held before
+		t.root = newBinarySearchNode(key, values, nil, false) // root node is always black
+		t.count = 1
+		t.sizeInBytes = t.root.sizeInBytes()
+		return
+	}
+
+	newRoot, grownBy, created := t.root.insert(key, values)
 	if created {
 		t.count++
 	}
 	if newRoot != nil {
 		t.root = newRoot
 	}
+	// A total driven below zero would read as ~1.8e19 through SizeInBytes and
+	// flush a segment every cycle. Overcounting instead keeps the total at or
+	// above what the tree holds, which is what callers branching on a zero survive.
+	t.sizeInBytes += max(grownBy, 0)
 	t.root.colourIsRed = false // Can be flipped in the process of balancing, but root is always black
 }
 
+// SizeInBytes counts node structure and allocated-but-empty bitmap buffers,
+// which BitmapLayer.LenInBytes reads as free, and is zero exactly when the tree
+// holds no nodes. It can miss nearly half the heap a bitmap grown one doc ID at
+// a time holds, since sroar grows by doubling and LenInBytes reports only the
+// used half; TestBSTRoaringSetHeapRatio sweeps that. It rests on Insert being
+// the only mutator: a node's bitmaps must not grow after Insert returns.
+func (t *BinarySearchTree) SizeInBytes() uint64 {
+	return uint64(t.sizeInBytes)
+}
+
 // Get creates copies of underlying bitmaps to prevent future (concurrent)
-// read and writes after layer being returned
+// read and writes after layer being returned. A key whose only write carried
+// neither additions nor deletions reports lsmkv.NotFound.
 func (t *BinarySearchTree) Get(key []byte) (BitmapLayer, error) {
 	if t.root == nil {
 		return BitmapLayer{}, lsmkv.NotFound
@@ -73,8 +96,9 @@ func (t *BinarySearchTree) FlattenInOrder() []*BinarySearchNode {
 }
 
 // Count returns how many distinct keys the tree holds. A key inserted with only
-// deletions counts, and the tree has no removal, so the number only grows. The
-// caller's own lock guards it, as it does the rest of the tree.
+// deletions counts and one inserted with neither does not, and the tree has no
+// removal, so the number only grows. The caller's own lock guards it, as it
+// does the rest of the tree.
 func (t *BinarySearchTree) Count() int {
 	return t.count
 }
@@ -167,10 +191,40 @@ func addNewSearchNodeRoaringSetReceiver(nodePtr **BinarySearchNode) {
 	*nodePtr = &BinarySearchNode{}
 }
 
-// insert reports whether it added a node, which the caller counts. A nil
-// node means the root did not move, not that the key merged.
-func (n *BinarySearchNode) insert(key []byte, values Insert) (*BinarySearchNode, bool) {
+// nodeFixedSizeInBytes is what a node holds regardless of its contents: the node
+// struct plus the two sroar.Bitmap structs its layer points at. Its key bytes and
+// both bitmaps' buffers are charged on top, in sizeInBytes.
+const nodeFixedSizeInBytes = int(unsafe.Sizeof(BinarySearchNode{}) + 2*unsafe.Sizeof(sroar.Bitmap{}))
+
+func (n *BinarySearchNode) sizeInBytes() int {
+	return nodeFixedSizeInBytes + len(n.Key) + n.bitmapsSizeInBytes()
+}
+
+// bitmapsSizeInBytes uses sroar.Bitmap.LenInBytes, which counts an
+// allocated-but-empty buffer; BitmapLayer.LenInBytes reads one as free.
+func (n *BinarySearchNode) bitmapsSizeInBytes() int {
+	return n.Value.Additions.LenInBytes() + n.Value.Deletions.LenInBytes()
+}
+
+func newBinarySearchNode(key []byte, values Insert, parent *BinarySearchNode, colourIsRed bool) *BinarySearchNode {
+	return &BinarySearchNode{
+		Key: key,
+		Value: BitmapLayer{
+			Additions: NewBitmap(values.Additions...),
+			Deletions: NewBitmap(values.Deletions...),
+		},
+		parent:      parent,
+		colourIsRed: colourIsRed,
+	}
+}
+
+// insert reports the bytes the subtree grew by and whether it added a node, both
+// of which the caller totals. A nil node means the root did not move, not that
+// the key merged.
+func (n *BinarySearchNode) insert(key []byte, values Insert) (newRoot *BinarySearchNode, grownBy int, created bool) {
 	if bytes.Equal(key, n.Key) {
+		bitmapsBefore := n.bitmapsSizeInBytes()
+
 		// Merging the new additions and deletions into the existing ones is a
 		// four-step process:
 		//
@@ -192,38 +246,26 @@ func (n *BinarySearchNode) insert(key []byte, values Insert) (*BinarySearchNode,
 			n.Value.Deletions.Set(x)
 		}
 
-		return nil, false
+		return nil, n.bitmapsSizeInBytes() - bitmapsBefore, false
 	}
 
 	if bytes.Compare(key, n.Key) < 0 {
 		if n.left != nil {
 			return n.left.insert(key, values)
 		} else {
-			n.left = &BinarySearchNode{
-				Key: key,
-				Value: BitmapLayer{
-					Additions: NewBitmap(values.Additions...),
-					Deletions: NewBitmap(values.Deletions...),
-				},
-				parent:      n,
-				colourIsRed: true,
-			}
-			return BinarySearchNodeFromRB(rbtree.Rebalance(n.left)), true
+			// held in a local because Rebalance can move it out of n.left
+			inserted := newBinarySearchNode(key, values, n, true)
+			n.left = inserted
+			return BinarySearchNodeFromRB(rbtree.Rebalance(inserted)), inserted.sizeInBytes(), true
 		}
 	} else {
 		if n.right != nil {
 			return n.right.insert(key, values)
 		} else {
-			n.right = &BinarySearchNode{
-				Key: key,
-				Value: BitmapLayer{
-					Additions: NewBitmap(values.Additions...),
-					Deletions: NewBitmap(values.Deletions...),
-				},
-				parent:      n,
-				colourIsRed: true,
-			}
-			return BinarySearchNodeFromRB(rbtree.Rebalance(n.right)), true
+			// held in a local because Rebalance can move it out of n.right
+			inserted := newBinarySearchNode(key, values, n, true)
+			n.right = inserted
+			return BinarySearchNodeFromRB(rbtree.Rebalance(inserted)), inserted.sizeInBytes(), true
 		}
 	}
 }
