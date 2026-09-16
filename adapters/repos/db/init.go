@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"sync/atomic"
@@ -318,28 +319,26 @@ func (db *DB) totalShardSizeBytes(className schema.ClassName, shardNames []strin
 				return nil
 			}
 
-			// Prefer precomputed usage data if available; it is cheap to read
-			// and already contains the full shard storage size.
-			if shardusage.ComputedUsageDataExists(indexPath, shardName) {
-				// the fingerprint of the vector configs is not compared here. The full
-				// shard size on disk does not depend on them.
-				saved, err := shardusage.LoadComputedUsageData(indexPath, shardName)
-				if errors.Is(err, shardusage.ErrUsageVersionMismatch) {
-					// a version bump leaves this behind on every shard that stayed
-					// cold across it; the on-disk size below is exact anyway
-					db.logger.WithField("action", "lazy_shard_auto_detection").
-						WithField("class", className).
-						WithField("shard", shardName).
-						Debugf("pre-calculated shard usage unusable; falling back to on-disk size: %v", err)
-				} else if err != nil {
-					db.logger.WithField("action", "lazy_shard_auto_detection").
-						WithField("class", className).
-						WithField("shard", shardName).
-						Warnf("failed to load pre-calculated shard usage; falling back to on-disk size: %v", err)
-				} else {
-					total.Add(saved.ShardUsage.FullShardStorageBytes)
-					return nil
-				}
+			// A saved usage record is cheap to read and already holds the full shard size.
+			// Its fingerprint is not compared, because that size does not depend on the vector configs.
+			saved, err := shardusage.LoadComputedUsageData(indexPath, shardName)
+			switch {
+			case errors.Is(err, fs.ErrNotExist):
+			case errors.Is(err, shardusage.ErrUsageVersionMismatch):
+				// a version bump leaves this behind on every shard that stayed
+				// cold across it. The on-disk size below is exact anyway.
+				db.logger.WithField("action", "lazy_shard_auto_detection").
+					WithField("class", className).
+					WithField("shard", shardName).
+					Debugf("pre-calculated shard usage unusable; falling back to on-disk size: %v", err)
+			case err != nil:
+				db.logger.WithField("action", "lazy_shard_auto_detection").
+					WithField("class", className).
+					WithField("shard", shardName).
+					Warnf("failed to load pre-calculated shard usage; falling back to on-disk size: %v", err)
+			default:
+				total.Add(saved.ShardUsage.FullShardStorageBytes)
+				return nil
 			}
 
 			size, err := diskio.GetDirSize(path.Join(indexPath, shardName))

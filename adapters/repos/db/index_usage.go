@@ -501,21 +501,19 @@ func unloadedVectorUsage(targetVector string, vectorConfig models.VectorConfig,
 // and vectorConfigsFingerprint must be their [shardusage.VectorConfigsFingerprint]. The result
 // carries no tenant status: it is saved to disk and served when the tenant may have changed.
 func (i *Index) calculateUnloadedShardUsage(ctx context.Context, shardName string, vectorConfigs map[string]models.VectorConfig, vectorConfigsFingerprint string) (*types.ShardUsage, error) {
-	if shardusage.ComputedUsageDataExists(i.path(), shardName) {
-		// usage has been pre-calculated and can be read from disk
-		saved, err := shardusage.LoadComputedUsageData(i.path(), shardName)
-		// the computation below overwrites whatever cannot be served. A stale version
-		// is routine. An unreadable file is worth an operator's attention.
-		switch {
-		case errors.Is(err, shardusage.ErrUsageVersionMismatch):
-			i.logger.Debugf("recomputing usage data for shard %s: %v", shardName, err)
-		case err != nil:
-			i.logger.Warnf("failed to load pre-calculated usage data for shard %s: %v", shardName, err)
-		case saved.VectorConfigsFingerprint != vectorConfigsFingerprint:
-			i.logger.Debugf("recomputing usage data for shard %s: vector configs changed since it was saved", shardName)
-		default:
-			return saved.ShardUsage, nil
-		}
+	record, err := shardusage.LoadComputedUsageData(i.path(), shardName)
+	// the computation below overwrites whatever cannot be served. A missing record or a
+	// stale version is routine. An unreadable file is worth an operator's attention.
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+	case errors.Is(err, shardusage.ErrUsageVersionMismatch):
+		i.logger.Debugf("recomputing usage data for shard %s: %v", shardName, err)
+	case err != nil:
+		i.logger.Warnf("failed to load pre-calculated usage data for shard %s: %v", shardName, err)
+	case record.VectorConfigsFingerprint != vectorConfigsFingerprint:
+		i.logger.Debugf("recomputing usage data for shard %s: vector configs changed since it was saved", shardName)
+	default:
+		return record.ShardUsage, nil
 	}
 	// Read before anything is measured. A concurrent drop clears this shard's
 	// files and dimension rows and bumps the generation last, so a value read

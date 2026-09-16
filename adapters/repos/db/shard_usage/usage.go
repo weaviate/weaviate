@@ -59,12 +59,6 @@ func usageTmpFilePath(indexPath, shardName string) string {
 	return path.Join(indexPath, shardName, usageTmpFileName)
 }
 
-// ComputedUsageDataExists checks if pre-calculated shard usage data file exists
-func ComputedUsageDataExists(indexPath, shardName string) bool {
-	_, err := os.Stat(usageTmpFilePath(indexPath, shardName))
-	return !os.IsNotExist(err)
-}
-
 // computedUsageGenerations counts how often a shard's saved usage record has
 // been invalidated. A usage scan reads the count before it starts and hands it
 // back at save time, so a record computed from rows that were cleared while it
@@ -124,13 +118,7 @@ func RemoveComputedUsageDataForUnloadedShard(indexPath, shardName string) error 
 	// count at save time whether or not the file was there to remove.
 	computedUsageGenerationFor(indexPath, shardName).Add(1)
 
-	usageFilePath := usageTmpFilePath(indexPath, shardName)
-	if _, err := os.Stat(usageFilePath); !os.IsNotExist(err) {
-		if err := os.RemoveAll(usageFilePath); err != nil {
-			return err
-		}
-	}
-	return nil
+	return os.RemoveAll(usageTmpFilePath(indexPath, shardName))
 }
 
 // SaveComputedUsageData saves pre-calculated shard usage data to disk, stamped with
@@ -189,11 +177,10 @@ func VectorConfigsFingerprint(vectorConfigs map[string]models.VectorConfig) (str
 // each shard that stayed cold across it — routine, unlike an unreadable file.
 var ErrUsageVersionMismatch = errors.New("usage data saved to disk version mismatch")
 
-// LoadComputedUsageData loads the pre-calculated usage record of a shard, rejecting a
-// version this build does not know. Callers that depend on the vector configs must also
-// compare its fingerprint against [VectorConfigsFingerprint] of their current ones.
+// LoadComputedUsageData loads a shard's saved usage record, rejecting a version this build does
+// not know and returning an error matching [fs.ErrNotExist] when nothing is saved. Callers that
+// depend on the vector configs must also compare its fingerprint to [VectorConfigsFingerprint].
 func LoadComputedUsageData(indexPath, shardName string) (*types.UsageDisk, error) {
-	// usage has been pre-calculated and can be read from disk
 	usage, err := os.ReadFile(usageTmpFilePath(indexPath, shardName))
 	if err != nil {
 		return nil, fmt.Errorf("read pre-calculated usage from disk: %w", err)

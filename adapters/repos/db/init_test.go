@@ -20,6 +20,7 @@ import (
 	"testing"
 
 	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
@@ -209,9 +210,10 @@ func TestNewShard_AbortsWhenUsageFileRemovalFails(t *testing.T) {
 
 func TestTotalShardSizeBytes_FallsBackToDirSizeWhenNoMeta(t *testing.T) {
 	tmpDir := t.TempDir()
+	logger, hook := test.NewNullLogger()
 
 	db := &DB{
-		logger: logrus.New(),
+		logger: logger,
 		config: Config{
 			RootPath: tmpDir,
 		},
@@ -229,6 +231,7 @@ func TestTotalShardSizeBytes_FallsBackToDirSizeWhenNoMeta(t *testing.T) {
 
 	got := db.totalShardSizeBytes(className, []string{shardName}, 0)
 	require.Equal(t, uint64(len(data)), got)
+	require.Empty(t, hook.AllEntries(), "a shard with no saved usage is routine, not a load failure")
 }
 
 func TestTotalShardSizeBytes_Concurrent(t *testing.T) {

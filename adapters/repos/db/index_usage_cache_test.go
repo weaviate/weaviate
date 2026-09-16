@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/semaphore"
@@ -45,6 +47,7 @@ func TestUnloadedShardUsageSavedToDisk(t *testing.T) {
 
 	tests := []struct {
 		name             string
+		noRecord         bool
 		savedVersion     int
 		savedFingerprint string
 		wantObjectsCount int64
@@ -74,6 +77,11 @@ func TestUnloadedShardUsageSavedToDisk(t *testing.T) {
 			savedFingerprint: "",
 			wantObjectsCount: populatedObjectsCount,
 		},
+		{
+			name:             "a shard with no saved usage is computed",
+			noRecord:         true,
+			wantObjectsCount: populatedObjectsCount,
+		},
 	}
 
 	for _, tt := range tests {
@@ -83,17 +91,26 @@ func TestUnloadedShardUsageSavedToDisk(t *testing.T) {
 
 			index, _ := setupPopulatedLazyIndex(ctx, t, usageIndexParams{})
 			t.Cleanup(func() { _ = index.Shutdown(ctx) })
+			logger, ok := index.logger.(*logrus.Logger)
+			require.True(t, ok)
+			hook := test.NewLocal(logger)
 
-			writeSavedShardUsage(t, index.path(), tenantName, &types.UsageDisk{
-				Version:                  tt.savedVersion,
-				VectorConfigsFingerprint: tt.savedFingerprint,
-				ShardUsage:               &types.ShardUsage{Name: tenantName, ObjectsCount: savedObjectsCount},
-			})
+			if !tt.noRecord {
+				writeSavedShardUsage(t, index.path(), tenantName, &types.UsageDisk{
+					Version:                  tt.savedVersion,
+					VectorConfigsFingerprint: tt.savedFingerprint,
+					ShardUsage:               &types.ShardUsage{Name: tenantName, ObjectsCount: savedObjectsCount},
+				})
+			}
 
 			usage, err := index.usageForCollection(ctx, semaphore.NewWeighted(1), true, nil)
 			require.NoError(t, err)
 			require.Len(t, usage.Shards, 1)
 			assert.Equal(t, tt.wantObjectsCount, usage.Shards[0].ObjectsCount)
+			// a report reads the saved usage of every cold shard, so none of these may warn
+			for _, entry := range hook.AllEntries() {
+				assert.Greater(t, entry.Level, logrus.WarnLevel, entry.Message)
+			}
 		})
 	}
 }

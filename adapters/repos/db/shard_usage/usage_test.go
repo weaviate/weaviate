@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -806,6 +807,7 @@ func TestLoadComputedUsageData(t *testing.T) {
 
 	tests := []struct {
 		name      string
+		noRecord  bool
 		version   int
 		usage     *types.ShardUsage
 		wantErr   bool
@@ -836,6 +838,12 @@ func TestLoadComputedUsageData(t *testing.T) {
 			version: types.UsageDiskVersion,
 			wantErr: true,
 		},
+		{
+			name:      "no record saved",
+			noRecord:  true,
+			wantErr:   true,
+			wantErrIs: fs.ErrNotExist,
+		},
 	}
 
 	for _, tt := range tests {
@@ -844,20 +852,22 @@ func TestLoadComputedUsageData(t *testing.T) {
 			shardName := "shard"
 			require.NoError(t, os.MkdirAll(filepath.Join(indexPath, shardName), 0o755))
 
-			data, err := json.Marshal(&types.UsageDisk{
-				Version:                  tt.version,
-				ShardUsage:               tt.usage,
-				VectorConfigsFingerprint: "fingerprint",
-			})
-			require.NoError(t, err)
-			require.NoError(t, os.WriteFile(usageTmpFilePath(indexPath, shardName), data, 0o600))
+			if !tt.noRecord {
+				data, err := json.Marshal(&types.UsageDisk{
+					Version:                  tt.version,
+					ShardUsage:               tt.usage,
+					VectorConfigsFingerprint: "fingerprint",
+				})
+				require.NoError(t, err)
+				require.NoError(t, os.WriteFile(usageTmpFilePath(indexPath, shardName), data, 0o600))
+			}
 
 			loaded, err := LoadComputedUsageData(indexPath, shardName)
 			if tt.wantErr {
 				require.Error(t, err)
 				if tt.wantErrIs != nil {
 					require.ErrorIs(t, err, tt.wantErrIs,
-						"callers tell a stale version from an unreadable file by this error")
+						"callers tell a missing record or a stale version from an unreadable file by this error")
 				}
 				return
 			}
