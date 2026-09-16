@@ -492,10 +492,10 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 	if err != nil {
 		return fmt.Errorf("mark vector index %q dropping: %w", targetVector, err)
 	}
-	deferred, leave := s.enterVectorDeletion()
+	now, leave := s.vectorDeletions.Enter(targetVector)
 	defer leave()
 	err = s.vectors.Remove(ctx, targetVector, s.index.logger, func(index VectorIndex, queue *VectorIndexQueue) error {
-		if deferred {
+		if !now {
 			// a halt may be listing these files: shut down, delete at the resume
 			return shutdownVectorIndex(ctx, index, queue)
 		}
@@ -514,8 +514,7 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 	if err != nil {
 		return err
 	}
-	if deferred {
-		s.deferVectorDrop(targetVector)
+	if !now {
 		return nil
 	}
 	return s.removeVectorIndexArtifacts(ctx, targetVector)

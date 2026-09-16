@@ -98,11 +98,9 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 		}
 	}()
 
-	// drops that read the shard as not halted delete right away; let them
-	// finish before anything is listed
-	err = s.vectorDeletions.Wait(innerCtx)
+	err = s.vectorDeletions.Pause(innerCtx)
 	if err != nil {
-		return fmt.Errorf("wait for vector index deletions: %w", err)
+		return fmt.Errorf("pause vector index deletions: %w", err)
 	}
 
 	// Pause steps run only on the first halt. Re-pausing per halt would strand the
@@ -205,36 +203,11 @@ func (s *Shard) structuralVectorOpInFlight() (busy bool, reason string) {
 	return
 }
 
-// enterVectorDeletion tells a drop whether to delete now or at the resume.
-// The count is bumped before the halt is read and the halt bumps its count
-// before it waits on the gauge, so one of them always sees the other; a
-// deferred drop deletes nothing and needs no place in the gauge.
-func (s *Shard) enterVectorDeletion() (deferred bool, leave func()) {
-	s.vectorDeletions.Incr()
-	if s.haltedForTransfer() {
-		s.vectorDeletions.Decr()
-		return true, func() {}
-	}
-	return false, func() { s.vectorDeletions.Decr() }
-}
-
-// deferVectorDrop queues name's file deletion for the last resume.
-func (s *Shard) deferVectorDrop(name string) {
-	s.pendingVectorDropsMu.Lock()
-	defer s.pendingVectorDropsMu.Unlock()
-	s.pendingVectorDrops = append(s.pendingVectorDrops, name)
-}
-
-// finishPendingVectorDrops deletes what drops under the halt left behind. A
-// failure is logged, not returned: the dropping record keeps the vector for
-// the sweep's retry and the next load.
-func (s *Shard) finishPendingVectorDrops(ctx context.Context) error {
-	s.pendingVectorDropsMu.Lock()
-	pending := s.pendingVectorDrops
-	s.pendingVectorDrops = nil
-	s.pendingVectorDropsMu.Unlock()
-
-	for _, name := range pending {
+// finishDeferredVectorDrops deletes what drops under the halt left behind.
+// A failure is logged, not returned: the dropping record keeps the vector
+// for the sweep's retry and the next load.
+func (s *Shard) finishDeferredVectorDrops(ctx context.Context) error {
+	for _, name := range s.vectorDeletions.Resume() {
 		err := s.removeVectorIndexArtifacts(ctx, name)
 		if err != nil {
 			s.index.logger.WithFields(logrus.Fields{
@@ -549,7 +522,7 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 		return s.store.ResumeCompaction(ctx)
 	})
 	g.Go(func() error {
-		return s.finishPendingVectorDrops(ctx)
+		return s.finishDeferredVectorDrops(ctx)
 	})
 	g.Go(func() error {
 		return s.cycleCallbacks.vectorCombinedCallbacksCtrl.Activate()
