@@ -54,6 +54,7 @@ func Tools(searcher *WeaviateSearcher, configs map[string]internal.ToolConfig, m
 		mcp.WithIdempotentHintAnnotation(true),
 	)
 	internal.ApplySchemaDescriptions(&tool, toolName, configs)
+	internal.AllowNullForOptionalArguments(&tool)
 	return []server.ServerTool{
 		{Tool: tool, Handler: mcp.NewStructuredToolHandler(mcpmetrics.Instrument(m, toolName, searcher.Hybrid))},
 	}

@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -1388,6 +1389,51 @@ func TestShardHasProperty(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			require.Equal(t, test.want, shardHasProperty(test.shard(t), test.prop))
+		})
+	}
+}
+
+// A schema update that adds a vector whose files another vector owns is
+// refused before the schema commits; the legacy vector arrives under "".
+func TestMigrator_ValidateVectorIndexConfigsUpdate_Collisions(t *testing.T) {
+	m := &Migrator{}
+	cfg := hnsw.NewDefaultUserConfig()
+	skipped := hnsw.UserConfig{Skip: true}
+	with := func(names ...string) map[string]schemaConfig.VectorIndexConfig {
+		out := map[string]schemaConfig.VectorIndexConfig{}
+		for _, n := range names {
+			out[n] = cfg
+		}
+		return out
+	}
+	tests := []struct {
+		name    string
+		old     map[string]schemaConfig.VectorIndexConfig
+		updated map[string]schemaConfig.VectorIndexConfig
+		wantErr string
+	}{
+		{name: "unrelated addition", old: with("", "foo"), updated: with("", "foo", "bar")},
+		{name: "compressed next to the legacy vector", old: with(""), updated: with("", "compressed"), wantErr: `vectors "" and "compressed" share "vectors_compressed"`},
+		{name: "muvera next to its sibling", old: with("foo"), updated: with("foo", "foo_muvera_vectors"), wantErr: `share "vectors_foo_muvera_vectors"`},
+		{name: "an existing collision does not block an unrelated addition", old: with("foo", "foo_muvera_vectors"), updated: with("foo", "foo_muvera_vectors", "bar")},
+		{name: "two colliding newcomers", old: with(""), updated: with("", "foo", "foo_muvera_vectors"), wantErr: `share "vectors_foo_muvera_vectors"`},
+		{
+			name: "a skipped newcomer owns nothing",
+			old:  with(""), updated: map[string]schemaConfig.VectorIndexConfig{"": cfg, "compressed": skipped},
+		},
+		{
+			name: "a skipped owner blocks nothing",
+			old:  map[string]schemaConfig.VectorIndexConfig{"foo": skipped}, updated: map[string]schemaConfig.VectorIndexConfig{"foo": skipped, "foo_muvera_vectors": cfg},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := m.ValidateVectorIndexConfigsUpdate(tt.old, tt.updated)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
 }

@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -60,6 +61,77 @@ func TestCommitlogParserRoaringSetLegacyNode(t *testing.T) {
 			assert.Equal(t, key, gotKey)
 			assert.Equal(t, tt.additions, gotAdditions)
 			assert.Equal(t, tt.deletions, gotDeletions)
+		})
+	}
+}
+
+// recordReader keeps the last buffer the parser read into, so the test can
+// overwrite the record after the parse.
+type recordReader struct {
+	*bytes.Reader
+	dst []byte
+}
+
+func (r *recordReader) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	r.dst = p[:n]
+	return n, err
+}
+
+// TestCommitlogParserRoaringSetCopiesKey pins that a replayed key is a copy
+// rather than a window into the record, which the memtable would keep alive.
+func TestCommitlogParserRoaringSetCopiesKey(t *testing.T) {
+	docIDs := []uint64{1, 2, 3}
+	wantKey := []byte("some-primary-key")
+
+	tests := []struct {
+		name   string
+		record func(t *testing.T) []byte
+		parse  func(prs *commitlogParserRoaringSet, r io.Reader) error
+	}{
+		{
+			name: "list record",
+			record: func(t *testing.T) []byte {
+				n, err := roaringset.NewSegmentNodeList(wantKey, docIDs, nil)
+				require.NoError(t, err)
+				return n.ToBuffer()
+			},
+			parse: func(prs *commitlogParserRoaringSet, r io.Reader) error {
+				return prs.parseNodeList(r)
+			},
+		},
+		{
+			name: "bitmap record",
+			record: func(t *testing.T) []byte {
+				n, err := roaringset.NewSegmentNode(wantKey,
+					roaringset.NewBitmap(docIDs...), roaringset.NewBitmap())
+				require.NoError(t, err)
+				return n.ToBuffer()
+			},
+			parse: func(prs *commitlogParserRoaringSet, r io.Reader) error {
+				return prs.parseNode(r)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotKey []byte
+			prs := &commitlogParserRoaringSet{
+				consume: func(key []byte, _, _ []uint64) error {
+					gotKey = key
+					return nil
+				},
+			}
+
+			reader := &recordReader{Reader: bytes.NewReader(tt.record(t))}
+			require.NoError(t, tt.parse(prs, reader))
+
+			// a key that still reads correctly after this is a copy
+			for i := range reader.dst {
+				reader.dst[i] = 0xff
+			}
+			require.Equal(t, wantKey, gotKey)
 		})
 	}
 }

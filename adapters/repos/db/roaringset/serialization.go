@@ -14,11 +14,9 @@ package roaringset
 import (
 	"encoding/binary"
 	"fmt"
-	"io"
 	"math"
 
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
@@ -168,11 +166,15 @@ func (sn *SegmentNode) PrimaryKey() []byte {
 	return rw.ReadBytesFromBufferWithUint32LengthIndicator()
 }
 
+// NewSegmentNode builds a node into a fresh allocation, compacting nothing. Both
+// segment writers build through [NewSegmentNodeCompacted]; this is the plain form
+// its output is compared against.
 func NewSegmentNode(
 	key []byte, additions, deletions *sroar.Bitmap,
 ) (*SegmentNode, error) {
 	if len(key) > math.MaxUint32 {
-		return nil, fmt.Errorf("key too long, max length is %d", math.MaxUint32)
+		return nil, fmt.Errorf("key too long: %d bytes, max is %d",
+			len(key), math.MaxUint32)
 	}
 
 	additionsBuf := additions.ToBuffer()
@@ -186,9 +188,7 @@ func NewSegmentNode(
 
 	rw := byteops.NewReadWriter(sn.data)
 
-	// reserve the first 8 bytes for the offset, which we will write at the very
-	// end
-	rw.MoveBufferPositionForward(8)
+	rw.WriteUint64(uint64(expectedSize))
 	if err := rw.CopyBytesToBufferWithUint64LengthIndicator(additionsBuf); err != nil {
 		return nil, err
 	}
@@ -201,11 +201,85 @@ func NewSegmentNode(
 		return nil, err
 	}
 
-	offset := rw.Position
-	rw.MoveBufferToAbsolutePosition(0)
-	rw.WriteUint64(uint64(offset))
-
 	return &sn, nil
+}
+
+// NewSegmentNodeCompacted builds the node into scratch, growing it as needed and
+// handing it back for the next call. Write the node through [SegmentNode.ToBuffer];
+// scratch runs to the largest node built so far, so writing it writes trailing
+// bytes that belong to no node. The node points into scratch, so nothing may hold
+// it past the next call, and neither bitmap may live in scratch: sroar leaves an
+// overlapping side undefined, and nothing here checks for one. Whether such a
+// caller loses the side, crashes, or is saved by a reallocation depends on
+// whether the node it is building happens to outgrow the scratch it was handed.
+// A nil bitmap is an empty side.
+func NewSegmentNodeCompacted(
+	key []byte, additions, deletions *sroar.Bitmap, scratch []byte,
+) (SegmentNode, []byte, error) {
+	buf := scratch
+	// Ahead of the callbacks below, so none of them sizes a node around a key
+	// length the node cannot record.
+	if len(key) > math.MaxUint32 {
+		return SegmentNode{}, scratch, fmt.Errorf("key too long: %d bytes, max is %d",
+			len(key), math.MaxUint32)
+	}
+
+	// offset + 2*uint64 length indicators + uint32 length indicator
+	const overhead = 8 + 8 + 8 + 4
+
+	var aSize, dSize int
+	// IsEmpty walks every container until it finds a non-empty one, so an emptied
+	// bitmap pays a full walk; the switch below would ask twice.
+	addEmpty, delEmpty := additions.IsEmpty(), deletions.IsEmpty()
+
+	// An empty side skips CompactedToBuf, which would hand back a non-empty
+	// region where NewSegmentNode writes a zero length indicator and Additions
+	// reads it back as nil. Where both sides are present the calls nest: the
+	// deletions region starts after the additions one, so the inner callback is
+	// the first point at which both sizes are known, and it must not touch
+	// deletions — sroar sizes the outer result before calling back.
+	writeAdditions := func() {
+		additions.CompactedToBuf(func(size int) []byte {
+			aSize = size
+			buf = byteops.Resize(buf, overhead+aSize+dSize+len(key))
+			// The cap stops CompactedToBuf adopting the deletions region and the
+			// key as this bitmap's spare capacity.
+			return buf[16 : 16+aSize : 16+aSize]
+		})
+	}
+
+	switch {
+	case !addEmpty && !delEmpty:
+		deletions.CompactedToBuf(func(size int) []byte {
+			dSize = size
+			writeAdditions()
+			return buf[24+aSize : 24+aSize+dSize : 24+aSize+dSize]
+		})
+	case !addEmpty:
+		writeAdditions()
+	case !delEmpty:
+		deletions.CompactedToBuf(func(size int) []byte {
+			dSize = size
+			buf = byteops.Resize(buf, overhead+dSize+len(key))
+			return buf[24 : 24+dSize : 24+dSize]
+		})
+	default:
+		buf = byteops.Resize(buf, overhead+len(key))
+	}
+
+	// The payloads are already in place; this writes every remaining byte,
+	// because Resize hands back the previous node's bytes still in it.
+	rw := byteops.NewReadWriter(buf)
+	rw.WriteUint64(uint64(len(buf)))
+	rw.WriteUint64(uint64(aSize))
+	rw.MoveBufferToAbsolutePosition(uint64(16 + aSize))
+	rw.WriteUint64(uint64(dSize))
+	rw.MoveBufferToAbsolutePosition(uint64(24 + aSize + dSize))
+	if err := rw.CopyBytesToBufferWithUint32LengthIndicator(key); err != nil {
+		return SegmentNode{}, buf[:cap(buf)], err
+	}
+
+	return SegmentNode{data: buf}, buf[:cap(buf)], nil
 }
 
 // ToBuffer returns the internal buffer without copying data. Only use this,
@@ -227,27 +301,4 @@ func (sn *SegmentNode) ToBuffer() []byte {
 // safe to share the data or create your own copy.
 func NewSegmentNodeFromBuffer(buf []byte) *SegmentNode {
 	return &SegmentNode{data: buf}
-}
-
-// KeyIndexAndWriteTo is a helper to flush a memtables full of SegmentNodes. It
-// writes itself into the given writer and returns a [segmentindex.Key] with
-// start and end indicators (respecting SegmentNode.Offset). Those keys can
-// then be used to build an index for the nodes. The combination of index and
-// node make up an LSM segment.
-//
-// RoaringSets do not support secondary keys, thus the segmentindex.Key will
-// only ever contain a primary key.
-func (sn *SegmentNode) KeyIndexAndWriteTo(w io.Writer, offset int) (segmentindex.Key, error) {
-	out := segmentindex.Key{}
-
-	n, err := w.Write(sn.data)
-	if err != nil {
-		return out, err
-	}
-
-	out.ValueStart = offset
-	out.ValueEnd = offset + n
-	out.Key = sn.PrimaryKey()
-
-	return out, nil
 }

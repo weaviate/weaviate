@@ -69,9 +69,7 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager, reg prome
 		server: server.NewMCPServer(
 			"Weaviate MCP Server",
 			"0.1.0",
-			server.WithToolCapabilities(true),
-			server.WithResourceCapabilities(false, false),
-			server.WithRecovery(),
+			serverOptions(m, writeAccessEnabled)...,
 		),
 		creator:        create.NewWeaviateCreator(authHandler, state.BatchManager, logger, writeAccessEnabled),
 		searcher:       search.NewWeaviateSearcher(authHandler, state.Traverser, state.ClusterService.SchemaReader(), state.SchemaManager, state.ServerConfig.Config.Namespaces.Enabled, logger),
@@ -86,20 +84,48 @@ func NewMCPServer(state *state.State, objectsManager *objects.Manager, reg prome
 	return s
 }
 
-func (s *MCPServer) Handler() http.Handler {
-	// Every request is authenticated on its own and nothing is kept per session,
-	// so session ids are neither issued nor required.
-	return server.NewStreamableHTTPServer(s.server, server.WithStateLess(true))
+// serverOptions returns the options the MCP server is built with.
+func serverOptions(m *metrics.MCPMetrics, writeAccessEnabled func() bool) []server.ServerOption {
+	return []server.ServerOption{
+		server.WithToolCapabilities(true),
+		server.WithResourceCapabilities(false, false),
+		server.WithRecovery(),
+		server.WithInputSchemaValidation(),
+		server.WithHooks(listMetricsHooks(m, writeAccessEnabled)),
+	}
 }
 
-// registerToolFilter hides write tools from tools/list when write access is
-// disabled at runtime. Read tools are always visible. The filter only affects
-// listing — calls to disabled tools are also rejected by the tool handlers.
+func (s *MCPServer) Handler() http.Handler {
+	// Every request is authenticated on its own and nothing is kept per session,
+	// so session ids are neither issued nor required. Localhost protection is off:
+	// it rejects loopback requests with a non-localhost Host, which is what a proxy
+	// on the same host sends.
+	return server.NewStreamableHTTPServer(s.server,
+		server.WithStateLess(true),
+		server.WithDisableLocalhostProtection(true),
+	)
+}
+
+// listMetricsHooks counts tools/list requests. The count lives in a hook, not
+// in the tool filter, because the filter also runs for every tools/call.
+func listMetricsHooks(m *metrics.MCPMetrics, writeAccessEnabled func() bool) *server.Hooks {
+	hooks := &server.Hooks{}
+	hooks.AddAfterListTools(func(context.Context, any, *mcplib.ListToolsRequest, *mcplib.ListToolsResult) {
+		m.ObserveListed(writeAccessEnabled())
+	})
+	return hooks
+}
+
+// registerToolFilter hides write tools from tools/list while write access is
+// disabled. mcp-go also runs the filter on each tools/call with only the called
+// tool; that tool is passed through so its handler returns the write-disabled
+// error instead of "tool not found".
 func (s *MCPServer) registerToolFilter() {
 	server.WithToolFilter(func(ctx context.Context, tools []mcplib.Tool) []mcplib.Tool {
-		writeEnabled := s.creator.IsWriteAccessEnabled()
-		s.metrics.ObserveListed(writeEnabled)
-		if writeEnabled {
+		if len(tools) == 1 && s.writeToolNames[tools[0].Name] {
+			return tools
+		}
+		if s.creator.IsWriteAccessEnabled() {
 			return tools
 		}
 		filtered := make([]mcplib.Tool, 0, len(tools))
