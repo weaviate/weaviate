@@ -500,6 +500,54 @@ func (_c *MockReplicaCopier_PromoteRecoveryFolder_Call) RunAndReturn(run func(st
 	return _c
 }
 
+// PromoteRecoveredShard provides a mock function with given fields: ctx, collectionName, shardName
+func (_m *MockReplicaCopier) PromoteRecoveredShard(ctx context.Context, collectionName string, shardName string) error {
+	ret := _m.Called(ctx, collectionName, shardName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PromoteRecoveredShard")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, collectionName, shardName)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockReplicaCopier_PromoteRecoveredShard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PromoteRecoveredShard'
+type MockReplicaCopier_PromoteRecoveredShard_Call struct {
+	*mock.Call
+}
+
+// PromoteRecoveredShard is a helper method to define mock.On call
+//   - ctx context.Context
+//   - collectionName string
+//   - shardName string
+func (_e *MockReplicaCopier_Expecter) PromoteRecoveredShard(ctx interface{}, collectionName interface{}, shardName interface{}) *MockReplicaCopier_PromoteRecoveredShard_Call {
+	return &MockReplicaCopier_PromoteRecoveredShard_Call{Call: _e.mock.On("PromoteRecoveredShard", ctx, collectionName, shardName)}
+}
+
+func (_c *MockReplicaCopier_PromoteRecoveredShard_Call) Run(run func(ctx context.Context, collectionName string, shardName string)) *MockReplicaCopier_PromoteRecoveredShard_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockReplicaCopier_PromoteRecoveredShard_Call) Return(_a0 error) *MockReplicaCopier_PromoteRecoveredShard_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockReplicaCopier_PromoteRecoveredShard_Call) RunAndReturn(run func(context.Context, string, string) error) *MockReplicaCopier_PromoteRecoveredShard_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ReleaseReplicaSnapshot provides a mock function with given fields: ctx, srcNodeId, indexName, opID
 func (_m *MockReplicaCopier) ReleaseReplicaSnapshot(ctx context.Context, srcNodeId string, indexName string, opID string) error {
 	ret := _m.Called(ctx, srcNodeId, indexName, opID)
@@ -871,7 +919,8 @@ func (_c *MockReplicaCopier_TailAndApply_Call) RunAndReturn(run func(context.Con
 func NewMockReplicaCopier(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockReplicaCopier {
+},
+) *MockReplicaCopier {
 	mock := &MockReplicaCopier{}
 	mock.Mock.Test(t)
 

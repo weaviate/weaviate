@@ -714,16 +714,18 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 		return api.ShardReplicationState(""), err
 	}
 
-	// SELF_RECOVERY: promote "<shard>.recovering/" before LoadLocalShard reads it.
+	// Must precede the cap'd drain: replay writes to the local target shard.
+	// SELF_RECOVERY hands the promoted shard to the load policy; a copy forces a load.
 	if op.Op.TransferType == api.SELF_RECOVERY {
 		if err := c.replicaCopier.PromoteRecoveryFolder(op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
 			logger.Errorf("failure while promoting recovery folder: %v", err)
 			return api.ShardReplicationState(""), err
 		}
-	}
-
-	// Must precede the cap'd drain: replay writes to the local target shard.
-	if err := c.replicaCopier.LoadLocalShard(ctx, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
+		if err := c.replicaCopier.PromoteRecoveredShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
+			logger.WithFields(enterrors.DocsLinkFields(err)).Errorf("failure while promoting recovered shard: %v", err)
+			return api.ShardReplicationState(""), err
+		}
+	} else if err := c.replicaCopier.LoadLocalShard(ctx, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
 		logger.WithFields(enterrors.DocsLinkFields(err)).Errorf("failure while loading shard: %v", err)
 		return api.ShardReplicationState(""), err
 	}
