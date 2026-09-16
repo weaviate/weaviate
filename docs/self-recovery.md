@@ -198,7 +198,8 @@ Runtime collection/tenant creation is **not** part of the load pass: a
 genuinely new shard has its folder created at creation time — by the
 shard itself in eager mode, as an empty folder at registration in lazy
 mode — so it is never mistaken for a wiped one and never triggers
-recovery.
+recovery. Backups and usage reports read an empty folder as a shard
+that never held data.
 
 ## Limitations
 
