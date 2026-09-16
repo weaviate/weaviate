@@ -91,6 +91,14 @@ var (
 	// and not retryable until the in-flight task terminates, so it wraps
 	// [ErrPermanentRejection] to let the REST submit path map it to 409, not 500.
 	ErrTaskConflict = errors.New("task conflicts with an in-flight task")
+
+	// ErrTaskAlreadyRunning is returned by [Manager.AddTask] when a task with the
+	// same namespace/ID is already STARTED. The message text "is already running"
+	// is a compatibility contract: older peers match on that substring.
+	ErrTaskAlreadyRunning = errors.New("task is already running")
+
+	// ErrForceTerminateRefused is a typed rejection from [Manager.ForceTerminateTask].
+	ErrForceTerminateRefused = errors.New("force-terminate refused")
 )
 
 // ErrTaskCompletionPermanent marks an [UnitAwareProvider.OnTaskCompleted]
@@ -125,6 +133,8 @@ var permanentMarkers = []permanentMarker{
 	{ErrUnitWrongNode, "unit-wrong-node"},
 	{ErrTaskNotInFinalizingState, "task-not-finalizing"},
 	{ErrTaskConflict, "task-conflict"},
+	{ErrTaskAlreadyRunning, "task-already-running"},
+	{ErrForceTerminateRefused, "force-terminate-refused"},
 }
 
 // markerByID looks up a sentinel by its on-wire id.
