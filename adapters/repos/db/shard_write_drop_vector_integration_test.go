@@ -29,12 +29,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/backup"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
+	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -563,5 +565,96 @@ func TestDropVectorIndex_DeferredUntilTheLastResume(t *testing.T) {
 	assert.NotEmpty(t, entriesNamed(t, shard, "foo"), "one halt is still held")
 
 	require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+	require.Eventually(t, func() bool { return len(entriesNamed(t, shard, "foo")) == 0 }, 5*time.Second, 20*time.Millisecond)
+}
+
+// pausableIndex wraps a slot's index so a test can hold a snapshot between
+// its listing and its index.db copy. The call runs under the slots' read
+// lock, so a drop paused behind it removes its slot only once released.
+type pausableIndex struct {
+	VectorIndex
+	snapshot func()
+}
+
+func (p *pausableIndex) SnapshotMutableFiles(ctx context.Context, basePath, stagingDir string) ([]string, error) {
+	if p.snapshot != nil {
+		p.snapshot()
+	}
+	return p.VectorIndex.SnapshotMutableFiles(ctx, basePath, stagingDir)
+}
+
+func pauseIndex(t *testing.T, shard *Shard, name string) *pausableIndex {
+	t.Helper()
+	slot, ok := shard.vectors.get(name)
+	require.True(t, ok)
+	p := &pausableIndex{VectorIndex: slot.index}
+	require.True(t, shard.vectors.Replace(name, p))
+	return p
+}
+
+// A drop that lands inside a backup snapshot removes nothing the listing
+// holds: the snapshot succeeds with the files, and they go at its resume.
+func TestDropVectorIndex_SnapshotKeepsTheFiles(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
+	markDropped(class, "foo")
+
+	dropErr := make(chan error, 1)
+	pauseIndex(t, shard, "mv").snapshot = func() {
+		go func() { dropErr <- shard.DropVectorIndex(ctx, "foo") }()
+		// the record is written before the slot removal, which waits on us
+		require.Eventually(t, func() bool {
+			rec, ok, err := shard.mapping.Get("foo")
+			require.NoError(t, err)
+			return ok && rec.State == vectorIndexStateDropping
+		}, time.Second, 10*time.Millisecond)
+	}
+	stagingRoot := t.TempDir()
+	files, err := shard.CreateBackupSnapshot(ctx, &backup.ShardDescriptor{}, stagingRoot)
+	require.NoError(t, err)
+	require.NoError(t, <-dropErr)
+
+	var staged []string
+	for _, rel := range files {
+		if strings.Contains(rel, helpers.VectorIndexIDForTarget("foo")) {
+			staged = append(staged, rel)
+			_, err := os.Stat(filepath.Join(stagingRoot, rel))
+			require.NoError(t, err, "listed and staged: %s", rel)
+		}
+	}
+	require.NotEmpty(t, staged, "the listing held foo's files")
+	require.Eventually(t, func() bool { return len(entriesNamed(t, shard, "foo")) == 0 }, 5*time.Second, 20*time.Millisecond,
+		"the snapshot's resume deleted them")
+}
+
+// The halt-for-duration fallback serves a dropped vector's files until its
+// release, and they go then.
+func TestDropVectorIndex_FallbackServesUntilRelease(t *testing.T) {
+	t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
+	markDropped(class, "foo")
+	shard.index.replicaSnapshotOpLocks = esync.NewKeyRWLocker()
+	const opID = "drop-fallback"
+
+	files, err := shard.index.IncomingCreateReplicaSnapshot(ctx, shard.name, opID)
+	require.NoError(t, err)
+	var foos []string
+	for _, rel := range files {
+		if strings.Contains(rel, helpers.VectorIndexIDForTarget("foo")) {
+			foos = append(foos, rel)
+		}
+	}
+	require.NotEmpty(t, foos)
+
+	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+	for _, rel := range foos {
+		_, err := shard.index.IncomingGetReplicaSnapshotFileMetadata(ctx, opID, rel)
+		require.NoError(t, err, "still served: %s", rel)
+	}
+
+	require.NoError(t, shard.index.IncomingReleaseReplicaSnapshot(ctx, opID))
 	require.Eventually(t, func() bool { return len(entriesNamed(t, shard, "foo")) == 0 }, 5*time.Second, 20*time.Millisecond)
 }
