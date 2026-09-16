@@ -676,10 +676,9 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 	db.dropping.Store(id, index)
 	defer db.dropping.Delete(id)
 
-	// a reader holding dropIndex would block the drop below while db.indexLock is held
+	// a reader holding dropIndex would block the drop below
 	index.signalCloseRequested(errIndexDropped)
 
-	// drop index
 	db.indexLock.Lock()
 	delete(db.indices, id)
 	db.indexLock.Unlock()
