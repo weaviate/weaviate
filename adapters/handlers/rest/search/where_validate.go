@@ -24,7 +24,7 @@ import (
 )
 
 // validateWhere rejects filters the engine would otherwise answer wrongly or
-// untyped (a 500): operator arity, value shape, date format, null-state
+// untyped (a 500): operand count, value shape, date format, null-state
 // indexing and reference paths that leave the schema.
 func (h *Handler) validateWhere(clause *filters.Clause, class *models.Class, getClass classGetterFunc) *APIError {
 	if clause == nil {
