@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// RecoveringShard blocks Load with ErrShardRecovering until Promote so nothing plants an empty dir mid-copy; mustLoad paths PANIC by design (docs/self-recovery.md).
+// RecoveringShard blocks Load until promotion swaps it out of the map; mustLoad paths PANIC by design (docs/self-recovery.md).
 type RecoveringShard struct {
 	*LazyLoadShard
 }
@@ -52,10 +52,10 @@ func asLazyLoadShard(s ShardLike) (*LazyLoadShard, bool) {
 	return nil, false
 }
 
-// Promote clears the recovery block and loads; only valid once the copy was renamed into the live dir.
-func (r *RecoveringShard) Promote(ctx context.Context) error {
+// unblock: only once the copy is renamed into the live dir.
+func (r *RecoveringShard) unblock() *LazyLoadShard {
 	r.clearLoadBlock()
-	return r.Load(ctx)
+	return r.LazyLoadShard
 }
 
 func (r *RecoveringShard) IsRecovering() bool {

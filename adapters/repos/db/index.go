@@ -644,6 +644,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		if i.recoverShardFromPeerIfNeeded(ctx, class, shardName, promMetrics) {
 			// Counted as lazy so scanStartupProgress doesn't report a stuck total during recovery.
 			startupShards.lazy.Add(1)
+			hotShardNames = append(hotShardNames, shardName) // the sweep skips it while recovering
 			continue
 		}
 		hotShardNames = append(hotShardNames, shardName)
@@ -791,6 +792,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				"skipped_already_loaded":  tally[monitoring.WarmupSkippedAlreadyLoaded],
 				"skipped_empty":           tally[monitoring.WarmupSkippedEmpty],
 				"skipped_below_threshold": tally[monitoring.WarmupSkippedBelowThreshold],
+				"skipped_recovering":      tally[monitoring.WarmupSkippedRecovering],
 			}).
 			Debug("finished loading all shards")
 	}
@@ -821,6 +823,11 @@ func (i *Index) warmupCandidate(shardName string) (bool, monitoring.WarmupOutcom
 	if shard == nil {
 		return false, monitoring.WarmupSkippedShardGone
 	}
+	return i.warmupDecisionLocked(shardName, shard)
+}
+
+// warmupDecisionLocked: caller holds shardCreateLocks for shardName.
+func (i *Index) warmupDecisionLocked(shardName string, shard ShardLike) (bool, monitoring.WarmupOutcome) {
 	// Never load a recovering shard; promotion goes via the orchestrator/consumer.
 	if rec, ok := shard.(*RecoveringShard); ok && rec.IsRecovering() {
 		return false, monitoring.WarmupSkippedRecovering
@@ -3632,7 +3639,7 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 			i.evictShutShard(shardName)
 		} else {
 			if mustLoad {
-				return i.loadOrPromoteShard(ctx, shard, shardName)
+				return i.loadOrPromoteShard(ctx, shard, shardName, true)
 			}
 			return nil
 		}
@@ -3655,21 +3662,39 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 	return nil
 }
 
-// loadOrPromoteShard force-loads an already-registered shard entry.
-func (i *Index) loadOrPromoteShard(ctx context.Context, shard ShardLike, shardName string) error {
-	// Promote only after the rename; loading earlier plants an empty live dir that erases the copy.
+// loadOrPromoteShard: without mustLoad a lazy index applies the sweep's rules.
+func (i *Index) loadOrPromoteShard(ctx context.Context, shard ShardLike, shardName string, mustLoad bool) error {
 	if rec, ok := shard.(*RecoveringShard); ok && rec.IsRecovering() {
+		// Promote only after the rename; loading earlier plants an empty live dir that erases the copy.
 		if _, err := os.Stat(shardPath(i.path(), shardName)); err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				return nil
 			}
 			return fmt.Errorf("load local shard %q: %w", shardName, err)
 		}
-		return rec.Promote(ctx)
+		shard = rec.unblock()
+		i.shards.Store(shardName, shard) // bare *LazyLoadShard asserts now see a cold shard
 	}
-	if l, ok := shard.(loadableShard); ok {
+	l, ok := shard.(loadableShard)
+	if !ok {
+		return nil
+	}
+	if mustLoad || !i.Config.EnableLazyLoadShards {
 		return l.Load(ctx)
 	}
+	outcome := monitoring.WarmupOutcome("warmup_disabled")
+	if i.Config.backgroundWarmupEnabled() {
+		var shouldWarm bool
+		if shouldWarm, outcome = i.warmupDecisionLocked(shardName, shard); shouldWarm {
+			return l.Load(ctx)
+		}
+	}
+	i.logger.WithFields(logrus.Fields{
+		"action":  "self_recovery_promote",
+		"class":   i.Config.ClassName.String(),
+		"shard":   shardName,
+		"outcome": string(outcome),
+	}).Info("promoted shard stays cold; it loads on first access")
 	return nil
 }
 
@@ -3689,7 +3714,7 @@ func (i *Index) PromoteRecoveringLocalShard(ctx context.Context, shardName strin
 	if shard == nil {
 		return fmt.Errorf("promote local shard %q: %w", shardName, enterrors.ErrShardNotRegistered)
 	}
-	return i.loadOrPromoteShard(ctx, shard, shardName)
+	return i.loadOrPromoteShard(ctx, shard, shardName, false)
 }
 
 // UnloadLocalShard closes a shard and takes it out of the shard map. A shard
