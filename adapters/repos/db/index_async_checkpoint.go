@@ -115,6 +115,11 @@ func (i *Index) deleteAsyncCheckpoint(ctx context.Context, shardName string) err
 func (i *Index) getAsyncCheckpointShardStatus(ctx context.Context, shardNames []string) (map[string]replica.AsyncCheckpointShardStatus, error) {
 	out := make(map[string]replica.AsyncCheckpointShardStatus, len(shardNames))
 	var mu sync.Mutex
+	record := func(shardName string, status replica.AsyncCheckpointShardStatus) {
+		mu.Lock()
+		defer mu.Unlock()
+		out[shardName] = status
+	}
 
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
 	eg.SetLimit(_NUMCPU)
@@ -139,9 +144,7 @@ func (i *Index) getAsyncCheckpointShardStatus(ctx context.Context, shardNames []
 				if !ok {
 					return nil
 				}
-				mu.Lock()
-				out[shardName] = status
-				mu.Unlock()
+				record(shardName, status)
 				return nil
 			}
 			defer release()
@@ -150,13 +153,11 @@ func (i *Index) getAsyncCheckpointShardStatus(ctx context.Context, shardNames []
 				return nil
 			}
 			root, cutoffMs, createdAt, _ := shard.AsyncCheckpointRoot(ctx)
-			mu.Lock()
-			out[shardName] = replica.AsyncCheckpointShardStatus{
+			record(shardName, replica.AsyncCheckpointShardStatus{
 				Root:      root,
 				CutoffMs:  cutoffMs,
 				CreatedAt: createdAt,
-			}
-			mu.Unlock()
+			})
 			return nil
 		})
 	}
