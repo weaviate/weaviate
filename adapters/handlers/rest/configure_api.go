@@ -895,8 +895,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 				Fatalf("could not open cloud meta store: %v", err)
 			metaStoreReady.failure(err)
 		} else {
-			// Past initial FSM replay: further AddClass calls are runtime additions, not data-loss candidates.
-			appState.DB.MarkRaftBootstrapComplete()
 			metaStoreReady.success()
 		}
 	}, appState.Logger)

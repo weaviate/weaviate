@@ -248,6 +248,8 @@ type Store struct {
 
 	// Wiped-joiner state (SelfRecoveryEnabled only): no local raft state at Open; while held, Apply forces schemaOnly and dbLoaded defers.
 	wipedJoinerCandidate atomic.Bool
+	// no RAFT log or snapshot at Open; picks the benign empty-fallback bucket
+	startedWithoutRaftState atomic.Bool
 	// latches once a reload pass is claimed; guards against a double reload.
 	wipedJoinerReloadClaim atomic.Bool
 	// latched only once the reload COMPLETED, so applies can't mutate the DB mid-reload.
@@ -546,6 +548,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 
 	li := st.lastIndex()
 	st.lastAppliedIndexToDB.Store(li)
+	st.startedWithoutRaftState.Store(li == 0) // before NewRaft: the Restore reload runs inside it
 	st.metrics.fsmStartupAppliedIndex.Set(float64(li))
 
 	// we have to open the DB before constructing new raft in case of restore calls
@@ -1294,7 +1297,11 @@ func (st *Store) reloadDBFromSchema() {
 		func() {
 			stop := st.trackDBLoadProgress()
 			defer stop()
-			st.schemaManager.ReloadDBFromSchema()
+			ctx := context.Background()
+			if st.startedWithoutRaftState.Load() {
+				ctx = enterrors.WithStartedWithoutRaftState(ctx)
+			}
+			st.schemaManager.ReloadDBFromSchema(ctx)
 		}()
 		st.log.WithFields(st.dbLoadProgressFields()).Info("local DB loaded from schema")
 	} else {

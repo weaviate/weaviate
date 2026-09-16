@@ -33,16 +33,16 @@ type fakeSelfRecoveryOrch struct {
 	enabled  bool
 	submitOK bool
 
-	submitCalls      int
-	gotFromBootstrap bool
-	submitHook       func()
+	submitCalls                int
+	gotStartedWithoutRaftState bool
+	submitHook                 func()
 }
 
 func (f *fakeSelfRecoveryOrch) Enabled() bool { return f.enabled }
 
-func (f *fakeSelfRecoveryOrch) SubmitRecovery(_ context.Context, _, _ string, fromBootstrap bool) bool {
+func (f *fakeSelfRecoveryOrch) SubmitRecovery(_ context.Context, _, _ string, startedWithoutRaftState bool) bool {
 	f.submitCalls++
-	f.gotFromBootstrap = fromBootstrap
+	f.gotStartedWithoutRaftState = startedWithoutRaftState
 	if f.submitHook != nil {
 		f.submitHook()
 	}
@@ -53,14 +53,13 @@ func (f *fakeSelfRecoveryOrch) Close(_ context.Context) error { return nil }
 
 var _ SelfRecoveryOrchestrator = (*fakeSelfRecoveryOrch)(nil)
 
-func newTestIndexForRecovery(t *testing.T, orch SelfRecoveryOrchestrator, raftBootstrapComplete func() bool) *Index {
+func newTestIndexForRecovery(t *testing.T, orch SelfRecoveryOrchestrator) *Index {
 	t.Helper()
 	return &Index{
 		Config: IndexConfig{
 			RootPath:                 t.TempDir(),
 			ClassName:                "C",
 			SelfRecoveryOrchestrator: orch,
-			RaftBootstrapComplete:    raftBootstrapComplete,
 		},
 		logger: logrus.New(),
 	}
@@ -78,26 +77,26 @@ func TestShouldRecoverShardFromPeer(t *testing.T) {
 
 	t.Run("feature disabled", func(t *testing.T) {
 		orch := &fakeSelfRecoveryOrch{enabled: false}
-		idx := newTestIndexForRecovery(t, orch, nil)
+		idx := newTestIndexForRecovery(t, orch)
 		require.False(t, idx.shouldRecoverShardFromPeer(schemaReloadCtx(), "S"))
 	})
 
 	t.Run("ctx not from schema reload", func(t *testing.T) {
 		orch := &fakeSelfRecoveryOrch{enabled: true}
-		idx := newTestIndexForRecovery(t, orch, nil)
+		idx := newTestIndexForRecovery(t, orch)
 		require.False(t, idx.shouldRecoverShardFromPeer(context.Background(), "S"))
 	})
 
 	t.Run("shard dir already exists", func(t *testing.T) {
 		orch := &fakeSelfRecoveryOrch{enabled: true}
-		idx := newTestIndexForRecovery(t, orch, nil)
+		idx := newTestIndexForRecovery(t, orch)
 		require.NoError(t, os.MkdirAll(shardPath(idx.path(), "S"), 0o755))
 		require.False(t, idx.shouldRecoverShardFromPeer(schemaReloadCtx(), "S"))
 	})
 
 	t.Run("eligible", func(t *testing.T) {
 		orch := &fakeSelfRecoveryOrch{enabled: true}
-		idx := newTestIndexForRecovery(t, orch, nil)
+		idx := newTestIndexForRecovery(t, orch)
 		require.True(t, idx.shouldRecoverShardFromPeer(schemaReloadCtx(), "S"))
 		require.Zero(t, orch.submitCalls, "predicate must not call SubmitRecovery")
 	})
@@ -110,7 +109,7 @@ func TestRecoverShardFromPeerIfNeeded(t *testing.T) {
 
 	t.Run("not eligible → false, no submit, no install", func(t *testing.T) {
 		orch := &fakeSelfRecoveryOrch{enabled: false}
-		idx := newTestIndexForRecovery(t, orch, nil)
+		idx := newTestIndexForRecovery(t, orch)
 		require.False(t, idx.recoverShardFromPeerIfNeeded(schemaReloadCtx(), class, "S", promMetrics))
 		require.Zero(t, orch.submitCalls)
 		require.Nil(t, idx.shards.Load("S"), "no wrapper must be installed when the predicate rejects")
@@ -118,7 +117,7 @@ func TestRecoverShardFromPeerIfNeeded(t *testing.T) {
 
 	t.Run("resuming self-recovery → wrapper installed, NOT submitted, no empty dir", func(t *testing.T) {
 		orch := &fakeSelfRecoveryOrch{enabled: true}
-		idx := newTestIndexForRecovery(t, orch, nil)
+		idx := newTestIndexForRecovery(t, orch)
 		idx.getSchema = &fakeSchemaGetter{}
 		fsm := replicationTypes.NewMockReplicationFSMReader(t)
 		fsm.EXPECT().HasActiveSelfRecoveryTargetingShard("C", "S", "node1").Return(true)
@@ -132,7 +131,7 @@ func TestRecoverShardFromPeerIfNeeded(t *testing.T) {
 
 	t.Run("non-self-recovery in-flight op → false, no install, no submit", func(t *testing.T) {
 		orch := &fakeSelfRecoveryOrch{enabled: true}
-		idx := newTestIndexForRecovery(t, orch, nil)
+		idx := newTestIndexForRecovery(t, orch)
 		idx.getSchema = &fakeSchemaGetter{}
 		fsm := replicationTypes.NewMockReplicationFSMReader(t)
 		fsm.EXPECT().HasActiveSelfRecoveryTargetingShard("C", "S", "node1").Return(false)
@@ -145,7 +144,7 @@ func TestRecoverShardFromPeerIfNeeded(t *testing.T) {
 
 	t.Run("in-flight op elsewhere → recovery proceeds", func(t *testing.T) {
 		orch := &fakeSelfRecoveryOrch{enabled: true, submitOK: true}
-		idx := newTestIndexForRecovery(t, orch, nil)
+		idx := newTestIndexForRecovery(t, orch)
 		idx.getSchema = &fakeSchemaGetter{}
 		fsm := replicationTypes.NewMockReplicationFSMReader(t)
 		fsm.EXPECT().HasActiveSelfRecoveryTargetingShard("C", "S", "node1").Return(false)
@@ -157,14 +156,14 @@ func TestRecoverShardFromPeerIfNeeded(t *testing.T) {
 
 	t.Run("nil FSM reader counts as no in-flight op", func(t *testing.T) {
 		orch := &fakeSelfRecoveryOrch{enabled: true, submitOK: true}
-		idx := newTestIndexForRecovery(t, orch, nil)
+		idx := newTestIndexForRecovery(t, orch)
 		require.True(t, idx.recoverShardFromPeerIfNeeded(schemaReloadCtx(), class, "S", promMetrics))
 		require.Equal(t, 1, orch.submitCalls)
 	})
 
 	t.Run("happy path → true, wrapper installed, submitted once", func(t *testing.T) {
 		orch := &fakeSelfRecoveryOrch{enabled: true, submitOK: true}
-		idx := newTestIndexForRecovery(t, orch, nil)
+		idx := newTestIndexForRecovery(t, orch)
 		require.True(t, idx.recoverShardFromPeerIfNeeded(schemaReloadCtx(), class, "S", promMetrics))
 		require.Equal(t, 1, orch.submitCalls)
 		shard := idx.shards.Load("S")
@@ -177,7 +176,7 @@ func TestRecoverShardFromPeerIfNeeded(t *testing.T) {
 		var sawWrapperAtSubmit bool
 		var idx *Index
 		orch := &fakeSelfRecoveryOrch{enabled: true, submitOK: true}
-		idx = newTestIndexForRecovery(t, orch, nil)
+		idx = newTestIndexForRecovery(t, orch)
 		orch.submitHook = func() {
 			if s := idx.shards.Load("S"); s != nil {
 				_, sawWrapperAtSubmit = s.(*RecoveringShard)
@@ -189,31 +188,34 @@ func TestRecoverShardFromPeerIfNeeded(t *testing.T) {
 
 	t.Run("queue_full_reverts_wrapper", func(t *testing.T) {
 		orch := &fakeSelfRecoveryOrch{enabled: true, submitOK: false}
-		idx := newTestIndexForRecovery(t, orch, nil)
+		idx := newTestIndexForRecovery(t, orch)
 		require.False(t, idx.recoverShardFromPeerIfNeeded(schemaReloadCtx(), class, "S", promMetrics))
 		require.Equal(t, 1, orch.submitCalls, "submission is attempted exactly once")
 		require.Nil(t, idx.shards.Load("S"),
 			"wrapper must be reverted from i.shards when SubmitRecovery declines, so the caller's normal-init path can create the shard cleanly")
 	})
 
-	t.Run("fromBootstrap propagation", func(t *testing.T) {
+	t.Run("started-without-raft-state propagation", func(t *testing.T) {
 		cases := []struct {
-			name                  string
-			raftBootstrapComplete func() bool
-			wantFromBootstrap     bool
+			name     string
+			ctx      context.Context
+			wantFlag bool
 		}{
-			{"during bootstrap (not complete)", func() bool { return false }, true},
-			{"post bootstrap (complete)", func() bool { return true }, false},
-			{"nil hook → treated as post-bootstrap", nil, false},
+			{"node kept its raft state", schemaReloadCtx(), false},
+			{"node started without raft state", enterrors.WithStartedWithoutRaftState(schemaReloadCtx()), true},
 		}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
 				orch := &fakeSelfRecoveryOrch{enabled: true, submitOK: true}
-				idx := newTestIndexForRecovery(t, orch, tc.raftBootstrapComplete)
-				require.True(t, idx.recoverShardFromPeerIfNeeded(schemaReloadCtx(), class, "S", promMetrics))
-				require.Equal(t, tc.wantFromBootstrap, orch.gotFromBootstrap)
+				idx := newTestIndexForRecovery(t, orch)
+				require.True(t, idx.recoverShardFromPeerIfNeeded(tc.ctx, class, "S", promMetrics))
+				require.Equal(t, tc.wantFlag, orch.gotStartedWithoutRaftState)
 			})
 		}
+		orch := &fakeSelfRecoveryOrch{enabled: true, submitOK: true}
+		idx := newTestIndexForRecovery(t, orch)
+		require.False(t, idx.recoverShardFromPeerIfNeeded(enterrors.WithStartedWithoutRaftState(context.Background()), class, "S", promMetrics))
+		require.Zero(t, orch.submitCalls)
 	})
 }
 
@@ -222,7 +224,7 @@ func TestLoadLocalShardLeavesRecoveringShardUntouched(t *testing.T) {
 	class := &models.Class{Class: "C"}
 	promMetrics := monitoring.GetMetrics()
 	orch := &fakeSelfRecoveryOrch{enabled: true, submitOK: true}
-	idx := newTestIndexForRecovery(t, orch, nil)
+	idx := newTestIndexForRecovery(t, orch)
 	idx.closingCtx = context.Background()
 	idx.shardCreateLocks = esync.NewKeyRWLocker()
 	idx.getSchema = &fakeSchemaGetter{}
@@ -243,7 +245,7 @@ func TestRecoveringShardReadPaths(t *testing.T) {
 	class := &models.Class{Class: "C"}
 	promMetrics := monitoring.GetMetrics()
 	orch := &fakeSelfRecoveryOrch{enabled: true, submitOK: true}
-	idx := newTestIndexForRecovery(t, orch, nil)
+	idx := newTestIndexForRecovery(t, orch)
 	idx.closingCtx = context.Background()
 	idx.shardCreateLocks = esync.NewKeyRWLocker()
 
@@ -265,7 +267,7 @@ func TestForEachShardSkipRecovering(t *testing.T) {
 	class := &models.Class{Class: "C"}
 	promMetrics := monitoring.GetMetrics()
 	orch := &fakeSelfRecoveryOrch{enabled: true, submitOK: true}
-	idx := newTestIndexForRecovery(t, orch, nil)
+	idx := newTestIndexForRecovery(t, orch)
 	idx.closingCtx = context.Background()
 
 	require.True(t, idx.recoverShardFromPeerIfNeeded(schemaReloadCtx(), class, "S", promMetrics))
@@ -297,7 +299,7 @@ func (s *stubLoadableShard) isLoaded() bool             { return s.loaded }
 
 // Pins promote-never-creates: a missing entry means deleted/unloaded mid-recovery, not "create it".
 func TestPromoteRecoveringLocalShardNeverCreates(t *testing.T) {
-	idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{enabled: true, submitOK: true}, nil)
+	idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{enabled: true, submitOK: true})
 	idx.shardCreateLocks = esync.NewKeyRWLocker()
 
 	err := idx.PromoteRecoveringLocalShard(context.Background(), "S")
@@ -310,7 +312,7 @@ func TestPromoteRecoveringLocalShardKeepsBlockWithoutLiveDir(t *testing.T) {
 	class := &models.Class{Class: "C"}
 	promMetrics := monitoring.GetMetrics()
 	orch := &fakeSelfRecoveryOrch{enabled: true, submitOK: true}
-	idx := newTestIndexForRecovery(t, orch, nil)
+	idx := newTestIndexForRecovery(t, orch)
 	idx.closingCtx = context.Background()
 	idx.shardCreateLocks = esync.NewKeyRWLocker()
 	idx.getSchema = &fakeSchemaGetter{}
@@ -327,7 +329,7 @@ func TestPromoteRecoveringLocalShardKeepsBlockWithoutLiveDir(t *testing.T) {
 }
 
 func TestPromoteRecoveringLocalShardLoadsRegisteredEntry(t *testing.T) {
-	idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{enabled: true, submitOK: true}, nil)
+	idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{enabled: true, submitOK: true})
 	idx.shardCreateLocks = esync.NewKeyRWLocker()
 	stub := &stubLoadableShard{}
 	idx.shards.Store("S", stub)
@@ -337,7 +339,7 @@ func TestPromoteRecoveringLocalShardLoadsRegisteredEntry(t *testing.T) {
 }
 
 func TestPromoteRecoveringLocalShardOnClosedIndex(t *testing.T) {
-	idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{enabled: true, submitOK: true}, nil)
+	idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{enabled: true, submitOK: true})
 	idx.shardCreateLocks = esync.NewKeyRWLocker()
 	idx.closed = true
 
@@ -359,7 +361,7 @@ func newRecoveringIndex(t *testing.T) *Index {
 
 func newRecoveringIndexWith(t *testing.T, configure func(*Index)) *Index {
 	t.Helper()
-	idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{enabled: true, submitOK: true}, nil)
+	idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{enabled: true, submitOK: true})
 	idx.closingCtx = context.Background()
 	idx.shardCreateLocks = esync.NewKeyRWLocker()
 	idx.getSchema = &fakeSchemaGetter{}
@@ -433,7 +435,7 @@ func TestLoadedShardForDimensionsClearSkipsRecoveringShard(t *testing.T) {
 
 func TestLazyRegistrationCreatesShardDir(t *testing.T) {
 	orch := &fakeSelfRecoveryOrch{enabled: true, submitOK: true}
-	idx := newTestIndexForRecovery(t, orch, nil)
+	idx := newTestIndexForRecovery(t, orch)
 	idx.Config.EnableLazyLoadShards = true
 	idx.closingCtx = context.Background()
 	idx.shardCreateLocks = esync.NewKeyRWLocker()

@@ -72,7 +72,6 @@ type DB struct {
 	shutdownOnce              sync.Once
 	startupComplete           atomic.Bool
 	startupShards             startupShardCounters
-	raftBootstrapComplete     atomic.Bool
 	resourceScanState         *resourceScanState
 	memMonitor                *memwatch.Monitor
 
@@ -183,7 +182,7 @@ type SelfRecoveryOrchestrator interface {
 	// Enabled must be checked before installing a wrapper, else it blocks load forever.
 	Enabled() bool
 	// SubmitRecovery is non-blocking; false = not queued and the caller MUST fall back to normal init.
-	SubmitRecovery(ctx context.Context, collection, shard string, fromBootstrap bool) bool
+	SubmitRecovery(ctx context.Context, collection, shard string, startedWithoutRaftState bool) bool
 	// Close stops submissions and drains in-flight workers, bounded by ctx; idempotent.
 	Close(ctx context.Context) error
 }
@@ -323,12 +322,6 @@ func (db *DB) localShardsToLoad(className string) int64 {
 	}
 	return int64(count)
 }
-
-// MarkRaftBootstrapComplete records that RAFT has finished its initial replay.
-func (db *DB) MarkRaftBootstrapComplete() { db.raftBootstrapComplete.Store(true) }
-
-// RaftBootstrapComplete reports whether the FSM replay window has ended.
-func (db *DB) RaftBootstrapComplete() bool { return db.raftBootstrapComplete.Load() }
 
 // IndexGetter interface defines the methods that the service uses from db.IndexGetter
 // This allows for better testability by using interfaces instead of concrete types
