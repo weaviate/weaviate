@@ -534,7 +534,7 @@ func TestDropVectorIndex_HaltWaitsForADeletionInFlight(t *testing.T) {
 	require.True(t, ok)
 	dropErr := make(chan error, 1)
 	go func() { dropErr <- shard.DropVectorIndex(ctx, "foo") }()
-	require.Eventually(t, func() bool { return shard.vectorDeletions.running() == 1 }, time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return shard.vectorDeletions.running.Count() == 1 }, time.Second, 10*time.Millisecond)
 
 	haltErr := make(chan error, 1)
 	go func() { haltErr <- shard.HaltForTransfer(ctx, false, 0) }()

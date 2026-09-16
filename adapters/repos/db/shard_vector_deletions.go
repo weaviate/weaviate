@@ -14,6 +14,8 @@ package db
 import (
 	"context"
 	"sync"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 // vectorDeletions gates a drop's file removal against a transfer halt, the
@@ -22,9 +24,8 @@ import (
 type vectorDeletions struct {
 	mu       sync.Mutex
 	paused   bool
-	inFlight int
-	idle     chan struct{} // closed when inFlight reaches zero, for a waiting Pause
 	deferred []string
+	running  common.SharedGauge
 }
 
 // Enter is called by a drop before it removes anything. Not paused: the
@@ -37,18 +38,8 @@ func (d *vectorDeletions) Enter(name string) (now bool, leave func()) {
 		d.deferred = append(d.deferred, name)
 		return false, func() {}
 	}
-	d.inFlight++
-	return true, d.leave
-}
-
-func (d *vectorDeletions) leave() {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.inFlight--
-	if d.inFlight == 0 && d.idle != nil {
-		close(d.idle)
-		d.idle = nil
-	}
+	d.running.Incr()
+	return true, func() { d.running.Decr() }
 }
 
 // Pause is called by the halt before it lists anything: from here on drops
@@ -56,22 +47,8 @@ func (d *vectorDeletions) leave() {
 func (d *vectorDeletions) Pause(ctx context.Context) error {
 	d.mu.Lock()
 	d.paused = true
-	if d.inFlight == 0 {
-		d.mu.Unlock()
-		return nil
-	}
-	if d.idle == nil {
-		d.idle = make(chan struct{})
-	}
-	idle := d.idle
 	d.mu.Unlock()
-
-	select {
-	case <-idle:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
+	return d.running.Wait(ctx)
 }
 
 // Resume is called by the last resume: drops delete right away again, and
@@ -83,11 +60,4 @@ func (d *vectorDeletions) Resume() []string {
 	names := d.deferred
 	d.deferred = nil
 	return names
-}
-
-// running reports the deletions counted in; tests poll it.
-func (d *vectorDeletions) running() int {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.inFlight
 }
