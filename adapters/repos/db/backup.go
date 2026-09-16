@@ -872,10 +872,15 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 	sd.Name = shardName
 	sd.Node = i.getSchema.NodeName()
 
+	if dirEntries, err := os.ReadDir(shardDir); err != nil {
+		return nil, fmt.Errorf("read shard dir: %w", err)
+	} else if len(dirEntries) == 0 {
+		return nil, errShardNoLocalData // registered lazily, never loaded
+	}
+
 	// Read metadata files (same data as readBackupMetadata in shard_backup.go).
-	// These files are guaranteed to exist: INACTIVE shards were always ACTIVE
-	// first (required to ingest data), and Shard.Shutdown writes indexcount,
-	// proplengths, and version during the flush/close sequence.
+	// A non-empty folder was initialized once, and Shard.Shutdown writes
+	// indexcount, proplengths, and version during the flush/close sequence.
 	counterPath := filepath.Join(shardDir, "indexcount")
 	data, err := diskio.ReadFileExact(counterPath)
 	if err != nil {
