@@ -20,6 +20,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/file"
@@ -44,6 +45,13 @@ func (i *Index) IncomingProbeShardData(ctx context.Context, shardName string) (b
 	if s := i.shards.Load(shardName); s != nil {
 		if rec, ok := s.(*RecoveringShard); ok && rec.IsRecovering() {
 			return false, fmt.Errorf("incoming probe shard data for shard %s: %w", shardName, enterrors.ErrShardRecovering)
+		}
+		if lazy, ok := asLazyLoadShard(s); ok && !lazy.isLoaded() {
+			count, err := indexcounter.Read(shardPath(i.path(), shardName)) // a load here would plant a dir
+			if err != nil {
+				return false, fmt.Errorf("incoming probe shard data read counter %s: %w", shardName, err)
+			}
+			return count > 0, nil
 		}
 	}
 	shard, release, err := i.GetShard(ctx, shardName)
