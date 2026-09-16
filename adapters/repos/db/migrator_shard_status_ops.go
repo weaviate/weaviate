@@ -275,7 +275,7 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 					}).Warnf("discard downloaded hashtree snapshot: %v", err)
 				}
 			}
-			discardHashtree()
+
 			err := m.cloud.Download(ctx, class, name, nodeID)
 			discardHashtree()
 			if err != nil {
