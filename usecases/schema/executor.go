@@ -75,11 +75,9 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 	var errMutex sync.Mutex
 
 	for i, u := range all {
-		i, u := i, u
-
 		g.Go(func() error {
 			if err := ctx.Err(); err != nil {
-				return err
+				return nil
 			}
 			e.logger.WithField("index", u.Class.Class).Info("reload local index")
 			cs[i] = u.Class
