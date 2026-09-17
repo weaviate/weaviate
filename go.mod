@@ -18,7 +18,7 @@ require (
 	github.com/bits-and-blooms/bloom/v3 v3.7.1
 	github.com/bmatcuk/doublestar v1.3.4
 	github.com/brianvoe/gofakeit/v6 v6.28.0
-	github.com/buger/jsonparser v1.2.0
+	github.com/buger/jsonparser v1.6.1
 	github.com/casbin/casbin/v2 v2.128.0
 	github.com/cenkalti/backoff/v4 v4.3.0
 	github.com/cenkalti/backoff/v5 v5.0.3
@@ -36,7 +36,7 @@ require (
 	github.com/getsentry/sentry-go v0.30.0
 	github.com/go-ego/gse v0.80.3
 	github.com/go-jose/go-jose/v4 v4.1.4
-	github.com/go-openapi/errors v0.22.4
+	github.com/go-openapi/errors v0.22.8
 	github.com/go-openapi/loads v0.23.2
 	github.com/go-openapi/runtime v0.29.2
 	github.com/go-openapi/spec v0.22.6
