@@ -24,6 +24,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -657,4 +658,48 @@ func TestDropVectorIndex_FallbackServesUntilRelease(t *testing.T) {
 
 	require.NoError(t, shard.index.IncomingReleaseReplicaSnapshot(ctx, opID))
 	require.Eventually(t, func() bool { return len(entriesNamed(t, shard, "foo")) == 0 }, 5*time.Second, 20*time.Millisecond)
+}
+
+// A deferred drop whose teardown fails leaves the vector published and
+// queues nothing: the resume must not delete files under a live index. The
+// dropping record keeps it for the retry, which finishes the drop.
+func TestDropVectorIndex_FailedDeferredTeardownKeepsTheIndex(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
+	markDropped(class, "foo")
+
+	// halt first: the preparation talks to the real index, the mock only
+	// sees the teardown, the resume and the retry
+	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+	real, release, ok := shard.AcquireVectorIndex("foo")
+	require.True(t, ok)
+	release()
+	t.Cleanup(func() { real.Shutdown(ctx) })
+	failing := NewMockVectorIndex(t)
+	failing.On("Shutdown", mock.Anything).Return(assert.AnError).Once()
+	failing.On("ResumeAfterBackup", mock.Anything).Return(nil).Once()
+	failing.On("Drop", mock.Anything, false).Return(nil).Once()
+	require.True(t, shard.vectors.Replace("foo", failing))
+
+	err := shard.DropVectorIndex(ctx, "foo")
+	require.ErrorIs(t, err, assert.AnError)
+	found, err := shard.WithVectorIndex("foo", func(VectorIndex) error { return nil })
+	require.NoError(t, err)
+	assert.True(t, found, "the slot reopened on the failed teardown")
+
+	require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+	time.Sleep(200 * time.Millisecond)
+	assert.NotEmpty(t, entriesNamed(t, shard, "foo"), "the resume left the live index's files alone")
+	rec, ok, err := shard.mapping.Get("foo")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, vectorIndexStateDropping, rec.State)
+
+	// the retry, no longer halted, tears the mock down and finishes
+	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+	assert.Empty(t, entriesNamed(t, shard, "foo"))
+	_, ok, err = shard.mapping.Get("foo")
+	require.NoError(t, err)
+	assert.False(t, ok)
 }

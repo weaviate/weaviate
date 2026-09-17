@@ -208,6 +208,11 @@ func (s *Shard) structuralVectorOpInFlight() (busy bool, reason string) {
 // for the sweep's retry and the next load.
 func (s *Shard) finishDeferredVectorDrops(ctx context.Context) error {
 	for _, name := range s.vectorDeletions.Resume() {
+		if _, published := s.vectors.get(name); published {
+			// the drop failed after queuing and the slot came back; the
+			// retry drops it again
+			continue
+		}
 		err := s.removeVectorIndexArtifacts(ctx, name)
 		if err != nil {
 			s.index.logger.WithFields(logrus.Fields{

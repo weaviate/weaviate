@@ -244,18 +244,31 @@ type vectorDeletions struct {
 	running  common.SharedGauge
 }
 
-// Enter is called by a drop before it removes anything. Not paused: the
-// deletion is counted in and runs now, leave counts it out. Paused: the
-// name is queued and nothing runs.
-func (d *vectorDeletions) Enter(name string) (now bool, leave func()) {
+// Enter is called by a drop before its teardown. Not paused: the deletion
+// runs now, counted in until leave. Paused: the teardown keeps the files
+// and the drop calls Defer once it succeeded; a failed teardown leaves the
+// vector published, so nothing may be queued for it.
+func (d *vectorDeletions) Enter() (now bool, leave func()) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.paused {
-		d.deferred = append(d.deferred, name)
 		return false, func() {}
 	}
 	d.running.Incr()
 	return true, func() { d.running.Decr() }
+}
+
+// Defer queues name for the resume. If the pause ended meanwhile it reports
+// false and the drop deletes now, counted in until leave.
+func (d *vectorDeletions) Defer(name string) (queued bool, leave func()) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.paused {
+		d.deferred = append(d.deferred, name)
+		return true, func() {}
+	}
+	d.running.Incr()
+	return false, func() { d.running.Decr() }
 }
 
 // Pause is called by the halt before it lists anything: from here on drops

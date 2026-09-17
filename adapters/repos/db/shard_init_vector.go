@@ -492,7 +492,7 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 	if err != nil {
 		return fmt.Errorf("mark vector index %q dropping: %w", targetVector, err)
 	}
-	now, leave := s.vectorDeletions.Enter(targetVector)
+	now, leave := s.vectorDeletions.Enter()
 	defer leave()
 	err = s.vectors.Remove(ctx, targetVector, s.index.logger, func(index VectorIndex, queue *VectorIndexQueue) error {
 		if !now {
@@ -515,7 +515,11 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 		return err
 	}
 	if !now {
-		return nil
+		queued, leaveLater := s.vectorDeletions.Defer(targetVector)
+		if queued {
+			return nil
+		}
+		defer leaveLater()
 	}
 	return s.removeVectorIndexArtifacts(ctx, targetVector)
 }
