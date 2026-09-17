@@ -817,3 +817,20 @@ func (m *Memtable) extractRoaringSetRange() *roaringsetrange.Memtable {
 	result := m.roaringSetRange
 	return result
 }
+
+func (m *Memtable) flattenKeyMap() []*binarySearchNodeMap {
+	m.RLock()
+	defer m.RUnlock()
+
+	return m.keyMap.flattenInOrder()
+}
+
+// roaringSetRangeNodes returns the key-0 node, which carries every value and is
+// the only one with deletions, then one node per set bit. Nodes() allocates
+// every bitmap it returns, so the caller serializes them without the lock.
+func (m *Memtable) roaringSetRangeNodes() []*roaringsetrange.MemtableNode {
+	m.RLock()
+	defer m.RUnlock()
+
+	return m.roaringSetRange.Nodes()
+}
