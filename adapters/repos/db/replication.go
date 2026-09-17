@@ -18,6 +18,8 @@ import (
 	"maps"
 	"os"
 	"path"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -731,14 +733,29 @@ func (i *Index) IncomingRemoveAllAsyncReplicationTargetNodes(ctx context.Context
 func (s *Shard) filePutter(ctx context.Context,
 	filePath string,
 ) (io.WriteCloser, error) {
-	// Contain writes under the data root before MkdirAll/Create. Use
-	// SanitizeFilePathJoin (not sanitizeFilePath): the target may not exist yet,
-	// so EvalSymlinks on the joined path would fail. Mirrors GetFile containment
-	// for the write side of CVE-2025-67819.
+	// Contain writes under this shard before MkdirAll/Create. Paths are
+	// DB-relative (joined with RootPath), then must also stay under s.path()
+	// so another collection/shard cannot be truncated (issue #13099 B / TODO).
+	// Use SanitizeFilePathJoin (not sanitizeFilePath): the target may not exist
+	// yet, so EvalSymlinks on the joined path would fail.
 	finalPath, err := diskio.SanitizeFilePathJoin(s.Index().Config.RootPath, filePath)
 	if err != nil {
 		return nil, fmt.Errorf("sanitize file path %q: %w", filePath, err)
 	}
+
+	rootPath, err := filepath.EvalSymlinks(s.Index().Config.RootPath)
+	if err != nil {
+		rootPath = filepath.Clean(s.Index().Config.RootPath)
+	}
+	shardRoot := filepath.Join(rootPath, s.Index().ID(), s.Name())
+	rel, err := filepath.Rel(shardRoot, finalPath)
+	if err != nil {
+		return nil, fmt.Errorf("make %q relative to shard %q: %w", finalPath, shardRoot, err)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return nil, fmt.Errorf("file path %q is outside shard root %q", finalPath, shardRoot)
+	}
+
 	dir := path.Dir(finalPath)
 	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
 		return nil, fmt.Errorf("create parent folder for %s: %w", filePath, err)

@@ -91,14 +91,25 @@ func TestShardFilePutterSanitize(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, wc)
 
-	// A path that stays under the data root must still be writable.
-	wc, err = shd.filePutter(ctx, filepath.Join("safe-putter", "ok.txt"))
+	// Reject writes into another collection/shard under the same data root
+	// (reproduction B from #13099).
+	crossPath := filepath.Join("otherclass", "othershard", "injected.txt")
+	wc, err = shd.filePutter(ctx, crossPath)
+	require.Error(t, err)
+	require.Nil(t, wc)
+	_, err = os.Stat(filepath.Join(idx.Config.RootPath, crossPath))
+	require.Error(t, err)
+	require.True(t, os.IsNotExist(err))
+
+	// A path under this shard (DB-relative) must still be writable.
+	relUnderShard := filepath.Join(idx.ID(), shd.Name(), "safe-putter", "ok.txt")
+	wc, err = shd.filePutter(ctx, relUnderShard)
 	require.NoError(t, err)
 	require.NotNil(t, wc)
 	_, err = wc.Write([]byte("ok"))
 	require.NoError(t, err)
 	require.NoError(t, wc.Close())
-	content, err := os.ReadFile(filepath.Join(idx.Config.RootPath, "safe-putter", "ok.txt"))
+	content, err := os.ReadFile(filepath.Join(idx.Config.RootPath, relUnderShard))
 	require.NoError(t, err)
 	require.Equal(t, []byte("ok"), content)
 }
