@@ -224,7 +224,7 @@ func (p *BackupTaskProvider) StartTask(task *distributedtask.Task) (distributedt
 	// Acquire the node-wide latch. If another backup (2PC or DTM) holds it,
 	// the local units fail rather than running two backups concurrently.
 	if slot := p.opSlot(); slot != nil {
-		if prevID := slot.renew(task.ID, p.nodeHomeDir(payload), payload.Bucket, payload.Path); prevID != "" {
+		if prevID := slot.renew(task.ID, "", p.nodeHomeDir(payload), payload.Bucket, payload.Path); prevID != "" {
 			if prevID != task.ID {
 				msg := fmt.Sprintf("node %s is already running backup %q", p.node, prevID)
 				p.failAllUnits(task, payload, recorder, msg, false)
@@ -390,6 +390,58 @@ const keepaliveInterval = 5 * time.Second
 // descriptorWriteAttempts caps retries when writing the global descriptor.
 const descriptorWriteAttempts = 3
 
+type classCompletionTracker struct {
+	mu        sync.Mutex
+	total     int
+	completed map[string]bool
+	reported  map[string]bool
+	heldBack  string
+}
+
+func newClassCompletionTracker(total int) *classCompletionTracker {
+	return &classCompletionTracker{
+		total:     total,
+		completed: make(map[string]bool, total),
+		reported:  make(map[string]bool, total),
+	}
+}
+
+func (t *classCompletionTracker) uploaded(className string, record func(string) bool) {
+	t.mu.Lock()
+	t.completed[className] = true
+	holdBack := len(t.completed) == t.total
+	if holdBack {
+		t.heldBack = className
+	}
+	t.mu.Unlock()
+
+	if !holdBack && record(className) {
+		t.mu.Lock()
+		t.reported[className] = true
+		t.mu.Unlock()
+	}
+}
+
+func (t *classCompletionTracker) flush(classes []string, record func(string) bool) {
+	t.mu.Lock()
+	heldBack := t.heldBack
+	reported := make(map[string]bool, len(t.reported))
+	for className := range t.reported {
+		reported[className] = true
+	}
+	t.mu.Unlock()
+
+	for _, className := range classes {
+		if className == heldBack || reported[className] {
+			continue
+		}
+		record(className)
+	}
+	if heldBack != "" {
+		record(heldBack)
+	}
+}
+
 func (p *BackupTaskProvider) runNodeBackup(
 	handle *backupTaskHandle,
 	task *distributedtask.Task,
@@ -464,10 +516,11 @@ func (p *BackupTaskProvider) runNodeBackup(
 		StartedAt:       task.StartedAt,
 		ID:              task.ID,
 		Classes:         make([]backup.ClassDescriptor, 0, len(classes)),
-		Version:         Version,
+		Version:         payload.artifactVersion(),
 		ServerVersion:   payload.ServerVersion,
 		CompressionType: &compressionType,
 		BaseBackupID:    baseBackupID,
+		DedupeReplicas:  false,
 	}
 
 	// The node-wide latch doubles as the uploader's status publisher, so the
@@ -477,34 +530,34 @@ func (p *BackupTaskProvider) runNodeBackup(
 	if s := p.opSlot(); s != nil {
 		slot = s
 	}
-	up := newUploader(p.cfg, p.sourcer, p.rbacSrc, p.userSrc, payload.Users, payload.Roles, store, task.ID, slot, p.logger).
+	selection := snapshotSelection{
+		users:     payload.Users,
+		roles:     payload.Roles,
+		skipUsers: payload.SkipUsers,
+		skipRoles: payload.SkipRoles,
+	}
+	up := newUploader(p.cfg, p.sourcer, p.rbacSrc, p.userSrc, selection, store, task.ID, slot, p.logger).
 		withCompression(newZipConfig(payload.Compression))
 
-	// Called from uploader.all's per-class loop in backend.go.
-	var completedClassesMu sync.Mutex
-	completedClasses := make([]string, 0, len(classes))
-	up.onClassUploaded = func(className string) {
-		completedClassesMu.Lock()
-		completedClasses = append(completedClasses, className)
-		completedClassesMu.Unlock()
-
-		// The last unit is held back until the node descriptor is written.
-		completedClassesMu.Lock()
-		n := len(completedClasses)
-		completedClassesMu.Unlock()
-
-		if n < len(classes) {
-			unitID := fmt.Sprintf("%s/%s", p.node, className)
-			if err := recorder.RecordDistributedTaskUnitCompletion(
-				ctx, BackupTaskNamespace, task.ID, task.Version, p.node, unitID,
-			); err != nil {
-				if !errors.Is(err, distributedtask.ErrUnitAlreadyTerminal) &&
-					!errors.Is(err, distributedtask.ErrTaskNotRunning) {
-					p.logger.WithField("backup_id", task.ID).WithField("unit", unitID).
-						Warnf("per-class unit completion failed: %v", err)
-				}
-			}
+	completionTracker := newClassCompletionTracker(len(classes))
+	recordClassCompletion := func(className string) bool {
+		unitID := fmt.Sprintf("%s/%s", p.node, className)
+		err := recorder.RecordDistributedTaskUnitCompletion(
+			ctx, BackupTaskNamespace, task.ID, task.Version, p.node, unitID,
+		)
+		if err == nil || errors.Is(err, distributedtask.ErrUnitAlreadyTerminal) ||
+			errors.Is(err, distributedtask.ErrTaskNotRunning) {
+			return true
 		}
+		p.logger.WithField("backup_id", task.ID).WithField("unit", unitID).
+			Warnf("per-class unit completion failed: %v", err)
+		return false
+	}
+
+	// Class callbacks can run concurrently. The final class completion waits
+	// until uploader.all writes the node descriptor.
+	up.onClassUploaded = func(className string) {
+		completionTracker.uploaded(className, recordClassCompletion)
 	}
 
 	p.logger.WithFields(logFields).Info("starting DTM backup upload")
@@ -523,45 +576,9 @@ func (p *BackupTaskProvider) runNodeBackup(
 
 	p.logger.WithFields(logFields).Info("DTM backup upload completed")
 
-	// Report the held-back last unit. The node descriptor was already
-	// written by uploader.all's defer.
-	if len(classes) > 0 {
-		lastClass := classes[len(classes)-1]
-		// The callback may not have fired for every class, so report any
-		// non-last class that is still unreported.
-		completedClassesMu.Lock()
-		alreadyReported := make(map[string]bool, len(completedClasses))
-		for _, c := range completedClasses {
-			if c != lastClass {
-				alreadyReported[c] = true
-			}
-		}
-		completedClassesMu.Unlock()
-
-		for _, cls := range classes {
-			if cls == lastClass {
-				continue
-			}
-			if alreadyReported[cls] {
-				continue
-			}
-			unitID := fmt.Sprintf("%s/%s", p.node, cls)
-			_ = recorder.RecordDistributedTaskUnitCompletion(
-				ctx, BackupTaskNamespace, task.ID, task.Version, p.node, unitID,
-			)
-		}
-
-		unitID := fmt.Sprintf("%s/%s", p.node, lastClass)
-		if err := recorder.RecordDistributedTaskUnitCompletion(
-			ctx, BackupTaskNamespace, task.ID, task.Version, p.node, unitID,
-		); err != nil {
-			if !errors.Is(err, distributedtask.ErrUnitAlreadyTerminal) &&
-				!errors.Is(err, distributedtask.ErrTaskNotRunning) {
-				p.logger.WithField("backup_id", task.ID).WithField("unit", unitID).
-					Warnf("last unit completion failed: %v", err)
-			}
-		}
-	}
+	// uploader.all has written the node descriptor. Retry failed completion
+	// reports, then report the class that finished last.
+	completionTracker.flush(classes, recordClassCompletion)
 }
 
 // runKeepalive re-reports progress=0 for each local unit every tick so the
@@ -644,12 +661,15 @@ func (p *BackupTaskProvider) writeStartedDescriptor(ctx context.Context, task *d
 		StartedAt:       task.StartedAt,
 		ID:              payload.ID,
 		Nodes:           payload.Nodes,
-		Version:         Version,
+		Version:         payload.artifactVersion(),
 		ServerVersion:   payload.ServerVersion,
 		Leader:          payload.Leader,
 		BaseBackupID:    payload.BaseBackupID,
 		Users:           payload.Users,
 		Roles:           payload.Roles,
+		SkipUsers:       payload.SkipUsers,
+		SkipRoles:       payload.SkipRoles,
+		DedupeReplicas:  false,
 		CompressionType: payload.CompressionType,
 		Status:          backup.Started,
 	}
@@ -683,18 +703,21 @@ func (p *BackupTaskProvider) writeTerminalDescriptor(task *distributedtask.Task,
 	status, errMsg := backupVerdict(task)
 
 	descriptor := &backup.DistributedBackupDescriptor{
-		StartedAt:     task.StartedAt,
-		ID:            payload.ID,
-		Nodes:         payload.Nodes,
-		Version:       Version,
-		ServerVersion: payload.ServerVersion,
-		Leader:        payload.Leader,
-		BaseBackupID:  payload.BaseBackupID,
-		Users:         payload.Users,
-		Roles:         payload.Roles,
-		Status:        status,
-		Error:         errMsg,
-		CompletedAt:   time.Now().UTC(),
+		StartedAt:      task.StartedAt,
+		ID:             payload.ID,
+		Nodes:          payload.Nodes,
+		Version:        payload.artifactVersion(),
+		ServerVersion:  payload.ServerVersion,
+		Leader:         payload.Leader,
+		BaseBackupID:   payload.BaseBackupID,
+		Users:          payload.Users,
+		Roles:          payload.Roles,
+		SkipUsers:      payload.SkipUsers,
+		SkipRoles:      payload.SkipRoles,
+		DedupeReplicas: false,
+		Status:         status,
+		Error:          errMsg,
+		CompletedAt:    time.Now().UTC(),
 	}
 
 	var totalSize int64

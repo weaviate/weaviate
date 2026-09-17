@@ -143,6 +143,40 @@ func makePayload(id string) *taskPayload {
 	}
 }
 
+func TestClassCompletionTracker(t *testing.T) {
+	t.Run("the completion-order final class waits for flush", func(t *testing.T) {
+		tracker := newClassCompletionTracker(2)
+		var recorded []string
+		record := func(className string) bool {
+			recorded = append(recorded, className)
+			return true
+		}
+
+		tracker.uploaded("Book", record)
+		tracker.uploaded("Article", record)
+		assert.Equal(t, []string{"Book"}, recorded)
+
+		tracker.flush([]string{"Article", "Book"}, record)
+		assert.Equal(t, []string{"Book", "Article"}, recorded)
+	})
+
+	t.Run("a failed early report is retried after flush", func(t *testing.T) {
+		tracker := newClassCompletionTracker(2)
+		attempts := map[string]int{}
+		record := func(className string) bool {
+			attempts[className]++
+			return className != "Book" || attempts[className] > 1
+		}
+
+		tracker.uploaded("Book", record)
+		tracker.uploaded("Article", record)
+		tracker.flush([]string{"Article", "Book"}, record)
+
+		assert.Equal(t, 2, attempts["Book"])
+		assert.Equal(t, 1, attempts["Article"])
+	})
+}
+
 func TestBackupTaskProvider(t *testing.T) {
 	t.Run("StartTask defers while applied index lags", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
@@ -193,7 +227,7 @@ func TestBackupTaskProvider(t *testing.T) {
 		recorder := &threadSafeRecorder{}
 		sourcer := &fakeSourcer{}
 		sourcer.On("Backupable", mock.Anything, mock.Anything).Return(nil)
-		sourcer.On("BackupDescriptors", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		sourcer.On("BackupDescriptors", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 			Return(func() <-chan backup.ClassDescriptor {
 				ch := make(chan backup.ClassDescriptor)
 				return ch
@@ -234,7 +268,7 @@ func TestBackupTaskProvider(t *testing.T) {
 		be.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("/test")
 
 		handler := nodeHandlerWithLatch(t, "node-1", &fakeSourcer{}, &fakeBackupBackendProvider{backend: be})
-		require.Empty(t, handler.backupper.lastOp.renew("legacy-backup", "/test", "", ""))
+		require.Empty(t, handler.backupper.lastOp.renew("legacy-backup", "", "/test", "", ""))
 
 		provider := NewBackupTaskProvider(BackupTaskProviderParams{
 			Node:        "node-1",
@@ -263,7 +297,7 @@ func TestBackupTaskProvider(t *testing.T) {
 		be.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("/test")
 
 		handler := nodeHandlerWithLatch(t, "node-1", &fakeSourcer{}, &fakeBackupBackendProvider{backend: be})
-		require.Empty(t, handler.backupper.lastOp.renew("b1", "/test", "", ""))
+		require.Empty(t, handler.backupper.lastOp.renew("b1", "", "/test", "", ""))
 
 		provider := NewBackupTaskProvider(BackupTaskProviderParams{
 			Node:        "node-1",
@@ -287,7 +321,7 @@ func TestBackupTaskProvider(t *testing.T) {
 		blockCh := make(chan backup.ClassDescriptor)
 		sourcer := &fakeSourcer{}
 		sourcer.On("Backupable", mock.Anything, mock.Anything).Return(nil)
-		sourcer.On("BackupDescriptors", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		sourcer.On("BackupDescriptors", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 			Return((<-chan backup.ClassDescriptor)(blockCh))
 		sourcer.On("ReleaseBackup", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
@@ -346,6 +380,32 @@ func TestBackupTaskProvider(t *testing.T) {
 		assert.Equal(t, Version, be.glMeta.Version, "artifact structure version comes from the writer's build")
 		assert.Equal(t, "node-1", be.glMeta.Leader, "leader comes from the payload, not the writing node")
 		assert.Equal(t, payload.ServerVersion, be.glMeta.ServerVersion)
+	})
+
+	t.Run("the Started descriptor preserves selection and base-chain format", func(t *testing.T) {
+		logger, _ := test.NewNullLogger()
+		be := newFakeBackend()
+		be.On("GetObject", mock.Anything, mock.Anything, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		be.On("PutObject", mock.Anything, mock.Anything, GlobalBackupFile, mock.Anything).Return(nil)
+
+		provider := NewBackupTaskProvider(BackupTaskProviderParams{
+			Node:     "node-1",
+			Logger:   logger,
+			Cfg:      config.Backup{},
+			Backends: &fakeBackupBackendProvider{backend: be},
+		})
+		payload := makePayload("b1")
+		payload.SkipUsers = true
+		payload.SkipRoles = true
+		payload.BaseChainDeduped = true
+
+		require.NoError(t, provider.writeStartedDescriptor(
+			context.Background(), makeTask("b1", distributedtask.TaskStatusStarted, payload), payload,
+		))
+		assert.True(t, be.glMeta.SkipUsers)
+		assert.True(t, be.glMeta.SkipRoles)
+		assert.False(t, be.glMeta.DedupeReplicas)
+		assert.Equal(t, VersionDedupeReplicas, be.glMeta.Version)
 	})
 
 	t.Run("an existing descriptor is never overwritten at flow start", func(t *testing.T) {
@@ -762,7 +822,7 @@ func TestBackupStatusMapping(t *testing.T) {
 			backends:     &fakeBackupBackendProvider{backend: be},
 			dtm:          dtm,
 			taskProvider: provider,
-			backupper:    newCoordinator(&fakeSelector{}, &fakeClient{}, &fakeSchemaManger{}, logger, &fakeNodeResolver{}, &fakeBackupBackendProvider{backend: be}),
+			backupper:    newCoordinator(&fakeSelector{}, &fakeClient{}, &fakeSchemaManger{}, logger, &fakeNodeResolver{}, &fakeBackupBackendProvider{backend: be}, nil, nil),
 		}
 
 		st, err := s.BackupStatus(context.Background(), nil, "fakeBackend", "b1", "", "")
@@ -795,7 +855,7 @@ func TestBackupStatusMapping(t *testing.T) {
 			backends:     &fakeBackupBackendProvider{backend: be},
 			dtm:          dtm,
 			taskProvider: provider,
-			backupper:    newCoordinator(&fakeSelector{}, &fakeClient{}, &fakeSchemaManger{}, logger, &fakeNodeResolver{}, &fakeBackupBackendProvider{backend: be}),
+			backupper:    newCoordinator(&fakeSelector{}, &fakeClient{}, &fakeSchemaManger{}, logger, &fakeNodeResolver{}, &fakeBackupBackendProvider{backend: be}, nil, nil),
 		}
 
 		st, err := s.BackupStatus(context.Background(), nil, "fakeBackend", "b1", "", "")
@@ -809,6 +869,7 @@ func TestBackupStatusMapping(t *testing.T) {
 type dtmProposeFixture struct {
 	scheduler *Scheduler
 	dtm       *fakeDTMClient
+	backend   *fakeBackend
 	req       *BackupRequest
 }
 
@@ -837,8 +898,26 @@ func newDTMProposeFixture(t *testing.T) *dtmProposeFixture {
 	return &dtmProposeFixture{
 		scheduler: s,
 		dtm:       dtm,
+		backend:   fs.backend,
 		req:       &BackupRequest{ID: backupID, Backend: "gcs", Include: []string{cls}},
 	}
+}
+
+func TestBackupDTMDedupe(t *testing.T) {
+	t.Run("the combined mode is rejected before initialization or proposal", func(t *testing.T) {
+		t.Setenv("BACKUP_DEDUPE_ENABLED", "true")
+		fixture := newDTMProposeFixture(t)
+		fixture.req.DedupeReplicas = true
+
+		resp, err := fixture.scheduler.Backup(context.Background(), nil, fixture.req)
+		assert.Nil(t, resp)
+		require.Error(t, err)
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+		assert.Contains(t, err.Error(), "not supported with distributed task backup orchestration")
+		assert.Empty(t, fixture.dtm.proposedPayload)
+		fixture.backend.AssertNotCalled(t, "Initialize", mock.Anything, mock.Anything)
+		assert.Empty(t, fixture.scheduler.backupper.lastOp.get().ID)
+	})
 }
 
 func TestBackupProposeRetry(t *testing.T) {
@@ -979,7 +1058,7 @@ func TestBackupStatusAuthorization(t *testing.T) {
 			backends:     &fakeBackupBackendProvider{backend: be},
 			dtm:          &fakeDTMClient{getTask: makeTask("b1", distributedtask.TaskStatusStarted, makePayload("b1"))},
 			taskProvider: provider,
-			backupper:    newCoordinator(&fakeSelector{}, &fakeClient{}, &fakeSchemaManger{}, logger, &fakeNodeResolver{}, &fakeBackupBackendProvider{backend: be}),
+			backupper:    newCoordinator(&fakeSelector{}, &fakeClient{}, &fakeSchemaManger{}, logger, &fakeNodeResolver{}, &fakeBackupBackendProvider{backend: be}, nil, nil),
 		}
 	}
 
@@ -1069,7 +1148,7 @@ func TestBackupGateDispatch(t *testing.T) {
 			authorizer: &noopAuthorizer{},
 			backends:   &fakeBackupBackendProvider{backend: be},
 			dtm:        dtm,
-			backupper:  newCoordinator(&fakeSelector{}, &fakeClient{}, &fakeSchemaManger{}, logger, &fakeNodeResolver{}, &fakeBackupBackendProvider{backend: be}),
+			backupper:  newCoordinator(&fakeSelector{}, &fakeClient{}, &fakeSchemaManger{}, logger, &fakeNodeResolver{}, &fakeBackupBackendProvider{backend: be}, nil, nil),
 		}
 
 		cancelErr := s.CancelWithForce(context.Background(), nil, "fakeBackend", "b1", "", "", false)
