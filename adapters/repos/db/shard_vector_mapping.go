@@ -231,11 +231,20 @@ func readVectorIndexRecordOffline(shardDir, name string) (rec vectorIndexRecord,
 	if err != nil || version == nil {
 		return vectorIndexRecord{}, false, false, err
 	}
+	// the same refusals as Load: a deletion must not act on a record this
+	// binary cannot read
+	if string(version) != vectorIndexMappingFormatVersion {
+		return vectorIndexRecord{}, false, true, fmt.Errorf("unsupported format version %q, this binary reads %q",
+			version, vectorIndexMappingFormatVersion)
+	}
 	v, _, err := shardmeta.GetOffline(shardDir, vectorIndexMappingNamespace, []byte(vectorIndexMappingKey(name)))
 	if err != nil || v == nil {
 		return vectorIndexRecord{}, false, true, err
 	}
 	err = json.Unmarshal(v, &rec)
+	if err == nil {
+		err = rec.validate()
+	}
 	if err != nil {
 		return vectorIndexRecord{}, false, true, fmt.Errorf("record %q: %w", name, err)
 	}

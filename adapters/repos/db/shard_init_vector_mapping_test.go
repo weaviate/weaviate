@@ -779,4 +779,13 @@ func TestRemoveVectorIndexFiles_ReadsTheRecordOffline(t *testing.T) {
 	require.NoError(t, h.removeVectorIndexFiles(shard.index.path(), shard.name, "ghost", nil))
 	_, err = os.Stat(ghost)
 	assert.NoError(t, err, "an initialized mapping without a record owns nothing")
+
+	// a record this binary cannot trust stops the sweep before it deletes
+	withOfflineMapping(t, shard.path(), func(_ *vectorIndexMapping, ns *shardmeta.Namespace) {
+		require.NoError(t, ns.Put([]byte("ghost"), []byte(`{"physical_id":"","index_type":"hnsw","state":"ready"}`)))
+	})
+	err = h.removeVectorIndexFiles(shard.index.path(), shard.name, "ghost", nil)
+	require.ErrorContains(t, err, "physical id")
+	_, err = os.Stat(ghost)
+	assert.NoError(t, err, "nothing deleted on a refused record")
 }
