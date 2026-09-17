@@ -8511,7 +8511,7 @@ func init() {
           "x-nullable": true
         },
         "dryRun": {
-          "description": "If true, the call reports what the filter matches and deletes nothing. \u003cbr/\u003e\u003cbr/\u003eDepending on the configured verbosity, you will either receive a count of matched objects, or a list of IDs. A dry run is bounded the same way a real delete is: the count stops once it shows that more match than one call deletes, and the list holds at most ` + "`" + `limit` + "`" + ` IDs.",
+          "description": "If true, the call reports what the filter matches and deletes nothing. \u003cbr/\u003e\u003cbr/\u003eDepending on the configured verbosity, you will either receive a count of matched objects, or a list of IDs. A dry run is bounded the same way a real delete is. The count stops one above [` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS), and the list holds at most that many IDs.",
           "type": "boolean",
           "default": false
         },
@@ -8549,7 +8549,7 @@ func init() {
           "x-nullable": true
         },
         "dryRun": {
-          "description": "If true, objects will not be deleted yet, but merely listed. Defaults to false.",
+          "description": "If true, the call reported what the filter matches and deleted nothing. The list holds at most [` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS) IDs. Defaults to false.",
           "type": "boolean",
           "default": false
         },
@@ -8590,7 +8590,7 @@ func init() {
               "x-omitempty": false
             },
             "matches": {
-              "description": "How many objects matched, counted only far enough to show whether more match than one call deletes. A value above ` + "`" + `limit` + "`" + ` means more objects match, so call again.",
+              "description": "How many objects matched the filter, counted up to one above ` + "`" + `limit` + "`" + ` and no further. A value at or below ` + "`" + `limit` + "`" + ` is the exact number of matching objects, and every one of them was handled by this call. A value above ` + "`" + `limit` + "`" + ` means more objects match than one call deletes, so call again.",
               "type": "number",
               "format": "int64",
               "x-omitempty": false
@@ -21087,7 +21087,7 @@ func init() {
           "x-nullable": true
         },
         "dryRun": {
-          "description": "If true, the call reports what the filter matches and deletes nothing. \u003cbr/\u003e\u003cbr/\u003eDepending on the configured verbosity, you will either receive a count of matched objects, or a list of IDs. A dry run is bounded the same way a real delete is: the count stops once it shows that more match than one call deletes, and the list holds at most ` + "`" + `limit` + "`" + ` IDs.",
+          "description": "If true, the call reports what the filter matches and deletes nothing. \u003cbr/\u003e\u003cbr/\u003eDepending on the configured verbosity, you will either receive a count of matched objects, or a list of IDs. A dry run is bounded the same way a real delete is. The count stops one above [` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS), and the list holds at most that many IDs.",
           "type": "boolean",
           "default": false
         },
@@ -21141,7 +21141,7 @@ func init() {
           "x-nullable": true
         },
         "dryRun": {
-          "description": "If true, objects will not be deleted yet, but merely listed. Defaults to false.",
+          "description": "If true, the call reported what the filter matches and deleted nothing. The list holds at most [` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS) IDs. Defaults to false.",
           "type": "boolean",
           "default": false
         },
@@ -21182,7 +21182,7 @@ func init() {
               "x-omitempty": false
             },
             "matches": {
-              "description": "How many objects matched, counted only far enough to show whether more match than one call deletes. A value above ` + "`" + `limit` + "`" + ` means more objects match, so call again.",
+              "description": "How many objects matched the filter, counted up to one above ` + "`" + `limit` + "`" + ` and no further. A value at or below ` + "`" + `limit` + "`" + ` is the exact number of matching objects, and every one of them was handled by this call. A value above ` + "`" + `limit` + "`" + ` means more objects match than one call deletes, so call again.",
               "type": "number",
               "format": "int64",
               "x-omitempty": false
@@ -21236,7 +21236,7 @@ func init() {
           "x-omitempty": false
         },
         "matches": {
-          "description": "How many objects matched, counted only far enough to show whether more match than one call deletes. A value above ` + "`" + `limit` + "`" + ` means more objects match, so call again.",
+          "description": "How many objects matched the filter, counted up to one above ` + "`" + `limit` + "`" + ` and no further. A value at or below ` + "`" + `limit` + "`" + ` is the exact number of matching objects, and every one of them was handled by this call. A value above ` + "`" + `limit` + "`" + ` means more objects match than one call deletes, so call again.",
           "type": "number",
           "format": "int64",
           "x-omitempty": false
