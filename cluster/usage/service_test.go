@@ -205,7 +205,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	})
 	mockSchema.EXPECT().NodeName().Return(nodeName)
 	mockSchema.EXPECT().ReadOnlyClass(class.Class).Return(class).Maybe()
-	mockSchema.EXPECT().TenantsShards(mock.Anything, className, hotTenant).
+	mockSchema.EXPECT().TenantsShardsStatus(mock.Anything, className, hotTenant).
 		Return(map[string]string{hotTenant: models.TenantActivityStatusHOT}, nil).Maybe()
 	mockSchema.EXPECT().OptimisticTenantStatus(mock.Anything, className, hotTenant, mock.Anything).
 		Return(map[string]string{hotTenant: models.TenantActivityStatusHOT}, nil).Maybe()

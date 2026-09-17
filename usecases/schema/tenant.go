@@ -240,7 +240,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 
 	// we get the new state to return correct status
 	// specially in FREEZING and UNFREEZING
-	tenantsStatus, err := h.schemaReader.TenantsShardsWithVersion(ctx, version, class, tNames...)
+	tenantsStatus, err := h.schemaReader.TenantsShardsStatusWithVersion(ctx, version, class, tNames...)
 	if err != nil {
 		return nil, err
 	}
