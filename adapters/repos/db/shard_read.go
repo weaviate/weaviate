@@ -566,6 +566,22 @@ func (s *Shard) readMultiVectorByIndexIDIntoSliceWithView(ctx context.Context, i
 	return vecs, nil
 }
 
+// reduceOrDropSecondaryLookupEntries settles the per-lookup secondary-key
+// slow-log entries a search collected. Reducing sorts and allocates per entry,
+// so only pay for it when something reads the result. When nothing does, drop
+// the raw entries rather than leave them: LogIfSlow reads the reporter's state
+// again for itself, and a reporter switched on between the two reads would log
+// the whole per-lookup list.
+func (s *Shard) reduceOrDropSecondaryLookupEntries(ctx context.Context, wantProfile bool) {
+	if s.slowQueryReporter.Enabled() || wantProfile {
+		lsmkv.ReduceSlowLogEntries(ctx, lsmkv.SlowLogKeyGetBySecondary)
+		lsmkv.ReduceSlowLogEntries(ctx, lsmkv.SlowLogKeyGetBySecondaryWithView)
+		return
+	}
+	helpers.DropSlowQueryEntry(ctx, lsmkv.SlowLogKeyGetBySecondary)
+	helpers.DropSlowQueryEntry(ctx, lsmkv.SlowLogKeyGetBySecondaryWithView)
+}
+
 func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	additional additional.Properties, properties []string,
@@ -575,18 +591,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	// Report slow queries if this method takes longer than expected
 	startTime := time.Now()
 	defer func() {
-		// Reducing sorts and allocates per entry, so only pay for it when
-		// something downstream reads the result. Nothing does here, and
-		// LogIfSlow reads the reporter's state again for itself, so drop the
-		// raw entries rather than leave a per-lookup list a reporter switched
-		// on in between could log in full.
-		if s.slowQueryReporter.Enabled() || additional.QueryProfile {
-			lsmkv.ReduceSlowLogEntries(ctx, lsmkv.SlowLogKeyGetBySecondary)
-			lsmkv.ReduceSlowLogEntries(ctx, lsmkv.SlowLogKeyGetBySecondaryWithView)
-		} else {
-			helpers.DropSlowQueryEntry(ctx, lsmkv.SlowLogKeyGetBySecondary)
-			helpers.DropSlowQueryEntry(ctx, lsmkv.SlowLogKeyGetBySecondaryWithView)
-		}
+		s.reduceOrDropSecondaryLookupEntries(ctx, additional.QueryProfile)
 
 		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
 			"collection":      s.index.Config.ClassName,
@@ -709,15 +714,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	startTime := time.Now()
 
 	defer func() {
-		// Same trade as ObjectSearch: reduce for a reader, otherwise drop the
-		// raw entries so nothing can log them unreduced.
-		if s.slowQueryReporter.Enabled() || additional.QueryProfile {
-			lsmkv.ReduceSlowLogEntries(ctx, lsmkv.SlowLogKeyGetBySecondary)
-			lsmkv.ReduceSlowLogEntries(ctx, lsmkv.SlowLogKeyGetBySecondaryWithView)
-		} else {
-			helpers.DropSlowQueryEntry(ctx, lsmkv.SlowLogKeyGetBySecondary)
-			helpers.DropSlowQueryEntry(ctx, lsmkv.SlowLogKeyGetBySecondaryWithView)
-		}
+		s.reduceOrDropSecondaryLookupEntries(ctx, additional.QueryProfile)
 
 		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
 			"collection": s.index.Config.ClassName,
