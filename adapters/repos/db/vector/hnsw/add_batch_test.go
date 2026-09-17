@@ -174,6 +174,33 @@ func TestAddBatch_MultipleBatches(t *testing.T) {
 	}
 }
 
+func TestAddBatch_RejectedMixedBatchDoesNotConsumeDimensionTracking(t *testing.T) {
+	index := testHNSW(t)
+	defer index.Shutdown(context.Background())
+
+	// Mixed-length batch must fail without settling dims.
+	err := index.AddBatch(context.Background(),
+		[]uint64{1, 2},
+		[][]float32{{1, 0, 0, 0}, {0, 1, 0}},
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "different lengths")
+	assert.Equal(t, int32(0), index.dims.Load(), "rejected mixed batch must leave dims unset")
+
+	// Valid retry should initialize dims and accept the batch.
+	err = index.AddBatch(context.Background(),
+		[]uint64{1, 2},
+		[][]float32{{1, 0, 0, 0}, {0, 1, 0, 0}},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, int32(4), index.dims.Load())
+
+	// Wrong-dimension insert must now be rejected via ValidateBeforeInsert.
+	err = index.ValidateBeforeInsert([]float32{1, 2, 3})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "length 3")
+}
+
 func TestAddBatch_WrongDimensionsAfterInitialBatch(t *testing.T) {
 	index := testHNSW(t)
 	defer index.Shutdown(context.Background())

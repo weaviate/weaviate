@@ -185,6 +185,41 @@ func (h *hnsw) growIndexToAccomodateNodeUnderCompressLock(maxId uint64) error {
 	return nil
 }
 
+// trackDimensions records the vector dimensionality from the first batch that
+// passes the same-length check. A rejected mixed-length batch must not settle
+// the dimensionality: dims would stay 0 and ValidateBeforeInsert would accept
+// vectors of any length from then on.
+func (h *hnsw) trackDimensions(vectors [][]float32) error {
+	if h.dims.Load() != 0 {
+		return nil
+	}
+	dims := len(vectors[0])
+	for _, vec := range vectors {
+		if len(vec) != dims {
+			return errors.Errorf("addBatch called with vectors of different lengths: got %d, expected %d", len(vec), dims)
+		}
+	}
+	h.dims.CompareAndSwap(0, int32(dims))
+	return nil
+}
+
+// trackMultiDimensions is the multi-vector counterpart of trackDimensions.
+func (h *hnsw) trackMultiDimensions(vectors [][][]float32) error {
+	if h.dims.Load() != 0 {
+		return nil
+	}
+	dims := len(vectors[0][0])
+	for _, doc := range vectors {
+		for _, vec := range doc {
+			if len(vec) != dims {
+				return errors.Errorf("addMultiBatch called with vectors of different lengths: got %d, expected %d", len(vec), dims)
+			}
+		}
+	}
+	h.dims.CompareAndSwap(0, int32(dims))
+	return nil
+}
+
 func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -205,25 +240,11 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		return errors.Errorf("insertBatch called with empty lists")
 	}
 
-	var err error
-	h.trackDimensionsOnce.Do(func() {
-		dims := len(vectors[0])
-		for _, vec := range vectors {
-			if len(vec) != dims {
-				err = errors.Errorf("addBatch called with vectors of different lengths: got %d, expected %d", len(vec), dims)
-				return
-			}
-		}
-		if err == nil {
-			h.dims.Store(int32(len(vectors[0])))
-		}
-	})
-
-	if err != nil {
+	if err := h.trackDimensions(vectors); err != nil {
 		return err
 	}
 
-	err = h.checkAndCompress()
+	err := h.checkAndCompress()
 	if err != nil {
 		return err
 	}
@@ -311,27 +332,11 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 		return h.AddBatch(ctx, docIDs, processedVectors)
 	}
 
-	var err error
-	h.trackDimensionsOnce.Do(func() {
-		dim := len(vectors[0][0])
-		for _, doc := range vectors {
-			for _, vec := range doc {
-				if len(vec) != dim {
-					err = errors.Errorf("addMultiBatch called with vectors of different lengths: got %d, expected %d", len(vec), dim)
-					return
-				}
-			}
-		}
-		if err == nil {
-			h.dims.Store(int32(len(vectors[0][0])))
-		}
-	})
-
-	if err != nil {
+	if err := h.trackMultiDimensions(vectors); err != nil {
 		return err
 	}
 
-	err = h.checkAndCompress()
+	err := h.checkAndCompress()
 	if err != nil {
 		return err
 	}
