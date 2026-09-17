@@ -57,6 +57,10 @@ func TestBatchDeleteObjects_MatchesCappedAtLimit(t *testing.T) {
 		wantHandled int
 		// wantCappedShards is how many shards resolved as many matches as they were asked for.
 		wantCappedShards int
+		// wantCappedLogged is whether the call writes the line that tells an operator more
+		// matched than it deleted. It fires on every clamped reply, not only when a shard
+		// filled its own window.
+		wantCappedLogged bool
 	}{
 		{
 			name:        "no match",
@@ -86,6 +90,7 @@ func TestBatchDeleteObjects_MatchesCappedAtLimit(t *testing.T) {
 			wantMatches:      11,
 			wantHandled:      10,
 			wantCappedShards: 1,
+			wantCappedLogged: true,
 		},
 		{
 			name:             "two matches more than the limit",
@@ -94,6 +99,7 @@ func TestBatchDeleteObjects_MatchesCappedAtLimit(t *testing.T) {
 			wantMatches:      11,
 			wantHandled:      10,
 			wantCappedShards: 1,
+			wantCappedLogged: true,
 		},
 		{
 			name:             "many more matches than the limit",
@@ -102,6 +108,7 @@ func TestBatchDeleteObjects_MatchesCappedAtLimit(t *testing.T) {
 			wantMatches:      11,
 			wantHandled:      10,
 			wantCappedShards: 1,
+			wantCappedLogged: true,
 		},
 		{
 			name:             "dry run with many more matches than the limit",
@@ -111,6 +118,7 @@ func TestBatchDeleteObjects_MatchesCappedAtLimit(t *testing.T) {
 			wantMatches:      11,
 			wantHandled:      10,
 			wantCappedShards: 1,
+			wantCappedLogged: true,
 		},
 		{
 			name:             "many more matches than the limit spread over shards",
@@ -120,6 +128,7 @@ func TestBatchDeleteObjects_MatchesCappedAtLimit(t *testing.T) {
 			wantMatches:      11,
 			wantHandled:      10,
 			wantCappedShards: 3,
+			wantCappedLogged: true,
 		},
 		{
 			name:             "many more matches than the limit in one tenant",
@@ -131,6 +140,19 @@ func TestBatchDeleteObjects_MatchesCappedAtLimit(t *testing.T) {
 			wantMatches:      11,
 			wantHandled:      10,
 			wantCappedShards: 1,
+			wantCappedLogged: true,
+		},
+		{
+			// Every shard stays under the per-shard bound while the total crosses the
+			// limit, so the reply is clamped with no capped shard to report.
+			name:             "more matches than the limit spread under the per-shard bound",
+			objectCount:      12,
+			limit:            batchDeleteLimit,
+			shardState:       multiShardState(),
+			wantMatches:      11,
+			wantHandled:      10,
+			wantCappedShards: 0,
+			wantCappedLogged: true,
 		},
 		{
 			// A limit <= 0 turns the cap off: Matches counts everything, nothing deletes.
@@ -168,7 +190,9 @@ func TestBatchDeleteObjects_MatchesCappedAtLimit(t *testing.T) {
 			require.Equal(t, tt.wantMatches, res.Matches)
 			require.Len(t, res.Objects, tt.wantHandled)
 			require.Equal(t, tt.limit, res.Limit)
-			require.Equal(t, tt.wantCappedShards, cappedShardsLogged(t, logs))
+			logged, cappedShards := cappedLineLogged(t, logs)
+			require.Equal(t, tt.wantCappedLogged, logged)
+			require.Equal(t, tt.wantCappedShards, cappedShards)
 
 			if tt.limit <= 0 {
 				// drainBatchDelete cannot drain this one: the call deletes nothing and
@@ -321,9 +345,10 @@ func batchDeleteLogs(t *testing.T, repo *DB) *test.Hook {
 	return hook
 }
 
-// cappedShardsLogged returns capped_shards from the first capped line the hook saw, or
-// zero when no call reported a capped shard.
-func cappedShardsLogged(t *testing.T, hook *test.Hook) int {
+// cappedLineLogged returns whether the hook saw the line a capped call writes, and the
+// capped_shards it reported. The line fires on every clamped reply, which a shard filling
+// its own window is only one case of, so the two answers are not the same question.
+func cappedLineLogged(t *testing.T, hook *test.Hook) (bool, int) {
 	t.Helper()
 
 	for _, entry := range hook.AllEntries() {
@@ -332,9 +357,9 @@ func cappedShardsLogged(t *testing.T, hook *test.Hook) int {
 		}
 		capped, ok := entry.Data["capped_shards"].(int)
 		require.True(t, ok, "capped_shards is logged as an int")
-		return capped
+		return true, capped
 	}
-	return 0
+	return false, 0
 }
 
 func batchDeleteMatchAllParams(dryRun bool) objects.BatchDeleteParams {

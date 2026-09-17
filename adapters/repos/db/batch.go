@@ -210,14 +210,20 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 	plan := planShardDeletes(shardDocIDs, limit)
 	toDelete, matches := plan.toDelete, plan.matches
 
-	if plan.cappedShards > 0 {
-		db.logger.WithFields(logrus.Fields{
+	if plan.clamped {
+		logger := db.logger.WithFields(logrus.Fields{
 			"action":        "batch_delete_objects_capped",
 			"class":         className,
 			"tenant":        tenant,
 			"limit":         limit,
 			"capped_shards": plan.cappedShards,
-		}).Infof("batch delete resolved the maximum on %d shard(s): more objects match than one call deletes, repeat the request until matches is 0", plan.cappedShards)
+			"dry_run":       params.DryRun,
+		})
+		if params.DryRun {
+			logger.Infof("batch delete dry run stopped at QUERY_MAXIMUM_RESULTS (%d): more objects match than one call deletes, and matches stops one above the limit. Repeating the dry run reports the same count; an aggregate count gives the exact total without resolving objects.", limit)
+		} else {
+			logger.Infof("batch delete stopped at QUERY_MAXIMUM_RESULTS (%d): more objects match than one call deletes. Repeat the same request until matches is 0.", limit)
+		}
 	}
 
 	db.logger.WithFields(logrus.Fields{
@@ -278,12 +284,16 @@ type shardDeletePlan struct {
 	matches int64
 	// cappedShards is how many shards resolved as many matches as they were asked for.
 	cappedShards int
+	// clamped is whether matches was cut down to limit+1, so more matched than this call deletes.
+	clamped bool
 }
 
 func planShardDeletes(shardDocIDs map[string][]strfmt.UUID, limit int64) shardDeletePlan {
 	plan := shardDeletePlan{toDelete: map[string][]strfmt.UUID{}}
 	perShard := int64(perShardResolveLimit(limit))
 
+	// Which shards fill the limit is unspecified: this ranges over a map, and which
+	// objects a call takes is already arbitrary.
 	for shardName, docIDs := range shardDocIDs {
 		resolved := int64(len(docIDs))
 		if perShard > 0 && resolved >= perShard {
@@ -297,6 +307,7 @@ func planShardDeletes(shardDocIDs map[string][]strfmt.UUID, limit int64) shardDe
 
 	if limit > 0 && plan.matches > limit {
 		plan.matches = limit + 1
+		plan.clamped = true
 	}
 	return plan
 }
