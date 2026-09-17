@@ -402,20 +402,19 @@ func (c *Compactor) decideAction(state *DirectoryState) Action {
 
 	// RunCycle decides on every maintenance cycle, so skip building fields a
 	// logger below debug would discard.
-	if !c.debugEnabled() {
-		return action
+	if c.debugEnabled() {
+		c.logger.WithFields(logrus.Fields{
+			"action":        "hnsw_compactor_decide",
+			"snapshot_size": snapshotSize,
+			"sorted_size":   sortedSize,
+			"sorted_count":  len(state.SortedFiles),
+			"sorted_ratio":  sortedRatio,
+			"has_snapshot":  state.Snapshot != nil,
+			"threshold":     c.config.SnapshotThreshold,
+			"max_files":     c.config.MaxFilesPerMerge,
+			"reason":        reason,
+		}).Debugf("decision: %s", action)
 	}
-	c.logger.WithFields(logrus.Fields{
-		"action":        "hnsw_compactor_decide",
-		"snapshot_size": snapshotSize,
-		"sorted_size":   sortedSize,
-		"sorted_count":  len(state.SortedFiles),
-		"sorted_ratio":  sortedRatio,
-		"has_snapshot":  state.Snapshot != nil,
-		"threshold":     c.config.SnapshotThreshold,
-		"max_files":     c.config.MaxFilesPerMerge,
-		"reason":        reason,
-	}).Debugf("decision: %s", action)
 	return action
 }
 
