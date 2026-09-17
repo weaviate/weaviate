@@ -38,6 +38,12 @@ const deadDocIDPruneBatch = 1024
 // the sentinel inverted.Searcher.DocIDs takes for the same thing.
 const resolveUncapped = 0
 
+// secondResolveLogWindow is how often one shard reports that it resolved a filter twice.
+// A caller that hits the condition on every call, which the objects TTL sweep does for as
+// long as one dead doc id sits above the watermark, collapses to one line a minute rather
+// than one per batch.
+const secondResolveLogWindow = time.Minute
+
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) DeleteObjectBatch(ctx context.Context, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects {
 	s.activityTrackerWrite.Add(1)
@@ -266,17 +272,37 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 		}
 		uuids = uncapped.uuids
 
-		// Above debug because this is the one cost an operator cannot see from the reply:
-		// the call paid a full uncapped resolve of the filter. Bounded by call rate, at
-		// most one line per call.
-		logger.WithFields(logrus.Fields{
-			"action":       "find_uuids_second_resolve",
-			"limit":        limit,
-			"docids_found": uncapped.docIDsRead,
-		}).Infof("resolved the filter a second time with no cap: a doc id in the window bounded at %d had no object row", limit)
+		s.logSecondResolve(logger, limit, uncapped.docIDsRead)
 	}
 
 	return uuids, nil
+}
+
+// logSecondResolve reports that the filter was resolved a second time with no cap. It is
+// above debug because this is the one cost an operator cannot read off the reply: the call
+// paid a full uncapped resolve of the filter.
+//
+// It is sampled rather than written per call because the condition does not clear itself.
+// A doc id at or above the watermark is never pruned, and its postings keep it inside the
+// first window of a leaf filter until the shard is reopened, so every call from then on
+// takes the second pass. The objects TTL sweep (index_objects_ttl.go:167) makes that a
+// standing stream with nobody reading it.
+func (s *Shard) logSecondResolve(logger logrus.FieldLogger, limit, docIDsRead int) {
+	write := func(l logrus.FieldLogger) {
+		l.WithFields(logrus.Fields{
+			"action":       "find_uuids_second_resolve",
+			"limit":        limit,
+			"docids_found": docIDsRead,
+		}).Infof("resolved the filter a second time with no cap: a doc id in the window bounded at %d had no object row", limit)
+	}
+
+	// A Shard built without the constructor has no sampler; log unsampled rather than
+	// swallow the line or panic.
+	if s.secondResolveSampler == nil {
+		write(logger)
+		return
+	}
+	s.secondResolveSampler.WithSampling(write)
 }
 
 // findUUIDsPass is the result of one resolve-and-walk pass: the UUIDs it produced and

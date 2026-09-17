@@ -54,6 +54,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/file"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -481,6 +482,12 @@ type Shard struct {
 	// allocated the id and not yet written the row; dropping that one would hide a live
 	// object from every deny-list filter until the next shard init.
 	docIDPruneWatermark uint64
+	// secondResolveSampler rate-limits the line FindUUIDs writes when it resolves the
+	// filter a second time. That condition is not self-clearing: a doc id at or above the
+	// watermark is never pruned, and its postings keep it inside the first window of a
+	// leaf filter for the life of the shard. The objects TTL sweep runs FindUUIDs in a
+	// loop with no human waiting on it, so the line needs a rate and not only a width.
+	secondResolveSampler *logrusext.Sampler
 
 	activityTrackerRead  atomic.Int32
 	activityTrackerWrite atomic.Int32

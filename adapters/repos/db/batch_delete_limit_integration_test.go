@@ -594,6 +594,39 @@ func TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot(t *testing.T) {
 	}
 }
 
+// TestBatchDeleteObjects_SamplesTheSecondResolveLine pins the rate on the line the shard
+// writes when it resolves twice. The condition behind that line does not clear itself: the
+// dropped row below leaves a doc id whose object is gone inside the first window of every
+// later call, so without a rate the objects TTL sweep would write the line on every batch
+// of every cycle until the shard is reopened.
+func TestBatchDeleteObjects_SamplesTheSecondResolveLine(t *testing.T) {
+	ctx := context.Background()
+	const calls = 20
+
+	repo := newBatchDeleteRepo(t, batchDeleteTestClass(false), singleShardState(), batchDeleteLimit)
+	simpleInsertObjectsForTenant(t, repo, batchDeleteClassName, "", 30)
+
+	before, err := repo.BatchDeleteObjects(ctx, batchDeleteMatchAllParams(true), time.Now(), nil, "", 0)
+	require.NoError(t, err)
+	require.NotEmpty(t, before.Objects)
+	dropObjectRow(t, repo, batchDeleteClassName, before.Objects[0].UUID)
+
+	hook := batchDeleteLogs(t, repo)
+	for i := 0; i < calls; i++ {
+		_, err := repo.BatchDeleteObjects(ctx, batchDeleteMatchAllParams(true), time.Now(), nil, "", 0)
+		require.NoError(t, err)
+	}
+
+	lines := 0
+	for _, entry := range hook.AllEntries() {
+		if entry.Data["action"] == "find_uuids_second_resolve" {
+			lines++
+		}
+	}
+	require.Equal(t, 1, lines,
+		"%d calls that all took the second resolve must collapse to one line per window", calls)
+}
+
 // TestBatchDeleteObjects_FailsOnAReadError pins the behaviour this change leads its own
 // risks with: a read error on an object row fails the whole resolve where the merge base
 // skipped that doc id and walked on. Skipping bounded nothing, since only a resolved UUID
