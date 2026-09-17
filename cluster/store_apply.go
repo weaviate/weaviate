@@ -43,9 +43,21 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.tenantAddLocks.Unlock(req.Class)
 	}
 
+	// Serialize a reindex task and a movement per collection so the check below
+	// can't race the apply that makes the other side active. Never held with the
+	// tenant lock above: a command has one type and the two sets are disjoint.
+	collection, err := st.reindexOrMovementCollection(req)
+	if err != nil {
+		return 0, err
+	}
+	if collection != "" {
+		st.reindexMovementLocks.Lock(collection)
+		defer st.reindexMovementLocks.Unlock(collection)
+	}
+
 	// PreApplyFilter below judges against in-memory FSM state, so a leader that
-	// has not drained what it inherited must not judge yet. After the tenant
-	// lock, not before: that lock is held across the apply, so a caller can wait
+	// has not drained what it inherited must not judge yet. After the locks
+	// above, not before: each is held across the apply, so a caller can wait
 	// on it long enough for leadership to turn over, and a term confirmed before
 	// the wait says nothing about the term it wakes up in.
 	if err := st.waitLeaderFSMCaughtUp(); err != nil {
@@ -62,7 +74,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	// Namespace admission runs before the schema-shape filter so a suspended
 	// namespace answers with its own state rather than a complaint about the
 	// entity the caller named.
-	if err := st.admitPropose(req); err != nil {
+	if err := st.admitPropose(req, collection); err != nil {
 		return 0, err
 	}
 
@@ -111,7 +123,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // apply whose schema half has committed. An Apply-side check would not close
 // that window either: the DB half runs after the schema half commits, so a flip
 // landing in between produces the same state.
-func (st *Store) admitPropose(req *api.ApplyRequest) error {
+func (st *Store) admitPropose(req *api.ApplyRequest, collection string) error {
 	if err := st.admitDestructive(req); err != nil {
 		return err
 	}
@@ -121,31 +133,47 @@ func (st *Store) admitPropose(req *api.ApplyRequest) error {
 	if err := st.admitShardStatus(req); err != nil {
 		return err
 	}
-	return st.admitReindexOrMovement(req)
+	return st.admitReindexOrMovement(req.Type, collection)
 }
 
-// admitReindexOrMovement: a task and a movement rewrite the same shard files.
-func (st *Store) admitReindexOrMovement(req *api.ApplyRequest) error {
+func (st *Store) reindexOrMovementCollection(req *api.ApplyRequest) (string, error) {
 	switch req.Type {
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
 		sub := &api.ReplicationReplicateShardRequest{}
 		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
-			return fmt.Errorf("unmarshal replicate subcommand: %w", err)
+			return "", fmt.Errorf("unmarshal replicate subcommand: %w", err)
 		}
-		namespace, active := st.distributedTasksManager.ActiveTaskForCollection(sub.SourceCollection)
-		if !active {
-			return nil
-		}
-		return fmt.Errorf("%w: collection %q has an active %s task; retry after it completes",
-			replicationTypes.ErrMovementBlockedByTask, sub.SourceCollection, namespace)
+		return sub.SourceCollection, nil
 
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
 		sub := &api.AddDistributedTaskRequest{}
 		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
-			return fmt.Errorf("unmarshal add-task subcommand: %w", err)
+			return "", fmt.Errorf("unmarshal add-task subcommand: %w", err)
 		}
-		collection, ok := st.distributedTasksManager.CollectionOfTask(sub.Namespace, sub.Payload)
-		if !ok || !st.replicationManager.GetReplicationFSM().HasActiveReplicationForCollection(collection) {
+		collection, _ := st.distributedTasksManager.CollectionOfTask(sub.Namespace, sub.Payload)
+		return collection, nil
+
+	default:
+		return "", nil
+	}
+}
+
+// admitReindexOrMovement: a task and a movement rewrite the same shard files.
+func (st *Store) admitReindexOrMovement(cmdType api.ApplyRequest_Type, collection string) error {
+	if collection == "" {
+		return nil
+	}
+	switch cmdType {
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
+		namespace, active := st.distributedTasksManager.ActiveTaskForCollection(collection)
+		if !active {
+			return nil
+		}
+		return fmt.Errorf("%w: collection %q has an active %s task; retry after it completes",
+			replicationTypes.ErrMovementBlockedByTask, collection, namespace)
+
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
+		if !st.replicationManager.GetReplicationFSM().HasActiveReplicationForCollection(collection) {
 			return nil
 		}
 		return distributedtask.NewBlockedByReplicaMovementError(collection)

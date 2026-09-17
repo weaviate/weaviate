@@ -398,7 +398,6 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 	return removed
 }
 
-// CollectionOfTask reads the collection an add-task payload names.
 func (m *Manager) CollectionOfTask(namespace string, payload []byte) (string, bool) {
 	m.mu.RLock()
 	extractor := m.collectionExtractors[namespace]

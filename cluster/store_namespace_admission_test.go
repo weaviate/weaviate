@@ -597,7 +597,9 @@ func admitProposeBytes(t *testing.T, ms *MockStore, data []byte) error {
 	t.Helper()
 	req := &api.ApplyRequest{}
 	require.NoError(t, gproto.Unmarshal(data, req))
-	return ms.store.admitPropose(req)
+	collection, err := ms.store.reindexOrMovementCollection(req)
+	require.NoError(t, err)
+	return ms.store.admitPropose(req, collection)
 }
 
 // TestExecuteGate_DestructiveApplyTypes drives the three destructive commands

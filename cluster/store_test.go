@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -1560,7 +1561,9 @@ type MockStore struct {
 	replicationFSM *schema.MockreplicationFSM
 }
 
-func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
+// tweaks adjust the config before the FSM reads it, for a store whose gates
+// depend on what the config carries.
+func NewMockStore(t *testing.T, nodeID string, raftPort int, tweaks ...func(*Config)) MockStore {
 	indexer := fakes.NewMockSchemaExecutor()
 	parser := fakes.NewMockParser()
 	logger, _ := logrustest.NewNullLogger()
@@ -1588,6 +1591,9 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			TelemetryEnabled:       true,
 		},
 		replicationFSM: schema.NewMockreplicationFSM(t),
+	}
+	for _, tweak := range tweaks {
+		tweak(&ms.cfg)
 	}
 
 	s := NewFSM(ms.cfg, nil, prometheus.NewPedanticRegistry())
@@ -1745,6 +1751,69 @@ func seedExclusionMovement(t *testing.T, s *Store) {
 	require.NoError(t, s.replicationManager.GetReplicationFSM().Replicate(1, exclusionMovement))
 }
 
+// openExclusionStore is exclusionStore on a live single-node raft, so a submit
+// that wins the race really applies and the loser has something to see.
+func openExclusionStore(t *testing.T) *Store {
+	t.Helper()
+	srv, _ := newBarrierTestStore(t, func(c *Config) {
+		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
+			exclusionNamespace: namesExclusionCollection,
+		}
+	})
+
+	// The movement's apply validates against the schema, so the winner only
+	// registers an op if the shard is really where the request says it is.
+	addClass, err := json.Marshal(cmd.AddClassRequest{
+		Class: &models.Class{Class: exclusionCollection, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+		State: &sharding.State{Physical: map[string]sharding.Physical{
+			exclusionMovement.SourceShard: {BelongsToNodes: []string{exclusionMovement.SourceNode}},
+		}},
+	})
+	require.NoError(t, err)
+	require.NoError(t, srv.store.schemaManager.AddClass(&cmd.ApplyRequest{
+		Type: cmd.ApplyRequest_TYPE_ADD_CLASS, Class: exclusionCollection, SubCommand: addClass,
+	}, srv.store.cfg.NodeID, true, false))
+	return srv.store
+}
+
+// Refusing one submit at a time is not the exclusion: two that arrive together
+// must not both be admitted. Red without the per-collection lock in Store.Execute,
+// which is what keeps the check from racing the apply that answers it.
+func TestExecute_ConcurrentSubmitsAdmitOnlyOne(t *testing.T) {
+	s := openExclusionStore(t)
+	commands := []*cmd.ApplyRequest{
+		exclusionMovementCommand(t),
+		exclusionTaskCommand(t, exclusionNamespace),
+	}
+
+	errs := make([]error, len(commands))
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i, command := range commands {
+		wg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			<-start
+			_, errs[i] = s.Execute(command)
+		}, s.log)
+	}
+	close(start)
+	wg.Wait()
+
+	admitted := 0
+	for _, err := range errs {
+		if err == nil {
+			admitted++
+			continue
+		}
+		require.True(t, errors.Is(err, replicationTypes.ErrMovementBlockedByTask) ||
+			errors.Is(err, distributedtask.ErrTaskBlockedByReplicaMovement),
+			"the loser must be refused by the exclusion, got: %v", err)
+	}
+	require.Equal(t, 1, admitted,
+		"both submits were admitted, so the check ran against state the other one had not committed yet")
+}
+
 // Pins the reindex/replica-movement exclusion in both directions, on the
 // propose-time check rather than the apply.
 func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
@@ -1791,7 +1860,11 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 				tc.seed(t, s)
 			}
 
-			err := s.admitPropose(tc.command(t))
+			command := tc.command(t)
+			collection, err := s.reindexOrMovementCollection(command)
+			require.NoError(t, err)
+
+			err = s.admitPropose(command, collection)
 			if len(tc.wantErrs) == 0 {
 				require.NoError(t, err)
 				return
