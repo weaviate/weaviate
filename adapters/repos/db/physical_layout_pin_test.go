@@ -15,6 +15,7 @@ package db
 
 import (
 	"context"
+	"io"
 	"math/rand"
 	"os"
 	"path/filepath"
@@ -26,9 +27,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
+	esync "github.com/weaviate/weaviate/entities/sync"
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
@@ -276,4 +280,74 @@ func assertFileExists(t *testing.T, path string) {
 	info, err := os.Stat(path)
 	require.NoError(t, err, "expected on-disk artifact %s", path)
 	assert.False(t, info.IsDir(), "expected %s to be a file", path)
+}
+
+// A replica transfer delivers the files the snapshot lists, and index.db is
+// not among them. The target of a moved legacy dynamic index that had
+// upgraded to hnsw then reads no verdict, treats the index as flat, and
+// deletes the hnsw commit log it just received. Pins that the verdict, and
+// the graph, travel with the replica.
+func TestReplicaTransferCarriesTheDynamicUpgrade(t *testing.T) {
+	ctx := context.Background()
+	const className = "TransferDynamicLegacy"
+	duc := dynamicent.UserConfig{}
+	duc.SetDefaults()
+	duc.Threshold = 10 // the queue upgrades the index once this many are indexed
+	shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, duc, false, true)
+	shard := shd.(*Shard)
+	defer removeRootPath(t, idx)
+
+	putLegacyBatch(t, ctx, shd, className, 20, 4)
+	drainQueue(t, shd, "")
+	probe := createRandomObjects(rand.New(rand.NewSource(1)), className, 1, 4)[0].Vector
+
+	// the upgrade writes its verdict to index.db and removes the flat stage
+	upgraded := func(s *Shard) bool {
+		up, err := dynamic.UpgradedInState(s.metadataDB.Namespace(dynamic.StateNamespace), s.path(), "main")
+		require.NoError(t, err)
+		return up
+	}
+	require.Eventually(t, func() bool { return upgraded(shard) }, 30*time.Second, 50*time.Millisecond, "the queue upgrades past the threshold")
+	assertDirExists(t, filepath.Join(shard.path(), "main.hnsw.commitlog.d"))
+	before, _, err := shard.ObjectVectorSearch(ctx, []models.Vector{probe}, []string{""}, 0, 5, nil, nil, nil, additional.Properties{}, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, before, 5)
+
+	// what the copier fetches: the snapshot's file list, file by file
+	idx.replicaSnapshotOpLocks = esync.NewKeyRWLocker()
+	const opID = "move"
+	files, err := idx.IncomingCreateReplicaSnapshot(ctx, shard.name, opID)
+	require.NoError(t, err)
+	delivered := map[string][]byte{}
+	for _, rel := range files {
+		r, err := idx.IncomingGetReplicaSnapshotFile(ctx, opID, rel)
+		require.NoError(t, err)
+		data, err := io.ReadAll(r)
+		require.NoError(t, err)
+		require.NoError(t, r.Close())
+		delivered[rel] = data
+	}
+	require.NoError(t, idx.IncomingReleaseReplicaSnapshot(ctx, opID))
+
+	// the target: an empty shard directory holding exactly the delivered
+	// files, then the load the movement runs
+	shardDir := shard.path()
+	require.NoError(t, shard.Shutdown(ctx))
+	require.NoError(t, os.RemoveAll(shardDir))
+	for rel, data := range delivered {
+		path := filepath.Join(shardDir, rel)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(t, os.WriteFile(path, data, 0o644))
+	}
+	restored, err := idx.initShard(ctx, shard.name, idx.getClass(), nil, true, true)
+	require.NoError(t, err)
+	idx.shards.Store(shard.name, restored)
+	target := underlyingShard(t, restored)
+
+	_, err = os.Stat(filepath.Join(target.path(), "main.hnsw.commitlog.d"))
+	assert.NoError(t, err, "the hnsw commit log survived the move")
+	assert.True(t, upgraded(target), "the upgrade verdict travelled with the replica")
+	after, _, err := target.ObjectVectorSearch(ctx, []models.Vector{probe}, []string{""}, 0, 5, nil, nil, nil, additional.Properties{}, nil, nil)
+	require.NoError(t, err)
+	require.Len(t, after, 5, "the moved replica serves its vectors")
 }
