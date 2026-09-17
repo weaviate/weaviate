@@ -819,7 +819,7 @@ func TestGetLastUsageMultinode(t *testing.T) {
 		require.Less(t, lastLoginTime, user.LastUsedAt)
 		require.Less(t, user.LastUsedAt, time.Now())
 
-		allUsers := helper.ListAllUsersWithIncludeTime(t, adminKey, true)
+		allUsers := helper.WaitForUsersListedWithIncludeTime(t, adminKey, true, dynUser)
 		for _, user := range allUsers {
 			if *user.UserID != dynUser {
 				continue
@@ -877,7 +877,7 @@ func TestGetLastUsageMultinode(t *testing.T) {
 		require.Less(t, userNode2.LastUsedAt, time.Now())
 		require.Equal(t, userNode2.LastUsedAt, user.LastUsedAt)
 
-		allUsers := helper.ListAllUsersWithIncludeTime(t, adminKey, true)
+		allUsers := helper.WaitForUsersListedWithIncludeTime(t, adminKey, true, dynUser)
 		for _, user := range allUsers {
 			if *user.UserID != dynUser {
 				continue
@@ -886,6 +886,64 @@ func TestGetLastUsageMultinode(t *testing.T) {
 			require.Equal(t, user.LastUsedAt, userNode2.LastUsedAt)
 		}
 	})
+}
+
+// TestListUsersMultinode pins that every node's user list converges on writes
+// made through node 1. They assign and revoke a role, delete the user, and
+// recreate it under the same id, which must not list the old roles.
+func TestListUsersMultinode(t *testing.T) {
+	adminKey := "admin-key"
+	dynUser := "list-multinode-user"
+
+	compose, down := composeUpSharedCluster(t)
+	defer down()
+
+	nodeURIs := []string{compose.GetWeaviate().URI(), compose.GetWeaviateNode2().URI(), compose.GetWeaviateNode3().URI()}
+	// requireListedOnEveryNode waits until each node lists dynUser with wantRoles,
+	// or does not list it at all when listed is false.
+	requireListedOnEveryNode := func(t *testing.T, listed bool, wantRoles []string) {
+		t.Helper()
+		for _, uri := range nodeURIs {
+			helper.SetupClient(uri)
+			require.EventuallyWithT(t, func(c *assert.CollectT) {
+				var found *models.DBUserInfo
+				for _, user := range helper.ListAllUsers(t, adminKey) {
+					if *user.UserID == dynUser {
+						found = user
+					}
+				}
+				if !listed {
+					assert.Nil(c, found, "node %s still lists %s", uri, dynUser)
+					return
+				}
+				if assert.NotNil(c, found, "node %s does not list %s", uri, dynUser) {
+					assert.ElementsMatch(c, wantRoles, found.Roles, "node %s", uri)
+				}
+			}, 10*time.Second, 100*time.Millisecond)
+		}
+		helper.SetupClient(nodeURIs[0])
+	}
+
+	helper.DeleteUser(t, dynUser, adminKey)
+	defer helper.DeleteUser(t, dynUser, adminKey)
+
+	helper.CreateUser(t, dynUser, adminKey)
+	requireListedOnEveryNode(t, true, []string{})
+
+	helper.AssignRoleToUser(t, adminKey, "viewer", dynUser)
+	requireListedOnEveryNode(t, true, []string{"viewer"})
+
+	helper.RevokeRoleFromUser(t, adminKey, "viewer", dynUser)
+	requireListedOnEveryNode(t, true, []string{})
+
+	helper.AssignRoleToUser(t, adminKey, "viewer", dynUser)
+	requireListedOnEveryNode(t, true, []string{"viewer"})
+
+	helper.DeleteUser(t, dynUser, adminKey)
+	requireListedOnEveryNode(t, false, nil)
+
+	helper.CreateUser(t, dynUser, adminKey)
+	requireListedOnEveryNode(t, true, []string{})
 }
 
 func TestStaticUserImport(t *testing.T) {

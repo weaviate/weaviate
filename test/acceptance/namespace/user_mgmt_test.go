@@ -100,7 +100,7 @@ func TestNamespacedAdminLifecycle(t *testing.T) {
 	require.Empty(t, helper.GetRolesForUser(t, "bob", nsAdminKey, false))
 
 	// Admin LIST sees both herself (alice) and bob, both as short ids.
-	list := helper.ListAllUsers(t, nsAdminKey)
+	list := helper.WaitForUsersListed(t, nsAdminKey, "alice", "bob")
 	require.Len(t, list, 2)
 	for _, u := range list {
 		require.NotNil(t, u.UserID)
@@ -154,13 +154,13 @@ func TestNamespacedUserCrossNamespaceIsolation(t *testing.T) {
 	t.Cleanup(func() { helper.DeleteUser(t, ns2+":bob", adminKey) })
 
 	// ns1 admin sees only ns1's users; ns2 admin sees only ns2's.
-	ns1List := helper.ListAllUsers(t, ns1AdminKey)
+	ns1List := helper.WaitForUsersListed(t, ns1AdminKey, "alice", "bob")
 	require.Len(t, ns1List, 2, "ns1 admin must see alice + bob in ns1 only")
 	for _, u := range ns1List {
 		require.NotContains(t, *u.UserID, ":")
 		require.Empty(t, u.Namespace)
 	}
-	ns2List := helper.ListAllUsers(t, ns2AdminKey)
+	ns2List := helper.WaitForUsersListed(t, ns2AdminKey, "carol", "bob")
 	require.Len(t, ns2List, 2, "ns2 admin must see carol + bob in ns2 only")
 	for _, u := range ns2List {
 		require.NotContains(t, *u.UserID, ":")
@@ -202,7 +202,7 @@ func TestNamespacedViewerDeniedUserMutations(t *testing.T) {
 	bobFromViewer := helper.GetUser(t, "bob", viewerKey)
 	require.Equal(t, "bob", *bobFromViewer.UserID)
 	require.Empty(t, bobFromViewer.APIKeyFirstLetters)
-	require.Len(t, helper.ListAllUsers(t, viewerKey), 2)
+	require.Len(t, helper.WaitForUsersListed(t, viewerKey, "bob", "dan"), 2)
 
 	// Mutations: 403.
 	err := createUserExpectErr(t, "eve", viewerKey)
@@ -256,19 +256,14 @@ func TestGlobalOperatorReach(t *testing.T) {
 	require.Equal(t, ns2, bobInNs2.Namespace)
 
 	// Operator LIST — both bobs visible, qualified, namespace populated.
-	all := helper.ListAllUsers(t, adminKey)
-	var ns1Bob, ns2Bob bool
-	for _, u := range all {
+	for _, u := range helper.WaitForUsersListed(t, adminKey, ns1+":bob", ns2+":bob") {
 		switch *u.UserID {
 		case ns1 + ":bob":
-			ns1Bob = true
 			require.Equal(t, ns1, u.Namespace)
 		case ns2 + ":bob":
-			ns2Bob = true
 			require.Equal(t, ns2, u.Namespace)
 		}
 	}
-	require.True(t, ns1Bob && ns2Bob, "operator must see both namespaces' bobs")
 
 	// Read roles via the current endpoint.
 	require.NotNil(t, helper.GetRolesForUser(t, ns1+":bob", adminKey, false))
