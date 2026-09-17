@@ -356,9 +356,6 @@ type Shard struct {
 	// Mutations under haltForTransferMux; atomic so halt probes read lock-free.
 	haltForTransferCount     atomic.Int64
 	haltForTransferCtxCancel context.CancelFunc
-	// vectorDeletions is paused by a transfer halt like compaction: a drop
-	// under it leaves its files, the last resume deletes them
-	vectorDeletions vectorDeletions
 
 	status              ShardStatus
 	statusLock          sync.RWMutex

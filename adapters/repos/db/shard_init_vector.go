@@ -505,40 +505,13 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 	if err != nil {
 		return fmt.Errorf("vector %q: %w", targetVector, err)
 	}
-	if !recorded {
-		return s.vectors.Remove(ctx, targetVector, s.index.logger, dropVectorIndexSlot(ctx, targetVector))
-	}
-	err = s.markVectorIndexDropping(targetVector, rec)
-	if err != nil {
-		return fmt.Errorf("mark vector index %q dropping: %w", targetVector, err)
-	}
-	now, leave := s.vectorDeletions.Enter()
-	defer leave()
-	teardown := dropVectorIndexSlot(ctx, targetVector)
-	if !now {
-		// a halt may be listing these files: shut down, delete at the resume
-		teardown = func(index VectorIndex, queue *VectorIndexQueue) error {
-			return shutdownVectorIndex(ctx, index, queue)
+	if recorded {
+		err = s.markVectorIndexDropping(targetVector, rec)
+		if err != nil {
+			return fmt.Errorf("mark vector index %q dropping: %w", targetVector, err)
 		}
 	}
-	err = s.vectors.Remove(ctx, targetVector, s.index.logger, teardown)
-	if err != nil {
-		return err
-	}
-	if !now {
-		queued, leaveLater := s.vectorDeletions.Defer(targetVector, rec.PhysicalID)
-		if queued {
-			return nil
-		}
-		defer leaveLater()
-	}
-	return s.removeVectorIndexArtifacts(ctx, targetVector, rec.PhysicalID)
-}
-
-// dropVectorIndexSlot is the teardown of an immediate drop: the queue and
-// the index go with their files.
-func dropVectorIndexSlot(ctx context.Context, targetVector string) func(index VectorIndex, queue *VectorIndexQueue) error {
-	return func(index VectorIndex, queue *VectorIndexQueue) error {
+	err = s.vectors.Remove(ctx, targetVector, s.index.logger, func(index VectorIndex, queue *VectorIndexQueue) error {
 		if queue != nil {
 			if err := queue.Drop(ctx); err != nil {
 				return fmt.Errorf("drop queue for vector %q: %w", targetVector, err)
@@ -550,23 +523,9 @@ func dropVectorIndexSlot(ctx context.Context, targetVector string) func(index Ve
 			}
 		}
 		return nil
+	})
+	if err != nil || !recorded {
+		return err
 	}
-}
-
-// shutdownVectorIndex closes the index and queue and keeps every file, the
-// teardown of a drop that runs under a transfer halt.
-func shutdownVectorIndex(ctx context.Context, index VectorIndex, queue *VectorIndexQueue) error {
-	if queue != nil {
-		err := queue.Close(ctx)
-		if err != nil {
-			return fmt.Errorf("close queue: %w", err)
-		}
-	}
-	if index != nil {
-		err := index.Shutdown(ctx)
-		if err != nil {
-			return fmt.Errorf("shut vector index down: %w", err)
-		}
-	}
-	return nil
+	return s.removeVectorIndexArtifacts(ctx, targetVector, rec.PhysicalID)
 }

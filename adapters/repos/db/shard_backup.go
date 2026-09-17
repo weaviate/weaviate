@@ -20,8 +20,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/sirupsen/logrus"
-
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -97,11 +95,6 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 			}
 		}
 	}()
-
-	err = s.vectorDeletions.Pause(innerCtx)
-	if err != nil {
-		return fmt.Errorf("pause vector index deletions: %w", err)
-	}
 
 	// Pause steps run only on the first halt. Re-pausing per halt would strand the
 	// per-bucket pause-timer refcount (1 pause : 1 stop) and never observe the
@@ -201,28 +194,6 @@ func (s *Shard) structuralVectorOpInFlight() (busy bool, reason string) {
 		return nil
 	})
 	return
-}
-
-// finishDeferredVectorDrops deletes what drops under the halt left behind.
-// A failure is logged, not returned: the dropping record keeps the vector
-// for the sweep's retry and the next load.
-func (s *Shard) finishDeferredVectorDrops(ctx context.Context) error {
-	for _, drop := range s.vectorDeletions.Resume() {
-		if _, published := s.vectors.get(drop.name); published {
-			// the drop failed after queuing and the slot came back; the
-			// retry drops it again
-			continue
-		}
-		err := s.removeVectorIndexArtifacts(ctx, drop.name, drop.physicalID)
-		if err != nil {
-			s.index.logger.WithFields(logrus.Fields{
-				"action":        "drop_vector_index",
-				"shard":         s.name,
-				"target_vector": drop.name,
-			}).Errorf("finishing a drop deferred by a transfer halt: %v", err)
-		}
-	}
-	return nil
 }
 
 func (s *Shard) mayUpdateInactivityTimeout(inactivityTimeout time.Duration) {
@@ -525,9 +496,6 @@ func (s *Shard) mayForceResumeMaintenanceCycles(ctx context.Context, forced bool
 
 	g.Go(func() error {
 		return s.store.ResumeCompaction(ctx)
-	})
-	g.Go(func() error {
-		return s.finishDeferredVectorDrops(ctx)
 	})
 	g.Go(func() error {
 		return s.cycleCallbacks.vectorCombinedCallbacksCtrl.Activate()
