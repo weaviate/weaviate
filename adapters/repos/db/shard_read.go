@@ -1021,29 +1021,14 @@ func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter
 // lookup bound to one consistent view, so a scan pays for the view once.
 type secondaryDocIDLookup func(ctx context.Context, pos int, seckey, buffer []byte) ([]byte, []byte, error)
 
-// uuidFromDocID returns found=false when the doc id has no object, which a caller
-// holding a doc id read earlier has to expect: the object may have been deleted since.
-// It takes its own bucket and view for a single lookup; a scan hoists both and calls
-// uuidFromDocIDWithLookup instead.
-func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, bool, error) {
-	bucket, release, err := s.objectsBucket()
-	if err != nil {
-		return "", false, err
-	}
-	defer release()
-
-	lookup, releaseView := bucket.SecondaryViewLookup()
-	defer releaseView()
-
-	uuid, _, found, err := uuidFromDocIDWithLookup(context.TODO(), // TODO: context
-		lookup, docID, make([]byte, 8), nil)
-	return uuid, found, err
-}
-
-// uuidFromDocIDWithLookup is [Shard.uuidFromDocID] over a hoisted lookup. docIDBuf is
-// overwritten with the key and objBuf holds the object row, both reusable across calls:
-// the returned UUID is a fresh string, so the next lookup may overwrite either. The
-// returned buffer replaces objBuf, which the lookup grows to the largest row it reads.
+// uuidFromDocIDWithLookup reads one object row through a hoisted lookup and returns the
+// id property on it. It returns found=false when the doc id has no object row. Any caller
+// that read the doc id earlier has to expect this, since the object may have been deleted
+// in between.
+//
+// docIDBuf takes the key and objBuf takes the object row. Both are reusable across calls,
+// because the returned UUID is a fresh string rather than a view into either. Use the
+// returned buffer as the next objBuf: the lookup grows it to the largest row it has read.
 func uuidFromDocIDWithLookup(ctx context.Context, lookup secondaryDocIDLookup,
 	docID uint64, docIDBuf, objBuf []byte,
 ) (strfmt.UUID, []byte, bool, error) {
