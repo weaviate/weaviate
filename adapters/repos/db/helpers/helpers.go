@@ -247,7 +247,7 @@ func VectorIndexArtifactsForID(physicalID string, otherIDs []string) VectorIndex
 		return artifacts
 	}
 	// only LSM buckets can collide, see VectorIndexArtifactsFor
-	keptBuckets := artifacts.LSMBuckets[:0:0]
+	var keptBuckets []string
 	for _, name := range artifacts.LSMBuckets {
 		if _, clash := protected[name]; clash {
 			continue
