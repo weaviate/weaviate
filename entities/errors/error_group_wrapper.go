@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"sync"
 	"sync/atomic"
 
 	"github.com/sirupsen/logrus"
@@ -31,6 +32,8 @@ type ErrorGroupWrapper struct {
 	variables      []interface{}
 	logger         logrus.FieldLogger
 	recoverPanic   func(err *error, localVars ...interface{})
+	panicsLock     sync.Mutex
+	panics         []recoveredPanic
 	routineCounter atomic.Int64
 	includeStack   bool
 	limitSet       int
@@ -68,12 +71,10 @@ func NewErrorGroupWithContextWrapper(logger logrus.FieldLogger, ctx context.Cont
 	return egw, ctx
 }
 
-// setRecoverPanic builds the recovery that Go defers in each goroutine.
-// DISABLE_RECOVERY_ON_PANIC=true makes it a no-op instead, so a panic reaches
-// the runtime.
+// setRecoverPanic builds the recovery every method defers around its callback.
+// DISABLE_RECOVERY_ON_PANIC=true makes it a no-op, so a panic reaches the runtime.
 func (egw *ErrorGroupWrapper) setRecoverPanic() {
 	if entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
-		// the no-op never calls recover, so the panic reaches the runtime
 		egw.recoverPanic = func(*error, ...interface{}) {}
 		return
 	}
@@ -82,6 +83,12 @@ func (egw *ErrorGroupWrapper) setRecoverPanic() {
 		// can't move into reportPanic.
 		if r := recover(); r != nil {
 			reportPanic(err, r, egw.logger, localVars, egw.variables)
+
+			// Recorded as well as returned: Wait carries one goroutine's error, so
+			// WaitAndCollect is the only route out for every other panic.
+			egw.panicsLock.Lock()
+			egw.panics = append(egw.panics, recoveredPanic{err: *err, localVars: localVars})
+			egw.panicsLock.Unlock()
 		}
 	}
 }
@@ -117,27 +124,91 @@ func RunRecovered(logger logrus.FieldLogger, f func() error) (err error) {
 	return f()
 }
 
-// Go runs f in a new goroutine. A panic in f is recovered and returned as f's
-// error, so Wait reports it as "panic occurred: <value>" and the group's
-// context is cancelled with it. DISABLE_RECOVERY_ON_PANIC lets the panic reach
-// the runtime instead.
-func (egw *ErrorGroupWrapper) Go(f func() error, localVars ...interface{}) {
-	egw.Group.Go(func() (err error) {
+// recoveredPanic is a panic the group recovered, with the localVars of the call
+// that raised it.
+type recoveredPanic struct {
+	err       error
+	localVars []interface{}
+}
+
+// recoveredPanics returns every panic the group recovered, including ones Wait
+// doesn't report: Wait returns one goroutine's error, never an inline call's.
+// Call it after Wait, once every goroutine has recorded its panic.
+func (egw *ErrorGroupWrapper) recoveredPanics() []recoveredPanic {
+	egw.panicsLock.Lock()
+	defer egw.panicsLock.Unlock()
+	return append([]recoveredPanic(nil), egw.panics...)
+}
+
+// varStrings renders each localVar as a string for the collector. A collector
+// that files by group turns each into a path segment, so pass identifying
+// values, not log labels.
+func varStrings(vars ...interface{}) []string {
+	rendered := make([]string, 0, len(vars))
+	for _, v := range vars {
+		rendered = append(rendered, fmt.Sprint(v))
+	}
+	return rendered
+}
+
+// WaitAndCollect waits for the group, hands each recovered panic to collect
+// with the raising call's local variables, and returns what Wait reported. A
+// recovered panic reaches both, so recording both double-counts it. A nil
+// collect makes this Wait. Call it once: panics are kept, not drained.
+func (egw *ErrorGroupWrapper) WaitAndCollect(collect func(err error, localVars ...string)) error {
+	err := egw.Wait()
+	if collect == nil {
+		return err
+	}
+	for _, p := range egw.recoveredPanics() {
+		collect(p.err, varStrings(p.localVars...)...)
+	}
+	return err
+}
+
+// withRecovery wraps f so every method that runs a callback shares one recovery.
+func (egw *ErrorGroupWrapper) withRecovery(f func() error, localVars ...interface{}) func() error {
+	return func() (err error) {
 		defer egw.recoverPanic(&err, localVars...)
 		return f()
-	})
+	}
+}
+
+// Go runs f in a new goroutine. A panic in f becomes f's error, so Wait
+// reports it unless another goroutine errored first, and WaitAndCollect
+// hands it to collect either way.
+func (egw *ErrorGroupWrapper) Go(f func() error, localVars ...interface{}) {
+	egw.Group.Go(egw.withRecovery(f, localVars...))
 	egw.routineCounter.Add(1)
 }
 
-// SetLimit overrides the SetLimit method to set a limit on the number of
-// goroutines and track what's set.
+// RunRecovered calls f on the calling goroutine, not a new one, and returns what
+// f returned or the panic it recovered. Unlike the package-level RunRecovered, a
+// panic is also recorded for WaitAndCollect. The return is the only route out for
+// an error f returned: neither Wait nor WaitAndCollect carries it.
+func (egw *ErrorGroupWrapper) RunRecovered(f func() error, localVars ...interface{}) error {
+	return egw.withRecovery(f, localVars...)()
+}
+
+// TryGo runs f in a new goroutine when the group's limit allows it, reporting
+// whether it started. A panic in f is recovered and returned as f's error, just
+// as Go does.
+func (egw *ErrorGroupWrapper) TryGo(f func() error, localVars ...interface{}) bool {
+	started := egw.Group.TryGo(egw.withRecovery(f, localVars...))
+	if started {
+		egw.routineCounter.Add(1)
+	}
+	return started
+}
+
+// SetLimit sets the group's goroutine limit and records it in limitSet.
 func (egw *ErrorGroupWrapper) SetLimit(limit int) {
 	egw.Group.SetLimit(limit)
 	egw.limitSet = limit
 }
 
 // Wait waits for all goroutines to finish and returns the first non-nil error,
-// which includes a panic Go recovered.
+// which includes a recovered panic.
 func (egw *ErrorGroupWrapper) Wait() error {
 	count := egw.routineCounter.Load()
 	logBase := egw.logger.WithFields(logrus.Fields{
