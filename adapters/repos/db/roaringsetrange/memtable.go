@@ -114,37 +114,34 @@ func (m *Memtable) Nodes() []*MemtableNode {
 	}
 
 	routines := 8
+
+	// Every worker ranges over m.additions itself, since a map range cannot be
+	// split between goroutines. Each owns a disjoint set of bits, so writing
+	// bitsAdditions needs no synchronisation.
+	fillBitsAdditions := func(firstBit int) {
+		for value, key := range m.additions {
+			for bit := firstBit; bit < 64; bit += routines {
+				if key&(1<<bit) != 0 {
+					if bitsAdditions[bit] == nil {
+						bitsAdditions[bit] = sroar.NewBitmap()
+					}
+					bitsAdditions[bit].Set(value)
+				}
+			}
+		}
+	}
+
 	wg := new(sync.WaitGroup)
 	wg.Add(routines - 1)
 
 	for i := 0; i < routines-1; i++ {
-		i := i
 		errors.GoWrapper(func() {
 			defer wg.Done()
-			for j := 0; j < 64; j += routines {
-				bit := i + j
-				for value, key := range m.additions {
-					if key&(1<<bit) != 0 {
-						if bitsAdditions[bit] == nil {
-							bitsAdditions[bit] = sroar.NewBitmap()
-						}
-						bitsAdditions[bit].Set(value)
-					}
-				}
-			}
+			fillBitsAdditions(i)
 		}, m.logger)
 	}
 
-	for bit := routines - 1; bit < 64; bit += routines {
-		for value, key := range m.additions {
-			if key&(1<<bit) != 0 {
-				if bitsAdditions[bit] == nil {
-					bitsAdditions[bit] = sroar.NewBitmap()
-				}
-				bitsAdditions[bit].Set(value)
-			}
-		}
-	}
+	fillBitsAdditions(routines - 1)
 	wg.Wait()
 
 	nodes := make([]*MemtableNode, 1, 65)
