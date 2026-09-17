@@ -50,7 +50,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.62.0 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.12 // indirect
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.29 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sagemakerruntime v1.39.6 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sagemakerruntime v1.46.1 // indirect
 	github.com/aws/aws-sdk-go-v2/service/signin v1.0.9 // indirect
 	github.com/aws/aws-sdk-go-v2/service/sso v1.30.15 // indirect
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.19 // indirect
@@ -58,7 +58,7 @@ require (
 	github.com/aws/smithy-go v1.28.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.6.1 // indirect
-	github.com/buger/jsonparser v1.2.0 // indirect
+	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/casbin/casbin/v2 v2.128.0 // indirect
 	github.com/casbin/govaluate v1.3.0 // indirect
 	github.com/cenkalti/backoff/v4 v4.3.0 // indirect
@@ -92,7 +92,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/go-openapi/analysis v0.24.1 // indirect
-	github.com/go-openapi/errors v0.22.4 // indirect
+	github.com/go-openapi/errors v0.22.8 // indirect
 	github.com/go-openapi/jsonpointer v0.23.1 // indirect
 	github.com/go-openapi/jsonreference v0.21.6 // indirect
 	github.com/go-openapi/loads v0.23.2 // indirect

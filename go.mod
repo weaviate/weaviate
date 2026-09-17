@@ -14,7 +14,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.14
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.62.0
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.104.1
-	github.com/aws/aws-sdk-go-v2/service/sagemakerruntime v1.39.6
+	github.com/aws/aws-sdk-go-v2/service/sagemakerruntime v1.46.1
 	github.com/bits-and-blooms/bloom/v3 v3.7.1
 	github.com/bmatcuk/doublestar v1.3.4
 	github.com/brianvoe/gofakeit/v6 v6.28.0
