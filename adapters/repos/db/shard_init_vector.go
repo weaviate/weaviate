@@ -456,11 +456,38 @@ func dropOneVectorIndex(ctx context.Context, index VectorIndex) error {
 	return index.Drop(ctx, false)
 }
 
-// removeVectorIndexArtifacts deletes every file name owns, its dynamic state
-// key and last its record. Idempotent: a retry after a partial run finds
-// less to do.
+// vectorIndexIDFor is the physical ID name's record maps it to, or the
+// naming rule's for a vector without one (a skipped vector, a shard restored
+// from a pre-mapping backup).
+func (s *Shard) vectorIndexIDFor(name string) (string, error) {
+	rec, ok, err := s.mapping.Get(name)
+	if err != nil {
+		return "", err
+	}
+	if ok {
+		return rec.PhysicalID, nil
+	}
+	return helpers.VectorIndexIDForTarget(name), nil
+}
+
+// removeVectorIndexArtifacts deletes every file name's index owns at its
+// recorded ID, its dynamic state key and last its record. Idempotent: a
+// retry after a partial run finds less to do.
 func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name string) error {
-	artifacts := helpers.VectorIndexArtifactsFor(name, otherTargetVectors(s.class, name))
+	id, err := s.vectorIndexIDFor(name)
+	if err != nil {
+		return fmt.Errorf("vector %q: %w", name, err)
+	}
+	others := otherTargetVectors(s.class, name)
+	otherIDs := make([]string, 0, len(others))
+	for _, other := range others {
+		otherID, err := s.vectorIndexIDFor(other)
+		if err != nil {
+			return fmt.Errorf("vector %q: %w", other, err)
+		}
+		otherIDs = append(otherIDs, otherID)
+	}
+	artifacts := helpers.VectorIndexArtifactsForID(id, otherIDs)
 	for _, bucket := range artifacts.LSMBuckets {
 		err := s.removeBucket(ctx, bucket)
 		if err != nil {
@@ -473,7 +500,7 @@ func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name string) err
 			return fmt.Errorf("drop directory %q for vector %q: %w", dir, name, err)
 		}
 	}
-	err := dynamic.RemoveStateKeyIn(s.metadataDB.Namespace(dynamic.StateNamespace), helpers.VectorIndexIDForTarget(name))
+	err = dynamic.RemoveStateKeyIn(s.metadataDB.Namespace(dynamic.StateNamespace), id)
 	if err != nil {
 		return fmt.Errorf("vector %q: %w", name, err)
 	}

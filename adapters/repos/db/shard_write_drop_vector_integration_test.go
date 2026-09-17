@@ -425,7 +425,12 @@ func reopenMapping(t *testing.T, shardDir string) (map[string]vectorIndexRecord,
 // directory whose name contains the vector's physical id.
 func entriesNamed(t *testing.T, shard *Shard, name string) []string {
 	t.Helper()
-	id := helpers.VectorIndexIDForTarget(name)
+	return entriesWithID(t, shard, helpers.VectorIndexIDForTarget(name))
+}
+
+// entriesWithID is entriesNamed by physical id.
+func entriesWithID(t *testing.T, shard *Shard, id string) []string {
+	t.Helper()
 	var out []string
 	for _, dir := range []string{shard.path(), shard.pathLSM()} {
 		entries, err := os.ReadDir(dir)
@@ -700,6 +705,35 @@ func TestDropVectorIndex_FailedDeferredTeardownKeepsTheIndex(t *testing.T) {
 	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
 	assert.Empty(t, entriesNamed(t, shard, "foo"))
 	_, ok, err = shard.mapping.Get("foo")
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
+// A drop deletes the files at the record's physical ID, not at the naming
+// rule's, and leaves alone what the naming rule would have named.
+func TestDropVectorIndex_DeletesAtTheRecordedID(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	remapped := vectorIndexRecord{PhysicalID: "vectors_foo_v2", IndexType: "hnsw", State: "ready"}
+	shard = reloadAfter(t, ctx, shard, class, func() {
+		withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+			require.NoError(t, m.Put("foo", remapped))
+		})
+	})
+	require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
+	require.NotEmpty(t, entriesWithID(t, shard, "vectors_foo_v2"), "built at the recorded id")
+
+	// what a name-derived deletion would target: not foo's, must survive
+	decoy := filepath.Join(shard.path(), helpers.GetHNSWCommitLogDirName("foo"), "somebody-elses")
+	require.NoError(t, os.MkdirAll(filepath.Dir(decoy), 0o755))
+	require.NoError(t, os.WriteFile(decoy, []byte("x"), 0o600))
+
+	markDropped(class, "foo")
+	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+	assert.Empty(t, entriesWithID(t, shard, "vectors_foo_v2"))
+	_, err := os.Stat(decoy)
+	assert.NoError(t, err, "the naming rule's paths were not touched")
+	_, ok, err := shard.mapping.Get("foo")
 	require.NoError(t, err)
 	assert.False(t, ok)
 }
