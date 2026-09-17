@@ -78,8 +78,8 @@ func (egw *ErrorGroupWrapper) setRecoverPanic() {
 		return
 	}
 	egw.recoverPanic = func(err *error, localVars ...interface{}) {
-		// recover only works when the deferred function calls it itself, so it
-		// stays here rather than moving into reportPanic.
+		// recover() only works when called directly by the deferred func, so it
+		// can't move into reportPanic.
 		if r := recover(); r != nil {
 			reportPanic(err, r, egw.logger, localVars, egw.variables)
 		}
@@ -98,10 +98,13 @@ func reportPanic(err *error, r any, logger logrus.FieldLogger, localVars, groupV
 	*err = fmt.Errorf("panic occurred: %v", r)
 }
 
-// RunRecovered runs f on the calling goroutine and turns a panic in f into the
-// same error ErrorGroupWrapper.Go turns it into, so a caller that runs its work
-// inline in some cases and on the group in others reports a panic the same way
-// either way. DISABLE_RECOVERY_ON_PANIC lets the panic reach the runtime.
+// RunRecovered runs f on the calling goroutine, converting a panic into the
+// same error ErrorGroupWrapper.Go produces, so inline and grouped work report
+// panics identically. DISABLE_RECOVERY_ON_PANIC lets the panic reach the runtime.
+//
+// The environment is read per call, not cached: a test that sets the variable
+// for itself needs the next call to see it, and caching the first read would
+// silently ignore the setting depending on what ran before.
 func RunRecovered(logger logrus.FieldLogger, f func() error) (err error) {
 	if entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
 		return f()
