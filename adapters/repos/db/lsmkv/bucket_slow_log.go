@@ -25,17 +25,16 @@ type BucketSlowLogEntry struct {
 	Recheck          time.Duration // only for secondary index reads
 }
 
-type BucketSlowLogEntries []BucketSlowLogEntry
-
-func (b BucketSlowLogEntries) Reduce() BucketSlowLogEntryStats {
-	if len(b) == 0 {
+// reduceSlowLogEntries summarizes one entry per lookup as percentiles.
+func reduceSlowLogEntries(entries []BucketSlowLogEntry) BucketSlowLogEntryStats {
+	if len(entries) == 0 {
 		return BucketSlowLogEntryStats{}
 	}
 
 	var totalDurations, viewDurations, activeMemtableDurations,
 		flushingMemtableDurations, segmentsDurations, recheckDurations []time.Duration
 
-	for _, entry := range b {
+	for _, entry := range entries {
 		totalDurations = append(totalDurations, entry.Total)
 		viewDurations = append(viewDurations, entry.View)
 		activeMemtableDurations = append(activeMemtableDurations, entry.ActiveMemtable)
