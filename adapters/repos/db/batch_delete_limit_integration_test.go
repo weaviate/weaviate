@@ -435,44 +435,86 @@ func newBatchDeleteRepoAt(t *testing.T, rootDir string, class *models.Class,
 
 // TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot pins that a doc id whose object row is
 // gone while the inverted postings still name it costs a read and not one of the caller's
-// limit slots, whichever filter shape produced the allow list. A leaf allow-list filter is
-// the shape a bound pushed into the resolve breaks: the searcher stops the row reader once
-// the allow list reaches the limit it was given (inverted/searcher_doc_bitmap.go:96), and a
-// dead id inside a window that short leaves the retry loop nothing to retry against, so the
-// reply lands on exactly limit, which the published contract reads as "exact, everything
-// handled".
+// limit slots. A leaf allow-list filter is the shape the bounded resolve truncates: the
+// searcher stops the row reader once the allow list reaches the limit it was given
+// (inverted/searcher_doc_bitmap.go:96), so a dead id inside a window that short leaves
+// the walk nothing to retry against and the reply lands on exactly limit, which the
+// published contract reads as "exact, everything handled". The resolve is then run again
+// with no cap, and only then.
+//
+// The last case is the other side of that rule: a shard that matched fewer objects than
+// the limit was never truncated, so a short reply there is the whole answer and running
+// the filter a second time would buy nothing.
 func TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot(t *testing.T) {
-	const objectCount = 30
-
 	tests := []struct {
 		name   string
 		params func(dryRun bool) objects.BatchDeleteParams
+		// objectCount is how many objects the class holds before any row is dropped.
+		objectCount int
+		// dropRows is how many of the first reply's objects lose their row, postings kept.
+		dropRows    int
+		wantMatches int64
+		wantHandled int
 	}{
-		{name: "leaf allow-list filter", params: batchDeleteMatchAllParams},
-		{name: "deny-list filter", params: batchDeleteDenyListParams},
+		{
+			name:        "leaf allow-list filter with one dead doc id in the window",
+			params:      batchDeleteMatchAllParams,
+			objectCount: 30,
+			dropRows:    1,
+			wantMatches: batchDeleteLimit + 1,
+			wantHandled: int(batchDeleteLimit),
+		},
+		{
+			// Three dead ids leave the bounded pass at 8 of 11, so the uncapped pass is
+			// what carries the reply back to a full window.
+			name:        "leaf allow-list filter with several dead doc ids in the window",
+			params:      batchDeleteMatchAllParams,
+			objectCount: 30,
+			dropRows:    3,
+			wantMatches: batchDeleteLimit + 1,
+			wantHandled: int(batchDeleteLimit),
+		},
+		{
+			name:        "deny-list filter",
+			params:      batchDeleteDenyListParams,
+			objectCount: 30,
+			dropRows:    1,
+			wantMatches: batchDeleteLimit + 1,
+			wantHandled: int(batchDeleteLimit),
+		},
+		{
+			// Five matches never fill the window, so nothing was truncated and the reply
+			// is short because one object is genuinely gone.
+			name:        "fewer matches than the limit with one of them dead",
+			params:      batchDeleteMatchAllParams,
+			objectCount: 5,
+			dropRows:    1,
+			wantMatches: 4,
+			wantHandled: 4,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			repo := newBatchDeleteRepo(t, batchDeleteTestClass(false), singleShardState(), batchDeleteLimit)
-			simpleInsertObjectsForTenant(t, repo, batchDeleteClassName, "", objectCount)
+			simpleInsertObjectsForTenant(t, repo, batchDeleteClassName, "", tt.objectCount)
 
 			before, err := repo.BatchDeleteObjects(ctx, tt.params(true), time.Now(), nil, "", 0)
 			require.NoError(t, err)
-			require.Equal(t, batchDeleteLimit+1, before.Matches)
-			require.NotEmpty(t, before.Objects)
+			require.GreaterOrEqual(t, len(before.Objects), tt.dropRows)
 
-			// The first UUID a dry run lists is the lowest doc id the filter resolved, which
-			// is inside the window a truncated allow list holds.
-			dropObjectRow(t, repo, batchDeleteClassName, before.Objects[0].UUID)
+			// The UUIDs a dry run lists are the lowest doc ids the filter resolved, which
+			// is the window a truncated allow list holds.
+			for i := 0; i < tt.dropRows; i++ {
+				dropObjectRow(t, repo, batchDeleteClassName, before.Objects[i].UUID)
+			}
 
 			after, err := repo.BatchDeleteObjects(ctx, tt.params(true), time.Now(), nil, "", 0)
 			require.NoError(t, err)
-			require.Equal(t, batchDeleteLimit+1, after.Matches,
-				"%d objects still match, so the reply must keep reporting more than the limit",
-				objectCount-1)
-			require.Len(t, after.Objects, int(batchDeleteLimit))
+			require.Equal(t, tt.wantMatches, after.Matches,
+				"%d objects still match", tt.objectCount-tt.dropRows)
+			require.Len(t, after.Objects, tt.wantHandled)
 		})
 	}
 }
