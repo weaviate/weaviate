@@ -175,7 +175,8 @@ func TestFilteredSearchClaimOrder(t *testing.T) {
 
 // TestFilteredSearchReplicaDedupe guards the invariant that replaces the
 // claim machinery: a docID replicated across multiple selected postings is
-// absorbed by the posting scan's visited set and returned exactly once.
+// absorbed by the posting scan's visited set — scored exactly once
+// (queryStats counters) and returned exactly once.
 func TestFilteredSearchReplicaDedupe(t *testing.T) {
 	const (
 		vID  = uint64(1000)
@@ -200,12 +201,21 @@ func TestFilteredSearchReplicaDedupe(t *testing.T) {
 	allow := paddedAllowList(vID, w1ID, w2ID)
 	defer allow.Close()
 
-	ids, _, err := tf.Index.SearchByVector(t.Context(), query, 3, allow)
+	var stats queryStats
+	ids, _, err := tf.Index.searchByVectorWithStats(t.Context(), query, 3, allow, &stats)
 	require.NoError(t, err)
 
 	// no double-counting: every allowed vector exactly once, in exact
 	// distance order (v ~0.0004, w2 0.64, w1 14.44)
 	require.Equal(t, []uint64{vID, w2ID, w1ID}, ids)
+
+	// both replica postings were selected and scanned
+	require.Equal(t, 2, stats.PostingsRead)
+	// no double-scoring: v's replica is skipped by the visited dedup, so
+	// only 3 distinct members are scanned and scored
+	require.Equal(t, 3, stats.MembersScanned)
+	require.Equal(t, 3, stats.PassingMembers)
+	require.Equal(t, 3, stats.DistanceComps)
 }
 
 // TestCentroidSearchTieOrdering pins the deterministic (distance, id)
