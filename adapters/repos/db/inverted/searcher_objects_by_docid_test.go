@@ -45,9 +45,8 @@ func objectName(docID uint64) string {
 	return fmt.Sprintf("name-%d", docID)
 }
 
-// newObjectsBucketSearcher returns a searcher over a fresh objects bucket
-// along with the doc ids that were not tombstoned. Doc ids in corrupt are
-// stored with bytes the object decoder rejects.
+// newObjectsBucketSearcher returns a searcher over a fresh objects bucket and
+// the doc ids that were not tombstoned; corrupt doc ids get bytes the decoder rejects.
 func newObjectsBucketSearcher(t *testing.T, numObjects int, deleted, corrupt []uint64) (*Searcher, []uint64) {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
@@ -130,8 +129,7 @@ func TestSearcherObjectsByDocID(t *testing.T) {
 		{name: "cancelled context", numObjects: 20, limit: 10, cancelCtx: true},
 		{name: "negative limit falls back to the query maximum", numObjects: 20, limit: -1, wantCount: 20},
 		{
-			// Enough doc ids for the bucket to fill its 16 lookup workers, each
-			// decoding through the one shared property extraction.
+			// 600 doc ids fill the bucket's 16 lookup workers with shared props.
 			name: "concurrent decodes share one property extraction", numObjects: 600,
 			properties: []string{"name"}, limit: 600, wantCount: 600,
 		},
