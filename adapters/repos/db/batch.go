@@ -185,6 +185,14 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 	return references, nil
 }
 
+// BatchDeleteObjects deletes the objects a filter matches, at most
+// QUERY_MAXIMUM_RESULTS of them per shard, and reports how many matched. The count is
+// exact while it is at or below the limit, and one above the limit when more match than
+// this call deletes, which is the caller's signal to repeat the same request until it
+// reads zero. A dry run reports the same bounded count and deletes nothing.
+//
+// A limit of zero or less turns the cap off: every match is counted and nothing is
+// deleted, on this path and before it.
 func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDeleteParams,
 	deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) (objects.BatchDeleteResult, error) {
@@ -267,8 +275,9 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 
 // perShardResolveLimit is one more than limit, so a reply can tell "more than limit
 // matched" from "exactly limit". Clamped to int32 so limit+1 can't overflow the
-// cluster-internal find request into a negative, which reads as "no cap". Zero or
-// negative limit means no cap.
+// cluster-internal find request into a negative, which reads as "no cap". A limit of
+// zero or less returns zero: the resolve runs uncapped and the plan then deletes
+// nothing, which is what the same configuration did before the cap existed.
 func perShardResolveLimit(limit int64) int {
 	if limit <= 0 {
 		return 0

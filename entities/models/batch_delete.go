@@ -32,7 +32,7 @@ type BatchDelete struct {
 	// Timestamp of deletion in milliseconds since epoch UTC.
 	DeletionTimeUnixMilli *int64 `json:"deletionTimeUnixMilli,omitempty"`
 
-	// If true, the call reports what the filter matches and deletes nothing. <br/><br/>Depending on the configured verbosity, you will either receive a count of matched objects, or a list of IDs. A dry run is bounded the same way a real delete is. The count stops one above [`QUERY_MAXIMUM_RESULTS`](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS), and the list holds at most that many IDs.
+	// If true, the call reports what the filter matches and deletes nothing. <br/><br/>Depending on the configured verbosity, you will either receive a count of matched objects, or a list of IDs. A dry run is bounded the same way a real delete is. The count stops one above [`QUERY_MAXIMUM_RESULTS`](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS), and the list holds at most `QUERY_MAXIMUM_RESULTS` IDs.
 	DryRun *bool `json:"dryRun,omitempty"`
 
 	// match

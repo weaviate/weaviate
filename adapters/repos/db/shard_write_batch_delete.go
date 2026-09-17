@@ -170,6 +170,15 @@ func (b *deleteObjectsBatcher) setErrorAtIndex(err error, index int) {
 	b.objects[index].Err = err
 }
 
+// FindUUIDs returns the UUID of every object the filter matches, at most limit of them
+// when limit is positive. The limit counts UUIDs returned, not doc ids read, so a shard
+// holding more than limit matching objects returns limit of them and which ones is
+// unspecified. A read error fails the call rather than skipping the doc id.
+//
+// It mutates the shard: a doc id whose object row is gone is dropped from the doc id
+// universe a deny-list filter starts from, so a later call does not read it again. That
+// happens on a dry run too, since the scan is the same. Only ids below
+// [Shard.docIDPruneWatermark] are dropped.
 func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) (uuids []strfmt.UUID, err error) {
 	logger := s.index.logger.WithField("shard", s.name)
 	logger.Debug("Shard::FindUUIDs started")

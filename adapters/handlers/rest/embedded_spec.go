@@ -8511,7 +8511,7 @@ func init() {
           "x-nullable": true
         },
         "dryRun": {
-          "description": "If true, the call reports what the filter matches and deletes nothing. \u003cbr/\u003e\u003cbr/\u003eDepending on the configured verbosity, you will either receive a count of matched objects, or a list of IDs. A dry run is bounded the same way a real delete is. The count stops one above [` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS), and the list holds at most that many IDs.",
+          "description": "If true, the call reports what the filter matches and deletes nothing. \u003cbr/\u003e\u003cbr/\u003eDepending on the configured verbosity, you will either receive a count of matched objects, or a list of IDs. A dry run is bounded the same way a real delete is. The count stops one above [` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS), and the list holds at most ` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + ` IDs.",
           "type": "boolean",
           "default": false
         },
@@ -21087,7 +21087,7 @@ func init() {
           "x-nullable": true
         },
         "dryRun": {
-          "description": "If true, the call reports what the filter matches and deletes nothing. \u003cbr/\u003e\u003cbr/\u003eDepending on the configured verbosity, you will either receive a count of matched objects, or a list of IDs. A dry run is bounded the same way a real delete is. The count stops one above [` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS), and the list holds at most that many IDs.",
+          "description": "If true, the call reports what the filter matches and deletes nothing. \u003cbr/\u003e\u003cbr/\u003eDepending on the configured verbosity, you will either receive a count of matched objects, or a list of IDs. A dry run is bounded the same way a real delete is. The count stops one above [` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + `](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS), and the list holds at most ` + "`" + `QUERY_MAXIMUM_RESULTS` + "`" + ` IDs.",
           "type": "boolean",
           "default": false
         },
