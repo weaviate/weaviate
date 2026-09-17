@@ -522,7 +522,7 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 	marshalled, err := clusterapi.IndicesPayloads.BatchDeleteParams.Marshal(uuids, deletionTime, dryRun)
 	if err != nil {
 		err := errors.Wrap(err, "marshal payload")
-		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
+		return objects.FailedBatchSimpleObjects(uuids, err)
 	}
 	req, err := setupRequest(ctx, http.MethodDelete, hostName,
 		fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName),
@@ -530,7 +530,7 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 		bytes.NewReader(marshalled))
 	if err != nil {
 		err := errors.Wrap(err, "open http request")
-		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
+		return objects.FailedBatchSimpleObjects(uuids, err)
 	}
 
 	clusterapi.IndicesPayloads.BatchDeleteParams.SetContentTypeHeaderReq(req)
@@ -538,34 +538,53 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 	res, err := c.client.Do(req)
 	if err != nil {
 		err := errors.Wrap(err, "send http request")
-		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
+		return objects.FailedBatchSimpleObjects(uuids, err)
 	}
 
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(res.Body)
 		err := errors.Errorf("unexpected status code %d (%s)", res.StatusCode, body)
-		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
+		return objects.FailedBatchSimpleObjects(uuids, err)
 	}
 
 	if ct, ok := clusterapi.IndicesPayloads.BatchDeleteResults.
 		CheckContentTypeHeader(res); !ok {
 		err := errors.Errorf("unexpected content type: %s", ct)
-		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
+		return objects.FailedBatchSimpleObjects(uuids, err)
 	}
 
 	resBytes, err := io.ReadAll(res.Body)
 	if err != nil {
 		err := errors.Wrap(err, "ready body")
-		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
+		return objects.FailedBatchSimpleObjects(uuids, err)
 	}
 
 	batchDeleteResults, err := clusterapi.IndicesPayloads.BatchDeleteResults.Unmarshal(resBytes)
 	if err != nil {
 		err := errors.Wrap(err, "unmarshal body")
-		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
+		return objects.FailedBatchSimpleObjects(uuids, err)
 	}
 
+	// Row i answers uuids[i]. A shard that failed as a whole can answer with a
+	// single row without an id, so a count mismatch fails every id.
+	if len(batchDeleteResults) != len(uuids) {
+		err := errors.Errorf("remote shard returned %d results for %d ids", len(batchDeleteResults), len(uuids))
+		for _, res := range batchDeleteResults {
+			if res.Err != nil {
+				err = res.Err
+				break
+			}
+		}
+		return objects.FailedBatchSimpleObjects(uuids, err)
+	}
+	for i := range batchDeleteResults {
+		// a row with neither id nor error is one deleteSingleBatchInLSM never wrote
+		if batchDeleteResults[i].UUID == "" && batchDeleteResults[i].Err == nil {
+			batchDeleteResults[i].Err = errors.New("remote shard returned no result for this id")
+		}
+		batchDeleteResults[i].UUID = uuids[i]
+	}
 	return batchDeleteResults
 }
 

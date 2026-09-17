@@ -16,6 +16,13 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
+
+	"github.com/go-openapi/strfmt"
+	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 var errAny = errors.New("anyErr")
@@ -121,4 +128,68 @@ func (f *fakeSchema) ShardOwner(class, shard string) (string, error) {
 
 func (f *fakeSchema) ShardReplicas(class, shard string) ([]string, error) {
 	return f.nodes, nil
+}
+
+// TestDeleteObjectBatchUnreachableShard asserts that a delete that cannot reach
+// the shard reports the failure at every id, with the id.
+func TestDeleteObjectBatchUnreachableShard(t *testing.T) {
+	ids := []strfmt.UUID{
+		"00000000-0000-0000-0000-000000000001",
+		"00000000-0000-0000-0000-000000000002",
+	}
+
+	tests := []struct {
+		name    string
+		wantErr string
+		delete  func() objects.BatchSimpleObjects
+	}{
+		{
+			name:    "shard without owner",
+			wantErr: "has no physical shard",
+			delete: func() objects.BatchSimpleObjects {
+				rindex := NewRemoteIndex("C", &ownerlessSchema{}, &fakeNodeResolver{}, nil)
+				return rindex.DeleteObjectBatch(context.Background(), "S", ids, time.Now(), false, 0)
+			},
+		},
+		{
+			name:    "owner without host",
+			wantErr: "resolve node name",
+			delete: func() objects.BatchSimpleObjects {
+				rindex := NewRemoteIndex("C", &fakeSchema{}, &fakeNodeResolver{}, nil)
+				return rindex.DeleteObjectBatch(context.Background(), "S", ids, time.Now(), false, 0)
+			},
+		},
+		{
+			name:    "incoming, class not found",
+			wantErr: "local index",
+			delete: func() objects.BatchSimpleObjects {
+				incoming := NewRemoteIndexIncoming(nil, classlessSchema{}, nil)
+				return incoming.DeleteObjectBatch(context.Background(), "C", "S", ids, time.Now(), false, 0)
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			results := test.delete()
+
+			require.Len(t, results, len(ids))
+			for pos, result := range results {
+				require.Equalf(t, ids[pos], result.UUID, "position %d must keep its id", pos)
+				require.ErrorContainsf(t, result.Err, test.wantErr, "position %d must carry the failure", pos)
+			}
+		})
+	}
+}
+
+type ownerlessSchema struct{ fakeSchema }
+
+func (*ownerlessSchema) ShardOwner(class, shard string) (string, error) {
+	return "", errAny
+}
+
+type classlessSchema struct{}
+
+func (classlessSchema) ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (*models.Class, error) {
+	return nil, errAny
 }
