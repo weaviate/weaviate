@@ -232,50 +232,67 @@ func TestBatchDeleteReply(t *testing.T) {
 		{
 			name:     "single object",
 			response: objects.BatchDeleteResult{Matches: 1, Objects: objects.BatchSimpleObjects{{UUID: UUID1, Err: nil}}},
-			out:      &pb.BatchDeleteReply{Matches: 1, Successful: 1, Failed: 0},
+			out:      &pb.BatchDeleteReply{Matches: 1, Successful: 1, Failed: 0, Limit: ptr(int64(0))},
 		},
 		{
 			name:     "single object with err",
 			response: objects.BatchDeleteResult{Matches: 1, Objects: objects.BatchSimpleObjects{{UUID: UUID1, Err: errors.New("error")}}},
-			out:      &pb.BatchDeleteReply{Matches: 1, Successful: 0, Failed: 1},
+			out:      &pb.BatchDeleteReply{Matches: 1, Successful: 0, Failed: 1, Limit: ptr(int64(0))},
 		},
 		{
 			name:     "one error, one successful",
 			response: objects.BatchDeleteResult{Matches: 2, Objects: objects.BatchSimpleObjects{{UUID: UUID1, Err: errors.New("error")}, {UUID: UUID2, Err: nil}}},
-			out:      &pb.BatchDeleteReply{Matches: 2, Successful: 1, Failed: 1},
+			out:      &pb.BatchDeleteReply{Matches: 2, Successful: 1, Failed: 1, Limit: ptr(int64(0))},
 		},
 		{
 			name:     "one error, one successful - with verbosity",
 			response: objects.BatchDeleteResult{Matches: 2, Objects: objects.BatchSimpleObjects{{UUID: UUID1, Err: errors.New("error")}, {UUID: UUID2, Err: nil}}},
 			verbose:  true,
-			out: &pb.BatchDeleteReply{Matches: 2, Successful: 1, Failed: 1, Objects: []*pb.BatchDeleteObject{
+			out: &pb.BatchDeleteReply{Matches: 2, Successful: 1, Failed: 1, Limit: ptr(int64(0)), Objects: []*pb.BatchDeleteObject{
 				{Uuid: idByte(string(UUID1)), Successful: false, Error: &errorString},
 				{Uuid: idByte(string(UUID2)), Successful: true, Error: &noErrorString},
 			}},
 		},
 		{
-			// Matches above the cap: the reply must carry the cap so a client
-			// can tell the call deleted only part of what it matched.
 			name:     "capped delete reports the limit",
 			response: objects.BatchDeleteResult{Matches: 5, Limit: 2, Objects: objects.BatchSimpleObjects{{UUID: UUID1, Err: errors.New("error")}, {UUID: UUID2, Err: nil}}},
-			out:      &pb.BatchDeleteReply{Matches: 5, Successful: 1, Failed: 1, Limit: 2},
+			out:      &pb.BatchDeleteReply{Matches: 5, Successful: 1, Failed: 1, Limit: ptr(int64(2))},
+		},
+		{
+			name:     "capped delete reports the limit - with verbosity",
+			response: objects.BatchDeleteResult{Matches: 5, Limit: 2, Objects: objects.BatchSimpleObjects{{UUID: UUID1, Err: errors.New("error")}, {UUID: UUID2, Err: nil}}},
+			verbose:  true,
+			out: &pb.BatchDeleteReply{Matches: 5, Successful: 1, Failed: 1, Limit: ptr(int64(2)), Objects: []*pb.BatchDeleteObject{
+				{Uuid: idByte(string(UUID1)), Successful: false, Error: &errorString},
+				{Uuid: idByte(string(UUID2)), Successful: true, Error: &noErrorString},
+			}},
+		},
+		{
+			name:     "matches equal to limit is not capped",
+			response: objects.BatchDeleteResult{Matches: 2, Limit: 2, Objects: objects.BatchSimpleObjects{{UUID: UUID1, Err: nil}, {UUID: UUID2, Err: nil}}},
+			out:      &pb.BatchDeleteReply{Matches: 2, Successful: 2, Failed: 0, Limit: ptr(int64(2))},
+		},
+		{
+			name:     "matches equal to limit, one match unresolved",
+			response: objects.BatchDeleteResult{Matches: 3, Limit: 3, Objects: objects.BatchSimpleObjects{{UUID: UUID1, Err: errors.New("error")}, {UUID: UUID2, Err: nil}}},
+			out:      &pb.BatchDeleteReply{Matches: 3, Successful: 1, Failed: 1, Limit: ptr(int64(3))},
 		},
 		{
 			name:     "uncapped delete reports the limit",
 			response: objects.BatchDeleteResult{Matches: 1, Limit: 10000, Objects: objects.BatchSimpleObjects{{UUID: UUID1, Err: nil}}},
-			out:      &pb.BatchDeleteReply{Matches: 1, Successful: 1, Failed: 0, Limit: 10000},
+			out:      &pb.BatchDeleteReply{Matches: 1, Successful: 1, Failed: 0, Limit: ptr(int64(10000))},
 		},
 		{
 			name:     "no matches still reports the limit",
 			response: objects.BatchDeleteResult{Matches: 0, Limit: 10000},
-			out:      &pb.BatchDeleteReply{Matches: 0, Successful: 0, Failed: 0, Limit: 10000},
+			out:      &pb.BatchDeleteReply{Matches: 0, Successful: 0, Failed: 0, Limit: ptr(int64(10000))},
 		},
 		{
 			name:      "verbose error message strips principal's namespace",
 			response:  objects.BatchDeleteResult{Matches: 1, Objects: objects.BatchSimpleObjects{{UUID: UUID1, Err: errors.New("leaked customer1:TestClass not found")}}},
 			verbose:   true,
 			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			out: &pb.BatchDeleteReply{Matches: 1, Successful: 0, Failed: 1, Objects: []*pb.BatchDeleteObject{
+			out: &pb.BatchDeleteReply{Matches: 1, Successful: 0, Failed: 1, Limit: ptr(int64(0)), Objects: []*pb.BatchDeleteObject{
 				{Uuid: idByte(string(UUID1)), Successful: false, Error: &strippedErrorString},
 			}},
 		},

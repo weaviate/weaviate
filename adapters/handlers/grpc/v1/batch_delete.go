@@ -67,6 +67,9 @@ func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass c
 	return params, nil
 }
 
+// batchDeleteReplyFromObjects converts a repo-level delete result into the gRPC reply.
+// Limit is always set, including when the repo reported no cap (limit=0), so an absent
+// field on the wire means the server predates this field rather than "no cap configured".
 func batchDeleteReplyFromObjects(response objects.BatchDeleteResult, verbose bool, principal *models.Principal) (*pb.BatchDeleteReply, error) {
 	var successful, failed int64
 
@@ -103,11 +106,12 @@ func batchDeleteReplyFromObjects(response objects.BatchDeleteResult, verbose boo
 			objs = append(objs, resultObj)
 		}
 	}
+	limit := response.Limit
 	reply := &pb.BatchDeleteReply{
 		Successful: successful,
 		Failed:     failed,
 		Matches:    response.Matches,
-		Limit:      response.Limit,
+		Limit:      &limit,
 		Objects:    objs,
 	}
 
