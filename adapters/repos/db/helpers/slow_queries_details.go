@@ -144,6 +144,25 @@ func AnnotateSlowQueryLogAppendFunc[T any](ctx context.Context, key string, buil
 	details.values[key] = asList
 }
 
+// DropSlowQueryEntry removes key, so a caller that decided nothing will read
+// the value can stop anything else from logging it. Cheaper than reducing it,
+// and unlike leaving it in place it cannot be picked up by a reader that turns
+// itself on between the decision and the log line.
+func DropSlowQueryEntry(ctx context.Context, key string) {
+	if ctx == nil {
+		return
+	}
+	details, ok := ctx.Value("slow_query_details").(*SlowQueryDetails)
+	if !ok {
+		return
+	}
+
+	details.Lock()
+	defer details.Unlock()
+
+	delete(details.values, key)
+}
+
 func ReplaceSlowQueryEntry[in any, out any](ctx context.Context, key string, replaceFunc func(old in) out) {
 	if ctx == nil {
 		return

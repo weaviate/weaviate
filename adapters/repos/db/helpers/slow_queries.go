@@ -52,6 +52,10 @@ func NewSlowQueryReporter(
 	}
 }
 
+func (sq *BaseSlowReporter) Enabled() bool {
+	return sq.enabled.Get()
+}
+
 // LogIfSlow prints a warning log if the request takes longer than the threshold.
 // Usage:
 //
@@ -62,11 +66,6 @@ func NewSlowQueryReporter(
 //
 // TODO (sebneira): Consider providing fields out of the box (e.g. shard info). Right now we're
 // limited because of circular dependencies.
-// Enabled reports whether slow-query logging is switched on.
-func (sq *BaseSlowReporter) Enabled() bool {
-	return sq.enabled.Get()
-}
-
 func (sq *BaseSlowReporter) LogIfSlow(ctx context.Context, startTime time.Time, fields map[string]any) {
 	if !sq.Enabled() {
 		return
