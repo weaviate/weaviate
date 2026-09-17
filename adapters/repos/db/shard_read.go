@@ -260,8 +260,7 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 
 	// Digest mode: only the header is read below, so skip the full value copy.
 	cursor := bucket.CursorReplaceDigestReusableRange(
-		storobj.MarshallerV1HeaderLen, initialUUID16[:], finalUUID16[:],
-	)
+		storobj.MarshallerV1HeaderLen, initialUUID16[:], finalUUID16[:])
 	defer cursor.Close()
 
 	return collectObjectDigests(ctx, cursor, initialUUID16[:], finalUUID16[:], limit)
@@ -577,10 +576,16 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	startTime := time.Now()
 	defer func() {
 		// Reducing sorts and allocates per entry, so only pay for it when
-		// something downstream reads the result.
+		// something downstream reads the result. Nothing does here, and
+		// LogIfSlow reads the reporter's state again for itself, so drop the
+		// raw entries rather than leave a per-lookup list a reporter switched
+		// on in between could log in full.
 		if s.slowQueryReporter.Enabled() || additional.QueryProfile {
 			lsmkv.ReduceSlowLogEntries(ctx, lsmkv.SlowLogKeyGetBySecondary)
 			lsmkv.ReduceSlowLogEntries(ctx, lsmkv.SlowLogKeyGetBySecondaryWithView)
+		} else {
+			helpers.DropSlowQueryEntry(ctx, lsmkv.SlowLogKeyGetBySecondary)
+			helpers.DropSlowQueryEntry(ctx, lsmkv.SlowLogKeyGetBySecondaryWithView)
 		}
 
 		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
@@ -617,8 +622,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		if v := s.versioner.Version(); v < 2 {
 			return nil, nil, errors.Errorf(
 				"shard was built with an older version of " +
-					"Weaviate which does not yet support BM25 search",
-			)
+					"Weaviate which does not yet support BM25 search")
 		}
 
 		var bm25objs []*storobj.Object
@@ -705,9 +709,14 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	startTime := time.Now()
 
 	defer func() {
+		// Same trade as ObjectSearch: reduce for a reader, otherwise drop the
+		// raw entries so nothing can log them unreduced.
 		if s.slowQueryReporter.Enabled() || additional.QueryProfile {
 			lsmkv.ReduceSlowLogEntries(ctx, lsmkv.SlowLogKeyGetBySecondary)
 			lsmkv.ReduceSlowLogEntries(ctx, lsmkv.SlowLogKeyGetBySecondaryWithView)
+		} else {
+			helpers.DropSlowQueryEntry(ctx, lsmkv.SlowLogKeyGetBySecondary)
+			helpers.DropSlowQueryEntry(ctx, lsmkv.SlowLogKeyGetBySecondaryWithView)
 		}
 
 		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
@@ -780,8 +789,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:
 					ids, dists, err = vidx.SearchByVectorDistance(
-						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList,
-					)
+						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -792,8 +800,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 					}
 				case [][]float32:
 					ids, dists, err = vidx.(VectorIndexMulti).SearchByMultiVectorDistance(
-						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList,
-					)
+						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's

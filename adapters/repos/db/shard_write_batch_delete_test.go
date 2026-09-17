@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -69,6 +70,25 @@ func putNamedObject(t *testing.T, ctx context.Context, shard ShardLike, class *m
 	return obj
 }
 
+// putNamedVectorObject is putNamedObject for the searches that need the object
+// in the vector index as well as the inverted one.
+func putNamedVectorObject(t *testing.T, ctx context.Context, shard ShardLike, class *models.Class,
+	name string, vector []float32,
+) *storobj.Object {
+	t.Helper()
+	obj := &storobj.Object{
+		MarshallerVersion: 1,
+		Object: models.Object{
+			ID:         strfmt.UUID(uuid.NewString()),
+			Class:      class.Class,
+			Properties: map[string]interface{}{"name": name},
+		},
+		Vector: vector,
+	}
+	require.NoError(t, shard.PutObject(ctx, obj))
+	return obj
+}
+
 // docIDKeyOf returns the objects bucket secondary key of a stored object.
 func docIDKeyOf(t *testing.T, ctx context.Context, shard ShardLike, id strfmt.UUID) []byte {
 	t.Helper()
@@ -108,14 +128,14 @@ func TestShardFindUUIDs(t *testing.T) {
 		{name: "every match deleted after the allow list was built", matching: 5, deletedMatching: 5, wantCount: 0},
 		{name: "objects without a readable id are skipped", matching: 40, other: 5, unreadable: 2, wantCount: 38, wantWarnSkipped: 2},
 		{
-			// Spread across more than one 500-doc-id bucket call, to pin that
-			// the summary is one line per call rather than one per skip.
+			// Spans more than one 500-doc-id bucket call; the summary must still be
+			// one line, not one per skip.
 			name: "unreadable ids across more than one bucket call are warned about once", matching: 1203,
 			unreadable: 3, wantCount: 1200, wantWarnSkipped: 3,
 		},
 		{
-			// Every other case keeps its objects in the memtable, so nothing
-			// above lsmkv exercises the worker read buffer the values come in.
+			// The only case resolved from a flushed segment, exercising the
+			// worker read buffer.
 			name: "matches resolved from a flushed segment", matching: 600, other: 5, flushObjects: true, wantCount: 600,
 		},
 		{name: "cancelled context", matching: 5, cancelCtx: true, wantErr: context.Canceled},
@@ -143,9 +163,8 @@ func TestShardFindUUIDs(t *testing.T) {
 				skipped[obj.ID()] = true
 			}
 
-			// Bytes shorter than the id header carry no readable id. Spreading them
-			// over the match set lets several workers, and several bucket calls,
-			// hit the skip branch.
+			// Bytes shorter than the id header carry no readable id; spreading them
+			// across the match set exercises the skip branch on several workers and calls.
 			for i := range tc.unreadable {
 				obj := matching[i*len(matching)/tc.unreadable]
 				require.NoError(t, bucket.Put([]byte(obj.ID()), []byte("garbage"), lsmkv.WithSecondaryKey(0, docIDKeyOf(t, ctx, shard, obj.ID()))))
@@ -252,9 +271,8 @@ func (it *sliceDocIDIterator) Next() (uint64, bool) {
 
 func (it *sliceDocIDIterator) Len() int { return len(it.ids) }
 
-// TestResolveUUIDsFailsOnReadError pins the behaviour change the PR makes: a
-// bucket read that breaks after the call has started fails the resolve instead
-// of returning the ids it managed to read.
+// TestResolveUUIDsFailsOnReadError pins that a read failing partway through a
+// bucket call fails the whole resolve, rather than returning the ids read so far.
 func TestResolveUUIDsFailsOnReadError(t *testing.T) {
 	readErr := errors.New("segment read failed")
 	object := func(id strfmt.UUID) []byte {
@@ -292,9 +310,33 @@ func TestResolveUUIDsFailsOnReadError(t *testing.T) {
 	}
 }
 
+// secondaryLookupSlowLogKeys is the pair the reduce gate owns: both are
+// reduced when something reads them, and both are dropped when nothing does.
+var secondaryLookupSlowLogKeys = []string{
+	lsmkv.SlowLogKeyGetBySecondary,
+	lsmkv.SlowLogKeyGetBySecondaryWithView,
+}
+
 func TestShardReducesSecondaryLookupSlowLogEntries(t *testing.T) {
 	ctx := context.Background()
 	class := textNameClass("SlowLogReduceTest")
+
+	// Both search entry points carry the same gate, over both keys.
+	searches := map[string]func(t *testing.T, shard ShardLike, ctx context.Context, profile bool){
+		"ObjectSearch": func(t *testing.T, shard ShardLike, ctx context.Context, profile bool) {
+			found, _, err := shard.ObjectSearch(ctx, 10, nameEquals(class, "match"), nil, nil, nil,
+				additional.Properties{QueryProfile: profile}, nil)
+			require.NoError(t, err)
+			require.Len(t, found, 5, "the search must resolve the objects, or nothing records an entry")
+		},
+		"ObjectVectorSearch": func(t *testing.T, shard ShardLike, ctx context.Context, profile bool) {
+			found, _, err := shard.ObjectVectorSearch(ctx, []models.Vector{[]float32{1, 0, 0}}, []string{""},
+				0, 10, nameEquals(class, "match"), nil, nil,
+				additional.Properties{QueryProfile: profile}, nil, nil)
+			require.NoError(t, err)
+			require.Len(t, found, 5, "the search must resolve the objects, or nothing records an entry")
+		},
+	}
 
 	cases := []struct {
 		name            string
@@ -306,32 +348,53 @@ func TestShardReducesSecondaryLookupSlowLogEntries(t *testing.T) {
 		{name: "a query profile was asked for", queryProfile: true, wantReduced: true},
 		{name: "nothing reads the entries", wantReduced: false},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			shard, _ := testShardWithSettings(t, ctx, class, hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false)
-			for range 5 {
-				putNamedObject(t, ctx, shard, class, "match")
-			}
-			// Only a segment read writes a per-lookup slow-log entry.
-			require.NoError(t, shard.Store().Bucket(helpers.ObjectsBucketLSM).FlushAndSwitch())
+	for searchName, search := range searches {
+		for _, tc := range cases {
+			t.Run(searchName+"/"+tc.name, func(t *testing.T) {
+				// The default config, not a bare one: a zero MaxConnections builds a
+				// graph with no edges, and the vector search then returns only its
+				// entry point however many objects match.
+				shard, _ := testShardWithSettings(t, ctx, class, hnsw.NewDefaultUserConfig(), false, false)
+				for i := range 5 {
+					// Distinct vectors: identical ones collapse into one result.
+					putNamedVectorObject(t, ctx, shard, class, "match", []float32{1, float32(i) / 10, 0})
+				}
+				// Only a segment read writes a per-lookup slow-log entry.
+				require.NoError(t, shard.Store().Bucket(helpers.ObjectsBucketLSM).FlushAndSwitch())
 
-			logger, _ := test.NewNullLogger()
-			shard.(*Shard).slowQueryReporter = helpers.NewSlowQueryReporter(
-				runtime.NewDynamicValue(tc.reporterEnabled),
-				runtime.NewDynamicValue(helpers.DefaultSlowLogThreshold), logger,
-			)
+				logger, _ := test.NewNullLogger()
+				shard.(*Shard).slowQueryReporter = helpers.NewSlowQueryReporter(
+					runtime.NewDynamicValue(tc.reporterEnabled),
+					runtime.NewDynamicValue(helpers.DefaultSlowLogThreshold), logger,
+				)
 
-			slowLogCtx := helpers.InitSlowQueryDetails(ctx)
-			_, _, err := shard.ObjectSearch(slowLogCtx, 10, nameEquals(class, "match"), nil, nil, nil,
-				additional.Properties{QueryProfile: tc.queryProfile}, nil)
-			require.NoError(t, err)
+				slowLogCtx := helpers.InitSlowQueryDetails(ctx)
+				// Seed both keys. ObjectSearch resolves through the batch, which
+				// writes the with-view key from the request context, but
+				// ObjectVectorSearch resolves through the per-key lookup, which
+				// storage_object.go hands a context.TODO, so nothing it records
+				// reaches this context. Seeded entries are what makes the gate
+				// observable on both keys for both searches.
+				for _, key := range secondaryLookupSlowLogKeys {
+					helpers.AnnotateSlowQueryLogAppend(slowLogCtx, key,
+						lsmkv.BucketSlowLogEntry{Total: time.Millisecond})
+				}
+				helpers.AnnotateSlowQueryLog(slowLogCtx, "unrelated", "kept")
 
-			entry := helpers.ExtractSlowQueryDetails(slowLogCtx)[lsmkv.SlowLogKeyGetBySecondaryWithView]
-			if tc.wantReduced {
-				require.IsType(t, lsmkv.BucketSlowLogEntryStats{}, entry, "per-lookup entries must be reduced to one stats summary")
-				return
-			}
-			require.IsType(t, []lsmkv.BucketSlowLogEntry{}, entry, "a query nothing reads must not pay for the reduce")
-		})
+				search(t, shard, slowLogCtx, tc.queryProfile)
+
+				details := helpers.ExtractSlowQueryDetails(slowLogCtx)
+				require.Equal(t, "kept", details["unrelated"], "the gate must only touch its own keys")
+				for _, key := range secondaryLookupSlowLogKeys {
+					if tc.wantReduced {
+						require.IsTypef(t, lsmkv.BucketSlowLogEntryStats{}, details[key],
+							"%s: per-lookup entries must be reduced to one stats summary", key)
+						continue
+					}
+					require.NotContainsf(t, details, key,
+						"%s: a query nothing reads must drop the entries rather than pay for the reduce", key)
+				}
+			})
+		}
 	}
 }
