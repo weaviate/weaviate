@@ -67,6 +67,8 @@ type Manager struct {
 	collectionExtractors   map[string]CollectionExtractor
 	targetVectorExtractors map[string]TargetVectorExtractor
 
+	replicationFSM replicationFSM
+
 	completedTaskTTL time.Duration
 
 	clock clockwork.Clock
@@ -95,6 +97,17 @@ func (m *Manager) SetConflictDetectors(detectors map[string]ConflictDetector) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.conflictDetectors = detectors
+}
+
+// replicationFSM is declared here so this package does not import cluster/replication.
+type replicationFSM interface {
+	HasActiveReplicationForCollection(collection string) bool
+}
+
+func (m *Manager) SetReplicationFSM(fsm replicationFSM) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.replicationFSM = fsm
 }
 
 // SetSchemaMutationDetectors installs the per-namespace registry
@@ -398,6 +411,38 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 	return removed
 }
 
+// ActiveTaskForCollection reports the namespace of a non-terminal task bound to
+// `collection`. Namespaces are walked in sorted order so every node names the same one.
+func (m *Manager) ActiveTaskForCollection(collection string) (namespace string, active bool) {
+	if collection == "" {
+		return "", false
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	namespaces := make([]string, 0, len(m.collectionExtractors))
+	for ns := range m.collectionExtractors {
+		namespaces = append(namespaces, ns)
+	}
+	sort.Strings(namespaces)
+
+	for _, ns := range namespaces {
+		extractor := m.collectionExtractors[ns]
+		for _, task := range m.tasks[ns] {
+			if !task.Status.IsActive() {
+				continue
+			}
+			c, ok := extractor(task.Payload)
+			// Collection names are case-insensitive: a byte-exact compare misses a case twin.
+			if ok && strings.EqualFold(c, collection) {
+				return ns, true
+			}
+		}
+	}
+	return "", false
+}
+
 // AddTask registers a new distributed task from a Raft apply. The seqNum becomes the task's
 // Version, used to distinguish re-runs of the same task ID. Returns an error if a task with
 // the same namespace/ID is already running, or if no units are provided.
@@ -439,6 +484,13 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 			// the REST submit path classifies this as 409, not 500.
 			return wrapPermanent(ErrTaskConflict,
 				fmt.Sprintf("task %s/%s conflicts with existing task: %v", r.Namespace, r.Id, err))
+		}
+	}
+
+	if ex := m.collectionExtractors[r.Namespace]; ex != nil && m.replicationFSM != nil {
+		if coll, ok := ex(r.Payload); ok && m.replicationFSM.HasActiveReplicationForCollection(coll) {
+			return wrapPermanent(ErrTaskBlockedByReplicaMovement,
+				fmt.Sprintf("task %s/%s: collection %q has a replica movement in flight", r.Namespace, r.Id, coll))
 		}
 	}
 

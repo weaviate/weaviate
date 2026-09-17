@@ -144,6 +144,11 @@ func (s *Raft) ReplicationReplicateReplica(ctx context.Context, uuid strfmt.UUID
 		SubCommand: subCommand,
 	}
 	if _, err := s.Execute(ctx, command); err != nil {
+		// Re-attach the sentinel the string-only round trip dropped, keeping the detail.
+		marker := replicationTypes.ErrMovementBlockedByTask.Error() + ": "
+		if _, detail, found := strings.Cut(err.Error(), marker); found {
+			return fmt.Errorf("%w: %s", replicationTypes.ErrMovementBlockedByTask, detail)
+		}
 		return err
 	}
 	return nil

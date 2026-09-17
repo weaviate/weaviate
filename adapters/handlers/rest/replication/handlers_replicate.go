@@ -58,6 +58,9 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 		if errors.Is(err, replicationTypes.ErrInvalidRequest) {
 			return replication.NewReplicateUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 		}
+		if errors.Is(err, replicationTypes.ErrMovementBlockedByTask) {
+			return replication.NewReplicateConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+		}
 		return replication.NewReplicateInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 

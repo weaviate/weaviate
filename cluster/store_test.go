@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,7 +35,9 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -1691,4 +1694,71 @@ func TestStoreWaitToRestoreDBAnnouncesOnce(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("WaitToRestoreDB did not return once dbLoaded flipped")
 	}
+}
+
+// Pins the two setter calls in NewFSM that arm the reindex/replica-movement
+// exclusion. Drop either and the gate is dead in the real server while every
+// other test under ./cluster/... stays green.
+func TestNewFSM_ArmsReindexMovementExclusion(t *testing.T) {
+	const collection, shard, namespace = "Movies", "shard1", "reindex"
+
+	newStore := func(t *testing.T) *Store {
+		ms := NewMockStore(t, "node1", 0)
+		ms.parser.On("ParseClass", mock.Anything).Return(nil)
+		ms.cfg.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
+			namespace: func([]byte) (string, bool) { return collection, true },
+		}
+		s := NewFSM(ms.cfg, nil, prometheus.NewPedanticRegistry())
+		return &s
+	}
+	movementRequest := &cmd.ReplicationReplicateShardRequest{
+		Version: cmd.ReplicationCommandVersionV0, Uuid: "00000000-0000-0000-0000-000000000001",
+		SourceCollection: collection, SourceShard: shard,
+		SourceNode: "node1", TargetNode: "node2", TransferType: cmd.COPY.String(),
+	}
+	addTask := func(t *testing.T, s *Store) error {
+		sub, err := json.Marshal(&cmd.AddDistributedTaskRequest{
+			Namespace: namespace, Id: "task1", UnitIds: []string{"unit1"},
+			SubmittedAtUnixMillis: time.Now().UnixMilli(),
+		})
+		require.NoError(t, err)
+		return s.distributedTasksManager.AddTask(&cmd.ApplyRequest{SubCommand: sub}, 1)
+	}
+
+	t.Run("an active task refuses a movement", func(t *testing.T) {
+		s := newStore(t)
+		// The movement apply validates against the schema before reaching the gate.
+		addClass, err := json.Marshal(cmd.AddClassRequest{
+			Class: &models.Class{Class: collection, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+			State: &sharding.State{Physical: map[string]sharding.Physical{shard: {BelongsToNodes: []string{"node1"}}}},
+		})
+		require.NoError(t, err)
+		require.NoError(t, s.schemaManager.AddClass(&cmd.ApplyRequest{
+			Type: cmd.ApplyRequest_TYPE_ADD_CLASS, Class: collection, SubCommand: addClass,
+		}, "node1", true, false))
+		require.NoError(t, addTask(t, s))
+
+		sub, err := json.Marshal(movementRequest)
+		require.NoError(t, err)
+		err = s.replicationManager.Replicate(1, &cmd.ApplyRequest{SubCommand: sub})
+		require.ErrorIs(t, err, replicationTypes.ErrMovementBlockedByTask)
+		require.True(t, strings.HasPrefix(err.Error(), replicationTypes.ErrMovementBlockedByTask.Error()+": "),
+			"Raft.ReplicationReplicateReplica cuts on this prefix to rebuild the sentinel "+
+				"after the RAFT hop reduces the error to a string")
+		require.False(t, s.replicationManager.GetReplicationFSM().HasActiveReplicationForCollection(collection),
+			"a refused movement must leave no op behind")
+	})
+
+	t.Run("an active movement refuses a task", func(t *testing.T) {
+		s := newStore(t)
+		// Seeded straight into the FSM: the task side only cares that an op is
+		// sitting there non-terminal, and a movement apply needs schema fixtures.
+		require.NoError(t, s.replicationManager.GetReplicationFSM().Replicate(1, movementRequest))
+
+		err := addTask(t, s)
+		require.ErrorIs(t, err, distributedtask.ErrTaskBlockedByReplicaMovement)
+		require.ErrorIs(t, distributedtask.RehydratePermanentRejection(distributedtask.ToRPCError(err)),
+			distributedtask.ErrTaskBlockedByReplicaMovement,
+			"a follower's refusal must come back as the sentinel, or the submit path answers 500 not 409")
+	})
 }

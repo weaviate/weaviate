@@ -49,10 +49,25 @@ type Manager struct {
 	inflightDrainer              func(ctx context.Context, class, shard string) error
 	inflightDrainFailuresCounter prometheus.Counter
 
+	distributedTaskFSM distributedTaskFSM
+
 	// ctx is cancelled by Close to stop in-flight broadcast/drain retry loops on
 	// shutdown (the drain otherwise retries until the op is drained or terminal).
 	ctx    context.Context
 	cancel context.CancelFunc
+}
+
+// distributedTaskFSM is declared here so this package does not import cluster/distributedtask.
+type distributedTaskFSM interface {
+	// Never call this while holding the replication FSM's opsLock: the task manager
+	// takes its own lock and then opsLock, so the reverse order deadlocks.
+	ActiveTaskForCollection(collection string) (namespace string, active bool)
+}
+
+// SetDistributedTaskFSM must run before RAFT applies anything: the lookup decides an
+// apply, so a node that missed the wiring would diverge from the rest of the cluster.
+func (m *Manager) SetDistributedTaskFSM(fsm distributedTaskFSM) {
+	m.distributedTaskFSM = fsm
 }
 
 const inflightDrainBackstop = 60 * time.Second
@@ -218,6 +233,15 @@ func (m *Manager) Replicate(logId uint64, c *cmd.ApplyRequest) error {
 	// Validate that the command is valid and can be applied with the current schema
 	if err := ValidateReplicationReplicateShard(m.schemaReader, req); err != nil {
 		return err
+	}
+
+	// A reindex rewrites the same shard files a movement copies. The check sits in the
+	// apply, not the REST handler, because /replication/scale reaches the apply directly.
+	if m.distributedTaskFSM != nil {
+		if namespace, active := m.distributedTaskFSM.ActiveTaskForCollection(req.SourceCollection); active {
+			return fmt.Errorf("%w: collection %q has an active %s task; retry after it completes",
+				types.ErrMovementBlockedByTask, req.SourceCollection, namespace)
+		}
 	}
 
 	// Store the shard replication op in the FSM
