@@ -309,9 +309,14 @@ func dbKeyForID(physicalID string) []byte {
 // loaded shard owns the key and deletes it through its own handle (both
 // baked into shardmeta.DeleteOffline).
 func RemoveStateKey(rootPath, targetVector string) error {
-	key := dbKeyForID(helpers.VectorIndexIDForTarget(targetVector))
-	if err := shardmeta.DeleteOffline(rootPath, StateNamespace, key); err != nil {
-		return fmt.Errorf("delete dynamic state for %q: %w", targetVector, err)
+	return RemoveStateKeyForID(rootPath, helpers.VectorIndexIDForTarget(targetVector))
+}
+
+// RemoveStateKeyForID is RemoveStateKey keyed by the physical ID a record
+// maps the vector to.
+func RemoveStateKeyForID(rootPath, id string) error {
+	if err := shardmeta.DeleteOffline(rootPath, StateNamespace, dbKeyForID(id)); err != nil {
+		return fmt.Errorf("delete dynamic state for %q: %w", id, err)
 	}
 	return nil
 }

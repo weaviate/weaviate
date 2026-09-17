@@ -62,6 +62,12 @@ func GetOffline(shardDir, ns string, key []byte) (val []byte, ok bool, err error
 	return val, true, nil
 }
 
+// IsLocked reports whether an offline read failed because a loaded shard
+// holds the file; that shard owns the state and acts through its own handle.
+func IsLocked(err error) bool {
+	return errors.Is(err, bolterrors.ErrTimeout)
+}
+
 // DeleteOffline removes key from ns of an UNLOADED shard's metadata DB,
 // opening the file briefly. The open itself never creates the file: its
 // OpenFile hook strips O_CREATE, so a concurrent shard drop racing between a

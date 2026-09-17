@@ -221,6 +221,27 @@ func (m *vectorIndexMapping) Put(name string, rec vectorIndexRecord) error {
 	return nil
 }
 
+// readVectorIndexRecordOffline reads name's record from a shard that is not
+// loaded, for the cold sweep. initialized is false for a shard restored from
+// a pre-mapping backup that has not loaded since; such a shard has no
+// records at all.
+func readVectorIndexRecordOffline(shardDir, name string) (rec vectorIndexRecord, ok, initialized bool, err error) {
+	// GetOffline's ok is "the file exists"; an absent key is a nil value
+	version, _, err := shardmeta.GetOffline(shardDir, vectorIndexMappingNamespace, []byte(vectorIndexMappingFormatVersionKey))
+	if err != nil || version == nil {
+		return vectorIndexRecord{}, false, false, err
+	}
+	v, _, err := shardmeta.GetOffline(shardDir, vectorIndexMappingNamespace, []byte(vectorIndexMappingKey(name)))
+	if err != nil || v == nil {
+		return vectorIndexRecord{}, false, true, err
+	}
+	err = json.Unmarshal(v, &rec)
+	if err != nil {
+		return vectorIndexRecord{}, false, true, fmt.Errorf("record %q: %w", name, err)
+	}
+	return rec, true, true, nil
+}
+
 func requireVectorIndexMappingInitialized(b *shardmeta.Batch) error {
 	v, err := b.Get([]byte(vectorIndexMappingFormatVersionKey))
 	if err != nil {
