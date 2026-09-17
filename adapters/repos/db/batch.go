@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -201,31 +202,24 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 
 	limit := db.config.QueryMaximumResults
 
-	// Ask each shard for limit+1: enough to tell "more matches than limit"
-	// apart from "exactly limit", without fetching the whole match set.
-	perShardLimit := 0
-	if limit > 0 {
-		perShardLimit = int(limit) + 1
-	}
-
-	shardDocIDs, err := idx.findUUIDs(ctx, params.Filters, tenant, repl, perShardLimit)
+	// findUUIDs asks each shard for limit+1 matches. One over the limit separates
+	// "more matches than limit" from "exactly limit" without resolving them all.
+	shardDocIDs, err := idx.findUUIDs(ctx, params.Filters, tenant, repl, perShardResolveLimit(limit))
 	if err != nil {
 		return objects.BatchDeleteResult{}, errors.Wrapf(err, "cannot find objects")
 	}
-	// prepare to be deleted list of DocIDs from all shards
-	toDelete := map[string][]strfmt.UUID{}
 
-	matches := int64(0)
-	for shardName, docIDs := range shardDocIDs {
-		docIDsLength := int64(len(docIDs))
-		if matches <= limit {
-			if matches+docIDsLength <= limit {
-				toDelete[shardName] = docIDs
-			} else {
-				toDelete[shardName] = docIDs[:limit-matches]
-			}
-		}
-		matches += docIDsLength
+	plan := planShardDeletes(shardDocIDs, limit)
+	toDelete, matches := plan.toDelete, plan.matches
+
+	if plan.cappedShards > 0 {
+		db.logger.WithFields(logrus.Fields{
+			"action":        "batch_delete_objects_capped",
+			"class":         className,
+			"tenant":        tenant,
+			"limit":         limit,
+			"capped_shards": plan.cappedShards,
+		}).Infof("batch delete resolved the maximum on %d shard(s): more objects match than one call deletes, repeat the request until matches is 0", plan.cappedShards)
 	}
 
 	db.logger.WithFields(logrus.Fields{
@@ -250,7 +244,7 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 
 	result := objects.BatchDeleteResult{
 		Matches:      matches,
-		Limit:        db.config.QueryMaximumResults,
+		Limit:        limit,
 		DeletionTime: deletionTime,
 		DryRun:       params.DryRun,
 		Objects:      deletedObjects,
@@ -265,6 +259,53 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 		"dry_run": params.DryRun,
 	}).Debugf("batch delete completed in %s", time.Since(start))
 	return result, nil
+}
+
+// perShardResolveLimit is how many matches a shard resolves for one batch delete, given
+// QUERY_MAXIMUM_RESULTS. It is one over the limit so the reply can tell "more matches
+// than limit" from "exactly limit". A limit of zero or less means no cap.
+//
+// The clamp keeps the result inside int32, which the cluster-internal find request
+// narrows to, and keeps limit+1 from wrapping into a negative that every reader down
+// the line takes for "no cap".
+func perShardResolveLimit(limit int64) int {
+	if limit <= 0 {
+		return 0
+	}
+	return int(min(limit, math.MaxInt32-1)) + 1
+}
+
+// shardDeletePlan is what one batch delete call does with the UUIDs the shards resolved.
+type shardDeletePlan struct {
+	// toDelete holds the UUIDs to delete per shard, at most limit across all of them.
+	// A shard with nothing to delete is left out.
+	toDelete map[string][]strfmt.UUID
+	// matches is the count the reply publishes: the exact number of matching objects
+	// while it is at or below limit, and limit+1 when more match than one call deletes.
+	matches int64
+	// cappedShards is how many shards resolved as many matches as they were asked for.
+	cappedShards int
+}
+
+func planShardDeletes(shardDocIDs map[string][]strfmt.UUID, limit int64) shardDeletePlan {
+	plan := shardDeletePlan{toDelete: map[string][]strfmt.UUID{}}
+	perShard := int64(perShardResolveLimit(limit))
+
+	for shardName, docIDs := range shardDocIDs {
+		resolved := int64(len(docIDs))
+		if perShard > 0 && resolved >= perShard {
+			plan.cappedShards++
+		}
+		if takes := min(resolved, limit-plan.matches); takes > 0 {
+			plan.toDelete[shardName] = docIDs[:takes]
+		}
+		plan.matches += resolved
+	}
+
+	if limit > 0 && plan.matches > limit {
+		plan.matches = limit + 1
+	}
+	return plan
 }
 
 func estimateBatchMemory(objs objects.BatchObjects) int64 {
