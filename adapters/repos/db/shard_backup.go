@@ -54,6 +54,7 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	// leave the counter incremented; the error path would not run a
 	// matching resume.
 	if !offloading {
+		// Bare: backup shares this helper; deferIfReindexInFlight adds the movement's sentinel.
 		if blockedErr := s.index.refuseIfReindexInFlight(s.name); blockedErr != nil {
 			return blockedErr
 		}
