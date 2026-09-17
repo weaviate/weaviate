@@ -682,51 +682,42 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 		mockAuthorizer.AssertExpectations(t)
 	})
 
-	t.Run("not found error", func(t *testing.T) {
-		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
-		body := &models.ReplicationScalePlan{
-			PlanID:     "plan-123",
-			Collection: "MissingCollection",
-		}
-		params := replication.ApplyReplicationScalePlanParams{
-			HTTPRequest: &http.Request{},
-			Body:        body,
-		}
-		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.EXPECT().ApplyReplicationScalePlan(
-			mock.Anything,
-			mock.MatchedBy(func(plan api.ReplicationScalePlan) bool {
-				return plan.PlanID == "plan-123" && plan.Collection == "MissingCollection"
-			}),
-		).Return([]strfmt.UUID{}, types.ErrNotFound)
-		response := handler.applyReplicationScalePlan(params, &models.Principal{})
-		assert.IsType(t, &replication.ApplyReplicationScalePlanNotFound{}, response)
-		mockAuthorizer.AssertExpectations(t)
-		mockReplicationManager.AssertExpectations(t)
-	})
-
-	t.Run("internal error", func(t *testing.T) {
-		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
-		body := &models.ReplicationScalePlan{
-			PlanID:     "plan-123",
-			Collection: "TestCollection",
-		}
-		params := replication.ApplyReplicationScalePlanParams{
-			HTTPRequest: &http.Request{},
-			Body:        body,
-		}
-		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.EXPECT().ApplyReplicationScalePlan(
-			mock.Anything,
-			mock.MatchedBy(func(plan api.ReplicationScalePlan) bool {
-				return plan.PlanID == "plan-123" && plan.Collection == "TestCollection"
-			}),
-		).Return([]strfmt.UUID{}, errors.New("internal error"))
-		response := handler.applyReplicationScalePlan(params, &models.Principal{})
-		assert.IsType(t, &replication.ApplyReplicationScalePlanInternalServerError{}, response)
-		mockAuthorizer.AssertExpectations(t)
-		mockReplicationManager.AssertExpectations(t)
-	})
+	for _, tc := range []struct {
+		name       string
+		managerErr error
+		want       middleware.Responder
+	}{
+		{"not found error", types.ErrNotFound, &replication.ApplyReplicationScalePlanNotFound{}},
+		{
+			"conflict when a task is running on the collection",
+			types.ErrMovementBlockedByTask,
+			&replication.ApplyReplicationScalePlanConflict{},
+		},
+		{"internal error", errors.New("internal error"), &replication.ApplyReplicationScalePlanInternalServerError{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+			body := &models.ReplicationScalePlan{
+				PlanID:     "plan-123",
+				Collection: "TestCollection",
+			}
+			params := replication.ApplyReplicationScalePlanParams{
+				HTTPRequest: &http.Request{},
+				Body:        body,
+			}
+			mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			mockReplicationManager.EXPECT().ApplyReplicationScalePlan(
+				mock.Anything,
+				mock.MatchedBy(func(plan api.ReplicationScalePlan) bool {
+					return plan.PlanID == "plan-123" && plan.Collection == "TestCollection"
+				}),
+			).Return([]strfmt.UUID{}, tc.managerErr)
+			response := handler.applyReplicationScalePlan(params, &models.Principal{})
+			assert.IsType(t, tc.want, response)
+			mockAuthorizer.AssertExpectations(t)
+			mockReplicationManager.AssertExpectations(t)
+		})
+	}
 
 	t.Run("successful application", func(t *testing.T) {
 		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))

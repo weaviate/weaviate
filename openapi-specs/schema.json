@@ -5256,6 +5256,12 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "409": {
+            "description": "The collection has a reindex or vector-index-drop task that has not reached a terminal state, so the replica copies in the plan were refused: the two cannot run at the same time. GET /tasks reports the task and its status.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {

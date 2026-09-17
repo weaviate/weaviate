@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	replicationclient "github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
@@ -78,19 +80,42 @@ func TestMultiNode_ReindexAndReplicaMovementExcludeEachOther(t *testing.T) {
 		return err
 	}
 
+	// The same copy, asked for through the scale plan, which reaches the RAFT
+	// endpoint without going through the replicate handler.
+	scale := func(t *testing.T, uri string) error {
+		helper.SetupClient(uri)
+		_, err := helper.Client(t).Replication.ApplyReplicationScalePlan(
+			replicationclient.NewApplyReplicationScalePlanParams().
+				WithBody(&models.ReplicationScalePlan{
+					PlanID: strfmt.UUID(uuid.NewString()), Collection: className,
+					ShardScaleActions: map[string]models.ReplicationScalePlanShardScaleActionsAnon{
+						shard: {AddNodes: map[string]string{targetNode: sourceNode}},
+					},
+				}), nil)
+		return err
+	}
+
 	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, "title", "searchable",
 		`{"algorithm":"blockmax"}`)
 	awaitReindexMidFlight(t, restURI, taskID, 120*time.Second)
 
 	// Sent to a node that is not the leader, so the refusal has to survive the
 	// follower-to-leader hop that reduces it to a string.
+	followerURI := restURIOf(compose, (raftLeaderIndex(t, compose)+1)%3+1)
 	var conflict *replicationclient.ReplicateConflict
-	require.ErrorAs(t, replicate(t, restURIOf(compose, (raftLeaderIndex(t, compose)+1)%3+1)), &conflict,
+	require.ErrorAs(t, replicate(t, followerURI), &conflict,
 		"a movement must be refused while the reindex runs")
 	require.NotEmpty(t, conflict.Payload.Error)
 	require.Contains(t, conflict.Payload.Error[0].Message, className)
 	require.Contains(t, conflict.Payload.Error[0].Message, "reindex",
 		"the refusal must name the task the operator has to wait for")
+
+	var scaleConflict *replicationclient.ApplyReplicationScalePlanConflict
+	require.ErrorAs(t, scale(t, followerURI), &scaleConflict,
+		"the scale plan must be refused too, and as a conflict rather than a server error")
+	require.NotEmpty(t, scaleConflict.Payload.Error)
+	require.Contains(t, scaleConflict.Payload.Error[0].Message, className)
+	require.Contains(t, scaleConflict.Payload.Error[0].Message, "reindex")
 
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(300*time.Second))
 

@@ -598,6 +598,8 @@ func (h *replicationHandler) applyReplicationScalePlan(params replication.ApplyR
 	operationIDs, err := h.replicationManager.ApplyReplicationScalePlan(ctx, scalePlan)
 	if errors.Is(err, replicationTypes.ErrNotFound) {
 		return replication.NewApplyReplicationScalePlanNotFound()
+	} else if errors.Is(err, replicationTypes.ErrMovementBlockedByTask) {
+		return replication.NewApplyReplicationScalePlanConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	} else if err != nil {
 		return replication.NewApplyReplicationScalePlanInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
