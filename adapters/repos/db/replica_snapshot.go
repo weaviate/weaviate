@@ -40,9 +40,8 @@ type replicaSnapshotState struct {
 	isSnapshot bool
 }
 
-// deferIfReindexInFlight marks a reindex refusal as one the movement waits out;
-// without it the consumer counts an error per attempt and cancels a movement that
-// only had to wait. Not inside HaltForTransfer, which backup callers share.
+// deferIfReindexInFlight marks a reindex refusal as a wait, not a counted error. It sits
+// here and not in HaltForTransfer, which the backup path shares.
 func deferIfReindexInFlight(err error) error {
 	if !errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex) {
 		return err
