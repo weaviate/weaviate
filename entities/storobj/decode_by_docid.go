@@ -34,8 +34,8 @@ type docIDIterator interface {
 	Len() int
 }
 
-// docIDSlot holds one doc id's decoded result until the whole bucket call is
-// handed back in iteration order.
+// docIDSlot holds one doc id's decoded result until the whole bucket call's
+// results are handed back in iteration order.
 type docIDSlot[T any] struct {
 	docID   uint64
 	value   T
@@ -47,8 +47,10 @@ type docIDSlot[T any] struct {
 // iteration order (limit <= 0 returns nothing). decode runs once per doc id,
 // concurrently, with bytes valid only for that call; missing doc ids are
 // decoded afterwards, on the calling goroutine, with nil bytes. Returning
-// false drops the result without spending a limit slot, which is what
-// ObjectsByDocID cannot express.
+// false drops the result without spending a limit slot.
+//
+// ObjectsByDocID has no equivalent: it returns one slot per doc id, so a
+// caller cannot drop a result without losing its position.
 func DecodeByDocID[T any](ctx context.Context, bucket docIDBatchBucket, it docIDIterator, limit int,
 	decode func(docID uint64, object []byte) (T, bool, error),
 ) ([]T, error) {
