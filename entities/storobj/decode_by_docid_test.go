@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -27,10 +28,14 @@ import (
 // With concurrent set it visits every key from its own goroutine instead.
 type fakeDocIDBatchBucket struct {
 	objects    map[uint64][]byte
+	visitNil   map[uint64]bool
 	err        error
 	concurrent bool
 	calls      int
 	maxKeys    int
+	// inCall is what tells a decode that ran on a bucket worker apart from one
+	// that ran on the calling goroutine after the call returned.
+	inCall atomic.Bool
 }
 
 func (f *fakeDocIDBatchBucket) GetBySecondaryBatch(_ context.Context, _ int, keys [][]byte,
@@ -41,6 +46,8 @@ func (f *fakeDocIDBatchBucket) GetBySecondaryBatch(_ context.Context, _ int, key
 	if f.err != nil {
 		return f.err
 	}
+	f.inCall.Store(true)
+	defer f.inCall.Store(false)
 	if f.concurrent {
 		var eg errgroup.Group
 		for i := range keys {
@@ -57,7 +64,11 @@ func (f *fakeDocIDBatchBucket) GetBySecondaryBatch(_ context.Context, _ int, key
 }
 
 func (f *fakeDocIDBatchBucket) visitFound(i int, key []byte, visit func(i int, value []byte) error) error {
-	object, ok := f.objects[binary.LittleEndian.Uint64(key)]
+	docID := binary.LittleEndian.Uint64(key)
+	if f.visitNil[docID] {
+		return visit(i, nil)
+	}
+	object, ok := f.objects[docID]
 	if !ok {
 		return nil
 	}
@@ -100,6 +111,7 @@ func TestDecodeByDocID(t *testing.T) {
 		bucketErr   error
 		decodeFails bool
 		concurrent  bool
+		visitNil    []uint64
 		cancel      bool
 		want        []uint64
 		wantMissing []uint64
@@ -123,6 +135,19 @@ func TestDecodeByDocID(t *testing.T) {
 		{name: "skipped doc ids do not count toward the limit", ids: idRange(1, 3), skip: []uint64{1}, limit: 2, want: []uint64{2, 3}, wantCalls: 2, wantMaxKeys: 2},
 		{name: "more doc ids than one bucket call", ids: idRange(1, 1203), limit: 2000, want: idRange(1, 1203), wantCalls: 3, wantMaxKeys: maxDocIDsPerBucketCall},
 		{name: "concurrent visits each fill their own slot", ids: idRange(1, 1203), limit: 2000, concurrent: true, want: idRange(1, 1203), wantCalls: 3, wantMaxKeys: maxDocIDsPerBucketCall},
+		{
+			// A bucket that hands back nil must not get the miss decoded on its
+			// own goroutine: the decode for a miss touches unsynchronised caller
+			// state.
+			name: "a doc id visited with nil is decoded as a miss after the call",
+			ids:  idRange(1, 4), visitNil: []uint64{2}, limit: 10,
+			want: []uint64{1, 3, 4}, wantMissing: []uint64{2}, wantCalls: 1, wantMaxKeys: 4,
+		},
+		{
+			name: "a doc id visited with nil is decoded as a miss after a concurrent call",
+			ids:  idRange(1, 4), visitNil: []uint64{2}, limit: 10, concurrent: true,
+			want: []uint64{1, 3, 4}, wantMissing: []uint64{2}, wantCalls: 1, wantMaxKeys: 4,
+		},
 		{name: "bucket error propagates", ids: idRange(1, 3), limit: 10, bucketErr: bucketErr, wantErr: bucketErr, wantCalls: 1, wantMaxKeys: 3},
 		{name: "decode error propagates", ids: idRange(1, 3), limit: 10, decodeFails: true, wantErr: decodeErr, wantCalls: 1, wantMaxKeys: 3},
 		{name: "cancelled context", ids: idRange(1, 3), limit: 10, cancel: true, wantErr: context.Canceled},
@@ -130,7 +155,13 @@ func TestDecodeByDocID(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			bucket := &fakeDocIDBatchBucket{objects: map[uint64][]byte{}, err: tc.bucketErr, concurrent: tc.concurrent}
+			bucket := &fakeDocIDBatchBucket{
+				objects: map[uint64][]byte{}, visitNil: map[uint64]bool{},
+				err: tc.bucketErr, concurrent: tc.concurrent,
+			}
+			for _, id := range tc.visitNil {
+				bucket.visitNil[id] = true
+			}
 			isMissing := map[uint64]bool{}
 			for _, id := range tc.missing {
 				isMissing[id] = true
@@ -155,6 +186,8 @@ func TestDecodeByDocID(t *testing.T) {
 			got, err := DecodeByDocID(ctx, bucket, &sliceDocIDIterator{ids: tc.ids}, tc.limit,
 				func(docID uint64, object []byte) (uint64, bool, error) {
 					if object == nil {
+						require.False(t, bucket.inCall.Load(),
+							"a miss must be decoded after the bucket call returns, not on a bucket worker")
 						gotMissing = append(gotMissing, docID)
 						return 0, false, nil
 					}

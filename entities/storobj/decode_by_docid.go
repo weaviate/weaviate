@@ -16,10 +16,9 @@ import (
 	"encoding/binary"
 )
 
-// maxDocIDsPerBucketCall caps the doc ids resolved per bucket call, which
-// bounds how long one call holds the bucket's consistent view. It is large
-// enough to keep the bucket's lookup fan-out busy: the bucket splits a call
-// into 32-key chunks and runs up to 16 of them at a time.
+// maxDocIDsPerBucketCall caps doc ids per bucket call: small enough to bound
+// how long one call holds the bucket's consistent view, large enough to keep
+// the bucket's 32-key/16-way lookup fan-out busy.
 const maxDocIDsPerBucketCall = 500
 
 // docIDBatchBucket resolves doc-id secondary keys, several per call, under one
@@ -45,16 +44,11 @@ type docIDSlot[T any] struct {
 }
 
 // DecodeByDocID returns at most limit results for the iterator's doc ids, in
-// iteration order (limit <= 0 returns nothing). decode is called once per doc
-// id: concurrently, with stored bytes that are only valid for that call, or
-// afterwards on the calling goroutine with nil bytes for a doc id the bucket
-// did not find. decode returning false drops the result without spending a
-// limit slot.
-//
-// ObjectsByDocID resolves doc ids too and stays separate: it takes a fixed
-// []uint64 rather than an iterator and a limit, and its WithEmpty form returns
-// a nil at the position of a doc id with no payload, which the "false drops it"
-// contract here cannot express.
+// iteration order (limit <= 0 returns nothing). decode runs once per doc id,
+// concurrently, with bytes valid only for that call; missing doc ids are
+// decoded afterwards, on the calling goroutine, with nil bytes. Returning
+// false drops the result without spending a limit slot, which is what
+// ObjectsByDocID cannot express.
 func DecodeByDocID[T any](ctx context.Context, bucket docIDBatchBucket, it docIDIterator, limit int,
 	decode func(docID uint64, object []byte) (T, bool, error),
 ) ([]T, error) {
@@ -90,6 +84,13 @@ func DecodeByDocID[T any](ctx context.Context, bucket docIDBatchBucket, it docID
 		}
 
 		err := bucket.GetBySecondaryBatch(ctx, 0, keys, func(i int, object []byte) error {
+			if object == nil {
+				// Leave the slot unvisited so the miss is decoded below, on the
+				// calling goroutine, like every other miss. Callers answer a miss
+				// by touching state they do not synchronise, so a decode with nil
+				// bytes must never run on a bucket worker.
+				return nil
+			}
 			value, ok, err := decode(slots[i].docID, object)
 			if err != nil {
 				return err

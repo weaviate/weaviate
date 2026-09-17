@@ -399,10 +399,9 @@ func fromBinaryOptionalInternal(data []byte, className string,
 	return ko, nil
 }
 
-// PropertyExtraction names the properties a decode should read out of a stored
-// object. A decode only reads it, so one value can be shared by decodes running
-// at the same time; Add writes to it, so it must not be called while any decode
-// is in flight.
+// PropertyExtraction names the properties a decode should read from a stored
+// object. Decodes only read it, so one value may be shared across concurrent
+// decodes; Add mutates it, so never call Add while a decode is in flight.
 type PropertyExtraction struct {
 	PropertyPaths [][]string
 }
