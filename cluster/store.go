@@ -827,7 +827,7 @@ func (st *Store) trackDBLoadProgress() func() {
 
 // WaitForAppliedIndex waits until the update with the given version is propagated to this follower node
 func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, version uint64) error {
-	if idx := st.lastAppliedIndex.Load(); idx >= version {
+	if st.appliedLocally(version) {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, st.cfg.ConsistencyWaitTimeout)
@@ -840,7 +840,7 @@ func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, 
 		case <-ctx.Done():
 			return fmt.Errorf("%w: version got=%d  want=%d", types.ErrDeadlineExceeded, idx, version)
 		case <-ticker.C:
-			if idx = st.lastAppliedIndex.Load(); idx >= version {
+			if idx = st.lastAppliedIndex.Load(); st.appliedLocally(version) {
 				return nil
 			} else {
 				st.log.WithFields(logrus.Fields{
@@ -850,6 +850,12 @@ func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, 
 			}
 		}
 	}
+}
+
+// appliedLocally reports whether version reached the local DB, not just the
+// schema: while the startup load runs, DB writes are queued behind it.
+func (st *Store) appliedLocally(version uint64) bool {
+	return st.lastAppliedIndex.Load() >= version && !st.startupLoadPending()
 }
 
 // IsLeader returns whether this node is the leader of the cluster
