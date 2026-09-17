@@ -91,7 +91,11 @@ func TestAnnotateSlowQueryLogAppendMany(t *testing.T) {
 	const key = "entries"
 
 	t.Run("a nil context is ignored", func(t *testing.T) {
-		require.NotPanics(t, func() { AnnotateSlowQueryLogAppendMany(nil, key, []int{1}) })
+		// Through a variable: the callers these guards exist for reach here with
+		// a context they did not check, which a nil literal cannot express
+		// without staticcheck rejecting it.
+		var noCtx context.Context
+		require.NotPanics(t, func() { AnnotateSlowQueryLogAppendMany(noCtx, key, []int{1}) })
 	})
 
 	t.Run("a context without details is ignored", func(t *testing.T) {
@@ -151,7 +155,8 @@ func TestDropSlowQueryEntry(t *testing.T) {
 	const key = "entries"
 
 	t.Run("a nil context is ignored", func(t *testing.T) {
-		require.NotPanics(t, func() { DropSlowQueryEntry(nil, key) })
+		var noCtx context.Context
+		require.NotPanics(t, func() { DropSlowQueryEntry(noCtx, key) })
 	})
 
 	t.Run("a context without details is ignored", func(t *testing.T) {
