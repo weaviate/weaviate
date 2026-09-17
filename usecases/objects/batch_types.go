@@ -83,12 +83,13 @@ type BatchDeleteParams struct {
 }
 
 type BatchDeleteResult struct {
-	// Matches is how many objects the filter matched, counted up to one above Limit and
-	// no further. At or below Limit it is exact and every match was handled by this call;
-	// above Limit more match than one call deletes, so the caller repeats the request.
+	// Matches is how many objects the filter matched, counted no further than one above
+	// Limit. At or below Limit it is exact and every match was handled by this call;
+	// above Limit it means more objects match than one call deletes, so the caller
+	// repeats the request.
 	Matches int64
-	// Limit is the QUERY_MAXIMUM_RESULTS the count above is bounded by. Zero or less
-	// means the count is exact and unbounded, and that nothing was deleted.
+	// Limit is the QUERY_MAXIMUM_RESULTS that bounds the count above. Zero or less means
+	// two things: the count is exact and unbounded, and nothing was deleted.
 	Limit        int64
 	DeletionTime time.Time
 	DryRun       bool

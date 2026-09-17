@@ -66,7 +66,7 @@ func TestUUIDFromDocIDWithLookup(t *testing.T) {
 			name: "absent",
 		},
 		{
-			name:            "bucket error",
+			name:            "read error",
 			err:             readErr,
 			wantErrContains: "get object by doc id",
 		},
@@ -92,6 +92,10 @@ func TestUUIDFromDocIDWithLookup(t *testing.T) {
 			if tt.wantErrContains != "" {
 				require.ErrorContains(t, err, tt.wantErrContains)
 				require.False(t, found)
+				if tt.err != nil {
+					require.ErrorIs(t, err, tt.err,
+						"the error a caller sees wraps the one the store returned")
+				}
 				return
 			}
 			require.NoError(t, err)
@@ -99,16 +103,4 @@ func TestUUIDFromDocIDWithLookup(t *testing.T) {
 			require.Equal(t, tt.wantUUID, uuid)
 		})
 	}
-}
-
-// TestUUIDFromDocIDWithLookupPropagatesTheReadError pins that the error a caller sees
-// wraps the one the store returned, so errors.Is still reaches it.
-func TestUUIDFromDocIDWithLookupPropagatesTheReadError(t *testing.T) {
-	readErr := errors.New("segment read failed")
-	lookup := func(_ context.Context, _ int, _, buffer []byte) ([]byte, []byte, error) {
-		return nil, buffer, readErr
-	}
-
-	_, _, _, err := uuidFromDocIDWithLookup(context.Background(), lookup, 1, make([]byte, 8), nil)
-	require.ErrorIs(t, err, readErr)
 }

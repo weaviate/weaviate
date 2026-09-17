@@ -81,7 +81,7 @@ type ShardLike interface {
 	UpdateStatus(status, reason string) error                                                      // Set shard status
 	UpdateStatusIf(cond func(ShardStatus) bool, status, reason string) error                       // Set shard status if cond holds, without loading an unloaded shard
 	SetStatusReadonly(reason string) error                                                         // Set shard status to readonly with reason
-	FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) // Resolve a filter to the UUIDs it matches, see Shard.FindUUIDs
+	FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) // Resolve a filter to the UUIDs it matches; see Shard.FindUUIDs
 
 	Counter() *indexcounter.Counter
 	ObjectCount(ctx context.Context) (int, error)

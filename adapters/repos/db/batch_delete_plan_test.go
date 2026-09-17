@@ -31,7 +31,7 @@ func TestPerShardResolveLimit(t *testing.T) {
 		{name: "zero means no cap", limit: 0, want: 0},
 		{name: "negative means no cap", limit: -1, want: 0},
 		{name: "the largest value that is not clamped", limit: math.MaxInt32 - 1, want: math.MaxInt32},
-		{name: "above int32", limit: math.MaxInt32, want: math.MaxInt32},
+		{name: "the first value that is clamped", limit: math.MaxInt32, want: math.MaxInt32},
 		{name: "the largest int64", limit: math.MaxInt64, want: math.MaxInt32},
 	}
 
