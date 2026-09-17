@@ -14,10 +14,14 @@ package db
 import (
 	"context"
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -28,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // textNameClass is a class with one whitespace-tokenized text property, name.
@@ -79,17 +84,19 @@ func TestShardFindUUIDs(t *testing.T) {
 	class := textNameClass("FindUUIDsTest")
 
 	type testCase struct {
-		name                string
-		matching            int
-		other               int
-		deletedMatching     int
-		unreadableFirstLast bool
-		limit               int
-		cancelCtx           bool
-		objectsBucketGone   bool
-		wantCount           int
-		wantErr             error
-		wantErrText         string
+		name              string
+		matching          int
+		other             int
+		deletedMatching   int
+		unreadable        int
+		flushObjects      bool
+		limit             int
+		cancelCtx         bool
+		objectsBucketGone bool
+		wantCount         int
+		wantWarnSkipped   int
+		wantErr           error
+		wantErrText       string
 	}
 	cases := []testCase{
 		{name: "no match", other: 5, wantCount: 0},
@@ -99,7 +106,18 @@ func TestShardFindUUIDs(t *testing.T) {
 		{name: "limit below matches", matching: 25, limit: 10, wantCount: 10},
 		{name: "objects deleted after the allow list was built are skipped", matching: 25, deletedMatching: 5, wantCount: 20},
 		{name: "every match deleted after the allow list was built", matching: 5, deletedMatching: 5, wantCount: 0},
-		{name: "objects without a readable id are skipped", matching: 40, other: 5, unreadableFirstLast: true, wantCount: 38},
+		{name: "objects without a readable id are skipped", matching: 40, other: 5, unreadable: 2, wantCount: 38, wantWarnSkipped: 2},
+		{
+			// Spread across more than one 500-doc-id bucket call, to pin that
+			// the summary is one line per call rather than one per skip.
+			name: "unreadable ids across more than one bucket call are warned about once", matching: 1203,
+			unreadable: 3, wantCount: 1200, wantWarnSkipped: 3,
+		},
+		{
+			// Every other case keeps its objects in the memtable, so nothing
+			// above lsmkv exercises the worker read buffer the values come in.
+			name: "matches resolved from a flushed segment", matching: 600, other: 5, flushObjects: true, wantCount: 600,
+		},
 		{name: "cancelled context", matching: 5, cancelCtx: true, wantErr: context.Canceled},
 		{name: "a missing objects bucket fails the call instead of skipping", matching: 5, objectsBucketGone: true, wantErr: lsmkv.ErrBucketNotFound, wantErrText: "objects bucket"},
 	}
@@ -125,14 +143,20 @@ func TestShardFindUUIDs(t *testing.T) {
 				skipped[obj.ID()] = true
 			}
 
-			// Bytes shorter than the id header carry no readable id; putting it on
-			// the first and last match lets two workers hit the skip branch concurrently.
-			if tc.unreadableFirstLast {
-				for _, obj := range []*storobj.Object{matching[0], matching[len(matching)-1]} {
-					require.NoError(t, bucket.Put([]byte(obj.ID()), []byte("garbage"), lsmkv.WithSecondaryKey(0, docIDKeyOf(t, ctx, shard, obj.ID()))))
-					skipped[obj.ID()] = true
-				}
+			// Bytes shorter than the id header carry no readable id. Spreading them
+			// over the match set lets several workers, and several bucket calls,
+			// hit the skip branch.
+			for i := range tc.unreadable {
+				obj := matching[i*len(matching)/tc.unreadable]
+				require.NoError(t, bucket.Put([]byte(obj.ID()), []byte("garbage"), lsmkv.WithSecondaryKey(0, docIDKeyOf(t, ctx, shard, obj.ID()))))
+				skipped[obj.ID()] = true
 			}
+
+			if tc.flushObjects {
+				require.NoError(t, bucket.FlushAndSwitch())
+			}
+
+			hook := test.NewLocal(shard.Index().logger.(*logrus.Logger))
 
 			if tc.objectsBucketGone {
 				require.NoError(t, shard.Store().ShutdownBucket(ctx, helpers.ObjectsBucketLSM))
@@ -154,6 +178,7 @@ func TestShardFindUUIDs(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.Len(t, uuids, tc.wantCount)
+			requireSkipWarn(t, hook, tc.wantWarnSkipped)
 
 			want := make([]strfmt.UUID, 0, len(matching))
 			for _, obj := range matching {
@@ -169,35 +194,144 @@ func TestShardFindUUIDs(t *testing.T) {
 	}
 }
 
-func TestShardReducesSecondaryLookupSlowLogEntries(t *testing.T) {
-	ctx := context.Background()
-	class := textNameClass("SlowLogReduceTest")
-	shard, _ := testShardWithSettings(t, ctx, class, hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false)
-	for range 5 {
-		putNamedObject(t, ctx, shard, class, "match")
+// requireSkipWarn asserts the one summary line the unreadable-id branch writes,
+// or its absence when nothing was skipped.
+func requireSkipWarn(t *testing.T, hook *test.Hook, wantSkipped int) {
+	t.Helper()
+	var warns []string
+	for _, entry := range hook.AllEntries() {
+		if entry.Level == logrus.WarnLevel && entry.Data["op"] == "shard.find_uuids" {
+			warns = append(warns, entry.Message)
+		}
 	}
-	// Only a segment read writes a per-lookup slow-log entry; a memtable hit does not.
-	require.NoError(t, shard.Store().Bucket(helpers.ObjectsBucketLSM).FlushAndSwitch())
+	if wantSkipped == 0 {
+		require.Empty(t, warns)
+		return
+	}
+	require.Len(t, warns, 1, "the skips must be summarised once per call, not once per doc id")
+	require.Contains(t, warns[0], fmt.Sprintf("skipped %d doc ids", wantSkipped))
+	require.Contains(t, warns[0], "doc id ")
+}
+
+// stubDocIDBucket visits the first failAfter keys and then fails, as a bucket
+// whose segment read breaks part way through a call does.
+type stubDocIDBucket struct {
+	objects   map[uint64][]byte
+	failAfter int
+	err       error
+}
+
+func (b *stubDocIDBucket) GetBySecondaryBatch(_ context.Context, _ int, keys [][]byte,
+	visit func(i int, value []byte) error,
+) error {
+	for i := range keys {
+		if i >= b.failAfter {
+			return b.err
+		}
+		if object, ok := b.objects[binary.LittleEndian.Uint64(keys[i])]; ok {
+			if err := visit(i, object); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+type sliceDocIDIterator struct {
+	ids []uint64
+	pos int
+}
+
+func (it *sliceDocIDIterator) Next() (uint64, bool) {
+	if it.pos >= len(it.ids) {
+		return 0, false
+	}
+	it.pos++
+	return it.ids[it.pos-1], true
+}
+
+func (it *sliceDocIDIterator) Len() int { return len(it.ids) }
+
+// TestResolveUUIDsFailsOnReadError pins the behaviour change the PR makes: a
+// bucket read that breaks after the call has started fails the resolve instead
+// of returning the ids it managed to read.
+func TestResolveUUIDsFailsOnReadError(t *testing.T) {
+	readErr := errors.New("segment read failed")
+	object := func(id strfmt.UUID) []byte {
+		obj := &storobj.Object{
+			MarshallerVersion: 1,
+			Object:            models.Object{ID: id, Class: "ReadErrorTest"},
+		}
+		data, err := obj.MarshalBinary()
+		require.NoError(t, err)
+		return data
+	}
 
 	cases := []struct {
-		name string
-		run  func(ctx context.Context) error
+		name      string
+		failAfter int
 	}{
-		{name: "ObjectSearch", run: func(ctx context.Context) error {
-			_, _, err := shard.ObjectSearch(ctx, 10, nameEquals(class, "match"), nil, nil, nil, additional.Properties{}, nil)
-			return err
-		}},
-		{name: "FindUUIDs", run: func(ctx context.Context) error {
-			_, err := shard.FindUUIDs(ctx, nameEquals(class, "match"), 0)
-			return err
-		}},
+		{name: "the read fails before any object is visited"},
+		{name: "the read fails after some objects are visited", failAfter: 2},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx := helpers.InitSlowQueryDetails(ctx)
-			require.NoError(t, tc.run(ctx))
-			entry := helpers.ExtractSlowQueryDetails(ctx)["lsm_get_by_secondary_with_view"]
-			require.IsType(t, lsmkv.BucketSlowLogEntryStats{}, entry, "per-lookup entries must be reduced to one stats summary")
+			logger, _ := test.NewNullLogger()
+			bucket := &stubDocIDBucket{objects: map[uint64][]byte{}, failAfter: tc.failAfter, err: readErr}
+			ids := make([]uint64, 5)
+			for i := range ids {
+				ids[i] = uint64(i)
+				bucket.objects[uint64(i)] = object(strfmt.UUID(uuid.NewString()))
+			}
+
+			uuids, err := resolveUUIDs(context.Background(), logger, bucket, &sliceDocIDIterator{ids: ids})
+			require.ErrorIs(t, err, readErr)
+			require.ErrorContains(t, err, "resolve uuids")
+			require.Nil(t, uuids)
+		})
+	}
+}
+
+func TestShardReducesSecondaryLookupSlowLogEntries(t *testing.T) {
+	ctx := context.Background()
+	class := textNameClass("SlowLogReduceTest")
+
+	cases := []struct {
+		name            string
+		reporterEnabled bool
+		queryProfile    bool
+		wantReduced     bool
+	}{
+		{name: "the reporter is on", reporterEnabled: true, wantReduced: true},
+		{name: "a query profile was asked for", queryProfile: true, wantReduced: true},
+		{name: "nothing reads the entries", wantReduced: false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			shard, _ := testShardWithSettings(t, ctx, class, hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false)
+			for range 5 {
+				putNamedObject(t, ctx, shard, class, "match")
+			}
+			// Only a segment read writes a per-lookup slow-log entry.
+			require.NoError(t, shard.Store().Bucket(helpers.ObjectsBucketLSM).FlushAndSwitch())
+
+			logger, _ := test.NewNullLogger()
+			shard.(*Shard).slowQueryReporter = helpers.NewSlowQueryReporter(
+				runtime.NewDynamicValue(tc.reporterEnabled),
+				runtime.NewDynamicValue(helpers.DefaultSlowLogThreshold), logger,
+			)
+
+			slowLogCtx := helpers.InitSlowQueryDetails(ctx)
+			_, _, err := shard.ObjectSearch(slowLogCtx, 10, nameEquals(class, "match"), nil, nil, nil,
+				additional.Properties{QueryProfile: tc.queryProfile}, nil)
+			require.NoError(t, err)
+
+			entry := helpers.ExtractSlowQueryDetails(slowLogCtx)[lsmkv.SlowLogKeyGetBySecondaryWithView]
+			if tc.wantReduced {
+				require.IsType(t, lsmkv.BucketSlowLogEntryStats{}, entry, "per-lookup entries must be reduced to one stats summary")
+				return
+			}
+			require.IsType(t, []lsmkv.BucketSlowLogEntry{}, entry, "a query nothing reads must not pay for the reduce")
 		})
 	}
 }

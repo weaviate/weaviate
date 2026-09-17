@@ -87,7 +87,7 @@ func idRange(from, to uint64) []uint64 {
 	return ids
 }
 
-func TestReadObjectsByDocID(t *testing.T) {
+func TestDecodeByDocID(t *testing.T) {
 	bucketErr := errors.New("bucket read failed")
 	decodeErr := errors.New("decode failed")
 
@@ -152,7 +152,7 @@ func TestReadObjectsByDocID(t *testing.T) {
 			}
 
 			var gotMissing []uint64
-			got, err := ReadObjectsByDocID(ctx, bucket, &sliceDocIDIterator{ids: tc.ids}, tc.limit,
+			got, err := DecodeByDocID(ctx, bucket, &sliceDocIDIterator{ids: tc.ids}, tc.limit,
 				func(docID uint64, object []byte) (uint64, bool, error) {
 					if object == nil {
 						gotMissing = append(gotMissing, docID)

@@ -260,7 +260,8 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 
 	// Digest mode: only the header is read below, so skip the full value copy.
 	cursor := bucket.CursorReplaceDigestReusableRange(
-		storobj.MarshallerV1HeaderLen, initialUUID16[:], finalUUID16[:])
+		storobj.MarshallerV1HeaderLen, initialUUID16[:], finalUUID16[:],
+	)
 	defer cursor.Close()
 
 	return collectObjectDigests(ctx, cursor, initialUUID16[:], finalUUID16[:], limit)
@@ -575,8 +576,12 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	// Report slow queries if this method takes longer than expected
 	startTime := time.Now()
 	defer func() {
-		lsmkv.ReduceSlowLogEntries(ctx, "lsm_get_by_secondary")
-		lsmkv.ReduceSlowLogEntries(ctx, "lsm_get_by_secondary_with_view")
+		// Reducing sorts and allocates per entry, so only pay for it when
+		// something downstream reads the result.
+		if s.slowQueryReporter.Enabled() || additional.QueryProfile {
+			lsmkv.ReduceSlowLogEntries(ctx, lsmkv.SlowLogKeyGetBySecondary)
+			lsmkv.ReduceSlowLogEntries(ctx, lsmkv.SlowLogKeyGetBySecondaryWithView)
+		}
 
 		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
 			"collection":      s.index.Config.ClassName,
@@ -612,7 +617,8 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		if v := s.versioner.Version(); v < 2 {
 			return nil, nil, errors.Errorf(
 				"shard was built with an older version of " +
-					"Weaviate which does not yet support BM25 search")
+					"Weaviate which does not yet support BM25 search",
+			)
 		}
 
 		var bm25objs []*storobj.Object
@@ -699,8 +705,10 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	startTime := time.Now()
 
 	defer func() {
-		lsmkv.ReduceSlowLogEntries(ctx, "lsm_get_by_secondary")
-		lsmkv.ReduceSlowLogEntries(ctx, "lsm_get_by_secondary_with_view")
+		if s.slowQueryReporter.Enabled() || additional.QueryProfile {
+			lsmkv.ReduceSlowLogEntries(ctx, lsmkv.SlowLogKeyGetBySecondary)
+			lsmkv.ReduceSlowLogEntries(ctx, lsmkv.SlowLogKeyGetBySecondaryWithView)
+		}
 
 		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
 			"collection": s.index.Config.ClassName,
@@ -772,7 +780,8 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 				switch searchVector := searchVectors[i].(type) {
 				case []float32:
 					ids, dists, err = vidx.SearchByVectorDistance(
-						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
+						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList,
+					)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's
@@ -783,7 +792,8 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 					}
 				case [][]float32:
 					ids, dists, err = vidx.(VectorIndexMulti).SearchByMultiVectorDistance(
-						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList)
+						ctx, searchVector, targetDist, s.index.Config.QueryMaximumResults, allowList,
+					)
 					if err != nil {
 						// This should normally not fail. A failure here could indicate that more
 						// attention is required, for example because data is corrupted. That's

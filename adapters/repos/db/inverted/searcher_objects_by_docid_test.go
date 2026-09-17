@@ -14,6 +14,7 @@ package inverted
 import (
 	"context"
 	"encoding/binary"
+	"fmt"
 	"testing"
 
 	"github.com/go-openapi/strfmt"
@@ -39,9 +40,15 @@ func docIDKey(docID uint64) []byte {
 	return key
 }
 
+// objectName is the value of the one property every stored test object gets.
+func objectName(docID uint64) string {
+	return fmt.Sprintf("name-%d", docID)
+}
+
 // newObjectsBucketSearcher returns a searcher over a fresh objects bucket
-// along with the doc ids that were not tombstoned.
-func newObjectsBucketSearcher(t *testing.T, numObjects int, deleted []uint64) (*Searcher, []uint64) {
+// along with the doc ids that were not tombstoned. Doc ids in corrupt are
+// stored with bytes the object decoder rejects.
+func newObjectsBucketSearcher(t *testing.T, numObjects int, deleted, corrupt []uint64) (*Searcher, []uint64) {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
 	dirName := t.TempDir()
@@ -57,15 +64,26 @@ func newObjectsBucketSearcher(t *testing.T, numObjects int, deleted []uint64) (*
 	for _, docID := range deleted {
 		isDeleted[docID] = true
 	}
+	isCorrupt := make(map[uint64]bool, len(corrupt))
+	for _, docID := range corrupt {
+		isCorrupt[docID] = true
+	}
 	alive := make([]uint64, 0, numObjects)
 	for docID := range uint64(numObjects) {
 		obj := storobj.Object{
 			MarshallerVersion: 1,
-			Object:            models.Object{ID: strfmt.UUID(uuid.NewString()), Class: objectsByDocIDClass},
-			DocID:             docID,
+			Object: models.Object{
+				ID:         strfmt.UUID(uuid.NewString()),
+				Class:      objectsByDocIDClass,
+				Properties: map[string]interface{}{"name": objectName(docID)},
+			},
+			DocID: docID,
 		}
 		data, err := obj.MarshalBinary()
 		require.NoError(t, err)
+		if isCorrupt[docID] {
+			data = []byte("not a marshalled object")
+		}
 		require.NoError(t, bucket.Put([]byte(obj.ID()), data, lsmkv.WithSecondaryKey(0, docIDKey(docID))))
 		if isDeleted[docID] {
 			require.NoError(t, bucket.Delete([]byte(obj.ID()), lsmkv.WithSecondaryKey(0, docIDKey(docID))))
@@ -87,9 +105,12 @@ func TestSearcherObjectsByDocID(t *testing.T) {
 		name       string
 		numObjects int
 		deleted    []uint64
+		corrupt    []uint64
+		properties []string
 		limit      int
 		cancelCtx  bool
 		wantCount  int
+		wantErr    string
 	}
 	cases := []testCase{
 		{name: "no doc ids", numObjects: 0, limit: 10, wantCount: 0},
@@ -106,11 +127,26 @@ func TestSearcherObjectsByDocID(t *testing.T) {
 			limit:   1000, wantCount: 1000,
 		},
 		{name: "cancelled context", numObjects: 20, limit: 10, cancelCtx: true},
+		{name: "negative limit falls back to the query maximum", numObjects: 20, limit: -1, wantCount: 20},
+		{
+			// Enough doc ids for the bucket to fill its 16 lookup workers, each
+			// decoding through the one shared property extraction.
+			name: "concurrent decodes share one property extraction", numObjects: 600,
+			properties: []string{"name"}, limit: 600, wantCount: 600,
+		},
+		{
+			name: "bytes the decoder rejects fail the call", numObjects: 20, corrupt: []uint64{7},
+			limit: 20, wantErr: "unmarshal data object for doc id 7",
+		},
+		{
+			name: "bytes the decoder rejects fail the call from a worker", numObjects: 600,
+			corrupt: []uint64{499}, limit: 600, wantErr: "unmarshal data object for doc id 499",
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			searcher, alive := newObjectsBucketSearcher(t, tc.numObjects, tc.deleted)
+			searcher, alive := newObjectsBucketSearcher(t, tc.numObjects, tc.deleted, tc.corrupt)
 			docIDs := make([]uint64, tc.numObjects)
 			for i := range docIDs {
 				docIDs[i] = uint64(i)
@@ -122,9 +158,14 @@ func TestSearcherObjectsByDocID(t *testing.T) {
 				cancel()
 			}
 
-			got, err := searcher.objectsByDocID(ctx, newSliceDocIDsIterator(docIDs), additional.Properties{}, tc.limit, nil)
+			got, err := searcher.objectsByDocID(ctx, newSliceDocIDsIterator(docIDs), additional.Properties{}, tc.limit, tc.properties)
 			if tc.cancelCtx {
 				require.ErrorIs(t, err, context.Canceled)
+				return
+			}
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				require.Nil(t, got)
 				return
 			}
 			require.NoError(t, err)
@@ -134,6 +175,13 @@ func TestSearcherObjectsByDocID(t *testing.T) {
 				gotDocIDs[i] = obj.DocID
 			}
 			require.Equal(t, alive[:tc.wantCount], gotDocIDs)
+
+			for _, prop := range tc.properties {
+				for _, obj := range got {
+					require.Equalf(t, objectName(obj.DocID), obj.Properties().(map[string]interface{})[prop],
+						"doc id %d decoded property %q", obj.DocID, prop)
+				}
+			}
 		})
 	}
 }

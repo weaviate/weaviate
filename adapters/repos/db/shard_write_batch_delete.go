@@ -23,7 +23,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -202,7 +201,8 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 		logger.Debug("Shard::FindUUIDs finished")
 	}()
 
-	// The budget DocIDsLimited sets stays on its own ctx; the read below needs one too.
+	// The budget DocIDsLimited sets stays on its own ctx, so the uuid resolve
+	// needs one of its own.
 	ctx = concurrency.CtxWithBudgetIfAbsent(ctx, concurrency.TimesGOMAXPROCS(2))
 
 	bucket, release, err := s.objectsBucket()
@@ -211,12 +211,29 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 	}
 	defer release()
 
-	// An object whose stored bytes carry no readable id is skipped, and the
-	// skips are logged once after the read. A bucket read error fails the call.
+	uuids, err = resolveUUIDs(ctx, logger, bucket, it)
+	return uuids, err
+}
+
+// docIDBatchBucket is the objects bucket as the uuid resolve uses it.
+type docIDBatchBucket interface {
+	GetBySecondaryBatch(ctx context.Context, pos int, keys [][]byte, visit func(i int, value []byte) error) error
+}
+
+// docIDIterator yields the doc ids to resolve.
+type docIDIterator interface {
+	Next() (uint64, bool)
+	Len() int
+}
+
+// resolveUUIDs reads the id of every object the iterator's doc ids point at. An
+// object whose stored bytes carry no readable id is skipped, and the skips are
+// logged once after the read. A bucket read error fails the call.
+func resolveUUIDs(ctx context.Context, logger logrus.FieldLogger, bucket docIDBatchBucket, it docIDIterator) ([]strfmt.UUID, error) {
 	var unreadableMu sync.Mutex
 	var unreadable int
-	var firstUnreadable error
-	uuids, err = storobj.ReadObjectsByDocID(ctx, bucket, it, it.Len(), func(docID uint64, object []byte) (strfmt.UUID, bool, error) {
+	var unreadableCause error
+	uuids, err := storobj.DecodeByDocID(ctx, bucket, it, it.Len(), func(docID uint64, object []byte) (strfmt.UUID, bool, error) {
 		if object == nil { // deleted after the allow list was built
 			return "", false, nil
 		}
@@ -227,17 +244,16 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 		if err != nil {
 			unreadableMu.Lock()
 			defer unreadableMu.Unlock()
-			if unreadable++; firstUnreadable == nil {
-				firstUnreadable = fmt.Errorf("doc id %d: %w", docID, err)
+			if unreadable++; unreadableCause == nil {
+				unreadableCause = fmt.Errorf("doc id %d: %w", docID, err)
 			}
 			return "", false, nil
 		}
 		return strfmt.UUID(prop[0]), true, nil
 	})
-	lsmkv.ReduceSlowLogEntries(ctx, "lsm_get_by_secondary_with_view")
 	if unreadable > 0 {
 		logger.WithField("op", "shard.find_uuids").
-			Warnf("skipped %d doc ids without a readable id, first: %v", unreadable, firstUnreadable)
+			Warnf("skipped %d doc ids without a readable id, one of them: %v", unreadable, unreadableCause)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("resolve uuids: %w", err)

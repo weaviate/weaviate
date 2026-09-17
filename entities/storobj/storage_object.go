@@ -195,6 +195,8 @@ func FromBinaryOptionalNetwork(data []byte,
 
 // FromBinaryOptionalDisk lets the caller supply an authoritative
 // class name; an empty className falls back to the on-disk bytes.
+// properties is only read, so several decodes may share one value, but nothing
+// may mutate it while they run.
 func FromBinaryOptionalDisk(data []byte, className string,
 	addProp additional.Properties, properties *PropertyExtraction,
 ) (*Object, error) {
@@ -397,6 +399,10 @@ func fromBinaryOptionalInternal(data []byte, className string,
 	return ko, nil
 }
 
+// PropertyExtraction names the properties a decode should read out of a stored
+// object. A decode only reads it, so one value can be shared by decodes running
+// at the same time; Add writes to it, so it must not be called while any decode
+// is in flight.
 type PropertyExtraction struct {
 	PropertyPaths [][]string
 }

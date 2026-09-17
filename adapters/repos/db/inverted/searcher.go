@@ -212,8 +212,9 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		return nil, fmt.Errorf("getting objects bucket class name: %w", err)
 	}
 
-	// Prevent unbounded iteration
-	if limit == 0 {
+	// Prevent unbounded iteration. A limit of zero means the caller set none,
+	// and a negative one can only be a caller bug, so both take the default.
+	if limit <= 0 {
 		limit = int(config.DefaultQueryMaximumResults)
 	}
 
@@ -243,7 +244,10 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		}
 	}()
 
-	out, err := storobj.ReadObjectsByDocID(ctx, bucket, it, limit, func(docID uint64, res []byte) (*storobj.Object, bool, error) {
+	// The decodes run on the bucket's lookup workers and share props, which
+	// they only read. They copy every value they keep out of res, which the
+	// bucket overwrites with the next lookup.
+	out, err := storobj.DecodeByDocID(ctx, bucket, it, limit, func(docID uint64, res []byte) (*storobj.Object, bool, error) {
 		if res == nil {
 			handleDeletedId(docID)
 			return nil, false, nil
@@ -759,7 +763,8 @@ func (s *Searcher) extractInternalProp(propName string, propType schema.DataType
 		return s.extractTimestampProp(propName, propType, value, operator, class)
 	default:
 		return nil, fmt.Errorf(
-			"failed to extract internal prop, unsupported internal prop '%s'", propName)
+			"failed to extract internal prop, unsupported internal prop '%s'", propName,
+		)
 	}
 }
 
@@ -777,7 +782,8 @@ func (s *Searcher) extractIDProp(propName string, propType schema.DataType,
 		byteValue = []byte(v)
 	default:
 		return nil, fmt.Errorf(
-			"failed to extract id prop, unsupported type '%T' for prop '%s'", propType, propName)
+			"failed to extract id prop, unsupported type '%T' for prop '%s'", propType, propName,
+		)
 	}
 
 	return &propValuePair{
@@ -830,7 +836,8 @@ func (s *Searcher) extractTimestampProp(propName string, propType schema.DataTyp
 		byteValue = []byte(strconv.FormatInt(asInt64, 10))
 	default:
 		return nil, fmt.Errorf(
-			"failed to extract timestamp prop, unsupported type '%T' for prop '%s'", propType, propName)
+			"failed to extract timestamp prop, unsupported type '%T' for prop '%s'", propType, propName,
+		)
 	}
 
 	return &propValuePair{
@@ -933,7 +940,8 @@ func (s *Searcher) extractPropertyLength(prop *models.Property, propType schema.
 		byteValue = b
 	default:
 		return nil, fmt.Errorf(
-			"failed to extract length of prop, unsupported type '%T' for length of prop '%s'", propType, prop.Name)
+			"failed to extract length of prop, unsupported type '%T' for length of prop '%s'", propType, prop.Name,
+		)
 	}
 
 	return &propValuePair{
@@ -960,7 +968,8 @@ func (s *Searcher) extractPropertyNull(prop *models.Property, propType schema.Da
 		valResult = b
 	default:
 		return nil, fmt.Errorf(
-			"failed to extract null prop, unsupported type '%T' for null prop '%s'", propType, prop.Name)
+			"failed to extract null prop, unsupported type '%T' for null prop '%s'", propType, prop.Name,
+		)
 	}
 
 	return &propValuePair{
