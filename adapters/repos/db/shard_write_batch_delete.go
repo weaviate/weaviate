@@ -273,7 +273,7 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 			"action":       "find_uuids_second_resolve",
 			"limit":        limit,
 			"docids_found": uncapped.docIDsRead,
-		}).Infof("batch delete resolved the filter a second time with no cap: a doc id in the window bounded at %d had no object row", limit)
+		}).Infof("resolved the filter a second time with no cap: a doc id in the window bounded at %d had no object row", limit)
 	}
 
 	return uuids, nil
