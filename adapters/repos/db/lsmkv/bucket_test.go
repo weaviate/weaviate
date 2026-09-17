@@ -2962,8 +2962,8 @@ func bucket_SecondaryPrimaryMismatch(ctx context.Context, t *testing.T, opts []B
 	_, _, _, _, err = b2.getBySecondaryCore(0, seckey, buffer, view, time.Duration(0))
 	require.Nil(t, err)
 
-	// a position outside the bucket's secondary indices is a caller bug, and
-	// used to index the segment's slice with it
+	// a position outside the bucket's secondary indices is answered with an
+	// error rather than used to index the segment's secondary slices
 	for _, pos := range []int{-1, 1} {
 		_, _, _, _, err = b2.getBySecondaryCore(pos, seckey, buffer, view, time.Duration(0))
 		require.EqualError(t, err, fmt.Sprintf("no secondary index at pos %d", pos))
