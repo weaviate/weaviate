@@ -15,17 +15,23 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
+	"fmt"
 	"testing"
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -425,4 +431,237 @@ func newBatchDeleteRepoAt(t *testing.T, rootDir string, class *models.Class,
 	return setupTestDBWithShardState(t, rootDir, shardState, func(cfg *Config) {
 		cfg.QueryMaximumResults = queryMaximumResults
 	}, class)
+}
+
+// TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot pins that a doc id whose object row is
+// gone while the inverted postings still name it costs a read and not one of the caller's
+// limit slots, whichever filter shape produced the allow list. A leaf allow-list filter is
+// the shape a bound pushed into the resolve breaks: the searcher stops the row reader once
+// the allow list reaches the limit it was given (inverted/searcher_doc_bitmap.go:96), and a
+// dead id inside a window that short leaves the retry loop nothing to retry against, so the
+// reply lands on exactly limit, which the published contract reads as "exact, everything
+// handled".
+func TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot(t *testing.T) {
+	const objectCount = 30
+
+	tests := []struct {
+		name   string
+		params func(dryRun bool) objects.BatchDeleteParams
+	}{
+		{name: "leaf allow-list filter", params: batchDeleteMatchAllParams},
+		{name: "deny-list filter", params: batchDeleteDenyListParams},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			repo := newBatchDeleteRepo(t, batchDeleteTestClass(false), singleShardState(), batchDeleteLimit)
+			simpleInsertObjectsForTenant(t, repo, batchDeleteClassName, "", objectCount)
+
+			before, err := repo.BatchDeleteObjects(ctx, tt.params(true), time.Now(), nil, "", 0)
+			require.NoError(t, err)
+			require.Equal(t, batchDeleteLimit+1, before.Matches)
+			require.NotEmpty(t, before.Objects)
+
+			// The first UUID a dry run lists is the lowest doc id the filter resolved, which
+			// is inside the window a truncated allow list holds.
+			dropObjectRow(t, repo, batchDeleteClassName, before.Objects[0].UUID)
+
+			after, err := repo.BatchDeleteObjects(ctx, tt.params(true), time.Now(), nil, "", 0)
+			require.NoError(t, err)
+			require.Equal(t, batchDeleteLimit+1, after.Matches,
+				"%d objects still match, so the reply must keep reporting more than the limit",
+				objectCount-1)
+			require.Len(t, after.Objects, int(batchDeleteLimit))
+		})
+	}
+}
+
+// TestBatchDeleteObjects_PrunesOnlyBelowTheDocIDWatermark pins which doc ids the resolve
+// may drop from the doc id universe. An id allocated before shard init is written or dead
+// forever; an id allocated since may belong to an insert that has taken the id and not yet
+// written the row, and dropping that one hides a live object from every deny-list filter
+// until the next shard init.
+func TestBatchDeleteObjects_PrunesOnlyBelowTheDocIDWatermark(t *testing.T) {
+	ctx := context.Background()
+	const (
+		beforeRestart = 10
+		afterRestart  = 5
+	)
+
+	rootDir := t.TempDir()
+	shardState := singleShardState()
+
+	repo := newBatchDeleteRepoAt(t, rootDir, batchDeleteTestClass(false), shardState, 0)
+	insertBatchDeleteObjects(t, repo, 0, beforeRestart)
+	require.NoError(t, repo.Shutdown(ctx))
+
+	// Reopening sets the watermark to the doc id counter, so every id above is below it
+	// and every id the inserts below take is at or above it.
+	repo = newBatchDeleteRepoAt(t, rootDir, batchDeleteTestClass(false), shardState, 0)
+	t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
+	insertBatchDeleteObjects(t, repo, beforeRestart, afterRestart)
+
+	shard := loadedShard(t, repo, batchDeleteClassName)
+	require.Equal(t, uint64(beforeRestart), shard.docIDPruneWatermark)
+
+	belowWatermark := dropObjectRow(t, repo, batchDeleteClassName, batchDeleteObjectID(0))
+	atWatermark := dropObjectRow(t, repo, batchDeleteClassName, batchDeleteObjectID(beforeRestart))
+	require.Less(t, belowWatermark, shard.docIDPruneWatermark)
+	require.GreaterOrEqual(t, atWatermark, shard.docIDPruneWatermark)
+
+	res, err := repo.BatchDeleteObjects(ctx, batchDeleteDenyListParams(true), time.Now(), nil, "", 0)
+	require.NoError(t, err)
+	require.Equal(t, int64(beforeRestart+afterRestart-2), res.Matches,
+		"both rowless doc ids are skipped, neither is reported as a match")
+
+	universe, release := shard.bitmapFactory.GetBitmap()
+	defer release()
+	require.False(t, universe.Contains(belowWatermark),
+		"a doc id below the watermark with no object row is dropped from the universe")
+	require.True(t, universe.Contains(atWatermark),
+		"a doc id at or above the watermark is kept: its object row may still be on its way")
+}
+
+// TestBatchDeleteObjects_PrunesMoreDeadDocIDsThanOneBatch pins the prune of a dead prefix
+// longer than one batch. The ids are accumulated into a bitmap that is subtracted and
+// reset every deadDocIDPruneBatch ids, so a reset that loses ids leaves part of the prefix
+// in the universe for every later resolve to read again.
+func TestBatchDeleteObjects_PrunesMoreDeadDocIDsThanOneBatch(t *testing.T) {
+	ctx := context.Background()
+	const (
+		objectCount = 1100
+		alive       = 5
+	)
+	require.Greater(t, objectCount-alive, deadDocIDPruneBatch,
+		"the dead prefix must outrun one batch, or the flush inside the loop never runs")
+
+	rootDir := t.TempDir()
+	shardState := singleShardState()
+
+	repo := newBatchDeleteRepoAt(t, rootDir, batchDeleteTestClass(false), shardState, 0)
+	insertBatchDeleteObjects(t, repo, 0, objectCount)
+	for i := 0; i < objectCount-alive; i++ {
+		require.NoError(t, repo.DeleteObject(ctx, batchDeleteClassName,
+			batchDeleteObjectID(i), time.Now(), nil, "", 0))
+	}
+	require.NoError(t, repo.Shutdown(ctx))
+
+	// The restart rebuilds the universe from the doc id counter, so every deleted id is
+	// back in it and all of them are below the watermark.
+	repo = newBatchDeleteRepoAt(t, rootDir, batchDeleteTestClass(false), shardState, 0)
+	t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
+
+	_, err := repo.BatchDeleteObjects(ctx, batchDeleteNoMatchParams(true), time.Now(), nil, "", 0)
+	require.NoError(t, err)
+	shard := loadedShard(t, repo, batchDeleteClassName)
+
+	before, releaseBefore := shard.bitmapFactory.GetBitmap()
+	resurrected := before.GetCardinality()
+	releaseBefore()
+	require.Equal(t, objectCount, resurrected,
+		"the restart must put the whole dead prefix back, or there is nothing to prune")
+
+	res, err := repo.BatchDeleteObjects(ctx, batchDeleteDenyListParams(true), time.Now(), nil, "", 0)
+	require.NoError(t, err)
+	require.Equal(t, int64(alive), res.Matches)
+
+	after, releaseAfter := shard.bitmapFactory.GetBitmap()
+	defer releaseAfter()
+	require.Equal(t, alive, after.GetCardinality(),
+		"every dead doc id must leave the universe, not only the ids in the last partial batch")
+}
+
+// batchDeleteObjectID is the id insertBatchDeleteObjects gives the i-th object. It shares
+// no prefix with simpleInsertObjectsForTenant's ids, which run out past 999.
+func batchDeleteObjectID(i int) strfmt.UUID {
+	return strfmt.UUID(fmt.Sprintf("7c4b2aa1-2b7c-4478-8bd0-2e527e%06d", i))
+}
+
+// insertBatchDeleteObjects writes count objects with ids batchDeleteObjectID(from) onward.
+func insertBatchDeleteObjects(t *testing.T, repo *DB, from, count int) {
+	t.Helper()
+
+	batch := make(objects.BatchObjects, count)
+	for i := range batch {
+		id := batchDeleteObjectID(from + i)
+		batch[i] = objects.BatchObject{
+			OriginalIndex: i,
+			UUID:          id,
+			Object: &models.Object{
+				Class:      batchDeleteClassName,
+				ID:         id,
+				Properties: map[string]interface{}{"stringProp": fmt.Sprintf("element %d", from+i)},
+				Vector:     []float32{1, 2, 3},
+			},
+		}
+	}
+
+	res, err := repo.BatchPutObjects(context.Background(), batch, nil, 0)
+	require.NoError(t, err)
+	assertAllItemsErrorFree(t, res)
+}
+
+// dropObjectRow removes an object's row from the objects bucket and leaves its inverted
+// postings alone, which is the state every delete passes through between
+// shard_write_delete.go:90 and :112. It returns the doc id the postings still name.
+func dropObjectRow(t *testing.T, repo *DB, className string, id strfmt.UUID) uint64 {
+	t.Helper()
+
+	shard := loadedShard(t, repo, className)
+	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
+	require.NoError(t, err)
+
+	bucket := shard.store.Bucket(helpers.ObjectsBucketLSM)
+	require.NotNil(t, bucket)
+
+	existing, err := bucket.Get(idBytes)
+	require.NoError(t, err)
+	require.NotNil(t, existing, "the object must exist before its row is dropped")
+
+	docID, _, err := storobj.DocIDAndTimeFromBinary(existing)
+	require.NoError(t, err)
+
+	docIDBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(docIDBytes, docID)
+	require.NoError(t, bucket.Delete(idBytes,
+		lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes)))
+
+	return docID
+}
+
+// loadedShard returns the class's first loaded shard. The shard loads lazily, so a call
+// has to have reached it already.
+func loadedShard(t *testing.T, repo *DB, className string) *Shard {
+	t.Helper()
+
+	idx := repo.GetIndex(schema.ClassName(className))
+	require.NotNil(t, idx)
+
+	var found *Shard
+	require.NoError(t, idx.ForEachLoadedShard(func(_ string, s ShardLike) error {
+		if found == nil {
+			found, _ = s.(*Shard)
+		}
+		return nil
+	}))
+	require.NotNil(t, found, "no loaded shard: run a call against the class first")
+
+	return found
+}
+
+// batchDeleteNoMatchParams matches nothing, so it loads the shard without walking the
+// doc id universe.
+func batchDeleteNoMatchParams(dryRun bool) objects.BatchDeleteParams {
+	return batchDeleteParams(&filters.Clause{
+		Operator: filters.OperatorEqual,
+		On: &filters.Path{
+			Class:    batchDeleteClassName,
+			Property: schema.PropertyName("stringProp"),
+		},
+		Value: &filters.Value{
+			Value: "absent",
+			Type:  schema.DataTypeText,
+		},
+	}, dryRun)
 }
