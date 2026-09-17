@@ -585,7 +585,13 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	isMultivec := h.multivector.Load() && !h.muvera.Load()
 	for entrypoints.Len() > 0 {
 		ep := entrypoints.Pop()
-		visitedList.Visit(ep.ID)
+		// the same node can be enqueued twice — the level-descent entry and
+		// an allow-list seed coincide whenever the entrypoint is allowed
+		// and the descent could not improve on it — and inserting both
+		// copies makes the search return a duplicate id
+		if visitedList.CheckAndVisit(ep.ID) {
+			continue
+		}
 		candidates.Insert(ep.ID, ep.Dist)
 		if level == 0 && allowList != nil {
 			// we are on the lowest level containing the actual candidates and we
