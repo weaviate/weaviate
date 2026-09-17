@@ -27,7 +27,10 @@ go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
 echo_green "Generating Weaviate gRPC API protocol stubs..."
 
-rm -fr $OUT_DIR && mkdir -p $OUT_DIR && cd $GEN_DIR && protoc \
+if [ -d $OUT_DIR ]; then
+    find $OUT_DIR ! -name 'go.mod' ! -name 'go.sum' -type f -exec rm -f {} +
+fi
+mkdir -p $OUT_DIR && cd $GEN_DIR && protoc \
     --proto_path=../proto \
     --go_out=paths=source_relative:protocol \
     --go-grpc_out=paths=source_relative:protocol \

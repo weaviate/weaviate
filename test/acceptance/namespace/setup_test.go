@@ -105,6 +105,10 @@ func TestMain(m *testing.M) {
 		WithNamespaces().
 		WithMCP().
 		WithOffloadS3("offloading", "us-west-1").
+		// Bounds the upload TestNamespaces_SuspendDuringOffloadAbort fails on
+		// purpose. The 120s default would hold the apply loop for two minutes;
+		// 20s stays well clear of a healthy one-object upload.
+		WithWeaviateEnv("OFFLOAD_TIMEOUT", "20").
 		// backup-s3 + export share the MinIO sidecar; the "backups" bucket backs
 		// both. REPLICA_MOVEMENT_ENABLED ensures the Replicate handler reaches the
 		// auth check (it 501s before authz when movement is off), so the RBAC deny
@@ -113,7 +117,6 @@ func TestMain(m *testing.M) {
 		WithWeaviateEnv("EXPORT_ENABLED", "true").
 		WithWeaviateEnv("EXPORT_DEFAULT_BUCKET", "backups").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
-		WithWeaviateEnv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT", "true").
 		WithWeaviateClusterWithGRPC().
 		Start(ctx)
 	if err != nil {

@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
+	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 // TestRepairBatchPartTimeBasedLiveWinnerFailedRefetch pins that a live winner whose refetch fails does not nil-deref under TimeBasedResolution (regression for the repairBatchPart guard).
@@ -236,4 +237,159 @@ func TestRepairBatchPartWithoutCallerCopy(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "no reply identified as the caller's copy")
 	require.Equal(t, []bool{false}, resolved)
+}
+
+// TestRepairOneWithoutCallerCopy pins that a missing caller copy is reported
+// instead of indexing votes[-1]. Counterpart to TestRepairBatchPartWithoutCallerCopy.
+func TestRepairOneWithoutCallerCopy(t *testing.T) {
+	id := strfmt.UUID("00000000-0000-0000-0000-000000000abc")
+
+	metrics, err := NewMetrics(monitoring.GetMetrics())
+	require.NoError(t, err)
+	logger, _ := test.NewNullLogger()
+
+	newRepairer := func(strategy string) *repairer {
+		return &repairer{
+			class:               "C1",
+			getDeletionStrategy: func() string { return strategy },
+			client:              NewFinderClient(NewMockRClient(t), logger),
+			metrics:             metrics,
+			logger:              logger,
+		}
+	}
+
+	digestOnly := []ObjTuple{
+		{Sender: "A", UTime: 100, O: Replica{ID: id, LastUpdateTimeUnixMilli: 100}},
+		{Sender: "B", UTime: 200, O: Replica{ID: id, LastUpdateTimeUnixMilli: 200}},
+	}
+
+	cases := []struct {
+		name       string
+		votes      []ObjTuple
+		contentIdx int
+		strategy   string
+	}{
+		{
+			name:       "no reply carried content",
+			votes:      digestOnly,
+			contentIdx: -1,
+			strategy:   models.ReplicationConfigDeletionStrategyNoAutomatedResolution,
+		},
+		{
+			// time-based resolution falls past the delete-only exits and does
+			// need the caller's copy
+			name:       "no reply carried content, deleted replica",
+			votes:      []ObjTuple{{Sender: "A", UTime: 100, O: Replica{ID: id, LastUpdateTimeUnixMilli: 100, Deleted: true}}},
+			contentIdx: -1,
+			strategy:   models.ReplicationConfigDeletionStrategyTimeBasedResolution,
+		},
+		{
+			name:       "every reply was lost",
+			votes:      nil,
+			contentIdx: -1,
+			strategy:   models.ReplicationConfigDeletionStrategyNoAutomatedResolution,
+		},
+		{
+			name:       "content index past the surviving replies",
+			votes:      digestOnly,
+			contentIdx: len(digestOnly),
+			strategy:   models.ReplicationConfigDeletionStrategyNoAutomatedResolution,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRepairer(tc.strategy)
+
+			var obj *storobj.Object
+			var err error
+			require.NotPanics(t, func() {
+				obj, err = r.repairOne(context.Background(), "S1", id, tc.votes, tc.contentIdx)
+			})
+			require.ErrorContains(t, err, "no reply identified as the caller's copy")
+			require.Nil(t, obj)
+		})
+	}
+}
+
+// TestRepairOneDeleteOnlyPathsNeedNoCallerCopy is the one-object counterpart of
+// TestRepairBatchPartDeleteOnConflictSkipsContentFetch: a tombstone is resolved
+// from the digest votes alone, so losing the full-content reply must not stop
+// the repair. Guarding contentIdx at the top of repairOne would have left the
+// live replica unrepaired here.
+func TestRepairOneDeleteOnlyPathsNeedNoCallerCopy(t *testing.T) {
+	id := strfmt.UUID("00000000-0000-0000-0000-000000000abc")
+
+	metrics, err := NewMetrics(monitoring.GetMetrics())
+	require.NoError(t, err)
+	logger, _ := test.NewNullLogger()
+
+	// one replica holds the tombstone, the other is stale and must be overwritten
+	votes := []ObjTuple{
+		{Sender: "A", UTime: 200, O: Replica{ID: id, LastUpdateTimeUnixMilli: 200, Deleted: true}},
+		{Sender: "B", UTime: 100, O: Replica{ID: id, LastUpdateTimeUnixMilli: 100}},
+	}
+
+	t.Run("delete on conflict repairs from digests", func(t *testing.T) {
+		rc := NewMockRClient(t)
+		var overwritten []string
+		rc.EXPECT().OverwriteObjects(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(_ context.Context, host, _, _ string, _ []*objects.VObject) ([]types.RepairResponse, error) {
+				overwritten = append(overwritten, host)
+				return nil, nil
+			}).Maybe()
+
+		r := &repairer{
+			class:               "C1",
+			getDeletionStrategy: func() string { return models.ReplicationConfigDeletionStrategyDeleteOnConflict },
+			client:              NewFinderClient(rc, logger),
+			metrics:             metrics,
+			logger:              logger,
+		}
+
+		obj, err := r.repairOne(context.Background(), "S1", id, votes, -1)
+		require.NoError(t, err, "a tombstone repair needs no full-content reply")
+		require.Nil(t, obj)
+		require.Equal(t, []string{"B"}, overwritten, "only the stale replica is overwritten")
+	})
+
+	t.Run("no automated resolution reports the conflict", func(t *testing.T) {
+		r := &repairer{
+			class:               "C1",
+			getDeletionStrategy: func() string { return models.ReplicationConfigDeletionStrategyNoAutomatedResolution },
+			client:              NewFinderClient(NewMockRClient(t), logger),
+			metrics:             metrics,
+			logger:              logger,
+		}
+
+		obj, err := r.repairOne(context.Background(), "S1", id, votes, -1)
+		require.ErrorIs(t, err, replicaerrors.ErrConflictExistOrDeleted,
+			"the conflict is known from the digests, not from the caller's copy")
+		require.Nil(t, obj)
+	})
+}
+
+// TestRepairExistWithoutReplies pins that an empty vote slice is reported
+// instead of indexing votes[0].
+func TestRepairExistWithoutReplies(t *testing.T) {
+	id := strfmt.UUID("00000000-0000-0000-0000-000000000abc")
+
+	metrics, err := NewMetrics(monitoring.GetMetrics())
+	require.NoError(t, err)
+	logger, _ := test.NewNullLogger()
+
+	r := &repairer{
+		class:               "C1",
+		getDeletionStrategy: func() string { return models.ReplicationConfigDeletionStrategyNoAutomatedResolution },
+		client:              NewFinderClient(NewMockRClient(t), logger),
+		metrics:             metrics,
+		logger:              logger,
+	}
+
+	var exists bool
+	require.NotPanics(t, func() {
+		exists, err = r.repairExist(context.Background(), "S1", id, nil)
+	})
+	require.ErrorContains(t, err, "no replies to repair from")
+	require.False(t, exists)
 }

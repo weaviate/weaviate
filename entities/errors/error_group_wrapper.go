@@ -28,11 +28,9 @@ import (
 // ErrorGroupWrapper is a custom type that embeds errgroup.Group.
 type ErrorGroupWrapper struct {
 	*errgroup.Group
-	returnError    error
 	variables      []interface{}
 	logger         logrus.FieldLogger
-	deferFunc      func(localVars ...interface{})
-	cancelCtx      func()
+	recoverPanic   func(err *error, localVars ...interface{})
 	routineCounter atomic.Int64
 	includeStack   bool
 	limitSet       int
@@ -41,16 +39,11 @@ type ErrorGroupWrapper struct {
 // NewErrorGroupWrapper creates a new ErrorGroupWrapper.
 func NewErrorGroupWrapper(logger logrus.FieldLogger, vars ...interface{}) *ErrorGroupWrapper {
 	egw := &ErrorGroupWrapper{
-		Group:       new(errgroup.Group),
-		returnError: nil,
-		variables:   vars,
-		logger:      logger,
-
-		// this dummy func makes it safe to call cancelCtx even if a wrapper without a
-		// context is used. Avoids a nil check later on.
-		cancelCtx: func() {},
+		Group:     new(errgroup.Group),
+		variables: vars,
+		logger:    logger,
 	}
-	egw.setDeferFunc()
+	egw.setRecoverPanic()
 
 	if entcfg.Enabled(os.Getenv("LOG_STACK_TRACE_ON_ERROR_GROUP")) {
 		egw.includeStack = true
@@ -60,16 +53,13 @@ func NewErrorGroupWrapper(logger logrus.FieldLogger, vars ...interface{}) *Error
 
 // NewErrorGroupWithContextWrapper creates a new ErrorGroupWrapper
 func NewErrorGroupWithContextWrapper(logger logrus.FieldLogger, ctx context.Context, vars ...interface{}) (*ErrorGroupWrapper, context.Context) {
-	ctx, cancel := context.WithCancel(ctx)
 	eg, ctx := errgroup.WithContext(ctx)
 	egw := &ErrorGroupWrapper{
-		Group:       eg,
-		returnError: nil,
-		variables:   vars,
-		logger:      logger,
-		cancelCtx:   cancel,
+		Group:     eg,
+		variables: vars,
+		logger:    logger,
 	}
-	egw.setDeferFunc()
+	egw.setRecoverPanic()
 
 	if entcfg.Enabled(os.Getenv("LOG_STACK_TRACE_ON_ERROR_GROUP")) {
 		egw.includeStack = true
@@ -78,31 +68,38 @@ func NewErrorGroupWithContextWrapper(logger logrus.FieldLogger, ctx context.Cont
 	return egw, ctx
 }
 
-func (egw *ErrorGroupWrapper) setDeferFunc() {
-	disable := entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC"))
-	if !disable {
-		egw.deferFunc = func(localVars ...interface{}) {
-			if r := recover(); r != nil {
-				entsentry.Recover(r)
-				egw.logger.WithField("panic", r).Errorf("Recovered from panic: %v, local variables %v, additional localVars %v\n", r, localVars, egw.variables)
-				PrintStack(egw.logger)
-
-				// FIXME(dyma): this is racy if multiple goroutines fail at once.
-				// The errgroup.Group has a errOnce sync.Once guard for that.
-				egw.returnError = fmt.Errorf("panic occurred: %v", r)
-
-				egw.cancelCtx()
-			}
+// setRecoverPanic builds the recovery that Go defers in each goroutine.
+// DISABLE_RECOVERY_ON_PANIC=true makes it a no-op instead, so a panic reaches
+// the runtime.
+func (egw *ErrorGroupWrapper) setRecoverPanic() {
+	if entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+		// the no-op never calls recover, so the panic reaches the runtime
+		egw.recoverPanic = func(*error, ...interface{}) {}
+		return
+	}
+	egw.recoverPanic = func(err *error, localVars ...interface{}) {
+		r := recover()
+		if r == nil {
+			return
 		}
-	} else {
-		egw.deferFunc = func(localVars ...interface{}) {}
+		entsentry.Recover(r)
+		egw.logger.WithField("panic", r).Errorf("Recovered from panic: %v, local variables %v, additional localVars %v", r, localVars, egw.variables)
+		PrintStack(egw.logger)
+
+		// The panic becomes the goroutine's error, so errgroup's errOnce records it
+		// and cancels with it. It therefore outranks every error a sibling returns
+		// afterwards, including the context.Canceled that cancellation produces.
+		*err = fmt.Errorf("panic occurred: %v", r)
 	}
 }
 
-// Go overrides the Go method to add panic recovery logic.
+// Go runs f in a new goroutine. A panic in f is recovered and returned as f's
+// error, so Wait reports it as "panic occurred: <value>" and the group's
+// context is cancelled with it. DISABLE_RECOVERY_ON_PANIC lets the panic reach
+// the runtime instead.
 func (egw *ErrorGroupWrapper) Go(f func() error, localVars ...interface{}) {
-	egw.Group.Go(func() error {
-		defer egw.deferFunc(localVars)
+	egw.Group.Go(func() (err error) {
+		defer egw.recoverPanic(&err, localVars...)
 		return f()
 	})
 	egw.routineCounter.Add(1)
@@ -115,7 +112,8 @@ func (egw *ErrorGroupWrapper) SetLimit(limit int) {
 	egw.limitSet = limit
 }
 
-// Wait waits for all goroutines to finish and returns the first non-nil error.
+// Wait waits for all goroutines to finish and returns the first non-nil error,
+// which includes a panic Go recovered.
 func (egw *ErrorGroupWrapper) Wait() error {
 	count := egw.routineCounter.Load()
 	logBase := egw.logger.WithFields(logrus.Fields{
@@ -134,8 +132,5 @@ func (egw *ErrorGroupWrapper) Wait() error {
 
 	logBase.Debugf("Waiting for %d jobs to finish with limit %d", count, egw.limitSet)
 
-	if err := egw.Group.Wait(); err != nil {
-		return err
-	}
-	return egw.returnError
+	return egw.Group.Wait()
 }

@@ -10,6 +10,7 @@ function main() {
   run_acceptance_only_fast_group_3=false
   run_acceptance_only_fast_group_4=false
   run_acceptance_only_fast_group_5=false
+  run_acceptance_only_fast_group_6=false
   run_acceptance_distributed_tasks=false
   run_acceptance_only_authz=false
   run_acceptance_only_mcp=false
@@ -35,6 +36,7 @@ function main() {
   run_integration_tests=false
   run_integration_tests_only_vector_package=false
   run_integration_tests_without_vector_package=false
+  run_integration_tests_only_slow_package=false
   run_benchmark=false
   run_module_only_backup_tests=false
   run_module_only_offload_tests=false
@@ -60,11 +62,18 @@ function main() {
   run_acceptance_reindex_mt=false
   run_acceptance_reindex_backup=false
   run_acceptance_drop_vector_index=false
-  run_acceptance_drop_vector_index_cluster=false
+  run_acceptance_drop_vector_index_cluster_group1=false
+  run_acceptance_drop_vector_index_cluster_group2=false
   run_acceptance_drop_vector_index_restart_cluster=false
   run_acceptance_drop_vector_index_rolling_restart=false
   run_acceptance_backup_multinode=false
+  run_acceptance_drop_vector_index_async_indexing_group1=false
+  run_acceptance_drop_vector_index_async_indexing_group2=false
   run_acceptance_backups=false
+  run_acceptance_backup_dedupe=false
+  run_acceptance_backup_dedupe_cross_version=false
+  run_acceptance_backup_dedupe_incremental=false
+  run_acceptance_backup_dedupe_misc=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -75,13 +84,15 @@ function main() {
           --integration-only|-i) run_all_tests=false; run_integration_tests=true;;
           --integration-vector-package-only|-ivpo) run_all_tests=false; run_integration_tests=true; run_integration_tests_only_vector_package=true;;
           --integration-without-vector-package|-iwvp) run_all_tests=false; run_integration_tests=true; run_integration_tests_without_vector_package=true;;
+          --integration-slow-package-only|-ispo) run_all_tests=false; run_integration_tests=true; run_integration_tests_only_slow_package=true;;
           --acceptance-only|--e2e-only|-a) run_all_tests=false; run_acceptance_tests=true ;;
-          --acceptance-only-fast|-aof) run_all_tests=false; run_acceptance_only_fast_group_1=true; run_acceptance_only_fast_group_2=true; run_acceptance_only_fast_group_3=true; run_acceptance_only_fast_group_4=true; run_acceptance_only_fast_group_5=true;;
+          --acceptance-only-fast|-aof) run_all_tests=false; run_acceptance_only_fast_group_1=true; run_acceptance_only_fast_group_2=true; run_acceptance_only_fast_group_3=true; run_acceptance_only_fast_group_4=true; run_acceptance_only_fast_group_5=true; run_acceptance_only_fast_group_6=true;;
           --acceptance-only-fast-group-1|-aof-g1) run_all_tests=false; run_acceptance_only_fast_group_1=true;;
           --acceptance-only-fast-group-2|-aof-g2) run_all_tests=false; run_acceptance_only_fast_group_2=true;;
           --acceptance-only-fast-group-3|-aof-g3) run_all_tests=false; run_acceptance_only_fast_group_3=true;;
           --acceptance-only-fast-group-4|-aof-g4) run_all_tests=false; run_acceptance_only_fast_group_4=true;;
           --acceptance-only-fast-group-5|-aof-g5) run_all_tests=false; run_acceptance_only_fast_group_5=true;;
+          --acceptance-only-fast-group-6|-aof-g6) run_all_tests=false; run_acceptance_only_fast_group_6=true;;
           --acceptance-distributed-tasks) run_all_tests=false; run_acceptance_distributed_tasks=true;;
           --acceptance-only-python|-aop) run_all_tests=false; run_acceptance_only_python=true;;
           --acceptance-only-python-namespaces|-aopns) run_all_tests=false; run_acceptance_only_python_namespaces=true;;
@@ -124,11 +135,18 @@ function main() {
           --acceptance-reindex-mt|-armt) run_all_tests=false; run_acceptance_reindex_mt=true;;
           --acceptance-reindex-backup|-arb) run_all_tests=false; run_acceptance_reindex_backup=true;;
           --acceptance-drop-vector-index|-advi) run_all_tests=false; run_acceptance_drop_vector_index=true;;
-          --acceptance-drop-vector-index-cluster|-advic) run_all_tests=false; run_acceptance_drop_vector_index_cluster=true;;
+          --acceptance-drop-vector-index-cluster-group1|-advic1) run_all_tests=false; run_acceptance_drop_vector_index_cluster_group1=true;;
+          --acceptance-drop-vector-index-cluster-group2|-advic2) run_all_tests=false; run_acceptance_drop_vector_index_cluster_group2=true;;
           --acceptance-drop-vector-index-restart-cluster|-advirc) run_all_tests=false; run_acceptance_drop_vector_index_restart_cluster=true;;
           --acceptance-drop-vector-index-rolling-restart|-advirr) run_all_tests=false; run_acceptance_drop_vector_index_rolling_restart=true;;
           --acceptance-backup-multinode|-abm) run_all_tests=false; run_acceptance_backup_multinode=true;;
+          --acceptance-drop-vector-index-async-indexing-group1|-advia1) run_all_tests=false; run_acceptance_drop_vector_index_async_indexing_group1=true;;
+          --acceptance-drop-vector-index-async-indexing-group2|-advia2) run_all_tests=false; run_acceptance_drop_vector_index_async_indexing_group2=true;;
           --acceptance-backups|-ab) run_all_tests=false; run_acceptance_backups=true;;
+          --acceptance-backup-dedupe|-abd) run_all_tests=false; run_acceptance_backup_dedupe=true;;
+          --acceptance-backup-dedupe-cross-version|-abdcv) run_all_tests=false; run_acceptance_backup_dedupe_cross_version=true;;
+          --acceptance-backup-dedupe-incremental|-abdi) run_all_tests=false; run_acceptance_backup_dedupe_incremental=true;;
+          --acceptance-backup-dedupe-misc|-abdm) run_all_tests=false; run_acceptance_backup_dedupe_misc=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -138,6 +156,9 @@ function main() {
               "--unit-only-non-adapters | -una"\
               "--unit-and-integration-only | -ui"\
               "--integration-only | -i"\
+              "--integration-vector-package-only | -ivpo"\
+              "--integration-without-vector-package | -iwvp"\
+              "--integration-slow-package-only | -ispo"\
               "--acceptance-only | -a"\
               "--acceptance-only-fast | -aof"\
               "--acceptance-only-fast-group-1 | -aof-g1"\
@@ -145,6 +166,7 @@ function main() {
               "--acceptance-only-fast-group-3 | -aof-g3"\
               "--acceptance-only-fast-group-4 | -aof-g4"\
               "--acceptance-only-fast-group-5 | -aof-g5"\
+              "--acceptance-only-fast-group-6 | -aof-g6"\
               "--acceptance-only-python | -aop"\
               "--acceptance-only-python-namespaces | -aopns"\
               "--acceptance-go-client | -ag"\
@@ -178,6 +200,10 @@ function main() {
               "--acceptance-reindex-mt | -armt"\
               "--acceptance-reindex-backup | -arb"\
               "--acceptance-backups | -ab"\
+              "--acceptance-backup-dedupe | -abd"\
+              "--acceptance-backup-dedupe-cross-version | -abdcv"\
+              "--acceptance-backup-dedupe-incremental | -abdi"\
+              "--acceptance-backup-dedupe-misc | -abdm"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -215,7 +241,7 @@ function main() {
     echo_green "Integration tests successful"
   fi
 
-  if $run_acceptance_tests  || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_4 || $run_acceptance_only_fast_group_5 || $run_acceptance_only_authz || $run_acceptance_only_mcp || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_only_python || $run_all_tests || $run_benchmark || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_only_fast_group_3 || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $only_acceptance || $run_acceptance_objects
+  if $run_acceptance_tests  || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_4 || $run_acceptance_only_fast_group_5 || $run_acceptance_only_fast_group_6 || $run_acceptance_only_authz || $run_acceptance_only_mcp || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_only_python || $run_all_tests || $run_benchmark || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_only_fast_group_3 || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $only_acceptance || $run_acceptance_objects
   then
     echo "Start docker container needed for acceptance and/or benchmark test"
     echo_green "Stop any running docker-compose containers..."
@@ -246,7 +272,7 @@ function main() {
       ./test/benchmark/run_performance_tracker.sh
     fi
 
-    if $run_acceptance_tests || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_4 || $run_acceptance_only_fast_group_5 || $run_acceptance_only_authz || $run_acceptance_only_mcp || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_only_fast_group_3 || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $run_all_tests || $only_acceptance || $run_acceptance_objects
+    if $run_acceptance_tests || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_4 || $run_acceptance_only_fast_group_5 || $run_acceptance_only_fast_group_6 || $run_acceptance_only_authz || $run_acceptance_only_mcp || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_only_fast_group_3 || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $run_all_tests || $only_acceptance || $run_acceptance_objects
     then
       echo_green "Run acceptance tests..."
       run_acceptance_tests "$@"
@@ -430,9 +456,14 @@ function main() {
     run_acceptance_drop_vector_index
   fi
 
-  if $run_acceptance_drop_vector_index_cluster; then
-    echo "running drop-vector-index cluster acceptance tests"
-    run_acceptance_drop_vector_index_cluster
+  if $run_acceptance_drop_vector_index_cluster_group1; then
+    echo "running drop-vector-index cluster group 1 acceptance tests"
+    run_acceptance_drop_vector_index_cluster_group1
+  fi
+
+  if $run_acceptance_drop_vector_index_cluster_group2; then
+    echo "running drop-vector-index cluster group 2 acceptance tests"
+    run_acceptance_drop_vector_index_cluster_group2
   fi
 
   if $run_acceptance_drop_vector_index_restart_cluster; then
@@ -450,9 +481,39 @@ function main() {
     run_acceptance_backup_multinode
   fi
 
+  if $run_acceptance_drop_vector_index_async_indexing_group1; then
+    echo "running drop-vector-index async-indexing group 1 acceptance tests"
+    run_acceptance_drop_vector_index_async_indexing_group1
+  fi
+
+  if $run_acceptance_drop_vector_index_async_indexing_group2; then
+    echo "running drop-vector-index async-indexing group 2 acceptance tests"
+    run_acceptance_drop_vector_index_async_indexing_group2
+  fi
+
   if $run_acceptance_backups; then
     echo "running backup/restore acceptance tests"
     run_acceptance_backups
+  fi
+
+  if $run_acceptance_backup_dedupe; then
+    echo "running backup dedupe acceptance tests"
+    run_acceptance_backup_dedupe
+  fi
+
+  if $run_acceptance_backup_dedupe_cross_version; then
+    echo "running backup dedupe cross-version acceptance tests"
+    run_acceptance_backup_dedupe_cross_version
+  fi
+
+  if $run_acceptance_backup_dedupe_incremental; then
+    echo "running backup dedupe incremental acceptance tests"
+    run_acceptance_backup_dedupe_incremental
+  fi
+
+  if $run_acceptance_backup_dedupe_misc; then
+    echo "running backup dedupe misc acceptance tests"
+    run_acceptance_backup_dedupe_misc
   fi
   echo "Done!"
 }
@@ -511,6 +572,8 @@ function run_integration_tests() {
     ./test/integration/run.sh --include-slow --only-vector-pkg
   elif $run_integration_tests_without_vector_package; then
     ./test/integration/run.sh --include-slow --without-vector-pkg
+  elif $run_integration_tests_only_slow_package; then
+    ./test/integration/run.sh --include-slow --only-slow-pkg
   else
     ./test/integration/run.sh --include-slow
   fi
@@ -534,6 +597,7 @@ function run_acceptance_tests() {
      $run_acceptance_only_fast_group_3 || \
      $run_acceptance_only_fast_group_4 || \
      $run_acceptance_only_fast_group_5 || \
+     $run_acceptance_only_fast_group_6 || \
      $run_acceptance_tests || \
      $run_all_tests; then
     echo "running acceptance fast only"
@@ -552,6 +616,9 @@ function run_acceptance_tests() {
     fi
     if $run_acceptance_only_fast_group_5 || $run_acceptance_tests || $run_all_tests; then
       run_acceptance_only_fast_group 5
+    fi
+    if $run_acceptance_only_fast_group_6 || $run_acceptance_tests || $run_all_tests; then
+      run_acceptance_only_fast_group 6
     fi
   fi
   # Catch-all for --acceptance-only / --all-tests. The dedicated
@@ -643,6 +710,7 @@ function get_fast_acceptance_packages() {
     | grep -v 'test/acceptance/reindex_blockmax_ageout' \
     | grep -v 'test/acceptance/reindex_backup' \
     | grep -v 'test/acceptance/backups' \
+    | grep -v 'test/acceptance/backup_dedupe_replicas' \
     | grep -v 'test/acceptance/distributed_tasks' \
     | grep -v 'test/acceptance/drop_vector_index' \
     | sed 's|.*/test/acceptance/|test/acceptance/|'
@@ -672,6 +740,10 @@ function run_aof_group() {
   if [[ -n "${AOF_GROUP_SKIP:-}" ]]; then
     echo "  -skip filter: $AOF_GROUP_SKIP"
   fi
+  local group_timeout="${AOF_GROUP_TIMEOUT:-20m}"
+  if [[ "$group_timeout" != "20m" ]]; then
+    echo "  -timeout: $group_timeout"
+  fi
 
   local -a extra_flags=()
   if [[ -n "${AOF_GROUP_RUN:-}" ]]; then
@@ -688,12 +760,12 @@ function run_aof_group() {
 
       # Stress tests need different test configuration (no timeout, no race detector)
       if [[ "$pkg" == "test/acceptance/stress_tests" ]]; then
-        if ! go test -count 1 ${extra_flags[@]+"${extra_flags[@]}"} "$pkg"; then
+        if ! go test -count 1 "${extra_flags[@]}" "$pkg"; then
           echo "Test for $pkg failed" >&2
           testFailed=1
         fi
       else
-        if ! go test -count 1 -timeout=20m -race ${extra_flags[@]+"${extra_flags[@]}"} "$pkg"; then
+        if ! go test -count 1 -timeout="$group_timeout" -race "${extra_flags[@]}" "$pkg"; then
           echo "Test for $pkg failed" >&2
           testFailed=1
         fi
@@ -710,13 +782,14 @@ function get_aof_group() {
   case "$1" in
     1) echo "test/acceptance/multi_node test/acceptance/actions" ;;
     2) echo "test/acceptance/schema test/acceptance/cluster_api_auth test/acceptance/batch_request_endpoints" ;;
-    3) echo "test/acceptance/authn test/acceptance/aliases test/acceptance/maintenance_mode test/acceptance/grpc test/acceptance/vector_distances test/acceptance/backups" ;;
+    3) echo "test/acceptance/grpc" ;;
     4) echo "test/acceptance/alter_schema test/acceptance/namespace test/acceptance/namespace_limits test/acceptance/vector_index_restrictions" ;;
+    6) echo "test/acceptance/authn test/acceptance/aliases test/acceptance/maintenance_mode test/acceptance/vector_distances test/acceptance/backups" ;;
     *) echo "" ;;
   esac
 }
 
-# get_other_packages returns fast acceptance packages not included in groups 1-4.
+# get_other_packages returns fast acceptance packages not included in groups 1-4 and 6.
 # These packages form group 5 and include any newly added tests automatically.
 # Returns normalized package paths, one per line.
 function get_other_packages() {
@@ -724,18 +797,20 @@ function get_other_packages() {
   local -a AOF_GROUP2=()
   local -a AOF_GROUP3=()
   local -a AOF_GROUP4=()
+  local -a AOF_GROUP6=()
 
   read -ra AOF_GROUP1 <<< "$(get_aof_group 1)"
   read -ra AOF_GROUP2 <<< "$(get_aof_group 2)"
   read -ra AOF_GROUP3 <<< "$(get_aof_group 3)"
   read -ra AOF_GROUP4 <<< "$(get_aof_group 4)"
+  read -ra AOF_GROUP6 <<< "$(get_aof_group 6)"
 
-  # All fast acceptance test packages, excluding those in groups 1-4
+  # All fast acceptance test packages, excluding those in groups 1-4 and 6
   local -a other_fast_packages=()
   while IFS= read -r pkg; do
     [[ -n $pkg ]] && other_fast_packages+=("$pkg")
   done < <(
-    get_fast_acceptance_packages | grep -F -x -v -f <(printf '%s\n' "${AOF_GROUP1[@]}" "${AOF_GROUP2[@]}" "${AOF_GROUP3[@]}" "${AOF_GROUP4[@]}")
+    get_fast_acceptance_packages | grep -F -x -v -f <(printf '%s\n' "${AOF_GROUP1[@]}" "${AOF_GROUP2[@]}" "${AOF_GROUP3[@]}" "${AOF_GROUP4[@]}" "${AOF_GROUP6[@]}")
   )
 
   printf '%s\n' "${other_fast_packages[@]}"
@@ -743,8 +818,8 @@ function get_other_packages() {
 
 # run_acceptance_only_fast_group runs a specific group of fast acceptance tests.
 # Parameters:
-#   $1: GROUP - group number to run (1-5)
-# Groups 1-4 contain explicitly assigned packages for load balancing.
+#   $1: GROUP - group number to run (1-6)
+# Groups 1-4 and 6 contain explicitly assigned packages for load balancing.
 # Group 5 automatically contains all other fast acceptance packages.
 function run_acceptance_only_fast_group() {
   build_weaviate_test_image
@@ -754,31 +829,33 @@ function run_acceptance_only_fast_group() {
   local -a AOF_GROUP2=()
   local -a AOF_GROUP3=()
   local -a AOF_GROUP4=()
+  local -a AOF_GROUP6=()
 
   read -ra AOF_GROUP1 <<< "$(get_aof_group 1)"
   read -ra AOF_GROUP2 <<< "$(get_aof_group 2)"
   read -ra AOF_GROUP3 <<< "$(get_aof_group 3)"
   read -ra AOF_GROUP4 <<< "$(get_aof_group 4)"
+  read -ra AOF_GROUP6 <<< "$(get_aof_group 6)"
 
   case "$GROUP" in
     1)
-      echo_green "acceptance-only-fast — group 1/5"
+      echo_green "acceptance-only-fast — group 1/6"
       run_aof_group "1" "${AOF_GROUP1[@]}"
       ;;
     2)
-      echo_green "acceptance-only-fast — group 2/5"
+      echo_green "acceptance-only-fast — group 2/6"
       run_aof_group "2" "${AOF_GROUP2[@]}"
       ;;
     3)
-      echo_green "acceptance-only-fast — group 3/5"
+      echo_green "acceptance-only-fast — group 3/6"
       run_aof_group "3" "${AOF_GROUP3[@]}"
       ;;
     4)
-      echo_green "acceptance-only-fast — group 4/5"
+      echo_green "acceptance-only-fast — group 4/6"
       run_aof_group "4" "${AOF_GROUP4[@]}"
       ;;
     5)
-      echo_green "acceptance-only-fast — group 5/5 (others from fast set)"
+      echo_green "acceptance-only-fast — group 5/6 (others from fast set)"
 
       local -a other_fast_packages=()
       while IFS= read -r pkg; do
@@ -789,7 +866,11 @@ function run_acceptance_only_fast_group() {
 
       run_aof_group "5" "${other_fast_packages[@]}"
       ;;
-    *) echo_red "Invalid group: $GROUP (must be 1..5)"; return 1 ;;
+    6)
+      echo_green "acceptance-only-fast — group 6/6"
+      run_aof_group "6" "${AOF_GROUP6[@]}"
+      ;;
+    *) echo_red "Invalid group: $GROUP (must be 1..6)"; return 1 ;;
   esac
 }
 
@@ -995,10 +1076,12 @@ function run_acceptance_reindex_singlenode_a() {
   # Profiled locally on M4 (race detector on): TestSingleNode_ReindexSuite
   # totals 265s, dominated by /PropertyStateMigrationMatrix at 128s
   # (~half the suite). Isolating PSMM to -singlenode-b gives this
-  # sub-shard ~137s of suite work + the 4 standalone Test* funcs
+  # sub-shard ~137s of suite work + the 5 standalone Test* funcs
   # (TestCancelThenRetry, TestRestartDuringSwap,
   # TestSingleNode_FinishedStatusRaceWithSchemaFlag,
-  # TestTornResume_StandaloneSmoke), totalling ~3 min local → ~7-8 min CI.
+  # TestTornResume_StandaloneSmoke,
+  # TestRebuiltIndexSurvivesShardLoadsWhileTheIndexIsOff), totalling
+  # ~3 min local → ~7-8 min CI.
   #
   # The -skip filter operates at the level of the subtest path: only
   # TestSingleNode_ReindexSuite/PropertyStateMigrationMatrix is skipped;
@@ -1077,11 +1160,18 @@ function run_acceptance_drop_vector_index() {
     test/acceptance/drop_vector_index
 }
 
-function run_acceptance_drop_vector_index_cluster() {
+function run_acceptance_drop_vector_index_cluster_group1() {
   build_weaviate_test_image
-  echo_green "acceptance — drop-vector-index-cluster"
-  AOF_GROUP_RUN='^TestDropVectorIndex_Cluster$' \
-    run_aof_group "drop-vector-index-cluster" test/acceptance/drop_vector_index
+  echo_green "acceptance — drop-vector-index-cluster-group1"
+  AOF_GROUP_RUN='^TestDropVectorIndex_Cluster_Group1$' \
+    run_aof_group "drop-vector-index-cluster-group1" test/acceptance/drop_vector_index
+}
+
+function run_acceptance_drop_vector_index_cluster_group2() {
+  build_weaviate_test_image
+  echo_green "acceptance — drop-vector-index-cluster-group2"
+  AOF_GROUP_RUN='^TestDropVectorIndex_Cluster_Group2$' \
+    run_aof_group "drop-vector-index-cluster-group2" test/acceptance/drop_vector_index
 }
 
 function run_acceptance_drop_vector_index_restart_cluster() {
@@ -1089,6 +1179,20 @@ function run_acceptance_drop_vector_index_restart_cluster() {
   echo_green "acceptance — drop-vector-index-restart-cluster"
   AOF_GROUP_RUN='^TestDropVectorIndex_Restart_Cluster$' \
     run_aof_group "drop-vector-index-restart-cluster" test/acceptance/drop_vector_index
+}
+
+function run_acceptance_drop_vector_index_async_indexing_group1() {
+  build_weaviate_test_image
+  echo_green "acceptance — drop-vector-index-async-indexing-group1"
+  AOF_GROUP_RUN='^TestDropVectorIndex_AsyncIndexing_Group1$' \
+    run_aof_group "drop-vector-index-async-indexing-group1" test/acceptance/drop_vector_index
+}
+
+function run_acceptance_drop_vector_index_async_indexing_group2() {
+  build_weaviate_test_image
+  echo_green "acceptance — drop-vector-index-async-indexing-group2"
+  AOF_GROUP_RUN='^TestDropVectorIndex_AsyncIndexing_Group2$' \
+    run_aof_group "drop-vector-index-async-indexing-group2" test/acceptance/drop_vector_index
 }
 
 function run_acceptance_drop_vector_index_rolling_restart() {
@@ -1108,7 +1212,38 @@ function run_acceptance_backups() {
   build_weaviate_test_image
   echo_green "acceptance — backups"
   run_aof_group "backups" \
-    test/acceptance/backups
+    test/acceptance/backups \
+    test/acceptance/backup_dedupe_replicas
+}
+
+function run_acceptance_backup_dedupe() {
+  build_weaviate_test_image
+  echo_green "acceptance — backup-dedupe"
+  # Worst-case waits in TestBackupDedupeReplicas sum to ~30m; the workflow job allots 45m.
+  AOF_GROUP_RUN='^TestBackupDedupeReplicas$' AOF_GROUP_TIMEOUT=40m \
+    run_aof_group "backup-dedupe" test/acceptance/backup_dedupe_replicas
+}
+
+function run_acceptance_backup_dedupe_cross_version() {
+  build_weaviate_test_image
+  echo_green "acceptance — backup-dedupe-cross-version"
+  AOF_GROUP_RUN='^TestBackupCrossVersionRestore$' AOF_GROUP_TIMEOUT=30m \
+    run_aof_group "backup-dedupe-cross-version" test/acceptance/backup_dedupe_replicas
+}
+
+function run_acceptance_backup_dedupe_incremental() {
+  build_weaviate_test_image
+  echo_green "acceptance — backup-dedupe-incremental"
+  AOF_GROUP_RUN='^TestBackupDedupeIncremental$' AOF_GROUP_TIMEOUT=40m \
+    run_aof_group "backup-dedupe-incremental" test/acceptance/backup_dedupe_replicas
+}
+
+# Catch-all shard: when adding a sub-shard above, add its test prefix to the SKIP regex so it isn't double-run.
+function run_acceptance_backup_dedupe_misc() {
+  build_weaviate_test_image
+  echo_green "acceptance — backup-dedupe-misc"
+  AOF_GROUP_SKIP='^(TestBackupDedupeReplicas|TestBackupCrossVersionRestore|TestBackupDedupeIncremental)$' \
+    run_aof_group "backup-dedupe-misc" test/acceptance/backup_dedupe_replicas
 }
 
 # get_fast_go_client_packages returns a list of fast go client test packages.

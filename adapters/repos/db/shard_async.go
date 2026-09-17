@@ -28,43 +28,6 @@ import (
 	vectorIndexCommon "github.com/weaviate/weaviate/entities/vectorindex/common"
 )
 
-// ConvertQueue converts a legacy in-memory queue to an on-disk queue.
-// It detects if the queue has a checkpoint then it enqueues all the
-// remaining vectors to the on-disk queue, then deletes the checkpoint.
-func (s *Shard) ConvertQueue(targetVector string) error {
-	if !s.index.AsyncIndexingEnabled {
-		return nil
-	}
-
-	// No store, no checkpoint to convert from. This runs on a goroutine, where
-	// a nil dereference takes down the process.
-	if s.indexCheckpoints == nil {
-		return nil
-	}
-
-	// load non-indexed vectors and add them to the queue
-	checkpoint, exists, err := s.indexCheckpoints.Get(s.ID(), targetVector)
-	if err != nil {
-		return errors.Wrap(err, "get last indexed id")
-	}
-	if !exists {
-		return nil
-	}
-
-	err = s.FillQueue(targetVector, checkpoint)
-	if err != nil {
-		return errors.WithStack(err)
-	}
-
-	// we can now safely remove the checkpoint
-	err = s.indexCheckpoints.Delete(s.ID(), targetVector)
-	if err != nil {
-		return errors.Wrap(err, "delete checkpoint")
-	}
-
-	return nil
-}
-
 // FillQueue is a helper function that enqueues all vectors from the
 // LSM store to the on-disk queue.
 func (s *Shard) FillQueue(targetVector string, from uint64) error {
@@ -76,21 +39,23 @@ func (s *Shard) FillQueue(targetVector string, from uint64) error {
 
 	var counter int
 
-	vectorIndex, ok := s.GetVectorIndex(targetVector)
+	vectorIndex, releaseIndex, ok := s.AcquireVectorIndex(targetVector)
 	if !ok {
 		s.index.logger.WithField("targetVector", targetVector).Warn("preload queue: vector index not found")
 		// shard was never initialized, possibly because of a failed shard
 		// initialization. No op.
 		return nil
 	}
+	defer releaseIndex()
 
-	q, ok := s.GetVectorIndexQueue(targetVector)
+	q, releaseQueue, ok := s.AcquireVectorIndexQueue(targetVector)
 	if !ok {
 		s.index.logger.WithField("targetVector", targetVector).Warn("preload queue: queue not found")
 		// queue was never initialized, possibly because of a failed shard
 		// initialization. No op.
 		return nil
 	}
+	defer releaseQueue()
 
 	ctx := context.Background()
 
@@ -277,7 +242,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 	className := s.index.Config.ClassName.String()
 	shardName := s.Name()
 
-	vectorIndex, ok := s.GetVectorIndex(targetVector)
+	vectorIndex, releaseIndex, ok := s.AcquireVectorIndex(targetVector)
 	if !ok {
 		s.index.logger.
 			WithField("class", className).
@@ -288,6 +253,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 		// initialization. No op.
 		return nil
 	}
+	defer releaseIndex()
 
 	// if it's HNSW, trigger a tombstone cleanup
 	if hnsw.IsHNSWIndex(vectorIndex) {
@@ -299,7 +265,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 		}
 	}
 
-	q, ok := s.GetVectorIndexQueue(targetVector)
+	q, releaseQueue, ok := s.AcquireVectorIndexQueue(targetVector)
 	if !ok {
 		s.index.logger.
 			WithField("class", className).
@@ -310,6 +276,7 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 		// initialization. No op.
 		return nil
 	}
+	defer releaseQueue()
 
 	maxDocID := s.Counter().Get()
 	visited := visited.NewList(int(maxDocID))
@@ -552,13 +519,14 @@ func (s *Shard) RepairIndex(ctx context.Context, targetVector string) error {
 func (s *Shard) RequantizeIndex(ctx context.Context, targetVector string) error {
 	start := time.Now()
 
-	vectorIndex, ok := s.GetVectorIndex(targetVector)
+	vectorIndex, releaseIndex, ok := s.AcquireVectorIndex(targetVector)
 	if !ok {
 		s.index.logger.WithField("targetVector", targetVector).WithField("action", "requantize").Warn("requantize index: vector index not found")
 		// shard was never initialized, possibly because of a failed shard
 		// initialization. No op.
 		return nil
 	}
+	defer releaseIndex()
 
 	if !vectorIndex.Compressed() {
 		s.index.logger.WithField("targetVector", targetVector).WithField("action", "requantize").Info("vector index is not compressed, skipping requantizing")

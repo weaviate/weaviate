@@ -30,18 +30,19 @@ import (
 )
 
 // newStartedTestScheduler creates and starts a scheduler backed by a null
-// logger and no Prometheus metrics.
-func newStartedTestScheduler(t *testing.T, workers int) *AsyncReplicationScheduler {
+// logger and no Prometheus metrics. prefilterBatchSize overrides the default
+// batch size; pass 1 to give every shard a batch, and with it a worker, of its own.
+func newStartedTestScheduler(t *testing.T, workers int, prefilterBatchSize ...int) *AsyncReplicationScheduler {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
-	sched, err := NewAsyncReplicationScheduler(
-		context.Background(),
-		replication.GlobalConfig{
-			AsyncReplicationSchedulerWorkers: configRuntime.NewDynamicValue(workers),
-			AsyncReplicationDisabled:         configRuntime.NewDynamicValue(false),
-		},
-		nil, logger,
-	)
+	cfg := replication.GlobalConfig{
+		AsyncReplicationSchedulerWorkers: configRuntime.NewDynamicValue(workers),
+		AsyncReplicationDisabled:         configRuntime.NewDynamicValue(false),
+	}
+	if len(prefilterBatchSize) > 0 {
+		cfg.AsyncReplicationRootPrefilterBatchSize = configRuntime.NewDynamicValue(prefilterBatchSize[0])
+	}
+	sched, err := NewAsyncReplicationScheduler(context.Background(), cfg, nil, logger)
 	require.NoError(t, err)
 	t.Cleanup(sched.Close)
 	return sched
@@ -394,7 +395,10 @@ func TestAsyncSchedulerConcurrentRegisterDeregisterAndClose(t *testing.T) {
 func TestAdjustWorkersDoesNotLeakWorkersUnderConfigFlapping(t *testing.T) {
 	const n = 6
 	ctx := context.Background()
-	sched := newStartedTestScheduler(t, n)
+	// Batch size 1: at the default the n due shards ship as one batch to one
+	// worker, and the idle rest consume the scale-down tokens this test needs
+	// left pending.
+	sched := newStartedTestScheduler(t, n, 1)
 
 	shards := make([]*Shard, 0, n)
 	for i := range n {

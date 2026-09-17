@@ -225,7 +225,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 					Replicas: []types.Replica{{NodeName: "test-node", ShardName: tt.shardName, HostAddr: "10.14.57.56"}},
 				}, nil).Maybe()
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
-			index, err := NewIndex(ctx, IndexConfig{
+			index, err := NewIndex(ctx, nil, IndexConfig{
 				RootPath:              dirName,
 				ClassName:             schema.ClassName(tt.className),
 				ReplicationFactor:     1,
@@ -233,7 +233,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				TrackVectorDimensions: true,
 				EnableLazyLoadShards:  true,
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-				defaultVectorConfig, vectorConfigs, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
+				defaultVectorConfig, vectorConfigs, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
 				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
@@ -543,7 +543,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 					Replicas: []types.Replica{{NodeName: "test-node", ShardName: tt.shardName, HostAddr: "10.14.57.56"}},
 				}, nil).Maybe()
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
-			index, err := NewIndex(ctx, IndexConfig{
+			index, err := NewIndex(ctx, nil, IndexConfig{
 				EnableLazyLoadShards:  true,
 				RootPath:              dirName,
 				ClassName:             schema.ClassName(tt.className),
@@ -553,7 +553,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				enthnsw.UserConfig{
 					VectorCacheMaxObjects: 1000,
-				}, vectorConfigs, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
+				}, vectorConfigs, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
 				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
@@ -619,11 +619,11 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				require.True(t, ok)
 				require.NoError(t, lazyShard.Load(ctx))
 
-				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector)
+				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector, 0)
 				require.NoError(t, err)
 
-				assert.Equal(t, tt.expectedCount, dimensionality.Count)
-				assert.Equal(t, tt.expectedDims, dimensionality.Dimensions)
+				assert.Equal(t, tt.expectedCount, dimensionality.Raw.Count)
+				assert.Equal(t, tt.expectedDims, dimensionality.Raw.Dimensions)
 
 				// Release the shard (this will flush all data to disk)
 				release()
@@ -650,11 +650,11 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				require.True(t, ok)
 				require.NoError(t, lazyShard.Load(ctx))
 
-				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector)
+				dimensionality, err := lazyShard.shard.DimensionsUsage(ctx, tt.targetVector, 0)
 				require.NoError(t, err)
 
-				assert.Equal(t, tt.expectedCount, dimensionality.Count)
-				assert.Equal(t, tt.expectedDims, dimensionality.Dimensions)
+				assert.Equal(t, tt.expectedCount, dimensionality.Raw.Count)
+				assert.Equal(t, tt.expectedDims, dimensionality.Raw.Dimensions)
 
 				// Release the shard (this will flush all data to disk)
 				release()
@@ -763,7 +763,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	// loaded as a raw *Shard (not deferred as an empty tenant).
 	seedShardObjectCounter(t, dirName, className, tenantNamePopulated)
 	// Create index with lazy loading disabled to test active calculation methods
-	index, err := NewIndex(ctx, IndexConfig{
+	index, err := NewIndex(ctx, nil, IndexConfig{
 		RootPath:              dirName,
 		ClassName:             schema.ClassName(className),
 		ReplicationFactor:     1,
@@ -777,7 +777,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
+		}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 
@@ -910,7 +910,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 
 	// Create a new index instance to test inactive calculation methods
 	// This ensures we're testing the inactive methods on a fresh index that reads from disk
-	newIndex, err := NewIndex(ctx, IndexConfig{
+	newIndex, err := NewIndex(ctx, nil, IndexConfig{
 		RootPath:              dirName,
 		ClassName:             schema.ClassName(className),
 		ReplicationFactor:     1,
@@ -922,7 +922,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, index.GetVectorIndexConfigs(), mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
+		}, index.GetVectorIndexConfigs(), mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
 	defer newIndex.Shutdown(ctx)

@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/dbuser"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey/keys"
 	"github.com/weaviate/weaviate/usecases/namespaces"
@@ -1220,13 +1221,156 @@ func TestValidateNamespaceStrip(t *testing.T) {
 		require.Error(t, ValidateNamespaceStrip([]byte("{")))
 	})
 
+	// Backup restore validates both blobs before either store is mutated, and the
+	// version check is the user blob's only validation when the strip is off.
+	t.Run("WrongVersionErrors", func(t *testing.T) {
+		versionTests := []struct {
+			name     string
+			validate func([]byte) error
+		}{
+			{name: "with strip", validate: ValidateNamespaceStrip},
+			{name: "without strip", validate: func(b []byte) error { return ValidateSnapshot(b, false) }},
+		}
+		for _, vt := range versionTests {
+			t.Run(vt.name, func(t *testing.T) {
+				snap, err := json.Marshal(DBUserSnapshot{Version: SnapshotVersion + 1})
+				require.NoError(t, err)
+				err = vt.validate(snap)
+				require.Error(t, err)
+				require.Contains(t, err.Error(), "invalid snapshot version")
+			})
+		}
+	})
+
+	// Without the strip there is nothing to collide, because the ids keep their namespace prefix.
+	t.Run("CollidingSnapshotPassesWithoutStrip", func(t *testing.T) {
+		require.NoError(t, ValidateSnapshot(colliding, false))
+	})
+}
+
+// TestReferencedNamespaces pins which namespaces a backup's user blob is
+// checked against on a target with namespaces on: the explicit field only. A
+// user written before the field existed carries its namespace on the id alone
+// and is not read.
+func TestReferencedNamespaces(t *testing.T) {
+	src, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+	require.NoError(t, err)
+	seedUser(t, src, MakeUserKey("alice", "ns1"), "ns1")
+	seedUser(t, src, MakeUserKey("bob", "ns2"), "ns2")
+	seedUser(t, src, "carol", "")
+	// A user written before the Namespace field existed carries its namespace
+	// on the id alone.
+	seedUser(t, src, MakeUserKey("dave", "ns3"), "")
+
+	tests := []struct {
+		name string
+		snap func(t *testing.T) []byte
+		want []string
+	}{
+		{
+			name: "namespace field is preferred",
+			snap: func(t *testing.T) []byte {
+				b, err := src.Snapshot(MakeUserKey("alice", "ns1"), MakeUserKey("bob", "ns2"))
+				require.NoError(t, err)
+				return b
+			},
+			want: []string{"ns1", "ns2"},
+		},
+		{
+			name: "a pre-field user's qualified id is not read",
+			snap: func(t *testing.T) []byte {
+				b, err := src.Snapshot(MakeUserKey("dave", "ns3"))
+				require.NoError(t, err)
+				return b
+			},
+		},
+		{
+			name: "unqualified users yield nothing",
+			snap: func(t *testing.T) []byte {
+				b, err := src.Snapshot("carol")
+				require.NoError(t, err)
+				return b
+			},
+		},
+		{
+			name: "empty snapshot yields nothing",
+			snap: func(t *testing.T) []byte { return nil },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ReferencedNamespaces(tt.snap(t))
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+
 	t.Run("WrongVersionErrors", func(t *testing.T) {
 		snap, err := json.Marshal(DBUserSnapshot{Version: SnapshotVersion + 1})
 		require.NoError(t, err)
-		err = ValidateNamespaceStrip(snap)
+		_, err = ReferencedNamespaces(snap)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid snapshot version")
 	})
+}
+
+func TestRequireReferencedNamespacesExist(t *testing.T) {
+	src, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+	require.NoError(t, err)
+	seedUser(t, src, MakeUserKey("alice", "ns1"), "ns1")
+
+	activeBlob := func(t *testing.T) []byte {
+		t.Helper()
+		b, err := src.Snapshot(MakeUserKey("alice", "ns1"))
+		require.NoError(t, err)
+		return b
+	}
+
+	tests := []struct {
+		name    string
+		blob    []byte
+		states  map[string]cmd.NamespaceState
+		wantErr bool
+		wantMsg string
+	}{
+		{
+			name:   "all referenced namespaces active",
+			blob:   activeBlob(t),
+			states: map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateActive},
+		},
+		{
+			name:    "one deleting namespace errors",
+			blob:    activeBlob(t),
+			states:  map[string]cmd.NamespaceState{"ns1": cmd.NamespaceStateDeleting},
+			wantErr: true,
+			wantMsg: "ns1",
+		},
+		{
+			name:    "one missing namespace errors",
+			blob:    activeBlob(t),
+			states:  map[string]cmd.NamespaceState{},
+			wantErr: true,
+			wantMsg: "ns1",
+		},
+		{
+			name:    "malformed blob errors",
+			blob:    []byte("{bad"),
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ns := namespaces.NewMockExisterInState(t, tt.states)
+			err := RequireReferencedNamespacesExist(tt.blob, ns)
+			if !tt.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			if tt.wantMsg != "" {
+				assert.Contains(t, err.Error(), tt.wantMsg)
+			}
+		})
+	}
 }
 
 // TestSnapshotRestore_IncludeUsers_RestoreReplacesTarget: restoring an
@@ -1360,4 +1504,190 @@ func TestListAllUsers(t *testing.T) {
 	require.Len(t, users, 2)
 	require.Contains(t, users, "ns1:user")
 	require.Contains(t, users, "ns2:user")
+}
+
+func TestExportUsers(t *testing.T) {
+	t.Run("strong key user yields a credential record", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+		require.NoError(t, err)
+		_, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("user", hash, identifier, "abc", "", time.Now()))
+
+		records, err := dynUsers.ExportUsers()
+		require.NoError(t, err)
+
+		rec := records["user"]
+		require.Equal(t, dbuser.ExportStatusExported, rec.Status)
+		require.NotNil(t, rec.SecureHash)
+		require.Equal(t, hash, *rec.SecureHash)
+		require.Equal(t, identifier, rec.UserIdentifier)
+		require.Equal(t, "abc", rec.ApiKeyFirstLetters)
+		require.True(t, rec.Active)
+	})
+
+	t.Run("user with no stored hash fails the whole export", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+		require.NoError(t, err)
+		_, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("healthy", hash, identifier, "", "", time.Now()))
+		_, hash2, identifier2, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("broken", hash2, identifier2, "", "", time.Now()))
+		// No write path drops a hash, so corrupt the store directly.
+		delete(dynUsers.data.SecureKeyStorageById, "broken")
+
+		records, err := dynUsers.ExportUsers()
+		require.ErrorContains(t, err, `exporting user "broken"`)
+		require.Nil(t, records)
+
+		records, err = dynUsers.ExportUsers("broken")
+		require.ErrorContains(t, err, `exporting user "broken"`)
+		require.Nil(t, records)
+
+		records, err = dynUsers.ExportUsers("healthy")
+		require.NoError(t, err)
+		require.Equal(t, dbuser.ExportStatusExported, records["healthy"].Status)
+	})
+
+	t.Run("imported key user yields sentinel with reason imported_key", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUserWithKey("user", "abc", sha256.Sum256([]byte("key")), time.Now()))
+
+		records, err := dynUsers.ExportUsers()
+		require.NoError(t, err)
+
+		rec := records["user"]
+		require.Equal(t, dbuser.ExportStatusImportedKey, rec.Status)
+		require.Nil(t, rec.SecureHash)
+	})
+
+	t.Run("revoked strong key user yields sentinel with reason revoked", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+		require.NoError(t, err)
+		_, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("user", hash, identifier, "", "", time.Now()))
+		require.NoError(t, dynUsers.DeactivateUser("user", true))
+
+		records, err := dynUsers.ExportUsers()
+		require.NoError(t, err)
+
+		rec := records["user"]
+		require.Equal(t, dbuser.ExportStatusRevoked, rec.Status)
+		require.Nil(t, rec.SecureHash)
+	})
+
+	t.Run("deactivated user carried with active false", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+		require.NoError(t, err)
+		_, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("user", hash, identifier, "", "", time.Now()))
+		require.NoError(t, dynUsers.DeactivateUser("user", false))
+
+		records, err := dynUsers.ExportUsers()
+		require.NoError(t, err)
+
+		rec := records["user"]
+		// A deactivated (not revoked) user keeps its hash so import can reproduce it.
+		require.Equal(t, dbuser.ExportStatusExported, rec.Status)
+		require.NotNil(t, rec.SecureHash)
+		require.False(t, rec.Active)
+	})
+
+	t.Run("unknown requested id is omitted not errored", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+		require.NoError(t, err)
+
+		records, err := dynUsers.ExportUsers("does-not-exist")
+		require.NoError(t, err)
+		require.Empty(t, records)
+	})
+}
+
+func TestCreateUserIdentifierInvariant(t *testing.T) {
+	t.Run("same identifier to a different user id is refused with ErrUserIdentifierExists", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+		require.NoError(t, err)
+		_, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now()))
+
+		err = dynUsers.CreateUser("user2", "different-hash", identifier, "", "", time.Now())
+		require.ErrorIs(t, err, ErrUserIdentifierExists)
+
+		// The clobber wrote nothing: user2 must not exist and the identifier must
+		// still bind to user1 (not the rejected user2).
+		users, err := dynUsers.GetUsers("user1", "user2")
+		require.NoError(t, err)
+		require.Contains(t, users, "user1")
+		require.NotContains(t, users, "user2")
+
+		dynUsers.lock.RLock()
+		require.Equal(t, "user1", dynUsers.data.IdentifierToId[identifier])
+		_, hasUser2Hash := dynUsers.data.SecureKeyStorageById["user2"]
+		dynUsers.lock.RUnlock()
+		require.False(t, hasUser2Hash)
+	})
+
+	t.Run("same identifier to the same user id is idempotent", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+		require.NoError(t, err)
+		_, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now()))
+
+		// Re-applying the same userId succeeds, as RAFT log replay and a repeat import need.
+		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now()))
+	})
+
+	t.Run("same user id with a different identifier is refused with ErrUserExists", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+		require.NoError(t, err)
+		_, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now()))
+
+		_, otherHash, otherIdentifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		err = dynUsers.CreateUser("user1", otherHash, otherIdentifier, "", "", time.Now())
+		require.ErrorIs(t, err, ErrUserExists)
+
+		// The rejected create wrote nothing: the stored credential is the original
+		// one and the rejected identifier is not left dangling in IdentifierToId.
+		dynUsers.lock.RLock()
+		defer dynUsers.lock.RUnlock()
+		require.Equal(t, hash, dynUsers.data.SecureKeyStorageById["user1"])
+		require.Equal(t, identifier, dynUsers.data.IdToIdentifier["user1"])
+		require.Equal(t, identifier, dynUsers.data.Users["user1"].InternalIdentifier)
+		require.Equal(t, "user1", dynUsers.data.IdentifierToId[identifier])
+		require.NotContains(t, dynUsers.data.IdentifierToId, otherIdentifier)
+	})
+
+	t.Run("create clears the verified key cache", func(t *testing.T) {
+		dynUsers, err := NewDBUser(t.TempDir(), false, log, activeExister{})
+		require.NoError(t, err)
+		apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("user1", hash, identifier, "", "", time.Now()))
+
+		randomKey, _, err := keys.DecodeApiKey(apiKey)
+		require.NoError(t, err)
+		_, err = dynUsers.ValidateAndExtract(randomKey, identifier)
+		require.NoError(t, err)
+		_, cached := dynUsers.memoryOnlyData.weakKeyStorageById.Load("user1")
+		require.True(t, cached, "a successful login must populate the cache, else the assertion below is vacuous")
+
+		// The cache entry is bound to the hash it was verified against, so a
+		// re-create must drop it rather than reject the newly stored credential.
+		_, newHash, _, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.CreateUser("user1", newHash, identifier, "", "", time.Now()))
+
+		_, cached = dynUsers.memoryOnlyData.weakKeyStorageById.Load("user1")
+		require.False(t, cached)
+	})
 }

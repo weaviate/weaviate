@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -104,11 +105,19 @@ type SchemaManager struct {
 	// shouldLogSlowApply controls whether slow RAFT apply diagnostics are
 	// emitted.
 	shouldLogSlowApply func() bool
+
+	// metadataOnly nodes never reload, so a record would never be drained.
+	metadataOnly bool
+
+	orphansMu sync.Mutex
+	// orphanedClasses maps classes dropped while the store went untouched to
+	// whether they held frozen tenants.
+	orphanedClasses map[string]bool
 }
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
 	return &SchemaManager{
-		schema: NewSchema(nodeId, db, reg),
+		schema: NewSchema(nodeId, reg),
 		db:     db,
 		parser: parser,
 		log:    log,
@@ -229,7 +238,11 @@ func (s *SchemaManager) NewSchemaReaderWithWaitFunc(f func(context.Context, uint
 
 func (s *SchemaManager) SetIndexer(idx Indexer) {
 	s.db = idx
-	s.schema.shardReader = idx
+}
+
+// SetMetadataOnly marks a node that stores no class data.
+func (s *SchemaManager) SetMetadataOnly(v bool) {
+	s.metadataOnly = v
 }
 
 func (s *SchemaManager) SetReplicationFSM(fsm replicationFSM) {
@@ -258,16 +271,78 @@ func (s *SchemaManager) AliasSnapshot() ([]byte, error) {
 	return buf.Bytes(), err
 }
 
+// Restore installs a snapshot's schema. Nothing replays the DELETE_CLASS that
+// dropped a class the snapshot no longer names, so this diff is the store's
+// only signal.
 func (s *SchemaManager) Restore(data []byte, parser Parser) error {
-	return s.schema.Restore(data, parser)
+	dropped, err := s.schema.Restore(data, parser)
+	if err != nil {
+		return err
+	}
+	s.recordOrphans(dropped)
+	return nil
+}
+
+// recordOrphans marks the classes a restore dropped.
+func (s *SchemaManager) recordOrphans(dropped map[string]bool) {
+	for class, hasFrozen := range dropped {
+		s.recordOrphan(class, hasFrozen)
+	}
+}
+
+func (s *SchemaManager) recordOrphan(class string, hasFrozen bool) {
+	if s.metadataOnly {
+		return
+	}
+	s.orphansMu.Lock()
+	defer s.orphansMu.Unlock()
+	if s.orphanedClasses == nil {
+		s.orphanedClasses = map[string]bool{}
+	}
+	// OR, never overwrite: deleted frozen, re-added, deleted hot still leaves
+	// the first incarnation's cloud data.
+	s.orphanedClasses[class] = s.orphanedClasses[class] || hasFrozen
+}
+
+// dropOrphanedClasses removes the recorded classes' data, skipping any the
+// schema names again: catching up over [DELETE_CLASS C, ADD_CLASS C] records C
+// on the way past, and dropping it here would destroy what the re-add created.
+func (s *SchemaManager) dropOrphanedClasses() {
+	s.orphansMu.Lock()
+	orphans := s.orphanedClasses
+	s.orphanedClasses = nil
+	s.orphansMu.Unlock()
+
+	present := s.schema.classNames()
+	for class, hasFrozen := range orphans {
+		if _, revived := present[class]; revived {
+			continue
+		}
+		// DropOrphanedClass, not DeleteClass: no index is loaded to delete.
+		if err := s.db.DropOrphanedClass(context.Background(), class, hasFrozen); err != nil {
+			s.log.WithFields(logrus.Fields{
+				"action": "drop_orphaned_class",
+				"class":  class,
+			}).Error(err)
+			// Put it back; nothing else would name this data again.
+			s.recordOrphan(class, hasFrozen)
+		}
+	}
 }
 
 func (s *SchemaManager) RestoreAliases(data []byte) error {
 	return s.schema.RestoreAlias(data)
 }
 
+// RestoreLegacy is Restore for the old snapshot format, and drops classes the
+// same way.
 func (s *SchemaManager) RestoreLegacy(data []byte, parser Parser) error {
-	return s.schema.RestoreLegacy(data, parser)
+	dropped, err := s.schema.RestoreLegacy(data, parser)
+	if err != nil {
+		return err
+	}
+	s.recordOrphans(dropped)
+	return nil
 }
 
 func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
@@ -345,13 +420,18 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	cs := make([]command.UpdateClassRequest, len(classes))
 	i := 0
 	for _, v := range classes {
-		migratePropertiesIfNecessary(&v.Class)
-		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
+		// Shards keep the class pointer, and &v.Class would keep v.Sharding alive with it.
+		class := v.Class
+		migratePropertiesIfNecessary(&class)
+		cs[i] = command.UpdateClassRequest{Class: &class, State: &v.Sharding}
 		i++
 	}
 	s.db.TriggerSchemaUpdateCallbacks()
 	s.log.Info("reload local db: update schema ...")
 	s.db.ReloadLocalDB(context.Background(), cs)
+
+	// ReloadLocalDB only opens classes the schema still names.
+	s.dropOrphanedClasses()
 }
 
 func (s *SchemaManager) Close(ctx context.Context) (err error) {
@@ -534,18 +614,6 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		// from an update that never applied. (Moving the purge below the
 		// assignments is no safer: the refusal above must not fire after the
 		// meta was already mutated.)
-		//
-		// ROLLING UPGRADE: the purge and the refusal below are new behavior in
-		// a deterministic apply, so a mixed-version cluster diverges on this
-		// very log entry — a node without this code neither purges nor refuses,
-		// and the two FSMs stay disagreeing after the upgrade completes. The
-		// AddTask apply has the same exposure (CheckConflict's claim re-check
-		// rejects on new binaries, accepts on old). An in-apply version check
-		// cannot fix it: reading node-local version state during apply is
-		// itself non-deterministic, so any fence has to sit proposal-side.
-		// Accepted while the endpoint is experimental
-		// (ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT); revisit
-		// before the feature is promoted to a supported release.
 		if introduced := introducedDroppedVectorConfigs(&meta.Class, u); len(introduced) > 0 {
 			if s.distributedTaskManager == nil {
 				// Mirrors cascadeDeleteDistributedTasks: a marker introduced
@@ -663,22 +731,63 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 		applyOp{
 			op: cmd.GetType().String(),
 			updateSchema: func() error {
-				s.schema.deleteClass(cmd.Class)
+				// Only a delete that removed an entry leaves data behind:
+				// DeleteClass validates nothing, so a name that was never a
+				// collection would otherwise be recorded too. Whether the
+				// directory is really ours is settled at the drop.
+				if s.schema.deleteClass(cmd.Class) && schemaOnly {
+					s.recordOrphan(cmd.Class, hasFrozen)
+				}
 				// Cascade lives in updateSchema (not updateStore) so it
 				// also runs on schemaOnly catchup replay: DTM is in-memory
 				// FSM state, rebuilt from RAFT log on restart, and the
 				// DELETE_CLASS apply MUST drop tasks the replay just
 				// re-added. weaviate/0-weaviate-issues#231.
 				s.cascadeDeleteDistributedTasks(cmd.Class)
+				// Same reasoning for the replication FSM: its ops must be
+				// flagged on every apply path, schemaOnly replay and
+				// MetadataOnlyVoters included. Otherwise ShouldConsumeOps(),
+				// and with it three schema gates, disagrees between nodes.
+				s.cascadeDeleteReplicationOps(cmd.Class)
 				return nil
 			},
 			updateStore: func() error {
-				return s.DeleteClassFromDB(cmd.Class, hasFrozen)
+				return s.db.DeleteClass(cmd.Class, hasFrozen)
 			},
 			schemaOnly:           schemaOnly,
 			enableSchemaCallback: enableSchemaCallback,
 		},
 	)
+}
+
+// cascadeDeleteReplicationOps flags every replication op of class for deletion.
+// It logs and continues rather than returning an error: it runs inside
+// updateSchema, whose error aborts the whole apply, and a replication-FSM
+// hiccup must never block a class deletion.
+func (s *SchemaManager) cascadeDeleteReplicationOps(class string) {
+	if s.replicationFSM == nil {
+		s.log.WithField("class", class).
+			Debug("replication FSM not set; skipping cascade-delete on class delete")
+		return
+	}
+	if err := s.replicationFSM.DeleteReplicationsByCollection(class); err != nil {
+		s.log.WithField("class", class).
+			Errorf("could not delete replication operations for deleted class: %v", err)
+	}
+}
+
+// cascadeDeleteReplicationOpsForTenants is cascadeDeleteReplicationOps scoped to
+// the tenants a DELETE_TENANT apply removes.
+func (s *SchemaManager) cascadeDeleteReplicationOpsForTenants(class string, tenants []string) {
+	if s.replicationFSM == nil {
+		s.log.WithField("class", class).
+			Debug("replication FSM not set; skipping cascade-delete on tenant delete")
+		return
+	}
+	if err := s.replicationFSM.DeleteReplicationsByTenants(class, tenants); err != nil {
+		s.log.WithField("class", class).WithField("tenants", tenants).
+			Errorf("could not delete replication operations for deleted tenants: %v", err)
+	}
 }
 
 func (s *SchemaManager) cascadeDeleteDistributedTasks(class string) {
@@ -918,15 +1027,16 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 
 	return s.apply(
 		applyOp{
-			op:           cmd.GetType().String(),
-			updateSchema: func() error { return s.schema.deleteTenants(cmd.Class, cmd.Version, req) },
-			updateStore: func() error {
-				if s.replicationFSM == nil {
-					return fmt.Errorf("replication deleter is not set, this should never happen")
-				} else if err := s.replicationFSM.DeleteReplicationsByTenants(cmd.Class, req.Tenants); err != nil {
-					// If there is an error deleting the replications then we log it but make sure not to block the deletion of the class from a UX PoV
-					s.log.WithField("error", err).WithField("class", cmd.Class).WithField("tenants", tenants).Error("could not delete replication operations for deleted tenants")
+			op: cmd.GetType().String(),
+			updateSchema: func() error {
+				// In updateSchema so it also runs on schemaOnly applies; see deleteClass.
+				if err := s.schema.deleteTenants(cmd.Class, cmd.Version, req); err != nil {
+					return err
 				}
+				s.cascadeDeleteReplicationOpsForTenants(cmd.Class, req.Tenants)
+				return nil
+			},
+			updateStore: func() error {
 				return s.db.DeleteTenants(cmd.Class, tenants)
 			},
 			schemaOnly: schemaOnly,
@@ -968,7 +1078,7 @@ func (s *SchemaManager) ReplicationAddReplicaToShard(cmd *command.ApplyRequest, 
 			},
 			updateStore: func() error {
 				if req.TargetNode == s.schema.nodeID {
-					if err := s.db.AddReplicaToShard(req.Class, req.Shard, req.TargetNode); err != nil {
+					if err := s.db.AddReplicaToShardForMovement(req.Class, req.Shard, req.TargetNode); err != nil {
 						return err
 					}
 				}
@@ -1109,8 +1219,9 @@ func migratePropertiesIfNecessary(class *models.Class) {
 }
 
 func migrateNestedPropertiesIfNecessary(nprop *models.NestedProperty) {
-	// migrate this nested property
-	nprop.IndexRangeFilters = func() *bool { f := false; return &f }()
+	if nprop.IndexRangeFilters == nil {
+		nprop.IndexRangeFilters = func() *bool { f := false; return &f }()
+	}
 	// Recurse on all nested properties this one has
 	for _, recurseNestedProperty := range nprop.NestedProperties {
 		migrateNestedPropertiesIfNecessary(recurseNestedProperty)

@@ -1049,3 +1049,185 @@ func TestNarrowedViewerVsReadOnly_ClusterReadDenied(t *testing.T) {
 		})
 	}
 }
+
+// Minimal nodes output is a subset of verbose output, so any verbose grant also
+// satisfies a minimal request. This does not help a namespaced caller, who is
+// denied every nodes request.
+func TestAuthorize_NodesVerboseImpliesMinimal(t *testing.T) {
+	global := &models.Principal{Username: "alice", UserType: models.UserTypeInputDb}
+	namespaced := &models.Principal{Username: "customer1:alice", Namespace: "customer1", UserType: models.UserTypeInputDb}
+
+	nodesGrant := func(verbosity, collection string) *models.PermissionNodes {
+		return &models.PermissionNodes{Verbosity: &verbosity, Collection: &collection}
+	}
+
+	tests := []struct {
+		name      string
+		nsEnabled bool
+		principal *models.Principal
+		grant     *models.PermissionNodes
+		request   []string
+		wantErr   bool
+	}{
+		{
+			name:      "verbose on all collections grants minimal",
+			principal: global,
+			grant:     nodesGrant("verbose", "*"),
+			request:   authorization.Nodes("minimal"),
+		},
+		{
+			name:      "verbose on one collection grants minimal",
+			principal: global,
+			grant:     nodesGrant("verbose", "Articles"),
+			request:   authorization.Nodes("minimal"),
+		},
+		{
+			name:      "verbose grants minimal on a namespace-enabled cluster",
+			nsEnabled: true,
+			principal: global,
+			grant:     nodesGrant("verbose", "Articles"),
+			request:   authorization.Nodes("minimal"),
+		},
+		{
+			name:      "verbose does not grant minimal to a namespaced caller",
+			nsEnabled: true,
+			principal: namespaced,
+			grant:     nodesGrant("verbose", "*"),
+			request:   authorization.Nodes("minimal"),
+			wantErr:   true,
+		},
+		{
+			name:      "minimal does not grant verbose on one collection",
+			principal: global,
+			grant:     nodesGrant("minimal", ""),
+			request:   authorization.Nodes("verbose", "Articles"),
+			wantErr:   true,
+		},
+		{
+			name:      "minimal does not grant verbose on all collections",
+			principal: global,
+			grant:     nodesGrant("minimal", ""),
+			request:   authorization.Nodes("verbose"),
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			var m *Manager
+			var err error
+			if tt.nsEnabled {
+				m, err = setupNSEnabledTestManager(t, logger, "customer1")
+			} else {
+				m, err = setupTestManager(t, logger)
+			}
+			require.NoError(t, err)
+
+			policies, err := conv.PermissionToPolicies(&models.Permission{
+				Action: authorization.String(authorization.ReadNodes),
+				Nodes:  tt.grant,
+			})
+			require.NoError(t, err)
+			role := conv.PrefixRoleName("nodes-role")
+			for _, p := range policies {
+				_, err := m.casbin.AddNamedPolicy("p", role, p.Resource, p.Verb, p.Domain)
+				require.NoError(t, err)
+			}
+			_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId(tt.principal.Username, authentication.AuthTypeDb), role)
+			require.NoError(t, err)
+
+			err = m.Authorize(context.Background(), tt.principal, authorization.READ, tt.request...)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.ErrorAs(t, err, new(authzErrors.Forbidden))
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}
+
+// TestBackupsWildcardProbeRequiresBlanketGrant pins what backup listing relies
+// on. Only a grant covering every collection answers a request for the backups
+// wildcard, because KeyMatch5 expands wildcards in the policy and never in the
+// request. If that changed, one collection's grant would list every backup.
+func TestBackupsWildcardProbeRequiresBlanketGrant(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	m, err := setupTestManager(t, logger)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name string
+		// Exactly one of resource and builtInRole grants the subject its access.
+		resource    string
+		builtInRole string
+		// alsoReads is a resource the grant covers, so a subject denied the
+		// wildcard is denied for that reason and not for holding nothing.
+		alsoReads    string
+		wantWildcard bool
+	}{
+		{
+			name:         "a single collection does not answer the wildcard",
+			resource:     authorization.Backups("ABC")[0],
+			alsoReads:    authorization.Backups("ABC")[0],
+			wantWildcard: false,
+		},
+		{
+			name:         "a collection prefix does not answer the wildcard",
+			resource:     "backups/collections/Movies.*",
+			alsoReads:    authorization.Backups("MoviesEU")[0],
+			wantWildcard: false,
+		},
+		{
+			name:         "blanket backup READ answers the wildcard",
+			resource:     authorization.Backups()[0],
+			alsoReads:    authorization.Backups("ABC")[0],
+			wantWildcard: true,
+		},
+		{
+			name:         "built-in root answers the wildcard",
+			builtInRole:  authorization.Root,
+			alsoReads:    authorization.Backups("ABC")[0],
+			wantWildcard: true,
+		},
+		{
+			name:         "built-in viewer answers the wildcard",
+			builtInRole:  authorization.Viewer,
+			alsoReads:    authorization.Backups("ABC")[0],
+			wantWildcard: true,
+		},
+	}
+
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			subject := fmt.Sprintf("probe-user-%d", i)
+			role := tt.builtInRole
+			if role == "" {
+				role = fmt.Sprintf("probe-role-%d", i)
+				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName(role),
+					tt.resource, authorization.READ, authorization.BackupsDomain)
+				require.NoError(t, err)
+			}
+			_, err := m.casbin.AddRoleForUser(
+				conv.UserNameWithTypeFromId(subject, authentication.AuthTypeDb),
+				conv.PrefixRoleName(role))
+			require.NoError(t, err)
+			m.casbin.InvalidateCache()
+
+			principal := &models.Principal{Username: subject, UserType: models.UserTypeInputDb}
+			ctx := context.Background()
+
+			require.NoError(t, m.AuthorizeSilent(ctx, principal, authorization.READ, tt.alsoReads),
+				"the grant must cover %s, otherwise the wildcard result below proves nothing", tt.alsoReads)
+
+			err = m.AuthorizeSilent(ctx, principal, authorization.READ, authorization.Backups()...)
+			if tt.wantWildcard {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.ErrorAs(t, err, new(authzErrors.Forbidden))
+		})
+	}
+}

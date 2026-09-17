@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -204,6 +205,7 @@ type clusterState interface {
 func NewManager(validator validator,
 	schemaManager SchemaManager,
 	schemaReader SchemaReader,
+	indexer clusterSchema.Indexer,
 	repo SchemaStore,
 	logger logrus.FieldLogger, authorizer authorization.Authorizer,
 	schemaConfig *config.SchemaHandlerConfig,
@@ -220,6 +222,7 @@ func NewManager(validator validator,
 	handler, err := NewHandler(
 		schemaReader,
 		schemaManager,
+		indexer,
 		validator,
 		logger, authorizer,
 		schemaConfig,

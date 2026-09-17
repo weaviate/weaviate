@@ -13,7 +13,9 @@ package modules
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -22,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func reVectorize(ctx context.Context,
@@ -106,6 +109,46 @@ func getMultiVector(v models.Vector) ([][]float32, error) {
 	}
 }
 
+// renderSourceValue renders a value as a string, so the same value arriving in
+// different Go types compares equal.
+func renderSourceValue(v any) string {
+	switch val := v.(type) {
+	case time.Time:
+		return val.Format(time.RFC3339)
+	case string:
+		// A date comes back from disk as a string but arrives in the request as a
+		// time.Time. Format both as RFC3339 so the same instant compares equal.
+		if t, err := time.Parse(time.RFC3339, val); err == nil {
+			return t.Format(time.RFC3339)
+		}
+		return val
+	case map[string]any:
+		// Disk reads turn geo/phone shaped maps into structs. Convert the same way
+		// here so both sides round floats and drop empty fields identically.
+		if shaped, err := storobj.ShapeConvertMap(val); err == nil {
+			return renderJSON(shaped)
+		}
+		return renderJSON(val)
+	case []any, []map[string]any, []float64, []int, []int64, []bool, []string, []time.Time,
+		*models.GeoCoordinates, *models.PhoneNumber:
+		// Arrays, objects, geo and phone values are compared as JSON. []time.Time
+		// marshals to the same strings a date array reads back from disk.
+		// Single dates compare at second precision because that is what gets
+		// vectorized; date arrays keep sub-seconds, which at worst re-vectorizes
+		// once too often.
+		return renderJSON(val)
+	default:
+		return fmt.Sprintf("%v", v)
+	}
+}
+
+func renderJSON(v any) string {
+	if b, err := json.Marshal(v); err == nil {
+		return string(b)
+	}
+	return fmt.Sprintf("%v", v)
+}
+
 func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 	cfg moduletools.ClassConfig,
 	mod modulecapabilities.Vectorizer[T],
@@ -123,6 +166,8 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 		Name       string
 		IsArray    bool
 		IsBlobHash bool
+		// Generic marks a non-text source property, compared via renderSourceValue.
+		Generic bool
 	}
 	propsToCompare := make([]compareProps, 0)
 
@@ -150,11 +195,11 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 			}
 		}
 
-		if prop.ModuleConfig != nil {
-			if modConfig, ok := prop.ModuleConfig.(map[string]any)[class.Vectorizer]; ok {
-				if skip, ok2 := modConfig.(map[string]any)["skip"]; ok2 && skip == true {
-					continue
-				}
+		// skip:true only counts when no source properties are set. With source
+		// properties, being on the list alone decides what gets vectorized.
+		if sourcePropsSet == nil {
+			if skip, ok := cfg.Property(prop.Name)["skip"]; ok && skip == true {
+				continue
 			}
 		}
 
@@ -175,6 +220,29 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 				IsBlobHash: schema.IsBlobHashDataType(prop.DataType),
 			})
 			continue
+		}
+
+		// Blob values are vectorized like any other string, so compare them too;
+		// for blobHash the stored value is a hash, so compare hashes. Modules that
+		// do not vectorize text never see blobs, unless source properties list them.
+		if (textProps || sourcePropsSet != nil) && schema.IsBlobLikeDataType(prop.DataType) {
+			propsToCompare = append(propsToCompare, compareProps{
+				Name:       prop.Name,
+				IsBlobHash: schema.IsBlobHashDataType(prop.DataType),
+			})
+			continue
+		}
+
+		// With source properties set, non-text values (numbers, bools, dates,
+		// objects and their arrays) get vectorized too, so compare them as well.
+		if sourcePropsSet != nil {
+			switch schema.DataType(prop.DataType[0]) {
+			case schema.DataTypeInt, schema.DataTypeNumber, schema.DataTypeBoolean, schema.DataTypeDate,
+				schema.DataTypeIntArray, schema.DataTypeNumberArray, schema.DataTypeBooleanArray, schema.DataTypeDateArray,
+				schema.DataTypeObject, schema.DataTypeObjectArray:
+				propsToCompare = append(propsToCompare, compareProps{Name: prop.Name, Generic: true})
+			default:
+			}
 		}
 	}
 
@@ -211,6 +279,14 @@ func reVectorizeEmbeddings[T dto.Embedding](ctx context.Context,
 		}
 
 		if !isPresentNew {
+			continue
+		}
+
+		if propStruct.Generic {
+			// Compare as strings so different Go types for the same value match.
+			if renderSourceValue(valOld) != renderSourceValue(valNew) {
+				return true, nil
+			}
 			continue
 		}
 

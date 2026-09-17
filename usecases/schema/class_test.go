@@ -62,7 +62,6 @@ func Test_AddClass_ObjectTTL_InvertedIndex(t *testing.T) {
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-	fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 
 	classValidated, _, err := handler.AddClass(ctx, nil, class)
 	assert.NoError(t, err)
@@ -94,7 +93,6 @@ func Test_AddClass(t *testing.T) {
 			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 
 		_, _, err := handler.AddClass(ctx, nil, class)
 		assert.Nil(t, err)
@@ -121,7 +119,6 @@ func Test_AddClass(t *testing.T) {
 			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 
 		_, _, err := handler.AddClass(ctx, nil, class)
 		require.NoError(t, err)
@@ -255,7 +252,6 @@ func Test_AddClass(t *testing.T) {
 			UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
 		}
 		fakeSchemaManager.On("AddClass", expectedClass, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		fakeSchemaManager.AssertExpectations(t)
@@ -290,7 +286,6 @@ func Test_AddClass(t *testing.T) {
 			UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
 		}
 		fakeSchemaManager.On("AddClass", expectedClass, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		fakeSchemaManager.AssertExpectations(t)
@@ -351,7 +346,6 @@ func Test_AddClass(t *testing.T) {
 					// fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return(&models.Class{Class: classes[tc.dataType[0]].Class, Vectorizer: classes[tc.dataType[0]].Vectorizer})
 					if tc.expectedErrMsg == "" {
 						fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 					}
 
 					_, _, err := handler.AddClass(context.Background(), nil, class)
@@ -546,8 +540,11 @@ func Test_AddClassWithLimits(t *testing.T) {
 			t.Run(tt.name, func(t *testing.T) {
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
-				// Mock the schema count
-				fakeSchemaManager.On("QueryCollectionsCount", "").Return(tt.existingCount, nil)
+				// An unlimited cap must not ask the leader for a count it would
+				// discard, so the expectation is only set where the cap is on.
+				if tt.maxAllowed != config.DefaultMaximumAllowedCollectionsCount {
+					fakeSchemaManager.On("QueryCollectionsCount", "").Return(tt.existingCount, nil)
+				}
 
 				// Set the max collections limit in config
 				handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(tt.maxAllowed)
@@ -560,7 +557,6 @@ func Test_AddClassWithLimits(t *testing.T) {
 
 				if !tt.expectExceed {
 					fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-					fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 				}
 
 				_, _, err := handler.AddClass(ctx, nil, class)
@@ -573,6 +569,9 @@ func Test_AddClassWithLimits(t *testing.T) {
 					assert.NotEmpty(t, le.RenderedMessage)
 				} else {
 					require.Nil(t, err)
+				}
+				if tt.maxAllowed == config.DefaultMaximumAllowedCollectionsCount {
+					fakeSchemaManager.AssertNotCalled(t, "QueryCollectionsCount", "")
 				}
 				fakeSchemaManager.AssertExpectations(t)
 			})
@@ -603,7 +602,6 @@ func Test_AddClassWithLimits(t *testing.T) {
 
 				if tt.expectError == "" {
 					schemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-					schemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 					defer schemaManager.AssertExpectations(t)
 				}
 
@@ -731,7 +729,6 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 
 		t.Run("create class with all properties", func(t *testing.T) {
 			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-			fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 			handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 			_, _, err := handler.AddClass(ctx, nil, &class)
 			require.Nil(t, err)
@@ -898,7 +895,6 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 		t.Run("create class with all properties", func(t *testing.T) {
 			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-			fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 			_, _, err := handler.AddClass(ctx, nil, &class)
 			require.Nil(t, err)
 			fakeSchemaManager.AssertExpectations(t)
@@ -1006,7 +1002,6 @@ func Test_AddClass_ObjectTTLConfig(t *testing.T) {
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 				handler.config.ObjectsTTLDeleteSchedule = runtime.NewDynamicValue("@every 1h")
 				fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-				fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 
 				_, _, err := handler.AddClass(context.Background(), nil, collection)
 
@@ -1191,7 +1186,6 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
@@ -1213,7 +1207,6 @@ func Test_Validation_ClassNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
@@ -1311,7 +1304,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 					}
 					handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 					_, _, err := handler.AddClass(context.Background(), nil, class)
@@ -1337,7 +1329,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					t.Log(err)
@@ -1366,7 +1357,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 					}
 
 					fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-					fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 					fakeSchemaManager.On("ReadOnlyClass", class.Class).Return(class)
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					require.Nil(t, err)
@@ -1402,7 +1392,6 @@ func Test_Validation_PropertyNames(t *testing.T) {
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-						fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 					}
 					_, _, err := handler.AddClass(ctx, nil, class)
 					t.Log(err)
@@ -2315,6 +2304,61 @@ func Test_UpdateClass(t *testing.T) {
 				expectedError: fmt.Errorf(`missing config for vector "second"`),
 			},
 			{
+				name:    "adding a vectorizer to a collection created without vectors",
+				initial: &models.Class{Class: "InitialName", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+				update: &models.Class{
+					Class:             "InitialName",
+					Vectorizer:        "text2vec-contextionary",
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				expectedError: fmt.Errorf("has no vector index"),
+			},
+			{
+				name:    "adding a vector index type to a collection created without vectors",
+				initial: &models.Class{Class: "InitialName", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+				update: &models.Class{
+					Class:             "InitialName",
+					VectorIndexType:   hnswT,
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				expectedError: fmt.Errorf("has no vector index"),
+			},
+			{
+				name:    "adding a vector index config to a collection created without vectors",
+				initial: &models.Class{Class: "InitialName", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+				update: &models.Class{
+					Class:             "InitialName",
+					VectorIndexConfig: map[string]interface{}{"distance": "dot"},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+				expectedError: fmt.Errorf("has no vector index"),
+			},
+			{
+				name:    "updating a collection created without vectors keeps it vector-less",
+				initial: &models.Class{Class: "InitialName", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+				update: &models.Class{
+					Class:             "InitialName",
+					Description:       "still no vectors",
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+			},
+			{
+				name:    "adding a named vector to a collection created without vectors",
+				initial: &models.Class{Class: "InitialName", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+				update: &models.Class{
+					Class: "InitialName",
+					VectorConfig: map[string]models.VectorConfig{
+						"added": {
+							VectorIndexType: hnswT,
+							Vectorizer: map[string]interface{}{
+								"text2vec-contextionary": map[string]interface{}{},
+							},
+						},
+					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				},
+			},
+			{
 				name: "removing existing legacy vector",
 				initial: &models.Class{
 					Class:             "InitialName",
@@ -2363,7 +2407,6 @@ func Test_UpdateClass(t *testing.T) {
 				store.parser = handler.parser
 
 				fakeSchemaManager.On("AddClass", test.initial, mock.Anything).Return(nil)
-				fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 				fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
 				fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 				fakeSchemaManager.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
@@ -2464,7 +2507,6 @@ func Test_UpdateClass_ObjectTTLConfig(t *testing.T) {
 			store.parser = handler.parser
 
 			fakeSchemaManager.On("AddClass", initial, mock.Anything).Return(nil)
-			fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 			fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
 			fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 			fakeSchemaManager.On("ReadOnlyClass", initial.Class, mock.Anything).Return(initial)
@@ -2536,7 +2578,6 @@ func Test_UpdateClass_ObjectTTLConfig(t *testing.T) {
 				store.parser = handler.parser
 
 				fakeSchemaManager.On("AddClass", initial, mock.Anything).Return(nil)
-				fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 				fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 				fakeSchemaManager.On("ReadOnlyClass", initial.Class, mock.Anything).Return(initial)
 
@@ -2625,6 +2666,77 @@ func TestRestoreClass_WithCircularRefs(t *testing.T) {
 		err = handler.RestoreClass(context.Background(), &descriptor, map[string]string{}, false, false)
 		assert.Nil(t, err, "class passes validation")
 		fakeSchemaManager.AssertExpectations(t)
+	}
+}
+
+// TestRestoreClass_KeepsBackedUpVectorConfig pins that a restore reproduces the
+// vector configuration held in the backup. A vector-less collection must not
+// come back with an index the global defaults invented for it.
+func TestRestoreClass_KeepsBackedUpVectorConfig(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		backedUp        *models.Class
+		wantVectorizer  string
+		wantIndexType   string
+		wantIndexConfig bool
+	}{
+		{
+			name:     "vector-less collection stays vector-less",
+			backedUp: &models.Class{Class: "Movies"},
+		},
+		{
+			name: "legacy collection keeps its own settings",
+			backedUp: &models.Class{
+				Class:           "Movies",
+				Vectorizer:      "text2vec-contextionary",
+				VectorIndexType: vectorindex.VectorIndexTypeFLAT,
+			},
+			wantVectorizer:  "text2vec-contextionary",
+			wantIndexType:   vectorindex.VectorIndexTypeFLAT,
+			wantIndexConfig: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+
+			schemaBytes, err := json.Marshal(tt.backedUp)
+			require.Nil(t, err)
+
+			shardingCfg, err := shardingConfig.ParseConfig(nil, 1)
+			require.Nil(t, err)
+			nodes := mocks.NewMockNodeSelector("node1", "node2")
+			shardingState, err := sharding.InitState(tt.backedUp.Class, shardingCfg, nodes.LocalName(), nodes.StorageCandidates(), 1, false)
+			require.Nil(t, err)
+			shardingBytes, err := shardingState.JSON()
+			require.Nil(t, err)
+
+			fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return((*models.Class)(nil)).Maybe()
+
+			var applied *models.Class
+			fakeSchemaManager.On("RestoreClass", mock.Anything, mock.Anything).
+				Run(func(args mock.Arguments) {
+					applied = args.Get(0).(*models.Class)
+				}).
+				Return(nil)
+
+			descriptor := backup.ClassDescriptor{
+				Name: tt.backedUp.Class, Schema: schemaBytes, ShardingState: shardingBytes,
+			}
+			require.NoError(t, handler.RestoreClass(context.Background(), &descriptor, map[string]string{}, false, false))
+
+			require.NotNil(t, applied)
+			assert.Equal(t, tt.wantVectorizer, applied.Vectorizer)
+			assert.Equal(t, tt.wantIndexType, applied.VectorIndexType)
+			if tt.wantIndexConfig {
+				assert.NotNil(t, applied.VectorIndexConfig)
+			} else {
+				assert.Nil(t, applied.VectorIndexConfig)
+			}
+		})
 	}
 }
 
@@ -2933,7 +3045,6 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 		c, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
@@ -2955,7 +3066,6 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 		c, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
@@ -2973,7 +3083,6 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NotNil(t, err)
@@ -2989,7 +3098,6 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NotNil(t, err)
@@ -3056,51 +3164,157 @@ func Test_SetClassDefaults(t *testing.T) {
 	}
 }
 
+func Test_AddClass_NoImplicitLegacyVectorIndex(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	tests := []struct {
+		name                string
+		defaultVectorizer   string
+		defaultIndexType    string
+		defaultQuantization string
+		class               *models.Class
+		wantVectorizer      string
+		wantIndexType       string
+		wantIndexConfig     bool
+	}{
+		{
+			name:  "class asking for no vector stays vector-less",
+			class: &models.Class{Class: "NewClass"},
+		},
+		{
+			name:              "default vectorizer module does not create an index",
+			defaultVectorizer: "text2vec-contextionary",
+			class:             &models.Class{Class: "NewClass"},
+		},
+		{
+			name:             "default index type does not create an index",
+			defaultIndexType: vectorindex.VectorIndexTypeFLAT,
+			class:            &models.Class{Class: "NewClass"},
+		},
+		{
+			name:                "default quantization does not create an index",
+			defaultQuantization: "bq",
+			class:               &models.Class{Class: "NewClass"},
+		},
+		{
+			name:            "explicit vectorizer keeps the legacy index",
+			class:           &models.Class{Class: "NewClass", Vectorizer: "none"},
+			wantVectorizer:  "none",
+			wantIndexType:   hnswT,
+			wantIndexConfig: true,
+		},
+		{
+			name:             "explicit index type keeps the legacy index",
+			defaultIndexType: vectorindex.VectorIndexTypeFLAT,
+			class:            &models.Class{Class: "NewClass", VectorIndexType: hnswT},
+			wantVectorizer:   config.VectorizerModuleNone,
+			wantIndexType:    hnswT,
+			wantIndexConfig:  true,
+		},
+		{
+			name: "named vectors leave the legacy fields empty",
+			class: &models.Class{Class: "NewClass", VectorConfig: map[string]models.VectorConfig{
+				"vec1": {
+					VectorIndexType: hnswT,
+					Vectorizer: map[string]interface{}{
+						"text2vec-contextionary": map[string]interface{}{},
+					},
+				},
+			}},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+			if tt.defaultVectorizer != "" {
+				handler.config.DefaultVectorizerModule = tt.defaultVectorizer
+			}
+			handler.config.DefaultVectorIndexType = runtime.NewDynamicValue(tt.defaultIndexType)
+			handler.config.DefaultQuantization = runtime.NewDynamicValue(tt.defaultQuantization)
+			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
+
+			tt.class.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
+			got, _, err := handler.AddClass(ctx, nil, tt.class)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantVectorizer, got.Vectorizer)
+			assert.Equal(t, tt.wantIndexType, got.VectorIndexType)
+			if tt.wantIndexConfig {
+				assert.NotNil(t, got.VectorIndexConfig)
+			} else {
+				assert.Nil(t, got.VectorIndexConfig)
+			}
+		})
+	}
+}
+
 func Test_SetClassDefaults_DefaultVectorIndexType(t *testing.T) {
 	t.Parallel()
 	globalCfg := replication.GlobalConfig{MinimumFactor: 1}
 
 	tests := []struct {
-		name              string
-		defaultIndexType  string
-		classIndexType    string
-		expectedIndexType string
+		name               string
+		defaultIndexType   string
+		classVectorizer    string
+		classIndexType     string
+		expectedIndexType  string
+		expectedVectorizer string
 	}{
 		{
-			name:              "no env, no class type => hnsw default",
-			defaultIndexType:  "",
-			classIndexType:    "",
-			expectedIndexType: vectorindex.VectorIndexTypeHNSW,
+			name:               "no env, class asks for no vector => stays vector-less",
+			defaultIndexType:   "",
+			expectedIndexType:  "",
+			expectedVectorizer: "",
 		},
 		{
-			name:              "env set to flat, no class type => flat",
-			defaultIndexType:  vectorindex.VectorIndexTypeFLAT,
-			classIndexType:    "",
-			expectedIndexType: vectorindex.VectorIndexTypeFLAT,
+			name:               "env set to flat, class asks for no vector => stays vector-less",
+			defaultIndexType:   vectorindex.VectorIndexTypeFLAT,
+			expectedIndexType:  "",
+			expectedVectorizer: "",
 		},
 		{
-			name:              "env set to dynamic, no class type => dynamic",
-			defaultIndexType:  vectorindex.VectorIndexTypeDYNAMIC,
-			classIndexType:    "",
-			expectedIndexType: vectorindex.VectorIndexTypeDYNAMIC,
+			name:               "no env, vectorizer set, no class type => hnsw default",
+			defaultIndexType:   "",
+			classVectorizer:    "none",
+			expectedIndexType:  vectorindex.VectorIndexTypeHNSW,
+			expectedVectorizer: "none",
 		},
 		{
-			name:              "env set to hfresh, no class type => hfresh",
-			defaultIndexType:  vectorindex.VectorIndexTypeHFresh,
-			classIndexType:    "",
-			expectedIndexType: vectorindex.VectorIndexTypeHFresh,
+			name:               "env set to flat, vectorizer set, no class type => flat",
+			defaultIndexType:   vectorindex.VectorIndexTypeFLAT,
+			classVectorizer:    "none",
+			expectedIndexType:  vectorindex.VectorIndexTypeFLAT,
+			expectedVectorizer: "none",
 		},
 		{
-			name:              "env set to flat, class explicitly hnsw => hnsw preserved",
-			defaultIndexType:  vectorindex.VectorIndexTypeFLAT,
-			classIndexType:    vectorindex.VectorIndexTypeHNSW,
-			expectedIndexType: vectorindex.VectorIndexTypeHNSW,
+			name:               "env set to dynamic, vectorizer set, no class type => dynamic",
+			defaultIndexType:   vectorindex.VectorIndexTypeDYNAMIC,
+			classVectorizer:    "none",
+			expectedIndexType:  vectorindex.VectorIndexTypeDYNAMIC,
+			expectedVectorizer: "none",
 		},
 		{
-			name:              "env set to hnsw, no class type => hnsw",
-			defaultIndexType:  vectorindex.VectorIndexTypeHNSW,
-			classIndexType:    "",
-			expectedIndexType: vectorindex.VectorIndexTypeHNSW,
+			name:               "env set to hfresh, vectorizer set, no class type => hfresh",
+			defaultIndexType:   vectorindex.VectorIndexTypeHFresh,
+			classVectorizer:    "none",
+			expectedIndexType:  vectorindex.VectorIndexTypeHFresh,
+			expectedVectorizer: "none",
+		},
+		{
+			name:               "env set to hnsw, vectorizer set, no class type => hnsw",
+			defaultIndexType:   vectorindex.VectorIndexTypeHNSW,
+			classVectorizer:    "none",
+			expectedIndexType:  vectorindex.VectorIndexTypeHNSW,
+			expectedVectorizer: "none",
+		},
+		{
+			name:               "env set to flat, class explicitly hnsw => hnsw preserved",
+			defaultIndexType:   vectorindex.VectorIndexTypeFLAT,
+			classIndexType:     vectorindex.VectorIndexTypeHNSW,
+			expectedIndexType:  vectorindex.VectorIndexTypeHNSW,
+			expectedVectorizer: config.VectorizerModuleNone,
 		},
 	}
 
@@ -3108,14 +3322,20 @@ func Test_SetClassDefaults_DefaultVectorIndexType(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, _ := newTestHandler(t, &fakeDB{})
 			handler.config.DefaultVectorIndexType = runtime.NewDynamicValue(tt.defaultIndexType)
+			handler.config.DefaultVectorizerModule = config.VectorizerModuleNone
 
 			class := &models.Class{
+				Vectorizer:        tt.classVectorizer,
 				VectorIndexType:   tt.classIndexType,
 				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 			}
 			err := handler.setClassDefaults(class, globalCfg)
 			require.NoError(t, err)
 			assert.Equal(t, tt.expectedIndexType, class.VectorIndexType)
+			assert.Equal(t, tt.expectedVectorizer, class.Vectorizer)
+			if tt.expectedIndexType == "" {
+				assert.Nil(t, class.VectorIndexConfig)
+			}
 		})
 	}
 }

@@ -288,7 +288,7 @@ func TestOnTaskCompletedOverlayClearLeavesUnloadedShardsAlone(t *testing.T) {
 	className := "OverlayClear_" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{prop})
 	hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	defer hot.Shutdown(context.Background())
 
 	loaded, err := unwrapShard(ctx, hot)
@@ -296,7 +296,7 @@ func TestOnTaskCompletedOverlayClearLeavesUnloadedShardsAlone(t *testing.T) {
 	loaded.SetTokenizationOverlay(prop, "field")
 
 	cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
 		false, idx.bitmapBufPool)
 	idx.shards.Store(tenant, cold)
 	defer func() {

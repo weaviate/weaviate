@@ -154,6 +154,8 @@ type fakeShards struct {
 	mu         sync.Mutex
 	removed    []removedCall
 	removeErr  map[string]error // per-shard EnsureDroppedVectorFilesRemoved error
+	dimsRemove []removedCall    // RemoveDroppedVectorDimensions calls
+	dimsErr    map[string]error // per-shard RemoveDroppedVectorDimensions error
 }
 
 func (f *fakeShards) resolve(shardNames []string) (map[string]editOpBucket, error) {
@@ -193,6 +195,22 @@ func (f *fakeShards) EnsureDroppedVectorFilesRemoved(collection, shard string, t
 	}
 	f.removed = append(f.removed, removedCall{collection, shard, targets})
 	return nil
+}
+
+func (f *fakeShards) RemoveDroppedVectorDimensions(ctx context.Context, collection, shard string, targets []string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.dimsErr[shard]; err != nil {
+		return err
+	}
+	f.dimsRemove = append(f.dimsRemove, removedCall{collection, shard, targets})
+	return nil
+}
+
+func (f *fakeShards) dimensionsClears() []removedCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]removedCall{}, f.dimsRemove...)
 }
 
 type fakeFinalizer struct {
@@ -422,6 +440,55 @@ func TestStartTask_DrainError_FailsUnit(t *testing.T) {
 
 	require.Contains(t, rec.failed, "u1")
 	require.Empty(t, rec.completed)
+}
+
+// TestStartTask_DrainedUnit_ClearsDimensionsBeforeCompleting pins where the
+// dimension clear sits. It has to run on the unit, not on group completion: a
+// completed unit stays credited to the drop's coverage even when its round
+// fails, so a later clear that failed would leave the shard skipped by every
+// subsequent round while its rows are still on disk.
+func TestStartTask_DrainedUnit_ClearsDimensionsBeforeCompleting(t *testing.T) {
+	bucket := &fakeEditOpBucket{pendingSeq: [][]string{{"s1"}, {}}}
+	shards := &fakeShards{bucket: bucket}
+	rec := newFakeRecorder()
+	p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
+
+	task := dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+	})
+	h, err := p.StartTask(task)
+	require.NoError(t, err)
+	waitDone(t, h)
+
+	require.Equal(t, []removedCall{{"Collection", "shard1", []string{"v1"}}},
+		shards.dimensionsClears(), "the drained unit's shard must have its rows cleared")
+	require.Equal(t, []string{"u1"}, rec.completed)
+}
+
+// TestStartTask_DimensionsClearFails_UnitNotCompleted is the other half: a
+// failed clear must fail the unit rather than complete it, so the next round
+// retries this shard instead of skipping it.
+func TestStartTask_DimensionsClearFails_UnitNotCompleted(t *testing.T) {
+	bucket := &fakeEditOpBucket{pendingSeq: [][]string{{"s1"}, {}}}
+	shards := &fakeShards{
+		bucket:  bucket,
+		dimsErr: map[string]error{"shard1": errors.New("bucket already registered")},
+	}
+	rec := newFakeRecorder()
+	p := newTestDropProvider(shards, &fakeFinalizer{}, rec)
+
+	task := dropTask(distributedtask.TaskStatusStarted, map[string]*distributedtask.Unit{
+		"u1": {ID: "u1", Status: distributedtask.UnitStatusPending},
+	})
+	h, err := p.StartTask(task)
+	require.NoError(t, err)
+	waitDone(t, h)
+
+	require.Contains(t, rec.failed, "u1")
+	require.Empty(t, rec.completed,
+		"a unit whose rows were not cleared must not be credited: the coverage chain "+
+			"keeps completed units even from a failed round, so the next round would "+
+			"skip this shard and the drop could finish with its rows on disk")
 }
 
 // TestPollUntilEmpty_ProgressClampedWhenPendingGrows pins the progress clamp: when

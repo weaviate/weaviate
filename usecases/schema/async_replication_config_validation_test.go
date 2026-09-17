@@ -47,7 +47,6 @@ func Test_AddClass_AsyncReplicationConfigValidation(t *testing.T) {
 				ReplicationConfig: &models.ReplicationConfig{Factor: 1, AsyncConfig: tt.asyncConfig},
 			}
 			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-			fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 			handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 			_, _, err := handler.AddClass(context.Background(), nil, &class)
 			if tt.wantErr == "" {
@@ -81,7 +80,6 @@ func Test_UpdateClass_AsyncReplicationConfigValidation(t *testing.T) {
 				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 			}
 			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-			fakeSchemaManager.On("QueryCollectionsCount", "").Return(0, nil)
 			fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
 			fakeSchemaManager.On("ReadOnlyClass", "AsyncCfgClass", mock.Anything).Return(initial)
 			// The update diffs named vectors against the leader's view; this

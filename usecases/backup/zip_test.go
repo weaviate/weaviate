@@ -2008,3 +2008,37 @@ func newFileList(t *testing.T, sourceDir string, files []string) *backup.FileLis
 		FileSizes: fileSizes,
 	}
 }
+
+// TestUnzipCloseReportsOnlyTheStepThatFailed pins that a chunk whose stream ends
+// early names the decompressor and nothing else. The text reaches the restore's
+// error and from there the status API, where a step that succeeded reported as an
+// error is what a poller reads as a second failure.
+func TestUnzipCloseReportsOnlyTheStepThatFailed(t *testing.T) {
+	var archive bytes.Buffer
+	gw := gzip.NewWriter(&archive)
+	tw := tar.NewWriter(gw)
+	require.NoError(t, tw.WriteHeader(&tar.Header{Name: "f.txt", Mode: 0o644, Size: 4}))
+	_, err := tw.Write([]byte("data"))
+	require.NoError(t, err)
+	require.NoError(t, tw.Close())
+	require.NoError(t, gw.Close())
+	truncated := archive.Bytes()[:archive.Len()/2]
+
+	uz, wc := NewUnzip(t.TempDir(), backup.CompressionGZIP)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = wc.Write(truncated)
+		wc.Close()
+	}()
+
+	_, readErr := uz.ReadChunk()
+	require.Error(t, readErr, "a truncated chunk must not read as a complete one")
+
+	closeErr := uz.Close()
+	require.Error(t, closeErr)
+	require.NotContains(t, closeErr.Error(), "%!w(",
+		"a close step that succeeded must not be reported as an error")
+	require.Contains(t, closeErr.Error(), "gunzip: ")
+	<-done
+}

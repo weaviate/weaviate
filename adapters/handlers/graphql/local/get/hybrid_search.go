@@ -83,7 +83,7 @@ func hybridOperands(classObject *graphql.Object,
 				graphql.InputObjectConfig{
 					Description: "Subsearch list",
 					Name:        fmt.Sprintf("%sSearchesInpObj", prefixName),
-					Fields: (func() graphql.InputObjectConfigFieldMap {
+					Fields: func() graphql.InputObjectConfigFieldMap {
 						subSearchFields := make(graphql.InputObjectConfigFieldMap)
 						fieldMap := graphql.InputObjectConfigFieldMap{
 							"nearText": &graphql.InputObjectFieldConfig{
@@ -112,7 +112,7 @@ func hybridOperands(classObject *graphql.Object,
 							subSearchFields[key] = fieldConfig
 						}
 						return subSearchFields
-					})(),
+					}(),
 				},
 			)),
 		},

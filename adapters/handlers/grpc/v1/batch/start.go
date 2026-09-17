@@ -13,14 +13,30 @@ package batch
 
 import (
 	"context"
+	"runtime/debug"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type Drain func()
+
+type options struct {
+	allocChecker memwatch.AllocChecker
+}
+
+type Option func(*options)
+
+// WithAllocChecker replaces the allocation checker that decides whether a batch
+// message is accepted.
+func WithAllocChecker(c memwatch.AllocChecker) Option {
+	return func(o *options) {
+		o.allocChecker = c
+	}
+}
 
 // Start initializes the batch processing system by setting up the necessary components.
 //
@@ -40,7 +56,19 @@ func Start(
 	numWorkers int,
 	logger logrus.FieldLogger,
 	namespacesEnabled bool,
+	opts ...Option,
 ) (*StreamHandler, Drain) {
+	o := &options{
+		// The batch stream gets its own memory monitor with a lower threshold than
+		// the global one (0.9 vs 0.97 of GOMEMLIMIT). Imports should slow down
+		// before the rest of the process runs short of memory, because accepted
+		// batches sit in memory until the workers drain them.
+		allocChecker: memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.9),
+	}
+	for _, opt := range opts {
+		opt(o)
+	}
+
 	recvWg := sync.WaitGroup{}
 	sendWg := sync.WaitGroup{}
 	workersWg := sync.WaitGroup{}
@@ -55,6 +83,7 @@ func Start(
 		authenticator,
 		authorizer,
 		shuttingDownCtx,
+		triggerShuttingDown,
 		&recvWg,
 		&sendWg,
 		reportingQueues,
@@ -63,11 +92,12 @@ func Start(
 		logger,
 		schemaManager,
 		namespacesEnabled,
+		o.allocChecker,
 	)
 
 	drain := func() {
 		drain(
-			triggerShuttingDown,
+			handler.stopAccepting,
 			&recvWg,
 			processingQueue,
 			&workersWg,

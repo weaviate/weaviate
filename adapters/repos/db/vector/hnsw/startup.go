@@ -20,6 +20,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
@@ -163,7 +164,7 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 						h.store,
 						h.makeBucketOptions,
 						h.allocChecker,
-						h.getTargetVector(),
+						h.compressedBucketName(),
 						h.vectorForID,
 					)
 				} else {
@@ -177,7 +178,7 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 						h.store,
 						h.makeBucketOptions,
 						h.allocChecker,
-						h.getTargetVector(),
+						h.compressedBucketName(),
 						h.multiVectorForNodeID,
 					)
 				}
@@ -198,7 +199,7 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 					h.store,
 					h.makeBucketOptions,
 					h.allocChecker,
-					h.getTargetVector(),
+					h.compressedBucketName(),
 					h.vectorForID,
 				)
 			} else {
@@ -212,7 +213,7 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 					h.store,
 					h.makeBucketOptions,
 					h.allocChecker,
-					h.getTargetVector(),
+					h.compressedBucketName(),
 					h.multiVectorForNodeID,
 				)
 			}
@@ -261,9 +262,25 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 }
 
 func (h *hnsw) setDimensionsFromEntrypoint() {
-	if len(h.nodes) > 0 {
-		if vec, err := h.VectorForIDThunk(context.Background(), h.entryPointID); err == nil {
+	if len(h.nodes) == 0 {
+		return
+	}
+	if vec, err := h.VectorForIDThunk(context.Background(), h.entryPointID); err == nil && len(vec) > 0 {
+		h.dims.Store(int32(len(vec)))
+		return
+	}
+	// the entrypoint's object may already be gone (e.g. a torn crash
+	// recovery where the entrypoint id is tombstoned but still set): fall
+	// back to any live node rather than leaving dims at 0, which would
+	// disable dimension validation for every subsequent insert and let a
+	// single wrong-length insert poison the recorded dimensionality
+	for _, node := range h.nodes {
+		if node == nil || node.id == h.entryPointID {
+			continue
+		}
+		if vec, err := h.VectorForIDThunk(context.Background(), node.id); err == nil && len(vec) > 0 {
 			h.dims.Store(int32(len(vec)))
+			return
 		}
 	}
 }
@@ -284,13 +301,16 @@ func (h *hnsw) restoreRotationalQuantization(data *ent.RQData) error {
 				data.Rotation.Swaps,
 				data.Rotation.Signs,
 				nil,
+				data.Mean,
 				h.store,
 				h.allocChecker,
 				h.makeBucketOptions,
-				h.getTargetVector(),
+				h.compressedBucketName(),
 				h.vectorForID,
 			)
 		})
+	} else if len(data.Mean) > 0 {
+		return errors.New("rq centering is not supported for multivector indexes")
 	} else {
 		h.trackRQOnce.Do(func() {
 			h.compressor, err = compressionhelpers.RestoreRQMultiCompressor(
@@ -307,7 +327,7 @@ func (h *hnsw) restoreRotationalQuantization(data *ent.RQData) error {
 				h.store,
 				h.allocChecker,
 				h.makeBucketOptions,
-				h.getTargetVector(),
+				h.compressedBucketName(),
 				h.multiVectorForNodeID,
 			)
 		})
@@ -331,10 +351,11 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *ent.BRQData) error {
 				data.Rotation.Swaps,
 				data.Rotation.Signs,
 				data.Rounding,
+				nil,
 				h.store,
 				h.allocChecker,
 				h.makeBucketOptions,
-				h.getTargetVector(),
+				h.compressedBucketName(),
 				h.vectorForID,
 			)
 		})
@@ -354,7 +375,7 @@ func (h *hnsw) restoreBinaryRotationalQuantization(data *ent.BRQData) error {
 				h.store,
 				h.allocChecker,
 				h.makeBucketOptions,
-				h.getTargetVector(),
+				h.compressedBucketName(),
 				h.multiVectorForNodeID,
 			)
 		})
@@ -369,15 +390,17 @@ func (h *hnsw) restoreDocMappings() error {
 	maxDocID := uint64(0)
 	buf := make([]byte, 8)
 
-	// Get the mappings bucket - handle case where it might be nil
-	bucket := h.store.Bucket(h.id + "_mv_mappings")
-	if bucket == nil {
-		err := errors.New("multivector mappings bucket not found")
+	// pinned for the whole scan below: without it a teardown racing this
+	// lookup could unmap the segments the Gets read from
+	bucket, release, err := h.getBucket(helpers.MVMappingsBucketName(h.id))
+	if err != nil {
 		h.logger.WithField("action", "restore_doc_mappings").
-			WithError(err)
-		return err
+			Errorf("multivector mappings bucket not found: %v", err)
+		return errors.Wrap(err, "multivector mappings bucket not found")
 	}
+	defer release()
 
+	var removed []uint64
 	for _, node := range h.nodes {
 		if node == nil {
 			continue
@@ -393,6 +416,7 @@ func (h *hnsw) restoreDocMappings() error {
 				"error":   err.Error(),
 			}).Error("skipping node with missing doc mapping")
 			h.nodes[node.id] = nil
+			removed = append(removed, node.id)
 			continue
 		}
 
@@ -404,6 +428,7 @@ func (h *hnsw) restoreDocMappings() error {
 				"bytes_length": len(docIDBytes),
 			}).Error("skipping node with invalid doc mapping data")
 			h.nodes[node.id] = nil
+			removed = append(removed, node.id)
 			continue
 		}
 
@@ -427,6 +452,24 @@ func (h *hnsw) restoreDocMappings() error {
 	h.vecIDcounter = maxNodeID + 1
 	h.maxDocID = maxDocID
 	h.Unlock()
+
+	if len(removed) > 0 {
+		// tombstone the removed nodes in memory only — the commit logger is
+		// wired up after restoreFromDisk returns, so persisting here would
+		// nil-panic; that is fine, since a crash before the next cleanup
+		// cycle re-detects the missing mappings on the next restore. The
+		// tombstones make the next cleanup cycle reassign the edges still
+		// pointing at the removed nodes and, when one of them is the
+		// entrypoint, move the entrypoint off the dangling id.
+		h.tombstoneLock.Lock()
+		if h.tombstones == nil {
+			h.tombstones = make(map[uint64]struct{}, len(removed))
+		}
+		for _, id := range removed {
+			h.tombstones[id] = struct{}{}
+		}
+		h.tombstoneLock.Unlock()
+	}
 	return nil
 }
 
@@ -556,7 +599,10 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 			} else {
 				h.compressor.PrefillMultiCache(ctx, h.docIDVectors)
 			}
-		} else if h.useParallelPrefill() {
+		} else if h.vectorFromObject != nil && h.useParallelPrefill() {
+			// only an index the shard bound an object-vector reader for can
+			// scan the objects bucket; hfresh's centroid graph has none and
+			// always takes the serial, VectorForIDThunk-based path below
 			// Unbounded uncompressed cache: scan the objects bucket with a parallel
 			// cursor instead of looking up every vector by id (disk-seek bound).
 			err = h.prefillCacheParallel(ctx)

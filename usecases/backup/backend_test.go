@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -1078,6 +1079,49 @@ func TestFileWriter_Write_StripRenamesInnerIndexDir(t *testing.T) {
 		"source-indexID dir must not survive the strip rename")
 }
 
+func TestFileWriterStagedRecorder(t *testing.T) {
+	tests := []struct {
+		name     string
+		desc     *backup.ClassDescriptor
+		wantCall bool
+	}{
+		{name: "zero shards never records", desc: &backup.ClassDescriptor{Name: "Foo"}},
+		{name: "failing fetch records before mutation", wantCall: true, desc: &backup.ClassDescriptor{
+			Name:   "Foo",
+			Shards: []*backup.ShardDescriptor{{Name: "s1", Node: "n1"}},
+			Chunks: map[int32][]string{0: {"s1"}},
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tempDir := t.TempDir()
+			mockBackend := modulecapabilities.NewMockBackupBackend(t)
+			mockBackend.EXPECT().SourceDataPath().Return(tempDir)
+			if tc.wantCall {
+				mockBackend.EXPECT().
+					Read(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					RunAndReturn(func(_ context.Context, _, _, _, _ string, w io.WriteCloser) (int64, error) {
+						_ = w.Close()
+						return 0, ErrAny
+					})
+			}
+
+			var recorded []string
+			fw := newFileWriter(nil, nodeStore{objectStore: objectStore{backend: mockBackend}}, logrus.New()).
+				withStagedRecorder(func(dir string) { recorded = append(recorded, dir) })
+
+			err := fw.Write(context.Background(), tc.desc, "Foo", "", "", backup.CompressionNone)
+			if tc.wantCall {
+				require.Error(t, err)
+				require.Equal(t, []string{filepath.Join(tempDir, TempDirectory, "Foo")}, recorded)
+			} else {
+				require.NoError(t, err)
+				require.Empty(t, recorded)
+			}
+		})
+	}
+}
+
 // incrementalTestEnv provides shared infrastructure for incremental backup round-trip tests.
 // It holds an in-memory chunk store (mock backend) and helpers for running production
 // processShard (backup) and writeTempFiles (restore) code paths.
@@ -1207,7 +1251,8 @@ func (e *incrementalTestEnv) restore(backupID string, desc *backup.ClassDescript
 	}
 
 	classTempDir := filepath.Join(fw.tempDir, e.className)
-	err := fw.writeTempFiles(context.Background(), classTempDir, "", "", desc, backup.CompressionNone)
+	require.NoError(e.t, fw.prepare(classTempDir))
+	err := fw.fetch(context.Background(), classTempDir, desc, fw.backend, "", "", backup.CompressionNone)
 	require.NoError(e.t, err)
 	return classTempDir
 }
@@ -1747,3 +1792,115 @@ func returnOrNotFound(fb *fakeBackend, ctx context.Context, backupID, key string
 	}
 	fb.On("GetObject", ctx, backupID, key).Return(body, nil)
 }
+
+// TestLabelErr pins labelErr's own contract. A step that succeeded has to drop
+// out entirely, since its callers hand the result to errors.Join. A step that
+// failed has to stay unwrappable. The publishing defer picks cancelled over
+// failed by reading context.Canceled back out.
+func TestLabelErr(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "the step succeeded"},
+		{
+			name: "the step failed",
+			err:  errors.New(backendFullMsg),
+			want: "producer: " + backendFullMsg,
+		},
+		{
+			name: "the step was cancelled",
+			err:  context.Canceled,
+			want: "producer: context canceled",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := labelErr("producer", tt.err)
+			if tt.want == "" {
+				require.NoError(t, got)
+				return
+			}
+			require.EqualError(t, got, tt.want)
+			require.ErrorIs(t, got, tt.err)
+		})
+	}
+}
+
+func TestRestoreClassDirSkipsStagingMarker(t *testing.T) {
+	t.Parallel()
+	dataPath := t.TempDir()
+	staged := filepath.Join(dataPath, TempDirectory, "Class-A")
+	require.NoError(t, os.MkdirAll(filepath.Join(staged, "class-a"), os.ModePerm))
+	require.NoError(t, os.WriteFile(filepath.Join(staged, "class-a", "segment-1"), []byte("data"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(staged, stagingMarkerFile), []byte("a1"), 0o644))
+
+	require.NoError(t, RestoreClassDir(dataPath)("Class-A"))
+
+	require.FileExists(t, filepath.Join(dataPath, "class-a", "segment-1"))
+	require.NoFileExists(t, filepath.Join(dataPath, stagingMarkerFile))
+	require.NoDirExists(t, staged)
+}
+
+// A skip flag means the coordinator's selector matched nothing. The uploader
+// must call neither snapshotter and leave both blobs absent, since restore
+// treats an absent blob as a no-op and a present one as a replacement.
+func TestUploaderSnapshotSkip(t *testing.T) {
+	const class = "Article"
+
+	tests := []struct {
+		name                string
+		sel                 snapshotSelection
+		wantUsers, wantRBAC bool
+	}{
+		{name: "whole-cluster default", sel: snapshotSelection{}, wantUsers: true, wantRBAC: true},
+		{name: "explicit selection", sel: snapshotSelection{users: []string{"u"}, roles: []string{"r"}}, wantUsers: true, wantRBAC: true},
+		{name: "users missed", sel: snapshotSelection{skipUsers: true, roles: []string{"r"}}, wantUsers: false, wantRBAC: true},
+		{name: "roles missed", sel: snapshotSelection{users: []string{"u"}, skipRoles: true}, wantUsers: true, wantRBAC: false},
+		{name: "both missed", sel: snapshotSelection{skipUsers: true, skipRoles: true}, wantUsers: false, wantRBAC: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			backupID := "skip-" + tt.name
+			descriptors := make(chan backup.ClassDescriptor, 1)
+			descriptors <- backup.ClassDescriptor{Name: class}
+			close(descriptors)
+
+			sourcer := &fakeSourcer{}
+			sourcer.On("BackupDescriptors", mock.Anything, backupID, []string{class}, mock.Anything, mock.Anything).
+				Return((<-chan backup.ClassDescriptor)(descriptors))
+			sourcer.On("ReleaseBackup", mock.Anything, backupID, class).Return(nil)
+
+			backend := newFakeBackend()
+			backend.On("SourceDataPath").Return(t.TempDir())
+			backend.On("PutObject", mock.Anything, backupID, BackupFile, mock.Anything).Return(nil)
+
+			logger := logrus.New()
+			logger.Out = io.Discard
+			bp := &backupper{logger: logger}
+			require.Empty(t, bp.lastOp.renew(backupID, "", "bucket/backups/"+backupID, "", ""))
+
+			rbac, users := &countingSnapshotter{}, &countingSnapshotter{}
+			store := nodeStore{objectStore{backend: backend, backupId: backupID}}
+			u := newUploader(config.Backup{}, sourcer, rbac, users, tt.sel, store, backupID, &bp.lastOp, logger)
+			desc := backup.BackupDescriptor{ID: backupID}
+			require.NoError(t, u.all(context.Background(), []string{class}, &desc, nil, "", ""))
+
+			assert.Equal(t, tt.wantRBAC, rbac.calls == 1, "rbac snapshotter calls: %d", rbac.calls)
+			assert.Equal(t, tt.wantRBAC, len(desc.RbacBackups) > 0)
+			assert.Equal(t, tt.wantUsers, users.calls == 1, "user snapshotter calls: %d", users.calls)
+			assert.Equal(t, tt.wantUsers, len(desc.UserBackups) > 0)
+		})
+	}
+}
+
+type countingSnapshotter struct{ calls int }
+
+func (s *countingSnapshotter) Snapshot(...string) ([]byte, error) {
+	s.calls++
+	return []byte(`{"v":1}`), nil
+}
+
+func (s *countingSnapshotter) Restore([]byte, bool) error { return nil }

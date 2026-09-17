@@ -58,6 +58,12 @@ func (e *executor) Open(ctx context.Context) error {
 	return e.migrator.WaitForStartup(ctx)
 }
 
+// DropOrphanedClass returns its error, unlike DeleteClass, so the next reload
+// can retry a failed drop.
+func (e *executor) DropOrphanedClass(ctx context.Context, cls string, hasFrozen bool) error {
+	return e.migrator.DropOrphanedClass(ctx, cls, hasFrozen)
+}
+
 // ReloadLocalDB reloads the local database using the latest schema.
 func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassRequest) error {
 	cs := make([]*models.Class, len(all))
@@ -76,7 +82,9 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 			cs[i] = u.Class
 
 			if err := e.migrator.UpdateIndex(ctx, u.Class, u.State); err != nil {
-				e.logger.WithField("index", u.Class.Class).WithError(err).Error("failed to reload local index")
+				e.logger.WithField("index", u.Class.Class).
+					WithFields(enterrors.DocsLinkFields(err)).
+					WithError(err).Error("failed to reload local index")
 				err := fmt.Errorf("failed to reload local index %d: %w", i, err)
 
 				errMutex.Lock()
@@ -105,14 +113,35 @@ func (e *executor) AddClass(pl api.AddClassRequest) error {
 	return nil
 }
 
+// AddReplicaToShard loads the shard the schema now lists this node as a replica
+// of. No replica movement accompanies it, and only a namespace being deleted
+// leaves the shard closed.
 func (e *executor) AddReplicaToShard(class string, shard string, targetNode string) error {
-	ctx := context.Background()
-	if replicas, err := e.schemaReader.ShardReplicas(class, shard); err != nil {
+	if err := e.requireShardReplica(class, shard, targetNode); err != nil {
+		return err
+	}
+	return e.migrator.LoadShardForNewReplica(context.Background(), class, shard)
+}
+
+// AddReplicaToShardForMovement loads the target shard of a replica movement.
+func (e *executor) AddReplicaToShardForMovement(class string, shard string, targetNode string) error {
+	if err := e.requireShardReplica(class, shard, targetNode); err != nil {
+		return err
+	}
+	return e.migrator.LoadShardForMovement(context.Background(), class, shard)
+}
+
+// requireShardReplica fails unless the schema already lists targetNode among the
+// shard's replicas.
+func (e *executor) requireShardReplica(class, shard, targetNode string) error {
+	replicas, err := e.schemaReader.ShardReplicas(class, shard)
+	if err != nil {
 		return fmt.Errorf("error reading replicas for collection %s shard %s: %w", class, shard, err)
-	} else if !slices.Contains(replicas, targetNode) {
+	}
+	if !slices.Contains(replicas, targetNode) {
 		return fmt.Errorf("replica %s does not exists for collection %s shard %s", targetNode, class, shard)
 	}
-	return e.migrator.LoadShard(ctx, class, shard)
+	return nil
 }
 
 func (e *executor) DeleteReplicaFromShard(class string, shard string, targetNode string) error {
@@ -131,7 +160,7 @@ func (e *executor) ReconcileAsyncReplicationForShard(class string, shard string)
 
 func (e *executor) LoadShard(class string, shard string) {
 	ctx := context.Background()
-	if err := e.migrator.LoadShard(ctx, class, shard); err != nil {
+	if err := e.migrator.LoadShardForNewReplica(ctx, class, shard); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action": "load_shard",
 			"class":  class,
@@ -307,7 +336,8 @@ func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest, pr
 		e.logger.WithFields(logrus.Fields{
 			"action": "update_tenants",
 			"class":  class,
-		}).WithError(err).Error("error updating tenants")
+		}).WithFields(enterrors.DocsLinkFields(err)).
+			WithError(err).Error("error updating tenants")
 		return err
 	}
 	return nil
@@ -335,12 +365,13 @@ func (e *executor) UpdateTenantsProcess(class string, req *api.TenantProcessRequ
 		})
 	}
 
-	if err := e.migrator.UpdateTenants(ctx, cls, updates, true); err != nil {
+	if err := e.migrator.UpdateTenantsForProcess(ctx, cls, updates); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action":     "update_tenants_process",
 			"sub-action": "update_tenants",
 			"class":      class,
-		}).WithError(err).Error("error updating tenants")
+		}).WithFields(enterrors.DocsLinkFields(err)).
+			Errorf("error updating tenants: %v", err)
 		return err
 	}
 	return nil
@@ -363,9 +394,8 @@ func (e *executor) UpdateShardStatus(req *api.UpdateShardStatusRequest) error {
 	return e.migrator.UpdateShardStatus(ctx, req.Class, req.Shard, req.Status, req.SchemaVersion)
 }
 
-func (e *executor) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
-	ctx := context.Background()
-	shardsStatus, legacyStatus, err := e.migrator.GetShardsStatus(ctx, class, tenant)
+func (e *executor) GetShardsStorageStatus(ctx context.Context, class, tenant string) (models.ShardStatusList, error) {
+	shardsStatus, legacyStatus, err := e.migrator.GetShardsStorageStatus(ctx, class, tenant)
 	if err != nil {
 		return nil, err
 	}

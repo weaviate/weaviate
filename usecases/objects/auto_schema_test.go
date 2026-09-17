@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/schema/test_utils"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/versioned"
@@ -653,18 +654,20 @@ func Test_autoSchemaManager_determineType(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		vectorRepo := &fakeVectorRepo{}
-		vectorRepo.On("ObjectByID", strfmt.UUID("df48b9f6-ba48-470c-bf6a-57657cb07390"), mock.Anything, mock.Anything, mock.Anything).
-			Return(&search.Result{ClassName: "Publication"}, nil).Once()
-		vectorRepo.On("ObjectByID", strfmt.UUID("df48b9f6-ba48-470c-bf6a-57657cb07391"), mock.Anything, mock.Anything, mock.Anything).
-			Return(&search.Result{ClassName: "Article"}, nil).Once()
+		vectorRepo := &fakeObjectFinder{}
+		vectorRepo.On("ObjectsByID", strfmt.UUID("df48b9f6-ba48-470c-bf6a-57657cb07390"), mock.Anything, mock.Anything, "", "").
+			Return(searchResults([]string{"Publication"}), nil).Once()
+		vectorRepo.On("ObjectsByID", strfmt.UUID("df48b9f6-ba48-470c-bf6a-57657cb07391"), mock.Anything, mock.Anything, "", "").
+			Return(searchResults([]string{"Article"}), nil).Once()
+		logger, _ := test.NewNullLogger()
 		m := &AutoSchemaManager{
 			schemaManager: &fakeSchemaManager{},
-			vectorRepo:    vectorRepo,
+			objectFinder:  vectorRepo,
+			logger:        logger,
 			config:        tt.fields.config,
 		}
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := m.determineType(tt.args.value, false)
+			got, err := m.determineType(context.Background(), refTarget{}, tt.args.value, false)
 			if len(tt.errMsgs) == 0 {
 				require.NoError(t, err)
 				if !reflect.DeepEqual(got, tt.want) {
@@ -732,14 +735,14 @@ func Test_couldBeUUID(t *testing.T) {
 
 func Test_autoSchemaManager_autoSchema_emptyRequest(t *testing.T) {
 	// given
-	vectorRepo := &fakeVectorRepo{}
+	vectorRepo := &fakeObjectFinder{}
 	vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&search.Result{ClassName: "Publication"}, nil).Once()
 	schemaManager := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
 	autoSchemaManager := &AutoSchemaManager{
 		schemaManager: schemaManager,
-		vectorRepo:    vectorRepo,
+		objectFinder:  vectorRepo,
 		config: config.AutoSchema{
 			Enabled:       runtime.NewDynamicValue(true),
 			DefaultString: schema.DataTypeText.String(),
@@ -759,14 +762,14 @@ func Test_autoSchemaManager_autoSchema_emptyRequest(t *testing.T) {
 
 func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 	// given
-	vectorRepo := &fakeVectorRepo{}
+	vectorRepo := &fakeObjectFinder{}
 	vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&search.Result{ClassName: "Publication"}, nil).Once()
 	schemaManager := &fakeSchemaManager{}
 	logger, _ := test.NewNullLogger()
 	autoSchemaManager := &AutoSchemaManager{
 		schemaManager: schemaManager,
-		vectorRepo:    vectorRepo,
+		objectFinder:  vectorRepo,
 		config: config.AutoSchema{
 			Enabled:       runtime.NewDynamicValue(true),
 			DefaultString: schema.DataTypeText.String(),
@@ -798,7 +801,7 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 	require.NotNil(t, schemaAfter.Objects)
 	assert.Equal(t, 1, len(schemaAfter.Objects.Classes))
 
-	class := (schemaAfter.Objects.Classes)[0]
+	class := schemaAfter.Objects.Classes[0]
 	assert.Equal(t, "Publication", class.Class)
 	assert.Equal(t, 5, len(class.Properties))
 	require.NotNil(t, getProperty(class.Properties, "name"))
@@ -829,7 +832,7 @@ func Test_autoSchemaManager_autoSchema_create(t *testing.T) {
 
 func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	// given
-	vectorRepo := &fakeVectorRepo{}
+	vectorRepo := &fakeObjectFinder{}
 	vectorRepo.On("ObjectByID", mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(&search.Result{ClassName: "Publication"}, nil).Once()
 	logger, _ := test.NewNullLogger()
@@ -852,7 +855,7 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	}
 	autoSchemaManager := &AutoSchemaManager{
 		schemaManager: schemaManager,
-		vectorRepo:    vectorRepo,
+		objectFinder:  vectorRepo,
 		config: config.AutoSchema{
 			Enabled:       runtime.NewDynamicValue(true),
 			DefaultString: schema.DataTypeText.String(),
@@ -876,10 +879,10 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	schemaBefore := schemaManager.GetSchemaResponse
 	require.NotNil(t, schemaBefore.Objects)
 	assert.Equal(t, 1, len(schemaBefore.Objects.Classes))
-	assert.Equal(t, "Publication", (schemaBefore.Objects.Classes)[0].Class)
-	assert.Equal(t, 1, len((schemaBefore.Objects.Classes)[0].Properties))
-	assert.Equal(t, "age", (schemaBefore.Objects.Classes)[0].Properties[0].Name)
-	assert.Equal(t, "int", (schemaBefore.Objects.Classes)[0].Properties[0].DataType[0])
+	assert.Equal(t, "Publication", schemaBefore.Objects.Classes[0].Class)
+	assert.Equal(t, 1, len(schemaBefore.Objects.Classes[0].Properties))
+	assert.Equal(t, "age", schemaBefore.Objects.Classes[0].Properties[0].Name)
+	assert.Equal(t, "int", schemaBefore.Objects.Classes[0].Properties[0].DataType[0])
 
 	knownClasses := map[string]versioned.Class{
 		class.Class: {Version: 0, Class: class},
@@ -891,23 +894,23 @@ func Test_autoSchemaManager_autoSchema_update(t *testing.T) {
 	schemaAfter := schemaManager.GetSchemaResponse
 	require.NotNil(t, schemaAfter.Objects)
 	assert.Equal(t, 1, len(schemaAfter.Objects.Classes))
-	assert.Equal(t, "Publication", (schemaAfter.Objects.Classes)[0].Class)
-	assert.Equal(t, 5, len((schemaAfter.Objects.Classes)[0].Properties))
-	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "age"))
-	assert.Equal(t, "age", getProperty((schemaAfter.Objects.Classes)[0].Properties, "age").Name)
-	assert.Equal(t, "int", getProperty((schemaAfter.Objects.Classes)[0].Properties, "age").DataType[0])
-	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "name"))
-	assert.Equal(t, "name", getProperty((schemaAfter.Objects.Classes)[0].Properties, "name").Name)
-	assert.Equal(t, "text", getProperty((schemaAfter.Objects.Classes)[0].Properties, "name").DataType[0])
-	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate"))
-	assert.Equal(t, "publicationDate", getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate").Name)
-	assert.Equal(t, "date", getProperty((schemaAfter.Objects.Classes)[0].Properties, "publicationDate").DataType[0])
-	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "textArray"))
-	assert.Equal(t, "textArray", getProperty((schemaAfter.Objects.Classes)[0].Properties, "textArray").Name)
-	assert.Equal(t, "text[]", getProperty((schemaAfter.Objects.Classes)[0].Properties, "textArray").DataType[0])
-	require.NotNil(t, getProperty((schemaAfter.Objects.Classes)[0].Properties, "numberArray"))
-	assert.Equal(t, "numberArray", getProperty((schemaAfter.Objects.Classes)[0].Properties, "numberArray").Name)
-	assert.Equal(t, "int[]", getProperty((schemaAfter.Objects.Classes)[0].Properties, "numberArray").DataType[0])
+	assert.Equal(t, "Publication", schemaAfter.Objects.Classes[0].Class)
+	assert.Equal(t, 5, len(schemaAfter.Objects.Classes[0].Properties))
+	require.NotNil(t, getProperty(schemaAfter.Objects.Classes[0].Properties, "age"))
+	assert.Equal(t, "age", getProperty(schemaAfter.Objects.Classes[0].Properties, "age").Name)
+	assert.Equal(t, "int", getProperty(schemaAfter.Objects.Classes[0].Properties, "age").DataType[0])
+	require.NotNil(t, getProperty(schemaAfter.Objects.Classes[0].Properties, "name"))
+	assert.Equal(t, "name", getProperty(schemaAfter.Objects.Classes[0].Properties, "name").Name)
+	assert.Equal(t, "text", getProperty(schemaAfter.Objects.Classes[0].Properties, "name").DataType[0])
+	require.NotNil(t, getProperty(schemaAfter.Objects.Classes[0].Properties, "publicationDate"))
+	assert.Equal(t, "publicationDate", getProperty(schemaAfter.Objects.Classes[0].Properties, "publicationDate").Name)
+	assert.Equal(t, "date", getProperty(schemaAfter.Objects.Classes[0].Properties, "publicationDate").DataType[0])
+	require.NotNil(t, getProperty(schemaAfter.Objects.Classes[0].Properties, "textArray"))
+	assert.Equal(t, "textArray", getProperty(schemaAfter.Objects.Classes[0].Properties, "textArray").Name)
+	assert.Equal(t, "text[]", getProperty(schemaAfter.Objects.Classes[0].Properties, "textArray").DataType[0])
+	require.NotNil(t, getProperty(schemaAfter.Objects.Classes[0].Properties, "numberArray"))
+	assert.Equal(t, "numberArray", getProperty(schemaAfter.Objects.Classes[0].Properties, "numberArray").Name)
+	assert.Equal(t, "int[]", getProperty(schemaAfter.Objects.Classes[0].Properties, "numberArray").DataType[0])
 }
 
 func Test_autoSchemaManager_getProperties(t *testing.T) {
@@ -1430,7 +1433,7 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 
 	manager := &AutoSchemaManager{
 		schemaManager: &fakeSchemaManager{},
-		vectorRepo:    &fakeVectorRepo{},
+		objectFinder:  &fakeObjectFinder{},
 		config: config.AutoSchema{
 			Enabled:       runtime.NewDynamicValue(true),
 			DefaultNumber: schema.DataTypeNumber.String(),
@@ -1441,75 +1444,292 @@ func Test_autoSchemaManager_getProperties(t *testing.T) {
 
 	for i, tc := range testCases {
 		t.Run(fmt.Sprintf("testCase_%d", i), func(t *testing.T) {
-			properties, _ := manager.getProperties(&models.Object{
+			properties, _ := manager.getProperties(context.Background(), &models.Object{
 				Class:      "ClassWithObjectProps",
 				Properties: tc.valProperties,
-			}, nil)
+			}, nil, nil)
 
 			assertPropsMatch(t, tc.expectedProperties, properties)
 		})
 	}
 }
 
-func Test_autoSchemaManager_getProperties_stripsBeaconWithoutClassDataType(t *testing.T) {
+// Test_autoSchemaManager_getProperties_beaconWithoutClass pins how auto-schema
+// types a beacon that omits its class. A property that exists is typed by what
+// it records, and a new one by the id looked up in the source namespace.
+func Test_autoSchemaManager_getProperties_beaconWithoutClass(t *testing.T) {
+	confinedPrincipal := &models.Principal{Username: "u", Namespace: "customer1"}
+	globalOperator := &models.Principal{Username: "admin", IsGlobalOperator: true}
 	cases := []struct {
 		name             string
 		principal        *models.Principal
-		repoClassName    string
+		sourceClass      string
+		tenant           string        // the object's tenant, which the lookup must not carry
+		schemaClass      *models.Class // what the collection already holds, nil while it is new
+		schemaAnswers    bool          // the schema types the property, so no id lookup may run
+		beaconClass      string        // the class the beacon names, "" for none
+		lookupIn         string        // the namespace the lookup has to search
+		repoClasses      []string      // what ObjectsByID finds there, in the order it lists them
+		repoErr          error
 		expectedDataType []string
+		expectedErr      string
 	}{
 		{
-			name:             "namespaced principal own-NS prefix stripped",
-			principal:        &models.Principal{Username: "u", Namespace: "customer1"},
-			repoClassName:    "customer1:Movies",
+			// The validator rewrites the beacon with this same class, so
+			// searching for the id would answer an answered question.
+			name:             "existing reference property answers without a lookup",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			schemaClass:      classWithProperty("watched", "customer1:Movies"),
+			lookupIn:         "customer1",
+			repoClasses:      []string{"customer1:Ledger"},
+			schemaAnswers:    true,
 			expectedDataType: []string{"Movies"},
 		},
 		{
-			name:             "global principal passes through",
-			principal:        &models.Principal{Username: "admin", IsGlobalOperator: true},
-			repoClassName:    "Movies",
+			name:             "existing multi-target property answers without a lookup",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			schemaClass:      classWithProperty("watched", "customer1:Movies", "customer1:Shows"),
+			lookupIn:         "customer1",
+			repoClasses:      []string{"customer1:Ledger"},
+			schemaAnswers:    true,
 			expectedDataType: []string{"Movies"},
 		},
 		{
-			// Crosses-namespace beacons should fall through unchanged so the
-			// downstream qualifier rejects them (deny-foreign-NS contract).
-			name:             "foreign-NS prefix left intact",
-			principal:        &models.Principal{Username: "u", Namespace: "customer1"},
-			repoClassName:    "customer2:Movies",
-			expectedDataType: []string{"customer2:Movies"},
+			name:             "existing primitive property types the beacon as an object",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			schemaClass:      classWithProperty("watched", "text"),
+			lookupIn:         "customer1",
+			repoClasses:      []string{"customer1:Ledger"},
+			schemaAnswers:    true,
+			expectedDataType: []string{"object[]"},
+		},
+		{
+			name:             "existing object property types the beacon as an object",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			schemaClass:      classWithProperty("watched", "object"),
+			lookupIn:         "customer1",
+			repoClasses:      []string{"customer1:Ledger"},
+			schemaAnswers:    true,
+			expectedDataType: []string{"object[]"},
+		},
+		{
+			// The beacon has to reach the nested merge, which adds it to the
+			// property's nested properties so validation accepts it.
+			name:             "existing object[] property types the beacon as an object",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			schemaClass:      classWithProperty("watched", "object[]"),
+			lookupIn:         "customer1",
+			repoClasses:      []string{"customer1:Ledger"},
+			schemaAnswers:    true,
+			expectedDataType: []string{"object[]"},
+		},
+		{
+			name:             "existing object[] property types a beacon naming its class as an object",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			schemaClass:      classWithProperty("watched", "object[]"),
+			beaconClass:      "Ledger",
+			lookupIn:         "customer1",
+			schemaAnswers:    true,
+			expectedDataType: []string{"object[]"},
+		},
+		{
+			name:             "collection holding another property still looks the id up",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			schemaClass:      classWithProperty("other", "customer1:Movies"),
+			lookupIn:         "customer1",
+			repoClasses:      []string{"customer1:Ledger"},
+			expectedDataType: []string{"Ledger"},
+		},
+		{
+			name:             "own namespace resolves, prefix stripped",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			lookupIn:         "customer1",
+			repoClasses:      []string{"customer1:Movies"},
+			expectedDataType: []string{"Movies"},
+		},
+		{
+			// Asking a multi-tenant collection for the tenant would activate it
+			// there, in a collection the write never named.
+			name:             "multi-tenant object looks the id up without its tenant",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			tenant:           "tenant1",
+			schemaClass:      &models.Class{MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}},
+			lookupIn:         "customer1",
+			repoClasses:      []string{"customer1:Movies"},
+			expectedDataType: []string{"Movies"},
+		},
+		{
+			name:             "unknown uuid does not resolve",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			lookupIn:         "customer1",
+			expectedDataType: []string{"object[]"},
+		},
+		{
+			// A recorded target outside the source namespace is no reference this
+			// write may use, and no class name from it may reach the caller.
+			name:             "property recording another namespace answers without a lookup",
+			principal:        confinedPrincipal,
+			sourceClass:      "customer1:Library",
+			schemaClass:      classWithProperty("watched", "customer2:Secret"),
+			lookupIn:         "customer1",
+			repoClasses:      []string{"customer1:Ledger"},
+			schemaAnswers:    true,
+			expectedDataType: []string{"object[]"},
+		},
+		{
+			// Typing the property from a failed lookup would store every later
+			// beacon on it as text, so the object fails instead.
+			name:        "failed lookup fails the object",
+			principal:   confinedPrincipal,
+			sourceClass: "customer1:Library",
+			lookupIn:    "customer1",
+			repoErr:     assert.AnError,
+			expectedErr: "cannot resolve the collection of beacon",
+		},
+		{
+			// A reference may not cross namespaces, and an operator writing
+			// into a namespaced collection is bound by that too.
+			name:             "global operator looks the id up in the source namespace",
+			principal:        globalOperator,
+			sourceClass:      "customer1:Library",
+			lookupIn:         "customer1",
+			expectedDataType: []string{"object[]"},
+		},
+		{
+			name:             "global operator resolves an unqualified class",
+			principal:        globalOperator,
+			sourceClass:      "Library",
+			repoClasses:      []string{"Movies"},
+			expectedDataType: []string{"Movies"},
+		},
+		{
+			name:             "principal-less caller resolves an unqualified class",
+			sourceClass:      "Library",
+			repoClasses:      []string{"Movies"},
+			expectedDataType: []string{"Movies"},
 		},
 	}
 	id := strfmt.UUID("00000000-1111-2222-3333-444444444444")
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			vectorRepo := &fakeVectorRepo{}
-			vectorRepo.On("ObjectByID", id, mock.Anything, mock.Anything, mock.Anything).
-				Return(&search.Result{ClassName: tc.repoClassName}, nil).Once()
-			manager := &AutoSchemaManager{
-				schemaManager: &fakeSchemaManager{},
-				vectorRepo:    vectorRepo,
-				config: config.AutoSchema{
-					Enabled:       runtime.NewDynamicValue(true),
-					DefaultNumber: schema.DataTypeNumber.String(),
-					DefaultString: schema.DataTypeText.String(),
-					DefaultDate:   schema.DataTypeDate.String(),
-				},
-			}
-			properties, err := manager.getProperties(&models.Object{
-				Class: "Library",
+			vectorRepo := &fakeObjectFinder{}
+			vectorRepo.On("ObjectsByID", id, mock.Anything, mock.Anything, "", tc.lookupIn).
+				Return(searchResults(tc.repoClasses), tc.repoErr).Once()
+			manager := newBeaconTestManager(vectorRepo)
+
+			properties, err := manager.getProperties(context.Background(), &models.Object{
+				Class:  tc.sourceClass,
+				Tenant: tc.tenant,
 				Properties: map[string]interface{}{
 					"watched": []interface{}{
-						// Beacon without class — asRef looks up the object and
-						// uses its stored ClassName (qualified on NS-enabled).
-						map[string]interface{}{"beacon": "weaviate://localhost/" + id.String()},
+						map[string]interface{}{"beacon": crossref.NewLocalhost(tc.beaconClass, id).String()},
 					},
 				},
-			}, tc.principal)
+			}, tc.principal, tc.schemaClass)
+
+			if tc.expectedErr != "" {
+				require.ErrorContains(t, err, tc.expectedErr)
+				assert.NotContains(t, err.Error(), assert.AnError.Error(),
+					"the repo error names the index it failed on, so it must not reach the caller")
+				return
+			}
 			require.NoError(t, err)
 			require.Len(t, properties, 1)
 			assert.Equal(t, "watched", properties[0].Name)
 			assert.Equal(t, tc.expectedDataType, properties[0].DataType)
+			if tc.schemaAnswers {
+				vectorRepo.AssertNotCalled(t, "ObjectsByID",
+					mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+			}
 		})
+	}
+}
+
+// Test_autoSchemaManager_getProperties_beaconWithoutClassMixedArray pins the
+// error for a list mixing a beacon whose id the source namespace holds with
+// one whose id it does not. Only the first types as a reference.
+func Test_autoSchemaManager_getProperties_beaconWithoutClassMixedArray(t *testing.T) {
+	ownID := strfmt.UUID("00000000-1111-2222-3333-444444444444")
+	otherID := strfmt.UUID("00000000-1111-2222-3333-555555555555")
+	cases := []struct {
+		name    string
+		beacons []strfmt.UUID
+		errMsg  string
+	}{
+		{
+			name:    "own namespace first",
+			beacons: []strfmt.UUID{ownID, otherID},
+			errMsg:  "element [1]: mismatched data type - reference expected, got 'object'",
+		},
+		{
+			name:    "other namespace first",
+			beacons: []strfmt.UUID{otherID, ownID},
+			errMsg:  "element [1]: mismatched data type - 'object' expected, got reference",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			vectorRepo := &fakeObjectFinder{}
+			vectorRepo.On("ObjectsByID", ownID, mock.Anything, mock.Anything, "", "customer1").
+				Return(searchResults([]string{"customer1:Movies"}), nil)
+			vectorRepo.On("ObjectsByID", otherID, mock.Anything, mock.Anything, "", "customer1").
+				Return(searchResults(nil), nil)
+			manager := newBeaconTestManager(vectorRepo)
+
+			values := make([]interface{}, len(tc.beacons))
+			for i, id := range tc.beacons {
+				values[i] = map[string]interface{}{"beacon": "weaviate://localhost/" + id.String()}
+			}
+			_, err := manager.getProperties(context.Background(), &models.Object{
+				Class:      "customer1:Library",
+				Properties: map[string]interface{}{"watched": values},
+			}, &models.Principal{Username: "u", Namespace: "customer1"}, nil)
+			require.ErrorContains(t, err, tc.errMsg)
+		})
+	}
+}
+
+// classWithProperty builds the collection a caller writes into, holding one
+// property under the given data types.
+func classWithProperty(name string, dataType ...string) *models.Class {
+	return &models.Class{Properties: []*models.Property{{Name: name, DataType: dataType}}}
+}
+
+// searchResults builds what ObjectsByID returns for the given class names, and
+// nil for none so the fake reports the not-found answer.
+func searchResults(classNames []string) search.Results {
+	if len(classNames) == 0 {
+		return nil
+	}
+	results := make(search.Results, len(classNames))
+	for i, name := range classNames {
+		results[i] = search.Result{ClassName: name}
+	}
+	return results
+}
+
+func newBeaconTestManager(vectorRepo *fakeObjectFinder) *AutoSchemaManager {
+	logger, _ := test.NewNullLogger()
+	return &AutoSchemaManager{
+		schemaManager: &fakeSchemaManager{},
+		objectFinder:  vectorRepo,
+		logger:        logger,
+		config: config.AutoSchema{
+			Enabled:       runtime.NewDynamicValue(true),
+			DefaultNumber: schema.DataTypeNumber.String(),
+			DefaultString: schema.DataTypeText.String(),
+			DefaultDate:   schema.DataTypeDate.String(),
+		},
 	}
 }
 
@@ -1853,7 +2073,7 @@ func Test_autoSchemaManager_perform_withNested(t *testing.T) {
 	}
 	manager := &AutoSchemaManager{
 		schemaManager: schemaManager,
-		vectorRepo:    &fakeVectorRepo{},
+		objectFinder:  &fakeObjectFinder{},
 		config: config.AutoSchema{
 			Enabled:       runtime.NewDynamicValue(true),
 			DefaultNumber: schema.DataTypeNumber.String(),

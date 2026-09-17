@@ -19,6 +19,7 @@ import (
 	"io"
 	"math"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,10 +27,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 )
 
 // incomingChangeLogEndpoints are the change-capture endpoints a movement's
@@ -253,5 +256,61 @@ func TestIncomingFinalizeChangeLog_UnloadCannotTearDownMidSeal(t *testing.T) {
 		require.NoError(t, ferr, "seal must complete once the in-flight write drains")
 	case <-time.After(30 * time.Second):
 		t.Fatal("seal never completed after the in-flight write drained")
+	}
+}
+
+// A suspend landing between a write's two phases must not refuse the commit.
+// The prepared task would stay on the shard with nothing to remove it, and the
+// seal waits on every task pending at entry, so one refused commit blocks every
+// later seal of that shard.
+func TestCommitReplication_SuspendBetweenPhasesStillDrainsTheSeal(t *testing.T) {
+	ctx := testCtx()
+	const (
+		opID      = "op-finalize-suspended"
+		requestID = "req-suspended"
+		namespace = "alpha"
+	)
+
+	_, idx, shardName, _ := setupReplayShard(t)
+	logger, _ := logrusTestLogger()
+
+	// Read per call, so the state can change between the two phases.
+	var state atomic.Value
+	state.Store(api.NamespaceStateActive)
+	exister := namespaces.NewMockExister(t)
+	exister.EXPECT().GetNamespace(namespace).RunAndReturn(func(string) (api.Namespace, bool) {
+		return api.Namespace{Name: namespace, State: state.Load().(api.NamespaceState)}, true
+	}).Maybe()
+	idx.namespace = namespace
+	idx.namespacesExister = exister
+
+	require.NoError(t, idx.IncomingStartChangeCapture(ctx, shardName, opID))
+
+	prepared := idx.ReplicateObject(ctx, shardName, requestID, replayTestObject(uuid.NewString()), 0)
+	require.Empty(t, prepared.Errors)
+
+	state.Store(api.NamespaceStateSuspended)
+
+	finalizeDone := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		_, ferr := idx.IncomingFinalizeChangeLog(ctx, shardName, opID)
+		finalizeDone <- ferr
+	}, logger)
+
+	// Let the seal reach its drain, so the commit below is what releases it.
+	time.Sleep(20 * time.Millisecond)
+	select {
+	case ferr := <-finalizeDone:
+		t.Fatalf("seal returned before the prepared write drained: %v", ferr)
+	default:
+	}
+
+	require.Empty(t, replicaResponseErrors(t, idx.CommitReplication(ctx, shardName, requestID)))
+
+	select {
+	case ferr := <-finalizeDone:
+		require.NoError(t, ferr, "seal must complete once the committed write drains")
+	case <-time.After(30 * time.Second):
+		t.Fatal("seal never completed: the suspended namespace stranded the prepared write")
 	}
 }

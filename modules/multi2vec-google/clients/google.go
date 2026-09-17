@@ -72,6 +72,13 @@ func (v *google) VectorizeQuery(ctx context.Context, input []string,
 func (v *google) vectorize(ctx context.Context,
 	texts, images, videos, audios []string, config ent.VectorizationConfig,
 ) (*ent.VectorizationResult, error) {
+	if err := modulecomponents.ValidateGoogleApiEndpoint(config.ApiEndpoint); err != nil {
+		return nil, err
+	}
+	if err := modulecomponents.ValidateGoogleLocation("location", config.Location); err != nil {
+		return nil, err
+	}
+
 	var textEmbeddings [][]float32
 	var imageEmbeddings [][]float32
 	var videoEmbeddings [][]float32

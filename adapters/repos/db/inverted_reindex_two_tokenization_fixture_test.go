@@ -61,7 +61,7 @@ func setupTwoTokenizationShard(t *testing.T, ctx context.Context, className stri
 
 	class := buildTwoTokenizationClass(className, fieldProp, wordProp)
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	t.Cleanup(func() { _ = shard.Shutdown(ctx) })
 

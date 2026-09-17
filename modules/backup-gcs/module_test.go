@@ -40,7 +40,7 @@ func TestInit_ClientConfigWiring(t *testing.T) {
 		{name: "export only", backupFlag: false, exportFlag: true},
 		{
 			name:      "grpc transport reaches both clients",
-			transport: config.BackupGCS{UseGRPC: true, GRPCConnPool: config.DefaultBackupGCSGRPCConnPool},
+			transport: config.BackupGCS{UseGRPC: new(true), GRPCConnPool: config.DefaultBackupGCSGRPCConnPool},
 		},
 	}
 	for _, tt := range tests {
@@ -52,7 +52,7 @@ func TestInit_ClientConfigWiring(t *testing.T) {
 
 			params := moduletools.NewMockModuleInitParams(t)
 			params.EXPECT().GetLogger().Return(logrus.New())
-			params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+			params.EXPECT().GetDataPath().Return(t.TempDir())
 			params.EXPECT().GetConfig().Return(cfg)
 
 			m := New()
@@ -63,16 +63,4 @@ func TestInit_ClientConfigWiring(t *testing.T) {
 			assert.Equal(t, tt.transport, m.exportClient.config.Transport, "export client transport")
 		})
 	}
-}
-
-type fakeStorageProvider struct {
-	dataPath string
-}
-
-func (f *fakeStorageProvider) Storage(name string) (moduletools.Storage, error) {
-	return nil, nil
-}
-
-func (f *fakeStorageProvider) DataPath() string {
-	return f.dataPath
 }

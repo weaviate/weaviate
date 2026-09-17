@@ -30,7 +30,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
       - name: Get build date
         id: date
@@ -77,7 +77,7 @@ jobs:
 
       - name: Upload SARIF file
         if: always() && steps.vuln-scan.outputs.exit_code != 1
-        uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
         with:
           sarif_file: results/image.sarif
 
@@ -149,7 +149,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
       - name: Login to Docker Hub
         uses: ./.github/actions/docker-login
@@ -187,7 +187,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
+        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4
 
       - name: Build Docker image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
@@ -219,7 +219,7 @@ jobs:
 
       - name: Upload SARIF file
         if: always() && steps.vuln-scan.outputs.exit_code != 1
-        uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v4
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
         with:
           sarif_file: results/image.sarif
 
@@ -296,6 +296,7 @@ jobs:
   Buf-Checks:
     name: buf checks
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
@@ -312,10 +313,15 @@ jobs:
   Run-Swagger:
     name: swagger
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
         uses: ./.github/actions/setup-go
+      - name: Install golangci-lint
+        uses: ./.github/actions/golangci-lint
+        with:
+          install-only: true
       - name: Run Swagger
         run: ./tools/gen-code-from-swagger.sh
       - name: Error on change
@@ -362,6 +368,8 @@ jobs:
             test: "--integration-vector-package-only"
           - name: "without vector"
             test: "--integration-without-vector-package"
+          - name: "integrationslowtest"
+            test: "--integration-slow-package-only"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
@@ -384,6 +392,7 @@ jobs:
   Modules-Acceptance-Tests:
     name: modules (${{ matrix.name }})
     runs-on: ubicloud-standard-4
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -433,7 +442,7 @@ jobs:
   Modules-On-Demand-Tests-Check:
     name: modules on demand
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    if: ${{ !github.event.pull_request.head.repo.fork && (github.event_name != 'push' || github.ref_type != 'branch') }}  # no PRs from fork, skipped on branch pushes
     outputs:
       run_pipeline: ${{ steps.check.outputs.run_pipeline }}
     steps:
@@ -500,7 +509,7 @@ jobs:
           on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-light:
     name: modules light (${{ matrix.name }})
-    runs-on: ubicloud-standard-2
+    runs-on: ubicloud-standard-4
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
     strategy:
@@ -533,7 +542,7 @@ jobs:
           on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-api:
     name: modules api (${{ matrix.name }})
-    runs-on: ubicloud-standard-2
+    runs-on: ubicloud-standard-4
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' && !github.event.pull_request.head.repo.fork && !startsWith(github.ref, 'refs/tags') }}  # no PRs from fork
     strategy:
@@ -580,6 +589,10 @@ jobs:
             test: "--only-module-multi2vec-voyageai"
           - name: "text2vec-digitalocean"
             test: "--only-module-text2vec-digitalocean"
+          - name: "generative-digitalocean"
+            test: "--only-module-generative-digitalocean"
+          - name: "generative-meta"
+            test: "--only-module-generative-meta"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -639,10 +652,12 @@ jobs:
           ANTHROPIC_APIKEY: ${{ secrets.ANTHROPIC_APIKEY }}
           JINAAI_APIKEY: ${{ secrets.JINAAI_APIKEY }}
           DIGITALOCEAN_APIKEY: ${{ secrets.DIGITALOCEAN_APIKEY }}
+          META_APIKEY: ${{ secrets.META_APIKEY }}
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests:
     name: acceptance (${{ matrix.name }})
     runs-on: ubicloud-standard-4
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -652,7 +667,9 @@ jobs:
           - name: "fast-group-2"
             test: "--acceptance-only-fast-group-2"
           - name: "fast-group-3"
-            test: "--acceptance-only-fast-group-3"          
+            test: "--acceptance-only-fast-group-3"
+          - name: "fast-group-6"
+            test: "--acceptance-only-fast-group-6"
           - name: "graphql"
             test: "--acceptance-only-graphql"
           - name: "authz"
@@ -699,6 +716,7 @@ jobs:
   Acceptance-Tests-4-cores:
     name: acceptance large (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -766,6 +784,7 @@ jobs:
   Acceptance-Reindex-Tests:
     name: reindex (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -815,44 +834,61 @@ jobs:
           max_attempts: 1
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
-  DropVectorIndex-On-Demand-Tests-Check:
-    name: drop-vector-index on demand
-    runs-on: ubuntu-latest
-    outputs:
-      run_pipeline: ${{ steps.check.outputs.run_pipeline }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 2
-      - id: check
-        name: check
-        env:
-          COMMIT_SHA: ${{ github.event.pull_request.head.sha }}
-          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
-        run: |
-          commit_message=$(git log -1 --format=%B $COMMIT_SHA)
-          if [[ "$commit_message" == *"drop-vector-index"* || "$commit_message" == "prepare release"* || "$BRANCH_NAME" == merge* ]]; then
-            echo "Run pipeline"
-            echo "run_pipeline=true" >> $GITHUB_OUTPUT
-          else
-            echo "Skip pipeline. In order to run the pipeline commit title must contain: drop-vector-index, or the branch name must start with: merge"
-            echo "run_pipeline=false" >> $GITHUB_OUTPUT
-          fi
-  Acceptance-DropVectorIndex-Tests:
-    name: drop-vector-index (${{ matrix.name }})
+  Acceptance-Backup-Dedupe-Tests:
+    name: backup-dedupe (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
-    needs: [DropVectorIndex-On-Demand-Tests-Check]
-    if: ${{ needs.DropVectorIndex-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: "cluster"
-            test: "--acceptance-drop-vector-index-cluster"
+          - name: "dedupe"
+            test: "--acceptance-backup-dedupe"
+          - name: "cross-version"
+            test: "--acceptance-backup-dedupe-cross-version"
+          - name: "incremental"
+            test: "--acceptance-backup-dedupe-incremental"
+          - name: "misc"
+            test: "--acceptance-backup-dedupe-misc"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Set up Go
+        uses: ./.github/actions/setup-go
+      - name: Login to Docker Hub
+        uses: ./.github/actions/docker-login
+        if: ${{ !github.event.pull_request.head.repo.fork && github.actor != 'dependabot[bot]' }}
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
+      - name: Acceptance tests backup dedupe
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
+        with:
+          # 3-node + MinIO testcontainer suites under -race; the cross-version
+          # entry additionally pulls a 1.34.0 release image.
+          timeout_minutes: 45
+          max_attempts: 1
+          command: ./test/run.sh ${{ matrix.test }}
+          on_retry_command: ./test/run.sh --cleanup
+  Acceptance-DropVectorIndex-Tests:
+    name: drop-vector-index (${{ matrix.name }})
+    runs-on: ubicloud-standard-4-ubuntu-2404
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "cluster-group1"
+            test: "--acceptance-drop-vector-index-cluster-group1"
+          - name: "cluster-group2"
+            test: "--acceptance-drop-vector-index-cluster-group2"
           - name: "restart-cluster"
             test: "--acceptance-drop-vector-index-restart-cluster"
           - name: "rolling-restart"
             test: "--acceptance-drop-vector-index-rolling-restart"
+          - name: "async-indexing-group1"
+            test: "--acceptance-drop-vector-index-async-indexing-group1"
+          - name: "async-indexing-group2"
+            test: "--acceptance-drop-vector-index-async-indexing-group2"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
@@ -873,6 +909,7 @@ jobs:
   Acceptance-Tests-github-4-cores:
     name: acceptance large (${{ matrix.name }})
     runs-on: DB-ubuntu-24.04-4-cores
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -933,15 +970,21 @@ jobs:
         with:
           name: coverage-report-integration--integration-vector-package-only
           path: coverage-integration-vector-package-only.txt
+      - name: Download coverage integration slow package only
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: coverage-report-integration--integration-slow-package-only
+          path: coverage-integration-slow-package-only.txt
       - name: Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6
         with:
           fail_ci_if_error: false
-          files: ./coverage-integration-without-vector-package.txt, ./coverage-integration-vector-package-only.txt, ./coverage-unit-adapters/coverage-unit.txt, ./coverage-unit-non-adapters/coverage-unit.txt
+          files: ./coverage-integration-without-vector-package.txt, ./coverage-integration-vector-package-only.txt, ./coverage-integration-slow-package-only.txt, ./coverage-unit-adapters/coverage-unit.txt, ./coverage-unit-non-adapters/coverage-unit.txt
           verbose: true
   Compile-and-upload-binaries:
     name: compile and upload binaries
     runs-on: ubicloud-standard-4-ubuntu-2404
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
@@ -958,16 +1001,6 @@ jobs:
         with:
           name: binaries-macos-unsigned
           path: dist/weaviate_darwin_all
-      - name: Upload windows
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: binaries-windows-amd64
-          path: dist/weaviate_windows_amd64_v1
-      - name: Upload windows
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: binaries-windows-arm64
-          path: dist/weaviate_windows_arm64
       - name: Upload linux amd64
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
@@ -978,32 +1011,3 @@ jobs:
         with:
           name: binaries-linux-arm64
           path: dist/weaviate_linux_arm64
-  Acceptance-Tests-windows:
-    name: acceptance (windows)
-    needs: Compile-and-upload-binaries
-    runs-on: windows-latest
-    env:
-      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: true
-      PERSISTENCE_DATA_PATH: /tmp
-      QUERY_DEFAULTS_LIMIT: 20
-      CLUSTER_HOSTNAME: node1
-      RAFT_BOOTSTRAP_EXPECT: 1
-      RAFT_JOIN: node1
-      GRPC_PORT: 50052
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Download binaries
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: binaries-windows-amd64
-      - name: Set up Go
-        uses: ./.github/actions/setup-go
-      - name: start weaviate
-        shell: bash
-        # Weaviate is started without a Vectorizer as running text2vec-contextionary on GH actions is difficult:
-        # - docker on GHA only supports windows container - which we currently are not build
-        # - building those containers without a windows machine is difficult to figure out
-        run: ./weaviate.exe --scheme http --port 8080 &
-      - name: run acceptance tests
-        shell: bash
-        run: go test -count 1 -race test/acceptance/actions/*.go  # tests that don't need a Vectorizer

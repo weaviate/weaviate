@@ -40,11 +40,12 @@ const (
 
 // Snapshot compression type constants (must match the hnsw package values)
 const (
-	SnapshotCompressionTypePQ  = 1
-	SnapshotCompressionTypeSQ  = 2
-	SnapshotEncoderTypeMuvera  = 3 // Note: Muvera is an encoder, not compression
-	SnapshotCompressionTypeRQ  = 4
-	SnapshotCompressionTypeBRQ = 5
+	SnapshotCompressionTypePQ         = 1
+	SnapshotCompressionTypeSQ         = 2
+	SnapshotEncoderTypeMuvera         = 3 // Note: Muvera is an encoder, not compression
+	SnapshotCompressionTypeRQ         = 4
+	SnapshotCompressionTypeBRQ        = 5
+	SnapshotCompressionTypeRQCentered = 6
 )
 
 // SnapshotWriter writes HNSW state to the V3 snapshot format.
@@ -399,10 +400,18 @@ func (s *SnapshotWriter) writeSQData(buf *bytes.Buffer) error {
 	return nil
 }
 
-// writeRQData writes Rotational Quantization data to the buffer.
+// writeRQData writes Rotational Quantization data to the buffer, using the
+// RQCentered compression type when the data carries a centering mean so
+// uncentered snapshots keep their existing format.
 func (s *SnapshotWriter) writeRQData(buf *bytes.Buffer) error {
 	data := s.rqData
-	_ = writeByte(buf, byte(SnapshotCompressionTypeRQ))
+	centered := len(data.Mean) > 0
+	if centered {
+		_ = writeByte(buf, byte(SnapshotCompressionTypeRQCentered))
+		_ = writeByte(buf, encodeRQCenteredFlags(data))
+	} else {
+		_ = writeByte(buf, byte(SnapshotCompressionTypeRQ))
+	}
 	_ = writeUint32(buf, data.InputDim)
 	_ = writeUint32(buf, data.Bits)
 	_ = writeUint32(buf, data.Rotation.OutputDim)
@@ -418,6 +427,13 @@ func (s *SnapshotWriter) writeRQData(buf *bytes.Buffer) error {
 	for _, sign := range data.Rotation.Signs {
 		for _, dim := range sign {
 			_ = writeFloat32(buf, dim)
+		}
+	}
+
+	if centered {
+		_ = writeUint32(buf, uint32(len(data.Mean)))
+		for _, m := range data.Mean {
+			_ = writeFloat32(buf, m)
 		}
 	}
 	return nil
@@ -482,6 +498,10 @@ func (s *SnapshotWriter) writeMuveraData(buf *bytes.Buffer) error {
 // (existence == 0). It is never mutated.
 var absentSlot = []byte{0}
 
+// zeroChunk is written repeatedly by writeZeros, so padding a block never
+// needs a block-sized buffer. It is never mutated.
+var zeroChunk [64 * 1024]byte
+
 // bodyStreamer encodes nodes into the V3 body block format and spills full
 // blocks to a scratch file as they fill, so peak heap stays bounded by one
 // block plus the largest single node entry — independent of the live-set size
@@ -497,10 +517,11 @@ type bodyStreamer struct {
 	blockSize    int64
 	maxBlockSize int
 
-	block   bytes.Buffer
-	hasher  hash.Hash32
-	hw      io.Writer // MultiWriter(&block, hasher) for the current block
-	zeroPad []byte    // reusable maxBlockSize-sized zero buffer for padding
+	// block holds the current block's start-node-ID and entries. flushBlock
+	// writes the padding and length straight to the scratch file, so block
+	// grows only as far as the entries do.
+	block  bytes.Buffer
+	hasher hash.Hash32
 
 	started bool   // current block has been initialized with a start-node-ID
 	nextID  uint64 // next slot ID expected by the block stream
@@ -515,14 +536,12 @@ func newBodyStreamer(scratchDir string, blockSize int64) (*bodyStreamer, error) 
 	if err != nil {
 		return nil, errors.Wrap(err, "create snapshot body scratch file")
 	}
-	maxBlockSize := int(blockSize - 8) // reserve 8 bytes for checksum and block length
 	return &bodyStreamer{
 		scratch:      f,
 		scratchPath:  f.Name(),
 		blockSize:    blockSize,
-		maxBlockSize: maxBlockSize,
+		maxBlockSize: int(blockSize - 8), // reserve 8 bytes for checksum and block length
 		hasher:       crc32.NewIEEE(),
-		zeroPad:      make([]byte, maxBlockSize),
 	}, nil
 }
 
@@ -574,8 +593,11 @@ func (b *bodyStreamer) writeSlot(slotID uint64, entry []byte) error {
 		return errors.Errorf("node %d entry of %d bytes exceeds block capacity %d", slotID, len(entry), b.maxBlockSize-8)
 	}
 
-	if len(entry)+b.block.Len() < b.maxBlockSize {
-		_, err := b.hw.Write(entry)
+	// An entry that exactly fills the block fits. Pushing it to the next block
+	// would flush an otherwise-empty first block, which shares its
+	// start-node-ID with the block after it.
+	if len(entry)+b.block.Len() <= b.maxBlockSize {
+		_, err := b.block.Write(entry)
 		return err
 	}
 
@@ -585,44 +607,61 @@ func (b *bodyStreamer) writeSlot(slotID uint64, entry []byte) error {
 	if err := b.initBlock(slotID); err != nil {
 		return err
 	}
-	_, err := b.hw.Write(entry)
+	_, err := b.block.Write(entry)
 	return err
 }
 
-// initBlock resets the block buffer and hasher and writes the start-node-ID
-// header for the next block.
+// initBlock resets the block buffer and writes the start-node-ID header for
+// the next block.
 func (b *bodyStreamer) initBlock(startID uint64) error {
 	b.block.Reset()
-	b.hasher.Reset()
-	b.hw = io.MultiWriter(&b.block, b.hasher)
-	return writeUint64(b.hw, startID)
+	return writeUint64(&b.block, startID)
 }
 
-// flushBlock pads the current block to maxBlockSize, appends the block length
-// and CRC, and writes the complete fixed-size block to the scratch file.
+// flushBlock writes the current block to the scratch file.
 func (b *bodyStreamer) flushBlock() error {
+	return b.writeBlockTo(b.scratch)
+}
+
+// writeBlockTo writes the current block to w as CRC, block contents, zero
+// padding up to maxBlockSize and block length. The CRC covers everything
+// after it. A write that stops short leaves a torn body behind an otherwise
+// valid header, so every stage reports its error and names itself. The
+// destination is a parameter so a test can fail a chosen stage.
+func (b *bodyStreamer) writeBlockTo(w io.Writer) error {
 	blockLen := b.block.Len()
-
-	if pad := b.maxBlockSize - blockLen; pad > 0 {
-		_, _ = b.block.Write(b.zeroPad[:pad])
-		_, _ = b.hasher.Write(b.zeroPad[:pad])
-	}
-
-	// Block length goes at the end of the block and into the hash.
-	if err := writeUint32(&b.block, uint32(blockLen)); err != nil {
-		return err
-	}
+	pad := b.maxBlockSize - blockLen
 	var blockLenBuf [4]byte
 	binary.LittleEndian.PutUint32(blockLenBuf[:], uint32(blockLen))
+
+	b.hasher.Reset()
+	_, _ = b.hasher.Write(b.block.Bytes())
+	_ = writeZeros(b.hasher, pad)
 	_, _ = b.hasher.Write(blockLenBuf[:])
 
-	// Checksum first, then the padded block + length.
-	checksum := b.hasher.Sum32()
-	if err := writeUint32(b.scratch, checksum); err != nil {
-		return err
+	if err := writeUint32(w, b.hasher.Sum32()); err != nil {
+		return errors.Wrap(err, "write block checksum")
 	}
-	if _, err := b.scratch.Write(b.block.Bytes()); err != nil {
-		return err
+	if _, err := w.Write(b.block.Bytes()); err != nil {
+		return errors.Wrap(err, "write block entries")
+	}
+	if err := writeZeros(w, pad); err != nil {
+		return errors.Wrap(err, "write block padding")
+	}
+	if _, err := w.Write(blockLenBuf[:]); err != nil {
+		return errors.Wrap(err, "write block length")
+	}
+	return nil
+}
+
+// writeZeros writes n zero bytes to w.
+func writeZeros(w io.Writer, n int) error {
+	for n > 0 {
+		chunk := zeroChunk[:min(n, len(zeroChunk))]
+		if _, err := w.Write(chunk); err != nil {
+			return err
+		}
+		n -= len(chunk)
 	}
 	return nil
 }

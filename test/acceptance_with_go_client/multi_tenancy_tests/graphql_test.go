@@ -12,6 +12,8 @@
 package multi_tenancy_tests
 
 import (
+	"acceptance_tests_with_client/fixtures"
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"fmt"
 	"testing"
@@ -19,16 +21,12 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/schema"
 
-	"acceptance_tests_with_client/fixtures"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/filters"
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
-
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestGraphQL_MultiTenancy(t *testing.T) {
@@ -422,7 +420,10 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 		}
 
 		t.Run("add data", func(t *testing.T) {
-			fixtures.CreateSchemaPizzaForTenants(t, client)
+			// the assertion below is the error the vector search path raises for
+			// a multi-tenant class queried without a tenant, so this class needs
+			// a vectorizer module rather than its own vectors
+			fixtures.CreateSchemaPizzaForTenantsWithVectorizer(t, client, "text2vec-contextionary")
 			fixtures.CreateTenantsPizza(t, client, tenant1, tenant2)
 			fixtures.CreateDataPizzaQuattroFormaggiForTenants(t, client, tenant1.Name)
 			fixtures.CreateDataPizzaFruttiDiMareForTenants(t, client, tenant1.Name)

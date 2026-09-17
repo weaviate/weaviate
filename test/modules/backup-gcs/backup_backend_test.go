@@ -41,6 +41,12 @@ const (
 	envGCSUseAuth             = "BACKUP_GCS_USE_AUTH"
 )
 
+// The emulator these tests run against serves the JSON API only, so it cannot
+// answer the gRPC transport the module otherwise defaults to.
+func httpTransport() config.BackupGCS {
+	return config.BackupGCS{UseGRPC: new(false)}
+}
+
 func Test_GcsBackend_Start(t *testing.T) {
 	// Uses the shared GCS emulator from TestMain
 	gCSBackend_Backup(t, "", "")
@@ -89,8 +95,8 @@ func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath strin
 		gcs := mod.New()
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
-		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
-		params.EXPECT().GetConfig().Return(&config.Config{})
+		params.EXPECT().GetDataPath().Return(t.TempDir())
+		params.EXPECT().GetConfig().Return(&config.Config{BackupGCS: httpTransport()})
 		err := gcs.Init(testCtx, params)
 		require.Nil(t, err)
 
@@ -183,8 +189,8 @@ func moduleLevelCopyObjects(t *testing.T, overrideBucket, overridePath string) {
 		gcs := mod.New()
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
-		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
-		params.EXPECT().GetConfig().Return(&config.Config{})
+		params.EXPECT().GetDataPath().Return(t.TempDir())
+		params.EXPECT().GetConfig().Return(&config.Config{BackupGCS: httpTransport()})
 		err := gcs.Init(testCtx, params)
 		require.Nil(t, err)
 
@@ -236,8 +242,8 @@ func moduleLevelCopyFiles(t *testing.T, overrideBucket, overridePath string) {
 		gcs := mod.New()
 		params := moduletools.NewMockModuleInitParams(t)
 		params.EXPECT().GetLogger().Return(logrus.New())
-		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: dataDir})
-		params.EXPECT().GetConfig().Return(&config.Config{})
+		params.EXPECT().GetDataPath().Return(dataDir)
+		params.EXPECT().GetConfig().Return(&config.Config{BackupGCS: httpTransport()})
 		err = gcs.Init(testCtx, params)
 		require.Nil(t, err)
 
@@ -254,16 +260,4 @@ func moduleLevelCopyFiles(t *testing.T, overrideBucket, overridePath string) {
 			assert.Equal(t, expectedContents, contents)
 		})
 	})
-}
-
-type fakeStorageProvider struct {
-	dataPath string
-}
-
-func (f *fakeStorageProvider) Storage(name string) (moduletools.Storage, error) {
-	return nil, nil
-}
-
-func (f *fakeStorageProvider) DataPath() string {
-	return f.dataPath
 }

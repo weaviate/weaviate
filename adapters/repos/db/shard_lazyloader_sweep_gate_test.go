@@ -85,7 +85,7 @@ func TestLazyLoadShardCanSkipUnloadedSweepIsOneStep(t *testing.T) {
 	ctx := testCtx()
 	class := newTestClassWithProps("SweepGateOneStep_"+uuid.NewString()[:8], []string{propName})
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	defer shd.Shutdown(context.Background())
 
 	lsm := shardPathLSM(idx.path(), gateShard)
@@ -118,7 +118,7 @@ func TestLazyLoadShardCanSkipUnloadedSweepIsOneStep(t *testing.T) {
 	}
 	newGateShard := func(allocChecker memwatch.AllocChecker) *LazyLoadShard {
 		return NewLazyLoadShard(ctx, nil, gateShard, idx, class, idx.centralJobQueue,
-			idx.indexCheckpoints, allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+			allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
 			false, idx.bitmapBufPool)
 	}
 

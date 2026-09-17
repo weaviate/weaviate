@@ -635,7 +635,7 @@ func dumpContainerLogs(ctx context.Context, t *testing.T, compose *docker.Docker
 func filterMigrationLogLines(s string) []string {
 	keywords := []string{
 		"reindex", "migration", "Reindex", "Migration",
-		"OnAfterLsmInit", "OnBeforeLsmInit",
+		"OnAfterLsmInit",
 		"OnGroupCompleted", "OnTaskCompleted",
 		"RunSwapOnShard", "RunReindexOnlyOnShard", "RunOnShard",
 		"finalize:", "FinalizeCompletedMigrations",

@@ -123,22 +123,14 @@ type MigrationStrategy interface {
 	//
 	// Allowed work in this position:
 	//
-	//   - In-memory mutation of shard-local query-path state that MUST
-	//     match the cluster-wide schema flip before that flip
-	//     propagates. The canonical example is
-	//     [Shard.setRangeableLocallyReady] in
-	//     [FilterableToRangeableStrategy.OnMigrationComplete] — it
-	//     ensures THIS shard's queries observe ready=true at the same
-	//     moment they could observe the new schema flag. The overlay
-	//     is the equivalent mechanism for tokenization changes; this
-	//     hook is the equivalent for per-shard ready flags.
+	//   - In-memory mutation of shard-local state the query path consults.
+	//     [FilterableToRangeableStrategy.OnMigrationComplete] calls
+	//     [Shard.setRangeableLocallyReady] so range queries reach the bucket
+	//     the swap just made canonical.
 	//
-	//   - RAFT calls (per-property schema updates) for non-semantic
-	//     strategies whose schema flip is NOT batched in
-	//     OnTaskCompleted: e.g. [MapToBlockmaxStrategy]'s
-	//     updateToBlockMaxInvertedIndexConfig (class-level
-	//     UsingBlockMaxWAND), [FilterableToRangeableStrategy]'s
-	//     applyPerPropertySchemaUpdate (per-property IndexRangeFilters).
+	//   - RAFT calls for strategies whose schema flip is NOT batched in
+	//     OnTaskCompleted: [MapToBlockmaxStrategy]'s
+	//     updateToBlockMaxInvertedIndexConfig (class-level UsingBlockMaxWAND).
 	//     These are slow (hundreds of ms) — correctness is preserved by
 	//     the overlay covering the per-shard window — but they widen
 	//     the FINALIZING duration beyond what the per-shard atomic
@@ -160,6 +152,9 @@ type MigrationStrategy interface {
 	//     OnTaskCompleted (after every shard's OnMigrationComplete);
 	//     for non-semantic, this hook may itself drive the flip but
 	//     must not assume it has already propagated to other replicas.
+	//     A per-property index flag flipped from here must land before the
+	//     task reaches FINISHED, or GET /v1/schema/{class}/indexes drops
+	//     that index from the response.
 	OnMigrationComplete(ctx context.Context, shard ShardLike) error
 }
 
@@ -252,17 +247,11 @@ func applyPerPropertySchemaUpdate(
 // reindexTaskConfig holds the configuration for a ShardReindexTaskGeneric.
 // Renamed from mapToBlockmaxConfig to be strategy-agnostic.
 type reindexTaskConfig struct {
-	swapBuckets                   bool
-	unswapBuckets                 bool
-	tidyBuckets                   bool
-	rollback                      bool
-	conditionalStart              bool
 	concurrency                   int
 	memtableOptFactor             int
 	backupMemtableOptFactor       int
 	processingDuration            time.Duration
 	pauseDuration                 time.Duration
-	perObjectDelay                time.Duration
 	checkProcessingEveryNoObjects int
 	selectionEnabled              bool
 	selectedPropsByCollection     map[string]map[string]struct{}

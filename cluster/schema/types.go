@@ -40,17 +40,27 @@ type Indexer interface {
 	DeleteTenants(class string, tenants []*models.Tenant) error
 	UpdateTenantsProcess(class string, req *api.TenantProcessRequest) error
 	UpdateShardStatus(*api.UpdateShardStatusRequest) error
+	// AddReplicaToShard materializes a replica the schema just assigned to this
+	// node, with no replica movement under way. Success does not guarantee a
+	// local shard: a namespace being deleted opens none.
 	AddReplicaToShard(class, shard, targetNode string) error
+	// AddReplicaToShardForMovement materializes a movement's target shard, which
+	// a suspended namespace still admits.
+	AddReplicaToShardForMovement(class, shard, targetNode string) error
 	DeleteReplicaFromShard(class, shard, targetNode string) error
 	ReconcileAsyncReplicationForShard(class, shard string) error
 	LoadShard(class, shard string)     // is a no-op
 	ShutdownShard(class, shard string) // is a no-op
-	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
+	GetShardsStorageStatus(ctx context.Context, class, tenant string) (models.ShardStatusList, error)
 
 	TriggerSchemaUpdateCallbacks()
 
 	// ReloadLocalDB reloads the local database using the latest schema.
 	ReloadLocalDB(ctx context.Context, all []api.UpdateClassRequest) error
+
+	// DropOrphanedClass removes the data of a class the schema already
+	// dropped. Only call it for a class the schema really held.
+	DropOrphanedClass(ctx context.Context, className string, hasFrozen bool) error
 
 	// RestoreClassDir restores classes on the filesystem directly from the temporary class backup stored on disk.
 	RestoreClassDir(class string) error

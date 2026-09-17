@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -30,20 +31,45 @@ type mockShardLister struct {
 	mu     sync.Mutex
 	shards map[string][]string // collection → local shard names
 	err    error
+
+	// errCalls fails that many calls first, and emptyCalls answers ([]string{}, nil)
+	// for that many after.
+	errCalls   int
+	emptyCalls int
+	calls      int
+	// onCall runs after each call is counted, so a row can terminate its task
+	// from inside a chosen attempt.
+	onCall func(calls int)
 }
 
 func (m *mockShardLister) GetLocalShardNames(collection string) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.err != nil {
+	m.calls++
+	if m.onCall != nil {
+		m.onCall(m.calls)
+	}
+	notFound := fmt.Errorf("collection %q not found", collection)
+	switch {
+	case m.calls <= m.errCalls:
+		return nil, notFound
+	case m.calls <= m.errCalls+m.emptyCalls:
+		return []string{}, nil
+	case m.err != nil:
 		return nil, m.err
 	}
 	names, ok := m.shards[collection]
 	if !ok {
-		return nil, fmt.Errorf("collection %q not found", collection)
+		return nil, notFound
 	}
 	return names, nil
+}
+
+func (m *mockShardLister) callCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.calls
 }
 
 // mockRecorder implements TaskCompletionRecorder for unit tests.
@@ -110,6 +136,8 @@ func (r *mockRecorder) getFailed() map[string]string {
 type providerFixture struct {
 	provider *ShardNoopProvider
 	recorder *mockRecorder
+	// hook captures the provider's log, the only signal of a run that claims no unit.
+	hook *logrustest.Hook
 }
 
 // startTaskAndAssertNoProgress starts the task, waits briefly, and asserts that
@@ -118,6 +146,9 @@ func (f *providerFixture) startTaskAndAssertNoProgress(t *testing.T, task *Task,
 	t.Helper()
 	handle, err := f.provider.StartTask(task)
 	require.NoError(t, err)
+	// awaitEntry joins on the provider's goroutine first, so an empty completion
+	// set means the units were rejected rather than never reached.
+	awaitEntry(t, f.hook, logrus.InfoLevel)
 	time.Sleep(500 * time.Millisecond)
 	assert.Empty(t, f.recorder.getCompleted(), msg)
 	return handle
@@ -125,7 +156,7 @@ func (f *providerFixture) startTaskAndAssertNoProgress(t *testing.T, task *Task,
 
 func newProviderFixture(t *testing.T, nodeID string, lister ShardLister) *providerFixture {
 	t.Helper()
-	logger, _ := logrustest.NewNullLogger()
+	logger, hook := logrustest.NewNullLogger()
 	rec := newMockRecorder()
 	// Use os.MkdirTemp instead of t.TempDir() because async marker writes may
 	// still be in flight when t.TempDir cleanup runs, causing spurious failures.
@@ -134,7 +165,34 @@ func newProviderFixture(t *testing.T, nodeID string, lister ShardLister) *provid
 	t.Cleanup(func() { os.RemoveAll(dataRoot) })
 	p := NewShardNoopProvider(nodeID, logger, lister, dataRoot)
 	p.SetCompletionRecorder(rec)
-	return &providerFixture{provider: p, recorder: rec}
+	return &providerFixture{provider: p, recorder: rec, hook: hook}
+}
+
+// hasEntry reports whether the hook holds an entry at level.
+func hasEntry(hook *logrustest.Hook, level logrus.Level) bool {
+	for _, e := range hook.AllEntries() {
+		if e.Level == level {
+			return true
+		}
+	}
+	return false
+}
+
+// awaitEntry waits for the provider's goroutine to log at level and returns that entry.
+func awaitEntry(t *testing.T, hook *logrustest.Hook, level logrus.Level) *logrus.Entry {
+	t.Helper()
+
+	at := func() *logrus.Entry {
+		for _, e := range hook.AllEntries() {
+			if e.Level == level {
+				return e
+			}
+		}
+		return nil
+	}
+	require.Eventually(t, func() bool { return at() != nil }, 5*time.Second, 10*time.Millisecond,
+		"the provider never logged at %s", level)
+	return at()
 }
 
 // newTask creates a Task with sensible defaults (ID "test-task", Version 1,
@@ -225,10 +283,12 @@ func TestShardNoopProvider_CollectionAware_OnlyProcessesLocalShards(t *testing.T
 	assert.ElementsMatch(t, []string{"shardA", "shardC"}, completed)
 }
 
-func TestShardNoopProvider_CollectionAware_NoLocalShards(t *testing.T) {
+// The node holds a shard of the collection, just not the unit's. A lister answering
+// no shards would keep listLocalShards retrying past the assertion.
+func TestShardNoopProvider_CollectionAware_UnitShardNotLocal(t *testing.T) {
 	lister := &mockShardLister{
 		shards: map[string][]string{
-			"MyClass": {}, // no local shards
+			"MyClass": {"otherShard"},
 		},
 	}
 	f := newProviderFixture(t, "node1", lister)
@@ -240,24 +300,7 @@ func TestShardNoopProvider_CollectionAware_NoLocalShards(t *testing.T) {
 		},
 	)
 
-	handle := f.startTaskAndAssertNoProgress(t, task, "no units should be processed when no local shards")
-	defer handle.Terminate()
-}
-
-func TestShardNoopProvider_CollectionAware_ShardListerError(t *testing.T) {
-	lister := &mockShardLister{
-		err: fmt.Errorf("collection not found"),
-	}
-	f := newProviderFixture(t, "node1", lister)
-
-	task := f.newTaskWithPayload(
-		ShardNoopProviderPayload{Collection: "NonExistent"},
-		map[string]*Unit{
-			"u-1": {Status: UnitStatusPending},
-		},
-	)
-
-	handle := f.startTaskAndAssertNoProgress(t, task, "no units should be processed on lister error")
+	handle := f.startTaskAndAssertNoProgress(t, task, "no unit should be processed for a shard this node lacks")
 	defer handle.Terminate()
 }
 
@@ -493,4 +536,147 @@ func TestShardNoopProvider_TaskLifecycle(t *testing.T) {
 
 	require.NoError(t, f.provider.CleanupTask(desc))
 	assert.Empty(t, f.provider.GetLocalTasks())
+}
+
+func TestListLocalShards(t *testing.T) {
+	tests := []struct {
+		name        string
+		lister      *mockShardLister
+		stopAtCall  int
+		wantNames   []string
+		wantProceed bool
+		wantGaveUp  bool
+		wantCalls   int
+	}{
+		{
+			// RAFT has not applied the class create on this node yet.
+			name: "an error window before the shards register",
+			lister: &mockShardLister{
+				shards:   map[string][]string{"MyClass": {"shardA"}},
+				errCalls: 2,
+			},
+			wantNames: []string{"shardA"}, wantProceed: true, wantCalls: 3,
+		},
+		{
+			// Returning on the first empty answer would hand back an empty set
+			// while this node's shards were still registering.
+			name: "shards register after two empty answers",
+			lister: &mockShardLister{
+				shards:     map[string][]string{"MyClass": {"shardA"}},
+				emptyCalls: 2,
+			},
+			wantNames: []string{"shardA"}, wantProceed: true, wantCalls: 3,
+		},
+		{
+			name:       "the lister never answers",
+			lister:     &mockShardLister{err: fmt.Errorf("collection index is closing")},
+			wantGaveUp: true, wantCalls: maxListAttempts,
+		},
+		{
+			// After the last attempt an empty answer comes back without the give-up line.
+			name:      "the node holds none of the collection's shards",
+			lister:    &mockShardLister{shards: map[string][]string{"MyClass": {}}},
+			wantNames: []string{}, wantProceed: true, wantCalls: maxListAttempts,
+		},
+		{
+			// Stopping is not a give-up.
+			name:       "a terminated task stops on its first wait",
+			lister:     &mockShardLister{err: fmt.Errorf("collection index is closing")},
+			stopAtCall: 1,
+			wantCalls:  1,
+		},
+		{
+			// Waiting after the last attempt would turn this give-up into a silent stop.
+			name:       "a stop during the last attempt still gives up",
+			lister:     &mockShardLister{err: fmt.Errorf("collection index is closing")},
+			stopAtCall: maxListAttempts,
+			wantGaveUp: true, wantCalls: maxListAttempts,
+		},
+		{
+			// Entering the wait here would discard the empty answer the last
+			// attempt just produced.
+			name:       "a stop during the last attempt keeps its empty answer",
+			lister:     &mockShardLister{shards: map[string][]string{"MyClass": {}}},
+			stopAtCall: maxListAttempts,
+			wantNames:  []string{}, wantProceed: true, wantCalls: maxListAttempts,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newProviderFixture(t, "node1", tc.lister)
+			f.provider.retryBase = time.Millisecond
+			handle := &shardNoopTaskHandle{stopCh: make(chan struct{}), doneCh: make(chan struct{})}
+			if tc.stopAtCall > 0 {
+				tc.lister.onCall = func(n int) {
+					if n == tc.stopAtCall {
+						close(handle.stopCh)
+					}
+				}
+			}
+
+			names, proceed := f.provider.listLocalShards("test-task", handle, "MyClass")
+
+			assert.Equal(t, tc.wantProceed, proceed)
+			assert.Equal(t, tc.wantNames, names)
+			assert.Equal(t, tc.wantCalls, tc.lister.callCount())
+
+			assert.Equal(t, tc.wantGaveUp, hasEntry(f.hook, logrus.ErrorLevel),
+				"only a lister that never answers logs the give-up")
+		})
+	}
+}
+
+// listLocalShards' return cannot show what processUnits does with each answer.
+func TestShardNoopProviderWaitsForShards(t *testing.T) {
+	tests := []struct {
+		name       string
+		lister     *mockShardLister
+		wantGaveUp bool
+	}{
+		{
+			// A nil set makes shouldProcessUnit fall back to the node-ID filter and
+			// claim every unit, though this node holds no shard of the collection.
+			name:   "a node holding none of the shards claims nothing",
+			lister: &mockShardLister{shards: map[string][]string{"MyClass": {}}},
+		},
+		{
+			// Without the caller's give-up check the run reaches unit processing
+			// with an empty set, which claims nothing but announces that it started.
+			name:       "a give-up stops before unit processing",
+			lister:     &mockShardLister{err: fmt.Errorf("collection index is closing")},
+			wantGaveUp: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newProviderFixture(t, "node1", tc.lister)
+			f.provider.retryBase = time.Millisecond
+
+			task := f.newTaskWithPayload(
+				ShardNoopProviderPayload{Collection: "MyClass"},
+				map[string]*Unit{
+					"shardA": {Status: UnitStatusPending},
+					"shardB": {Status: UnitStatusPending},
+				},
+			)
+			handle, err := f.provider.StartTask(task)
+			require.NoError(t, err)
+			defer handle.Terminate()
+
+			if tc.wantGaveUp {
+				awaitEntry(t, f.hook, logrus.ErrorLevel)
+				require.Never(t, func() bool { return hasEntry(f.hook, logrus.InfoLevel) },
+					200*time.Millisecond, 10*time.Millisecond,
+					"a node that gave up never reaches unit processing")
+				assert.Empty(t, f.recorder.getCompleted())
+				return
+			}
+			// processUnits logs the Info line just past its give-up check.
+			awaitEntry(t, f.hook, logrus.InfoLevel)
+			assert.Never(t, func() bool { return len(f.recorder.getCompleted()) > 0 },
+				300*time.Millisecond, 20*time.Millisecond)
+		})
+	}
 }

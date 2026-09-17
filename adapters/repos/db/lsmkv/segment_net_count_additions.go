@@ -48,6 +48,43 @@ func (s *segment) countNetPath() string {
 	return s.buildPath("%s.cna")
 }
 
+// computeNetAdditions takes a key exists cannot answer for as new, as
+// Bucket.existsOnDiskAndPreviousMemtable does, so the count can overstate.
+// Reported rather than returned: a flush failing here strands writes whose
+// commit log is already gone.
+func (s *segment) computeNetAdditions(exists existsOnLowerSegmentsFn) int {
+	var lookupErr error
+	unanswered := 0
+	countNet := 0
+	cb := func(key []byte, tombstone bool) {
+		existedOnPrior, err := exists(key)
+		if err != nil {
+			lookupErr = err
+			unanswered++
+			existedOnPrior = false
+		}
+
+		if tombstone && existedOnPrior {
+			countNet--
+		}
+
+		if !tombstone && !existedOnPrior {
+			countNet++
+		}
+	}
+
+	extr := newBufferedKeyAndTombstoneExtractor(s.contents, s.dataStartPos,
+		s.dataEndPos, 10e6, s.secondaryIndexCount, cb)
+	extr.do()
+
+	if lookupErr != nil {
+		s.logger.WithField("path", s.path).
+			Errorf("object count takes %d keys as new because their lower segments could not be read, last error: %v",
+				unanswered, lookupErr)
+	}
+	return countNet
+}
+
 func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool, precomputedCNAValue *int, existingFilesList map[string]int64) error {
 	if s.strategy != segmentindex.StrategyReplace {
 		// replace is the only strategy that supports counting
@@ -84,33 +121,7 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 	if precomputedCNAValue != nil {
 		s.countNetAdditions = *precomputedCNAValue
 	} else {
-		var lastErr error
-		countNet := 0
-		cb := func(key []byte, tombstone bool) {
-			existedOnPrior, err := exists(key)
-			if err != nil {
-				lastErr = err
-			}
-
-			if tombstone && existedOnPrior {
-				countNet--
-			}
-
-			if !tombstone && !existedOnPrior {
-				countNet++
-			}
-		}
-
-		extr := newBufferedKeyAndTombstoneExtractor(s.contents, s.dataStartPos,
-			s.dataEndPos, 10e6, s.secondaryIndexCount, cb)
-
-		extr.do()
-
-		s.countNetAdditions = countNet
-
-		if lastErr != nil {
-			return lastErr
-		}
+		s.countNetAdditions = s.computeNetAdditions(exists)
 	}
 
 	if err := s.storeCountNetOnDisk(); err != nil {

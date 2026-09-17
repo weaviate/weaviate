@@ -103,8 +103,14 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	m.indexer = fakes.NewMockSchemaExecutor()
 	// NewRaft will try to restore from any snapshot it can find on disk
 	srv = NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
-	// Ensure raft starts and a leader is elected
-	m.indexer.On("Open", Anything).Return(nil)
+	// Ensure raft starts and a leader is elected. The DB is opened before the
+	// snapshot and logs replay the schema, so the schema must still be empty at
+	// that point — the index set is derived from the schema, so nothing is
+	// materialized before replay.
+	classesAtOpen := -1
+	m.indexer.On("Open", Anything).Run(func(mock.Arguments) {
+		classesAtOpen = m.store.SchemaReader().Len()
+	}).Return(nil)
 	// shall be called because of restoring from snapshot
 	m.indexer.On("TriggerSchemaUpdateCallbacks").Return().Once()
 	assert.Nil(t, srv.Open(ctx, m.indexer))
@@ -117,6 +123,7 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	schemaReader = srv.SchemaReader()
 	assert.Equal(t, cls.Class, schemaReader.ClassEqual(cls.Class))
 	assert.Equal(t, "S1", getTenantStatus(t, schemaReader, cls.Class, "T0"))
+	assert.Equal(t, 0, classesAtOpen, "schema must be empty when the DB is opened on restart")
 
 	// Ensure there was no supplementary call to the underlying DB as we were just recovering the schema
 	m.indexer.AssertExpectations(t)
@@ -142,6 +149,14 @@ func TestSnapshotRestoreReloadsDBBeforeWaitToRestoreDB(t *testing.T) {
 	require.NoError(t, srv.WaitUntilDBRestored(ctx, time.Second, make(chan struct{})))
 	require.True(t, tryNTimesWithWait(20, time.Millisecond*200, srv.store.IsLeader))
 
+	// With telemetry on, onLeaderFound commits a cluster-ID entry up to a second
+	// after leadership. Let it land before the snapshot.
+	if m.cfg.TelemetryEnabled {
+		require.True(t, tryNTimesWithWait(30, time.Millisecond*200, func() bool {
+			return srv.store.ClusterID() != ""
+		}), "background cluster-ID command was never committed")
+	}
+
 	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 	m.indexer.On("AddClass", Anything).Return(nil)
 	m.parser.On("ParseClass", mock.Anything).Return(nil)
@@ -152,6 +167,11 @@ func TestSnapshotRestoreReloadsDBBeforeWaitToRestoreDB(t *testing.T) {
 
 	require.NoError(t, srv.store.raft.Barrier(2*time.Second).Error())
 	require.NoError(t, srv.store.raft.Snapshot().Error())
+
+	lastCmd, err := srv.store.LastAppliedCommand()
+	require.NoError(t, err)
+	require.LessOrEqual(t, lastCmd, lastSnapshotIndex(srv.store.snapshotStore),
+		"a command was committed after the snapshot, so the reopen would take the log-replay path")
 
 	m.indexer.On("Close", Anything).Return(nil)
 	require.NoError(t, srv.Close(ctx))

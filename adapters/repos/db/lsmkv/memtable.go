@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"path/filepath"
 	"sync"
@@ -31,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -76,6 +78,12 @@ type memtable interface {
 	newCursorWithSecondaryIndex(pos int) innerCursorReplace
 	newCollectionCursor() innerCursorCollection
 	newRoaringSetCursor() roaringset.InnerCursor
+	// roaringSetGetWindow reads a window of a sorted batch in one pass, stopping
+	// once it has copied budget bytes and reporting where it stopped and what it
+	// spent. Absence is the zero layer rather than lsmkv.NotFound, and on error
+	// no slot is meaningful. See (*Memtable).roaringSetGetWindow for the
+	// contract.
+	roaringSetGetWindow(keys inverted.SortedKeys, from, to int, dst []roaringset.BitmapLayer, budget int) (windowFill, error)
 	newRoaringSetRangeReader() roaringsetrange.InnerReader
 	newMapCursor() innerCursorMap
 
@@ -89,7 +97,7 @@ type memtable interface {
 	roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error
 	roaringSetAddRemoveSlices(key []byte, additions []uint64, deletions []uint64) error
 	roaringSetGet(key []byte) (roaringset.BitmapLayer, error)
-	roaringSetAdjustMeta(entriesChanged int)
+	roaringSetAdjustMeta()
 	roaringSetAddCommitLog(node *roaringset.SegmentNodeList) error
 
 	roaringSetRangeAdd(key uint64, values ...uint64) error
@@ -104,7 +112,7 @@ type memtable interface {
 	flushDataMap(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
 	flushDataCollection(f *segmentindex.SegmentFile, flat []*binarySearchNodeMulti) ([]segmentindex.Key, error)
 	flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.MeteredWriter, bufw *bufio.Writer) ([]segmentindex.Key, *sroar.Bitmap, error)
-	flushDataRoaringSet(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
+	flushDataRoaringSet(f *segmentindex.SegmentFile, ogF io.WriteSeeker, bufw *bufio.Writer) error
 	flushDataRoaringSetRange(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
 
 	incWriterCount()
@@ -125,9 +133,9 @@ type Memtable struct {
 	size            uint64
 	// netCountAdditions approximates the net live keys this memtable adds on
 	// top of the rest of the LSM tree. Whether a key already exists further
-	// down is unknown at write time: updates of flushed keys over-count,
-	// deletes of never-written keys under-count, and the drift is corrected by
-	// the exact per-segment count at flush. StrategyReplace only.
+	// down is unknown at write time: updates of flushed keys over-count, deletes
+	// of never-written keys under-count, and flushing replaces the drift with the
+	// segment's own count. StrategyReplace only.
 	netCountAdditions  int
 	path               string
 	strategy           string
@@ -598,7 +606,13 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	m.updateDirtyAt()
 
 	if m.strategy == StrategyInverted && !pair.Tombstone {
-		docID := binary.LittleEndian.Uint64(pair.Key)
+		// Must match SetTombstone's decode (BigEndian): StrategyInverted keys are
+		// always BigEndian, required for byte-wise sortability. A mismatch here
+		// makes propLengthExists.Set/Remove address different bitmap positions for
+		// the same doc, so SetTombstone can't re-arm the dedup gate below — a doc
+		// re-added after being tombstoned in the same memtable (e.g. an update)
+		// has its new prop length silently dropped instead of recounted.
+		docID := binary.BigEndian.Uint64(pair.Key)
 		fieldLength := math.Float32frombits(binary.LittleEndian.Uint32(pair.Value[4:]))
 		// propLengthExists + currPropLength* are shared with SetTombstone, which no
 		// longer holds the tree lock; guard them with invMu (nested inside m.Lock).

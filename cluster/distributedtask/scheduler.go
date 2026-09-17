@@ -1610,54 +1610,56 @@ func (s *Scheduler) runStaleDetectionPhase(tasks map[TaskDescriptor]*Task) {
 
 		timeout := time.Duration(task.StaleTimeoutMs) * time.Millisecond
 
-		s.mu.Lock()
-		state := s.perTaskStateLockedOrInit(desc)
-		if state.unitWatermarks == nil {
-			state.unitWatermarks = map[string]staleWatermark{}
-		}
-
 		var staleReason string
-		for unitID, u := range task.Units {
-			wm, exists := state.unitWatermarks[unitID]
+		func() {
+			s.mu.Lock()
+			defer s.mu.Unlock()
+			state := s.perTaskStateLockedOrInit(desc)
+			if state.unitWatermarks == nil {
+				state.unitWatermarks = map[string]staleWatermark{}
+			}
 
-			// The state changed, or this is the first observation; reset the watermark.
-			if !exists || wm.progress != u.Progress || !wm.updatedAt.Equal(u.UpdatedAt) || wm.status != u.Status {
-				state.unitWatermarks[unitID] = staleWatermark{
-					firstObserved: now,
-					progress:      u.Progress,
-					updatedAt:     u.UpdatedAt,
-					status:        u.Status,
+			for unitID, u := range task.Units {
+				wm, exists := state.unitWatermarks[unitID]
+
+				// The state changed, or this is the first observation; reset the watermark.
+				if !exists || wm.progress != u.Progress || !wm.updatedAt.Equal(u.UpdatedAt) || wm.status != u.Status {
+					state.unitWatermarks[unitID] = staleWatermark{
+						firstObserved: now,
+						progress:      u.Progress,
+						updatedAt:     u.UpdatedAt,
+						status:        u.Status,
+					}
+					continue
 				}
-				continue
-			}
 
-			elapsed := now.Sub(wm.firstObserved)
-			if elapsed < timeout {
-				continue
-			}
-
-			if u.Status == UnitStatusPending || u.Status == UnitStatusInProgress {
-				staleReason = fmt.Sprintf("unit %s on node %q stale for %s (status %s, progress %.2f)",
-					unitID, u.NodeID, elapsed.Round(time.Second), u.Status, u.Progress)
-				break
-			}
-		}
-
-		if staleReason == "" && task.Status == TaskStatusSwapping {
-			missing := task.MissingPostCompletionAckNodes()
-			if len(missing) > 0 {
-				if state.ackWatermark == nil {
-					t := now
-					state.ackWatermark = &t
-				} else if now.Sub(*state.ackWatermark) >= timeout {
-					staleReason = fmt.Sprintf("missing post-completion acks from nodes %v for %s",
-						missing, now.Sub(*state.ackWatermark).Round(time.Second))
+				elapsed := now.Sub(wm.firstObserved)
+				if elapsed < timeout {
+					continue
 				}
-			} else {
-				state.ackWatermark = nil
+
+				if u.Status == UnitStatusPending || u.Status == UnitStatusInProgress {
+					staleReason = fmt.Sprintf("unit %s on node %q stale for %s (status %s, progress %.2f)",
+						unitID, u.NodeID, elapsed.Round(time.Second), u.Status, u.Progress)
+					break
+				}
 			}
-		}
-		s.mu.Unlock()
+
+			if staleReason == "" && task.Status == TaskStatusSwapping {
+				missing := task.MissingPostCompletionAckNodes()
+				if len(missing) > 0 {
+					if state.ackWatermark == nil {
+						t := now
+						state.ackWatermark = &t
+					} else if now.Sub(*state.ackWatermark) >= timeout {
+						staleReason = fmt.Sprintf("missing post-completion acks from nodes %v for %s",
+							missing, now.Sub(*state.ackWatermark).Round(time.Second))
+					}
+				} else {
+					state.ackWatermark = nil
+				}
+			}
+		}()
 
 		if staleReason == "" {
 			continue

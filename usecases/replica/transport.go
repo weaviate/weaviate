@@ -14,6 +14,7 @@ package replica
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -94,6 +95,32 @@ type CompareHashTreeRootsResp struct {
 	DivergingShards []string `json:"divergingShards,omitempty"`
 }
 
+// CompareHashTreeRootsMultiReq is the cross-class root pre-filter payload: class → shard → raw [high,low] root.
+type CompareHashTreeRootsMultiReq struct {
+	Classes map[string]map[string][2]uint64 `json:"classes"`
+}
+
+type CompareHashTreeRootsMultiResp struct {
+	Classes map[string]CompareHashTreeRootsMultiClassResp `json:"classes"`
+}
+
+// CompareHashTreeRootsMultiClassResp: Error set ⇒ receiver could not compare this class, sender descends its shards.
+type CompareHashTreeRootsMultiClassResp struct {
+	DivergingShards []string `json:"divergingShards,omitempty"`
+	Error           string   `json:"error,omitempty"`
+}
+
+// CompareRootsSession issues cross-class root compares reusing its request assembly; single-goroutine use only.
+type CompareRootsSession interface {
+	CompareHashTreeRootsMulti(ctx context.Context, host string,
+		classes map[string]map[string]hashtree.Digest) (*CompareHashTreeRootsMultiResp, error)
+}
+
+// CompareRootsSessionFactory creates independent CompareRootsSessions, one per calling goroutine.
+type CompareRootsSessionFactory interface {
+	NewCompareRootsSession() CompareRootsSession
+}
+
 // WClient is the client used to write to replicas
 type WClient interface {
 	PutObject(ctx context.Context, host, index, shard, requestID string,
@@ -138,7 +165,7 @@ type RClient interface {
 		filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error)
 
 	DigestObjectsInRange(ctx context.Context, host, index, shard string,
-		initialUUID, finalUUID strfmt.UUID, limit int) ([]types.RepairResponse, error)
+		initialUUID, finalUUID strfmt.UUID, limit int) ([]types.RepairDigest, error)
 
 	// CompareDigests sends the source's local digests to the target and returns
 	// only the subset needing source-side action: objects missing on the target
@@ -148,7 +175,7 @@ type RClient interface {
 	// objects are never returned (identical hashtree digests, hence already
 	// invisible to the hashtree diff that drives this call).
 	CompareDigests(ctx context.Context, host, index, shard string,
-		digests []types.RepairResponse) ([]types.RepairResponse, error)
+		digests []types.RepairDigest) ([]types.RepairDigest, error)
 
 	HashTreeLevel(ctx context.Context, host, index, shard string, level int,
 		discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
@@ -209,14 +236,14 @@ func (fc FinderClient) DigestReads(ctx context.Context,
 func (fc FinderClient) DigestObjectsInRange(ctx context.Context,
 	host, index, shard string,
 	initialUUID, finalUUID strfmt.UUID, limit int,
-) ([]types.RepairResponse, error) {
+) ([]types.RepairDigest, error) {
 	return fc.cl.DigestObjectsInRange(ctx, host, index, shard, initialUUID, finalUUID, limit)
 }
 
 func (fc FinderClient) CompareDigests(ctx context.Context,
 	host, index, shard string,
-	digests []types.RepairResponse,
-) ([]types.RepairResponse, error) {
+	digests []types.RepairDigest,
+) ([]types.RepairDigest, error) {
 	return fc.cl.CompareDigests(ctx, host, index, shard, digests)
 }
 
@@ -298,6 +325,77 @@ func (fc FinderClient) fullReadChunk(ctx context.Context,
 		}
 	}
 	return part, nil
+}
+
+// AsyncCheckpointMaxShardsPerChunk bounds shards per checkpoint RPC: 512 worst-case 64-char names fit AsyncCheckpointMaxBodyBytes and the ~60 KiB sidecar header budget of the status GET query (tested).
+const AsyncCheckpointMaxShardsPerChunk = 512
+
+// MaxConcurrentAsyncCheckpointRequests bounds in-flight chunks per host so wide fan-outs don't overrun the checkpoint cutoff lead.
+const MaxConcurrentAsyncCheckpointRequests = 8
+
+// CreateAsyncCheckpoint fans shardNames out in bounded chunks; any failed chunk fails the call.
+func (fc FinderClient) CreateAsyncCheckpoint(ctx context.Context,
+	host, index string, shardNames []string, cutoffMs int64, createdAt time.Time,
+) error {
+	if len(shardNames) <= AsyncCheckpointMaxShardsPerChunk {
+		return fc.cl.CreateAsyncCheckpoint(ctx, host, index, shardNames, cutoffMs, createdAt)
+	}
+	return fc.forEachAsyncCheckpointChunk(ctx, shardNames, func(ctx context.Context, chunk []string) error {
+		return fc.cl.CreateAsyncCheckpoint(ctx, host, index, chunk, cutoffMs, createdAt)
+	})
+}
+
+// DeleteAsyncCheckpoint fans shardNames out in bounded chunks; any failed chunk fails the call.
+func (fc FinderClient) DeleteAsyncCheckpoint(ctx context.Context,
+	host, index string, shardNames []string,
+) error {
+	if len(shardNames) <= AsyncCheckpointMaxShardsPerChunk {
+		return fc.cl.DeleteAsyncCheckpoint(ctx, host, index, shardNames)
+	}
+	return fc.forEachAsyncCheckpointChunk(ctx, shardNames, func(ctx context.Context, chunk []string) error {
+		return fc.cl.DeleteAsyncCheckpoint(ctx, host, index, chunk)
+	})
+}
+
+// GetAsyncCheckpointStatus fans shardNames out in bounded chunks and merges the results; any failed chunk fails the call so absent entries stay conservative.
+func (fc FinderClient) GetAsyncCheckpointStatus(ctx context.Context,
+	host, index string, shardNames []string,
+) (map[string]AsyncCheckpointShardStatus, error) {
+	if len(shardNames) <= AsyncCheckpointMaxShardsPerChunk {
+		return fc.cl.GetAsyncCheckpointStatus(ctx, host, index, shardNames)
+	}
+	out := make(map[string]AsyncCheckpointShardStatus, len(shardNames))
+	var mu sync.Mutex
+	err := fc.forEachAsyncCheckpointChunk(ctx, shardNames, func(ctx context.Context, chunk []string) error {
+		part, err := fc.cl.GetAsyncCheckpointStatus(ctx, host, index, chunk)
+		if err != nil {
+			return err
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		for shard, status := range part {
+			out[shard] = status
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (fc FinderClient) forEachAsyncCheckpointChunk(ctx context.Context,
+	shardNames []string, fn func(ctx context.Context, chunk []string) error,
+) error {
+	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(fc.log, ctx)
+	gr.SetLimit(MaxConcurrentAsyncCheckpointRequests)
+	for start := 0; start < len(shardNames); start += AsyncCheckpointMaxShardsPerChunk {
+		chunk := shardNames[start:min(start+AsyncCheckpointMaxShardsPerChunk, len(shardNames))]
+		gr.Go(func() error {
+			return fn(ctx, chunk)
+		})
+	}
+	return gr.Wait()
 }
 
 // Overwrite specified object with most recent contents

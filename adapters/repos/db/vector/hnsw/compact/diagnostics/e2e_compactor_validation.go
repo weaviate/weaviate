@@ -77,7 +77,7 @@ func main() {
 	}
 
 	// Create fresh working directory
-	if err := os.MkdirAll(workingDir, 0755); err != nil {
+	if err := os.MkdirAll(workingDir, 0o755); err != nil {
 		panic(fmt.Errorf("create working directory: %w", err))
 	}
 

@@ -15,12 +15,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/types"
@@ -44,15 +46,22 @@ var (
 	errMetaNotFound = errors.New("metadata not found")
 	errUnknownOp    = errors.New("unknown backup operation")
 	errCancelled    = errors.New("operation cancelled by user")
+	// An early acker's advertised booking (20s cap on older nodes) would lapse before Commit dispatch.
+	errBookingCapExceeded = errors.New("participant booking would expire before commit could be dispatched (mixed-version cluster: older nodes cap the booking window)")
 )
 
 const (
 	_BookingPeriod      = time.Second * 20
 	_TimeoutNodeDown    = 7 * time.Minute
 	_TimeoutQueryStatus = 5 * time.Second
-	_TimeoutCanCommit   = 8 * time.Second
-	_NextRoundPeriod    = 10 * time.Second
-	_MaxNumberConns     = 16
+	// Sizes the advertised booking; the transport does not enforce it as an RPC deadline, so participant backend Initialize calls that are slow on remote object stores never fail on time alone.
+	_TimeoutCanCommit = 30 * time.Second
+	// Fan-out restore participants read every source's descriptor inside canCommit; N reads of large descriptors need more than the create budget.
+	_TimeoutDedupeRestoreCanCommit = 120 * time.Second
+	// Headroom a booking must retain after the last ack (descriptor PUT + Commit RPC + ack skew).
+	_CommitDispatchMargin = 5 * time.Second
+	_NextRoundPeriod      = 10 * time.Second
+	_MaxNumberConns       = 16
 )
 
 type nodeMap map[string]*backup.NodeDescriptor
@@ -113,6 +122,10 @@ type coordinator struct {
 	log          logrus.FieldLogger
 	nodeResolver NodeResolver
 	backends     BackupBackendProvider
+	// nil on the backupper, which never restores roles or users.
+	rolesAndUsers rolesAndUsersRestorer
+	// nil on the restorer, which never plans replica dedupe.
+	checkpointer ReplicaCheckpointer
 
 	// state
 	Participants map[string]participantStatus
@@ -120,10 +133,18 @@ type coordinator struct {
 	shardSyncChan
 
 	// timeouts
-	timeoutNodeDown    time.Duration
-	timeoutQueryStatus time.Duration
-	timeoutCanCommit   time.Duration
-	timeoutNextRound   time.Duration
+	timeoutNodeDown               time.Duration
+	timeoutQueryStatus            time.Duration
+	timeoutCanCommit              time.Duration
+	timeoutDedupeRestoreCanCommit time.Duration
+	timeoutNextRound              time.Duration
+	commitDispatchMargin          time.Duration
+
+	// replica-dedupe planning cadence
+	dedupeCutoffLead        time.Duration
+	dedupePollInterval      time.Duration
+	dedupeConvergenceBudget time.Duration
+	dedupePlanningSlack     time.Duration
 }
 
 // newcoordinator creates an instance which coordinates distributed BRO operations among many shards.
@@ -134,19 +155,30 @@ func newCoordinator(
 	log logrus.FieldLogger,
 	nodeResolver NodeResolver,
 	backends BackupBackendProvider,
+	rolesAndUsers rolesAndUsersRestorer,
+	checkpointer ReplicaCheckpointer,
 ) *coordinator {
 	return &coordinator{
-		selector:           selector,
-		client:             client,
-		schema:             schema,
-		log:                log,
-		nodeResolver:       nodeResolver,
-		backends:           backends,
-		Participants:       make(map[string]participantStatus, 16),
-		timeoutNodeDown:    _TimeoutNodeDown,
-		timeoutQueryStatus: _TimeoutQueryStatus,
-		timeoutCanCommit:   _TimeoutCanCommit,
-		timeoutNextRound:   _NextRoundPeriod,
+		selector:                      selector,
+		client:                        client,
+		schema:                        schema,
+		log:                           log,
+		nodeResolver:                  nodeResolver,
+		backends:                      backends,
+		rolesAndUsers:                 rolesAndUsers,
+		checkpointer:                  checkpointer,
+		Participants:                  make(map[string]participantStatus, 16),
+		timeoutNodeDown:               _TimeoutNodeDown,
+		timeoutQueryStatus:            _TimeoutQueryStatus,
+		timeoutCanCommit:              _TimeoutCanCommit,
+		timeoutDedupeRestoreCanCommit: _TimeoutDedupeRestoreCanCommit,
+		timeoutNextRound:              _NextRoundPeriod,
+		commitDispatchMargin:          _CommitDispatchMargin,
+
+		dedupeCutoffLead:        _DedupeCutoffLead,
+		dedupePollInterval:      _DedupePollInterval,
+		dedupeConvergenceBudget: _DefaultDedupeConvergenceBudget,
+		dedupePlanningSlack:     _DedupePlanningSlack,
 	}
 }
 
@@ -176,6 +208,9 @@ func (c *coordinator) Nodes(ctx context.Context, req *Request) (map[string]strin
 // Backup coordinates a distributed backup among participants
 func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Request) error {
 	req.Method = OpCreate
+	if req.AttemptID == "" {
+		req.AttemptID = uuid.NewString()
+	}
 	leader := c.nodeResolver.LeaderID()
 	if leader == "" {
 		return fmt.Errorf("backup Op %s: %w, try again later", req.Method, types.ErrLeaderNotFound)
@@ -185,7 +220,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		return err
 	}
 	// make sure there is no active backup
-	if prevID := c.lastOp.renew(req.ID, cstore.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
+	if prevID := c.lastOp.renew(req.ID, req.AttemptID, cstore.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return backup.NewErrUnprocessable(fmt.Errorf("backup %s already in progress", prevID))
 	}
 	compressionType, err := CompressionTypeFromLevel(req.Level)
@@ -193,25 +228,77 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		return backup.NewErrUnprocessable(err)
 	}
 
+	// Planning sits after the lastOp gate and before canCommit so the wait stays outside its timeout.
+	var plan *dedupePlan
+	if req.DedupeReplicas && c.checkpointer != nil {
+		budget := time.Duration(req.DedupeConvergenceTimeoutSeconds) * time.Second
+		participants := make(map[string]struct{}, len(groups))
+		for node := range groups {
+			participants[node] = struct{}{}
+		}
+		plan = c.planDesignatedShards(ctx, req.Classes, budget, participants, req.BaseDedupeDesignations)
+	}
+	// Stamp from the planning outcome: a zero-dedupe artifact is physically legacy and stays restorable on pre-3.0 releases, unless its base chain traverses a deduped artifact.
+	dedupeEffective := plan != nil && plan.designated() > 0
+	version := Version
+	if dedupeEffective || req.BaseChainDeduped {
+		version = VersionDedupeReplicas
+	}
+	req.DedupeEffective = dedupeEffective
+
 	c.descriptor = &backup.DistributedBackupDescriptor{
 		StartedAt:       time.Now().UTC(),
 		Status:          backup.Started,
 		ID:              req.ID,
 		Nodes:           groups,
-		Version:         Version,
+		Version:         version,
 		ServerVersion:   config.ServerVersion,
 		Leader:          leader,
 		CompressionType: compressionType,
 		BaseBackupID:    req.BaseBackupID,
 		Users:           req.Users,
 		Roles:           req.Roles,
+		SkipUsers:       req.SkipUsers,
+		SkipRoles:       req.SkipRoles,
+		DedupeReplicas:  dedupeEffective,
+	}
+	if plan != nil {
+		c.descriptor.DedupeDesignatedShards = plan.designated()
+		c.descriptor.DedupeFallbackShards = plan.fallback()
+		// copied, not aliased; non-Success artifacts carry the map harmlessly (chain validation refuses them)
+		for class, shards := range plan.designations {
+			if len(shards) == 0 {
+				continue
+			}
+			if c.descriptor.DedupeCutoffsMs == nil {
+				c.descriptor.DedupeCutoffsMs = make(map[string]int64, len(plan.designations))
+			}
+			c.descriptor.DedupeCutoffsMs[class] = plan.cutoffs[class]
+			if c.descriptor.DedupeDesignations == nil {
+				c.descriptor.DedupeDesignations = make(map[string]map[string]string, len(plan.designations))
+			}
+			c.descriptor.DedupeDesignations[class] = maps.Clone(shards)
+		}
 	}
 
 	for key := range c.Participants {
 		delete(c.Participants, key)
 	}
 
-	nodes, err := c.canCommit(ctx, req)
+	// A Cancel that lands during planning only marks the slot; honor it here so
+	// no participant is ever contacted for a cancelled backup.
+	if c.lastOp.get().cancelSignalled() {
+		c.descriptor.Status = backup.Cancelled
+		c.descriptor.Error = errCancelled.Error()
+		c.descriptor.CompletedAt = time.Now().UTC()
+		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, req.Bucket, req.Path); err != nil {
+			c.log.WithField("backup_id", req.ID).Errorf("coordinator: put cancelled meta: %v", err)
+		}
+		c.lastOp.reset()
+		return backup.NewErrUnprocessable(fmt.Errorf("backup %s: %w", req.ID, errCancelled))
+	}
+
+	nodes, err := c.canCommit(ctx, req, plan)
 	if err != nil {
 		c.lastOp.reset()
 		return err
@@ -231,15 +318,31 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 		Bucket:       req.Bucket,
 		Path:         req.Path,
 		BaseBackupID: req.BaseBackupID,
+		AttemptID:    req.AttemptID,
 	}
 
 	f := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
-		c.commit(ctx, &statusReq, nodes, false)
+		// The terminal status is published only after the descriptor carrying it is durable, so polls never get ahead of the backend.
+		nodeMetas := c.commit(ctx, &statusReq, nodes, false, true)
 		logFields := logrus.Fields{"action": OpCreate, "backup_id": req.ID}
-		if err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath); err != nil {
+		if dedupeEffective && c.descriptor.Status == backup.Success {
+			if err := c.verifyDesignatedCoverage(ctx, &statusReq, plan, nodeMetas); err != nil {
+				c.descriptor.Status = backup.Failed
+				c.descriptor.Error = err.Error()
+				c.log.WithFields(logFields).Errorf("coordinator: designated-shard coverage check failed: %v", err)
+			} else if attributed := attributeDedupedShardSizes(c.log, c.descriptor, nodeMetas); attributed > 0 {
+				c.log.WithFields(logFields).Debugf("coordinator: %d bytes attributed to skipping replicas for logical backup size", attributed)
+			}
+		}
+		err := cstore.PutMeta(ctx, GlobalBackupFile, c.descriptor, overrideBucket, overridePath)
+		if err != nil {
 			c.log.WithFields(logFields).Errorf("coordinator: put_meta: %v", err)
+		}
+		// A poll must never read SUCCESS or CANCELED while the backend contradicts it; a failure always publishes so its reason survives the slot.
+		if err == nil || c.descriptor.Status == backup.Failed {
+			c.publishStatus()
 		}
 		if c.descriptor.Status == backup.Success {
 			c.log.WithFields(logFields).Info("coordinator: backup completed successfully")
@@ -252,6 +355,11 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	return nil
 }
 
+// rolesAndUsersBlobs are the snapshots applied cluster-wide. A field is empty
+// when the backup lacks that snapshot, the subsystem is off, or the request
+// opted out.
+type rolesAndUsersBlobs struct{ roles, users []byte }
+
 // Restore coordinates a distributed restoration among participants
 func (c *coordinator) Restore(
 	ctx context.Context,
@@ -259,8 +367,12 @@ func (c *coordinator) Restore(
 	req *Request,
 	desc *backup.DistributedBackupDescriptor,
 	schema []backup.ClassDescriptor,
+	blobs rolesAndUsersBlobs,
 ) error {
 	req.Method = OpRestore
+	if req.AttemptID == "" {
+		req.AttemptID = uuid.NewString()
+	}
 
 	// Check if a cancellation is already in progress before asking nodes to commit.
 	if existingMeta, err := store.Meta(ctx, GlobalRestoreFile, req.Bucket, req.Path); err == nil {
@@ -272,7 +384,7 @@ func (c *coordinator) Restore(
 	}
 
 	// make sure there is no active backup
-	if prevID := c.lastOp.renew(desc.ID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
+	if prevID := c.lastOp.renew(desc.ID, req.AttemptID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return backup.NewErrUnprocessable(fmt.Errorf("restoration %s already in progress", prevID))
 	}
 
@@ -281,9 +393,17 @@ func (c *coordinator) Restore(
 	}
 	c.descriptor = desc.ResetStatus()
 
+	if c.descriptor.DedupeReplicas {
+		// User-input problems (bad node_mapping, unresolvable replicas) -> 422 with the message.
+		if err := c.expandParticipantsForDedupe(req, schema); err != nil {
+			c.lastOp.reset()
+			return backup.NewErrUnprocessable(err)
+		}
+	}
+
 	// Time canCommit phase (initiates file staging on all nodes)
 	canCommitStart := time.Now()
-	nodes, err := c.canCommit(ctx, req)
+	nodes, err := c.canCommit(ctx, req, nil)
 	c.observeRestorePhase("prepare", time.Since(canCommitStart))
 	if err != nil {
 		c.lastOp.reset()
@@ -300,12 +420,12 @@ func (c *coordinator) Restore(
 	// initial put so restore status is immediately available
 	if err := store.PutMeta(ctx, GlobalRestoreFile, c.descriptor, overrideBucket, overridePath); err != nil {
 		c.lastOp.reset()
-		req := &AbortRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend}
-		c.abortAll(ctx, req, nodes)
+		abortReq := &AbortRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, AttemptID: req.AttemptID}
+		c.abortAll(ctx, abortReq, nodes)
 		return fmt.Errorf("put initial metadata: %w", err)
 	}
 
-	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, Bucket: overrideBucket, Path: overridePath}
+	statusReq := StatusRequest{Method: OpRestore, ID: desc.ID, Backend: req.Backend, Bucket: overrideBucket, Path: overridePath, AttemptID: req.AttemptID}
 	g := func() {
 		defer c.lastOp.reset()
 		ctx := context.Background()
@@ -334,7 +454,7 @@ func (c *coordinator) Restore(
 
 		// Time commit polling phase (waits for all nodes to finish staging)
 		commitStart := time.Now()
-		c.commit(ctx, &statusReq, nodes, true)
+		c.commit(ctx, &statusReq, nodes, true, false)
 		c.observeRestorePhase("object_storage_download", time.Since(commitStart))
 
 		// Check storage for cancellation before transitioning to Finalizing.
@@ -350,7 +470,7 @@ func (c *coordinator) Restore(
 		// Only proceed if staging was successful (Transferred = staging complete)
 		if c.descriptor.Status == backup.Transferred {
 			// Check for external cancellation via lastOp (same-node cancellation)
-			if c.lastOp.get().Status == backup.Cancelled {
+			if c.lastOp.get().cancelSignalled() {
 				c.descriptor.Status = backup.Cancelled
 				c.descriptor.Error = errCancelled.Error()
 			} else {
@@ -362,15 +482,19 @@ func (c *coordinator) Restore(
 			}
 		}
 
-		// Only proceed with schema apply if we successfully transitioned to Finalizing
-		// Skip if status is Cancelled, Failed, or any other non-Finalizing state
+		// Roles and users are applied once staging has committed, even when a
+		// class restore failed: a class that already exists is a class failure,
+		// not a roles-and-users one.
 		if c.descriptor.Status == backup.Finalizing {
 			// Time schema apply phase (Raft commits for each class)
 			schemaApplyStart := time.Now()
 			c.restoreClasses(ctx, schema, req)
 			c.observeRestorePhase("schema_apply", time.Since(schemaApplyStart))
 
-			// Set final status - restoreClasses may have set Failed, otherwise set Success
+			c.restoreRolesAndUsers(ctx, blobs)
+
+			// Both restore steps only ever set Failed, so a status still in
+			// Finalizing means both succeeded.
 			if c.descriptor.Status == backup.Finalizing {
 				c.descriptor.Status = backup.Success
 			}
@@ -457,6 +581,25 @@ func (c *coordinator) restoreClasses(
 	}
 }
 
+// restoreRolesAndUsers applies both snapshots in a single RAFT entry. The strip
+// flag matches the one the class restore uses. Errors append to the descriptor
+// error so a class failure and a roles-and-users failure both reach the
+// operator.
+func (c *coordinator) restoreRolesAndUsers(ctx context.Context, blobs rolesAndUsersBlobs) {
+	if c.rolesAndUsers == nil || (len(blobs.roles) == 0 && len(blobs.users) == 0) {
+		return
+	}
+	strip := !c.schema.NamespacesEnabled()
+	if err := c.rolesAndUsers.RestoreRolesAndUsers(ctx, blobs.roles, blobs.users, strip); err != nil {
+		msg := fmt.Sprintf("restore roles and users: %v", err)
+		if c.descriptor.Error != "" {
+			msg = c.descriptor.Error + "; " + msg
+		}
+		c.descriptor.Error = msg
+		c.descriptor.Status = backup.Failed
+	}
+}
+
 func (c *coordinator) OnStatus(ctx context.Context, store coordStore, req *StatusRequest) (*Status, error) {
 	// check if backup is still active
 	st := c.lastOp.get()
@@ -525,23 +668,24 @@ func canCommitErrFromResponse(resp *CanCommitResponse) error {
 
 // canCommit asks candidates if they agree to participate in DBRO
 // It returns and error if any candidates refuses to participate
-func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]string, error) {
-	ctx, cancel := context.WithTimeout(ctx, c.timeoutCanCommit)
+func (c *coordinator) canCommit(ctx context.Context, req *Request, plan *dedupePlan) (map[string]string, error) {
+	timeout, maxTimeout := c.timeoutCanCommit, _TimeoutCanCommit
+	if req.Method == OpRestore && req.DedupeReplicas {
+		timeout, maxTimeout = c.timeoutDedupeRestoreCanCommit, _TimeoutDedupeRestoreCanCommit
+	}
+	// Participants clamp bookings at maxBooking(); a longer canCommit would let early ackers expire before Commit.
+	timeout = min(timeout, maxTimeout)
+	// Early ackers must outwait the slowest sibling's canCommit: Commit is only dispatched after every node acks.
+	booking := timeout + _BookingPeriod
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-
-	// Apply node mapping to the descriptor shall happen before
-	// asking candidates if they agree to participate in DBRO and before creating the request channel.
-	// This ensures that the request channel contains the correct node names and RESOLVES
-	// correctly the NEW node names and hosts if mapping exists.
-	// NOTE: This could be leveraged for adjusting number of nodes in the schema (as future implementation).
-	c.descriptor.ApplyNodeMapping()
 
 	reqChan := make(chan *Request)
 	g, ctx := enterrors.NewErrorGroupWithContextWrapper(c.log, ctx)
 	g.SetLimit(_MaxNumberConns)
 	g.Go(func() error {
 		defer close(reqChan)
-		for nodeName, gr := range c.descriptor.Nodes {
+		for originalName, gr := range c.descriptor.Nodes {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
@@ -549,7 +693,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 			}
 
 			// If we have a nodeMapping with the node name from the backup, replace the node with the new one
-			nodeName = c.descriptor.ToMappedNodeName(nodeName)
+			nodeName := c.descriptor.ToMappedNodeName(originalName)
 
 			host, found := c.nodeResolver.NodeHostname(nodeName)
 			if !found {
@@ -565,7 +709,10 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 				Classes:           gr.Classes,
 				Users:             req.Users,
 				Roles:             req.Roles,
-				Duration:          _BookingPeriod,
+				SkipUsers:         req.SkipUsers,
+				SkipRoles:         req.SkipRoles,
+				Duration:          booking,
+				AttemptID:         req.AttemptID,
 				NodeMapping:       c.descriptor.NodeMapping,
 				Compression:       req.Compression,
 				Bucket:            req.Bucket,
@@ -573,6 +720,11 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 				UserRestoreOption: req.UserRestoreOption,
 				RbacRestoreOption: req.RbacRestoreOption,
 				BaseBackupID:      c.descriptor.BaseBackupID,
+				DedupeReplicas:    req.DedupeReplicas,
+				DedupeEffective:   req.DedupeEffective,
+				ShardDesignations: projectDesignations(plan, originalName),
+				SourceNodes:       req.SourceNodes,
+				SchemaSourceNode:  req.SchemaSourceNode,
 			}
 		}
 		return nil
@@ -580,36 +732,56 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 
 	mutex := sync.RWMutex{}
 	nodes := make(map[string]string, len(c.descriptor.Nodes))
+	// Earliest instant any acker's advertised booking lapses; older nodes cap it below the requested duration.
+	var commitBy time.Time
+	var commitByNode string
+	var commitByAdvertised time.Duration
 	for req := range reqChan {
 		g.Go(func() error {
 			resp, err := c.client.CanCommit(ctx, req.NodeHost, req)
 			if err == nil && resp.Timeout == 0 {
 				err = canCommitErrFromResponse(resp)
 			}
+			// A missing ack means an old node that would archive all replicas unstamped; abort rather than silently degrade.
+			if err == nil && req.DedupeReplicas && !resp.DedupeHonored {
+				err = backup.NewErrUnprocessable(fmt.Errorf("does not support dedupeReplicas (mixed-version cluster); retry without the flag or after upgrading"))
+			}
 			if err != nil {
 				return fmt.Errorf("node %q: %w", req.NodeName, err)
 			}
 			mutex.Lock()
 			nodes[req.NodeName] = req.NodeHost
+			if d := time.Now().Add(resp.Timeout); commitBy.IsZero() || d.Before(commitBy) {
+				commitBy, commitByNode, commitByAdvertised = d, req.NodeName, resp.Timeout
+			}
 			mutex.Unlock()
 			return nil
 		})
 	}
-	abortReq := &AbortRequest{Method: req.Method, ID: c.descriptor.ID, Backend: req.Backend}
+	abortReq := &AbortRequest{Method: req.Method, ID: c.descriptor.ID, Backend: req.Backend, AttemptID: req.AttemptID}
 	if err := g.Wait(); err != nil {
-		c.abortAll(ctx, abortReq, nodes)
+		// The group's ctx is already cancelled here.
+		c.abortAll(context.WithoutCancel(ctx), abortReq, nodes)
 		return nil, err
+	}
+	if !commitBy.IsZero() && !time.Now().Add(c.commitDispatchMargin).Before(commitBy) {
+		c.abortAll(context.WithoutCancel(ctx), abortReq, nodes)
+		return nil, fmt.Errorf("%w: node %q booked only %s and the last acknowledgement left under %s of it; upgrade all nodes or retry",
+			errBookingCapExceeded, commitByNode, commitByAdvertised, c.commitDispatchMargin)
 	}
 	return nodes, nil
 }
 
 // commit tells each participant to commit its backup operation
 // It stores the final result in the provided backend
+// It returns the per-node descriptors read while aggregating sizes (creates only), so callers can reuse them instead of re-reading.
+// deferFinalPublish skips the terminal slot publish so the caller can write the descriptor first; restores keep the inline publish.
 func (c *coordinator) commit(ctx context.Context,
 	req *StatusRequest,
 	node2Addr map[string]string,
 	toleratePartialFailure bool,
-) {
+	deferFinalPublish bool,
+) map[string]*backup.BackupDescriptor {
 	// create a new copy for commitAll and queryAll to mutate
 	node2Host := make(map[string]string, len(node2Addr))
 	for k, v := range node2Addr {
@@ -617,11 +789,12 @@ func (c *coordinator) commit(ctx context.Context,
 	}
 
 	// Check for external cancellation before starting
-	if c.lastOp.get().Status == backup.Cancelled {
+	if c.lastOp.get().cancelSignalled() {
 		c.log.WithField("backup_id", req.ID).Info("commit aborted: operation was cancelled externally")
 		c.descriptor.Status = backup.Cancelled
 		c.descriptor.Error = errCancelled.Error()
-		return
+		c.descriptor.CompletedAt = time.Now().UTC()
+		return nil
 	}
 
 	nFailures := c.commitAll(ctx, req, node2Host)
@@ -629,7 +802,7 @@ func (c *coordinator) commit(ctx context.Context,
 	canContinue := len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
 	for canContinue {
 		// Check for external cancellation in polling loop
-		if c.lastOp.get().Status == backup.Cancelled {
+		if c.lastOp.get().cancelSignalled() {
 			c.log.WithField("backup_id", req.ID).Info("commit polling aborted: operation was cancelled externally")
 			// Mark remaining nodes as cancelled
 			for node := range node2Host {
@@ -640,7 +813,8 @@ func (c *coordinator) commit(ctx context.Context,
 			}
 			c.descriptor.Status = backup.Cancelled
 			c.descriptor.Error = errCancelled.Error()
-			return
+			c.descriptor.CompletedAt = time.Now().UTC()
+			return nil
 		}
 
 		select {
@@ -650,15 +824,16 @@ func (c *coordinator) commit(ctx context.Context,
 			c.log.WithField("backup_id", req.ID).Info("commit polling aborted: context cancelled")
 			c.descriptor.Status = backup.Cancelled
 			c.descriptor.Error = "restore cancelled: context cancelled"
-			return
+			c.descriptor.CompletedAt = time.Now().UTC()
+			return nil
 		}
 		retryAfter = c.timeoutNextRound
 		nFailures += c.queryAll(ctx, req, node2Host)
 		canContinue = len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
 	}
 	if !toleratePartialFailure && nFailures > 0 {
-		req := &AbortRequest{Method: req.Method, ID: req.ID, Backend: req.Backend}
-		c.abortAll(context.Background(), req, node2Addr)
+		abortReq := &AbortRequest{Method: req.Method, ID: req.ID, Backend: req.Backend, AttemptID: req.AttemptID}
+		c.abortAll(context.Background(), abortReq, node2Addr)
 	}
 	c.descriptor.CompletedAt = time.Now().UTC()
 	// For restore operations, successful staging means "Transferred" (ready for schema apply)
@@ -670,6 +845,7 @@ func (c *coordinator) commit(ctx context.Context,
 	reason := ""
 	groups := c.descriptor.Nodes
 	var totalPreCompressionSize int64
+	nodeMetas := make(map[string]*backup.BackupDescriptor, len(c.Participants))
 
 	// Read backup descriptors from each node to aggregate pre-compression sizes
 	for node, p := range c.Participants {
@@ -710,6 +886,16 @@ func (c *coordinator) commit(ctx context.Context,
 					}
 
 					if meta, err := nodeStore.Meta(ctx, req.ID, req.Bucket, req.Path); err == nil {
+						nodeMetas[node] = meta
+						// A node predating Request.SkipUsers/SkipRoles ignores the flag
+						// and uploads a whole-cluster snapshot. Fail rather than leave a
+						// backup that older restore code would apply in full.
+						if (c.descriptor.SkipUsers && len(meta.UserBackups) > 0) ||
+							(c.descriptor.SkipRoles && len(meta.RbacBackups) > 0) {
+							status = backup.Failed
+							st.Status = backup.Failed
+							reason = fmt.Sprintf("node %q uploaded a user or RBAC snapshot the request excluded; it predates the includeUsers/includeRoles skip, retry after the upgrade", node)
+						}
 						st.PreCompressionSizeBytes = meta.PreCompressionSizeBytes
 						totalPreCompressionSize += meta.PreCompressionSizeBytes
 						c.log.WithFields(logrus.Fields{
@@ -729,17 +915,19 @@ func (c *coordinator) commit(ctx context.Context,
 		groups[node] = st
 	}
 	c.descriptor.Status = status
-	// Respect external cancellation from CancelRestore() - if lastOp was already
-	// set to Cancelled, propagate that to descriptor so storage writes are consistent
-	if c.lastOp.get().Status == backup.Cancelled {
+	// A cancel that arrived after the last poll still wins, so the stored descriptor never contradicts it.
+	if c.lastOp.get().cancelSignalled() {
 		c.descriptor.Status = backup.Cancelled
 		if reason == "" {
-			reason = "restore canceled by user"
+			reason = errCancelled.Error()
 		}
 	}
 	c.descriptor.Error = reason
-	c.publishStatus()
+	if !deferFinalPublish {
+		c.publishStatus()
+	}
 	c.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
+	return nodeMetas
 }
 
 // publishStatus mirrors the descriptor's outcome on the slot, which is what a

@@ -91,18 +91,6 @@ func (rr *RowReaderRoaringSet) bareKey(k []byte) []byte {
 	return k[len(rr.keyPrefix):]
 }
 
-// ctxExpired reports whether ctx has been cancelled or timed out. It uses a
-// non-blocking channel receive, which avoids the mutex acquisition that
-// ctx.Err() performs on every call — important for tight cursor loops.
-func ctxExpired(ctx context.Context) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		return nil
-	}
-}
-
 // ReadFn will be called 1..n times per match. This means it will also
 // be called on a non-match, in this case v == empty bitmap.
 // It is up to the caller to decide if that is an error case or not.
@@ -147,7 +135,7 @@ func (rr *RowReaderRoaringSet) Read(ctx context.Context, readFn ReadFn) error {
 func (rr *RowReaderRoaringSet) equal(ctx context.Context,
 	readFn ReadFn,
 ) error {
-	if err := ctxExpired(ctx); err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 
@@ -177,7 +165,7 @@ func (rr *RowReaderRoaringSet) greaterThan(ctx context.Context,
 
 	fk := rr.fullKey()
 	for k, v := c.Seek(fk); k != nil && rr.inPrefix(k); k, v = c.Next() {
-		if err := ctxExpired(ctx); err != nil {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 
@@ -223,7 +211,7 @@ func (rr *RowReaderRoaringSet) lessThan(ctx context.Context,
 	// keys appear, and bytes.Compare(k, fk) >= cmpLimit stops the loop before
 	// any higher-prefix key, since those sort after fk = keyPrefix+value.
 	for k, v := initialK, initialV; k != nil && bytes.Compare(k, fk) < cmpLimit; k, v = c.Next() {
-		if err := ctxExpired(ctx); err != nil {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 
@@ -269,7 +257,7 @@ func (rr *RowReaderRoaringSet) like(ctx context.Context,
 	}
 
 	for k, v := initialK, initialV; k != nil && rr.inPrefix(k); k, v = c.Next() {
-		if err := ctxExpired(ctx); err != nil {
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 

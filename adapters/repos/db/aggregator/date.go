@@ -12,6 +12,7 @@
 package aggregator
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
@@ -109,6 +110,75 @@ func newTimestamp(epochNano int64) timestamp {
 type timestampCountPair struct {
 	value timestamp
 	count uint64
+}
+
+type datePairJSON struct {
+	Value string `json:"value"`
+	Count uint64 `json:"count"`
+}
+
+// MarshalJSON is the cluster-internal wire form of the merge state. It runs on
+// the request-scoped aggregator after aggregation finished, so no locking; pair
+// order on the wire is irrelevant, the decoder rebuilds and re-sorts.
+func (a *dateAggregator) MarshalJSON() ([]byte, error) {
+	pairs := make([]datePairJSON, 0, len(a.valueCounter))
+	for ts, count := range a.valueCounter {
+		pairs = append(pairs, datePairJSON{Value: ts.rfc3339, Count: count})
+	}
+	return json.Marshal(struct {
+		Pairs []datePairJSON `json:"pairs"`
+	}{Pairs: pairs})
+}
+
+// dateAggregatorFromJSON rebuilds the wire form from the generic map
+// json.Unmarshal produces for an interface{} target.
+func dateAggregatorFromJSON(raw map[string]interface{}) (*dateAggregator, error) {
+	rawPairs, hasPairs := raw["pairs"]
+	if !hasPairs || rawPairs == nil {
+		return nil, errors.New("date aggregator state missing from remote shard result, " +
+			"the remote node likely runs an older version")
+	}
+	pairs, ok := rawPairs.([]interface{})
+	if !ok {
+		return nil, errors.New("malformed date aggregator pairs in remote shard result")
+	}
+
+	agg := newDateAggregator()
+	for _, pair := range pairs {
+		pairMap, ok := pair.(map[string]interface{})
+		if !ok {
+			return nil, errors.New("malformed date aggregator pair in remote shard result")
+		}
+		value, okValue := pairMap["value"].(string)
+		count, okCount := pairMap["count"].(float64)
+		if !okValue || !okCount {
+			return nil, errors.New("malformed date aggregator pair in remote shard result")
+		}
+		t, err := time.Parse(time.RFC3339Nano, value)
+		if err != nil {
+			return nil, fmt.Errorf("malformed date aggregator pair in remote shard result: %w", err)
+		}
+		restored, err := wireCount(count)
+		if err != nil {
+			return nil, err
+		}
+		agg.addRow(timestamp{epochNano: t.UnixNano(), rfc3339: value}, restored)
+	}
+	agg.buildPairsFromCounts()
+	return agg, nil
+}
+
+// hasCompleteDistribution reports whether the value pairs account for every
+// counted element; mode/median recomputation relies on that.
+func (a *dateAggregator) hasCompleteDistribution() bool {
+	if a.count == 0 {
+		return false
+	}
+	var total uint64
+	for _, pair := range a.pairs {
+		total += pair.count
+	}
+	return total == a.count
 }
 
 func (a *dateAggregator) AddTimestamp(rfc3339 string) error {

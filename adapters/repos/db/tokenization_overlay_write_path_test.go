@@ -64,7 +64,7 @@ func TestTokenizationOverlay_WritePath_IgnoresOverlay(t *testing.T) {
 	}
 
 	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 

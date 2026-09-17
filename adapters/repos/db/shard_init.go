@@ -25,11 +25,12 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -38,8 +39,9 @@ import (
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-	scheduler *queue.Scheduler, indexCheckpoints *indexcheckpoint.Checkpoints,
+	scheduler *queue.Scheduler,
 	reindexer ShardReindexerV3, lazyLoadSegments bool, bitmapBufPool roaringset.BitmapBufPool,
+	registration monitoring.ShardRegistration,
 ) (_ *Shard, err error) {
 	start := time.Now()
 	index.logger.WithFields(logrus.Fields{
@@ -78,10 +80,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		metrics:     metrics,
 		slowQueryReporter: helpers.NewSlowQueryReporter(index.Config.QuerySlowLogEnabled,
 			index.Config.QuerySlowLogThreshold, index.logger),
-		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
-		centralJobQueue:  jobQueueCh,
-		scheduler:        scheduler,
-		indexCheckpoints: indexCheckpoints,
+		replicationMap:  pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		centralJobQueue: jobQueueCh,
+		scheduler:       scheduler,
 
 		shutdownLock:  new(sync.RWMutex),
 		shutCtx:       shutCtx,
@@ -92,8 +93,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		reindexer:                       reindexer,
 		usingBlockMaxWAND:               index.invertedIndexConfig.UsingBlockMaxWAND,
 		bitmapBufPool:                   bitmapBufPool,
-		HFreshEnabled:                   index.HFreshEnabled,
 		lazySegmentLoadingEnabled:       lazyLoadSegments,
+		registration:                    registration,
 	}
 
 	index.metrics.UpdateShardStatus("", storagestate.StatusLoading.String())
@@ -147,6 +148,15 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
+	// Open for the shard's life: read at load, written by dynamic, and its
+	// file lock makes an offline operation that raced this load fail cleanly.
+	// The timeout bounds the wait on a leaked handle's lock.
+	s.metadataDB, err = shardmeta.Open(s.path(), entlsmkv.BoltFlockTimeout)
+	if err != nil {
+		return nil, fmt.Errorf("open metadata db for shard %q: %w", s.ID(), err)
+	}
+	s.mapping = newVectorIndexMapping(s.metadataDB)
+
 	if err := s.sweepChangelogDir(); err != nil {
 		return nil, fmt.Errorf("sweep changelog dir for shard %q: %w", s.ID(), err)
 	}
@@ -156,44 +166,28 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("init shard's %q store: %w", s.ID(), err)
 	}
 
-	// Finalize any completed migrations whose directory renames were deferred
-	// from a runtime swap. This must run before bucket loading (initNonVector)
-	// so that buckets are found at their canonical directory names.
-	FinalizeCompletedMigrations(s.pathLSM(), s.index.logger)
+	s.settleMigrationDirectories(ctx, class)
 
 	// Pessimistically mark any in-flight enable-rangeable / repair-rangeable
-	// migration's target property as "not locally ready" on this shard.
-	// Without this, a post-restart shard whose recovery hasn't finished
-	// the local swap yet would serve range queries from an empty
-	// PreReindexHook'd bucket as soon as the cluster-wide schema flag
-	// flips on another node. See [Shard.rangeableLocalReady] for the
-	// full rationale. Props not found in this scan default to "ready"
-	// (no migration ever ran, or every prior migration already tidied —
-	// FinalizeCompletedMigrations above promoted them to canonical).
+	// migration's target property "not locally ready": repair-rangeable runs
+	// with the schema flag already true, so nothing else would stop a shard
+	// whose recovery has not finished the swap from serving range queries off
+	// an empty PreReindexHook'd bucket. Props not in this scan default to
+	// ready. Full rationale on [Shard.rangeableLocalReady].
 	markInFlightRangeableMigrationsNotReady(s)
-
-	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
 
 	if err := s.initNonVector(ctx, class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
+	// Needs the dimensions bucket, which initNonVector opens.
+	s.clearDroppedVectorDimensions(ctx, class)
+
 	if err = s.initShardVectors(ctx); err != nil {
 		return nil, fmt.Errorf("init shard vectors: %w", err)
 	}
-
-	if s.index.AsyncIndexingEnabled {
-		f := func() {
-			_ = s.ForEachVectorQueue(func(targetVector string, _ *VectorIndexQueue) error {
-				if err := s.ConvertQueue(targetVector); err != nil {
-					index.logger.WithError(err).Errorf("preload shard for target vector: %s", targetVector)
-				}
-				return nil
-			})
-		}
-		enterrors.GoWrapper(f, s.index.logger)
-	}
 	s.NotifyReady()
+	s.inheritResourcePressureReadOnly()
 
 	if exists {
 		s.index.logger.Printf("Completed loading shard %s in %s", s.ID(), time.Since(start))
@@ -214,6 +208,25 @@ func (s *Shard) cleanupPartialInit(ctx context.Context) {
 	}
 
 	log.Debug("successfully cleaned up partially initialized shard")
+}
+
+// inheritResourcePressureReadOnly marks a freshly built shard READONLY while
+// the resource scan holds the DB read-only, so a shard that did not exist when
+// the scan swept does not come up READY and take the writes the scan is trying
+// to stop.
+//
+// The flag is raised before the sweep, so a lazily loaded shard is caught by
+// exactly one of the two: this runs under the load lock the sweep needs to see
+// the shard as loaded. An eagerly built shard is not in the shard map yet here,
+// and reconciles against the flag when it is published instead.
+func (s *Shard) inheritResourcePressureReadOnly() {
+	if !s.index.db.resourcePressureReadOnly() {
+		return
+	}
+	if err := s.SetStatusReadonly(statusReasonResourcePressure); err != nil {
+		s.index.logger.WithField("action", "set_shard_read_only").
+			Errorf("failed to set to READONLY on init: shard %q: %v", s.name, err)
+	}
 }
 
 func (s *Shard) NotifyReady() {
@@ -246,9 +259,9 @@ func (s *Shard) NotifyReady() {
 // PreReindexHook hasn't fired yet on this replica.
 //
 // Properties that don't have a tracker dir, or whose dir has
-// `tidied.mig` (FinalizeCompletedMigrations promoted them to canonical
-// in this same startup), are left untouched — the default-true policy
-// in [Shard.IsRangeableLocallyReady] applies to them.
+// `tidied.mig` (a completed migration, whose finalization
+// FinalizeCompletedMigrations owns), are left untouched — the
+// default-true policy in [Shard.IsRangeableLocallyReady] applies to them.
 func markInFlightRangeableMigrationsNotReady(s *Shard) {
 	migrationsDir := filepath.Join(s.pathLSM(), ".migrations")
 	entries, err := os.ReadDir(migrationsDir)
@@ -307,27 +320,29 @@ const unboundedRecoveryPayload = 0
 // parsed, so a refusal is not counted as a read: it cost a stat.
 var errRecoveryPayloadTooLarge = errors.New("recovery payload exceeds the parse bound")
 
-// readRecoveryPropertyNames extracts the `Properties` slice from a
-// migration tracker dir's payload.mig sentinel file (see
-// ShardReindexTaskGeneric.SaveRecoveryPayload). The error keeps a missing
-// payload (os.IsNotExist) distinguishable from an unreadable or unparseable
-// one: [migrationDirScope.inScopeFailingOpen] treats only the former as "the task recorded
-// nothing", while the latter makes the unloaded-shard gate and the recovery
-// probe ([hasUntidiedTracker]) fail open.
-//
-// maxBytes refuses a larger payload before opening it;
-// [unboundedRecoveryPayload] reads any size.
+func refuseOversizedRecoveryPayload(path string, bound int64) error {
+	if bound <= unboundedRecoveryPayload {
+		return nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if info.Size() > bound {
+		return fmt.Errorf("%w: %s holds %d bytes, bound is %d",
+			errRecoveryPayloadTooLarge, reindexRecoveryPayloadFile, info.Size(), bound)
+	}
+	return nil
+}
+
+// readRecoveryPropertyNames reads the property list a task saved in its
+// payload.mig. A missing payload (os.IsNotExist) must stay distinguishable
+// from an unreadable one: readTaskProps reads only the former as "the task
+// recorded nothing", and fails the unloaded-shard gate open on the latter.
 func readRecoveryPropertyNames(migDir string, maxBytes int64) ([]string, error) {
 	path := filepath.Join(migDir, reindexRecoveryPayloadFile)
-	if maxBytes > unboundedRecoveryPayload {
-		info, err := os.Stat(path)
-		if err != nil {
-			return nil, err
-		}
-		if info.Size() > maxBytes {
-			return nil, fmt.Errorf("%w: %s holds %d bytes, bound is %d",
-				errRecoveryPayloadTooLarge, reindexRecoveryPayloadFile, info.Size(), maxBytes)
-		}
+	if err := refuseOversizedRecoveryPayload(path, maxBytes); err != nil {
+		return nil, err
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

@@ -81,8 +81,8 @@ func TestPutIdenticalContentAdvancesUpdateTime(t *testing.T) {
 			require.NotNil(t, obj)
 			assert.Equal(t, tt.wantStoredTime, obj.LastUpdateTimeUnix())
 
-			out, err := s.CompareDigests(ctx, []routerTypes.RepairResponse{
-				{ID: string(uuidLow), UpdateTime: tt.wantStoredTime},
+			out, err := s.CompareDigests(ctx, []routerTypes.RepairDigest{
+				{ID: mustUUID(uuidLow), UpdateTime: tt.wantStoredTime},
 			})
 			require.NoError(t, err)
 			assert.Empty(t, out, "replicas converged; no further propagation expected")

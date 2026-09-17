@@ -230,7 +230,7 @@ func (m *Mapper) newListValueNumber(v interface{}) (*pb.Value, error) {
 func (m *Mapper) newListValueInt(v interface{}) (*pb.Value, error) {
 	var listValue *pb.ListValue
 	makeListValue := func(v []float64) *pb.ListValue {
-		return &pb.ListValue{Kind: &pb.ListValue_IntValues{IntValues: &pb.IntValues{Values: byteops.IntsToByteVector((v))}}}
+		return &pb.ListValue{Kind: &pb.ListValue_IntValues{IntValues: &pb.IntValues{Values: byteops.IntsToByteVector(v)}}}
 	}
 	if _, ok := v.([]interface{}); ok {
 		listValue = makeListValue([]float64{})

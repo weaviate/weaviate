@@ -13,11 +13,13 @@ package db
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
 
 	"github.com/pkg/errors"
-	"go.etcd.io/bbolt"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -29,8 +31,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/noop"
-	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
@@ -39,28 +41,92 @@ import (
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
+// vectorFromObjectForTarget reads targetVector's vector straight out of an
+// object's stored bytes, for the startup prefill's parallel scan of the
+// objects bucket. An object without that vector is skipped. The shard binds
+// this like every other object read, so the index never learns its name.
+func vectorFromObjectForTarget(targetVector string) hnsw.VectorFromObject {
+	return func(objectBytes []byte) ([]float32, error) {
+		vec, err := storobj.VectorFromBinary(objectBytes, nil, targetVector)
+		if err != nil {
+			var notFound storobj.ErrTargetVectorNotFound
+			if stderrors.As(err, &notFound) {
+				return nil, nil
+			}
+			return nil, err
+		}
+		return vec, nil
+	}
+}
+
 func (s *Shard) initShardVectors(ctx context.Context) error {
 	// Snapshot under the index config lock: updateVectorIndexConfig(s) mutate
 	// these concurrently, and ranging the live map is a fatal
 	// "concurrent map read and map write", not a recoverable race.
 	legacy := s.index.GetVectorIndexConfig("")
 	targets := s.index.getTargetVectorIndexConfigs()
+	active, skipped := vectorIndexConfigsByStorage(legacy, targets)
 
-	if legacy != nil {
-		if err := s.initLegacyVector(ctx, legacy, s.lazySegmentLoadingEnabled); err != nil {
+	// The mapping decides the physical ID of each index. A shard without one
+	// creates everything under the naming rule; a shard with one checks its
+	// records against the schema and the disk first.
+	records, initialized, err := s.mapping.Load()
+	if err != nil {
+		return fmt.Errorf("shard %q: %w", s.ID(), err)
+	}
+	if initialized {
+		records, err = s.reconcileVectorIndexMapping(active, records)
+		if err != nil {
+			return fmt.Errorf("shard %q: %w", s.ID(), err)
+		}
+	} else {
+		records = make(map[string]vectorIndexRecord, len(active))
+		for name, cfg := range active {
+			records[name] = vectorIndexRecordFor(name, cfg, vectorIndexStateCreating)
+		}
+		for _, c := range vectorIndexCollisions(vectorIndexOwners(records)) {
+			s.index.logger.WithField("shard", s.ID()).Warnf("vector index physical names collide, a drop of either may take the other's files: %s", c)
+		}
+	}
+
+	s.migrateCompressedVectors(legacy, targets)
+
+	// legacy first, then names in order
+	for _, name := range slices.Sorted(maps.Keys(records)) {
+		err := s.createVectorIndex(ctx, name, records[name].PhysicalID, active[name], s.lazySegmentLoadingEnabled)
+		if err != nil {
+			return err
+		}
+	}
+	// a skipped vector owns no files and no record, but callers need its slot
+	for name, cfg := range skipped {
+		err := s.createVectorIndex(ctx, name, s.vectorIndexID(name), cfg, s.lazySegmentLoadingEnabled)
+		if err != nil {
 			return err
 		}
 	}
 
-	if err := s.initTargetVectors(ctx, legacy, targets, s.lazySegmentLoadingEnabled); err != nil {
-		return err
+	err = s.commitVectorIndexRecords(records, initialized)
+	if err != nil {
+		return fmt.Errorf("shard %q: %w", s.ID(), err)
 	}
-
 	return nil
 }
 
+// vectorIndexLogger identifies every log line under one vector index: the
+// logical name for operators, the physical id for storage. The index, its
+// queue and everything they construct inherit it.
+func (s *Shard) vectorIndexLogger(targetVector, indexID string) logrus.FieldLogger {
+	return s.index.logger.WithFields(logrus.Fields{
+		"class":         s.index.Config.ClassName.String(),
+		"shard":         s.name,
+		"target_vector": targetVector,
+		"index_id":      indexID,
+	})
+}
+
 func (s *Shard) initVectorIndex(ctx context.Context,
-	targetVector string, vectorIndexUserConfig schemaConfig.VectorIndexConfig, lazyLoadSegments bool,
+	targetVector, physicalID string, vectorIndexUserConfig schemaConfig.VectorIndexConfig, lazyLoadSegments bool,
 ) (VectorIndex, error) {
 	var distProv distancer.Provider
 
@@ -88,6 +154,12 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		makeBucketOptions = s.overwrittenMakeDefaultBucketOptions(lsmkv.WithLazySegmentLoading(lazyLoadSegments))
 	}
 
+	// Every log line under this index carries both identities: the logical
+	// name for operators ("which vector?") and the physical id for storage
+	// ("which files?"). Implementations and the entities they own (compressors,
+	// commit loggers, queues) inherit it and add nothing of their own.
+	logger := s.vectorIndexLogger(targetVector, physicalID)
+
 	switch vectorIndexUserConfig.IndexType() {
 	case vectorindex.VectorIndexTypeHNSW:
 		hnswUserConfig, ok := vectorIndexUserConfig.(hnswent.UserConfig)
@@ -103,21 +175,15 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 			s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
-			// a shard can actually have multiple vector indexes:
-			// - the main index, which is used for all normal object vectors
-			// - a geo property index for each geo prop in the schema
-			//
-			// here we label the main vector index as such.
-			vecIdxID := s.vectorIndexID(targetVector)
-
 			vi, err := hnsw.New(hnsw.Config{
-				Logger:                            s.index.logger,
+				Logger:                            logger,
 				RootPath:                          s.path(),
-				ID:                                vecIdxID,
+				ID:                                physicalID,
 				ShardName:                         s.name,
 				ClassName:                         s.index.Config.ClassName.String(),
 				PrometheusMetrics:                 s.promMetrics,
 				VectorForIDThunk:                  hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+				VectorFromObject:                  vectorFromObjectForTarget(targetVector),
 				MultiVectorForIDThunk:             hnsw.NewVectorForIDThunk(targetVector, s.multiVectorByIndexID),
 				TempMultiVectorForIDThunk:         hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
 				GetViewThunk:                      func() vcommon.BucketView { return s.GetObjectsBucketView() },
@@ -130,8 +196,8 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 						// consistent with previous logic where the individual limit is 1/5 of the combined limit
 						hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
 					}, opts...)
-					return hnsw.NewCommitLogger(s.path(), vecIdxID,
-						s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
+					return hnsw.NewCommitLogger(s.path(), physicalID,
+						logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
 						allOpts...,
 					)
 				},
@@ -156,18 +222,10 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		}
 		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 
-		// a shard can actually have multiple vector indexes:
-		// - the main index, which is used for all normal object vectors
-		// - a geo property index for each geo prop in the schema
-		//
-		// here we label the main vector index as such.
-		vecIdxID := s.vectorIndexID(targetVector)
-
 		vi, err := flat.New(flat.Config{
-			ID:                vecIdxID,
-			TargetVector:      targetVector,
+			ID:                physicalID,
 			RootPath:          s.path(),
-			Logger:            s.index.logger,
+			Logger:            logger,
 			DistanceProvider:  distProv,
 			AllocChecker:      s.index.allocChecker,
 			MakeBucketOptions: makeBucketOptions,
@@ -185,28 +243,16 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
-		// a shard can actually have multiple vector indexes:
-		// - the main index, which is used for all normal object vectors
-		// - a geo property index for each geo prop in the schema
-		//
-		// here we label the main vector index as such.
-		vecIdxID := s.vectorIndexID(targetVector)
-
-		sharedDB, err := s.getOrInitDynamicVectorIndexDB()
-		if err != nil {
-			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
-		}
-
 		vi, err := dynamic.New(dynamic.Config{
-			ID:                           vecIdxID,
-			TargetVector:                 targetVector,
-			Logger:                       s.index.logger,
+			ID:                           physicalID,
+			Logger:                       logger,
 			DistanceProvider:             distProv,
 			RootPath:                     s.path(),
 			ShardName:                    s.name,
 			ClassName:                    s.index.Config.ClassName.String(),
 			PrometheusMetrics:            s.promMetrics,
 			VectorForIDThunk:             hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+			VectorFromObject:             vectorFromObjectForTarget(targetVector),
 			GetViewThunk:                 func() vcommon.BucketView { return s.GetObjectsBucketView() },
 			TempVectorForIDWithViewThunk: hnsw.NewTempVectorForIDWithViewThunk(targetVector, s.readVectorByIndexIDIntoSliceWithView),
 			MakeCommitLoggerThunk: func(opts ...hnsw.CommitlogOption) (hnsw.CommitLogger, error) {
@@ -215,13 +261,13 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					// consistent with previous logic where the individual limit is 1/5 of the combined limit
 					hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
 				}, opts...)
-				return hnsw.NewCommitLogger(s.path(), vecIdxID,
-					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
+				return hnsw.NewCommitLogger(s.path(), physicalID,
+					logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
 					allOpts...,
 				)
 			},
 			TombstoneCallbacks:   s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
-			SharedDB:             sharedDB,
+			State:                s.metadataDB.Namespace(dynamic.StateNamespace),
 			AllocChecker:         s.index.allocChecker,
 			MakeBucketOptions:    makeBucketOptions,
 			AsyncIndexingEnabled: s.index.AsyncIndexingEnabled,
@@ -231,9 +277,6 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		}
 		vectorIndex = vi
 	case vectorindex.VectorIndexTypeHFresh:
-		if !s.index.HFreshEnabled {
-			return nil, errors.New("hfresh index is available only in experimental mode")
-		}
 		userConfig, ok := vectorIndexUserConfig.(hfreshent.UserConfig)
 		if !ok {
 			return nil, errors.Errorf("hfresh vector index: config is not hfresh.UserConfig: %T",
@@ -243,16 +286,16 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		s.index.cycleCallbacks.vectorCommitLoggerCycle.Start()
 		s.index.cycleCallbacks.vectorTombstoneCleanupCycle.Start()
 
-		hfreshConfigID := s.vectorIndexID(targetVector)
-		rootPath := filepath.Join(s.path(), fmt.Sprintf("%s.hfresh.d", hfreshConfigID))
+		hfreshConfigID := physicalID
+		centroidsID := helpers.CentroidsID(hfreshConfigID)
+		rootPath := filepath.Join(s.path(), helpers.HFreshDirName(hfreshConfigID))
 
 		hfreshConfig := &hfresh.Config{
-			Logger:            s.index.logger,
+			Logger:            logger,
 			Scheduler:         s.index.scheduler,
 			DistanceProvider:  distProv,
 			RootPath:          rootPath,
 			ID:                hfreshConfigID,
-			TargetVector:      targetVector,
 			ShardName:         s.name,
 			ClassName:         s.index.Config.ClassName.String(),
 			PrometheusMetrics: s.promMetrics,
@@ -265,9 +308,9 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			TombstoneCallbacks:           s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 			Centroids: hfresh.CentroidConfig{
 				HNSWConfig: &hnsw.Config{
-					Logger:                            s.index.logger,
+					Logger:                            logger,
 					RootPath:                          rootPath,
-					ID:                                hfreshConfigID + "_centroids",
+					ID:                                centroidsID,
 					ShardName:                         s.name,
 					ClassName:                         s.index.Config.ClassName.String(),
 					PrometheusMetrics:                 s.promMetrics,
@@ -283,8 +326,8 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 							// consistent with previous logic where the individual limit is 1/5 of the combined limit
 							hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
 						}, opts...)
-						return hnsw.NewCommitLogger(rootPath, hfreshConfigID+"_centroids",
-							s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
+						return hnsw.NewCommitLogger(rootPath, centroidsID,
+							logger.WithField("index_id", centroidsID), s.cycleCallbacks.vectorCommitLoggerCallbacks,
 							allOpts...,
 						)
 					},
@@ -311,152 +354,158 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 	return vectorIndex, nil
 }
 
-func (s *Shard) getOrInitDynamicVectorIndexDB() (*bbolt.DB, error) {
-	if s.dynamicVectorIndexDB == nil {
-		path := filepath.Join(s.path(), dynamic.StateDBFileName)
-
-		// Timeout: a leaked handle from a failed shard teardown holds the flock;
-		// without it this open retries forever and wedges the loading goroutine.
-		db, err := bbolt.Open(path, 0o600, &bbolt.Options{Timeout: entlsmkv.BoltFlockTimeout})
-		if err != nil {
-			return nil, errors.Wrapf(err, "open %q", path)
-		}
-
-		s.dynamicVectorIndexDB = db
-	}
-
-	return s.dynamicVectorIndexDB, nil
-}
-
-// initTargetVectors builds the named target-vector indexes. legacy and configs
-// are caller-held snapshots; the migrator needs legacy to tell a
-// single-named-vector layout from a legacy-plus-named one.
-func (s *Shard) initTargetVectors(ctx context.Context, legacy schemaConfig.VectorIndexConfig,
-	configs map[string]schemaConfig.VectorIndexConfig, lazyLoadSegments bool,
-) error {
-	s.vectorIndexMu.Lock()
-	defer s.vectorIndexMu.Unlock()
-
+// migrateCompressedVectors logs a failed compressed-vectors folder migration.
+func (s *Shard) migrateCompressedVectors(legacy schemaConfig.VectorIndexConfig, configs map[string]schemaConfig.VectorIndexConfig) {
 	if err := newCompressedVectorsMigrator(s.index.logger).do(s, legacy, configs); err != nil {
 		s.index.logger.WithFields(logrus.Fields{
 			"action":   "init_target_vectors",
 			"shard_id": s.ID(),
 		}).Errorf("failed to migrate vectors compressed folder: %v", err)
 	}
-
-	s.vectorIndexes = make(map[string]VectorIndex, len(configs))
-	s.queues = make(map[string]*VectorIndexQueue, len(configs))
-
-	for targetVector, vectorIndexConfig := range configs {
-		if err := s.initTargetVectorWithLock(ctx, targetVector, vectorIndexConfig, lazyLoadSegments); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
+// initTargetVector creates the named vector's index and queue under the
+// naming rule unless the shard has them already, recording it creating
+// before the build and ready after. Creates are serialized by the slots, so
+// two concurrent UpdateVectorIndexConfigs calls that both saw the target
+// absent build it once; the second finds it in place and returns.
 func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
-	s.vectorIndexMu.Lock()
-	defer s.vectorIndexMu.Unlock()
-	return s.initTargetVectorWithLock(ctx, targetVector, cfg, lazyLoadSegments)
+	if !vectorIndexHasStorage(cfg) {
+		return s.createVectorIndex(ctx, targetVector, s.vectorIndexID(targetVector), cfg, lazyLoadSegments)
+	}
+	rec := vectorIndexRecordFor(targetVector, cfg, vectorIndexStateCreating)
+	_, err := s.vectors.Create(targetVector, func() (VectorIndex, *VectorIndexQueue, error) {
+		err := s.refuseVectorIndexCollision(targetVector, rec.PhysicalID)
+		if err != nil {
+			return nil, nil, err
+		}
+		err = s.markVectorIndexCreating(targetVector, rec)
+		if err != nil {
+			return nil, nil, err
+		}
+		index, queue, err := s.buildVectorIndexAndQueue(ctx, targetVector, rec.PhysicalID, cfg, lazyLoadSegments)
+		if err != nil {
+			return nil, nil, err
+		}
+		err = s.markVectorIndexReady(targetVector, rec)
+		if err != nil {
+			// nothing may run unpublished; the record stays creating for the retry
+			errs := []error{err}
+			if closeErr := queue.Close(ctx); closeErr != nil {
+				errs = append(errs, fmt.Errorf("close the unrecorded queue: %w", closeErr))
+			}
+			if shutdownErr := index.Shutdown(s.shutCtx); shutdownErr != nil {
+				errs = append(errs, fmt.Errorf("shut the unrecorded vector index down: %w", shutdownErr))
+			}
+			return nil, nil, stderrors.Join(errs...)
+		}
+		return index, queue, nil
+	})
+	return err
 }
 
-func (s *Shard) initTargetVectorWithLock(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
-	// Recreating an existing target would orphan the current index+queue (never
-	// Dropped). Returning early also makes concurrent UpdateVectorIndexConfigs
-	// calls that both saw the target absent safe.
-	if _, exists := s.vectorIndexes[targetVector]; exists {
-		return nil
-	}
+// createVectorIndex builds and publishes targetVector's index and queue at
+// physicalID unless the slot exists.
+func (s *Shard) createVectorIndex(ctx context.Context, targetVector, physicalID string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
+	_, err := s.vectors.Create(targetVector, func() (VectorIndex, *VectorIndexQueue, error) {
+		return s.buildVectorIndexAndQueue(ctx, targetVector, physicalID, cfg, lazyLoadSegments)
+	})
+	return err
+}
 
-	vectorIndex, err := s.initVectorIndex(ctx, targetVector, cfg, lazyLoadSegments)
+// buildVectorIndexAndQueue constructs a vector's index and its queue at
+// physicalID. A queue that fails to build takes the index down with it, so
+// nothing is left running unpublished.
+func (s *Shard) buildVectorIndexAndQueue(ctx context.Context, targetVector, physicalID string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) (VectorIndex, *VectorIndexQueue, error) {
+	vectorIndex, err := s.initVectorIndex(ctx, targetVector, physicalID, cfg, lazyLoadSegments)
 	if err != nil {
-		return fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
+		return nil, nil, fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
 	}
-	queue, err := NewVectorIndexQueue(s, targetVector, vectorIndex)
+	queue, err := newVectorIndexQueueWithID(s, physicalID, targetVector, vectorIndex)
 	if err != nil {
 		if shutdownErr := vectorIndex.Shutdown(s.shutCtx); shutdownErr != nil {
-			return fmt.Errorf("cannot create index queue for %q: %w (shutting down the orphaned vector index also failed: %w)",
+			return nil, nil, fmt.Errorf("cannot create index queue for %q: %w (shutting down the orphaned vector index also failed: %w)",
 				targetVector, err, shutdownErr)
 		}
-		return fmt.Errorf("cannot create index queue for %q: %w", targetVector, err)
+		return nil, nil, fmt.Errorf("cannot create index queue for %q: %w", targetVector, err)
 	}
-
-	s.vectorIndexes[targetVector] = vectorIndex
-	s.queues[targetVector] = queue
-	return nil
-}
-
-func (s *Shard) initLegacyVector(ctx context.Context, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
-	s.vectorIndexMu.Lock()
-	defer s.vectorIndexMu.Unlock()
-
-	vectorIndex, err := s.initVectorIndex(ctx, "", cfg, lazyLoadSegments)
-	if err != nil {
-		return err
-	}
-
-	queue, err := NewVectorIndexQueue(s, "", vectorIndex)
-	if err != nil {
-		if shutdownErr := vectorIndex.Shutdown(s.shutCtx); shutdownErr != nil {
-			return fmt.Errorf("%w (shutting down the orphaned vector index also failed: %w)", err, shutdownErr)
-		}
-		return err
-	}
-	s.vectorIndex = vectorIndex
-	s.queue = queue
-	return nil
+	return vectorIndex, queue, nil
 }
 
 func (s *Shard) setVectorIndex(targetVector string, index VectorIndex) {
-	s.vectorIndexMu.Lock()
-	defer s.vectorIndexMu.Unlock()
+	s.vectors.Replace(targetVector, index)
+}
 
-	if targetVector == "" {
-		s.vectorIndex = index
-	} else {
-		s.vectorIndexes[targetVector] = index
+// perVectorDropper is implemented by index types whose Drop() would reach
+// beyond the one vector being dropped. Only dynamic needs it today: its state
+// DB is shared across the shard, so Drop's Close()+Remove would take every
+// sibling's state with it.
+type perVectorDropper interface {
+	DropTargetVector(ctx context.Context) error
+}
+
+// dropOneVectorIndex tears down a single named vector's index. Index types that
+// own nothing shard-wide fall through to Drop(keepFiles=false), which is the
+// same thing for them; the interface exists so a type that DOES own shared
+// state has somewhere to say so, rather than the caller having to know which
+// types are special.
+func dropOneVectorIndex(ctx context.Context, index VectorIndex) error {
+	if d, ok := index.(perVectorDropper); ok {
+		return d.DropTargetVector(ctx)
 	}
+	return index.Drop(ctx, false)
 }
 
 // DropVectorIndex shuts down and removes the named vector index and its queue
 // from this shard, deleting associated files from disk. It also removes the
 // LSM buckets that store the raw and compressed vector data.
+//
+// The vector's dimension rows are not cleared here. This runs inline in the
+// RAFT apply, for every shard of the collection, and that clear is O(objects)
+// where everything else here is O(files). The drop task clears the rows per
+// unit instead, and a shard that was inactive throughout clears them when it
+// next loads.
 func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error {
-	s.vectorIndexMu.Lock()
-	defer s.vectorIndexMu.Unlock()
-
-	if queue, ok := s.queues[targetVector]; ok && queue != nil {
-		if err := queue.Drop(ctx); err != nil {
-			return fmt.Errorf("drop queue for vector %q: %w", targetVector, err)
+	err := s.vectors.Remove(ctx, targetVector, s.index.logger, func(index VectorIndex, queue *VectorIndexQueue) error {
+		if queue != nil {
+			if err := queue.Drop(ctx); err != nil {
+				return fmt.Errorf("drop queue for vector %q: %w", targetVector, err)
+			}
 		}
-		delete(s.queues, targetVector)
-	}
-
-	if index, ok := s.vectorIndexes[targetVector]; ok && index != nil {
-		if err := index.Drop(ctx, false); err != nil {
-			return fmt.Errorf("drop vector index %q: %w", targetVector, err)
+		if index != nil {
+			if err := dropOneVectorIndex(ctx, index); err != nil {
+				return fmt.Errorf("drop vector index %q: %w", targetVector, err)
+			}
 		}
-		delete(s.vectorIndexes, targetVector)
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
-	// Drop LSM buckets that hold the vector data on disk.
-	vectorsBucket := helpers.GetVectorsBucketName(targetVector)
-	if err := s.removeBucket(ctx, vectorsBucket); err != nil {
-		return fmt.Errorf("drop vectors bucket for %q: %w", targetVector, err)
-	}
-
-	compressedBucket := helpers.GetCompressedBucketName(targetVector)
-	if err := s.removeBucket(ctx, compressedBucket); err != nil {
-		return fmt.Errorf("drop compressed vectors bucket for %q: %w", targetVector, err)
-	}
-
-	// Remove the index checkpoint entry for this vector.
-	if s.indexCheckpoints != nil {
-		if err := s.indexCheckpoints.Delete(s.ID(), targetVector); err != nil {
-			return fmt.Errorf("delete checkpoint for vector %q: %w", targetVector, err)
+	// Remove every on-disk artifact this vector owns — the raw and compressed
+	// buckets, the multivector ones (muvera OR mv_mappings), and hfresh's
+	// directory and buckets. The set lives in helpers so the live drop, the
+	// file sweep and the tests cannot drift apart; passing the collection's
+	// other vector names is what stops a sibling being deleted when its own
+	// bucket collides with one of this target's artifact names.
+	artifacts := helpers.VectorIndexArtifactsFor(targetVector,
+		otherTargetVectors(s.class, targetVector))
+	for _, bucket := range artifacts.LSMBuckets {
+		if err := s.removeBucket(ctx, bucket); err != nil {
+			return fmt.Errorf("drop bucket %q for vector %q: %w", bucket, targetVector, err)
 		}
 	}
+	for _, dir := range artifacts.ShardDirs {
+		if err := s.removeDirIfExists(s.path(), dir); err != nil {
+			return fmt.Errorf("drop directory %q for vector %q: %w", dir, targetVector, err)
+		}
+	}
 
+	// the record goes last, so a failed drop keeps it for the retry
+	err = s.mapping.Delete(targetVector)
+	if err != nil {
+		return fmt.Errorf("drop mapping record for vector %q: %w", targetVector, err)
+	}
 	return nil
 }

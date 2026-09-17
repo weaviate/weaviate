@@ -12,11 +12,14 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 )
@@ -39,7 +42,8 @@ func (h *vectorDropIndexHelper) ensureFilesAreRemovedForDroppedVectorIndexes(
 		if !modelsext.IsVectorIndexDropped(cfg) {
 			continue
 		}
-		if err := h.removeVectorIndexFiles(indexPath, shardName, name); err != nil {
+		if err := h.removeVectorIndexFiles(indexPath, shardName, name,
+			otherTargetVectors(class, name)); err != nil {
 			return fmt.Errorf("failed to remove dropped vector index %q files for class %s: %w",
 				name, class.Class, err)
 		}
@@ -47,32 +51,98 @@ func (h *vectorDropIndexHelper) ensureFilesAreRemovedForDroppedVectorIndexes(
 	return nil
 }
 
-// removeVectorIndexFiles removes all on-disk artifacts for a named vector index:
-// - LSM bucket: vectors_{name}
-// - LSM compressed bucket: vectors_compressed_{name}
-// - HNSW commit log directory: vectors_{name}.hnsw.commitlog.d
-// - HNSW snapshot directory: vectors_{name}.hnsw.snapshot.d
-func (h *vectorDropIndexHelper) removeVectorIndexFiles(indexPath, shardName, targetVector string) error {
+// clearDroppedVectorDimensions clears the dimension rows of every vector whose
+// index has been dropped. It is what covers a tenant that was inactive when the
+// drop ran: the drop leaves those rows alone, and nothing else reclaims them.
+//
+// It runs after the store is open so the rows go through the shard's own
+// dimensions bucket. Clearing them earlier in the load would mean a second open
+// of that bucket from disk, segments and WAL recovery included, on every
+// activation for as long as the dropped entry stands.
+//
+// Not fatal. These rows are usage accounting, and the drop task clears them per
+// unit as well, so a failure here costs a delayed reclaim where returning would
+// cost the tenant its activation — including when the only problem is a usage
+// collection holding the bucket lock this call waits on.
+func (s *Shard) clearDroppedVectorDimensions(ctx context.Context, class *models.Class) {
+	for name, cfg := range class.VectorConfig {
+		if !modelsext.IsVectorIndexDropped(cfg) {
+			continue
+		}
+		if err := s.removeAllDimensionsLSM(ctx, name); err != nil {
+			s.index.logger.WithField("shard", s.name).WithField("class", class.Class).
+				WithField("target_vector", name).
+				Warnf("drop vector index: could not clear dimension rows, leaving them for the next sweep: %v", err)
+		}
+	}
+}
+
+// removeVectorIndexFiles removes every on-disk artifact of a named vector index
+// (see helpers.VectorIndexArtifactsFor for the set and why it is centralised).
+// otherTargetVectors are the collection's remaining vector names, needed so a
+// sibling whose own bucket collides with one of this target's artifact names is
+// not deleted along with it.
+func (h *vectorDropIndexHelper) removeVectorIndexFiles(
+	indexPath, shardName, targetVector string, otherTargetVectors []string,
+) error {
 	lsmDir := filepath.Join(indexPath, shardName, "lsm")
 	shardDir := filepath.Join(indexPath, shardName)
 
-	vectorsBucket := helpers.GetVectorsBucketName(targetVector)
-	compressedBucket := helpers.GetCompressedBucketName(targetVector)
-	hnswCommitLogDir := helpers.GetHNSWCommitLogDirName(targetVector)
-	hnswSnapshotDir := helpers.GetHNSWSnapshotDirName(targetVector)
+	artifacts := helpers.VectorIndexArtifactsFor(targetVector, otherTargetVectors)
 
-	vectorIndexDirectories := []string{
-		filepath.Join(lsmDir, vectorsBucket),
-		filepath.Join(lsmDir, compressedBucket),
-		filepath.Join(shardDir, hnswCommitLogDir),
-		filepath.Join(shardDir, hnswSnapshotDir),
+	var dirs []string
+	for _, bucket := range artifacts.LSMBuckets {
+		dirs = append(dirs, filepath.Join(lsmDir, bucket))
+	}
+	for _, dir := range artifacts.ShardDirs {
+		dirs = append(dirs, filepath.Join(shardDir, dir))
 	}
 
-	for _, dir := range vectorIndexDirectories {
+	for _, dir := range dirs {
 		if err := os.RemoveAll(dir); err != nil {
 			return fmt.Errorf("remove %s: %w", dir, err)
 		}
 	}
 
+	// A dynamic index records its flat-to-hnsw upgrade as a key in the shard's
+	// index.db, which no artifact above can reach: that file is one per shard,
+	// not one per vector, so removing it would take every sibling's state too.
+	//
+	// Unconditional because nothing here can tell a dynamic vector from any
+	// other — the drop rewrote this entry's VectorIndexType to "none" and
+	// discarded the original type along with its config.
+	if err := dynamic.RemoveStateKey(shardDir, targetVector); err != nil {
+		return fmt.Errorf("remove dynamic state for %q: %w", targetVector, err)
+	}
+
+	// the record goes last, so a failed sweep keeps it for the retry
+	key := []byte(vectorIndexMappingKey(targetVector))
+	if err := shardmeta.DeleteOffline(shardDir, vectorIndexMappingNamespace, key); err != nil {
+		return fmt.Errorf("remove mapping record for %q: %w", targetVector, err)
+	}
+
 	return nil
+}
+
+// otherTargetVectors lists the collection's vector names except `exclude` —
+// the siblings whose artifacts a drop must not touch. Every artifact a sibling
+// owns is protected, not just its primary bucket.
+func otherTargetVectors(class *models.Class, exclude string) []string {
+	if class == nil {
+		// Nothing to protect, so the drop runs unfiltered: a name collision
+		// with a live sibling takes that sibling's bucket with it.
+		return nil
+	}
+	others := make([]string, 0, len(class.VectorConfig)+1)
+	for name := range class.VectorConfig {
+		if name != exclude {
+			others = append(others, name)
+		}
+	}
+	// the legacy vector owns files too: its quantized bucket is a named
+	// vector "compressed"'s raw bucket
+	if modelsext.ClassHasLegacyVectorIndex(class) && exclude != "" {
+		others = append(others, "")
+	}
+	return others
 }

@@ -28,31 +28,58 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 		return fmt.Errorf("async indexing is not enabled")
 	}
 
-	vidx, vok := s.GetVectorIndex(targetVector)
-	q, qok := s.GetVectorIndexQueue(targetVector)
+	rec, ok, err := s.mapping.Get(targetVector)
+	if err != nil {
+		return errors.Wrap(err, "read mapping record")
+	}
+	if !ok {
+		return fmt.Errorf("vector %q has no mapping record", targetVector)
+	}
 
-	if !(vok && qok) {
+	vidx, releaseIndex, vok := s.AcquireVectorIndex(targetVector)
+	if !vok {
 		return fmt.Errorf("vector index %q not found", targetVector)
 	}
+	defer releaseIndex()
+	q, releaseQueue, qok := s.AcquireVectorIndexQueue(targetVector)
+	if !qok {
+		return fmt.Errorf("vector index %q not found", targetVector)
+	}
+	defer releaseQueue()
 
 	if err := q.Pause(ctx); err != nil {
 		return errors.Wrap(err, "pause vector index")
 	}
 
-	err := vidx.Drop(ctx, false)
+	// bracketed like a creation: a crash in between leaves creating, which
+	// the next load resumes instead of refusing
+	err = s.markVectorIndexCreating(targetVector, rec)
+	if err != nil {
+		q.Resume()
+		return errors.Wrap(err, "mark vector index creating")
+	}
+
+	err = vidx.Drop(ctx, false)
 	if err != nil {
 		return errors.Wrap(err, "drop vector index")
 	}
 
 	newConfig := s.index.GetVectorIndexConfig(targetVector)
 
-	vidx, err = s.initVectorIndex(ctx, targetVector, newConfig, false)
+	vidx, err = s.initVectorIndex(ctx, targetVector, rec.PhysicalID, newConfig, false)
 	if err != nil {
 		return errors.Wrap(err, "init vector index")
 	}
 	s.setVectorIndex(targetVector, vidx)
 
+	// the queue follows the new index whatever the record write says: the
+	// record is repaired at the next load, the shard must keep indexing now
 	q.ResetWith(vidx)
 	q.Resume()
+
+	err = s.markVectorIndexReady(targetVector, rec)
+	if err != nil {
+		return errors.Wrap(err, "mark vector index ready")
+	}
 	return nil
 }

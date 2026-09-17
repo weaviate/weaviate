@@ -105,8 +105,8 @@ func migratorOpsWithoutClassLock(reachIndex bool) map[string]func(*Migrator) err
 		"DeleteTenants": func(m *Migrator) error {
 			return m.DeleteTenants(ctx, lockTestClass, nil)
 		},
-		"GetShardsStatus": func(m *Migrator) error {
-			_, _, err := m.GetShardsStatus(ctx, lockTestClass, "")
+		"GetShardsStorageStatus": func(m *Migrator) error {
+			_, _, err := m.GetShardsStorageStatus(ctx, lockTestClass, "")
 			return err
 		},
 		"GetShardsQueueSize": func(m *Migrator) error {

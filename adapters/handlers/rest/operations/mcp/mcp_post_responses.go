@@ -46,3 +46,48 @@ func (o *McpPostOK) WriteResponse(rw http.ResponseWriter, producer runtime.Produ
 
 	rw.WriteHeader(200)
 }
+
+// McpPostServiceUnavailableCode is the HTTP code returned for type McpPostServiceUnavailable
+const McpPostServiceUnavailableCode int = 503
+
+/*
+McpPostServiceUnavailable MCP server is disabled
+
+swagger:response mcpPostServiceUnavailable
+*/
+type McpPostServiceUnavailable struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *McpPostServiceUnavailableBody `json:"body,omitempty"`
+}
+
+// NewMcpPostServiceUnavailable creates McpPostServiceUnavailable with default headers values
+func NewMcpPostServiceUnavailable() *McpPostServiceUnavailable {
+
+	return &McpPostServiceUnavailable{}
+}
+
+// WithPayload adds the payload to the mcp post service unavailable response
+func (o *McpPostServiceUnavailable) WithPayload(payload *McpPostServiceUnavailableBody) *McpPostServiceUnavailable {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the mcp post service unavailable response
+func (o *McpPostServiceUnavailable) SetPayload(payload *McpPostServiceUnavailableBody) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *McpPostServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(503)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

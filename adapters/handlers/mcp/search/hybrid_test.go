@@ -21,16 +21,23 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
+	"github.com/weaviate/weaviate/cluster/proto/api"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // stubSchemaManager satisfies namespacing.SchemaManager. ResolveAlias returns
@@ -43,12 +50,28 @@ func (s stubSchemaManager) ResolveAlias(alias string) string {
 	return s.aliases[alias]
 }
 
-type stubSchemaReader struct {
-	classes map[string]*models.Class
-}
+// schemaReaderWith builds a real SchemaReader over classes. The searcher takes
+// the concrete reader, so a test that wants the schema to hold something has to
+// seed one. Classes are added in the order given: a reference property whose
+// target is not in the schema yet is rejected.
+func schemaReaderWith(t *testing.T, classes ...*models.Class) clusterSchema.SchemaReader {
+	t.Helper()
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	logger, _ := test.NewNullLogger()
+	sm := clusterSchema.NewSchemaManager("node1", nil, parser, prometheus.NewPedanticRegistry(), logger)
 
-func (s stubSchemaReader) ReadOnlyClass(name string) *models.Class {
-	return s.classes[name]
+	for _, cls := range classes {
+		sub, err := json.Marshal(api.AddClassRequest{
+			Class: cls,
+			State: &sharding.State{PartitioningEnabled: true},
+		})
+		require.NoError(t, err)
+		require.NoError(t, sm.AddClass(&api.ApplyRequest{
+			Type: api.ApplyRequest_TYPE_ADD_CLASS, Class: cls.Class, SubCommand: sub,
+		}, "node1", true, false))
+	}
+	return sm.NewSchemaReader()
 }
 
 // recordingTraverser captures the GetParams it last received so tests can
@@ -73,7 +96,7 @@ func newSearcher(t *testing.T, principal *models.Principal, namespacesEnabled bo
 	return NewWeaviateSearcher(
 		authHandler,
 		trav,
-		stubSchemaReader{},
+		schemaReaderWith(t),
 		stubSchemaManager{aliases: aliases},
 		namespacesEnabled,
 		logger,
@@ -200,7 +223,7 @@ func newSearcherWithResults(t *testing.T, principal *models.Principal, results [
 	authHandler := auth.NewAuth(false, composer, &authorization.DummyAuthorizer{}, nil)
 	logger, _ := test.NewNullLogger()
 	return NewWeaviateSearcher(authHandler, &stubTraverser{results: results},
-		stubSchemaReader{}, stubSchemaManager{}, true, logger)
+		schemaReaderWith(t), stubSchemaManager{}, true, logger)
 }
 
 // TestHybrid_NestedRefClassStripped pins the NS strip on nested
@@ -300,10 +323,13 @@ func TestHybrid_DefaultSelectProperties(t *testing.T) {
 			{Name: "body", DataType: []string{"text"}},
 		},
 	}
-	reader := stubSchemaReader{classes: map[string]*models.Class{"Things": class}}
+	// Owner is seeded too: the real schema rejects a reference property whose
+	// target class it does not hold.
+	owner := &models.Class{Class: "Owner"}
 
 	newSearcherWithSchema := func(t *testing.T) (*WeaviateSearcher, *recordingTraverser) {
 		t.Helper()
+		reader := schemaReaderWith(t, owner, class)
 		composer := func(token string, _ []string) (*models.Principal, error) { return &models.Principal{}, nil }
 		authHandler := auth.NewAuth(false, composer, &authorization.DummyAuthorizer{}, nil)
 		trav := &recordingTraverser{}
@@ -407,7 +433,7 @@ func TestHybrid_FilterSchemaExposed(t *testing.T) {
 
 	filterSchema, ok := props["filters"].(map[string]any)
 	require.True(t, ok, "filters must be advertised in the tool input schema")
-	assert.Equal(t, "object", filterSchema["type"])
+	assert.Equal(t, []any{"object", "null"}, filterSchema["type"])
 
 	fprops, ok := filterSchema["properties"].(map[string]any)
 	require.True(t, ok, "filters must expose structured sub-properties")
@@ -418,7 +444,7 @@ func TestHybrid_FilterSchemaExposed(t *testing.T) {
 
 	operands, ok := fprops["operands"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "array", operands["type"], "operands carries nested filters")
+	assert.Equal(t, []any{"array", "null"}, operands["type"], "operands carries nested filters")
 }
 
 // TestHybrid_FilterSchemaValueFields: every non-deprecated value* field on
@@ -483,9 +509,11 @@ func TestHybrid_FilterSchemaOperatorEnum(t *testing.T) {
 	fprops := schema["properties"].(map[string]any)["filters"].(map[string]any)["properties"].(map[string]any)
 	enumAny, ok := fprops["operator"].(map[string]any)["enum"].([]any)
 	require.True(t, ok, "operator must declare an enum")
-	got := make([]string, len(enumAny))
-	for i, v := range enumAny {
-		got[i] = v.(string)
+	got := make([]string, 0, len(enumAny))
+	for _, v := range enumAny {
+		if v != nil { // null: the operator is optional
+			got = append(got, v.(string))
+		}
 	}
 	assert.ElementsMatch(t, canonical, got, "advertised operator enum must match the model's enum")
 }
@@ -542,4 +570,62 @@ func TestHybrid_StructuredFilterFlowsThrough(t *testing.T) {
 		assert.Equal(t, filters.OperatorAnd, trav.gotParams.Filters.Root.Operator)
 		assert.Len(t, trav.gotParams.Filters.Root.Operands, 2)
 	})
+}
+
+// TestHybrid_ArgumentValidation pins the alpha and limit checks and the
+// defaults the traverser receives.
+func TestHybrid_ArgumentValidation(t *testing.T) {
+	alpha := func(v float64) *float64 { return &v }
+	limit := func(v int) *int { return &v }
+
+	cases := []struct {
+		name            string
+		alpha           *float64
+		limit           *int
+		targetVectors   []string
+		wantErr         string
+		wantAlpha       float64
+		wantLimit       int // 0: no pagination, so the default limit applies
+		wantCombination *dto.TargetCombination
+	}{
+		{name: "alpha below 0", alpha: alpha(-0.1), wantErr: "alpha must be between 0 and 1"},
+		{name: "alpha above 1", alpha: alpha(1.5), wantErr: "alpha must be between 0 and 1"},
+		{name: "alpha 0", alpha: alpha(0), wantAlpha: 0},
+		{name: "alpha 1", alpha: alpha(1), wantAlpha: 1},
+		{name: "alpha omitted uses the default", wantAlpha: common_filters.DefaultAlpha},
+		{name: "limit below 0", limit: limit(-1), wantErr: "limit must be 0 or greater"},
+		{name: "limit 0 uses the default", limit: limit(0), wantAlpha: common_filters.DefaultAlpha},
+		{name: "limit 5", limit: limit(5), wantAlpha: common_filters.DefaultAlpha, wantLimit: 5},
+		{name: "one target vector has no combination", targetVectors: []string{"a"}, wantAlpha: common_filters.DefaultAlpha},
+		{
+			name:            "two target vectors use the default combination",
+			alpha:           alpha(0.5),
+			targetVectors:   []string{"a", "b"},
+			wantAlpha:       0.5,
+			wantCombination: &dto.TargetCombination{Type: dto.DefaultTargetCombinationType},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s, trav := newSearcher(t, &models.Principal{}, false, nil)
+			_, err := s.Hybrid(context.Background(), bearerReq(), QueryHybridArgs{
+				CollectionName: "Things", Query: "x", Alpha: tc.alpha, Limit: tc.limit, TargetVectors: tc.targetVectors,
+			})
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
+				require.Nil(t, trav.gotParams.HybridSearch, "rejected arguments must not reach the traverser")
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.wantAlpha, trav.gotParams.HybridSearch.Alpha)
+			require.Equal(t, common_filters.HybridFusionDefault, trav.gotParams.HybridSearch.FusionAlgorithm)
+			require.Equal(t, tc.wantCombination, trav.gotParams.TargetVectorCombination)
+			if tc.wantLimit == 0 {
+				require.Nil(t, trav.gotParams.Pagination)
+			} else {
+				require.Equal(t, tc.wantLimit, trav.gotParams.Pagination.Limit)
+			}
+		})
+	}
 }

@@ -36,6 +36,10 @@ func (t *Traverser) Explore(ctx context.Context,
 		return nil, err
 	}
 
+	if err := t.authorizeNearObjectBeacon(ctx, principal, params.NearObject, "", ""); err != nil {
+		return nil, err
+	}
+
 	return t.explorer.CrossClassVectorSearch(ctx, params)
 }
 

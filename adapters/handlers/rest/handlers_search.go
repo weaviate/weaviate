@@ -12,6 +12,7 @@
 package rest
 
 import (
+	"fmt"
 	"net/http"
 
 	openapierrors "github.com/go-openapi/errors"
@@ -22,6 +23,7 @@ import (
 	searchops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/search"
 	restsearch "github.com/weaviate/weaviate/adapters/handlers/rest/search"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -30,19 +32,17 @@ import (
 // /v1/search/{collection}/{near-text,bm25,hybrid,near-object}) and its
 // sibling aggregate API (operation aggregate, POST
 // /v1/aggregate/{collection}). The handler logic lives in
-// adapters/handlers/rest/search. The endpoints are experimental and off by
-// default; EXPERIMENTAL_REST_SEARCH_ENABLED=true enables them. When disabled
-// they reject requests with 422.
+// adapters/handlers/rest/search.
 func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 	h := restsearch.NewHandler(restsearch.HandlerConfig{
-		Traverser:         appState.Traverser,
-		SchemaReader:      appState.SchemaManager,
-		Authorizer:        appState.Authorizer,
-		NamespacesEnabled: appState.ServerConfig.Config.Namespaces.Enabled,
-		DefaultLimit:      appState.ServerConfig.Config.QueryDefaults.Limit,
-		MaximumResults:    appState.ServerConfig.Config.QueryMaximumResults,
-		Enabled:           appState.ServerConfig.Config.ExperimentalRESTSearchEnabled,
-		Logger:            appState.Logger,
+		Traverser:          appState.Traverser,
+		SchemaReader:       appState.ClusterService.SchemaReader(),
+		Authorizer:         appState.Authorizer,
+		NamespacesEnabled:  appState.ServerConfig.Config.Namespaces.Enabled,
+		DefaultLimit:       appState.ServerConfig.Config.QueryDefaults.Limit,
+		MaximumResults:     appState.ServerConfig.Config.QueryMaximumResults,
+		CrossRefDepthLimit: appState.ServerConfig.Config.QueryCrossReferenceDepthLimit,
+		Logger:             appState.Logger,
 	})
 
 	// swagger-layer errors (bind validation, security, routing) on search
@@ -105,10 +105,13 @@ func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 		})
 }
 
-// searchErrPayload renders a search APIError as the standard REST error body.
+// searchErrPayload renders a search APIError as the standard REST error body,
+// with the docs link appended for a documented error. Err is already stripped
+// for the caller, so the link is matched on the cause instead.
 func searchErrPayload(apiErr *restsearch.APIError) *models.ErrorResponse {
+	message := enterrors.AppendDocsLink(fmt.Sprintf("%v", apiErr.Err), apiErr.Cause())
 	return &models.ErrorResponse{
-		Error: []*models.ErrorResponseErrorItems0{{Message: apiErr.Error()}},
+		Error: []*models.ErrorResponseErrorItems0{{Message: message}},
 	}
 }
 
@@ -128,8 +131,6 @@ func searchNearTextErrResponder(apiErr *restsearch.APIError) middleware.Responde
 		return searchops.NewSearchNearTextUnprocessableEntity().WithPayload(payload)
 	case http.StatusTooManyRequests:
 		return searchops.NewSearchNearTextTooManyRequests().WithPayload(payload)
-	case http.StatusBadGateway:
-		return searchops.NewSearchNearTextBadGateway().WithPayload(payload)
 	case http.StatusInternalServerError:
 		return searchops.NewSearchNearTextInternalServerError().WithPayload(payload)
 	default:
@@ -155,8 +156,6 @@ func searchHybridErrResponder(apiErr *restsearch.APIError) middleware.Responder 
 		return searchops.NewSearchHybridUnprocessableEntity().WithPayload(payload)
 	case http.StatusTooManyRequests:
 		return searchops.NewSearchHybridTooManyRequests().WithPayload(payload)
-	case http.StatusBadGateway:
-		return searchops.NewSearchHybridBadGateway().WithPayload(payload)
 	case http.StatusInternalServerError:
 		return searchops.NewSearchHybridInternalServerError().WithPayload(payload)
 	default:
@@ -168,8 +167,6 @@ func searchHybridErrResponder(apiErr *restsearch.APIError) middleware.Responder 
 
 // searchNearObjectErrResponder translates a search APIError into the
 // generated responder for its status, keeping the standard REST error shape.
-// near-object declares no 502 — the source object's stored vector anchors
-// the search, so no embedding provider is ever called.
 func searchNearObjectErrResponder(apiErr *restsearch.APIError) middleware.Responder {
 	payload := searchErrPayload(apiErr)
 
@@ -195,8 +192,7 @@ func searchNearObjectErrResponder(apiErr *restsearch.APIError) middleware.Respon
 
 // aggregateErrResponder translates an aggregate APIError into the generated
 // responder for its status, keeping the standard REST error shape. aggregate
-// declares neither 502 (nothing is ever vectorized) nor 429 (the traverser's
-// aggregate path is not rate limited).
+// declares no 429 (the traverser's aggregate path is not rate limited).
 func aggregateErrResponder(apiErr *restsearch.APIError) middleware.Responder {
 	payload := searchErrPayload(apiErr)
 
@@ -219,8 +215,7 @@ func aggregateErrResponder(apiErr *restsearch.APIError) middleware.Responder {
 }
 
 // searchBm25ErrResponder translates a search APIError into the generated
-// responder for its status, keeping the standard REST error shape. bm25
-// declares no 502 — a keyword search never calls an embedding provider.
+// responder for its status, keeping the standard REST error shape.
 func searchBm25ErrResponder(apiErr *restsearch.APIError) middleware.Responder {
 	payload := searchErrPayload(apiErr)
 

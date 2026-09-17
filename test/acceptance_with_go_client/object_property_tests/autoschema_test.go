@@ -12,6 +12,7 @@
 package object_property_tests
 
 import (
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"testing"
 
@@ -25,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 
 	acceptance_with_go_client "acceptance_tests_with_client"
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestObjectProperty_AutoSchema(t *testing.T) {

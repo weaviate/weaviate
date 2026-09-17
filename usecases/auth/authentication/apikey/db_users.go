@@ -18,8 +18,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -40,6 +42,16 @@ const (
 	UserNameMaxLength = 128
 	UserNameRegexCore = `[A-Za-z][-_0-9A-Za-z@.]{0,128}`
 )
+
+// ErrUserIdentifierExists is returned by CreateUser when the identifier already
+// maps to a different userId. IdentifierToId is cluster-wide with no namespace
+// prefix, so a second mapping would hijack the first user's login.
+var ErrUserIdentifierExists = errors.New("user identifier already exists")
+
+// ErrUserExists is returned by CreateUser when the userId is already held by a
+// different userIdentifier. Writing anyway would replace a live user's key hash
+// with one the caller supplied, locking that user out of the cluster.
+var ErrUserExists = errors.New("user already exists with a different credential")
 
 // MakeUserKey returns the internal storage key for a user. Namespaced users
 // are stored under "namespace<sep>userId" so two namespaces can host the same
@@ -63,6 +75,7 @@ type DBUsers interface {
 	ActivateUser(ctx context.Context, userId string) error
 	DeactivateUser(ctx context.Context, userId string, revokeKey bool) error
 	GetUsers(userIds ...string) (map[string]UserView, error)
+	ExportUsers(userIds ...string) (map[string]dbuser.ExportRecord, error)
 	RotateKey(ctx context.Context, userId, apiKeyFirstLetters, secureHash, oldIdentifier, newIdentifier string) error
 	CheckUserIdentifierExists(userIdentifier string) (bool, error)
 }
@@ -231,7 +244,22 @@ func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLette
 		return errors.New("api key first letters too long")
 	}
 
+	// Refuse to rebind an identifier held by another user. Same-userId re-apply
+	// is allowed for RAFT log replay and repeat import.
+	if existing, ok := c.data.IdentifierToId[userIdentifier]; ok && existing != userId {
+		return fmt.Errorf("%w: identifier already maps to user %q", ErrUserIdentifierExists, existing)
+	}
+
+	// The userId must not already hold a different identifier. Both checks come
+	// before every write, so a rejected create leaves every map untouched.
+	if existing := c.data.Users[userId]; existing != nil && existing.InternalIdentifier != userIdentifier {
+		return fmt.Errorf("%w: user %q is bound to a different identifier", ErrUserExists, userId)
+	}
+
 	c.data.SecureKeyStorageById[userId] = secureHash
+	// The cached weak hash was verified against the old secure hash. Keeping it
+	// makes this node reject the credential just stored.
+	c.memoryOnlyData.weakKeyStorageById.Delete(userId)
 	c.data.IdentifierToId[userIdentifier] = userId
 	c.data.IdToIdentifier[userId] = userIdentifier
 	c.data.Users[userId] = &User{
@@ -409,6 +437,69 @@ func (c *DBUser) GetUsers(userIds ...string) (map[string]UserView, error) {
 	for _, id := range userIds {
 		if user, ok := c.data.Users[id]; ok && user != nil {
 			users[id] = user.view()
+		}
+	}
+	return users, nil
+}
+
+// ExportUsers returns a credential record per user for migration; with no ids it
+// returns every user. An unknown id is left out, as in GetUsers. Imported and
+// revoked users get a nil hash and a status naming why. A missing secure hash is
+// an error: no write path produces one, so the store is broken.
+func (c *DBUser) ExportUsers(userIds ...string) (map[string]dbuser.ExportRecord, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	classify := func(id string, user *User) (dbuser.ExportRecord, error) {
+		v := user.view()
+		rec := dbuser.ExportRecord{
+			Id:                 v.Id,
+			UserIdentifier:     c.data.IdToIdentifier[id],
+			ApiKeyFirstLetters: v.ApiKeyFirstLetters,
+			Active:             v.Active,
+			CreatedAt:          v.CreatedAt,
+			Namespace:          v.Namespace,
+		}
+		if v.ImportedWithKey {
+			rec.Status = dbuser.ExportStatusImportedKey
+			return rec, nil
+		}
+		if _, revoked := c.data.UserKeyRevoked[id]; revoked {
+			rec.Status = dbuser.ExportStatusRevoked
+			return rec, nil
+		}
+		secureHash, ok := c.data.SecureKeyStorageById[id]
+		if !ok {
+			return dbuser.ExportRecord{}, fmt.Errorf("no secure hash on file")
+		}
+		rec.SecureHash = &secureHash
+		rec.Status = dbuser.ExportStatusExported
+		return rec, nil
+	}
+
+	if len(userIds) == 0 {
+		users := make(map[string]dbuser.ExportRecord, len(c.data.Users))
+		for id, user := range c.data.Users {
+			if user == nil {
+				continue
+			}
+			classified, err := classify(id, user)
+			if err != nil {
+				return nil, fmt.Errorf("exporting user %q: %w", id, err)
+			}
+			users[id] = classified
+		}
+		return users, nil
+	}
+
+	users := make(map[string]dbuser.ExportRecord, len(userIds))
+	for _, id := range userIds {
+		if user, ok := c.data.Users[id]; ok && user != nil {
+			classified, err := classify(id, user)
+			if err != nil {
+				return nil, fmt.Errorf("exporting user %q: %w", id, err)
+			}
+			users[id] = classified
 		}
 	}
 	return users, nil
@@ -708,11 +799,18 @@ func (c *DBUser) Restore(snapshot []byte, stripNamespaces bool) error {
 	return nil
 }
 
-// ValidateNamespaceStrip dry-runs the stripNamespaces arm of [DBUser.Restore]
+// ValidateNamespaceStrip runs the strip path of [DBUser.Restore]
 // against snapshot without mutating any state: it unmarshals, checks the
 // snapshot version, and attempts the namespace strip, returning the exact
 // collision error a real restore would hit.
 func ValidateNamespaceStrip(snapshot []byte) error {
+	return ValidateSnapshot(snapshot, true)
+}
+
+// ValidateSnapshot runs the checks [DBUser.Restore] makes before it replaces
+// the user state, without replacing it: the decode, the snapshot version, and
+// the strip when stripNamespaces is set. The version check runs either way.
+func ValidateSnapshot(snapshot []byte, stripNamespaces bool) error {
 	// Restore treats an empty snapshot as a no-op.
 	if len(snapshot) == 0 {
 		return nil
@@ -727,8 +825,49 @@ func ValidateNamespaceStrip(snapshot []byte) error {
 		return fmt.Errorf("invalid snapshot version")
 	}
 
+	if !stripNamespaces {
+		return nil
+	}
+
 	_, err := stripDBUserNamespace(snapshotRestore.Data)
 	return err
+}
+
+// ReferencedNamespaces returns each user's Namespace field. A user written
+// before the field existed carries its namespace only on the id and is not
+// read; namespaced backups predating the field are unsupported.
+func ReferencedNamespaces(snapshot []byte) ([]string, error) {
+	if len(snapshot) == 0 {
+		return nil, nil
+	}
+
+	snapshotRestore := DBUserSnapshot{}
+	if err := json.Unmarshal(snapshot, &snapshotRestore); err != nil {
+		return nil, err
+	}
+	if snapshotRestore.Version != SnapshotVersion {
+		return nil, fmt.Errorf("invalid snapshot version")
+	}
+
+	seen := map[string]struct{}{}
+	for _, user := range snapshotRestore.Data.Users {
+		if user != nil && user.Namespace != "" {
+			seen[user.Namespace] = struct{}{}
+		}
+	}
+	return slices.Sorted(maps.Keys(seen)), nil
+}
+
+// RequireReferencedNamespacesExist returns an error when any namespace the
+// snapshot names is missing or deleting on this cluster. See
+// [ReferencedNamespaces] for which names the snapshot carries and
+// [namespaces.RequireAllExisting] for which states pass.
+func RequireReferencedNamespacesExist(snapshot []byte, ns namespaces.Exister) error {
+	refs, err := ReferencedNamespaces(snapshot)
+	if err != nil {
+		return err
+	}
+	return namespaces.RequireAllExisting(ns, refs)
 }
 
 // stripDBUserNamespace drops the "<namespace>:" prefix from every field containing an ID;
@@ -795,6 +934,15 @@ func stripDBUserNamespace(src dbUserdata) (dbUserdata, error) {
 	}
 
 	return out, nil
+}
+
+// Persist writes the user state to the file NewDBUser reads at boot. That file
+// is a cache in front of RAFT state, never the source of truth. Callers must
+// not hold the lock.
+func (c *DBUser) Persist() error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+	return c.storeToFile()
 }
 
 func (c *DBUser) storeToFile() error {

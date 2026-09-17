@@ -39,6 +39,11 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal, 
 		return nil, errors.Wrap(err, "invalid 'where' filter")
 	}
 
+	if err := t.authorizeNearObjectBeacon(ctx, principal, params.NearObject,
+		params.ClassName.String(), params.Tenant); err != nil {
+		return nil, err
+	}
+
 	if params.NearVector != nil || params.NearObject != nil || len(params.ModuleParams) > 0 {
 		className := params.ClassName.String()
 		err := t.nearParamsVector.validateNearParams(params.NearVector,

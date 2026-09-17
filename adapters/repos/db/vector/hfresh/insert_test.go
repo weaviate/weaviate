@@ -13,6 +13,7 @@ package hfresh
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -77,6 +78,9 @@ func TestHFreshOptimizedPostingSize(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := DefaultConfig()
+			cfg.VectorForIDThunk = func(context.Context, uint64) ([]float32, error) {
+				return nil, fmt.Errorf("no vector store wired in this test")
+			}
 			scheduler := queue.NewScheduler(
 				queue.SchedulerOptions{
 					Logger: logrus.New(),
@@ -265,6 +269,7 @@ func TestAppendImmediatelySplitsWhenPostingFarAboveThreshold(t *testing.T) {
 
 	vectorID := uint64(10_000)
 	version := VectorVersion(1)
+	tf.Vectors.put(vectorID, vectors[15])
 	err = tf.Index.VersionMap.store.Set(t.Context(), vectorID, version)
 	require.NoError(t, err)
 

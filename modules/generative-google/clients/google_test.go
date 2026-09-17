@@ -35,6 +35,45 @@ func nullLogger() logrus.FieldLogger {
 	return l
 }
 
+func TestGenerateRejectsForeignEndpoint(t *testing.T) {
+	tests := []struct {
+		name   string
+		params googleparams.Params
+	}{
+		{
+			name:   "apiEndpoint outside the Google API domain",
+			params: googleparams.Params{ApiEndpoint: "attacker.example.com"},
+		},
+		{
+			name:   "region carrying a host",
+			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", Region: "attacker.example.com/"},
+		},
+		{
+			name:   "location carrying a host",
+			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", Location: "attacker.example.com/"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &google{
+				apiKey:       "apiKey",
+				httpClient:   &http.Client{},
+				googleApiKey: apikey.NewGoogleApiKey(),
+				buildUrlFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID, region, location string) string {
+					t.Fatal("must not build a request URL for a rejected endpoint")
+					return ""
+				},
+				logger: nullLogger(),
+			}
+			props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "My name is john"}}}
+
+			_, err := c.GenerateAllResults(context.Background(), props, "What is my name?", tt.params, false, nil)
+
+			require.Error(t, err)
+		})
+	}
+}
+
 func TestGetAnswer(t *testing.T) {
 	t.Run("when the server has a successful answer ", func(t *testing.T) {
 		prompt := "John"
@@ -66,7 +105,7 @@ func TestGetAnswer(t *testing.T) {
 			logger: nullLogger(),
 		}
 
-		params := googleparams.Params{ApiEndpoint: server.URL}
+		params := googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com"}
 		props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "My name is john"}}}
 		expected := modulecapabilities.GenerateResponse{
 			Result: ptString("John"),

@@ -64,6 +64,12 @@ func (o *SearchHybridReader) ReadResponse(response runtime.ClientResponse, consu
 			return nil, err
 		}
 		return nil, result
+	case 413:
+		result := NewSearchHybridRequestEntityTooLarge()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 422:
 		result := NewSearchHybridUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -78,12 +84,6 @@ func (o *SearchHybridReader) ReadResponse(response runtime.ClientResponse, consu
 		return nil, result
 	case 500:
 		result := NewSearchHybridInternalServerError()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
-	case 502:
-		result := NewSearchHybridBadGateway()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -439,6 +439,74 @@ func (o *SearchHybridNotFound) readResponse(response runtime.ClientResponse, con
 	return nil
 }
 
+// NewSearchHybridRequestEntityTooLarge creates a SearchHybridRequestEntityTooLarge with default headers values
+func NewSearchHybridRequestEntityTooLarge() *SearchHybridRequestEntityTooLarge {
+	return &SearchHybridRequestEntityTooLarge{}
+}
+
+/*
+SearchHybridRequestEntityTooLarge describes a response with status code 413, with default header values.
+
+The request body exceeded the 4194304 byte (4 MiB) limit.
+*/
+type SearchHybridRequestEntityTooLarge struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this search hybrid request entity too large response has a 2xx status code
+func (o *SearchHybridRequestEntityTooLarge) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this search hybrid request entity too large response has a 3xx status code
+func (o *SearchHybridRequestEntityTooLarge) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this search hybrid request entity too large response has a 4xx status code
+func (o *SearchHybridRequestEntityTooLarge) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this search hybrid request entity too large response has a 5xx status code
+func (o *SearchHybridRequestEntityTooLarge) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this search hybrid request entity too large response a status code equal to that given
+func (o *SearchHybridRequestEntityTooLarge) IsCode(code int) bool {
+	return code == 413
+}
+
+// Code gets the status code for the search hybrid request entity too large response
+func (o *SearchHybridRequestEntityTooLarge) Code() int {
+	return 413
+}
+
+func (o *SearchHybridRequestEntityTooLarge) Error() string {
+	return fmt.Sprintf("[POST /search/{collection}/hybrid][%d] searchHybridRequestEntityTooLarge  %+v", 413, o.Payload)
+}
+
+func (o *SearchHybridRequestEntityTooLarge) String() string {
+	return fmt.Sprintf("[POST /search/{collection}/hybrid][%d] searchHybridRequestEntityTooLarge  %+v", 413, o.Payload)
+}
+
+func (o *SearchHybridRequestEntityTooLarge) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *SearchHybridRequestEntityTooLarge) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
 // NewSearchHybridUnprocessableEntity creates a SearchHybridUnprocessableEntity with default headers values
 func NewSearchHybridUnprocessableEntity() *SearchHybridUnprocessableEntity {
 	return &SearchHybridUnprocessableEntity{}
@@ -447,7 +515,7 @@ func NewSearchHybridUnprocessableEntity() *SearchHybridUnprocessableEntity {
 /*
 SearchHybridUnprocessableEntity describes a response with status code 422, with default header values.
 
-Either a request-schema violation (a missing or null required `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while `alpha` is above 0, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).
+Either a request-schema violation (a missing or null required `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection while `alpha` is above 0, targetVector is missing on a multi-named-vector collection, a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.
 */
 type SearchHybridUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -583,7 +651,7 @@ func NewSearchHybridInternalServerError() *SearchHybridInternalServerError {
 /*
 SearchHybridInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error has occurred while trying to fulfill the request, including a failure of the embedding provider to vectorize the query for the vector part of the search. Most likely the ErrorResponse will contain more information about the error.
 */
 type SearchHybridInternalServerError struct {
 	Payload *models.ErrorResponse
@@ -632,74 +700,6 @@ func (o *SearchHybridInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchHybridInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ErrorResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewSearchHybridBadGateway creates a SearchHybridBadGateway with default headers values
-func NewSearchHybridBadGateway() *SearchHybridBadGateway {
-	return &SearchHybridBadGateway{}
-}
-
-/*
-SearchHybridBadGateway describes a response with status code 502, with default header values.
-
-The embedding provider failed to vectorize the query for the vector part of the search; the search cannot run.
-*/
-type SearchHybridBadGateway struct {
-	Payload *models.ErrorResponse
-}
-
-// IsSuccess returns true when this search hybrid bad gateway response has a 2xx status code
-func (o *SearchHybridBadGateway) IsSuccess() bool {
-	return false
-}
-
-// IsRedirect returns true when this search hybrid bad gateway response has a 3xx status code
-func (o *SearchHybridBadGateway) IsRedirect() bool {
-	return false
-}
-
-// IsClientError returns true when this search hybrid bad gateway response has a 4xx status code
-func (o *SearchHybridBadGateway) IsClientError() bool {
-	return false
-}
-
-// IsServerError returns true when this search hybrid bad gateway response has a 5xx status code
-func (o *SearchHybridBadGateway) IsServerError() bool {
-	return true
-}
-
-// IsCode returns true when this search hybrid bad gateway response a status code equal to that given
-func (o *SearchHybridBadGateway) IsCode(code int) bool {
-	return code == 502
-}
-
-// Code gets the status code for the search hybrid bad gateway response
-func (o *SearchHybridBadGateway) Code() int {
-	return 502
-}
-
-func (o *SearchHybridBadGateway) Error() string {
-	return fmt.Sprintf("[POST /search/{collection}/hybrid][%d] searchHybridBadGateway  %+v", 502, o.Payload)
-}
-
-func (o *SearchHybridBadGateway) String() string {
-	return fmt.Sprintf("[POST /search/{collection}/hybrid][%d] searchHybridBadGateway  %+v", 502, o.Payload)
-}
-
-func (o *SearchHybridBadGateway) GetPayload() *models.ErrorResponse {
-	return o.Payload
-}
-
-func (o *SearchHybridBadGateway) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

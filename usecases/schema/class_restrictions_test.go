@@ -73,7 +73,6 @@ func TestValidateVectorIndexType_AllowList(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, _ := newTestHandler(t, &fakeDB{})
-			handler.config.HFreshEnabled = true
 			handler.asyncIndexingEnabled = true
 			if tt.allow != nil {
 				handler.config.Restrictions.AllowedVectorIndexTypes = runtime.NewDynamicValue(tt.allow)
@@ -105,7 +104,6 @@ func TestValidateVectorIndexType_AllowList(t *testing.T) {
 // must still match the canonical lowercase comparison.
 func TestValidateVectorIndexType_RuntimeOverrideNormalization(t *testing.T) {
 	handler, _ := newTestHandler(t, &fakeDB{})
-	handler.config.HFreshEnabled = true
 	dv := runtime.NewDynamicValue([]string{"HNSW", " FLAT ", "Bogus", "hnsw"})
 	handler.config.Restrictions.AllowedVectorIndexTypes = dv
 
@@ -248,7 +246,6 @@ func TestValidateVectorSettingsAgainst_GrandfatherUnchanged_NamedVector(t *testi
 func newHandlerWithAllowList(t *testing.T, vectorAllow, compressionAllow []string) *Handler {
 	t.Helper()
 	handler, _ := newTestHandler(t, &fakeDB{})
-	handler.config.HFreshEnabled = true
 	handler.asyncIndexingEnabled = true
 	if vectorAllow != nil {
 		handler.config.Restrictions.AllowedVectorIndexTypes = runtime.NewDynamicValue(vectorAllow)
@@ -318,7 +315,6 @@ func classWithNamedVector(t *testing.T, name, indexType, compression string) *mo
 
 func TestValidateVectorIndexType_AllowListUsesOperatorTemplate(t *testing.T) {
 	handler, _ := newTestHandler(t, &fakeDB{})
-	handler.config.HFreshEnabled = true
 	handler.config.Restrictions.AllowedVectorIndexTypes = runtime.NewDynamicValue([]string{"hfresh"})
 	handler.config.Restrictions.ErrorMessage = runtime.NewDynamicValue(
 		"Invalid config: {value} is not allowed for {restriction} (allowed: {allowed})",
@@ -340,7 +336,6 @@ func TestValidateVectorIndexType_AllowListUsesOperatorTemplate(t *testing.T) {
 // them at the client version.
 func TestValidateVectorIndexType_NamedVectorHNSWHasClientHint(t *testing.T) {
 	handler, _ := newTestHandler(t, &fakeDB{})
-	handler.config.HFreshEnabled = true
 	handler.config.Restrictions.AllowedVectorIndexTypes = runtime.NewDynamicValue([]string{"hfresh"})
 
 	t.Run("named-vector rejection appends client hint", func(t *testing.T) {

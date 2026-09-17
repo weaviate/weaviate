@@ -57,7 +57,7 @@ func TestResolveAlais(t *testing.T) {
 func TestVersionedSchemaReaderShardReplicas(t *testing.T) {
 	var (
 		ctx = context.Background()
-		sc  = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+		sc  = NewSchema(t.Name(), prometheus.NewPedanticRegistry())
 		vsc = VersionedSchemaReader{
 			schema:        sc,
 			WaitForUpdate: func(ctx context.Context, version uint64) error { return nil },
@@ -89,7 +89,7 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 		retErr error
 		f      = func(ctx context.Context, version uint64) error { return retErr }
 		nodes  = []string{"N1", "N2"}
-		s      = NewSchema(t.Name(), &MockShardReader{}, prometheus.NewPedanticRegistry())
+		s      = NewSchema(t.Name(), prometheus.NewPedanticRegistry())
 		sc     = VersionedSchemaReader{s, f}
 	)
 
@@ -185,8 +185,8 @@ func TestVersionedSchemaReaderClass(t *testing.T) {
 }
 
 func TestSchemaReaderShardReplicas(t *testing.T) {
-	sc := NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
-	rsc := SchemaReader{sc, VersionedSchemaReader{}}
+	sc := NewSchema(t.Name(), prometheus.NewPedanticRegistry())
+	rsc := SchemaReader{schema: sc}
 	// class not found
 	_, _, err := sc.ShardReplicas("C", "S")
 	assert.ErrorIs(t, err, ErrClassNotFound)
@@ -210,8 +210,8 @@ func TestSchemaReaderShardReplicas(t *testing.T) {
 func TestSchemaReaderClass(t *testing.T) {
 	var (
 		nodes = []string{"N1", "N2"}
-		s     = NewSchema(t.Name(), &MockShardReader{}, prometheus.NewPedanticRegistry())
-		sc    = SchemaReader{s, VersionedSchemaReader{}}
+		s     = NewSchema(t.Name(), prometheus.NewPedanticRegistry())
+		sc    = SchemaReader{schema: s}
 	)
 
 	// class not found
@@ -267,9 +267,6 @@ func TestSchemaReaderClass(t *testing.T) {
 	assert.Empty(t, shard)
 	assert.Empty(t, sc.ShardFromUUID("Cx", nil))
 
-	_, err = sc.GetShardsStatus("C", "")
-	assert.Nil(t, err)
-
 	// Add Multi Tenant Class (PartitioningEnabled: true)
 	cls2 := &models.Class{Class: "D", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
 	ss2 := &sharding.State{
@@ -296,37 +293,77 @@ func TestSchemaReaderClass(t *testing.T) {
 	assert.Empty(t, shards)
 }
 
-// TestPropertiesMigration ensures that our migration function sets proper default values
-// The test verifies that we migrate top level properties and then at least one layer deep nested properties
+// TestPropertiesMigration pins that migratePropertiesIfNecessary defaults an unset
+// IndexRangeFilters to false at every nesting depth and keeps a set one.
 func TestPropertiesMigration(t *testing.T) {
-	class := &models.Class{
-		Class: "C",
-		Properties: []*models.Property{
-			{
-				NestedProperties: []*models.NestedProperty{
-					{
-						NestedProperties: []*models.NestedProperty{
-							{},
-						},
-					},
-				},
-			},
-		},
+	vTrue, vFalse := true, false
+	tests := []struct {
+		name string
+		set  *bool
+		want bool
+	}{
+		{name: "unset defaults to false", set: nil, want: false},
+		{name: "enabled stays enabled", set: &vTrue, want: true},
+		{name: "disabled stays disabled", set: &vFalse, want: false},
 	}
 
-	// Set the values to nil, which would be the case if we're upgrading a cluster with "old" classes in it
-	class.Properties[0].IndexRangeFilters = nil
-	class.Properties[0].NestedProperties[0].IndexRangeFilters = nil
-	class.Properties[0].NestedProperties[0].NestedProperties[0].IndexRangeFilters = nil
-	migratePropertiesIfNecessary(class)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			deepest := &models.NestedProperty{IndexRangeFilters: tt.set}
+			nested := &models.NestedProperty{
+				IndexRangeFilters: tt.set,
+				NestedProperties:  []*models.NestedProperty{deepest},
+			}
+			prop := &models.Property{
+				IndexRangeFilters: tt.set,
+				NestedProperties:  []*models.NestedProperty{nested},
+			}
+			migratePropertiesIfNecessary(&models.Class{Class: "C", Properties: []*models.Property{prop}})
 
-	// Check
-	require.NotNil(t, class.Properties[0].IndexRangeFilters)
-	require.False(t, *(class.Properties[0].IndexRangeFilters))
-	require.NotNil(t, class.Properties[0].NestedProperties[0].IndexRangeFilters)
-	require.False(t, *(class.Properties[0].NestedProperties[0].IndexRangeFilters))
-	require.NotNil(t, class.Properties[0].NestedProperties[0].NestedProperties[0].IndexRangeFilters)
-	require.False(t, *(class.Properties[0].NestedProperties[0].NestedProperties[0].IndexRangeFilters))
+			for level, got := range map[string]*bool{
+				"property": prop.IndexRangeFilters,
+				"nested":   nested.IndexRangeFilters,
+				"deepest":  deepest.IndexRangeFilters,
+			} {
+				require.NotNil(t, got, level)
+				require.Equal(t, tt.want, *got, level)
+			}
+		})
+	}
+}
+
+// TestReloadKeepsNestedRangeFiltersInSchema pins that a node restart leaves a
+// nested property's enabled range index enabled in the schema it serves.
+func TestReloadKeepsNestedRangeFiltersInSchema(t *testing.T) {
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	sm := NewSchemaManager("node1", &recordingIndexer{}, parser, prometheus.NewPedanticRegistry(), logrus.New())
+
+	vTrue := true
+	sub, err := json.Marshal(cmd.AddClassRequest{
+		Class: &models.Class{Class: "C", Properties: []*models.Property{{
+			Name:     "obj",
+			DataType: []string{"object"},
+			NestedProperties: []*models.NestedProperty{{
+				Name: "n", DataType: []string{"int"}, IndexRangeFilters: &vTrue,
+			}},
+		}}},
+		State: &sharding.State{Physical: map[string]sharding.Physical{
+			"shard1": {Name: "shard1", BelongsToNodes: []string{"node1"}},
+		}},
+	})
+	require.NoError(t, err)
+	require.NoError(t, sm.AddClass(&cmd.ApplyRequest{
+		Type: cmd.ApplyRequest_TYPE_ADD_CLASS, Class: "C", SubCommand: sub,
+	}, "node1", true, false))
+
+	sm.ReloadDBFromSchema()
+
+	class, _ := sm.schema.ReadOnlyClass("C")
+	require.NotNil(t, class)
+	got := class.Properties[0].NestedProperties[0].IndexRangeFilters
+	require.NotNil(t, got)
+	require.True(t, *got, "reload disabled the nested range index")
 }
 
 // TestApplyPartialSchemaErr verifies that apply() respects the partialSchemaErr flag:
@@ -467,15 +504,6 @@ func TestApplyPartialSchemaErr(t *testing.T) {
 	}
 }
 
-type MockShardReader struct {
-	lst models.ShardStatusList
-	err error
-}
-
-func (m *MockShardReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
-	return m.lst, m.err
-}
-
 // fakeReplicationFSM stands in for the real FSM here because importing
 // cluster/replication would cycle through cluster/schema. Unused interface
 // methods panic so an unexpected call surfaces immediately.
@@ -593,6 +621,79 @@ func TestSchemaManager_ReplicationAddReplicaToShard_AtomicallySetsUnCancellable(
 			return nil
 		}))
 	})
+}
+
+// The two replica-add command types reach different indexer entry points on the
+// node gaining the replica: only a movement's target shard is exempt from the
+// namespace checks that keep a suspended namespace's shards closed. The plain
+// type carries no op id and registers no replication op, so it must not take
+// that exemption.
+func TestSchemaManagerReplicaAddRoutesByCommandType(t *testing.T) {
+	const (
+		className = "TestClass"
+		shardName = "shard1"
+		nodeID    = "local-node"
+		schemaVer = uint64(1)
+		applyVer  = uint64(2)
+	)
+
+	tests := []struct {
+		name        string
+		cmdType     cmd.ApplyRequest_Type
+		subCommand  any
+		apply       func(*SchemaManager, *cmd.ApplyRequest) error
+		wantIndexer string
+	}{
+		{
+			name:       "a plain replica add",
+			cmdType:    cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD,
+			subCommand: &cmd.AddReplicaToShard{Class: className, Shard: shardName, TargetNode: nodeID},
+			apply: func(sm *SchemaManager, req *cmd.ApplyRequest) error {
+				return sm.AddReplicaToShard(req, false)
+			},
+			wantIndexer: "AddReplicaToShard",
+		},
+		{
+			name:    "a replica movement",
+			cmdType: cmd.ApplyRequest_TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD,
+			subCommand: &cmd.ReplicationAddReplicaToShard{
+				OpId: 42, Class: className, Shard: shardName,
+				TargetNode: nodeID, SchemaVersion: schemaVer,
+			},
+			apply: func(sm *SchemaManager, req *cmd.ApplyRequest) error {
+				return sm.ReplicationAddReplicaToShard(req, false)
+			},
+			wantIndexer: "AddReplicaToShardForMovement",
+		},
+	}
+
+	for _, tc := range tests {
+		// The indexer panics on any call it has no expectation for, so reaching
+		// the other entry point fails the row rather than passing it silently.
+		t.Run(tc.name+" reaches "+tc.wantIndexer, func(t *testing.T) {
+			parser := fakes.NewMockParser()
+			parser.On("ParseClass", mock.Anything).Return(nil)
+			indexer := fakes.NewMockSchemaExecutor()
+			indexer.On(tc.wantIndexer, className, shardName, nodeID).Return(nil)
+			indexer.On("ReconcileAsyncReplicationForShard", className, shardName).Return(nil)
+
+			sm := NewSchemaManager(nodeID, indexer, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			sm.SetReplicationFSM(&fakeReplicationFSM{})
+
+			ss := &sharding.State{Physical: map[string]sharding.Physical{
+				shardName: {Name: shardName, BelongsToNodes: []string{"other-node"}},
+			}}
+			require.NoError(t, sm.schema.addClass(&models.Class{Class: className}, ss, schemaVer))
+
+			sub, err := json.Marshal(tc.subCommand)
+			require.NoError(t, err)
+
+			require.NoError(t, tc.apply(sm, &cmd.ApplyRequest{
+				Type: tc.cmdType, Class: className, Version: applyVer, SubCommand: sub,
+			}))
+			indexer.AssertExpectations(t)
+		})
+	}
 }
 
 // recordingMutationGuard captures every CheckPropertyUpdate call and
@@ -924,10 +1025,10 @@ func TestSchemaManager_UpdateClass_MarkerIntroductionPurgesRecords(t *testing.T)
 	})
 
 	t.Run("the vector-less flip stores nothing synthetic", func(t *testing.T) {
-		// UpdateClassInternal clears the legacy fields the defaults filled
-		// into the body before proposing, so the apply stores the genuinely
-		// empty shape; Vectorizer/VectorIndexType are never copied from
-		// updates in any case.
+		// The defaults never fill legacy fields into a vector-less body and
+		// UpdateClassInternal rejects a caller who sets them, so the body
+		// reaching the apply carries the genuinely empty shape;
+		// Vectorizer/VectorIndexType are never copied from updates in any case.
 		deleter := &fakeCascadeDeleter{}
 		initial := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{"vec1": {VectorIndexType: none}}}
 		parsed := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{}}

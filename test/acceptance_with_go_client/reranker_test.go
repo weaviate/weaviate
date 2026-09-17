@@ -12,6 +12,7 @@
 package acceptance_with_go_client
 
 import (
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"fmt"
 	"testing"
@@ -23,8 +24,6 @@ import (
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestReRanker(t *testing.T) {
@@ -38,6 +37,8 @@ func TestReRanker(t *testing.T) {
 	classCreator := c.Schema().ClassCreator()
 	class := models.Class{
 		Class: className,
+		// objects are created with their own vectors
+		Vectorizer: "none",
 		Properties: []*models.Property{
 			{
 				Name:     "first",

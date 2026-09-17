@@ -238,7 +238,7 @@ func TestCombiner(t *testing.T) {
 				idsIn[i] = make([]uint64, len(tt.in[i]))
 				for j := range tt.in[i] {
 					distsIn[i][j] = tt.in[i][j].Dist
-					idsIn[i][j] = *(tt.in[i][j].DocID)
+					idsIn[i][j] = *tt.in[i][j].DocID
 				}
 			}
 
@@ -252,7 +252,7 @@ func TestCombiner(t *testing.T) {
 			require.Len(t, ids, len(tt.out))
 			for i, id := range ids {
 				// we do not want to compare ExplainScore etc
-				require.Equal(t, *(tt.out[i].DocID), id)
+				require.Equal(t, *tt.out[i].DocID, id)
 				require.InDelta(t, tt.out[i].Dist, dists[i], 0.0001)
 			}
 		})

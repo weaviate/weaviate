@@ -71,8 +71,9 @@ func TestHappyPathTaskLifecycleWithSingleNode(t *testing.T) {
 
 	h.advanceClock(h.schedulerTickInterval)
 
-	// advance the clock just before expected clean up time to check whether it respects it
-	h.advanceClock(h.completedTaskTTL - h.clockAdvancedSoFar - time.Minute)
+	// Retention counts from the FINISHED transition, which lands a tick
+	// after the units stopped, so this still lands just short of the TTL.
+	h.advanceClock(h.completedTaskTTL - h.clockAdvancedSoFar)
 
 	h.expectCleanUpTask(t, h.tasksNamespace, taskID, version)
 	h.advanceClock(h.schedulerTickInterval + time.Minute)
@@ -389,6 +390,10 @@ func TestRemoveCleanedUpTaskLocalStateDuringRuntime(t *testing.T) {
 	completeUnit(t, h, h.tasksNamespace, startedTask.ID, startedTask.Version, h.localNodeID, "su-1")
 
 	recvWithTimeout(t, h.provider.completedCh)
+
+	// Retention counts from the FINISHED transition, which the scheduler
+	// commits a tick after the last unit stopped.
+	h.advanceClock(h.schedulerTickInterval)
 
 	h.expectCleanUpTask(t, h.tasksNamespace, startedTask.ID, startedTask.Version)
 	h.advanceClock(h.completedTaskTTL)
@@ -1833,10 +1838,12 @@ func TestSchedulerTick_UnrecognizedStatusWarn(t *testing.T) {
 				addTaskWithUnits(t, h, spec.namespace, spec.id, spec.version, []string{"su-" + spec.id})
 				task := h.manager.tasks[spec.namespace][spec.id]
 				task.Status = spec.status
-				// A terminal task whose FinishedAt was never stamped reads
-				// as long expired, and the TTL sweep deletes it before the
-				// assertions run.
-				task.FinishedAt = h.clock.Now()
+				// Terminal tasks need FinishedAt stamped, or the TTL sweep
+				// deletes them before assertions run; non-terminal tasks
+				// must stay unstamped, matching how localTasks seeds above.
+				if spec.status.IsTerminal() {
+					task.FinishedAt = h.clock.Now()
+				}
 			}
 
 			h.startScheduler(t)

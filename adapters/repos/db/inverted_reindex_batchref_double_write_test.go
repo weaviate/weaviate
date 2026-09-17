@@ -175,7 +175,7 @@ func TestReindexDoubleWrite_ConcurrentWritePreservesColocatedProp(t *testing.T) 
 			class := reindexRaceClass(className)
 
 			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
+				false, false)
 			shard := shd.(*Shard)
 			defer shard.Shutdown(ctx)
 
@@ -207,13 +207,7 @@ func TestReindexDoubleWrite_ConcurrentWritePreservesColocatedProp(t *testing.T) 
 			futureTS := time.Now().UnixMilli() + int64(time.Hour/time.Millisecond)
 			tc.mutate(t, ctx, shard, className, victimID, futureTS)
 
-			for {
-				rerunAt, _, err := task.OnAfterLsmInitAsync(ctx, shard)
-				require.NoError(t, err)
-				if rerunAt.IsZero() {
-					break
-				}
-			}
+			require.NoError(t, task.RunOnShard(ctx, shard))
 			require.True(t, strategy.migrationCompleted)
 
 			bucket := shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM("title"))

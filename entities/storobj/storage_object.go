@@ -865,7 +865,7 @@ func SearchResults(in []*Object, additional additional.Properties, tenant string
 	out := make(search.Results, len(in))
 
 	for i, elem := range in {
-		out[i] = *(elem.SearchResult(additional, tenant))
+		out[i] = *elem.SearchResult(additional, tenant)
 	}
 
 	return out
@@ -1380,6 +1380,7 @@ func UnmarshalPropertiesFromObject(data []byte, resultProperties map[string]inte
 }
 
 // UnmarshalProperties accepts serialized properties as data and populates resultProperties map with the properties specified by propertyPaths.
+// Every value it writes is copied out of data, which the caller may then overwrite.
 func UnmarshalProperties(data []byte, properties map[string]interface{}, propertyPaths [][]string) error {
 	var returnError error
 	jsonparser.EachKey(data, func(idx int, value []byte, dataType jsonparser.ValueType, err error) {
@@ -1406,7 +1407,7 @@ func UnmarshalProperties(data []byte, properties map[string]interface{}, propert
 				// there can be more than one
 				var beacons []interface{}
 				handler := func(beaconByte []byte, dataType jsonparser.ValueType, offset int, err error) {
-					beaconVal, err2 := jsonparser.GetString(beaconByte, "beacon") // this points to the underlying memory
+					beaconVal, err2 := jsonparser.GetString(beaconByte, "beacon")
 					returnError = err2
 					beacons = append(beacons, map[string]interface{}{"beacon": beaconVal})
 				}

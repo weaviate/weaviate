@@ -23,6 +23,7 @@ import (
 	"go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -36,17 +37,18 @@ import (
 
 // TestSnapshotMutableFiles_Dynamic covers the dynamic index's two roles in an active-shard
 // backup: (1) SnapshotMutableFiles delegates to the underlying flat index, copying its meta.db;
-// (2) the shard-level index.db, snapshotted via a bbolt read tx, is unaffected by an in-place
-// write after the snapshot.
+// (2) the shard-level index.db, snapshotted via shardmeta.DB.Snapshot (a bbolt read tx), is
+// unaffected by an in-place write after the snapshot.
 func TestSnapshotMutableFiles_Dynamic(t *testing.T) {
 	ctx := context.Background()
 	const dims = 8
 	const n = 100
 
-	sharedDBPath := filepath.Join(t.TempDir(), "index.db")
-	db, err := bbolt.Open(sharedDBPath, 0o666, nil)
+	metaDir := t.TempDir()
+	sharedDBPath := filepath.Join(metaDir, "index.db")
+	meta, err := shardmeta.Open(metaDir, time.Second)
 	require.NoError(t, err)
-	t.Cleanup(func() { db.Close() })
+	t.Cleanup(func() { meta.Close() })
 
 	rootPath := t.TempDir()
 	dp := distancer.NewL2SquaredProvider()
@@ -78,7 +80,7 @@ func TestSnapshotMutableFiles_Dynamic(t *testing.T) {
 		GetViewThunk:                 GetViewThunk,
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		TombstoneCallbacks:           noopCallback,
-		SharedDB:                     db,
+		State:                        meta.Namespace(StateNamespace),
 		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 		AsyncIndexingEnabled:         true,
 	}, ent.UserConfig{
@@ -103,22 +105,20 @@ func TestSnapshotMutableFiles_Dynamic(t *testing.T) {
 	require.NotEqual(t, ino(t, filepath.Join(rootPath, "meta.db")), ino(t, stagedMeta),
 		"delegated flat meta.db must be an independent copy")
 
-	// (2) Snapshot index.db as Shard.CreateBackupSnapshot does (bbolt read tx), then mutate
-	// it in place as the flat->hnsw upgrade would; the staged copy must keep the pre-snapshot state.
-	stagedIndexDB := filepath.Join(staging, "index.db")
-	require.NoError(t, db.View(func(tx *bbolt.Tx) error {
-		return tx.CopyFile(stagedIndexDB, 0o600)
-	}))
+	// (2) Snapshot index.db as Shard.CreateBackupSnapshot does (shardmeta.DB.Snapshot,
+	// a bbolt read tx), then mutate it in place as the flat->hnsw upgrade would; the
+	// staged copy must keep the pre-snapshot state.
+	relPath, err := meta.Snapshot(metaDir, staging)
+	require.NoError(t, err)
+	require.Equal(t, "index.db", relPath)
+	stagedIndexDB := filepath.Join(staging, relPath)
 	require.NotEqual(t, ino(t, sharedDBPath), ino(t, stagedIndexDB),
 		"staged index.db must be an independent copy")
 
 	stagedBeforeUpgraded := readUpgradedFlag(t, stagedIndexDB, index.dbKey())
 	require.False(t, stagedBeforeUpgraded, "precondition: not yet upgraded at snapshot time")
 
-	require.NoError(t, db.Update(func(tx *bbolt.Tx) error {
-		b := tx.Bucket(dynamicBucket)
-		return b.Put(index.dbKey(), []byte{1})
-	}))
+	require.NoError(t, meta.Namespace(StateNamespace).Put(index.dbKey(), []byte{1}))
 
 	require.False(t, readUpgradedFlag(t, stagedIndexDB, index.dbKey()),
 		"staged index.db must be unchanged by the post-snapshot in-place write")

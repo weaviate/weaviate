@@ -297,6 +297,12 @@ var (
 	groupsPrefix     = authorization.GroupsDomain + "/"
 )
 
+// Nodes resource path and prefix; see weaviateKeyMatch.
+var (
+	nodesMinimalResource = authorization.NodesDomain + "/verbosity/minimal"
+	nodesVerbosePrefix   = authorization.NodesDomain + "/verbosity/verbose/"
+)
+
 // rejectNamespacedRootSubjects fails startup when a namespace-qualified subject
 // is configured for the root role: a namespaced principal must never inherit
 // cluster-wide root. read-only has no static user list (groups only, deferred
@@ -354,9 +360,14 @@ func operatorOnlyResource(path string) bool {
 
 // weaviateKeyMatch runs the `/shards/#` vs `/shards/.*` carve-out then
 // KeyMatch5: a collection-level request must not match a per-tenant policy.
+//
+// A verbose nodes policy on any collection also satisfies the minimal nodes request.
 func weaviateKeyMatch(reqObj, polObj string) bool {
 	if strings.HasSuffix(reqObj, "/shards/#") && strings.HasSuffix(polObj, "/shards/.*") {
 		return false
+	}
+	if reqObj == nodesMinimalResource && strings.HasPrefix(polObj, nodesVerbosePrefix) {
+		return true
 	}
 	return casbinutil.KeyMatch5(reqObj, polObj)
 }

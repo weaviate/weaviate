@@ -44,6 +44,21 @@ type MuveraConfig struct {
 	Repetitions  int  `json:"repetitions"`
 }
 
+// MuveraEnabled reports whether vectors are held MUVERA-encoded. The multivector flag is
+// deliberately not part of it, hnsw.New arms the encoder on the muvera flag alone.
+func (c MultivectorConfig) MuveraEnabled() bool {
+	return c.MuveraConfig.Enabled
+}
+
+// EncodedDimensions returns the dimensionality of a MUVERA-encoded vector: Repetitions × 2^KSim clusters × DProjections.
+// Returns 0 unless all three factors are positive, validation only bounds the upper end of KSim.
+func (m MuveraConfig) EncodedDimensions() int {
+	if m.KSim < 0 || m.Repetitions < 1 || m.DProjections < 1 {
+		return 0
+	}
+	return m.Repetitions * (1 << m.KSim) * m.DProjections
+}
+
 func validAggregation(v string) error {
 	switch v {
 	case MultivectorAggregationMaxSim:

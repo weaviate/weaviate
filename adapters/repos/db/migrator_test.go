@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -106,18 +107,20 @@ func TestUpdateIndexTenants(t *testing.T) {
 				return readFunc(class, originalSS)
 			}).Maybe()
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
-			index, err := NewIndex(context.Background(), IndexConfig{
+			index, err := NewIndex(context.Background(), nil, IndexConfig{
 				ClassName:         schema.ClassName("TestClass"),
 				RootPath:          t.TempDir(),
 				ReplicationFactor: 1,
 				ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
+				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
 				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
+			shutdownIndexOnCleanup(t, index)
 
-			shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
-				NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop())
+			shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler,
+				NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop(),
+				monitoring.ShardRegistrationEager)
 			require.NoError(t, err)
 
 			index.shards.Store("shard1", shard)
@@ -217,6 +220,12 @@ func TestUpdateIndexTenantsCompletesDespiteFailures(t *testing.T) {
 		incoming map[string]sharding.Physical
 		// failingUnload are loaded shards, listed in incoming, whose shutdown fails.
 		failingUnload []string
+		// alreadyShutUnload are loaded shards, listed in incoming, whose shutdown
+		// reports the shard was already shut — the outcome the unload asked for.
+		alreadyShutUnload []string
+		// wantNoErrFor names tenants the error must not mention, so a failure
+		// reported beside them does not hide that they succeeded.
+		wantNoErrFor []string
 		// refuseLoad fails the load of every tenant the incoming state lists as HOT.
 		refuseLoad bool
 		// resident are loaded shards absent from incoming, so the delete claims them.
@@ -318,6 +327,25 @@ func TestUpdateIndexTenantsCompletesDespiteFailures(t *testing.T) {
 			},
 		},
 		{
+			// The shard is shut, which is what the unload asked for, so the
+			// reconcile has nothing to report for it.
+			name:              "an already-shut tenant is not a failure",
+			incoming:          map[string]sharding.Physical{"cold1": coldTenant("cold1")},
+			alreadyShutUnload: []string{"cold1"},
+			resident:          []string{"gone1"},
+		},
+		{
+			name: "an already-shut tenant does not mask a real failure beside it",
+			incoming: map[string]sharding.Physical{
+				"cold1": coldTenant("cold1"), "cold2": coldTenant("cold2"),
+			},
+			alreadyShutUnload: []string{"cold1"},
+			failingUnload:     []string{"cold2"},
+			resident:          []string{"gone1"},
+			wantErrFor:        []string{"shutdown tenant shard cold2"},
+			wantNoErrFor:      []string{"cold1"},
+		},
+		{
 			name:     "no tenants leaves the delete to claim the residents",
 			incoming: map[string]sharding.Physical{},
 			resident: []string{"gone1"},
@@ -363,6 +391,11 @@ func TestUpdateIndexTenantsCompletesDespiteFailures(t *testing.T) {
 				shard.EXPECT().Shutdown(mock.Anything).Return(shutdownRefused).Maybe()
 				idx.shards.Store(name, shard)
 			}
+			for _, name := range tt.alreadyShutUnload {
+				shard := NewMockShardLike(t)
+				shard.EXPECT().Shutdown(mock.Anything).Return(errAlreadyShutdown).Maybe()
+				idx.shards.Store(name, shard)
+			}
 			// A tenant incoming still lists must survive the delete, whatever the
 			// status update did with it.
 			keptDirs := make(map[string]string, len(tt.incoming))
@@ -379,6 +412,12 @@ func TestUpdateIndexTenantsCompletesDespiteFailures(t *testing.T) {
 				require.Error(t, err)
 				for _, want := range tt.wantErrFor {
 					require.ErrorContains(t, err, want)
+				}
+			}
+			for _, unwanted := range tt.wantNoErrFor {
+				if err != nil {
+					require.NotContains(t, err.Error(), unwanted,
+						"tenant %q unloaded, so it must not be reported", unwanted)
 				}
 			}
 
@@ -548,20 +587,21 @@ func TestUpdateIndexShards(t *testing.T) {
 
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
 			// Create index with proper configuration
-			index, err := NewIndex(ctx, IndexConfig{
+			index, err := NewIndex(ctx, nil, IndexConfig{
 				ClassName:            schema.ClassName("TestClass"),
 				RootPath:             rootPath,
 				ReplicationFactor:    1,
 				ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 				EnableLazyLoadShards: tt.lazyLoading, // Enable lazy loading when lazyLoading is true
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(),
+				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
 				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
+			shutdownIndexOnCleanup(t, index)
 
 			// Initialize shards
 			for _, shardName := range tt.initialShards {
-				err := index.initLocalShardWithForcedLoading(ctx, class, shardName, tt.mustLoad, false)
+				err := index.initLocalShardWithForcedLoading(ctx, class, shardName, tt.mustLoad, false, callerUserRequest)
 				require.NoError(t, err)
 			}
 
@@ -648,6 +688,9 @@ func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 		acceptingShutdown []string
 		// refusingShutdown are shards already in the index whose shutdown fails.
 		refusingShutdown []string
+		// alreadyShutShutdown are shards already in the index whose shutdown
+		// reports them already shut — the outcome the unload asked for.
+		alreadyShutShutdown []string
 		// backupProtected are shards a backup holds, so their load fails.
 		backupProtected []string
 		// closed shuts the index, which fails every shard for the same reason.
@@ -738,6 +781,18 @@ func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 			wantCappedBy:     2,
 		},
 		{
+			name:                "an already-shut shard is not a failure",
+			alreadyShutShutdown: []string{"gone1"},
+		},
+		{
+			// Benign outcomes must not spend the cap: they would push the one
+			// real failure out of the message on a node unloading many shards.
+			name:                "already-shut shards do not crowd out a real failure",
+			alreadyShutShutdown: numberedShards(maxReportedErrors + 2),
+			refusingShutdown:    []string{"real1"},
+			wantErrFor:          []string{"shutdown shard real1"},
+		},
+		{
 			name: "nothing to reconcile",
 		},
 		{
@@ -776,6 +831,9 @@ func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 			for _, name := range tt.refusingShutdown {
 				storeShard(name, shutdownRefused)
 			}
+			for _, name := range tt.alreadyShutShutdown {
+				storeShard(name, errAlreadyShutdown)
+			}
 			for _, name := range tt.backupProtected {
 				idx.backupProtectedShards.Store(name, struct{}{})
 			}
@@ -789,6 +847,10 @@ func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 				require.Error(t, err)
 				for _, want := range tt.wantErrFor {
 					require.ErrorContains(t, err, want)
+				}
+				if tt.wantCappedBy == 0 {
+					require.NotContains(t, err.Error(), " more)",
+						"only the expected failures are reported, so nothing is capped")
 				}
 				if tt.wantCappedBy > 0 {
 					require.ErrorContains(t, err, fmt.Sprintf("(and %d more)", tt.wantCappedBy))
@@ -926,9 +988,9 @@ func TestShardsStatusNonExistingIndexWrapsNotFound(t *testing.T) {
 		call func() error
 	}{
 		{
-			name: "GetShardsStatus",
+			name: "GetShardsStorageStatus",
 			call: func() error {
-				_, _, err := migrator.GetShardsStatus(context.Background(), "DoesNotExist", "")
+				_, _, err := migrator.GetShardsStorageStatus(context.Background(), "DoesNotExist", "")
 				return err
 			},
 		},
@@ -992,22 +1054,24 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 		return readFunc(class, originalSS)
 	}).Maybe()
 	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
-	index, err := NewIndex(context.Background(), IndexConfig{
+	index, err := NewIndex(context.Background(), nil, IndexConfig{
 		ClassName:         schema.ClassName("TestClass"),
 		RootPath:          t.TempDir(),
 		ReplicationFactor: 1,
 		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil,
+		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 	require.NoError(t, err)
+	shutdownIndexOnCleanup(t, index)
 	// HaltForTransfer's backup-gate would refuse the test's
 	// IncomingPauseFileActivity call without a wired lookup; install
 	// the no-live-reindex stub so the gate is satisfied.
 	index.db = stubDBWithNoLiveReindex()
 
-	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil,
-		NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop())
+	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler,
+		NewShardReindexerV3Noop(), false, roaringset.NewBitmapBufPoolNoop(),
+		monitoring.ShardRegistrationEager)
 	require.NoError(t, err)
 
 	index.shards.Store("shard1", shard)
@@ -1325,6 +1389,51 @@ func TestShardHasProperty(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			require.Equal(t, test.want, shardHasProperty(test.shard(t), test.prop))
+		})
+	}
+}
+
+// A schema update that adds a vector whose files another vector owns is
+// refused before the schema commits; the legacy vector arrives under "".
+func TestMigrator_ValidateVectorIndexConfigsUpdate_Collisions(t *testing.T) {
+	m := &Migrator{}
+	cfg := hnsw.NewDefaultUserConfig()
+	skipped := hnsw.UserConfig{Skip: true}
+	with := func(names ...string) map[string]schemaConfig.VectorIndexConfig {
+		out := map[string]schemaConfig.VectorIndexConfig{}
+		for _, n := range names {
+			out[n] = cfg
+		}
+		return out
+	}
+	tests := []struct {
+		name    string
+		old     map[string]schemaConfig.VectorIndexConfig
+		updated map[string]schemaConfig.VectorIndexConfig
+		wantErr string
+	}{
+		{name: "unrelated addition", old: with("", "foo"), updated: with("", "foo", "bar")},
+		{name: "compressed next to the legacy vector", old: with(""), updated: with("", "compressed"), wantErr: `vectors "" and "compressed" share "vectors_compressed"`},
+		{name: "muvera next to its sibling", old: with("foo"), updated: with("foo", "foo_muvera_vectors"), wantErr: `share "vectors_foo_muvera_vectors"`},
+		{name: "an existing collision does not block an unrelated addition", old: with("foo", "foo_muvera_vectors"), updated: with("foo", "foo_muvera_vectors", "bar")},
+		{name: "two colliding newcomers", old: with(""), updated: with("", "foo", "foo_muvera_vectors"), wantErr: `share "vectors_foo_muvera_vectors"`},
+		{
+			name: "a skipped newcomer owns nothing",
+			old:  with(""), updated: map[string]schemaConfig.VectorIndexConfig{"": cfg, "compressed": skipped},
+		},
+		{
+			name: "a skipped owner blocks nothing",
+			old:  map[string]schemaConfig.VectorIndexConfig{"foo": skipped}, updated: map[string]schemaConfig.VectorIndexConfig{"foo": skipped, "foo_muvera_vectors": cfg},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := m.ValidateVectorIndexConfigsUpdate(tt.old, tt.updated)
+			if tt.wantErr == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
 }

@@ -294,3 +294,73 @@ func TestMergeTaskQueueOperations(t *testing.T) {
 
 	require.False(t, tf.Index.taskQueue.MergeContains(postingID))
 }
+
+// Merge completes: the small posting folds into the large candidate and the
+// reassignment gate re-enqueues the merged vectors that sit closer to their
+// old centroid than to the surviving one.
+func TestMergeSuccessfully(t *testing.T) {
+	tf := createHFreshIndex(t)
+
+	// small posting: 3 vectors along e1; large candidate: 6 vectors along e2
+	smallVectors := make([][]float32, 3)
+	for i := range smallVectors {
+		smallVectors[i] = []float32{1.0, 0.0, 0.0, 0.0}
+	}
+	largeVectors := make([][]float32, 6)
+	for i := range largeVectors {
+		largeVectors[i] = []float32{0.0, 1.0, 0.0, 0.0}
+	}
+
+	smallID, smallPosting := createPostingWithVectors(t, &tf, smallVectors, 800)
+	largeID, largePosting := createPostingWithVectors(t, &tf, largeVectors, 900)
+
+	for _, p := range []struct {
+		id       uint64
+		posting  Posting
+		centroid []float32
+	}{
+		{smallID, smallPosting, []float32{1.0, 0.0, 0.0, 0.0}},
+		{largeID, largePosting, []float32{0.0, 1.0, 0.0, 0.0}},
+	} {
+		compressed := tf.Index.quantizer.CompressedBytes(tf.Index.quantizer.Encode(p.centroid))
+		err := tf.Index.Centroids.Insert(p.id, &Centroid{
+			Uncompressed: p.centroid,
+			Compressed:   compressed,
+			Deleted:      false,
+		})
+		require.NoError(t, err)
+
+		err = tf.Index.PostingStore.Put(t.Context(), p.id, p.posting)
+		require.NoError(t, err)
+
+		err = tf.Index.setPostingVectorIDs(t.Context(), p.id, p.posting)
+		require.NoError(t, err)
+	}
+
+	// 3 < minPostingSize (642 at dims=4), so the small posting qualifies
+	err := tf.Index.doMerge(t.Context(), smallID)
+	require.NoError(t, err)
+
+	// the large posting holds the union
+	merged, err := tf.Index.PostingStore.Get(t.Context(), largeID)
+	require.NoError(t, err)
+	require.Equal(t, 9, len(merged))
+
+	// the small posting is emptied and its centroid removed from the index
+	small, err := tf.Index.PostingStore.Get(t.Context(), smallID)
+	require.NoError(t, err)
+	require.Empty(t, small)
+	require.False(t, tf.Index.Centroids.Exists(smallID))
+
+	// the reassignment gate: every merged vector is closer to its old
+	// centroid (e1) than to the surviving one (e2), so all of them must be
+	// enqueued for reassignment; the large posting's own vectors must not be
+	for i := range smallVectors {
+		require.True(t, tf.Index.taskQueue.reassignList.Contains(800+uint64(i)),
+			"merged vector %d should be enqueued for reassignment", 800+i)
+	}
+	for i := range largeVectors {
+		require.False(t, tf.Index.taskQueue.reassignList.Contains(900+uint64(i)),
+			"resident vector %d should not be enqueued for reassignment", 900+i)
+	}
+}

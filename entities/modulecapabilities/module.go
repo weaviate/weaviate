@@ -13,7 +13,6 @@ package modulecapabilities
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/sirupsen/logrus"
 
@@ -52,12 +51,6 @@ type Module interface {
 type ModuleWithClose interface {
 	Module
 	Close() error
-}
-
-// ModuleWithHTTPHandlers is an optional capability interface for modules that provide HTTP endpoints
-type ModuleWithHTTPHandlers interface {
-	Module
-	RootHandler() http.Handler
 }
 
 type ModuleExtension interface {

@@ -27,6 +27,7 @@ This document is the single source of truth for Prometheus metrics exposed by We
 - Prefer counters/gauges with a small, bounded label set
 - Avoid per-tenant/per-class/per-route label explosions unless essential for operations
 - Move exploratory or wide-label analytics to logs, traces, or external stores
+- Rate a label Medium where its values are unbounded in principle but few in practice: one series per active value, worth watching rather than avoiding
 
 ### Change management
 
@@ -62,7 +63,7 @@ This document is the single source of truth for Prometheus metrics exposed by We
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
 | `lsm_active_segments` | Number of currently present segments per shard | `Gauge` | `class_name, path, shard_name, strategy` | ❌ High 
-| `lsm_memtable_size` | Size of memtable by path | `Gauge` | `class_name, path, shard_name, strategy` | ❌ High 
+| `lsm_memtable_size` | Size of memtable by path. For `strategy="roaringset"` this is the heap the memtable holds; every other strategy reports an estimate of the bytes written to it, so the two are not comparable and an alert band fits only one. | `Gauge` | `class_name, path, shard_name, strategy` | ❌ High 
 
 #### System Metrics
 | Name | Description | Type | Labels | High Cardinality |
@@ -143,6 +144,34 @@ This document is the single source of truth for Prometheus metrics exposed by We
 | `weaviate_<module>_operation_latency_seconds` | Latency of usage operations in seconds | `Histogram` | `operation` | - Low 
 | `weaviate_<module>_uploaded_file_size_bytes` | Size of the last uploaded usage file in bytes | `Gauge` | `-` | - Low 
 
+#### Shard Lifecycle Metrics
+| Name | Description | Type | Labels | High Cardinality |
+|---|---|---|---|---|
+| `weaviate_shards` | Number of shards the node holds, by lifecycle state and by whether the collection opens its shards eagerly at creation or lazily on first access. `state` is `loaded`, `unloaded`, `loading` or `unloading`; `registration` is `eager` or `lazy`. A shard is in exactly one state, so `sum(weaviate_shards)` is the number of shards the node holds. See the notes below. | `Gauge` | `state, registration` | - Low (8 series) |
+
+Supersedes `shards_loaded`, `shards_unloaded`, `shards_loading` and `shards_unloading`. Migrate by summing away the `registration` label — `sum by (state) (weaviate_shards)` reproduces each of them exactly:
+
+| Replaces | Equivalent query |
+|---|---|
+| `shards_loaded` | `sum(weaviate_shards{state="loaded"})` |
+| `shards_unloaded` | `sum(weaviate_shards{state="unloaded"})` |
+| `shards_loading` | `sum(weaviate_shards{state="loading"})` |
+| `shards_unloading` | `sum(weaviate_shards{state="unloading"})` |
+
+The split the old gauges could not express is the working set of a lazily-loaded collection — how much of its shard population is actually resident:
+
+```
+weaviate_shards{state="loaded",registration="lazy"}
+  / (weaviate_shards{state="loaded",registration="lazy"} + weaviate_shards{state="unloaded",registration="lazy"})
+```
+
+`registration` is decided per collection when its index is built, so one node can report both. `LAZY_LOAD_SHARD_COUNT_THRESHOLD=0` forces every collection `lazy` and the deprecated `DISABLE_LAZY_LOAD_SHARDS` forces every collection `eager`; with neither set, a collection is `eager` unless it is multi-tenant and its local shard count or on-disk size crosses `LAZY_LOAD_SHARD_COUNT_THRESHOLD` / `LAZY_LOAD_SHARD_SIZE_THRESHOLD_GB`. All eight series are exported from startup, so a node with no lazy collections scrapes zero rather than omitting the series.
+
+#### Shard Loading Metrics
+| Name | Description | Type | Labels | High Cardinality |
+|---|---|---|---|---|
+| `weaviate_lazy_shard_warmup_decisions_total` | Number of shards the startup warmup sweep considered, by what it did with each: `loaded`, `failed`, `skipped_shard_gone`, `skipped_already_loaded`, `skipped_empty`, `skipped_below_threshold` | `Counter` | `outcome` | - Low 
+
 #### Shard Load Limiter Metrics
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
@@ -194,8 +223,30 @@ This document is the single source of truth for Prometheus metrics exposed by We
 #### Schema Management Metrics
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
-| `weaviate_schema_collections` | Number of collections per node | `Gauge` | `nodeID` | - Low 
+| `weaviate_schema_collections` | Number of collections in a node's copy of the schema, split by namespace. See the notes below. | `Gauge` | `nodeID, collection_namespace` | - Medium (one series per populated namespace, plus one) 
 | `weaviate_schema_shards` | Number of shards per node with corresponding status | `Gauge` | `nodeID, status` | - Low 
+
+##### Notes on `weaviate_schema_collections`
+
+- **Every node holds the whole schema**, so `sum without(collection_namespace)` — which keeps
+  `nodeID` — is the total. `sum by (collection_namespace)` multiplies by the node count.
+- **Collections with no namespace are counted under an empty `collection_namespace`.** That series is
+  always present, so a fresh node reports zero rather than omitting the metric. The series count is
+  therefore one per populated namespace *plus one*.
+- **The `collection_namespace` label is new.** A query written against the earlier unlabelled gauge
+  returns one series per namespace once namespaced collections exist, and has to be wrapped in
+  `sum without(collection_namespace)`. Before any namespaced collection exists it still returns a
+  single series carrying the same value as before, so the break only surfaces on a namespaces cluster.
+- **The label is deliberately not called `namespace`.** A Kubernetes scrape stamps a `namespace`
+  target label of its own, and at the default `honorLabels: false` a scraped `namespace` would be
+  rewritten to `exported_namespace` — breaking every query naming it, silently.
+- **A named namespace's series is deleted when its last collection is**, so
+  `{collection_namespace="customer1"} == 0` never matches. Use `absent()` to detect an empty
+  namespace. The always-present empty-namespace series is the exception and can read zero. On a
+  namespaces cluster it always reads zero, because such a node refuses to start while it holds a
+  collection with no namespace.
+- **Namespace names are tenant identifiers** served on the unauthenticated monitoring port. Keep that
+  port on a trusted network.
 
 #### Runtime Config Metrics
 | Name | Description | Type | Labels | High Cardinality |
@@ -324,14 +375,18 @@ This document is the single source of truth for Prometheus metrics exposed by We
 | `bucket_pause_durations_ms` | Bucket pause durations | `Summary` | `bucket_dir` | - Low 
 | `backup_restore_data_transferred` | Total number of bytes transferred during a backup restore | `Counter` | `backend_name, class_name` | ❌ High 
 | `backup_store_data_transferred` | Total number of bytes transferred during a backup store | `Counter` | `backend_name, class_name` | ❌ High 
+| `backup_dedupe_planning_ms` | Wall time of replica-dedupe convergence planning per backup | `Summary` | | - Low 
+| `backup_dedupe_shards_total` | Shards planned by replica-dedupe backups, by outcome (designated = archived once, fallback = archived by every replica) | `Counter` | `outcome` | - Low 
+| `backup_dedupe_fallback_total` | Replica-dedupe fallbacks by reason; `class_ineligible` counts classes, every other reason counts shards | `Counter` | `reason` | - Low 
+| `backup_dedupe_restore_anomalies_total` | Fan-out restore shards without a normal source, by reason (no_holder = nothing restored, multi_holder = deterministic pick among duplicates, schema_source_fallback = shard membership derived from local snapshots) | `Counter` | `reason` | - Low 
 
 #### Shard Metrics
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
-| `shards_loaded` | Number of shards loaded | `Gauge` | `-` | - Low 
-| `shards_unloaded` | Number of shards not loaded | `Gauge` | `-` | - Low 
-| `shards_loading` | Number of shards in process of loading | `Gauge` | `-` | - Low 
-| `shards_unloading` | Number of shards in process of unloading | `Gauge` | `-` | - Low 
+| `shards_loaded` | Number of shards loaded. Superseded by `weaviate_shards`; migrate to `sum(weaviate_shards{state="loaded"})` | `Gauge` | `-` | - Low 
+| `shards_unloaded` | Number of shards not loaded. Superseded by `weaviate_shards`; migrate to `sum(weaviate_shards{state="unloaded"})` | `Gauge` | `-` | - Low 
+| `shards_loading` | Number of shards in process of loading. Superseded by `weaviate_shards`; migrate to `sum(weaviate_shards{state="loading"})` | `Gauge` | `-` | - Low 
+| `shards_unloading` | Number of shards in process of unloading. Superseded by `weaviate_shards`; migrate to `sum(weaviate_shards{state="unloading"})` | `Gauge` | `-` | - Low 
 
 #### Tombstone Metrics
 | Name | Description | Type | Labels | High Cardinality |
@@ -359,7 +414,7 @@ This document is the single source of truth for Prometheus metrics exposed by We
 | `weaviate_vectorizer_request_tokens` | Number of tokens in the request sent to an external vectorizer | `Histogram` | `api, inout` | ❌ High 
 | `weaviate_module_request_single_count` | Number of single-item external API requests | `Counter` | `api, op` | ❌ High 
 | `weaviate_module_request_batch_count` | Number of batched module requests | `Counter` | `api, op` | ❌ High 
-| `weaviate_module_error_total` | Number of OpenAI errors | `Counter` | `endpoint, module, op, status_code` | ❌ High 
+| `weaviate_module_error_total` | Number of module errors from external APIs | `Counter` | `endpoint, module, op, status_code` | - Low (bounded values; pre-fix series carried error text in `endpoint` and drain on process restart) 
 | `weaviate_module_call_error_total` | Number of module errors (related to external calls) | `Counter` | `endpoint, module, status_code` | ❌ High 
 | `weaviate_module_response_status_total` | Number of API response statuses | `Counter` | `endpoint, op, status` | ❌ High 
 | `weaviate_module_batch_error_total` | Number of batch errors | `Counter` | `class_name, operation` | ❌ High 

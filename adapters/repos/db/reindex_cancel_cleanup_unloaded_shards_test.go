@@ -79,7 +79,7 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 			className := "UnloadedSweep_" + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, []string{propName})
 			shd, idx := testShardWithSettings(t, setupCtx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
+				false, false)
 			hot := shd.(*Shard)
 			defer hot.Shutdown(context.Background())
 
@@ -90,7 +90,7 @@ func TestIndexCleanStalePartialReindexStateLeavesUnloadedShardsAlone(t *testing.
 				mkTrackerDir(t, unloadedLSM, tracker, "started.mig")
 			}
 			unloaded := NewLazyLoadShard(setupCtx, nil, unloadedShard, idx, class, idx.centralJobQueue,
-				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+				idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
 				false, idx.bitmapBufPool)
 			idx.shards.Store(unloadedShard, unloaded)
 			defer func() {
@@ -204,7 +204,7 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 			class := newTestClassWithProps("ResidueReclaim_"+uuid.NewString()[:8],
 				[]string{tc.propName})
 			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
+				false, false)
 			defer shd.Shutdown(context.Background())
 
 			residueLSM := shardPathLSM(idx.path(), residueTenant)
@@ -224,7 +224,7 @@ func TestIndexCleanStalePartialReindexStateReclaimsDeferredFinalizeResidue(t *te
 			tenants := map[string]*LazyLoadShard{}
 			for _, name := range []string{residueTenant, cleanTenant} {
 				lazy := NewLazyLoadShard(ctx, nil, name, idx, class, idx.centralJobQueue,
-					idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter,
+					idx.allocChecker, idx.shardLoadLimiter,
 					idx.shardReindexer, false, idx.bitmapBufPool)
 				idx.shards.Store(name, lazy)
 				tenants[name] = lazy
@@ -567,7 +567,7 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			className := "UnloadedSweepEquiv_" + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, []string{propName})
 			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
+				false, false)
 			shard := shd.(*Shard)
 			defer shard.Shutdown(context.Background())
 			lsm := shard.pathLSM()
@@ -631,7 +631,7 @@ func TestShardCleanStalePartialReindexStateLeavesALongerPropertyNameAlone(t *tes
 	ctx := testCtx()
 	class := newTestClassWithProps("UnloadedSweepPrefix_"+uuid.NewString()[:8], []string{"category"})
 	shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(context.Background())
 	lsm := shard.pathLSM()
@@ -687,7 +687,7 @@ func TestShardCleanStalePartialReindexStateSweepsAMultiPropertyTracker(t *testin
 			class := newTestClassWithProps("UnloadedSweepMultiProp_"+uuid.NewString()[:8],
 				[]string{"a", "b", "c"})
 			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
+				false, false)
 			shard := shd.(*Shard)
 			defer shard.Shutdown(context.Background())
 			lsm := shard.pathLSM()
@@ -764,7 +764,7 @@ func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTrack
 			class := newTestClassWithProps("UnloadedSweepMultiPropDone_"+uuid.NewString()[:8],
 				[]string{"a", "b", "other", "a_x"})
 			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
+				false, false)
 			shard := shd.(*Shard)
 			defer shard.Shutdown(context.Background())
 			lsm := shard.pathLSM()
@@ -818,7 +818,7 @@ func TestCleanStalePartialReindexStateRemovesAReplacedBucketDir(t *testing.T) {
 			ctx := testCtx()
 			class := newTestClassWithProps("ReplacedBucketDir_"+uuid.NewString()[:8], []string{propName})
 			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
+				false, false)
 			shard := shd.(*Shard)
 			defer shard.Shutdown(context.Background())
 			lsm := shard.pathLSM()
@@ -861,11 +861,11 @@ func TestIndexCleanStalePartialReindexStateSweepsALoadedShardUnconditionally(t *
 	ctx := testCtx()
 	class := newTestClassWithProps("UnloadedSweepLoaded_"+uuid.NewString()[:8], []string{propName})
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	defer shd.Shutdown(context.Background())
 
 	lazy := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
 		false, idx.bitmapBufPool)
 	idx.shards.Store(tenant, lazy)
 	_, err := lazy.Unwrap(ctx)
@@ -904,7 +904,7 @@ func TestIndexCleanStalePartialReindexStateReportsAnUnlistableMigrationsDir(t *t
 	logger, hook := test.NewNullLogger()
 	class := newTestClassWithProps("UnlistableMigrations_"+uuid.NewString()[:8], []string{propName})
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false, func(i *Index) { i.logger = logger })
+		false, false, func(i *Index) { i.logger = logger })
 	// Loaded, so the sweep reaches the shard and the unlistable directory is
 	// the only thing that can fail.
 	hot := shd.(*Shard)
@@ -1002,7 +1002,7 @@ func TestLazyLoadShardCanSkipUnloadedSweep(t *testing.T) {
 			ctx := testCtx()
 			class := newTestClassWithProps("SweepGate_"+uuid.NewString()[:8], []string{propName})
 			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
+				false, false)
 			defer shd.Shutdown(context.Background())
 
 			if tc.staleOnGateShard {
@@ -1017,7 +1017,7 @@ func TestLazyLoadShardCanSkipUnloadedSweep(t *testing.T) {
 			}
 
 			lazy := NewLazyLoadShard(ctx, nil, gateShard, idx, class, idx.centralJobQueue,
-				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+				idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
 				false, idx.bitmapBufPool)
 			idx.shards.Store(gateShard, lazy)
 			defer func() {
@@ -1181,11 +1181,11 @@ func TestIndexCleanStalePartialReindexStateRefusesAnUnknownIndexType(t *testing.
 	ctx := testCtx()
 	class := newTestClassWithProps("UnloadedSweepUnknownType_"+uuid.NewString()[:8], []string{propName})
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	defer shd.Shutdown(context.Background())
 
 	unloaded := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
 		false, idx.bitmapBufPool)
 	idx.shards.Store(tenant, unloaded)
 
@@ -1311,11 +1311,11 @@ func TestIndexCleanStalePartialReindexStateLogsGateSkippedShards(t *testing.T) {
 	class := newTestClassWithProps("GateSkipLog_"+uuid.NewString()[:8], []string{propName})
 	hookLogger, hook := test.NewNullLogger()
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false, func(i *Index) { i.logger = hookLogger })
+		false, false, func(i *Index) { i.logger = hookLogger })
 	defer shd.Shutdown(context.Background())
 
 	lazy := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
 		false, idx.bitmapBufPool)
 	idx.shards.Store(tenant, lazy)
 	defer func() {

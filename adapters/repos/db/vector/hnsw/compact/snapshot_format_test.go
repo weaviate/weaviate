@@ -107,26 +107,30 @@ func TestSnapshotRoundTrip_MultiBlock(t *testing.T) {
 }
 
 // goldenSnapshots are the V3 on-disk byte streams (sha256) for a battery of
-// deterministic graphs at blockSize 256. They pin the format: any drift in the
-// body block layout or the metadata/compression serialization flips a hash.
+// deterministic graphs, most at blockSize 256. They pin the format: any drift
+// in the body block layout or the metadata/compression serialization flips a hash.
 //
 // To regenerate after an *intentional* format change: run this test, copy the
 // "GOLDEN <name> sha256=<hash>" lines printed on failure into the map below.
 var goldenSnapshots = map[string]string{
-	"dense_gaps_tomb": "762a4d96dd579826ca1d1b1756d6b5a8798f3ef808161cf8f6911392dbb3dbab",
-	"multi_level":     "3a1fb686f45cd9b772fd1a5e97f0c9c4df62cce3586b6ebb888e67e63a70cfe6",
-	"sq":              "e2fd7d6e337f5abc66c1f77958579aa953a07b2523ae063e229999eacfec6c4c",
-	"rq":              "23d25e01a3df73db20d4a42d3b9854095550b0ade83237d88bec714d6f4ab056",
-	"brq":             "25a14da56a156e123f6b98730f4fdd06c2265e15ee82df8e198715f651bf9865",
-	"muvera":          "1cdc53f8872dbe22649c6d71f6bb09e070188e43b7cb5649305ded0760632027",
+	"dense_gaps_tomb":     "762a4d96dd579826ca1d1b1756d6b5a8798f3ef808161cf8f6911392dbb3dbab",
+	"multi_level":         "3a1fb686f45cd9b772fd1a5e97f0c9c4df62cce3586b6ebb888e67e63a70cfe6",
+	"sq":                  "e2fd7d6e337f5abc66c1f77958579aa953a07b2523ae063e229999eacfec6c4c",
+	"rq":                  "23d25e01a3df73db20d4a42d3b9854095550b0ade83237d88bec714d6f4ab056",
+	"brq":                 "25a14da56a156e123f6b98730f4fdd06c2265e15ee82df8e198715f651bf9865",
+	"muvera":              "1cdc53f8872dbe22649c6d71f6bb09e070188e43b7cb5649305ded0760632027",
+	"large_block_padding": "c545f1b7bd886ecba2afd16ce50ea8340bce047d43993e26646bd0e2ea92e0a7",
 }
 
 // TestSnapshotWriter_ByteIdentityGolden pins the V3 on-disk format byte-for-byte
 // across gaps, tombstones, multi-block splits, trailing tombstones, and every
 // compression/encoder type, so a future change cannot silently alter the format.
 func TestSnapshotWriter_ByteIdentityGolden(t *testing.T) {
-	cases := map[string]func(*SnapshotWriter){
-		"dense_gaps_tomb": func(sw *SnapshotWriter) {
+	cases := map[string]struct {
+		blockSize int64
+		build     func(*SnapshotWriter)
+	}{
+		"dense_gaps_tomb": {256, func(sw *SnapshotWriter) {
 			sw.SetEntrypoint(7, 3)
 			for i := uint64(0); i < 40; i++ {
 				if i%5 == 0 {
@@ -135,18 +139,18 @@ func TestSnapshotWriter_ByteIdentityGolden(t *testing.T) {
 				sw.AddNode(i, 0, [][]uint64{{(i + 1) % 40, (i + 2) % 40, (i + 3) % 40}}, i%7 == 0)
 			}
 			sw.AddTombstone(60)
-		},
-		"multi_level": func(sw *SnapshotWriter) {
+		}},
+		"multi_level": {256, func(sw *SnapshotWriter) {
 			sw.SetEntrypoint(0, 2)
 			sw.AddNode(0, 2, [][]uint64{{1, 2, 3, 4, 5}, {10, 20, 30}, {100, 200}}, false)
-		},
-		"sq": func(sw *SnapshotWriter) {
+		}},
+		"sq": {256, func(sw *SnapshotWriter) {
 			sw.SetEntrypoint(0, 0)
 			sw.SetSQData(&compression.SQData{A: 0.5, B: 1.5, Dimensions: 128})
 			sw.AddNode(0, 0, [][]uint64{{1, 2}}, false)
 			sw.AddNode(2, 0, [][]uint64{{0}}, true)
-		},
-		"rq": func(sw *SnapshotWriter) {
+		}},
+		"rq": {256, func(sw *SnapshotWriter) {
 			sw.SetEntrypoint(0, 0)
 			sw.SetRQData(&compression.RQData{
 				InputDim: 128, Bits: 4,
@@ -157,8 +161,8 @@ func TestSnapshotWriter_ByteIdentityGolden(t *testing.T) {
 				},
 			})
 			sw.AddNode(0, 0, [][]uint64{{1}}, false)
-		},
-		"brq": func(sw *SnapshotWriter) {
+		}},
+		"brq": {256, func(sw *SnapshotWriter) {
 			sw.SetEntrypoint(0, 0)
 			sw.SetBRQData(&compression.BRQData{
 				InputDim: 128,
@@ -170,8 +174,8 @@ func TestSnapshotWriter_ByteIdentityGolden(t *testing.T) {
 				Rounding: []float32{1, 2, 3, 4},
 			})
 			sw.AddNode(0, 0, [][]uint64{{1}}, false)
-		},
-		"muvera": func(sw *SnapshotWriter) {
+		}},
+		"muvera": {256, func(sw *SnapshotWriter) {
 			sw.SetEntrypoint(0, 0)
 			sw.SetMuveraData(&multivector.MuveraData{
 				Dimensions: 2, KSim: 1, NumClusters: 2, DProjections: 1, Repetitions: 1,
@@ -179,14 +183,20 @@ func TestSnapshotWriter_ByteIdentityGolden(t *testing.T) {
 				S:         [][][]float32{{{0.3, 0.4}}},
 			})
 			sw.AddNode(0, 0, [][]uint64{{1}}, false)
-		},
+		}},
+		// A block this size is padded with several zeroChunk writes.
+		"large_block_padding": {200_000, func(sw *SnapshotWriter) {
+			sw.SetEntrypoint(0, 0)
+			sw.AddNode(0, 0, [][]uint64{{1, 2, 3}}, false)
+			sw.AddNode(3, 0, [][]uint64{{0}}, true)
+		}},
 	}
 
-	for name, build := range cases {
+	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
 			var buf bytes.Buffer
-			sw := NewSnapshotWriterWithBlockSize(&buf, 256)
-			build(sw)
+			sw := NewSnapshotWriterWithBlockSize(&buf, c.blockSize)
+			c.build(sw)
 			require.NoError(t, sw.Flush())
 
 			sum := sha256.Sum256(buf.Bytes())

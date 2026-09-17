@@ -163,7 +163,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 				Return(types.WriteReplicaSet{Replicas: []types.Replica{{NodeName: "test-node", ShardName: tt.shardName, HostAddr: "110.12.15.23"}}}, nil).Maybe()
 			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
 			// Create index
-			index, err := NewIndex(ctx, IndexConfig{
+			index, err := NewIndex(ctx, nil, IndexConfig{
 				RootPath:              dirName,
 				ClassName:             schema.ClassName(tt.className),
 				ReplicationFactor:     1,
@@ -173,7 +173,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				enthnsw.UserConfig{
 					VectorCacheMaxObjects: 1000,
-				}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
+				}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil,
 				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
@@ -344,7 +344,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	// loaded as a raw *Shard (not deferred as an empty tenant).
 	seedShardObjectCounter(t, dirName, className, tenantNamePopulated)
 	// Create index with lazy loading disabled to test active calculation methods
-	index, err := NewIndex(ctx, IndexConfig{
+	index, err := NewIndex(ctx, nil, IndexConfig{
 		RootPath:              dirName,
 		ClassName:             schema.ClassName(className),
 		ReplicationFactor:     1,
@@ -370,7 +370,6 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		class,                             // class
 		nil,                               // job queue
 		scheduler,                         // scheduler
-		nil,                               // checkpoints
 		nil,                               // alloc checker
 		NewShardReindexerV3Noop(),         // shard reindexer
 		roaringset.NewBitmapBufPoolNoop(), // bitmap buffer pool
@@ -446,7 +445,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	require.NoError(t, index.Shutdown(ctx))
 	// Create a new index instance to test inactive calculation methods
 	// This ensures we're testing the inactive methods on a fresh index that reads from disk
-	newIndex, err := NewIndex(ctx, IndexConfig{
+	newIndex, err := NewIndex(ctx, nil, IndexConfig{
 		RootPath:              dirName,
 		ClassName:             schema.ClassName(className),
 		ReplicationFactor:     1,
@@ -472,7 +471,6 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		class,                             // class
 		nil,                               // job queue
 		scheduler,                         // scheduler
-		nil,                               // checkpoints
 		nil,                               // alloc checker
 		NewShardReindexerV3Noop(),         // shard reindexer
 		roaringset.NewBitmapBufPoolNoop(), // bitmap buffer pool

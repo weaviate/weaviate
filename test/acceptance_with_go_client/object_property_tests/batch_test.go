@@ -12,6 +12,7 @@
 package object_property_tests
 
 import (
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"encoding/json"
 	"io"
@@ -25,8 +26,6 @@ import (
 	"github.com/weaviate/weaviate-go-client/v5/weaviate/grpc"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestObjectProperty_Batch(t *testing.T) {

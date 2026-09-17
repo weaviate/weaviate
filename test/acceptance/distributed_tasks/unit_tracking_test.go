@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 )
@@ -674,7 +675,7 @@ func buildPerReplicaUnits(placements []shardPlacement) (unitIDs []string, shardM
 	shardMap = make(map[string]string, len(placements))
 	nodeMap = make(map[string]string, len(placements))
 	for _, p := range placements {
-		suID := fmt.Sprintf("%s__%s", p.ShardName, p.NodeName)
+		suID := db.MigrationUnitID(p.ShardName, p.NodeName)
 		unitIDs = append(unitIDs, suID)
 		shardMap[suID] = p.ShardName
 		nodeMap[suID] = p.NodeName

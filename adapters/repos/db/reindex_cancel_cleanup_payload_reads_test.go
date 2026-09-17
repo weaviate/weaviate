@@ -160,7 +160,7 @@ func TestSweepPayloadReadCount(t *testing.T) {
 			// The sweep reports its read count on a log field.
 			hookLogger, hook := test.NewNullLogger()
 			shd, _ := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false, func(i *Index) { i.logger = hookLogger })
+				false, false, func(i *Index) { i.logger = hookLogger })
 			shard := shd.(*Shard)
 			defer shard.Shutdown(ctx)
 			lsm := shard.pathLSM()
@@ -208,7 +208,7 @@ func TestIndexSweepReportsLoadedShardPayloadReads(t *testing.T) {
 	class := newTestClassWithProps(className, []string{"cat", "dog"})
 	hookLogger, hook := test.NewNullLogger()
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false, func(i *Index) { i.logger = hookLogger })
+		false, false, func(i *Index) { i.logger = hookLogger })
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 

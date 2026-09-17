@@ -29,6 +29,40 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
 )
 
+func TestVectorizeRejectsForeignEndpoint(t *testing.T) {
+	tests := []struct {
+		name   string
+		config ent.VectorizationConfig
+	}{
+		{
+			name:   "apiEndpoint outside the Google API domain",
+			config: ent.VectorizationConfig{ApiEndpoint: "attacker.example.com", Location: "us-central1", ProjectID: "project", Model: "model"},
+		},
+		{
+			name:   "location carrying a host",
+			config: ent.VectorizationConfig{ApiEndpoint: "us-central1-aiplatform.googleapis.com", Location: "attacker.example.com/", ProjectID: "project", Model: "model"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &google{
+				apiKey:       "apiKey",
+				httpClient:   &http.Client{},
+				googleApiKey: apikey.NewGoogleApiKey(),
+				urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
+					t.Fatal("must not build a request URL for a rejected endpoint")
+					return ""
+				},
+				logger: nullLogger(),
+			}
+
+			_, err := c.Vectorize(context.Background(), []string{"This is my text"}, nil, nil, nil, tt.config)
+
+			require.Error(t, err)
+		})
+	}
+}
+
 func TestClient(t *testing.T) {
 	t.Run("when all is fine we vectorize text", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})

@@ -12,6 +12,7 @@
 package usage
 
 import (
+	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"fmt"
 	"math/rand"
@@ -34,8 +35,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/docker"
-
-	"acceptance_tests_with_client/internal/wvhost"
 )
 
 func TestTenantStatusChanges(t *testing.T) {
@@ -376,7 +375,7 @@ func TestAlterSchemaDropPropertyIndex(t *testing.T) {
 
 func TestAlterSchemaDropVectorIndex(t *testing.T) {
 	ctx := context.Background()
-	c, err := client.NewClient(client.Config{Scheme: "http", Host: "localhost:8080"})
+	c, err := client.NewClient(client.Config{Scheme: "http", Host: wvhost.REST()})
 	require.NoError(t, err)
 
 	className := t.Name() + "Class"
@@ -478,14 +477,28 @@ func TestAlterSchemaDropVectorIndex(t *testing.T) {
 	require.Len(t, colUsageCold.Shards, 1)
 	require.Equal(t, expected, namedVectorDimensionalities(t, colUsageCold.Shards[0]))
 
+	// Drop vector2's index while the tenant stays cold. The report above saved its
+	// numbers to the shard directory and only loading the shard deletes that file,
+	// so the next report has to notice the schema changed under it.
+	require.NoError(t, c.Schema().VectorIndexDeleter().
+		WithClassName(className).WithVectorIndexName(vector2).Do(ctx))
+	delete(expected, vector2)
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		colUsageColdAfterDrop, err := GetDebugUsageForCollection(className)
+		require.NoError(ct, err)
+		require.Len(ct, colUsageColdAfterDrop.Shards, 1)
+		require.Equal(ct, expected, namedVectorDimensionalities(ct, colUsageColdAfterDrop.Shards[0]))
+	}, 30*time.Second, 500*time.Millisecond)
+
 	require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).
 		WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusHOT}).Do(ctx))
 
-	// Verify all named vectors appear in usage
-	colUsageBefore, err := GetDebugUsageForCollection(className)
-	require.NoError(t, err)
-	require.Len(t, colUsageBefore.Shards, 1)
-	shard := colUsageBefore.Shards[0]
+	// Verify all named vectors appear in usage. The baseline waits for the
+	// reactivated shard to stop growing: reloading it makes every HNSW index
+	// snapshot its commit log, and one snapshot is a whole 4 MiB block whatever it
+	// holds. Sampling before those land measures a shard that is still only on
+	// disk against one that has reloaded, and the drop below then reads as growth.
+	shard := settledShardUsage(t, c, className, tenantName)
 	require.Equal(t, int64(numObjects), shard.ObjectsCount)
 	require.Equal(t, expected, namedVectorDimensionalities(t, shard))
 
@@ -520,6 +533,11 @@ func TestRestart(t *testing.T) {
 		WithWeaviateWithDebugPort().
 		WithWeaviateEnv("TRACK_VECTOR_DIMENSIONS", "true").
 		WithWeaviateEnv(entcfg.EnvNestedFilteringPreview, "true").
+		// a count threshold of 0 lazy-loads every multi-tenant collection, and a
+		// negative warmup minimum leaves those shards unloaded until asked for, so
+		// the report after the restart measures hot tenants from disk
+		WithWeaviateEnv("LAZY_LOAD_SHARD_COUNT_THRESHOLD", "0").
+		WithWeaviateEnv("LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS", "-1").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -539,6 +557,8 @@ func TestRestart(t *testing.T) {
 
 	class := &models.Class{
 		Class: className,
+		// the objects below are imported with their own vectors
+		Vectorizer: "none",
 		Properties: []*models.Property{
 			{
 				Name:     "first",
@@ -575,8 +595,9 @@ func TestRestart(t *testing.T) {
 
 	// add some data. Only even tenants get nested values, leaving the odd ones as
 	// a baseline with the same schema and object count.
+	const objectsPerTenant = 10
 	for i, tenant := range tenants {
-		objs := make([]*models.Object, 10)
+		objs := make([]*models.Object, objectsPerTenant)
 		for j := range objs {
 			vector := make([]float32, 128)
 			for k := range vector {
@@ -605,40 +626,101 @@ func TestRestart(t *testing.T) {
 		}
 	}
 
-	loaded := strings.ToLower(models.TenantActivityStatusACTIVE)
-	fromDisk := strings.ToLower(models.TenantActivityStatusINACTIVE)
+	hotStatus := strings.ToLower(models.TenantActivityStatusACTIVE)
+	coldStatus := strings.ToLower(models.TenantActivityStatusINACTIVE)
 
 	// collect with concurrent shard readers, compare with the default report after restart
 	usage, err := getDebugUsageWithPort(debug, 4)
 	require.NoError(t, err)
 	require.NotNil(t, usage)
-	assertNestedIndexStorageCounted(t, usage, className, loaded)
+	// writing the objects loaded every shard
+	assertNestedIndexStorageCounted(t, usage, className, hotStatus, false)
 
 	require.NoError(t, compose.Stop(ctx, compose.GetWeaviate().Name(), nil))
 
 	err = compose.Start(ctx, compose.GetWeaviate().Name())
 	require.NoError(t, err)
 
-	usage2, err := getDebugUsageWithPort(compose.GetWeaviate().DebugURI())
+	// the restart gave the container a new mapped port
+	debug = compose.GetWeaviate().DebugURI()
+	c, err = client.NewClient(client.Config{Scheme: "http", Host: compose.GetWeaviate().URI()})
 	require.NoError(t, err)
-	require.NotNil(t, usage2)
-	require.NoError(t, ReportsDifference(usage, usage2))
-	assertNestedIndexStorageCounted(t, usage2, className, loaded)
+
+	// nothing has touched the tenants since the restart and the sweep that would load
+	// them is off, so they stay hot without being in memory. The sweep loads one shard
+	// per second, so a window this wide fails if the knob stops taking effect.
+	require.Never(t, func() bool {
+		report, err := getDebugUsageWithPort(debug)
+		if err != nil {
+			return false
+		}
+		for _, shard := range shardsForCollection(report, className) {
+			if !shard.LazyUnloaded {
+				return true
+			}
+		}
+		return false
+	}, 15*time.Second, 3*time.Second, "no shard may load while the warmup is disabled")
+
+	unloadedUsage, err := getDebugUsageWithPort(debug)
+	require.NoError(t, err)
+	require.NotNil(t, unloadedUsage)
+	assertNestedIndexStorageCounted(t, unloadedUsage, className, hotStatus, true)
+
+	// reading one tenant loads its shard, and only its shard. Nothing else makes an
+	// unloaded shard observable from outside, so without the mark a node parked in
+	// this mode looks like one serving every tenant from memory.
+	first := tenants[0].Name
+	_, err = c.Data().ObjectsGetter().WithClassName(className).WithTenant(first).Do(ctx)
+	require.NoError(t, err)
+
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		report, err := getDebugUsageWithPort(debug)
+		require.NoError(ct, err)
+		shards := shardsForCollection(report, className)
+		require.Len(ct, shards, len(tenants))
+		for _, shard := range shards {
+			if shard.Name == first {
+				assert.False(ct, shard.LazyUnloaded, "the tenant that was read is loaded now")
+				assert.Equal(ct, int64(objectsPerTenant), shard.ObjectsCount)
+				continue
+			}
+			assert.True(ct, shard.LazyUnloaded, "shard %s stays unloaded", shard.Name)
+		}
+	}, 30*time.Second, 500*time.Millisecond)
+
+	// reading the rest brings every shard back into memory, and the report is the one
+	// taken before the restart again
+	for _, tenant := range tenants[1:] {
+		_, err = c.Data().ObjectsGetter().WithClassName(className).WithTenant(tenant.Name).Do(ctx)
+		require.NoError(t, err)
+	}
+
+	var usage2 *usagetypes.Report
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		usage2, err = getDebugUsageWithPort(debug)
+		require.NoError(ct, err)
+		require.NoError(ct, ReportsDifference(usage, usage2))
+	}, 60*time.Second, time.Second)
+	assertNestedIndexStorageCounted(t, usage2, className, hotStatus, false)
 
 	// cold tenants are measured from the bucket directories instead of the shard
 	cold := make([]models.Tenant, len(tenants))
 	for i := range tenants {
 		cold[i] = models.Tenant{Name: tenants[i].Name, ActivityStatus: models.TenantActivityStatusCOLD}
 	}
-	// the restart gave the container a new mapped port
-	c, err = client.NewClient(client.Config{Scheme: "http", Host: compose.GetWeaviate().URI()})
-	require.NoError(t, err)
 	require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).WithTenants(cold...).Do(ctx))
 
-	usage3, err := getDebugUsageWithPort(compose.GetWeaviate().DebugURI())
+	usage3, err := getDebugUsageWithPort(debug)
 	require.NoError(t, err)
 	require.NotNil(t, usage3)
-	assertNestedIndexStorageCounted(t, usage3, className, fromDisk)
+	// an inactive shard is never loaded, so it carries no mark
+	assertNestedIndexStorageCounted(t, usage3, className, coldStatus, false)
+
+	// shares this container instead of starting its own
+	t.Run("muvera usage", func(t *testing.T) {
+		testUsageMuvera(t, c, debug)
+	})
 }
 
 // nestedCars keeps every leaf value distinct, so each entry adds its own keys to
@@ -657,26 +739,36 @@ func nestedCars(tenant, object int) []any {
 func collectionShards(t *testing.T, report *usagetypes.Report, className string) usagetypes.ShardsUsage {
 	t.Helper()
 
+	shards := shardsForCollection(report, className)
+	if shards == nil {
+		require.FailNow(t, "collection missing from usage report: "+className)
+	}
+	return shards
+}
+
+// shardsForCollection returns nil for a collection the report does not carry, so a
+// polling condition can retry instead of failing off the test goroutine.
+func shardsForCollection(report *usagetypes.Report, className string) usagetypes.ShardsUsage {
 	for _, col := range report.Collections {
 		if col != nil && col.Name == className {
 			return col.Shards
 		}
 	}
-	require.FailNow(t, "collection missing from usage report: "+className)
 	return nil
 }
 
 // assertNestedIndexStorageCounted checks that tenants with nested values report more
-// than double the index storage of those without — nested data lives only in the
+// than double the index storage of those without. Nested data lives only in the
 // property.nested_ / property.nestedmeta_ buckets, so skipping those makes the two
-// groups equal. wantStatus is active for a loaded shard, inactive for one from disk.
-func assertNestedIndexStorageCounted(t *testing.T, report *usagetypes.Report, className, wantStatus string) {
+// groups equal. wantLazyUnloaded says whether the hot shards were measured from disk.
+func assertNestedIndexStorageCounted(t *testing.T, report *usagetypes.Report, className, wantStatus string, wantLazyUnloaded bool) {
 	t.Helper()
 
 	// per shard rather than summed, so one shard reporting nothing cannot hide
 	var smallestNested, largestBaseline uint64
 	for _, shard := range collectionShards(t, report, className) {
 		require.Equal(t, wantStatus, shard.Status, "shard %s", shard.Name)
+		require.Equal(t, wantLazyUnloaded, shard.LazyUnloaded, "shard %s", shard.Name)
 		require.GreaterOrEqual(t, shard.FullShardStorageBytes, shard.IndexStorageBytes,
 			"shard %s full storage must contain its index storage", shard.Name)
 
@@ -727,6 +819,42 @@ func namedVectors(t require.TestingT, shard *usagetypes.ShardUsage, want ...stri
 		require.Contains(t, vectors, name)
 	}
 	return vectors
+}
+
+// settledShardUsage loads a tenant's shard and reports its usage once the shard has
+// stopped growing, so a caller's baseline is measured in the state the reports it is
+// compared against are measured in. A reload lets the HNSW commit-log maintenance
+// cycle run, which writes files a shard sitting on disk does not have; the cycle
+// backs off to 10s between runs, so the shard has to hold still for longer than that
+// before it counts as settled.
+func settledShardUsage(t *testing.T, c *client.Client, className, tenantName string) *usagetypes.ShardUsage {
+	t.Helper()
+
+	// reading the tenant materializes its lazily loaded shard before the wait starts
+	_, err := c.Data().ObjectsGetter().WithClassName(className).
+		WithTenant(tenantName).WithLimit(1).Do(context.Background())
+	require.NoError(t, err)
+
+	const settleFor = 15 * time.Second
+	var settled *usagetypes.ShardUsage
+	var unchangedSince time.Time
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		colUsage, err := GetDebugUsageForCollection(className)
+		require.NoError(ct, err)
+		require.Len(ct, colUsage.Shards, 1)
+		current := colUsage.Shards[0]
+
+		if settled == nil || current.FullShardStorageBytes != settled.FullShardStorageBytes ||
+			current.VectorStorageBytes != settled.VectorStorageBytes {
+			settled, unchangedSince = current, time.Now()
+		}
+		if held := time.Since(unchangedSince); held < settleFor {
+			ct.Errorf("shard %q still growing: %d full / %d vector bytes, unchanged for %s",
+				current.Name, current.FullShardStorageBytes, current.VectorStorageBytes, held)
+		}
+	}, 90*time.Second, 500*time.Millisecond)
+
+	return settled
 }
 
 // namedVectorDimensionalities maps every named vector of a shard usage report to the
@@ -1638,4 +1766,159 @@ func TestUsageWithDynamicIndex(t *testing.T) {
 func sanitizeName(name string) string {
 	name = strings.ReplaceAll(name, "/", "_")
 	return name
+}
+
+// testUsageMuvera takes an instance so it can share a testcontainer, it must expose the
+// debug port and have TRACK_VECTOR_DIMENSIONS enabled.
+func testUsageMuvera(t *testing.T, c *client.Client, debug string) {
+	ctx := context.Background()
+
+	className := "UsageMuveraClass"
+
+	c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+	tenantName := "tenant"
+	muveraVec := "muvera"
+	colbertVec := "colbert"
+	regularVec := "regular"
+
+	const (
+		numObjects  = 20
+		tokenDim    = 32
+		fixedTokens = 3
+
+		ksim         = 4
+		dprojections = 16
+		repetitions  = 10
+		encodedDims  = repetitions * (1 << ksim) * dprojections
+	)
+
+	expected := map[string]usagetypes.Dimensionality{
+		muveraVec:  {Dimensions: encodedDims, Count: numObjects},
+		colbertVec: {Dimensions: fixedTokens * tokenDim, Count: numObjects},
+		regularVec: {Dimensions: tokenDim, Count: numObjects},
+	}
+
+	multivectorIndexConfig := func(muvera bool) map[string]any {
+		cfg := map[string]any{"enabled": true}
+		if muvera {
+			cfg["muvera"] = map[string]any{
+				"enabled":      true,
+				"ksim":         ksim,
+				"dprojections": dprojections,
+				"repetitions":  repetitions,
+			}
+		}
+		return map[string]any{"multivector": cfg}
+	}
+
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{
+				Name:     "name",
+				DataType: []string{schema.DataTypeText.String()},
+			},
+		},
+		VectorConfig: map[string]models.VectorConfig{
+			muveraVec: {
+				Vectorizer:        map[string]any{"none": map[string]any{}},
+				VectorIndexType:   "hnsw",
+				VectorIndexConfig: multivectorIndexConfig(true),
+			},
+			colbertVec: {
+				Vectorizer:        map[string]any{"none": map[string]any{}},
+				VectorIndexType:   "hnsw",
+				VectorIndexConfig: multivectorIndexConfig(false),
+			},
+			regularVec: {
+				Vectorizer:      map[string]any{"none": map[string]any{}},
+				VectorIndexType: "hnsw",
+			},
+		},
+		MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+	}
+	require.NoError(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+	require.NoError(t, c.Schema().TenantsCreator().WithClassName(className).
+		WithTenants(models.Tenant{Name: tenantName}).Do(ctx))
+
+	objs := make([]*models.Object, numObjects)
+	for i := range numObjects {
+		objs[i] = &models.Object{
+			Class:  className,
+			ID:     strfmt.UUID(uuid.NewString()),
+			Tenant: tenantName,
+			Properties: map[string]any{
+				"name": fmt.Sprintf("name %d", i),
+			},
+			Vectors: models.Vectors{
+				// varying token counts spread the raw dims over several rows, so a
+				// single-row report cannot reach the full count
+				muveraVec:  generateRandomMultiVector(2+i%3, tokenDim),
+				colbertVec: generateRandomMultiVector(fixedTokens, tokenDim),
+				regularVec: generateRandomVector(tokenDim),
+			},
+		}
+	}
+	batchResp, err := c.Batch().ObjectsBatcher().WithObjects(objs...).Do(ctx)
+	require.NoError(t, err)
+	for _, r := range batchResp {
+		require.NotNil(t, r.Result)
+		require.NotNil(t, r.Result.Status)
+		require.Equal(t, models.ObjectsGetResponseAO2ResultStatusSUCCESS, *r.Result.Status)
+	}
+	testAllObjectsIndexed(t, c, className)
+
+	// the status pins the tenant, not the path: active covers a loaded shard and a
+	// lazy one read from disk, which lazy_unloaded tells apart
+	assertUsage := func(t require.TestingT, expectedStatus string) {
+		colUsage, err := getDebugUsageWithPortAndCollection(debug, className)
+		require.NoError(t, err)
+		require.Len(t, colUsage.Shards, 1)
+		shard := colUsage.Shards[0]
+		require.Equal(t, strings.ToLower(expectedStatus), shard.Status)
+		if expectedStatus == models.TenantActivityStatusACTIVE {
+			require.Equal(t, int64(numObjects), shard.ObjectsCount)
+		}
+		require.Equal(t, expected, namedVectorDimensionalities(t, shard))
+
+		for _, v := range shard.NamedVectors {
+			if v.Name != muveraVec {
+				continue
+			}
+			require.NotNil(t, v.MultiVectorConfig, "muvera vector must report its multi-vector config")
+			require.NotNil(t, v.MultiVectorConfig.MuveraConfig)
+			assert.True(t, v.MultiVectorConfig.MuveraConfig.Enabled)
+			assert.Equal(t, ksim, v.MultiVectorConfig.MuveraConfig.KSim)
+			assert.Equal(t, dprojections, v.MultiVectorConfig.MuveraConfig.DProjections)
+			assert.Equal(t, repetitions, v.MultiVectorConfig.MuveraConfig.Repetitions)
+		}
+	}
+
+	// the tenant status flips before the local shard finishes activating, so poll until converged
+	assertUsageEventually := func(expectedStatus string) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			assertUsage(ct, expectedStatus)
+		}, 30*time.Second, 500*time.Millisecond)
+	}
+
+	assertUsageEventually(models.TenantActivityStatusACTIVE)
+
+	require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).
+		WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusCOLD}).Do(ctx))
+	assertUsageEventually(models.TenantActivityStatusINACTIVE)
+	assertUsage(t, models.TenantActivityStatusINACTIVE)
+
+	require.NoError(t, c.Schema().TenantsUpdater().WithClassName(className).
+		WithTenants(models.Tenant{Name: tenantName, ActivityStatus: models.TenantActivityStatusHOT}).Do(ctx))
+	assertUsageEventually(models.TenantActivityStatusACTIVE)
+}
+
+func generateRandomMultiVector(tokens, dimensionality int) [][]float32 {
+	multiVector := make([][]float32, tokens)
+	for i := range multiVector {
+		multiVector[i] = generateRandomVector(dimensionality)
+	}
+	return multiVector
 }

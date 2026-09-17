@@ -15,12 +15,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -123,31 +121,30 @@ func (h *Handler) AddClassProperty(ctx context.Context, principal *models.Princi
 	return class, version, err
 }
 
-// DeleteClassPropertyIndex deletes collection's property index. The bool
-// return reports whether a RAFT write occurred (false for a node-local no-op,
-// when the flag was already off) — callers use it to avoid synthesizing state
-// for a write that never reached RAFT.
+// DeleteClassPropertyIndex deletes collection's property index. Whether the
+// flag is already off is read from this node's own schema, so a follower that
+// has not applied the flip yet answers success having written nothing.
 func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *models.Principal,
 	className, propertyName, indexName string,
-) (bool, error) {
+) error {
 	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
 	if err != nil {
-		return false, err
+		return err
 	}
 
 	// Collections (data+metadata), matching the REST pre-authz and the other
 	// index write verbs: dropping an index rewrites data, not metadata only.
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Collections(className)...); err != nil {
-		return false, err
+		return err
 	}
 
 	class := h.schemaReader.ReadOnlyClass(className)
 	if class == nil {
-		return false, fmt.Errorf("class %q: %w", className, ErrNotFound)
+		return fmt.Errorf("class %q: %w", className, ErrNotFound)
 	}
 
 	if propertyName == "" {
-		return false, fmt.Errorf("property name cannot be empty")
+		return fmt.Errorf("property name cannot be empty")
 	}
 
 	// [SchemaReader.ReadOnlyClass] returns a SHALLOW clone of the live
@@ -178,7 +175,7 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 		}
 	}
 	if prop == nil {
-		return false, fmt.Errorf("property name %s: %w", propertyName, ErrNotFound)
+		return fmt.Errorf("property name %s: %w", propertyName, ErrNotFound)
 	}
 
 	// We track the *single* field being mutated so we can pass a
@@ -214,7 +211,7 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 			updateFields = []string{command.PropertyFieldIndexFilterable}
 		} else {
 			// nothing to do — no RAFT write
-			return false, nil
+			return nil
 		}
 	case "searchable":
 		if prop.IndexSearchable != nil && *prop.IndexSearchable {
@@ -226,7 +223,7 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 			updateFields = []string{command.PropertyFieldIndexSearchable, command.PropertyFieldSearchableBlockmax}
 		} else {
 			// nothing to do — no RAFT write
-			return false, nil
+			return nil
 		}
 	case "rangeFilters":
 		if prop.IndexRangeFilters != nil && *prop.IndexRangeFilters {
@@ -235,27 +232,24 @@ func (h *Handler) DeleteClassPropertyIndex(ctx context.Context, principal *model
 			updateFields = []string{command.PropertyFieldIndexRangeFilters}
 		} else {
 			// nothing to do — no RAFT write
-			return false, nil
+			return nil
 		}
 	default:
-		return false, fmt.Errorf("invalid property index type: %s", indexName)
+		return fmt.Errorf("invalid property index type: %s", indexName)
 	}
 
 	if err := h.validatePropertyIndexing(prop); err != nil {
-		return false, err
+		return err
 	}
 	if _, err := h.schemaManager.UpdateProperty(ctx, class.Class, prop, updateFields...); err != nil {
-		return false, err
+		return err
 	}
-	return true, nil
+	return nil
 }
 
 func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.Principal,
 	className, vectorIndexName string,
 ) error {
-	if !entcfg.Enabled(os.Getenv("ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT")) {
-		return fmt.Errorf("alter schema drop vector index endpoint is experimental and disabled by default, set the environment variable ENABLE_EXPERIMENTAL_ALTER_SCHEMA_DROP_VECTOR_INDEX_ENDPOINT=true to enable it")
-	}
 	className, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrValidation, err)

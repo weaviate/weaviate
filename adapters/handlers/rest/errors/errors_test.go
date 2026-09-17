@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/schema"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 )
@@ -51,12 +52,35 @@ func TestErrPayloadFromSingleErr(t *testing.T) {
 			principal: nsPrincipal,
 			want:      "<nil>",
 		},
+		{
+			name: "documented error gets the page appended",
+			err:  fmt.Errorf("updating db: TYPE_UPDATE_TENANT: memory pressure: cannot init shard: %w", enterrors.ErrNotEnoughMappings),
+			want: "updating db: TYPE_UPDATE_TENANT: memory pressure: cannot init shard: not enough memory mappings (see https://docs.weaviate.io/e/core-mem001)",
+		},
+		{
+			name:      "own namespace is stripped and the link kept",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			err:       fmt.Errorf("updating db: customer1:Articles: cannot init shard: %w", enterrors.ErrNotEnoughMappings),
+			want:      "updating db: Articles: cannot init shard: not enough memory mappings (see https://docs.weaviate.io/e/core-mem001)",
+		},
+		{
+			name:      "namespace named after the link's scheme leaves the link intact",
+			principal: &models.Principal{Username: "u", Namespace: "https"},
+			err:       fmt.Errorf("updating db: https:Articles: cannot init shard: %w", enterrors.ErrNotEnoughMappings),
+			want:      "updating db: Articles: cannot init shard: not enough memory mappings (see https://docs.weaviate.io/e/core-mem001)",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// ErrRestrictionViolation builds the same message in a different
+			// swagger payload shape, so the one table drives both.
 			got := ErrPayloadFromSingleErr(tt.principal, tt.err)
 			require.Len(t, got.Error, 1)
 			require.Equal(t, tt.want, got.Error[0].Message)
+
+			violation := ErrRestrictionViolation(tt.principal, tt.err)
+			require.Len(t, violation.Error, 1)
+			require.Equal(t, tt.want, violation.Error[0].Message)
 		})
 	}
 }
@@ -88,6 +112,29 @@ func TestHTTPStatusForNamespaceErr(t *testing.T) {
 			status, ok := HTTPStatusForNamespaceErr(tt.err)
 			require.Equal(t, tt.wantOK, ok)
 			require.Equal(t, tt.wantStatus, status)
+		})
+	}
+}
+
+func TestNamespaceErrRendersUnprocessable(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		// Gone is outside the 422 family above, so a handler reading the status
+		// alone answers 500 for it.
+		{name: "gone renders 422", err: namespaces.ErrNamespaceGone, want: true},
+		{name: "wrapped gone renders 422", err: fmt.Errorf("apply: %w", namespaces.ErrNamespaceGone), want: true},
+		{name: "suspended renders 422", err: namespaces.ErrNamespaceSuspended, want: true},
+		{name: "deleting renders 422", err: namespaces.ErrNamespaceDeleting, want: true},
+		// Resuming asks for 503, which most operations have no responder for.
+		{name: "resuming does not render 422", err: namespaces.ErrNamespaceResuming, want: false},
+		{name: "untyped error does not render 422", err: errors.New("boom"), want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, NamespaceErrRendersUnprocessable(tt.err))
 		})
 	}
 }

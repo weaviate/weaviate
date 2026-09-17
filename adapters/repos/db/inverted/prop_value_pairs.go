@@ -15,6 +15,9 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
+
+	entsInverted "github.com/weaviate/weaviate/entities/inverted"
 
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -22,6 +25,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -44,10 +48,14 @@ type propValuePair struct {
 	nested             nestedInfo
 	Class              *models.Class // The schema
 
-	// containsValues holds pre-encoded on-disk keys for a flat, single-property
-	// Contains(Any|All|None) filter. When non-nil, resolveDocIDs routes to
+	// containsKeys holds pre-encoded on-disk keys for a flat, single-property
+	// Contains(Any|All|None) filter. When it holds any, resolveDocIDs routes to
 	// fetchContainsBatch instead of the children-based dispatch below.
-	containsValues [][]byte
+	//
+	// The key count is what routes — an empty list and an unset field look the
+	// same — and newBatchedContainsPair guarantees a batched leaf never holds
+	// zero keys, so the two states can't be confused.
+	containsKeys entsInverted.SortedKeys
 }
 
 func newPropValuePair(class *models.Class) (*propValuePair, error) {
@@ -58,15 +66,16 @@ func newPropValuePair(class *models.Class) (*propValuePair, error) {
 }
 
 func (pv *propValuePair) resolveDocIDs(ctx context.Context, s *Searcher, limit int) (*docBitmap, error) {
-	if err := ctxExpired(ctx); err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 
-	if pv.containsValues != nil {
-		if !pv.operator.IsContains() {
-			return nil, fmt.Errorf("pre-encoded contains keys with non-contains operator %q", pv.operator.Name())
+	if pv.containsKeys.Len() > 0 {
+		dbm, err := pv.fetchContainsBatch(ctx, s)
+		if err != nil {
+			s.logContainsFault(pv.prop, err)
 		}
-		return pv.fetchContainsBatch(ctx, s)
+		return dbm, err
 	}
 
 	// Correlated nested AND created during extraction: all children target the
@@ -355,16 +364,93 @@ func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int
 }
 
 // fetchContainsBatch resolves a batched Contains(Any|All|None) filter whose keys
-// were already encoded into pv.containsValues, folding every key's bitmap
+// were already encoded into pv.containsKeys, folding every key's bitmap
 // through docBitmapContainsBatch under a single consistent view.
-func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (*docBitmap, error) {
+//
+// The annotation's window starts before the reader is opened, so a filter that
+// stalls waiting out an in-flight flush shows that time rather than hiding it.
+func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_ *docBitmap, err error) {
+	// Both hold on the pair, not the store, so they answer before it is opened:
+	// keys are attached only on a Contains operator, and dedup can shrink a
+	// batch but not empty it. Either here is a pair assembled wrong.
+	if !pv.operator.IsContains() {
+		return nil, fmt.Errorf("%w: pre-encoded contains keys with non-contains operator %q",
+			entsInverted.ErrInternal, pv.operator.Name())
+	}
+	if pv.containsKeys.Len() == 0 {
+		return nil, fmt.Errorf(
+			"%w: contains filter on prop %q carries no keys, before the bucket was opened",
+			entsInverted.ErrInternal, pv.prop)
+	}
+
 	bucketName := pv.getBucketName()
 	b := s.store.Bucket(bucketName)
 	if b == nil {
 		return nil, errors.Errorf("bucket for prop %s not found - is it indexed?", pv.prop)
 	}
 
-	dbm, err := s.docBitmapContainsBatch(ctx, b, pv)
+	before := time.Now()
+	var dbm docBitmap
+
+	view := b.GetConsistentView()
+	defer view.ReleaseView()
+
+	// Narrowed once, so every worker's reader sees the same memtables. Built
+	// before the annotation reads it, so the closure never sees nil.
+	source := &roaringSetBatchReaderSource{
+		view: view.WithoutEmptyActiveMemtable(),
+		// Sized at what the budget affords, since the plan is not made yet and
+		// the annotation below must not read a nil source. A test override can
+		// ask for more, which append handles.
+		readers: make([]*lsmkv.RoaringSetBatchReader, 0, maxContainsFoldWorkers),
+	}
+	// Zero until the fold has planned, so a filter rejected before then is timed
+	// without inventing a strategy it never chose.
+	var plan containsFoldPlan
+	// Deferred so a filter that fails partway is timed and reports what it did
+	// before it stopped.
+	defer func() {
+		took := time.Since(before)
+		helpers.AnnotateSlowQueryLogAppendFunc(ctx, "build_allow_list_doc_bitmap", func() map[string]any {
+			fields := map[string]any{
+				"prop":        pv.prop,
+				"operator":    pv.operator.Name(),
+				"took":        took,
+				"took_string": took.String(),
+				"count":       dbm.count(),
+				"failed":      err != nil,
+				"strategy":    b.Strategy(),
+				// Distinct keys, not filter values: dedup means a boolean
+				// filter reports at most two regardless of value count.
+				"batched_keys": pv.containsKeys.Len(),
+			}
+			// A planned fold always takes at least one worker, so this reports
+			// the plan whenever there is one — a fold that failed to open a
+			// reader included.
+			if plan.workers > 0 {
+				fields["fold_workers"] = plan.workers
+				fields["fold_strategy"] = plan.strategy.String()
+			}
+			// What the batching itself did, so a slow batched filter can be told
+			// from a filter that was merely slow.
+			if st, ok := source.stats(); ok {
+				fields["window_fills"] = st.Fills
+				fields["window_narrowed_fills"] = st.NarrowedFills
+				fields["batch_keys_served"] = st.KeysServed
+				fields["window_bytes_peak"] = st.BytesPeak
+				fields["window_bytes_copied"] = st.BytesCopied
+				fields["memtable_reads"] = st.MemtableReads
+				// Without this the read count cannot be normalized: reads per
+				// fill run from one to one per memtable, so a ratio of 1.0
+				// cannot be told from two memtables whose every fill skipped
+				// one.
+				fields["memtables"] = st.Memtables
+			}
+			return fields
+		})
+	}()
+
+	dbm, plan, err = s.docBitmapContainsBatch(ctx, source, pv)
 	if err != nil {
 		return nil, err
 	}

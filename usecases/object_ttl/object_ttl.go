@@ -32,7 +32,9 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type objectTTLAndVersion struct {
@@ -40,25 +42,28 @@ type objectTTLAndVersion struct {
 	ttlConfig *models.ObjectTTLConfig
 }
 
-func NewCoordinator(schemaReader schemaUC.SchemaReader, schemaGetter schemaUC.SchemaGetter, db *db.DB,
-	logger logrus.FieldLogger, clusterClient *http.Client, nodeResolver nodeResolver, localStatus *LocalStatus,
+func NewCoordinator(schemaReader schemaUC.SchemaReader, schemaGetter schemaUC.SchemaGetter,
+	namespacesExister namespaces.Exister, db *db.DB, logger logrus.FieldLogger,
+	clusterClient *http.Client, nodeResolver nodeResolver, localStatus *LocalStatus,
 ) *Coordinator {
 	return &Coordinator{
-		schemaReader:     schemaReader,
-		schemaGetter:     schemaGetter,
-		logger:           logger,
-		clusterClient:    clusterClient,
-		nodeResolver:     nodeResolver,
-		db:               db,
-		objectTTLOngoing: atomic.Bool{},
-		remoteObjectTTL:  newRemoteObjectTTL(clusterClient, nodeResolver),
-		localStatus:      localStatus,
+		schemaReader:      schemaReader,
+		schemaGetter:      schemaGetter,
+		namespacesExister: namespacesExister,
+		logger:            logger,
+		clusterClient:     clusterClient,
+		nodeResolver:      nodeResolver,
+		db:                db,
+		objectTTLOngoing:  atomic.Bool{},
+		remoteObjectTTL:   newRemoteObjectTTL(clusterClient, nodeResolver),
+		localStatus:       localStatus,
 	}
 }
 
 type Coordinator struct {
 	schemaReader      schemaUC.SchemaReader
 	schemaGetter      schemaUC.SchemaGetter
+	namespacesExister namespaces.Exister
 	db                *db.DB
 	objectTTLOngoing  atomic.Bool
 	logger            logrus.FieldLogger
@@ -69,7 +74,8 @@ type Coordinator struct {
 	localStatus       *LocalStatus
 }
 
-// Start triggers the deletion of expired objects.
+// Start triggers the deletion of expired objects. Collections whose namespace is
+// not active are left untouched, see dropClassesWithoutActiveNamespace.
 //
 // It is expected to be called periodically, e.g., via a cron job on the RAFT Leader to ensure that there are no
 // parallel executions running. The RAFT leader will send a request to a remote node in multi-node clusters as the
@@ -95,6 +101,7 @@ func (c *Coordinator) Start(ctx context.Context, targetOwnNode bool, ttlTime, de
 	if err != nil {
 		return fmt.Errorf("schemareader: %w", err)
 	}
+	c.dropClassesWithoutActiveNamespace(classesWithTTL)
 	if len(classesWithTTL) == 0 {
 		return nil
 	}
@@ -324,6 +331,18 @@ func (c *Coordinator) triggerDeletionObjectsExpiredRemoteNode(ctx context.Contex
 
 	c.objectTTLLastNode = node
 	return c.remoteObjectTTL.StartRemoteDelete(ctx, node, ttlCollections)
+}
+
+// dropClassesWithoutActiveNamespace removes every collection whose namespace is
+// not active. Sweeping one only counts a failure per round, since the shard load
+// it reaches refuses on exactly the states RequireActive refuses. Kept out of the
+// ReadSchema callback so the namespace lock is not taken under the schema read.
+func (c *Coordinator) dropClassesWithoutActiveNamespace(classesWithTTL map[string]objectTTLAndVersion) {
+	for name := range classesWithTTL {
+		if err := namespaces.RequireActive(c.namespacesExister, namespacing.NamespaceFromQualified(name)); err != nil {
+			delete(classesWithTTL, name)
+		}
+	}
 }
 
 func (c *Coordinator) extractTtlDataFromCollection(ttlConfig *models.ObjectTTLConfig, ttlTime time.Time,

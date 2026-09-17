@@ -17,25 +17,16 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/multitenancy"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/objects"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
-// fakeSchemaReader is a single test fake that satisfies multitenancy.schemaReader
-// (and resolver.schemaReader). It can behave as:
-//   - A tenant status mapper: set tenantShards = map[string]string{"tenantA": models.TenantActivityStatusHOT} to simulate active tenants.
-//   - A tenant error simulator: set tenantsShardErr to simulate schema connection failures.
-//   - A class existence controller: set classExists = true/false to control whether ReadOnlyClass returns a class or nil.
-//
-// Example configs:
-//
-//	&fakeSchemaReader{tenantShards: map[string]string{"tenantA": models.TenantActivityStatusHOT}, classExists: true} // Valid active tenant
-//	&fakeSchemaReader{tenantShards: map[string]string{"tenantA": models.TenantActivityStatusCOLD}, classExists: true} // Inactive tenant
-//	&fakeSchemaReader{tenantShards: map[string]string{}, classExists: true} // No tenants exist
-//	&fakeSchemaReader{tenantsShardErr: fmt.Errorf("connection failed"), classExists: true} // Schema error simulation
-//	&fakeSchemaReader{tenantShards: map[string]string{}, classExists: false} // Class doesn't exist
 type fakeSchemaReader struct {
+	schemaUC.SchemaGetter
+
 	tenantShards    map[string]string
 	tenantsShardErr error
 	classExists     bool

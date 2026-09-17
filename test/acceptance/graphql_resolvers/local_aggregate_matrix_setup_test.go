@@ -56,7 +56,8 @@ const (
 
 func arrayClassSchema() *models.Class {
 	return &models.Class{
-		Class: arrayClassName,
+		Class:      arrayClassName,
+		Vectorizer: "text2vec-contextionary",
 		ModuleConfig: map[string]interface{}{
 			"text2vec-contextionary": map[string]interface{}{
 				"vectorizeClassName": true,
@@ -284,7 +285,8 @@ func extractAggregateResult(result *graphqlhelper.GraphQLResult, className strin
 
 func noPropsClassSchema() *models.Class {
 	return &models.Class{
-		Class: noPropsClassName,
+		Class:      noPropsClassName,
+		Vectorizer: "text2vec-contextionary",
 		ModuleConfig: map[string]interface{}{
 			"text2vec-contextionary": map[string]interface{}{
 				"vectorizeClassName": true,
@@ -442,7 +444,8 @@ func aggregateCityQuery(filters, groupBy string) string {
 
 func duplicatesClassSchema() *models.Class {
 	return &models.Class{
-		Class: duplicatesClassName,
+		Class:      duplicatesClassName,
+		Vectorizer: "text2vec-contextionary",
 		ModuleConfig: map[string]interface{}{
 			"text2vec-contextionary": map[string]interface{}{
 				"vectorizeClassName": true,

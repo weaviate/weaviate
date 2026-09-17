@@ -12,12 +12,11 @@
 package test_suits
 
 import (
+	"acceptance_tests_with_client/fixtures"
 	"context"
 	"fmt"
 	"strings"
 	"testing"
-
-	"acceptance_tests_with_client/fixtures"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"

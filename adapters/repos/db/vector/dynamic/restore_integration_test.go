@@ -13,16 +13,16 @@ package dynamic
 
 import (
 	"context"
-	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -62,12 +62,10 @@ func TestBackup_Integration(t *testing.T) {
 		VectorCacheMaxObjects: 1_000_000,
 	}
 
-	tmpDir := t.TempDir()
-	dbPath := filepath.Join(tmpDir, "index.db")
-	db, err := bbolt.Open(dbPath, 0o666, nil)
+	meta, err := shardmeta.Open(t.TempDir(), time.Second)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		db.Close()
+		meta.Close()
 	})
 
 	config := Config{
@@ -88,7 +86,7 @@ func TestBackup_Integration(t *testing.T) {
 		},
 		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
 		TombstoneCallbacks:           noopCallback,
-		SharedDB:                     db,
+		State:                        meta.Namespace(StateNamespace),
 		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
 		AsyncIndexingEnabled:         true,
 	}

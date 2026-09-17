@@ -787,3 +787,106 @@ func TestState_NumberOfReplicas(t *testing.T) {
 		})
 	}
 }
+
+func TestState_IsLocalPhysical(t *testing.T) {
+	tests := []struct {
+		name     string
+		replicas []string
+		want     bool
+	}{
+		{name: "no replica list", want: false},
+		{name: "an empty replica list", replicas: []string{}, want: false},
+		{name: "the only replica", replicas: []string{"N1"}, want: true},
+		{name: "the first of several replicas", replicas: []string{"N1", "N2", "N3"}, want: true},
+		{name: "the last of several replicas", replicas: []string{"N2", "N3", "N1"}, want: true},
+		{name: "not among the replicas", replicas: []string{"N2", "N3"}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			physical := Physical{Name: "s1", BelongsToNodes: tt.replicas}
+			state := &State{Physical: map[string]Physical{"s1": physical}}
+			state.SetLocalName("N1")
+
+			assert.Equal(t, tt.want, state.IsLocalPhysical(physical))
+			assert.Equal(t, tt.want, state.IsLocalShard("s1"),
+				"IsLocalShard must agree with the entry it looks up")
+		})
+	}
+
+	// An unknown name yields the zero Physical, which belongs to no node. Reading
+	// it as local would hand the caller a shard the state never listed.
+	t.Run("a name absent from the state is not local", func(t *testing.T) {
+		state := &State{Physical: map[string]Physical{}}
+		state.SetLocalName("N1")
+
+		assert.False(t, state.IsLocalShard("nonexistent-shard"))
+	})
+}
+
+// Neither accessor had coverage. Both are live: the count feeds multi-tenant
+// lazy-load auto-detection, the names feed backup restore and the reload.
+func TestState_LocalPhysicalShardAccessors(t *testing.T) {
+	physical := func(name, status string, nodes ...string) Physical {
+		return Physical{Name: name, Status: status, BelongsToNodes: nodes}
+	}
+
+	tests := []struct {
+		name      string
+		shards    []Physical
+		wantCount int
+		wantNames []string
+	}{
+		{name: "no shards"},
+		{
+			name:      "a shard this node holds no replica of",
+			shards:    []Physical{physical("s1", models.TenantActivityStatusHOT, "N2", "N3")},
+			wantCount: 0,
+		},
+		{
+			name:      "a shard with no replica list at all",
+			shards:    []Physical{physical("s1", models.TenantActivityStatusHOT)},
+			wantCount: 0,
+		},
+		{
+			name:      "this node listed last among the replicas",
+			shards:    []Physical{physical("s1", models.TenantActivityStatusHOT, "N2", "N3", "N1")},
+			wantCount: 1,
+			wantNames: []string{"s1"},
+		},
+		{
+			// The count compares the status raw, so an empty one is not active
+			// even though every other shard filter reads it as HOT. The names
+			// accessor ignores status entirely, so it still returns the shard.
+			name:      "an empty status counts as inactive but is still named",
+			shards:    []Physical{physical("s1", "", "N1")},
+			wantCount: 0,
+			wantNames: []string{"s1"},
+		},
+		{
+			name: "only the local HOT shards are counted",
+			shards: []Physical{
+				physical("hot1", models.TenantActivityStatusHOT, "N1"),
+				physical("hot2", models.TenantActivityStatusHOT, "N1", "N2"),
+				physical("cold1", models.TenantActivityStatusCOLD, "N1"),
+				physical("remote1", models.TenantActivityStatusHOT, "N2"),
+			},
+			wantCount: 2,
+			wantNames: []string{"cold1", "hot1", "hot2"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			state := &State{Physical: map[string]Physical{}}
+			for _, p := range tt.shards {
+				state.Physical[p.Name] = p
+			}
+			state.SetLocalName("N1")
+
+			assert.Equal(t, tt.wantCount, state.LocalActivePhysicalShardsCount())
+			assert.Equal(t, tt.wantNames, state.AllLocalPhysicalShards(),
+				"names must be sorted, not in map order")
+		})
+	}
+}

@@ -61,8 +61,10 @@ const (
 	// 24h timeout. It is a hard timeout on the request rather than a stall
 	// detector, so it must stay well above the time a full chunk takes on a slow
 	// link, and well below chunkRetryDeadline to leave room for retries. Raising
-	// the writer's ChunkSize means revisiting both. HTTP only; the gRPC writer
-	// ignores it.
+	// the writer's ChunkSize means revisiting both. The SDK applies it on the
+	// HTTP transport only, so on the default gRPC transport a stalled chunk is
+	// bounded by the caller's context rather than by this. chunkRetryDeadline
+	// applies on both.
 	chunkTransferTimeout = time.Minute
 )
 
@@ -103,7 +105,7 @@ func storageOptions(ctx context.Context, logger logrus.FieldLogger, transport uc
 		opts = append(opts, option.WithoutAuthentication())
 	}
 
-	if transport.UseGRPC {
+	if transport.UseGRPCOrDefault() {
 		// The SDK exports gRPC client metrics to Cloud Monitoring by default. That
 		// needs monitoring.timeSeries.create and reports its own failures through
 		// the standard library, bypassing our logger.
@@ -135,10 +137,11 @@ func newClient(ctx context.Context, config *clientConfig, dataPath string, logge
 	}
 
 	var client *storage.Client
-	if config.Transport.UseGRPC {
+	if config.Transport.UseGRPCOrDefault() {
 		logger.Infof("backup-gcs: using gRPC transport with a connection pool of %d per client", config.Transport.GRPCConnPool)
 		client, err = storage.NewGRPCClient(ctx, opts...)
 	} else {
+		logger.Info("backup-gcs: using HTTP transport")
 		client, err = storage.NewClient(ctx, opts...)
 	}
 	if err != nil {
@@ -201,9 +204,9 @@ func (g *gcsClient) HomeDir(backupID, overrideBucket, overridePath string) strin
 }
 
 func (g *gcsClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackupDescriptor, error) {
-	bucket, err := g.findBucket(ctx, "")
+	bucket, err := g.bucketHandle("")
 	if err != nil {
-		return nil, fmt.Errorf("find bucket: %w", err)
+		return nil, fmt.Errorf("resolve bucket: %w", err)
 	}
 
 	// Use delimiter listing to get one-level-deep prefixes (one per backup ID)
@@ -257,18 +260,14 @@ func (g *gcsClient) resolveBucketName(bucketOverride string) (string, error) {
 	return b, nil
 }
 
-func (g *gcsClient) findBucket(ctx context.Context, bucketOverride string) (*storage.BucketHandle, error) {
+// bucketHandle sends no request. Write and Read run once per backup chunk, and
+// the object request each makes already fails when the bucket is missing.
+func (g *gcsClient) bucketHandle(bucketOverride string) (*storage.BucketHandle, error) {
 	b, err := g.resolveBucketName(bucketOverride)
 	if err != nil {
 		return nil, err
 	}
-	bucket := g.client.Bucket(b)
-
-	if _, err := bucket.Attrs(ctx); err != nil {
-		return nil, fmt.Errorf("find bucket: %w", err)
-	}
-
-	return bucket, nil
+	return g.client.Bucket(b), nil
 }
 
 func (g *gcsClient) makeObjectName(overridePath string, parts []string) string {
@@ -288,11 +287,8 @@ func (g *gcsClient) GetObject(ctx context.Context, backupID, key, overrideBucket
 		return nil, backup.NewErrContextExpired(errors.Wrapf(err, "get object %s", objectName))
 	}
 
-	bucket, err := g.findBucket(ctx, overrideBucket)
+	bucket, err := g.bucketHandle(overrideBucket)
 	if err != nil {
-		if errors.Is(err, storage.ErrBucketNotExist) {
-			return nil, backup.NewErrNotFound(errors.Wrapf(err, "get object %s", objectName))
-		}
 		return nil, backup.NewErrInternal(errors.Wrapf(err, "get object %s", objectName))
 	}
 
@@ -308,9 +304,9 @@ func (g *gcsClient) GetObject(ctx context.Context, backupID, key, overrideBucket
 }
 
 func (g *gcsClient) PutObject(ctx context.Context, backupID, key, overrideBucket, overridePath string, byes []byte) error {
-	bucket, err := g.findBucket(ctx, overrideBucket)
+	bucket, err := g.bucketHandle(overrideBucket)
 	if err != nil {
-		return errors.Wrap(err, "find bucket")
+		return errors.Wrap(err, "resolve bucket")
 	}
 
 	objectName := g.makeObjectName(overridePath, []string{backupID, key})
@@ -353,9 +349,9 @@ func (g *gcsClient) Initialize(ctx context.Context, backupID, overrideBucket, ov
 		return errors.Wrapf(err, "failed to access-check gcs backup module %v %v %v %v", overrideBucket, overridePath, backupID, key)
 	}
 
-	bucket, err := g.findBucket(ctx, overrideBucket)
+	bucket, err := g.bucketHandle(overrideBucket)
 	if err != nil {
-		return errors.Wrap(err, "find bucket")
+		return errors.Wrap(err, "resolve bucket")
 	}
 
 	objectName := g.makeObjectName(overridePath, []string{backupID, key})
@@ -373,9 +369,9 @@ func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, ov
 		r.CloseWithError(err)
 	}()
 
-	bucket, err := g.findBucket(ctx, overrideBucket)
+	bucket, err := g.bucketHandle(overrideBucket)
 	if err != nil {
-		return 0, fmt.Errorf("write: find bucket: %w", err)
+		return 0, fmt.Errorf("write: resolve bucket: %w", err)
 	}
 
 	// create a new writer
@@ -410,13 +406,9 @@ func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, ov
 func (g *gcsClient) Read(ctx context.Context, backupID, key, overrideBucket, overridePath string, w io.WriteCloser) (int64, error) {
 	defer w.Close()
 
-	bucket, err := g.findBucket(ctx, overrideBucket)
+	bucket, err := g.bucketHandle(overrideBucket)
 	if err != nil {
-		err = fmt.Errorf("read: find bucket: %w", err)
-		if errors.Is(err, storage.ErrBucketNotExist) {
-			err = backup.NewErrNotFound(err)
-		}
-		return 0, err
+		return 0, fmt.Errorf("read: resolve bucket: %w", err)
 	}
 
 	// create reader

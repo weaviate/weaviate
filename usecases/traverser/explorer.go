@@ -102,7 +102,7 @@ type objectsSearcher interface {
 	Object(ctx context.Context, className string, id strfmt.UUID,
 		props search.SelectProperties, additional additional.Properties,
 		properties *additional.ReplicationProperties, tenant string) (*search.Result, error)
-	ObjectsByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties, tenant string) (search.Results, error)
+	ObjectsByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties, tenant, namespace string) (search.Results, error)
 }
 
 type hybridSearcher interface {
@@ -241,6 +241,7 @@ func (e *Explorer) getClassKeywordBased(ctx context.Context, params dto.GetParam
 		if errors.As(err, &e) {
 			return nil, e
 		}
+		// %w preserves the admission shed's identity (ErrOverloaded) through wrapping.
 		return nil, fmt.Errorf("explorer: get class: vector search: %w", err)
 	}
 
@@ -312,7 +313,7 @@ func (e *Explorer) getClassVectorSearch(ctx context.Context,
 
 	res, searchVectors, err := e.searchForTargets(ctx, params, targetVectors, nil)
 	if err != nil {
-		return nil, nil, errors.Wrap(err, "explorer: get class: concurrentTargetVectorSearch)")
+		return nil, nil, errors.Wrap(err, "explorer: get class: concurrentTargetVectorSearch")
 	}
 
 	if mmr {
@@ -435,6 +436,7 @@ func (e *Explorer) searchForTargets(ctx context.Context, params dto.GetParams, t
 
 	res, err := e.searcher.VectorSearch(ctx, params, targetVectors, searchVectors)
 	if err != nil {
+		// %w preserves the admission shed's identity (ErrOverloaded) through wrapping.
 		return nil, nil, fmt.Errorf("explorer: get class: vector search: %w", err)
 	}
 
@@ -636,7 +638,7 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 			normalizedResultDist := res.Dist / 2
 
 			certainty := ExtractCertaintyFromParams(params)
-			if 1-(normalizedResultDist) < float32(certainty) && 1-normalizedResultDist >= 0 {
+			if 1-normalizedResultDist < float32(certainty) && 1-normalizedResultDist >= 0 {
 				// TODO: Clean this up. The >= check is so that this logic does not run
 				// non-cosine distance.
 				continue
@@ -809,6 +811,7 @@ func (e *Explorer) CrossClassVectorSearch(ctx context.Context,
 
 	res, err := e.searcher.CrossClassVectorSearch(ctx, vector, targetVector, params.Offset, params.Limit, nil)
 	if err != nil {
+		// %w preserves the admission shed's identity (ErrOverloaded) through wrapping.
 		return nil, fmt.Errorf("vector search: %w", err)
 	}
 

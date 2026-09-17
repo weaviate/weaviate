@@ -12,13 +12,11 @@
 package lsmkv
 
 import (
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
 
 func (s *segment) newRoaringSetCursor() roaringset.SegmentCursor {
-	return roaringset.NewSegmentCursor(s.contents[s.dataStartPos:s.dataEndPos],
-		&roaringSetSeeker{s.index})
+	return roaringset.NewSegmentCursor(s.contents[s.dataStartPos:s.dataEndPos], s)
 }
 
 func (sg *SegmentGroup) newRoaringSetCursors() ([]roaringset.InnerCursor, func()) {
@@ -33,22 +31,14 @@ func (sg *SegmentGroup) newRoaringSetCursors() ([]roaringset.InnerCursor, func()
 	return out, release
 }
 
-// diskIndex returns node's Start and End offsets
-// taking into account HeaderSize. SegmentCursor of RoaringSet
-// accepts only payload part of underlying segment content, therefore
-// offsets should be adjusted and reduced by HeaderSize
-type roaringSetSeeker struct {
-	diskIndex diskIndex
-}
-
-func (s *roaringSetSeeker) Seek(key []byte) (segmentindex.Node, error) {
-	node, err := s.diskIndex.Seek(key)
+// SeekPayloadStart rebases the index's segment-absolute start offset onto the
+// payload slice newRoaringSetCursor hands out, which begins at dataStartPos. The
+// index bounds every offset against that same region, so the subtraction cannot
+// wrap.
+func (s *segment) SeekPayloadStart(key []byte) (uint64, error) {
+	start, _, err := s.index.SeekOffsets(key)
 	if err != nil {
-		return segmentindex.Node{}, err
+		return 0, s.reportIndexErr(err)
 	}
-	return segmentindex.Node{
-		Key:   node.Key,
-		Start: node.Start - segmentindex.HeaderSize,
-		End:   node.End - segmentindex.HeaderSize,
-	}, nil
+	return start - s.dataStartPos, nil
 }

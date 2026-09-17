@@ -294,12 +294,12 @@ func TestIsSemanticMigration(t *testing.T) {
 		ReindexTypeChangeTokenizationFilterable,
 		ReindexTypeEnableFilterable,
 		ReindexTypeEnableSearchable,
+		ReindexTypeEnableRangeable,
 		ReindexTypeChangeAlgorithm,
 	}
 	formatOnly := []ReindexMigrationType{
 		ReindexTypeRebuildSearchable,
 		ReindexTypeRepairFilterable,
-		ReindexTypeEnableRangeable,
 		ReindexTypeRepairRangeable,
 	}
 	for _, mt := range semantic {
@@ -315,9 +315,8 @@ func TestIsSemanticMigration(t *testing.T) {
 }
 
 // TestSemanticMigrationIndexTypes pins the migration-type → index-type
-// mapping. Format-only migrations (repair-*, enable-rangeable) MUST
-// return nil here — they don't go through the swap barrier, so
-// LocalCallbacksDone has nothing to check for them.
+// mapping. Format-only migrations (repair-*, rebuild-*) MUST return nil: they
+// skip the swap barrier, so LocalCallbacksDone has nothing to check.
 func TestSemanticMigrationIndexTypes(t *testing.T) {
 	tests := []struct {
 		name string
@@ -355,8 +354,13 @@ func TestSemanticMigrationIndexTypes(t *testing.T) {
 			want: nil,
 		},
 		{
-			name: "enable-rangeable → empty (format-only)",
+			name: "enable-rangeable → rangeable",
 			mt:   ReindexTypeEnableRangeable,
+			want: []string{"rangeable"},
+		},
+		{
+			name: "repair-rangeable → empty (format-only)",
+			mt:   ReindexTypeRepairRangeable,
 			want: nil,
 		},
 	}
@@ -440,7 +444,7 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 			className := "LocalCallbacksDone_" + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, []string{prop})
 			hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
+				false, false)
 			defer hot.Shutdown(context.Background())
 
 			migrationType := ReindexTypeChangeTokenization
@@ -453,7 +457,7 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 				mkTrackerDir(t, shardPathLSM(idx.path(), tenant), trackerDir, tc.sentinels...)
 			}
 			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+				idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
 				false, idx.bitmapBufPool)
 			if !tc.absentFromShardMap {
 				idx.shards.Store(tenant, cold)

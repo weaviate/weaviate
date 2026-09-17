@@ -54,14 +54,6 @@ type VectorIndexQueue struct {
 	vectorIndex VectorIndex
 }
 
-func NewVectorIndexQueue(
-	shard *Shard,
-	targetVector string,
-	index VectorIndex,
-) (*VectorIndexQueue, error) {
-	return newVectorIndexQueueWithID(shard, shard.vectorIndexID(targetVector), targetVector, index)
-}
-
 // NewGeoIndexQueue creates a VectorIndexQueue for a geo property index.
 // It uses a geo-specific ID to avoid the misleading "vectors_" prefix.
 func NewGeoIndexQueue(
@@ -85,9 +77,9 @@ func newVectorIndexQueueWithID(
 	}
 	viq.vectorIndex = index
 
-	logger := shard.index.logger.WithField("component", "vector_index_queue").
-		WithField("shard_id", shard.ID()).
-		WithField("target_vector", logLabel)
+	logger := shard.vectorIndexLogger(logLabel, indexID).
+		WithField("component", "vector_index_queue").
+		WithField("shard_id", shard.ID())
 
 	staleTimeout, _ := time.ParseDuration(os.Getenv("ASYNC_INDEXING_STALE_TIMEOUT"))
 	batchSize, _ := strconv.Atoi(os.Getenv("ASYNC_INDEXING_BATCH_SIZE"))

@@ -24,8 +24,8 @@ import (
 
 // testPostDeleteNoSyntheticEntry pins that GET /indexes never synthesizes an
 // "indexing@100%" entry for a just-deleted (property, indexType). Stricter
-// than testDeleteThenReEnableIndexingBleed: the entry must be absent at
-// EVERY sample across the finalize window, not just eventually.
+// than testDeleteThenReEnableIndexingBleed: the entry must be absent at every
+// sample across the polling window, not just eventually.
 func testPostDeleteNoSyntheticEntry(t *testing.T, restURI string) {
 	const class = "PostDeleteNoBleed"
 	trueVal, falseVal := true, false
@@ -45,12 +45,12 @@ func testPostDeleteNoSyntheticEntry(t *testing.T, restURI string) {
 	}
 
 	// Enable rangeFilters and wait for FINISHED. The FINISHED task lingers in
-	// DTM for the finalize window — the source of the bleed.
+	// DTM long after that.
 	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "score", "rangeFilters", `{}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
 
 	// DELETE it, then assert the rangeFilters entry is absent at every sample
-	// across the finalize window (2× scheduler tick, clamped ≥3s).
+	// for four seconds.
 	deleteIndex(t, restURI, class, "score", "rangeFilters")
 
 	deadline := time.Now().Add(4 * time.Second)
@@ -62,7 +62,7 @@ func testPostDeleteNoSyntheticEntry(t *testing.T, restURI string) {
 			}
 			for _, idx := range prop.Indexes {
 				require.NotEqualf(t, "rangeFilters", idx.Type,
-					"after DELETE, GET /indexes must not synthesize a finalize-window entry for the deleted rangeFilters index; got %+v", idx)
+					"after DELETE, GET /indexes must not synthesize an entry for the deleted rangeFilters index; got %+v", idx)
 			}
 		}
 		time.Sleep(150 * time.Millisecond)

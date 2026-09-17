@@ -1,0 +1,19 @@
+name: Golangci-lint tool action
+description: Installs or runs golangci-lint tool.
+inputs:
+  version:
+    description: golangci-lint version to use
+    required: false
+    default: 'v2.13.1' # Keep in sync with .pre-commit-config.yaml.
+  install-only:
+    description: only install golangci-lint
+    required: false
+    default: false
+runs:
+  using: composite
+  steps:
+    - name: golangci-lint
+      uses: golangci/golangci-lint-action@1e7e51e771db61008b38414a730f564565cf7c20 # v9
+      with:
+        version: ${{ inputs.version }}
+        install-only: ${{ inputs.install-only }}

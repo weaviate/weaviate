@@ -64,6 +64,12 @@ func (o *SearchNearTextReader) ReadResponse(response runtime.ClientResponse, con
 			return nil, err
 		}
 		return nil, result
+	case 413:
+		result := NewSearchNearTextRequestEntityTooLarge()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 422:
 		result := NewSearchNearTextUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -78,12 +84,6 @@ func (o *SearchNearTextReader) ReadResponse(response runtime.ClientResponse, con
 		return nil, result
 	case 500:
 		result := NewSearchNearTextInternalServerError()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
-	case 502:
-		result := NewSearchNearTextBadGateway()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -439,6 +439,74 @@ func (o *SearchNearTextNotFound) readResponse(response runtime.ClientResponse, c
 	return nil
 }
 
+// NewSearchNearTextRequestEntityTooLarge creates a SearchNearTextRequestEntityTooLarge with default headers values
+func NewSearchNearTextRequestEntityTooLarge() *SearchNearTextRequestEntityTooLarge {
+	return &SearchNearTextRequestEntityTooLarge{}
+}
+
+/*
+SearchNearTextRequestEntityTooLarge describes a response with status code 413, with default header values.
+
+The request body exceeded the 4194304 byte (4 MiB) limit.
+*/
+type SearchNearTextRequestEntityTooLarge struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this search near text request entity too large response has a 2xx status code
+func (o *SearchNearTextRequestEntityTooLarge) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this search near text request entity too large response has a 3xx status code
+func (o *SearchNearTextRequestEntityTooLarge) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this search near text request entity too large response has a 4xx status code
+func (o *SearchNearTextRequestEntityTooLarge) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this search near text request entity too large response has a 5xx status code
+func (o *SearchNearTextRequestEntityTooLarge) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this search near text request entity too large response a status code equal to that given
+func (o *SearchNearTextRequestEntityTooLarge) IsCode(code int) bool {
+	return code == 413
+}
+
+// Code gets the status code for the search near text request entity too large response
+func (o *SearchNearTextRequestEntityTooLarge) Code() int {
+	return 413
+}
+
+func (o *SearchNearTextRequestEntityTooLarge) Error() string {
+	return fmt.Sprintf("[POST /search/{collection}/near-text][%d] searchNearTextRequestEntityTooLarge  %+v", 413, o.Payload)
+}
+
+func (o *SearchNearTextRequestEntityTooLarge) String() string {
+	return fmt.Sprintf("[POST /search/{collection}/near-text][%d] searchNearTextRequestEntityTooLarge  %+v", 413, o.Payload)
+}
+
+func (o *SearchNearTextRequestEntityTooLarge) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *SearchNearTextRequestEntityTooLarge) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
 // NewSearchNearTextUnprocessableEntity creates a SearchNearTextUnprocessableEntity with default headers values
 func NewSearchNearTextUnprocessableEntity() *SearchNearTextUnprocessableEntity {
 	return &SearchNearTextUnprocessableEntity{}
@@ -447,7 +515,7 @@ func NewSearchNearTextUnprocessableEntity() *SearchNearTextUnprocessableEntity {
 /*
 SearchNearTextUnprocessableEntity describes a response with status code 422, with default header values.
 
-Either a request-schema violation (a missing required field such as `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).
+Either a request-schema violation (a missing required field such as `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.
 */
 type SearchNearTextUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -583,7 +651,7 @@ func NewSearchNearTextInternalServerError() *SearchNearTextInternalServerError {
 /*
 SearchNearTextInternalServerError describes a response with status code 500, with default header values.
 
-An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.
+An error has occurred while trying to fulfill the request, including a failure of the embedding provider to vectorize the query. Most likely the ErrorResponse will contain more information about the error.
 */
 type SearchNearTextInternalServerError struct {
 	Payload *models.ErrorResponse
@@ -632,74 +700,6 @@ func (o *SearchNearTextInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchNearTextInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ErrorResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
-// NewSearchNearTextBadGateway creates a SearchNearTextBadGateway with default headers values
-func NewSearchNearTextBadGateway() *SearchNearTextBadGateway {
-	return &SearchNearTextBadGateway{}
-}
-
-/*
-SearchNearTextBadGateway describes a response with status code 502, with default header values.
-
-The embedding provider failed to vectorize the query; the search cannot run.
-*/
-type SearchNearTextBadGateway struct {
-	Payload *models.ErrorResponse
-}
-
-// IsSuccess returns true when this search near text bad gateway response has a 2xx status code
-func (o *SearchNearTextBadGateway) IsSuccess() bool {
-	return false
-}
-
-// IsRedirect returns true when this search near text bad gateway response has a 3xx status code
-func (o *SearchNearTextBadGateway) IsRedirect() bool {
-	return false
-}
-
-// IsClientError returns true when this search near text bad gateway response has a 4xx status code
-func (o *SearchNearTextBadGateway) IsClientError() bool {
-	return false
-}
-
-// IsServerError returns true when this search near text bad gateway response has a 5xx status code
-func (o *SearchNearTextBadGateway) IsServerError() bool {
-	return true
-}
-
-// IsCode returns true when this search near text bad gateway response a status code equal to that given
-func (o *SearchNearTextBadGateway) IsCode(code int) bool {
-	return code == 502
-}
-
-// Code gets the status code for the search near text bad gateway response
-func (o *SearchNearTextBadGateway) Code() int {
-	return 502
-}
-
-func (o *SearchNearTextBadGateway) Error() string {
-	return fmt.Sprintf("[POST /search/{collection}/near-text][%d] searchNearTextBadGateway  %+v", 502, o.Payload)
-}
-
-func (o *SearchNearTextBadGateway) String() string {
-	return fmt.Sprintf("[POST /search/{collection}/near-text][%d] searchNearTextBadGateway  %+v", 502, o.Payload)
-}
-
-func (o *SearchNearTextBadGateway) GetPayload() *models.ErrorResponse {
-	return o.Payload
-}
-
-func (o *SearchNearTextBadGateway) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

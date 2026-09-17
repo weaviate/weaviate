@@ -19,27 +19,28 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	ReplicationService_PutObject_FullMethodName                = "/clusterapi.ReplicationService/PutObject"
-	ReplicationService_PutObjects_FullMethodName               = "/clusterapi.ReplicationService/PutObjects"
-	ReplicationService_MergeObject_FullMethodName              = "/clusterapi.ReplicationService/MergeObject"
-	ReplicationService_DeleteObject_FullMethodName             = "/clusterapi.ReplicationService/DeleteObject"
-	ReplicationService_DeleteObjects_FullMethodName            = "/clusterapi.ReplicationService/DeleteObjects"
-	ReplicationService_AddReferences_FullMethodName            = "/clusterapi.ReplicationService/AddReferences"
-	ReplicationService_Commit_FullMethodName                   = "/clusterapi.ReplicationService/Commit"
-	ReplicationService_Abort_FullMethodName                    = "/clusterapi.ReplicationService/Abort"
-	ReplicationService_FetchObject_FullMethodName              = "/clusterapi.ReplicationService/FetchObject"
-	ReplicationService_FetchObjects_FullMethodName             = "/clusterapi.ReplicationService/FetchObjects"
-	ReplicationService_DigestObjects_FullMethodName            = "/clusterapi.ReplicationService/DigestObjects"
-	ReplicationService_DigestObjectsInRange_FullMethodName     = "/clusterapi.ReplicationService/DigestObjectsInRange"
-	ReplicationService_CompareDigests_FullMethodName           = "/clusterapi.ReplicationService/CompareDigests"
-	ReplicationService_OverwriteObjects_FullMethodName         = "/clusterapi.ReplicationService/OverwriteObjects"
-	ReplicationService_FindUUIDs_FullMethodName                = "/clusterapi.ReplicationService/FindUUIDs"
-	ReplicationService_HashTreeLevel_FullMethodName            = "/clusterapi.ReplicationService/HashTreeLevel"
-	ReplicationService_CompareHashTreeRoots_FullMethodName     = "/clusterapi.ReplicationService/CompareHashTreeRoots"
-	ReplicationService_CountObjects_FullMethodName             = "/clusterapi.ReplicationService/CountObjects"
-	ReplicationService_CreateAsyncCheckpoint_FullMethodName    = "/clusterapi.ReplicationService/CreateAsyncCheckpoint"
-	ReplicationService_DeleteAsyncCheckpoint_FullMethodName    = "/clusterapi.ReplicationService/DeleteAsyncCheckpoint"
-	ReplicationService_GetAsyncCheckpointStatus_FullMethodName = "/clusterapi.ReplicationService/GetAsyncCheckpointStatus"
+	ReplicationService_PutObject_FullMethodName                 = "/clusterapi.ReplicationService/PutObject"
+	ReplicationService_PutObjects_FullMethodName                = "/clusterapi.ReplicationService/PutObjects"
+	ReplicationService_MergeObject_FullMethodName               = "/clusterapi.ReplicationService/MergeObject"
+	ReplicationService_DeleteObject_FullMethodName              = "/clusterapi.ReplicationService/DeleteObject"
+	ReplicationService_DeleteObjects_FullMethodName             = "/clusterapi.ReplicationService/DeleteObjects"
+	ReplicationService_AddReferences_FullMethodName             = "/clusterapi.ReplicationService/AddReferences"
+	ReplicationService_Commit_FullMethodName                    = "/clusterapi.ReplicationService/Commit"
+	ReplicationService_Abort_FullMethodName                     = "/clusterapi.ReplicationService/Abort"
+	ReplicationService_FetchObject_FullMethodName               = "/clusterapi.ReplicationService/FetchObject"
+	ReplicationService_FetchObjects_FullMethodName              = "/clusterapi.ReplicationService/FetchObjects"
+	ReplicationService_DigestObjects_FullMethodName             = "/clusterapi.ReplicationService/DigestObjects"
+	ReplicationService_DigestObjectsInRange_FullMethodName      = "/clusterapi.ReplicationService/DigestObjectsInRange"
+	ReplicationService_CompareDigests_FullMethodName            = "/clusterapi.ReplicationService/CompareDigests"
+	ReplicationService_OverwriteObjects_FullMethodName          = "/clusterapi.ReplicationService/OverwriteObjects"
+	ReplicationService_FindUUIDs_FullMethodName                 = "/clusterapi.ReplicationService/FindUUIDs"
+	ReplicationService_HashTreeLevel_FullMethodName             = "/clusterapi.ReplicationService/HashTreeLevel"
+	ReplicationService_CompareHashTreeRoots_FullMethodName      = "/clusterapi.ReplicationService/CompareHashTreeRoots"
+	ReplicationService_CompareHashTreeRootsMulti_FullMethodName = "/clusterapi.ReplicationService/CompareHashTreeRootsMulti"
+	ReplicationService_CountObjects_FullMethodName              = "/clusterapi.ReplicationService/CountObjects"
+	ReplicationService_CreateAsyncCheckpoint_FullMethodName     = "/clusterapi.ReplicationService/CreateAsyncCheckpoint"
+	ReplicationService_DeleteAsyncCheckpoint_FullMethodName     = "/clusterapi.ReplicationService/DeleteAsyncCheckpoint"
+	ReplicationService_GetAsyncCheckpointStatus_FullMethodName  = "/clusterapi.ReplicationService/GetAsyncCheckpointStatus"
 )
 
 // ReplicationServiceClient is the client API for ReplicationService service.
@@ -68,6 +69,7 @@ type ReplicationServiceClient interface {
 	FindUUIDs(ctx context.Context, in *FindUUIDsRequest, opts ...grpc.CallOption) (*FindUUIDsResponse, error)
 	HashTreeLevel(ctx context.Context, in *HashTreeLevelRequest, opts ...grpc.CallOption) (*HashTreeLevelResponse, error)
 	CompareHashTreeRoots(ctx context.Context, in *CompareHashTreeRootsRequest, opts ...grpc.CallOption) (*CompareHashTreeRootsResponse, error)
+	CompareHashTreeRootsMulti(ctx context.Context, in *CompareHashTreeRootsMultiRequest, opts ...grpc.CallOption) (*CompareHashTreeRootsMultiResponse, error)
 	CountObjects(ctx context.Context, in *CountObjectsRequest, opts ...grpc.CallOption) (*CountObjectsResponse, error)
 	// Async-checkpoint control plane; mirrors /replicas/indices/{class}/async-checkpoint.
 	CreateAsyncCheckpoint(ctx context.Context, in *CreateAsyncCheckpointRequest, opts ...grpc.CallOption) (*CreateAsyncCheckpointResponse, error)
@@ -253,6 +255,16 @@ func (c *replicationServiceClient) CompareHashTreeRoots(ctx context.Context, in 
 	return out, nil
 }
 
+func (c *replicationServiceClient) CompareHashTreeRootsMulti(ctx context.Context, in *CompareHashTreeRootsMultiRequest, opts ...grpc.CallOption) (*CompareHashTreeRootsMultiResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(CompareHashTreeRootsMultiResponse)
+	err := c.cc.Invoke(ctx, ReplicationService_CompareHashTreeRootsMulti_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *replicationServiceClient) CountObjects(ctx context.Context, in *CountObjectsRequest, opts ...grpc.CallOption) (*CountObjectsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CountObjectsResponse)
@@ -319,6 +331,7 @@ type ReplicationServiceServer interface {
 	FindUUIDs(context.Context, *FindUUIDsRequest) (*FindUUIDsResponse, error)
 	HashTreeLevel(context.Context, *HashTreeLevelRequest) (*HashTreeLevelResponse, error)
 	CompareHashTreeRoots(context.Context, *CompareHashTreeRootsRequest) (*CompareHashTreeRootsResponse, error)
+	CompareHashTreeRootsMulti(context.Context, *CompareHashTreeRootsMultiRequest) (*CompareHashTreeRootsMultiResponse, error)
 	CountObjects(context.Context, *CountObjectsRequest) (*CountObjectsResponse, error)
 	// Async-checkpoint control plane; mirrors /replicas/indices/{class}/async-checkpoint.
 	CreateAsyncCheckpoint(context.Context, *CreateAsyncCheckpointRequest) (*CreateAsyncCheckpointResponse, error)
@@ -383,6 +396,9 @@ func (UnimplementedReplicationServiceServer) HashTreeLevel(context.Context, *Has
 }
 func (UnimplementedReplicationServiceServer) CompareHashTreeRoots(context.Context, *CompareHashTreeRootsRequest) (*CompareHashTreeRootsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CompareHashTreeRoots not implemented")
+}
+func (UnimplementedReplicationServiceServer) CompareHashTreeRootsMulti(context.Context, *CompareHashTreeRootsMultiRequest) (*CompareHashTreeRootsMultiResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method CompareHashTreeRootsMulti not implemented")
 }
 func (UnimplementedReplicationServiceServer) CountObjects(context.Context, *CountObjectsRequest) (*CountObjectsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CountObjects not implemented")
@@ -722,6 +738,24 @@ func _ReplicationService_CompareHashTreeRoots_Handler(srv interface{}, ctx conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ReplicationService_CompareHashTreeRootsMulti_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CompareHashTreeRootsMultiRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(ReplicationServiceServer).CompareHashTreeRootsMulti(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: ReplicationService_CompareHashTreeRootsMulti_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(ReplicationServiceServer).CompareHashTreeRootsMulti(ctx, req.(*CompareHashTreeRootsMultiRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _ReplicationService_CountObjects_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(CountObjectsRequest)
 	if err := dec(in); err != nil {
@@ -868,6 +902,10 @@ var ReplicationService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CompareHashTreeRoots",
 			Handler:    _ReplicationService_CompareHashTreeRoots_Handler,
+		},
+		{
+			MethodName: "CompareHashTreeRootsMulti",
+			Handler:    _ReplicationService_CompareHashTreeRootsMulti_Handler,
 		},
 		{
 			MethodName: "CountObjects",

@@ -69,3 +69,16 @@ func TestDecompressOverwriteRawRejectsGarbage(t *testing.T) {
 	_, err := DecompressOverwriteRaw([]byte("not zstd"))
 	require.Error(t, err)
 }
+
+// TestOverwriteRawCompressionRoundTripMultiBlock: payloads beyond the encoder window must survive the multi-block path.
+func TestOverwriteRawCompressionRoundTripMultiBlock(t *testing.T) {
+	payload := bytes.Repeat([]byte("weaviate-overwrite-raw-multi-block-payload-"), 100_000)
+	require.Greater(t, len(payload), 2<<20)
+
+	compressed := CompressOverwriteRaw(payload)
+	require.Less(t, len(compressed), len(payload))
+
+	restored, err := DecompressOverwriteRaw(compressed)
+	require.NoError(t, err)
+	assert.Equal(t, payload, restored)
+}

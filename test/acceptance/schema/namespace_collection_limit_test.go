@@ -67,9 +67,11 @@ func TestNamespacedCollectionCountLimit(t *testing.T) {
 	helper.AssignRoleToUser(t, adminKey, "admin", "customer1:"+u1Subject)
 	defer helper.RevokeRoleFromUser(t, adminKey, "admin", "customer1:"+u1Subject)
 
-	// First class in customer1 uses up that namespace's budget.
+	// First class in customer1 uses up that namespace's budget. The
+	// freed-budget arm below deletes it mid-test, so the cleanup is
+	// best-effort rather than asserted.
 	helper.CreateClassAuth(t, &models.Class{Class: "Movies"}, u1Key)
-	defer helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
+	defer helper.DeleteClassWithoutAssert(t, "customer1:Movies", adminKey)
 
 	// Second class in the same namespace hits the per-namespace cap.
 	_, err = helper.CreateClassAuthWithReturn(t, &models.Class{Class: "Films"}, u1Key)
@@ -81,6 +83,20 @@ func TestNamespacedCollectionCountLimit(t *testing.T) {
 	assert.Equal(t, "USAGE_LIMIT_EXCEEDED", tooMany.Payload.ErrorCode)
 	assert.Equal(t, "collections", tooMany.Payload.Limit)
 	assert.Equal(t, int64(1), tooMany.Payload.Value)
+
+	// Deleting a collection gives the namespace its budget back, so the create
+	// the cap just rejected now succeeds. This is the only end-to-end proof of
+	// the decrement: the cluster-global cap short-circuits on the class total
+	// and never consults the per-namespace count.
+	helper.DeleteClassAuth(t, "customer1:Movies", adminKey)
+	helper.CreateClassAuth(t, &models.Class{Class: "Films"}, u1Key)
+	defer helper.DeleteClassAuth(t, "customer1:Films", adminKey)
+
+	// The budget is spent again, not switched off.
+	_, err = helper.CreateClassAuthWithReturn(t, &models.Class{Class: "Shows"}, u1Key)
+	require.Error(t, err)
+	require.True(t, errors.As(err, &tooMany),
+		"expected SchemaObjectsCreateTooManyRequests after the recreate, got %T: %v", err, err)
 
 	// A different namespace has its own budget and can still create a class.
 	helper.CreateNamespace(t, "customer2", adminKey)

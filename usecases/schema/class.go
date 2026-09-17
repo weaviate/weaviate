@@ -186,27 +186,31 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
-	// On namespace-enabled clusters the cap is enforced per namespace.
-	// QualifyForCreate above already required principal.Namespace for this
-	// flow, so it is the correct selector here.
-	countNamespace := ""
-	if h.config.Namespaces.Enabled {
-		countNamespace = principal.Namespace
-	}
-
-	existingCollectionsCount, err := h.schemaManager.QueryCollectionsCount(countNamespace)
-	if err != nil {
-		h.logger.WithField("namespace", countNamespace).Errorf("could not query the collections count: %v", err)
-	}
-
+	// Read the limit before the count: no cap is the default, and the count
+	// costs a round trip to the leader whose answer an uncapped cluster
+	// discards.
 	limit := h.schemaConfig.MaximumAllowedCollectionsCount.Get()
+	if limit != config.DefaultMaximumAllowedCollectionsCount {
+		// On namespace-enabled clusters the cap is enforced per namespace.
+		// QualifyForCreate above already required principal.Namespace for this
+		// flow, so it is the correct selector here.
+		countNamespace := ""
+		if h.config.Namespaces.Enabled {
+			countNamespace = principal.Namespace
+		}
 
-	if limit != config.DefaultMaximumAllowedCollectionsCount && existingCollectionsCount >= limit {
-		// Migrated from a free-text 422 to a typed 429 / RESOURCE_EXHAUSTED
-		// in the usage-limits work; see docs/usage_limits.md for the wire
-		// contract.
-		return nil, 0, usagelimits.NewLimitExceededError(
-			h.errorMessageTemplate(), usagelimits.LimitCollections, int64(limit))
+		existingCollectionsCount, err := h.schemaManager.QueryCollectionsCount(countNamespace)
+		if err != nil {
+			h.logger.WithField("namespace", countNamespace).Errorf("could not query the collections count: %v", err)
+		}
+
+		if existingCollectionsCount >= limit {
+			// Migrated from a free-text 422 to a typed 429 / RESOURCE_EXHAUSTED
+			// in the usage-limits work; see docs/usage_limits.md for the wire
+			// contract.
+			return nil, 0, usagelimits.NewLimitExceededError(
+				h.errorMessageTemplate(), usagelimits.LimitCollections, int64(limit))
+		}
 	}
 
 	candidates, err := h.namespaceCandidates(cls.Class)
@@ -312,18 +316,25 @@ func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *c
 	}
 
 	var err error
-	if !hasTargetVectors(class) || class.VectorIndexType != "" {
-		class.VectorIndexConfig, err = setDefaultQuantization(class.VectorIndexType, class.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
+	// A vector-less class carries no parsed config to quantize, and a class
+	// whose named vector was dropped carries none for that entry. Both reach
+	// here as a nil interface, so every assertion has to be checked.
+	if cfg, ok := class.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+		class.VectorIndexConfig, err = setDefaultQuantization(class.VectorIndexType, cfg, compression)
 		if err != nil {
-			h.logger.WithField("error", err).Error("error while setting default quantization")
+			h.logger.Errorf("error while setting default quantization: %v", err)
 		}
 	}
 
 	for k, vectorConfig := range class.VectorConfig {
-		vectorConfig.VectorIndexConfig, err = setDefaultQuantization(vectorConfig.VectorIndexType, vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig), compression)
+		cfg, ok := vectorConfig.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+		if !ok {
+			continue
+		}
+		vectorConfig.VectorIndexConfig, err = setDefaultQuantization(vectorConfig.VectorIndexType, cfg, compression)
 		class.VectorConfig[k] = vectorConfig
 		if err != nil {
-			h.logger.WithField("error", err).Error("error while setting default quantization")
+			h.logger.Errorf("error while setting default quantization: %v", err)
 		}
 	}
 }
@@ -535,21 +546,33 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 // bypass the auth check for internal class update requests
 func UpdateClassInternal(h *Handler, ctx context.Context, className string, updated *models.Class,
 ) error {
+	cur := h.schemaReader.ReadOnlyClass(className)
+
+	// An update body that omits the legacy vector fields is still validated
+	// against a stored class that has them, so it needs those defaults filled
+	// in even though the body alone no longer asks for a legacy index. The
+	// stored class decides: an omitting body passes when the defaults match
+	// what is stored and trips the immutability check when they don't, which
+	// is what it has always done.
+	if cur != nil && !hasTargetVectors(updated) && modelsext.ClassHasLegacyVectorIndex(cur) {
+		h.setLegacyVectorDefaults(updated)
+	}
+
 	// make sure unset optionals on 'updated' don't lead to an error, as all
 	// optionals would have been set with defaults on the initial already
 	if err := h.setClassDefaults(updated, h.config.Replication); err != nil {
 		return err
 	}
 
-	// A vector-less class (no legacy vectorizer, last named vector dropped
-	// or already gone) keeps its legacy fields genuinely empty. The defaults
-	// above just filled them into the body (they cannot know better) —
-	// re-clear, so the update that reaches the parser and the RAFT apply is
-	// exactly the stored shape and no synthetic vectorizer can ever land.
-	if cur := h.schemaReader.ReadOnlyClass(className); cur != nil && modelsext.IsVectorlessUpdate(cur, updated) {
-		updated.Vectorizer = ""
-		updated.VectorIndexType = ""
-		updated.VectorIndexConfig = nil
+	// A vector-less class (created without any vector, or its last named
+	// vector dropped) keeps its legacy fields genuinely empty. The defaults
+	// above never fill them for such a class, so any legacy field set here
+	// came from the caller. Reject it: silently dropping it would answer 200
+	// to a change that was never made. A class-level index cannot be added
+	// after creation; a named vector can.
+	if cur != nil && modelsext.IsVectorlessUpdate(cur, updated) && modelsext.ClassHasLegacyVectorIndex(updated) {
+		return fmt.Errorf("%w: collection %q has no vector index: a class-level vectorizer or vector index "+
+			"cannot be added through an update, add a named vector instead", ErrValidation, className)
 	}
 
 	if updated.ReplicationConfig != nil {
@@ -742,30 +765,38 @@ func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication
 	return nil
 }
 
+// setLegacyVectorDefaults fills the class-level vector fields from the global
+// defaults. Whether a class is entitled to a legacy index at all is the
+// caller's decision — this never creates one for a class that asked for none.
+func (h *Handler) setLegacyVectorDefaults(class *models.Class) {
+	if class.Vectorizer == "" {
+		class.Vectorizer = h.config.DefaultVectorizerModule
+	}
+
+	if class.VectorIndexType == "" {
+		if v := h.config.DefaultVectorIndexType.Get(); v != "" {
+			class.VectorIndexType = v
+		} else {
+			class.VectorIndexType = vectorindex.DefaultVectorIndexType
+		}
+	}
+
+	if h.config.DefaultVectorDistanceMetric != "" {
+		if class.VectorIndexConfig == nil {
+			class.VectorIndexConfig = map[string]interface{}{"distance": h.config.DefaultVectorDistanceMetric}
+		} else if vIdxCfgMap, ok := class.VectorIndexConfig.(map[string]interface{}); ok && vIdxCfgMap["distance"] == nil {
+			class.VectorIndexConfig.(map[string]interface{})["distance"] = h.config.DefaultVectorDistanceMetric
+		}
+	}
+}
+
 func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {
-	// set legacy vector index defaults only when:
-	// 	- no target vectors are configured
-	//  - OR, there are target vectors configured AND there is a legacy vector configured
-	if !hasTargetVectors(class) || modelsext.ClassHasLegacyVectorIndex(class) {
-		if class.Vectorizer == "" {
-			class.Vectorizer = h.config.DefaultVectorizerModule
-		}
-
-		if class.VectorIndexType == "" {
-			if v := h.config.DefaultVectorIndexType.Get(); v != "" {
-				class.VectorIndexType = v
-			} else {
-				class.VectorIndexType = vectorindex.DefaultVectorIndexType
-			}
-		}
-
-		if h.config.DefaultVectorDistanceMetric != "" {
-			if class.VectorIndexConfig == nil {
-				class.VectorIndexConfig = map[string]interface{}{"distance": h.config.DefaultVectorDistanceMetric}
-			} else if vIdxCfgMap, ok := class.VectorIndexConfig.(map[string]interface{}); ok && vIdxCfgMap["distance"] == nil {
-				class.VectorIndexConfig.(map[string]interface{})["distance"] = h.config.DefaultVectorDistanceMetric
-			}
-		}
+	// Legacy vector index defaults apply only to a class that already asks for
+	// a legacy index by setting one of vectorizer, vectorIndexType or
+	// vectorIndexConfig. A class that configures no vector at all stays
+	// vector-less: the defaults must never be what creates the index.
+	if modelsext.ClassHasLegacyVectorIndex(class) {
+		h.setLegacyVectorDefaults(class)
 	}
 
 	// apply default vector index type to named vectors
@@ -1745,7 +1776,7 @@ func (h *Handler) validateVectorizer(vectorizer string) error {
 }
 
 // validateVectorIndexTypeBasic is the per-type correctness gate
-// (async-indexing for dynamic, experimental flag for hfresh, known name).
+// (async-indexing for dynamic, known name).
 // Runs unconditionally — these are invariants, not policy.
 func (h *Handler) validateVectorIndexTypeBasic(vectorIndexType string) error {
 	switch vectorIndexType {
@@ -1757,9 +1788,6 @@ func (h *Handler) validateVectorIndexTypeBasic(vectorIndexType string) error {
 		}
 		return nil
 	case vectorindex.VectorIndexTypeHFresh:
-		if !h.config.HFreshEnabled {
-			return fmt.Errorf("the hfresh index is available only in experimental mode")
-		}
 		return nil
 	default:
 		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",

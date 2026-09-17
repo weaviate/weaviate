@@ -263,3 +263,87 @@ func TestAnalyzedBatchAccessors(t *testing.T) {
 			"full-slice-capped views must force append to reallocate")
 	})
 }
+
+// TestSingleTokenBytes covers the precondition SingleTokenBytes checks — one
+// token per value — and the byte total it reports.
+func TestSingleTokenBytes(t *testing.T) {
+	// Enough values that a walk stopping short of the last one is visible in
+	// the total, each a different length so no two can cancel out.
+	manyValues := make([]string, 50)
+	manyBytes := 0
+	for i := range manyValues {
+		manyValues[i] = fmt.Sprintf("%0*d", i+1, 0)
+		manyBytes += i + 1
+	}
+
+	tests := []struct {
+		name         string
+		values       []string
+		tokenization string
+		stopwords    StopwordDetector
+		wantBytes    int
+		wantErr      string
+	}{
+		{
+			name: "no values", values: nil,
+			tokenization: models.PropertyTokenizationField,
+		},
+		{
+			name: "one token each", values: []string{"alpha", "be"},
+			tokenization: models.PropertyTokenizationField,
+			wantBytes:    7,
+		},
+		{
+			name: "many values", values: manyValues,
+			tokenization: models.PropertyTokenizationField,
+			wantBytes:    manyBytes,
+		},
+		{
+			name: "field trims to one token", values: []string{"  padded value  "},
+			tokenization: models.PropertyTokenizationField,
+			wantBytes:    len("padded value"),
+		},
+		{
+			// FIELD keeps an empty token for an empty value, so this is one
+			// key of zero bytes rather than a missing key.
+			name: "empty value is one empty token", values: []string{""},
+			tokenization: models.PropertyTokenizationField,
+			wantBytes:    0,
+		},
+		{
+			name: "a value producing several tokens", values: []string{"alpha", "two words"},
+			tokenization: models.PropertyTokenizationWord,
+			wantErr:      "value 1 produced 2 tokens",
+		},
+		{
+			name: "the first offending value is the one reported", values: []string{"a b c", "d e"},
+			tokenization: models.PropertyTokenizationWord,
+			wantErr:      "value 0 produced 3 tokens",
+		},
+		{
+			// Stopword filtering happens before this runs, so a value whose
+			// only token is a stopword arrives with none.
+			name: "a value producing no tokens", values: []string{"keep", "the"},
+			tokenization: models.PropertyTokenizationWord,
+			stopwords:    fakeStopwords{"the": {}},
+			wantErr:      "value 1 produced 0 tokens",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			batch, err := AnalyzeBatch(tt.values, tt.tokenization, "Class",
+				NewPreparedAnalyzer(nil), tt.stopwords)
+			require.NoError(t, err)
+
+			total, err := batch.SingleTokenBytes()
+			if tt.wantErr != "" {
+				require.ErrorContains(t, err, tt.wantErr)
+				assert.Zero(t, total, "a rejected batch must not report a size")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantBytes, total)
+		})
+	}
+}

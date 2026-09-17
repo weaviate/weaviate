@@ -32,6 +32,7 @@ import (
 	enitiesSchema "github.com/weaviate/weaviate/entities/schema"
 	ubackup "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/config"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 func TestModulesProvider(t *testing.T) {
@@ -46,7 +47,7 @@ func TestModulesProvider(t *testing.T) {
 		schema := &models.Schema{
 			Classes: []*models.Class{class},
 		}
-		schemaGetter := getFakeSchemaGetter()
+		schemaGetter := getMockSchemaGetter(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		params := map[string]interface{}{}
@@ -75,7 +76,7 @@ func TestModulesProvider(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
-		schemaGetter := getFakeSchemaGetter()
+		schemaGetter := getMockSchemaGetter(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
@@ -91,7 +92,7 @@ func TestModulesProvider(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
-		schemaGetter := getFakeSchemaGetter()
+		schemaGetter := getMockSchemaGetter(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
@@ -118,7 +119,7 @@ func TestModulesProvider(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
-		schemaGetter := getFakeSchemaGetter()
+		schemaGetter := getMockSchemaGetter(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
@@ -153,7 +154,7 @@ func TestModulesProvider(t *testing.T) {
 		schema := &models.Schema{
 			Classes: []*models.Class{class},
 		}
-		schemaGetter := getFakeSchemaGetter()
+		schemaGetter := getMockSchemaGetter(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		params := map[string]interface{}{}
@@ -195,7 +196,7 @@ func TestModulesProvider(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
-		schemaGetter := getFakeSchemaGetter()
+		schemaGetter := getMockSchemaGetter(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
@@ -219,7 +220,7 @@ func TestModulesProvider(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
-		schemaGetter := getFakeSchemaGetter()
+		schemaGetter := getMockSchemaGetter(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
@@ -274,7 +275,7 @@ func TestModulesProvider(t *testing.T) {
 		// given
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
-		schemaGetter := getFakeSchemaGetter()
+		schemaGetter := getMockSchemaGetter(t)
 		modulesProvider.SetSchemaGetter(schemaGetter)
 
 		// when
@@ -453,7 +454,7 @@ func (m *dummyAdditionalModule) AdditionalProperties() map[string]modulecapabili
 	return m.additionalProperties
 }
 
-func getFakeSchemaGetter() schemaGetter {
+func getMockSchemaGetter(t *testing.T) *schemaUC.MockSchemaGetter {
 	sch := enitiesSchema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
@@ -487,7 +488,7 @@ func getFakeSchemaGetter() schemaGetter {
 			},
 		},
 	}
-	return &fakeSchemaGetter{schema: sch}
+	return newMockSchemaGetter(t, sch)
 }
 
 type dummyBackupModuleWithAltNames struct{}
@@ -553,7 +554,7 @@ func (m *dummyBackupModuleWithAltNames) Initialize(ctx context.Context, backupID
 func TestVectorFromSearchParamNoVectorizerTypedError(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	p := NewProvider(logger, config.Config{})
-	p.SetSchemaGetter(getFakeSchemaGetter())
+	p.SetSchemaGetter(getMockSchemaGetter(t))
 
 	_, err := p.VectorFromSearchParam(context.Background(),
 		"ClassOne", "", "", "nearText", nil, nil)

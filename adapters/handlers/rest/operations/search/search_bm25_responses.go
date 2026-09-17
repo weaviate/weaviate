@@ -249,11 +249,56 @@ func (o *SearchBm25NotFound) WriteResponse(rw http.ResponseWriter, producer runt
 	}
 }
 
+// SearchBm25RequestEntityTooLargeCode is the HTTP code returned for type SearchBm25RequestEntityTooLarge
+const SearchBm25RequestEntityTooLargeCode int = 413
+
+/*
+SearchBm25RequestEntityTooLarge The request body exceeded the 4194304 byte (4 MiB) limit.
+
+swagger:response searchBm25RequestEntityTooLarge
+*/
+type SearchBm25RequestEntityTooLarge struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewSearchBm25RequestEntityTooLarge creates SearchBm25RequestEntityTooLarge with default headers values
+func NewSearchBm25RequestEntityTooLarge() *SearchBm25RequestEntityTooLarge {
+
+	return &SearchBm25RequestEntityTooLarge{}
+}
+
+// WithPayload adds the payload to the search bm25 request entity too large response
+func (o *SearchBm25RequestEntityTooLarge) WithPayload(payload *models.ErrorResponse) *SearchBm25RequestEntityTooLarge {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the search bm25 request entity too large response
+func (o *SearchBm25RequestEntityTooLarge) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *SearchBm25RequestEntityTooLarge) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(413)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // SearchBm25UnprocessableEntityCode is the HTTP code returned for type SearchBm25UnprocessableEntity
 const SearchBm25UnprocessableEntityCode int = 422
 
 /*
-SearchBm25UnprocessableEntity Either a request-schema violation (a missing or null required `query`, or an invalid enum value), or a well-formed request that cannot run: a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).
+SearchBm25UnprocessableEntity Either a request-schema violation (a missing or null required `query`, or an invalid enum value), or a well-formed request that cannot run: a queried property has no searchable index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.
 
 swagger:response searchBm25UnprocessableEntity
 */

@@ -14,9 +14,8 @@ package docid
 import (
 	"context"
 	"encoding/binary"
-	"math"
-	"runtime"
 	"sync"
+	"sync/atomic"
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -27,20 +26,28 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/entities/concurrency"
 )
 
-const contextCheckInterval = 50 // check context every 50 iterations, every iteration adds too much overhead
+// A worker carries its largest object between reads, so this bounds what one
+// outsized object pins. A normal object with its vectors fits under it.
+const maxRetainedBufferBytes = 1 << 20 // 1MB
 
-// ObjectScanFn is called once per object, if false or an error is returned,
-// the scanning will stop
-type ObjectScanFn func(prop *models.PropertySchema, docID uint64) error
+// ObjectScanFn is called once per object with the context the scan runs under,
+// which is cancelled whenever the caller's is. If an error is returned, the
+// scanning will stop.
+type ObjectScanFn func(ctx context.Context, prop *models.PropertySchema, docID uint64) error
 
 // ScanObjectsLSM calls the provided scanFn on each object for the
 // specified pointer. If a pointer does not resolve to an object-id, the item
 // will be skipped. The number of times scanFn is called can therefore be
 // smaller than the input length of pointers.
-func ScanObjectsLSM(store *lsmkv.Store, pointers []uint64, scan ObjectScanFn, properties []string, logger logrus.FieldLogger) error {
-	return newObjectScannerLSM(store, pointers, scan, properties, logger).Do()
+//
+// prop is refilled for the next object the same worker reads: read the values
+// out rather than keeping the map. *prop is nil when properties is empty;
+// prop itself never is.
+func ScanObjectsLSM(ctx context.Context, store *lsmkv.Store, pointers []uint64, scan ObjectScanFn, properties []string, logger logrus.FieldLogger) error {
+	return newObjectScannerLSM(store, pointers, scan, properties, logger).Do(ctx)
 }
 
 type objectScannerLSM struct {
@@ -64,12 +71,12 @@ func newObjectScannerLSM(store *lsmkv.Store, pointers []uint64,
 	}
 }
 
-func (os *objectScannerLSM) Do() error {
+func (os *objectScannerLSM) Do(ctx context.Context) error {
 	if err := os.init(); err != nil {
 		return errors.Wrap(err, "init object scanner")
 	}
 
-	if err := os.scan(); err != nil {
+	if err := os.scan(ctx); err != nil {
 		return errors.Wrap(err, "scan")
 	}
 
@@ -86,68 +93,88 @@ func (os *objectScannerLSM) init() error {
 	return nil
 }
 
-func (os *objectScannerLSM) scan() error {
+func (os *objectScannerLSM) scan(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	// Preallocate property paths needed for json unmarshalling
 	propertyPaths := make([][]string, len(os.properties))
 	for i := range os.properties {
 		propertyPaths[i] = []string{os.properties[i]}
 	}
 
+	lookup, release := os.objectsBucket.SecondaryViewLookup()
+	defer release()
+
 	lock := sync.Mutex{}
-	// the context of the user request is checked in the scanFn function
-	eg, newContext := enterrors.NewErrorGroupWithContextWrapper(os.logger, context.Background())
-	concurrency := 2 * runtime.GOMAXPROCS(0)
-	stride := int(math.Ceil(max(float64(len(os.pointers))/float64(concurrency), 1)))
-	for i := 0; i < concurrency; i++ {
-		start := i * stride
-		end := min(start+stride, len(os.pointers))
-		if start >= len(os.pointers) {
-			break
-		}
+	eg, groupCtx := enterrors.NewErrorGroupWithContextWrapper(os.logger, ctx)
+	// drawn one at a time: sizes vary by orders of magnitude, so an equal count is not equal work
+	var nextIdx atomic.Int64
+	workers := min(concurrency.CurrentGOMAXPROCSx2(), len(os.pointers))
+	for range workers {
 		f := func() error {
 			// each object is scanned one after the other, so we can reuse the same memory allocations for all objects
 			docIDBytes := make([]byte, 8)
 
+			// Grown to the largest object this worker reads, up to maxRetainedBufferBytes.
+			// Safe to reuse: UnmarshalPropertiesFromObject retains no slice into it.
+			var objBuf []byte
+
 			// The typed properties are needed for extraction from json
 			var properties models.PropertySchema
 
-			for j, id := range os.pointers[start:end] {
-				if j%contextCheckInterval == 0 && newContext.Err() != nil {
-					return newContext.Err()
+			// One map per worker: UnmarshalPropertiesFromObject clears it before it writes.
+			var propertiesTyped map[string]any
+			if len(os.properties) > 0 {
+				propertiesTyped = make(map[string]any, len(os.properties))
+				properties = propertiesTyped
+			}
+
+			for {
+				idx := int(nextIdx.Add(1) - 1)
+				if idx >= len(os.pointers) {
+					return nil
+				}
+				id := os.pointers[idx]
+				// per doc ID: a worker's remaining share is unknown, so an interval bounds nothing
+				if err := groupCtx.Err(); err != nil {
+					return err
 				}
 				binary.LittleEndian.PutUint64(docIDBytes, id)
-				res, err := os.objectsBucket.GetBySecondary(context.TODO(), 0, docIDBytes) // TODO: Context!
+				res, newBuf, err := lookup(groupCtx, 0, docIDBytes, objBuf)
 				if err != nil {
 					return err
 				}
+				objBuf = newBuf
 
 				if res == nil {
 					continue
 				}
 
-				propertiesTyped := map[string]interface{}{}
-				if len(os.properties) > 0 {
-					err = storobj.UnmarshalPropertiesFromObject(res, propertiesTyped, propertyPaths)
-					if err != nil {
+				if propertiesTyped != nil {
+					if err := storobj.UnmarshalPropertiesFromObject(res, propertiesTyped, propertyPaths); err != nil {
 						return errors.Wrapf(err, "unmarshal data object")
 					}
-					properties = propertiesTyped
 				}
 
 				// majority of time is spend reading the objects => do the analyses sequentially to not cause races
 				// when analysing the results
-				if func() error {
+				if err := func() error {
 					lock.Lock()
 					defer lock.Unlock()
-					if err := os.scanFn(&properties, id); err != nil {
-						return errors.Wrapf(err, "scan")
+					if err := os.scanFn(groupCtx, &properties, id); err != nil {
+						return errors.Wrapf(err, "scan object %d", id)
 					}
 					return nil
-				}() != nil {
+				}(); err != nil {
 					return err
 				}
+
+				if cap(objBuf) > maxRetainedBufferBytes {
+					objBuf = nil
+				}
 			}
-			return nil
 		}
 
 		eg.Go(f)

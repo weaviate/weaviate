@@ -13,13 +13,17 @@ package lsmkv
 
 import (
 	"encoding/binary"
+	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 	"testing/synctest"
 	"time"
 
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/lsmkv"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -967,5 +971,57 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 
 			assertBoltDbKeys(t, sc.db, []int64{4, 6, 7})
 		})
+	})
+}
+
+// Answering "superseded" drops the row, so a key the corrupt segment cannot
+// descend to has to be kept: keeping costs space, dropping loses data. A key it
+// can still answer for supersedes as any other segment's would.
+func TestKeyExistsOnUpperSegmentsKeepsWhatACorruptSegmentCannotAnswer(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	// the damage costs this segment the keys it cannot descend to, not every key
+	// it holds
+	newExists := func(probeErr error) keyExistsOnUpperSegmentsFunc {
+		unreadable := newFakeReplaceSegment(map[string][]byte{"held-above": {0x01}})
+		unreadable.path = "segment-corrupt.db"
+		corrupt := &probeErrSegment{
+			fakeSegment: unreadable,
+			err:         probeErr,
+			answerHeld:  true,
+		}
+
+		intact := newFakeReplaceSegment(map[string][]byte{"also-above": {0x02}})
+		intact.path = "segment-intact.db"
+
+		sg := &SegmentGroup{logger: logger}
+		return sg.makeKeyExistsOnUpperSegments([]Segment{corrupt, intact}, 0, 1)
+	}
+
+	corruptErr := fmt.Errorf("%w: node at 0 has child pointer -4", lsmkv.ErrCorruptIndex)
+
+	tests := []struct {
+		name string
+		key  string
+		want bool
+	}{
+		{name: "a key the corrupt segment can still answer for is superseded", key: "held-above", want: true},
+		{name: "a key the intact segment holds is superseded", key: "also-above", want: true},
+		{name: "a key the corrupt segment cannot answer for is kept", key: "nowhere", want: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := newExists(corruptErr)([]byte(test.key))
+			require.NoError(t, err, "an unreadable segment must not stop the run")
+			require.Equal(t, test.want, got)
+		})
+	}
+
+	t.Run("an error that is not corruption still stops the run", func(t *testing.T) {
+		other := errors.New("disk read failed")
+		_, err := newExists(other)([]byte("nowhere"))
+		require.ErrorIs(t, err, other,
+			"only ErrCorruptIndex is skipped past; anything else is the cleaner's to report")
 	})
 }

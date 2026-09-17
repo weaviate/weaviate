@@ -1,6 +1,6 @@
 import random
 import time
-from typing import Union, List, Optional
+from typing import Callable, Union, List, Optional
 
 import pytest
 import weaviate.classes as wvc
@@ -37,6 +37,9 @@ def tenant_objects_count(tenant_id: int) -> int:
 
 
 vector_names = ["first", "second", "third", "fourth"]
+
+# muvera holds a fixed encoded vector per object: repetitions x 2^ksim x dprojections
+muvera_encoded_dimensions = 10 * (1 << 4) * 16
 
 
 def wait_for_compression(
@@ -87,6 +90,22 @@ def wait_for_shard_status(
         if time.monotonic() >= deadline:
             raise TimeoutError(f"shards {pending} did not become {status} within {timeout}s")
         time.sleep(0.5)
+
+
+def vectors_rewritten(before: CollectionUsage) -> Callable[[CollectionUsage], bool]:
+    """Accept a report taken after the commit log the import filled has been rewritten.
+
+    Reloading a shard starts a new commit log file, which lets the rewrite absorb the one the
+    import wrote - unconsolidated, and tens of times the size of the vectors it describes. The
+    rewrite shrinks it severalfold, so a report holding less than half of what the shard held
+    on activation is one taken after it.
+    """
+    activated = before.shards[0].vector_storage_bytes
+
+    def accept(usage: CollectionUsage) -> bool:
+        return usage.shards[0].vector_storage_bytes * 2 < activated
+
+    return accept
 
 
 def test_usage_adding_named_vector(collection_factory: CollectionFactory):
@@ -392,7 +411,7 @@ def test_multi_vector(collection_factory: CollectionFactory):
     assert named_vector_muvera.name == vector_names[1]
     assert len(named_vector_muvera.dimensionalities) == 1
     dimensionality = named_vector_muvera.dimensionalities[0]
-    assert dimensionality.dimensions == 6  # 3 vectors of 2 dimensions each
+    assert dimensionality.dimensions == muvera_encoded_dimensions
     assert dimensionality.count == 2
     assert named_vector_muvera.compression == "standard"
     assert named_vector_muvera.vector_compression_ratio == 1
@@ -403,7 +422,7 @@ def test_multi_vector(collection_factory: CollectionFactory):
     assert named_vector_muvera_bq.name == vector_names[2]
     assert len(named_vector_muvera_bq.dimensionalities) == 1
     dimensionality = named_vector_muvera_bq.dimensionalities[0]
-    assert dimensionality.dimensions == 6  # 3 vectors of 2 dimensions each
+    assert dimensionality.dimensions == muvera_encoded_dimensions
     assert dimensionality.count == 2
     assert named_vector_muvera_bq.compression == "bq"
     assert named_vector_muvera_bq.vector_compression_ratio == 32
@@ -526,7 +545,10 @@ def test_storage_vectors(collection_factory: CollectionFactory):
     # additional 400000 bytes for the first vector, so total storage should be around 1328125 bytes
 
     # settled, so the hot totals below describe the same bytes the cold read will see
-    usage_collection = debug_usage.get_settled_debug_usage_for_collection(collection.name)
+    on_activation = debug_usage.get_debug_usage_for_collection(collection.name)
+    usage_collection = debug_usage.get_settled_debug_usage_for_collection(
+        collection.name, accept=vectors_rewritten(on_activation)
+    )
     assert usage_collection.name == collection.name
     assert len(usage_collection.shards) == 1
     shard = usage_collection.shards[0]

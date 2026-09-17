@@ -256,11 +256,16 @@ func FuzzSortedKeyWriters(f *testing.F) {
 				assert.Equal(t, node.Start, got.Start, "%s: start of %q", writer.name, node.Key)
 				assert.Equal(t, node.End, got.End, "%s: end of %q", writer.name, node.Key)
 
-				// Seek descends through readNodeAt rather than Get's own loop, so it
-				// reads the child offsets the vEB reordering rewrote via a second path.
-				seeked, err := dTree.Seek(node.Key)
-				require.NoError(t, err, "%s: Seek(%q)", writer.name, node.Key)
-				assert.Equal(t, node.Key, seeked.Key, writer.name)
+				// a probe one byte short of a stored key runs off a leaf and
+				// answers from the candidate, the descent an exact-match probe
+				// never reaches
+				if len(node.Key) > 1 {
+					probe := node.Key[:len(node.Key)-1]
+					seeked, err := dTree.Seek(probe)
+					require.NoError(t, err, "%s: Seek(%q)", writer.name, probe)
+					assert.GreaterOrEqual(t, string(seeked.Key), string(probe), writer.name)
+					assert.LessOrEqual(t, string(seeked.Key), string(node.Key), writer.name)
+				}
 			}
 
 			allKeys, err := dTree.AllKeys()

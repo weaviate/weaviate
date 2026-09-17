@@ -63,7 +63,7 @@ func TestShardCompareDigestsStrategies(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, out)
 
-		out, err = s.CompareDigests(ctx, []routerTypes.RepairResponse{})
+		out, err = s.CompareDigests(ctx, []routerTypes.RepairDigest{})
 		require.NoError(t, err)
 		assert.Empty(t, out)
 	})
@@ -73,8 +73,8 @@ func TestShardCompareDigestsStrategies(t *testing.T) {
 		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, tsMiddle)))
 
 		s := concreteShard(t, sl)
-		out, err := s.CompareDigests(ctx, []routerTypes.RepairResponse{
-			{ID: string(uuidLow), UpdateTime: tsMiddle},
+		out, err := s.CompareDigests(ctx, []routerTypes.RepairDigest{
+			{ID: mustUUID(uuidLow), UpdateTime: tsMiddle},
 		})
 		require.NoError(t, err)
 		assert.Empty(t, out, "equal-timestamp entries are intentionally not returned")
@@ -85,12 +85,12 @@ func TestShardCompareDigestsStrategies(t *testing.T) {
 		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, tsOlder)))
 
 		s := concreteShard(t, sl)
-		out, err := s.CompareDigests(ctx, []routerTypes.RepairResponse{
-			{ID: string(uuidLow), UpdateTime: tsNewer},
+		out, err := s.CompareDigests(ctx, []routerTypes.RepairDigest{
+			{ID: mustUUID(uuidLow), UpdateTime: tsNewer},
 		})
 		require.NoError(t, err)
 		require.Len(t, out, 1)
-		assert.Equal(t, string(uuidLow), out[0].ID)
+		assert.Equal(t, mustUUID(uuidLow), out[0].ID)
 		assert.Equal(t, tsOlder, out[0].UpdateTime, "must report local UpdateTime so caller treats source as stale-on-target")
 		assert.False(t, out[0].Deleted)
 	})
@@ -100,8 +100,8 @@ func TestShardCompareDigestsStrategies(t *testing.T) {
 		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, tsNewer)))
 
 		s := concreteShard(t, sl)
-		out, err := s.CompareDigests(ctx, []routerTypes.RepairResponse{
-			{ID: string(uuidLow), UpdateTime: tsOlder},
+		out, err := s.CompareDigests(ctx, []routerTypes.RepairDigest{
+			{ID: mustUUID(uuidLow), UpdateTime: tsOlder},
 		})
 		require.NoError(t, err)
 		assert.Empty(t, out, "local has the newer object — source must not propagate")
@@ -112,12 +112,12 @@ func TestShardCompareDigestsStrategies(t *testing.T) {
 		// no PutObject — uuidLow is missing
 
 		s := concreteShard(t, sl)
-		out, err := s.CompareDigests(ctx, []routerTypes.RepairResponse{
-			{ID: string(uuidLow), UpdateTime: tsMiddle},
+		out, err := s.CompareDigests(ctx, []routerTypes.RepairDigest{
+			{ID: mustUUID(uuidLow), UpdateTime: tsMiddle},
 		})
 		require.NoError(t, err)
 		require.Len(t, out, 1)
-		assert.Equal(t, string(uuidLow), out[0].ID)
+		assert.Equal(t, mustUUID(uuidLow), out[0].ID)
 		assert.Equal(t, int64(0), out[0].UpdateTime, "missing entries are signalled with UpdateTime=0")
 		assert.False(t, out[0].Deleted)
 	})
@@ -141,12 +141,12 @@ func TestShardCompareDigestsStrategies(t *testing.T) {
 				require.NoError(t, sl.DeleteObject(ctx, uuidLow, time.UnixMilli(tsNewer)))
 
 				s := concreteShard(t, sl)
-				out, err := s.CompareDigests(ctx, []routerTypes.RepairResponse{
-					{ID: string(uuidLow), UpdateTime: tsOlder},
+				out, err := s.CompareDigests(ctx, []routerTypes.RepairDigest{
+					{ID: mustUUID(uuidLow), UpdateTime: tsOlder},
 				})
 				require.NoError(t, err)
 				require.Len(t, out, 1)
-				assert.Equal(t, string(uuidLow), out[0].ID)
+				assert.Equal(t, mustUUID(uuidLow), out[0].ID)
 				assert.False(t, out[0].Deleted,
 					"target must never set Deleted=true; tombstone resolution is the source's job")
 				assert.Equal(t, int64(0), out[0].UpdateTime,
@@ -179,13 +179,13 @@ func TestShardCompareDigestsCursorMergeJoin(t *testing.T) {
 		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, c, ts)))
 
 		s := concreteShard(t, sl)
-		out, err := s.CompareDigests(ctx, []routerTypes.RepairResponse{
-			{ID: string(b), UpdateTime: ts},     // exact match — must NOT be returned
-			{ID: string(d), UpdateTime: ts + 1}, // missing — must be returned with UpdateTime=0
+		out, err := s.CompareDigests(ctx, []routerTypes.RepairDigest{
+			{ID: mustUUID(b), UpdateTime: ts},     // exact match — must NOT be returned
+			{ID: mustUUID(d), UpdateTime: ts + 1}, // missing — must be returned with UpdateTime=0
 		})
 		require.NoError(t, err)
 		require.Len(t, out, 1)
-		assert.Equal(t, string(d), out[0].ID)
+		assert.Equal(t, mustUUID(d), out[0].ID)
 		assert.Equal(t, int64(0), out[0].UpdateTime)
 		assert.False(t, out[0].Deleted, "target must never set Deleted=true; tombstone resolution is the source's job")
 	})
@@ -201,21 +201,21 @@ func TestShardCompareDigestsCursorMergeJoin(t *testing.T) {
 		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, a, ts)))
 
 		s := concreteShard(t, sl)
-		out, err := s.CompareDigests(ctx, []routerTypes.RepairResponse{
-			{ID: string(a), UpdateTime: ts + 1},
-			{ID: string(b), UpdateTime: ts + 1},
-			{ID: string(c), UpdateTime: ts + 1},
+		out, err := s.CompareDigests(ctx, []routerTypes.RepairDigest{
+			{ID: mustUUID(a), UpdateTime: ts + 1},
+			{ID: mustUUID(b), UpdateTime: ts + 1},
+			{ID: mustUUID(c), UpdateTime: ts + 1},
 		})
 		require.NoError(t, err)
 		require.Len(t, out, 3)
 		// Sort the output for stable assertions; CompareDigests preserves source order.
-		assert.Equal(t, string(a), out[0].ID)
+		assert.Equal(t, mustUUID(a), out[0].ID)
 		assert.Equal(t, ts, out[0].UpdateTime, "A is stale — must report local UpdateTime")
 		assert.False(t, out[0].Deleted)
-		assert.Equal(t, string(b), out[1].ID)
+		assert.Equal(t, mustUUID(b), out[1].ID)
 		assert.Equal(t, int64(0), out[1].UpdateTime, "B is missing")
 		assert.False(t, out[1].Deleted)
-		assert.Equal(t, string(c), out[2].ID)
+		assert.Equal(t, mustUUID(c), out[2].ID)
 		assert.Equal(t, int64(0), out[2].UpdateTime, "C is missing")
 		assert.False(t, out[2].Deleted)
 	})
@@ -225,16 +225,16 @@ func TestShardCompareDigestsCursorMergeJoin(t *testing.T) {
 		sl, _ := testShard(t, ctx, class)
 		s := concreteShard(t, sl)
 
-		_, err := s.CompareDigests(ctx, []routerTypes.RepairResponse{
-			{ID: string(ids[1]), UpdateTime: ts},
-			{ID: string(ids[0]), UpdateTime: ts},
+		_, err := s.CompareDigests(ctx, []routerTypes.RepairDigest{
+			{ID: mustUUID(ids[1]), UpdateTime: ts},
+			{ID: mustUUID(ids[0]), UpdateTime: ts},
 		})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not in strict lex order")
 
-		_, err = s.CompareDigests(ctx, []routerTypes.RepairResponse{
-			{ID: string(ids[0]), UpdateTime: ts},
-			{ID: string(ids[0]), UpdateTime: ts},
+		_, err = s.CompareDigests(ctx, []routerTypes.RepairDigest{
+			{ID: mustUUID(ids[0]), UpdateTime: ts},
+			{ID: mustUUID(ids[0]), UpdateTime: ts},
 		})
 		require.Error(t, err, "duplicates violate strict order and must also be rejected")
 	})
@@ -256,10 +256,10 @@ func TestShardCompareDigestsCursorMergeJoin(t *testing.T) {
 		}
 
 		// Take every other UUID — exercises cursor advancement past unmatched keys.
-		probe := make([]routerTypes.RepairResponse, 0, n/2)
+		probe := make([]routerTypes.RepairDigest, 0, n/2)
 		for i := 0; i < n; i += 2 {
-			probe = append(probe, routerTypes.RepairResponse{
-				ID: string(ids[i]), UpdateTime: tsSource,
+			probe = append(probe, routerTypes.RepairDigest{
+				ID: mustUUID(ids[i]), UpdateTime: tsSource,
 			})
 		}
 
@@ -268,7 +268,7 @@ func TestShardCompareDigestsCursorMergeJoin(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, out, len(probe), "every probed UUID is stale — all must be returned")
 		for i, r := range out {
-			assert.Equal(t, string(ids[2*i]), r.ID, "result order must mirror source order")
+			assert.Equal(t, mustUUID(ids[2*i]), r.ID, "result order must mirror source order")
 			assert.Equal(t, tsLocal, r.UpdateTime)
 			assert.False(t, r.Deleted)
 		}
@@ -288,7 +288,11 @@ func orderedUUIDs(n int) []strfmt.UUID {
 	return out
 }
 
-// TestShardCompareDigestsMemtableBounds pins the bounded-memtable-snapshot behavior: unflushed keys outside the source span are invisible, keys inside are joined, and the added last-UUID parse rejects bad input.
+func mustUUID(id strfmt.UUID) uuid.UUID {
+	return uuid.MustParse(string(id))
+}
+
+// TestShardCompareDigestsMemtableBounds pins the bounded-memtable-snapshot behavior: unflushed keys outside the source span are invisible while keys inside are joined.
 func TestShardCompareDigestsMemtableBounds(t *testing.T) {
 	ctx := context.Background()
 	const class = "CompareDigestsMemtableBoundsTest"
@@ -305,18 +309,18 @@ func TestShardCompareDigestsMemtableBounds(t *testing.T) {
 		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, ids[4], tsLocal)))
 
 		s := concreteShard(t, sl)
-		out, err := s.CompareDigests(ctx, []routerTypes.RepairResponse{
-			{ID: string(ids[1]), UpdateTime: tsSource},
-			{ID: string(ids[2]), UpdateTime: tsSource},
-			{ID: string(ids[3]), UpdateTime: tsSource},
+		out, err := s.CompareDigests(ctx, []routerTypes.RepairDigest{
+			{ID: mustUUID(ids[1]), UpdateTime: tsSource},
+			{ID: mustUUID(ids[2]), UpdateTime: tsSource},
+			{ID: mustUUID(ids[3]), UpdateTime: tsSource},
 		})
 		require.NoError(t, err)
 		require.Len(t, out, 3)
-		assert.Equal(t, string(ids[1]), out[0].ID)
+		assert.Equal(t, mustUUID(ids[1]), out[0].ID)
 		assert.Equal(t, int64(0), out[0].UpdateTime)
-		assert.Equal(t, string(ids[2]), out[1].ID)
+		assert.Equal(t, mustUUID(ids[2]), out[1].ID)
 		assert.Equal(t, tsLocal, out[1].UpdateTime)
-		assert.Equal(t, string(ids[3]), out[2].ID)
+		assert.Equal(t, mustUUID(ids[3]), out[2].ID)
 		assert.Equal(t, int64(0), out[2].UpdateTime)
 	})
 
@@ -328,34 +332,41 @@ func TestShardCompareDigestsMemtableBounds(t *testing.T) {
 		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, ids[2], tsLocal)))
 
 		s := concreteShard(t, sl)
-		out, err := s.CompareDigests(ctx, []routerTypes.RepairResponse{
-			{ID: string(ids[0]), UpdateTime: tsLocal},
-			{ID: string(ids[2]), UpdateTime: tsSource},
+		out, err := s.CompareDigests(ctx, []routerTypes.RepairDigest{
+			{ID: mustUUID(ids[0]), UpdateTime: tsLocal},
+			{ID: mustUUID(ids[2]), UpdateTime: tsSource},
 		})
 		require.NoError(t, err)
 		require.Len(t, out, 1)
-		assert.Equal(t, string(ids[2]), out[0].ID)
+		assert.Equal(t, mustUUID(ids[2]), out[0].ID)
 		assert.Equal(t, tsLocal, out[0].UpdateTime)
 	})
+}
 
-	t.Run("InvalidLastUUID_Rejected", func(t *testing.T) {
-		ids := orderedUUIDs(1)
-		sl, _ := testShard(t, ctx, class)
-		s := concreteShard(t, sl)
+func BenchmarkShardCompareDigests(b *testing.B) {
+	ctx := context.Background()
+	const class = "CompareDigestsBench"
+	const n = 1000
 
-		_, err := s.CompareDigests(ctx, []routerTypes.RepairResponse{
-			{ID: string(ids[0]), UpdateTime: tsSource},
-			{ID: "not-a-uuid", UpdateTime: tsSource},
-		})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "parse source uuid")
+	ids := orderedUUIDs(n)
+	sl, _ := testShard(b, ctx, class)
+	s := concreteShard(b, sl)
+	for i, id := range ids {
+		require.NoError(b, sl.PutObject(ctx, testObjWithTime(class, id, int64(100+i%2))))
+	}
 
-		_, err = s.CompareDigests(ctx, []routerTypes.RepairResponse{
-			{ID: "not-a-uuid", UpdateTime: tsSource},
-		})
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "parse source uuid")
-	})
+	probe := make([]routerTypes.RepairDigest, n)
+	for i, id := range ids {
+		probe[i] = routerTypes.RepairDigest{ID: mustUUID(id), UpdateTime: 101}
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := s.CompareDigests(ctx, probe); err != nil {
+			b.Fatal(err)
+		}
+	}
 }
 
 // TestCompareDigestsBatchSizeFitsBodyCap guards that maxDiffBatchSize batches

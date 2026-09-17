@@ -17,10 +17,13 @@ package mcp
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"fmt"
+	"io"
 
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 )
 
 // McpPostReader is a Reader for the McpPost structure.
@@ -37,6 +40,12 @@ func (o *McpPostReader) ReadResponse(response runtime.ClientResponse, consumer r
 			return nil, err
 		}
 		return result, nil
+	case 503:
+		result := NewMcpPostServiceUnavailable()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	default:
 		return nil, runtime.NewAPIError("response status code does not match any response statuses defined for this endpoint in the swagger spec", response, response.Code())
 	}
@@ -95,5 +104,111 @@ func (o *McpPostOK) String() string {
 
 func (o *McpPostOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
+	return nil
+}
+
+// NewMcpPostServiceUnavailable creates a McpPostServiceUnavailable with default headers values
+func NewMcpPostServiceUnavailable() *McpPostServiceUnavailable {
+	return &McpPostServiceUnavailable{}
+}
+
+/*
+McpPostServiceUnavailable describes a response with status code 503, with default header values.
+
+MCP server is disabled
+*/
+type McpPostServiceUnavailable struct {
+	Payload *McpPostServiceUnavailableBody
+}
+
+// IsSuccess returns true when this mcp post service unavailable response has a 2xx status code
+func (o *McpPostServiceUnavailable) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this mcp post service unavailable response has a 3xx status code
+func (o *McpPostServiceUnavailable) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this mcp post service unavailable response has a 4xx status code
+func (o *McpPostServiceUnavailable) IsClientError() bool {
+	return false
+}
+
+// IsServerError returns true when this mcp post service unavailable response has a 5xx status code
+func (o *McpPostServiceUnavailable) IsServerError() bool {
+	return true
+}
+
+// IsCode returns true when this mcp post service unavailable response a status code equal to that given
+func (o *McpPostServiceUnavailable) IsCode(code int) bool {
+	return code == 503
+}
+
+// Code gets the status code for the mcp post service unavailable response
+func (o *McpPostServiceUnavailable) Code() int {
+	return 503
+}
+
+func (o *McpPostServiceUnavailable) Error() string {
+	return fmt.Sprintf("[POST /mcp][%d] mcpPostServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *McpPostServiceUnavailable) String() string {
+	return fmt.Sprintf("[POST /mcp][%d] mcpPostServiceUnavailable  %+v", 503, o.Payload)
+}
+
+func (o *McpPostServiceUnavailable) GetPayload() *McpPostServiceUnavailableBody {
+	return o.Payload
+}
+
+func (o *McpPostServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(McpPostServiceUnavailableBody)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+/*
+McpPostServiceUnavailableBody mcp post service unavailable body
+swagger:model McpPostServiceUnavailableBody
+*/
+type McpPostServiceUnavailableBody struct {
+
+	// error
+	Error string `json:"error,omitempty"`
+}
+
+// Validate validates this mcp post service unavailable body
+func (o *McpPostServiceUnavailableBody) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this mcp post service unavailable body based on context it is used
+func (o *McpPostServiceUnavailableBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (o *McpPostServiceUnavailableBody) MarshalBinary() ([]byte, error) {
+	if o == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(o)
+}
+
+// UnmarshalBinary interface implementation
+func (o *McpPostServiceUnavailableBody) UnmarshalBinary(b []byte) error {
+	var res McpPostServiceUnavailableBody
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*o = res
 	return nil
 }

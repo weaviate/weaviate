@@ -64,7 +64,8 @@ func Test_Classifications(t *testing.T) {
 func setupArticleCategory(t *testing.T) {
 	t.Run("schema setup", func(t *testing.T) {
 		createObjectClass(t, &models.Class{
-			Class: "Category",
+			Class:      "Category",
+			Vectorizer: "text2vec-contextionary",
 			ModuleConfig: map[string]interface{}{
 				"text2vec-contextionary": map[string]interface{}{
 					"vectorizeClassName": true,
@@ -79,7 +80,8 @@ func setupArticleCategory(t *testing.T) {
 			},
 		})
 		createObjectClass(t, &models.Class{
-			Class: "Article",
+			Class:      "Article",
+			Vectorizer: "text2vec-contextionary",
 			ModuleConfig: map[string]interface{}{
 				"text2vec-contextionary": map[string]interface{}{
 					"vectorizeClassName": true,
@@ -149,7 +151,8 @@ func setupArticleCategory(t *testing.T) {
 func setupRecipe(t *testing.T) {
 	t.Run("schema setup", func(t *testing.T) {
 		createObjectClass(t, &models.Class{
-			Class: "RecipeType",
+			Class:      "RecipeType",
+			Vectorizer: "text2vec-contextionary",
 			ModuleConfig: map[string]interface{}{
 				"text2vec-contextionary": map[string]interface{}{
 					"vectorizeClassName": true,
@@ -164,7 +167,8 @@ func setupRecipe(t *testing.T) {
 			},
 		})
 		createObjectClass(t, &models.Class{
-			Class: "Recipe",
+			Class:      "Recipe",
+			Vectorizer: "text2vec-contextionary",
 			ModuleConfig: map[string]interface{}{
 				"text2vec-contextionary": map[string]interface{}{
 					"vectorizeClassName": true,
@@ -297,7 +301,8 @@ func setupRecipe(t *testing.T) {
 func setupFoodTypes(t *testing.T) {
 	t.Run("schema setup", func(t *testing.T) {
 		createObjectClass(t, &models.Class{
-			Class: "FoodType",
+			Class:      "FoodType",
+			Vectorizer: "text2vec-contextionary",
 			ModuleConfig: map[string]interface{}{
 				"text2vec-contextionary": map[string]interface{}{
 					"vectorizeClassName": true,
@@ -312,7 +317,8 @@ func setupFoodTypes(t *testing.T) {
 			},
 		})
 		createObjectClass(t, &models.Class{
-			Class: "Recipes",
+			Class:      "Recipes",
+			Vectorizer: "text2vec-contextionary",
 			ModuleConfig: map[string]interface{}{
 				"text2vec-contextionary": map[string]interface{}{
 					"vectorizeClassName": true,

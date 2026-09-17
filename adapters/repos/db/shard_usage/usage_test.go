@@ -216,44 +216,6 @@ func getFileTypeCount(t *testing.T, path string) map[string]int {
 	return fileTypes
 }
 
-// Nothing deletes the pre-calculated usage of a shard that stays cold, so the
-// version check is the only guard against serving outdated sizes.
-func TestLoadComputedUsageDataVersion(t *testing.T) {
-	tests := []struct {
-		name      string
-		version   int
-		wantError bool
-	}{
-		{name: "current version is served", version: types.UsageDiskVersion},
-		{name: "older version is rejected", version: types.UsageDiskVersion - 1, wantError: true},
-		{name: "newer version is rejected", version: types.UsageDiskVersion + 1, wantError: true},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			dirName := t.TempDir()
-			require.NoError(t, os.MkdirAll(filepath.Join(dirName, "shard1"), 0o777))
-
-			stored := &types.UsageDisk{
-				Version:    tt.version,
-				ShardUsage: &types.ShardUsage{Name: "shard1", IndexStorageBytes: 42},
-			}
-			data, err := json.Marshal(stored)
-			require.NoError(t, err)
-			require.NoError(t, os.WriteFile(usageTmpFilePath(dirName, "shard1"), data, 0o600))
-
-			usage, err := LoadComputedUsageData(dirName, "shard1")
-			if tt.wantError {
-				require.ErrorIs(t, err, ErrUsageVersionMismatch,
-					"callers tell a stale version from an unreadable file by this error")
-				return
-			}
-			require.NoError(t, err)
-			require.Equal(t, uint64(42), usage.IndexStorageBytes)
-		})
-	}
-}
-
 func TestStorageCalculation(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 
@@ -502,6 +464,12 @@ func TestCalculateNonLSMStorage_NestedHFreshDirectories(t *testing.T) {
 	otherTopLevelFile := filepath.Join(otherTopLevel, "file8")
 	require.NoError(t, os.WriteFile(otherTopLevelFile, make([]byte, 8000), 0o644))
 
+	topLevelFile := filepath.Join(shardPath, "file9")
+	require.NoError(t, os.WriteFile(topLevelFile, make([]byte, 9000), 0o644))
+
+	// the shard's own saved usage sits next to it and must not be billed as shard data
+	require.NoError(t, os.WriteFile(usageTmpFilePath(dirName, "shard1"), make([]byte, 500), 0o644))
+
 	vectorCommitLogsStorageSize, otherNonLSMFoldersStorageSize, err := CalculateNonLSMStorage(dirName, "shard1")
 	require.NoError(t, err)
 
@@ -517,7 +485,8 @@ func TestCalculateNonLSMStorage_NestedHFreshDirectories(t *testing.T) {
 	// - otherDir: 6000
 	// - hfreshFile: 7000
 	// - otherTopLevel: 8000
-	expectedOtherSize := uint64(6000 + 7000 + 8000)
+	// - topLevelFile: 9000
+	expectedOtherSize := uint64(6000 + 7000 + 8000 + 9000)
 
 	assert.Equal(t, expectedCommitLogSize, vectorCommitLogsStorageSize, "commitlog/snapshot/queue storage should match")
 	assert.Equal(t, expectedOtherSize, otherNonLSMFoldersStorageSize, "other storage should match")
@@ -597,7 +566,7 @@ func TestCalculateUnloadedDimensionsUsage_Concurrent(t *testing.T) {
 			defer wg.Done()
 			<-start
 			for range 10 {
-				if _, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, []string{"text"}); err != nil {
+				if _, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, map[string]int{"text": 0}); err != nil {
 					errs <- err
 				}
 			}
@@ -650,20 +619,27 @@ func TestCalculateUnloadedDimensionsUsageAll(t *testing.T) {
 	require.NoError(t, b.FlushMemtable())
 	require.NoError(t, b.Shutdown(ctx))
 
-	targetVectors := []string{"text", "image", "missing"}
+	targetVectors := map[string]int{"text": 0, "image": 0, "missing": 0}
 	all, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, targetVectors)
 	require.NoError(t, err)
 	require.Len(t, all, len(targetVectors))
-	assert.Equal(t, types.Dimensionality{Dimensions: 128, Count: 5}, all["text"])
-	assert.Equal(t, types.Dimensionality{Dimensions: 512, Count: 3}, all["image"])
-	assert.Equal(t, types.Dimensionality{}, all["missing"])
+	assert.Equal(t, types.Dimensionality{Dimensions: 128, Count: 5}, all["text"].Reported)
+	assert.Equal(t, types.Dimensionality{Dimensions: 512, Count: 3}, all["image"].Reported)
+	assert.Equal(t, DimensionsScan{}, all["missing"])
 
 	// parity with the single-vector variant
-	for _, targetVector := range targetVectors {
+	for targetVector := range targetVectors {
 		single, err := CalculateUnloadedDimensionsUsage(ctx, logger, dirName, tenantName, targetVector)
 		require.NoError(t, err)
-		assert.Equal(t, all[targetVector], single, targetVector)
+		assert.Equal(t, all[targetVector].Raw, single, targetVector)
 	}
+
+	withEncoded, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName,
+		map[string]int{"text": 2560, "image": 0})
+	require.NoError(t, err)
+	assert.Equal(t, types.Dimensionality{Dimensions: 2560, Count: 5}, withEncoded["text"].Reported)
+	assert.Equal(t, types.Dimensionality{Dimensions: 128, Count: 5}, withEncoded["text"].Raw)
+	assert.Equal(t, types.Dimensionality{Dimensions: 512, Count: 3}, withEncoded["image"].Reported)
 
 	// no target vectors → nothing to calculate, no bucket open
 	none, err := CalculateUnloadedDimensionsUsageAll(ctx, logger, dirName, tenantName, nil)
@@ -671,14 +647,16 @@ func TestCalculateUnloadedDimensionsUsageAll(t *testing.T) {
 	assert.Nil(t, none)
 }
 
-// TestCalculateTargetVectorDimensionsFromBucket pins that a vector name which is a prefix of a
+// TestScanTargetVectorDimensions pins that a vector name which is a prefix of a
 // longer name still reports its own dimensions and object count: its dimension bytes sort after
 // the longer name's keys ("texts…" before "text\x80…" at 384 dimensions), so the scan has to skip
 // past those instead of stopping at them. Every vector gets its own dimensions and object count,
 // so a scan that lands on a neighbour's key cannot pass.
-func TestCalculateTargetVectorDimensionsFromBucket(t *testing.T) {
+func TestScanTargetVectorDimensions(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	ctx := context.Background()
+
+	const encodedDims = 2560
 
 	stored := []struct {
 		targetVector string
@@ -690,42 +668,90 @@ func TestCalculateTargetVectorDimensionsFromBucket(t *testing.T) {
 		{targetVector: "texts", dims: 256, docIDs: []uint64{4, 5}},
 		{targetVector: "textbook", dims: 192, docIDs: []uint64{1, 2, 3, 4, 5}},
 		{targetVector: "", dims: 128, docIDs: []uint64{1, 2, 3, 4, 5, 6}},
+		// multi-vector objects vary in per-object total dims, dims=0 rows have no vector
+		{targetVector: "colbert", dims: 0, docIDs: []uint64{7, 8}},
+		{targetVector: "colbert", dims: 1280, docIDs: []uint64{1, 2}},
+		{targetVector: "colbert", dims: 2560, docIDs: []uint64{3, 4, 5}},
+		{targetVector: "colbert", dims: 12800, docIDs: []uint64{6}},
+		{targetVector: "novectors", dims: 0, docIDs: []uint64{1, 2, 3}},
 	}
 
 	tests := []struct {
-		name         string
-		targetVector string
-		expected     types.Dimensionality
+		name              string
+		targetVector      string
+		encodedDimensions int
+		expectedRaw       types.Dimensionality
+		expectedReported  types.Dimensionality
 	}{
 		{
-			name:         "no other name shares the prefix",
-			targetVector: "image",
-			expected:     types.Dimensionality{Dimensions: 512, Count: 4},
+			name:             "no other name shares the prefix",
+			targetVector:     "image",
+			expectedRaw:      types.Dimensionality{Dimensions: 512, Count: 4},
+			expectedReported: types.Dimensionality{Dimensions: 512, Count: 4},
 		},
 		{
-			name:         "name is a prefix of two longer names",
-			targetVector: "text",
-			expected:     types.Dimensionality{Dimensions: 384, Count: 3},
+			name:             "name is a prefix of two longer names",
+			targetVector:     "text",
+			expectedRaw:      types.Dimensionality{Dimensions: 384, Count: 3},
+			expectedReported: types.Dimensionality{Dimensions: 384, Count: 3},
 		},
 		{
-			name:         "name extends a shorter name",
-			targetVector: "texts",
-			expected:     types.Dimensionality{Dimensions: 256, Count: 2},
+			name:             "name extends a shorter name",
+			targetVector:     "texts",
+			expectedRaw:      types.Dimensionality{Dimensions: 256, Count: 2},
+			expectedReported: types.Dimensionality{Dimensions: 256, Count: 2},
 		},
 		{
-			name:         "name extends a shorter name and precedes a sibling",
-			targetVector: "textbook",
-			expected:     types.Dimensionality{Dimensions: 192, Count: 5},
+			name:             "name extends a shorter name and precedes a sibling",
+			targetVector:     "textbook",
+			expectedRaw:      types.Dimensionality{Dimensions: 192, Count: 5},
+			expectedReported: types.Dimensionality{Dimensions: 192, Count: 5},
 		},
 		{
-			name:         "unnamed vector alongside named ones",
-			targetVector: "",
-			expected:     types.Dimensionality{Dimensions: 128, Count: 6},
+			name:             "unnamed vector alongside named ones",
+			targetVector:     "",
+			expectedRaw:      types.Dimensionality{Dimensions: 128, Count: 6},
+			expectedReported: types.Dimensionality{Dimensions: 128, Count: 6},
 		},
 		{
-			name:         "vector without entries",
-			targetVector: "missing",
-			expected:     types.Dimensionality{},
+			name:             "vector without entries",
+			targetVector:     "missing",
+			expectedRaw:      types.Dimensionality{},
+			expectedReported: types.Dimensionality{},
+		},
+		{
+			name:              "muvera vector sums the count across all its rows",
+			targetVector:      "colbert",
+			encodedDimensions: encodedDims,
+			expectedRaw:       types.Dimensionality{Dimensions: 1280, Count: 2},
+			expectedReported:  types.Dimensionality{Dimensions: encodedDims, Count: 6},
+		},
+		{
+			name:             "muvera vector without muvera reporting keeps the raw reading",
+			targetVector:     "colbert",
+			expectedRaw:      types.Dimensionality{Dimensions: 1280, Count: 2},
+			expectedReported: types.Dimensionality{Dimensions: 1280, Count: 2},
+		},
+		{
+			name:              "muvera single-vector name is unaffected by the summing",
+			targetVector:      "image",
+			encodedDimensions: encodedDims,
+			expectedRaw:       types.Dimensionality{Dimensions: 512, Count: 4},
+			expectedReported:  types.Dimensionality{Dimensions: encodedDims, Count: 4},
+		},
+		{
+			name:              "muvera vector with only objects without a vector",
+			targetVector:      "novectors",
+			encodedDimensions: encodedDims,
+			expectedRaw:       types.Dimensionality{},
+			expectedReported:  types.Dimensionality{},
+		},
+		{
+			name:              "muvera vector without entries",
+			targetVector:      "missing",
+			encodedDimensions: encodedDims,
+			expectedRaw:       types.Dimensionality{},
+			expectedReported:  types.Dimensionality{},
 		},
 	}
 
@@ -749,9 +775,10 @@ func TestCalculateTargetVectorDimensionsFromBucket(t *testing.T) {
 
 				for _, tt := range tests {
 					t.Run(tt.name, func(t *testing.T) {
-						dimensionality, err := CalculateTargetVectorDimensionsFromBucket(ctx, b, tt.targetVector)
+						scan, err := ScanTargetVectorDimensions(ctx, b, tt.targetVector, tt.encodedDimensions)
 						require.NoError(t, err)
-						assert.Equal(t, tt.expected, dimensionality)
+						assert.Equal(t, tt.expectedRaw, scan.Raw, "raw reading")
+						assert.Equal(t, tt.expectedReported, scan.Reported, "reported reading")
 					})
 				}
 			})
@@ -765,25 +792,48 @@ func TestCalculateTargetVectorDimensionsFromBucket(t *testing.T) {
 		require.NoError(t, err)
 		defer b.Shutdown(ctx)
 
-		_, err = CalculateTargetVectorDimensionsFromBucket(ctx, b, "text")
+		_, err = ScanTargetVectorDimensions(ctx, b, "text", 0)
 		require.Error(t, err)
 	})
 }
 
-// Only the current format version is served; any other is rejected so the caller recomputes.
+// Only a record of the current format version that holds usage is served; anything
+// else is rejected so the caller recomputes. Nothing deletes the record of a shard
+// that stays cold, so this and the fingerprint the caller compares are the only
+// guards against serving outdated sizes.
 func TestLoadComputedUsageData(t *testing.T) {
+	stored := &types.ShardUsage{Name: "shard", ObjectsCount: 7, ObjectsStorageBytes: 1234}
+
 	tests := []struct {
-		name    string
-		version int
-		wantErr bool
+		name      string
+		version   int
+		usage     *types.ShardUsage
+		wantErr   bool
+		wantErrIs error
 	}{
 		{
 			name:    "current version",
 			version: types.UsageDiskVersion,
+			usage:   stored,
 		},
 		{
-			name:    "version from a newer release",
-			version: types.UsageDiskVersion + 1,
+			name:      "version from an older release",
+			version:   types.UsageDiskVersion - 1,
+			usage:     stored,
+			wantErr:   true,
+			wantErrIs: ErrUsageVersionMismatch,
+		},
+		{
+			name:      "version from a newer release",
+			version:   types.UsageDiskVersion + 1,
+			usage:     stored,
+			wantErr:   true,
+			wantErrIs: ErrUsageVersionMismatch,
+		},
+		{
+			// serving this would drop the shard from the report instead of billing it
+			name:    "no usage in the record",
+			version: types.UsageDiskVersion,
 			wantErr: true,
 		},
 	}
@@ -794,18 +844,26 @@ func TestLoadComputedUsageData(t *testing.T) {
 			shardName := "shard"
 			require.NoError(t, os.MkdirAll(filepath.Join(indexPath, shardName), 0o755))
 
-			stored := &types.ShardUsage{Name: shardName, ObjectsCount: 7, ObjectsStorageBytes: 1234}
-			data, err := json.Marshal(&types.UsageDisk{Version: tt.version, ShardUsage: stored})
+			data, err := json.Marshal(&types.UsageDisk{
+				Version:                  tt.version,
+				ShardUsage:               tt.usage,
+				VectorConfigsFingerprint: "fingerprint",
+			})
 			require.NoError(t, err)
 			require.NoError(t, os.WriteFile(usageTmpFilePath(indexPath, shardName), data, 0o600))
 
 			loaded, err := LoadComputedUsageData(indexPath, shardName)
 			if tt.wantErr {
 				require.Error(t, err)
+				if tt.wantErrIs != nil {
+					require.ErrorIs(t, err, tt.wantErrIs,
+						"callers tell a stale version from an unreadable file by this error")
+				}
 				return
 			}
 			require.NoError(t, err)
-			assert.Equal(t, stored, loaded)
+			assert.Equal(t, tt.usage, loaded.ShardUsage)
+			assert.Equal(t, "fingerprint", loaded.VectorConfigsFingerprint)
 		})
 	}
 }

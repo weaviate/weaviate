@@ -419,7 +419,7 @@ func (c *Copier) LoadLocalShard(ctx context.Context, collectionName, shardName s
 		return fmt.Errorf("index for collection %s not found", collectionName)
 	}
 
-	return idx.LoadLocalShard(ctx, shardName, false)
+	return idx.LoadLocalShardForMovement(ctx, shardName)
 }
 
 // DropLocalShard removes the local shard and its on-disk files. It is the

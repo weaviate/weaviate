@@ -176,10 +176,14 @@ type hnsw struct {
 	compressed atomic.Bool
 	// compressing spans Upgrade() through compressThenCallback completion;
 	// HaltForTransfer reads it via UpgradeInProgress() to defer a replica movement.
-	compressing      atomic.Bool
-	doNotRescore     bool
-	acornSearch      atomic.Bool
-	acornFilterRatio float64
+	compressing  atomic.Bool
+	doNotRescore bool
+	// configuredFilterStrategy holds the FilterStrategy enum value from the
+	// user config (SWEEPING, ACORN or PATHSEER) as one atomic word, so a
+	// concurrent search during a config update always observes either the
+	// old or the new strategy — never a torn combination of two booleans.
+	configuredFilterStrategy atomic.Int32
+	acornFilterRatio         float64
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
@@ -292,6 +296,19 @@ type HNSW = hnsw
 // criterium for the index to see if it has to recover from disk or if its a
 // truly new index. So instead the index is initialized, with un-biased disk
 // checks first and only then is the commit logger created
+// filterStrategyFromConfig maps the user-config string to the traversal
+// enum; unknown values (validated upstream) fall back to sweeping.
+func filterStrategyFromConfig(s string) FilterStrategy {
+	switch s {
+	case ent.FilterStrategyAcorn:
+		return ACORN
+	case ent.FilterStrategyPathseer:
+		return PATHSEER
+	default:
+		return SWEEPING
+	}
+}
+
 func New(cfg Config, uc ent.UserConfig,
 	tombstoneCallbacks cyclemanager.CycleCallbackGroup, store *lsmkv.Store,
 ) (*HNSW, error) {
@@ -299,29 +316,38 @@ func New(cfg Config, uc ent.UserConfig,
 		return nil, errors.Wrap(err, "invalid config")
 	}
 
-	cfg.Logger = common.LoggerOrDiscard(cfg.Logger)
+	// index_id before anything is built from cfg.Logger (cache, compressors):
+	// a centroid graph or geo index inherits its owner's id and must override it
+	cfg.Logger = common.LoggerOrDiscard(cfg.Logger).WithField("index_id", cfg.ID)
+
+	if cfg.AllocChecker == nil {
+		// Insert paths call CheckAlloc unconditionally; a caller that does not
+		// wire a checker (tests, tools) gets the no-op monitor instead of a
+		// nil-pointer panic on the first batch.
+		cfg.AllocChecker = memwatch.NewDummyMonitor()
+	}
 
 	normalizeOnRead := cfg.DistanceProvider.Type() == "cosine-dot"
 
 	var vectorCache cache.Cache[float32]
 
 	var muveraEncoder *multivector.MuveraEncoder
-	if uc.Multivector.Enabled && !uc.Multivector.MuveraConfig.Enabled {
+	if uc.Multivector.Enabled && !uc.Multivector.MuveraEnabled() {
 		vectorCache = cache.NewShardedMultiFloat32LockCache(cfg.MultiVectorForIDThunk, uc.VectorCacheMaxObjects,
 			cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
 	} else {
-		if uc.Multivector.MuveraConfig.Enabled {
+		if uc.Multivector.MuveraEnabled() {
 			muveraEncoder = multivector.NewMuveraEncoder(uc.Multivector.MuveraConfig, store)
 			err := store.CreateOrLoadBucket(
 				context.Background(),
-				cfg.ID+"_muvera_vectors",
+				helpers.MuveraBucketName(cfg.ID),
 				cfg.MakeBucketOptions(lsmkv.StrategyReplace)...,
 			)
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (muvera store)")
 			}
 			muveraVectorForID := func(ctx context.Context, id uint64) ([]float32, error) {
-				return muveraEncoder.GetMuveraVectorForID(id, cfg.ID+"_muvera_vectors")
+				return muveraEncoder.GetMuveraVectorForID(id, helpers.MuveraBucketName(cfg.ID))
 			}
 			vectorCache = cache.NewShardedFloat32LockCache(
 				muveraVectorForID, cfg.MultiVectorForIDThunk, uc.VectorCacheMaxObjects, 1, cfg.Logger,
@@ -402,26 +428,21 @@ func New(cfg Config, uc ent.UserConfig,
 		makeBucketOptions: cfg.MakeBucketOptions,
 		fs:                common.NewOSFS(),
 	}
-	index.logger = cfg.Logger.WithFields(logrus.Fields{
-		"shard":        cfg.ShardName,
-		"class":        cfg.ClassName,
-		"targetVector": index.getTargetVector(),
-	})
-	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
+	index.configuredFilterStrategy.Store(int32(filterStrategyFromConfig(uc.FilterStrategy)))
 
 	index.multivector.Store(uc.Multivector.Enabled)
-	index.muvera.Store(uc.Multivector.MuveraConfig.Enabled)
+	index.muvera.Store(uc.Multivector.MuveraEnabled())
 
 	if uc.BQ.Enabled {
 		var err error
-		if uc.Multivector.Enabled && !uc.Multivector.MuveraConfig.Enabled {
+		if uc.Multivector.Enabled && !uc.Multivector.MuveraEnabled() {
 			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector(), index.vectorForID)
+				cfg.MakeBucketOptions, cfg.AllocChecker, index.compressedBucketName(), index.vectorForID)
 		} else {
 			index.compressor, err = compressionhelpers.NewBQCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.MakeBucketOptions, cfg.AllocChecker, index.getTargetVector(), index.vectorForID)
+				cfg.MakeBucketOptions, cfg.AllocChecker, index.compressedBucketName(), index.vectorForID)
 		}
 		if err != nil {
 			return nil, err
@@ -431,16 +452,18 @@ func New(cfg Config, uc ent.UserConfig,
 		index.cache = nil
 	}
 
-	if uc.RQ.Enabled {
+	if uc.RQ.Enabled && !uc.RQ.Centering {
+		// Centered RQ needs a training pass to fit the mean, so it activates
+		// via the deferred (PQ/SQ-style) upgrade path
 		index.rqActive.Store(true)
 	}
 
 	if uc.Multivector.Enabled {
 		index.multiDistancerProvider = distancer.NewDotProductProvider()
-		if !uc.Multivector.MuveraConfig.Enabled {
+		if !uc.Multivector.MuveraEnabled() {
 			err := index.store.CreateOrLoadBucket(
 				context.Background(),
-				cfg.ID+"_mv_mappings",
+				helpers.MVMappingsBucketName(cfg.ID),
 				cfg.MakeBucketOptions(lsmkv.StrategyReplace)...,
 			)
 			if err != nil {
@@ -464,12 +487,10 @@ func New(cfg Config, uc ent.UserConfig,
 	return index, nil
 }
 
-func (h *hnsw) getTargetVector() string {
-	if name, found := strings.CutPrefix(h.id, fmt.Sprintf("%s_", helpers.VectorsBucketLSM)); found {
-		return name
-	}
-	// legacy vector index
-	return ""
+// compressedBucketName names the quantized-vectors bucket from the physical
+// ID, the same way flat, dynamic and hfresh name their storage.
+func (h *hnsw) compressedBucketName() string {
+	return helpers.CompressedBucketNameForID(h.id)
 }
 
 // TODO: use this for incoming replication
@@ -848,11 +869,18 @@ func (h *hnsw) Iterate(fn func(docID uint64) bool) {
 func (h *hnsw) iterate(fn func(docID uint64) bool) {
 	var id uint64
 
+	// snapshot under resetLock: resetUnlocked swaps h.resetCtx and an
+	// unsynchronized read races that write. The snapshot still observes a
+	// reset, because the old context is cancelled before being replaced.
+	h.resetLock.RLock()
+	resetCtx := h.resetCtx
+	h.resetLock.RUnlock()
+
 	for {
 		if h.shutdownCtx.Err() != nil {
 			return
 		}
-		if h.resetCtx.Err() != nil {
+		if resetCtx.Err() != nil {
 			return
 		}
 
@@ -885,8 +913,13 @@ func (h *hnsw) iterateMulti(fn func(docID uint64) bool) {
 	}
 	h.RUnlock()
 
+	// snapshot under resetLock — see iterate for why
+	h.resetLock.RLock()
+	resetCtx := h.resetCtx
+	h.resetLock.RUnlock()
+
 	for _, docID := range indexedDocIDs {
-		if h.shutdownCtx.Err() != nil || h.resetCtx.Err() != nil {
+		if h.shutdownCtx.Err() != nil || resetCtx.Err() != nil {
 			return
 		}
 
@@ -913,6 +946,9 @@ func (h *hnsw) ShouldUpgrade() (bool, int) {
 		return h.sqConfig.Enabled, h.sqConfig.TrainingLimit
 	}
 	if h.rqConfig.Enabled {
+		if h.rqConfig.Centering {
+			return true, h.rqConfig.TrainingLimit
+		}
 		return h.rqConfig.Enabled, 1
 	}
 	return h.pqConfig.Enabled, h.pqConfig.TrainingLimit
@@ -924,6 +960,9 @@ func (h *hnsw) ShouldCompressFromConfig(config config.VectorIndexConfig) (bool, 
 		return hnswConfig.SQ.Enabled, hnswConfig.SQ.TrainingLimit
 	}
 	if hnswConfig.RQ.Enabled {
+		if hnswConfig.RQ.Centering {
+			return true, hnswConfig.RQ.TrainingLimit
+		}
 		return hnswConfig.RQ.Enabled, 1
 	}
 	return hnswConfig.PQ.Enabled, hnswConfig.PQ.TrainingLimit
@@ -1141,6 +1180,48 @@ func (h *hnsw) Stats() (*HnswStats, error) {
 	stats.CompressionType = stats.CompressorStats.CompressionType()
 
 	return &stats, nil
+}
+
+// getBucket returns the named bucket pinned for the caller's operation, or an
+// error if the store no longer holds it. A shard teardown deregisters every
+// bucket up front and drains in-flight requests afterwards, so an operation
+// that is already running finds no bucket under the name it resolved.
+//
+// The release closure is always non-nil and must be called exactly once. It
+// holds off the bucket's Shutdown for the operation's duration, so a teardown
+// racing a lookup that already succeeded cannot unmap the segments underneath
+// it. Prefer [hnsw.putInBucket] / [hnsw.deleteFromBucket], which pair the pin
+// with its release for a single operation.
+func (h *hnsw) getBucket(name string) (*lsmkv.Bucket, func(), error) {
+	bucket, release := h.store.AcquireBucketForRead(name)
+	if bucket == nil {
+		return nil, release, fmt.Errorf("hnsw index %q: bucket %q: %w", h.id, name, lsmkv.ErrBucketNotFound)
+	}
+	return bucket, release, nil
+}
+
+// putInBucket writes one entry to the named bucket under a lifetime pin held
+// for exactly that write. Callers write inside per-vector loops, where a
+// deferred release would pile pins up until the whole batch is done.
+func (h *hnsw) putInBucket(name string, key, value []byte) error {
+	bucket, release, err := h.getBucket(name)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	return bucket.Put(key, value)
+}
+
+// deleteFromBucket is [hnsw.putInBucket]'s counterpart for removals.
+func (h *hnsw) deleteFromBucket(name string, key []byte) error {
+	bucket, release, err := h.getBucket(name)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	return bucket.Delete(key)
 }
 
 func (h *hnsw) Type() common.IndexType {

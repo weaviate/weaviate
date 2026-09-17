@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	nearTextArgs "github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
 )
@@ -62,7 +63,7 @@ func decodeModel(body string) (*models.SearchNearTextRequest, *APIError) {
 // not-found sentinel the real classGetterWithAuthz produces.
 func fixtureGetClass(deps *testDeps) classGetterFunc {
 	return func(name string) (*models.Class, error) {
-		if c, ok := deps.schemaReader.classes[name]; ok {
+		if c, ok := deps.classes[name]; ok {
 			return c, nil
 		}
 		return nil, fmt.Errorf("%w %s in schema", errCollectionNotFound, name)
@@ -74,8 +75,7 @@ func fixtureGetClass(deps *testDeps) classGetterFunc {
 // the handler runs before buildNearTextParams.
 func buildParams(t *testing.T, class *models.Class, body string) (*fakeSearcher, *APIError) {
 	t.Helper()
-	deps := newTestHandler(t)
-	deps.schemaReader.classes[class.Class] = class
+	deps := newTestHandlerWithClass(t, class)
 
 	parsed, apiErr := decodeModel(body)
 	if apiErr != nil {
@@ -110,8 +110,7 @@ func decodeBm25Model(body string) (*models.SearchBm25Request, *APIError) {
 // runs before buildBm25Params.
 func buildBm25(t *testing.T, class *models.Class, body string) (*fakeSearcher, *APIError) {
 	t.Helper()
-	deps := newTestHandler(t)
-	deps.schemaReader.classes[class.Class] = class
+	deps := newTestHandlerWithClass(t, class)
 
 	parsed, apiErr := decodeBm25Model(body)
 	if apiErr != nil {
@@ -480,64 +479,251 @@ func TestParseReturnProperties(t *testing.T) {
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
 	})
 
-	t.Run("dot-path selects across a reference", func(t *testing.T) {
+	t.Run("a reference property is a 400 pointing at returnReferences", func(t *testing.T) {
+		_, apiErr := buildParams(t, movieClass(), `{"query":["space"],"returnProperties":["hasAuthor"]}`)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+		assert.Contains(t, apiErr.Error(), "select it with returnReferences")
+	})
+}
+
+// refProp finds the reference selection for name in the built params.
+func refProp(t *testing.T, searcher *fakeSearcher, name string) search.SelectProperty {
+	t.Helper()
+	for _, prop := range searcher.lastParams.Properties {
+		if prop.Name == name {
+			return prop
+		}
+	}
+	t.Fatalf("no selection for reference %q in %v", name, searcher.lastParams.Properties)
+	return search.SelectProperty{}
+}
+
+func refPropNames(props search.SelectProperties) []string {
+	names := make([]string, len(props))
+	for i, prop := range props {
+		names[i] = prop.Name
+	}
+	return names
+}
+
+func TestParseReturnReferences(t *testing.T) {
+	t.Run("selects the reference and its properties", func(t *testing.T) {
 		searcher, apiErr := buildParams(t, movieClass(),
-			`{"query":["space"],"returnProperties":["title","hasAuthor.name"]}`)
+			`{"query":["space"],"returnProperties":["title"],
+			  "returnReferences":[{"linkOn":"hasAuthor","returnProperties":["name"]}]}`)
 		require.Nil(t, apiErr)
+
 		props := searcher.lastParams.Properties
 		require.Len(t, props, 2)
-		refProp := props[1]
-		assert.Equal(t, "hasAuthor", refProp.Name)
-		require.Len(t, refProp.Refs, 1)
-		assert.Equal(t, "Author", refProp.Refs[0].ClassName)
-		require.Len(t, refProp.Refs[0].RefProperties, 1)
-		assert.Equal(t, "name", refProp.Refs[0].RefProperties[0].Name)
+		assert.Equal(t, "title", props[0].Name)
+
+		ref := refProp(t, searcher, "hasAuthor")
+		require.Len(t, ref.Refs, 1)
+		assert.Equal(t, "Author", ref.Refs[0].ClassName)
+		assert.Equal(t, []string{"name"}, refPropNames(ref.Refs[0].RefProperties))
+		assert.False(t, searcher.lastParams.AdditionalProperties.NoProps)
 	})
 
-	t.Run("dot-paths with the same root merge", func(t *testing.T) {
+	t.Run("omitted returnProperties selects all non-ref non-blob of the target", func(t *testing.T) {
 		searcher, apiErr := buildParams(t, movieClass(),
-			`{"query":["space"],"returnProperties":["hasAuthor.name","hasAuthor.age"]}`)
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor"}]}`)
 		require.Nil(t, apiErr)
-		props := searcher.lastParams.Properties
-		require.Len(t, props, 1)
-		require.Len(t, props[0].Refs, 1)
-		require.Len(t, props[0].Refs[0].RefProperties, 2)
+		ref := refProp(t, searcher, "hasAuthor")
+		// worksFor (ref) is excluded
+		assert.ElementsMatch(t, []string{"name", "age"}, refPropNames(ref.Refs[0].RefProperties))
 	})
 
-	t.Run("bare reference name selects all target properties", func(t *testing.T) {
+	t.Run("empty returnProperties selects none", func(t *testing.T) {
 		searcher, apiErr := buildParams(t, movieClass(),
-			`{"query":["space"],"returnProperties":["hasAuthor"]}`)
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor","returnProperties":[]}]}`)
 		require.Nil(t, apiErr)
-		props := searcher.lastParams.Properties
-		require.Len(t, props, 1)
-		require.Len(t, props[0].Refs, 1)
-		refProps := props[0].Refs[0].RefProperties
-		names := make([]string, len(refProps))
-		for i, prop := range refProps {
-			names[i] = prop.Name
+		ref := refProp(t, searcher, "hasAuthor")
+		assert.Empty(t, ref.Refs[0].RefProperties)
+	})
+
+	t.Run("references alone still count as a selection", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, movieClass(),
+			`{"query":["space"],"returnProperties":[],"returnReferences":[{"linkOn":"hasAuthor"}]}`)
+		require.Nil(t, apiErr)
+		assert.False(t, searcher.lastParams.AdditionalProperties.NoProps)
+	})
+
+	t.Run("case is normalized like every other property name", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, movieClass(),
+			`{"query":["space"],"returnReferences":[{"linkOn":"HasAuthor","returnProperties":["Name"]}]}`)
+		require.Nil(t, apiErr)
+		ref := refProp(t, searcher, "hasAuthor")
+		assert.Equal(t, []string{"name"}, refPropNames(ref.Refs[0].RefProperties))
+	})
+
+	for name, tc := range map[string]struct {
+		body    string
+		status  int
+		message string
+	}{
+		"unknown reference property": {
+			`{"query":["space"],"returnReferences":[{"linkOn":"nope"}]}`,
+			http.StatusBadRequest, "no such prop",
+		},
+		"not a reference property": {
+			`{"query":["space"],"returnReferences":[{"linkOn":"title"}]}`,
+			http.StatusBadRequest, "returnProperties",
+		},
+		"empty linkOn": {
+			`{"query":["space"],"returnReferences":[{"linkOn":""}]}`,
+			http.StatusBadRequest, "linkOn",
+		},
+		"unknown property on the target": {
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor","returnProperties":["nope"]}]}`,
+			http.StatusBadRequest, "no such prop",
+		},
+		"target collection the reference does not point at": {
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor","targetCollection":"Book"}]}`,
+			http.StatusBadRequest, "does not target collection",
+		},
+		"multi-target without targetCollection": {
+			`{"query":["space"],"returnReferences":[{"linkOn":"basedOn"}]}`,
+			http.StatusBadRequest, "needs targetCollection",
+		},
+		"multi-target with an unknown target": {
+			`{"query":["space"],"returnReferences":[{"linkOn":"basedOn","targetCollection":"Author"}]}`,
+			http.StatusBadRequest, "does not target collection",
+		},
+		"duplicate selector for the same target": {
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor"},{"linkOn":"hasAuthor"}]}`,
+			http.StatusBadRequest, "duplicate selector",
+		},
+		"reference property in a selector's returnProperties": {
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor","returnProperties":["worksFor"]}]}`,
+			http.StatusBadRequest, "select it with returnReferences",
+		},
+	} {
+		t.Run(name+" is a 400", func(t *testing.T) {
+			_, apiErr := buildParams(t, movieClass(), tc.body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, tc.status, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), tc.message)
+		})
+	}
+
+	t.Run("single-target accepts its own target collection", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, movieClass(),
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor","targetCollection":"Author"}]}`)
+		require.Nil(t, apiErr)
+		ref := refProp(t, searcher, "hasAuthor")
+		assert.Equal(t, "Author", ref.Refs[0].ClassName)
+		assert.False(t, ref.IncludeTypeName, "single-target selections need no discriminator")
+	})
+
+	t.Run("multi-target selects one target per selector, merged into one selection", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, movieClass(),
+			`{"query":["space"],"returnReferences":[
+			   {"linkOn":"basedOn","targetCollection":"Book","returnProperties":["isbn"]},
+			   {"linkOn":"basedOn","targetCollection":"Comic","returnProperties":["issue"]}]}`)
+		require.Nil(t, apiErr)
+
+		// one selection with one SelectClass per target: the resolver indexes
+		// selections by name and would drop a second entry
+		ref := refProp(t, searcher, "basedOn")
+		assert.True(t, ref.IncludeTypeName, "multi-target selections carry the collection discriminator")
+		require.Len(t, ref.Refs, 2)
+		assert.Equal(t, "Book", ref.Refs[0].ClassName)
+		assert.Equal(t, []string{"isbn"}, refPropNames(ref.Refs[0].RefProperties))
+		assert.Equal(t, "Comic", ref.Refs[1].ClassName)
+		assert.Equal(t, []string{"issue"}, refPropNames(ref.Refs[1].RefProperties))
+	})
+
+	t.Run("recursion selects a second hop", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, movieClass(),
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor","returnProperties":["name"],
+			   "returnReferences":[{"linkOn":"worksFor","returnProperties":["name"]}]}]}`)
+		require.Nil(t, apiErr)
+
+		ref := refProp(t, searcher, "hasAuthor")
+		refProps := ref.Refs[0].RefProperties
+		require.Len(t, refProps, 2)
+		assert.Equal(t, "name", refProps[0].Name)
+		nested := refProps[1]
+		assert.Equal(t, "worksFor", nested.Name)
+		require.Len(t, nested.Refs, 1)
+		assert.Equal(t, "Studio", nested.Refs[0].ClassName)
+		assert.Equal(t, []string{"name"}, refPropNames(nested.Refs[0].RefProperties))
+	})
+
+	t.Run("blobs stay out of an implicit target selection", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, movieClass(),
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor",
+			   "returnReferences":[{"linkOn":"worksFor"}]}]}`)
+		require.Nil(t, apiErr)
+		ref := refProp(t, searcher, "hasAuthor")
+		nested := ref.Refs[0].RefProperties[len(ref.Refs[0].RefProperties)-1]
+		// logo (blob) and ownedBy (ref) are excluded
+		assert.Equal(t, []string{"name"}, refPropNames(nested.Refs[0].RefProperties))
+	})
+}
+
+func TestParseReturnReferencesMetadata(t *testing.T) {
+	t.Run("supported keys map onto the referenced object", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, movieClass(),
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor",
+			   "returnMetadata":["id","creationTime","lastUpdateTime"]}]}`)
+		require.Nil(t, apiErr)
+		addl := refProp(t, searcher, "hasAuthor").Refs[0].AdditionalProperties
+		assert.True(t, addl.ID)
+		assert.True(t, addl.CreationTimeUnix)
+		assert.True(t, addl.LastUpdateTimeUnix)
+		assert.False(t, addl.NoProps)
+	})
+
+	t.Run("id-only selection tells the db it needs no properties", func(t *testing.T) {
+		searcher, apiErr := buildParams(t, movieClass(),
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor",
+			   "returnProperties":[],"returnMetadata":["id"]}]}`)
+		require.Nil(t, apiErr)
+		assert.True(t, refProp(t, searcher, "hasAuthor").Refs[0].AdditionalProperties.NoProps)
+	})
+
+	// a referenced object has no retrieval values, so they are not in the
+	// vocabulary at all: the swagger enum rejects them at bind, and the
+	// handler's own parser is the direct-call fallback
+	for _, entry := range []string{"distance", "certainty", "score", "explainScore", "nope"} {
+		t.Run(entry+" is not a reference metadata key", func(t *testing.T) {
+			_, apiErr := buildParams(t, movieClass(),
+				fmt.Sprintf(`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor","returnMetadata":[%q]}]}`, entry))
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), "expected one of id, creationTime, lastUpdateTime")
+		})
+	}
+}
+
+// TestReturnReferencesDepthLimit: the traverser's own probe is untyped and
+// would surface as a 500, so the handler rejects the same nesting first.
+func TestReturnReferencesDepthLimit(t *testing.T) {
+	// Movie -> Author -> Studio -> Studio -> ... , one selector per hop
+	selector := func(hops int) string {
+		body := `{"linkOn":"worksFor"`
+		for i := 1; i < hops; i++ {
+			body += `,"returnReferences":[{"linkOn":"ownedBy"`
 		}
-		assert.ElementsMatch(t, []string{"name", "age"}, names)
+		body += strings.Repeat("}]", hops-1) + "}"
+		return body
+	}
+
+	t.Run("within the limit", func(t *testing.T) {
+		// hasAuthor + worksFor + 2 x ownedBy = depth 5
+		_, apiErr := buildParams(t, movieClass(), fmt.Sprintf(
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor","returnReferences":[%s]}]}`, selector(3)))
+		require.Nil(t, apiErr)
 	})
 
-	t.Run("dot-path on a non-ref property is a 400", func(t *testing.T) {
-		_, apiErr := buildParams(t, movieClass(), `{"query":["space"],"returnProperties":["title.name"]}`)
+	t.Run("beyond the limit is a 400", func(t *testing.T) {
+		_, apiErr := buildParams(t, movieClass(), fmt.Sprintf(
+			`{"query":["space"],"returnReferences":[{"linkOn":"hasAuthor","returnReferences":[%s]}]}`, selector(4)))
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
-	})
-
-	t.Run("two reference hops are deferred with a 422", func(t *testing.T) {
-		_, apiErr := buildParams(t, movieClass(),
-			`{"query":["space"],"returnProperties":["hasAuthor.name.first"]}`)
-		require.NotNil(t, apiErr)
-		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-		assert.Contains(t, apiErr.Error(), "not yet supported")
-	})
-
-	t.Run("unknown property on the referenced class is a 400", func(t *testing.T) {
-		_, apiErr := buildParams(t, movieClass(),
-			`{"query":["space"],"returnProperties":["hasAuthor.nope"]}`)
-		require.NotNil(t, apiErr)
-		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+		assert.Contains(t, apiErr.Error(), "QUERY_CROSS_REFERENCE_DEPTH_LIMIT")
 	})
 }
 
@@ -622,8 +808,8 @@ func assertQueryPropertiesParsing(t *testing.T,
 		{"boost suffix passes through", `{"query":"space","queryProperties":["title^2"]}`, []string{"title^2"}},
 		{
 			"first letter lowercased (gRPC parity)",
-			`{"query":"space","queryProperties":["Title^2","Year"]}`,
-			[]string{"title^2", "year"},
+			`{"query":"space","queryProperties":["Title^2"]}`,
+			[]string{"title^2"},
 		},
 		{"omitted searches all searchable properties", `{"query":"space"}`, nil},
 		{"empty searches all searchable properties", `{"query":"space","queryProperties":[]}`, nil},
@@ -679,10 +865,76 @@ func TestBm25QueryProperties(t *testing.T) {
 	})
 }
 
+// TestQueryPropertiesBoost: the "^boost" suffix is validated at the handler,
+// where the searcher would otherwise read a malformed one as 0.
+func TestQueryPropertiesBoost(t *testing.T) {
+	tests := []struct {
+		name  string
+		props string
+		want  string
+	}{
+		{"non-numeric", `["title^abc"]`, "boost must be a positive number"},
+		{"empty", `["title^"]`, "boost must be a positive number"},
+		{"zero", `["title^0"]`, "boost must be a positive number"},
+		{"negative", `["title^-1"]`, "boost must be a positive number"},
+		{"infinite", `["title^inf"]`, "boost must be a positive number"},
+		{"nan", `["title^nan"]`, "boost must be a positive number"},
+		{"two suffixes", `["title^2^3"]`, "more than one ^boost"},
+		{"empty property", `["^2"]`, "must not be empty"},
+		{"duplicate property", `["title","title^2"]`, "listed more than once"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for endpoint, body := range map[string]string{
+				"bm25":   fmt.Sprintf(`{"query":"x","queryProperties":%s}`, tt.props),
+				"hybrid": fmt.Sprintf(`{"query":"x","alpha":1,"queryProperties":%s}`, tt.props),
+			} {
+				var apiErr *APIError
+				if endpoint == "bm25" {
+					_, apiErr = buildBm25(t, movieClass(), body)
+				} else {
+					_, apiErr = buildHybrid(t, movieClass(), body)
+				}
+				require.NotNil(t, apiErr, endpoint)
+				assert.Equal(t, http.StatusBadRequest, apiErr.Status, endpoint)
+				assert.Contains(t, apiErr.Error(), tt.want, endpoint)
+			}
+		})
+	}
+
+	t.Run("a valid boost passes through", func(t *testing.T) {
+		searcher, apiErr := buildBm25(t, movieClass(), `{"query":"x","queryProperties":["Title^2.5"]}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []string{"title^2.5"}, searcher.lastParams.KeywordRanking.Properties)
+	})
+}
+
+// TestDotPathsRejected: a dot path selects nothing in the engine, so each
+// place that takes a property name rejects one.
+func TestDotPathsRejected(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"returnProperties nested field", `{"query":"x","returnProperties":["meta.isbn"]}`, "dot paths are not supported"},
+		{"returnProperties through a reference", `{"query":"x","returnProperties":["hasAuthor.name"]}`, "dot paths are not supported"},
+		{"linkOn with a dot", `{"query":"x","returnReferences":[{"linkOn":"hasAuthor.name"}]}`, "must be a reference property name"},
+		{"queryProperties nested field", `{"query":"x","queryProperties":["meta.isbn"]}`, "nested fields cannot be keyword-searched"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, apiErr := doBm25(t, newCatalogHandler(t, false), nil, "Catalog", tt.body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), tt.want)
+		})
+	}
+}
+
 func TestBm25UnknownQueryProperty(t *testing.T) {
 	// an entry naming no schema property is a 400 like returnProperties;
-	// only an existing property without a searchable index is the
-	// searcher's typed 422
+	// an existing property without a searchable index is a 422
 	for name, body := range map[string]string{
 		"unknown":            `{"query":"space","queryProperties":["titel"]}`,
 		"unknown with boost": `{"query":"space","queryProperties":["titel^2"]}`,
@@ -695,9 +947,11 @@ func TestBm25UnknownQueryProperty(t *testing.T) {
 		})
 	}
 
-	t.Run("existing but non-searchable is the searcher's to reject", func(t *testing.T) {
+	t.Run("existing but non-searchable is a 422", func(t *testing.T) {
 		_, apiErr := buildBm25(t, unsearchableClass(), `{"query":"space","queryProperties":["code"]}`)
-		assert.Nil(t, apiErr)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+		assert.Contains(t, apiErr.Error(), "no searchable index")
 	})
 }
 
@@ -798,12 +1052,10 @@ func TestBm25NoSearchableProperties(t *testing.T) {
 		})
 	}
 
-	t.Run("explicit queryProperties are the searcher's to reject", func(t *testing.T) {
-		// the pre-check only guards the empty-list expansion; an explicit
-		// non-searchable property reaches the searcher (typed
-		// MissingIndexError, mapped to 422 live)
+	t.Run("explicit non-searchable queryProperties are a 422", func(t *testing.T) {
 		_, apiErr := buildBm25(t, unsearchableClass(), `{"query":"space","queryProperties":["code"]}`)
-		assert.Nil(t, apiErr)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
 	})
 }
 
@@ -824,8 +1076,7 @@ func decodeNearObjectModel(body string) (*models.SearchNearObjectRequest, *APIEr
 // the handler runs before buildNearObjectParams.
 func buildNearObject(t *testing.T, class *models.Class, body string) (*fakeSearcher, *APIError) {
 	t.Helper()
-	deps := newTestHandler(t)
-	deps.schemaReader.classes[class.Class] = class
+	deps := newTestHandlerWithClass(t, class)
 
 	parsed, apiErr := decodeNearObjectModel(body)
 	if apiErr != nil {
@@ -1012,8 +1263,7 @@ func decodeHybridModel(body string) (*models.SearchHybridRequest, *APIError) {
 // runs before buildHybridParams.
 func buildHybrid(t *testing.T, class *models.Class, body string) (*fakeSearcher, *APIError) {
 	t.Helper()
-	deps := newTestHandler(t)
-	deps.schemaReader.classes[class.Class] = class
+	deps := newTestHandlerWithClass(t, class)
 
 	parsed, apiErr := decodeHybridModel(body)
 	if apiErr != nil {
@@ -1214,15 +1464,24 @@ func TestHybridNoSearchableProperties(t *testing.T) {
 		assert.Nil(t, apiErr)
 	})
 
-	t.Run("explicit queryProperties are the searcher's to reject", func(t *testing.T) {
-		_, apiErr := buildHybrid(t, unsearchableClass(), `{"query":"space","alpha":0,"queryProperties":["code"]}`)
-		assert.Nil(t, apiErr)
-	})
+	// the searchability of an explicit property is checked at every alpha:
+	// the searcher only ever sees the keyword part below alpha 1
+	for name, body := range map[string]string{
+		"alpha 0":   `{"query":"space","alpha":0,"queryProperties":["code"]}`,
+		"alpha 0.5": `{"query":"space","alpha":0.5,"queryProperties":["code"]}`,
+		"alpha 1":   `{"query":"space","alpha":1,"queryProperties":["code"]}`,
+	} {
+		t.Run("explicit non-searchable queryProperties are a 422 at "+name, func(t *testing.T) {
+			_, apiErr := buildHybrid(t, unsearchableClass(), body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+		})
+	}
 }
 
 func TestHybridUnknownQueryProperty(t *testing.T) {
 	// same contract as bm25: an entry naming no schema property is a 400;
-	// an existing property without a searchable index is the searcher's 422
+	// an existing property without a searchable index is a 422
 	for name, body := range map[string]string{
 		"unknown":            `{"query":"space","queryProperties":["titel"]}`,
 		"unknown with boost": `{"query":"space","queryProperties":["titel^2"]}`,

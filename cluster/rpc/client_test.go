@@ -24,6 +24,7 @@ import (
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -142,11 +143,8 @@ func TestClient_Query_ParseError(t *testing.T) {
 	require.Equal(t, codes.NotFound, st.Code())
 }
 
-// TestFromRPCError_SentinelRoundTrip covers the round-trip from
-// toRPCError on the server to fromRPCError on the client for every
-// namespace and leadership sentinel. After this round-trip a caller must
-// be able to errors.Is the returned error to the original sentinel — the
-// RPC pair is the only sentinel re-chain point.
+// TestFromRPCError_SentinelRoundTrip pins that each sentinel below still matches
+// errors.Is after toRPCError turns it into a gRPC status and fromRPCError re-attaches it.
 func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 	tests := []struct {
 		name string
@@ -172,6 +170,9 @@ func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 		{name: "SchemaErrClassVersionConflict", send: schema.ErrClassVersionConflict},
 		{name: "ErrNotLeader", send: types.ErrNotLeader},
 		{name: "ErrLeaderNotFound", send: types.ErrLeaderNotFound},
+		{name: "ErrUserIdentifierExists", send: apikey.ErrUserIdentifierExists},
+		{name: "ErrUserExists", send: apikey.ErrUserExists},
+		{name: "ErrUnknownCommand", send: types.ErrUnknownCommand},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -287,6 +288,14 @@ func TestFromRPCError_SentinelMessagesMutuallyNonSubstring(t *testing.T) {
 			sentinels: []sentinel{
 				{name: "ErrNotLeader", err: types.ErrNotLeader},
 				{name: "ErrLeaderNotFound", err: types.ErrLeaderNotFound},
+			},
+		},
+		{
+			name: "AlreadyExists",
+			sentinels: []sentinel{
+				{name: "ErrAlreadyExists", err: namespaces.ErrAlreadyExists},
+				{name: "ErrUserIdentifierExists", err: apikey.ErrUserIdentifierExists},
+				{name: "ErrUserExists", err: apikey.ErrUserExists},
 			},
 		},
 	}

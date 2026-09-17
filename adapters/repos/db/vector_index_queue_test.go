@@ -32,7 +32,7 @@ func TestVectorIndexQueueBatchSize(t *testing.T) {
 
 	ctx := context.Background()
 	className := "TestClass"
-	shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, hnsw.UserConfig{}, false, true, true)
+	shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: className}, hnsw.UserConfig{}, false, true)
 
 	defer func(path string) {
 		err := os.RemoveAll(path)
@@ -53,7 +53,9 @@ func TestVectorIndexQueueBatchSize(t *testing.T) {
 		})
 	}
 
-	q, ok := shd.GetVectorIndexQueue("")
+	q, release, ok := shd.AcquireVectorIndexQueue("")
+	require.True(t, ok)
+	defer release()
 	require.True(t, ok)
 
 	// ensure the queue doesn't get scheduled

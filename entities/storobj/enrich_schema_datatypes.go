@@ -92,6 +92,19 @@ func enrichSchemaTypes(schema map[string]interface{}, ofNestedProp bool) error {
 	return nil
 }
 
+// ShapeConvertMap turns a {latitude, longitude} map into *models.GeoCoordinates
+// and a phone-shaped map into *models.PhoneNumber, the same way reads from disk
+// do. Any other map is returned unchanged.
+func ShapeConvertMap(input map[string]interface{}) (interface{}, error) {
+	if isGeoProp(input) {
+		return parseGeoProp(input)
+	}
+	if isPhoneProp(input) {
+		return parsePhoneNumber(input)
+	}
+	return input, nil
+}
+
 // nested properties does not support phone or geo data types
 func parseMapProp(input map[string]interface{}, ofNestedProp bool) (interface{}, error) {
 	if !ofNestedProp && isGeoProp(input) {
