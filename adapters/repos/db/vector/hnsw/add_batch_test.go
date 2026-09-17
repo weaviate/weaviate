@@ -201,6 +201,78 @@ func TestAddBatch_RejectedMixedBatchDoesNotConsumeDimensionTracking(t *testing.T
 	assert.Contains(t, err.Error(), "length 3")
 }
 
+func TestAddBatch_RestoredDimsRejectsMixedBatchWithoutPartialInsert(t *testing.T) {
+	index := testHNSW(t)
+	defer index.Shutdown(context.Background())
+
+	// Simulate dims restored from compression metadata at startup.
+	index.dims.Store(4)
+
+	err := index.AddBatch(context.Background(),
+		[]uint64{1, 2},
+		[][]float32{{1, 0, 0, 0}, {0, 1, 0}},
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "different lengths")
+	assert.False(t, index.ContainsDoc(1), "mixed batch must not insert a valid prefix")
+	assert.False(t, index.ContainsDoc(2))
+	assert.Equal(t, int32(4), index.dims.Load())
+}
+
+func TestAddMultiBatch_RejectedMixedBatchDoesNotConsumeDimensionTracking(t *testing.T) {
+	index := newTestMultivectorIndex(t)
+	defer index.Shutdown(context.Background())
+
+	err := index.AddMultiBatch(context.Background(),
+		[]uint64{1, 2},
+		[][][]float32{
+			{{1, 0, 0, 0}, {0, 1, 0, 0}},
+			{{0, 0, 1}},
+		},
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "different lengths")
+	assert.Equal(t, int32(0), index.dims.Load(), "rejected mixed multi batch must leave dims unset")
+	assert.False(t, index.ContainsDoc(1))
+	assert.False(t, index.ContainsDoc(2))
+
+	err = index.AddMultiBatch(context.Background(),
+		[]uint64{1, 2},
+		[][][]float32{
+			{{1, 0, 0, 0}, {0, 1, 0, 0}},
+			{{0, 0, 1, 0}},
+		},
+	)
+	require.NoError(t, err)
+	assert.Equal(t, int32(4), index.dims.Load())
+	assert.True(t, index.ContainsDoc(1))
+	assert.True(t, index.ContainsDoc(2))
+
+	err = index.ValidateMultiBeforeInsert([][]float32{{1, 2, 3}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "length 3")
+}
+
+func TestAddMultiBatch_RestoredDimsRejectsMixedBatchWithoutPartialInsert(t *testing.T) {
+	index := newTestMultivectorIndex(t)
+	defer index.Shutdown(context.Background())
+
+	index.dims.Store(4)
+
+	err := index.AddMultiBatch(context.Background(),
+		[]uint64{1, 2},
+		[][][]float32{
+			{{1, 0, 0, 0}, {0, 1, 0, 0}},
+			{{0, 0, 1}},
+		},
+	)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "different lengths")
+	assert.False(t, index.ContainsDoc(1), "mixed multi batch must not insert a valid prefix")
+	assert.False(t, index.ContainsDoc(2))
+	assert.Equal(t, int32(4), index.dims.Load())
+}
+
 func TestAddBatch_WrongDimensionsAfterInitialBatch(t *testing.T) {
 	index := testHNSW(t)
 	defer index.Shutdown(context.Background())
@@ -222,7 +294,9 @@ func TestAddBatch_WrongDimensionsAfterInitialBatch(t *testing.T) {
 
 	err = index.AddBatch(context.Background(), batch2IDs, batch2Vectors)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "vector lengths don't match")
+	assert.Contains(t, err.Error(), "different lengths")
+	assert.False(t, index.ContainsDoc(3))
+	assert.False(t, index.ContainsDoc(4))
 }
 
 func TestAddBatch_MemoryAllocationFailure(t *testing.T) {
