@@ -12,18 +12,24 @@
 package lsmkv
 
 import (
+	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
 	"testing"
+	"time"
+	"unsafe"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/testinghelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // fixtureShape is one memtable key: the doc IDs added under it, then the doc
@@ -135,6 +141,75 @@ func flushFixtures() []struct {
 		{name: "many shapes", shapes: flushFixtureShapes()},
 		{name: "single node", shapes: []fixtureShape{{key: []byte("only"), add: docIDRange(0, 512)}}},
 		{name: "empty", shapes: nil},
+	}
+}
+
+// discardingSegmentFile discards everything written through it, so a flush can
+// be called without producing a segment to read back.
+func discardingSegmentFile() *segmentindex.SegmentFile {
+	return segmentindex.NewSegmentFile(
+		segmentindex.WithBufferedWriter(bufio.NewWriter(io.Discard)))
+}
+
+// assertFlushBlocksOnMemtableWriteLock runs flush while a writer holds m's
+// lock.
+func assertFlushBlocksOnMemtableWriteLock(t *testing.T, m *Memtable, flush func() error) {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
+
+	m.Lock()
+	var once sync.Once
+	release := func() { once.Do(m.Unlock) }
+	// Cleanup as well as the release below, so a FailNow between the two cannot
+	// leave the flush goroutine parked on the lock.
+	t.Cleanup(release)
+
+	flushed := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		flushed <- flush()
+	}, logger)
+
+	select {
+	case err := <-flushed:
+		t.Fatalf("the flush returned (err=%v) while a writer held its lock", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	release()
+
+	select {
+	case err := <-flushed:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("the flush did not finish after the writer released the lock")
+	}
+}
+
+// assertFlushSurvivesConcurrentWrite is a -race probe rather than a
+// deterministic gate. Whether the writer overlaps the walk is up to the
+// scheduler, and assertFlushBlocksOnMemtableWriteLock is what fails every time.
+func assertFlushSurvivesConcurrentWrite(t *testing.T, m *Memtable, write func(i int) error, flush func() error) {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
+
+	written := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		for i := 0; i < 200; i++ {
+			if err := write(i); err != nil {
+				written <- err
+				return
+			}
+		}
+		written <- nil
+	}, logger)
+
+	require.NoError(t, flush())
+
+	select {
+	case err := <-written:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("the writer goroutine never reported")
 	}
 }
 
@@ -375,4 +450,136 @@ func TestFlushRoaringSetSegmentChecksumValidates(t *testing.T) {
 	sf := segmentindex.NewSegmentFile(segmentindex.WithReader(f))
 	require.NoError(t, sf.ValidateChecksum(info.Size(), segmentindex.HeaderSize),
 		"a flushed segment must validate against the checksum it wrote")
+}
+
+// TestFlushRoaringSetKeysDoNotAliasNodeBuffers pins the backing array, not just
+// the bytes: a key copied out of the node's serialization would release the
+// segment body and still pass a bytes-only assertion, and copying every key per
+// flush is the cost this avoids.
+func TestFlushRoaringSetKeysDoNotAliasNodeBuffers(t *testing.T) {
+	m := newRoaringSetFlushFixture(t, flushFixtureShapes(), false)
+
+	keys, err := m.writeRoaringSetNodes(discardingSegmentFile())
+	require.NoError(t, err)
+
+	// Pairing by index assumes the flush walks in FlattenInOrder order, which is
+	// what makes a walk-order change report as a mismatch rather than as a
+	// pointer surprise.
+	flat := m.roaringSet.FlattenInOrder()
+	require.Len(t, keys, len(flat))
+	require.Equal(t, m.roaringSet.Count(), len(keys),
+		"the walk must yield one key per node the tree holds")
+	require.Equal(t, m.roaringSet.Count(), cap(keys),
+		"the tree's count is what presizes keys, so a wrong one silently regrows it")
+
+	for i, node := range flat {
+		require.Equal(t, node.Key, keys[i].Key,
+			"key %d does not hold its node's key bytes", i)
+		require.Same(t, unsafe.SliceData(node.Key), unsafe.SliceData(keys[i].Key),
+			"key %d points into the node's serialization, holding the segment body", i)
+	}
+}
+
+// TestFlushRoaringSetRejectsSecondaryIndexes drives a whole flush, since the
+// refusal guards a segment the flush would otherwise finish writing. It also
+// pins what flush() leaves behind: the partial .db.tmp is removed, so a failed
+// flush cannot be read as a segment by the next startup scan.
+func TestFlushRoaringSetRejectsSecondaryIndexes(t *testing.T) {
+	m := newRoaringSetFlushFixture(t, flushFixtureShapes(), false)
+	m.secondaryIndices = 1
+
+	segmentPath, err := m.flush()
+	require.ErrorContains(t, err, "secondary indexes")
+	require.Empty(t, segmentPath)
+
+	left, err := os.ReadDir(filepath.Dir(m.path))
+	require.NoError(t, err)
+	for _, entry := range left {
+		require.NotContains(t, entry.Name(), ".db",
+			"a failed flush left %q behind", entry.Name())
+	}
+}
+
+// TestFlushDataRoaringSetReportsWriteFailures walks the error paths an ENOSPC
+// or EIO reaches during an ordinary flush. The header patch is the one worth
+// most: it is the only failure that lands after a complete body and index are
+// already written, so what it leaves behind looks finished.
+//
+// bufSize is what selects the path. A buffer larger than the segment holds
+// every node until the explicit Flush, so that is the first write the segment
+// file makes; a buffer the size of the reserved header pushes each node
+// straight through instead.
+func TestFlushDataRoaringSetReportsWriteFailures(t *testing.T) {
+	tests := []struct {
+		name        string
+		bufSize     int
+		failOnWrite int
+		failSeek    bool
+		wantErr     string
+	}{
+		{
+			name:        "a node write fails",
+			bufSize:     segmentindex.HeaderSize,
+			failOnWrite: 1,
+			wantErr:     "write node 0",
+		},
+		{
+			name:        "the body and index flush fails",
+			bufSize:     1 << 16,
+			failOnWrite: 1,
+			wantErr:     "flush buffered",
+		},
+		{
+			name:        "the header patch fails after the body is written",
+			bufSize:     1 << 16,
+			failOnWrite: 2,
+			wantErr:     "write header",
+		},
+		{
+			name:     "seeking back to patch the header fails",
+			bufSize:  1 << 16,
+			failSeek: true,
+			wantErr:  "write header",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newRoaringSetFlushFixture(t, flushFixtureShapes(), false)
+
+			ws := &testinghelpers.FailingWriteSeeker{
+				FailOnWrite: tt.failOnWrite,
+				FailSeek:    tt.failSeek,
+			}
+			bufw := bufio.NewWriterSize(ws, tt.bufSize)
+			f := segmentindex.NewSegmentFile(segmentindex.WithBufferedWriter(bufw))
+
+			err := m.flushDataRoaringSet(f, ws, bufw)
+			require.ErrorContains(t, err, tt.wantErr)
+			require.ErrorIs(t, err, testinghelpers.ErrDiskFull,
+				"the underlying failure must survive the wrap")
+		})
+	}
+}
+
+func TestFlushRoaringSetBlocksOnMemtableWriteLock(t *testing.T) {
+	m := newRoaringSetFlushFixture(t, flushFixtureShapes(), false)
+
+	assertFlushBlocksOnMemtableWriteLock(t, m, func() error {
+		_, err := m.writeRoaringSetNodes(discardingSegmentFile())
+		return err
+	})
+}
+
+func TestFlushRoaringSetConcurrentWrite(t *testing.T) {
+	m := newRoaringSetFlushFixture(t, flushFixtureShapes(), false)
+
+	assertFlushSurvivesConcurrentWrite(t, m,
+		func(i int) error {
+			return m.roaringSetAddList([]byte("deletions"), []uint64{uint64(i)})
+		},
+		func() error {
+			_, err := m.writeRoaringSetNodes(discardingSegmentFile())
+			return err
+		})
 }
