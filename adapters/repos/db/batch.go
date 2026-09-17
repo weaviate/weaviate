@@ -186,10 +186,11 @@ func (db *DB) AddBatchReferences(ctx context.Context, references objects.BatchRe
 }
 
 // BatchDeleteObjects deletes the objects a filter matches, at most
-// QUERY_MAXIMUM_RESULTS of them per shard, and reports how many matched. The count is
-// exact while it is at or below the limit, and one above the limit when more match than
-// this call deletes, which is the caller's signal to repeat the same request until it
-// reads zero. A dry run reports the same bounded count and deletes nothing.
+// QUERY_MAXIMUM_RESULTS of them per call, and reports how many matched. Each shard
+// resolves up to one more than that, so the count is exact while it is at or below the
+// limit and one above the limit when more match than this call deletes, which is the
+// caller's signal to repeat the same request until it reads zero. A dry run reports the
+// same bounded count and deletes nothing.
 //
 // A limit of zero or less turns the cap off: every match is counted and nothing is
 // deleted, on this path and before it.
@@ -219,19 +220,14 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 	toDelete, matches := plan.toDelete, plan.matches
 
 	if plan.clamped {
-		logger := db.logger.WithFields(logrus.Fields{
+		db.logger.WithFields(logrus.Fields{
 			"action":        "batch_delete_objects_capped",
 			"class":         className,
 			"tenant":        tenant,
 			"limit":         limit,
 			"capped_shards": plan.cappedShards,
 			"dry_run":       params.DryRun,
-		})
-		if params.DryRun {
-			logger.Infof("batch delete dry run stopped at QUERY_MAXIMUM_RESULTS (%d): more objects match than one call deletes, and matches stops one above the limit. Repeating the dry run reports the same count; an aggregate count gives the exact total without resolving objects.", limit)
-		} else {
-			logger.Infof("batch delete stopped at QUERY_MAXIMUM_RESULTS (%d): more objects match than one call deletes. Repeat the same request until matches is 0.", limit)
-		}
+		}).Infof("batch delete stopped at QUERY_MAXIMUM_RESULTS (%d): more objects match than one call deletes", limit)
 	}
 
 	db.logger.WithFields(logrus.Fields{
@@ -274,7 +270,7 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 }
 
 // perShardResolveLimit is one more than limit, so a reply can tell "more than limit
-// matched" from "exactly limit". Clamped to int32 so limit+1 can't overflow the
+// matched" from "exactly limit". Clamped to int32 so limit+1 cannot overflow the
 // cluster-internal find request into a negative, which reads as "no cap". A limit of
 // zero or less returns zero: the resolve runs uncapped and the plan then deletes
 // nothing, which is what the same configuration did before the cap existed.
@@ -297,12 +293,14 @@ type shardDeletePlan struct {
 	clamped bool
 }
 
+// planShardDeletes turns the per-shard UUID lists into the delete plan and the reply
+// count.
 func planShardDeletes(shardDocIDs map[string][]strfmt.UUID, limit int64) shardDeletePlan {
 	plan := shardDeletePlan{toDelete: map[string][]strfmt.UUID{}}
 	perShard := int64(perShardResolveLimit(limit))
 
-	// Which shards fill the limit is unspecified: this ranges over a map, and which
-	// objects a call takes is already arbitrary.
+	// Which shards fill the limit is unspecified: the loop below ranges over a map, and
+	// which objects a call takes is already arbitrary.
 	for shardName, docIDs := range shardDocIDs {
 		resolved := int64(len(docIDs))
 		if perShard > 0 && resolved >= perShard {
