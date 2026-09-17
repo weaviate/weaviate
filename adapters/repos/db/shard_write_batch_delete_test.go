@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -144,7 +145,7 @@ func TestShardFindUUIDs(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			shard, _ := testShardWithSettings(t, ctx, class, hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false)
+			shard, _ := testShardWithSettings(t, ctx, class, hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false, false)
 
 			matching := make([]*storobj.Object, tc.matching)
 			for i := range matching {
@@ -233,16 +234,20 @@ func requireSkipWarn(t *testing.T, hook *test.Hook, wantSkipped int) {
 }
 
 // stubDocIDBucket visits the first failAfter keys and then fails, as a bucket
-// whose segment read breaks part way through a call does.
+// whose segment read breaks part way through a call does. It records the
+// concurrency budget it was called with, which is what the real bucket sizes
+// its lookup fan-out from; zero means the caller passed none.
 type stubDocIDBucket struct {
 	objects   map[uint64][]byte
 	failAfter int
 	err       error
+	gotBudget int
 }
 
-func (b *stubDocIDBucket) GetBySecondaryBatch(_ context.Context, _ int, keys [][]byte,
+func (b *stubDocIDBucket) GetBySecondaryBatch(ctx context.Context, _ int, keys [][]byte,
 	visit func(i int, value []byte) error,
 ) error {
+	b.gotBudget = concurrency.BudgetFromCtx(ctx, 0)
 	for i := range keys {
 		if i >= b.failAfter {
 			return b.err
@@ -310,6 +315,45 @@ func TestResolveUUIDsFailsOnReadError(t *testing.T) {
 	}
 }
 
+// TestResolveUUIDsSetsConcurrencyBudget pins the budget the resolve puts on the
+// context it hands the bucket. The bucket sizes its lookup fan-out from that
+// budget, so without it the resolve runs at whatever the bucket's own constant
+// is rather than at the per-query share of this host's cores.
+func TestResolveUUIDsSetsConcurrencyBudget(t *testing.T) {
+	object := &storobj.Object{
+		MarshallerVersion: 1,
+		Object:            models.Object{ID: strfmt.UUID(uuid.NewString()), Class: "BudgetTest"},
+	}
+	data, err := object.MarshalBinary()
+	require.NoError(t, err)
+
+	cases := []struct {
+		name         string
+		callerBudget int
+		wantBudget   int
+	}{
+		{name: "the caller's context carries no budget", wantBudget: concurrency.TimesGOMAXPROCS(2)},
+		{name: "the caller's context carries one", callerBudget: 3, wantBudget: 3},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			const docID = 7
+			bucket := &stubDocIDBucket{objects: map[uint64][]byte{docID: data}, failAfter: 1}
+
+			ctx := context.Background()
+			if tc.callerBudget > 0 {
+				ctx = concurrency.CtxWithBudget(ctx, tc.callerBudget)
+			}
+
+			uuids, err := resolveUUIDs(ctx, logger, bucket, &sliceDocIDIterator{ids: []uint64{docID}})
+			require.NoError(t, err)
+			require.Equal(t, []strfmt.UUID{object.ID()}, uuids)
+			require.Equal(t, tc.wantBudget, bucket.gotBudget)
+		})
+	}
+}
+
 // secondaryLookupSlowLogKeys is the pair the reduce gate owns: both are
 // reduced when something reads them, and both are dropped when nothing does.
 var secondaryLookupSlowLogKeys = []string{
@@ -354,7 +398,7 @@ func TestShardReducesSecondaryLookupSlowLogEntries(t *testing.T) {
 				// The default config, not a bare one: a zero MaxConnections builds a
 				// graph with no edges, and the vector search then returns only its
 				// entry point however many objects match.
-				shard, _ := testShardWithSettings(t, ctx, class, hnsw.NewDefaultUserConfig(), false, false)
+				shard, _ := testShardWithSettings(t, ctx, class, hnsw.NewDefaultUserConfig(), false, false, false)
 				for i := range 5 {
 					// Distinct vectors: identical ones collapse into one result.
 					putNamedVectorObject(t, ctx, shard, class, "match", []float32{1, float32(i) / 10, 0})

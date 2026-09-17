@@ -201,10 +201,6 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 		logger.Debug("Shard::FindUUIDs finished")
 	}()
 
-	// The budget DocIDsLimited sets stays on its own ctx, so the uuid resolve
-	// needs one of its own.
-	ctx = concurrency.CtxWithBudgetIfAbsent(ctx, concurrency.TimesGOMAXPROCS(2))
-
 	bucket, release, err := s.objectsBucket()
 	if err != nil {
 		return nil, err
@@ -220,7 +216,7 @@ type docIDBatchBucket interface {
 	GetBySecondaryBatch(ctx context.Context, pos int, keys [][]byte, visit func(i int, value []byte) error) error
 }
 
-// docIDIterator yields the doc ids to resolve.
+// docIDIterator yields the doc ids to read.
 type docIDIterator interface {
 	Next() (uint64, bool)
 	Len() int
@@ -230,6 +226,10 @@ type docIDIterator interface {
 // object whose stored bytes carry no readable id is skipped, and the skips are
 // logged once after the read. A bucket read error fails the call.
 func resolveUUIDs(ctx context.Context, logger logrus.FieldLogger, bucket docIDBatchBucket, it docIDIterator) ([]strfmt.UUID, error) {
+	// DocIDsLimited sets its concurrency budget on a context it does not return,
+	// so the uuid resolve has to set its own.
+	ctx = concurrency.CtxWithBudgetIfAbsent(ctx, concurrency.TimesGOMAXPROCS(2))
+
 	var unreadableMu sync.Mutex
 	var unreadable int
 	var unreadableCause error
@@ -251,12 +251,12 @@ func resolveUUIDs(ctx context.Context, logger logrus.FieldLogger, bucket docIDBa
 		}
 		return strfmt.UUID(prop[0]), true, nil
 	})
+	if err != nil {
+		return nil, fmt.Errorf("resolve uuids: %w", err)
+	}
 	if unreadable > 0 {
 		logger.WithField("op", "shard.find_uuids").
 			Warnf("skipped %d doc ids without a readable id, one of them: %v", unreadable, unreadableCause)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("resolve uuids: %w", err)
 	}
 	return uuids, nil
 }
