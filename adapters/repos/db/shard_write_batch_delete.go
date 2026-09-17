@@ -30,9 +30,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-// deadDocIDPruneBatch is how many doc ids without an object FindUUIDs collects before
-// subtracting them from the doc id universe in one go.
+// deadDocIDPruneBatch is how many doc ids with no object row FindUUIDs collects before
+// it subtracts them from the doc id universe in one go.
 const deadDocIDPruneBatch = 1024
+
+// resolveUncapped is the resolveLimit that leaves the inverted resolve uncapped, which is
+// the sentinel inverted.Searcher.DocIDs takes for the same thing.
+const resolveUncapped = 0
 
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) DeleteObjectBatch(ctx context.Context, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects {
@@ -176,12 +180,14 @@ func (b *deleteObjectsBatcher) setErrorAtIndex(err error, index int) {
 // holding more than limit matching objects returns limit of them and which ones is
 // unspecified. A read error fails the call rather than skipping the doc id.
 //
-// The filter resolves capped at limit, which is what every caller paid before the cap
-// on UUIDs existed. Only when that cap both truncated the allow list and the walk
-// skipped a doc id whose object row was gone is the filter resolved a second time with
-// no cap: those are the calls whose reply would otherwise be short through no fault of
-// the data. A shard that matched fewer objects than limit has already given its whole
-// answer and is never resolved twice.
+// The filter resolves capped at limit, which is what every caller paid before the cap on
+// UUIDs existed, and is resolved again without the cap when the bounded resolve may have
+// been cut off by it. A shard that matched fewer objects than limit has already given its
+// whole answer and is never resolved twice.
+//
+// The object view is taken before the resolve, so a row written into a new active
+// memtable after a flush swap is invisible to this call. Such ids are at or above
+// [Shard.docIDPruneWatermark] and are kept, never pruned.
 //
 // It mutates the shard: a doc id whose object row is gone is dropped from the doc id
 // universe a deny-list filter starts from, so a later call does not read it again. That
@@ -203,25 +209,22 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 	defer releaseView()
 
 	var (
-		docIDsRead  int
-		pruned      int
-		kept        int
-		resolveTook time.Duration
-		secondPass  bool
+		total      findUUIDsPass
+		secondPass bool
 	)
 
 	defer func() {
 		logger := logger.WithFields(logrus.Fields{
-			"took":           time.Since(start).String(),
-			"filter_took":    resolveTook.String(),
-			"docids_found":   docIDsRead,
-			"uuids_resolved": len(uuids),
-			// pruned and kept are summed over both passes. A kept doc id is read again by
-			// every later call, so kept rising over a shard's life is a write that took a
-			// doc id and never wrote a row.
-			"dead_docids_pruned": pruned,
-			"dead_docids_kept":   kept,
-			"second_pass":        secondPass,
+			"took":               time.Since(start).String(),
+			"filter_took":        total.resolveTook.String(),
+			"docids_found":       total.docIDsRead,
+			"uuids_resolved":     len(uuids),
+			"dead_docids_pruned": total.pruned,
+			// A doc id above the watermark is read again by every later call, so a count
+			// that rises over a shard's life is the signal that a write took a doc id and
+			// never wrote its row.
+			"dead_docids_above_watermark": total.kept,
+			"second_pass":                 secondPass,
 		})
 		if err != nil {
 			// log as debug
@@ -231,47 +234,71 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 		logger.Debug("Shard::FindUUIDs finished")
 	}()
 
-	pass, err := s.resolveAndCollect(ctx, filters, limit, limit, lookup)
-	docIDsRead, pruned, kept, resolveTook = pass.docIDsRead, pass.pruned, pass.kept, pass.resolveTook
+	total, err = s.resolveAndCollect(ctx, filters, limit, limit, lookup)
 	if err != nil {
 		return nil, err
 	}
-	uuids = pass.uuids
+	uuids = total.uuids
 
-	// A short reply is only suspect when the resolve could have been cut off, which the
-	// searcher does not report: an allow list at least as long as the limit it was given
-	// may have been truncated at it (inverted/searcher_doc_bitmap.go:96).
-	if limit > 0 && len(uuids) < limit && pass.skippedDead && pass.docIDsRead >= limit {
+	// A short reply is only suspect when the resolve could have been cut off, and the
+	// searcher does not report that. The one signal it leaves is an allow list at least
+	// as long as the limit it was given (inverted/searcher_doc_bitmap.go:96).
+	//
+	// Two shapes satisfy this without having been truncated, and both pay an uncapped
+	// resolve for nothing: a compound root, which inverted/prop_value_pairs.go:142 and
+	// :227 resolve with the limit dropped, and a deny list, which is resolved against the
+	// whole doc id universe and after a restart carries the ids earlier calls deleted.
+	// Telling them apart needs a truncated bit on helpers.AllowList that the searcher does
+	// not set today.
+	if limit > 0 && len(uuids) < limit && total.skippedDead && total.docIDsRead >= limit {
 		secondPass = true
 
 		var uncapped findUUIDsPass
-		uncapped, err = s.resolveAndCollect(ctx, filters, 0, limit, lookup)
-		docIDsRead = uncapped.docIDsRead
-		pruned += uncapped.pruned
-		kept += uncapped.kept
-		resolveTook += uncapped.resolveTook
+		uncapped, err = s.resolveAndCollect(ctx, filters, resolveUncapped, limit, lookup)
+		total.docIDsRead = uncapped.docIDsRead
+		// pruned, kept and resolveTook are summed over both passes; docIDsRead is the
+		// second pass's, since the first pass's ids are a subset of it.
+		total.pruned += uncapped.pruned
+		total.kept += uncapped.kept
+		total.resolveTook += uncapped.resolveTook
 		if err != nil {
 			return nil, err
 		}
 		uuids = uncapped.uuids
+
+		// Above debug because this is the one cost an operator cannot see from the reply:
+		// the call paid a full uncapped resolve of the filter. Bounded by call rate, at
+		// most one line per call.
+		logger.WithFields(logrus.Fields{
+			"action":       "find_uuids_second_resolve",
+			"limit":        limit,
+			"docids_found": uncapped.docIDsRead,
+		}).Infof("batch delete resolved the filter a second time with no cap: a doc id in the window bounded at %d had no object row", limit)
 	}
 
 	return uuids, nil
 }
 
-// findUUIDsPass is what one resolve and walk produced. docIDsRead separates a resolve
-// the searcher may have cut off at the limit from a shard that simply matched fewer
-// objects, which is the difference between "resolve again" and "this is the answer".
+// findUUIDsPass is the result of one resolve-and-walk pass: the UUIDs it produced and
+// what the walk saw on the way there.
 type findUUIDsPass struct {
-	uuids       []strfmt.UUID
-	docIDsRead  int
+	// uuids is what the walk resolved, at most limit of them.
+	uuids []strfmt.UUID
+	// docIDsRead is the allow list's length. It separates a resolve the searcher may have
+	// cut off at the limit from a shard that simply matched fewer objects, which is the
+	// difference between "resolve again" and "this is the answer".
+	docIDsRead int
+	// skippedDead is whether the walk read a doc id with no object row behind it.
 	skippedDead bool
-	pruned      int
-	kept        int
+	// pruned is how many of those ids left the doc id universe, kept how many stayed
+	// because they sit at or above the watermark.
+	pruned int
+	kept   int
+	// resolveTook is how long the inverted resolve took, without the walk.
 	resolveTook time.Duration
 }
 
-// resolveAndCollect resolves filter and walks the allow list for at most limit UUIDs.
+// resolveAndCollect resolves the filter and walks the allow list for at most limit UUIDs.
 // resolveLimit caps the inverted resolve itself; zero leaves it uncapped. The allow list
 // is released before this returns, so a caller running a second pass holds only one.
 func (s *Shard) resolveAndCollect(ctx context.Context, filter *filters.LocalFilter,
@@ -311,17 +338,19 @@ func (s *Shard) resolveAndCollect(ctx context.Context, filter *filters.LocalFilt
 	currIdx := 0
 
 	docIDBuf := make([]byte, 8)
-	// Reused across iterations and grown to fit the largest object seen. Safe to reuse
-	// because uuidFromDocIDWithLookup copies the id out before returning.
+	// objBuf is reused across iterations and grows to fit the largest object seen. That
+	// is safe because uuidFromDocIDWithLookup copies the id out before returning.
 	var objBuf []byte
 
-	// A doc id with no object is dropped from the doc id universe a deny-list filter
+	// A doc id with no object row is dropped from the doc id universe a deny-list filter
 	// starts from, which is otherwise rebuilt with every deleted id in it at shard init.
 	// Only below the watermark: at or above it the id may be an allocated-but-unwritten
 	// insert, and dropping that one hides a live object until the next shard init.
 	watermark := s.docIDPruneWatermark
 	deadDocIDs := sroar.NewBitmap()
 	deadCount := 0
+	// pruneDeadDocIDs writes through the named result, which the deferred call below needs:
+	// with a plain local, the last partial batch would land in a copy the caller never sees.
 	pruneDeadDocIDs := func() {
 		if deadCount == 0 {
 			return
@@ -332,6 +361,20 @@ func (s *Shard) resolveAndCollect(ctx context.Context, filter *filters.LocalFilt
 		deadCount = 0
 	}
 	defer pruneDeadDocIDs()
+
+	// noteDeadDocID records one doc id the walk read with no object row behind it.
+	noteDeadDocID := func(docID uint64) {
+		pass.skippedDead = true
+		if docID >= watermark {
+			pass.kept++
+			return
+		}
+		if deadDocIDs.Set(docID) {
+			if deadCount++; deadCount >= deadDocIDPruneBatch {
+				pruneDeadDocIDs()
+			}
+		}
+	}
 
 	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
 		select {
@@ -346,16 +389,7 @@ func (s *Shard) resolveAndCollect(ctx context.Context, filter *filters.LocalFilt
 			return pass, fmt.Errorf("resolve doc id %d: %w", docID, err)
 		}
 		if !found {
-			pass.skippedDead = true
-			if docID >= watermark {
-				pass.kept++
-				continue
-			}
-			if deadDocIDs.Set(docID) {
-				if deadCount++; deadCount >= deadDocIDPruneBatch {
-					pruneDeadDocIDs()
-				}
-			}
+			noteDeadDocID(docID)
 			continue
 		}
 
