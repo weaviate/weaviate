@@ -202,8 +202,6 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 
 	limit := db.config.QueryMaximumResults
 
-	// findUUIDs asks each shard for limit+1 matches. One over the limit separates
-	// "more matches than limit" from "exactly limit" without resolving them all.
 	shardDocIDs, err := idx.findUUIDs(ctx, params.Filters, tenant, repl, perShardResolveLimit(limit))
 	if err != nil {
 		return objects.BatchDeleteResult{}, errors.Wrapf(err, "cannot find objects")
@@ -261,13 +259,10 @@ func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDelete
 	return result, nil
 }
 
-// perShardResolveLimit is how many matches a shard resolves for one batch delete, given
-// QUERY_MAXIMUM_RESULTS. It is one over the limit so the reply can tell "more matches
-// than limit" from "exactly limit". A limit of zero or less means no cap.
-//
-// The clamp keeps the result inside int32, which the cluster-internal find request
-// narrows to, and keeps limit+1 from wrapping into a negative that every reader down
-// the line takes for "no cap".
+// perShardResolveLimit is one more than limit, so a reply can tell "more than limit
+// matched" from "exactly limit". Clamped to int32 so limit+1 can't overflow the
+// cluster-internal find request into a negative, which reads as "no cap". Zero or
+// negative limit means no cap.
 func perShardResolveLimit(limit int64) int {
 	if limit <= 0 {
 		return 0
@@ -277,11 +272,9 @@ func perShardResolveLimit(limit int64) int {
 
 // shardDeletePlan is what one batch delete call does with the UUIDs the shards resolved.
 type shardDeletePlan struct {
-	// toDelete holds the UUIDs to delete per shard, at most limit across all of them.
-	// A shard with nothing to delete is left out.
+	// toDelete holds at most limit UUIDs total, split per shard; empty shards are omitted.
 	toDelete map[string][]strfmt.UUID
-	// matches is the count the reply publishes: the exact number of matching objects
-	// while it is at or below limit, and limit+1 when more match than one call deletes.
+	// matches is the reply count: exact up to limit, else limit+1 (more than one call can delete).
 	matches int64
 	// cappedShards is how many shards resolved as many matches as they were asked for.
 	cappedShards int

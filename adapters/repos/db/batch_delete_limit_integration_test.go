@@ -55,9 +55,7 @@ func TestBatchDeleteObjects_MatchesCappedAtLimit(t *testing.T) {
 		wantMatches int64
 		// wantHandled is how many objects the first reply reports on, deleted or dry-run listed.
 		wantHandled int
-		// wantCappedShards is how many shards resolved as many matches as they were asked
-		// for. It is the one place the per-shard bound shows in a reply: a bound shared
-		// across shards would fill on the first shard and leave the rest at zero.
+		// wantCappedShards is how many shards resolved as many matches as they were asked for.
 		wantCappedShards int
 	}{
 		{
@@ -135,8 +133,7 @@ func TestBatchDeleteObjects_MatchesCappedAtLimit(t *testing.T) {
 			wantCappedShards: 1,
 		},
 		{
-			// A limit of zero or less turns the cap off for the resolve and, in the same
-			// call, leaves nothing to delete. Pinned here, not endorsed.
+			// A limit <= 0 turns the cap off: Matches counts everything, nothing deletes.
 			name:        "limit of zero",
 			objectCount: 5,
 			limit:       0,
@@ -201,10 +198,9 @@ func TestBatchDeleteObjects_MatchesCappedAtLimit(t *testing.T) {
 	}
 }
 
-// TestBatchDeleteObjects_ResolvesPastDeadDocIDs pins that a doc id whose object is gone
-// does not take a slot in the bounded resolve. A deny-list filter starts from the doc id
-// universe, which is rebuilt at shard init from a counter that never decrements, so after
-// a restart every doc id an earlier call deleted is back in it.
+// TestBatchDeleteObjects_ResolvesPastDeadDocIDs pins that a dead doc id (its object
+// gone) never consumes a resolve slot, including after a restart resurrects it in the
+// doc id universe a deny-list filter starts from.
 func TestBatchDeleteObjects_ResolvesPastDeadDocIDs(t *testing.T) {
 	const objectCount = 30
 
@@ -269,8 +265,7 @@ func TestBatchDeleteObjects_ResolvesPastDeadDocIDs(t *testing.T) {
 }
 
 // drainBatchDelete repeats batch delete until Matches hits zero, returning the total
-// deleted. Fails if a reply reports matches but deletes nothing, or if the matches
-// are still not drained after 100 calls.
+// deleted. Fails if a reply matches but deletes nothing, or after 100 calls.
 func drainBatchDelete(t *testing.T, repo *DB, params objects.BatchDeleteParams, tenant string) int {
 	t.Helper()
 

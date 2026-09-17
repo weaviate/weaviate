@@ -1017,8 +1017,14 @@ func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter
 	return list, nil
 }
 
+// secondaryDocIDLookup is what [lsmkv.Bucket.SecondaryViewLookup] hands back: a doc id
+// lookup bound to one consistent view, so a scan pays for the view once.
+type secondaryDocIDLookup func(ctx context.Context, pos int, seckey, buffer []byte) ([]byte, []byte, error)
+
 // uuidFromDocID returns found=false when the doc id has no object, which a caller
 // holding a doc id read earlier has to expect: the object may have been deleted since.
+// It takes its own bucket and view for a single lookup; a scan hoists both and calls
+// uuidFromDocIDWithLookup instead.
 func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, bool, error) {
 	bucket, release, err := s.objectsBucket()
 	if err != nil {
@@ -1026,22 +1032,39 @@ func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, bool, error) {
 	}
 	defer release()
 
-	docIDBytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(docIDBytes, docID)
-	res, err := bucket.GetBySecondary(context.TODO(), 0, docIDBytes) // TODO: context
+	lookup, releaseView := bucket.SecondaryViewLookup()
+	defer releaseView()
+
+	uuid, _, found, err := uuidFromDocIDWithLookup(context.TODO(), // TODO: context
+		lookup, docID, make([]byte, 8), nil)
+	return uuid, found, err
+}
+
+// uuidFromDocIDWithLookup is [Shard.uuidFromDocID] over a hoisted lookup. docIDBuf is
+// overwritten with the key and objBuf holds the object row, both reusable across calls:
+// the returned UUID is a fresh string, so the next lookup may overwrite either. The
+// returned buffer replaces objBuf, which the lookup grows to the largest row it reads.
+func uuidFromDocIDWithLookup(ctx context.Context, lookup secondaryDocIDLookup,
+	docID uint64, docIDBuf, objBuf []byte,
+) (strfmt.UUID, []byte, bool, error) {
+	binary.LittleEndian.PutUint64(docIDBuf, docID)
+	res, newBuf, err := lookup(ctx, helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBuf, objBuf)
 	if err != nil {
-		return "", false, fmt.Errorf("get object by doc id: %w", err)
+		return "", newBuf, false, fmt.Errorf("get object by doc id: %w", err)
 	}
 	if res == nil {
-		return "", false, nil
+		return "", newBuf, false, nil
 	}
 
 	prop, _, err := storobj.ParseAndExtractProperty(res, "id")
 	if err != nil {
-		return "", false, fmt.Errorf("parse and extract property: %w", err)
+		return "", newBuf, false, fmt.Errorf("parse and extract property: %w", err)
+	}
+	if len(prop) == 0 {
+		return "", newBuf, false, fmt.Errorf("object row for doc id %d carries no id property", docID)
 	}
 
-	return strfmt.UUID(prop[0]), true, nil
+	return strfmt.UUID(prop[0]), newBuf, true, nil
 }
 
 func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {

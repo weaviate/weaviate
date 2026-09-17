@@ -37,9 +37,8 @@ const (
 	drainCallLimit = 20
 )
 
-// TestBatchDeleteObjectsStopsAtTheLimit walks the bound over the public REST API: what
-// one call deletes, what the reply says about the rest, and that repeating the call as
-// the reply asks removes every matching object.
+// TestBatchDeleteObjectsStopsAtTheLimit walks the batch delete bound over the REST API:
+// one call's deletions, its reply, and that repeating it drains every match.
 func TestBatchDeleteObjectsStopsAtTheLimit(t *testing.T) {
 	ctx := context.Background()
 

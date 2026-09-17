@@ -475,6 +475,12 @@ type Shard struct {
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
 	bitmapBufPool  roaringset.BitmapBufPool
+	// docIDPruneWatermark is the doc id counter read at shard init. Every id below it
+	// is written or dead forever, so a scan that finds no object row for it may drop it
+	// from the doc id universe. An id at or above it may belong to an insert that has
+	// allocated the id and not yet written the row; dropping that one would hide a live
+	// object from every deny-list filter until the next shard init.
+	docIDPruneWatermark uint64
 
 	activityTrackerRead  atomic.Int32
 	activityTrackerWrite atomic.Int32

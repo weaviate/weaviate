@@ -22,6 +22,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -29,7 +30,7 @@ import (
 )
 
 // deadDocIDPruneBatch is how many doc ids without an object FindUUIDs collects before
-// removing them from the doc id universe in one go.
+// subtracting them from the doc id universe in one go.
 const deadDocIDPruneBatch = 1024
 
 // return value map[int]error gives the error for the index as it received it
@@ -175,21 +176,25 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 
 	start := time.Now()
 
+	// The filter resolves unbounded even when limit is positive. Pushing the limit into
+	// the resolve stops the row reader at limit+1 doc ids for a leaf allow-list filter
+	// (inverted/searcher_doc_bitmap.go:96), and a dead doc id inside a window that short
+	// has nothing left to be retried against, which drops the reply to exactly limit.
 	allowList, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		s.propertyIndicesSnapshot(), s.index.classSearcher, s.index.getStopwordProvider(), s.versioner.version, s.isFallbackToSearchable,
 		s.IsRangeableLocallyReady, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
 		WithTokenizationResolver(s.TokenizationFor).
 		WithBatchedContainsEnabled(s.index.Config.QueryBatchedContainsEnabled).
-		DocIDsLimited(ctx, filters, additional.Properties{}, s.index.Config.ClassName, limit)
+		DocIDs(ctx, filters, additional.Properties{}, s.index.Config.ClassName)
 	if err != nil {
 		return nil, fmt.Errorf("docIds: %w", err)
 	}
 	defer allowList.Close()
 
 	fetchStart := time.Now()
-	// The limit counts UUIDs returned, not doc ids read: a doc id with no object is
-	// retried against the next one, so a shard holding more than limit matching objects
-	// always returns limit of them.
+	// limit counts UUIDs returned, not doc ids read: the allow list above is complete,
+	// so a dead doc id is retried against the next one and a shard holding more than
+	// limit matching objects returns limit of them.
 	it := allowList.Iterator()
 	capacity := it.Len()
 	if limit > 0 && limit < capacity {
@@ -198,15 +203,34 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 	uuids = make([]strfmt.UUID, capacity)
 	currIdx := 0
 
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return nil, fmt.Errorf("objects bucket: %w", err)
+	}
+	defer release()
+
+	lookup, releaseView := bucket.SecondaryViewLookup()
+	defer releaseView()
+
+	docIDBuf := make([]byte, 8)
+	// Reused across iterations and grown to fit the largest object seen. Safe to reuse
+	// because uuidFromDocIDWithLookup copies the id out before returning.
+	var objBuf []byte
+
 	// A doc id with no object is dropped from the doc id universe a deny-list filter
 	// starts from, which is otherwise rebuilt with every deleted id in it at shard init.
-	deadDocIDs := make([]uint64, 0, deadDocIDPruneBatch)
+	// Only below the watermark: at or above it the id may be an allocated-but-unwritten
+	// insert, and dropping that one hides a live object until the next shard init.
+	watermark := s.docIDPruneWatermark
+	deadDocIDs := sroar.NewBitmap()
+	deadCount := 0
 	pruneDeadDocIDs := func() {
-		if len(deadDocIDs) == 0 {
+		if deadCount == 0 {
 			return
 		}
-		s.bitmapFactory.RemoveIds(deadDocIDs...)
-		deadDocIDs = deadDocIDs[:0]
+		s.bitmapFactory.Remove(deadDocIDs)
+		deadDocIDs = sroar.NewBitmap().CloneToBuf(deadDocIDs.ToBuffer())
+		deadCount = 0
 	}
 	defer pruneDeadDocIDs()
 
@@ -219,7 +243,7 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 		})
 		if err != nil {
 			// log as debug
-			logger.WithError(err).Debug("Shard::FindUUIDs failed")
+			logger.Debugf("Shard::FindUUIDs failed: %v", err)
 			return
 		}
 		logger.Debug("Shard::FindUUIDs finished")
@@ -232,16 +256,16 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 		default:
 		}
 
-		uuid, found, err := s.uuidFromDocID(docID)
+		uuid, newBuf, found, err := uuidFromDocIDWithLookup(ctx, lookup, docID, docIDBuf, objBuf)
+		objBuf = newBuf
 		if err != nil {
-			s.index.logger.WithField("op", "shard.find_uuids").WithField("docID", docID).
-				Debugf("failed to read the object for doc id %d: %v", docID, err)
-			continue
+			return nil, fmt.Errorf("resolve doc id %d: %w", docID, err)
 		}
 		if !found {
-			deadDocIDs = append(deadDocIDs, docID)
-			if len(deadDocIDs) >= deadDocIDPruneBatch {
-				pruneDeadDocIDs()
+			if docID < watermark && deadDocIDs.Set(docID) {
+				if deadCount++; deadCount >= deadDocIDPruneBatch {
+					pruneDeadDocIDs()
+				}
 			}
 			continue
 		}
