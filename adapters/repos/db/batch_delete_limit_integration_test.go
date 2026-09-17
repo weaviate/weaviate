@@ -74,6 +74,10 @@ func TestBatchDeleteObjects_MatchesCappedAtLimit(t *testing.T) {
 		wantHandled int
 		// wantCappedShards is how many shards resolved as many matches as they were asked for.
 		wantCappedShards int
+		// cappedShardsFromLayout takes wantCappedShards from the objects each shard holds
+		// rather than the literal above. sharding.InitState shuffles the virtual shards, so
+		// the same objects do not split over the physical shards the same way twice.
+		cappedShardsFromLayout bool
 		// wantCappedLogged is whether the call writes the line that tells an operator more
 		// matched than it deleted. It fires on every clamped reply, not only when a shard
 		// filled its own window.
@@ -138,14 +142,14 @@ func TestBatchDeleteObjects_MatchesCappedAtLimit(t *testing.T) {
 			wantCappedLogged: true,
 		},
 		{
-			name:             "many more matches than the limit spread over shards",
-			objectCount:      50,
-			limit:            batchDeleteLimit,
-			shardState:       multiShardState(),
-			wantMatches:      11,
-			wantHandled:      10,
-			wantCappedShards: 3,
-			wantCappedLogged: true,
+			name:                   "many more matches than the limit spread over shards",
+			objectCount:            50,
+			limit:                  batchDeleteLimit,
+			shardState:             multiShardState(),
+			wantMatches:            11,
+			wantHandled:            10,
+			cappedShardsFromLayout: true,
+			wantCappedLogged:       true,
 		},
 		{
 			name:             "many more matches than the limit in one tenant",
@@ -199,6 +203,10 @@ func TestBatchDeleteObjects_MatchesCappedAtLimit(t *testing.T) {
 			if tt.otherTenant != "" {
 				simpleInsertObjectsForTenant(t, repo, batchDeleteClassName, tt.otherTenant, tt.objectCount)
 			}
+			wantCappedShards := tt.wantCappedShards
+			if tt.cappedShardsFromLayout {
+				wantCappedShards = shardsAtTheResolveLimit(t, repo, batchDeleteClassName, tt.limit)
+			}
 			logs := batchDeleteLogs(t, repo)
 
 			res, err := repo.BatchDeleteObjects(context.Background(),
@@ -209,7 +217,7 @@ func TestBatchDeleteObjects_MatchesCappedAtLimit(t *testing.T) {
 			require.Equal(t, tt.limit, res.Limit)
 			logged, cappedShards := cappedLineLogged(t, logs)
 			require.Equal(t, tt.wantCappedLogged, logged)
-			require.Equal(t, tt.wantCappedShards, cappedShards)
+			require.Equal(t, wantCappedShards, cappedShards)
 
 			if tt.limit <= 0 {
 				// drainBatchDelete cannot drain this one: the call deletes nothing and
@@ -377,6 +385,34 @@ func cappedLineLogged(t *testing.T, hook *test.Hook) (bool, int) {
 		return true, capped
 	}
 	return false, 0
+}
+
+// shardsAtTheResolveLimit counts the class's shards holding at least as many objects as one
+// call resolves per shard, which is how many of them a call reports as capped. It counts the
+// objects the shards hold rather than working out where an id routes, so it measures the
+// split the call itself runs against.
+func shardsAtTheResolveLimit(t *testing.T, repo *DB, className string, limit int64) int {
+	t.Helper()
+
+	perShard := perShardResolveLimit(limit)
+	require.Positive(t, perShard, "an uncapped resolve caps no shard")
+
+	index := repo.GetIndex(schema.ClassName(className))
+	require.NotNil(t, index)
+
+	atLimit := 0
+	require.NoError(t, index.ForEachShard(func(_ string, shard ShardLike) error {
+		count, err := shard.ObjectCount(context.Background())
+		if err != nil {
+			return err
+		}
+		if count >= perShard {
+			atLimit++
+		}
+		return nil
+	}))
+
+	return atLimit
 }
 
 // secondResolveLogged returns whether the hook saw the line the shard writes when it had
