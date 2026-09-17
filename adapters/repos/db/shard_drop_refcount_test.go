@@ -203,7 +203,7 @@ func TestObjectReadsAfterStoreTeardownReturnErrors(t *testing.T) {
 			return err
 		},
 		"uuid from doc id": func() error {
-			_, err := shard.uuidFromDocID(0)
+			_, _, err := shard.uuidFromDocID(0)
 			return err
 		},
 		"object list": func() error {

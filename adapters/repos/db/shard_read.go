@@ -1017,10 +1017,12 @@ func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter
 	return list, nil
 }
 
-func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
+// uuidFromDocID returns found=false when the doc id has no object, which a caller
+// holding a doc id read earlier has to expect: the object may have been deleted since.
+func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, bool, error) {
 	bucket, release, err := s.objectsBucket()
 	if err != nil {
-		return "", err
+		return "", false, err
 	}
 	defer release()
 
@@ -1028,15 +1030,18 @@ func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
 	binary.LittleEndian.PutUint64(docIDBytes, docID)
 	res, err := bucket.GetBySecondary(context.TODO(), 0, docIDBytes) // TODO: context
 	if err != nil {
-		return "", fmt.Errorf("get object by doc id: %w", err)
+		return "", false, fmt.Errorf("get object by doc id: %w", err)
+	}
+	if res == nil {
+		return "", false, nil
 	}
 
 	prop, _, err := storobj.ParseAndExtractProperty(res, "id")
 	if err != nil {
-		return "", fmt.Errorf("parse and extract property: %w", err)
+		return "", false, fmt.Errorf("parse and extract property: %w", err)
 	}
 
-	return strfmt.UUID(prop[0]), nil
+	return strfmt.UUID(prop[0]), true, nil
 }
 
 func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {

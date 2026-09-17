@@ -28,6 +28,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
+// deadDocIDPruneBatch is how many doc ids without an object FindUUIDs collects before
+// removing them from the doc id universe in one go.
+const deadDocIDPruneBatch = 1024
+
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) DeleteObjectBatch(ctx context.Context, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects {
 	s.activityTrackerWrite.Add(1)
@@ -183,9 +187,28 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 	defer allowList.Close()
 
 	fetchStart := time.Now()
-	it := allowList.LimitedIterator(limit) // ensures only up to [limit] docIDs will be returned
-	uuids = make([]strfmt.UUID, it.Len())
+	// The limit counts UUIDs returned, not doc ids read: a doc id with no object is
+	// retried against the next one, so a shard holding more than limit matching objects
+	// always returns limit of them.
+	it := allowList.Iterator()
+	capacity := it.Len()
+	if limit > 0 && limit < capacity {
+		capacity = limit
+	}
+	uuids = make([]strfmt.UUID, capacity)
 	currIdx := 0
+
+	// A doc id with no object is dropped from the doc id universe a deny-list filter
+	// starts from, which is otherwise rebuilt with every deleted id in it at shard init.
+	deadDocIDs := make([]uint64, 0, deadDocIDPruneBatch)
+	pruneDeadDocIDs := func() {
+		if len(deadDocIDs) == 0 {
+			return
+		}
+		s.bitmapFactory.RemoveIds(deadDocIDs...)
+		deadDocIDs = deadDocIDs[:0]
+	}
+	defer pruneDeadDocIDs()
 
 	defer func() {
 		logger := logger.WithFields(logrus.Fields{
@@ -209,16 +232,25 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 		default:
 		}
 
-		uuid, err := s.uuidFromDocID(docID)
+		uuid, found, err := s.uuidFromDocID(docID)
 		if err != nil {
-			// TODO: More than likely this will occur due to an object which has already been deleted.
-			//       However, this is not a guarantee. This can be improved by logging, or handling
-			//       errors other than `id not found` rather than skipping them entirely.
-			s.index.logger.WithField("op", "shard.find_uuids").WithField("docID", docID).WithError(err).Debug("failed to find UUID for docID")
+			s.index.logger.WithField("op", "shard.find_uuids").WithField("docID", docID).
+				Debugf("failed to read the object for doc id %d: %v", docID, err)
 			continue
 		}
+		if !found {
+			deadDocIDs = append(deadDocIDs, docID)
+			if len(deadDocIDs) >= deadDocIDPruneBatch {
+				pruneDeadDocIDs()
+			}
+			continue
+		}
+
 		uuids[currIdx] = uuid
 		currIdx++
+		if limit > 0 && currIdx == limit {
+			break
+		}
 	}
 	return uuids[:currIdx], nil
 }
