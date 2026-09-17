@@ -233,11 +233,13 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 	watermark := s.docIDPruneWatermark
 	deadDocIDs := sroar.NewBitmap()
 	deadCount := 0
+	pruned, kept := 0, 0
 	pruneDeadDocIDs := func() {
 		if deadCount == 0 {
 			return
 		}
 		s.bitmapFactory.Remove(deadDocIDs)
+		pruned += deadCount
 		deadDocIDs = sroar.NewBitmap().CloneToBuf(deadDocIDs.ToBuffer())
 		deadCount = 0
 	}
@@ -249,6 +251,11 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 			"filter_took":    fetchStart.Sub(start).String(),
 			"docids_found":   it.Len(),
 			"uuids_resolved": currIdx,
+			// pruned counts the flushed batches, deadCount the tail this defer runs
+			// before. A kept doc id is read again by every later call, so kept rising
+			// over a shard's life is a write that took a doc id and never wrote a row.
+			"dead_docids_pruned": pruned + deadCount,
+			"dead_docids_kept":   kept,
 		})
 		if err != nil {
 			// log as debug
@@ -271,7 +278,11 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 			return nil, fmt.Errorf("resolve doc id %d: %w", docID, err)
 		}
 		if !found {
-			if docID < watermark && deadDocIDs.Set(docID) {
+			if docID >= watermark {
+				kept++
+				continue
+			}
+			if deadDocIDs.Set(docID) {
 				if deadCount++; deadCount >= deadDocIDPruneBatch {
 					pruneDeadDocIDs()
 				}
