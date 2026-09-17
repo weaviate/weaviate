@@ -953,6 +953,19 @@ func writeBufferHeld(q *DiskQueue) bool {
 	return q.w.w.w != nil
 }
 
+// recvWithin returns the next executed task key, failing the test instead of
+// hanging until the package timeout if the scheduler never dispatches.
+func recvWithin(t *testing.T, ch <-chan uint64, d time.Duration) uint64 {
+	t.Helper()
+	select {
+	case key := <-ch:
+		return key
+	case <-time.After(d):
+		t.Fatalf("no task executed within %s", d)
+		return 0
+	}
+}
+
 func TestQueueReleasesWriteBuffer(t *testing.T) {
 	t.Parallel()
 
@@ -971,7 +984,7 @@ func TestQueueReleasesWriteBuffer(t *testing.T) {
 
 		// let the scheduler promote the stale partial chunk and run the tasks
 		for i := 0; i < 3; i++ {
-			<-ch
+			recvWithin(t, ch, 5*time.Second)
 		}
 		require.Eventually(t, func() bool { return q.Size() == 0 }, 5*time.Second, 10*time.Millisecond)
 
@@ -981,7 +994,7 @@ func TestQueueReleasesWriteBuffer(t *testing.T) {
 		// the queue keeps working after the release
 		pushMany(t, q, 1, 400)
 		require.True(t, writeBufferHeld(q))
-		require.Equal(t, uint64(400), <-ch)
+		require.Equal(t, uint64(400), recvWithin(t, ch, 5*time.Second))
 		require.Eventually(t, func() bool { return q.Size() == 0 }, 5*time.Second, 10*time.Millisecond)
 		require.Eventually(t, func() bool { return !writeBufferHeld(q) }, 5*time.Second, 10*time.Millisecond)
 	})
