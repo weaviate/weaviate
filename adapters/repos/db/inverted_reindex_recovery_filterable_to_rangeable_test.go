@@ -24,6 +24,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/filters"
 	entinverted "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
@@ -155,7 +156,7 @@ func filterableToRangeableFingerprint(t *testing.T, b *lsmkv.Bucket) map[uint64]
 
 // newFilterableToRangeableTask mirrors NewRuntimeFilterableToRangeableTask but
 // overrides OnMigrationComplete with a flag setter the baseline test asserts on.
-func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName string) (*ShardReindexTaskGeneric, *testFilterableToRangeableStrategyWrapper) {
+func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName, unitID string) (*ShardReindexTaskGeneric, *testFilterableToRangeableStrategyWrapper) {
 	t.Helper()
 	wrapped := &testFilterableToRangeableStrategyWrapper{
 		FilterableToRangeableStrategy: FilterableToRangeableStrategy{
@@ -163,12 +164,12 @@ func newFilterableToRangeableTask(t *testing.T, idx *Index, className, propName 
 			generation: 1,
 		},
 	}
-	return newFilterableToRangeableTaskWithStrategy(t, idx, className, propName, wrapped), wrapped
+	return newFilterableToRangeableTaskWithStrategy(t, idx, className, propName, unitID, wrapped), wrapped
 }
 
 // newFilterableToRangeableTaskWithStrategy takes a caller-supplied strategy,
 // for tests that need the production OnMigrationComplete.
-func newFilterableToRangeableTaskWithStrategy(t *testing.T, idx *Index, className, propName string,
+func newFilterableToRangeableTaskWithStrategy(t *testing.T, idx *Index, className, propName, unitID string,
 	strategy MigrationStrategy,
 ) *ShardReindexTaskGeneric {
 	t.Helper()
@@ -177,7 +178,6 @@ func newFilterableToRangeableTaskWithStrategy(t *testing.T, idx *Index, classNam
 	cfg := reindexTaskConfig{
 		concurrency:                   2,
 		memtableOptFactor:             4,
-		backupMemtableOptFactor:       1,
 		processingDuration:            10 * time.Minute,
 		pauseDuration:                 1 * time.Second,
 		checkProcessingEveryNoObjects: 1000,
@@ -191,10 +191,17 @@ func newFilterableToRangeableTaskWithStrategy(t *testing.T, idx *Index, classNam
 		},
 	}
 
-	return NewShardReindexTaskGeneric(
+	task := NewShardReindexTaskGeneric(
 		"FilterableToRangeable", idx.logger, strategy, cfg,
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		defaultIndexClosingGuard,
 	)
+	task.setMigrationIdentity(
+		distributedtask.TaskDescriptor{ID: "test-filterable-to-rangeable", Version: 1},
+		unitID,
+		&ReindexTaskPayload{MigrationType: ReindexTypeEnableRangeable},
+	)
+	return task
 }
 
 // testFilterableToRangeableStrategyWrapper overrides OnMigrationComplete
@@ -210,9 +217,15 @@ type testFilterableToRangeableStrategyWrapper struct {
 	FilterableToRangeableStrategy
 	migrationCompleted  bool
 	preReindexHookCount int
+	onComplete          func() error
 }
 
 func (s *testFilterableToRangeableStrategyWrapper) OnMigrationComplete(_ context.Context, _ ShardLike) error {
+	if s.onComplete != nil {
+		if err := s.onComplete(); err != nil {
+			return err
+		}
+	}
 	s.migrationCompleted = true
 	return nil
 }
@@ -251,7 +264,7 @@ func TestRecoveryConvergence_FilterableToRangeable_Baseline(t *testing.T) {
 	require.Nil(t, shard.store.Bucket(rangeBucketName),
 		"pre-migration rangeable bucket must NOT exist (IndexRangeFilters defaults to false)")
 
-	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
+	task, wrapped := newFilterableToRangeableTask(t, idx, className, propName, shard.migrationUnit())
 	require.NoError(t, task.RunOnShard(ctx, shard))
 	require.True(t, wrapped.migrationCompleted,
 		"OnMigrationComplete must fire post-migration")
@@ -273,38 +286,51 @@ func TestRecoveryConvergence_FilterableToRangeable_Baseline(t *testing.T) {
 		require.Lenf(t, ids, expectedPerValue,
 			"term %d should have %d docIDs, got %d", term, expectedPerValue, len(ids))
 	}
-
-	rt, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	require.True(t, rt.IsReindexed())
-	require.True(t, rt.IsPrepended())
-	require.True(t, rt.IsMerged())
-	require.True(t, rt.IsSwapped())
-	require.True(t, rt.IsTidied())
 }
 
-// FromEachState pins the same recovery invariant as the RebuildSearchable
-// matrix, for the rangeable family (enable-/repair-rangeable): from any
-// on-disk state a restart can interrupt at, one relaunch must converge to
-// a clean-run baseline.
+// A restart from each recorded state converges on an index bit-equal to a clean
+// run. The only migration in the matrix whose target bucket does not exist
+// beforehand, so it also pins that a load below the flip leaves no index at all.
 func TestRecoveryConvergence_FilterableToRangeable_FromEachState(t *testing.T) {
-	const numObjects = 25
 	propName := filterableToRangeablePropName
 
-	recoveryConvergenceMatrix[uint64]{
-		namePrefix: "FilterableToRangeable",
+	migrationRestartMatrix[uint64]{
+		namePrefix: "RangeableRestart",
 		buildClass: newFilterableToRangeableTestClass,
 		seedObjects: func(t *testing.T, ctx context.Context, shard *Shard, className string) {
-			for _, obj := range makeFilterableToRangeableTestObjects(t, numObjects, className) {
+			for _, obj := range makeFilterableToRangeableTestObjects(t, migrationRestartObjects, className) {
 				require.NoError(t, shard.PutObject(ctx, obj))
 			}
 		},
-		buildTask: func(t *testing.T, idx *Index, className string) (*ShardReindexTaskGeneric, func() bool) {
-			task, wrapped := newFilterableToRangeableTask(t, idx, className, propName)
+		buildTask: func(t *testing.T, f *migrationRestartFixture) (*ShardReindexTaskGeneric, func() bool) {
+			task, wrapped := newFilterableToRangeableTask(t, f.idx, f.class.Class, propName,
+				testMigrationUnitFor(f.idx, f.shardName))
+			// Stands in for the RAFT round trip in
+			// [FilterableToRangeableStrategy.OnMigrationComplete]; without it the
+			// next load never opens the bucket the promotion just renamed.
+			wrapped.onComplete = func() error {
+				enabled := true
+				for _, prop := range f.class.Properties {
+					if prop.Name == propName {
+						prop.IndexRangeFilters = &enabled
+					}
+				}
+				return nil
+			}
 			return task, func() bool { return wrapped.migrationCompleted }
 		},
 		bucketName:   helpers.BucketRangeableFromPropNameLSM(propName),
 		wantStrategy: lsmkv.StrategyRoaringSetRange,
 		fingerprint:  filterableToRangeableFingerprint,
+		checkBaseline: func(t *testing.T, fingerprint map[uint64][]uint64) {
+			require.Len(t, fingerprint, filterableToRangeableNumDistinctValues,
+				"a clean run must index every value the fixture writes")
+			perValue := migrationRestartObjects / filterableToRangeableNumDistinctValues
+			for value, ids := range fingerprint {
+				require.Lenf(t, ids, perValue,
+					"a clean run must index all %d objects carrying value %d, got %d",
+					perValue, value, len(ids))
+			}
+		},
 	}.run(t)
 }

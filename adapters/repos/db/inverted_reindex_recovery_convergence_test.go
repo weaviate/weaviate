@@ -13,19 +13,16 @@ package db
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"sort"
 	"testing"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -70,9 +67,16 @@ func fingerprintInvertedBucket(t *testing.T, b *lsmkv.Bucket) map[string][]uint6
 
 // newSearchableRetokenizeTask wraps the production
 // SearchableRetokenizeStrategy in test scaffolding. Semantic
-// migration: the provider drives RunReindexOnly on every shard, then
-// RunPrepare and RunSwap once the cross-shard barrier clears.
-func newSearchableRetokenizeTask(t *testing.T, idx *Index, className, propName, targetTokenization, bucketStrategy string) (*ShardReindexTaskGeneric, *testSearchableRetokenizeStrategyWrapper) {
+// migration: swap is driven via RunReindexOnly/RunPrepare/RunSwap on
+// each shard, not the inline runtimeSwap used by MapToBlockmax.
+func newSearchableRetokenizeTask(t *testing.T, idx *Index, className, propName, targetTokenization, bucketStrategy, unitID string) (*ShardReindexTaskGeneric, *testSearchableRetokenizeStrategyWrapper) {
+	t.Helper()
+	return newSearchableRetokenizeTaskAtGeneration(t, idx, className, propName, targetTokenization, bucketStrategy, 1, unitID)
+}
+
+func newSearchableRetokenizeTaskAtGeneration(t *testing.T, idx *Index, className, propName,
+	targetTokenization, bucketStrategy string, generation int, unitID string,
+) (*ShardReindexTaskGeneric, *testSearchableRetokenizeStrategyWrapper) {
 	t.Helper()
 	wrapped := &testSearchableRetokenizeStrategyWrapper{
 		SearchableRetokenizeStrategy: SearchableRetokenizeStrategy{
@@ -80,7 +84,7 @@ func newSearchableRetokenizeTask(t *testing.T, idx *Index, className, propName, 
 			targetTokenization: targetTokenization,
 			className:          className,
 			bucketStrategy:     bucketStrategy,
-			generation:         1,
+			generation:         generation,
 		},
 	}
 	task := NewShardReindexTaskGeneric(
@@ -88,12 +92,20 @@ func newSearchableRetokenizeTask(t *testing.T, idx *Index, className, propName, 
 		reindexTaskConfig{
 			concurrency:                   2,
 			memtableOptFactor:             4,
-			backupMemtableOptFactor:       1,
 			processingDuration:            10 * time.Minute,
 			pauseDuration:                 1 * time.Second,
 			checkProcessingEveryNoObjects: 1000,
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		defaultIndexClosingGuard,
+	)
+	task.setMigrationIdentity(
+		distributedtask.TaskDescriptor{ID: "test-searchable-retokenize", Version: uint64(generation)},
+		unitID,
+		&ReindexTaskPayload{
+			MigrationType:      ReindexTypeChangeTokenization,
+			TargetTokenization: targetTokenization,
+		},
 	)
 	return task, wrapped
 }
@@ -112,17 +124,21 @@ func (s *testSearchableRetokenizeStrategyWrapper) OnMigrationComplete(_ context.
 	return nil
 }
 
-// makeConvergenceTestObjects builds n objects whose `title` cycles
-// through a 25-token dictionary so each token appears in multiple docs.
+// The dictionary [makeConvergenceTestObjects] cycles through. The baseline is
+// checked against it, so a defect the rows all share cannot pass unnoticed.
+var convergenceTokens = []string{
+	"alpha", "bravo", "charlie", "delta", "echo",
+	"foxtrot", "golf", "hotel", "india", "juliett",
+	"kilo", "lima", "mike", "november", "oscar",
+	"papa", "quebec", "romeo", "sierra", "tango",
+	"uniform", "victor", "whiskey", "xray", "yankee",
+}
+
+// makeConvergenceTestObjects builds n objects whose `title` cycles through the
+// dictionary so each token appears in multiple docs.
 func makeConvergenceTestObjects(t *testing.T, n int, className string) []*storobj.Object {
 	t.Helper()
-	tokens := []string{
-		"alpha", "bravo", "charlie", "delta", "echo",
-		"foxtrot", "golf", "hotel", "india", "juliett",
-		"kilo", "lima", "mike", "november", "oscar",
-		"papa", "quebec", "romeo", "sierra", "tango",
-		"uniform", "victor", "whiskey", "xray", "yankee",
-	}
+	tokens := convergenceTokens
 	out := make([]*storobj.Object, n)
 	for i := 0; i < n; i++ {
 		text := tokens[i%len(tokens)] + " " + tokens[(i+1)%len(tokens)] + " " + tokens[(i+2)%len(tokens)]
@@ -157,7 +173,7 @@ func TestRecoveryConvergence_Baseline(t *testing.T) {
 	require.Equal(t, lsmkv.StrategyMapCollection, preBucket.Strategy())
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
 	require.NoError(t, task.RunOnShard(ctx, shard))
 	require.True(t, strategy.migrationCompleted)
 
@@ -165,24 +181,10 @@ func TestRecoveryConvergence_Baseline(t *testing.T) {
 	require.NotNil(t, postBucket, "post-migration searchable bucket must exist")
 	require.Equal(t, lsmkv.StrategyInverted, postBucket.Strategy())
 
-	rt := NewFileReindexTracker(shard.pathLSM(), MigrationDirSearchableMapToBlockmax+genSuffix(1), &UuidKeyParser{})
-	require.True(t, rt.IsReindexed())
-	require.True(t, rt.IsPrepended())
-	require.True(t, rt.IsMerged())
-	require.True(t, rt.IsSwapped())
-	require.True(t, rt.IsTidied())
-
 	fp := fingerprintInvertedBucket(t, postBucket)
 	require.NotEmpty(t, fp, "baseline fingerprint must have at least one term")
 
-	expectedTokens := []string{
-		"alpha", "bravo", "charlie", "delta", "echo",
-		"foxtrot", "golf", "hotel", "india", "juliett",
-		"kilo", "lima", "mike", "november", "oscar",
-		"papa", "quebec", "romeo", "sierra", "tango",
-		"uniform", "victor", "whiskey", "xray", "yankee",
-	}
-	for _, tok := range expectedTokens {
+	for _, tok := range convergenceTokens {
 		docIDs, ok := fp[tok]
 		require.Truef(t, ok, "baseline fingerprint missing token %q", tok)
 		require.NotEmptyf(t, docIDs, "baseline fingerprint token %q has empty posting list", tok)
@@ -208,7 +210,7 @@ func computeBaselineFingerprint(t *testing.T, propName string, numObjects int) m
 	}
 
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task := newTestTask(idx.logger, strategy)
+	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
 	require.NoError(t, task.RunOnShard(ctx, shard))
 	require.True(t, strategy.migrationCompleted)
 
@@ -216,264 +218,15 @@ func computeBaselineFingerprint(t *testing.T, propName string, numObjects int) m
 	return fingerprintInvertedBucket(t, shard.store.Bucket(bucketName))
 }
 
-// reindexSentinelState names one of the five on-disk states a migration
-// can be interrupted at.
-type reindexSentinelState string
-
-const (
-	sentinelStateReindexed reindexSentinelState = "IsReindexed"
-	sentinelStatePrepended reindexSentinelState = "IsPrepended"
-	sentinelStateMerged    reindexSentinelState = "IsMerged"
-	sentinelStateSwapped   reindexSentinelState = "IsSwapped"
-	sentinelStateTidied    reindexSentinelState = "IsTidied"
-)
-
-// allReindexSentinelStates is the canonical iteration order, so failure
-// output reads left-to-right along the state machine.
-var allReindexSentinelStates = []reindexSentinelState{
-	sentinelStateReindexed,
-	sentinelStatePrepended,
-	sentinelStateMerged,
-	sentinelStateSwapped,
-	sentinelStateTidied,
-}
-
-// expectedSentinelsAt is the sentinel snapshot a shard driven to state s
-// must carry. Asserted before the code under test runs, so a broken
-// drive-to cannot let a pass mask a missed setup.
-func expectedSentinelsAt(s reindexSentinelState) map[string]bool {
-	switch s {
-	case sentinelStateReindexed:
-		return map[string]bool{"reindexed": true, "prepended": false, "merged": false, "swapped": false, "tidied": false}
-	case sentinelStatePrepended:
-		return map[string]bool{"reindexed": true, "prepended": true, "merged": false, "swapped": false, "tidied": false}
-	case sentinelStateMerged:
-		return map[string]bool{"reindexed": true, "prepended": true, "merged": true, "swapped": false, "tidied": false}
-	case sentinelStateSwapped:
-		return map[string]bool{"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": false}
-	case sentinelStateTidied:
-		return map[string]bool{"reindexed": true, "prepended": true, "merged": true, "swapped": true, "tidied": true}
-	}
-	return nil
-}
-
-// driveToSentinelState drives a fresh shard to state s through the
-// production entry points. IsPrepended and IsSwapped are synthesized: each
-// pairs with the next sentinel inside one atomic write, so reaching the
-// state between them means driving past it and removing the later sentinel.
-func driveToSentinelState(t *testing.T, ctx context.Context, shard *Shard,
-	task *ShardReindexTaskGeneric, s reindexSentinelState,
-) {
-	t.Helper()
-	switch s {
-	case sentinelStateReindexed:
-		require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-	case sentinelStateMerged:
-		require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
-		require.NoError(t, task.RunPrepareOnShard(ctx, shard))
-	case sentinelStatePrepended:
-		driveToSentinelState(t, ctx, shard, task, sentinelStateMerged)
-		removeSentinel(t, task, shard, mergedSentinelFile)
-	case sentinelStateTidied:
-		require.NoError(t, task.RunOnShard(ctx, shard))
-	case sentinelStateSwapped:
-		driveToSentinelState(t, ctx, shard, task, sentinelStateTidied)
-		removeSentinel(t, task, shard, tidiedSentinelFile)
-	default:
-		t.Fatalf("unknown sentinel state %q", s)
-	}
-}
-
-// readReindexSentinels snapshots all five sentinels in one call so an
-// assertion failure shows the full state, not a single missed flag.
-func readReindexSentinels(rt reindexTracker) map[string]bool {
-	return map[string]bool{
-		"reindexed": rt.IsReindexed(),
-		"prepended": rt.IsPrepended(),
-		"merged":    rt.IsMerged(),
-		"swapped":   rt.IsSwapped(),
-		"tidied":    rt.IsTidied(),
-	}
-}
-
-// removeSentinel deletes one of the tracker's sentinel files to
-// synthesize a crash between two writes that an atomic method makes
-// together. Pick the sentinel with [mergedSentinelFile] / [tidiedSentinelFile]
-// so the file name stays owned by the tracker.
-func removeSentinel(t *testing.T, task *ShardReindexTaskGeneric, shard *Shard,
-	pick func(*fileReindexTracker) string,
-) {
-	t.Helper()
-	rt, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	ftr := rt.(*fileReindexTracker)
-	name := pick(ftr)
-	require.NoError(t, os.Remove(filepath.Join(ftr.config.migrationPath, name)),
-		"removing %s to synthesize an interrupted state", name)
-}
-
-func mergedSentinelFile(ftr *fileReindexTracker) string { return ftr.config.filenameMerged }
-
-func tidiedSentinelFile(ftr *fileReindexTracker) string { return ftr.config.filenameTidied }
-
-// recoveryConvergenceMatrix is the shared body of the per-strategy "recover
-// from each interrupted state" matrices; only the fixture and target bucket
-// vary per strategy. K is the fingerprint key type (term, roaring-set value,
-// or rangeable lexicographic key).
-type recoveryConvergenceMatrix[K comparable] struct {
-	// namePrefix seeds the throw-away collection names.
-	namePrefix string
-	// buildClass and seedObjects build the pre-migration fixture.
-	buildClass  func(className string) *models.Class
-	seedObjects func(t *testing.T, ctx context.Context, shard *Shard, className string)
-	// buildTask returns a fresh task plus a reader for its strategy
-	// wrapper's OnMigrationComplete flag.
-	buildTask func(t *testing.T, idx *Index, className string) (*ShardReindexTaskGeneric, func() bool)
-	// bucketName is the migration's target bucket and wantStrategy the
-	// strategy it must still carry after recovery.
-	bucketName   string
-	wantStrategy string
-	fingerprint  func(t *testing.T, b *lsmkv.Bucket) map[K][]uint64
-}
-
-// run computes the clean-migration baseline once, then recovers from
-// each of the five interrupted states against it as a subtest.
-func (m recoveryConvergenceMatrix[K]) run(t *testing.T) {
-	baseline := m.baseline(t)
-	require.NotEmpty(t, baseline, "baseline fingerprint must be non-empty")
-	for _, state := range allReindexSentinelStates {
-		t.Run(m.namePrefix+"_"+string(state), func(t *testing.T) {
-			m.runCase(t, state, baseline)
-		})
-	}
-}
-
-// baseline runs one uninterrupted migration on a throw-away shard. Every
-// case asserts bit-equal convergence against its fingerprint.
-func (m recoveryConvergenceMatrix[K]) baseline(t *testing.T) map[K][]uint64 {
-	t.Helper()
-	ctx := testCtx()
-	className := m.namePrefix + "BaselineRef_" + uuid.NewString()[:8]
-
-	shard, idx := m.newFixture(t, ctx, className, m.buildClass(className))
-	defer shard.Shutdown(ctx)
-
-	task, completed := m.buildTask(t, idx, className)
-	require.NoError(t, task.RunOnShard(ctx, shard))
-	require.True(t, completed(), "baseline migration must run OnMigrationComplete")
-
-	return m.fingerprint(t, shard.store.Bucket(m.bucketName))
-}
-
-func (m recoveryConvergenceMatrix[K]) newFixture(
-	t *testing.T, ctx context.Context, className string, class *models.Class,
-) (*Shard, *Index) {
-	t.Helper()
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	m.seedObjects(t, ctx, shard, className)
-	return shard, idx
-}
-
-func (m recoveryConvergenceMatrix[K]) runCase(
-	t *testing.T, state reindexSentinelState, baseline map[K][]uint64,
-) {
-	ctx := testCtx()
-	className := m.namePrefix + "Case_" + uuid.NewString()[:8]
-	class := m.buildClass(className)
-
-	shard, idx := m.newFixture(t, ctx, className, class)
-	defer shard.Shutdown(ctx)
-
-	task, _ := m.buildTask(t, idx, className)
-	driveToSentinelState(t, ctx, shard, task, state)
-
-	// Verify the drive actually landed at the intended on-disk state.
-	// Without this guard a broken drive would let recovery from a
-	// different state appear to "converge".
-	rt, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	drivenTo := readReindexSentinels(rt)
-	for name, want := range expectedSentinelsAt(state) {
-		assert.Equalf(t, want, drivenTo[name],
-			"after driving to %s, sentinel %q: full state %v", state, name, drivenTo)
-	}
-
-	// Simulated restart: graceful shutdown, fresh task, then idx.initShard
-	// re-runs FinalizeCompletedMigrations → LSM init → OnAfterLsmInit.
-	shardName := shard.Name()
-	require.NoError(t, shard.Shutdown(ctx))
-
-	task2, completed2 := m.buildTask(t, idx, className)
-	idx.shardReindexer = &testShardReindexer{task: task2}
-
-	shd2, err := idx.initShard(ctx, shardName, class, nil, true, true)
-	require.NoErrorf(t, err, "shard re-init must succeed (state %s)", state)
-	shard2 := shd2.(*Shard)
-	defer shard2.Shutdown(ctx)
-	idx.shards.Store(shardName, shd2)
-
-	// Relaunch the task the way the provider does after a restart: one
-	// RunOnShard drives whatever the previous run left unfinished through
-	// to the terminal state.
-	require.NoErrorf(t, task2.RunOnShard(ctx, shard2),
-		"recovery RunOnShard must not error (state %s)", state)
-
-	rt2, err := task2.newReindexTracker(shard2.pathLSM())
-	require.NoErrorf(t, err, "post-recovery tracker init (state %s)", state)
-	require.Truef(t, rt2.IsTidied(),
-		"recovery must reach the terminal tidied state (state %s)", state)
-	require.Truef(t, completed2(),
-		"recovery must run OnMigrationComplete (state %s)", state)
-
-	bucket := shard2.store.Bucket(m.bucketName)
-	require.NotNilf(t, bucket, "post-recovery bucket %q must exist (state %s)", m.bucketName, state)
-	require.Equalf(t, m.wantStrategy, bucket.Strategy(),
-		"post-recovery bucket %q must keep strategy %s (state %s)", m.bucketName, m.wantStrategy, state)
-
-	// Compare per key so the failure output names which posting list
-	// diverged rather than dumping the whole fingerprint.
-	got := m.fingerprint(t, bucket)
-	assert.Equalf(t, len(baseline), len(got),
-		"post-recovery key count diverges from baseline (state %s)", state)
-	for key, wantIDs := range baseline {
-		gotIDs, ok := got[key]
-		if !ok {
-			assert.Failf(t, "missing key",
-				"key %v present in baseline but missing post-recovery (state %s)", key, state)
-			continue
-		}
-		assert.Equalf(t, wantIDs, gotIDs,
-			"key %v post-recovery doc-id list diverges from baseline (state %s)\n  baseline (%d): %v\n  got      (%d): %v",
-			key, state, len(wantIDs), wantIDs, len(gotIDs), gotIDs)
-	}
-}
-
-func startedSentinelFile(ftr *fileReindexTracker) string { return ftr.config.filenameStarted }
-
-// breakSentinelRead replaces a sentinel with a symlink to itself: the file is
-// still on disk, but the tracker's os.Stat of it fails with ELOOP. It stands in
-// for the stat errors a unit test cannot produce (EIO, EACCES, no descriptors
-// left), all of which the tracker reports as "this sentinel is not set".
-func breakSentinelRead(t *testing.T, task *ShardReindexTaskGeneric, shard *Shard,
-	pick func(*fileReindexTracker) string,
-) {
-	t.Helper()
-	rt, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	ftr := rt.(*fileReindexTracker)
-	path := filepath.Join(ftr.config.migrationPath, pick(ftr))
-	require.NoError(t, os.Remove(path))
-	require.NoError(t, os.Symlink(filepath.Base(path), path))
-}
-
-// Regression: a failed read of started.mig must not retire an in-flight,
-// unswapped migration without finishing it.
-func TestRunOnShardFinishesInFlightMigrationWhenStartedMarkerCannotBeRead(t *testing.T) {
-	ctx := testCtx()
+// On a relaunch over an already-finished rebuild the iteration has nothing to
+// do, so a RunOnShard that does not sequence the swap after it reports success
+// on an index that was never swapped.
+func TestRunOnShardSwapsARebuildThatIsAlreadyComplete(t *testing.T) {
 	const propName = "title"
-	className := "UnreadableStartedMarker_" + uuid.NewString()[:8]
+	const numObjects = 25
+
+	ctx := testCtx()
+	className := "RelaunchAfterRebuild_" + uuid.NewString()[:8]
 	class := newTestClassWithProps(className, []string{propName})
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
@@ -481,24 +234,28 @@ func TestRunOnShardFinishesInFlightMigrationWhenStartedMarkerCannotBeRead(t *tes
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 
-	for _, obj := range makeConvergenceTestObjects(t, 25, className) {
+	for _, obj := range makeConvergenceTestObjects(t, numObjects, className) {
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
 
-	interrupted := newTestTask(idx.logger,
-		&testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}})
-	driveToSentinelState(t, ctx, shard, interrupted, sentinelStateSwapped)
-	breakSentinelRead(t, interrupted, shard, startedSentinelFile)
-
-	rt, err := interrupted.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	require.False(t, rt.IsStarted(), "the started marker must no longer read as set")
-	require.True(t, rt.IsSwapped(), "the migration must really be in flight")
-
 	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	require.NoError(t, newTestTask(idx.logger, strategy).RunOnShard(ctx, shard))
+	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
 
-	require.True(t, strategy.migrationCompleted,
-		"the relaunch must finish the migration rather than report the unit complete")
-	require.True(t, rt.IsTidied(), "the migration must reach its terminal state")
+	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
+	rec, ok := task.migrationRecord(shard)
+	require.True(t, ok, "the rebuild must leave a record")
+	require.Equal(t, MigrationStateIterated, rec.State(),
+		"fixture: the rebuild must be complete and the swap still pending")
+	require.False(t, strategy.migrationCompleted)
+
+	require.NoError(t, task.RunOnShard(ctx, shard))
+
+	rec, ok = task.migrationRecord(shard)
+	require.True(t, ok)
+	require.Equal(t, MigrationStateSwapped, rec.State(),
+		"a relaunch on a complete rebuild must reach the swap, not report success without it")
+	require.True(t, strategy.migrationCompleted)
+	require.Equal(t, lsmkv.StrategyInverted,
+		shard.store.Bucket(helpers.BucketSearchableFromPropNameLSM(propName)).Strategy(),
+		"the canonical bucket must serve the rebuilt data after the relaunch")
 }

@@ -16,6 +16,24 @@ source of truth; this doc is the navigable overview that ties them
 together. If a section here disagrees with a godoc in source, the
 godoc wins — and that's a bug in this doc.
 
+> **How migration state is stored, as of this build.** One JSON record per
+> (shard, migration) at `<shard>/lsm/.migrations/records/` holds it, in five
+> states — Iterating, Iterated, Merged, Swapped, Promoted — and
+> reconciliation at shard load makes every load-time decision. The record
+> names each directory the migration touches, so the swap removes the
+> directory it displaces at the recorded handle rather than renaming it to a
+> derived backup name. `inverted_reindex_record.go` and
+> `inverted_reindex_reconcile.go` are the source of truth.
+>
+> Three sections describe the retired representation end to end and should be
+> read as history only: §6.1 (sentinel files), §9.4 and §9.5. Elsewhere the
+> stale parts are individual mentions of a marker file (`started.mig`,
+> `reindexed.mig`, `prepended.mig`, `merged.mig`, `swapped.mig`, `tidied.mig`,
+> `properties.mig`), of `FinalizeCompletedMigrations`, of
+> `completedMigrationGens`, of a rename-to-backup, or of a "tidied" state. The
+> API, the strategy catalogue, the concurrency model, multi-tenancy and the
+> tokenization overlay are unaffected and still accurate.
+
 ## 1. Overview
 
 A runtime reindex rebuilds one or more inverted-index buckets on a
@@ -685,9 +703,9 @@ linter fails until a newly added status is classified here.
 
 The default is fail-closed on purpose: reading an unknown status as
 "done" would admit a second migration onto a property a newer node is
-still migrating, and would let the orphan audit and the TTL sweep delete
-live state. It costs availability instead. For as long as such a task is
-in the node's state, the node:
+still migrating, and would let the TTL sweep delete live state. It costs
+availability instead. For as long as such a task is in the node's state,
+the node:
 
 - rejects schema mutations overlapping the task's properties, and rejects
   new reindex submits that overlap them (`CheckPropertyUpdate`,
@@ -698,8 +716,6 @@ in the node's state, the node:
 - reports the property's index as `indexing` on `GET .../indexes` rather
   than `ready` or `pending`, since the per-unit progress does not prove
   that no shard has started;
-- keeps the task's on-disk tracker dirs, because the orphan audit reads
-  the task as live (`db.NewLiveReindexTrackerLookup`);
 - refuses a cancel with 409, at the REST pre-flight and again at
   `Manager.CancelTask`. `IsCancellable()` is `STARTED` only, so an
   unrecognized status is not cancellable. The mutation-refusal messages
@@ -708,8 +724,8 @@ in the node's state, the node:
   nodes that do recognize the status (`MutationRemedy` in
   [`reindex_conflict.go`](../adapters/repos/db/reindex_conflict.go)).
 
-The two lookups both route through `db.IsLiveReindexTaskStatus`, so the
-rule for a new status is answered in one place.
+The backup gate routes through `db.IsLiveReindexTaskStatus`, so the rule
+for a new status is answered in one place.
 
 TTL cleanup is the one exit. `Manager.CleanUpTask` refuses a task that is
 both active **and** recognized, so an unrecognized-status task is deleted
@@ -856,7 +872,7 @@ shard. See §6 crash safety.
 **`reindex_cancel_cleanup.go`** — `DB.NewStalePartialReindexSweep()`
 returns a `func(ctx, collection, prop, indexType) error` that fans out to
 `Shard.CleanStalePartialReindexState` per shard. Called from the cancel
-handler (after `WaitForLocalTaskDrain`), from the submit handler
+handler (after `SealLocalTaskDrain`), from the submit handler
 (defense in depth), and from `autoCleanupAfterTerminal` on every node once
 a task reaches FAILED or CANCELLED. Per-shard failures don't stop
 iteration so a stuck shard can't permanently wedge a
@@ -1518,7 +1534,7 @@ phases of different concerns and don't share state.
    409 the pre-flight would have.
 3. RAFT `CancelDistributedTask`.
 4. Wait for the local reindex goroutine to drain
-   (`WaitForLocalTaskDrain`, 10s timeout). Bounded so a stuck
+   (`SealLocalTaskDrain`, 10s timeout). Bounded so a stuck
    goroutine doesn't turn the HTTP request into a hang.
 5. `DB.NewStalePartialReindexSweep()` — wipe sidecars + migration dir
    so the next submit starts from a clean slate. Runs for every index
@@ -1610,6 +1626,35 @@ list as before, so a downgrade does not corrupt data. The residual is only
 that a partial-class property seeded solely by the stamp (its FINISHED task
 already GC'd) resolves as WAND on the older binary until a re-migration.
 
+**Migration records, both directions.** Drain and promote every reindex before
+you change the binary, up or down. Neither direction is enforced.
+
+This build emits no load-time signal for an unpromoted marker-era migration.
+
+- **"Drain and promote before you change the binary" is not executable for a
+  multi-tenant collection.** The old build's only promoter runs per shard load,
+  so a tenant that has not been activated since its swap never promotes, and
+  never emits the old build's warning either. There is no operation that drains
+  them all.
+- **The preserve set no longer depends on reading the payload.** A
+  marker-carrying tracker whose property list cannot be learned — a v1.37.x
+  tracker has `tidied.mig` and no `payload.mig`, since payloads first ship in
+  v1.38.0 — withholds every removal on the shard rather than preserving
+  nothing.
+
+Downgrading is the mirror of it. A migration this build flipped and has not yet
+promoted keeps its live data under the staged name, and the record in
+`<shard>/lsm/.migrations/records/` is the only thing that says so. An older
+release does not read records, so it never renames the staged directory onto
+the canonical name, and the three strategies that pre-create an empty canonical
+bucket when the migration arms then serve queries from it.
+
+The staged directory itself survives an ordinary downgrade — the older
+release's sidecar sweep runs on an index DELETE, not on load. But that sweep
+derives its preserve set from the `tidied.mig` / `merged.mig` markers, which
+this build never writes, so **disabling the index to fix the empty results is
+what destroys the data**. Upgrade again instead and let reconciliation promote.
+
 ## 15. Files of interest
 
 **REST**
@@ -1626,7 +1671,6 @@ already GC'd) resolves as WAND on the older binary until a re-migration.
 - [`adapters/repos/db/reindex_provider_payload.go`](../adapters/repos/db/reindex_provider_payload.go) — `ReindexTaskPayload`, migration type constants.
 - [`adapters/repos/db/reindex_conflict.go`](../adapters/repos/db/reindex_conflict.go) — `CheckConflict`, `CheckPropertyUpdate`, `CheckClassMutation`, `CheckTenantMutation`, `Touches*` predicates, `MutationRemedy`.
 - [`adapters/repos/db/reindex_activity_lookup.go`](../adapters/repos/db/reindex_activity_lookup.go) — `NewShardReindexActivityLookup`, the backup gate's snapshot.
-- [`adapters/repos/db/reindex_orphan_audit.go`](../adapters/repos/db/reindex_orphan_audit.go) — `NewLiveReindexTrackerLookup`, the orphan audit's snapshot.
 - [`adapters/repos/db/reindex_recovery.go`](../adapters/repos/db/reindex_recovery.go) — `DiscoverInFlightReindexTasks`, `buildRecoveryTasks`, recovery-only `ShardReindexerV3`.
 - [`adapters/repos/db/reindex_cancel_cleanup.go`](../adapters/repos/db/reindex_cancel_cleanup.go) — `DB.NewStalePartialReindexSweep`.
 - [`adapters/repos/db/reindex_inflight.go`](../adapters/repos/db/reindex_inflight.go) — `DB.AnyLiveReindexForShard`, the backup gate.
@@ -1635,9 +1679,10 @@ already GC'd) resolves as WAND on the older binary until a re-migration.
 
 - [`adapters/repos/db/inverted_reindex_strategy.go`](../adapters/repos/db/inverted_reindex_strategy.go) — `MigrationStrategy` interface, `applyPerPropertySchemaUpdate`, `reindexTaskConfig`.
 - [`adapters/repos/db/inverted_reindex_strategy_*.go`](../adapters/repos/db/) — one per strategy.
-- [`adapters/repos/db/inverted_reindex_strategy_dir_names.go`](../adapters/repos/db/inverted_reindex_strategy_dir_names.go) — `genSuffix`, `parseMigrationDirName`, strategy dir prefix constants.
+- [`adapters/repos/db/inverted_reindex_strategy_dir_names.go`](../adapters/repos/db/inverted_reindex_strategy_dir_names.go) — `genSuffix`, `parseMigrationDirName`, `migrationTrackerDirAbsent`, strategy dir prefix constants.
 - [`adapters/repos/db/inverted_reindex_task_generic.go`](../adapters/repos/db/inverted_reindex_task_generic.go) — `ShardReindexTaskGeneric`, the **phase-contract godoc** at the top of the file is the authoritative spec.
-- [`adapters/repos/db/inverted_reindex_finalize.go`](../adapters/repos/db/inverted_reindex_finalize.go) — `FinalizeCompletedMigrations`, `migrationTrackerDirExists`, `completedMigrationGens`.
+- [`adapters/repos/db/inverted_reindex_record.go`](../adapters/repos/db/inverted_reindex_record.go) — `MigrationRecord` and its five variants, `MigrationStrategyCode`.
+- [`adapters/repos/db/inverted_reindex_reconcile.go`](../adapters/repos/db/inverted_reindex_reconcile.go) — `migrationReconciler`, the load-time owner of every state transition.
 
 **LSM primitives**
 

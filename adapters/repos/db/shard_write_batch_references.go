@@ -195,14 +195,8 @@ func (b *referencesBatcher) mirrorColocatedPropsForReindex(res mutableMergeResul
 	if len(st.scope.props) == 0 {
 		return nil
 	}
-	migAdd, err := b.shard.analyzeForDoubleWrite(res.next, st)
-	if err != nil {
-		return fmt.Errorf("analyze merged object for reindex mirror: %w", err)
-	}
-	for i := range migAdd {
-		if err := b.shard.fireAddToPropertyValueIndex(st, res.status.docID, &migAdd[i]); err != nil {
-			return err
-		}
+	if err := b.shard.mirrorAddToIngest(st, res.status.docID, res.next); err != nil {
+		return fmt.Errorf("mirror merged object into the reindex ingest bucket: %w", err)
 	}
 	return nil
 }

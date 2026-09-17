@@ -199,7 +199,7 @@ func TestReindexDoubleWrite_ConcurrentWritePreservesColocatedProp(t *testing.T) 
 
 			// Watermark lands after pastTS, so every seeded object gets scanned.
 			strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-			task := newTestTask(idx.logger, strategy)
+			task := newTestTask(idx.logger, strategy, shard.migrationUnit())
 			require.NoError(t, task.OnAfterLsmInit(ctx, shard))
 
 			// An hour past the watermark: the backfill scan skips the victim,

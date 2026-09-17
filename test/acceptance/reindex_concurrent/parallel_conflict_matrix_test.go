@@ -13,8 +13,8 @@
 //
 // Root cause: two parallel index writes on the SAME property (e.g.
 // enable-filterable + enable-rangeFilters) can race — strategy selection
-// reads stale state and the sentinel-dir lifecycle collides between
-// concurrent migrations on the same property.
+// reads stale state and the migration dirs collide between concurrent
+// migrations on the same property.
 //
 // This file pins every realistic adjacent parallel-conflict scenario on the
 // same (collection, property) tuple as RED tests. When the primary fix
@@ -114,7 +114,7 @@ func TestParallelConflictMatrix(t *testing.T) {
 	// Scenario 3: enable-searchable + enable-rangeFilters on text[]. The
 	// rangeFilters PUT is validator-rejected (text isn't numeric). Pins that
 	// the validator rejection doesn't corrupt the searchable enable's
-	// sentinel state.
+	// migration state.
 	t.Run("enable_searchable__enable_rangeFilters_textArray", func(t *testing.T) {
 		testParallel_EnableSearchableEnableRangeable(t, restURI)
 	})
@@ -176,7 +176,7 @@ func TestParallelConflictMatrix(t *testing.T) {
 // Pre-state: int property with both flags disabled. Per typesConflict the
 // two migrations do NOT conflict (they touch disjoint bucket types), so
 // the conflict checker accepts both. The Sev 1 comes from strategy
-// selection reading stale state and sentinel dirs colliding on the
+// selection reading stale state and migration dirs colliding on the
 // property.
 func testParallel_EnableFilterableEnableRangeable(t *testing.T, restURI string) {
 	const class = "ParallelEnFiltEnRange"
@@ -277,7 +277,7 @@ func testParallel_EnableFilterableEnableSearchable(t *testing.T, restURI string)
 //
 // Same-property parallel: enable-searchable on text[] accepted +
 // enable-rangeFilters rejected (text[] not numeric). Pins that rejection
-// doesn't corrupt the searchable enable's sentinel state.
+// doesn't corrupt the searchable enable's migration state.
 func testParallel_EnableSearchableEnableRangeable(t *testing.T, restURI string) {
 	const class = "ParallelEnSearchEnRange"
 	falseVal := false

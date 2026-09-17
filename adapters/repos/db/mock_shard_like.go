@@ -17,8 +17,6 @@ import (
 	additional "github.com/weaviate/weaviate/entities/additional"
 	aggregation "github.com/weaviate/weaviate/entities/aggregation"
 
-	atomic "sync/atomic"
-
 	backup "github.com/weaviate/weaviate/entities/backup"
 
 	changelog "github.com/weaviate/weaviate/cluster/replication/changelog"
@@ -4789,6 +4787,53 @@ func (_c *MockShardLike_isReadOnly_Call) RunAndReturn(run func() error) *MockSha
 	return _c
 }
 
+// migrationMirrorRegistry provides a mock function with no fields
+func (_m *MockShardLike) migrationMirrorRegistry() *migrationMirrorRegistry {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for migrationMirrorRegistry")
+	}
+
+	var r0 *migrationMirrorRegistry
+	if rf, ok := ret.Get(0).(func() *migrationMirrorRegistry); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*migrationMirrorRegistry)
+		}
+	}
+
+	return r0
+}
+
+// MockShardLike_migrationMirrorRegistry_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'migrationMirrorRegistry'
+type MockShardLike_migrationMirrorRegistry_Call struct {
+	*mock.Call
+}
+
+// migrationMirrorRegistry is a helper method to define mock.On call
+func (_e *MockShardLike_Expecter) migrationMirrorRegistry() *MockShardLike_migrationMirrorRegistry_Call {
+	return &MockShardLike_migrationMirrorRegistry_Call{Call: _e.mock.On("migrationMirrorRegistry")}
+}
+
+func (_c *MockShardLike_migrationMirrorRegistry_Call) Run(run func()) *MockShardLike_migrationMirrorRegistry_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockShardLike_migrationMirrorRegistry_Call) Return(_a0 *migrationMirrorRegistry) *MockShardLike_migrationMirrorRegistry_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_migrationMirrorRegistry_Call) RunAndReturn(run func() *migrationMirrorRegistry) *MockShardLike_migrationMirrorRegistry_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // migrationRecordStore provides a mock function with no fields
 func (_m *MockShardLike) migrationRecordStore() *MigrationRecordStore {
 	ret := _m.Called()
@@ -5659,9 +5704,9 @@ func (_c *MockShardLike_updateMultiVectorIndexesIgnoreDelete_Call) RunAndReturn(
 	return _c
 }
 
-// updatePropertyBuckets provides a mock function with given fields: ctx, eg, property, payloadReads
-func (_m *MockShardLike) updatePropertyBuckets(ctx context.Context, eg *errors.ErrorGroupWrapper, property *models.Property, payloadReads *atomic.Int64) {
-	_m.Called(ctx, eg, property, payloadReads)
+// updatePropertyBuckets provides a mock function with given fields: ctx, eg, property, counts
+func (_m *MockShardLike) updatePropertyBuckets(ctx context.Context, eg *errors.ErrorGroupWrapper, property *models.Property, counts *migrationSweepCounts) {
+	_m.Called(ctx, eg, property, counts)
 }
 
 // MockShardLike_updatePropertyBuckets_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'updatePropertyBuckets'
@@ -5673,14 +5718,14 @@ type MockShardLike_updatePropertyBuckets_Call struct {
 //   - ctx context.Context
 //   - eg *errors.ErrorGroupWrapper
 //   - property *models.Property
-//   - payloadReads *atomic.Int64
-func (_e *MockShardLike_Expecter) updatePropertyBuckets(ctx interface{}, eg interface{}, property interface{}, payloadReads interface{}) *MockShardLike_updatePropertyBuckets_Call {
-	return &MockShardLike_updatePropertyBuckets_Call{Call: _e.mock.On("updatePropertyBuckets", ctx, eg, property, payloadReads)}
+//   - counts *migrationSweepCounts
+func (_e *MockShardLike_Expecter) updatePropertyBuckets(ctx interface{}, eg interface{}, property interface{}, counts interface{}) *MockShardLike_updatePropertyBuckets_Call {
+	return &MockShardLike_updatePropertyBuckets_Call{Call: _e.mock.On("updatePropertyBuckets", ctx, eg, property, counts)}
 }
 
-func (_c *MockShardLike_updatePropertyBuckets_Call) Run(run func(ctx context.Context, eg *errors.ErrorGroupWrapper, property *models.Property, payloadReads *atomic.Int64)) *MockShardLike_updatePropertyBuckets_Call {
+func (_c *MockShardLike_updatePropertyBuckets_Call) Run(run func(ctx context.Context, eg *errors.ErrorGroupWrapper, property *models.Property, counts *migrationSweepCounts)) *MockShardLike_updatePropertyBuckets_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*errors.ErrorGroupWrapper), args[2].(*models.Property), args[3].(*atomic.Int64))
+		run(args[0].(context.Context), args[1].(*errors.ErrorGroupWrapper), args[2].(*models.Property), args[3].(*migrationSweepCounts))
 	})
 	return _c
 }
@@ -5690,7 +5735,7 @@ func (_c *MockShardLike_updatePropertyBuckets_Call) Return() *MockShardLike_upda
 	return _c
 }
 
-func (_c *MockShardLike_updatePropertyBuckets_Call) RunAndReturn(run func(context.Context, *errors.ErrorGroupWrapper, *models.Property, *atomic.Int64)) *MockShardLike_updatePropertyBuckets_Call {
+func (_c *MockShardLike_updatePropertyBuckets_Call) RunAndReturn(run func(context.Context, *errors.ErrorGroupWrapper, *models.Property, *migrationSweepCounts)) *MockShardLike_updatePropertyBuckets_Call {
 	_c.Run(run)
 	return _c
 }

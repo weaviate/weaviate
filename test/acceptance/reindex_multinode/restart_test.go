@@ -132,7 +132,7 @@ func TestMultiNode_GracefulLeaderRestartDuringReindex(t *testing.T) {
 }
 
 // Pins weaviate/0-weaviate-issues#239 Mode 3: ungraceful SIGKILL
-// follower mid-reindex must resume via sentinel-aware recovery.
+// follower mid-reindex must resume from its migration record.
 func TestMultiNode_CrashDuringReindex(t *testing.T) {
 	runRestartDuringReindex(t, "CrashDuringReindex", 240*time.Second,
 		func(ctx context.Context, t *testing.T, compose *docker.DockerCompose) {

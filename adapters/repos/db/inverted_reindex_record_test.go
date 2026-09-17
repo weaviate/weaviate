@@ -33,6 +33,51 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
+// The store reports this name back, and a test clearing the fault removes it.
+const unreadableRecordFile = "99_enable_searchable.json"
+
+// plantUnreadableRecord writes an undecodable file into a shard's record
+// directory, which withholds every destructive action on that shard. Returns
+// the path so a caller clearing the fault names the file the store refused.
+func plantUnreadableRecord(t *testing.T, dir string) string {
+	t.Helper()
+	require.NoError(t, os.MkdirAll(dir, 0o777))
+	path := filepath.Join(dir, unreadableRecordFile)
+	require.NoError(t, os.WriteFile(path, []byte("{"), 0o600))
+	return path
+}
+
+// newMigrationRecordAt builds the record a migration stopped at state would have
+// written, taking flipped properties and displaced dirs from the subject as the
+// writer does. One switch for the package, so a new state reaches every fixture.
+func newMigrationRecordAt(t *testing.T, subject MigrationSubject, state MigrationState) MigrationRecord {
+	t.Helper()
+	switch state {
+	case MigrationStateIterating:
+		return NewMigrationRecordIterating(subject, MigrationCheckpoint{})
+	case MigrationStateIterated:
+		return NewMigrationRecordIterated(subject)
+	case MigrationStateMerged:
+		return NewMigrationRecordMerged(subject)
+	case MigrationStateSwapped:
+		return NewMigrationRecordSwapped(subject, subject.Properties(),
+			subject.dirsInRole(migrationCanonicalOf))
+	case MigrationStatePromoted:
+		return NewMigrationRecordPromoted(subject, subject.Properties(),
+			subject.dirsInRole(migrationCanonicalOf))
+	}
+	require.FailNowf(t, "no record for this migration state", "%q", state)
+	return nil
+}
+
+// recordStoreDirOf names a shard's record directory the way production does,
+// for a caller holding only the shard's LSM path.
+func recordStoreDirOf(t *testing.T, lsmPath string) string {
+	t.Helper()
+	logger, _ := test.NewNullLogger()
+	return NewMigrationRecordStore(lsmPath, logger).Dir()
+}
+
 func testMigrationSubject(version uint64, code MigrationStrategyCode, props ...string) MigrationSubject {
 	subject := MigrationSubject{
 		Key:                  MigrationRecordKey{TaskVersion: version, StrategyCode: code, UnitID: "shard-1__node-0"},
@@ -285,7 +330,7 @@ func TestMigrationRecordNotUnderstood(t *testing.T) {
 		{
 			name: "checkpoint on a state that has none",
 			data: valid(func(env map[string]any) {
-				env["checkpoint"] = map[string]any{"processedCount": 1}
+				env["checkpoint"] = map[string]any{"lastProcessedKey": "aGFsZndheQ=="}
 			}),
 			wantErr: "in state \"merged\": checkpoint block present=true, wanted=false",
 		},
@@ -606,8 +651,8 @@ func TestMigrationRecordStore(t *testing.T) {
 			},
 			assert: func(t *testing.T, s *MigrationRecordStore) {
 				require.Len(t, s.Unreadable(), 1)
-				require.Equal(t, "99_enable_searchable.json", s.Unreadable()[0].FileName)
-				_, err := os.Stat(filepath.Join(s.Dir(), "99_enable_searchable.json"))
+				require.Equal(t, unreadableRecordFile, s.Unreadable()[0].FileName)
+				_, err := os.Stat(filepath.Join(s.Dir(), unreadableRecordFile))
 				require.NoError(t, err, "an unreadable record must survive the load that could not read it")
 			},
 		},
@@ -620,6 +665,12 @@ func TestMigrationRecordStore(t *testing.T) {
 			assert: func(t *testing.T, s *MigrationRecordStore) {
 				require.Len(t, s.Records(), 1)
 				require.Len(t, s.Unreadable(), 1)
+
+				logger, _ := test.NewNullLogger()
+				committed, err := migrationPreservedStateAt(filepath.Dir(filepath.Dir(s.Dir())), logger)
+				require.NoError(t, err)
+				require.True(t, committed.preservesBucket("a directory no readable record names"))
+				require.True(t, committed.preservesTracker("a directory no readable record names"))
 			},
 		},
 		{
@@ -671,8 +722,8 @@ func TestMigrationRecordStore(t *testing.T) {
 				require.Empty(t, s.Unreadable(), "a scratch file is not a record this build failed to read")
 
 				logger, _ := test.NewNullLogger()
-				foreign := NewMigrationRecordStore(filepath.Dir(filepath.Dir(s.Dir())), logger)
-				require.NoError(t, foreign.Load())
+				_, _, recordSetErr := migrationRecordsAt(filepath.Dir(filepath.Dir(s.Dir())), logger)
+				require.NoError(t, recordSetErr)
 				_, err := os.Stat(scratch)
 				require.NoError(t, err, "a foreign reader must not delete a scratch file it does not own")
 
@@ -795,6 +846,10 @@ func TestMigrationRecordStore(t *testing.T) {
 				require.Equal(t, MigrationRecordFaultStore, s.Unreadable()[0].Scope)
 				require.Contains(t, s.Unreadable()[0].Reason, "shard-1__node-9")
 
+				logger, _ := test.NewNullLogger()
+				committed, err := migrationPreservedStateAt(filepath.Dir(filepath.Dir(s.Dir())), logger)
+				require.NoError(t, err)
+				require.True(t, committed.preservesBucket("a directory no record names"))
 				require.Error(t, s.Put(merged(43, StrategyCodeEnableFilterable)),
 					"a frozen store must not take a write it cannot place among the records it could not attribute")
 			},
@@ -876,7 +931,7 @@ func TestMigrationRecordStoreConcurrentAccess(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for range 64 {
-				_ = NewMigrationRecordStore(lsmPath, logger).Load()
+				migrationRecordsAt(lsmPath, logger)
 			}
 		}()
 	}
@@ -1375,7 +1430,7 @@ func TestEveryWriterEmittedSidecarNameIsAccepted(t *testing.T) {
 				main := strategy.SourceBucketName(prop)
 				requireAcceptedInPromoteRoles(t, main)
 				for _, suffix := range []string{
-					strategy.ReindexSuffix(), strategy.IngestSuffix(), strategy.BackupSuffix(),
+					strategy.ReindexSuffix(), strategy.IngestSuffix(),
 				} {
 					name := main + suffix
 					require.Truef(t, migrationHandleIsSidecarShaped(name),
@@ -1602,6 +1657,38 @@ func TestRemovingARecordPublishesTheRemoval(t *testing.T) {
 	require.Error(t, store.removeSynced(key, func(string) error { return assert.AnError }),
 		"a removal whose absence did not reach disk must not read as done")
 	require.Empty(t, store.Records(), "the file is gone either way, so memory has to agree")
+}
+
+// HasUndecided is what makes the once-a-minute cluster pass pick a shard up.
+// Both halves cost: a missed record never progresses, and one reported after its
+// flip buys a leader query and a shard walk every minute for nothing.
+func TestOnlyAMovableRecordBeforeItsFlipIsUndecided(t *testing.T) {
+	tests := []struct {
+		name   string
+		state  MigrationState
+		wedged bool
+		want   bool
+	}{
+		{name: "before the flip and movable", state: MigrationStateMerged, want: true},
+		{name: "before the flip but wedged", state: MigrationStateMerged, wedged: true},
+		{name: "after the flip", state: MigrationStateSwapped},
+		{name: "after the flip and wedged", state: MigrationStateSwapped, wedged: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			store := NewMigrationRecordStore(t.TempDir(), logger)
+			subject := testMigrationSubject(42, StrategyCodeEnableFilterable, "title")
+
+			require.NoError(t, store.Put(newMigrationRecordAt(t, subject, tt.state)))
+			if tt.wedged {
+				store.MarkWedged(subject.Key)
+			}
+
+			require.Equal(t, tt.want, store.HasUndecided())
+		})
+	}
 }
 
 // The wedge belongs to the record the key named, not to the key. A record

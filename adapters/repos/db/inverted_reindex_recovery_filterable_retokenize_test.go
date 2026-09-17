@@ -22,6 +22,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -63,7 +64,7 @@ func fingerprintRoaringSetBucket(t *testing.T, b *lsmkv.Bucket) map[string][]uin
 // `targetTokenization` is the post-migration tokenization (e.g.
 // `models.PropertyTokenizationField` for word→field, the exact change
 // the production e2e tests exercise).
-func newFilterableRetokenizeTask(t *testing.T, idx *Index, className, propName, targetTokenization string) (*ShardReindexTaskGeneric, *testFilterableRetokenizeStrategyWrapper) {
+func newFilterableRetokenizeTask(t *testing.T, idx *Index, className, propName, targetTokenization, unitID string) (*ShardReindexTaskGeneric, *testFilterableRetokenizeStrategyWrapper) {
 	t.Helper()
 	wrapped := &testFilterableRetokenizeStrategyWrapper{
 		FilterableRetokenizeStrategy: FilterableRetokenizeStrategy{
@@ -78,12 +79,20 @@ func newFilterableRetokenizeTask(t *testing.T, idx *Index, className, propName, 
 		reindexTaskConfig{
 			concurrency:                   2,
 			memtableOptFactor:             4,
-			backupMemtableOptFactor:       1,
 			processingDuration:            10 * time.Minute,
 			pauseDuration:                 1 * time.Second,
 			checkProcessingEveryNoObjects: 1000,
 		},
 		&UuidKeyParser{}, uuidObjectsIteratorAsync,
+		defaultIndexClosingGuard,
+	)
+	task.setMigrationIdentity(
+		distributedtask.TaskDescriptor{ID: "test-filterable-retokenize", Version: 1},
+		unitID,
+		&ReindexTaskPayload{
+			MigrationType:      ReindexTypeChangeTokenizationFilterable,
+			TargetTokenization: targetTokenization,
+		},
 	)
 	return task, wrapped
 }
@@ -135,7 +144,7 @@ func TestRecoveryConvergence_FilterableRetokenize_Baseline(t *testing.T) {
 		"pre-migration filterable fingerprint must be non-empty (word tokenization)")
 
 	task, wrapped := newFilterableRetokenizeTask(t, idx, className, propName,
-		models.PropertyTokenizationField)
+		models.PropertyTokenizationField, shard.migrationUnit())
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 	require.NoError(t, task.RunSwapOnShard(ctx, shard))
@@ -160,12 +169,4 @@ func TestRecoveryConvergence_FilterableRetokenize_Baseline(t *testing.T) {
 		require.Lenf(t, ids, 1,
 			"post-migration field-tokenized term %q should have exactly 1 docID, got %d", term, len(ids))
 	}
-
-	rt, err := task.newReindexTracker(shard.pathLSM())
-	require.NoError(t, err)
-	require.True(t, rt.IsReindexed())
-	require.True(t, rt.IsPrepended())
-	require.True(t, rt.IsMerged())
-	require.True(t, rt.IsSwapped())
-	require.True(t, rt.IsTidied())
 }
