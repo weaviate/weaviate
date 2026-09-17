@@ -13,14 +13,18 @@ package db
 
 import (
 	"context"
+	"io"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -29,11 +33,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
+	esync "github.com/weaviate/weaviate/entities/sync"
+	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -276,4 +283,85 @@ func newSharedHaltTestShard(t *testing.T) (*Index, *Shard) {
 	index.shards.Store("shard1", shard)
 
 	return index, shard
+}
+
+// A replica transfer delivers the files the snapshot lists, and index.db was
+// not among them in either mode. The target of a moved legacy dynamic index
+// that had upgraded to hnsw then reads no verdict, treats the index as flat,
+// deletes the hnsw commit log it just received, and has no flat stage left
+// to fall back to. Pins that the verdict, and the graph, travel with the
+// replica.
+func TestReplicaTransferCarriesTheDynamicUpgrade(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		forceNoHardlink bool
+	}{
+		{name: "hardlink mode"},
+		{name: "fallback halt-for-duration mode", forceNoHardlink: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.forceNoHardlink {
+				t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+			}
+			ctx := context.Background()
+			const className = "TransferDynamicLegacy"
+			duc := dynamicent.UserConfig{}
+			duc.SetDefaults()
+			duc.Threshold = 10 // the queue upgrades the index once this many are indexed
+			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, duc, false, true)
+			shard := shd.(*Shard)
+			t.Cleanup(func() { _ = idx.drop() })
+
+			r := rand.New(rand.NewSource(1))
+			for _, err := range shd.PutObjectBatch(ctx, createRandomObjects(r, className, 20, 4)) {
+				require.NoError(t, err)
+			}
+			probe := createRandomObjects(rand.New(rand.NewSource(1)), className, 1, 4)[0].Vector
+			commitLog := filepath.Join(shard.path(), "main.hnsw.commitlog.d")
+			flatBucket := filepath.Join(shard.pathLSM(), "vectors")
+			exists := func(path string) bool { _, err := os.Stat(path); return err == nil }
+			// the upgrade writes its verdict to index.db and removes the flat stage
+			require.Eventually(t, func() bool { return exists(commitLog) && !exists(flatBucket) }, 30*time.Second, 50*time.Millisecond,
+				"the queue upgrades past the threshold")
+			before, _, err := shard.ObjectVectorSearch(ctx, []models.Vector{probe}, []string{""}, 0, 5, nil, nil, nil, additional.Properties{}, nil, nil)
+			require.NoError(t, err)
+			require.Len(t, before, 5)
+
+			// what the copier fetches: the snapshot's file list, file by file
+			idx.replicaSnapshotOpLocks = esync.NewKeyRWLocker()
+			const opID = "move"
+			files, err := idx.IncomingCreateReplicaSnapshot(ctx, shard.name, opID)
+			require.NoError(t, err)
+			delivered := map[string][]byte{}
+			for _, rel := range files {
+				rc, err := idx.IncomingGetReplicaSnapshotFile(ctx, opID, rel)
+				require.NoError(t, err)
+				data, err := io.ReadAll(rc)
+				require.NoError(t, err)
+				require.NoError(t, rc.Close())
+				delivered[rel] = data
+			}
+			require.NoError(t, idx.IncomingReleaseReplicaSnapshot(ctx, opID))
+
+			// the target: an empty shard directory holding exactly the
+			// delivered files, then the load the movement runs
+			shardDir := shard.path()
+			require.NoError(t, shard.Shutdown(ctx))
+			require.NoError(t, os.RemoveAll(shardDir))
+			for rel, data := range delivered {
+				path := filepath.Join(shardDir, rel)
+				require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+				require.NoError(t, os.WriteFile(path, data, 0o644))
+			}
+			restored, err := idx.initShard(ctx, shard.name, idx.getClass(), nil, true, true)
+			require.NoError(t, err)
+			idx.shards.Store(shard.name, restored)
+			target := underlyingShard(t, restored)
+
+			assert.True(t, exists(filepath.Join(target.path(), "main.hnsw.commitlog.d")), "the hnsw commit log survived the move")
+			after, _, err := target.ObjectVectorSearch(ctx, []models.Vector{probe}, []string{""}, 0, 5, nil, nil, nil, additional.Properties{}, nil, nil)
+			require.NoError(t, err)
+			require.Len(t, after, 5, "the moved replica serves its vectors")
+		})
+	}
 }
