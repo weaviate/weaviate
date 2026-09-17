@@ -602,8 +602,8 @@ func (db *DB) droppingIndex(id string) *Index {
 }
 
 // DropOrphanedClass removes the data of a class the schema already dropped.
-// Unlike DeleteIndex it removes files with no index loaded, the state a
-// schema-only delete leaves behind, so callers must know this node held it.
+// Unlike DeleteIndex it removes files with no index loaded, so callers must
+// know this node held the class.
 func (db *DB) DropOrphanedClass(className schema.ClassName) error {
 	if idx := db.GetIndex(className); idx != nil {
 		if err := db.DeleteIndex(className); err != nil {
@@ -613,6 +613,9 @@ func (db *DB) DropOrphanedClass(className schema.ClassName) error {
 
 	// The caller knows the class was ours; only the directory knows the path is.
 	path := filepath.Join(db.config.RootPath, indexID(className))
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
 	if !hasShardStore(path) {
 		db.logger.WithFields(logrus.Fields{
 			"action": "drop_orphaned_class",

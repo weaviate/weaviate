@@ -109,6 +109,8 @@ type SchemaManager struct {
 	// metadataOnly nodes never reload, so a record would never be drained.
 	metadataOnly bool
 
+	deferStoreWrite StoreWriteDeferrer
+
 	orphansMu sync.Mutex
 	// orphanedClasses maps classes dropped while the store went untouched to
 	// whether they held frozen tenants.
@@ -238,6 +240,14 @@ func (s *SchemaManager) NewSchemaReaderWithWaitFunc(f func(context.Context, uint
 
 func (s *SchemaManager) SetIndexer(idx Indexer) {
 	s.db = idx
+}
+
+// StoreWriteDeferrer reports whether it took write to run later, in order.
+type StoreWriteDeferrer func(op string, write func() error) bool
+
+// SetStoreWriteDeferrer must be called before any apply.
+func (s *SchemaManager) SetStoreWriteDeferrer(d StoreWriteDeferrer) {
+	s.deferStoreWrite = d
 }
 
 // SetMetadataOnly marks a node that stores no class data.
@@ -414,7 +424,7 @@ func (s *SchemaManager) Load(ctx context.Context, nodeID string) error {
 	return nil
 }
 
-func (s *SchemaManager) ReloadDBFromSchema() {
+func (s *SchemaManager) ReloadDBFromSchema(ctx context.Context) error {
 	classes := s.schema.MetaClasses()
 
 	cs := make([]command.UpdateClassRequest, len(classes))
@@ -428,10 +438,10 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	}
 	s.db.TriggerSchemaUpdateCallbacks()
 	s.log.Info("reload local db: update schema ...")
-	s.db.ReloadLocalDB(context.Background(), cs)
 
 	// ReloadLocalDB only opens classes the schema still names.
 	s.dropOrphanedClasses()
+	return s.db.ReloadLocalDB(ctx, cs)
 }
 
 func (s *SchemaManager) Close(ctx context.Context) (err error) {
@@ -727,6 +737,7 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 	// drops the class from the schema)
 	hasFrozen := s.HasFrozenTenants(cmd.Class)
 
+	var existed bool
 	return s.apply(
 		applyOp{
 			op: cmd.GetType().String(),
@@ -735,7 +746,8 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 				// DeleteClass validates nothing, so a name that was never a
 				// collection would otherwise be recorded too. Whether the
 				// directory is really ours is settled at the drop.
-				if s.schema.deleteClass(cmd.Class) && schemaOnly {
+				existed = s.schema.deleteClass(cmd.Class)
+				if existed && schemaOnly {
 					s.recordOrphan(cmd.Class, hasFrozen)
 				}
 				// Cascade lives in updateSchema (not updateStore) so it
@@ -752,7 +764,14 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 				return nil
 			},
 			updateStore: func() error {
-				return s.db.DeleteClass(cmd.Class, hasFrozen)
+				if !existed {
+					return s.db.DeleteClass(cmd.Class, hasFrozen)
+				}
+				// DeleteClass leaves the files of a class with no loaded index.
+				if err := s.db.DropOrphanedClass(context.Background(), cmd.Class, hasFrozen); err != nil {
+					s.log.WithField("class", cmd.Class).Errorf("could not drop data of deleted class: %v", err)
+				}
+				return nil
 			},
 			schemaOnly:           schemaOnly,
 			enableSchemaCallback: enableSchemaCallback,
@@ -1171,6 +1190,10 @@ func (s *SchemaManager) apply(op applyOp) error {
 		callbackBegin := time.Now()
 		s.db.TriggerSchemaUpdateCallbacks()
 		callbackTook = time.Since(callbackBegin)
+	}
+
+	if !op.schemaOnly && s.deferStoreWrite != nil && s.deferStoreWrite(op.op, op.updateStore) {
+		op.schemaOnly = true
 	}
 
 	if !op.schemaOnly {
