@@ -701,7 +701,7 @@ func TestBatchDeleteObjects_Journey(t *testing.T) {
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
 		schemaGetter))
 	t.Run("batch import things", testBatchImportObjects(repo))
-	t.Run("batch delete journey things", testBatchDeleteObjectsJourney(repo, queryMaximumResults))
+	t.Run("batch delete journey things", testBatchDeleteObjectsJourney(repo, queryMaximumResults, batchImportObjectCount))
 }
 
 func testAddBatchObjectClass(repo *DB, migrator *Migrator,
@@ -822,6 +822,9 @@ func simpleInsertObjectsForTenant(t *testing.T, repo *DB, class, tenant string, 
 	require.NoError(t, err)
 	assertAllItemsErrorFree(t, res)
 }
+
+// batchImportObjectCount is how many objects testBatchImportObjects leaves in the class.
+const batchImportObjectCount = 103
 
 func testBatchImportObjects(repo *DB) func(t *testing.T) {
 	return func(t *testing.T) {
@@ -1483,7 +1486,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 	}
 }
 
-func testBatchDeleteObjectsJourney(repo *DB, queryMaximumResults int64) func(t *testing.T) {
+func testBatchDeleteObjectsJourney(repo *DB, queryMaximumResults int64, importedCount int) func(t *testing.T) {
 	return func(t *testing.T) {
 		getParams := func(dryRun bool, output string) objects.BatchDeleteParams {
 			return objects.BatchDeleteParams{
@@ -1548,8 +1551,10 @@ func testBatchDeleteObjectsJourney(repo *DB, queryMaximumResults int64) func(t *
 				}
 			}
 			require.False(t, deleteIterationCount > 100, "Batch delete journey tests didn't stop properly")
-			// First dry run reports min(total, limit+1): a call resolves one more object than it deletes.
-			require.Equal(t, min(int64(deletedObjectsCount), queryMaximumResults+1), objectsMatches)
+			require.Equal(t, queryMaximumResults+1, objectsMatches,
+				"the first dry run stops one past the limit")
+			require.Equal(t, importedCount, deletedObjectsCount,
+				"every imported object is deleted across the calls")
 		})
 	}
 }

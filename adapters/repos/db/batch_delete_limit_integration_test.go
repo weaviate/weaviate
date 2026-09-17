@@ -19,12 +19,13 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -32,18 +33,32 @@ import (
 const (
 	batchDeleteClassName = "ThingForDeleteLimit"
 	batchDeleteLimit     = int64(10)
+	batchDeleteTenant    = "foo-tenant"
 )
 
 func TestBatchDeleteObjects_MatchesCappedAtLimit(t *testing.T) {
+	const otherTenant = "other-tenant"
+
 	tests := []struct {
 		name        string
 		objectCount int
 		limit       int64
 		dryRun      bool
-		// wantMatches: expected res.Matches; above limit means more matched than this call deletes.
+		// shardState holds a single shard when nil.
+		shardState *sharding.State
+		// tenant, when set, makes the class multi-tenant and runs the delete for it.
+		tenant string
+		// otherTenant, when set, holds objectCount objects of its own that the delete
+		// for tenant must leave alone.
+		otherTenant string
+		// wantMatches is res.Matches, which stops at one above the limit.
 		wantMatches int64
 		// wantHandled is how many objects the first reply reports on, deleted or dry-run listed.
 		wantHandled int
+		// wantCappedShards is how many shards resolved as many matches as they were asked
+		// for. It is the one place the per-shard bound shows in a reply: a bound shared
+		// across shards would fill on the first shard and leave the rest at zero.
+		wantCappedShards int
 	}{
 		{
 			name:        "no match",
@@ -67,32 +82,71 @@ func TestBatchDeleteObjects_MatchesCappedAtLimit(t *testing.T) {
 			wantHandled: 10,
 		},
 		{
-			name:        "one match more than the limit",
-			objectCount: 11,
-			limit:       batchDeleteLimit,
-			wantMatches: 11,
-			wantHandled: 10,
+			name:             "one match more than the limit",
+			objectCount:      11,
+			limit:            batchDeleteLimit,
+			wantMatches:      11,
+			wantHandled:      10,
+			wantCappedShards: 1,
 		},
 		{
-			name:        "many more matches than the limit",
-			objectCount: 50,
-			limit:       batchDeleteLimit,
-			wantMatches: 11,
-			wantHandled: 10,
+			name:             "two matches more than the limit",
+			objectCount:      12,
+			limit:            batchDeleteLimit,
+			wantMatches:      11,
+			wantHandled:      10,
+			wantCappedShards: 1,
 		},
 		{
-			name:        "dry run with many more matches than the limit",
-			objectCount: 50,
-			limit:       batchDeleteLimit,
-			dryRun:      true,
-			wantMatches: 11,
-			wantHandled: 10,
+			name:             "many more matches than the limit",
+			objectCount:      50,
+			limit:            batchDeleteLimit,
+			wantMatches:      11,
+			wantHandled:      10,
+			wantCappedShards: 1,
 		},
 		{
-			// limit <= 0 disables capping: Matches counts everything, nothing is deleted.
+			name:             "dry run with many more matches than the limit",
+			objectCount:      50,
+			limit:            batchDeleteLimit,
+			dryRun:           true,
+			wantMatches:      11,
+			wantHandled:      10,
+			wantCappedShards: 1,
+		},
+		{
+			name:             "many more matches than the limit spread over shards",
+			objectCount:      50,
+			limit:            batchDeleteLimit,
+			shardState:       multiShardState(),
+			wantMatches:      11,
+			wantHandled:      10,
+			wantCappedShards: 3,
+		},
+		{
+			name:             "many more matches than the limit in one tenant",
+			objectCount:      50,
+			limit:            batchDeleteLimit,
+			shardState:       batchDeleteTenantShardState(batchDeleteTenant, otherTenant),
+			tenant:           batchDeleteTenant,
+			otherTenant:      otherTenant,
+			wantMatches:      11,
+			wantHandled:      10,
+			wantCappedShards: 1,
+		},
+		{
+			// A limit of zero or less turns the cap off for the resolve and, in the same
+			// call, leaves nothing to delete. Pinned here, not endorsed.
 			name:        "limit of zero",
 			objectCount: 5,
 			limit:       0,
+			wantMatches: 5,
+			wantHandled: 0,
+		},
+		{
+			name:        "negative limit",
+			objectCount: 5,
+			limit:       -1,
 			wantMatches: 5,
 			wantHandled: 0,
 		},
@@ -100,17 +154,33 @@ func TestBatchDeleteObjects_MatchesCappedAtLimit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			repo := newBatchDeleteRepo(t, batchDeleteTestClass(false), singleShardState(), tt.limit)
-			simpleInsertObjectsForTenant(t, repo, batchDeleteClassName, "", tt.objectCount)
+			shardState := tt.shardState
+			if shardState == nil {
+				shardState = singleShardState()
+			}
+			repo := newBatchDeleteRepo(t, batchDeleteTestClass(tt.tenant != ""), shardState, tt.limit)
+			simpleInsertObjectsForTenant(t, repo, batchDeleteClassName, tt.tenant, tt.objectCount)
+			if tt.otherTenant != "" {
+				simpleInsertObjectsForTenant(t, repo, batchDeleteClassName, tt.otherTenant, tt.objectCount)
+			}
+			logs := batchDeleteLogs(t, repo)
 
 			res, err := repo.BatchDeleteObjects(context.Background(),
-				batchDeleteAllParams(tt.dryRun), time.Now(), nil, "", 0)
+				batchDeleteMatchAllParams(tt.dryRun), time.Now(), nil, tt.tenant, 0)
 			require.NoError(t, err)
 			require.Equal(t, tt.wantMatches, res.Matches)
 			require.Len(t, res.Objects, tt.wantHandled)
 			require.Equal(t, tt.limit, res.Limit)
+			require.Equal(t, tt.wantCappedShards, cappedShardsLogged(t, logs))
 
 			if tt.limit <= 0 {
+				// drainBatchDelete cannot drain this one: the call deletes nothing and
+				// the next reports the same matches, for as long as a caller repeats it.
+				res, err = repo.BatchDeleteObjects(context.Background(),
+					batchDeleteMatchAllParams(tt.dryRun), time.Now(), nil, tt.tenant, 0)
+				require.NoError(t, err)
+				require.Equal(t, tt.wantMatches, res.Matches)
+				require.Empty(t, res.Objects)
 				return
 			}
 
@@ -118,51 +188,17 @@ func TestBatchDeleteObjects_MatchesCappedAtLimit(t *testing.T) {
 			if !tt.dryRun {
 				deleted = tt.wantHandled
 			}
-			deleted += drainBatchDelete(t, repo, batchDeleteAllParams(false), "")
+			deleted += drainBatchDelete(t, repo, batchDeleteMatchAllParams(false), tt.tenant)
 			require.Equal(t, tt.objectCount, deleted,
 				"every matching object must still be deletable in later calls")
+
+			if tt.otherTenant != "" {
+				require.Equal(t, tt.objectCount,
+					drainBatchDelete(t, repo, batchDeleteMatchAllParams(false), tt.otherTenant),
+					"draining one tenant must leave the other tenant's objects in place")
+			}
 		})
 	}
-}
-
-func TestBatchDeleteObjects_MatchesCappedAtLimitPerShard(t *testing.T) {
-	shardState := multiShardState()
-	repo := newBatchDeleteRepo(t, batchDeleteTestClass(false), shardState, batchDeleteLimit)
-	simpleInsertObjectsForTenant(t, repo, batchDeleteClassName, "", 50)
-
-	res, err := repo.BatchDeleteObjects(context.Background(),
-		batchDeleteAllParams(false), time.Now(), nil, "", 0)
-	require.NoError(t, err)
-
-	shards := int64(len(shardState.AllPhysicalShards()))
-	require.Greater(t, res.Matches, batchDeleteLimit)
-	require.LessOrEqual(t, res.Matches, shards*(batchDeleteLimit+1))
-	require.Len(t, res.Objects, int(batchDeleteLimit))
-
-	deleted := int(batchDeleteLimit) + drainBatchDelete(t, repo, batchDeleteAllParams(false), "")
-	require.Equal(t, 50, deleted)
-}
-
-func TestBatchDeleteObjects_MatchesCappedAtLimitForTenant(t *testing.T) {
-	const tenant = "foo-tenant"
-
-	shardState := NewMultiTenantShardingStateBuilder().
-		WithNodePrefix("node").
-		WithIndexName("batch-delete-limit-index").
-		WithReplicationFactor(1).
-		WithTenant(tenant, models.TenantActivityStatusHOT).
-		Build()
-	repo := newBatchDeleteRepo(t, batchDeleteTestClass(true), shardState, batchDeleteLimit)
-	simpleInsertObjectsForTenant(t, repo, batchDeleteClassName, tenant, 50)
-
-	res, err := repo.BatchDeleteObjects(context.Background(),
-		batchDeleteAllParams(false), time.Now(), nil, tenant, 0)
-	require.NoError(t, err)
-	require.Equal(t, batchDeleteLimit+1, res.Matches)
-	require.Len(t, res.Objects, int(batchDeleteLimit))
-
-	deleted := int(batchDeleteLimit) + drainBatchDelete(t, repo, batchDeleteAllParams(false), tenant)
-	require.Equal(t, 50, deleted)
 }
 
 // TestBatchDeleteObjects_ResolvesPastDeadDocIDs pins that a doc id whose object is gone
@@ -255,18 +291,7 @@ func drainBatchDelete(t *testing.T, repo *DB, params objects.BatchDeleteParams, 
 }
 
 func batchDeleteTestClass(multiTenancy bool) *models.Class {
-	class := &models.Class{
-		Class:               batchDeleteClassName,
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: invertedConfig(),
-		Properties: []*models.Property{
-			{
-				Name:         "stringProp",
-				DataType:     schema.DataTypeText.PropString(),
-				Tokenization: models.PropertyTokenizationWhitespace,
-			},
-		},
-	}
+	class := makeTestClass(batchDeleteClassName)
 	if multiTenancy {
 		class.MultiTenancyConfig = &models.MultiTenancyConfig{
 			Enabled:              true,
@@ -277,7 +302,47 @@ func batchDeleteTestClass(multiTenancy bool) *models.Class {
 	return class
 }
 
-func batchDeleteAllParams(dryRun bool) objects.BatchDeleteParams {
+func batchDeleteTenantShardState(tenants ...string) *sharding.State {
+	builder := NewMultiTenantShardingStateBuilder().
+		WithNodePrefix("node").
+		WithIndexName("batch-delete-limit-index").
+		WithReplicationFactor(1)
+	for _, tenant := range tenants {
+		builder = builder.WithTenant(tenant, models.TenantActivityStatusHOT)
+	}
+	return builder.Build()
+}
+
+// batchDeleteLogs collects the log entries the DB writes from here on, so a test can
+// read the fields of the line one batch delete call produced.
+func batchDeleteLogs(t *testing.T, repo *DB) *test.Hook {
+	t.Helper()
+
+	logger, ok := repo.logger.(*logrus.Logger)
+	require.True(t, ok, "the test DB logs through a *logrus.Logger")
+	hook := test.NewLocal(logger)
+	t.Cleanup(hook.Reset)
+
+	return hook
+}
+
+// cappedShardsLogged returns capped_shards from the first capped line the hook saw, or
+// zero when no call reported a capped shard.
+func cappedShardsLogged(t *testing.T, hook *test.Hook) int {
+	t.Helper()
+
+	for _, entry := range hook.AllEntries() {
+		if entry.Data["action"] != "batch_delete_objects_capped" {
+			continue
+		}
+		capped, ok := entry.Data["capped_shards"].(int)
+		require.True(t, ok, "capped_shards is logged as an int")
+		return capped
+	}
+	return 0
+}
+
+func batchDeleteMatchAllParams(dryRun bool) objects.BatchDeleteParams {
 	return batchDeleteParams(&filters.Clause{
 		Operator: filters.OperatorLike,
 		On: &filters.Path{

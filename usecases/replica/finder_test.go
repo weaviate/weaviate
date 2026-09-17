@@ -1266,15 +1266,18 @@ func TestFinderFindUUIDs(t *testing.T) {
 	)
 
 	tests := []struct {
-		name string
-		// perReplica uuids per replica, non-overlapping, so union == their sum.
-		perReplica int
-		limit      int
-		want       int
+		name            string
+		uuidsPerReplica int
+		// overlapping makes every replica return the same uuids, the way replicas of one
+		// shard hold the same objects. Otherwise the union is the sum of the replies.
+		overlapping bool
+		limit       int
+		want        int
 	}{
-		{name: "limit cuts the union", perReplica: 5, limit: 5, want: 5},
-		{name: "limit above the union keeps everything", perReplica: 2, limit: 10, want: 6},
-		{name: "no limit keeps everything", perReplica: 2, limit: 0, want: 6},
+		{name: "limit cuts the union", uuidsPerReplica: 5, limit: 5, want: 5},
+		{name: "limit above the union keeps everything", uuidsPerReplica: 2, limit: 10, want: 6},
+		{name: "no limit keeps everything", uuidsPerReplica: 2, limit: 0, want: 6},
+		{name: "the same object on every replica is returned once", uuidsPerReplica: 5, overlapping: true, limit: 0, want: 5},
 	}
 
 	for _, tt := range tests {
@@ -1283,9 +1286,13 @@ func TestFinderFindUUIDs(t *testing.T) {
 			finder := f.newFinder("A")
 
 			for i, node := range nodes {
-				uuids := make([]strfmt.UUID, tt.perReplica)
+				uuids := make([]strfmt.UUID, tt.uuidsPerReplica)
 				for j := range uuids {
-					uuids[j] = strfmt.UUID(fmt.Sprintf("uuid-%d-%d", i, j))
+					replica := i
+					if tt.overlapping {
+						replica = 0
+					}
+					uuids[j] = strfmt.UUID(fmt.Sprintf("uuid-%d-%d", replica, j))
 				}
 				f.RClient.EXPECT().FindUUIDs(anyVal, node, cls, shard, anyVal, tt.limit).
 					Return(uuids, nil)
