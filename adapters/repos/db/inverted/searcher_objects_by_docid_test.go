@@ -107,6 +107,7 @@ func TestSearcherObjectsByDocID(t *testing.T) {
 		deleted    []uint64
 		corrupt    []uint64
 		properties []string
+		refQuery   bool
 		limit      int
 		cancelCtx  bool
 		wantCount  int
@@ -135,6 +136,10 @@ func TestSearcherObjectsByDocID(t *testing.T) {
 			properties: []string{"name"}, limit: 600, wantCount: 600,
 		},
 		{
+			// The uuid-only decode is a second decode path on the same workers.
+			name: "concurrent uuid-only decodes", numObjects: 600, refQuery: true, limit: 600, wantCount: 600,
+		},
+		{
 			name: "bytes the decoder rejects fail the call", numObjects: 20, corrupt: []uint64{7},
 			limit: 20, wantErr: "unmarshal data object for doc id 7",
 		},
@@ -158,7 +163,7 @@ func TestSearcherObjectsByDocID(t *testing.T) {
 				cancel()
 			}
 
-			got, err := searcher.objectsByDocID(ctx, newSliceDocIDsIterator(docIDs), additional.Properties{}, tc.limit, tc.properties)
+			got, err := searcher.objectsByDocID(ctx, newSliceDocIDsIterator(docIDs), additional.Properties{ReferenceQuery: tc.refQuery}, tc.limit, tc.properties)
 			if tc.cancelCtx {
 				require.ErrorIs(t, err, context.Canceled)
 				return
