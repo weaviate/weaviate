@@ -2332,50 +2332,6 @@ func TestMayStopAsyncReplicationDumpReflectsDrainWindowDeletes(t *testing.T) {
 		"shutdown .ht must reflect deletes applied during the worker drain window")
 }
 
-// TestUnfreezeMustNotTrustDownloadedHashtree pins: activation trust-loads a possibly-stale .ht from a pre-fix offload artifact.
-func TestUnfreezeMustNotTrustDownloadedHashtree(t *testing.T) {
-	t.Skip("pinned: activation over downloaded artifact files trust-loads a possibly-stale .ht — scrub belongs in the offload download path, tracked as follow-up")
-
-	ctx := context.Background()
-	const class = "UnfreezeDownloadedHashtreeTest"
-
-	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
-	s := concreteShard(t, sl)
-	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
-
-	for _, id := range []strfmt.UUID{uuidLow, uuidMid} {
-		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, id, tsFarPast)))
-	}
-	flushShard(t, ctx, sl)
-
-	cfg := minAsyncReplicationConfig()
-	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
-	awaitHashtreeInitialized(t, s)
-	stopAsyncAndDump(t, s)
-	require.Len(t, htFilesInDir(t, s.pathHashTree()), 1,
-		"pre-condition: a .ht snapshot of {low,mid} exists, as in a pre-fix offload artifact")
-
-	require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidHigh, tsFarPast)))
-	flushShard(t, ctx, sl)
-
-	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
-	awaitHashtreeInitialized(t, s)
-	s.asyncReplicationRWMux.RLock()
-	activationRoot := s.hashtree.Root()
-	s.asyncReplicationRWMux.RUnlock()
-
-	require.NoError(t, s.disableAsyncReplication(ctx))
-	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
-	awaitHashtreeInitialized(t, s)
-	s.asyncReplicationRWMux.RLock()
-	rescanRoot := s.hashtree.Root()
-	s.asyncReplicationRWMux.RUnlock()
-	require.NoError(t, s.disableAsyncReplication(ctx))
-
-	require.Equal(t, rescanRoot, activationRoot,
-		"activation over artifact files must rescan the store, not trust the artifact's .ht")
-}
-
 // TestDisableAsyncReplicationScrubsPersistedHashtree: runtime disable removes any stray .ht.
 func TestDisableAsyncReplicationScrubsPersistedHashtree(t *testing.T) {
 	ctx := context.Background()

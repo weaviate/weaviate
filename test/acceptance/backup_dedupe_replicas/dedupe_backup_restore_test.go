@@ -32,6 +32,7 @@ import (
 	minioCredentials "github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 
 	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/batch"
@@ -612,7 +613,81 @@ func TestBackupDedupeReplicas(t *testing.T) {
 	})
 }
 
-func TestBackupDedupeMultiTenantColdTenantFallback(t *testing.T) {
+const (
+	coldTenantClass = "DedupeTenants"
+	hotTenant       = "tenant-hot"
+	coldTenant      = "tenant-cold"
+)
+
+// persistedHashtrees lists tenant's .ht snapshots on node (1-based).
+func persistedHashtrees(ctx context.Context, compose *docker.DockerCompose, node int, tenant string) ([]string, error) {
+	code, reader, err := compose.GetWeaviateNode(node).Container().Exec(ctx, []string{
+		"sh", "-c", fmt.Sprintf("find / -xdev -path '*/%s/hashtree_uuid/*.ht' 2>/dev/null", tenant),
+	}, tcexec.Multiplexed())
+	if err != nil {
+		return nil, err
+	}
+	out, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, err
+	}
+	if code != 0 {
+		return nil, fmt.Errorf("find exited %d: %s", code, out)
+	}
+	return strings.Fields(string(out)), nil
+}
+
+func requirePersistedHashtreesOnEveryNode(ctx context.Context, t *testing.T, compose *docker.DockerCompose, tenant string) {
+	t.Helper()
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		for node := 1; node <= len(nodeNames); node++ {
+			files, err := persistedHashtrees(ctx, compose, node, tenant)
+			require.NoError(ct, err)
+			require.NotEmpty(ct, files, "node %d has no persisted hashtree for %s", node, tenant)
+		}
+	}, time.Minute, time.Second)
+}
+
+// setupColdTenantClass seeds both tenants, deactivates one and waits until every replica persisted its hashtree.
+func setupColdTenantClass(ctx context.Context, t *testing.T, compose *docker.DockerCompose, host string) map[string][]strfmt.UUID {
+	t.Helper()
+	class := newReplicatedClass(coldTenantClass)
+	class.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
+	helper.CreateClass(t, class)
+	helper.CreateTenants(t, coldTenantClass, []*models.Tenant{{Name: hotTenant}, {Name: coldTenant}})
+
+	tenantIDs := map[string][]strfmt.UUID{}
+	for _, tenant := range []string{hotTenant, coldTenant} {
+		batch := make([]*models.Object, 10)
+		ids := make([]strfmt.UUID, 10)
+		for i := range batch {
+			ids[i] = strfmt.UUID(uuid.NewString())
+			batch[i] = &models.Object{
+				Class:      coldTenantClass,
+				ID:         ids[i],
+				Tenant:     tenant,
+				Properties: map[string]any{"contents": fmt.Sprintf("%s#%d", tenant, i)},
+			}
+		}
+		common.CreateObjectsCL(t, host, batch, types.ConsistencyLevelAll)
+		tenantIDs[tenant] = ids
+	}
+
+	waitForCheckpointCapability(t, compose, coldTenantClass, []string{hotTenant, coldTenant})
+	helper.UpdateTenants(t, coldTenantClass, []*models.Tenant{{Name: coldTenant, ActivityStatus: models.TenantActivityStatusCOLD}})
+	requirePersistedHashtreesOnEveryNode(ctx, t, compose, coldTenant)
+	return tenantIDs
+}
+
+func requireColdTenantStillCold(t *testing.T) {
+	t.Helper()
+	tenant, err := helper.GetOneTenant(t, coldTenantClass, coldTenant)
+	require.NoError(t, err)
+	assert.Equal(t, models.TenantActivityStatusCOLD, tenant.Payload.ActivityStatus,
+		"backup planning must never activate a cold tenant")
+}
+
+func TestBackupDedupeMultiTenantColdTenant(t *testing.T) {
 	ctx := context.Background()
 
 	compose := startDedupeCluster(ctx, t)
@@ -626,75 +701,86 @@ func TestBackupDedupeMultiTenantColdTenantFallback(t *testing.T) {
 	defer dumpNodeLogs(t, compose)
 
 	minioC := minioClient(t, compose.GetMinIO().URI())
+	const backupID = "dedupe-mt-cold"
 
-	const (
-		className = "DedupeTenants"
-		backupID  = "dedupe-mt-1"
-		hotTenant = "tenant-hot"
-		coldT     = "tenant-cold"
-	)
+	tenantIDs := setupColdTenantClass(ctx, t, compose, host)
 
-	class := newReplicatedClass(className)
-	class.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
-	helper.CreateClass(t, class)
-	helper.CreateTenants(t, className, []*models.Tenant{{Name: hotTenant}, {Name: coldT}})
-
-	tenantIDs := map[string][]strfmt.UUID{}
-	for _, tenant := range []string{hotTenant, coldT} {
-		batch := make([]*models.Object, 10)
-		ids := make([]strfmt.UUID, 10)
-		for i := range batch {
-			ids[i] = strfmt.UUID(uuid.NewString())
-			batch[i] = &models.Object{
-				Class:      className,
-				ID:         ids[i],
-				Tenant:     tenant,
-				Properties: map[string]any{"contents": fmt.Sprintf("%s#%d", tenant, i)},
-			}
-		}
-		common.CreateObjectsCL(t, host, batch, types.ConsistencyLevelAll)
-		tenantIDs[tenant] = ids
-	}
-
-	waitForCheckpointCapability(t, compose, className, []string{hotTenant, coldT})
-
-	t.Run("deactivate one tenant", func(t *testing.T) {
-		helper.UpdateTenants(t, className, []*models.Tenant{{Name: coldT, ActivityStatus: models.TenantActivityStatusCOLD}})
-	})
-
-	t.Run("cold tenant falls back to all replicas, hot tenant dedupes", func(t *testing.T) {
-		require.NoError(t, createBackupWithTimeout(t, dedupeBackupConfig(), className, backupID, time.Minute))
+	t.Run("cold tenant dedupes from its persisted hashtree without activation", func(t *testing.T) {
+		require.NoError(t, createBackupWithTimeout(t, dedupeBackupConfig(), coldTenantClass, backupID, time.Minute))
 		helper.ExpectBackupEventuallyCreated(t, backupID, backendS3, nil, helper.WithDeadline(4*time.Minute))
 
-		holders, _ := shardHolders(t, minioC, backupID, className)
+		holders, _ := shardHolders(t, minioC, backupID, coldTenantClass)
 		assert.Len(t, holders[hotTenant], 1, "hot tenant archived by %v, want one node", holders[hotTenant])
-		assert.Len(t, holders[coldT], 3, "cold tenant archived by %v, want every replica", holders[coldT])
+		assert.Len(t, holders[coldTenant], 1, "cold tenant archived by %v, want one node", holders[coldTenant])
 
-		tenant, err := helper.GetOneTenant(t, className, coldT)
-		require.NoError(t, err)
-		assert.Equal(t, models.TenantActivityStatusCOLD, tenant.Payload.ActivityStatus,
-			"backup planning must never activate a cold tenant")
+		requireColdTenantStillCold(t)
+		for node := 1; node <= len(nodeNames); node++ {
+			files, err := persistedHashtrees(ctx, compose, node, coldTenant)
+			require.NoError(t, err)
+			assert.NotEmpty(t, files, "node %d consumed the cold tenant's snapshot, so planning loaded the shard", node)
+		}
 	})
 
-	t.Run("restore fans hot tenant out and keeps cold tenant restorable", func(t *testing.T) {
-		helper.DeleteClass(t, className)
-		_, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), className, backendS3, backupID, nil, false)
+	t.Run("restore fans both tenants out", func(t *testing.T) {
+		helper.DeleteClass(t, coldTenantClass)
+		_, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), coldTenantClass, backendS3, backupID, nil, false)
 		require.NoError(t, err)
 		helper.ExpectBackupEventuallyRestored(t, backupID, backendS3, nil, helper.WithDeadline(4*time.Minute))
 
 		requireReadOnEveryNode(t, tenantIDs[hotTenant], func(node string, id strfmt.UUID) (*models.Object, error) {
-			return common.GetTenantObjectFromNode(t, host, className, id, node, hotTenant)
+			return common.GetTenantObjectFromNode(t, host, coldTenantClass, id, node, hotTenant)
 		})
+		requireColdTenantStillCold(t)
 
-		helper.UpdateTenants(t, className, []*models.Tenant{{Name: coldT, ActivityStatus: models.TenantActivityStatusHOT}})
+		helper.UpdateTenants(t, coldTenantClass, []*models.Tenant{{Name: coldTenant, ActivityStatus: models.TenantActivityStatusHOT}})
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			for _, node := range nodeNames {
-				for _, id := range tenantIDs[coldT] {
-					obj, err := common.GetTenantObjectFromNode(t, host, className, id, node, coldT)
+				for _, id := range tenantIDs[coldTenant] {
+					obj, err := common.GetTenantObjectFromNode(t, host, coldTenantClass, id, node, coldTenant)
 					require.NoError(ct, err, "cold tenant object %s missing on %s", id, node)
 					require.NotNil(ct, obj)
 				}
 			}
 		}, time.Minute, time.Second)
+	})
+}
+
+func TestBackupDedupeMultiTenantColdTenantMissingSnapshotFallback(t *testing.T) {
+	ctx := context.Background()
+
+	compose := startDedupeCluster(ctx, t)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	host := compose.GetWeaviate().URI()
+	helper.SetupClient(host)
+	defer helper.ResetClient()
+	defer dumpNodeLogs(t, compose)
+
+	minioC := minioClient(t, compose.GetMinIO().URI())
+	const backupID = "dedupe-mt-cold-nosnap"
+
+	setupColdTenantClass(ctx, t, compose, host)
+
+	t.Run("remove one replica's snapshot", func(t *testing.T) {
+		code, _, err := compose.GetWeaviateNode(1).Container().Exec(ctx, []string{
+			"sh", "-c", fmt.Sprintf("find / -xdev -path '*/%s/hashtree_uuid/*.ht' -delete 2>/dev/null", coldTenant),
+		}, tcexec.Multiplexed())
+		require.NoError(t, err)
+		require.Equal(t, 0, code)
+		files, err := persistedHashtrees(ctx, compose, 1, coldTenant)
+		require.NoError(t, err)
+		require.Empty(t, files)
+	})
+
+	t.Run("cold tenant falls back to every replica, hot tenant dedupes", func(t *testing.T) {
+		require.NoError(t, createBackupWithTimeout(t, dedupeBackupConfig(), coldTenantClass, backupID, time.Minute))
+		helper.ExpectBackupEventuallyCreated(t, backupID, backendS3, nil, helper.WithDeadline(4*time.Minute))
+
+		holders, _ := shardHolders(t, minioC, backupID, coldTenantClass)
+		assert.Len(t, holders[hotTenant], 1, "hot tenant archived by %v, want one node", holders[hotTenant])
+		assert.Len(t, holders[coldTenant], 3, "cold tenant archived by %v, want every replica", holders[coldTenant])
+		requireColdTenantStillCold(t)
 	})
 }
