@@ -75,6 +75,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -412,14 +413,7 @@ func (i *Index) snapshotsPath() string {
 }
 
 func (i *Index) debugLoggingEnabled() bool {
-	switch logger := i.logger.(type) {
-	case *logrus.Logger:
-		return logger.IsLevelEnabled(logrus.DebugLevel)
-	case *logrus.Entry:
-		return logger.Logger.IsLevelEnabled(logrus.DebugLevel)
-	default:
-		return false
-	}
+	return logrusext.LevelEnabled(i.logger, logrus.DebugLevel)
 }
 
 // NewIndex creates an index with the specified amount of shards, using only
