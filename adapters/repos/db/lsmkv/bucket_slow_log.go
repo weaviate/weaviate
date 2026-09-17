@@ -19,13 +19,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
 
-// Keys for per-lookup slow-log entries. A lookup that builds its own view per
-// key records under SlowLogKeyGetBySecondary, with the time that view cost in
-// View. Everything resolving under one view for many keys records under
-// SlowLogKeyGetBySecondaryWithView with View zero, including
-// GetBySecondaryBatch, which acquires the view itself: its own view cost is
-// not in these percentiles. Callers that don't know which path was taken
-// reduce both.
+// Keys for per-lookup slow-log entries, split by whether the entry carries the
+// view cost. A lookup that takes its own view per key records under
+// SlowLogKeyGetBySecondary and puts that cost in View. A lookup that resolves
+// many keys under one view records under SlowLogKeyGetBySecondaryWithView with
+// View zero, so the view cost is not in these percentiles. Callers that cannot
+// tell which path ran reduce both.
 const (
 	SlowLogKeyGetBySecondary         = "lsm_get_by_secondary"
 	SlowLogKeyGetBySecondaryWithView = "lsm_get_by_secondary_with_view"

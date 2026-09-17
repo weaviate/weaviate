@@ -23,14 +23,14 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
-// secondaryBatchChunkSize is how many keys a worker claims per turn: small
-// enough that one slow chunk doesn't stall the batch, large enough to keep a
-// worker on one index region. Tune via BenchmarkGetBySecondaryBatchShape.
+// secondaryBatchChunkSize is how many keys a worker claims per turn. One slow
+// chunk then stalls one worker rather than the batch, and a worker stays on one
+// index region. Tune via BenchmarkGetBySecondaryBatchShape.
 const secondaryBatchChunkSize = 32
 
 // secondaryBatchWorkers caps fan-out, bounding both concurrent reads and the
-// per-worker read buffers (each grows to its largest read). ctx's concurrency
-// budget may lower it; tune via BenchmarkGetBySecondaryBatchShape.
+// per-worker read buffers (each grows to its largest read). The concurrency
+// budget on the context may lower it; tune via BenchmarkGetBySecondaryBatchShape.
 const secondaryBatchWorkers = 16
 
 // GetBySecondaryBatch resolves keys (Replace strategy only) under one
@@ -52,8 +52,8 @@ func (b *Bucket) getBySecondaryBatch(ctx context.Context, pos int, keys [][]byte
 	}
 
 	if chunkSize <= 0 {
-		// A caller that asks for no chunk would divide by zero below. Take the
-		// default instead, and say so, since it can only be a caller bug.
+		// A chunk size of zero or less would divide by zero below. Fall back to
+		// the default and log it, since it can only be a caller bug.
 		b.logger.WithField("action", "get_by_secondary_batch").
 			Debugf("chunk size %d is not positive, resolving in chunks of %d", chunkSize, secondaryBatchChunkSize)
 		chunkSize = secondaryBatchChunkSize
@@ -65,9 +65,9 @@ func (b *Bucket) getBySecondaryBatch(ctx context.Context, pos int, keys [][]byte
 	chunks := (len(keys) + chunkSize - 1) / chunkSize
 	workers := concurrency.NumWorkers(ctx, chunks, maxWorkers)
 
-	// Secondary keys are little-endian doc ids, so byte-wise sort matches
-	// on-disk order; order maps each lookup back to its caller position. Skipped
-	// for a single chunk, since there's nothing to separate it from.
+	// Secondary keys are little-endian doc ids, so a byte-wise sort matches
+	// on-disk order. The order slice maps each lookup back to its caller
+	// position. A single chunk skips both, since there is nothing to separate.
 	var order []int
 	if chunks > 1 {
 		order = make([]int, len(keys))

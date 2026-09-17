@@ -71,7 +71,7 @@ func newBenchmarkSecondaryBucket(b *testing.B, pread bool, numDocs, segments, va
 }
 
 // BenchmarkGetBySecondaryBatch compares batched vs per-key lookups, including
-// a slow-log variant that serializes each lookup under one shared mutex.
+// a slow-log variant that serialises each lookup under one shared mutex.
 func BenchmarkGetBySecondaryBatch(b *testing.B) {
 	const (
 		numDocs   = 20_000

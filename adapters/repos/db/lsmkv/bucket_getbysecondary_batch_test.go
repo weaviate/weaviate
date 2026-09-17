@@ -548,9 +548,9 @@ type startBarrier struct {
 }
 
 // settleDelay is how long the surviving workers stay inside their first lookup
-// after the aborting worker returns, which is four orders of magnitude more
-// than the error group needs to record the error and cancel. A worker that
-// resolves another chunk after that has not seen the cancellation at all.
+// after the aborting worker returns. It is four orders of magnitude more than
+// the error group needs to record the error and cancel. A worker that resolves
+// another chunk after that has not seen the cancellation at all.
 const settleDelay = 50 * time.Millisecond
 
 func newStartBarrier(want int, grace time.Duration) *startBarrier {
@@ -829,11 +829,11 @@ func TestBucketGetBySecondaryBatchSkipsNilValues(t *testing.T) {
 // TestBucketGetBySecondaryBatchTurnsPanicIntoError pins that a panic in visit
 // is reported the same way whether the batch fanned out or ran inline.
 func TestBucketGetBySecondaryBatchTurnsPanicIntoError(t *testing.T) {
-	// Turning the panic into an error is what is under test, and
-	// DISABLE_RECOVERY_ON_PANIC makes both the error group's recover and
-	// RunRecovered's a no-op. test/integration/run.sh exports it as true over
-	// ./adapters/repos/..., and this file carries no build tag, so without this
-	// the panic takes the package binary down instead of being asserted on.
+	// Turning a panic into an error is what is under test, and
+	// DISABLE_RECOVERY_ON_PANIC disables the recover in both the error group and
+	// RunRecovered. test/integration/run.sh exports it as true over
+	// ./adapters/repos/..., and this file carries no build tag, so without the
+	// Setenv the panic takes the package binary down instead of being asserted on.
 	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
 
 	const numKeys = 2000
