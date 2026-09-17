@@ -23,11 +23,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/well_known"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.WeaviateConfig,
-	modulesProvider ModulesProvider, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
+	modulesProvider ModulesProvider, licenseState *license.State, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
 ) {
 	metricRequestsTotal := newMiscRequestsTotal(metrics, logger)
 	api.MetaMetaGetHandler = meta.MetaGetHandlerFunc(func(params meta.MetaGetParams, principal *models.Principal) middleware.Responder {
@@ -49,6 +50,12 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 			Version:            config.ServerVersion,
 			Modules:            metaInfos,
 			GrpcMaxMessageSize: int64(serverConfig.Config.GRPC.MaxMsgSize),
+		}
+		if licenseState != nil {
+			res.License = &models.MetaLicense{
+				Status:    string(licenseState.Status),
+				LicenseID: licenseState.LicenseID,
+			}
 		}
 		metricRequestsTotal.logOk("")
 		return meta.NewMetaGetOK().WithPayload(res)
