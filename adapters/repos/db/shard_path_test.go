@@ -71,3 +71,34 @@ func TestShardFileSanitize(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, file)
 }
+
+func TestShardFilePutterSanitize(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClassFilePutter"
+	shd, idx := testShard(t, ctx, className)
+
+	// Reject path traversal that would write next to the data root.
+	outsideName := "weaviate-outside-data-root.txt"
+	wc, err := shd.filePutter(ctx, filepath.Join("..", outsideName))
+	require.Error(t, err)
+	require.Nil(t, wc)
+	_, err = os.Stat(filepath.Join(filepath.Dir(idx.Config.RootPath), outsideName))
+	require.Error(t, err)
+	require.True(t, os.IsNotExist(err))
+
+	// Reject absolute paths (e.g. /tmp/...).
+	wc, err = shd.filePutter(ctx, filepath.Join(string(filepath.Separator), "tmp", "weaviate-fileputter-probe"))
+	require.Error(t, err)
+	require.Nil(t, wc)
+
+	// A path that stays under the data root must still be writable.
+	wc, err = shd.filePutter(ctx, filepath.Join("safe-putter", "ok.txt"))
+	require.NoError(t, err)
+	require.NotNil(t, wc)
+	_, err = wc.Write([]byte("ok"))
+	require.NoError(t, err)
+	require.NoError(t, wc.Close())
+	content, err := os.ReadFile(filepath.Join(idx.Config.RootPath, "safe-putter", "ok.txt"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("ok"), content)
+}
