@@ -22,11 +22,14 @@ import (
 type SlowQueryDetails struct {
 	sync.Mutex
 	values map[string]any
+	// reducers, set by AnnotateSlowQueryLogAppendReducible, summarize a key's list.
+	reducers map[string]func(any) any
 }
 
 func NewSlowQueryDetails() *SlowQueryDetails {
 	return &SlowQueryDetails{
-		values: make(map[string]any),
+		values:   make(map[string]any),
+		reducers: make(map[string]func(any) any),
 	}
 }
 
@@ -35,17 +38,17 @@ func InitSlowQueryDetails(ctx context.Context) context.Context {
 	return context.WithValue(ctx, "slow_query_details", d)
 }
 
-func AnnotateSlowQueryLog(ctx context.Context, key string, value any) {
+func slowQueryDetailsFromContext(ctx context.Context) *SlowQueryDetails {
 	if ctx == nil {
-		return
+		return nil
 	}
-	val := ctx.Value("slow_query_details")
-	if val == nil {
-		return
-	}
+	details, _ := ctx.Value("slow_query_details").(*SlowQueryDetails)
+	return details
+}
 
-	details, ok := val.(*SlowQueryDetails)
-	if !ok {
+func AnnotateSlowQueryLog(ctx context.Context, key string, value any) {
+	details := slowQueryDetailsFromContext(ctx)
+	if details == nil {
 		return
 	}
 
@@ -69,16 +72,8 @@ func AnnotateSlowQueryLogAppend[T any](ctx context.Context, key string, value T)
 // discarded. build is called outside the details lock. A nil build is
 // tolerated like every other bad input here: diagnostics never fail loudly.
 func AnnotateSlowQueryLogAppendFunc[T any](ctx context.Context, key string, build func() T) {
-	if ctx == nil || build == nil {
-		return
-	}
-	val := ctx.Value("slow_query_details")
-	if val == nil {
-		return
-	}
-
-	details, ok := val.(*SlowQueryDetails)
-	if !ok {
+	details := slowQueryDetailsFromContext(ctx)
+	if details == nil || build == nil {
 		return
 	}
 
@@ -87,6 +82,40 @@ func AnnotateSlowQueryLogAppendFunc[T any](ctx context.Context, key string, buil
 	details.Lock()
 	defer details.Unlock()
 
+	appendValueLocked(details, key, value)
+}
+
+// AnnotateSlowQueryLogAppendReducible appends value under key and registers
+// reduce for ExtractSlowQueryDetails. reduce runs without details.Lock, so it
+// must not retain or mutate its input.
+func AnnotateSlowQueryLogAppendReducible[T any, R any](ctx context.Context, key string,
+	value T, reduce func([]T) R,
+) {
+	details := slowQueryDetailsFromContext(ctx)
+	if details == nil || reduce == nil {
+		return
+	}
+
+	details.Lock()
+	defer details.Unlock()
+
+	if !appendValueLocked(details, key, value) {
+		return
+	}
+
+	if _, ok := details.reducers[key]; !ok {
+		details.reducers[key] = func(list any) any {
+			typed, ok := list.([]T)
+			if !ok {
+				return list
+			}
+			return reduce(typed)
+		}
+	}
+}
+
+// appendValueLocked returns false when key holds a list of another element type.
+func appendValueLocked[T any](details *SlowQueryDetails, key string, value T) bool {
 	prev, ok := details.values[key]
 	if !ok {
 		prev = make([]T, 0)
@@ -94,38 +123,11 @@ func AnnotateSlowQueryLogAppendFunc[T any](ctx context.Context, key string, buil
 
 	asList, ok := prev.([]T)
 	if !ok {
-		return
+		return false
 	}
 
-	asList = append(asList, value)
-	details.values[key] = asList
-}
-
-func ReplaceSlowQueryEntry[in any, out any](ctx context.Context, key string, replaceFunc func(old in) out) {
-	val := ctx.Value("slow_query_details")
-	if val == nil {
-		return
-	}
-
-	details, ok := val.(*SlowQueryDetails)
-	if !ok {
-		return
-	}
-
-	details.Lock()
-	defer details.Unlock()
-
-	prev, ok := details.values[key]
-	if !ok {
-		return // nothing to replace
-	}
-
-	typed, ok := prev.(in)
-	if !ok {
-		return
-	}
-
-	details.values[key] = replaceFunc(typed)
+	details.values[key] = append(asList, value)
+	return true
 }
 
 func SprintfWithNesting(nesting int, format string, args ...any) string {
@@ -139,21 +141,24 @@ func SprintfWithNesting(nesting int, format string, args ...any) string {
 	return fmt.Sprintf("%s%s", prefix, fmt.Sprintf(format, args...))
 }
 
+// ExtractSlowQueryDetails reduces a copy and leaves the stored lists intact,
+// because a query that logs and reports a profile extracts twice.
 func ExtractSlowQueryDetails(ctx context.Context) map[string]any {
-	val := ctx.Value("slow_query_details")
-	if val == nil {
-		return nil
-	}
-
-	details, ok := val.(*SlowQueryDetails)
-	if !ok {
+	details := slowQueryDetailsFromContext(ctx)
+	if details == nil {
 		return nil
 	}
 
 	details.Lock()
-	defer details.Unlock()
-
 	values := maps.Clone(details.values)
+	reducers := maps.Clone(details.reducers)
+	details.Unlock()
+
+	for key, reduce := range reducers {
+		if value, ok := values[key]; ok {
+			values[key] = reduce(value)
+		}
+	}
 
 	return values
 }

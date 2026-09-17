@@ -86,3 +86,36 @@ func TestAnnotateSlowQueryLogAppendFunc(t *testing.T) {
 		require.Zero(t, allocs, "guards must bail before build; closure must not escape")
 	})
 }
+
+func TestAnnotateSlowQueryLogAppendReducible(t *testing.T) {
+	sum := func(values []int) int {
+		total := 0
+		for _, v := range values {
+			total += v
+		}
+		return total
+	}
+
+	t.Run("a second extract reduces the same entries again", func(t *testing.T) {
+		ctx := InitSlowQueryDetails(context.Background())
+		AnnotateSlowQueryLogAppendReducible(ctx, "k", 7, sum)
+		require.Equal(t, 7, ExtractSlowQueryDetails(ctx)["k"])
+		AnnotateSlowQueryLogAppendReducible(ctx, "k", 5, sum)
+		require.Equal(t, 12, ExtractSlowQueryDetails(ctx)["k"],
+			"a second extract must return the same summary, because a query can both log and report a profile")
+	})
+
+	t.Run("skip path allocates nothing", func(t *testing.T) {
+		ctx := context.Background()
+		allocs := testing.AllocsPerRun(100, func() {
+			AnnotateSlowQueryLogAppendReducible(ctx, "k", 1, sum)
+		})
+		require.Zero(t, allocs, "a query the gate closed must pay nothing per lookup")
+	})
+
+	t.Run("nil reduce is tolerated", func(t *testing.T) {
+		ctx := InitSlowQueryDetails(context.Background())
+		AnnotateSlowQueryLogAppendReducible[int, int](ctx, "k", 1, nil)
+		require.NotContains(t, ExtractSlowQueryDetails(ctx), "k")
+	})
+}
