@@ -75,7 +75,8 @@ func HasSlowQueryDetails(ctx context.Context) bool {
 
 // AnnotateSlowQueryLogAppendMany appends values under key in one lock
 // acquisition, so a fan-out that resolves many keys does not serialise its
-// workers on the details lock.
+// workers on the details lock. If key already holds a value of another type,
+// the values are dropped.
 func AnnotateSlowQueryLogAppendMany[T any](ctx context.Context, key string, values []T) {
 	if ctx == nil || len(values) == 0 {
 		return
@@ -145,9 +146,9 @@ func AnnotateSlowQueryLogAppendFunc[T any](ctx context.Context, key string, buil
 }
 
 // DropSlowQueryEntry removes key, so a caller that decided nothing will read
-// the value can stop anything else from logging it. Cheaper than reducing it,
-// and unlike leaving it in place it cannot be picked up by a reader that turns
-// itself on between the decision and the log line.
+// the value can stop anything else from logging it. It is cheaper than reducing
+// the value, and it closes the window where a reporter switched on after the
+// decision picks the raw entries up.
 func DropSlowQueryEntry(ctx context.Context, key string) {
 	if ctx == nil {
 		return

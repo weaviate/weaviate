@@ -91,9 +91,9 @@ func TestAnnotateSlowQueryLogAppendMany(t *testing.T) {
 	const key = "entries"
 
 	t.Run("a nil context is ignored", func(t *testing.T) {
-		// Through a variable: the callers these guards exist for reach here with
-		// a context they did not check, which a nil literal cannot express
-		// without staticcheck rejecting it.
+		// A typed nil variable rather than a nil literal: staticcheck's SA1012
+		// rejects the literal, and the callers these guards exist for arrive with
+		// an unchecked context, which is the same input.
 		var noCtx context.Context
 		require.NotPanics(t, func() { AnnotateSlowQueryLogAppendMany(noCtx, key, []int{1}) })
 	})
