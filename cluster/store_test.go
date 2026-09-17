@@ -41,6 +41,7 @@ import (
 	clustermocks "github.com/weaviate/weaviate/cluster/mocks"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -1922,4 +1923,24 @@ func TestStoreIncompleteLoadStillGoesReady(t *testing.T) {
 				"a partial load must be counted; it is the only signal that the node's data is incomplete")
 		})
 	}
+}
+
+// TestWaitForAppliedIndexWaitsForTheLocalDB pins that a version counts as
+// applied only once the local DB has it, not just the schema.
+func TestWaitForAppliedIndexWaitsForTheLocalDB(t *testing.T) {
+	t.Parallel()
+
+	ms := NewMockStore(t, t.Name(), utils.MustGetFreeTCPPort())
+	st := ms.store
+	st.lastAppliedIndex.Store(10)
+
+	require.NoError(t, st.WaitForAppliedIndex(context.Background(), time.Millisecond, 10),
+		"nothing loading: the version is applied")
+
+	st.lastAppliedIndexToDB.Store(5) // restarted with state, load not done
+	require.ErrorIs(t, st.WaitForAppliedIndex(context.Background(), time.Millisecond, 10),
+		types.ErrDeadlineExceeded, "the DB writes are still queued behind the load")
+
+	st.dbLoaded.Store(true)
+	require.NoError(t, st.WaitForAppliedIndex(context.Background(), time.Millisecond, 10))
 }

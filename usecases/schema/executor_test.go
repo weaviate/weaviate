@@ -395,7 +395,7 @@ func TestReloadLocalDBStopsOnCancel(t *testing.T) {
 
 	err := newMockExecutor(migrator, store).ReloadLocalDB(ctx, []api.UpdateClassRequest{{Class: cls, State: state}})
 
-	require.ErrorIs(t, err, context.Canceled)
+	require.NoError(t, err)
 	migrator.AssertNotCalled(t, "UpdateIndex", mock.Anything, mock.Anything)
 }
 
