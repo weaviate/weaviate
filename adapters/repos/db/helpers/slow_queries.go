@@ -28,6 +28,9 @@ const (
 
 type SlowQueryReporter interface {
 	LogIfSlow(context.Context, time.Time, map[string]any)
+	// Enabled reports whether LogIfSlow can log anything at all, so a caller
+	// can skip preparing details nothing would read.
+	Enabled() bool
 }
 
 type BaseSlowReporter struct {
@@ -59,8 +62,13 @@ func NewSlowQueryReporter(
 //
 // TODO (sebneira): Consider providing fields out of the box (e.g. shard info). Right now we're
 // limited because of circular dependencies.
+// Enabled reports whether slow-query logging is switched on.
+func (sq *BaseSlowReporter) Enabled() bool {
+	return sq.enabled.Get()
+}
+
 func (sq *BaseSlowReporter) LogIfSlow(ctx context.Context, startTime time.Time, fields map[string]any) {
-	if !sq.enabled.Get() {
+	if !sq.Enabled() {
 		return
 	}
 
