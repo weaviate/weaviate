@@ -456,38 +456,23 @@ func dropOneVectorIndex(ctx context.Context, index VectorIndex) error {
 	return index.Drop(ctx, false)
 }
 
-// vectorIndexIDFor is the physical ID name's record maps it to, or the
-// naming rule's for a vector without one (a skipped vector, a shard restored
-// from a pre-mapping backup).
-func (s *Shard) vectorIndexIDFor(name string) (string, error) {
-	rec, ok, err := s.mapping.Get(name)
-	if err != nil {
-		return "", err
-	}
-	if ok {
-		return rec.PhysicalID, nil
-	}
-	return helpers.VectorIndexIDForTarget(name), nil
-}
-
-// removeVectorIndexArtifacts deletes every file name's index owns at its
-// recorded ID, its dynamic state key and last its record. Idempotent: a
-// retry after a partial run finds less to do.
-func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name string) error {
-	id, err := s.vectorIndexIDFor(name)
-	if err != nil {
-		return fmt.Errorf("vector %q: %w", name, err)
-	}
+// removeVectorIndexArtifacts deletes every file name's index owns at
+// physicalID, its dynamic state key and last its record. Siblings protect
+// what their records map them to; a sibling without a record owns nothing.
+// Idempotent: a retry after a partial run finds less to do.
+func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name, physicalID string) error {
 	others := otherTargetVectors(s.class, name)
 	otherIDs := make([]string, 0, len(others))
 	for _, other := range others {
-		otherID, err := s.vectorIndexIDFor(other)
+		rec, ok, err := s.mapping.Get(other)
 		if err != nil {
 			return fmt.Errorf("vector %q: %w", other, err)
 		}
-		otherIDs = append(otherIDs, otherID)
+		if ok {
+			otherIDs = append(otherIDs, rec.PhysicalID)
+		}
 	}
-	artifacts := helpers.VectorIndexArtifactsForID(id, otherIDs)
+	artifacts := helpers.VectorIndexArtifactsForID(physicalID, otherIDs)
 	for _, bucket := range artifacts.LSMBuckets {
 		err := s.removeBucket(ctx, bucket)
 		if err != nil {
@@ -500,7 +485,7 @@ func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name string) err
 			return fmt.Errorf("drop directory %q for vector %q: %w", dir, name, err)
 		}
 	}
-	err = dynamic.RemoveStateKeyIn(s.metadataDB.Namespace(dynamic.StateNamespace), id)
+	err := dynamic.RemoveStateKeyIn(s.metadataDB.Namespace(dynamic.StateNamespace), physicalID)
 	if err != nil {
 		return fmt.Errorf("vector %q: %w", name, err)
 	}
@@ -513,19 +498,47 @@ func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name string) err
 }
 
 // DropVectorIndex removes the named vector's index and queue from this shard
-// and deletes their files, buckets and record.
+// and deletes what its record says it owns. No record, nothing owned: a
+// skipped vector, or a drop that already completed.
 func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error {
-	err := s.markVectorIndexDropping(targetVector)
+	rec, recorded, err := s.mapping.Get(targetVector)
+	if err != nil {
+		return fmt.Errorf("vector %q: %w", targetVector, err)
+	}
+	if !recorded {
+		return s.vectors.Remove(ctx, targetVector, s.index.logger, dropVectorIndexSlot(ctx, targetVector))
+	}
+	err = s.markVectorIndexDropping(targetVector, rec)
 	if err != nil {
 		return fmt.Errorf("mark vector index %q dropping: %w", targetVector, err)
 	}
 	now, leave := s.vectorDeletions.Enter()
 	defer leave()
-	err = s.vectors.Remove(ctx, targetVector, s.index.logger, func(index VectorIndex, queue *VectorIndexQueue) error {
-		if !now {
-			// a halt may be listing these files: shut down, delete at the resume
+	teardown := dropVectorIndexSlot(ctx, targetVector)
+	if !now {
+		// a halt may be listing these files: shut down, delete at the resume
+		teardown = func(index VectorIndex, queue *VectorIndexQueue) error {
 			return shutdownVectorIndex(ctx, index, queue)
 		}
+	}
+	err = s.vectors.Remove(ctx, targetVector, s.index.logger, teardown)
+	if err != nil {
+		return err
+	}
+	if !now {
+		queued, leaveLater := s.vectorDeletions.Defer(targetVector, rec.PhysicalID)
+		if queued {
+			return nil
+		}
+		defer leaveLater()
+	}
+	return s.removeVectorIndexArtifacts(ctx, targetVector, rec.PhysicalID)
+}
+
+// dropVectorIndexSlot is the teardown of an immediate drop: the queue and
+// the index go with their files.
+func dropVectorIndexSlot(ctx context.Context, targetVector string) func(index VectorIndex, queue *VectorIndexQueue) error {
+	return func(index VectorIndex, queue *VectorIndexQueue) error {
 		if queue != nil {
 			if err := queue.Drop(ctx); err != nil {
 				return fmt.Errorf("drop queue for vector %q: %w", targetVector, err)
@@ -537,18 +550,7 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 			}
 		}
 		return nil
-	})
-	if err != nil {
-		return err
 	}
-	if !now {
-		queued, leaveLater := s.vectorDeletions.Defer(targetVector)
-		if queued {
-			return nil
-		}
-		defer leaveLater()
-	}
-	return s.removeVectorIndexArtifacts(ctx, targetVector)
 }
 
 // shutdownVectorIndex closes the index and queue and keeps every file, the

@@ -207,18 +207,18 @@ func (s *Shard) structuralVectorOpInFlight() (busy bool, reason string) {
 // A failure is logged, not returned: the dropping record keeps the vector
 // for the sweep's retry and the next load.
 func (s *Shard) finishDeferredVectorDrops(ctx context.Context) error {
-	for _, name := range s.vectorDeletions.Resume() {
-		if _, published := s.vectors.get(name); published {
+	for _, drop := range s.vectorDeletions.Resume() {
+		if _, published := s.vectors.get(drop.name); published {
 			// the drop failed after queuing and the slot came back; the
 			// retry drops it again
 			continue
 		}
-		err := s.removeVectorIndexArtifacts(ctx, name)
+		err := s.removeVectorIndexArtifacts(ctx, drop.name, drop.physicalID)
 		if err != nil {
 			s.index.logger.WithFields(logrus.Fields{
 				"action":        "drop_vector_index",
 				"shard":         s.name,
-				"target_vector": name,
+				"target_vector": drop.name,
 			}).Errorf("finishing a drop deferred by a transfer halt: %v", err)
 		}
 	}

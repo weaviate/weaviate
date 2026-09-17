@@ -240,8 +240,16 @@ func (v *vectorIndexSlots) Len() int {
 type vectorDeletions struct {
 	mu       sync.Mutex
 	paused   bool
-	deferred []string
+	deferred []deferredVectorDrop
 	running  common.SharedGauge
+}
+
+// deferredVectorDrop is a drop that ran under a halt: the name and the
+// physical ID its record held, since the record is gone once the first
+// finish of the name runs.
+type deferredVectorDrop struct {
+	name       string
+	physicalID string
 }
 
 // Enter is called by a drop before its teardown. Not paused: the deletion
@@ -258,13 +266,19 @@ func (d *vectorDeletions) Enter() (now bool, leave func()) {
 	return true, func() { d.running.Decr() }
 }
 
-// Defer queues name for the resume. If the pause ended meanwhile it reports
-// false and the drop deletes now, counted in until leave.
-func (d *vectorDeletions) Defer(name string) (queued bool, leave func()) {
+// Defer queues name for the resume, once: a retry under the same halt is
+// the same drop. If the pause ended meanwhile it reports false and the drop
+// deletes now, counted in until leave.
+func (d *vectorDeletions) Defer(name, physicalID string) (queued bool, leave func()) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if d.paused {
-		d.deferred = append(d.deferred, name)
+		for _, drop := range d.deferred {
+			if drop.name == name {
+				return true, func() {}
+			}
+		}
+		d.deferred = append(d.deferred, deferredVectorDrop{name: name, physicalID: physicalID})
 		return true, func() {}
 	}
 	d.running.Incr()
@@ -281,12 +295,12 @@ func (d *vectorDeletions) Pause(ctx context.Context) error {
 }
 
 // Resume is called by the last resume: drops delete right away again, and
-// the names deferred meanwhile are returned for the deletion job.
-func (d *vectorDeletions) Resume() []string {
+// the drops deferred meanwhile are returned for the deletion job.
+func (d *vectorDeletions) Resume() []deferredVectorDrop {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	d.paused = false
-	names := d.deferred
+	drops := d.deferred
 	d.deferred = nil
-	return names
+	return drops
 }

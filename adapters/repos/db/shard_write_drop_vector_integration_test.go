@@ -259,21 +259,20 @@ func TestDropVectorIndex_BatchRejected(t *testing.T) {
 }
 
 // The completion sweep on a loaded shard re-runs the shard's drop: it finishes
-// a drop that failed part-way and never opens index.db against the shard's lock.
+// a drop that failed part-way, which left its record dropping and its files
+// in place, and never opens index.db against the shard's lock.
 func TestDropVectorIndex_CompletionSweepRetriesThroughLoadedShard(t *testing.T) {
 	ctx := testCtx()
 	shard, class := setupDropVectorShard(t, ctx)
+	require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
 	markDropped(class, "foo")
-	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
 
-	// leftovers of a removal that failed part-way
-	leftovers := []string{
-		filepath.Join(shard.path(), helpers.GetHNSWCommitLogDirName("foo")),
-		filepath.Join(shard.pathLSM(), helpers.GetVectorsBucketName("foo")),
-	}
-	for _, dir := range leftovers {
-		require.NoError(t, os.MkdirAll(dir, 0o755))
-	}
+	// what a drop that failed after its record write leaves behind
+	rec, ok, err := shard.mapping.Get("foo")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, shard.markVectorIndexDropping("foo", rec))
+	require.NotEmpty(t, entriesNamed(t, shard, "foo"))
 
 	db := &DB{logger: shard.index.logger, indices: map[string]*Index{shard.index.ID(): shard.index}}
 	start := time.Now()
@@ -281,10 +280,10 @@ func TestDropVectorIndex_CompletionSweepRetriesThroughLoadedShard(t *testing.T) 
 	// the offline route waits a second per target on this shard's lock
 	assert.Less(t, time.Since(start), time.Second)
 
-	for _, dir := range leftovers {
-		_, err := os.Stat(dir)
-		assert.True(t, os.IsNotExist(err), "the sweep finished the drop: %s", dir)
-	}
+	assert.Empty(t, entriesNamed(t, shard, "foo"), "the sweep finished the drop")
+	_, ok, err = shard.mapping.Get("foo")
+	require.NoError(t, err)
+	assert.False(t, ok)
 
 	// the sibling vector is untouched
 	found, err := shard.WithVectorIndex("mv", func(VectorIndex) error { return nil })
@@ -313,8 +312,8 @@ func TestDropVectorIndex_DeletesTheMappingRecord(t *testing.T) {
 	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
 }
 
-// A drop on a shard without a mapping (an older backup) succeeds and writes
-// no record.
+// A drop of a vector without a record removes its slot and touches no
+// files: the mapping is the only source of what a vector owns.
 func TestDropVectorIndex_UninitializedMapping(t *testing.T) {
 	ctx := testCtx()
 	shard, class := setupDropVectorShard(t, ctx)
@@ -327,6 +326,9 @@ func TestDropVectorIndex_UninitializedMapping(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, initialized)
 	assert.Empty(t, records)
+	found, err := shard.WithVectorIndex("foo", func(VectorIndex) error { return nil })
+	require.NoError(t, err)
+	assert.False(t, found)
 }
 
 // wipeMapping removes every key of the shard's mapping namespace, the way an
@@ -709,11 +711,11 @@ func TestDropVectorIndex_FailedDeferredTeardownKeepsTheIndex(t *testing.T) {
 	assert.False(t, ok)
 }
 
-// A drop deletes the files at the record's physical ID, not at the naming
-// rule's, and leaves alone what the naming rule would have named.
-func TestDropVectorIndex_DeletesAtTheRecordedID(t *testing.T) {
-	ctx := testCtx()
-	shard, class := setupDropVectorShard(t, ctx)
+// remapFoo reloads the shard with foo recorded at vectors_foo_v2, writes an
+// object so the index has files there, and plants a decoy at the naming
+// rule's path that no drop of foo may touch.
+func remapFoo(t *testing.T, ctx context.Context, shard *Shard, class *models.Class) (*Shard, string) {
+	t.Helper()
 	remapped := vectorIndexRecord{PhysicalID: "vectors_foo_v2", IndexType: "hnsw", State: "ready"}
 	shard = reloadAfter(t, ctx, shard, class, func() {
 		withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
@@ -723,16 +725,52 @@ func TestDropVectorIndex_DeletesAtTheRecordedID(t *testing.T) {
 	require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
 	require.NotEmpty(t, entriesWithID(t, shard, "vectors_foo_v2"), "built at the recorded id")
 
-	// what a name-derived deletion would target: not foo's, must survive
 	decoy := filepath.Join(shard.path(), helpers.GetHNSWCommitLogDirName("foo"), "somebody-elses")
 	require.NoError(t, os.MkdirAll(filepath.Dir(decoy), 0o755))
 	require.NoError(t, os.WriteFile(decoy, []byte("x"), 0o600))
+	return shard, decoy
+}
+
+// A drop deletes the files at the record's physical ID, not at the naming
+// rule's, and a retry after it deletes nothing at all.
+func TestDropVectorIndex_DeletesAtTheRecordedID(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	shard, decoy := remapFoo(t, ctx, shard, class)
 
 	markDropped(class, "foo")
 	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
 	assert.Empty(t, entriesWithID(t, shard, "vectors_foo_v2"))
 	_, err := os.Stat(decoy)
 	assert.NoError(t, err, "the naming rule's paths were not touched")
+	_, ok, err := shard.mapping.Get("foo")
+	require.NoError(t, err)
+	assert.False(t, ok)
+
+	// the retry finds no record and no slot: an already completed drop
+	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+	_, err = os.Stat(decoy)
+	assert.NoError(t, err, "a retry has nothing to derive an id from and deletes nothing")
+}
+
+// A deferred drop retried under the same halt is finished once, at the
+// recorded id.
+func TestDropVectorIndex_DeferredRetryDeletesOnceAtTheRecordedID(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	shard, decoy := remapFoo(t, ctx, shard, class)
+
+	markDropped(class, "foo")
+	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
+	require.NotEmpty(t, entriesWithID(t, shard, "vectors_foo_v2"), "still held for the halt")
+
+	require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+	require.Eventually(t, func() bool { return len(entriesWithID(t, shard, "vectors_foo_v2")) == 0 }, 5*time.Second, 20*time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
+	_, err := os.Stat(decoy)
+	assert.NoError(t, err, "the second queued drop found no record and deleted nothing")
 	_, ok, err := shard.mapping.Get("foo")
 	require.NoError(t, err)
 	assert.False(t, ok)

@@ -47,7 +47,7 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[stri
 			continue
 		}
 		// a deferred deletion the process did not live to finish
-		err := s.removeVectorIndexArtifacts(ctx, name)
+		err := s.removeVectorIndexArtifacts(ctx, name, rec.PhysicalID)
 		if err != nil {
 			return nil, err
 		}
@@ -165,14 +165,9 @@ func (s *Shard) markVectorIndexReady(name string, rec vectorIndexRecord) error {
 	return s.mapping.Put(name, rec)
 }
 
-// markVectorIndexDropping flips name's record to dropping before the
-// teardown, so a crash before the files go is finished at the next load. A
-// vector without a record has nothing to mark.
-func (s *Shard) markVectorIndexDropping(name string) error {
-	rec, ok, err := s.mapping.Get(name)
-	if err != nil || !ok {
-		return err
-	}
+// markVectorIndexDropping records the index as dropping before the
+// teardown, so a crash before the files go is finished at the next load.
+func (s *Shard) markVectorIndexDropping(name string, rec vectorIndexRecord) error {
 	rec.State = vectorIndexStateDropping
 	return s.mapping.Put(name, rec)
 }
