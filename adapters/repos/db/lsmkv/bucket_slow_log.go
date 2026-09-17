@@ -19,6 +19,15 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
 
+// The keys a secondary-key lookup writes its per-lookup slow-log entry under.
+// There are two because a lookup that acquires its own consistent view and a
+// lookup that reuses the caller's are worth telling apart; callers that cannot
+// know which path a bucket took reduce both.
+const (
+	SlowLogKeyGetBySecondary         = "lsm_get_by_secondary"
+	SlowLogKeyGetBySecondaryWithView = "lsm_get_by_secondary_with_view"
+)
+
 // ReduceSlowLogEntries replaces the per-lookup slow-log entries under key with
 // their stats, so a slow query logs one fixed-size summary instead of one
 // entry per key.

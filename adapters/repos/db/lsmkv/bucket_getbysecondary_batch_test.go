@@ -25,6 +25,7 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -480,7 +481,6 @@ func (p *inflightProbe) peakInflight() int {
 func TestBucketGetBySecondaryBatchHonoursConcurrencyBudget(t *testing.T) {
 	const (
 		numKeys   = 2000
-		chunks    = (numKeys + secondaryBatchChunkSize - 1) / secondaryBatchChunkSize
 		probeWait = 2 * time.Second
 	)
 	cases := []struct {
@@ -488,7 +488,7 @@ func TestBucketGetBySecondaryBatchHonoursConcurrencyBudget(t *testing.T) {
 		budget   int
 		wantPeak int
 	}{
-		{name: "budget above the worker cap fans out to the cap", budget: 4 * secondaryBatchWorkers, wantPeak: min(secondaryBatchWorkers, chunks)},
+		{name: "budget above the worker cap fans out to the cap", budget: 4 * secondaryBatchWorkers, wantPeak: 16},
 		{name: "budget below the worker cap bounds the fan-out", budget: 2, wantPeak: 2},
 		{name: "budget of one resolves serially", budget: 1, wantPeak: 1},
 	}
@@ -523,26 +523,30 @@ func TestBucketGetBySecondaryBatchHonoursConcurrencyBudget(t *testing.T) {
 
 func TestBucketGetBySecondaryBatchStopsEarly(t *testing.T) {
 	const numKeys = 2000
-	// after the first failure every other worker finishes at most its current chunk
-	const fanOutBound = secondaryBatchWorkers * secondaryBatchChunkSize
 	readErr := errors.New("segment read failed")
 	visitErr := errors.New("visit failed")
 
 	type testCase struct {
-		name       string
-		budget     int
-		failRead   bool
-		failVisit  bool
-		cancel     bool
-		wantErr    error
+		name      string
+		budget    int
+		failRead  bool
+		failVisit bool
+		cancel    bool
+		wantErr   error
+		// maxLookups is the exact bound one worker gives. The fan-out arms
+		// leave it at zero: a worker learns of a failure through the group
+		// context, which the group cancels after the failing goroutine has
+		// returned, and nothing orders that against the other workers claiming
+		// their next chunk. All they guarantee is that the chunk the failure
+		// aborted is never read by anyone else.
 		maxLookups int64
 	}
 	cases := []testCase{
-		{name: "read error with workers", budget: secondaryBatchWorkers, failRead: true, wantErr: readErr, maxLookups: fanOutBound},
+		{name: "read error with workers", budget: secondaryBatchWorkers, failRead: true, wantErr: readErr},
 		{name: "read error inline", budget: 1, failRead: true, wantErr: readErr, maxLookups: 1},
-		{name: "visit error with workers", budget: secondaryBatchWorkers, failVisit: true, wantErr: visitErr, maxLookups: fanOutBound},
+		{name: "visit error with workers", budget: secondaryBatchWorkers, failVisit: true, wantErr: visitErr},
 		{name: "visit error inline", budget: 1, failVisit: true, wantErr: visitErr, maxLookups: 1},
-		{name: "cancelled during the first lookup with workers", budget: secondaryBatchWorkers, cancel: true, wantErr: context.Canceled, maxLookups: fanOutBound},
+		{name: "cancelled during the first lookup with workers", budget: secondaryBatchWorkers, cancel: true, wantErr: context.Canceled},
 		{name: "cancelled during the first lookup inline", budget: 1, cancel: true, wantErr: context.Canceled, maxLookups: secondaryBatchChunkSize},
 	}
 
@@ -575,7 +579,11 @@ func TestBucketGetBySecondaryBatchStopsEarly(t *testing.T) {
 				return nil
 			})
 			require.ErrorIs(t, err, tc.wantErr)
-			require.LessOrEqual(t, lookups.Load(), tc.maxLookups)
+			if tc.maxLookups > 0 {
+				require.LessOrEqual(t, lookups.Load(), tc.maxLookups)
+				return
+			}
+			require.Less(t, lookups.Load(), int64(numKeys), "the aborted chunk must never be read to the end")
 		})
 	}
 }
@@ -583,21 +591,32 @@ func TestBucketGetBySecondaryBatchStopsEarly(t *testing.T) {
 // TestBucketGetBySecondaryBatchIgnoresWritesAfterItsView confirms the batch's
 // consistent view is unaffected by writes and flushes that land after it is taken.
 func TestBucketGetBySecondaryBatchIgnoresWritesAfterItsView(t *testing.T) {
-	const numKeys = 200
+	const (
+		numKeys = 200
+		// The gate only opens from inside a segment lookup, so a batch that
+		// stops looking things up would block both sides forever. Time out and
+		// fail by name instead of by the package-wide test deadline.
+		gateTimeout = 30 * time.Second
+	)
 	writerMayStart := make(chan struct{})
 	writerDone := make(chan struct{})
 	var gateArmed atomic.Bool
+	var gateTimedOut atomic.Bool
 	var startOnce sync.Once
 	observe := &observedSegment{before: func() {
 		if !gateArmed.Load() {
 			return
 		}
 		startOnce.Do(func() { close(writerMayStart) })
-		<-writerDone
+		select {
+		case <-writerDone:
+		case <-time.After(gateTimeout):
+			gateTimedOut.Store(true)
+		}
 	}}
 	b, keys := newSingleSegmentBucket(t, numKeys, observe)
-	// a non-empty active memtable, so the writer's first switch moves it out
-	// of the write path while the batch's view still holds it
+	// The active memtable has to be non-empty for the writer's first switch to
+	// move it out of the write path while the batch's view still holds it.
 	putDoc(t, b, numKeys, []byte("in-active-memtable"))
 	keys = append(keys, docIDKey(numKeys))
 	before := lookupOneByOne(t, b, keys)
@@ -607,7 +626,11 @@ func TestBucketGetBySecondaryBatchIgnoresWritesAfterItsView(t *testing.T) {
 	eg := enterrors.NewErrorGroupWrapper(b.logger)
 	eg.Go(func() error {
 		defer close(writerDone)
-		<-writerMayStart
+		select {
+		case <-writerMayStart:
+		case <-time.After(gateTimeout):
+			return errors.New("the batch never reached the observed segment")
+		}
 		if err := b.FlushAndSwitch(); err != nil {
 			return err
 		}
@@ -627,6 +650,7 @@ func TestBucketGetBySecondaryBatchIgnoresWritesAfterItsView(t *testing.T) {
 	got, err := batchLookup(context.Background(), b, secondaryPos, keys)
 	require.NoError(t, err)
 	require.NoError(t, eg.Wait())
+	require.False(t, gateTimedOut.Load(), "the batch must reach the observed segment so the writer can run")
 	gateArmed.Store(false)
 	require.Equal(t, before, got)
 	require.NotEqual(t, before, lookupOneByOne(t, b, keys), "the writer must have changed the bucket")
@@ -657,4 +681,111 @@ func TestBucketGetBySecondaryBatchHandsOutTheWorkerBuffer(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, numKeys, visited)
 	require.Len(t, arrays, 1, "every visit must alias the one reused worker buffer")
+}
+
+// TestBucketGetBySecondaryBatchResolvesInKeyOrder pins the sort: the doc id is
+// stored little-endian, so ascending doc ids are not ascending keys, and a
+// comparator that stopped sorting would show up as caller order here.
+func TestBucketGetBySecondaryBatchResolvesInKeyOrder(t *testing.T) {
+	const numKeys = 2000
+	b, keys := newSingleSegmentBucket(t, numKeys, &observedSegment{})
+	// one worker, so the arrival order is the order the chunks impose rather
+	// than a race between workers
+	ctx := concurrency.CtxWithBudget(context.Background(), 1)
+
+	var arrived [][]byte
+	require.NoError(t, b.GetBySecondaryBatch(ctx, secondaryPos, keys, func(i int, _ []byte) error {
+		arrived = append(arrived, keys[i])
+		return nil
+	}))
+
+	require.Len(t, arrived, numKeys)
+	for i := 1; i < len(arrived); i++ {
+		require.LessOrEqualf(t, bytes.Compare(arrived[i-1], arrived[i]), 0,
+			"key %x arrived after %x", arrived[i], arrived[i-1])
+	}
+}
+
+// TestBucketGetBySecondaryBatchSkipsNilValues pins that visit never sees a nil
+// value: the callers read a nil value as an absent object and answer that on
+// their own goroutine, off the worker pool. Only the active memtable hands one
+// back; a flushed nil is stored and read back as an empty value.
+func TestBucketGetBySecondaryBatchSkipsNilValues(t *testing.T) {
+	cases := []struct {
+		name        string
+		flush       bool
+		wantVisited map[int][]byte
+	}{
+		{
+			name:        "a nil value in the active memtable is not visited",
+			wantVisited: map[int][]byte{1: []byte("two")},
+		},
+		{
+			name:        "a flushed nil value is visited as an empty value",
+			flush:       true,
+			wantVisited: map[int][]byte{0: {}, 1: []byte("two")},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newSecondaryTestBucket(t)
+			require.NoError(t, b.Put(primaryKey(1), nil, WithSecondaryKey(secondaryPos, docIDKey(1))))
+			putDoc(t, b, 2, []byte("two"))
+			if tc.flush {
+				require.NoError(t, b.FlushAndSwitch())
+			}
+			keys := [][]byte{docIDKey(1), docIDKey(2)}
+
+			visited := map[int][]byte{}
+			require.NoError(t, b.GetBySecondaryBatch(context.Background(), secondaryPos, keys, func(i int, value []byte) error {
+				visited[i] = bytes.Clone(value)
+				return nil
+			}))
+
+			require.Equal(t, tc.wantVisited, visited)
+		})
+	}
+}
+
+// TestBucketGetBySecondaryBatchTurnsPanicIntoError pins that a panic in visit
+// is reported the same way whether the batch fanned out or ran inline.
+func TestBucketGetBySecondaryBatchTurnsPanicIntoError(t *testing.T) {
+	const numKeys = 2000
+	cases := []struct {
+		name   string
+		budget int
+	}{
+		{name: "inline", budget: 1},
+		{name: "with workers", budget: secondaryBatchWorkers},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			b, keys := newSingleSegmentBucket(t, numKeys, &observedSegment{})
+			ctx := concurrency.CtxWithBudget(context.Background(), tc.budget)
+
+			err := b.GetBySecondaryBatch(ctx, secondaryPos, keys, func(int, []byte) error {
+				panic("visit blew up")
+			})
+			require.ErrorContains(t, err, "panic occurred: visit blew up")
+		})
+	}
+}
+
+// TestBucketGetBySecondaryBatchRecordsEveryLookupEntry pins that collecting a
+// chunk's slow-log entries and recording them together keeps every entry a
+// per-lookup record would have written, and no more. A memtable hit writes
+// none, since it reads no segment.
+func TestBucketGetBySecondaryBatchRecordsEveryLookupEntry(t *testing.T) {
+	const numSegmentKeys = 200
+	b, keys := newSingleSegmentBucket(t, numSegmentKeys, &observedSegment{})
+	putDoc(t, b, numSegmentKeys, []byte("in-active-memtable"))
+	keys = append(keys, docIDKey(numSegmentKeys), docIDKey(9_999_999))
+
+	ctx := helpers.InitSlowQueryDetails(context.Background())
+	_, err := batchLookup(ctx, b, secondaryPos, keys)
+	require.NoError(t, err)
+
+	entries, ok := helpers.ExtractSlowQueryDetails(ctx)[SlowLogKeyGetBySecondaryWithView].([]BucketSlowLogEntry)
+	require.True(t, ok, "the batch must record its per-lookup entries")
+	require.Len(t, entries, numSegmentKeys)
 }
