@@ -13,12 +13,14 @@ package db
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"maps"
 	"math"
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
@@ -548,23 +551,93 @@ func (db *DB) copyIndices() map[string]*Index {
 	return indices
 }
 
-// GetLocalShardNames returns the names of all shards local to this node for
-// the given collection. Returns an error if the collection is not found or has
-// no local shards.
+// shuttingDown reports whether DB.Shutdown has begun.
+func (db *DB) shuttingDown() bool {
+	select {
+	case <-db.shutdown:
+		return true
+	default:
+		return false
+	}
+}
+
+// LocalIndexClassNames returns the sorted class names this node holds an index for,
+// closed ones included, qualified as <ns>:<Class> where the class has a namespace.
+// Its only error wraps ErrIndexClosing, which it returns after DB.Shutdown has begun.
+// A call that finds DB.Shutdown holding indexLock waits for DB.Shutdown to return.
+func (db *DB) LocalIndexClassNames() ([]string, error) {
+	if db.shuttingDown() {
+		return nil, errIndexClosingForShutdown
+	}
+
+	indices := db.copyIndices()
+
+	// copyIndices waits on indexLock while DB.Shutdown closes every index, so a stop
+	// may have begun since the check above.
+	if db.shuttingDown() {
+		return nil, errIndexClosingForShutdown
+	}
+
+	names := make([]string, 0, len(indices))
+	for _, index := range indices {
+		// indexID lowercases the map key. Config.ClassName keeps the schema's case and
+		// is written once at construction, so reading it needs no lock.
+		names = append(names, index.Config.ClassName.String())
+	}
+	slices.Sort(names)
+	return names, nil
+}
+
+// errIndexClosingForShutdown refuses a call on a node stop. A caller outside this
+// package matches ErrIndexClosing, and one inside matches errIndexShutdown.
+var errIndexClosingForShutdown = fmt.Errorf("%w: %w", ErrIndexClosing, errIndexShutdown)
+
+// ErrIndexClosing refuses a call because the collection's index is closing, for a
+// node stop or a collection delete.
+var ErrIndexClosing = stderrors.New("collection index is closing")
+
+// GetLocalShardNames returns the names of every shard of the collection on this
+// node, including a lazy shard that never loaded, without loading it. A shard
+// added or removed during the call may or may not be listed. ([]string{}, nil)
+// means this node holds no shard of the collection.
+//
+// ErrIndexClosing means the index is closing for a delete, or DB.Shutdown has
+// begun. A call that finds DB.Shutdown holding indexLock waits for DB.Shutdown to
+// return. cluster/schema.ErrClassNotFound means this node holds no index for the
+// class, and comes back after about 150 ms of DB.GetIndex retries.
 func (db *DB) GetLocalShardNames(collection string) ([]string, error) {
+	if db.shuttingDown() {
+		return nil, errIndexClosingForShutdown
+	}
+
 	index := db.GetIndex(schema.ClassName(collection))
 	if index == nil {
-		return nil, fmt.Errorf("collection %q not found", collection)
+		return nil, fmt.Errorf("%w: collection %q", clusterSchema.ErrClassNotFound, collection)
 	}
-	var names []string
+	if err := index.enterRead(); err != nil {
+		// The refusal wraps enterRead's error and the close cause, so errors.Is
+		// matches either.
+		return nil, fmt.Errorf("%w %q: %w: %w",
+			ErrIndexClosing, collection, err, index.closeRequestedCause())
+	}
+	defer index.exitRead()
+
+	names := make([]string, 0)
 	if err := index.ForEachShard(func(name string, _ ShardLike) error {
 		names = append(names, name)
 		return nil
 	}); err != nil {
 		return nil, err
 	}
-	if len(names) == 0 {
-		return nil, fmt.Errorf("collection %q has no local shards", collection)
+	// DB.Shutdown closes db.shutdown before it takes indexLock, so a stop may have
+	// begun since the entry check without having closed this index yet.
+	if db.shuttingDown() {
+		return nil, errIndexClosingForShutdown
+	}
+	// ForEachShard returns nil without walking a closing index, and
+	// closeRequestedCause also sees a delete that has not closed the index yet.
+	if cause := index.closeRequestedCause(); cause != nil {
+		return nil, fmt.Errorf("%w %q: %w", ErrIndexClosing, collection, cause)
 	}
 	return names, nil
 }
@@ -694,7 +767,8 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 }
 
 func (db *DB) Shutdown(ctx context.Context) error {
-	// Close, never send: the sole receiver is the resource-scan loop, and a recovered panic there would leave an unbuffered send hanging the whole shutdown until SIGKILL.
+	// Close, never send: a send reaches one receiver, and a recovered panic in
+	// scanResourceUsage would hang the whole shutdown on it until SIGKILL.
 	db.shutdownOnce.Do(func() { close(db.shutdown) })
 	db.bitmapBufPoolClose()
 
