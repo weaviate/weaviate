@@ -671,21 +671,27 @@ func TestBatchDeleteObjects_PrunesOnlyBelowTheDocIDWatermark(t *testing.T) {
 		"a doc id at or above the watermark is kept: its object row may still be on its way")
 }
 
-// TestBatchDeleteObjects_KeepsDocIDsOfConcurrentInserts is the watermark's reason for
-// existing, driven as the race it guards rather than as a structural case. An insert takes
-// its doc id before it writes the row (shard_write_put.go:319 then :342), so a walk running
-// in that window reads an id with no row behind it. Dropping that id from the doc id
-// universe would hide a live object from every deny-list filter until the next shard init,
-// because the universe only ever grows upwards.
+// TestBatchDeleteObjects_WalksWhileObjectsAreInserted runs the walk against a shard that is
+// being written to. The walk is not read-only: it subtracts the doc ids it found no object
+// row for from the doc id universe, under the same BitmapFactory lock an insert's universe
+// read takes, so this is the one case that exercises the two against each other. No object
+// an insert completed may be missing from a resolve that follows it.
 //
-// Run under -race, the walk and the inserts overlap; the assertion holds whether or not
-// the window was actually hit on a given run, which is what makes repeated runs useful.
-func TestBatchDeleteObjects_KeepsDocIDsOfConcurrentInserts(t *testing.T) {
+// What this does NOT pin is the watermark, and the reason is worth writing down so the next
+// reader does not assume it does. The hazard the watermark exists for is an id an insert
+// has taken (shard_write_put.go:319) whose row has not landed yet (:342) being read by a
+// walk. A walk reads the universe in ascending doc id order, so the newest id is the last
+// one it reads, by which point the write is long done: instrumenting this test at 500 to
+// 1000 overlapping walks per run measured zero ids read without a row. The watermark's pin
+// is TestBatchDeleteObjects_PrunesOnlyBelowTheDocIDWatermark, which puts an id on each side
+// of it directly.
+func TestBatchDeleteObjects_WalksWhileObjectsAreInserted(t *testing.T) {
 	ctx := context.Background()
 	const (
 		beforeRestart = 20
-		concurrent    = 200
-		walks         = 40
+		insertRounds  = 20
+		insertBatch   = 25
+		concurrent    = insertRounds * insertBatch
 		// High enough that a dry run lists every object it matched, so the assertion can
 		// name the UUIDs rather than only count them.
 		limit = int64(4 * (beforeRestart + concurrent))
@@ -698,32 +704,59 @@ func TestBatchDeleteObjects_KeepsDocIDsOfConcurrentInserts(t *testing.T) {
 	insertBatchDeleteObjects(t, repo, 0, beforeRestart)
 	require.NoError(t, repo.Shutdown(ctx))
 
-	// The reopen puts the watermark at the doc id counter, so every id the inserts below
-	// take is at or above it and none of them may be pruned.
+	// The restart is what puts a dead prefix in front of the walk, so the walk below has
+	// ids to prune and takes the BitmapFactory write lock while the inserts read it.
 	repo = newBatchDeleteRepoAt(t, rootDir, batchDeleteTestClass(false), shardState, limit)
 	t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
 
-	var wg sync.WaitGroup
+	// The inserting goroutine reports rather than asserts: testify's failures only work on
+	// the test's own goroutine.
+	var (
+		wg        sync.WaitGroup
+		inserting = make(chan struct{})
+		insertErr error
+	)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < concurrent; i++ {
-			insertBatchDeleteObjects(t, repo, beforeRestart+i, 1)
+		defer close(inserting)
+		for i := 0; i < insertRounds; i++ {
+			batch := newBatchDeleteObjects(beforeRestart+i*insertBatch, insertBatch)
+			res, err := repo.BatchPutObjects(ctx, batch, nil, 0)
+			if err != nil {
+				insertErr = err
+				return
+			}
+			for _, item := range res {
+				if item.Err != nil {
+					insertErr = item.Err
+					return
+				}
+			}
 		}
 	}()
 
-	// A deny-list dry run walks the whole doc id universe, which is where an
-	// allocated-but-unwritten id is read.
-	for i := 0; i < walks; i++ {
-		_, err := repo.BatchDeleteObjects(ctx, batchDeleteDenyListParams(true), time.Now(), nil, "", 0)
-		require.NoError(t, err)
+	// A deny-list dry run walks the whole doc id universe, and keeps walking for as long
+	// as the inserts run.
+	walks := 0
+	for done := false; !done; {
+		select {
+		case <-inserting:
+			done = true
+		default:
+			_, err := repo.BatchDeleteObjects(ctx, batchDeleteDenyListParams(true), time.Now(), nil, "", 0)
+			require.NoError(t, err)
+			walks++
+		}
 	}
 	wg.Wait()
+	require.NoError(t, insertErr)
+	require.Positive(t, walks, "the walks have to have overlapped the inserts")
 
 	res, err := repo.BatchDeleteObjects(ctx, batchDeleteDenyListParams(true), time.Now(), nil, "", 0)
 	require.NoError(t, err)
 	require.Equal(t, int64(beforeRestart+concurrent), res.Matches,
-		"a doc id taken by an insert the walk overlapped must still be in the universe")
+		"an object inserted while the walk pruned must still be in the universe")
 
 	returned := make(map[strfmt.UUID]struct{}, len(res.Objects))
 	for _, obj := range res.Objects {
@@ -913,10 +946,8 @@ func batchDeleteObjectID(i int) strfmt.UUID {
 	return strfmt.UUID(fmt.Sprintf("7c4b2aa1-2b7c-4478-8bd0-2e527e%06d", i))
 }
 
-// insertBatchDeleteObjects writes count objects with ids batchDeleteObjectID(from) onward.
-func insertBatchDeleteObjects(t *testing.T, repo *DB, from, count int) {
-	t.Helper()
-
+// newBatchDeleteObjects builds count objects with ids batchDeleteObjectID(from) onward.
+func newBatchDeleteObjects(from, count int) objects.BatchObjects {
 	batch := make(objects.BatchObjects, count)
 	for i := range batch {
 		id := batchDeleteObjectID(from + i)
@@ -932,7 +963,14 @@ func insertBatchDeleteObjects(t *testing.T, repo *DB, from, count int) {
 		}
 	}
 
-	res, err := repo.BatchPutObjects(context.Background(), batch, nil, 0)
+	return batch
+}
+
+// insertBatchDeleteObjects writes count objects with ids batchDeleteObjectID(from) onward.
+func insertBatchDeleteObjects(t *testing.T, repo *DB, from, count int) {
+	t.Helper()
+
+	res, err := repo.BatchPutObjects(context.Background(), newBatchDeleteObjects(from, count), nil, 0)
 	require.NoError(t, err)
 	assertAllItemsErrorFree(t, res)
 }
