@@ -212,8 +212,8 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 		return nil, fmt.Errorf("getting objects bucket class name: %w", err)
 	}
 
-	// Prevent unbounded iteration; an unset (zero) or invalid (negative) limit
-	// both fall back to the default.
+	// Prevent unbounded iteration: an unset (zero) limit and a negative one both
+	// fall back to the default.
 	if limit <= 0 {
 		limit = int(config.DefaultQueryMaximumResults)
 	}
