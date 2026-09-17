@@ -77,7 +77,7 @@ jobs:
 
       - name: Upload SARIF file
         if: always() && steps.vuln-scan.outputs.exit_code != 1
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
         with:
           sarif_file: results/image.sarif
 
@@ -219,7 +219,7 @@ jobs:
 
       - name: Upload SARIF file
         if: always() && steps.vuln-scan.outputs.exit_code != 1
-        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        uses: github/codeql-action/upload-sarif@b96794f015dfd88f77b49b1c93e0fa7110f94c63 # v4
         with:
           sarif_file: results/image.sarif
 
@@ -667,7 +667,9 @@ jobs:
           - name: "fast-group-2"
             test: "--acceptance-only-fast-group-2"
           - name: "fast-group-3"
-            test: "--acceptance-only-fast-group-3"          
+            test: "--acceptance-only-fast-group-3"
+          - name: "fast-group-6"
+            test: "--acceptance-only-fast-group-6"
           - name: "graphql"
             test: "--acceptance-only-graphql"
           - name: "authz"

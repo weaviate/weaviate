@@ -39,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -1289,20 +1290,6 @@ func (sg *SegmentGroup) isReadyOnly() bool {
 	return sg.status == storagestate.StatusReadOnly
 }
 
-// traceEnabled reports whether the logger emits trace entries, so callers can
-// skip building WithField chains a normal log level would discard. A logger of
-// unknown type is treated as enabled rather than silently losing the line.
-func traceEnabled(logger logrus.FieldLogger) bool {
-	switch l := logger.(type) {
-	case *logrus.Logger:
-		return l.IsLevelEnabled(logrus.TraceLevel)
-	case *logrus.Entry:
-		return l.Logger.IsLevelEnabled(logrus.TraceLevel)
-	default:
-		return true
-	}
-}
-
 func fileExists(path string) (bool, error) {
 	_, err := os.Stat(path)
 	if err == nil {
@@ -1340,7 +1327,7 @@ func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCal
 				WithField("path", sg.dir).
 				WithError(err).
 				Errorf("compaction failed")
-		} else if !compacted && traceEnabled(sg.logger) {
+		} else if !compacted && logrusext.LevelEnabled(sg.logger, logrus.TraceLevel) {
 			sg.logger.WithField("action", "lsm_compaction").
 				WithField("path", sg.dir).
 				Trace("no segments eligible for compaction")
