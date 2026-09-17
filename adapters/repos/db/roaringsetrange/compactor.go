@@ -179,6 +179,10 @@ type nodeCompactor struct {
 	left, right SegmentCursor
 	bufw        io.Writer
 	written     int
+	// nodeScratch holds the node under construction, grown when one needs more
+	// bytes and reused by the next. writeLayer writes the node before returning,
+	// and an io.Writer may not retain the slice it was passed.
+	nodeScratch []byte
 
 	cleanupDeletions              bool
 	emptyBitmap                   *sroar.Bitmap
@@ -301,22 +305,26 @@ func (nc *nodeCompactor) mergeLayers(key uint8, additionsLeft, additionsRight *s
 }
 
 func (nc *nodeCompactor) writeLayer(key uint8, layer roaringset.BitmapLayer) error {
-	if cleanLayer, skip := nc.cleanupLayer(key, layer); !skip {
-		sn, err := NewSegmentNode(key, cleanLayer.Additions, cleanLayer.Deletions)
-		if err != nil {
-			return fmt.Errorf("new segment node for key %d: %w", key, err)
-		}
-
-		n, err := nc.bufw.Write(sn.ToBuffer())
-		if err != nil {
-			return fmt.Errorf("write segment node for key %d: %w", key, err)
-		}
-
-		nc.written += n
+	cleanLayer, skip := nc.cleanupLayer(key, layer)
+	if skip {
+		return nil
 	}
+
+	sn, scratch := NewSegmentNodeCompacted(key, cleanLayer.Additions,
+		cleanLayer.Deletions, nc.nodeScratch)
+	nc.nodeScratch = scratch
+
+	n, err := nc.bufw.Write(sn.ToBuffer())
+	if err != nil {
+		return fmt.Errorf("write segment node for key %d: %w", key, err)
+	}
+
+	nc.written += n
 	return nil
 }
 
+// cleanupLayer picks the sides the node records and leaves them uncompacted,
+// because NewSegmentNodeCompacted compacts what it is given.
 func (nc *nodeCompactor) cleanupLayer(key uint8, layer roaringset.BitmapLayer) (roaringset.BitmapLayer, bool) {
 	var additions, deletions *sroar.Bitmap
 
@@ -326,16 +334,16 @@ func (nc *nodeCompactor) cleanupLayer(key uint8, layer roaringset.BitmapLayer) (
 		}
 
 		additions = nc.emptyBitmap
-		deletions = roaringset.Condense(layer.Deletions)
+		deletions = layer.Deletions
 	} else {
-		additions = roaringset.Condense(layer.Additions)
+		additions = layer.Additions
 		deletions = nil
 
 		if key == 0 {
 			if nc.cleanupDeletions || layer.Deletions.IsEmpty() {
 				deletions = nc.emptyBitmap
 			} else {
-				deletions = roaringset.Condense(layer.Deletions)
+				deletions = layer.Deletions
 			}
 		}
 	}

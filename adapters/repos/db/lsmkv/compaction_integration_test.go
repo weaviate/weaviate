@@ -373,7 +373,7 @@ func TestCompaction(t *testing.T) {
 		{
 			name: "compactionRoaringSetRangeStrategy",
 			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
-				compactionRoaringSetRangeStrategy(ctx, t, opts, 1824, 1824)
+				compactionRoaringSetRangeStrategy(ctx, t, opts, 1688, 1688)
 			},
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSetRange),
@@ -382,7 +382,7 @@ func TestCompaction(t *testing.T) {
 		{
 			name: "compactionRoaringSetRangeStrategy_KeepTombstones",
 			f: func(ctx context.Context, t *testing.T, opts []BucketOption) {
-				compactionRoaringSetRangeStrategy(ctx, t, opts, 2384, 2384)
+				compactionRoaringSetRangeStrategy(ctx, t, opts, 2120, 2120)
 			},
 			opts: []BucketOption{
 				WithStrategy(StrategyRoaringSetRange),

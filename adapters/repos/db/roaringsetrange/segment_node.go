@@ -50,15 +50,27 @@ type SegmentNode struct {
 	rw   byteops.ReadWriter
 }
 
+// The layout above gives the fixed-width fields these byte sizes.
+const (
+	NodeLengthSize   = 8
+	KeySize          = 1
+	BitmapLengthSize = 8
+)
+
+// AdditionsStart is where the layout above puts the additions payload, and is
+// therefore what a node costs before it. The deletions length indicator and
+// payload follow that payload, and only key 0 carries them.
+const AdditionsStart = NodeLengthSize + KeySize + BitmapLengthSize
+
 // Len indicates the total length of the [SegmentNode]. When reading multiple
 // segments back-2-back, such as in a cursor situation, the offset of element
 // (n+1) is the offset of element n + Len()
 func (sn *SegmentNode) Len() uint64 {
-	return binary.LittleEndian.Uint64(sn.data[0:8])
+	return binary.LittleEndian.Uint64(sn.data[:NodeLengthSize])
 }
 
 func (sn *SegmentNode) Key() uint8 {
-	sn.rw.MoveBufferToAbsolutePosition(8)
+	sn.rw.MoveBufferToAbsolutePosition(NodeLengthSize)
 	return sn.rw.ReadUint8()
 }
 
@@ -66,7 +78,7 @@ func (sn *SegmentNode) Key() uint8 {
 // this method if you can guarantee that you will only use it while holding a
 // maintenance lock or can otherwise be sure that no compaction can occur.
 func (sn *SegmentNode) Additions() *sroar.Bitmap {
-	sn.rw.MoveBufferToAbsolutePosition(9)
+	sn.rw.MoveBufferToAbsolutePosition(NodeLengthSize + KeySize)
 	return sroar.FromBuffer(sn.rw.ReadBytesFromBufferWithUint64LengthIndicator())
 }
 
@@ -74,7 +86,7 @@ func (sn *SegmentNode) Additions() *sroar.Bitmap {
 // this method if you can guarantee that you will only use it while holding a
 // maintenance lock or can otherwise be sure that no compaction can occur.
 func (sn *SegmentNode) Deletions() *sroar.Bitmap {
-	sn.rw.MoveBufferToAbsolutePosition(8)
+	sn.rw.MoveBufferToAbsolutePosition(NodeLengthSize)
 	if key := sn.rw.ReadUint8(); key != 0 {
 		return nil
 	}
@@ -86,19 +98,18 @@ func NewSegmentNode(key uint8, additions, deletions *sroar.Bitmap) (*SegmentNode
 	additionsBuf := additions.ToBuffer()
 	var deletionsBuf []byte
 
-	// total len + key + length indicators + payload
-	expectedSize := 8 + 1 + 8 + len(additionsBuf)
+	expectedSize := AdditionsStart + len(additionsBuf)
 
 	if key == 0 {
 		deletionsBuf = deletions.ToBuffer()
-		expectedSize += 8 + len(deletionsBuf)
+		expectedSize += BitmapLengthSize + len(deletionsBuf)
 	}
 
 	data := make([]byte, expectedSize)
 	rw := byteops.NewReadWriter(data)
 
-	// reserve the first 8 bytes for the offset, which will be written at the very end
-	rw.MoveBufferPositionForward(8)
+	// reserve the node length field, which is written at the very end
+	rw.MoveBufferPositionForward(NodeLengthSize)
 	rw.CopyBytesToBuffer([]byte{key})
 
 	if err := rw.CopyBytesToBufferWithUint64LengthIndicator(additionsBuf); err != nil {
@@ -119,6 +130,83 @@ func NewSegmentNode(key uint8, additions, deletions *sroar.Bitmap) (*SegmentNode
 		data: data,
 		rw:   rw,
 	}, nil
+}
+
+// NewSegmentNodeCompacted builds the node into scratch, growing it as needed and
+// handing it back for the next call. Write the node through [SegmentNode.ToBuffer].
+// Scratch runs to the largest node built so far, so writing it appends trailing
+// bytes belonging to no node. The node points into scratch, so nothing may hold
+// it past the next call. Neither bitmap may live in scratch, because sroar leaves
+// an overlapping side undefined and nothing here checks for one. A nil bitmap is an
+// empty side, and a non-zero key records no deletions.
+func NewSegmentNodeCompacted(key uint8, additions, deletions *sroar.Bitmap,
+	scratch []byte,
+) (SegmentNode, []byte) {
+	overhead := AdditionsStart
+	if key == 0 {
+		overhead = AdditionsStart + BitmapLengthSize
+	}
+
+	buf := scratch
+	var additionsSize, deletionsSize int
+	// IsEmpty walks every container until it finds a non-empty one, and the
+	// switch below tests each side in two of its arms, so each is asked once.
+	additionsEmpty := additions.IsEmpty()
+	noDeletions := key != 0 || deletions.IsEmpty()
+
+	// An empty side skips CompactedToBuf. Calling it would hand back a non-empty
+	// region where a zero length indicator belongs, and Additions would read a
+	// bitmap there. Where both sides are present the two calls nest, because the
+	// deletions region starts after the additions one. The inner callback is the
+	// first point at which both sizes are known, and it must not touch deletions,
+	// which sroar sizes before it calls back.
+	writeAdditions := func() {
+		additions.CompactedToBuf(func(size int) []byte {
+			additionsSize = size
+			buf = byteops.Resize(buf, overhead+additionsSize+deletionsSize)
+			end := AdditionsStart + additionsSize
+			// The three-index slice holds sroar to this payload's own region,
+			// which it would otherwise adopt to the end of buf's capacity.
+			return buf[AdditionsStart:end:end]
+		})
+	}
+	deletionsRegion := func() []byte {
+		start := AdditionsStart + additionsSize + BitmapLengthSize
+		end := start + deletionsSize
+		return buf[start:end:end]
+	}
+
+	switch {
+	case !additionsEmpty && !noDeletions:
+		deletions.CompactedToBuf(func(size int) []byte {
+			deletionsSize = size
+			writeAdditions()
+			return deletionsRegion()
+		})
+	case !additionsEmpty:
+		writeAdditions()
+	case !noDeletions:
+		deletions.CompactedToBuf(func(size int) []byte {
+			deletionsSize = size
+			buf = byteops.Resize(buf, overhead+deletionsSize)
+			return deletionsRegion()
+		})
+	default:
+		buf = byteops.Resize(buf, overhead)
+	}
+
+	// The payloads are already in place. Every remaining byte is written here,
+	// because a reused scratch still holds the previous node's bytes.
+	rw := byteops.NewReadWriter(buf)
+	rw.WriteUint64(uint64(len(buf)))
+	rw.WriteByte(key)
+	rw.WriteUint64(uint64(additionsSize))
+	if key == 0 {
+		rw.MoveBufferToAbsolutePosition(uint64(AdditionsStart + additionsSize))
+		rw.WriteUint64(uint64(deletionsSize))
+	}
+
+	return SegmentNode{data: buf, rw: rw}, buf[:cap(buf)]
 }
 
 // ToBuffer returns the internal buffer without copying data. Only use this,
