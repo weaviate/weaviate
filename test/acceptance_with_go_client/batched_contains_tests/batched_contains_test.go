@@ -318,10 +318,9 @@ func TestBatchedContains(t *testing.T) {
 	})
 
 	// Two callers reach the fold by a route Get does not: batch delete through
-	// DocIDsLimited, and Aggregate through a Searcher of its own. Aggregate
-	// cannot be checked against the log: AnnotateSlowQueryLog discards the
-	// fold's fields unless the context carries slow_query_details, which its
-	// path does not install.
+	// DocIDsLimited, and Aggregate through a Searcher of its own. Each writes
+	// its own slow-query entry, which is the only evidence of which resolver
+	// answered.
 	t.Run("batch delete answers through DocIDsLimited", func(t *testing.T) {
 		before := weaviate.logs(t, ctx, "fold_strategy")
 
@@ -352,6 +351,8 @@ func TestBatchedContains(t *testing.T) {
 	})
 
 	t.Run("aggregate answers through its own allow list", func(t *testing.T) {
+		before := weaviate.logs(t, ctx, "fold_strategy")
+
 		resp, err := weaviate.client.GraphQL().Aggregate().
 			WithClassName(className).
 			WithWhere(filters.Where().WithPath([]string{"tag"}).
@@ -366,6 +367,15 @@ func TestBatchedContains(t *testing.T) {
 		require.Empty(t, resp.Errors)
 		require.EqualValues(t, splitValues, aggregateCount(t, resp),
 			"aggregate must count what the same filter returns through Get")
+
+		// The count is the same whichever resolver produced it, so the route's
+		// own entry is the only evidence it batched.
+		added := strings.TrimPrefix(
+			weaviate.logsMatching(t, ctx, aggregateQueryRE), before)
+		require.Contains(t, added, "fold_workers",
+			"the aggregate recorded no fold, so its filter never took the batched path")
+		require.NotContains(t, added, "contains_desugared",
+			"the aggregate's filter fell back to the desugared per-value path")
 	})
 
 	// The searcher can batch a len() Contains filter, and no supported API can
