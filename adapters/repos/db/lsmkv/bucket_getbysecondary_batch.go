@@ -23,25 +23,22 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
-// secondaryBatchChunkSize is how many keys a worker claims at a time. Small
-// enough that one slow chunk does not stall the batch, large enough that a
-// worker stays on the same index pages. BenchmarkGetBySecondaryBatchShape
-// sweeps it.
+// secondaryBatchChunkSize is how many keys a worker claims per turn: small
+// enough that one slow chunk doesn't stall the batch, large enough to keep a
+// worker on one index region. Tune via BenchmarkGetBySecondaryBatchShape.
 const secondaryBatchChunkSize = 32
 
-// secondaryBatchWorkers caps the fan-out. The workers also run the caller's
-// visit, and each holds a read buffer grown to the largest value it read, so
-// the cap bounds memory as well as concurrent reads. The concurrency budget on
-// the context can lower it. BenchmarkGetBySecondaryBatchShape sweeps it.
+// secondaryBatchWorkers caps fan-out, bounding both concurrent reads and the
+// per-worker read buffers (each grows to its largest read). ctx's concurrency
+// budget may lower it; tune via BenchmarkGetBySecondaryBatchShape.
 const secondaryBatchWorkers = 16
 
 // GetBySecondaryBatch resolves keys (Replace strategy only) under one
-// consistent view, on up to secondaryBatchWorkers goroutines.
+// consistent view, using up to secondaryBatchWorkers goroutines concurrently.
 //
-// visit is called at most once per key that has a value, with i the key's
-// position in keys and value the bucket's own read buffer: it holds only until
-// visit returns, so copy anything that outlives the call. visit may run on
-// several goroutines at once. The first error ends the call, and other keys may
+// visit is called at most once per key with a value; i is the key's position
+// in keys, and value is the bucket's read buffer, valid only until visit
+// returns, so copy it to keep it. The first error ends the call; other keys may
 // already have been visited.
 func (b *Bucket) GetBySecondaryBatch(ctx context.Context, pos int, keys [][]byte, visit func(i int, value []byte) error) error {
 	return b.getBySecondaryBatch(ctx, pos, keys, secondaryBatchChunkSize, secondaryBatchWorkers, visit)
@@ -54,16 +51,23 @@ func (b *Bucket) getBySecondaryBatch(ctx context.Context, pos int, keys [][]byte
 		return nil
 	}
 
+	if chunkSize <= 0 {
+		// A caller that asks for no chunk would divide by zero below. Take the
+		// default instead, and say so, since it can only be a caller bug.
+		b.logger.WithField("action", "get_by_secondary_batch").
+			Debugf("chunk size %d is not positive, resolving in chunks of %d", chunkSize, secondaryBatchChunkSize)
+		chunkSize = secondaryBatchChunkSize
+	}
+
 	view := b.GetConsistentView()
 	defer view.ReleaseView()
 
 	chunks := (len(keys) + chunkSize - 1) / chunkSize
 	workers := concurrency.NumWorkers(ctx, chunks, maxWorkers)
 
-	// The secondary key is the little-endian doc id, so sorting the keys
-	// byte-wise puts them in the order the index stores them; order maps each
-	// lookup back to its caller position. A single chunk is resolved in caller
-	// order, since there is no second chunk for the sort to separate it from.
+	// Secondary keys are little-endian doc ids, so byte-wise sort matches
+	// on-disk order; order maps each lookup back to its caller position. Skipped
+	// for a single chunk, since there's nothing to separate it from.
 	var order []int
 	if chunks > 1 {
 		order = make([]int, len(keys))
@@ -93,9 +97,9 @@ func (b *Bucket) getBySecondaryBatch(ctx context.Context, pos int, keys [][]byte
 		}
 	}
 
-	// A single worker has nothing to overlap with, so the error group would only
-	// add a goroutine, a derived context and a channel. Recover a panic the way
-	// the group's goroutines do, so both paths report one as an error.
+	// A single worker has nothing to overlap, so skip the error group's
+	// goroutine/context/channel overhead; RunRecovered keeps panic handling
+	// consistent with the group path.
 	if workers == 1 {
 		return enterrors.RunRecovered(b.logger, func() error { return resolveChunks(ctx) })
 	}
@@ -113,9 +117,8 @@ func (b *Bucket) getBySecondaryBatch(ctx context.Context, pos int, keys [][]byte
 func (b *Bucket) resolveSecondaryChunk(ctx context.Context, pos int, keys [][]byte, order []int, start, end int,
 	buffer []byte, view BucketConsistentView, visit func(i int, value []byte) error,
 ) ([]byte, error) {
-	// The workers share one slow-query details lock, so taking it per lookup
-	// would serialise the fan-out. Collect the chunk's entries instead and
-	// record them in one go.
+	// Workers share one slow-query details lock; taking it per lookup would
+	// serialise the fan-out, so entries are collected and recorded in one go.
 	var entries []BucketSlowLogEntry
 	if helpers.HasSlowQueryDetails(ctx) {
 		entries = make([]BucketSlowLogEntry, 0, end-start)
@@ -141,8 +144,7 @@ func (b *Bucket) resolveSecondaryChunk(ctx context.Context, pos int, keys [][]by
 			entries = append(entries, entry)
 		}
 		if value == nil {
-			// A key whose stored value is nil has nothing to hand to visit, and
-			// the callers treat a nil value as an absent one anyway.
+			// Nothing to hand to visit; callers already treat nil as absent.
 			continue
 		}
 		if err := visit(i, value); err != nil {

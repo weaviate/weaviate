@@ -138,7 +138,7 @@ func TestBucketGetBySecondaryBatch(t *testing.T) {
 		useBloom bool
 		pos      int
 		setup    func(t *testing.T, b *Bucket) (keys [][]byte, want [][]byte)
-		wantErr  bool
+		wantErr  string
 	}
 	cases := []testCase{
 		{
@@ -161,7 +161,16 @@ func TestBucketGetBySecondaryBatch(t *testing.T) {
 				putDoc(t, b, 1, []byte("one"))
 				return [][]byte{docIDKey(1)}, nil
 			},
-			wantErr: true,
+			wantErr: "no secondary index at pos 1",
+		},
+		{
+			name: "negative secondary index position",
+			pos:  -1,
+			setup: func(t *testing.T, b *Bucket) ([][]byte, [][]byte) {
+				putDoc(t, b, 1, []byte("one"))
+				return [][]byte{docIDKey(1)}, nil
+			},
+			wantErr: "no secondary index at pos -1",
 		},
 		{
 			name: "tombstone in the newer segment wins over the older live value",
@@ -287,8 +296,8 @@ func TestBucketGetBySecondaryBatch(t *testing.T) {
 			keys, want := tc.setup(t, b)
 
 			got, err := batchLookup(context.Background(), b, tc.pos, keys)
-			if tc.wantErr {
-				require.Error(t, err)
+			if tc.wantErr != "" {
+				require.EqualError(t, err, tc.wantErr)
 				return
 			}
 			require.NoError(t, err)
@@ -521,8 +530,64 @@ func TestBucketGetBySecondaryBatchHonoursConcurrencyBudget(t *testing.T) {
 	})
 }
 
+// startBarrier holds every worker inside its first lookup until all of them
+// are there, then hands the abort to the first one released and keeps the rest
+// there until that abort has settled. Without it a worker can claim several
+// chunks before another one fails, and a lookup count says nothing about which
+// context the workers were given.
+type startBarrier struct {
+	want        int64
+	arrived     atomic.Int64
+	open        chan struct{}
+	settled     chan struct{}
+	openOnce    sync.Once
+	settledOnce sync.Once
+	designated  atomic.Bool
+	graceTimer  *time.Timer
+	timedOut    atomic.Bool
+}
+
+// settleDelay is how long the surviving workers stay inside their first lookup
+// after the aborting worker returns, which is four orders of magnitude more
+// than the error group needs to record the error and cancel. A worker that
+// resolves another chunk after that has not seen the cancellation at all.
+const settleDelay = 50 * time.Millisecond
+
+func newStartBarrier(want int, grace time.Duration) *startBarrier {
+	b := &startBarrier{want: int64(want), open: make(chan struct{}), settled: make(chan struct{})}
+	b.graceTimer = time.AfterFunc(grace, func() {
+		b.timedOut.Store(true)
+		b.release()
+	})
+	return b
+}
+
+func (b *startBarrier) release() { b.openOnce.Do(func() { close(b.open) }) }
+
+// arrive blocks until every worker has arrived and reports whether this worker
+// is the one that aborts the batch.
+func (b *startBarrier) arrive() bool {
+	if b.arrived.Add(1) == b.want {
+		b.graceTimer.Stop()
+		b.release()
+	}
+	<-b.open
+	if b.designated.CompareAndSwap(false, true) {
+		time.AfterFunc(settleDelay, func() { b.settledOnce.Do(func() { close(b.settled) }) })
+		return true
+	}
+	<-b.settled
+	return false
+}
+
 func TestBucketGetBySecondaryBatchStopsEarly(t *testing.T) {
-	const numKeys = 2000
+	const (
+		numKeys = 2000
+		// One key per chunk is what makes the bound exact: a worker that kept
+		// going has to claim another chunk, and claiming one costs one lookup.
+		chunkSize    = 1
+		barrierGrace = 2 * time.Second
+	)
 	readErr := errors.New("segment read failed")
 	visitErr := errors.New("visit failed")
 
@@ -533,21 +598,14 @@ func TestBucketGetBySecondaryBatchStopsEarly(t *testing.T) {
 		failVisit bool
 		cancel    bool
 		wantErr   error
-		// maxLookups is the exact bound one worker gives. The fan-out arms
-		// leave it at zero: a worker learns of a failure through the group
-		// context, which the group cancels after the failing goroutine has
-		// returned, and nothing orders that against the other workers claiming
-		// their next chunk. All they guarantee is that the chunk the failure
-		// aborted is never read by anyone else.
-		maxLookups int64
 	}
 	cases := []testCase{
 		{name: "read error with workers", budget: secondaryBatchWorkers, failRead: true, wantErr: readErr},
-		{name: "read error inline", budget: 1, failRead: true, wantErr: readErr, maxLookups: 1},
+		{name: "read error inline", budget: 1, failRead: true, wantErr: readErr},
 		{name: "visit error with workers", budget: secondaryBatchWorkers, failVisit: true, wantErr: visitErr},
-		{name: "visit error inline", budget: 1, failVisit: true, wantErr: visitErr, maxLookups: 1},
+		{name: "visit error inline", budget: 1, failVisit: true, wantErr: visitErr},
 		{name: "cancelled during the first lookup with workers", budget: secondaryBatchWorkers, cancel: true, wantErr: context.Canceled},
-		{name: "cancelled during the first lookup inline", budget: 1, cancel: true, wantErr: context.Canceled, maxLookups: secondaryBatchChunkSize},
+		{name: "cancelled during the first lookup inline", budget: 1, cancel: true, wantErr: context.Canceled},
 	}
 
 	for _, tc := range cases {
@@ -556,34 +614,60 @@ func TestBucketGetBySecondaryBatchStopsEarly(t *testing.T) {
 			defer cancel()
 
 			var lookups atomic.Int64
-			var first sync.Once
+			var abortRead, abortVisit sync.Once
+			barrier := newStartBarrier(tc.budget, barrierGrace)
 			observe := &observedSegment{before: func() {
 				lookups.Add(1)
-				if tc.cancel {
-					first.Do(cancel)
+				if barrier.arrive() && tc.cancel {
+					cancel()
 				}
 			}}
 			if tc.failRead {
 				observe.fail = func() error {
 					var err error
-					first.Do(func() { err = readErr })
+					abortRead.Do(func() { err = readErr })
 					return err
 				}
 			}
 			b, keys := newSingleSegmentBucket(t, numKeys, observe)
 
-			err := b.GetBySecondaryBatch(ctx, secondaryPos, keys, func(int, []byte) error {
-				if tc.failVisit {
-					return visitErr
-				}
-				return nil
-			})
+			err := b.getBySecondaryBatch(ctx, secondaryPos, keys, chunkSize, secondaryBatchWorkers,
+				func(int, []byte) error {
+					if !tc.failVisit {
+						return nil
+					}
+					var err error
+					abortVisit.Do(func() { err = visitErr })
+					return err
+				})
+
 			require.ErrorIs(t, err, tc.wantErr)
-			if tc.maxLookups > 0 {
-				require.LessOrEqual(t, lookups.Load(), tc.maxLookups)
-				return
-			}
-			require.Less(t, lookups.Load(), int64(numKeys), "the aborted chunk must never be read to the end")
+			require.False(t, barrier.timedOut.Load(), "every worker must reach its first lookup")
+			// The batch cannot return before every worker has, so by now each one
+			// has either aborted or observed the cancellation the aborting worker
+			// caused. A worker handed the caller's context instead of the error
+			// group's sees neither and resolves the rest of the keys.
+			require.Equal(t, int64(tc.budget), lookups.Load(),
+				"every worker must stop at the chunk after the abort")
+		})
+	}
+}
+
+// TestBucketGetBySecondaryBatchGuardsChunkSize pins that a chunk size the
+// chunk maths cannot divide by falls back to the default instead of panicking.
+func TestBucketGetBySecondaryBatchGuardsChunkSize(t *testing.T) {
+	const numKeys = 100
+	b, keys := newSingleSegmentBucket(t, numKeys, &observedSegment{})
+
+	for _, chunkSize := range []int{0, -1} {
+		t.Run(fmt.Sprintf("chunkSize=%d", chunkSize), func(t *testing.T) {
+			var visited atomic.Int64
+			require.NoError(t, b.getBySecondaryBatch(context.Background(), secondaryPos, keys, chunkSize,
+				secondaryBatchWorkers, func(int, []byte) error {
+					visited.Add(1)
+					return nil
+				}))
+			require.Equal(t, int64(numKeys), visited.Load())
 		})
 	}
 }
@@ -593,9 +677,8 @@ func TestBucketGetBySecondaryBatchStopsEarly(t *testing.T) {
 func TestBucketGetBySecondaryBatchIgnoresWritesAfterItsView(t *testing.T) {
 	const (
 		numKeys = 200
-		// The gate only opens from inside a segment lookup, so a batch that
-		// stops looking things up would block both sides forever. Time out and
-		// fail by name instead of by the package-wide test deadline.
+		// The gate only opens inside a segment lookup, so a stalled batch would
+		// hang both sides; time out here instead of hitting the package deadline.
 		gateTimeout = 30 * time.Second
 	)
 	writerMayStart := make(chan struct{})
@@ -683,14 +766,12 @@ func TestBucketGetBySecondaryBatchHandsOutTheWorkerBuffer(t *testing.T) {
 	require.Len(t, arrays, 1, "every visit must alias the one reused worker buffer")
 }
 
-// TestBucketGetBySecondaryBatchResolvesInKeyOrder pins the sort: the doc id is
-// stored little-endian, so ascending doc ids are not ascending keys, and a
-// comparator that stopped sorting would show up as caller order here.
+// TestBucketGetBySecondaryBatchResolvesInKeyOrder pins that resolution order
+// follows sorted (little-endian) keys, not caller order.
 func TestBucketGetBySecondaryBatchResolvesInKeyOrder(t *testing.T) {
 	const numKeys = 2000
 	b, keys := newSingleSegmentBucket(t, numKeys, &observedSegment{})
-	// one worker, so the arrival order is the order the chunks impose rather
-	// than a race between workers
+	// Single worker: arrival order reflects chunk order, not a worker race.
 	ctx := concurrency.CtxWithBudget(context.Background(), 1)
 
 	var arrived [][]byte
@@ -706,10 +787,8 @@ func TestBucketGetBySecondaryBatchResolvesInKeyOrder(t *testing.T) {
 	}
 }
 
-// TestBucketGetBySecondaryBatchSkipsNilValues pins that visit never sees a nil
-// value: the callers read a nil value as an absent object and answer that on
-// their own goroutine, off the worker pool. Only the active memtable hands one
-// back; a flushed nil is stored and read back as an empty value.
+// TestBucketGetBySecondaryBatchSkipsNilValues pins that visit never sees nil:
+// an active-memtable nil is skipped, but a flushed nil round-trips as empty.
 func TestBucketGetBySecondaryBatchSkipsNilValues(t *testing.T) {
 	cases := []struct {
 		name        string
@@ -750,6 +829,13 @@ func TestBucketGetBySecondaryBatchSkipsNilValues(t *testing.T) {
 // TestBucketGetBySecondaryBatchTurnsPanicIntoError pins that a panic in visit
 // is reported the same way whether the batch fanned out or ran inline.
 func TestBucketGetBySecondaryBatchTurnsPanicIntoError(t *testing.T) {
+	// Turning the panic into an error is what is under test, and
+	// DISABLE_RECOVERY_ON_PANIC makes both the error group's recover and
+	// RunRecovered's a no-op. test/integration/run.sh exports it as true over
+	// ./adapters/repos/..., and this file carries no build tag, so without this
+	// the panic takes the package binary down instead of being asserted on.
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
 	const numKeys = 2000
 	cases := []struct {
 		name   string
@@ -771,10 +857,9 @@ func TestBucketGetBySecondaryBatchTurnsPanicIntoError(t *testing.T) {
 	}
 }
 
-// TestBucketGetBySecondaryBatchRecordsEveryLookupEntry pins that collecting a
-// chunk's slow-log entries and recording them together keeps every entry a
-// per-lookup record would have written, and no more. A memtable hit writes
-// none, since it reads no segment.
+// TestBucketGetBySecondaryBatchRecordsEveryLookupEntry pins that batched
+// recording keeps exactly the entries per-lookup recording would have (none
+// for a memtable hit).
 func TestBucketGetBySecondaryBatchRecordsEveryLookupEntry(t *testing.T) {
 	const numSegmentKeys = 200
 	b, keys := newSingleSegmentBucket(t, numSegmentKeys, &observedSegment{})

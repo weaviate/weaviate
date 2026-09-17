@@ -1105,10 +1105,10 @@ func (b *Bucket) getBySecondaryWithView(ctx context.Context, pos int, seckey []b
 	return v, allocBuf, err
 }
 
-// getBySecondaryCore returns the lookup's slow-log entry rather than recording
-// it, so a caller resolving many keys can record them in one batch instead of
-// taking the slow-query details lock once per key. fromSegments is false for a
-// memtable hit, which has no entry to record.
+// getBySecondaryCore returns the slow-log entry instead of recording it, so a
+// caller resolving many keys can batch the recording rather than taking the
+// slow-query lock per key. fromSegments is false for a memtable hit (nothing
+// to record).
 func (b *Bucket) getBySecondaryCore(pos int, seckey []byte, buffer []byte, view BucketConsistentView, viewTiming time.Duration,
 ) (value []byte, allocBuf []byte, entry BucketSlowLogEntry, fromSegments bool, err error) {
 	if pos < 0 || pos >= int(b.secondaryIndices) {

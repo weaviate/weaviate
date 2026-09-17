@@ -19,10 +19,13 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 )
 
-// The keys a secondary-key lookup writes its per-lookup slow-log entry under.
-// There are two because a lookup that acquires its own consistent view and a
-// lookup that reuses the caller's are worth telling apart; callers that cannot
-// know which path a bucket took reduce both.
+// Keys for per-lookup slow-log entries. A lookup that builds its own view per
+// key records under SlowLogKeyGetBySecondary, with the time that view cost in
+// View. Everything resolving under one view for many keys records under
+// SlowLogKeyGetBySecondaryWithView with View zero, including
+// GetBySecondaryBatch, which acquires the view itself: its own view cost is
+// not in these percentiles. Callers that don't know which path was taken
+// reduce both.
 const (
 	SlowLogKeyGetBySecondary         = "lsm_get_by_secondary"
 	SlowLogKeyGetBySecondaryWithView = "lsm_get_by_secondary_with_view"

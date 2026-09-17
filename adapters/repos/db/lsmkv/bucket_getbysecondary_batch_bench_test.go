@@ -22,9 +22,8 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 )
 
-// distinctDocIDKeys draws n doc ids without replacement, so every key resolves
-// to a stored value. A key that misses costs the same index descent with no
-// value to read, which would report a speedup the lookups never deliver.
+// distinctDocIDKeys draws n doc ids without replacement so every key hits; a
+// miss costs the same descent with no value, inflating the reported speedup.
 func distinctDocIDKeys(rng *rand.Rand, numDocs, n int) [][]byte {
 	keys := make([][]byte, n)
 	for i, docID := range rng.Perm(numDocs)[:n] {
@@ -37,8 +36,7 @@ func distinctDocIDKeys(rng *rand.Rand, numDocs, n int) [][]byte {
 // region so the check costs nothing per iteration.
 func requireAllResolve(b *testing.B, bucket *Bucket, keys [][]byte) {
 	b.Helper()
-	// visit runs on every worker, so the count is a per-key flag rather than a
-	// shared counter.
+	// visit runs on every worker, so track per-key flags, not a shared counter.
 	resolved := make([]bool, len(keys))
 	require.NoError(b, bucket.GetBySecondaryBatch(context.Background(), secondaryPos, keys,
 		func(i int, _ []byte) error {
@@ -128,15 +126,18 @@ func BenchmarkGetBySecondaryBatch(b *testing.B) {
 	}
 }
 
-// BenchmarkGetBySecondaryBatchShape sweeps the two constants the fan-out is
-// sized by, so raising or lowering either one can be measured rather than
-// argued.
+// BenchmarkGetBySecondaryBatchShape sweeps the fan-out's two size constants,
+// so changes to them are measured rather than argued.
 func BenchmarkGetBySecondaryBatchShape(b *testing.B) {
 	const (
 		numDocs   = 20_000
 		segments  = 4
 		valueSize = 1024
-		numKeys   = 500
+		// NumWorkers is min(budget, cap, chunks), so the key count has to keep
+		// the chunk count above both sweeps' largest value or an arm would move
+		// the worker count as well: 2048/32 = 64 chunks for the widest worker
+		// arm, 2048/128 = 16 for the largest chunk size, which is the cap.
+		numKeys = 2048
 	)
 	for _, pread := range []bool{false, true} {
 		bucket, rng := newBenchmarkSecondaryBucket(b, pread, numDocs, segments, valueSize)
@@ -161,7 +162,10 @@ func BenchmarkGetBySecondaryBatchShape(b *testing.B) {
 			b.Run(fmt.Sprintf("pread=%v/keys=%d/chunk=%d", pread, numKeys, chunkSize), func(b *testing.B) {
 				b.ReportAllocs()
 				for range b.N {
-					err := bucket.getBySecondaryBatch(context.Background(), secondaryPos, keys,
+					// The budget pins the fan-out, so the chunk size is the only
+					// thing this arm varies.
+					ctx := concurrency.CtxWithBudget(context.Background(), secondaryBatchWorkers)
+					err := bucket.getBySecondaryBatch(ctx, secondaryPos, keys,
 						chunkSize, secondaryBatchWorkers, func(int, []byte) error { return nil })
 					if err != nil {
 						b.Fatal(err)

@@ -568,8 +568,7 @@ func TestBucketInfoInFileName(t *testing.T) {
 	for _, segmentInfo := range []bool{true, false} {
 		t.Run(fmt.Sprintf("%t", segmentInfo), func(t *testing.T) {
 			dirName := t.TempDir()
-			b, err := NewBucketCreator().NewBucket(
-				ctx, dirName, "", logger, nil,
+			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(segmentInfo), WithStrategy(StrategyReplace),
 			)
 			require.NoError(t, err)
@@ -600,8 +599,7 @@ func TestBucketCompactionFileName(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(fmt.Sprintf("firstSegment: %t", tt.firstSegment), func(t *testing.T) {
 			dirName := t.TempDir()
-			b, err := NewBucketCreator().NewBucket(
-				ctx, dirName, "", logger, nil,
+			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.firstSegment), WithStrategy(StrategyReplace),
 			)
 			require.NoError(t, err)
@@ -612,8 +610,7 @@ func TestBucketCompactionFileName(t *testing.T) {
 			require.Equal(t, dbFiles, 1)
 			oldNames := verifyFileInfo(t, dirName, nil, tt.firstSegment, 0)
 
-			b, err = NewBucketCreator().NewBucket(
-				ctx, dirName, "", logger, nil,
+			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.secondSegment), WithStrategy(StrategyReplace),
 			)
 			require.NoError(t, err)
@@ -625,8 +622,7 @@ func TestBucketCompactionFileName(t *testing.T) {
 			require.Equal(t, dbFiles, 2)
 			oldNames = verifyFileInfo(t, dirName, oldNames, tt.secondSegment, 0)
 
-			b, err = NewBucketCreator().NewBucket(
-				ctx, dirName, "", logger, nil,
+			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(tt.compaction), WithStrategy(StrategyReplace),
 			)
 			require.NoError(t, err)
@@ -679,8 +675,7 @@ func TestNetCountComputationAtInit(t *testing.T) {
 
 	ctx := context.Background()
 	dirName := t.TempDir()
-	b, err := NewBucketCreator().NewBucket(
-		ctx, dirName, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace), WithMinWalThreshold(0),
 	)
 	require.NoError(t, err)
@@ -716,8 +711,7 @@ func TestNetCountComputationAtInit(t *testing.T) {
 	require.Equal(t, 0, fileTypes[".wal"])
 	require.Equal(t, 4, fileTypes[".cna"]) // cna file for new segment not yet computed
 
-	b, err = NewBucketCreator().NewBucket(
-		ctx, dirName, "", logger, nil,
+	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace), WithMinWalThreshold(0),
 	)
 	require.NoError(t, err)
@@ -737,8 +731,7 @@ func TestCountApproximate(t *testing.T) {
 	ctx := context.Background()
 
 	newBucket := func(t *testing.T) *Bucket {
-		b, err := NewBucketCreator().NewBucket(
-			ctx, t.TempDir(), "", logger, nil,
+		b, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logger, nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 			WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace), WithMinWalThreshold(0),
 		)
@@ -821,8 +814,7 @@ func TestCountApproximate(t *testing.T) {
 	t.Run("counter is rebuilt from the WAL on reopen", func(t *testing.T) {
 		dirName := t.TempDir()
 		newFromDir := func() *Bucket {
-			b, err := NewBucketCreator().NewBucket(
-				ctx, dirName, "", logger, nil,
+			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 				WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace),
 			)
@@ -2186,8 +2178,7 @@ func TestBucketInvertedStrategyWriteVsFlush(t *testing.T) {
 
 	active, freeRefs, err := b.getActiveMemtableForWrite()
 	require.NoError(t, err)
-	err = active.appendMapSorted(
-		[]byte("key1"),
+	err = active.appendMapSorted([]byte("key1"),
 		NewMapPairFromDocIdAndTf(1, 2, 1, false),
 	)
 	require.NoError(t, err)
@@ -2213,8 +2204,7 @@ func TestBucketInvertedStrategyWriteVsFlush(t *testing.T) {
 	<-switchDone
 
 	// Second write (post-switch) through the old active reference
-	err = active.appendMapSorted(
-		[]byte("key1"),
+	err = active.appendMapSorted([]byte("key1"),
 		NewMapPairFromDocIdAndTf(2, 2, 1, false),
 	)
 	require.NoError(t, err)
@@ -2971,6 +2961,13 @@ func bucket_SecondaryPrimaryMismatch(ctx context.Context, t *testing.T, opts []B
 	seckey = []byte("olá")
 	_, _, _, _, err = b2.getBySecondaryCore(0, seckey, buffer, view, time.Duration(0))
 	require.Nil(t, err)
+
+	// a position outside the bucket's secondary indices is a caller bug, and
+	// used to index the segment's slice with it
+	for _, pos := range []int{-1, 1} {
+		_, _, _, _, err = b2.getBySecondaryCore(pos, seckey, buffer, view, time.Duration(0))
+		require.EqualError(t, err, fmt.Sprintf("no secondary index at pos %d", pos))
+	}
 }
 
 func TestDeleteRequiresSecondaryKeys(t *testing.T) {
