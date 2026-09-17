@@ -808,8 +808,8 @@ func assertQueryPropertiesParsing(t *testing.T,
 		{"boost suffix passes through", `{"query":"space","queryProperties":["title^2"]}`, []string{"title^2"}},
 		{
 			"first letter lowercased (gRPC parity)",
-			`{"query":"space","queryProperties":["Title^2","Year"]}`,
-			[]string{"title^2", "year"},
+			`{"query":"space","queryProperties":["Title^2"]}`,
+			[]string{"title^2"},
 		},
 		{"omitted searches all searchable properties", `{"query":"space"}`, nil},
 		{"empty searches all searchable properties", `{"query":"space","queryProperties":[]}`, nil},
@@ -865,10 +865,76 @@ func TestBm25QueryProperties(t *testing.T) {
 	})
 }
 
+// TestQueryPropertiesBoost: the "^boost" suffix is validated at the handler,
+// where the searcher would otherwise read a malformed one as 0.
+func TestQueryPropertiesBoost(t *testing.T) {
+	tests := []struct {
+		name  string
+		props string
+		want  string
+	}{
+		{"non-numeric", `["title^abc"]`, "boost must be a positive number"},
+		{"empty", `["title^"]`, "boost must be a positive number"},
+		{"zero", `["title^0"]`, "boost must be a positive number"},
+		{"negative", `["title^-1"]`, "boost must be a positive number"},
+		{"infinite", `["title^inf"]`, "boost must be a positive number"},
+		{"nan", `["title^nan"]`, "boost must be a positive number"},
+		{"two suffixes", `["title^2^3"]`, "more than one ^boost"},
+		{"empty property", `["^2"]`, "must not be empty"},
+		{"duplicate property", `["title","title^2"]`, "listed more than once"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for endpoint, body := range map[string]string{
+				"bm25":   fmt.Sprintf(`{"query":"x","queryProperties":%s}`, tt.props),
+				"hybrid": fmt.Sprintf(`{"query":"x","alpha":1,"queryProperties":%s}`, tt.props),
+			} {
+				var apiErr *APIError
+				if endpoint == "bm25" {
+					_, apiErr = buildBm25(t, movieClass(), body)
+				} else {
+					_, apiErr = buildHybrid(t, movieClass(), body)
+				}
+				require.NotNil(t, apiErr, endpoint)
+				assert.Equal(t, http.StatusBadRequest, apiErr.Status, endpoint)
+				assert.Contains(t, apiErr.Error(), tt.want, endpoint)
+			}
+		})
+	}
+
+	t.Run("a valid boost passes through", func(t *testing.T) {
+		searcher, apiErr := buildBm25(t, movieClass(), `{"query":"x","queryProperties":["Title^2.5"]}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []string{"title^2.5"}, searcher.lastParams.KeywordRanking.Properties)
+	})
+}
+
+// TestDotPathsRejected: a dot path selects nothing in the engine, so each
+// place that takes a property name rejects one.
+func TestDotPathsRejected(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"returnProperties nested field", `{"query":"x","returnProperties":["meta.isbn"]}`, "dot paths are not supported"},
+		{"returnProperties through a reference", `{"query":"x","returnProperties":["hasAuthor.name"]}`, "dot paths are not supported"},
+		{"linkOn with a dot", `{"query":"x","returnReferences":[{"linkOn":"hasAuthor.name"}]}`, "must be a reference property name"},
+		{"queryProperties nested field", `{"query":"x","queryProperties":["meta.isbn"]}`, "nested fields cannot be keyword-searched"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, apiErr := doBm25(t, newCatalogHandler(t, false), nil, "Catalog", tt.body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+			assert.Contains(t, apiErr.Error(), tt.want)
+		})
+	}
+}
+
 func TestBm25UnknownQueryProperty(t *testing.T) {
 	// an entry naming no schema property is a 400 like returnProperties;
-	// only an existing property without a searchable index is the
-	// searcher's typed 422
+	// an existing property without a searchable index is a 422
 	for name, body := range map[string]string{
 		"unknown":            `{"query":"space","queryProperties":["titel"]}`,
 		"unknown with boost": `{"query":"space","queryProperties":["titel^2"]}`,
@@ -881,9 +947,11 @@ func TestBm25UnknownQueryProperty(t *testing.T) {
 		})
 	}
 
-	t.Run("existing but non-searchable is the searcher's to reject", func(t *testing.T) {
+	t.Run("existing but non-searchable is a 422", func(t *testing.T) {
 		_, apiErr := buildBm25(t, unsearchableClass(), `{"query":"space","queryProperties":["code"]}`)
-		assert.Nil(t, apiErr)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+		assert.Contains(t, apiErr.Error(), "no searchable index")
 	})
 }
 
@@ -984,12 +1052,10 @@ func TestBm25NoSearchableProperties(t *testing.T) {
 		})
 	}
 
-	t.Run("explicit queryProperties are the searcher's to reject", func(t *testing.T) {
-		// the pre-check only guards the empty-list expansion; an explicit
-		// non-searchable property reaches the searcher (typed
-		// MissingIndexError, mapped to 422 live)
+	t.Run("explicit non-searchable queryProperties are a 422", func(t *testing.T) {
 		_, apiErr := buildBm25(t, unsearchableClass(), `{"query":"space","queryProperties":["code"]}`)
-		assert.Nil(t, apiErr)
+		require.NotNil(t, apiErr)
+		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
 	})
 }
 
@@ -1398,15 +1464,24 @@ func TestHybridNoSearchableProperties(t *testing.T) {
 		assert.Nil(t, apiErr)
 	})
 
-	t.Run("explicit queryProperties are the searcher's to reject", func(t *testing.T) {
-		_, apiErr := buildHybrid(t, unsearchableClass(), `{"query":"space","alpha":0,"queryProperties":["code"]}`)
-		assert.Nil(t, apiErr)
-	})
+	// the searchability of an explicit property is checked at every alpha:
+	// the searcher only ever sees the keyword part below alpha 1
+	for name, body := range map[string]string{
+		"alpha 0":   `{"query":"space","alpha":0,"queryProperties":["code"]}`,
+		"alpha 0.5": `{"query":"space","alpha":0.5,"queryProperties":["code"]}`,
+		"alpha 1":   `{"query":"space","alpha":1,"queryProperties":["code"]}`,
+	} {
+		t.Run("explicit non-searchable queryProperties are a 422 at "+name, func(t *testing.T) {
+			_, apiErr := buildHybrid(t, unsearchableClass(), body)
+			require.NotNil(t, apiErr)
+			assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+		})
+	}
 }
 
 func TestHybridUnknownQueryProperty(t *testing.T) {
 	// same contract as bm25: an entry naming no schema property is a 400;
-	// an existing property without a searchable index is the searcher's 422
+	// an existing property without a searchable index is a 422
 	for name, body := range map[string]string{
 		"unknown":            `{"query":"space","queryProperties":["titel"]}`,
 		"unknown with boost": `{"query":"space","queryProperties":["titel^2"]}`,

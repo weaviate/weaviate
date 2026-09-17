@@ -14,6 +14,7 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -93,6 +94,7 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		handler = addSourceIpToContext(handler)
 		handler = addClientIdentifierToContext(handler)
 		handler = addOperationalMode(appState, handler)
+		handler = addSearchBodyLimit(handler)
 		// Add OpenTelemetry tracing middleware (only has an effect if tracing is enabled)
 		handler = monitoring.AddTracingToHTTPMiddleware(handler, appState.Logger)
 		if appState.ServerConfig.Config.Monitoring.Enabled {
@@ -236,20 +238,41 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 	})
 }
 
+// addSearchBodyLimit caps search and aggregate request bodies: an announced
+// oversize body is refused here, a streamed one is cut off by MaxBytesReader
+// and surfaces as a bind error that ServeError maps to 413.
+func addSearchBodyLimit(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if restsearch.IsSearchRoute(r.URL.Path) || restsearch.IsAggregateRoute(r.URL.Path) {
+			if r.ContentLength > restsearch.MaxBodyBytes {
+				resp := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{
+					Message: fmt.Sprintf("request body exceeds the %d byte limit", restsearch.MaxBodyBytes),
+				}}}
+				data, _ := json.Marshal(resp)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusRequestEntityTooLarge)
+				w.Write(data)
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, restsearch.MaxBodyBytes)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func addOperationalMode(state *state.State, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// search and aggregate requests are POSTs (an HTTP write method) but
 		// are semantically reads
 		isSearch := restsearch.IsSearchRoute(r.URL.Path) || restsearch.IsAggregateRoute(r.URL.Path)
-		searchReadAllowed := isSearch && state.ServerConfig.Config.ExperimentalRESTSearchEnabled.Get()
 		switch state.ServerConfig.Config.OperationalMode.Get() {
 		case config.READ_ONLY:
-			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ReadOnlyWhitelist) && !searchReadAllowed {
+			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ReadOnlyWhitelist) && !isSearch {
 				writeOperationalModeErrorResponse(w, config.ErrReadOnlyModeEnabled)
 				return
 			}
 		case config.SCALE_OUT:
-			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ScaleOutWhitelist) && !searchReadAllowed {
+			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ScaleOutWhitelist) && !isSearch {
 				writeOperationalModeErrorResponse(w, config.ErrScaleOutModeEnabled)
 				return
 			}
