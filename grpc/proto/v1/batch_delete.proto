@@ -23,9 +23,9 @@ message BatchDeleteReply {
   int64 matches = 3;
   int64 successful = 4;
   repeated BatchDeleteObject objects = 5;
-  // Set to the applied cap (QUERY_MAXIMUM_RESULTS) when present.
-  // matches greater than limit means the call was capped; matches equal to limit means it was not.
-  // Absent means the server predates this field.
+  // The applied cap, from QUERY_MAXIMUM_RESULTS.
+  // matches above limit means the call was capped. matches equal to limit means it was not.
+  // An absent field means the server predates this field, not a cap of zero.
   optional int64 limit = 6;
 }
 

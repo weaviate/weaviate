@@ -109,9 +109,9 @@ type BatchDeleteReply struct {
 	Matches    int64                  `protobuf:"varint,3,opt,name=matches,proto3" json:"matches,omitempty"`
 	Successful int64                  `protobuf:"varint,4,opt,name=successful,proto3" json:"successful,omitempty"`
 	Objects    []*BatchDeleteObject   `protobuf:"bytes,5,rep,name=objects,proto3" json:"objects,omitempty"`
-	// Set to the applied cap (QUERY_MAXIMUM_RESULTS) when present.
-	// matches greater than limit means the call was capped; matches equal to limit means it was not.
-	// Absent means the server predates this field.
+	// The applied cap, from QUERY_MAXIMUM_RESULTS.
+	// matches above limit means the call was capped. matches equal to limit means it was not.
+	// An absent field means the server predates this field, not a cap of zero.
 	Limit         *int64 `protobuf:"varint,6,opt,name=limit,proto3,oneof" json:"limit,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

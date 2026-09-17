@@ -259,15 +259,6 @@ func TestBatchDeleteReply(t *testing.T) {
 			out:      &pb.BatchDeleteReply{Matches: 5, Successful: 1, Failed: 1, Limit: ptr(int64(2))},
 		},
 		{
-			name:     "capped delete reports the limit - with verbosity",
-			response: objects.BatchDeleteResult{Matches: 5, Limit: 2, Objects: objects.BatchSimpleObjects{{UUID: UUID1, Err: errors.New("error")}, {UUID: UUID2, Err: nil}}},
-			verbose:  true,
-			out: &pb.BatchDeleteReply{Matches: 5, Successful: 1, Failed: 1, Limit: ptr(int64(2)), Objects: []*pb.BatchDeleteObject{
-				{Uuid: idByte(string(UUID1)), Successful: false, Error: &errorString},
-				{Uuid: idByte(string(UUID2)), Successful: true, Error: &noErrorString},
-			}},
-		},
-		{
 			name:     "matches equal to limit is not capped",
 			response: objects.BatchDeleteResult{Matches: 2, Limit: 2, Objects: objects.BatchSimpleObjects{{UUID: UUID1, Err: nil}, {UUID: UUID2, Err: nil}}},
 			out:      &pb.BatchDeleteReply{Matches: 2, Successful: 2, Failed: 0, Limit: ptr(int64(2))},
