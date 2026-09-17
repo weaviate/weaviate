@@ -297,7 +297,7 @@ func VectorIndexArtifactsFor(targetVector string, otherTargetVectors []string) V
 	// artifact can ever equal one — filtering them would be unreachable code.
 	// A future shard directory WITHOUT a dotted suffix would break that and
 	// needs the guard extended.
-	keptBuckets := artifacts.LSMBuckets[:0:0]
+	var keptBuckets []string
 	for _, name := range artifacts.LSMBuckets {
 		if _, clash := protected[name]; clash {
 			continue
