@@ -387,11 +387,6 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		Logger:           cfg.Logger,
 	})
 
-	// Wired unconditionally: the replication engine runs whatever the movement
-	// feature flag says (Service.Open starts it), so an op in the FSM always
-	// reaches a terminal state and cannot block tasks on its collection forever.
-	distributedTasksManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
-	replicationManager.SetDistributedTaskFSM(distributedTasksManager)
 	schemaManager.SetMutationGuard(distributedTasksManager)
 	schemaManager.SetDistributedTaskManager(distributedTasksManager)
 

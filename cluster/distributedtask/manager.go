@@ -67,8 +67,6 @@ type Manager struct {
 	collectionExtractors   map[string]CollectionExtractor
 	targetVectorExtractors map[string]TargetVectorExtractor
 
-	replicationFSM replicationFSM
-
 	completedTaskTTL time.Duration
 
 	clock clockwork.Clock
@@ -97,17 +95,6 @@ func (m *Manager) SetConflictDetectors(detectors map[string]ConflictDetector) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.conflictDetectors = detectors
-}
-
-// replicationFSM is declared here so this package does not import cluster/replication.
-type replicationFSM interface {
-	HasActiveReplicationForCollection(collection string) bool
-}
-
-func (m *Manager) SetReplicationFSM(fsm replicationFSM) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.replicationFSM = fsm
 }
 
 // SetSchemaMutationDetectors installs the per-namespace registry
@@ -411,8 +398,19 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 	return removed
 }
 
-// ActiveTaskForCollection reports the namespace of a non-terminal task bound to
-// `collection`. Namespaces are walked in sorted order so every node names the same one.
+// CollectionOfTask reads the collection an add-task payload names.
+func (m *Manager) CollectionOfTask(namespace string, payload []byte) (string, bool) {
+	m.mu.RLock()
+	extractor := m.collectionExtractors[namespace]
+	m.mu.RUnlock()
+
+	if extractor == nil {
+		return "", false
+	}
+	return extractor(payload)
+}
+
+// ActiveTaskForCollection reports the namespace of a non-terminal task on `collection`.
 func (m *Manager) ActiveTaskForCollection(collection string) (namespace string, active bool) {
 	if collection == "" {
 		return "", false
@@ -434,7 +432,6 @@ func (m *Manager) ActiveTaskForCollection(collection string) (namespace string, 
 				continue
 			}
 			c, ok := extractor(task.Payload)
-			// Collection names are case-insensitive: a byte-exact compare misses a case twin.
 			if ok && strings.EqualFold(c, collection) {
 				return ns, true
 			}
@@ -484,13 +481,6 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 			// the REST submit path classifies this as 409, not 500.
 			return wrapPermanent(ErrTaskConflict,
 				fmt.Sprintf("task %s/%s conflicts with existing task: %v", r.Namespace, r.Id, err))
-		}
-	}
-
-	if ex := m.collectionExtractors[r.Namespace]; ex != nil && m.replicationFSM != nil {
-		if coll, ok := ex(r.Payload); ok && m.replicationFSM.HasActiveReplicationForCollection(coll) {
-			return wrapPermanent(ErrTaskBlockedByReplicaMovement,
-				fmt.Sprintf("task %s/%s: collection %q has a replica movement in flight", r.Namespace, r.Id, coll))
 		}
 	}
 

@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
@@ -173,6 +174,9 @@ func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 		{name: "ErrUserIdentifierExists", send: apikey.ErrUserIdentifierExists},
 		{name: "ErrUserExists", send: apikey.ErrUserExists},
 		{name: "ErrUnknownCommand", send: types.ErrUnknownCommand},
+		// Unmapped it arrives as codes.Internal and renders HTTP 500 instead of 409
+		// on the node that forwarded the movement to the leader.
+		{name: "ErrMovementBlockedByTask", send: replicationTypes.ErrMovementBlockedByTask},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

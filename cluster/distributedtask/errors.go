@@ -95,6 +95,12 @@ var (
 	ErrTaskBlockedByReplicaMovement = errors.New("task blocked by an in-flight replica movement")
 )
 
+// NewBlockedByReplicaMovementError: the collection has a replica movement in flight.
+func NewBlockedByReplicaMovementError(collection string) error {
+	return wrapPermanent(ErrTaskBlockedByReplicaMovement,
+		fmt.Sprintf("collection %q has a replica movement in flight", collection))
+}
+
 // ErrTaskCompletionPermanent marks an [UnitAwareProvider.OnTaskCompleted]
 // failure as deterministically unrecoverable (e.g. target property deleted
 // mid-flight, payload unparsable): the [Scheduler] fails the task

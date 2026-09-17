@@ -22,6 +22,7 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
@@ -638,14 +639,40 @@ func TestExecuteGate_DestructiveApplyTypes(t *testing.T) {
 // st.raft.Apply. The mock store has no raft, so a refusal that returns the
 // sentinel proves nothing was appended: reaching the append would panic.
 func TestExecuteGate_RefusesBeforeTheAppend(t *testing.T) {
-	ms, _ := setupApplyTest(t)
-	seedNamespaceInState(t, ms.cfg.NamespacesController, "alpha", api.NamespaceStateSuspended)
-
-	_, err := ms.store.Execute(&api.ApplyRequest{
-		Type:  api.ApplyRequest_TYPE_DELETE_CLASS,
-		Class: "alpha:Foo",
-	})
-	require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
+	for _, tc := range []struct {
+		name    string
+		store   func(*testing.T) *Store
+		command func(*testing.T) *api.ApplyRequest
+		wantErr error
+	}{
+		{
+			name: "a class delete in a suspended namespace",
+			store: func(t *testing.T) *Store {
+				ms, _ := setupApplyTest(t)
+				seedNamespaceInState(t, ms.cfg.NamespacesController, "alpha", api.NamespaceStateSuspended)
+				return ms.store
+			},
+			command: func(*testing.T) *api.ApplyRequest {
+				return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_DELETE_CLASS, Class: "alpha:Foo"}
+			},
+			wantErr: namespaces.ErrNamespaceSuspended,
+		},
+		{
+			name: "a movement while a reindex task runs on the collection",
+			store: func(t *testing.T) *Store {
+				s := exclusionStore(t, namesExclusionCollection)
+				seedExclusionTask(t, s)
+				return s
+			},
+			command: exclusionMovementCommand,
+			wantErr: replicationTypes.ErrMovementBlockedByTask,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := tc.store(t).Execute(tc.command(t))
+			require.ErrorIs(t, err, tc.wantErr)
+		})
+	}
 }
 
 // applyState is one namespace state the FSM has to apply through, seeded onto

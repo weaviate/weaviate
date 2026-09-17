@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -1696,69 +1695,112 @@ func TestStoreWaitToRestoreDBAnnouncesOnce(t *testing.T) {
 	}
 }
 
-// Pins the two setter calls in NewFSM that arm the reindex/replica-movement
-// exclusion. Drop either and the gate is dead in the real server while every
-// other test under ./cluster/... stays green.
-func TestNewFSM_ArmsReindexMovementExclusion(t *testing.T) {
-	const collection, shard, namespace = "Movies", "shard1", "reindex"
+const (
+	exclusionCollection = "Movies"
+	exclusionNamespace  = "reindex"
+)
 
-	newStore := func(t *testing.T) *Store {
-		ms := NewMockStore(t, "node1", 0)
-		ms.parser.On("ParseClass", mock.Anything).Return(nil)
-		ms.cfg.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
-			namespace: func([]byte) (string, bool) { return collection, true },
-		}
-		s := NewFSM(ms.cfg, nil, prometheus.NewPedanticRegistry())
-		return &s
-	}
-	movementRequest := &cmd.ReplicationReplicateShardRequest{
-		Version: cmd.ReplicationCommandVersionV0, Uuid: "00000000-0000-0000-0000-000000000001",
-		SourceCollection: collection, SourceShard: shard,
-		SourceNode: "node1", TargetNode: "node2", TransferType: cmd.COPY.String(),
-	}
-	addTask := func(t *testing.T, s *Store) error {
-		sub, err := json.Marshal(&cmd.AddDistributedTaskRequest{
-			Namespace: namespace, Id: "task1", UnitIds: []string{"unit1"},
-			SubmittedAtUnixMillis: time.Now().UnixMilli(),
-		})
-		require.NoError(t, err)
-		return s.distributedTasksManager.AddTask(&cmd.ApplyRequest{SubCommand: sub}, 1)
-	}
+var exclusionMovement = &cmd.ReplicationReplicateShardRequest{
+	Version: cmd.ReplicationCommandVersionV0, Uuid: "00000000-0000-0000-0000-000000000001",
+	SourceCollection: exclusionCollection, SourceShard: "shard1",
+	SourceNode: "node1", TargetNode: "node2", TransferType: cmd.COPY.String(),
+}
 
-	t.Run("an active task refuses a movement", func(t *testing.T) {
-		s := newStore(t)
-		// The movement apply validates against the schema before reaching the gate.
-		addClass, err := json.Marshal(cmd.AddClassRequest{
-			Class: &models.Class{Class: collection, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
-			State: &sharding.State{Physical: map[string]sharding.Physical{shard: {BelongsToNodes: []string{"node1"}}}},
-		})
-		require.NoError(t, err)
-		require.NoError(t, s.schemaManager.AddClass(&cmd.ApplyRequest{
-			Type: cmd.ApplyRequest_TYPE_ADD_CLASS, Class: collection, SubCommand: addClass,
-		}, "node1", true, false))
-		require.NoError(t, addTask(t, s))
+func exclusionStore(t *testing.T, collectionOf distributedtask.CollectionExtractor) *Store {
+	t.Helper()
+	ms := NewMockStore(t, "node1", 0)
+	ms.cfg.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
+		exclusionNamespace: collectionOf,
+	}
+	s := NewFSM(ms.cfg, nil, prometheus.NewPedanticRegistry())
+	return &s
+}
 
-		sub, err := json.Marshal(movementRequest)
-		require.NoError(t, err)
-		err = s.replicationManager.Replicate(1, &cmd.ApplyRequest{SubCommand: sub})
-		require.ErrorIs(t, err, replicationTypes.ErrMovementBlockedByTask)
-		require.True(t, strings.HasPrefix(err.Error(), replicationTypes.ErrMovementBlockedByTask.Error()+": "),
-			"Raft.ReplicationReplicateReplica cuts on this prefix to rebuild the sentinel "+
-				"after the RAFT hop reduces the error to a string")
-		require.False(t, s.replicationManager.GetReplicationFSM().HasActiveReplicationForCollection(collection),
-			"a refused movement must leave no op behind")
+func namesExclusionCollection([]byte) (string, bool) { return exclusionCollection, true }
+
+func exclusionMovementCommand(t *testing.T) *cmd.ApplyRequest {
+	t.Helper()
+	sub, err := json.Marshal(exclusionMovement)
+	require.NoError(t, err)
+	return &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_REPLICATION_REPLICATE, SubCommand: sub}
+}
+
+func exclusionTaskCommand(t *testing.T, namespace string) *cmd.ApplyRequest {
+	t.Helper()
+	sub, err := json.Marshal(&cmd.AddDistributedTaskRequest{
+		Namespace: namespace, Id: "task1", UnitIds: []string{"unit1"},
+		SubmittedAtUnixMillis: time.Now().UnixMilli(),
 	})
+	require.NoError(t, err)
+	return &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, SubCommand: sub}
+}
 
-	t.Run("an active movement refuses a task", func(t *testing.T) {
-		s := newStore(t)
-		// Seeded straight into the FSM: the task side only cares that an op is
-		// sitting there non-terminal, and a movement apply needs schema fixtures.
-		require.NoError(t, s.replicationManager.GetReplicationFSM().Replicate(1, movementRequest))
+func seedExclusionTask(t *testing.T, s *Store) {
+	t.Helper()
+	require.NoError(t, s.distributedTasksManager.AddTask(exclusionTaskCommand(t, exclusionNamespace), 1))
+}
 
-		err := addTask(t, s)
-		require.ErrorIs(t, err, distributedtask.ErrTaskBlockedByReplicaMovement)
-		require.ErrorIs(t, distributedtask.RehydratePermanentRejection(distributedtask.ToRPCError(err)),
-			distributedtask.ErrTaskBlockedByReplicaMovement,
-			"a follower's refusal must come back as the sentinel, or the submit path answers 500 not 409")
-	})
+func seedExclusionMovement(t *testing.T, s *Store) {
+	t.Helper()
+	require.NoError(t, s.replicationManager.GetReplicationFSM().Replicate(1, exclusionMovement))
+}
+
+// Pins the reindex/replica-movement exclusion in both directions, on the
+// propose-time check rather than the apply.
+func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
+	movement := exclusionMovementCommand
+	reindexTask := func(t *testing.T) *cmd.ApplyRequest { return exclusionTaskCommand(t, exclusionNamespace) }
+	unregisteredTask := func(t *testing.T) *cmd.ApplyRequest { return exclusionTaskCommand(t, "other") }
+	// Both sentinels: the permanent one is what carries the refusal across gRPC as a
+	// 409, round-tripped in TestRehydratePermanentRejection_RoundTripsEverySentinel.
+	taskRefused := []error{distributedtask.ErrTaskBlockedByReplicaMovement, distributedtask.ErrPermanentRejection}
+
+	for _, tc := range []struct {
+		name         string
+		collectionOf distributedtask.CollectionExtractor
+		seed         func(*testing.T, *Store)
+		command      func(*testing.T) *cmd.ApplyRequest
+		wantErrs     []error
+	}{
+		{
+			name: "a movement is refused while a task runs on the collection", command: movement,
+			seed: seedExclusionTask, wantErrs: []error{replicationTypes.ErrMovementBlockedByTask},
+		},
+		{name: "a movement is admitted when no task runs", command: movement},
+		{
+			name: "a task is refused while a movement runs on the collection", command: reindexTask,
+			seed: seedExclusionMovement, wantErrs: taskRefused,
+		},
+		{name: "a task is admitted when no movement runs", command: reindexTask},
+		{
+			name:    "a task in a namespace with no collection extractor is admitted",
+			command: unregisteredTask, seed: seedExclusionMovement,
+		},
+		{
+			name: "a task whose payload names no collection is admitted", command: reindexTask,
+			seed: seedExclusionMovement, collectionOf: func([]byte) (string, bool) { return "", false },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			collectionOf := tc.collectionOf
+			if collectionOf == nil {
+				collectionOf = namesExclusionCollection
+			}
+			s := exclusionStore(t, collectionOf)
+			if tc.seed != nil {
+				tc.seed(t, s)
+			}
+
+			err := s.admitPropose(tc.command(t))
+			if len(tc.wantErrs) == 0 {
+				require.NoError(t, err)
+				return
+			}
+			for _, want := range tc.wantErrs {
+				require.ErrorIs(t, err, want)
+			}
+			require.Contains(t, err.Error(), exclusionCollection,
+				"the refusal must name the collection the operator has to wait on")
+		})
+	}
 }

@@ -17,10 +17,7 @@ var (
 	ErrInvalidRequest         = errors.New("invalid request")
 	ErrCancellationImpossible = errors.New("cancellation impossible")
 	ErrDeletionImpossible     = errors.New("deletion impossible")
-	// ErrMovementBlockedByTask: a reindex or vector-index-drop task is running on the
-	// collection. The apply prefixes its message with this text so the string-only
-	// RAFT round trip can be matched back to the sentinel.
-	ErrMovementBlockedByTask = errors.New("replica movement blocked")
+	ErrMovementBlockedByTask  = errors.New("replica movement blocked")
 	// ErrOpCancellationInFlight: registration refused because a cancel was
 	// accepted first; see ShardReplicationFSM.SetUnCancellable.
 	ErrOpCancellationInFlight       = errors.New("op cancellation in flight")

@@ -21,7 +21,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -88,7 +90,8 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 }
 
 // admitPropose refuses a command whose namespace is not in a state that admits
-// it. It runs on the leader before the entry is appended, which is the only
+// it, and one that would run a reindex task and a replica movement on one
+// collection. It runs on the leader before the entry is appended, the only
 // place such a refusal can live: Apply must be a pure function of the log, so a
 // check there would have an older binary carry out what an upgraded one refuses,
 // live during a rolling update and again on every replay of that entry.
@@ -115,7 +118,41 @@ func (st *Store) admitPropose(req *api.ApplyRequest) error {
 	if err := st.admitCreateLike(req); err != nil {
 		return err
 	}
-	return st.admitShardStatus(req)
+	if err := st.admitShardStatus(req); err != nil {
+		return err
+	}
+	return st.admitReindexOrMovement(req)
+}
+
+// admitReindexOrMovement: a task and a movement rewrite the same shard files.
+func (st *Store) admitReindexOrMovement(req *api.ApplyRequest) error {
+	switch req.Type {
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
+		sub := &api.ReplicationReplicateShardRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal replicate subcommand: %w", err)
+		}
+		namespace, active := st.distributedTasksManager.ActiveTaskForCollection(sub.SourceCollection)
+		if !active {
+			return nil
+		}
+		return fmt.Errorf("%w: collection %q has an active %s task; retry after it completes",
+			replicationTypes.ErrMovementBlockedByTask, sub.SourceCollection, namespace)
+
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
+		sub := &api.AddDistributedTaskRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal add-task subcommand: %w", err)
+		}
+		collection, ok := st.distributedTasksManager.CollectionOfTask(sub.Namespace, sub.Payload)
+		if !ok || !st.replicationManager.GetReplicationFSM().HasActiveReplicationForCollection(collection) {
+			return nil
+		}
+		return distributedtask.NewBlockedByReplicaMovementError(collection)
+
+	default:
+		return nil
+	}
 }
 
 // admitShardStatus refuses a manual shard status change outside the active
