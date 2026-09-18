@@ -1484,7 +1484,7 @@ func TestPrettyPermissionsResources_NamespaceStripping(t *testing.T) {
 		perm := &models.Permission{Data: &models.PermissionData{
 			Collection: strPtr("customer2:Movies"),
 			Tenant:     strPtr("*"),
-			Object:     strPtr("*"),
+			Object:     strPtr("*"), //nolint:staticcheck // the deprecated field is exactly what this case pins
 		}}
 		require.Equal(t,
 			"[Domain: data, Collection: customer2:Movies, Tenant: *]",

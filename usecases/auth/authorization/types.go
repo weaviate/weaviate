@@ -64,7 +64,8 @@ var (
 	AllData = &models.PermissionData{
 		Collection: All,
 		Tenant:     All,
-		Object:     All,
+		//nolint:staticcheck // deprecated on the wire but still emitted, as the wildcard, so old clients keep reading a value
+		Object: All,
 	}
 	AllTenants = &models.PermissionTenants{
 		Collection: All,

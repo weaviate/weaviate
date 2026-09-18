@@ -454,7 +454,7 @@ func Test_policy_dataObjectIgnored(t *testing.T) {
 				action := authorization.String(it.permissionAction)
 				withObject := &models.Permission{
 					Action: action,
-					Data:   &models.PermissionData{Collection: c.collection, Tenant: c.tenant, Object: baz},
+					Data:   &models.PermissionData{Collection: c.collection, Tenant: c.tenant, Object: baz}, //nolint:staticcheck // the deprecated field is exactly what this case pins
 				}
 				withoutObject := &models.Permission{
 					Action: action,
@@ -658,7 +658,7 @@ func Test_permission(t *testing.T) {
 				Data: &models.PermissionData{
 					Collection: authorization.All,
 					Tenant:     authorization.All,
-					Object:     authorization.All,
+					Object:     authorization.All, //nolint:staticcheck // the deprecated field is exactly what this case pins
 				},
 			},
 			tests: objectsDataTests,
@@ -670,7 +670,7 @@ func Test_permission(t *testing.T) {
 				Data: &models.PermissionData{
 					Collection: foo,
 					Tenant:     authorization.All,
-					Object:     authorization.All,
+					Object:     authorization.All, //nolint:staticcheck // the deprecated field is exactly what this case pins
 				},
 			},
 			tests: objectsDataTests,
@@ -690,7 +690,7 @@ func Test_permission(t *testing.T) {
 				Data: &models.PermissionData{
 					Collection: foo,
 					Tenant:     authorization.All,
-					Object:     authorization.All,
+					Object:     authorization.All, //nolint:staticcheck // the deprecated field is exactly what this case pins
 				},
 			},
 			tests: objectsDataTests,
@@ -702,7 +702,7 @@ func Test_permission(t *testing.T) {
 				Data: &models.PermissionData{
 					Collection: authorization.All,
 					Tenant:     bar,
-					Object:     authorization.All,
+					Object:     authorization.All, //nolint:staticcheck // the deprecated field is exactly what this case pins
 				},
 			},
 			tests: objectsDataTests,
@@ -714,7 +714,7 @@ func Test_permission(t *testing.T) {
 				Data: &models.PermissionData{
 					Collection: foo,
 					Tenant:     bar,
-					Object:     authorization.All,
+					Object:     authorization.All, //nolint:staticcheck // the deprecated field is exactly what this case pins
 				},
 			},
 			tests: objectsDataTests,
@@ -949,7 +949,7 @@ func Test_casbinSegmentRoundTrip(t *testing.T) {
 		perm, err := permission(dataPolicy, true)
 		require.NoError(t, err)
 		require.Equal(t, "t|x", *perm.Data.Tenant)
-		require.Equal(t, "*", *perm.Data.Object)
+		require.Equal(t, "*", *perm.Data.Object) //nolint:staticcheck // the deprecated field is exactly what this case pins
 	})
 
 	// The namespace target carries the confinement group on write and must be

@@ -514,7 +514,8 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Data = &models.PermissionData{
 			Collection: &collection,
 			Tenant:     &tenant,
-			Object:     authorization.All,
+			//nolint:staticcheck // deprecated on the wire but still emitted, as the wildcard, so old clients keep reading a value
+			Object: authorization.All,
 		}
 	case authorization.RolesDomain:
 		role := unwrapCasbinSegment(splits[1])
