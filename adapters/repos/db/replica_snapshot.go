@@ -40,10 +40,13 @@ type replicaSnapshotState struct {
 	isSnapshot bool
 }
 
-// deferIfReindexInFlight marks a reindex refusal as a wait, not a counted error. It sits
-// here and not in HaltForTransfer, which the backup path shares.
+// deferIfReindexInFlight marks a live-reindex refusal as a wait, not a counted
+// error; a gate that could not check stays counted, as nothing would end that
+// wait. It sits here and not in HaltForTransfer, which the backup path shares.
 func deferIfReindexInFlight(err error) error {
-	if !errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex) {
+	liveTask := errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex) &&
+		!errors.Is(err, ErrReindexGateUnavailable)
+	if !liveTask {
 		return err
 	}
 	return fmt.Errorf("%w: %w; transfer deferred until it completes",
