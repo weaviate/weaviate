@@ -19,7 +19,7 @@ import (
 )
 
 func (m *Memtable) flushDataRoaringSetRange(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
-	nodes := m.roaringSetRange.Nodes()
+	nodes := m.roaringSetRangeNodes()
 
 	totalDataLength := totalPayloadSizeRoaringSetRange(nodes)
 	header := &segmentindex.Header{
