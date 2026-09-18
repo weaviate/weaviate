@@ -559,9 +559,11 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	}
 
 	if inverted.HasRangeableIndex(prop) {
+		// Appended last so it wins over makeDefaultBucketOptions' value.
+		opts := append(makeBucketOptions(lsmkv.StrategyRoaringSetRange),
+			lsmkv.WithKeepSegmentsInMemory(s.index.Config.keepRangeableInMemory(prop.Name)))
 		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketRangeableFromPropNameLSM(prop.Name),
-			makeBucketOptions(lsmkv.StrategyRoaringSetRange)...,
+			helpers.BucketRangeableFromPropNameLSM(prop.Name), opts...,
 		); err != nil {
 			return err
 		}
