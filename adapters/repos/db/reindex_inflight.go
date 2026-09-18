@@ -12,6 +12,7 @@
 package db
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 
@@ -32,23 +33,20 @@ var unwiredGateWarnOnce sync.Once
 // AnyLiveReindexForShard answers the cluster-wide question: does DTM
 // have any LIVE reindex task targeting (collection, shardName)?
 //
-// Replaces the prior filesystem-marker check, which only saw this node
-// and lagged DTM's actual state. The lookup builder is installed by
-// [DB.SetShardReindexActivityLookup] from the post-bootstrap goroutine
-// in configure_api.go.
+// The lookup builder is installed by [DB.SetShardReindexActivityLookup]
+// from the post-bootstrap goroutine in configure_api.go.
 //
-// Default to "no live reindex" when the lookup is unwired (with a
-// one-time WARN). The original conservative default (refuse) was
-// correct in isolation but broke every module-test fixture that
-// spins up Weaviate without going through the post-bootstrap
-// install path; production HTTP gates on bootstrap completion so the
-// unwired window is unreachable by external traffic.
-func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
+// Defaults to "no live reindex" when the lookup is unwired (with a
+// one-time WARN): production gates HTTP serving on bootstrap
+// completion, so no external request reaches the unwired window, and
+// module-test fixtures skip the install path entirely. A builder that
+// cannot reach DTM returns an error, which the caller refuses on.
+func (db *DB) AnyLiveReindexForShard(collection, shardName string) (bool, error) {
 	if db.config.RuntimeReindexDisabled {
 		// Runtime reindex is off, so no new task can start. Return before
 		// consulting the lookup so the backup path makes no reindex check
 		// at all — the pre-gate behavior this restores.
-		return false
+		return false, nil
 	}
 	db.reindexAuditMu.RLock()
 	activityBuilder := db.shardReindexActivityLookupBuilder
@@ -64,11 +62,14 @@ func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 				Warn("backup-reindex gate: ShardReindexActivityLookup not yet installed; allowing backup. " +
 					"Expected briefly during startup; if this persists past bootstrap, check the SetShardReindexActivityLookup wiring in configure_api.go.")
 		})
-		return false
+		return false, nil
 	}
-	lookup := activityBuilder()
+	lookup, err := activityBuilder()
+	if err != nil {
+		return false, err
+	}
 	if lookup == nil {
-		return false
+		return false, nil
 	}
 	if lookup(collection, shardName) {
 		// Debug-level so flag-on operators get visibility into which
@@ -81,7 +82,7 @@ func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 				WithField("reason", "activity_lookup_live_task").
 				Debug("backup-reindex gate: refusing — DTM lists a live reindex task on this shard")
 		}
-		return true
+		return true, nil
 	}
 	// Cleanup lookup is OR-d in: the DTM task may have flipped to
 	// terminal while autoCleanupAfterTerminal is still tearing the
@@ -89,11 +90,11 @@ func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 	// wiring paths and test fixtures that install only the activity
 	// lookup keep the prior semantics.
 	if cleanupBuilder == nil {
-		return false
+		return false, nil
 	}
 	cleanupLookup := cleanupBuilder()
 	if cleanupLookup == nil {
-		return false
+		return false, nil
 	}
 	if cleanupLookup(collection, shardName) {
 		if db.logger != nil {
@@ -103,9 +104,9 @@ func (db *DB) AnyLiveReindexForShard(collection, shardName string) bool {
 				WithField("reason", "cleanup_in_progress").
 				Debug("backup-reindex gate: refusing — autoCleanupAfterTerminal still draining sidecars on this shard")
 		}
-		return true
+		return true, nil
 	}
-	return false
+	return false, nil
 }
 
 // SetReindexCleanupInProgressLookup installs the builder used by
@@ -118,40 +119,53 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 	db.reindexCleanupInProgressLookupBldr = builder
 }
 
+// ErrReindexGateUnavailable marks a refusal the gate issued without being able
+// to check. Only a refusal naming a live task is something to wait for, so a
+// replica movement counts this one against its error budget instead.
+var ErrReindexGateUnavailable = errors.New("cannot check for a running runtime-reindex task")
+
+// Only a partially constructed fixture produces this; nothing fills the
+// reference in later.
+const noDatabaseBackReference = "this index has no database back-reference, so the check cannot run"
+
 // refuseIfReindexInFlight is the per-shard backup-gate check used by
 // [DB.Backupable], [Index.backupInactiveShardWithHardlinks],
 // [Index.backupInactiveShardWithoutHardlinks], and
-// [Shard.HaltForTransfer]. Consults DTM via
-// [DB.AnyLiveReindexForShard]; the filesystem-marker variant it
-// replaced only saw the local node and lagged DTM's actual state.
-//
-// If i.db is nil the gate is conservative: it refuses the backup, on
-// the assumption that wiring is in progress.
+// [Shard.HaltForTransfer]. Consults DTM via [DB.AnyLiveReindexForShard],
+// and refuses when it cannot check, so an unreachable DTM cannot let a
+// backup race a reindex nobody can see.
 func (i *Index) refuseIfReindexInFlight(shardName string) error {
+	collection := i.Config.ClassName.String()
 	if i.db == nil {
-		// Index was constructed without a back-reference (test
-		// fixtures, partial init). Be conservative.
-		return reindexInFlightError(i.Config.ClassName.String(), shardName, true)
+		return reindexGateUnavailableError(collection, shardName, noDatabaseBackReference)
 	}
-	if !i.db.AnyLiveReindexForShard(i.Config.ClassName.String(), shardName) {
+	live, err := i.db.AnyLiveReindexForShard(collection, shardName)
+	if err != nil {
+		return reindexGateUnavailableError(collection, shardName, err.Error())
+	}
+	if !live {
 		return nil
 	}
-	return reindexInFlightError(i.Config.ClassName.String(), shardName, false)
+	return reindexInFlightError(collection, shardName)
 }
 
-// reindexInFlightError formats the operator-facing rejection. The
-// `preWire` flag distinguishes "DTM lookup says live" from "lookup not
-// yet installed" so the error body can hint at the right next step.
-//
-// This gate never sees the task's status, so it states the cancel remedy
-// with its condition attached rather than branching on it.
-func reindexInFlightError(collection, shardName string, preWire bool) error {
-	if preWire {
-		return fmt.Errorf(
-			"%w: shard %q (collection %q): backup-gate lookup not yet installed (startup window); retry once the node has finished bootstrapping",
-			entitiesbackup.ErrBackupBlockedByInFlightReindex, shardName, collection,
-		)
-	}
+// reindexGateUnavailableError formats the refusal for a check that could not
+// run. It wraps the in-flight sentinel too, so the backup path answers as it
+// does for a live task. The reason arrives as text, not as an error to chain:
+// IsReversibleRefusal in cluster/replication pulls a wrapped gRPC status out of
+// the chain, and a FailedPrecondition one would put this back on the wait path.
+func reindexGateUnavailableError(collection, shardName, reason string) error {
+	return fmt.Errorf("%w: shard %q (collection %q): %s; refusing in case one is running unseen (%w)",
+		ErrReindexGateUnavailable, shardName, collection, reason,
+		entitiesbackup.ErrBackupBlockedByInFlightReindex,
+	)
+}
+
+// reindexInFlightError formats the operator-facing rejection for a reindex the
+// shard is still busy with: a task DTM lists as live, or one whose sidecar
+// teardown is still running. This gate never sees the task's status, so it
+// states the cancel remedy with its condition attached rather than branching.
+func reindexInFlightError(collection, shardName string) error {
 	return fmt.Errorf(
 		"%w: shard %q (collection %q) has an active runtime-reindex task in DTM; retry once that task reaches a terminal state, which GET /v1/schema/<class>/indexes reports by moving the index off status=\"pending\" and status=\"indexing\". A cancel via POST /v1/schema/<class>/properties/<prop>/index/<indexType>/cancel is accepted only while the task is STARTED: it is refused with 409 in a coordination phase, and for a status this node cannot classify, which has to terminate on the nodes that do recognize it",
 		entitiesbackup.ErrBackupBlockedByInFlightReindex, shardName, collection,

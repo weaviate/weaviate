@@ -229,6 +229,51 @@ func (o *ApplyReplicationScalePlanNotFound) WriteResponse(rw http.ResponseWriter
 	}
 }
 
+// ApplyReplicationScalePlanConflictCode is the HTTP code returned for type ApplyReplicationScalePlanConflict
+const ApplyReplicationScalePlanConflictCode int = 409
+
+/*
+ApplyReplicationScalePlanConflict The collection has a reindex or vector-index-drop task that has not reached a terminal state, so the replica copies in the plan were refused: the two cannot run at the same time. GET /tasks reports the task and its status.
+
+swagger:response applyReplicationScalePlanConflict
+*/
+type ApplyReplicationScalePlanConflict struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewApplyReplicationScalePlanConflict creates ApplyReplicationScalePlanConflict with default headers values
+func NewApplyReplicationScalePlanConflict() *ApplyReplicationScalePlanConflict {
+
+	return &ApplyReplicationScalePlanConflict{}
+}
+
+// WithPayload adds the payload to the apply replication scale plan conflict response
+func (o *ApplyReplicationScalePlanConflict) WithPayload(payload *models.ErrorResponse) *ApplyReplicationScalePlanConflict {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the apply replication scale plan conflict response
+func (o *ApplyReplicationScalePlanConflict) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ApplyReplicationScalePlanConflict) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(409)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // ApplyReplicationScalePlanInternalServerErrorCode is the HTTP code returned for type ApplyReplicationScalePlanInternalServerError
 const ApplyReplicationScalePlanInternalServerErrorCode int = 500
 

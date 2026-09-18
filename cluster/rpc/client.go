@@ -23,6 +23,7 @@ import (
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
@@ -361,6 +362,8 @@ func fromRPCError(err error) error {
 			return errors.Join(err, namespaces.ErrStateChangedConcurrently)
 		case strings.Contains(msg, clusterSchema.ErrMTDisabled.Error()):
 			return errors.Join(err, clusterSchema.ErrMTDisabled)
+		case strings.Contains(msg, replicationTypes.ErrMovementBlockedByTask.Error()):
+			return errors.Join(err, replicationTypes.ErrMovementBlockedByTask)
 		}
 	case codes.AlreadyExists:
 		switch {

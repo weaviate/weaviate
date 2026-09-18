@@ -398,6 +398,48 @@ func (m *Manager) DeleteTasksForCollection(collection string) []TaskDescriptor {
 	return removed
 }
 
+func (m *Manager) CollectionOfTask(namespace string, payload []byte) (string, bool) {
+	m.mu.RLock()
+	extractor := m.collectionExtractors[namespace]
+	m.mu.RUnlock()
+
+	if extractor == nil {
+		return "", false
+	}
+	return extractor(payload)
+}
+
+// ActiveTaskForCollection reports the namespace of a non-terminal task on
+// `collection`, matched case-insensitively as DeleteTasksForCollection does.
+func (m *Manager) ActiveTaskForCollection(collection string) (namespace string, active bool) {
+	if collection == "" {
+		return "", false
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	namespaces := make([]string, 0, len(m.collectionExtractors))
+	for ns := range m.collectionExtractors {
+		namespaces = append(namespaces, ns)
+	}
+	sort.Strings(namespaces)
+
+	for _, ns := range namespaces {
+		extractor := m.collectionExtractors[ns]
+		for _, task := range m.tasks[ns] {
+			if !task.Status.IsActive() {
+				continue
+			}
+			c, ok := extractor(task.Payload)
+			if ok && strings.EqualFold(c, collection) {
+				return ns, true
+			}
+		}
+	}
+	return "", false
+}
+
 // AddTask registers a new distributed task from a Raft apply. The seqNum becomes the task's
 // Version, used to distinguish re-runs of the same task ID. Returns an error if a task with
 // the same namespace/ID is already running, or if no units are provided.

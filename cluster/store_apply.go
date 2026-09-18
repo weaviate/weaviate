@@ -21,7 +21,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -41,9 +43,21 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.tenantAddLocks.Unlock(req.Class)
 	}
 
+	// Serialize a reindex task and a movement per collection so the check below
+	// can't race the apply that makes the other side active. Never held with the
+	// tenant lock above: a command has one type and the two sets are disjoint.
+	collection, err := st.reindexOrMovementCollection(req)
+	if err != nil {
+		return 0, err
+	}
+	if collection != "" {
+		st.reindexMovementLocks.Lock(collection)
+		defer st.reindexMovementLocks.Unlock(collection)
+	}
+
 	// PreApplyFilter below judges against in-memory FSM state, so a leader that
-	// has not drained what it inherited must not judge yet. After the tenant
-	// lock, not before: that lock is held across the apply, so a caller can wait
+	// has not drained what it inherited must not judge yet. After the locks
+	// above, not before: each is held across the apply, so a caller can wait
 	// on it long enough for leadership to turn over, and a term confirmed before
 	// the wait says nothing about the term it wakes up in.
 	if err := st.waitLeaderFSMCaughtUp(); err != nil {
@@ -60,7 +74,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	// Namespace admission runs before the schema-shape filter so a suspended
 	// namespace answers with its own state rather than a complaint about the
 	// entity the caller named.
-	if err := st.admitPropose(req); err != nil {
+	if err := st.admitPropose(req, collection); err != nil {
 		return 0, err
 	}
 
@@ -88,7 +102,8 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 }
 
 // admitPropose refuses a command whose namespace is not in a state that admits
-// it. It runs on the leader before the entry is appended, which is the only
+// it, and one that would run a reindex task and a replica movement on one
+// collection. It runs on the leader before the entry is appended, the only
 // place such a refusal can live: Apply must be a pure function of the log, so a
 // check there would have an older binary carry out what an upgraded one refuses,
 // live during a rolling update and again on every replay of that entry.
@@ -108,14 +123,66 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // apply whose schema half has committed. An Apply-side check would not close
 // that window either: the DB half runs after the schema half commits, so a flip
 // landing in between produces the same state.
-func (st *Store) admitPropose(req *api.ApplyRequest) error {
+func (st *Store) admitPropose(req *api.ApplyRequest, collection string) error {
 	if err := st.admitDestructive(req); err != nil {
 		return err
 	}
 	if err := st.admitCreateLike(req); err != nil {
 		return err
 	}
-	return st.admitShardStatus(req)
+	if err := st.admitShardStatus(req); err != nil {
+		return err
+	}
+	return st.admitReindexOrMovement(req.Type, collection)
+}
+
+func (st *Store) reindexOrMovementCollection(req *api.ApplyRequest) (string, error) {
+	switch req.Type {
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
+		sub := &api.ReplicationReplicateShardRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return "", fmt.Errorf("unmarshal replicate subcommand: %w", err)
+		}
+		return sub.SourceCollection, nil
+
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
+		sub := &api.AddDistributedTaskRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return "", fmt.Errorf("unmarshal add-task subcommand: %w", err)
+		}
+		collection, _ := st.distributedTasksManager.CollectionOfTask(sub.Namespace, sub.Payload)
+		return collection, nil
+
+	default:
+		return "", nil
+	}
+}
+
+// admitReindexOrMovement refuses the second of a reindex task and a replica
+// movement on one collection: the reindex rewrites the shard files the
+// movement copies.
+func (st *Store) admitReindexOrMovement(cmdType api.ApplyRequest_Type, collection string) error {
+	if collection == "" {
+		return nil
+	}
+	switch cmdType {
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
+		namespace, active := st.distributedTasksManager.ActiveTaskForCollection(collection)
+		if !active {
+			return nil
+		}
+		return fmt.Errorf("%w: collection %q has an active %s task; retry after it completes",
+			replicationTypes.ErrMovementBlockedByTask, collection, namespace)
+
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
+		if !st.replicationManager.GetReplicationFSM().HasActiveReplicationForCollection(collection) {
+			return nil
+		}
+		return distributedtask.NewBlockedByReplicaMovementError(collection)
+
+	default:
+		return nil
+	}
 }
 
 // admitShardStatus refuses a manual shard status change outside the active

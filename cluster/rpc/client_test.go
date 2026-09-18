@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
@@ -149,6 +150,7 @@ func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 	tests := []struct {
 		name string
 		send error
+		want error // the sentinel the receiver must recover; defaults to send
 	}{
 		{name: "ErrAlreadyExists", send: namespaces.ErrAlreadyExists},
 		{name: "ErrBadRequest", send: namespaces.ErrBadRequest},
@@ -173,12 +175,25 @@ func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 		{name: "ErrUserIdentifierExists", send: apikey.ErrUserIdentifierExists},
 		{name: "ErrUserExists", send: apikey.ErrUserExists},
 		{name: "ErrUnknownCommand", send: types.ErrUnknownCommand},
+		// Unmapped it arrives as codes.Internal and renders HTTP 500 instead of 409
+		// on the forwarding node. Sent with the wrapping text the leader adds, so
+		// the test proves the substring match still finds the sentinel inside it.
+		{
+			name: "ErrMovementBlockedByTask",
+			send: fmt.Errorf("%w: collection %q has an active %s task; retry after it completes",
+				replicationTypes.ErrMovementBlockedByTask, "Movies", "reindex"),
+			want: replicationTypes.ErrMovementBlockedByTask,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			want := tc.want
+			if want == nil {
+				want = tc.send
+			}
 			wireErr := toRPCError(tc.send)
 			parsed := fromRPCError(wireErr)
-			require.ErrorIs(t, parsed, tc.send)
+			require.ErrorIs(t, parsed, want)
 		})
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"reflect"
 	"slices"
+	"sync"
 	"testing"
 	"time"
 
@@ -34,7 +35,9 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -1558,7 +1561,9 @@ type MockStore struct {
 	replicationFSM *schema.MockreplicationFSM
 }
 
-func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
+// tweaks adjust the config before the FSM reads it, for a store whose gates
+// depend on what the config carries.
+func NewMockStore(t *testing.T, nodeID string, raftPort int, tweaks ...func(*Config)) MockStore {
 	indexer := fakes.NewMockSchemaExecutor()
 	parser := fakes.NewMockParser()
 	logger, _ := logrustest.NewNullLogger()
@@ -1586,6 +1591,9 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			TelemetryEnabled:       true,
 		},
 		replicationFSM: schema.NewMockreplicationFSM(t),
+	}
+	for _, tweak := range tweaks {
+		tweak(&ms.cfg)
 	}
 
 	s := NewFSM(ms.cfg, nil, prometheus.NewPedanticRegistry())
@@ -1690,5 +1698,181 @@ func TestStoreWaitToRestoreDBAnnouncesOnce(t *testing.T) {
 	case <-done:
 	case <-time.After(2 * time.Second):
 		t.Fatal("WaitToRestoreDB did not return once dbLoaded flipped")
+	}
+}
+
+const (
+	exclusionCollection = "Movies"
+	exclusionNamespace  = "reindex"
+)
+
+var exclusionMovement = &cmd.ReplicationReplicateShardRequest{
+	Version: cmd.ReplicationCommandVersionV0, Uuid: "00000000-0000-0000-0000-000000000001",
+	SourceCollection: exclusionCollection, SourceShard: "shard1",
+	SourceNode: "node1", TargetNode: "node2", TransferType: cmd.COPY.String(),
+}
+
+func exclusionStore(t *testing.T, collectionOf distributedtask.CollectionExtractor) *Store {
+	t.Helper()
+	return NewMockStore(t, "node1", 0, func(c *Config) {
+		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
+			exclusionNamespace: collectionOf,
+		}
+	}).store
+}
+
+func namesExclusionCollection([]byte) (string, bool) { return exclusionCollection, true }
+
+func exclusionMovementCommand(t *testing.T) *cmd.ApplyRequest {
+	t.Helper()
+	sub, err := json.Marshal(exclusionMovement)
+	require.NoError(t, err)
+	return &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_REPLICATION_REPLICATE, SubCommand: sub}
+}
+
+func exclusionTaskCommand(t *testing.T, namespace string) *cmd.ApplyRequest {
+	t.Helper()
+	sub, err := json.Marshal(&cmd.AddDistributedTaskRequest{
+		Namespace: namespace, Id: "task1", UnitIds: []string{"unit1"},
+		SubmittedAtUnixMillis: time.Now().UnixMilli(),
+	})
+	require.NoError(t, err)
+	return &cmd.ApplyRequest{Type: cmd.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, SubCommand: sub}
+}
+
+func seedExclusionTask(t *testing.T, s *Store) {
+	t.Helper()
+	require.NoError(t, s.distributedTasksManager.AddTask(exclusionTaskCommand(t, exclusionNamespace), 1))
+}
+
+func seedExclusionMovement(t *testing.T, s *Store) {
+	t.Helper()
+	require.NoError(t, s.replicationManager.GetReplicationFSM().Replicate(1, exclusionMovement))
+}
+
+// openExclusionStore is exclusionStore on a live single-node raft, so a submit
+// that wins the race really applies and the loser has something to see.
+func openExclusionStore(t *testing.T) *Store {
+	t.Helper()
+	srv, _ := newBarrierTestStore(t, func(c *Config) {
+		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
+			exclusionNamespace: namesExclusionCollection,
+		}
+	})
+
+	// The movement's apply validates against the schema, so the winner only
+	// registers an op if the shard is really where the request says it is.
+	addClass, err := json.Marshal(cmd.AddClassRequest{
+		Class: &models.Class{Class: exclusionCollection, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+		State: &sharding.State{Physical: map[string]sharding.Physical{
+			exclusionMovement.SourceShard: {BelongsToNodes: []string{exclusionMovement.SourceNode}},
+		}},
+	})
+	require.NoError(t, err)
+	require.NoError(t, srv.store.schemaManager.AddClass(&cmd.ApplyRequest{
+		Type: cmd.ApplyRequest_TYPE_ADD_CLASS, Class: exclusionCollection, SubCommand: addClass,
+	}, srv.store.cfg.NodeID, true, false))
+	return srv.store
+}
+
+// Refusing one submit at a time is not the exclusion: two that arrive together
+// must not both be admitted. Red without the per-collection lock in Store.Execute,
+// which is what keeps the check from racing the apply that answers it.
+func TestExecute_ConcurrentSubmitsAdmitOnlyOne(t *testing.T) {
+	s := openExclusionStore(t)
+	commands := []*cmd.ApplyRequest{
+		exclusionMovementCommand(t),
+		exclusionTaskCommand(t, exclusionNamespace),
+	}
+
+	errs := make([]error, len(commands))
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i, command := range commands {
+		wg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			<-start
+			_, errs[i] = s.Execute(command)
+		}, s.log)
+	}
+	close(start)
+	wg.Wait()
+
+	admitted := 0
+	for _, err := range errs {
+		if err == nil {
+			admitted++
+			continue
+		}
+		require.True(t, errors.Is(err, replicationTypes.ErrMovementBlockedByTask) ||
+			errors.Is(err, distributedtask.ErrTaskBlockedByReplicaMovement),
+			"the loser must be refused by the exclusion, got: %v", err)
+	}
+	require.Equal(t, 1, admitted,
+		"both submits were admitted, so the check ran against state the other one had not committed yet")
+}
+
+// Pins the reindex/replica-movement exclusion in both directions, on the
+// propose-time check rather than the apply.
+func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
+	movement := exclusionMovementCommand
+	reindexTask := func(t *testing.T) *cmd.ApplyRequest { return exclusionTaskCommand(t, exclusionNamespace) }
+	unregisteredTask := func(t *testing.T) *cmd.ApplyRequest { return exclusionTaskCommand(t, "other") }
+	// Both sentinels: the permanent one is what carries the refusal across gRPC as a
+	// 409, round-tripped in TestRehydratePermanentRejection_RoundTripsEverySentinel.
+	taskRefused := []error{distributedtask.ErrTaskBlockedByReplicaMovement, distributedtask.ErrPermanentRejection}
+
+	for _, tc := range []struct {
+		name         string
+		collectionOf distributedtask.CollectionExtractor
+		seed         func(*testing.T, *Store)
+		command      func(*testing.T) *cmd.ApplyRequest
+		wantErrs     []error
+	}{
+		{
+			name: "a movement is refused while a task runs on the collection", command: movement,
+			seed: seedExclusionTask, wantErrs: []error{replicationTypes.ErrMovementBlockedByTask},
+		},
+		{name: "a movement is admitted when no task runs", command: movement},
+		{
+			name: "a task is refused while a movement runs on the collection", command: reindexTask,
+			seed: seedExclusionMovement, wantErrs: taskRefused,
+		},
+		{name: "a task is admitted when no movement runs", command: reindexTask},
+		{
+			name:    "a task in a namespace with no collection extractor is admitted",
+			command: unregisteredTask, seed: seedExclusionMovement,
+		},
+		{
+			name: "a task whose payload names no collection is admitted", command: reindexTask,
+			seed: seedExclusionMovement, collectionOf: func([]byte) (string, bool) { return "", false },
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			collectionOf := tc.collectionOf
+			if collectionOf == nil {
+				collectionOf = namesExclusionCollection
+			}
+			s := exclusionStore(t, collectionOf)
+			if tc.seed != nil {
+				tc.seed(t, s)
+			}
+
+			command := tc.command(t)
+			collection, err := s.reindexOrMovementCollection(command)
+			require.NoError(t, err)
+
+			err = s.admitPropose(command, collection)
+			if len(tc.wantErrs) == 0 {
+				require.NoError(t, err)
+				return
+			}
+			for _, want := range tc.wantErrs {
+				require.ErrorIs(t, err, want)
+			}
+			require.Contains(t, err.Error(), exclusionCollection,
+				"the refusal must name the collection the operator has to wait on")
+		})
 	}
 }

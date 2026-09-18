@@ -91,7 +91,14 @@ var (
 	// and not retryable until the in-flight task terminates, so it wraps
 	// [ErrPermanentRejection] to let the REST submit path map it to 409, not 500.
 	ErrTaskConflict = errors.New("task conflicts with an in-flight task")
+
+	ErrTaskBlockedByReplicaMovement = errors.New("task blocked by an in-flight replica movement")
 )
+
+func NewBlockedByReplicaMovementError(collection string) error {
+	return wrapPermanent(ErrTaskBlockedByReplicaMovement,
+		fmt.Sprintf("collection %q has a replica movement in flight", collection))
+}
 
 // ErrTaskCompletionPermanent marks an [UnitAwareProvider.OnTaskCompleted]
 // failure as deterministically unrecoverable (e.g. target property deleted
@@ -125,6 +132,7 @@ var permanentMarkers = []permanentMarker{
 	{ErrUnitWrongNode, "unit-wrong-node"},
 	{ErrTaskNotInFinalizingState, "task-not-finalizing"},
 	{ErrTaskConflict, "task-conflict"},
+	{ErrTaskBlockedByReplicaMovement, "task-blocked-by-movement"},
 }
 
 // markerByID looks up a sentinel by its on-wire id.

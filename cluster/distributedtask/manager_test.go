@@ -1961,6 +1961,39 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 	})
 }
 
+// Pins what the reindex/movement admission check sees: a task still running on
+// the collection, and the namespace it runs in, which the refusal quotes so the
+// operator knows what kind of task to wait for.
+func TestManager_ActiveTaskForCollection(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		extracted string
+		extractOK bool
+		status    TaskStatus
+		active    bool
+	}{
+		{"a running task", "Movies", true, TaskStatusStarted, true},
+		{"a case twin of the collection name", "mOVIES", true, TaskStatusStarted, true},
+		{"a finished task", "Movies", true, TaskStatusFinished, false},
+		{"a cancelled task", "Movies", true, TaskStatusCancelled, false},
+		{"a task on another collection", "Books", true, TaskStatusStarted, false},
+		{"a payload the extractor could not read", "Movies", false, TaskStatusStarted, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newTestHarness(t).init(t)
+			h.manager.RegisterCollectionExtractor("ns",
+				func([]byte) (string, bool) { return tc.extracted, tc.extractOK })
+			fixtureInStatus(t, h, tc.status)
+
+			namespace, active := h.manager.ActiveTaskForCollection("Movies")
+			require.Equal(t, tc.active, active)
+			if tc.active {
+				require.Equal(t, "ns", namespace)
+			}
+		})
+	}
+}
+
 // addBarrierTaskWithUnits is the barrier-mode counterpart to
 // addTaskWithUnits — same shape, but the task opts into the PrepComplete
 // barrier so AllUnitsTerminal routes STARTED → PREPARING (instead of

@@ -1105,20 +1105,16 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// (wired into RestoreClassDir above) can run the audit.
 		repo.SetReindexAuditDeps(buildKnownTask, appState.Logger)
 
-		// Install the backup-gate activity lookup so refuseIfReindexInFlight
-		// consults DTM rather than per-shard filesystem markers. Built per
-		// backup precheck so the snapshot is fresh; on list failure we
-		// fall back to refusing every backup until DTM is reachable, to
-		// avoid races against in-flight reindexes that the local node
-		// cannot see.
-		buildShardReindexActivity := func() db.ShardReindexActivityLookup {
+		// Installs the lookup refuseIfReindexInFlight consults. Built per backup
+		// precheck so the snapshot is fresh; a failed list returns an error, and
+		// the caller refuses on it rather than let a backup race a reindex this
+		// node cannot see.
+		buildShardReindexActivity := func() (db.ShardReindexActivityLookup, error) {
 			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
 			if err != nil {
-				appState.Logger.WithField("action", "backup_reindex_gate").
-					Warnf("backup-reindex gate: cannot list DTM tasks; refusing all backups until DTM is reachable: %v", err)
-				return func(string, string) bool { return true }
+				return nil, fmt.Errorf("cannot list the cluster's distributed tasks: %w", err)
 			}
-			return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], appState.Logger)
+			return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], appState.Logger), nil
 		}
 		repo.SetShardReindexActivityLookup(buildShardReindexActivity)
 		// S1: the DTM-activity lookup flips a shard "free" the moment a
