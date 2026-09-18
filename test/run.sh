@@ -225,6 +225,9 @@ function main() {
     elif $run_acceptance_only_mcp
     then
       tools/test/run_ci_server.sh --with-mcp
+    elif runs_go_client_fast_tests
+    then
+      tools/test/run_ci_server.sh --with-model2vec
     else
       tools/test/run_ci_server.sh
     fi
@@ -1038,6 +1041,12 @@ function run_acceptance_backups() {
   echo_green "acceptance — backups"
   run_aof_group "backups" \
     test/acceptance/backups
+}
+
+# runs_go_client_fast_tests reports whether the fast go client tests were
+# selected, they run against the model2vec flavour of the shared test server.
+function runs_go_client_fast_tests() {
+  $run_acceptance_go_client || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_only_fast_group_3
 }
 
 # get_fast_go_client_packages returns a list of fast go client test packages.
