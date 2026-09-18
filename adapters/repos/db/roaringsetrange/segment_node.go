@@ -94,6 +94,8 @@ func (sn *SegmentNode) Deletions() *sroar.Bitmap {
 	return sroar.FromBuffer(sn.rw.ReadBytesFromBufferWithUint64LengthIndicator())
 }
 
+// NewSegmentNode has no production caller. The tests build input segments with it
+// and compare NewSegmentNodeCompacted's and the flush writer's bytes against it.
 func NewSegmentNode(key uint8, additions, deletions *sroar.Bitmap) (*SegmentNode, error) {
 	additionsBuf := additions.ToBuffer()
 	var deletionsBuf []byte
