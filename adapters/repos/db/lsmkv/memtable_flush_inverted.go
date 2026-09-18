@@ -27,9 +27,7 @@ import (
 )
 
 func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.MeteredWriter, bufw *bufio.Writer) ([]segmentindex.Key, *sroar.Bitmap, error) {
-	m.RLock()
-	flatA := m.keyMap.flattenInOrder()
-	m.RUnlock()
+	flatA := m.flattenKeyMap()
 
 	// by encoding each map pair we can force the same structure as for a
 	// collection, which means we can reuse the same flushing logic

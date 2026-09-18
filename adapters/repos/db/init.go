@@ -363,8 +363,12 @@ func (db *DB) migrateFileStructureIfNecessary() error {
 		if err = db.migrateToHierarchicalFS(); err != nil {
 			return fmt.Errorf("migrate to hierarchical fs: %w", err)
 		}
-		if _, err = os.Create(fsMigrationPath); err != nil {
+		f, err := os.Create(fsMigrationPath)
+		if err != nil {
 			return fmt.Errorf("create hierarchical fs indicator: %w", err)
+		}
+		if err := f.Close(); err != nil {
+			return fmt.Errorf("close hierarchical fs indicator: %w", err)
 		}
 	}
 	return nil
