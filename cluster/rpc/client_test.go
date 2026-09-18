@@ -176,8 +176,8 @@ func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 		{name: "ErrUserExists", send: apikey.ErrUserExists},
 		{name: "ErrUnknownCommand", send: types.ErrUnknownCommand},
 		// Unmapped it arrives as codes.Internal and renders HTTP 500 instead of 409
-		// on the forwarding node. Sent wrapped as the leader builds it, since the
-		// substring match has to survive that text.
+		// on the forwarding node. Sent with the wrapping text the leader adds, so
+		// the test proves the substring match still finds the sentinel inside it.
 		{
 			name: "ErrMovementBlockedByTask",
 			send: fmt.Errorf("%w: collection %q has an active %s task; retry after it completes",

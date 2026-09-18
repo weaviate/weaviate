@@ -20,6 +20,9 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/weaviate/weaviate/cluster/replication"
 	entitiesbackup "github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -224,7 +227,7 @@ func TestRefuseIfReindexInFlight_CannotCheck(t *testing.T) {
 		{
 			name:        "no database back-reference",
 			index:       func() *Index { return &Index{Config: IndexConfig{ClassName: schema.ClassName("JourneyClass")}} },
-			wantContain: "startup window",
+			wantContain: "no database back-reference",
 		},
 		{
 			name: "task manager unreachable",
@@ -342,19 +345,37 @@ func TestReplicaSnapshotDefersOnlyForALiveReindex(t *testing.T) {
 			builder:   unreachableActivityBuilder,
 			wantDefer: false,
 		},
+		{
+			// The refusal must not inherit its cause's gRPC status: the wait path
+			// reads a wrapped status out of the chain and matches on its message.
+			name: "the task manager answers with the text the wait path matches",
+			builder: func() (ShardReindexActivityLookup, error) {
+				return nil, status.Error(codes.FailedPrecondition, enterrors.ErrShardBusyStructuralOp.Error())
+			},
+			wantDefer: false,
+		},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			index, _ := newSharedHaltTestShard(t)
-			putSharedHaltObject(t, index, strfmt.UUID("2b1d4bd0-3f52-4f0f-9f75-b0cb2e29b3a3"), 0)
-			index.db.SetShardReindexActivityLookup(tc.builder)
+		// Both wrapped call sites: the snapshot and the halt-for-duration fallback.
+		for _, mode := range []struct {
+			name         string
+			withHardlink bool
+		}{{name: "hardlink mode", withHardlink: true}, {name: "fallback halt-for-duration mode"}} {
+			t.Run(tc.name+", "+mode.name, func(t *testing.T) {
+				if !mode.withHardlink {
+					t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+				}
+				index, _ := newSharedHaltTestShard(t)
+				putSharedHaltObject(t, index, strfmt.UUID("2b1d4bd0-3f52-4f0f-9f75-b0cb2e29b3a3"), 0)
+				index.db.SetShardReindexActivityLookup(tc.builder)
 
-			_, err := index.IncomingCreateReplicaSnapshot(context.Background(), "shard1", "op-reindex")
-			require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
-				"the reindex sentinel must survive so the backup path keeps its own response")
-			require.Equal(t, tc.wantDefer, replication.IsReversibleRefusal(err),
-				"only a refusal that names a live task may make the movement wait")
-			require.Equal(t, tc.wantDefer, errors.Is(err, enterrors.ErrShardBusyStructuralOp),
-				"the wait marker is what the gRPC hop carries, so it must move with the verdict")
-		})
+				_, err := index.IncomingCreateReplicaSnapshot(context.Background(), "shard1", "op-reindex")
+				require.ErrorIs(t, err, entitiesbackup.ErrBackupBlockedByInFlightReindex,
+					"the reindex sentinel must survive so the backup path keeps its own response")
+				require.Equal(t, tc.wantDefer, replication.IsReversibleRefusal(err),
+					"only a refusal that names a live task may make the movement wait")
+				require.Equal(t, tc.wantDefer, errors.Is(err, enterrors.ErrShardBusyStructuralOp),
+					"the shard-busy sentinel is what writes the text a remote caller matches on")
+			})
+		}
 	}
 }

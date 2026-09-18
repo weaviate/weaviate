@@ -124,7 +124,9 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 // replica movement counts this one against its error budget instead.
 var ErrReindexGateUnavailable = errors.New("cannot check for a running runtime-reindex task")
 
-var errGateNotWired = errors.New("the check is not installed yet (startup window); retry once the node has finished bootstrapping")
+// Only a partially constructed fixture produces this; nothing fills the
+// reference in later.
+const noDatabaseBackReference = "this index has no database back-reference, so the check cannot run"
 
 // refuseIfReindexInFlight is the per-shard backup-gate check used by
 // [DB.Backupable], [Index.backupInactiveShardWithHardlinks],
@@ -135,11 +137,11 @@ var errGateNotWired = errors.New("the check is not installed yet (startup window
 func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	collection := i.Config.ClassName.String()
 	if i.db == nil {
-		return reindexGateUnavailableError(collection, shardName, errGateNotWired)
+		return reindexGateUnavailableError(collection, shardName, noDatabaseBackReference)
 	}
 	live, err := i.db.AnyLiveReindexForShard(collection, shardName)
 	if err != nil {
-		return reindexGateUnavailableError(collection, shardName, err)
+		return reindexGateUnavailableError(collection, shardName, err.Error())
 	}
 	if !live {
 		return nil
@@ -149,17 +151,20 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 
 // reindexGateUnavailableError formats the refusal for a check that could not
 // run. It wraps the in-flight sentinel too, so the backup path answers as it
-// does for a live task.
-func reindexGateUnavailableError(collection, shardName string, cause error) error {
-	return fmt.Errorf("%w: shard %q (collection %q): %w; refusing in case one is running unseen (%w)",
-		ErrReindexGateUnavailable, shardName, collection, cause,
+// does for a live task. The reason arrives as text, not as an error to chain:
+// IsReversibleRefusal in cluster/replication pulls a wrapped gRPC status out of
+// the chain, and a FailedPrecondition one would put this back on the wait path.
+func reindexGateUnavailableError(collection, shardName, reason string) error {
+	return fmt.Errorf("%w: shard %q (collection %q): %s; refusing in case one is running unseen (%w)",
+		ErrReindexGateUnavailable, shardName, collection, reason,
 		entitiesbackup.ErrBackupBlockedByInFlightReindex,
 	)
 }
 
-// reindexInFlightError formats the operator-facing rejection for a task DTM
-// reports as live. This gate never sees the task's status, so it states the
-// cancel remedy with its condition attached rather than branching on it.
+// reindexInFlightError formats the operator-facing rejection for a reindex the
+// shard is still busy with: a task DTM lists as live, or one whose sidecar
+// teardown is still running. This gate never sees the task's status, so it
+// states the cancel remedy with its condition attached rather than branching.
 func reindexInFlightError(collection, shardName string) error {
 	return fmt.Errorf(
 		"%w: shard %q (collection %q) has an active runtime-reindex task in DTM; retry once that task reaches a terminal state, which GET /v1/schema/<class>/indexes reports by moving the index off status=\"pending\" and status=\"indexing\". A cancel via POST /v1/schema/<class>/properties/<prop>/index/<indexType>/cancel is accepted only while the task is STARTED: it is refused with 409 in a coordination phase, and for a status this node cannot classify, which has to terminate on the nodes that do recognize it",

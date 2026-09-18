@@ -169,8 +169,6 @@ func TestCleanupInProgress_ZeroRefcountDeletesEntry(t *testing.T) {
 // TestCleanupInProgress_LookupBuilder pins the wiring contract:
 // the builder returns a closure that probes the LIVE registry on
 // every invocation — not a snapshotted bool from builder-call time.
-// This mirrors [ShardReindexActivityLookupBuilder]'s contract so the
-// backup gate can install both via the same pattern.
 func TestCleanupInProgress_LookupBuilder(t *testing.T) {
 	p := newCleanupRegistryProvider()
 
