@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
@@ -27,7 +28,7 @@ func TestVectorizingObjects_AllPropertyTypes(t *testing.T) {
 	className := "TestClass"
 	var nilAnyArray []any
 	asTime := func(date string) time.Time {
-		if asTime, err := time.Parse(time.RFC3339, date); err == nil {
+		if asTime, err := time.Parse(time.RFC3339Nano, date); err == nil {
 			return asTime
 		}
 		// fallback to current time, this will surely fail tests
@@ -202,6 +203,59 @@ func TestVectorizingObjects_AllPropertyTypes(t *testing.T) {
 			}},
 			vectorizableProperties: []string{"date_prop"},
 			wantCorpi:              "2011-05-05T07:16:30+02:00",
+		},
+		{
+			name: "date property as time.Time without source properties",
+			object: &models.Object{Class: className, Properties: map[string]any{
+				"date_prop": asTime("2011-05-05T07:16:30+02:00"),
+			}},
+			wantCorpi: "2011-05-05T07:16:30+02:00",
+		},
+		{
+			name: "date property as time.Time keeps fractional seconds",
+			object: &models.Object{Class: className, Properties: map[string]any{
+				"date_prop": asTime("2011-05-05T07:16:30.123+02:00"),
+			}},
+			vectorizableProperties: []string{"date_prop"},
+			wantCorpi:              "2011-05-05T07:16:30.123+02:00",
+		},
+		{
+			name: "date array property as []time.Time keeps fractional seconds",
+			object: &models.Object{Class: className, Properties: map[string]any{
+				"date_array_prop": []time.Time{
+					asTime("2011-05-05T07:16:30.123+02:00"),
+					asTime("2011-05-06T07:16:30.456+02:00"),
+				},
+			}},
+			vectorizableProperties: []string{"date_array_prop"},
+			wantCorpi:              "2011-05-05T07:16:30.123+02:00 2011-05-06T07:16:30.456+02:00",
+		},
+		{
+			name: "date array property as []time.Time",
+			object: &models.Object{Class: className, Properties: map[string]any{
+				"date_array_prop": []time.Time{asTime("2011-05-05T07:16:30+02:00"), asTime("2011-05-06T07:16:30+02:00")},
+			}},
+			vectorizableProperties: []string{"date_array_prop"},
+			wantCorpi:              "2011-05-05T07:16:30+02:00 2011-05-06T07:16:30+02:00",
+		},
+		{
+			name: "uuid property as uuid.UUID",
+			object: &models.Object{Class: className, Properties: map[string]any{
+				"uuid_prop": uuid.MustParse("550e8400-e29b-41d4-a716-446655440000"),
+			}},
+			vectorizableProperties: []string{"uuid_prop"},
+			wantCorpi:              "550e8400-e29b-41d4-a716-446655440000",
+		},
+		{
+			name: "uuid array property as []uuid.UUID",
+			object: &models.Object{Class: className, Properties: map[string]any{
+				"uuid_array_prop": []uuid.UUID{
+					uuid.MustParse("550e8400-e29b-41d4-a716-446655440000"),
+					uuid.MustParse("550e8400-e29b-41d4-a716-446655440001"),
+				},
+			}},
+			vectorizableProperties: []string{"uuid_array_prop"},
+			wantCorpi:              "550e8400-e29b-41d4-a716-446655440000 550e8400-e29b-41d4-a716-446655440001",
 		},
 	}
 	for _, tt := range tests {
