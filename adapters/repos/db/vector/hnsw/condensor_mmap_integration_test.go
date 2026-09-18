@@ -38,10 +38,10 @@ func TestMmapCondensor(t *testing.T) {
 	require.Nil(t, err)
 
 	t.Run("add redundant data to the original log", func(t *testing.T) {
-		uncondensed.AddNode(&vertex{id: 0, level: 3})
-		uncondensed.AddNode(&vertex{id: 1, level: 3})
-		uncondensed.AddNode(&vertex{id: 2, level: 3})
-		uncondensed.AddNode(&vertex{id: 3, level: 3})
+		uncondensed.AddNode(0, 3)
+		uncondensed.AddNode(1, 3)
+		uncondensed.AddNode(2, 3)
+		uncondensed.AddNode(3, 3)
 
 		// below are some pointless connection replacements, we expect that most of
 		// these will be gone after condensing, this gives us a good way of testing
@@ -83,10 +83,10 @@ func TestMmapCondensor(t *testing.T) {
 	})
 
 	t.Run("create a hypothetical perfect log", func(t *testing.T) {
-		perfect.AddNode(&vertex{id: 0, level: 3})
-		perfect.AddNode(&vertex{id: 1, level: 3})
-		perfect.AddNode(&vertex{id: 2, level: 3})
-		perfect.AddNode(&vertex{id: 3, level: 3})
+		perfect.AddNode(0, 3)
+		perfect.AddNode(1, 3)
+		perfect.AddNode(2, 3)
+		perfect.AddNode(3, 3)
 
 		// below are some pointless connection replacements, we expect that most of
 		// these will be gone after condensing, this gives us a good way of testing
@@ -147,7 +147,7 @@ func TestMmapCondensor(t *testing.T) {
 // 	require.Nil(t, err)
 
 // 	t.Run("add data, but do not set an entrypoint", func(t *testing.T) {
-// 		uncondensed.AddNode(&vertex{id: 0, level: 3})
+// 		uncondensed.AddNode(0, 3)
 
 // 		require.Nil(t, uncondensed.Flush())
 // 	})

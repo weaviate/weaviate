@@ -851,8 +851,8 @@ func (l *hnswCommitLogger) writeStateTo(state *DeserializationResult, wr io.Writ
 		buf.Reset()
 
 		if n != nil {
-			_, hasATombstone := state.Tombstones[n.id]
-			_, tombstoneIsCleaned := state.TombstonesDeleted[n.id]
+			_, hasATombstone := state.Tombstones[uint64(i)]
+			_, tombstoneIsCleaned := state.TombstonesDeleted[uint64(i)]
 
 			if hasATombstone && tombstoneIsCleaned {
 				// the node has been deleted and its tombstone already cleaned up:
@@ -876,7 +876,7 @@ func (l *hnswCommitLogger) writeStateTo(state *DeserializationResult, wr io.Writ
 
 				_, err = buf.Write(connData)
 				if err != nil {
-					return errors.Wrapf(err, "write connections data for node %d", n.id)
+					return errors.Wrapf(err, "write connections data for node %d", uint64(i))
 				}
 			}
 		} else {
@@ -1186,11 +1186,11 @@ func (l *hnswCommitLogger) legacyReadSnapshotBody(filename string, f common.File
 					continue
 				}
 
-				node := &vertex{id: currNodeID}
+				node := &vertex{}
 
 				if b[0] == 1 {
 					mu.Lock()
-					res.Tombstones[node.id] = struct{}{}
+					res.Tombstones[currNodeID] = struct{}{}
 					mu.Unlock()
 				} else if b[0] != 2 {
 					return fmt.Errorf("unsupported node existence state")
@@ -1214,7 +1214,7 @@ func (l *hnswCommitLogger) legacyReadSnapshotBody(filename string, f common.File
 					if version < snapshotVersionV2 {
 						pconn, err := packedconn.NewWithMaxLayer(uint8(connCount))
 						if err != nil {
-							return errors.Wrapf(err, "create packed connections for node %d", node.id)
+							return errors.Wrapf(err, "create packed connections for node %d", currNodeID)
 						}
 
 						for l := uint8(0); l < uint8(connCount); l++ {
@@ -1227,7 +1227,7 @@ func (l *hnswCommitLogger) legacyReadSnapshotBody(filename string, f common.File
 
 							if connCountAtLevel > 0 {
 								if connCountAtLevel > maxExpectedConns {
-									return fmt.Errorf("node %d has too many connections: %v", node.id, connCountAtLevel)
+									return fmt.Errorf("node %d has too many connections: %v", currNodeID, connCountAtLevel)
 								}
 								for c := uint64(0); c < connCountAtLevel; c++ {
 									n, err = io.ReadFull(r, b[:8]) // connection at level
@@ -1380,11 +1380,11 @@ func (l *hnswCommitLogger) readSnapshotBody(f common.File, res *DeserializationR
 							continue
 						}
 
-						node := &vertex{id: currNodeID}
+						node := &vertex{}
 
 						if b[0] == 1 {
 							mu.Lock()
-							res.Tombstones[node.id] = struct{}{}
+							res.Tombstones[currNodeID] = struct{}{}
 							mu.Unlock()
 						} else if b[0] != 2 {
 							return fmt.Errorf("unsupported node existence state")

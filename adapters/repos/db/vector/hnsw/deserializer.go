@@ -237,7 +237,7 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 		if err != nil {
 			return err
 		}
-		res.Nodes[id] = &vertex{level: uint16(level), id: id, connections: conns}
+		res.Nodes[id] = &vertex{level: uint16(level), connections: conns}
 	} else {
 		if res.Nodes[id].connections == nil {
 			res.Nodes[id].connections, err = packedconn.NewWithMaxLayer(uint8(level))
@@ -314,7 +314,7 @@ func (d *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 		if err != nil {
 			return err
 		}
-		res.Nodes[int(source)] = &vertex{id: source, connections: conns}
+		res.Nodes[int(source)] = &vertex{connections: conns}
 	}
 
 	if res.Nodes[source].connections == nil {
@@ -382,7 +382,7 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 	}
 
 	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: source}
+		res.Nodes[int(source)] = &vertex{}
 	}
 
 	if res.Nodes[source].connections == nil {
@@ -440,7 +440,7 @@ func (d *Deserializer) ReadAddLinks(r io.Reader,
 	}
 
 	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: source}
+		res.Nodes[int(source)] = &vertex{}
 	}
 	if res.Nodes[source].connections == nil {
 		res.Nodes[source].connections = &packedconn.Connections{}
@@ -557,7 +557,6 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 			return err
 		}
 		res.Nodes[id] = &vertex{
-			id:          id,
 			connections: conns,
 		}
 	}

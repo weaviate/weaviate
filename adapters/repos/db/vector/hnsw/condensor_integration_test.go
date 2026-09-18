@@ -53,10 +53,10 @@ func TestCondensor(t *testing.T) {
 	defer perfect.Shutdown(ctx)
 
 	t.Run("add redundant data to the original log", func(t *testing.T) {
-		uncondensed.AddNode(&vertex{id: 0, level: 3})
-		uncondensed.AddNode(&vertex{id: 1, level: 3})
-		uncondensed.AddNode(&vertex{id: 2, level: 3})
-		uncondensed.AddNode(&vertex{id: 3, level: 3})
+		uncondensed.AddNode(0, 3)
+		uncondensed.AddNode(1, 3)
+		uncondensed.AddNode(2, 3)
+		uncondensed.AddNode(3, 3)
 
 		// below are some pointless connection replacements, we expect that most of
 		// these will be gone after condensing, this gives us a good way of testing
@@ -98,10 +98,10 @@ func TestCondensor(t *testing.T) {
 	})
 
 	t.Run("create a hypothetical perfect log", func(t *testing.T) {
-		perfect.AddNode(&vertex{id: 0, level: 3})
-		perfect.AddNode(&vertex{id: 1, level: 3})
-		perfect.AddNode(&vertex{id: 2, level: 3})
-		perfect.AddNode(&vertex{id: 3, level: 3})
+		perfect.AddNode(0, 3)
+		perfect.AddNode(1, 3)
+		perfect.AddNode(2, 3)
+		perfect.AddNode(3, 3)
 
 		// below are some pointless connection replacements, we expect that most of
 		// these will be gone after condensing, this gives us a good way of testing
@@ -191,7 +191,7 @@ func TestCondensorAppendNodeLinks(t *testing.T) {
 	})
 
 	t.Run("create a control log", func(t *testing.T) {
-		control.AddNode(&vertex{id: 0, level: 0})
+		control.AddNode(0, 0)
 		control.ReplaceLinksAtLevel(0, 0, []uint64{1, 2, 3, 4, 5, 6})
 
 		require.Nil(t, control.Flush())
@@ -271,7 +271,7 @@ func TestCondensorReplaceNodeLinks(t *testing.T) {
 	fs := common.NewOSFS()
 
 	t.Run("add data to the first log", func(t *testing.T) {
-		uncondensed1.AddNode(&vertex{id: 0, level: 1})
+		uncondensed1.AddNode(0, 1)
 		uncondensed1.AddLinkAtLevel(0, 0, 1)
 		uncondensed1.AddLinkAtLevel(0, 0, 2)
 		uncondensed1.AddLinkAtLevel(0, 0, 3)
@@ -291,7 +291,7 @@ func TestCondensorReplaceNodeLinks(t *testing.T) {
 	})
 
 	t.Run("create a control log", func(t *testing.T) {
-		control.AddNode(&vertex{id: 0, level: 1})
+		control.AddNode(0, 1)
 		control.ReplaceLinksAtLevel(0, 0, []uint64{4, 5, 6, 7})
 		control.ReplaceLinksAtLevel(0, 1, []uint64{8})
 
@@ -372,7 +372,7 @@ func TestCondensorClearLinksAtLevel(t *testing.T) {
 	fs := common.NewOSFS()
 
 	t.Run("add data to the first log", func(t *testing.T) {
-		uncondensed1.AddNode(&vertex{id: 0, level: 1})
+		uncondensed1.AddNode(0, 1)
 		uncondensed1.AddLinkAtLevel(0, 0, 1)
 		uncondensed1.AddLinkAtLevel(0, 0, 2)
 		uncondensed1.AddLinkAtLevel(0, 0, 3)
@@ -396,7 +396,7 @@ func TestCondensorClearLinksAtLevel(t *testing.T) {
 	})
 
 	t.Run("create a control log", func(t *testing.T) {
-		control.AddNode(&vertex{id: 0, level: 1})
+		control.AddNode(0, 1)
 		control.ReplaceLinksAtLevel(0, 0, []uint64{4, 5, 6, 7})
 		control.ReplaceLinksAtLevel(0, 1, []uint64{8})
 
@@ -469,10 +469,10 @@ func TestCondensorTombstones(t *testing.T) {
 	fs := common.NewOSFS()
 
 	t.Run("add tombstone data", func(t *testing.T) {
-		uncondensed1.AddNode(&vertex{id: 0, level: 1})
-		uncondensed1.AddNode(&vertex{id: 1, level: 1})
-		uncondensed1.AddNode(&vertex{id: 2, level: 1})
-		uncondensed1.AddNode(&vertex{id: 3, level: 1})
+		uncondensed1.AddNode(0, 1)
+		uncondensed1.AddNode(1, 1)
+		uncondensed1.AddNode(2, 1)
+		uncondensed1.AddNode(3, 1)
 
 		uncondensed1.RemoveTombstone(0)
 		uncondensed1.AddTombstone(1)
@@ -491,10 +491,10 @@ func TestCondensorTombstones(t *testing.T) {
 	})
 
 	t.Run("create a control log", func(t *testing.T) {
-		control.AddNode(&vertex{id: 0, level: 1})
-		control.AddNode(&vertex{id: 1, level: 1})
-		control.AddNode(&vertex{id: 2, level: 1})
-		control.AddNode(&vertex{id: 3, level: 1})
+		control.AddNode(0, 1)
+		control.AddNode(1, 1)
+		control.AddNode(2, 1)
+		control.AddNode(3, 1)
 
 		control.RemoveTombstone(0)
 
@@ -638,7 +638,7 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 	fs := common.NewOSFS()
 
 	t.Run("add data, but do not set an entrypoint", func(t *testing.T) {
-		uncondensed.AddNode(&vertex{id: 0, level: 3})
+		uncondensed.AddNode(0, 3)
 
 		require.Nil(t, uncondensed.Flush())
 	})
@@ -672,7 +672,7 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		require.Nil(t, err)
 
 		conns, _ := packedconn.NewWithMaxLayer(3)
-		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: conns})
+		assert.Contains(t, res.Nodes, &vertex{level: 3, connections: conns})
 		assert.Equal(t, uint64(17), res.Entrypoint)
 		assert.Equal(t, uint16(3), res.Level)
 	})
@@ -1034,10 +1034,10 @@ func newMemoryCondensor(t *testing.T, rootPath string, fs common.FS) (*MemoryCon
 		cl.Shutdown(ctx)
 	})
 
-	cl.AddNode(&vertex{id: 0, level: 3})
-	cl.AddNode(&vertex{id: 1, level: 3})
-	cl.AddNode(&vertex{id: 2, level: 3})
-	cl.AddNode(&vertex{id: 3, level: 3})
+	cl.AddNode(0, 3)
+	cl.AddNode(1, 3)
+	cl.AddNode(2, 3)
+	cl.AddNode(3, 3)
 
 	// below are some pointless connection replacements, we expect that most of
 	// these will be gone after condensing, this gives us a good way of testing
@@ -1287,7 +1287,7 @@ func BenchmarkCondensorRetainedMemory(b *testing.B) {
 	b.Cleanup(func() { cl.Shutdown(context.Background()) })
 
 	for id := 0; id < 4; id++ {
-		cl.AddNode(&vertex{id: uint64(id), level: 1})
+		cl.AddNode(uint64(id), 1)
 	}
 	cl.ReplaceLinksAtLevel(0, 0, []uint64{1, 2, 3})
 	cl.SetEntryPointWithMaxLayer(0, 1)

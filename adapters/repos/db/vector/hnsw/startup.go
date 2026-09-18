@@ -380,21 +380,22 @@ func (h *hnsw) restoreDocMappings() error {
 	}
 	defer release()
 
-	for _, node := range h.nodes {
+	for i, node := range h.nodes {
 		if node == nil {
 			continue
 		}
-		binary.BigEndian.PutUint64(buf, node.id)
+		id := uint64(i)
+		binary.BigEndian.PutUint64(buf, id)
 		docIDBytes, err := bucket.Get(buf)
 		if err != nil {
 			// If the mapping is not found (e.g., due to corrupted state after ungraceful shutdown),
 			// log a warning and skip this node instead of failing completely
 			h.logger.WithFields(map[string]interface{}{
 				"action":  "restore_doc_mappings",
-				"node_id": node.id,
+				"node_id": id,
 				"error":   err.Error(),
 			}).Error("skipping node with missing doc mapping")
-			h.nodes[node.id] = nil
+			h.nodes[id] = nil
 			continue
 		}
 
@@ -402,10 +403,10 @@ func (h *hnsw) restoreDocMappings() error {
 		if len(docIDBytes) < 8 {
 			h.logger.WithFields(map[string]interface{}{
 				"action":       "restore_doc_mappings",
-				"node_id":      node.id,
+				"node_id":      id,
 				"bytes_length": len(docIDBytes),
 			}).Error("skipping node with invalid doc mapping data")
-			h.nodes[node.id] = nil
+			h.nodes[id] = nil
 			continue
 		}
 
@@ -415,11 +416,11 @@ func (h *hnsw) restoreDocMappings() error {
 			prevDocID = docID
 		}
 		h.Lock()
-		h.docIDVectors[docID] = append(h.docIDVectors[docID], node.id)
+		h.docIDVectors[docID] = append(h.docIDVectors[docID], id)
 		h.Unlock()
 		relativeID++
-		if node.id > maxNodeID {
-			maxNodeID = node.id
+		if id > maxNodeID {
+			maxNodeID = id
 		}
 		if docID > maxDocID {
 			maxDocID = docID

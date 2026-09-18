@@ -181,7 +181,6 @@ func generateDummyVertices(amount int) []*vertex {
 	out := make([]*vertex, amount)
 	for i := range out {
 		out[i] = &vertex{
-			id:    uint64(i),
 			level: uint16(levelForDummyVertex(i)),
 		}
 	}

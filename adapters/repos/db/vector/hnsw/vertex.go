@@ -18,7 +18,6 @@ import (
 )
 
 type vertex struct {
-	id uint64
 	sync.Mutex
 	connections *packedconn.Connections
 	level       uint16
