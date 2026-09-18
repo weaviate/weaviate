@@ -102,7 +102,7 @@ func (h *HFresh) appendReassignReplicas(ctx context.Context, newVector Vector, r
 		if err != nil {
 			return false, errors.Wrapf(err, "failed to get version for vector %d", newVector.ID())
 		}
-		if version.Deleted() || version.Version() > newVector.Version().Version() {
+		if version.Deleted() || version.IsNewerThan(newVector.Version()) {
 			h.logger.WithField("vectorID", newVector.ID()).
 				Debug("vector is deleted or has a newer version, skipping reassign operation")
 			return false, nil

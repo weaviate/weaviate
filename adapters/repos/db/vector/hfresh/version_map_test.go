@@ -140,6 +140,20 @@ func TestVectorVersion(t *testing.T) {
 	require.True(t, ve.Deleted())
 }
 
+func TestVectorVersionIsNewerThan(t *testing.T) {
+	require.False(t, VectorVersion(2).IsNewerThan(VectorVersion(2)))
+	require.True(t, VectorVersion(2).IsNewerThan(VectorVersion(1)))
+	require.False(t, VectorVersion(1).IsNewerThan(VectorVersion(2)))
+
+	// wrap: 1 is the successor of 127
+	require.True(t, VectorVersion(1).IsNewerThan(VectorVersion(127)))
+	require.False(t, VectorVersion(127).IsNewerThan(VectorVersion(1)))
+
+	// reserved 0 is never "newer"
+	require.False(t, VectorVersion(0).IsNewerThan(VectorVersion(1)))
+	require.False(t, VectorVersion(1).IsNewerThan(VectorVersion(0)))
+}
+
 func TestVersionMap(t *testing.T) {
 	ctx := t.Context()
 
