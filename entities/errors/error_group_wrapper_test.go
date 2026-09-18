@@ -396,6 +396,76 @@ func TestErrorGroupWrapperPanics(t *testing.T) {
 	}
 }
 
+// TestRecoveredPanicKeepsAnErrorValue guards that a panic carrying an error
+// stays matchable by errors.Is. A nil deref panics with a runtime.Error.
+func TestRecoveredPanicKeepsAnErrorValue(t *testing.T) {
+	sentinel := errors.New("the panic value")
+
+	cases := []struct {
+		name string
+		run  func(egw *ErrorGroupWrapper) error
+	}{
+		{
+			name: "Go",
+			run: func(egw *ErrorGroupWrapper) error {
+				egw.Go(func() error { panic(sentinel) }, "Books")
+				return egw.Wait()
+			},
+		},
+		{
+			name: "TryGo",
+			run: func(egw *ErrorGroupWrapper) error {
+				require.True(t, egw.TryGo(func() error { panic(sentinel) }, "Books"))
+				return egw.Wait()
+			},
+		},
+		{
+			name: "RunRecovered",
+			run: func(egw *ErrorGroupWrapper) error {
+				return egw.RunRecovered(func() error { panic(sentinel) }, "Books")
+			},
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			// these assertions read a recovered panic, so the recovery must run
+			t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
+			logger := logrus.New()
+			logger.SetOutput(io.Discard)
+			egw := NewErrorGroupWrapper(logger)
+
+			err := tt.run(egw)
+			require.ErrorIs(t, err, sentinel, "the panic value stays matchable")
+			require.ErrorContains(t, err, "panic occurred: the panic value",
+				"and the message reads as it did before the value was wrapped")
+
+			collected := egw.recoveredPanics()
+			require.Len(t, collected, 1)
+			require.ErrorIs(t, collected[0].err, sentinel,
+				"the ledger keeps the value matchable too, for whoever collects it")
+		})
+	}
+
+	t.Run("a runtime error", func(t *testing.T) {
+		t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
+		logger := logrus.New()
+		logger.SetOutput(io.Discard)
+
+		var counts map[string]int
+		err := NewErrorGroupWrapper(logger).RunRecovered(func() error {
+			counts["boom"] = 1
+			return nil
+		})
+
+		var runtimeErr runtime.Error
+		require.ErrorAs(t, err, &runtimeErr,
+			"writing to a nil map panics with a runtime.Error, so callers can match on it")
+	})
+}
+
 // TestErrorGroupWrapperRunRecovered pins that the method runs f on the calling
 // goroutine and leaves Wait's jobs_count alone.
 func TestErrorGroupWrapperRunRecovered(t *testing.T) {
