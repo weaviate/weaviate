@@ -59,9 +59,23 @@ fi
 if [ $# -eq 1 ] && [ "$1" == "--with-mcp" ]; then
   START_WEAVIATE_MCP="true"
 fi
+# --with-model2vec starts the shared test server backed by text2vec-model2vec
+# instead of text2vec-contextionary. Both use the same ports, so only one of
+# them can run at a time.
+START_WEAVIATE_MODEL2VEC=""
+if [ $# -eq 1 ] && [ "$1" == "--with-model2vec" ]; then
+  START_WEAVIATE_MODEL2VEC="true"
+fi
 
-build docker-compose-test.yml weaviate
-surpress_on_success docker compose -f docker-compose-test.yml up --force-recreate -d weaviate contextionary
+COMPOSE_FILE=docker-compose-test.yml
+VECTORIZER_SERVICE=contextionary
+if [ "$START_WEAVIATE_MODEL2VEC" == "true" ]; then
+  COMPOSE_FILE=docker-compose-model2vec-test.yml
+  VECTORIZER_SERVICE=text2vec-model2vec
+fi
+
+build "$COMPOSE_FILE" weaviate
+surpress_on_success docker compose -f "$COMPOSE_FILE" up --force-recreate -d weaviate "$VECTORIZER_SERVICE"
 
 if [ "$START_WEAVIATE_AUTH" == "true" ]; then
   build docker-compose-auth-test.yml weaviate-auth
@@ -73,7 +87,7 @@ if [ "$START_WEAVIATE_MCP" == "true" ]; then
   surpress_on_success docker compose -f docker-compose-mcp-test.yml up --force-recreate -d weaviate-mcp
 fi
 
-wait docker-compose-test.yml
+wait "$COMPOSE_FILE"
 if [ "$START_WEAVIATE_AUTH" == "true" ]; then
   wait docker-compose-auth-test.yml
 fi
