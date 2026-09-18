@@ -88,7 +88,7 @@ func TestCommitLog_ConcurrentSwitchAndCompaction(t *testing.T) {
 
 		for id := uint64(1); id <= numNodes; id++ {
 			lvl := levelFor(id)
-			if fail(l.AddNode(&vertex{id: id, level: lvl})) {
+			if fail(l.AddNode(&vertex{id: id, level: uint16(lvl)})) {
 				return
 			}
 			if fail(l.AddLinkAtLevel(id, 0, 0)) {

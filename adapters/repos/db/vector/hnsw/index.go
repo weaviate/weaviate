@@ -1147,7 +1147,7 @@ func (h *hnsw) Stats() (*HnswStats, error) {
 			}
 			node.Lock()
 			defer node.Unlock()
-			l := node.level
+			l := node.lvl()
 			if l == 0 && node.connections.Layers() == 0 {
 				return
 			}

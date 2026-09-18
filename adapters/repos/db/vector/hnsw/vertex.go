@@ -22,9 +22,12 @@ type vertex struct {
 	id uint64
 	sync.Mutex
 	connections *packedconn.Connections
-	level       int
+	level       uint16
 	maintenance bool
 }
+
+// lvl returns the level as int, the type the graph algorithms work with.
+func (v *vertex) lvl() int { return int(v.level) }
 
 func (v *vertex) markAsMaintenance() {
 	v.Lock()
@@ -50,7 +53,7 @@ func (v *vertex) connectionsAtLevelNoLock(level int) []uint64 {
 }
 
 func (v *vertex) upgradeToLevelNoLock(level int) {
-	v.level = level
+	v.level = uint16(level)
 	v.connections.GrowLayersTo(uint8(level))
 }
 
@@ -92,7 +95,7 @@ func convertEntityNodes(entNodes []*ent.Vertex) []*vertex {
 		if en != nil {
 			nodes[i] = &vertex{
 				id:          en.ID,
-				level:       en.Level,
+				level:       uint16(en.Level),
 				connections: en.Connections,
 			}
 		}
