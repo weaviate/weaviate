@@ -503,7 +503,7 @@ func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name, physicalID
 func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error {
 	rec, recorded, err := s.mapping.Get(targetVector)
 	if err != nil {
-		return fmt.Errorf("vector %q: %w", targetVector, err)
+		return fmt.Errorf("drop vector %q: %w", targetVector, err)
 	}
 	if recorded {
 		err = s.markVectorIndexDropping(targetVector, rec)
