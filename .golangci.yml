@@ -534,6 +534,10 @@ linters:
         - gocritic
         path: usecases/memwatch/monitor_test.go # we skip this file as we do defer inside for loop in purpose to mock resource leaking
         text: deferInLoop
+      - linters:
+          - errorlint
+        path: adapters/repos/db/lsmkv/cursor_bucket_replace.go
+        text: comparing with == will fail on wrapped errors # hot path, state holds the bare lsmkv.NotFound sentinel
     paths:
       - third_party$
       - builtin$

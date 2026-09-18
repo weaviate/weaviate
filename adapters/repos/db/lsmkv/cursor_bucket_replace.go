@@ -316,7 +316,7 @@ func (c *CursorReplace) seekAll(target []byte) {
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.seek(target)
 		if errors.Is(err, lsmkv.NotFound) {
-			state[i].err = err
+			state[i].err = lsmkv.NotFound
 			continue
 		}
 
@@ -340,10 +340,8 @@ func (c *CursorReplace) seekAll(target []byte) {
 func (c *CursorReplace) serveCurrentStateAndAdvance() ([]byte, []byte) {
 	for {
 		id, err := c.cursorWithLowestKey()
-		if err != nil {
-			if errors.Is(err, lsmkv.NotFound) {
-				return nil, nil
-			}
+		if err == lsmkv.NotFound {
+			return nil, nil
 		}
 
 		ids, _ := c.haveDuplicatesInState(id)
@@ -419,7 +417,7 @@ func (c *CursorReplace) cursorWithLowestKey() (int, error) {
 	var lowest []byte
 
 	for i, res := range c.state {
-		if errors.Is(res.err, lsmkv.NotFound) {
+		if res.err == lsmkv.NotFound {
 			continue
 		}
 
@@ -440,7 +438,7 @@ func (c *CursorReplace) cursorWithLowestKey() (int, error) {
 func (c *CursorReplace) advanceInner(id int) {
 	k, v, err := c.innerCursors[id].next()
 	if errors.Is(err, lsmkv.NotFound) {
-		c.state[id].err = err
+		c.state[id].err = lsmkv.NotFound
 		c.state[id].key = nil
 		c.state[id].value = nil
 		return
@@ -471,7 +469,7 @@ func (c *CursorReplace) firstAll() {
 	for i, cur := range c.innerCursors {
 		key, value, err := cur.first()
 		if errors.Is(err, lsmkv.NotFound) {
-			state[i].err = err
+			state[i].err = lsmkv.NotFound
 			continue
 		}
 		if errors.Is(err, lsmkv.Deleted) {
