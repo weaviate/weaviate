@@ -1714,12 +1714,11 @@ var exclusionMovement = &cmd.ReplicationReplicateShardRequest{
 
 func exclusionStore(t *testing.T, collectionOf distributedtask.CollectionExtractor) *Store {
 	t.Helper()
-	ms := NewMockStore(t, "node1", 0)
-	ms.cfg.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
-		exclusionNamespace: collectionOf,
-	}
-	s := NewFSM(ms.cfg, nil, prometheus.NewPedanticRegistry())
-	return &s
+	return NewMockStore(t, "node1", 0, func(c *Config) {
+		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
+			exclusionNamespace: collectionOf,
+		}
+	}).store
 }
 
 func namesExclusionCollection([]byte) (string, bool) { return exclusionCollection, true }

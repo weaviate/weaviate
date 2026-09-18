@@ -101,6 +101,19 @@ func TestToRPCError(t *testing.T) {
 // the (status.Code, message) pair after a gRPC round-trip. Every
 // sentinel must survive.
 func TestRehydratePermanentRejection_RoundTripsEverySentinel(t *testing.T) {
+	// The loop below only visits registered sentinels; naming each one here is
+	// what makes leaving one out of permanentMarkers go red.
+	registered := make(map[error]bool, len(permanentMarkers))
+	for _, marker := range permanentMarkers {
+		registered[marker.sentinel] = true
+	}
+	for _, sentinel := range []error{
+		ErrTaskNotRunning, ErrTaskDoesNotExist, ErrUnitAlreadyTerminal, ErrUnitWrongNode,
+		ErrTaskNotInFinalizingState, ErrTaskConflict, ErrTaskBlockedByReplicaMovement,
+	} {
+		require.True(t, registered[sentinel], "%v is not registered in permanentMarkers", sentinel)
+	}
+
 	require.NotEmpty(t, permanentMarkers)
 	for _, marker := range permanentMarkers {
 		t.Run(marker.id, func(t *testing.T) {
