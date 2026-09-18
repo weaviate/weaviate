@@ -76,6 +76,20 @@ func (s *SegmentInMemory) MergeSegmentByCursor(cursor SegmentCursor) error {
 	return nil
 }
 
+// Shrink replaces every layer bitmap with a clone, whose capacity equals its
+// length, returning the slack sroar's doubling growth left behind. A later
+// merge regrows the clones by doubling, so call it last. It holds bitmapsLock
+// across all 65 clones, so call it before the rep is published.
+func (s *SegmentInMemory) Shrink() {
+	s.bitmapsLock.Lock()
+	defer s.bitmapsLock.Unlock()
+
+	// Swapping per layer keeps only one layer's copy live on top of the rep.
+	for key := range s.bitmaps {
+		s.bitmaps[key] = s.bitmaps[key].Clone()
+	}
+}
+
 func (s *SegmentInMemory) MergeMemtableEventually(memtable *Memtable) {
 	s.memtablesLock.Lock()
 	s.memtables = append(s.memtables, memtable)
