@@ -530,6 +530,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		QuerySlowLogEnabled:                          appState.ServerConfig.Config.QuerySlowLogEnabled,
 		QuerySlowLogThreshold:                        appState.ServerConfig.Config.QuerySlowLogThreshold,
 		InvertedSorterDisabled:                       appState.ServerConfig.Config.InvertedSorterDisabled,
+		QueryHedgedTimeout:                           appState.ServerConfig.Config.QueryHedgedTimeout,
 		QueryBatchedContainsEnabled:                  appState.ServerConfig.Config.QueryBatchedContainsEnabled,
 		LazyPropertyLengthsEnabled:                   appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
 		MaintenanceModeEnabled:                       appState.Cluster.MaintenanceModeEnabledForLocalhost,
