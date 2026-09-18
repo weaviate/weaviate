@@ -19,6 +19,7 @@ import (
 
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/status"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -117,7 +118,7 @@ func TestBootstrapper(t *testing.T) {
 			test.doBefore(m)
 
 			// Configure the bootstrapper
-			b := NewBootstrapper(m, "RID", "ADDR", test.voter, mocks.NewMockNodeSelector(nodesSlice...), test.isReady)
+			b := NewBootstrapper(m, "RID", "ADDR", test.voter, mocks.NewMockNodeSelector(nodesSlice...), test.isReady, nil, nil)
 			b.retryPeriod = time.Millisecond
 			b.jitter = time.Millisecond
 			ctx, cancel := context.WithTimeout(ctx, time.Millisecond*100)
@@ -136,6 +137,29 @@ func TestBootstrapper(t *testing.T) {
 			m.AssertExpectations(t)
 		})
 	}
+}
+
+// Pins X2a: a wiped joiner reports ready pre-join; exiting early would lose the barrier.
+func TestBootstrapperJoinsDespiteReadyWhenBarrierNeeded(t *testing.T) {
+	m := &MockNodeClient{}
+	m.On("Join", mock.Anything, mock.Anything, mock.Anything).Return(&cmd.JoinPeerResponse{LeaderCommitIndex: 42}, nil)
+
+	var gotBarrier uint64
+	needs := true
+	b := NewBootstrapper(m, "RID", "ADDR", true, mocks.NewMockNodeSelector("S1", "S2"),
+		func() bool { return true },
+		func(idx uint64) { gotBarrier = idx; needs = false },
+		func() bool { return needs })
+	b.retryPeriod = time.Millisecond
+	b.jitter = time.Millisecond
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*100)
+	defer cancel()
+	logger, _ := logrustest.NewNullLogger()
+
+	require.NoError(t, b.Do(ctx, map[string]int{"S1": 1, "S2": 2}, logger, make(chan struct{})))
+	require.Equal(t, uint64(42), gotBarrier)
+	m.AssertExpectations(t)
 }
 
 type MockNodeClient struct {

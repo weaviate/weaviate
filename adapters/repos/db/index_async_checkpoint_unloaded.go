@@ -21,6 +21,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
@@ -75,6 +76,7 @@ const (
 	shardNotInMap unloadedShardState = iota
 	shardUnloadedInMap
 	shardLoaded
+	shardRecovering
 )
 
 // withUnloadedShard pins the shard unloaded for fn: teardown and activation hold shardCreateLocks, a lazy load holds its mutex.
@@ -90,6 +92,8 @@ func (i *Index) withUnloadedShard(shardName string, fn func(state unloadedShardS
 	switch sl := i.shards.Load(shardName).(type) {
 	case nil:
 		return fn(shardNotInMap)
+	case *RecoveringShard:
+		return fn(shardRecovering)
 	case *LazyLoadShard:
 		release := sl.blockLoading()
 		defer release()
@@ -114,6 +118,9 @@ func (i *Index) createUnloadedAsyncCheckpoint(ctx context.Context, shardName str
 		"shard":  shardName,
 	})
 	return i.withUnloadedShard(shardName, func(state unloadedShardState) error {
+		if state == shardRecovering {
+			return fmt.Errorf("%w: shard %q: %w", errAsyncReplicationNotActive, shardName, enterrors.ErrShardRecovering)
+		}
 		if state == shardLoaded {
 			return fmt.Errorf("%w: shard %q loaded concurrently", errAsyncReplicationNotActive, shardName)
 		}
@@ -159,7 +166,7 @@ func (i *Index) unloadedAsyncCheckpointStatus(shardName string) (replica.AsyncCh
 	})
 	found := false
 	err := i.withUnloadedShard(shardName, func(state unloadedShardState) error {
-		if state == shardLoaded {
+		if state == shardLoaded || state == shardRecovering {
 			i.unloadedCheckpoints.delete(shardName)
 			return nil
 		}

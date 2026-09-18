@@ -20,6 +20,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/integrity"
@@ -38,11 +40,47 @@ type replicaSnapshotState struct {
 	isSnapshot bool
 }
 
+// IncomingProbeShardData reports whether this node holds shard data; ErrShardRecovering means "not usable now".
+func (i *Index) IncomingProbeShardData(ctx context.Context, shardName string) (bool, error) {
+	if s := i.shards.Load(shardName); s != nil {
+		if rec, ok := s.(*RecoveringShard); ok && rec.IsRecovering() {
+			return false, fmt.Errorf("incoming probe shard data for shard %s: %w", shardName, enterrors.ErrShardRecovering)
+		}
+		if lazy, ok := asLazyLoadShard(s); ok && !lazy.isLoaded() {
+			count, err := indexcounter.Read(shardPath(i.path(), shardName)) // a load here would plant a dir
+			if err != nil {
+				return false, fmt.Errorf("incoming probe shard data read counter %s: %w", shardName, err)
+			}
+			return count > 0, nil
+		}
+	}
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return false, fmt.Errorf("incoming probe shard data get shard %s: %w", shardName, err)
+	}
+	defer release()
+	if shard == nil {
+		return false, fmt.Errorf("incoming probe shard data get shard is nil: %s", shardName)
+	}
+	count, err := shard.ObjectCount(ctx)
+	if err != nil {
+		return false, fmt.Errorf("incoming probe shard data object count %s: %w", shardName, err)
+	}
+	return count > 0, nil
+}
+
 func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, opID string) ([]string, error) {
 	// Target retries can land twice server-side for the same opID; without
 	// this lock they race on the staging dir.
 	i.replicaSnapshotOpLocks.Lock(opID)
 	defer i.replicaSnapshotOpLocks.Unlock(opID)
+
+	// A shard we're recovering can't be a copy source; probes must read "not usable now", not "definitively empty".
+	if s := i.shards.Load(shardName); s != nil {
+		if rec, ok := s.(*RecoveringShard); ok && rec.IsRecovering() {
+			return nil, fmt.Errorf("incoming create replica snapshot for shard %s: %w", shardName, enterrors.ErrShardRecovering)
+		}
+	}
 
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
