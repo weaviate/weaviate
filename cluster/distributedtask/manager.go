@@ -409,7 +409,8 @@ func (m *Manager) CollectionOfTask(namespace string, payload []byte) (string, bo
 	return extractor(payload)
 }
 
-// ActiveTaskForCollection reports the namespace of a non-terminal task on `collection`.
+// ActiveTaskForCollection reports the namespace of a non-terminal task on
+// `collection`, matched case-insensitively as DeleteTasksForCollection does.
 func (m *Manager) ActiveTaskForCollection(collection string) (namespace string, active bool) {
 	if collection == "" {
 		return "", false

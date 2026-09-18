@@ -158,7 +158,9 @@ func (st *Store) reindexOrMovementCollection(req *api.ApplyRequest) (string, err
 	}
 }
 
-// admitReindexOrMovement: a task and a movement rewrite the same shard files.
+// admitReindexOrMovement refuses the second of a reindex task and a replica
+// movement on one collection: the reindex rewrites the shard files the
+// movement copies.
 func (st *Store) admitReindexOrMovement(cmdType api.ApplyRequest_Type, collection string) error {
 	if collection == "" {
 		return nil

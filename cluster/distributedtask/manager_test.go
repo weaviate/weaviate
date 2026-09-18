@@ -1961,8 +1961,9 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 	})
 }
 
-// Pins what the replica-movement guard sees: a task still running on the
-// collection, named so the refusal can say which one.
+// Pins what the reindex/movement admission check sees: a task still running on
+// the collection, and the namespace it runs in, which the refusal quotes so the
+// operator knows what kind of task to wait for.
 func TestManager_ActiveTaskForCollection(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
