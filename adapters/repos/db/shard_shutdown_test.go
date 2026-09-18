@@ -317,7 +317,9 @@ func TestShutdownOrRestoreShard_ConcurrentCompletionIsNotAFailure(t *testing.T) 
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 
-	err = shutdownOrRestoreShard(ctx, index, shardName, shard)
+	outcome, err := shutdownOrRestoreShard(ctx, index, shardName, shard)
+	require.Equal(t, ShardUnloadOutcomeUnloaded, outcome,
+		"a concurrently-completed shutdown is the outcome the caller asked for")
 	require.ErrorIs(t, err, errAlreadyShutdown,
 		"a concurrently-completed shutdown is the requested outcome, not a failure")
 	require.Nil(t, index.shards.Load(shardName), "a cleanly shut shard is not restored")
