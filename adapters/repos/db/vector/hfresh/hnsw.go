@@ -59,10 +59,17 @@ func (c *Centroid) Distance(distancer *Distancer, v Vector) (float32, error) {
 	return dist, nil
 }
 
+// centroidTrainingLimit is the number of centroids sampled to fit the RQ4
+// centering mean. Until then the index holds float centroids in its cache.
+// EXPERIMENT: a restart before the upgrade loses those centroids, since the
+// centroid HNSW has no float source to refill from.
+const centroidTrainingLimit = 1000
+
 type HNSWIndex struct {
-	metrics *Metrics
-	hnsw    *hnsw.HNSW
-	counter atomic.Int32
+	metrics     *Metrics
+	hnsw        *hnsw.HNSW
+	counter     atomic.Int32
+	upgradeOnce atomic.Bool
 }
 
 func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, pageSize uint64) (*HNSWIndex, error) {
@@ -79,7 +86,9 @@ func NewHNSWIndex(metrics *Metrics, store *lsmkv.Store, cfg *Config, pages, page
 	userConfig.EF = 64
 	userConfig.EFConstruction = 64
 	userConfig.RQ.Enabled = true
-	userConfig.RQ.Bits = 8
+	userConfig.RQ.Bits = 4
+	userConfig.RQ.Centering = true
+	userConfig.RQ.TrainingLimit = centroidTrainingLimit
 	userConfig.RQ.RescoreLimit = 0
 	userConfig.FilterStrategy = ent.FilterStrategyAcorn
 	cfg.Centroids.HNSWConfig.WaitForCachePrefill = true
@@ -122,6 +131,16 @@ func (i *HNSWIndex) Insert(id uint64, centroid *Centroid) error {
 		return errors.Wrap(err, "add to hnsw")
 	}
 	i.counter.Add(1)
+
+	// Centered RQ compresses through the deferred upgrade path, which the
+	// shard's vector index queue drives for regular indexes. The centroid
+	// HNSW has no queue, so trigger it here once enough centroids exist.
+	if i.counter.Load() >= centroidTrainingLimit && i.upgradeOnce.CompareAndSwap(false, true) {
+		err = i.hnsw.Upgrade(func() {})
+		if err != nil {
+			return errors.Wrap(err, "upgrade centroid index to centered rq4")
+		}
+	}
 
 	return nil
 }
