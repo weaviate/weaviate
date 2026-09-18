@@ -19,7 +19,6 @@ import (
 )
 
 type vertex struct {
-	id uint64
 	sync.Mutex
 	connections *packedconn.Connections
 	level       uint16
@@ -94,7 +93,6 @@ func convertEntityNodes(entNodes []*ent.Vertex) []*vertex {
 	for i, en := range entNodes {
 		if en != nil {
 			nodes[i] = &vertex{
-				id:          en.ID,
 				level:       uint16(en.Level),
 				connections: en.Connections,
 			}

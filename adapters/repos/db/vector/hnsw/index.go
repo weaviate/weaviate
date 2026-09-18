@@ -249,7 +249,7 @@ func GetCompressedVector[T byte | uint64](h *hnsw, id uint64) ([]T, error) {
 
 type CommitLogger interface {
 	ID() string
-	AddNode(node *vertex) error
+	AddNode(id uint64, level uint16) error
 	SetEntryPointWithMaxLayer(id uint64, level int) error
 	AddLinkAtLevel(nodeid uint64, level int, target uint64) error
 	ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error
@@ -1102,16 +1102,11 @@ func (h *hnsw) calculateUnreachablePoints() []uint64 {
 
 	unvisitedNodes := []uint64{}
 	for i := 0; i < len(h.nodes); i++ {
-		var id uint64
-		h.shardedNodeLocks.RLock(uint64(i))
-		if h.nodes[i] != nil {
-			id = h.nodes[i].id
-		}
-		h.shardedNodeLocks.RUnlock(uint64(i))
-		if id == 0 {
-			continue
-		}
-		if !visitedNodes[uint64(i)] {
+		id := uint64(i)
+		h.shardedNodeLocks.RLock(id)
+		present := h.nodes[i] != nil
+		h.shardedNodeLocks.RUnlock(id)
+		if present && !visitedNodes[id] {
 			unvisitedNodes = append(unvisitedNodes, id)
 		}
 

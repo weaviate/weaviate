@@ -35,12 +35,12 @@ func (h *hnsw) Dump(labels ...string) {
 	fmt.Printf("Max Level: %d\n", h.currentMaximumLayer)
 	fmt.Printf("Tombstones %v\n", h.tombstones)
 	fmt.Printf("\nNodes and Connections:\n")
-	for _, node := range h.nodes {
+	for i, node := range h.nodes {
 		if node == nil {
 			continue
 		}
 
-		fmt.Printf("  Node %d (level %d)\n", node.id, node.lvl())
+		fmt.Printf("  Node %d (level %d)\n", i, node.lvl())
 		iter := node.connections.Iterator()
 		for iter.Next() {
 			level, conns := iter.Current()
@@ -60,13 +60,13 @@ func (h *hnsw) DumpJSON(labels ...string) {
 		CurrentMaximumLayer: h.currentMaximumLayer,
 		Tombstones:          h.tombstones,
 	}
-	for _, node := range h.nodes {
+	for i, node := range h.nodes {
 		if node == nil {
 			continue
 		}
 
 		dumpNode := JSONDumpNode{
-			ID:          node.id,
+			ID:          uint64(i),
 			Level:       node.lvl(),
 			Connections: node.connections.GetAllLayers(),
 		}
@@ -142,7 +142,6 @@ func NewFromJSONDump(dumpBytes []byte, vecForID common.VectorForID[float32]) (*h
 			return nil, err
 		}
 		index.nodes[n.ID] = &vertex{
-			id:          n.ID,
 			level:       uint16(n.Level),
 			connections: connections,
 		}
@@ -183,7 +182,6 @@ func NewFromJSONDumpMap(dumpBytes []byte, vecForID common.VectorForID[float32]) 
 			return nil, err
 		}
 		index.nodes[n.ID] = &vertex{
-			id:          n.ID,
 			level:       uint16(n.Level),
 			connections: connections,
 		}
