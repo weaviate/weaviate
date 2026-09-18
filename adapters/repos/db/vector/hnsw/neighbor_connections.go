@@ -335,7 +335,7 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 
 	neighbor.Lock()
 	defer neighbor.Unlock()
-	if level > neighbor.level {
+	if level > neighbor.lvl() {
 		// upgrade neighbor level if the level is out of sync due to a delete re-assign
 		neighbor.upgradeToLevelNoLock(level)
 	}

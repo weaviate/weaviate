@@ -237,7 +237,7 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 		if err != nil {
 			return err
 		}
-		res.Nodes[id] = &vertex{level: int(level), id: id, connections: conns}
+		res.Nodes[id] = &vertex{level: uint16(level), id: id, connections: conns}
 	} else {
 		if res.Nodes[id].connections == nil {
 			res.Nodes[id].connections, err = packedconn.NewWithMaxLayer(uint8(level))
@@ -247,7 +247,7 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 		} else {
 			res.Nodes[id].connections.GrowLayersTo(uint8(level))
 		}
-		res.Nodes[id].level = int(level)
+		res.Nodes[id].level = uint16(level)
 	}
 	return nil
 }

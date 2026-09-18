@@ -40,7 +40,7 @@ func (h *hnsw) Dump(labels ...string) {
 			continue
 		}
 
-		fmt.Printf("  Node %d (level %d)\n", node.id, node.level)
+		fmt.Printf("  Node %d (level %d)\n", node.id, node.lvl())
 		iter := node.connections.Iterator()
 		for iter.Next() {
 			level, conns := iter.Current()
@@ -67,7 +67,7 @@ func (h *hnsw) DumpJSON(labels ...string) {
 
 		dumpNode := JSONDumpNode{
 			ID:          node.id,
-			Level:       node.level,
+			Level:       node.lvl(),
 			Connections: node.connections.GetAllLayers(),
 		}
 		dump.Nodes = append(dump.Nodes, dumpNode)
@@ -143,7 +143,7 @@ func NewFromJSONDump(dumpBytes []byte, vecForID common.VectorForID[float32]) (*h
 		}
 		index.nodes[n.ID] = &vertex{
 			id:          n.ID,
-			level:       n.Level,
+			level:       uint16(n.Level),
 			connections: connections,
 		}
 	}
@@ -184,7 +184,7 @@ func NewFromJSONDumpMap(dumpBytes []byte, vecForID common.VectorForID[float32]) 
 		}
 		index.nodes[n.ID] = &vertex{
 			id:          n.ID,
-			level:       n.Level,
+			level:       uint16(n.Level),
 			connections: connections,
 		}
 		for level, conns := range n.Connections {

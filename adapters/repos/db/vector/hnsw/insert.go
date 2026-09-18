@@ -247,7 +247,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		vector := vectors[i]
 		node := &vertex{
 			id:    ids[i],
-			level: int(levels[i]),
+			level: uint16(levels[i]),
 		}
 		globalBefore := time.Now()
 		if len(vector) == 0 {
@@ -411,7 +411,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 
 			node := &vertex{
 				id:    uint64(nodeId),
-				level: int(levels[j]),
+				level: uint16(levels[j]),
 			}
 
 			h.Lock()
@@ -479,7 +479,7 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	currentMaximumLayer := h.currentMaximumLayer
 	h.RUnlock()
 
-	targetLevel := node.level
+	targetLevel := node.lvl()
 	var err error
 	node.connections, err = packedconn.NewWithMaxLayer(uint8(targetLevel))
 	if err != nil {

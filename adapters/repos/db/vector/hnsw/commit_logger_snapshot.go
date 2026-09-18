@@ -1201,7 +1201,7 @@ func (l *hnswCommitLogger) legacyReadSnapshotBody(filename string, f common.File
 					return errors.Wrapf(err, "read node level")
 				}
 				read += n
-				node.level = int(binary.LittleEndian.Uint32(b[:4]))
+				node.level = uint16(binary.LittleEndian.Uint32(b[:4]))
 
 				n, err = io.ReadFull(r, b[:4]) // connections count
 				if err != nil {
@@ -1394,7 +1394,7 @@ func (l *hnswCommitLogger) readSnapshotBody(f common.File, res *DeserializationR
 						if err != nil {
 							return errors.Wrapf(err, "read node level")
 						}
-						node.level = int(binary.LittleEndian.Uint32(b[:4]))
+						node.level = uint16(binary.LittleEndian.Uint32(b[:4]))
 
 						_, err = io.ReadFull(r, b[:4]) // connections count
 						if err != nil {

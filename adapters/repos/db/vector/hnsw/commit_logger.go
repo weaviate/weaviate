@@ -499,7 +499,7 @@ func (l *hnswCommitLogger) AddNode(node *vertex) error {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.commitLogger.AddNode(node.id, node.level)
+	return l.commitLogger.AddNode(node.id, int(node.level))
 }
 
 func (l *hnswCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) error {

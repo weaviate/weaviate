@@ -1387,7 +1387,7 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 
 			state.Nodes[i] = &vertex{
 				id:          uint64(i),
-				level:       i % 6,
+				level:       uint16(i % 6),
 				connections: c,
 			}
 		}
@@ -1491,7 +1491,7 @@ func TestSnapshotCleanedTombstoneKeepsSlotAlignment(t *testing.T) {
 		TombstonesDeleted: make(map[uint64]struct{}),
 	}
 	for i := 0; i < size; i++ {
-		state.Nodes[i] = &vertex{id: uint64(i), level: i, connections: c}
+		state.Nodes[i] = &vertex{id: uint64(i), level: uint16(i), connections: c}
 	}
 	// node `cleaned` was deleted and its tombstone already cleaned up
 	state.Tombstones[cleaned] = struct{}{}
@@ -1531,7 +1531,7 @@ func snapshotStateWithNodes(t *testing.T, size, levelOffset int) *Deserializatio
 		Tombstones: make(map[uint64]struct{}),
 	}
 	for i := 0; i < size; i++ {
-		state.Nodes[i] = &vertex{id: uint64(i), level: (i + levelOffset) % 6, connections: c}
+		state.Nodes[i] = &vertex{id: uint64(i), level: uint16((i + levelOffset) % 6), connections: c}
 	}
 	return state
 }
