@@ -701,7 +701,7 @@ func TestBatchDeleteObjects_Journey(t *testing.T) {
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
 		schemaGetter))
 	t.Run("batch import things", testBatchImportObjects(repo))
-	t.Run("batch delete journey things", testBatchDeleteObjectsJourney(repo, queryMaximumResults))
+	t.Run("batch delete journey things", testBatchDeleteObjectsJourney(repo, queryMaximumResults, batchImportObjectCount))
 }
 
 func testAddBatchObjectClass(repo *DB, migrator *Migrator,
@@ -795,8 +795,13 @@ func testBatchImportObjectsNoVector(repo *DB) func(t *testing.T) {
 }
 
 func simpleInsertObjects(t *testing.T, repo *DB, class string, count int) {
+	simpleInsertObjectsForTenant(t, repo, class, "", count)
+}
+
+func simpleInsertObjectsForTenant(t *testing.T, repo *DB, class, tenant string, count int) {
 	batch := make(objects.BatchObjects, count)
 	for i := 0; i < count; i++ {
+		id := strfmt.UUID(fmt.Sprintf("8d5a3aa2-3c8d-4589-9ae1-3f638f506%03d", i))
 		batch[i] = objects.BatchObject{
 			OriginalIndex: i,
 			Err:           nil,
@@ -805,15 +810,21 @@ func simpleInsertObjects(t *testing.T, repo *DB, class string, count int) {
 				Properties: map[string]interface{}{
 					"stringProp": fmt.Sprintf("element %d", i),
 				},
-				ID:     strfmt.UUID(fmt.Sprintf("8d5a3aa2-3c8d-4589-9ae1-3f638f506%03d", i)),
+				ID:     id,
+				Tenant: tenant,
 				Vector: []float32{1, 2, 3},
 			},
-			UUID: strfmt.UUID(fmt.Sprintf("8d5a3aa2-3c8d-4589-9ae1-3f638f506%03d", i)),
+			UUID: id,
 		}
 	}
 
-	repo.BatchPutObjects(context.Background(), batch, nil, 0)
+	res, err := repo.BatchPutObjects(context.Background(), batch, nil, 0)
+	require.NoError(t, err)
+	assertAllItemsErrorFree(t, res)
 }
+
+// batchImportObjectCount is how many objects testBatchImportObjects leaves in the class.
+const batchImportObjectCount = 103
 
 func testBatchImportObjects(repo *DB) func(t *testing.T) {
 	return func(t *testing.T) {
@@ -1475,7 +1486,7 @@ func testBatchDeleteObjects(repo *DB) func(t *testing.T) {
 	}
 }
 
-func testBatchDeleteObjectsJourney(repo *DB, queryMaximumResults int64) func(t *testing.T) {
+func testBatchDeleteObjectsJourney(repo *DB, queryMaximumResults int64, importedCount int) func(t *testing.T) {
 	return func(t *testing.T) {
 		getParams := func(dryRun bool, output string) objects.BatchDeleteParams {
 			return objects.BatchDeleteParams{
@@ -1518,6 +1529,7 @@ func testBatchDeleteObjectsJourney(repo *DB, queryMaximumResults int64) func(t *
 				matches, deleted := batchDeleteRes.Matches, len(batchDeleteRes.Objects)
 				require.Equal(t, leftToDelete, matches)
 				require.True(t, deleted > 0)
+				require.LessOrEqual(t, int64(deleted), queryMaximumResults)
 				deletedObjectsCount += deleted
 
 				batchDeleteRes, err = repo.BatchDeleteObjects(context.Background(), getParams(true, "verbose"), time.Now(), nil, "", 0)
@@ -1539,8 +1551,10 @@ func testBatchDeleteObjectsJourney(repo *DB, queryMaximumResults int64) func(t *
 				}
 			}
 			require.False(t, deleteIterationCount > 100, "Batch delete journey tests didn't stop properly")
-			require.True(t, objectsMatches/int64(queryMaximumResults) <= int64(deleteIterationCount))
-			require.Equal(t, objectsMatches, int64(deletedObjectsCount))
+			require.Equal(t, queryMaximumResults+1, objectsMatches,
+				"the first dry run stops one past the limit")
+			require.Equal(t, importedCount, deletedObjectsCount,
+				"every imported object is deleted across the calls")
 		})
 	}
 }
