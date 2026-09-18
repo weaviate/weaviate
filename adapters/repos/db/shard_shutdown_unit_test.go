@@ -14,12 +14,17 @@ package db
 import (
 	"context"
 	"errors"
+	"os"
+	"path"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // Unit pins for the shard shutdown/restore lifecycle (the integrationTest-
@@ -144,6 +149,75 @@ func TestPerformShutdown_TeardownErrorSticks(t *testing.T) {
 	clean := &Shard{index: &Index{logger: logger}, shutdownLock: new(sync.RWMutex)}
 	clean.shut.Store(true)
 	require.NoError(t, clean.Shutdown(context.Background()))
+}
+
+// TestShardReleasesCounterAndVersionFiles pins that a shard holds its indexcount
+// file open only while it is loaded, and its version file not at all once it has
+// loaded. Each tenant a node loads and unloads would otherwise keep descriptors.
+func TestShardReleasesCounterAndVersionFiles(t *testing.T) {
+	ctx := context.Background()
+	className := "FileDescriptors"
+	shard, index := testShard(t, ctx, className)
+	s, ok := shard.(*Shard)
+	require.True(t, ok, "the counter and versioner live on the concrete shard")
+	require.NoError(t, s.PutObject(ctx, testObject(className)))
+
+	shardPath := s.path()
+	counterPath := path.Join(shardPath, "indexcount")
+	versionPath := path.Join(shardPath, "version")
+	loadShard := func() (*Shard, error) {
+		return NewShard(ctx, nil, s.Name(), index, &models.Class{Class: className},
+			index.centralJobQueue, index.scheduler,
+			index.shardReindexer, false, index.bitmapBufPool, monitoring.ShardRegistrationEager)
+	}
+
+	// Round 0 shuts down the shard testShard created, and every later round shuts down one loaded from disk.
+	for round := range 3 {
+		require.Equal(t, 1, openDescriptorCount(t, counterPath),
+			"round %d: a loaded shard keeps its counter file open to persist doc IDs", round)
+		require.Zero(t, openDescriptorCount(t, versionPath),
+			"round %d: a loaded shard has no use for its version file", round)
+
+		require.NoError(t, s.Shutdown(ctx))
+		require.Zero(t, openDescriptorCount(t, counterPath), "round %d: shutdown closes the counter file", round)
+		require.Zero(t, openDescriptorCount(t, versionPath), "round %d: shutdown leaves the version file closed", round)
+
+		var err error
+		s, err = loadShard()
+		require.NoError(t, err)
+	}
+	require.NoError(t, s.Shutdown(ctx))
+
+	// Each case leaves the shard broken on disk, so the case that fails later in the load runs first.
+	failedLoads := []struct {
+		name      string
+		breakDisk func(t *testing.T)
+	}{
+		{
+			name: "version file too short to read",
+			breakDisk: func(t *testing.T) {
+				require.NoError(t, os.WriteFile(versionPath, []byte{1}, 0o644))
+			},
+		},
+		{
+			name: "store fails before the counter opens",
+			breakDisk: func(t *testing.T) {
+				lsmPath := path.Join(shardPath, "lsm")
+				require.NoError(t, os.RemoveAll(lsmPath))
+				require.NoError(t, os.WriteFile(lsmPath, nil, 0o644))
+			},
+		},
+	}
+	for _, tc := range failedLoads {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.breakDisk(t)
+
+			_, err := loadShard()
+			require.Error(t, err)
+			require.Zero(t, openDescriptorCount(t, counterPath), "a failed load closes the counter file")
+			require.Zero(t, openDescriptorCount(t, versionPath), "a failed load closes the version file")
+		})
+	}
 }
 
 // TestShardKnownShut pins the reactivation-eviction predicate: ONLY a shard
