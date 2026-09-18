@@ -315,6 +315,10 @@ func TestCompactor_DecideAction_Logging(t *testing.T) {
 				compactor := NewCompactor(DefaultCompactorConfig(t.TempDir()), logger)
 
 				assert.Equal(t, tc.expected, compactor.decideAction(tc.state))
+				if tc.expected == ActionNone {
+					assert.Empty(t, hook.AllEntries(), "no-op decisions repeat every idle cycle and must stay silent")
+					return
+				}
 				require.Len(t, hook.AllEntries(), 1)
 				entry := hook.LastEntry()
 				assert.Equal(t, logrus.DebugLevel, entry.Level)

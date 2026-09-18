@@ -401,8 +401,9 @@ func (c *Compactor) decideAction(state *DirectoryState) Action {
 	action, reason := c.chooseAction(state, totalSize, sortedRatio)
 
 	// RunCycle decides on every maintenance cycle, so skip building fields a
-	// logger below debug would discard.
-	if c.debugEnabled() {
+	// logger below debug would discard. ActionNone is the idle steady state
+	// and would repeat every cycle for every graph, so only real work is logged.
+	if action != ActionNone && c.debugEnabled() {
 		c.logger.WithFields(logrus.Fields{
 			"action":        "hnsw_compactor_decide",
 			"snapshot_size": snapshotSize,
