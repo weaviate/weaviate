@@ -45,7 +45,35 @@ const (
 	intermediateRescoreMinPool = 1024
 )
 
+// queryStats collects per-query observability counters for the posting-scan
+// stage of the single-vector search. searchByVectorWithStats resets the
+// struct at entry and fills it for that call only; SearchByVector passes
+// nil, keeping the counters off the production hot path.
+type queryStats struct {
+	// PostingsRead is the number of non-nil postings fetched and scanned.
+	PostingsRead int
+	// MembersScanned is the number of live, deduplicated posting members
+	// iterated (pre-filter).
+	MembersScanned int
+	// PassingMembers is the subset of MembersScanned that passed the
+	// allowlist (equal to MembersScanned when there is no filter).
+	PassingMembers int
+	// DistanceComps is the number of quantized distance computations in
+	// the scan stage.
+	DistanceComps int
+}
+
 func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
+	return h.searchByVectorWithStats(ctx, vector, k, allowList, nil)
+}
+
+func (h *HFresh) searchByVectorWithStats(ctx context.Context, vector []float32, k int, allowList helpers.AllowList, stats *queryStats) ([]uint64, []float32, error) {
+	// overwrite semantics: the caller-owned struct reflects exactly this
+	// call, even when reused across queries
+	if stats != nil {
+		*stats = queryStats{}
+	}
+
 	// Normalize before any search path to ensure consistent distance calculations
 	vector = h.normalizeVec(vector)
 
@@ -111,12 +139,14 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 	defer h.visitedPool.Return(visited)
 
 	var decompressBuf []uint64
+	var postingsRead, membersScanned, passingMembers, distanceComps int
 
 	beforeScan := time.Now()
 	for i, p := range postings {
 		if p == nil { // posting nil if not found
 			continue
 		}
+		postingsRead++
 
 		// keep track of the posting size
 		postingSize := len(p)
@@ -137,17 +167,20 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 			if visited.CheckAndVisit(id) {
 				continue
 			}
+			membersScanned++
 
 			// skip vectors that are not in the allow list
 			if allowList != nil && !allowList.Contains(id) {
 				continue
 			}
+			passingMembers++
 
 			decompressBuf = quantizer.FromCompressedBytesInto(v.Data(), decompressBuf)
 			dist, err := queryDistancer.Distance(decompressBuf)
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "failed to compute distance for vector %d", id)
 			}
+			distanceComps++
 
 			q.Insert(id, dist)
 		}
@@ -162,6 +195,13 @@ func (h *HFresh) SearchByVector(ctx context.Context, vector []float32, k int, al
 		}
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "hfresh_posting_scan_took", time.Since(beforeScan))
+
+	if stats != nil {
+		stats.PostingsRead = postingsRead
+		stats.MembersScanned = membersScanned
+		stats.PassingMembers = passingMembers
+		stats.DistanceComps = distanceComps
+	}
 
 	if h.muvera.Load() {
 		ids := make([]uint64, 0, q.Len())
