@@ -36,6 +36,8 @@ const (
 const (
 	vectorIndexStateCreating = "creating"
 	vectorIndexStateReady    = "ready"
+	// dropping: the slot is gone, the files are not yet; the next load finishes it
+	vectorIndexStateDropping = "dropping"
 )
 
 var (
@@ -92,10 +94,12 @@ func (r vectorIndexRecord) validate() error {
 	if r.IndexType == "" {
 		return errors.New("empty index type")
 	}
-	if r.State != vectorIndexStateCreating && r.State != vectorIndexStateReady {
+	switch r.State {
+	case vectorIndexStateCreating, vectorIndexStateReady, vectorIndexStateDropping:
+		return nil
+	default:
 		return fmt.Errorf("unknown state %q", r.State)
 	}
-	return nil
 }
 
 // Load reads every record, keyed by logical name. initialized is false when
@@ -215,6 +219,37 @@ func (m *vectorIndexMapping) Put(name string, rec vectorIndexRecord) error {
 		return fmt.Errorf("put vector index mapping record %q: %w", name, err)
 	}
 	return nil
+}
+
+// readVectorIndexRecordOffline reads name's record from a shard that is not
+// loaded, for the cold sweep. initialized is false for a shard restored from
+// a pre-mapping backup that has not loaded since; such a shard has no
+// records at all.
+func readVectorIndexRecordOffline(shardDir, name string) (rec vectorIndexRecord, ok, initialized bool, err error) {
+	// one open for both keys; an absent key is a nil value
+	vals, _, err := shardmeta.GetOfflineMulti(shardDir, vectorIndexMappingNamespace,
+		[]byte(vectorIndexMappingFormatVersionKey), []byte(vectorIndexMappingKey(name)))
+	if err != nil || vals == nil || vals[0] == nil {
+		return vectorIndexRecord{}, false, false, err
+	}
+	version, v := vals[0], vals[1]
+	// the same refusals as Load: a deletion must not act on a record this
+	// binary cannot read
+	if string(version) != vectorIndexMappingFormatVersion {
+		return vectorIndexRecord{}, false, true, fmt.Errorf("unsupported format version %q, this binary reads %q",
+			version, vectorIndexMappingFormatVersion)
+	}
+	if v == nil {
+		return vectorIndexRecord{}, false, true, nil
+	}
+	err = json.Unmarshal(v, &rec)
+	if err == nil {
+		err = rec.validate()
+	}
+	if err != nil {
+		return vectorIndexRecord{}, false, true, fmt.Errorf("record %q: %w", name, err)
+	}
+	return rec, true, true, nil
 }
 
 func requireVectorIndexMappingInitialized(b *shardmeta.Batch) error {

@@ -180,6 +180,25 @@ func TestGetOffline(t *testing.T) {
 	})
 }
 
+// Several keys come back from one open, absent ones as nil.
+func TestGetOfflineMulti(t *testing.T) {
+	dir := t.TempDir()
+	db := openTestDB(t, dir)
+	require.NoError(t, db.Namespace("dynamic").Put([]byte("a"), []byte{1}))
+	require.NoError(t, db.Namespace("dynamic").Put([]byte("c"), []byte{3}))
+	require.NoError(t, db.Close())
+
+	vals, ok, err := GetOfflineMulti(dir, "dynamic", []byte("a"), []byte("b"), []byte("c"))
+	require.NoError(t, err)
+	assert.True(t, ok)
+	assert.Equal(t, [][]byte{{1}, nil, {3}}, vals)
+
+	vals, ok, err = GetOfflineMulti(t.TempDir(), "dynamic", []byte("a"))
+	require.NoError(t, err)
+	assert.False(t, ok, "a missing file is positively absent")
+	assert.Nil(t, vals)
+}
+
 func TestDeleteOffline(t *testing.T) {
 	t.Run("missing file is success and stays missing", func(t *testing.T) {
 		dir := t.TempDir()

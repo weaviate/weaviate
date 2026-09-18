@@ -309,9 +309,14 @@ func dbKeyForID(physicalID string) []byte {
 // loaded shard owns the key and deletes it through its own handle (both
 // baked into shardmeta.DeleteOffline).
 func RemoveStateKey(rootPath, targetVector string) error {
-	key := dbKeyForID(helpers.VectorIndexIDForTarget(targetVector))
-	if err := shardmeta.DeleteOffline(rootPath, StateNamespace, key); err != nil {
-		return fmt.Errorf("delete dynamic state for %q: %w", targetVector, err)
+	return RemoveStateKeyForID(rootPath, helpers.VectorIndexIDForTarget(targetVector))
+}
+
+// RemoveStateKeyForID is RemoveStateKey keyed by the physical ID a record
+// maps the vector to.
+func RemoveStateKeyForID(rootPath, id string) error {
+	if err := shardmeta.DeleteOffline(rootPath, StateNamespace, dbKeyForID(id)); err != nil {
+		return fmt.Errorf("delete dynamic state for %q: %w", id, err)
 	}
 	return nil
 }
@@ -340,6 +345,15 @@ func UpgradedInState(state StateOps, rootPath, id string) (bool, error) {
 		return false, fmt.Errorf("read dynamic state: %w", err)
 	}
 	return upgradedFromVerdict(v, rootPath, id), nil
+}
+
+// RemoveStateKeyIn is RemoveStateKey through a loaded shard's own handle.
+func RemoveStateKeyIn(state StateOps, id string) error {
+	err := state.Delete(dbKeyForID(id))
+	if err != nil {
+		return fmt.Errorf("delete dynamic state for %q: %w", id, err)
+	}
+	return nil
 }
 
 // upgradedFromVerdict decodes a verdict as the index's load does: a value

@@ -676,3 +676,117 @@ func copyFileForTest(t *testing.T, src, dst string) {
 	require.NoError(t, os.MkdirAll(filepath.Dir(dst), 0o755))
 	require.NoError(t, os.WriteFile(dst, data, 0o644))
 }
+
+// A dropping record is a deferred deletion the process did not finish: the
+// load deletes the files and the record, then treats the vector as unknown.
+func TestInitShardVectors_FinishesADroppingRecord(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	require.NoError(t, shard.PutObject(ctx, dropVecObject(t, "one", true)))
+	require.NotEmpty(t, entriesNamed(t, shard, "foo"))
+	dropping := vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "dropping"}
+
+	// dropped in the schema, the record left dropping: files and record go
+	markDropped(class, "foo")
+	shard.index.vectorIndexUserConfigLock.Lock()
+	delete(shard.index.vectorIndexUserConfigs, "foo")
+	shard.index.vectorIndexUserConfigLock.Unlock()
+	shard = reloadAfter(t, ctx, shard, class, func() {
+		withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+			require.NoError(t, m.Put("foo", dropping))
+		})
+	})
+	assert.Empty(t, entriesNamed(t, shard, "foo"))
+	_, ok, err := shard.mapping.Get("foo")
+	require.NoError(t, err)
+	assert.False(t, ok)
+	found, err := shard.WithVectorIndex("foo", func(VectorIndex) error { return nil })
+	require.NoError(t, err)
+	assert.False(t, found)
+
+	// active again in the schema with the record still dropping: the old
+	// files go, then the vector is created fresh
+	class.VectorConfig["foo"] = models.VectorConfig{VectorIndexType: enthnsw.NewDefaultUserConfig().IndexType(), VectorIndexConfig: enthnsw.NewDefaultUserConfig()}
+	shard.index.vectorIndexUserConfigLock.Lock()
+	shard.index.vectorIndexUserConfigs["foo"] = enthnsw.NewDefaultUserConfig()
+	shard.index.vectorIndexUserConfigLock.Unlock()
+	stale := filepath.Join(shard.path(), helpers.GetHNSWCommitLogDirName("foo"), "stale")
+	shard = reloadAfter(t, ctx, shard, class, func() {
+		require.NoError(t, os.MkdirAll(filepath.Dir(stale), 0o755))
+		require.NoError(t, os.WriteFile(stale, []byte("old"), 0o600))
+		withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+			require.NoError(t, m.Put("foo", dropping))
+		})
+	})
+	rec, ok, err := shard.mapping.Get("foo")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "ready"}, rec)
+	_, err = os.Stat(stale)
+	assert.True(t, os.IsNotExist(err), "the old files went before the fresh build")
+	found, err = shard.WithVectorIndex("foo", func(VectorIndex) error { return nil })
+	require.NoError(t, err)
+	assert.True(t, found)
+}
+
+// The startup's marker sweep runs before the mapping is open: it must read
+// the dropping record offline and delete at the recorded id, not at the
+// naming rule's, or the remapped files outlive the record.
+func TestInitShardVectors_FinishesADroppingRecordAtTheRecordedID(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	shard, decoy := remapFoo(t, ctx, shard, class)
+
+	markDropped(class, "foo")
+	shard.index.vectorIndexUserConfigLock.Lock()
+	delete(shard.index.vectorIndexUserConfigs, "foo")
+	shard.index.vectorIndexUserConfigLock.Unlock()
+	shard = reloadAfter(t, ctx, shard, class, func() {
+		withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+			require.NoError(t, m.Put("foo", vectorIndexRecord{PhysicalID: "vectors_foo_v2", IndexType: "hnsw", State: "dropping"}))
+		})
+	})
+	assert.Empty(t, entriesWithID(t, shard, "vectors_foo_v2"))
+	_, err := os.Stat(decoy)
+	assert.NoError(t, err, "the naming rule's paths were not touched")
+	_, ok, err := shard.mapping.Get("foo")
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
+// The cold sweep, on a shard that is not loaded, deletes at the recorded id
+// and deletes nothing for a name the mapping does not record.
+func TestRemoveVectorIndexFiles_ReadsTheRecordOffline(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	shard, decoy := remapFoo(t, ctx, shard, class)
+	ghost := filepath.Join(shard.path(), helpers.GetHNSWCommitLogDirName("ghost"), "somebody-elses")
+	require.NoError(t, os.MkdirAll(filepath.Dir(ghost), 0o755))
+	require.NoError(t, os.WriteFile(ghost, []byte("x"), 0o600))
+	require.NoError(t, shard.Shutdown(ctx))
+	withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+		require.NoError(t, m.Put("foo", vectorIndexRecord{PhysicalID: "vectors_foo_v2", IndexType: "hnsw", State: "dropping"}))
+	})
+
+	h := newVectorDropIndexHelper()
+	require.NoError(t, h.removeVectorIndexFiles(shard.index.path(), shard.name, "foo", otherTargetVectors(class, "foo")))
+	assert.Empty(t, entriesWithID(t, shard, "vectors_foo_v2"))
+	_, err := os.Stat(decoy)
+	assert.NoError(t, err, "the naming rule's paths were not touched")
+	rec, ok, _, err := readVectorIndexRecordOffline(shard.path(), "foo")
+	require.NoError(t, err)
+	assert.False(t, ok, "the record went last: %+v", rec)
+
+	require.NoError(t, h.removeVectorIndexFiles(shard.index.path(), shard.name, "ghost", nil))
+	_, err = os.Stat(ghost)
+	assert.NoError(t, err, "an initialized mapping without a record owns nothing")
+
+	// a record this binary cannot trust stops the sweep before it deletes
+	withOfflineMapping(t, shard.path(), func(_ *vectorIndexMapping, ns *shardmeta.Namespace) {
+		require.NoError(t, ns.Put([]byte("ghost"), []byte(`{"physical_id":"","index_type":"hnsw","state":"ready"}`)))
+	})
+	err = h.removeVectorIndexFiles(shard.index.path(), shard.name, "ghost", nil)
+	require.ErrorContains(t, err, "physical id")
+	_, err = os.Stat(ghost)
+	assert.NoError(t, err, "nothing deleted on a refused record")
+}

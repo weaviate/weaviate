@@ -88,7 +88,38 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 	lsmDir := filepath.Join(indexPath, shardName, "lsm")
 	shardDir := filepath.Join(indexPath, shardName)
 
-	artifacts := helpers.VectorIndexArtifactsFor(targetVector, otherTargetVectors)
+	// the record says what the vector owns; a shard from a pre-mapping backup
+	// has none, and the naming rule is what its first load would record
+	rec, recorded, initialized, err := readVectorIndexRecordOffline(shardDir, targetVector)
+	if shardmeta.IsLocked(err) {
+		// a load slipped in: the shard's own drop and reconcile finish it
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var artifacts helpers.VectorIndexArtifacts
+	var id string
+	switch {
+	case !initialized:
+		id = helpers.VectorIndexIDForTarget(targetVector)
+		artifacts = helpers.VectorIndexArtifactsFor(targetVector, otherTargetVectors)
+	case !recorded:
+		return nil // nothing recorded, nothing owned
+	default:
+		id = rec.PhysicalID
+		var otherIDs []string
+		for _, other := range otherTargetVectors {
+			otherRec, ok, _, err := readVectorIndexRecordOffline(shardDir, other)
+			if err != nil {
+				return err
+			}
+			if ok {
+				otherIDs = append(otherIDs, otherRec.PhysicalID)
+			}
+		}
+		artifacts = helpers.VectorIndexArtifactsForID(id, otherIDs)
+	}
 
 	var dirs []string
 	for _, bucket := range artifacts.LSMBuckets {
@@ -111,7 +142,7 @@ func (h *vectorDropIndexHelper) removeVectorIndexFiles(
 	// Unconditional because nothing here can tell a dynamic vector from any
 	// other — the drop rewrote this entry's VectorIndexType to "none" and
 	// discarded the original type along with its config.
-	if err := dynamic.RemoveStateKey(shardDir, targetVector); err != nil {
+	if err := dynamic.RemoveStateKeyForID(shardDir, id); err != nil {
 		return fmt.Errorf("remove dynamic state for %q: %w", targetVector, err)
 	}
 

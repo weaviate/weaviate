@@ -75,7 +75,7 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 		return fmt.Errorf("shard %q: %w", s.ID(), err)
 	}
 	if initialized {
-		records, err = s.reconcileVectorIndexMapping(active, records)
+		records, err = s.reconcileVectorIndexMapping(ctx, active, records)
 		if err != nil {
 			return fmt.Errorf("shard %q: %w", s.ID(), err)
 		}
@@ -456,17 +456,62 @@ func dropOneVectorIndex(ctx context.Context, index VectorIndex) error {
 	return index.Drop(ctx, false)
 }
 
-// DropVectorIndex shuts down and removes the named vector index and its queue
-// from this shard, deleting associated files from disk. It also removes the
-// LSM buckets that store the raw and compressed vector data.
-//
-// The vector's dimension rows are not cleared here. This runs inline in the
-// RAFT apply, for every shard of the collection, and that clear is O(objects)
-// where everything else here is O(files). The drop task clears the rows per
-// unit instead, and a shard that was inactive throughout clears them when it
-// next loads.
+// removeVectorIndexArtifacts deletes every file name's index owns at
+// physicalID, its dynamic state key and last its record. Siblings protect
+// what their records map them to; a sibling without a record owns nothing.
+// Idempotent: a retry after a partial run finds less to do.
+func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name, physicalID string) error {
+	others := otherTargetVectors(s.class, name)
+	otherIDs := make([]string, 0, len(others))
+	for _, other := range others {
+		rec, ok, err := s.mapping.Get(other)
+		if err != nil {
+			return fmt.Errorf("vector %q: %w", other, err)
+		}
+		if ok {
+			otherIDs = append(otherIDs, rec.PhysicalID)
+		}
+	}
+	artifacts := helpers.VectorIndexArtifactsForID(physicalID, otherIDs)
+	for _, bucket := range artifacts.LSMBuckets {
+		err := s.removeBucket(ctx, bucket)
+		if err != nil {
+			return fmt.Errorf("drop bucket %q for vector %q: %w", bucket, name, err)
+		}
+	}
+	for _, dir := range artifacts.ShardDirs {
+		err := s.removeDirIfExists(s.path(), dir)
+		if err != nil {
+			return fmt.Errorf("drop directory %q for vector %q: %w", dir, name, err)
+		}
+	}
+	err := dynamic.RemoveStateKeyIn(s.metadataDB.Namespace(dynamic.StateNamespace), physicalID)
+	if err != nil {
+		return fmt.Errorf("vector %q: %w", name, err)
+	}
+	// the record goes last, so a failed drop keeps it for the retry
+	err = s.mapping.Delete(name)
+	if err != nil {
+		return fmt.Errorf("drop mapping record for vector %q: %w", name, err)
+	}
+	return nil
+}
+
+// DropVectorIndex removes the named vector's index and queue from this shard
+// and deletes what its record says it owns. No record, nothing owned: a
+// skipped vector, or a drop that already completed.
 func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error {
-	err := s.vectors.Remove(ctx, targetVector, s.index.logger, func(index VectorIndex, queue *VectorIndexQueue) error {
+	rec, recorded, err := s.mapping.Get(targetVector)
+	if err != nil {
+		return fmt.Errorf("drop vector %q: %w", targetVector, err)
+	}
+	if recorded {
+		err = s.markVectorIndexDropping(targetVector, rec)
+		if err != nil {
+			return fmt.Errorf("mark vector index %q dropping: %w", targetVector, err)
+		}
+	}
+	err = s.vectors.Remove(ctx, targetVector, s.index.logger, func(index VectorIndex, queue *VectorIndexQueue) error {
 		if queue != nil {
 			if err := queue.Drop(ctx); err != nil {
 				return fmt.Errorf("drop queue for vector %q: %w", targetVector, err)
@@ -479,33 +524,8 @@ func (s *Shard) DropVectorIndex(ctx context.Context, targetVector string) error 
 		}
 		return nil
 	})
-	if err != nil {
+	if err != nil || !recorded {
 		return err
 	}
-
-	// Remove every on-disk artifact this vector owns — the raw and compressed
-	// buckets, the multivector ones (muvera OR mv_mappings), and hfresh's
-	// directory and buckets. The set lives in helpers so the live drop, the
-	// file sweep and the tests cannot drift apart; passing the collection's
-	// other vector names is what stops a sibling being deleted when its own
-	// bucket collides with one of this target's artifact names.
-	artifacts := helpers.VectorIndexArtifactsFor(targetVector,
-		otherTargetVectors(s.class, targetVector))
-	for _, bucket := range artifacts.LSMBuckets {
-		if err := s.removeBucket(ctx, bucket); err != nil {
-			return fmt.Errorf("drop bucket %q for vector %q: %w", bucket, targetVector, err)
-		}
-	}
-	for _, dir := range artifacts.ShardDirs {
-		if err := s.removeDirIfExists(s.path(), dir); err != nil {
-			return fmt.Errorf("drop directory %q for vector %q: %w", dir, targetVector, err)
-		}
-	}
-
-	// the record goes last, so a failed drop keeps it for the retry
-	err = s.mapping.Delete(targetVector)
-	if err != nil {
-		return fmt.Errorf("drop mapping record for vector %q: %w", targetVector, err)
-	}
-	return nil
+	return s.removeVectorIndexArtifacts(ctx, targetVector, rec.PhysicalID)
 }
