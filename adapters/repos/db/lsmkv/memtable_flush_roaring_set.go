@@ -19,7 +19,7 @@ import (
 )
 
 func (m *Memtable) flushDataRoaringSet(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
-	flat := m.roaringSet.FlattenInOrder()
+	flat := m.roaringSet.flattenInOrder()
 
 	totalDataLength := totalPayloadSizeRoaringSet(flat)
 	header := &segmentindex.Header{
