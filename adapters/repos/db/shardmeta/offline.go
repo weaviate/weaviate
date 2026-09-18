@@ -36,6 +36,16 @@ const offlineOpenTimeout = time.Second
 // returns an error, so callers can tell "no state" apart from "state we
 // failed to read".
 func GetOffline(shardDir, ns string, key []byte) (val []byte, ok bool, err error) {
+	vals, ok, err := GetOfflineMulti(shardDir, ns, key)
+	if err != nil || !ok {
+		return nil, ok, err
+	}
+	return vals[0], true, nil
+}
+
+// GetOfflineMulti is GetOffline for several keys in one open and one read
+// transaction; vals[i] is nil for an absent keys[i].
+func GetOfflineMulti(shardDir, ns string, keys ...[]byte) (vals [][]byte, ok bool, err error) {
 	path := filepath.Join(shardDir, FileName)
 	db, err := bbolt.Open(path, 0o600, &bbolt.Options{ReadOnly: true, Timeout: offlineOpenTimeout})
 	if err != nil {
@@ -46,20 +56,23 @@ func GetOffline(shardDir, ns string, key []byte) (val []byte, ok bool, err error
 	}
 	defer db.Close()
 
+	vals = make([][]byte, len(keys))
 	if err := db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket([]byte(ns))
 		if b == nil {
 			return nil
 		}
-		if v := b.Get(key); v != nil {
-			val = make([]byte, len(v))
-			copy(val, v)
+		for i, key := range keys {
+			if v := b.Get(key); v != nil {
+				vals[i] = make([]byte, len(v))
+				copy(vals[i], v)
+			}
 		}
 		return nil
 	}); err != nil {
 		return nil, false, fmt.Errorf("read shard metadata namespace %q: %w", ns, err)
 	}
-	return val, true, nil
+	return vals, true, nil
 }
 
 // IsLocked reports whether an offline read failed because a loaded shard

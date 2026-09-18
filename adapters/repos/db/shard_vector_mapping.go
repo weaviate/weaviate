@@ -226,20 +226,21 @@ func (m *vectorIndexMapping) Put(name string, rec vectorIndexRecord) error {
 // a pre-mapping backup that has not loaded since; such a shard has no
 // records at all.
 func readVectorIndexRecordOffline(shardDir, name string) (rec vectorIndexRecord, ok, initialized bool, err error) {
-	// GetOffline's ok is "the file exists"; an absent key is a nil value
-	version, _, err := shardmeta.GetOffline(shardDir, vectorIndexMappingNamespace, []byte(vectorIndexMappingFormatVersionKey))
-	if err != nil || version == nil {
+	// one open for both keys; an absent key is a nil value
+	vals, _, err := shardmeta.GetOfflineMulti(shardDir, vectorIndexMappingNamespace,
+		[]byte(vectorIndexMappingFormatVersionKey), []byte(vectorIndexMappingKey(name)))
+	if err != nil || vals == nil || vals[0] == nil {
 		return vectorIndexRecord{}, false, false, err
 	}
+	version, v := vals[0], vals[1]
 	// the same refusals as Load: a deletion must not act on a record this
 	// binary cannot read
 	if string(version) != vectorIndexMappingFormatVersion {
 		return vectorIndexRecord{}, false, true, fmt.Errorf("unsupported format version %q, this binary reads %q",
 			version, vectorIndexMappingFormatVersion)
 	}
-	v, _, err := shardmeta.GetOffline(shardDir, vectorIndexMappingNamespace, []byte(vectorIndexMappingKey(name)))
-	if err != nil || v == nil {
-		return vectorIndexRecord{}, false, true, err
+	if v == nil {
+		return vectorIndexRecord{}, false, true, nil
 	}
 	err = json.Unmarshal(v, &rec)
 	if err == nil {
