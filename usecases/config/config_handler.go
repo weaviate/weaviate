@@ -316,11 +316,15 @@ type Config struct {
 	// This flat may be removed in the future.
 	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 
-	// QueryBatchedContainsEnabled turns on the batched resolution of flat
-	// ContainsAny/ContainsAll/ContainsNone filters (many keys read under one
-	// consistent view, folded without per-value goroutines). Off by default;
-	// when off, every Contains filter takes the desugared per-value path. The
-	// batched path is behaviorally equivalent (pinned by a differential test).
+	// QueryBatchedContainsEnabled gates the batched resolution of flat
+	// ContainsAny/ContainsAll/ContainsNone filters. On by default. The config
+	// file and the runtime overrides file decode a bool; the variable reads
+	// on/enabled/1/true as on and every other value, "yes" included, as off.
+	// Off sends every Contains filter down the desugared per-value path, which
+	// answers identically. Only the overrides file applies without a restart.
+	//
+	// This flag may be removed in a future version, leaving the batched path
+	// always on.
 	QueryBatchedContainsEnabled *runtime.DynamicValue[bool] `json:"query_batched_contains_enabled" yaml:"query_batched_contains_enabled"`
 
 	// LazyPropertyLengthsEnabled defers loading an inverted segment's property
