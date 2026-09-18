@@ -15,8 +15,12 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 func TestComparableValueExtractor(t *testing.T) {
@@ -134,4 +138,60 @@ func TestComparableValueExtractor(t *testing.T) {
 			})
 		}
 	})
+
+	// An object unmarshaled from storage carries arrays as []interface{} and
+	// nested objects as map[string]interface{}; extraction must yield the same
+	// comparables as the typed shapes (this used to panic on every array case).
+	t.Run("extract comparable values from JSON-decoded object", func(t *testing.T) {
+		decoded := createMyFavoriteClassObjectJSONDecoded()
+		for _, p := range params {
+			t.Run(fmt.Sprintf("data %s", p.propName), func(t *testing.T) {
+				assert.Equal(t, p.expected, extractor.extractFromObject(decoded, p.propName))
+			})
+		}
+	})
+}
+
+// TestComparableValueExtractorWrongShapes pins that a property whose value
+// does not match its schema type extracts as nil — the same as a missing
+// property — instead of panicking the query.
+func TestComparableValueExtractorWrongShapes(t *testing.T) {
+	schema := getMyFavoriteClassSchemaForTests()
+	class := schema.GetClass(testClassName)
+	helper := newDataTypesHelper(class)
+	extractor := newComparableValueExtractor(helper)
+
+	object := storobj.FromObject(
+		&models.Object{
+			Class:              testClassName,
+			CreationTimeUnix:   900000000001,
+			LastUpdateTimeUnix: 900000000002,
+			ID:                 strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			Properties: map[string]interface{}{
+				"textProp":        nil,
+				"textPropArray":   []interface{}{"text", float64(1)},
+				"intProp":         "not a number",
+				"numberPropArray": []interface{}{"not a number"},
+				"boolProp":        "not a bool",
+				"boolPropArray":   float64(7),
+				"dateProp":        nil,
+				"datePropArray":   []interface{}{nil},
+				"phoneProp":       (*models.PhoneNumber)(nil),
+				"geoProp":         "not a geo",
+			},
+		},
+		[]float32{1, 2, 0.7},
+		nil,
+		nil,
+	)
+
+	for _, propName := range []string{
+		"textProp", "textPropArray", "intProp", "numberPropArray",
+		"boolProp", "boolPropArray", "dateProp", "datePropArray",
+		"phoneProp", "geoProp",
+	} {
+		t.Run(propName, func(t *testing.T) {
+			assert.Nil(t, extractor.extractFromObject(object, propName))
+		})
+	}
 }
