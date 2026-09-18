@@ -17,7 +17,7 @@ var (
 	ErrInvalidRequest         = errors.New("invalid request")
 	ErrCancellationImpossible = errors.New("cancellation impossible")
 	ErrDeletionImpossible     = errors.New("deletion impossible")
-	ErrMovementBlockedByTask  = errors.New("replica movement blocked")
+	ErrMovementBlockedByTask  = errors.New("replica movement blocked by an in-flight task")
 	// ErrOpCancellationInFlight: registration refused because a cancel was
 	// accepted first; see ShardReplicationFSM.SetUnCancellable.
 	ErrOpCancellationInFlight       = errors.New("op cancellation in flight")

@@ -150,6 +150,7 @@ func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 	tests := []struct {
 		name string
 		send error
+		want error // the sentinel the receiver must recover; defaults to send
 	}{
 		{name: "ErrAlreadyExists", send: namespaces.ErrAlreadyExists},
 		{name: "ErrBadRequest", send: namespaces.ErrBadRequest},
@@ -175,14 +176,24 @@ func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 		{name: "ErrUserExists", send: apikey.ErrUserExists},
 		{name: "ErrUnknownCommand", send: types.ErrUnknownCommand},
 		// Unmapped it arrives as codes.Internal and renders HTTP 500 instead of 409
-		// on the node that forwarded the movement to the leader.
-		{name: "ErrMovementBlockedByTask", send: replicationTypes.ErrMovementBlockedByTask},
+		// on the forwarding node. Sent wrapped as the leader builds it, since the
+		// substring match has to survive that text.
+		{
+			name: "ErrMovementBlockedByTask",
+			send: fmt.Errorf("%w: collection %q has an active %s task; retry after it completes",
+				replicationTypes.ErrMovementBlockedByTask, "Movies", "reindex"),
+			want: replicationTypes.ErrMovementBlockedByTask,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			want := tc.want
+			if want == nil {
+				want = tc.send
+			}
 			wireErr := toRPCError(tc.send)
 			parsed := fromRPCError(wireErr)
-			require.ErrorIs(t, parsed, tc.send)
+			require.ErrorIs(t, parsed, want)
 		})
 	}
 }
