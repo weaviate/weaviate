@@ -24,7 +24,9 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -184,41 +186,77 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 
 	fetchStart := time.Now()
 	it := allowList.LimitedIterator(limit) // ensures only up to [limit] docIDs will be returned
-	uuids = make([]strfmt.UUID, it.Len())
-	currIdx := 0
 
 	defer func() {
 		logger := logger.WithFields(logrus.Fields{
 			"took":           time.Since(start).String(),
 			"filter_took":    fetchStart.Sub(start).String(),
 			"docids_found":   it.Len(),
-			"uuids_resolved": currIdx,
+			"uuids_resolved": len(uuids),
 		})
 		if err != nil {
-			// log as debug
-			logger.WithError(err).Debug("Shard::FindUUIDs failed")
+			logger.Debugf("Shard::FindUUIDs failed: %v", err)
 			return
 		}
 		logger.Debug("Shard::FindUUIDs finished")
 	}()
 
-	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
-		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("uuids loop: %w", ctx.Err())
-		default:
-		}
-
-		uuid, err := s.uuidFromDocID(docID)
-		if err != nil {
-			// TODO: More than likely this will occur due to an object which has already been deleted.
-			//       However, this is not a guarantee. This can be improved by logging, or handling
-			//       errors other than `id not found` rather than skipping them entirely.
-			s.index.logger.WithField("op", "shard.find_uuids").WithField("docID", docID).WithError(err).Debug("failed to find UUID for docID")
-			continue
-		}
-		uuids[currIdx] = uuid
-		currIdx++
+	bucket, release, err := s.objectsBucket()
+	if err != nil {
+		return nil, err
 	}
-	return uuids[:currIdx], nil
+	defer release()
+
+	uuids, err = resolveUUIDs(ctx, logger, bucket, it)
+	return uuids, err
+}
+
+// docIDBatchBucket is the objects bucket as the uuid resolve uses it.
+type docIDBatchBucket interface {
+	GetBySecondaryBatch(ctx context.Context, pos int, keys [][]byte, visit func(i int, value []byte) error) error
+}
+
+// docIDIterator yields the doc ids to read.
+type docIDIterator interface {
+	Next() (uint64, bool)
+	Len() int
+}
+
+// resolveUUIDs reads the id of every object the iterator's doc ids point at. An
+// object whose stored bytes carry no readable id is skipped, and the skips are
+// logged once after the read. A bucket read error fails the call.
+func resolveUUIDs(ctx context.Context, logger logrus.FieldLogger, bucket docIDBatchBucket, it docIDIterator) ([]strfmt.UUID, error) {
+	// DocIDsLimited sets its concurrency budget on a context it does not return,
+	// so the uuid resolve has to set its own.
+	ctx = concurrency.CtxWithBudgetIfAbsent(ctx, concurrency.TimesGOMAXPROCS(2))
+
+	var unreadableMu sync.Mutex
+	var unreadable int
+	var unreadableCause error
+	uuids, err := storobj.DecodeByDocID(ctx, bucket, it, it.Len(), func(docID uint64, object []byte) (strfmt.UUID, bool, error) {
+		if object == nil { // deleted after the allow list was built
+			return "", false, nil
+		}
+		prop, _, err := storobj.ParseAndExtractProperty(object, "id")
+		if err == nil && len(prop) == 0 {
+			err = errors.New("no id property")
+		}
+		if err != nil {
+			unreadableMu.Lock()
+			defer unreadableMu.Unlock()
+			if unreadable++; unreadableCause == nil {
+				unreadableCause = fmt.Errorf("doc id %d: %w", docID, err)
+			}
+			return "", false, nil
+		}
+		return strfmt.UUID(prop[0]), true, nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("resolve uuids: %w", err)
+	}
+	if unreadable > 0 {
+		logger.WithField("op", "shard.find_uuids").
+			Warnf("skipped %d doc ids without a readable id, one of them: %v", unreadable, unreadableCause)
+	}
+	return uuids, nil
 }

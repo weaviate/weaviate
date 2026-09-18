@@ -63,6 +63,50 @@ func AnnotateSlowQueryLogAppend[T any](ctx context.Context, key string, value T)
 	AnnotateSlowQueryLogAppendFunc(ctx, key, func() T { return value })
 }
 
+// HasSlowQueryDetails reports whether ctx collects slow-query details, so a
+// caller can skip building values nothing will read.
+func HasSlowQueryDetails(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	_, ok := ctx.Value("slow_query_details").(*SlowQueryDetails)
+	return ok
+}
+
+// AnnotateSlowQueryLogAppendMany appends values under key in one lock
+// acquisition, so a fan-out that resolves many keys does not serialise its
+// workers on the details lock. If key already holds a value of another type,
+// the values are dropped.
+func AnnotateSlowQueryLogAppendMany[T any](ctx context.Context, key string, values []T) {
+	if ctx == nil || len(values) == 0 {
+		return
+	}
+	val := ctx.Value("slow_query_details")
+	if val == nil {
+		return
+	}
+
+	details, ok := val.(*SlowQueryDetails)
+	if !ok {
+		return
+	}
+
+	details.Lock()
+	defer details.Unlock()
+
+	prev, ok := details.values[key]
+	if !ok {
+		prev = make([]T, 0, len(values))
+	}
+
+	asList, ok := prev.([]T)
+	if !ok {
+		return
+	}
+
+	details.values[key] = append(asList, values...)
+}
+
 // AnnotateSlowQueryLogAppendFunc is AnnotateSlowQueryLogAppend with the value
 // built lazily: build runs only when the ctx carries slow-query details, so
 // callers on hot paths pay nothing to construct a value that would be
@@ -101,7 +145,29 @@ func AnnotateSlowQueryLogAppendFunc[T any](ctx context.Context, key string, buil
 	details.values[key] = asList
 }
 
+// DropSlowQueryEntry removes key, so a caller that decided nothing will read
+// the value can stop anything else from logging it. It is cheaper than reducing
+// the value, and it closes the window where a reporter switched on after the
+// decision picks the raw entries up.
+func DropSlowQueryEntry(ctx context.Context, key string) {
+	if ctx == nil {
+		return
+	}
+	details, ok := ctx.Value("slow_query_details").(*SlowQueryDetails)
+	if !ok {
+		return
+	}
+
+	details.Lock()
+	defer details.Unlock()
+
+	delete(details.values, key)
+}
+
 func ReplaceSlowQueryEntry[in any, out any](ctx context.Context, key string, replaceFunc func(old in) out) {
+	if ctx == nil {
+		return
+	}
 	val := ctx.Value("slow_query_details")
 	if val == nil {
 		return

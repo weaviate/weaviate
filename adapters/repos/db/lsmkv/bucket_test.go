@@ -2954,13 +2954,20 @@ func bucket_SecondaryPrimaryMismatch(ctx context.Context, t *testing.T, opts []B
 	// old secondary key should not be found in the new view, and the new secondary key should not be found in the old view, since they are in different segments
 	seckey := []byte("bonjour")
 	buffer := make([]byte, 100)
-	_, _, err = b2.getBySecondaryCore(ctx, 0, seckey, buffer, view, time.Duration(0), "")
+	_, _, _, _, err = b2.getBySecondaryCore(0, seckey, buffer, view, time.Duration(0))
 	require.EqualError(t, err, lsmkv.NotFound.Error())
 
 	// new secondary key should be found in the new view, and should be in the same segment as the primary key
 	seckey = []byte("olá")
-	_, _, err = b2.getBySecondaryCore(ctx, 0, seckey, buffer, view, time.Duration(0), "")
+	_, _, _, _, err = b2.getBySecondaryCore(0, seckey, buffer, view, time.Duration(0))
 	require.Nil(t, err)
+
+	// a position outside the bucket's secondary indices is answered with an
+	// error rather than used to index the segment's secondary slices
+	for _, pos := range []int{-1, 1} {
+		_, _, _, _, err = b2.getBySecondaryCore(pos, seckey, buffer, view, time.Duration(0))
+		require.EqualError(t, err, fmt.Sprintf("no secondary index at pos %d", pos))
+	}
 }
 
 func TestDeleteRequiresSecondaryKeys(t *testing.T) {
