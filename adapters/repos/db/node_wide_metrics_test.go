@@ -819,6 +819,7 @@ func installLoadedShard(lazy *LazyLoadShard, shard *Shard) {
 	lazy.mutex.Lock()
 	defer lazy.mutex.Unlock()
 	lazy.shard, lazy.loaded = shard, true
+	lazy.loadedShard.Store(shard)
 }
 
 // Tenant activity is polled for every shard on the node, so a cold tenant has to
@@ -897,6 +898,12 @@ func TestShardActivityWalkDoesNotWaitOnBusyTenant(t *testing.T) {
 				return func() { index.shardCreateLocks.Unlock(tenant.Name()) }
 			},
 		},
+		{
+			name: "loading blocked by a backup, export or usage scan",
+			hold: func(_ *Index, tenant *LazyLoadShard) func() {
+				return tenant.blockLoading()
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -932,6 +939,43 @@ func TestShardActivityWalkDoesNotWaitOnBusyTenant(t *testing.T) {
 			require.Contains(t, o.Usage(tenantactivity.UsageFilterOnlyReads)["Col1"], "t_busy")
 		})
 	}
+}
+
+// Activity reads the shard that Load and Shutdown publish under the mutex without
+// taking the mutex. The reader below runs throughout so -race sees those reads,
+// and each step checks that a shut down shard reports zeros again.
+func TestLazyLoadShardActivityAcrossLoadAndShutdown(t *testing.T) {
+	ctx := context.Background()
+	repo, index := newReplConfigDeadlockFixture(t, "ActivityLoadCycles")
+	lazy := soleColdShard(t, index)
+
+	stop := make(chan struct{})
+	reading := make(chan struct{})
+	go func() {
+		defer close(reading)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				lazy.Activity()
+			}
+		}
+	}()
+
+	for i := 0; i < 3; i++ {
+		require.NoError(t, lazy.Load(ctx))
+		read, write := lazy.Activity()
+		require.Equal(t, [2]int32{1, 1}, [2]int32{read, write}, "a freshly loaded shard starts at its initial counters")
+
+		require.NoError(t, lazy.Shutdown(ctx))
+		read, write = lazy.Activity()
+		require.Equal(t, [2]int32{0, 0}, [2]int32{read, write}, "a shut down shard reports what a cold one does")
+	}
+
+	close(stop)
+	<-reading
+	require.NoError(t, repo.Shutdown(context.Background()))
 }
 
 // Tenant activity logs are a configurable signal operators rely on, so every

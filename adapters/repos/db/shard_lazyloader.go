@@ -59,6 +59,9 @@ type LazyLoadShard struct {
 	shardOpts *deferredShardOpts
 	shard     *Shard
 	loaded    bool
+	// loadedShard is shard while loaded is true and nil otherwise. Activity reads
+	// it without mutex, so it never waits behind a load, a backup or a shutdown.
+	loadedShard atomic.Pointer[Shard]
 	// unloadedCount caches the object count read off disk while the shard is
 	// cold, which a cold shard cannot change without loading first. nil means
 	// not read yet; Load clears it.
@@ -172,6 +175,7 @@ func (l *LazyLoadShard) loadIfCold(ctx context.Context) (bool, error) {
 
 	l.shard = shard
 	l.loaded = true
+	l.loadedShard.Store(shard)
 
 	return true, nil
 }
@@ -858,6 +862,7 @@ func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 
 	// Mark as unloaded so drop() knows the correct state
 	l.loaded = false
+	l.loadedShard.Store(nil)
 	return nil
 }
 
@@ -1089,18 +1094,14 @@ func (l *LazyLoadShard) isLoaded() bool {
 }
 
 func (l *LazyLoadShard) Activity() (int32, int32) {
-	var loaded bool
-	l.mutex.Lock()
-	loaded = l.loaded
-	l.mutex.Unlock()
-
-	if !loaded {
+	shard := l.loadedShard.Load()
+	if shard == nil {
 		// don't force-load the shard, just report the same number every time, so
 		// the caller can figure out there was no activity
 		return 0, 0
 	}
 
-	return l.shard.Activity()
+	return shard.Activity()
 }
 
 func (l *LazyLoadShard) pathLSM() string {
