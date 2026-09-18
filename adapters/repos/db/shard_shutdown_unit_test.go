@@ -167,7 +167,7 @@ func TestShardReleasesCounterAndVersionFiles(t *testing.T) {
 	versionPath := path.Join(shardPath, "version")
 	loadShard := func() (*Shard, error) {
 		return NewShard(ctx, nil, s.Name(), index, &models.Class{Class: className},
-			index.centralJobQueue, index.scheduler, index.indexCheckpoints,
+			index.centralJobQueue, index.scheduler,
 			index.shardReindexer, false, index.bitmapBufPool, monitoring.ShardRegistrationEager)
 	}
 
