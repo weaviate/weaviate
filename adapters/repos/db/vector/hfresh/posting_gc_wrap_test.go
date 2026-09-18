@@ -12,6 +12,7 @@
 package hfresh
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -66,4 +67,64 @@ func TestAuditHFreshVersionNoWrapRemovesOlderPosting(t *testing.T) {
 	retained, err := Posting{stale}.GarbageCollect(versionMap)
 	require.NoError(t, err)
 	require.Empty(t, retained, "expected generation-1 posting removed after advance to 2")
+}
+
+// TestAuditHFreshVersionFarBehindRemovesStalePosting covers half-range gaps:
+// after 63 and 64 increments from generation 1, GarbageCollect must drop the
+// stale copy. Half-range circular ordering keeps a 64-generation-old posting.
+func TestAuditHFreshVersionFarBehindRemovesStalePosting(t *testing.T) {
+	ctx := t.Context()
+
+	for _, increments := range []int{63, 64} {
+		t.Run(fmt.Sprintf("behind_%d", increments), func(t *testing.T) {
+			versionMap := makeVersionMap(t)
+			vectorID := uint64(910 + increments)
+			stale := NewVector(vectorID, v1, []byte{0x01})
+
+			version := v1
+			var err error
+			for range increments {
+				version, err = versionMap.Increment(ctx, vectorID, version)
+				require.NoError(t, err)
+			}
+			require.EqualValues(t, 1+increments, version.Version())
+
+			retained, err := Posting{stale}.GarbageCollect(versionMap)
+			require.NoError(t, err)
+			require.Empty(t, retained,
+				"expected generation-1 posting removed after %d advances to %d",
+				increments, version.Version())
+		})
+	}
+}
+
+// TestAuditHFreshVersionFullCycleRemovesStalePosting freezes a mid-range
+// posting, then advances the map through wrap (127→1) far enough that
+// half-range ordering would keep it; exact equality must still drop it.
+func TestAuditHFreshVersionFullCycleRemovesStalePosting(t *testing.T) {
+	ctx := t.Context()
+	versionMap := makeVersionMap(t)
+
+	const vectorID = uint64(980)
+	version := v1
+	var err error
+	// Advance to generation 64, then freeze that copy.
+	for range 63 {
+		version, err = versionMap.Increment(ctx, vectorID, version)
+		require.NoError(t, err)
+	}
+	require.EqualValues(t, 64, version.Version())
+	stale := NewVector(vectorID, version, []byte{0x01})
+
+	// 64 more increments: 64→…→127→1
+	for range 64 {
+		version, err = versionMap.Increment(ctx, vectorID, version)
+		require.NoError(t, err)
+	}
+	require.EqualValues(t, 1, version.Version())
+
+	retained, err := Posting{stale}.GarbageCollect(versionMap)
+	require.NoError(t, err)
+	require.Empty(t, retained,
+		"expected generation-64 posting removed after wrap cycle to 1")
 }

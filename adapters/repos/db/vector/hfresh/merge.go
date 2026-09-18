@@ -175,7 +175,7 @@ func (h *HFresh) doMerge(ctx context.Context, postingID uint64) error {
 				if err != nil {
 					return errors.Wrapf(err, "failed to get version for vector %d", v.ID())
 				}
-				if version.Deleted() || version.IsNewerThan(v.Version()) {
+				if version.Deleted() || version != v.Version() {
 					continue
 				}
 				if _, exists := vectorSet[v.ID()]; exists {

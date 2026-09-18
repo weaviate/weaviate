@@ -30,7 +30,8 @@ var ErrVersionIncrementFailed = errors.New("version increment failed")
 // A VectorVersion is a 1-byte value structured as follows:
 // - 7 bits for the version number (1-127; 0 is reserved, see Increment)
 // - 1 bit for the tombstone flag (0 = alive, 1 = deleted)
-// Ordered comparisons must use IsNewerThan so wrap from 127→1 is recognized.
+// The version map is authoritative: live posting copies must match it exactly
+// (see GarbageCollect / merge / reassign). Increment wraps 127→1.
 type VectorVersion uint8
 
 func (ve VectorVersion) Version() uint8 {
@@ -39,25 +40,6 @@ func (ve VectorVersion) Version() uint8 {
 
 func (ve VectorVersion) Deleted() bool {
 	return (uint8(ve) & tombstoneMask) != 0
-}
-
-// IsNewerThan reports whether ve's generation counter is strictly newer than
-// other, accounting for wrap from 127→1 on the 1..127 cycle (0 is reserved).
-// Uses half-range circular comparison so 1 is newer than 127, while 127 is
-// not newer than 1.
-func (ve VectorVersion) IsNewerThan(other VectorVersion) bool {
-	a := ve.Version()
-	b := other.Version()
-	if a == 0 || b == 0 || a == b {
-		return false
-	}
-	var dist uint8
-	if a > b {
-		dist = a - b
-	} else {
-		dist = 127 - b + a
-	}
-	return dist <= 63
 }
 
 func (ve VectorVersion) Increment() VectorVersion {
