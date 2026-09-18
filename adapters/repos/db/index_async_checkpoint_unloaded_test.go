@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
@@ -203,6 +204,29 @@ func TestUnloadedAsyncCheckpoint_LoadBeforeStatusTakesLoadedPath(t *testing.T) {
 	_, gotCutoff, _, ok := f.status(t, ctx)
 	require.True(t, ok, "a loaded shard always reports")
 	require.Zero(t, gotCutoff, "no live checkpoint was created")
+	_, registered := f.index.unloadedCheckpoints.get(f.name)
+	require.False(t, registered)
+}
+
+func TestUnloadedAsyncCheckpoint_RecoveringShardIsRefusedAsRecovering(t *testing.T) {
+	ctx := testCtx()
+	f := newUnloadedCheckpointFixture(t, "UnloadedCkptRecovering", true)
+	writePersistedHashtree(t, f.dir, "hashtree-0000000000000001.ht", 7)
+	createdAt := time.Now().UTC()
+	cutoffMs := createdAt.Add(time.Hour).UnixMilli()
+	require.NoError(t, f.index.createAsyncCheckpoint(ctx, f.name, cutoffMs, createdAt))
+
+	f.lazy.blockLoad(enterrors.ErrShardRecovering)
+	f.index.shardCreateLocks.Lock(f.name)
+	f.index.shards.Store(f.name, &RecoveringShard{LazyLoadShard: f.lazy})
+	f.index.shardCreateLocks.Unlock(f.name)
+
+	err := f.index.createAsyncCheckpoint(ctx, f.name, cutoffMs+1, createdAt.Add(time.Second))
+	require.ErrorIs(t, err, errAsyncReplicationNotActive)
+	require.ErrorIs(t, err, enterrors.ErrShardRecovering)
+
+	_, _, _, ok := f.status(t, ctx)
+	require.False(t, ok)
 	_, registered := f.index.unloadedCheckpoints.get(f.name)
 	require.False(t, registered)
 }
