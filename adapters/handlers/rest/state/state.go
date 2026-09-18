@@ -80,6 +80,7 @@ type State struct {
 	HTTPServerMetrics  *monitoring.HTTPServerMetrics
 	GRPCServerMetrics  *monitoring.GRPCServerMetrics
 	BackupManager      *backup.Handler
+	BackupTaskProvider *backup.BackupTaskProvider
 	ExportParticipant  *exportUsecase.Participant
 	ExportMetrics      *exportUsecase.ExportMetrics
 	DB                 *db.DB
