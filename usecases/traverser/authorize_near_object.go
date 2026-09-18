@@ -51,7 +51,7 @@ func (t *Traverser) authorizeNearObjectBeacon(ctx context.Context,
 	}
 
 	return t.authorizer.Authorize(ctx, principal, authorization.READ,
-		authorization.Objects(target, tenant, ref.TargetID))
+		authorization.Objects(target, tenant))
 }
 
 func (t *Traverser) resolveAliasIfPresent(className string) string {
