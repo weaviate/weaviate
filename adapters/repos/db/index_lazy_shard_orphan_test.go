@@ -105,7 +105,8 @@ func TestLazyShardTeardownRacingRequestsLeavesNoOrphan(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		return f.index.UnloadLocalShard(ctx, name)
+		_, err = f.index.UnloadLocalShard(ctx, name)
+		return err
 	})
 	for r := 0; r < 2; r++ {
 		loop("read", func() error {
@@ -133,7 +134,8 @@ func TestLazyShardTeardownRacingRequestsLeavesNoOrphan(t *testing.T) {
 		t.Fatalf("workers still blocked after the stop signal\n%s", buf[:runtime.Stack(buf, true)])
 	}
 
-	require.NoError(t, f.index.UnloadLocalShard(ctx, name))
+	_, err := f.index.UnloadLocalShard(ctx, name)
+	require.NoError(t, err)
 	db, err := shardmeta.Open(shardPath(f.index.path(), name), time.Second)
 	if err == nil {
 		err = db.Close()

@@ -643,6 +643,20 @@ func (db *DB) GetLocalShardNames(collection string) ([]string, error) {
 	return names, nil
 }
 
+// UnloadShard skips the namespace check, which would refuse the suspended
+// namespaces it is called for. It blocks while DB.Shutdown holds indexLock.
+func (db *DB) UnloadShard(ctx context.Context, className, shardName string) (ShardUnloadOutcome, error) {
+	if db.shuttingDown() {
+		return ShardUnloadOutcomeIndexClosing, fmt.Errorf("%w: %w", ErrIndexClosing, errIndexShutdown)
+	}
+
+	index := db.GetIndex(schema.ClassName(className))
+	if index == nil {
+		return ShardUnloadOutcomeFailed, fmt.Errorf("%w: collection %q", clusterSchema.ErrClassNotFound, className)
+	}
+	return index.UnloadLocalShard(ctx, shardName)
+}
+
 // IndexExists returns if an index exists
 func (db *DB) IndexExists(className schema.ClassName) bool {
 	return db.GetIndex(className) != nil

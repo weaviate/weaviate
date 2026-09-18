@@ -461,8 +461,8 @@ func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 				"add missing tenant shard %s during update index", shardName)
 		} else {
 			// Shutdown the tenant if activity status != HOT
-			ec.AddWrapf(idx.UnloadLocalShard(ctx, shardName),
-				"shutdown tenant shard %s during update index", shardName)
+			_, err := idx.UnloadLocalShard(ctx, shardName)
+			ec.AddWrapf(err, "shutdown tenant shard %s during update index", shardName)
 		}
 	}
 	return ec.ToErrorLimited(maxReportedErrors)
@@ -523,8 +523,8 @@ func (m *Migrator) updateIndexShards(ctx context.Context, idx *Index,
 	// Initialize missing shards and shutdown unneeded ones
 	for shardName := range existingShards {
 		if !slices.Contains(requestedShards, shardName) {
-			ec.AddWrapf(idx.UnloadLocalShard(ctx, shardName),
-				"shutdown shard %s during update index", shardName)
+			_, err := idx.UnloadLocalShard(ctx, shardName)
+			ec.AddWrapf(err, "shutdown shard %s during update index", shardName)
 		}
 	}
 

@@ -110,7 +110,8 @@ func TestIncomingChangeLog_UnloadedShardKeepsLogAndStaysUnloaded(t *testing.T) {
 
 			logPath := changelogPath(idx, shardName, opID)
 			require.FileExists(t, logPath)
-			require.NoError(t, idx.UnloadLocalShard(ctx, shardName))
+			_, unloadErr := idx.UnloadLocalShard(ctx, shardName)
+			require.NoError(t, unloadErr)
 			require.Nil(t, idx.shards.Load(shardName), "shard must be unloaded before the call")
 
 			err := tc.call(ctx, idx, shardName, opID)
@@ -247,7 +248,8 @@ func TestIncomingFinalizeChangeLog_UnloadCannotTearDownMidSeal(t *testing.T) {
 	default:
 	}
 
-	require.Error(t, idx.UnloadLocalShard(ctx, shardName),
+	_, unloadErr := idx.UnloadLocalShard(ctx, shardName)
+	require.Error(t, unloadErr,
 		"unload must not shut the shard down while a seal is in flight")
 
 	shard.commitReplication(ctx, "req-pending")

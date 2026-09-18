@@ -337,22 +337,26 @@ func TestUnloadLocalShard_ErrorClassification(t *testing.T) {
 		// the ctx the unload runs under.
 		setup          func(t *testing.T, index *Index, shardName string) (string, context.Context)
 		wantErr        error
+		wantOutcome    ShardUnloadOutcome
 		wantStillInMap bool
 	}{
 		{
-			name: "idle shard unloads cleanly",
+			name:        "idle shard unloads cleanly",
+			wantOutcome: ShardUnloadOutcomeUnloaded,
 			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
 				return shardName, context.Background()
 			},
 		},
 		{
-			name: "shard already gone from the map is a no-op",
+			name:        "shard already gone from the map is a no-op",
+			wantOutcome: ShardUnloadOutcomeUnloaded,
 			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
 				return "no-such-shard", context.Background()
 			},
 		},
 		{
-			name: "concurrently completed shutdown reports success",
+			name:        "concurrently completed shutdown reports success",
+			wantOutcome: ShardUnloadOutcomeUnloaded,
 			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
 				_, release, err := index.GetShard(context.Background(), shardName)
 				require.NoError(t, err)
@@ -381,6 +385,7 @@ func TestUnloadLocalShard_ErrorClassification(t *testing.T) {
 			// Shutdown retries under backoff while the ref is held, so the
 			// refusal surfaces as the exhausted deadline.
 			wantErr:        context.DeadlineExceeded,
+			wantOutcome:    ShardUnloadOutcomeRefusedInUse,
 			wantStillInMap: true,
 		},
 		{
@@ -392,6 +397,7 @@ func TestUnloadLocalShard_ErrorClassification(t *testing.T) {
 				return shardName, context.Background()
 			},
 			wantErr:        errTeardownFailed,
+			wantOutcome:    ShardUnloadOutcomeTorn,
 			wantStillInMap: true,
 		},
 		{
@@ -407,13 +413,15 @@ func TestUnloadLocalShard_ErrorClassification(t *testing.T) {
 				return shardName, context.Background()
 			},
 			wantErr:        errIndexShutdown,
+			wantOutcome:    ShardUnloadOutcomeIndexClosing,
 			wantStillInMap: true,
 		},
 		{
 			// A close request ends the retry wait, never a teardown already past
 			// s.shut: every step after that consumes ctx, so giving it up there
 			// would leave buckets unflushed on a shard that reads as shut.
-			name: "close request does not interrupt an idle shard's teardown",
+			name:        "close request does not interrupt an idle shard's teardown",
+			wantOutcome: ShardUnloadOutcomeUnloaded,
 			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
 				index.signalCloseRequested(errIndexShutdown)
 				return shardName, context.Background()
@@ -429,6 +437,7 @@ func TestUnloadLocalShard_ErrorClassification(t *testing.T) {
 				return shardName, context.Background()
 			},
 			wantErr:        errTeardownFailed,
+			wantOutcome:    ShardUnloadOutcomeTorn,
 			wantStillInMap: true,
 		},
 		{
@@ -443,16 +452,30 @@ func TestUnloadLocalShard_ErrorClassification(t *testing.T) {
 				return shardName, context.Background()
 			},
 			wantErr:        errTeardownFailed,
+			wantOutcome:    ShardUnloadOutcomeTorn,
 			wantStillInMap: true,
 		},
 		{
 			name: "closing index refuses the unload",
 			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
+				index.signalCloseRequested(errIndexShutdown)
 				require.NoError(t, index.beginClose())
 				return shardName, context.Background()
 			},
 			wantErr:        errAlreadyShutdown,
+			wantOutcome:    ShardUnloadOutcomeIndexClosing,
 			wantStillInMap: true,
+		},
+		{
+			// backoff runs performShutdown once before reading the context, and
+			// performShutdown swaps ctx for context.WithoutCancel once it sets s.shut.
+			name: "an already-cancelled context still unloads an idle shard",
+			setup: func(t *testing.T, index *Index, shardName string) (string, context.Context) {
+				ctx, cancel := context.WithCancel(context.Background())
+				cancel()
+				return shardName, ctx
+			},
+			wantOutcome: ShardUnloadOutcomeUnloaded,
 		},
 	}
 
@@ -469,12 +492,16 @@ func TestUnloadLocalShard_ErrorClassification(t *testing.T) {
 
 			target, ctx := tc.setup(t, index, shardName)
 
-			err := index.UnloadLocalShard(ctx, target)
+			outcome, err := index.UnloadLocalShard(ctx, target)
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
 			} else {
 				require.NoError(t, err)
 			}
+			require.Equal(t, tc.wantOutcome, outcome,
+				"the outcome is what a sweep records, and the error alone cannot answer")
+			require.Equal(t, outcome == ShardUnloadOutcomeIndexClosing, errors.Is(err, ErrIndexClosing),
+				"outcome %q with error %v", outcome, err)
 
 			if tc.wantStillInMap {
 				require.NotNil(t, index.shards.Load(target),

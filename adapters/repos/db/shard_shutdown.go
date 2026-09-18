@@ -177,11 +177,9 @@ const (
 	// ShardUnloadOutcomeTorn says a teardown failed midway. The shard fails requests
 	// until a restart or Index.dropShards.
 	ShardUnloadOutcomeTorn ShardUnloadOutcome = "torn"
-	// ShardUnloadOutcomeIndexClosing says the index itself is closing, so no later
-	// attempt helps this process. Index.UnloadLocalShard produces it, not this file.
+	// ShardUnloadOutcomeIndexClosing says the index is closing, so retries fail.
 	ShardUnloadOutcomeIndexClosing ShardUnloadOutcome = "index_closing"
-	// ShardUnloadOutcomeFailed is the residual. No real shard reaches it, since a
-	// failed teardown is reported as torn.
+	// ShardUnloadOutcomeFailed covers every other failure, including an unknown class.
 	ShardUnloadOutcomeFailed ShardUnloadOutcome = "failed"
 )
 
