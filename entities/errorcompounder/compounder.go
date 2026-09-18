@@ -32,6 +32,8 @@ type ErrorCompounder interface {
 
 	First() error
 	ToError() error
+	// ToErrorLimited caps the message and the Unwrap chain at limit errors. What
+	// it leaves out is counted in the message, not reachable through errors.Is.
 	ToErrorLimited(limit int) error
 }
 
@@ -83,9 +85,6 @@ func (ec *errorCompounder) ToError() error {
 	return ec.toError(math.MaxInt)
 }
 
-// ToErrorLimited caps both the message and the chain at limit errors. The ones
-// it leaves out are counted in the message and are not reachable through
-// errors.Is, so the bound covers the log record and the memory alike.
 func (ec *errorCompounder) ToErrorLimited(limit int) error {
 	return ec.toError(max(limit, 1))
 }
@@ -107,9 +106,8 @@ func (ec *errorCompounder) toError(limit int) error {
 	return &compoundError{msg: b.String(), errs: errs}
 }
 
-// render writes at most limit errors into b, collecting each one it writes into
-// errs so the chain holds exactly what the message names. It reports how many
-// it wrote, a count of errors only, never the group names written around them.
+// render writes at most limit errors into b and collects each into errs, so the
+// chain holds exactly what the message names. It returns how many it wrote.
 func (e *entry) render(b *strings.Builder, limit int, errs *[]error) int {
 	rendered := 0
 	addComma := false
@@ -128,6 +126,10 @@ func (e *entry) render(b *strings.Builder, limit int, errs *[]error) int {
 		write(err.Error())
 		*errs = append(*errs, err)
 		rendered++
+	}
+	// slices.Sorted allocates even for an empty map, and most entries are leaves
+	if len(e.groups) == 0 {
+		return rendered
 	}
 	for _, name := range slices.Sorted(maps.Keys(e.groups)) {
 		if rendered == limit {
@@ -166,9 +168,8 @@ func (ec *errorCompounder) addGroups(err error, groups ...string) {
 
 // ----------------------------------------------------------------------------
 
-// compoundError renders the errors it collected into a single message while
-// keeping those same errors reachable for errors.Is and errors.As. A limited
-// error holds only the ones it rendered; the rest are counted, not kept.
+// compoundError holds one message and the errors it names, which stay reachable
+// for errors.Is and errors.As. A limited error keeps only the ones it rendered.
 type compoundError struct {
 	msg  string
 	errs []error
