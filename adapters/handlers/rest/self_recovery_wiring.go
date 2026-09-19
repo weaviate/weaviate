@@ -25,6 +25,10 @@ func (a selfRecoverySchemaReader) ShardReplicas(class, shard string) ([]string, 
 	return a.r.ShardReplicas(class, shard)
 }
 
+func (a selfRecoverySchemaReader) TenantsShards(class string, tenants ...string) (map[string]string, error) {
+	return a.r.TenantsShards(class, tenants...)
+}
+
 // selfRecoveryDBPathResolver adapts *db.DB.ShardPath to selfrecovery.PathResolver.
 type selfRecoveryDBPathResolver struct {
 	db   *db.DB

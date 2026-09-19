@@ -216,13 +216,18 @@ snapshot-install tails.) Closing this for non-wiped nodes means deferring the
 catch-up reload to the leader's commit index as of boot, which trades restart
 read-availability for coverage — an open design decision.
 
-**COLD tenants on a wiped node are not recovered.** The startup pass only
-considers HOT tenants, so a COLD tenant's directory simply stays missing on the
-rejoined node. A later activation builds the shard **empty** (outside the
-tagged pass) and it enters the read rotation; async replication backfills it,
-but with async replication disabled the replica stays empty until a
-wipe-rejoin or manual heal. Deactivate/activate cycles around node wipes
-should account for this.
+**COLD tenants on a wiped node are recovered at activation, not at startup.**
+The startup pass only considers HOT tenants, so a COLD tenant's directory stays
+missing on the rejoined node until the tenant is activated. The activation then
+installs a `RecoveringShard` and queues a recovery (log
+`event=self_recovery.empty_fallback trigger=activation` when no peer has data;
+counted under `no_data_during_bootstrap_total`); the replica is excluded from
+reads until the copy lands, like any startup recovery. The same path covers a
+tenant deactivated while its startup recovery was still queued: the queued
+recovery settles as `cancelled` without materialising anything (peers answer
+"no data" for a COLD tenant), and the next activation recovers it. A tenant
+deactivated while its copy is already registered is refused with 422
+("replica movement in progress") until the copy completes.
 
 **Per-shard recovery on an otherwise-intact node works for shards the node
 already knew.** `DB.Open` runs before RAFT starts, against an empty schema, so

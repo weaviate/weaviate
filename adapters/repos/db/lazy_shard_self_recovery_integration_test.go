@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -253,6 +254,65 @@ func TestLazyShardSelfRecoveryPromotedColdShardLoadsOnDemand(t *testing.T) {
 			lazy, ok := f.index.shards.Load(tenant).(*LazyLoadShard)
 			require.True(t, ok)
 			require.Equal(t, tc.wantLoaded, lazy.isLoaded())
+		})
+	}
+}
+
+func TestLazyShardTenantActivationRecoversMissingDir(t *testing.T) {
+	const tenant = "t"
+	ctx := context.Background()
+	cases := []struct {
+		name            string
+		replicas        int64
+		dirPresent      bool
+		submitOK        bool
+		activate        func(index *Index) error
+		wantRecovering  bool
+		wantActivations int
+	}{
+		{
+			name: "activation with folder missing recovers", replicas: 3, submitOK: true, wantRecovering: true, wantActivations: 1,
+			activate: func(index *Index) error { return index.LoadLocalShardForTenantActivation(ctx, tenant, false) },
+		},
+		{
+			name: "activation with folder present loads", replicas: 3, dirPresent: true, submitOK: true,
+			activate: func(index *Index) error { return index.LoadLocalShardForTenantActivation(ctx, tenant, false) },
+		},
+		{
+			name: "single replica materialises", replicas: 1, submitOK: true,
+			activate: func(index *Index) error { return index.LoadLocalShardForTenantActivation(ctx, tenant, false) },
+		},
+		{
+			name: "declined submission materialises", replicas: 3, submitOK: false, wantActivations: 1,
+			activate: func(index *Index) error { return index.LoadLocalShardForTenantActivation(ctx, tenant, false) },
+		},
+		{
+			name: "tenant add never recovers", replicas: 3, submitOK: true,
+			activate: func(index *Index) error { return index.LoadLocalShardForTenantAdd(ctx, tenant) },
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dirName := t.TempDir()
+			orch := &fakeSelfRecoveryOrch{enabled: true, submitOK: tc.submitOK}
+			index, _ := newWarmupIndexWithOpts(t, dirName, 3, memwatch.NewDummyMonitor(), warmupIndexOpts{orch: orch})
+			t.Cleanup(func() { index.Shutdown(context.Background()) })
+			index.Config.ReplicationFactor = tc.replicas
+			if tc.dirPresent {
+				require.NoError(t, os.MkdirAll(shardPath(index.path(), tenant), 0o755))
+			}
+
+			require.NoError(t, tc.activate(index))
+
+			require.Equal(t, tc.wantActivations, orch.activationSubmitCalls)
+			require.Zero(t, orch.submitCalls)
+			_, recovering := index.shards.Load(tenant).(*RecoveringShard)
+			require.Equal(t, tc.wantRecovering, recovering)
+			if tc.wantRecovering {
+				require.NoDirExists(t, shardPath(index.path(), tenant))
+			} else {
+				require.DirExists(t, shardPath(index.path(), tenant))
+			}
 		})
 	}
 }

@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/copier"
 	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func quietLogger() *logrus.Logger {
@@ -698,4 +699,71 @@ func TestAcceptEmpty_ToleratesDeregisteredShard(t *testing.T) {
 	require.NoError(t, err,
 		"a deregistered entry means a cold/unloaded tenant; the empty dir loads on next activation")
 	require.DirExists(t, path)
+}
+
+type stubSchemaWithStatus struct {
+	stubSchema
+	status atomic.Value
+}
+
+func (s *stubSchemaWithStatus) TenantsShards(_ string, tenants ...string) (map[string]string, error) {
+	out := map[string]string{}
+	for _, t := range tenants {
+		out[t] = s.status.Load().(string)
+	}
+	return out, nil
+}
+
+func TestRunOne_InactiveTenantSettlesCancelledWithoutProbing(t *testing.T) {
+	root := t.TempDir()
+	var probes atomic.Int64
+	clientFactory := func(_ context.Context, _ string) (copier.FileReplicationServiceClient, error) {
+		probes.Add(1)
+		return nil, errors.New("unused")
+	}
+	sch := &stubSchemaWithStatus{stubSchema: stubSchema{replicas: []string{"self", "peer1"}}}
+	sch.status.Store(models.TenantActivityStatusCOLD)
+	o := newOrchestratorForTest(t, &stubRaft{}, sch,
+		&stubNodeSelector{addrs: map[string]string{"peer1": "10.0.0.1"}, ports: map[string]int{"peer1": 50051}},
+		clientFactory, stubPathResolver{root: root})
+	beforeCancelled := testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("cancelled"))
+
+	o.runOne(context.Background(), ShardRef{Collection: "C", Shard: "S"}, true)
+
+	require.InDelta(t, beforeCancelled+1, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("cancelled")), 0.001)
+	require.Zero(t, probes.Load())
+	require.NoDirExists(t, root+"/C/S")
+}
+
+func TestRunOne_EmptyFallbackDeregisteredInactiveTenantRemovesDir(t *testing.T) {
+	root := t.TempDir()
+	sch := &stubSchemaWithStatus{stubSchema: stubSchema{replicas: []string{"self"}}}
+	sch.status.Store(models.TenantActivityStatusHOT)
+	o := newOrchestratorForTest(t, &stubRaft{}, sch, &stubNodeSelector{}, nil, stubPathResolver{root: root})
+	o.onRecoveryComplete = func(_ context.Context, _, _ string) error {
+		sch.status.Store(models.TenantActivityStatusCOLD)
+		return fmt.Errorf("promote local shard %q: %w", "S", enterrors.ErrShardNotRegistered)
+	}
+	beforeCancelled := testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("cancelled"))
+
+	o.runOne(context.Background(), ShardRef{Collection: "C", Shard: "S"}, false)
+
+	require.InDelta(t, beforeCancelled+1, testutil.ToFloat64(o.metrics.CompletedTotal.WithLabelValues("cancelled")), 0.001)
+	require.NoDirExists(t, root+"/C/S")
+}
+
+func TestActivationRef_TriggerAndBenignBucket(t *testing.T) {
+	require.Equal(t, ShardRef{Collection: "C", Shard: "S", Trigger: TriggerActivation}, activationRef("C", "S"))
+
+	root := t.TempDir()
+	o := newOrchestratorForTest(t, &stubRaft{}, stubSchema{replicas: []string{"self"}}, &stubNodeSelector{}, nil, stubPathResolver{root: root})
+	o.onRecoveryComplete = func(_ context.Context, _, _ string) error { return nil }
+	beforeBootstrap := testutil.ToFloat64(o.metrics.NoDataDuringBootstrapTotal)
+	beforeEmpty := testutil.ToFloat64(o.metrics.NoDataEmptyTotal)
+
+	o.runOne(context.Background(), activationRef("C", "S"), true)
+
+	require.InDelta(t, beforeBootstrap+1, testutil.ToFloat64(o.metrics.NoDataDuringBootstrapTotal), 0.001)
+	require.InDelta(t, beforeEmpty, testutil.ToFloat64(o.metrics.NoDataEmptyTotal), 0.001)
+	require.DirExists(t, root+"/C/S")
 }
