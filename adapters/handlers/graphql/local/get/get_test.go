@@ -1738,6 +1738,15 @@ func TestExtractPaginationWithOnlyOffset(t *testing.T) {
 	resolver.AssertResolve(t, query)
 }
 
+func TestExtractPaginationWithNegativeOffset(t *testing.T) {
+	t.Parallel()
+
+	resolver := newMockResolver()
+
+	query := "{ Get { SomeAction(offset: -1 limit: 3) { intField } } }"
+	resolver.AssertFailToResolve(t, query, "offset must be non-negative")
+}
+
 func TestExtractCursor(t *testing.T) {
 	t.Parallel()
 
