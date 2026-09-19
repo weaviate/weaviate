@@ -746,6 +746,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		Concurrency:            appState.ServerConfig.Config.Replication.SelfRecoveryConcurrency,
 		MaintenanceModeEnabled: appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		OnRecoveryComplete:     appState.DB.LoadLocalShard,
+		RootDataPath:           dataPath,
 		Logger:                 appState.Logger,
 	})
 	appState.DB.SetSelfRecoveryOrchestrator(selfRecoveryOrch)

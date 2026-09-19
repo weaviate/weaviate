@@ -42,7 +42,7 @@ transfer type and reject it). Same caveat as `REPLICA_MOVEMENT_ENABLED`.
 | `weaviate_self_recovery_completed_total` | counter | `result` (success\|failure\|empty_fallback\|cancelled) | terminal outcomes — `empty_fallback` is its own bucket so the benign fresh-node case does not inflate failures |
 | `weaviate_self_recovery_duration_seconds` | histogram | `result` (same label set as `completed_total`) | end-to-end recovery time |
 | `weaviate_self_recovery_no_data_empty_total` | counter | — | empty-fallback on a node that started **with** RAFT state: a shard folder vanished from an otherwise intact node and no peer has data (alert on this) |
-| `weaviate_self_recovery_no_data_during_bootstrap_total` | counter | — | empty-fallback on a node that started **without** RAFT state (wiped or fresh) — likely a class or tenant created while it was away; informational (name kept for continuity) |
+| `weaviate_self_recovery_no_data_during_bootstrap_total` | counter | — | empty-fallback on a node that started **without** RAFT state (wiped or fresh), or that is still draining such a start's recovery round after a restart (marker `<data>/.self_recovery_wiped`), or on a tenant activation — likely a class or tenant created while it was away; informational (name kept for continuity) |
 | `weaviate_self_recovery_unreachable_peer_total` | counter | `peer` | peer reachability problems |
 | `weaviate_self_recovery_giveup_total` | counter | — | retries exhausted |
 | `weaviate_self_recovery_accept_empty_total` | counter | — | operator escape-hatch invocations |
