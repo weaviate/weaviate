@@ -26,6 +26,10 @@ import (
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
+// DocBitmapAnnotation names the slow-query record the range cascade appends,
+// and is how a caller tells that a filter was served by this package.
+const DocBitmapAnnotation = "build_allow_list_doc_bitmap_rangeable"
+
 type InnerReader interface {
 	Read(ctx context.Context, value uint64, operator filters.Operator) (layer roaringset.BitmapLayer, release func(), err error)
 }
@@ -70,7 +74,7 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 			"took_string":                     took.String(),
 		}
 
-		helpers.AnnotateSlowQueryLogAppend(ctx, "build_allow_list_doc_bitmap_rangeable", vals)
+		helpers.AnnotateSlowQueryLogAppend(ctx, DocBitmapAnnotation, vals)
 	}()
 
 	switch count {
