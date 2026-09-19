@@ -37,6 +37,7 @@ type fakeSelfRecoveryOrch struct {
 	submitOK bool
 
 	submitCalls                int
+	activationSubmitCalls      int
 	gotStartedWithoutRaftState bool
 	submitHook                 func()
 }
@@ -46,6 +47,14 @@ func (f *fakeSelfRecoveryOrch) Enabled() bool { return f.enabled }
 func (f *fakeSelfRecoveryOrch) SubmitRecovery(_ context.Context, _, _ string, startedWithoutRaftState bool) bool {
 	f.submitCalls++
 	f.gotStartedWithoutRaftState = startedWithoutRaftState
+	if f.submitHook != nil {
+		f.submitHook()
+	}
+	return f.submitOK
+}
+
+func (f *fakeSelfRecoveryOrch) SubmitActivationRecovery(_ context.Context, _, _ string) bool {
+	f.activationSubmitCalls++
 	if f.submitHook != nil {
 		f.submitHook()
 	}

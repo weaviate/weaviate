@@ -40,6 +40,7 @@ import (
 	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
@@ -72,6 +73,15 @@ type PathResolver interface {
 type ShardRef struct {
 	Collection string
 	Shard      string
+	// Trigger is TriggerActivation when a tenant activation found its folder missing; empty for the startup pass.
+	Trigger string
+}
+
+const TriggerActivation = "activation"
+
+// TenantStatusReader is the optional schema surface that lets a queued recovery notice its tenant went COLD.
+type TenantStatusReader interface {
+	TenantsShards(class string, tenants ...string) (map[string]string, error)
 }
 
 // Orchestrator coordinates per-shard SELF_RECOVERY work on a single node.
@@ -216,6 +226,29 @@ func (o *Orchestrator) Enabled() bool {
 // SubmitRecovery is the primitive-typed Submit for callers that can't import this package.
 func (o *Orchestrator) SubmitRecovery(ctx context.Context, collection, shard string, startedWithoutRaftState bool) bool {
 	return o.Submit(ctx, ShardRef{Collection: collection, Shard: shard}, startedWithoutRaftState)
+}
+
+// SubmitActivationRecovery queues a tenant activation that found no local folder; "no data" is informational there.
+func (o *Orchestrator) SubmitActivationRecovery(ctx context.Context, collection, shard string) bool {
+	return o.Submit(ctx, activationRef(collection, shard), true)
+}
+
+func activationRef(collection, shard string) ShardRef {
+	return ShardRef{Collection: collection, Shard: shard, Trigger: TriggerActivation}
+}
+
+// tenantInactive: a queued recovery must not materialise anything for a tenant that went COLD/FROZEN meanwhile.
+func (o *Orchestrator) tenantInactive(ref ShardRef) bool {
+	reader, ok := o.schema.(TenantStatusReader)
+	if !ok {
+		return false
+	}
+	statuses, err := reader.TenantsShards(ref.Collection, ref.Shard)
+	if err != nil {
+		return false
+	}
+	status, ok := statuses[ref.Shard]
+	return ok && status != "" && status != models.TenantActivityStatusHOT
 }
 
 // Restart cancels in-flight ops and waits terminal (copier vs rmrf race), erases "<shard>.recovering/", resubmits; rejects live-dir and not-in-schema shards.
@@ -506,6 +539,12 @@ func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, startedWithoutR
 			return
 		}
 
+		// Peers answer "no data" for a deactivated tenant; only its next activation may recover it.
+		if o.tenantInactive(ref) {
+			logger.Info("self-recovery abandoned: tenant is no longer active; its activation recovers it")
+			o.recordOutcome("cancelled", startedAt)
+			return
+		}
 		decision, err := o.probeAndDecide(ctx, ref)
 		if err != nil {
 			// class/tenant deleted while pending: settle now, don't burn retries into a spurious give-up
@@ -628,7 +667,13 @@ func (o *Orchestrator) handleEmptyFallback(ctx context.Context, ref ShardRef, de
 					o.abandonEmptyFallback(ref, startedAt, logger, err)
 					return
 				}
-				// deregistered but still in schema (tenant flipped COLD): the empty dir loads on next activation
+				// tenant flipped COLD meanwhile: an empty dir would make its activation skip the recovery it needs
+				if o.tenantInactive(ref) {
+					logger.Infof("self-recovery abandoned after empty-fallback: tenant deactivated; removing the empty dir: %v", err)
+					o.removeEmptyFallbackDir(ref)
+					o.recordOutcome("cancelled", startedAt)
+					return
+				}
 				logger.Infof("self-recovery: shard deregistered in memory after empty-fallback; leaving dir for lazy load: %v", err)
 				o.recordOutcome("cancelled", startedAt)
 				return
@@ -655,10 +700,15 @@ func (o *Orchestrator) handleEmptyFallback(ctx context.Context, ref ShardRef, de
 		"shard":        ref.Shard,
 		"action_taken": "created_empty_shard",
 	}
-	if startedWithoutRaftState {
+	switch {
+	case ref.Trigger == TriggerActivation:
+		fallbackFields["trigger"] = ref.Trigger
+		logger.WithFields(fallbackFields).
+			Info("no peer has data for the activated tenant; created empty shard")
+	case startedWithoutRaftState:
 		logger.WithFields(fallbackFields).
 			Info("no peer has data for shard and this node started without RAFT state; treating as created while it was away")
-	} else {
+	default:
 		fallbackFields["recoverable"] = false
 		fallbackFields["operator_note"] = "if data is recoverable from backup, restore now"
 		logger.WithFields(fallbackFields).

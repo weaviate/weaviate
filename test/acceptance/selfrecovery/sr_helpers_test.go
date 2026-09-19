@@ -75,15 +75,20 @@ type srClusterCfg struct {
 	lazyLoading      bool // force lazy shard loading with warmupMinObjects as the sweep threshold
 	warmupMinObjects int
 	persistentData   bool // keep /data across a stop/start (tmpfs is lost on stop)
+	concurrency      int  // SELF_RECOVERY_CONCURRENCY; 0 keeps the suite default of 2
 }
 
 // startSelfRecoveryCluster boots a 3-node cluster, registers teardown, points the client at node-0.
 func startSelfRecoveryCluster(ctx context.Context, t *testing.T, cfg srClusterCfg) *docker.DockerCompose {
 	t.Helper()
+	concurrency := cfg.concurrency
+	if concurrency == 0 {
+		concurrency = 2
+	}
 	b := docker.New().
 		WithWeaviateCluster(3).
 		WithWeaviateEnv("SELF_RECOVERY_ENABLED", "true").
-		WithWeaviateEnv("SELF_RECOVERY_CONCURRENCY", "2").
+		WithWeaviateEnv("SELF_RECOVERY_CONCURRENCY", strconv.Itoa(concurrency)).
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true")
 	if !cfg.persistentData {
 		b = b.WithWeaviateTmpfsData()

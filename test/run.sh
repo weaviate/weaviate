@@ -1194,7 +1194,7 @@ function run_acceptance_self_recovery() {
 
 function run_acceptance_self_recovery_lazy() {
   build_weaviate_test_image
-  AOF_GROUP_RUN='^TestSelfRecoveryLazy' \
+  AOF_GROUP_RUN='^TestSelfRecoveryLazy' AOF_GROUP_TIMEOUT=40m \
     run_aof_group "self-recovery-lazy" test/acceptance/selfrecovery
 }
 

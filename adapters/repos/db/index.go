@@ -988,6 +988,33 @@ func (i *Index) recoverShardFromPeerIfNeeded(ctx context.Context, class *models.
 	return true
 }
 
+// recoverShardOnActivation: missing folder + other replicas ⇒ RecoveringShard + activation recovery; caller holds the create lock.
+func (i *Index) recoverShardOnActivation(ctx context.Context, class *models.Class, shardName string) bool {
+	orch := i.Config.SelfRecoveryOrchestrator
+	if orch == nil || !orch.Enabled() {
+		return false
+	}
+	if _, err := os.Stat(shardPath(i.path(), shardName)); err == nil || !errors.Is(err, fs.ErrNotExist) {
+		return false
+	}
+	if !i.shardHasMultipleReplicasRead(shardName, shardName) {
+		return false
+	}
+	collection := i.Config.ClassName.String()
+	logFields := logrus.Fields{"collection": collection, "shard": shardName}
+	i.installRecoveringShard(ctx, class, shardName, i.metrics.baseMetrics)
+	if !orch.SubmitActivationRecovery(context.Background(), collection, shardName) {
+		i.shards.LoadAndDelete(shardName)
+		i.logger.WithFields(logFields).
+			Warn("self-recovery: activation submission was not queued (shutting down); materialising the shard empty")
+		return false
+	}
+	i.logger.WithFields(logFields).
+		WithField("action", "self_recovery_submitted").
+		Info("tenant activated with its local shard directory missing; recovery from peer scheduled")
+	return true
+}
+
 // installRecoveringShard stores a load-blocking RecoveringShard so normal init can't plant an empty live dir.
 func (i *Index) installRecoveringShard(ctx context.Context, class *models.Class,
 	shardName string, promMetrics *monitoring.PrometheusMetrics,
@@ -3645,6 +3672,11 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 	// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
 	if _, protected := i.backupProtectedShards.Load(shardName); protected {
 		return fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)
+	}
+
+	// A tenant activated without its folder (COLD at a wipe, or deactivated while queued) recovers instead of materialising empty.
+	if caller == callerTenantActivation && i.recoverShardOnActivation(ctx, class, shardName) {
+		return nil
 	}
 
 	disableLazyLoad := mustLoad || !i.Config.EnableLazyLoadShards

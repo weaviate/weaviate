@@ -183,6 +183,8 @@ type SelfRecoveryOrchestrator interface {
 	Enabled() bool
 	// SubmitRecovery is non-blocking; false = not queued and the caller MUST fall back to normal init.
 	SubmitRecovery(ctx context.Context, collection, shard string, startedWithoutRaftState bool) bool
+	// SubmitActivationRecovery queues a tenant activation whose local folder is missing; same contract as SubmitRecovery.
+	SubmitActivationRecovery(ctx context.Context, collection, shard string) bool
 	// Close stops submissions and drains in-flight workers, bounded by ctx; idempotent.
 	Close(ctx context.Context) error
 }
