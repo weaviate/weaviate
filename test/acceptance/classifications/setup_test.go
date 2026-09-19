@@ -55,12 +55,8 @@ func Test_Classifications(t *testing.T) {
 func setupRecipe(t *testing.T) {
 	t.Run("schema setup", func(t *testing.T) {
 		createObjectClass(t, &models.Class{
-			Class: "RecipeType",
-			ModuleConfig: map[string]interface{}{
-				"text2vec-model2vec": map[string]interface{}{
-					"vectorizeClassName": true,
-				},
-			},
+			Class:        "RecipeType",
+			ModuleConfig: vectorizeClassName(),
 			Properties: []*models.Property{
 				{
 					Name:         "name",
@@ -70,12 +66,8 @@ func setupRecipe(t *testing.T) {
 			},
 		})
 		createObjectClass(t, &models.Class{
-			Class: "Recipe",
-			ModuleConfig: map[string]interface{}{
-				"text2vec-model2vec": map[string]interface{}{
-					"vectorizeClassName": true,
-				},
-			},
+			Class:        "Recipe",
+			ModuleConfig: vectorizeClassName(),
 			Properties: []*models.Property{
 				{
 					Name:     "content",
@@ -203,12 +195,8 @@ func setupRecipe(t *testing.T) {
 func setupFoodTypes(t *testing.T) {
 	t.Run("schema setup", func(t *testing.T) {
 		createObjectClass(t, &models.Class{
-			Class: "FoodType",
-			ModuleConfig: map[string]interface{}{
-				"text2vec-model2vec": map[string]interface{}{
-					"vectorizeClassName": true,
-				},
-			},
+			Class:        "FoodType",
+			ModuleConfig: vectorizeClassName(),
 			Properties: []*models.Property{
 				{
 					Name:         "text",
@@ -218,12 +206,8 @@ func setupFoodTypes(t *testing.T) {
 			},
 		})
 		createObjectClass(t, &models.Class{
-			Class: "Recipes",
-			ModuleConfig: map[string]interface{}{
-				"text2vec-model2vec": map[string]interface{}{
-					"vectorizeClassName": true,
-				},
-			},
+			Class:        "Recipes",
+			ModuleConfig: vectorizeClassName(),
 			Properties: []*models.Property{
 				{
 					Name:     "text",
@@ -272,6 +256,12 @@ func setupFoodTypes(t *testing.T) {
 			},
 		})
 	})
+}
+
+func vectorizeClassName() map[string]interface{} {
+	return map[string]interface{}{
+		"text2vec-model2vec": map[string]interface{}{"vectorizeClassName": true},
+	}
 }
 
 func createObjectClass(t *testing.T, class *models.Class) {

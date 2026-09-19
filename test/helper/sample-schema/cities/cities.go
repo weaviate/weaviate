@@ -60,13 +60,9 @@ func CreateCountryCityAirportSchema(t *testing.T, host string) {
 func CreateCountryCityAirportSchemaWithVectorizer(t *testing.T, host, vectorizer string) {
 	helper.SetupClient(host)
 	helper.CreateClass(t, &models.Class{
-		Class:      Country,
-		Vectorizer: vectorizer,
-		ModuleConfig: map[string]interface{}{
-			vectorizer: map[string]interface{}{
-				"vectorizeClassName": true,
-			},
-		},
+		Class:        Country,
+		Vectorizer:   vectorizer,
+		ModuleConfig: vectorizeClassName(vectorizer),
 		Properties: []*models.Property{
 			{
 				Name:         "name",
@@ -81,127 +77,75 @@ func CreateCountryCityAirportSchemaWithVectorizer(t *testing.T, host, vectorizer
 	// to not to downgrade the distance/certainty result on which the
 	// aggregate tests are based on.
 	helper.CreateClass(t, &models.Class{
-		Class:      City,
-		Vectorizer: vectorizer,
-		ModuleConfig: map[string]interface{}{
-			vectorizer: map[string]interface{}{
-				"vectorizeClassName": true,
-			},
-		},
+		Class:               City,
+		Vectorizer:          vectorizer,
+		ModuleConfig:        vectorizeClassName(vectorizer),
 		InvertedIndexConfig: &models.InvertedIndexConfig{IndexNullState: true, IndexPropertyLength: true, IndexTimestamps: true, UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND},
 		Properties: []*models.Property{
 			{
 				Name:         "name",
 				DataType:     schema.DataTypeText.PropString(),
 				Tokenization: models.PropertyTokenizationWhitespace,
-				ModuleConfig: map[string]interface{}{
-					vectorizer: map[string]interface{}{
-						"skip": false,
-					},
-				},
+				ModuleConfig: skipVectorization(vectorizer, false),
 			},
 			{
-				Name:     "inCountry",
-				DataType: []string{Country},
-				ModuleConfig: map[string]interface{}{
-					vectorizer: map[string]interface{}{
-						"skip": true,
-					},
-				},
+				Name:         "inCountry",
+				DataType:     []string{Country},
+				ModuleConfig: skipVectorization(vectorizer, true),
 			},
 			{
-				Name:     "population",
-				DataType: []string{"int"},
-				ModuleConfig: map[string]interface{}{
-					vectorizer: map[string]interface{}{
-						"skip": true,
-					},
-				},
+				Name:         "population",
+				DataType:     []string{"int"},
+				ModuleConfig: skipVectorization(vectorizer, true),
 			},
 			{
-				Name:     "location",
-				DataType: []string{"geoCoordinates"},
-				ModuleConfig: map[string]interface{}{
-					vectorizer: map[string]interface{}{
-						"skip": true,
-					},
-				},
+				Name:         "location",
+				DataType:     []string{"geoCoordinates"},
+				ModuleConfig: skipVectorization(vectorizer, true),
 			},
 			{
-				Name:     "isCapital",
-				DataType: []string{"boolean"},
-				ModuleConfig: map[string]interface{}{
-					vectorizer: map[string]interface{}{
-						"skip": true,
-					},
-				},
+				Name:         "isCapital",
+				DataType:     []string{"boolean"},
+				ModuleConfig: skipVectorization(vectorizer, true),
 			},
 			{
-				Name:     "cityArea",
-				DataType: []string{"number"},
-				ModuleConfig: map[string]interface{}{
-					vectorizer: map[string]interface{}{
-						"skip": true,
-					},
-				},
+				Name:         "cityArea",
+				DataType:     []string{"number"},
+				ModuleConfig: skipVectorization(vectorizer, true),
 			},
 			{
-				Name:     "cityRights",
-				DataType: []string{"date"},
-				ModuleConfig: map[string]interface{}{
-					vectorizer: map[string]interface{}{
-						"skip": true,
-					},
-				},
+				Name:         "cityRights",
+				DataType:     []string{"date"},
+				ModuleConfig: skipVectorization(vectorizer, true),
 			},
 			{
 				Name:         "timezones",
 				DataType:     schema.DataTypeTextArray.PropString(),
 				Tokenization: models.PropertyTokenizationWhitespace,
-				ModuleConfig: map[string]interface{}{
-					vectorizer: map[string]interface{}{
-						"skip": true,
-					},
-				},
+				ModuleConfig: skipVectorization(vectorizer, true),
 			},
 			{
-				Name:     "museums",
-				DataType: []string{"text[]"},
-				ModuleConfig: map[string]interface{}{
-					vectorizer: map[string]interface{}{
-						"skip": true,
-					},
-				},
+				Name:         "museums",
+				DataType:     []string{"text[]"},
+				ModuleConfig: skipVectorization(vectorizer, true),
 			},
 			{
-				Name:     "history",
-				DataType: []string{"text"},
-				ModuleConfig: map[string]interface{}{
-					vectorizer: map[string]interface{}{
-						"skip": true,
-					},
-				},
+				Name:         "history",
+				DataType:     []string{"text"},
+				ModuleConfig: skipVectorization(vectorizer, true),
 			},
 			{
-				Name:     "phoneNumber",
-				DataType: []string{"phoneNumber"},
-				ModuleConfig: map[string]interface{}{
-					vectorizer: map[string]interface{}{
-						"skip": true,
-					},
-				},
+				Name:         "phoneNumber",
+				DataType:     []string{"phoneNumber"},
+				ModuleConfig: skipVectorization(vectorizer, true),
 			},
 		},
 	})
 
 	helper.CreateClass(t, &models.Class{
-		Class:      Airport,
-		Vectorizer: vectorizer,
-		ModuleConfig: map[string]interface{}{
-			vectorizer: map[string]interface{}{
-				"vectorizeClassName": true,
-			},
-		},
+		Class:        Airport,
+		Vectorizer:   vectorizer,
+		ModuleConfig: vectorizeClassName(vectorizer),
 		InvertedIndexConfig: &models.InvertedIndexConfig{
 			CleanupIntervalSeconds: 60,
 			Stopwords: &models.StopwordConfig{
@@ -230,6 +174,18 @@ func CreateCountryCityAirportSchemaWithVectorizer(t *testing.T, host, vectorizer
 			},
 		},
 	})
+}
+
+func vectorizeClassName(vectorizer string) map[string]interface{} {
+	return map[string]interface{}{
+		vectorizer: map[string]interface{}{"vectorizeClassName": true},
+	}
+}
+
+func skipVectorization(vectorizer string, skip bool) map[string]interface{} {
+	return map[string]interface{}{
+		vectorizer: map[string]interface{}{"skip": skip},
+	}
 }
 
 func InsertCountryCityAirportObjects(t *testing.T, host string) {
