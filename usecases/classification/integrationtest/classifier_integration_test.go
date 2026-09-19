@@ -78,6 +78,10 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 	}, &fakeRemoteClient{}, mockNodeSelector, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
+	// Registered after t.TempDir(), so LIFO puts this shutdown ahead of the
+	// directory removal. Without it the DB's cycles keep writing under the
+	// shard dir and the removal intermittently fails with ENOTEMPTY.
+	t.Cleanup(func() { require.NoError(t, vrepo.Shutdown(context.Background())) })
 	vrepo.SetSchemaGetter(sg)
 	require.Nil(t, vrepo.WaitForStartup(context.Background()))
 	migrator := db.NewMigrator(vrepo, logger, "node1")
@@ -231,6 +235,7 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 	}, &fakeRemoteClient{}, mockNodeSelector, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
+	t.Cleanup(func() { require.NoError(t, vrepo.Shutdown(context.Background())) })
 	vrepo.SetSchemaGetter(sg)
 	require.Nil(t, vrepo.WaitForStartup(context.Background()))
 	migrator := db.NewMigrator(vrepo, logger, "node1")
