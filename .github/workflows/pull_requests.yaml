@@ -962,7 +962,7 @@ jobs:
         uses: ./.github/actions/setup-go
       - name: start weaviate
         shell: bash
-        # Weaviate is started without a Vectorizer as running text2vec-contextionary on GH actions is difficult:
+        # Weaviate is started without a Vectorizer as running a vectorizer container on GH actions is difficult:
         # - docker on GHA only supports windows container - which we currently are not build
         # - building those containers without a windows machine is difficult to figure out
         run: ./weaviate.exe --scheme http --port 8080 &

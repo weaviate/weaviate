@@ -54,12 +54,16 @@ const (
 )
 
 func CreateCountryCityAirportSchema(t *testing.T, host string) {
+	CreateCountryCityAirportSchemaWithVectorizer(t, host, "text2vec-contextionary")
+}
+
+func CreateCountryCityAirportSchemaWithVectorizer(t *testing.T, host, vectorizer string) {
 	helper.SetupClient(host)
 	helper.CreateClass(t, &models.Class{
 		Class:      Country,
-		Vectorizer: "text2vec-contextionary",
+		Vectorizer: vectorizer,
 		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			vectorizer: map[string]interface{}{
 				"vectorizeClassName": true,
 			},
 		},
@@ -78,9 +82,9 @@ func CreateCountryCityAirportSchema(t *testing.T, host string) {
 	// aggregate tests are based on.
 	helper.CreateClass(t, &models.Class{
 		Class:      City,
-		Vectorizer: "text2vec-contextionary",
+		Vectorizer: vectorizer,
 		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			vectorizer: map[string]interface{}{
 				"vectorizeClassName": true,
 			},
 		},
@@ -91,7 +95,7 @@ func CreateCountryCityAirportSchema(t *testing.T, host string) {
 				DataType:     schema.DataTypeText.PropString(),
 				Tokenization: models.PropertyTokenizationWhitespace,
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					vectorizer: map[string]interface{}{
 						"skip": false,
 					},
 				},
@@ -100,7 +104,7 @@ func CreateCountryCityAirportSchema(t *testing.T, host string) {
 				Name:     "inCountry",
 				DataType: []string{Country},
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					vectorizer: map[string]interface{}{
 						"skip": true,
 					},
 				},
@@ -109,7 +113,7 @@ func CreateCountryCityAirportSchema(t *testing.T, host string) {
 				Name:     "population",
 				DataType: []string{"int"},
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					vectorizer: map[string]interface{}{
 						"skip": true,
 					},
 				},
@@ -118,7 +122,7 @@ func CreateCountryCityAirportSchema(t *testing.T, host string) {
 				Name:     "location",
 				DataType: []string{"geoCoordinates"},
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					vectorizer: map[string]interface{}{
 						"skip": true,
 					},
 				},
@@ -127,7 +131,7 @@ func CreateCountryCityAirportSchema(t *testing.T, host string) {
 				Name:     "isCapital",
 				DataType: []string{"boolean"},
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					vectorizer: map[string]interface{}{
 						"skip": true,
 					},
 				},
@@ -136,7 +140,7 @@ func CreateCountryCityAirportSchema(t *testing.T, host string) {
 				Name:     "cityArea",
 				DataType: []string{"number"},
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					vectorizer: map[string]interface{}{
 						"skip": true,
 					},
 				},
@@ -145,7 +149,7 @@ func CreateCountryCityAirportSchema(t *testing.T, host string) {
 				Name:     "cityRights",
 				DataType: []string{"date"},
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					vectorizer: map[string]interface{}{
 						"skip": true,
 					},
 				},
@@ -155,7 +159,7 @@ func CreateCountryCityAirportSchema(t *testing.T, host string) {
 				DataType:     schema.DataTypeTextArray.PropString(),
 				Tokenization: models.PropertyTokenizationWhitespace,
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					vectorizer: map[string]interface{}{
 						"skip": true,
 					},
 				},
@@ -164,7 +168,7 @@ func CreateCountryCityAirportSchema(t *testing.T, host string) {
 				Name:     "museums",
 				DataType: []string{"text[]"},
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					vectorizer: map[string]interface{}{
 						"skip": true,
 					},
 				},
@@ -173,7 +177,7 @@ func CreateCountryCityAirportSchema(t *testing.T, host string) {
 				Name:     "history",
 				DataType: []string{"text"},
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					vectorizer: map[string]interface{}{
 						"skip": true,
 					},
 				},
@@ -182,7 +186,7 @@ func CreateCountryCityAirportSchema(t *testing.T, host string) {
 				Name:     "phoneNumber",
 				DataType: []string{"phoneNumber"},
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					vectorizer: map[string]interface{}{
 						"skip": true,
 					},
 				},
@@ -192,9 +196,9 @@ func CreateCountryCityAirportSchema(t *testing.T, host string) {
 
 	helper.CreateClass(t, &models.Class{
 		Class:      Airport,
-		Vectorizer: "text2vec-contextionary",
+		Vectorizer: vectorizer,
 		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			vectorizer: map[string]interface{}{
 				"vectorizeClassName": true,
 			},
 		},
