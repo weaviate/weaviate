@@ -33,7 +33,7 @@ func Test_Objects(t *testing.T) {
 		helper.AssertCreateObjectClass(t, &models.Class{
 			Class: "ObjectTestThing",
 			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
+				"text2vec-model2vec": map[string]interface{}{
 					"vectorizeClassName": true,
 				},
 			},
@@ -48,7 +48,7 @@ func Test_Objects(t *testing.T) {
 		helper.AssertCreateObjectClass(t, &models.Class{
 			Class: "TestObject",
 			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
+				"text2vec-model2vec": map[string]interface{}{
 					"vectorizeClassName": true,
 				},
 			},
@@ -83,7 +83,7 @@ func Test_Objects(t *testing.T) {
 		helper.AssertCreateObjectClass(t, &models.Class{
 			Class: "TestObjectTwo",
 			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
+				"text2vec-model2vec": map[string]interface{}{
 					"vectorizeClassName": true,
 				},
 			},
@@ -124,7 +124,7 @@ func Test_Delete_ReadOnly_Classes(t *testing.T) {
 		helper.AssertCreateObjectClass(t, &models.Class{
 			Class: className,
 			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
+				"text2vec-model2vec": map[string]interface{}{
 					"vectorizeClassName": true,
 				},
 			},
