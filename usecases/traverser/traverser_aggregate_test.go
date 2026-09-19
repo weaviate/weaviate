@@ -274,12 +274,15 @@ func Test_Traverser_Aggregate(t *testing.T) {
 			},
 			IncludeMetaCount: true,
 			Hybrid: &searchparams.HybridSearch{
-				Type:   "hybrid",
-				Alpha:  0.5,
-				Query:  "some query",
-				Vector: []float32{1, 2, 3},
+				Type:          "hybrid",
+				Alpha:         0.5,
+				Query:         "some query",
+				Vector:        []float32{1, 2, 3},
+				TargetVectors: []string{"title", "body"},
 			},
 		}
+		expectedParams := params
+		expectedParams.TargetVector = "title"
 
 		agg := aggregation.Result{
 			Groups: []aggregation.Group{
@@ -324,7 +327,7 @@ func Test_Traverser_Aggregate(t *testing.T) {
 			},
 		}
 
-		vectorRepo.On("Aggregate", params).Return(&agg, nil)
+		vectorRepo.On("Aggregate", expectedParams).Return(&agg, nil)
 		res, err := traverser.Aggregate(context.Background(), principal, &params)
 		require.Nil(t, err)
 		assert.Equal(t, &agg, res)
@@ -339,6 +342,7 @@ var aggregateTestSchema = schema.Schema{
 			},
 			{
 				Class: "MyClass",
+				VectorConfig: map[string]models.VectorConfig{"title": {}, "body": {}},
 				Properties: []*models.Property{
 					{
 						Name:         "label",
