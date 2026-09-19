@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
@@ -262,6 +263,16 @@ func TestRecoveringShardReadPaths(t *testing.T) {
 	defer release2()
 	var unprocessable enterrors.ErrUnprocessable
 	require.True(t, errors.As(err, &unprocessable), "got %T: %v", err, err)
+	require.True(t, enterrors.IsShardRecovering(err))
+
+	_, err = idx.FetchObject(context.Background(), "S", strfmt.UUID("11111111-1111-1111-1111-111111111111"))
+	require.True(t, errors.As(err, &unprocessable), "FetchObject got %T: %v", err, err)
+	require.True(t, enterrors.IsShardRecovering(err))
+	_, err = idx.FetchObjects(context.Background(), "S", []strfmt.UUID{"11111111-1111-1111-1111-111111111111"})
+	require.True(t, errors.As(err, &unprocessable), "FetchObjects got %T: %v", err, err)
+	require.True(t, enterrors.IsShardRecovering(err))
+	_, err = idx.CountObjects(context.Background(), "S")
+	require.True(t, errors.As(err, &unprocessable), "CountObjects got %T: %v", err, err)
 	require.True(t, enterrors.IsShardRecovering(err))
 }
 
