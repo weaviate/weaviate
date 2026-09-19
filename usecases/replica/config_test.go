@@ -52,8 +52,9 @@ func Test_ValidateConfig(t *testing.T) {
 		{
 			name:          "config provided, factor < 0",
 			initialconfig: &models.ReplicationConfig{Factor: -1},
-			resultConfig:  &models.ReplicationConfig{Factor: 1},
+			resultConfig:  &models.ReplicationConfig{Factor: -1},
 			globalConfig:  replication.GlobalConfig{MinimumFactor: 1},
+			expectedErr:   fmt.Errorf("replication factor must not be negative, got -1"),
 		},
 		{
 			name:          "config provided, valid factor",
