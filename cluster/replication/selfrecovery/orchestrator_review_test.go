@@ -15,7 +15,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -766,4 +768,62 @@ func TestActivationRef_TriggerAndBenignBucket(t *testing.T) {
 	require.InDelta(t, beforeBootstrap+1, testutil.ToFloat64(o.metrics.NoDataDuringBootstrapTotal), 0.001)
 	require.InDelta(t, beforeEmpty, testutil.ToFloat64(o.metrics.NoDataEmptyTotal), 0.001)
 	require.DirExists(t, root+"/C/S")
+}
+
+func TestWipeMarker_OpensOnWipedSubmitAndClosesWhenDrained(t *testing.T) {
+	root := t.TempDir()
+	release := make(chan struct{})
+	o := newOrchestratorForTest(t, &stubRaft{}, stubSchema{replicas: []string{"self"}}, &stubNodeSelector{}, nil, stubPathResolver{root: root})
+	o.enabled = true
+	o.wipeMarker = filepath.Join(root, wipeMarkerName)
+	o.onRecoveryComplete = func(_ context.Context, _, _ string) error { <-release; return nil }
+
+	beforeBootstrap := testutil.ToFloat64(o.metrics.NoDataDuringBootstrapTotal)
+	beforeEmpty := testutil.ToFloat64(o.metrics.NoDataEmptyTotal)
+
+	require.True(t, o.Submit(context.Background(), ShardRef{Collection: "C", Shard: "S1"}, true))
+	require.FileExists(t, o.wipeMarker)
+	require.True(t, o.Submit(context.Background(), ShardRef{Collection: "C", Shard: "S2"}, false))
+	close(release)
+
+	require.Eventually(t, func() bool { _, err := os.Stat(o.wipeMarker); return errors.Is(err, fs.ErrNotExist) }, 10*time.Second, 20*time.Millisecond)
+	require.InDelta(t, beforeBootstrap+2, testutil.ToFloat64(o.metrics.NoDataDuringBootstrapTotal), 0.001)
+	require.InDelta(t, beforeEmpty, testutil.ToFloat64(o.metrics.NoDataEmptyTotal), 0.001)
+}
+
+func TestWipeMarker_ResumedRoundKeepsTheBenignBucket(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, wipeMarkerName), nil, 0o644))
+	logger := logrus.New()
+	logger.SetLevel(logrus.PanicLevel)
+	o := New(Config{
+		Raft: &stubRaft{}, Schema: stubSchema{replicas: []string{"self"}}, PathResolver: stubPathResolver{root: root},
+		NodeSelector: &stubNodeSelector{}, NodeName: "self", Enabled: true, RootDataPath: root, Logger: logger,
+	})
+	t.Cleanup(func() { require.NoError(t, o.Close(context.Background())) })
+	require.True(t, o.wipeRoundOpen)
+	beforeBootstrap := testutil.ToFloat64(o.metrics.NoDataDuringBootstrapTotal)
+	beforeEmpty := testutil.ToFloat64(o.metrics.NoDataEmptyTotal)
+
+	require.True(t, o.Submit(context.Background(), ShardRef{Collection: "C", Shard: "S"}, false))
+
+	require.Eventually(t, func() bool { _, err := os.Stat(o.wipeMarker); return errors.Is(err, fs.ErrNotExist) }, 10*time.Second, 20*time.Millisecond)
+	require.InDelta(t, beforeBootstrap+1, testutil.ToFloat64(o.metrics.NoDataDuringBootstrapTotal), 0.001)
+	require.InDelta(t, beforeEmpty, testutil.ToFloat64(o.metrics.NoDataEmptyTotal), 0.001)
+	o.queueMu.Lock()
+	defer o.queueMu.Unlock()
+	require.False(t, o.wipeRoundOpen)
+}
+
+func TestWipeMarker_IntactStartNeverWritesIt(t *testing.T) {
+	root := t.TempDir()
+	o := newOrchestratorForTest(t, &stubRaft{}, stubSchema{replicas: []string{"self"}}, &stubNodeSelector{}, nil, stubPathResolver{root: root})
+	o.enabled = true
+	o.wipeMarker = filepath.Join(root, wipeMarkerName)
+	beforeEmpty := testutil.ToFloat64(o.metrics.NoDataEmptyTotal)
+
+	require.True(t, o.Submit(context.Background(), ShardRef{Collection: "C", Shard: "S"}, false))
+
+	require.Eventually(t, func() bool { return testutil.ToFloat64(o.metrics.NoDataEmptyTotal) >= beforeEmpty+1 }, 10*time.Second, 20*time.Millisecond)
+	require.NoFileExists(t, o.wipeMarker)
 }

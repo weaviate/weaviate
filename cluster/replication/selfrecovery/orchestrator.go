@@ -111,9 +111,14 @@ type Orchestrator struct {
 	queueCond      *sync.Cond
 	pending        *list.List
 	closed         bool
+	active         int // workers inside runOne, under queueMu
 	workerWg       sync.WaitGroup
 	shutdownCtx    context.Context
 	shutdownCancel context.CancelFunc
+
+	// wipeMarker outlives a restart mid-drain so the round's remaining fallbacks keep the benign bucket; "" disables it.
+	wipeMarker    string
+	wipeRoundOpen bool // under queueMu: marker written (or found at startup) and the queue has not drained since
 
 	// shardLocks serialises runOne and Restart per "collection/shard"; never shrinks.
 	shardLocks sync.Map
@@ -139,9 +144,11 @@ type Config struct {
 	MaintenanceModeEnabled func() bool
 	// OnRecoveryComplete promotes after empty-fallback; must never create a shard, and only ErrIndexNotRegistered is retried.
 	OnRecoveryComplete func(ctx context.Context, collection, shard string) error
-	Logger             logrus.FieldLogger
-	PollInterval       time.Duration // FSM poll cadence; 5s if zero
-	ProbeTimeout       time.Duration // single ProbeShardData RPC; 5s if zero
+	// RootDataPath hosts the wipe-round marker; empty disables it.
+	RootDataPath string
+	Logger       logrus.FieldLogger
+	PollInterval time.Duration // FSM poll cadence; 5s if zero
+	ProbeTimeout time.Duration // single ProbeShardData RPC; 5s if zero
 }
 
 func New(cfg Config) *Orchestrator {
@@ -158,7 +165,17 @@ func New(cfg Config) *Orchestrator {
 		logger = logrus.NewEntry(logrus.New())
 	}
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
+	wipeMarker, wipeRoundOpen := "", false
+	if cfg.RootDataPath != "" {
+		wipeMarker = filepath.Join(cfg.RootDataPath, wipeMarkerName)
+		if _, err := os.Stat(wipeMarker); err == nil {
+			wipeRoundOpen = true
+			logger.WithField("component", "self_recovery").Info("self-recovery: resuming a wiped node's recovery round; empty fallbacks stay informational until it drains")
+		}
+	}
 	return &Orchestrator{
+		wipeMarker:             wipeMarker,
+		wipeRoundOpen:          wipeRoundOpen,
 		raft:                   cfg.Raft,
 		schema:                 cfg.Schema,
 		pathResolver:           cfg.PathResolver,
@@ -213,9 +230,43 @@ func (o *Orchestrator) Submit(ctx context.Context, ref ShardRef, startedWithoutR
 	if o.closed {
 		return false
 	}
+	startedWithoutRaftState = o.noteWipeRoundLocked(startedWithoutRaftState)
 	o.pending.PushBack(submission{ctx: ctx, ref: ref, startedWithoutRaftState: startedWithoutRaftState})
 	o.queueCond.Signal()
 	return true
+}
+
+const wipeMarkerName = ".self_recovery_wiped"
+
+// noteWipeRoundLocked opens the round on a wiped start and keeps a resumed round's submissions benign; under queueMu.
+func (o *Orchestrator) noteWipeRoundLocked(startedWithoutRaftState bool) bool {
+	if o.wipeMarker == "" {
+		return startedWithoutRaftState
+	}
+	if o.wipeRoundOpen {
+		return true
+	}
+	if !startedWithoutRaftState {
+		return false
+	}
+	if err := os.WriteFile(o.wipeMarker, nil, 0o644); err != nil {
+		o.logger.Warnf("self-recovery: cannot write the wipe-round marker %q: %v", o.wipeMarker, err)
+		return true
+	}
+	o.wipeRoundOpen = true
+	return true
+}
+
+// closeWipeRoundLocked removes the marker once the queue drained; under queueMu.
+func (o *Orchestrator) closeWipeRoundLocked() {
+	if !o.wipeRoundOpen || o.pending.Len() > 0 || o.active > 0 {
+		return
+	}
+	if err := os.Remove(o.wipeMarker); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		o.logger.Warnf("self-recovery: cannot remove the wipe-round marker %q: %v", o.wipeMarker, err)
+		return
+	}
+	o.wipeRoundOpen = false
 }
 
 // Enabled reports whether the SELF_RECOVERY feature flag is on.
@@ -1017,9 +1068,14 @@ func (o *Orchestrator) initPool() {
 				}
 				front := o.pending.Front()
 				o.pending.Remove(front)
+				o.active++
 				o.queueMu.Unlock()
 				sub := front.Value.(submission)
 				o.runOne(sub.ctx, sub.ref, sub.startedWithoutRaftState)
+				o.queueMu.Lock()
+				o.active--
+				o.closeWipeRoundLocked()
+				o.queueMu.Unlock()
 			}
 		}, o.logger)
 	}
