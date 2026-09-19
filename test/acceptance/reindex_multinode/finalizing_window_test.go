@@ -72,9 +72,8 @@ func partialWindowBudget() time.Duration {
 //     bounds this to microseconds; query returns OLD baseline).
 //   - Post-swap: overlay=NEW, bucket=NEW → query returns NEW
 //     expectedAfter.
-//   - Post-flip: overlay self-clears or is explicitly cleared by
-//     OnTaskCompleted; live schema=NEW matches bucket=NEW → query
-//     still returns NEW expectedAfter.
+//   - Post-flip: live schema=NEW matches bucket=NEW, so the overlay
+//     overrides nothing → query still returns NEW expectedAfter.
 //
 // In-range partials ARE still expected — the cluster-wide cutover
 // has a real cross-shard spread (every node's reactive
@@ -316,8 +315,8 @@ func runLiveQueryDuringChangeTokenizationCase(
 	latePartial := countLatePartials(t, samples, baselineCount, expectedAfter, afterAnchor, migrationStart)
 	assert.Zerof(t, latePartial,
 		"observed %d partial samples after the bounded cutover window for %s→%s on %s — "+
-			"cutover is not converging; either the overlay isn't being cleared "+
-			"or the schema flip isn't propagating to every replica.",
+			"cutover is not converging; the schema flip isn't propagating to "+
+			"every replica.",
 		latePartial, startTok, targetTok, indexType)
 }
 
