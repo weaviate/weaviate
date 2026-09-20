@@ -53,6 +53,13 @@ func (i *Index) IncomingProbeShardData(ctx context.Context, shardName string) (b
 			}
 			return count > 0, nil
 		}
+	} else if _, err := os.Stat(shardPath(i.path(), shardName)); err == nil {
+		// Deactivated (or mid-activation) tenant: not in the map, but its data is on disk; "not found" would read as "no data".
+		count, err := indexcounter.Read(shardPath(i.path(), shardName))
+		if err != nil {
+			return false, fmt.Errorf("incoming probe shard data read counter %s: %w", shardName, err)
+		}
+		return count > 0, nil
 	}
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {

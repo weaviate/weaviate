@@ -13,7 +13,9 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -115,4 +117,36 @@ func TestIncomingProbeShardDataAbsentShard(t *testing.T) {
 
 	_, err := idx.IncomingProbeShardData(context.Background(), "S")
 	require.ErrorContains(t, err, "shard is nil")
+}
+
+func TestIncomingProbeShardDataDeactivatedTenantOnDisk(t *testing.T) {
+	cases := []struct {
+		name     string
+		count    uint64
+		counter  bool
+		wantData bool
+	}{
+		{name: "folder with counter above zero", count: 300, counter: true, wantData: true},
+		{name: "folder with zero counter", count: 0, counter: true},
+		{name: "folder without counter"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{})
+			idx.closingCtx = context.Background()
+			idx.shardCreateLocks = esync.NewKeyRWLocker()
+			dir := shardPath(idx.path(), "S")
+			require.NoError(t, os.MkdirAll(dir, 0o755))
+			if tc.counter {
+				buf := make([]byte, 8)
+				binary.LittleEndian.PutUint64(buf, tc.count)
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "indexcount"), buf, 0o644))
+			}
+
+			hasData, err := idx.IncomingProbeShardData(context.Background(), "S")
+			require.NoError(t, err)
+			require.Equal(t, tc.wantData, hasData)
+			require.Nil(t, idx.shards.Load("S"))
+		})
+	}
 }
