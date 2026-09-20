@@ -85,6 +85,9 @@ func TestSelfRecoveryLazyTenantActivationRecovers(t *testing.T) {
 		ensureTenants(t, mtClass, tenantModels)
 		waitShardsPresent(t, mtClass, len(tenants))
 		waitForSelfRecoveryToSettle(t, allNodes, 3*time.Minute)
+		for _, node := range allNodes {
+			waitNoShardRecovering(t, mtClass, node)
+		}
 	})
 
 	mustRun(t, "ingest and deactivate the cold-at-wipe tenant", func(t *testing.T) {
