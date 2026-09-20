@@ -148,6 +148,10 @@ func TestSelfRecoveryLazyWipedNode(t *testing.T) {
 		waitShardsPresent(t, paraClass, 1)
 		waitShardsPresent(t, mtClass, 3)
 		waitForSelfRecoveryToSettle(t, allNodes, 3*time.Minute)
+		for _, node := range allNodes {
+			waitNoShardRecovering(t, paraClass, node)
+			waitNoShardRecovering(t, mtClass, node)
+		}
 	})
 
 	mustRun(t, "ingest", func(t *testing.T) {
@@ -244,6 +248,9 @@ func TestSelfRecoveryLazyIntactRestartLeavesRegisteredTenantsAlone(t *testing.T)
 		ensureTenants(t, mtClass, []*models.Tenant{{Name: neverTenant}, {Name: writtenTenant}})
 		waitShardsPresent(t, mtClass, 2)
 		waitForSelfRecoveryToSettle(t, allNodes, 3*time.Minute)
+		for _, node := range allNodes {
+			waitNoShardRecovering(t, mtClass, node)
+		}
 		submitBatch(t, srParagraphObjects(mtClass, "88888888-8888-8888-8888", writtenCount, writtenTenant), types.ConsistencyLevelQuorum)
 		waitForSelfRecoveryToSettle(t, allNodes, 3*time.Minute)
 		for _, node := range allNodes {
