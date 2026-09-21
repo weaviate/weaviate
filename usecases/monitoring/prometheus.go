@@ -56,7 +56,6 @@ type PrometheusMetrics struct {
 	LSMCompressedVecsBucketSegmentCount *prometheus.GaugeVec
 	LSMSegmentCountByLevel              *prometheus.GaugeVec
 	LSMSegmentUnloaded                  *prometheus.GaugeVec
-	LSMSegmentObjects                   *prometheus.GaugeVec
 	LSMSegmentSize                      *prometheus.GaugeVec
 	LSMMemtableSize                     *prometheus.GaugeVec
 	LSMMemtableDurations                *prometheus.SummaryVec
@@ -394,6 +393,10 @@ func (pm *PrometheusMetrics) DeleteClass(className string) error {
 	pm.BackupStoreDurations.DeletePartialMatch(labels)
 	pm.BackupRestoreClassSeconds.DeletePartialMatch(labels)
 	pm.BackupStoreSeconds.DeletePartialMatch(labels)
+	// The whole-restore summaries carry class_name too. Without these, deleting
+	// and recreating a class resurrects the old class's restore samples.
+	pm.BackupRestoreDurations.DeletePartialMatch(labels)
+	pm.BackupRestoreSeconds.DeletePartialMatch(labels)
 	pm.BackupRestoreDataTransferred.DeletePartialMatch(labels)
 	pm.BackupStoreDataTransferred.DeletePartialMatch(labels)
 	pm.QueriesFilteredVectorDurations.DeletePartialMatch(labels)
@@ -457,12 +460,31 @@ func BackupClassLabel(key string) string {
 		return "n/a"
 	}
 	parts := strings.Split(key, "/")
-	for i, p := range parts {
-		if i > 0 && strings.HasPrefix(p, "chunk-") && parts[i-1] != "" {
+	// Scan from the end and require the exact generated chunk-<integer> form.
+	// A backend's configured bucket path is attacker-adjacent prefix data and
+	// may itself contain a "chunk-" segment (e.g. "archive/chunk-history/..."),
+	// which a forward scan would mistake for the class delimiter.
+	for i := len(parts) - 1; i > 0; i-- {
+		if isChunkSegment(parts[i]) && parts[i-1] != "" {
 			return parts[i-1]
 		}
 	}
 	return "n/a"
+}
+
+// isChunkSegment reports whether seg is exactly "chunk-<integer>", the form
+// usecases/backup.chunkKey generates.
+func isChunkSegment(seg string) bool {
+	digits, ok := strings.CutPrefix(seg, "chunk-")
+	if !ok || digits == "" {
+		return false
+	}
+	for _, r := range digits {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // ObserveDurationBoth times one operation into a deprecated _ms summary and its
@@ -605,10 +627,6 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "lsm_compressed_vecs_bucket_segment_count",
 			Help: "Number of segments per shard in the vectors_compressed bucket",
 		}, []string{"strategy", "class_name", "shard_name", "path"}),
-		LSMSegmentObjects: promauto.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "lsm_segment_objects",
-			Help: "Number of objects/entries of segment by level",
-		}, []string{"strategy", "class_name", "shard_name", "path", "level"}),
 		LSMSegmentSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "lsm_segment_size",
 			Help: "Size of segment by level and unit",

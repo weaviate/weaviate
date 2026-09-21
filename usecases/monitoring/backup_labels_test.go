@@ -38,6 +38,14 @@ func TestBackupClassLabel(t *testing.T) {
 		{"empty key", "", "n/a"},
 		{"chunk with no class", "chunk-0", "n/a"},
 		{"empty class segment", "/chunk-0", "n/a"},
+		// A configured bucket path may itself contain a "chunk-" segment. The
+		// class is the one next to the generated chunk-<integer>, so the scan
+		// runs from the end and rejects non-numeric suffixes.
+		{"chunk-like prefix in bucket path", "archive/chunk-history/id/Article/chunk-0", "Article"},
+		{"chunk-like prefix, metadata object", "archive/chunk-history/backup_config.json", "n/a"},
+		{"non-numeric chunk suffix", "Article/chunk-abc", "n/a"},
+		{"chunk- with empty suffix", "Article/chunk-", "n/a"},
+		{"deep path", "bkp/node1/Article/chunk-7", "Article"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

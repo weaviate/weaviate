@@ -309,12 +309,17 @@ func (m *Module) Upload(ctx context.Context, className, shardName, nodeName stri
 
 	var err error
 	defer func() {
-		// Update few useful metrics
-		size, _ := dirSize(localPath)
-		m.metrics.TransferredBytes.Add(float64(size))
 		status := "success"
 		if err != nil {
 			status = "failed"
+		}
+		// Only a completed transfer has a known byte count. A failed or partly
+		// finished one would credit bytes that never left the node, which is how
+		// this counter came to over-report in the first place.
+		if err == nil {
+			if size, sizeErr := uploadedSize(localPath); sizeErr == nil {
+				m.metrics.TransferredBytes.Add(float64(size))
+			}
 		}
 		m.metrics.OpsDuration.WithLabelValues("upload", status).Observe(time.Since(start).Seconds())
 	}()
@@ -331,13 +336,22 @@ func (m *Module) Upload(ctx context.Context, className, shardName, nodeName stri
 // .wal stays in, the shard needs it to recover on the next reactivation.
 // hashtree_uuid/ stays out like it does for backups: a downloaded .ht would be
 // trusted verbatim on load and mask a partial download from replication.
+// hashtreeDir and tmpSuffix are the two things a shard upload leaves behind.
+// uploadArgs turns them into s5cmd --exclude flags and uploadedSize skips the
+// same files, so the byte counter matches what is actually shipped. Changing
+// one without the other silently desynchronises the metric from the transfer.
+const (
+	hashtreeDir = "hashtree_uuid"
+	tmpSuffix   = ".tmp"
+)
+
 func (m *Module) uploadArgs(localPath, className, shardName, nodeName string) []string {
 	return []string{
 		fmt.Sprintf("--endpoint-url=%s", m.Endpoint),
 		"cp",
 		fmt.Sprintf("--concurrency=%s", fmt.Sprintf("%d", m.Concurrency)),
-		"--exclude=*.tmp",
-		"--exclude=hashtree_uuid/*",
+		fmt.Sprintf("--exclude=*%s", tmpSuffix),
+		fmt.Sprintf("--exclude=%s/*", hashtreeDir),
 		fmt.Sprintf("%s/*", localPath),
 		fmt.Sprintf("s3://%s/%s/%s/%s/", m.Bucket, strings.ToLower(className), shardName, nodeName),
 	}
@@ -450,6 +464,38 @@ func (m *Module) Delete(ctx context.Context, className, shardName, nodeName stri
 	return nil
 }
 
+// uploadedSize sums only the files a shard upload actually ships — the same set
+// uploadArgs selects — so TransferredBytes matches the transfer rather than the
+// whole directory. It must be kept in step with uploadArgs' --exclude list.
+func uploadedSize(root string) (int64, error) {
+	var size int64
+	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
+			return relErr
+		}
+		if info.IsDir() {
+			// --exclude=hashtree_uuid/*
+			if rel == hashtreeDir {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		// --exclude=*.tmp
+		if strings.HasSuffix(info.Name(), tmpSuffix) {
+			return nil
+		}
+		size += info.Size()
+		return nil
+	})
+	return size, err
+}
+
+// dirSize sums every file under path. Used by the download path, which fetches
+// the directory wholesale; uploads must use uploadedSize instead.
 func dirSize(path string) (int64, error) {
 	var size int64
 	err := filepath.Walk(path, func(_ string, info os.FileInfo, err error) error {
