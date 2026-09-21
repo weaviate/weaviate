@@ -447,17 +447,11 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 				return
 			}
 
-			// Guard against disableAsyncReplication running between the lock
-			// release above and Register() returning. If disable ran in that
-			// window, it called Deregister as a no-op (shard wasn't registered
-			// yet) and set hashtree to nil. Self-deregister now so the disabled
-			// shard is not left in the scheduler. RLock is held across Deregister
-			// to close the TOCTOU window: enableAsyncReplication needs WLock to
-			// set hashtree, so it cannot race between the nil-check and Deregister.
+			// Keep the registration only for a ready tree (own or a newer goroutine's, whose Register is idempotent); nil or unready means a flap whose owner registers later, so self-deregister under RLock.
 			func() {
 				s.asyncReplicationRWMux.RLock()
 				defer s.asyncReplicationRWMux.RUnlock() // deferred: a panic while logging must not leak the RLock
-				if s.hashtree != nil {
+				if s.hashtreeFullyInitialized {
 					return
 				}
 				if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
@@ -894,16 +888,11 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 		if err := s.index.asyncReplicationScheduler.Register(s); err != nil {
 			s.index.logger.WithField("action", "async_replication").Error(err)
 		} else {
-			// Guard against disableAsyncReplication running between the lock release
-			// above and Register() returning. If disable ran in that window, it called
-			// Deregister as a no-op (shard wasn't registered yet) and set hashtree to
-			// nil. Self-deregister now so the disabled shard is not left in the scheduler.
-			// RLock is held across Deregister to close the TOCTOU window: enableAsyncReplication
-			// needs WLock to set hashtree, so it cannot race between the nil-check and Deregister.
+			// Keep the registration only for a ready tree (own or a newer goroutine's, whose Register is idempotent); nil or unready means a flap whose owner registers later, so self-deregister under RLock.
 			func() {
 				s.asyncReplicationRWMux.RLock()
 				defer s.asyncReplicationRWMux.RUnlock() // deferred: a panic while logging must not leak the RLock
-				if s.hashtree != nil {
+				if s.hashtreeFullyInitialized {
 					return
 				}
 				if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
@@ -1937,10 +1926,10 @@ func (s *Shard) hashBeat(
 	var targetNodeOverridesSnapshot additional.AsyncReplicationTargetNodeOverrides
 
 	s.asyncReplicationRWMux.RLock()
-	if s.hashtree == nil {
+	// Authoritative readiness check: runEntry's snapshot is released before this call, so a rebuild landing in between would otherwise hand hashbeat a partially scanned placeholder.
+	if s.hashtree == nil || !s.hashtreeFullyInitialized {
 		s.asyncReplicationRWMux.RUnlock()
-		// handling the case of a hashtree being explicitly set to nil
-		return nil, fmt.Errorf("hashtree not initialized on shard %q", s.ID())
+		return nil, fmt.Errorf("%w: hashtree not initialized on shard %q", errAsyncReplicationNotActive, s.ID())
 	}
 	ht = s.hashtree
 	cpht = s.asyncCheckpointHashtree

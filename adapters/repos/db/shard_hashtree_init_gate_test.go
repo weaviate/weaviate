@@ -984,3 +984,107 @@ func TestMergeDoesNotParkWhileHashtreeInitQueued(t *testing.T) {
 	require.Equal(t, referenceRoot(t, expected), got)
 	require.Equal(t, serialRebuildRoot(t, ctx, s), got)
 }
+
+// TestStaleInitializerDoesNotKeepUnreadyTreeRegistered pins that a disable+enable flap landing while an initializer registers never leaves an unready hashtree serving hashbeat.
+func TestStaleInitializerDoesNotKeepUnreadyTreeRegistered(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("rebuildWhileRegistering", func(t *testing.T) {
+		const class = "StaleInitRegistering"
+		const t0, t1 = tsFarPast, tsFarPast + 1
+
+		registering := newParkingLogHook("hashtree successfully initialized")
+		scanning := newParkingLogHook("hashtree initialization in progress")
+		sl, s, sched, _ := newQueuedInitShard(t, ctx, class, registering, scanning)
+		t.Cleanup(registering.release)
+		t.Cleanup(scanning.release)
+
+		require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+		select {
+		case <-registering.parked:
+		case <-time.After(initGateWriteTimeout):
+			t.Fatal("the empty-shard scan did not reach its success log")
+		}
+
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, t0)))
+		flushShard(t, ctx, sl)
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidMid, t1)))
+
+		require.NoError(t, s.rebuildAsyncReplicationFromScratch(ctx, true, minAsyncReplicationConfig()))
+		requireQueuedInitState(t, s)
+		registering.release()
+
+		select {
+		case <-scanning.parked:
+		case <-time.After(initGateWriteTimeout):
+			t.Fatal("the replacement scan did not start")
+		}
+		requireUnreadyHashtree(t, s)
+		require.False(t, registeredInScheduler(sched, s),
+			"a stale initializer must not keep an unready hashtree registered")
+
+		scanning.release()
+		awaitHashtreeInitialized(t, s)
+		require.Eventually(t, func() bool { return registeredInScheduler(sched, s) },
+			initGateWriteTimeout, 10*time.Millisecond, "the completed scan must re-register the shard")
+
+		got := liveRoot(t, s)
+		require.Equal(t, referenceRoot(t, map[strfmt.UUID]int64{uuidLow: t0, uuidMid: t1}), got)
+		require.Equal(t, serialRebuildRoot(t, ctx, s), got)
+	})
+
+	t.Run("registeredWhileQueued", func(t *testing.T) {
+		const class = "StaleInitQueued"
+		const t0, t1 = tsFarPast, tsFarPast + 1
+
+		zeroCoalesceWindow(t)
+		sl, s, sched, _ := newQueuedInitShard(t, ctx, class)
+		m, err := NewMetrics(s.index.logger, monitoring.GetMetrics(), class, s.name)
+		require.NoError(t, err)
+		s.metrics = m
+
+		idx := s.index
+		idx.replicationConfigLock.Lock()
+		idx.Config.ReplicationFactor = 3
+		idx.replicationConfigLock.Unlock()
+
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, t0)))
+		flushShard(t, ctx, sl)
+		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidMid, t1)))
+
+		cfg := minAsyncReplicationConfig()
+		cfg.frequency = 50 * time.Millisecond
+		cfg.frequencyWhilePropagating = 50 * time.Millisecond
+
+		release := holdInitSlot(t, sched)
+		require.NoError(t, s.enableAsyncReplication(ctx, cfg))
+		requireQueuedInitState(t, s)
+
+		var dispatches atomic.Int64
+		asyncRepDispatchSeam = func(entry *asyncSchedulerEntry) {
+			if entry.shard == s {
+				dispatches.Add(1)
+			}
+		}
+		t.Cleanup(func() {
+			if err := sched.Deregister(s); err != nil {
+				t.Errorf("deregister before restoring the dispatch seam: %v", err)
+			}
+			asyncRepDispatchSeam = nil
+		})
+
+		iterationsBefore := testutil.ToFloat64(m.asyncReplicationIterationCount)
+		require.NoError(t, sched.Register(s))
+		require.Eventually(t, func() bool { return dispatches.Load() > 0 },
+			initGateWriteTimeout, 10*time.Millisecond, "the registered entry must reach dispatch")
+		time.Sleep(initGateParkProbe)
+		require.Equal(t, iterationsBefore, testutil.ToFloat64(m.asyncReplicationIterationCount),
+			"a queued, unready hashtree must never be served to hashbeat")
+
+		release()
+		awaitHashtreeInitialized(t, s)
+		require.Eventually(t, func() bool {
+			return testutil.ToFloat64(m.asyncReplicationIterationCount) > iterationsBefore
+		}, initGateWriteTimeout, 10*time.Millisecond, "hashbeat must resume once the scan serves its tree")
+	})
+}
