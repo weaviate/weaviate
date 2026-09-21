@@ -491,7 +491,9 @@ func TestCancelledHashtreeInitAttemptIsNotCountedAsFailure(t *testing.T) {
 	release := holdInitSlot(t, sched)
 	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
 	requireQueuedInitState(t, s)
-	require.Equal(t, queuedBefore+1, testutil.ToFloat64(m.asyncReplicationHashTreeInitQueued))
+	require.Eventually(t, func() bool {
+		return testutil.ToFloat64(m.asyncReplicationHashTreeInitQueued) == queuedBefore+1
+	}, initGateWriteTimeout, 10*time.Millisecond, "the queued init must be counted once it waits for the slot")
 	require.Equal(t, initsBefore, testutil.ToFloat64(m.asyncReplicationHashTreeInitCount))
 	release()
 
