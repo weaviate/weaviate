@@ -213,7 +213,7 @@ func TestVertex_Maintenance(t *testing.T) {
 }
 
 func TestVertex_Size(t *testing.T) {
-	// one vertex per node: 40 B of connections, which also hold the level
-	// and the maintenance flag, plus the mutex
-	assert.Equal(t, uintptr(48), unsafe.Sizeof(vertex{}))
+	// one allocation per node: the connections, the mutex, the level and
+	// the maintenance flag
+	assert.Equal(t, uintptr(64), unsafe.Sizeof(vertex{}))
 }

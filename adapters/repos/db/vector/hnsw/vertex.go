@@ -18,33 +18,28 @@ import (
 )
 
 type vertex struct {
-	// the level and the maintenance flag are stored in connections
+	// connections first so the GC scans only the pointer-bearing prefix
 	connections packedconn.Connections
 	sync.Mutex
+	level       uint16
+	maintenance bool
 }
-
-// maintenanceTag marks a node that is being inserted or repaired.
-const maintenanceTag = 1
-
-func (v *vertex) level() uint16 { return v.connections.Level() }
-
-func (v *vertex) setLevel(level uint16) { v.connections.SetLevel(level) }
 
 func (v *vertex) markAsMaintenance() {
 	v.Lock()
-	v.connections.SetTag(maintenanceTag)
+	v.maintenance = true
 	v.Unlock()
 }
 
 func (v *vertex) unmarkAsMaintenance() {
 	v.Lock()
-	v.connections.SetTag(0)
+	v.maintenance = false
 	v.Unlock()
 }
 
 func (v *vertex) isUnderMaintenance() bool {
 	v.Lock()
-	m := v.connections.Tag() == maintenanceTag
+	m := v.maintenance
 	v.Unlock()
 	return m
 }
@@ -54,7 +49,7 @@ func (v *vertex) connectionsAtLevelNoLock(level int) []uint64 {
 }
 
 func (v *vertex) upgradeToLevelNoLock(level int) {
-	v.setLevel(uint16(level))
+	v.level = uint16(level)
 	v.connections.GrowLayersTo(uint8(level))
 }
 

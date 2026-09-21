@@ -1344,12 +1344,18 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 		{4, 3, 1, 3, 5, 0, 7, 8},
 		{7},
 	})
-	index.nodes[6] = vertexAt(1, conns)
+	index.nodes[6] = &vertex{
+		connections: *conns,
+		level:       1,
+	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		{6, 4, 3, 5, 2, 1, 0, 8},
 		{6},
 	})
-	index.nodes[7] = vertexAt(1, conns)
+	index.nodes[7] = &vertex{
+		connections: *conns,
+		level:       1,
+	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		{7, 6, 4, 3, 5, 2, 1, 0},
 	})
@@ -2170,7 +2176,10 @@ func TestDelete_EntrypointWithLowerLevelThanOtherNodes(t *testing.T) {
 	conns0, _ := packedconn.NewWithElements([][]uint64{
 		{1}, // connections at level 0
 	})
-	index.nodes[0] = vertexAt(0, conns0)
+	index.nodes[0] = &vertex{
+		level:       0,
+		connections: *conns0,
+	}
 
 	// Node 1: has level 3 (higher than entrypoint's level 0)
 	// This node has connections at levels 0, 1, 2, 3
@@ -2180,14 +2189,17 @@ func TestDelete_EntrypointWithLowerLevelThanOtherNodes(t *testing.T) {
 		{},  // level 2
 		{},  // level 3
 	})
-	index.nodes[1] = vertexAt(3, conns1) // higher than the entrypoint
+	index.nodes[1] = &vertex{
+		level:       3, // Higher than entrypoint
+		connections: *conns1,
+	}
 	index.Unlock()
 
 	// Verify the setup is correct
 	require.Equal(t, uint64(0), index.entryPointID)
 	require.Equal(t, 0, index.currentMaximumLayer)
-	require.Equal(t, 0, int(index.nodes[0].level()))
-	require.Equal(t, 3, int(index.nodes[1].level()))
+	require.Equal(t, 0, int(index.nodes[0].level))
+	require.Equal(t, 3, int(index.nodes[1].level))
 	require.Equal(t, uint8(1), index.nodes[0].connections.Layers())
 	require.Equal(t, uint8(4), index.nodes[1].connections.Layers())
 

@@ -80,10 +80,16 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 			{0, 1, 2},
 		})
 		vectorIndex.nodes = []*vertex{
-			// must be on a non-zero layer for this bug to occur
-			vertexAt(1, conns1),
+			{
+				// must be on a non-zero layer for this bug to occur
+				level:       1,
+				connections: *conns1,
+			},
 			nil, // corrupt node
-			vertexAt(0, conns2),
+			{
+				level:       0,
+				connections: *conns2,
+			},
 		}
 	})
 

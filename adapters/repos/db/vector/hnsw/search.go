@@ -315,7 +315,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		}
 
 		candidateNode.Lock()
-		if int(candidateNode.level()) < level {
+		if int(candidateNode.level) < level {
 			// a node level could have been downgraded as part of a delete-reassign,
 			// but the connections pointing to it not yet cleaned up. In this case
 			// the node doesn't have any outgoing connections at this level and we

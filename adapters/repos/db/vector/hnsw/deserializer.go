@@ -237,11 +237,10 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 		if err != nil {
 			return err
 		}
-		res.Nodes[id] = &vertex{connections: *conns}
-		res.Nodes[id].setLevel(uint16(level))
+		res.Nodes[id] = &vertex{level: uint16(level), connections: *conns}
 	} else {
 		res.Nodes[id].connections.GrowLayersTo(uint8(level))
-		res.Nodes[id].setLevel(uint16(level))
+		res.Nodes[id].level = uint16(level)
 	}
 	return nil
 }
@@ -483,10 +482,8 @@ func (d *Deserializer) ReadClearLinks(r io.Reader, res *DeserializationResult,
 		return nil
 	}
 
-	level := res.Nodes[id].level()
 	res.Nodes[id].connections = packedconn.Connections{}
-	res.Nodes[id].setLevel(level)
-	res.Nodes[id].connections.GrowLayersTo(uint8(level))
+	res.Nodes[id].connections.GrowLayersTo(uint8(res.Nodes[id].level))
 	return nil
 }
 

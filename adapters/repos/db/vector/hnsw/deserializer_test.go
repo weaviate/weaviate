@@ -192,10 +192,17 @@ func dummyInitialDeserializerState() *DeserializationResult {
 		Nodes: []*vertex{
 			nil,
 			nil,
-			// These are lower levels than we will read, so the nodes will require
-			// growing
-			vertexAt(1, nil),
-			vertexAt(8, conns),
+			{
+				// This is a lower level than we will read, so this node will require
+				// growing
+				level: 1,
+			},
+			{
+				// This is a lower level than we will read, so this node will require
+				// growing
+				level:       8,
+				connections: *conns,
+			},
 		},
 	}
 }
@@ -218,7 +225,7 @@ func TestDeserializerReadNode(t *testing.T) {
 		err := d.ReadNode(reader, res)
 		require.Nil(t, err)
 		require.NotNil(t, res.Nodes[id])
-		assert.Equal(t, level, res.Nodes[id].level())
+		assert.Equal(t, level, res.Nodes[id].level)
 	}
 }
 
@@ -264,10 +271,10 @@ func TestDeserializerReadInvalidNode(t *testing.T) {
 		require.Nil(t, err)
 	}
 	require.Len(t, res.Nodes, 2004)
-	require.Equal(t, 2, int(res.Nodes[1].level()))
-	require.Equal(t, 4, int(res.Nodes[100].level()))
-	require.Equal(t, 8, int(res.Nodes[300].level()))
-	require.Equal(t, 10, int(res.Nodes[5].level()))
+	require.Equal(t, 2, int(res.Nodes[1].level))
+	require.Equal(t, 4, int(res.Nodes[100].level))
+	require.Equal(t, 8, int(res.Nodes[300].level))
+	require.Equal(t, 10, int(res.Nodes[5].level))
 }
 
 func TestDeserializerReadEP(t *testing.T) {
@@ -527,10 +534,17 @@ func TestDeserializerClearLinksAtLevel(t *testing.T) {
 		Nodes: []*vertex{
 			nil,
 			nil,
-			// These are lower levels than we will read, so the nodes will require
-			// growing
-			vertexAt(1, nil),
-			vertexAt(4, conns),
+			{
+				// This is a lower level than we will read, so this node will require
+				// growing
+				level: 1,
+			},
+			{
+				// This is a lower level than we will read, so this node will require
+				// growing
+				level:       4,
+				connections: *conns,
+			},
 			nil,
 			nil,
 		},

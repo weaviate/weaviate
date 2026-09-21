@@ -869,7 +869,7 @@ func (l *hnswCommitLogger) writeStateTo(state *DeserializationResult, wr io.Writ
 					_ = writeByte(&buf, 2)
 				}
 
-				_ = writeUint32(&buf, uint32(n.level()))
+				_ = writeUint32(&buf, uint32(n.level))
 
 				connData := n.connections.Data()
 				_ = writeUint32(&buf, uint32(len(connData)))
@@ -1201,8 +1201,7 @@ func (l *hnswCommitLogger) legacyReadSnapshotBody(filename string, f common.File
 					return errors.Wrapf(err, "read node level")
 				}
 				read += n
-				nodeLevel := uint16(binary.LittleEndian.Uint32(b[:4]))
-				node.setLevel(nodeLevel)
+				node.level = uint16(binary.LittleEndian.Uint32(b[:4]))
 
 				n, err = io.ReadFull(r, b[:4]) // connections count
 				if err != nil {
@@ -1243,7 +1242,6 @@ func (l *hnswCommitLogger) legacyReadSnapshotBody(filename string, f common.File
 						}
 
 						node.connections = *pconn
-						node.setLevel(nodeLevel)
 					} else {
 						// read the connections data
 						connData := make([]byte, connCount)
@@ -1254,7 +1252,6 @@ func (l *hnswCommitLogger) legacyReadSnapshotBody(filename string, f common.File
 						read += n
 
 						node.connections = *packedconn.NewWithData(connData)
-						node.setLevel(nodeLevel)
 					}
 				}
 
@@ -1397,8 +1394,7 @@ func (l *hnswCommitLogger) readSnapshotBody(f common.File, res *DeserializationR
 						if err != nil {
 							return errors.Wrapf(err, "read node level")
 						}
-						nodeLevel := uint16(binary.LittleEndian.Uint32(b[:4]))
-						node.setLevel(nodeLevel)
+						node.level = uint16(binary.LittleEndian.Uint32(b[:4]))
 
 						_, err = io.ReadFull(r, b[:4]) // connections count
 						if err != nil {
@@ -1415,7 +1411,6 @@ func (l *hnswCommitLogger) readSnapshotBody(f common.File, res *DeserializationR
 							}
 
 							node.connections = *packedconn.NewWithData(connData)
-							node.setLevel(nodeLevel)
 						}
 
 						mu.Lock()
