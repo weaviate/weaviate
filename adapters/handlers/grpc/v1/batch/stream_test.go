@@ -1094,7 +1094,7 @@ func Test_receiver_ackForDelay(t *testing.T) {
 		results, acks := sent.indexOf(isResults), sent.indexOf(isAcks)
 		require.NotEqual(t, -1, results)
 		require.NotEqual(t, -1, acks)
-		require.Less(t, results, acks, "a client must tolerate results for objects it has not been acked for yet")
+		require.Less(t, results, acks, "a caller must tolerate results for objects it has not been acked for yet")
 	})
 
 	t.Run("a delayed Ack carries every uuid and beacon", func(t *testing.T) {
