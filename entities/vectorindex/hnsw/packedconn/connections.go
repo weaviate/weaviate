@@ -40,12 +40,30 @@ type LayerData struct {
 // 48 B size class.
 type Connections struct {
 	// layer 0 is plain fields rather than a nested LayerData so its header
-	// shares the struct's padding: 35 B of payload, 40 B padded
+	// shares the struct's padding: 38 B of payload, 40 B padded
 	data       []byte
 	upper      *[]LayerData
 	packed     uint16
 	layerCount uint8
+	// level and tag belong to the owning HNSW node, not to the encoding.
+	// They sit here because this struct has 5 B of padding left and the
+	// vertex has none: keeping them in the vertex would push it from the
+	// 48 B size class to 64 B.
+	level uint16
+	tag   uint8
 }
+
+// Level returns the level stored for the owning node.
+func (c *Connections) Level() uint16 { return c.level }
+
+// SetLevel stores the owning node's level.
+func (c *Connections) SetLevel(level uint16) { c.level = level }
+
+// Tag returns the free byte the owning node may use.
+func (c *Connections) Tag() uint8 { return c.tag }
+
+// SetTag stores the owning node's free byte.
+func (c *Connections) SetTag(tag uint8) { c.tag = tag }
 
 // layer returns the storage of layer i: layer 0 lives in the struct, the
 // others in upper.
