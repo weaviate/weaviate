@@ -737,8 +737,16 @@ func (s *SchemaManager) UpdateProperty(cmd *command.ApplyRequest, schemaOnly boo
 		applyOp{
 			op: cmd.GetType().String(),
 			updateSchema: func() error {
-				_, err := s.schema.updateProperty(cmd.Class, cmd.Version, req.Property, req.FieldsToUpdate)
-				return err
+				merged, err := s.schema.updateProperty(cmd.Class, cmd.Version, req.Property, req.FieldsToUpdate)
+				if err != nil {
+					return err
+				}
+				if merged != nil {
+					// The store half drops the buckets of every index type its
+					// property says is off, so hand it what the schema kept.
+					req.Property = merged
+				}
+				return nil
 			},
 			updateStore:          func() error { return s.db.UpdateProperty(cmd.Class, req) },
 			schemaOnly:           schemaOnly,
