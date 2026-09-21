@@ -63,7 +63,7 @@ type Service struct {
 	logger               logrus.FieldLogger
 
 	authenticator      *auth.Handler
-	batchHandler       *batch.Handler
+	batchHandler       batch.Batcher
 	batchStreamHandler *batch.StreamHandler
 	batchObjectsSem    *semaphore.Weighted
 }
