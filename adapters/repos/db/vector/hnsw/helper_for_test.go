@@ -16,6 +16,8 @@ import (
 	"math/rand"
 	"strings"
 	"time"
+
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
 func dumpIndex(index *hnsw, labels ...string) {
@@ -47,4 +49,14 @@ func dumpIndex(index *hnsw, labels ...string) {
 
 func getRandomSeed() *rand.Rand {
 	return rand.New(rand.NewSource(time.Now().UnixNano()))
+}
+
+// vertexAt builds a vertex at the given level, copying conns when not nil.
+func vertexAt(level uint16, conns *packedconn.Connections) *vertex {
+	v := &vertex{}
+	if conns != nil {
+		v.connections = *conns
+	}
+	v.connections.SetLevel(level)
+	return v
 }

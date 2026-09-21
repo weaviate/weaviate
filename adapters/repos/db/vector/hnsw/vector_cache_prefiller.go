@@ -118,7 +118,7 @@ func levelOfNode(node *vertex) int {
 	node.Lock()
 	defer node.Unlock()
 
-	return int(node.level)
+	return int(node.connections.Level())
 }
 
 func (pf *vectorCachePrefiller[T]) maxLevel() int {

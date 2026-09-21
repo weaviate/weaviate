@@ -18,30 +18,31 @@ import (
 )
 
 type vertex struct {
-	// connections first so the GC scans only the pointer-bearing prefix; the
-	// narrow fields at the tail keep the struct in the 64 B size class, one
-	// allocation per node
+	// the node's level and maintenance flag live inside connections, which has
+	// the padding for them; that keeps the vertex at 48 B, one allocation per
+	// node
 	connections packedconn.Connections
 	sync.Mutex
-	level       uint16
-	maintenance bool
 }
+
+// maintenanceTag marks a node that is being inserted or repaired.
+const maintenanceTag = 1
 
 func (v *vertex) markAsMaintenance() {
 	v.Lock()
-	v.maintenance = true
+	v.connections.SetTag(maintenanceTag)
 	v.Unlock()
 }
 
 func (v *vertex) unmarkAsMaintenance() {
 	v.Lock()
-	v.maintenance = false
+	v.connections.SetTag(0)
 	v.Unlock()
 }
 
 func (v *vertex) isUnderMaintenance() bool {
 	v.Lock()
-	m := v.maintenance
+	m := v.connections.Tag() == maintenanceTag
 	v.Unlock()
 	return m
 }
@@ -51,7 +52,7 @@ func (v *vertex) connectionsAtLevelNoLock(level int) []uint64 {
 }
 
 func (v *vertex) upgradeToLevelNoLock(level int) {
-	v.level = uint16(level)
+	v.connections.SetLevel(uint16(level))
 	v.connections.GrowLayersTo(uint8(level))
 }
 

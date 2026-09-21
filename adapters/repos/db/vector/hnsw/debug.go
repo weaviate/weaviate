@@ -40,7 +40,7 @@ func (h *hnsw) Dump(labels ...string) {
 			continue
 		}
 
-		fmt.Printf("  Node %d (level %d)\n", i, int(node.level))
+		fmt.Printf("  Node %d (level %d)\n", i, int(node.connections.Level()))
 		iter := node.connections.Iterator()
 		for iter.Next() {
 			level, conns := iter.Current()
@@ -67,7 +67,7 @@ func (h *hnsw) DumpJSON(labels ...string) {
 
 		dumpNode := JSONDumpNode{
 			ID:          uint64(i),
-			Level:       int(node.level),
+			Level:       int(node.connections.Level()),
 			Connections: node.connections.GetAllLayers(),
 		}
 		dump.Nodes = append(dump.Nodes, dumpNode)
@@ -141,10 +141,8 @@ func NewFromJSONDump(dumpBytes []byte, vecForID common.VectorForID[float32]) (*h
 		if err != nil {
 			return nil, err
 		}
-		index.nodes[n.ID] = &vertex{
-			level:       uint16(n.Level),
-			connections: *connections,
-		}
+		index.nodes[n.ID] = &vertex{connections: *connections}
+		index.nodes[n.ID].connections.SetLevel(uint16(n.Level))
 	}
 
 	return index, nil
@@ -181,10 +179,8 @@ func NewFromJSONDumpMap(dumpBytes []byte, vecForID common.VectorForID[float32]) 
 		if err != nil {
 			return nil, err
 		}
-		index.nodes[n.ID] = &vertex{
-			level:       uint16(n.Level),
-			connections: *connections,
-		}
+		index.nodes[n.ID] = &vertex{connections: *connections}
+		index.nodes[n.ID].connections.SetLevel(uint16(n.Level))
 		for level, conns := range n.Connections {
 			index.nodes[n.ID].connections.ReplaceLayer(uint8(level), conns)
 		}

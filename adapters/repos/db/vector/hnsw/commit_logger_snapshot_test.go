@@ -1385,10 +1385,7 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 				state.Tombstones[uint64(i)] = struct{}{}
 			}
 
-			state.Nodes[i] = &vertex{
-				level:       uint16(i % 6),
-				connections: *c,
-			}
+			state.Nodes[i] = vertexAt(uint16(i%6), c)
 		}
 
 		dir := t.TempDir()
@@ -1455,7 +1452,7 @@ func TestSnapshotOversizedNodeReturnsError(t *testing.T) {
 	state := &DeserializationResult{
 		Entrypoint: 0,
 		Level:      0,
-		Nodes:      []*vertex{{level: 0, connections: *c}},
+		Nodes:      []*vertex{vertexAt(0, c)},
 		Tombstones: make(map[uint64]struct{}),
 	}
 
@@ -1490,7 +1487,7 @@ func TestSnapshotCleanedTombstoneKeepsSlotAlignment(t *testing.T) {
 		TombstonesDeleted: make(map[uint64]struct{}),
 	}
 	for i := 0; i < size; i++ {
-		state.Nodes[i] = &vertex{level: uint16(i), connections: *c}
+		state.Nodes[i] = vertexAt(uint16(i), c)
 	}
 	// node `cleaned` was deleted and its tombstone already cleaned up
 	state.Tombstones[cleaned] = struct{}{}
@@ -1512,7 +1509,7 @@ func TestSnapshotCleanedTombstoneKeepsSlotAlignment(t *testing.T) {
 			continue
 		}
 		require.NotNilf(t, restored.Nodes[i], "node %d must survive", i)
-		require.Equalf(t, i, int(restored.Nodes[i].level), "node %d shifted id/level", i)
+		require.Equalf(t, i, int(restored.Nodes[i].connections.Level()), "node %d shifted id/level", i)
 	}
 }
 
@@ -1530,7 +1527,7 @@ func snapshotStateWithNodes(t *testing.T, size, levelOffset int) *Deserializatio
 		Tombstones: make(map[uint64]struct{}),
 	}
 	for i := 0; i < size; i++ {
-		state.Nodes[i] = &vertex{level: uint16((i + levelOffset) % 6), connections: *c}
+		state.Nodes[i] = vertexAt(uint16((i+levelOffset)%6), c)
 	}
 	return state
 }
@@ -1574,7 +1571,7 @@ func TestReadSnapshotConcurrent(t *testing.T) {
 					if !assert.NotNilf(t, node, "shard %d node %d missing", s, i) {
 						return
 					}
-					if !assert.Equalf(t, (i+s)%6, int(node.level), "shard %d node %d holds another shard's data", s, i) {
+					if !assert.Equalf(t, (i+s)%6, int(node.connections.Level()), "shard %d node %d holds another shard's data", s, i) {
 						return
 					}
 				}

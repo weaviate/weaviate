@@ -110,11 +110,11 @@ func (c *MemoryCondensor) Do(fileName string) error {
 			continue
 		}
 
-		if node.level > 0 {
+		if node.connections.Level() > 0 {
 			// nodes are implicitly added when they are first linked, if the level is
 			// not zero we know this node was new. If the level is zero it doesn't
 			// matter if it gets added explicitly or implicitly
-			if err := c.AddNode(uint64(i), node.level); err != nil {
+			if err := c.AddNode(uint64(i), node.connections.Level()); err != nil {
 				return errors.Wrapf(err, "write node %d to commit log", uint64(i))
 			}
 		}

@@ -180,9 +180,7 @@ func (f *fakeCache) GetDoc(ctx context.Context, docID uint64) ([][]float32, erro
 func generateDummyVertices(amount int) []*vertex {
 	out := make([]*vertex, amount)
 	for i := range out {
-		out[i] = &vertex{
-			level: uint16(levelForDummyVertex(i)),
-		}
+		out[i] = vertexAt(uint16(levelForDummyVertex(i)), nil)
 	}
 
 	return out

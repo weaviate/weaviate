@@ -24,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
 const (
@@ -245,7 +244,8 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		}
 
 		vector := vectors[i]
-		node := &vertex{level: uint16(levels[i])}
+		node := &vertex{}
+		node.connections.SetLevel(uint16(levels[i]))
 		globalBefore := time.Now()
 		if len(vector) == 0 {
 			return errors.Errorf("insert called with nil-vector")
@@ -406,7 +406,8 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			nodeId := counter
 			counter++
 
-			node := &vertex{level: uint16(levels[j])}
+			node := &vertex{}
+			node.connections.SetLevel(uint16(levels[j]))
 
 			h.Lock()
 			h.docIDVectors[docID] = append(h.docIDVectors[docIDs[i]], nodeId)
@@ -473,13 +474,13 @@ func (h *hnsw) addOne(ctx context.Context, id uint64, vector []float32, node *ve
 	currentMaximumLayer := h.currentMaximumLayer
 	h.RUnlock()
 
-	targetLevel := int(node.level)
+	targetLevel := int(node.connections.Level())
 	// the vertex is fresh, so growing its zero-value connections is the same
 	// as constructing them
 	node.connections.GrowLayersTo(uint8(targetLevel))
 
 	var err error
-	if err = h.commitLog.AddNode(id, node.level); err != nil {
+	if err = h.commitLog.AddNode(id, node.connections.Level()); err != nil {
 		return err
 	}
 
@@ -570,19 +571,15 @@ func (h *hnsw) insertInitialElement(id uint64, node *vertex, nodeVec []float32) 
 
 	h.entryPointID = id
 	h.currentMaximumLayer = 0
-	conns, err := packedconn.NewWithElements([][]uint64{
-		make([]uint64, 0, h.maximumConnectionsLayerZero),
-	})
-	if err != nil {
-		return err
-	}
-	node.connections = *conns
-	node.level = 0
-	if err := h.commitLog.AddNode(id, node.level); err != nil {
+	// the vertex is fresh: give it its single layer in place so the
+	// maintenance tag set by the caller survives
+	node.connections.SetLevel(0)
+	node.connections.GrowLayersTo(0)
+	if err := h.commitLog.AddNode(id, node.connections.Level()); err != nil {
 		return err
 	}
 
-	err = h.growIndexToAccomodateNode(id, h.logger)
+	err := h.growIndexToAccomodateNode(id, h.logger)
 	if err != nil {
 		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", id)
 	}

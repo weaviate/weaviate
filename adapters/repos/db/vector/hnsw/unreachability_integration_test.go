@@ -178,6 +178,6 @@ func (h *hnsw) cleanConnections() {
 		}
 		h.nodes[i].connections = packedconn.Connections{}
 		h.nodes[i].connections.GrowLayersTo(1)
-		h.nodes[i].level = 0
+		h.nodes[i].connections.SetLevel(0)
 	}
 }
