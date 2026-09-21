@@ -18,7 +18,7 @@ import (
 )
 
 type memtableCursorMap struct {
-	data    []*binarySearchNodeMap
+	data    []*binarySearchNodeMap[MapPair]
 	current int
 }
 
@@ -32,6 +32,18 @@ func (m *Memtable) newMapCursor() innerCursorMap {
 
 	m.RLock()
 	defer m.RUnlock()
+
+	if m.strategy == StrategyInverted {
+		flat := m.keyInverted.flattenInOrder()
+		data := make([]*binarySearchNodeMap[MapPair], len(flat))
+		for i, node := range flat {
+			data[i] = &binarySearchNodeMap[MapPair]{
+				key:    node.key,
+				values: invertedPairsToMapPairs(node.values),
+			}
+		}
+		return &memtableCursorMap{data: data}
+	}
 
 	data := m.keyMap.flattenInOrder()
 

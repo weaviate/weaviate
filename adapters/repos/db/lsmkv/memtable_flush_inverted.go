@@ -27,11 +27,11 @@ import (
 )
 
 func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.MeteredWriter, bufw *bufio.Writer) ([]segmentindex.Key, *sroar.Bitmap, error) {
-	flatA := m.flattenKeyMap()
+	flatA := m.flattenKeyInverted()
 
-	// by encoding each map pair we can force the same structure as for a
-	// collection, which means we can reuse the same flushing logic
-	flat := make([]*binarySearchNodeMap, len(flatA))
+	// tombstones are persisted as a bitmap rather than as rows, so each row is
+	// rebuilt without them before it is encoded
+	flat := make([]*binarySearchNodeMap[invertedPair], len(flatA))
 
 	actuallyWritten := 0
 	actuallyWrittenKeys := make(map[string]struct{})
@@ -42,15 +42,15 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 	propLengthCount := uint64(0)
 
 	for i, mapNode := range flatA {
-		flat[i] = &binarySearchNodeMap{
+		flat[i] = &binarySearchNodeMap[invertedPair]{
 			key:    mapNode.key,
-			values: make([]MapPair, 0, len(mapNode.values)),
+			values: make([]invertedPair, 0, len(mapNode.values)),
 		}
 
 		for j := range mapNode.values {
-			docId := binary.BigEndian.Uint64(mapNode.values[j].Key)
-			if !mapNode.values[j].Tombstone {
-				fieldLength := math.Float32frombits(binary.LittleEndian.Uint32(mapNode.values[j].Value[4:]))
+			docId := mapNode.values[j].docID
+			if !mapNode.values[j].tombstone {
+				fieldLength := math.Float32frombits(mapNode.values[j].propLenBits)
 				flat[i].values = append(flat[i].values, mapNode.values[j])
 				actuallyWritten++
 				actuallyWrittenKeys[string(mapNode.key)] = struct{}{}
