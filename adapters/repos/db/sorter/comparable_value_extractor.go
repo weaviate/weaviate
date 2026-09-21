@@ -147,6 +147,9 @@ func (e *comparableValueExtractor) extractFromObject(object *storobj.Object, pro
 			fa := e.toFloatArrayFromGeoCoordinates(gc)
 			return &fa
 		}
+	default:
+		// crefs, uuids, (nested) objects and the legacy string types are not
+		// sortable
 	}
 	return nil
 }
