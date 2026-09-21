@@ -114,13 +114,11 @@ func (e *comparableValueExtractor) extractFromObject(object *storobj.Object, pro
 			return &sa
 		}
 	case schema.DataTypeDate:
-		if s, ok := value.(string); ok {
-			d := e.mustExtractDates([]string{s})[0]
+		if d, ok := asDate(value); ok {
 			return &d
 		}
 	case schema.DataTypeDateArray:
-		if sa, ok := asStringSlice(value); ok {
-			da := e.mustExtractDates(sa)
+		if da, ok := asDateSlice(value); ok {
 			return &da
 		}
 	case schema.DataTypeNumber, schema.DataTypeInt:
@@ -213,23 +211,66 @@ func asBoolSlice(value interface{}) ([]bool, bool) {
 	}
 }
 
+// asDate accepts the two shapes a date property takes on a live object: the
+// request validator's typed time.Time, or the RFC3339 string of a
+// JSON-decoded object. A malformed string is a missing value, not a panic.
+func asDate(value interface{}) (time.Time, bool) {
+	switch v := value.(type) {
+	case time.Time:
+		return v, true
+	case string:
+		d, err := time.Parse(time.RFC3339, v)
+		if err != nil {
+			return time.Time{}, false
+		}
+		return d, true
+	default:
+		return time.Time{}, false
+	}
+}
+
+// asDateSlice mirrors asDate for date arrays: []time.Time from the validator,
+// or string elements ([]string / []interface{}) parsed fallibly.
+func asDateSlice(value interface{}) ([]time.Time, bool) {
+	if da, ok := value.([]time.Time); ok {
+		return da, true
+	}
+	sa, ok := asStringSlice(value)
+	if !ok {
+		return nil, false
+	}
+	out := make([]time.Time, len(sa))
+	for i := range sa {
+		d, err := time.Parse(time.RFC3339, sa[i])
+		if err != nil {
+			return nil, false
+		}
+		out[i] = d
+	}
+	return out, true
+}
+
 // asPhoneNumber accepts the typed *models.PhoneNumber of a parsed request or
-// the map[string]interface{} of a JSON-decoded object, converting the latter
-// through its JSON form.
+// the map[string]interface{} of a JSON-decoded object. A map must carry the
+// two numeric fields the comparator reads; a partial map (e.g. {}) is a
+// missing value, not a zero phone number.
 func asPhoneNumber(value interface{}) (*models.PhoneNumber, bool) {
 	switch v := value.(type) {
 	case *models.PhoneNumber:
 		return v, v != nil
 	case map[string]interface{}:
-		data, err := json.Marshal(v)
-		if err != nil {
+		countryCode, ok := v["countryCode"].(float64)
+		if !ok {
 			return nil, false
 		}
-		var pn models.PhoneNumber
-		if err := json.Unmarshal(data, &pn); err != nil {
+		national, ok := v["national"].(float64)
+		if !ok {
 			return nil, false
 		}
-		return &pn, true
+		return &models.PhoneNumber{
+			CountryCode: uint64(countryCode),
+			National:    uint64(national),
+		}, true
 	default:
 		return nil, false
 	}
@@ -241,15 +282,16 @@ func asGeoCoordinates(value interface{}) (*models.GeoCoordinates, bool) {
 	case *models.GeoCoordinates:
 		return v, v != nil
 	case map[string]interface{}:
-		data, err := json.Marshal(v)
-		if err != nil {
+		lon, ok := v["longitude"].(float64)
+		if !ok {
 			return nil, false
 		}
-		var gc models.GeoCoordinates
-		if err := json.Unmarshal(data, &gc); err != nil {
+		lat, ok := v["latitude"].(float64)
+		if !ok {
 			return nil, false
 		}
-		return &gc, true
+		lonF, latF := float32(lon), float32(lat)
+		return &models.GeoCoordinates{Longitude: &lonF, Latitude: &latF}, true
 	default:
 		return nil, false
 	}
