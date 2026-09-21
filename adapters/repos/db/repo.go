@@ -451,6 +451,7 @@ type Config struct {
 	QueryAdmissionControlDisabled       *configRuntime.DynamicValue[bool]
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
+	IndexRangeableInMemoryProps         map[string][]string
 	ObjectsTTLBatchSize                 *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseEveryNoBatches       *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]

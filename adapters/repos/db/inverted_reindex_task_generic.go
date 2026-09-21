@@ -126,6 +126,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -840,15 +841,18 @@ func (t *ShardReindexTaskGeneric) finalizeMigrationAfterRecovery(
 func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, props []string,
 ) error {
-	if t.strategy.TargetStrategy() != lsmkv.StrategyRoaringSetRange ||
-		!shard.Index().Config.IndexRangeableInMemory {
+	if t.strategy.TargetStrategy() != lsmkv.StrategyRoaringSetRange {
 		return nil
 	}
 
 	store := shard.Store()
-	className := shard.Index().Config.ClassName.String()
+	cfg := shard.Index().Config
+	className := cfg.ClassName.String()
 	shardName := shard.Name()
 	for _, propName := range props {
+		if !cfg.keepRangeableInMemory(propName) {
+			continue
+		}
 		bucketName := t.strategy.SourceBucketName(propName)
 
 		bucket := store.Bucket(bucketName)
@@ -2564,18 +2568,42 @@ func (t *ShardReindexTaskGeneric) loadIngestBuckets(ctx context.Context,
 	bucketOpts := t.bucketOptions(shard, strategy, keepLevelCompaction, keepTombstones, t.config.memtableOptFactor)
 
 	// Only the ingest bucket becomes the main bucket post-swap; reindex/backup
-	// buckets are torn down and never serve reads.
-	if strategy == lsmkv.StrategyRoaringSetRange && shard.Index().Config.IndexRangeableInMemory {
-		bucketOpts = append(bucketOpts, lsmkv.WithRangeableInMemoryDeferred(true))
-		logger.WithField("props", props).Info(
-			"rangeable properties are serving from disk during reindex ingest; " +
-				"in-memory acceleration is restored automatically when the migration " +
-				"finalizes. A node restart, shard reload, or tenant reactivation only " +
-				"repairs this if that automatic rebuild fails.",
-		)
+	// buckets are torn down and never serve reads. The marker and its log line
+	// go only to the properties that get a rep.
+	if strategy == lsmkv.StrategyRoaringSetRange {
+		inMemory, onDisk := partitionByRangeableInMemory(shard.Index().Config, props)
+		if len(inMemory) > 0 {
+			logger.WithField("props", inMemory).Info(
+				"rangeable properties are serving from disk during reindex ingest; " +
+					"in-memory acceleration is restored automatically when the migration " +
+					"finalizes. A node restart, shard reload, or tenant reactivation only " +
+					"repairs this if that automatic rebuild fails.",
+			)
+			deferredOpts := append(slices.Clone(bucketOpts), lsmkv.WithRangeableInMemoryDeferred(true))
+			if err := t.loadBuckets(ctx, logger, shard, inMemory, t.ingestBucketName, deferredOpts); err != nil {
+				return err
+			}
+		}
+		if len(onDisk) == 0 {
+			return nil
+		}
+		props = onDisk
 	}
 
 	return t.loadBuckets(ctx, logger, shard, props, t.ingestBucketName, bucketOpts)
+}
+
+// partitionByRangeableInMemory splits props by whether their rangeable index
+// keeps its segments in memory.
+func partitionByRangeableInMemory(cfg IndexConfig, props []string) (inMemory, onDisk []string) {
+	for _, propName := range props {
+		if cfg.keepRangeableInMemory(propName) {
+			inMemory = append(inMemory, propName)
+		} else {
+			onDisk = append(onDisk, propName)
+		}
+	}
+	return inMemory, onDisk
 }
 
 func (t *ShardReindexTaskGeneric) loadBackupBuckets(ctx context.Context,
