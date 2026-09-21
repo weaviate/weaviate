@@ -373,7 +373,7 @@ func TestGRPC_OutOfMemoryBatching(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateWithGRPC().
-		WithWeaviateEnv("GOMEMLIMIT", "268435456").
+		WithWeaviateEnv("GOMEMLIMIT", "33554432").
 		WithWeaviateEnv("GRPC_MAX_MESSAGE_SIZE", "536870912").
 		WithWeaviateEnv("BATCH_STREAM_HOLD_SECONDS", "1").
 		Start(ctx)
