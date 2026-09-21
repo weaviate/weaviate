@@ -197,6 +197,8 @@ type Config struct {
 	TrackVectorDimensions            bool                     `json:"track_vector_dimensions" yaml:"track_vector_dimensions"`
 	TrackVectorDimensionsInterval    time.Duration            `json:"track_vector_dimensions_interval" yaml:"track_vector_dimensions_interval"`
 	ReindexVectorDimensionsAtStartup bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
+	// needs TrackVectorDimensions
+	ReindexVectorDimensionsToRoaringsetAtStartup bool `json:"reindex_vector_dimensions_to_roaringset_at_startup" yaml:"reindex_vector_dimensions_to_roaringset_at_startup"`
 	// QueryAdmissionBudget / QueryAdmissionMaxQueue size the node-level query
 	// admission limiter. 0 means auto (16x / 10x GOMAXPROCS respectively).
 	// QueryAdmissionControlDisabled is a runtime kill switch; enabled by default.
