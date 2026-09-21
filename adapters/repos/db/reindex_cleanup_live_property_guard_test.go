@@ -20,7 +20,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -29,6 +31,9 @@ import (
 // is byte-for-byte this property's own filterable bucket.
 const (
 	liveVictimProp = "category__enable_filterable_ingest_1"
+	// The property whose main bucket wears the name a crashed
+	// [lsmkv.Store.ReplaceBuckets] leaves behind for "category".
+	replacedBucketVictimProp = "category" + lsmkv.ReplacedBucketDirSuffix
 	// A cancelled attempt's real leftovers, at a generation no property
 	// claims. Present so a guard that simply stopped sweeping would fail
 	// these tests rather than pass them.
@@ -101,6 +106,49 @@ func TestCleanStaleSidecarDirsKeepsALivePropertysOwnMainBucket(t *testing.T) {
 		"the DELETE-path sweep removed a live property's own main bucket dir")
 	require.NoDirExists(t, sidecarPath,
 		"the DELETE-path sweep still has to remove a real stale sidecar")
+}
+
+// [isSidecarDirOf] reaches the replacement artifact down its other branch,
+// by whole name, since no strategy names "___del". The collision is the same
+// and the guard has to cover it on both halves of the sweep.
+//
+// This is the case that survives schema validation, so it is the one a live
+// cluster can still hold: [schema.ValidateReservedPropertyNameSuffix] rejects
+// [liveVictimProp] as sidecar-shaped, and accepts this name.
+func TestCleanStalePartialReindexStateKeepsAPropertyNamedLikeAReplacedBucket(t *testing.T) {
+	require.NoError(t, schema.ValidateReservedPropertyNameSuffix(replacedBucketVictimProp),
+		"fixture: a name the schema refuses is not a collision anyone can still hit")
+
+	ctx := testCtx()
+	className := "ReplacedBucketGuard" + uuid.NewString()[:8]
+	shd, _ := testShardWithSettings(t, ctx,
+		newTestClassWithProps(className, []string{"category", replacedBucketVictimProp}),
+		enthnsw.UserConfig{Skip: true}, false, false)
+	shard := shd.(*Shard)
+	t.Cleanup(func() { shard.Shutdown(testCtx()) })
+
+	victimBucket := helpers.BucketFromPropNameLSM(replacedBucketVictimProp)
+	require.True(t, isSidecarDirOf(victimBucket, helpers.BucketFromPropNameLSM("category")),
+		"fixture: the sweep has to match this name, or nothing here is being guarded")
+
+	victimPath := filepath.Join(shard.pathLSM(), victimBucket)
+	require.DirExists(t, victimPath)
+	require.NotNil(t, shard.store.Bucket(victimBucket),
+		"fixture: that bucket has to be loaded, so the shutdown half has something to take")
+
+	sidecarPath := filepath.Join(shard.pathLSM(), staleSidecarDir)
+	require.NoError(t, os.MkdirAll(sidecarPath, 0o755))
+	mkTrackerDir(t, shard.pathLSM(), "enable_filterable_category_2", "started.mig")
+
+	_, err := shard.CleanStalePartialReindexState(ctx, "category", "filterable")
+	require.NoError(t, err)
+
+	require.DirExists(t, victimPath,
+		"the sweep removed the live bucket dir of a property named after a replacement artifact")
+	require.NotNil(t, shard.store.Bucket(victimBucket),
+		"the sweep shut down that property's live bucket")
+	require.NoDirExists(t, sidecarPath,
+		"the guard cannot buy safety by refusing to sweep: a real stale sidecar still goes")
 }
 
 // The guard reads the class, so what it collects out of one is worth pinning
