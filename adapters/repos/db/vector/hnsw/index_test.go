@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -505,4 +506,28 @@ func genericVecTestHelperMulti() genericVecTestHelper[[]float32] {
 			return i.DeleteMulti(docIDs...)
 		},
 	}
+}
+
+func TestCalculateUnreachablePoints_NodeZero(t *testing.T) {
+	index := createEmptyHnswIndexForTests(t, testVectorForID)
+
+	// node 0 links to the entrypoint but nothing links back to it
+	conns0, err := packedconn.NewWithElements([][]uint64{{1}})
+	require.NoError(t, err)
+	conns1, err := packedconn.NewWithElements([][]uint64{{2}})
+	require.NoError(t, err)
+	conns2, err := packedconn.NewWithElements([][]uint64{{1}})
+	require.NoError(t, err)
+
+	index.Lock()
+	index.entryPointID = 1
+	index.currentMaximumLayer = 0
+	index.nodes = []*vertex{
+		{connections: conns0},
+		{connections: conns1},
+		{connections: conns2},
+	}
+	index.Unlock()
+
+	assert.Equal(t, []uint64{0}, index.calculateUnreachablePoints())
 }
