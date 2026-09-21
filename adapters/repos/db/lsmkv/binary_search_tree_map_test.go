@@ -347,7 +347,7 @@ func TestSortAndDedupValuesAtScale(t *testing.T) {
 
 		for i, pair := range out {
 			if i > 0 {
-				require.Negative(t, out[i-1].keyCompare(pair),
+				require.Negative(t, compareMapPairByKey(out[i-1], pair),
 					"output must be sorted by key, big endian: %v", bigEndian)
 			}
 

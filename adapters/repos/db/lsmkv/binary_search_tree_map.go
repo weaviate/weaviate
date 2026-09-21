@@ -20,17 +20,18 @@ import (
 )
 
 type mapElement[V any] interface {
-	keyCompare(other V) int
-	keyEqual(other V) bool
+	// implemented per element type, ignoring the receiver: a body generic over V
+	// reaches its comparisons through the type dictionary, which costs a quarter
+	// of the runtime here. See BenchmarkSortAndDedupValues.
+	sortAndDedup(values []V) []V
 }
 
-func (kv MapPair) keyCompare(other MapPair) int {
-	return bytes.Compare(kv.Key, other.Key)
-}
-
-func (kv MapPair) keyEqual(other MapPair) bool {
-	return bytes.Equal(kv.Key, other.Key)
-}
+// the type parameters below already enforce this. Spelling it out is what lets
+// staticcheck see the two sortAndDedup implementations as reachable.
+var (
+	_ mapElement[MapPair]      = MapPair{}
+	_ mapElement[invertedPair] = invertedPair{}
+)
 
 type binarySearchTreeMap[V mapElement[V]] struct {
 	root *binarySearchNodeMap[V]
@@ -244,24 +245,28 @@ func (n *binarySearchNodeMap[V]) subtreeSize() int {
 	return s
 }
 
-func compareByKey[V mapElement[V]](a, b V) int {
-	return a.keyCompare(b)
+func sortAndDedupValues[V mapElement[V]](in []V) []V {
+	var v V
+	return v.sortAndDedup(in)
 }
 
-// takes a list of elements and sorts it while keeping the original order. Then
+func compareMapPairByKey(a, b MapPair) int {
+	return bytes.Compare(a.Key, b.Key)
+}
+
+// takes a list of MapPair and sorts it while keeping the original order. Then
 // removes redundancies (from updates or deletes after previous inserts) using
 // a simple deduplication process.
-func sortAndDedupValues[V mapElement[V]](in []V) []V {
-	out := make([]V, len(in))
-	copy(out, in)
+func (kv MapPair) sortAndDedup(values []MapPair) []MapPair {
+	out := make([]MapPair, len(values))
+	copy(out, values)
 
 	// the sort must be stable: the dedup below keeps the last of a run of equal
 	// keys, which is only the newest write if insert order survives. The sorted
-	// check skips the sort on buckets keyed by doc ID, as those arrive
-	// ascending, whether the key is a BigEndian map key or an inverted
-	// posting's doc ID. See BenchmarkSortAndDedupValues.
-	if !slices.IsSortedFunc(out, compareByKey[V]) {
-		slices.SortStableFunc(out, compareByKey[V])
+	// check skips the sort on buckets whose map keys are BigEndian doc IDs, as
+	// those arrive ascending. See BenchmarkSortAndDedupValues.
+	if !slices.IsSortedFunc(out, compareMapPairByKey) {
+		slices.SortStableFunc(out, compareMapPairByKey)
 	}
 
 	// now deduping is as simple as looking one key ahead - if it's the same key
@@ -270,7 +275,7 @@ func sortAndDedupValues[V mapElement[V]](in []V) []V {
 	outIndex := 0
 	for inIndex, pair := range out {
 		// look ahead
-		if inIndex+1 < len(out) && out[inIndex+1].keyEqual(pair) {
+		if inIndex+1 < len(out) && bytes.Equal(out[inIndex+1].Key, pair.Key) {
 			continue
 		}
 

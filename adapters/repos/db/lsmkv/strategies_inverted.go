@@ -15,6 +15,7 @@ import (
 	"cmp"
 	"encoding/binary"
 	"fmt"
+	"slices"
 )
 
 // invertedPair is one posting, or a tombstone for one doc. It holds no
@@ -34,12 +35,33 @@ const (
 	invertedRecordTombstoneLen = 2 + 8 + 2
 )
 
-func (p invertedPair) keyCompare(other invertedPair) int {
-	return cmp.Compare(p.docID, other.docID)
+func compareInvertedPairByKey(a, b invertedPair) int {
+	return cmp.Compare(a.docID, b.docID)
 }
 
-func (p invertedPair) keyEqual(other invertedPair) bool {
-	return p.docID == other.docID
+// sortAndDedup keeps the newest write per doc ID, which needs a stable sort so
+// insert order survives it. Postings arrive in ascending doc ID order, so the
+// sorted check usually skips the sort outright.
+func (p invertedPair) sortAndDedup(values []invertedPair) []invertedPair {
+	out := make([]invertedPair, len(values))
+	copy(out, values)
+
+	if !slices.IsSortedFunc(out, compareInvertedPairByKey) {
+		slices.SortStableFunc(out, compareInvertedPairByKey)
+	}
+
+	outIndex := 0
+	for inIndex, pair := range out {
+		// look ahead: an equal key means a newer write follows
+		if inIndex+1 < len(out) && out[inIndex+1].docID == pair.docID {
+			continue
+		}
+
+		out[outIndex] = pair
+		outIndex++
+	}
+
+	return out[:outIndex]
 }
 
 // encodeCommitLog writes the record into dst, which must hold
