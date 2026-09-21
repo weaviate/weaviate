@@ -66,7 +66,8 @@ type SchemaManager interface {
 	// schema FSM's cross-FSM MutationGuard (which blocks property
 	// mutations while a reindex on the same property is STARTED or
 	// FINALIZING) bypasses the check for migration-driven schema
-	// flips.
+	// flips. The flag also lets the flip through while its namespace is
+	// not active.
 	//
 	// Public REST / gRPC handlers must not call this; they go through
 	// UpdateProperty above. The bypass is mechanically required

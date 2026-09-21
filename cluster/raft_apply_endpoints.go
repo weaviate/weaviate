@@ -135,7 +135,8 @@ func (s *Raft) UpdateProperty(ctx context.Context, class string, property *model
 // adapters/repos/db/reindex_provider.flipSemanticMigrationSchema). The
 // resulting command carries [api.UpdatePropertyRequest.FromInFlightMigration]
 // = true, which the schema FSM uses to bypass the in-flight-reindex
-// MutationGuard for this single update.
+// MutationGuard for this single update. The flag also lets the update
+// through while its namespace is not active.
 //
 // Public REST / gRPC handlers must not call this; they go through
 // [Raft.UpdateProperty]. The migration-only bypass exists because the

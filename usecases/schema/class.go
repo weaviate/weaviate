@@ -711,7 +711,8 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 // through [SchemaManager.UpdatePropertyFromMigration], which sets the
 // [api.UpdatePropertyRequest.FromInFlightMigration] flag so the schema
 // FSM's cross-FSM MutationGuard bypasses the in-flight-reindex check
-// for this single update.
+// for this single update. The flag also lets the update through while
+// its namespace is not active.
 //
 // Used by the reindex provider's
 // [adapters/repos/db.applyPerPropertySchemaUpdate] from the scheduler's
