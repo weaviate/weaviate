@@ -218,7 +218,7 @@ func TestDeserializerReadNode(t *testing.T) {
 		err := d.ReadNode(reader, res)
 		require.Nil(t, err)
 		require.NotNil(t, res.Nodes[id])
-		assert.Equal(t, level, res.Nodes[id].connections.Level())
+		assert.Equal(t, level, res.Nodes[id].level())
 	}
 }
 
@@ -264,10 +264,10 @@ func TestDeserializerReadInvalidNode(t *testing.T) {
 		require.Nil(t, err)
 	}
 	require.Len(t, res.Nodes, 2004)
-	require.Equal(t, 2, int(res.Nodes[1].connections.Level()))
-	require.Equal(t, 4, int(res.Nodes[100].connections.Level()))
-	require.Equal(t, 8, int(res.Nodes[300].connections.Level()))
-	require.Equal(t, 10, int(res.Nodes[5].connections.Level()))
+	require.Equal(t, 2, int(res.Nodes[1].level()))
+	require.Equal(t, 4, int(res.Nodes[100].level()))
+	require.Equal(t, 8, int(res.Nodes[300].level()))
+	require.Equal(t, 10, int(res.Nodes[5].level()))
 }
 
 func TestDeserializerReadEP(t *testing.T) {

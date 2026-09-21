@@ -57,6 +57,6 @@ func vertexAt(level uint16, conns *packedconn.Connections) *vertex {
 	if conns != nil {
 		v.connections = *conns
 	}
-	v.connections.SetLevel(level)
+	v.setLevel(level)
 	return v
 }

@@ -26,6 +26,10 @@ type vertex struct {
 // maintenanceTag marks a node that is being inserted or repaired.
 const maintenanceTag = 1
 
+func (v *vertex) level() uint16 { return v.connections.Level() }
+
+func (v *vertex) setLevel(level uint16) { v.connections.SetLevel(level) }
+
 func (v *vertex) markAsMaintenance() {
 	v.Lock()
 	v.connections.SetTag(maintenanceTag)
@@ -50,7 +54,7 @@ func (v *vertex) connectionsAtLevelNoLock(level int) []uint64 {
 }
 
 func (v *vertex) upgradeToLevelNoLock(level int) {
-	v.connections.SetLevel(uint16(level))
+	v.setLevel(uint16(level))
 	v.connections.GrowLayersTo(uint8(level))
 }
 

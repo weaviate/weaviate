@@ -245,7 +245,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 
 		vector := vectors[i]
 		node := &vertex{}
-		node.connections.SetLevel(uint16(levels[i]))
+		node.setLevel(uint16(levels[i]))
 		globalBefore := time.Now()
 		if len(vector) == 0 {
 			return errors.Errorf("insert called with nil-vector")
@@ -407,7 +407,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			counter++
 
 			node := &vertex{}
-			node.connections.SetLevel(uint16(levels[j]))
+			node.setLevel(uint16(levels[j]))
 
 			h.Lock()
 			h.docIDVectors[docID] = append(h.docIDVectors[docIDs[i]], nodeId)
@@ -474,11 +474,11 @@ func (h *hnsw) addOne(ctx context.Context, id uint64, vector []float32, node *ve
 	currentMaximumLayer := h.currentMaximumLayer
 	h.RUnlock()
 
-	targetLevel := int(node.connections.Level())
+	targetLevel := int(node.level())
 	node.connections.GrowLayersTo(uint8(targetLevel))
 
 	var err error
-	if err = h.commitLog.AddNode(id, node.connections.Level()); err != nil {
+	if err = h.commitLog.AddNode(id, node.level()); err != nil {
 		return err
 	}
 
@@ -570,9 +570,9 @@ func (h *hnsw) insertInitialElement(id uint64, node *vertex, nodeVec []float32) 
 	h.entryPointID = id
 	h.currentMaximumLayer = 0
 	// grown in place: assigning new connections would drop the maintenance tag
-	node.connections.SetLevel(0)
+	node.setLevel(0)
 	node.connections.GrowLayersTo(0)
-	if err := h.commitLog.AddNode(id, node.connections.Level()); err != nil {
+	if err := h.commitLog.AddNode(id, node.level()); err != nil {
 		return err
 	}
 
