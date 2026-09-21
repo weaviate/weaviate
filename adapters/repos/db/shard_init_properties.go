@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -643,10 +644,21 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 		return err
 	}
 
-	// Note: this data would fit the "Set" type better, but since the "Map" type
-	// is currently optimized better, it is more efficient to use a Map here.
-	err := s.createDimensionsBucket(ctx, helpers.DimensionsBucketLSM)
+	// held until the bucket is loaded, a usage scan that still takes the shard
+	// for unloaded must not have the bucket open at the same time
+	unlock, err := shardusage.LockUnloadedDimensionsBucket(ctx, s.index.path(), s.name)
 	if err != nil {
+		return fmt.Errorf("create dimensions tracking property: %w", err)
+	}
+	defer unlock()
+
+	// nothing can read or write the bucket yet, so a migration needs no double writes
+	if err := shardusage.PrepareDimensionsBucket(ctx, s.index.logger, s.index.path(), s.name,
+		s.index.Config.MigrateDimensionsToRoaringSet); err != nil {
+		return fmt.Errorf("create dimensions tracking property: %w", err)
+	}
+
+	if err := s.createDimensionsBucket(ctx, helpers.DimensionsBucketLSM); err != nil {
 		return fmt.Errorf("create dimensions tracking property: %w", err)
 	}
 
