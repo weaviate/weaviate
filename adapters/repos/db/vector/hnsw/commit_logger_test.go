@@ -191,7 +191,7 @@ func TestSwitchCommitLogsBurst(t *testing.T) {
 
 	const switches = 5
 	for i := range switches {
-		require.NoError(t, cl.AddNode(&vertex{id: uint64(i), level: 0}))
+		require.NoError(t, cl.AddNode(uint64(i), 0))
 		require.NoError(t, cl.Flush())
 
 		switched, err := cl.switchCommitLogs(true)
@@ -238,7 +238,7 @@ func TestSwitchCommitLogsUnparseableName(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, switched)
 
-	require.NoError(t, cl.AddNode(&vertex{id: 1, level: 0}))
+	require.NoError(t, cl.AddNode(1, 0))
 	require.NoError(t, cl.Flush())
 
 	// the switch moved off the unreadable file, so a backup can copy it

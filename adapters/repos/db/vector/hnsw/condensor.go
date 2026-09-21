@@ -114,23 +114,23 @@ func (c *MemoryCondensor) Do(fileName string) error {
 			// nodes are implicitly added when they are first linked, if the level is
 			// not zero we know this node was new. If the level is zero it doesn't
 			// matter if it gets added explicitly or implicitly
-			if err := c.AddNode(node); err != nil {
-				return errors.Wrapf(err, "write node %d to commit log", node.id)
+			if err := c.AddNode(uint64(i), node.level); err != nil {
+				return errors.Wrapf(err, "write node %d to commit log", uint64(i))
 			}
 		}
 
 		iter := node.connections.Iterator()
 		for iter.Next() {
 			level, links := iter.Current()
-			if res.ReplaceLinks(node.id, uint16(level)) {
-				if err := c.SetLinksAtLevel(node.id, int(level), links); err != nil {
+			if res.ReplaceLinks(uint64(i), uint16(level)) {
+				if err := c.SetLinksAtLevel(uint64(i), int(level), links); err != nil {
 					return errors.Wrapf(err,
-						"write links for node %d at level %d to commit log", node.id, level)
+						"write links for node %d at level %d to commit log", uint64(i), level)
 				}
 			} else {
-				if err := c.AddLinksAtLevel(node.id, uint16(level), links); err != nil {
+				if err := c.AddLinksAtLevel(uint64(i), uint16(level), links); err != nil {
 					return errors.Wrapf(err,
-						"write links for node %d at level %d to commit log", node.id, level)
+						"write links for node %d at level %d to commit log", uint64(i), level)
 				}
 			}
 		}
@@ -272,11 +272,11 @@ func writeUint64Slice(w io.Writer, in []uint64) error {
 }
 
 // AddNode adds an empty node
-func (c *MemoryCondensor) AddNode(node *vertex) error {
+func (c *MemoryCondensor) AddNode(id uint64, level uint16) error {
 	ec := errorcompounder.New()
 	ec.Add(writeCommitType(c.newLog, AddNode))
-	ec.Add(writeUint64(c.newLog, node.id))
-	ec.Add(writeUint16(c.newLog, uint16(node.level)))
+	ec.Add(writeUint64(c.newLog, id))
+	ec.Add(writeUint16(c.newLog, level))
 
 	return ec.ToError()
 }
