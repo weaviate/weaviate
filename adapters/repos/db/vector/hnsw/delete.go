@@ -625,7 +625,7 @@ func (h *hnsw) reassignNeighbor(
 
 	neighborNode.Lock()
 	neighborLevel := int(neighborNode.level)
-	if !connectionsPointTo(neighborNode.connections, deleteList) {
+	if !connectionsPointTo(&neighborNode.connections, deleteList) {
 		// nothing needs to be changed, skip
 		neighborNode.Unlock()
 		return true, nil
