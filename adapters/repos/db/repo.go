@@ -428,6 +428,7 @@ type Config struct {
 	MaxSegmentSize                 int64
 	TrackVectorDimensions          bool
 	TrackVectorDimensionsInterval  time.Duration
+	MigrateDimensionsToRoaringSet  bool
 	UsageEnabled                   bool
 	ServerVersion                  string
 	GitHash                        string
