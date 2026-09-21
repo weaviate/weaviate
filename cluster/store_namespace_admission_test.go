@@ -49,18 +49,22 @@ const (
 // authority, so a type listed here but wired to a different check still leaves
 // this test green. The per-state cases in
 // TestExecuteGate_RejectsShardMaterializingApplyTypes,
-// TestExecuteGate_RejectsCreateLikeApplyTypes and
+// TestExecuteGate_RejectsCreateLikeApplyTypes,
+// TestExecuteGate_RejectsPropertyApplyTypes and
 // TestExecuteGate_DestructiveApplyTypes pin the behaviour.
 
 // Commands gated by namespaces.RequireActive at propose time, in
 // store.admitCreateLike and store.admitShardStatus. The alias and user commands
-// materialize nothing. The class and tenant commands do materialize a shard, and
-// Store.admitPropose says why refusing them before the append is still enough.
+// materialize nothing, and the property commands load no shard. The class and
+// tenant commands do materialize a shard, and Store.admitPropose says why
+// refusing them before the append is still enough.
 var requireActiveProposeTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_ADD_CLASS:                {},
 	api.ApplyRequest_TYPE_RESTORE_CLASS:            {},
 	api.ApplyRequest_TYPE_ADD_TENANT:               {},
 	api.ApplyRequest_TYPE_UPDATE_TENANT:            {},
+	api.ApplyRequest_TYPE_ADD_PROPERTY:             {},
+	api.ApplyRequest_TYPE_UPDATE_PROPERTY:          {},
 	api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS:      {},
 	api.ApplyRequest_TYPE_CREATE_ALIAS:             {},
 	api.ApplyRequest_TYPE_REPLACE_ALIAS:            {},
@@ -88,8 +92,6 @@ var destructiveApplyTypes = map[api.ApplyRequest_Type]struct{}{
 // and are ungated on purpose, tracked outside this change.
 var ungatedApplyTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_UPDATE_CLASS:                                               {},
-	api.ApplyRequest_TYPE_ADD_PROPERTY:                                               {},
-	api.ApplyRequest_TYPE_UPDATE_PROPERTY:                                            {},
 	api.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD:                                       {},
 	api.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD:                                  {},
 	api.ApplyRequest_TYPE_TENANT_PROCESS:                                             {},
@@ -462,6 +464,96 @@ func createLikeCommands() []gatedCommand {
 	}
 }
 
+// gatedPropertyName is the property the property commands add or update.
+const gatedPropertyName = "genre"
+
+func gatedProperty(tokenization string) *models.Property {
+	return &models.Property{Name: gatedPropertyName, DataType: []string{"text"}, Tokenization: tokenization}
+}
+
+// propertyInClass reports whether class holds gatedPropertyName with the given
+// tokenization, which tells an update apart from the seed.
+func propertyInClass(ms *MockStore, class, tokenization string) bool {
+	cls := ms.store.SchemaReader().ReadOnlyClass(class)
+	if cls == nil {
+		return false
+	}
+	for _, p := range cls.Properties {
+		if p.Name == gatedPropertyName && p.Tokenization == tokenization {
+			return true
+		}
+	}
+	return false
+}
+
+// schemaUpdateCommands are the gated commands that write schema and store.
+func schemaUpdateCommands() []gatedCommand {
+	const (
+		addedTokenization   = models.PropertyTokenizationWord
+		updatedTokenization = models.PropertyTokenizationField
+	)
+	build := func(cmdType api.ApplyRequest_Type, sub any) func(string) *api.ApplyRequest {
+		return func(target string) *api.ApplyRequest {
+			data, err := json.Marshal(sub)
+			if err != nil {
+				panic(err)
+			}
+			return &api.ApplyRequest{Type: cmdType, Class: target, SubCommand: data}
+		}
+	}
+	buildAdd := build(api.ApplyRequest_TYPE_ADD_PROPERTY,
+		api.AddPropertyRequest{Properties: []*models.Property{gatedProperty(addedTokenization)}})
+	// seedAdded writes schemaOnly, like seedClass, so it records no store call.
+	seedAdded := func(t *testing.T, ms *MockStore, target string) {
+		seedClass(t, ms, target)
+		require.NoError(t, ms.store.schemaManager.AddProperty(buildAdd(target), true, false))
+	}
+	updateLanded := func(ms *MockStore, target string) bool {
+		return propertyInClass(ms, target, updatedTokenization)
+	}
+
+	return []gatedCommand{
+		{
+			cmdType:    api.ApplyRequest_TYPE_ADD_PROPERTY,
+			build:      buildAdd,
+			seedEntity: seedClass,
+			expectApplied: func(t *testing.T, ms *MockStore, _ string) {
+				ms.indexer.On("AddProperty", mock.Anything, mock.Anything).Return(nil)
+				ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+			},
+			landed: func(ms *MockStore, target string) bool {
+				return propertyInClass(ms, target, addedTokenization)
+			},
+		},
+		{
+			cmdType: api.ApplyRequest_TYPE_UPDATE_PROPERTY,
+			build: build(api.ApplyRequest_TYPE_UPDATE_PROPERTY,
+				api.UpdatePropertyRequest{Property: gatedProperty(updatedTokenization)}),
+			seedEntity: seedAdded,
+			expectApplied: func(t *testing.T, ms *MockStore, _ string) {
+				ms.indexer.On("UpdateProperty", mock.Anything, mock.Anything).Return(nil)
+				ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				ms.replicationFSM.On("HasActiveReplicationForCollection", mock.Anything).Return(false)
+			},
+			landed: updateLanded,
+		},
+		{
+			// This entry is the reindex flip, which admitCreateLike exempts. An apply
+			// arm copying that exemption would refuse only the entry above.
+			cmdType: api.ApplyRequest_TYPE_UPDATE_PROPERTY,
+			build: build(api.ApplyRequest_TYPE_UPDATE_PROPERTY,
+				api.UpdatePropertyRequest{Property: gatedProperty(updatedTokenization), FromInFlightMigration: true}),
+			seedEntity: seedAdded,
+			// The flag skips the replication check, so no replication call is expected.
+			expectApplied: func(t *testing.T, ms *MockStore, _ string) {
+				ms.indexer.On("UpdateProperty", mock.Anything, mock.Anything).Return(nil)
+				ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+			},
+			landed: updateLanded,
+		},
+	}
+}
+
 // shardMaterializingCommands are the gated commands that materialize a shard.
 // They were the last arms checked inside Apply; see Store.admitPropose for why
 // the check moved ahead of the append.
@@ -586,6 +678,7 @@ func gatedCommands() []gatedCommand {
 	var all []gatedCommand
 	all = append(all, destructiveCommands()...)
 	all = append(all, createLikeCommands()...)
+	all = append(all, schemaUpdateCommands()...)
 	all = append(all, shardMaterializingCommands()...)
 	all = append(all, shardStatusCommand())
 	return all
@@ -982,6 +1075,52 @@ func TestExecuteGate_RejectsShardStatusApplyType(t *testing.T) {
 	t.Run("an unqualified class is admitted", func(t *testing.T) {
 		assertProposeAdmits(t, statusCmd("Foo"), alphaAt(api.NamespaceStateSuspended))
 	})
+}
+
+// TestExecuteGate_RejectsPropertyApplyTypes drives the property commands through
+// the propose-time check. The TYPE_ADD_PROPERTY rows also cover the auto-schema
+// add, because usecases/schema.TestAddClassProperty_Namespacing pins that
+// Handler.AddClassProperty proposes the qualified class name.
+func TestExecuteGate_RejectsPropertyApplyTypes(t *testing.T) {
+	property := gatedProperty(models.PropertyTokenizationWord)
+
+	addProperty := proposeCommand{
+		name:      "TYPE_ADD_PROPERTY",
+		cmdType:   api.ApplyRequest_TYPE_ADD_PROPERTY,
+		className: "alpha:Foo",
+		jsonSub:   api.AddPropertyRequest{Properties: []*models.Property{property}},
+	}
+	updateProperty := proposeCommand{
+		name:      "TYPE_UPDATE_PROPERTY",
+		cmdType:   api.ApplyRequest_TYPE_UPDATE_PROPERTY,
+		className: "alpha:Foo",
+		jsonSub:   api.UpdatePropertyRequest{Property: property},
+	}
+
+	for _, tt := range []proposeCommand{addProperty, updateProperty} {
+		t.Run(tt.name, func(t *testing.T) {
+			assertProposeRefuses(t, tt, suspendedNamespaceCase())
+		})
+		t.Run(tt.name+"/active namespace admitted", func(t *testing.T) {
+			assertProposeAdmits(t, tt, alphaAt(api.NamespaceStateActive))
+		})
+	}
+
+	t.Run("TYPE_UPDATE_PROPERTY/resuming namespace rejected", func(t *testing.T) {
+		assertProposeRefuses(t, updateProperty, inactiveNamespaceCase{
+			seed: alphaAt(api.NamespaceStateResuming), wantErr: namespaces.ErrNamespaceResuming,
+		})
+	})
+
+	// Both inactive states run, so an exemption scoped to one of them fails.
+	flip := updateProperty
+	flip.jsonSub = api.UpdatePropertyRequest{Property: property, FromInFlightMigration: true}
+	for _, name := range []string{"suspended", "deleting"} {
+		s := applyStateNamed(t, name)
+		t.Run("TYPE_UPDATE_PROPERTY/a reindex schema flip is admitted/"+s.name, func(t *testing.T) {
+			assertProposeAdmits(t, flip, s.seed)
+		})
+	}
 }
 
 // TestExecuteGate_RejectsShardMaterializingApplyTypes drives the commands that

@@ -94,6 +94,9 @@ type UpdatePropertyRequest struct {
 	// mutations while a reindex on the same (collection, property) is
 	// STARTED or FINALIZING.
 	//
+	// Store.admitCreateLike admits a request carrying it in every namespace
+	// state, so a suspend does not stop a reindex from finishing.
+	//
 	// Set only by the migration completion path (via
 	// [Raft.UpdatePropertyFromMigration] →
 	// [usecases/schema.UpdatePropertyInternalFromMigration]). Public REST
