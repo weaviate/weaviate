@@ -12,6 +12,7 @@
 package filters_tests
 
 import (
+	"acceptance_tests_with_client/fixtures"
 	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"testing"
@@ -37,13 +38,13 @@ func TestWhereFilter_Regex(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("special characters in where filter value", func(t *testing.T) {
-		vectorizer := "text2vec-contextionary"
+		vectorizer := fixtures.Text2VecModel2Vec
 		id1 := "00000000-0000-0000-0000-000000000001"
 		className := "Regex"
 
 		class := &models.Class{
-			Class:      className,
-			Vectorizer: vectorizer,
+			Class:        className,
+			VectorConfig: fixtures.DefaultVectorConfig(),
 			Properties: []*models.Property{
 				{
 					Name:         "summary",

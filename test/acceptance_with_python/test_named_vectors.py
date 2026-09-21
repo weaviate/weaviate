@@ -1,6 +1,9 @@
+import math
+from typing import Callable, Dict
+
 import pytest
 import weaviate.classes as wvc
-import math
+from weaviate.collections import Collection
 from weaviate.collections.classes.grpc import (
     _MultiTargetVectorJoin,
     TargetVectors,
@@ -21,7 +24,7 @@ def test_create_named_vectors_with_and_without_vectorizer(
             wvc.config.Property(name="content", data_type=wvc.config.DataType.TEXT),
         ],
         vectorizer_config=[
-            wvc.config.Configure.NamedVectors.text2vec_contextionary(
+            wvc.config.Configure.NamedVectors.text2vec_model2vec(
                 name="AllExplicit",
                 source_properties=["title", "content"],
                 vectorize_collection_name=False,
@@ -238,37 +241,49 @@ def test_near_vector_with_single_named_vector(
     assert near_vector1.objects[0].uuid == uuid1
 
 
-CAR_DISTANCE = 0.7892138957977295
-APPLE_DISTANCE = 0.5168729424476624
-KALE_DISTANCE = 0.5732871294021606
+def single_target_distances(collection: Collection, query: str) -> Dict[str, float]:
+    """Distance of the query to every target vector on its own. The multi target
+    expectations are derived from these, so they do not depend on the embedding model."""
+    distances = {}
+    for target_vector in ["title1", "title2", "title3"]:
+        res = collection.query.near_text(
+            query,
+            target_vector=target_vector,
+            return_metadata=wvc.query.MetadataQuery(distance=True),
+        )
+        assert len(res.objects) == 1
+        distances[target_vector] = res.objects[0].metadata.distance
+    return distances
+
+
+MANUAL_WEIGHTS = {"title1": 0.4, "title2": 1.2, "title3": 0.752}
 
 
 @pytest.mark.parametrize(
-    "multi_target_fusion_method,distance",
+    "multi_target_fusion_method,combine",
     [
+        (TargetVectors.sum(["title1", "title2", "title3"]), lambda d: sum(d.values())),
+        (TargetVectors.average(["title1", "title2", "title3"]), lambda d: sum(d.values()) / 3),
+        (TargetVectors.minimum(["title1", "title2", "title3"]), lambda d: min(d.values())),
         (
-            TargetVectors.sum(["title1", "title2", "title3"]),
-            CAR_DISTANCE + APPLE_DISTANCE + KALE_DISTANCE,
-        ),
-        (
-            TargetVectors.average(["title1", "title2", "title3"]),
-            (CAR_DISTANCE + APPLE_DISTANCE + KALE_DISTANCE) / 3,
-        ),
-        (TargetVectors.minimum(["title1", "title2", "title3"]), APPLE_DISTANCE),
-        (
-            TargetVectors.manual_weights({"title1": 0.4, "title2": 1.2, "title3": 0.752}),
-            APPLE_DISTANCE * 0.4 + CAR_DISTANCE * 1.2 + KALE_DISTANCE * 0.752,
+            TargetVectors.manual_weights(MANUAL_WEIGHTS),
+            lambda d: sum(d[name] * weight for name, weight in MANUAL_WEIGHTS.items()),
         ),
     ],
+    ids=["sum", "average", "minimum", "manual_weights"],
 )
 def test_different_target_fusion_methods(
     named_collection: NamedCollection,
     multi_target_fusion_method: _MultiTargetVectorJoin,
-    distance: float,
+    combine: Callable[[Dict[str, float]], float],
 ) -> None:
     collection = named_collection()
 
     collection.data.insert(properties={"title1": "apple", "title2": "car", "title3": "kale"})
+
+    distances = single_target_distances(collection, "fruit")
+    # all targets have to differ, otherwise the fusion methods are indistinguishable
+    assert len(set(distances.values())) == 3
 
     nt = collection.query.near_text(
         "fruit",
@@ -276,7 +291,7 @@ def test_different_target_fusion_methods(
         return_metadata=wvc.query.MetadataQuery.full(),
     )
     assert len(nt.objects) == 1
-    assert math.isclose(nt.objects[0].metadata.distance, distance, rel_tol=1e-5)
+    assert math.isclose(nt.objects[0].metadata.distance, combine(distances), rel_tol=1e-5)
 
 
 def test_score_fusion(named_collection: NamedCollection) -> None:
@@ -474,7 +489,7 @@ def test_multi_target_with_filter(collection_factory: CollectionFactory):
             wvc.config.Property(name="int", data_type=wvc.config.DataType.INT),
         ],
         vectorizer_config=[
-            wvc.config.Configure.NamedVectors.text2vec_contextionary(
+            wvc.config.Configure.NamedVectors.text2vec_model2vec(
                 name=entry, source_properties=[entry], vectorize_collection_name=False
             )
             for entry in ["first", "second"]

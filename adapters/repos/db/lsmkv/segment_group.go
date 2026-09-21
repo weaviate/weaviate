@@ -39,7 +39,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
-	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -966,16 +965,16 @@ func (sg *SegmentGroup) getWithSegmentList(key []byte, segments []Segment) ([]by
 
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
+	timed := levelEnabled(sg.logger, logrus.DebugLevel)
 	for i := len(segments) - 1; i >= 0; i-- {
-		beforeSegment := time.Now()
+		var beforeSegment time.Time
+		if timed {
+			beforeSegment = time.Now()
+		}
 		v, err := segments[i].get(key)
-		if duration := time.Since(beforeSegment); duration > 100*time.Millisecond {
-			sg.logger.WithError(err).
-				WithFields(logrus.Fields{
-					"duration":    duration,
-					"action":      "lsm_segment_group_get_individual_segment",
-					"segment_pos": i,
-				}).Debug("waited over 100ms to get result from individual segment")
+		if timed {
+			sg.logSlowSegmentProbe(beforeSegment, i, "lsm_segment_group_get_individual_segment",
+				"waited over 100ms to get result from individual segment", err)
 		}
 		if err == nil {
 			return v, nil
@@ -1006,16 +1005,16 @@ func (sg *SegmentGroup) existsWithSegmentListUpTo(key []byte, segIdx int, segmen
 
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
+	timed := levelEnabled(sg.logger, logrus.DebugLevel)
 	for i := len(segments) - 1; i >= segIdx; i-- {
-		beforeSegment := time.Now()
+		var beforeSegment time.Time
+		if timed {
+			beforeSegment = time.Now()
+		}
 		err := segments[i].exists(key)
-		if duration := time.Since(beforeSegment); duration > 100*time.Millisecond {
-			sg.logger.WithError(err).
-				WithFields(logrus.Fields{
-					"duration":    duration,
-					"action":      "lsm_segment_group_exists_individual_segment",
-					"segment_pos": i,
-				}).Debug("waited over 100ms to check existence in individual segment")
+		if timed {
+			sg.logSlowSegmentProbe(beforeSegment, i, "lsm_segment_group_exists_individual_segment",
+				"waited over 100ms to check existence in individual segment", err)
 		}
 		if err == nil {
 			return nil
@@ -1040,16 +1039,16 @@ func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffe
 
 	// start with latest and exit as soon as something is found, thus making sure
 	// the latest takes presence
+	timed := levelEnabled(sg.logger, logrus.DebugLevel)
 	for i := len(segments) - 1; i >= 0; i-- {
-		beforeSegment := time.Now()
+		var beforeSegment time.Time
+		if timed {
+			beforeSegment = time.Now()
+		}
 		k, v, allocBuf, err := segments[i].getBySecondary(pos, key, buffer)
-		if duration := time.Since(beforeSegment); duration > 100*time.Millisecond {
-			sg.logger.WithError(err).
-				WithFields(logrus.Fields{
-					"duration":    duration,
-					"action":      "lsm_segment_group_getbysecondary_individual_segment",
-					"segment_pos": i,
-				}).Debug("waited over 100ms to get result from individual segment")
+		if timed {
+			sg.logSlowSegmentProbe(beforeSegment, i, "lsm_segment_group_getbysecondary_individual_segment",
+				"waited over 100ms to get result from individual segment", err)
 		}
 		if err == nil {
 			return k, v, allocBuf, i, nil
@@ -1062,6 +1061,26 @@ func (sg *SegmentGroup) getBySecondaryWithSegmentList(pos int, key []byte, buffe
 		}
 	}
 	return nil, nil, nil, -1, lsmkv.NotFound
+}
+
+// logSlowSegmentProbe emits a debug line when a single segment lookup took
+// longer than 100ms. Callers only time their probes when the debug level is
+// enabled, as two clock reads per segment are measurable on lookup-heavy paths.
+func (sg *SegmentGroup) logSlowSegmentProbe(start time.Time, segmentPos int, action, msg string, err error) {
+	duration := time.Since(start)
+	if duration <= 100*time.Millisecond {
+		return
+	}
+	entry := sg.logger.WithFields(logrus.Fields{
+		"duration":    duration,
+		"action":      action,
+		"segment_pos": segmentPos,
+	})
+	if err != nil {
+		entry.Debugf("%s: %v", msg, err)
+		return
+	}
+	entry.Debug(msg)
 }
 
 func (sg *SegmentGroup) getCollection(key []byte, segments []Segment) ([]value, error) {
@@ -1290,6 +1309,20 @@ func (sg *SegmentGroup) isReadyOnly() bool {
 	return sg.status == storagestate.StatusReadOnly
 }
 
+// levelEnabled reports whether the logger emits entries of the given level, so
+// callers can skip work a normal log level would discard. A logger of unknown
+// type is treated as enabled rather than silently losing the line.
+func levelEnabled(logger logrus.FieldLogger, level logrus.Level) bool {
+	switch l := logger.(type) {
+	case *logrus.Logger:
+		return l.IsLevelEnabled(level)
+	case *logrus.Entry:
+		return l.Logger.IsLevelEnabled(level)
+	default:
+		return true
+	}
+}
+
 func fileExists(path string) (bool, error) {
 	_, err := os.Stat(path)
 	if err == nil {
@@ -1327,7 +1360,7 @@ func (sg *SegmentGroup) compactOrCleanup(shouldAbort cyclemanager.ShouldAbortCal
 				WithField("path", sg.dir).
 				WithError(err).
 				Errorf("compaction failed")
-		} else if !compacted && logrusext.LevelEnabled(sg.logger, logrus.TraceLevel) {
+		} else if !compacted && levelEnabled(sg.logger, logrus.TraceLevel) {
 			sg.logger.WithField("action", "lsm_compaction").
 				WithField("path", sg.dir).
 				Trace("no segments eligible for compaction")
