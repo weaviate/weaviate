@@ -136,6 +136,10 @@ func FromEnv(config *Config) error {
 		config.ReindexVectorDimensionsAtStartup = true
 	}
 
+	if entcfg.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_TO_ROARINGSET_AT_STARTUP")) {
+		config.ReindexVectorDimensionsToRoaringsetAtStartup = true
+	}
+
 	if entcfg.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
 		logrus.Warn("DISABLE_LAZY_LOAD_SHARDS is deprecated and will be removed in a future version. Use LAZY_LOAD_SHARD_COUNT_THRESHOLD instead to configure dynamic lazy load shards if needed, otherwise weaviate will decide based on the shard count and size thresholds.")
 		v := false
