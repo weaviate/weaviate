@@ -12,6 +12,7 @@
 package object_property_tests
 
 import (
+	"acceptance_tests_with_client/fixtures"
 	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"testing"
@@ -153,7 +154,8 @@ func TestObjectProperty_AutoSchema(t *testing.T) {
 			className: "WithoutAutoSchema",
 			before: func(t *testing.T, className string) {
 				err := client.Schema().ClassCreator().WithClass(&models.Class{
-					Class: className,
+					Class:        className,
+					VectorConfig: fixtures.DefaultVectorConfig(),
 					Properties: []*models.Property{
 						{
 							Name:     "company",
@@ -206,7 +208,8 @@ func TestObjectProperty_AutoSchema(t *testing.T) {
 			className: "PartiallyAutoSchema",
 			before: func(t *testing.T, className string) {
 				err := client.Schema().ClassCreator().WithClass(&models.Class{
-					Class: className,
+					Class:        className,
+					VectorConfig: fixtures.DefaultVectorConfig(),
 					Properties: []*models.Property{
 						{
 							Name:     "company",

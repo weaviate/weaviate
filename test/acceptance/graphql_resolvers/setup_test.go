@@ -34,26 +34,47 @@ import (
 )
 
 func TestGraphQL_AsyncIndexing(t *testing.T) {
-	ctx := context.Background()
-	compose, err := docker.New().
-		WithWeaviate().
-		WithText2VecContextionary().
-		WithBackendFilesystem().
-		WithWeaviateEnv("ASYNC_INDEXING", "true").
-		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "100ms").
-		WithWeaviateEnv("QUEUE_SCHEDULER_INTERVAL", "100ms").
-		WithWeaviateEnv("API_BASED_MODULES_DISABLED", "true").
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-
-	testGraphQL(t, compose.GetWeaviate().URI())
+	testGraphQL(t, startWeaviateWithContextionary(t, map[string]string{
+		"ASYNC_INDEXING":               "true",
+		"ASYNC_INDEXING_STALE_TIMEOUT": "100ms",
+		"QUEUE_SCHEDULER_INTERVAL":     "100ms",
+	}))
 }
 
 func TestGraphQL_SyncIndexing(t *testing.T) {
-	testGraphQL(t, "localhost:8080")
+	testGraphQL(t, startWeaviateWithContextionary(t, nil))
+}
+
+// TestMetricsStability scrapes the metrics port of the shared test server,
+// a testcontainer does not publish one.
+func TestMetricsStability(t *testing.T) {
+	helper.SetupClient(sharedServerHost)
+	t.Run("metrics count is stable when more classes are added", metricsCount)
+}
+
+// sharedServerHost is the test server started from docker-compose-test.yml
+const sharedServerHost = "localhost:8080"
+
+// startWeaviateWithContextionary starts a single node that is torn down with
+// the test, afterwards the client points at the shared test server again.
+func startWeaviateWithContextionary(t *testing.T, env map[string]string) string {
+	ctx := context.Background()
+	compose := docker.New().
+		WithWeaviate().
+		WithText2VecContextionary().
+		WithBackendFilesystem().
+		WithWeaviateEnv("API_BASED_MODULES_DISABLED", "true")
+	for name, value := range env {
+		compose = compose.WithWeaviateEnv(name, value)
+	}
+	started, err := compose.Start(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		helper.SetupClient(sharedServerHost)
+		require.NoError(t, started.Terminate(ctx))
+	})
+
+	return started.GetWeaviate().URI()
 }
 
 func testGraphQL(t *testing.T, host string) {
@@ -123,8 +144,6 @@ func testGraphQL(t *testing.T, host string) {
 
 	t.Run("expected aggregate failures with invalid conditions", aggregatesWithExpectedFailures)
 
-	t.Run("metrics count is stable when more classes are added", metricsCount)
-
 	// tear down
 	deleteObjectClass(t, "Person")
 	deleteObjectClass(t, "Pizza")
@@ -152,7 +171,7 @@ func testGraphQL(t *testing.T, host string) {
 }
 
 func TestAggregateHybrid(t *testing.T) {
-	host := "localhost:8080"
+	host := startWeaviateWithContextionary(t, nil)
 	t.Run("setup test schema", func(t *testing.T) { addTestSchema(t, host) })
 
 	t.Run("import test data (company groups)", addTestDataCompanyGroups)
@@ -178,7 +197,7 @@ func TestAggregateHybrid(t *testing.T) {
 }
 
 func TestGroupBy(t *testing.T) {
-	host := "localhost:8080"
+	host := startWeaviateWithContextionary(t, nil)
 	t.Run("setup test schema", func(t *testing.T) { addTestSchema(t, host) })
 
 	t.Run("import test data (company groups)", addTestDataCompanyGroups)

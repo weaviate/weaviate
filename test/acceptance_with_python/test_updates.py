@@ -11,7 +11,7 @@ def test_batch_update_empty_list2(collection_factory: CollectionFactory) -> None
             wvc.config.Property(name="authorized", data_type=wvc.config.DataType.BOOL),
         ],
         vectorizer_config=[
-            wvc.config.Configure.NamedVectors.text2vec_contextionary(
+            wvc.config.Configure.NamedVectors.text2vec_model2vec(
                 name="title_vector", vectorize_collection_name=False
             ),
         ],

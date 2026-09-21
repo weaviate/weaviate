@@ -106,7 +106,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"deletionStrategy": "TimeBasedResolution",
 					"asyncEnabled":     false,
 				},
-				"vectorizer": "text2vec-contextionary", // global default from env var, see docker-compose-test.yml
+				"vectorizer": "text2vec-model2vec", // global default from env var, see docker-compose-test.yml
 				"invertedIndexConfig": map[string]interface{}{
 					"cleanupIntervalSeconds": float64(60),
 					"bm25": map[string]interface{}{
@@ -121,7 +121,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"usingBlockMaxWAND": config.DefaultUsingBlockMaxWAND,
 				},
 				"moduleConfig": map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					"text2vec-model2vec": map[string]interface{}{
 						"vectorizeClassName": true,
 					},
 				},
