@@ -740,7 +740,7 @@ func Test_receiver_holdForMemory(t *testing.T) {
 			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(1), nil)))
 		require.NoError(t, handler.Handle(mockStream))
 
-		require.GreaterOrEqual(t, len(checks.recordedSizes()), 3, "the held message must be re-checked at least once")
+		require.GreaterOrEqual(t, len(checks.recordedSizes()), 3, "the held message must be re-checked at least thrice")
 
 		msgs := sent.all()
 		results, oom := sent.indexOf(isResults), sent.indexOf(isOutOfMemory)
