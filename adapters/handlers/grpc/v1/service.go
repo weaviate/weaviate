@@ -49,7 +49,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
-var NUMCPU = runtime.GOMAXPROCS(0)
+var (
+	NUMCPU                     = runtime.GOMAXPROCS(0)
+	MaxBatchObjectsConcurrency = int64(4 * NUMCPU)
+)
 
 type Service struct {
 	pb.UnimplementedWeaviateServer
@@ -84,7 +87,7 @@ func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *sta
 		authenticator:        authenticator,
 		batchHandler:         batchHandler,
 		batchStreamHandler:   batchStreamHandler,
-		batchObjectsSem:      semaphore.NewWeighted(int64(NUMCPU * 4)),
+		batchObjectsSem:      semaphore.NewWeighted(MaxBatchObjectsConcurrency),
 	}, batchDrain
 }
 
