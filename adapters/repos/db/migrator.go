@@ -177,6 +177,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			MaxSegmentSize:                 m.db.config.MaxSegmentSize,
 			TrackVectorDimensions:          m.db.config.TrackVectorDimensions,
 			TrackVectorDimensionsInterval:  m.db.config.TrackVectorDimensionsInterval,
+			MigrateDimensionsToRoaringSet:  m.db.config.MigrateDimensionsToRoaringSet,
 			UsageEnabled:                   m.db.config.UsageEnabled,
 			AvoidMMap:                      m.db.config.AvoidMMap,
 			EnableLazyLoadShards: func() bool {
