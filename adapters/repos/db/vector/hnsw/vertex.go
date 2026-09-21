@@ -26,9 +26,6 @@ type vertex struct {
 	maintenance bool
 }
 
-// lvl returns the level as int, the type the graph algorithms work with.
-func (v *vertex) lvl() int { return int(v.level) }
-
 func (v *vertex) markAsMaintenance() {
 	v.Lock()
 	v.maintenance = true

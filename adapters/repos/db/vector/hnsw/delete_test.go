@@ -2198,8 +2198,8 @@ func TestDelete_EntrypointWithLowerLevelThanOtherNodes(t *testing.T) {
 	// Verify the setup is correct
 	require.Equal(t, uint64(0), index.entryPointID)
 	require.Equal(t, 0, index.currentMaximumLayer)
-	require.Equal(t, 0, index.nodes[0].lvl())
-	require.Equal(t, 3, index.nodes[1].lvl())
+	require.Equal(t, 0, int(index.nodes[0].level))
+	require.Equal(t, 3, int(index.nodes[1].level))
 	require.Equal(t, uint8(1), index.nodes[0].connections.Layers())
 	require.Equal(t, uint8(4), index.nodes[1].connections.Layers())
 
