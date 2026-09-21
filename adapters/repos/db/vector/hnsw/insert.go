@@ -476,7 +476,7 @@ func (h *hnsw) addOne(ctx context.Context, id uint64, vector []float32, node *ve
 	currentMaximumLayer := h.currentMaximumLayer
 	h.RUnlock()
 
-	targetLevel := node.lvl()
+	targetLevel := int(node.level)
 	var err error
 	node.connections, err = packedconn.NewWithMaxLayer(uint8(targetLevel))
 	if err != nil {

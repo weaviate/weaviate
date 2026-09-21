@@ -624,7 +624,7 @@ func (h *hnsw) reassignNeighbor(
 	}
 
 	neighborNode.Lock()
-	neighborLevel := neighborNode.lvl()
+	neighborLevel := int(neighborNode.level)
 	if !connectionsPointTo(neighborNode.connections, deleteList) {
 		// nothing needs to be changed, skip
 		neighborNode.Unlock()
@@ -781,7 +781,7 @@ func (h *hnsw) findNewGlobalEntrypoint(denyList helpers.AllowList,
 		}
 
 		candidate.Lock()
-		candidateLevel := candidate.lvl()
+		candidateLevel := int(candidate.level)
 		candidate.Unlock()
 
 		// skip tombstoned and under-maintenance nodes: they would immediately
@@ -837,7 +837,7 @@ func (h *hnsw) findNewLocalEntrypoint(denyList helpers.AllowList, oldEntrypoint 
 			}
 
 			candidate.Lock()
-			candidateLevel := candidate.lvl()
+			candidateLevel := int(candidate.level)
 			candidate.Unlock()
 
 			if candidateLevel != l {
