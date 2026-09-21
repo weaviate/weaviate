@@ -18,9 +18,10 @@ import (
 )
 
 type vertex struct {
-	// pointer first so the GC scans only the leading word; the narrow fields
-	// at the tail keep the struct in the 24 B size class (one per node)
-	connections *packedconn.Connections
+	// connections first so the GC scans only the pointer-bearing prefix; the
+	// narrow fields at the tail keep the struct in the 64 B size class, one
+	// allocation per node
+	connections packedconn.Connections
 	sync.Mutex
 	level       uint16
 	maintenance bool

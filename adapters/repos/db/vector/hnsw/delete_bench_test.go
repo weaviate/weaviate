@@ -426,7 +426,7 @@ func benchmarkConnectionsPointToScenario(b *testing.B, vectorCount int, deleteCo
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		_ = connectionsPointTo(node.connections, deleteList)
+		_ = connectionsPointTo(&node.connections, deleteList)
 	}
 }
 

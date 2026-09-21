@@ -1241,7 +1241,7 @@ func (l *hnswCommitLogger) legacyReadSnapshotBody(filename string, f common.File
 							}
 						}
 
-						node.connections = pconn
+						node.connections = *pconn
 					} else {
 						// read the connections data
 						connData := make([]byte, connCount)
@@ -1251,7 +1251,7 @@ func (l *hnswCommitLogger) legacyReadSnapshotBody(filename string, f common.File
 						}
 						read += n
 
-						node.connections = packedconn.NewWithData(connData)
+						node.connections = *packedconn.NewWithData(connData)
 					}
 				}
 
@@ -1410,7 +1410,7 @@ func (l *hnswCommitLogger) readSnapshotBody(f common.File, res *DeserializationR
 								return errors.Wrapf(err, "read node connections data")
 							}
 
-							node.connections = packedconn.NewWithData(connData)
+							node.connections = *packedconn.NewWithData(connData)
 						}
 
 						mu.Lock()

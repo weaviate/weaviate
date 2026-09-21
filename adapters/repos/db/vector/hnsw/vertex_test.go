@@ -66,7 +66,7 @@ func TestVertex_SetConnections(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			connections, _ := packedconn.NewWithMaxLayer(0)
 			v := &vertex{
-				connections: connections,
+				connections: *connections,
 			}
 			v.connections.ReplaceLayer(0, tc.initial)
 
@@ -116,7 +116,7 @@ func TestVertex_AppendConnection(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			connections, _ := packedconn.NewWithMaxLayer(0)
 			v := &vertex{
-				connections: connections,
+				connections: *connections,
 			}
 			v.connections.ReplaceLayer(0, tc.initial)
 
@@ -168,7 +168,7 @@ func TestVertex_AppendConnection_NotCleanlyDivisible(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			connections, _ := packedconn.NewWithMaxLayer(1)
 			v := &vertex{
-				connections: connections,
+				connections: *connections,
 			}
 			v.connections.ReplaceLayer(0, tc.initial)
 
@@ -186,7 +186,7 @@ func TestVertex_AppendConnection_NotCleanlyDivisible(t *testing.T) {
 func TestVertex_ResetConnections(t *testing.T) {
 	connections, _ := packedconn.NewWithMaxLayer(1)
 	v := &vertex{
-		connections: connections,
+		connections: *connections,
 	}
 	v.connections.ReplaceLayer(0, makeConnections(4, 4))
 
@@ -213,6 +213,7 @@ func TestVertex_Maintenance(t *testing.T) {
 }
 
 func TestVertex_Size(t *testing.T) {
-	// one vertex per node: a size-class bump costs GiBs on large indexes
-	assert.Equal(t, uintptr(24), unsafe.Sizeof(vertex{}))
+	// one vertex per node: 48 B of connections plus mutex, level and flag
+	// rounds to the 64 B class, replacing three objects (24+32+32 B)
+	assert.Equal(t, uintptr(64), unsafe.Sizeof(vertex{}))
 }

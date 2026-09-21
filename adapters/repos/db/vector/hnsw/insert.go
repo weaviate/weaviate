@@ -474,12 +474,11 @@ func (h *hnsw) addOne(ctx context.Context, id uint64, vector []float32, node *ve
 	h.RUnlock()
 
 	targetLevel := int(node.level)
-	var err error
-	node.connections, err = packedconn.NewWithMaxLayer(uint8(targetLevel))
-	if err != nil {
-		return err
-	}
+	// the vertex is fresh, so growing its zero-value connections is the same
+	// as constructing them
+	node.connections.GrowLayersTo(uint8(targetLevel))
 
+	var err error
 	if err = h.commitLog.AddNode(id, node.level); err != nil {
 		return err
 	}
@@ -577,7 +576,7 @@ func (h *hnsw) insertInitialElement(id uint64, node *vertex, nodeVec []float32) 
 	if err != nil {
 		return err
 	}
-	node.connections = conns
+	node.connections = *conns
 	node.level = 0
 	if err := h.commitLog.AddNode(id, node.level); err != nil {
 		return err
