@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -948,51 +949,56 @@ func (m *Migrator) UpdateReplicationConfig(ctx context.Context, className string
 	return nil
 }
 
+// RecalculateVectorDimensions rebuilds the dimensions bucket of every loaded shard
+// from its objects, a few shards at a time. Shards keep serving meanwhile, see
+// [Shard.recalculateDimensions]. Shards of inactive tenants are not touched.
+//
+// It returns the first error and still goes through the remaining shards.
 func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
-	count := 0
-	m.logger.
-		WithField("action", "reindex").
-		Info("Reindexing dimensions, this may take a while")
+	// before that the indices are not all there, and none would not be an error
+	if !m.db.StartupComplete() {
+		return errors.New("recalculate vector dimensions: db has not completed startup")
+	}
+	logger := m.logger.WithField("action", "reindex_vector_dimensions")
+	logger.Info("Reindexing dimensions, this may take a while")
 
-	m.db.indexLock.Lock()
-	defer m.db.indexLock.Unlock()
-
-	// Iterate over all indexes
+	m.db.indexLock.RLock()
+	indices := make([]*Index, 0, len(m.db.indices))
 	for _, index := range m.db.indices {
+		indices = append(indices, index)
+	}
+	m.db.indexLock.RUnlock()
+
+	var shards, failed, objects atomic.Int64
+	eg := enterrors.NewErrorGroupWrapper(m.logger)
+	eg.SetLimit(max(1, _NUMCPU/2))
+	for _, index := range indices {
 		err := index.ForEachShard(func(name string, shard ShardLike) error {
-			return shard.resetDimensionsLSM(ctx)
-		})
-		if err != nil {
-			m.logger.WithField("action", "reindex").WithError(err).Warn("could not reset vector dimensions")
-			return err
-		}
-
-		// Iterate over all shards
-		err = index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
-			count = count + 1
-			return object.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
-				if err = shard.extendDimensionTrackerLSM(dims, object.DocID, targetVector); err != nil {
-					return fmt.Errorf("failed to extend dimension tracker for vector %q: %w", targetVector, err)
+			eg.Go(func() error {
+				count, err := shard.recalculateDimensions(ctx)
+				if err != nil {
+					failed.Add(1)
+					logger.WithField("shard", shard.ID()).Errorf("could not reindex dimensions: %v", err)
+					return fmt.Errorf("reindex dimensions of shard %q: %w", shard.ID(), err)
 				}
+				shards.Add(1)
+				objects.Add(int64(count))
 				return nil
-			})
+			}, name)
+			return nil
 		})
 		if err != nil {
-			m.logger.WithField("action", "reindex").WithError(err).Warn("could not extend vector dimensions")
 			return err
 		}
 	}
-	f := func() {
-		for {
-			m.logger.
-				WithField("action", "reindex").
-				Warnf("Reindexed %v objects. Reindexing dimensions complete. Please remove environment variable REINDEX_VECTOR_DIMENSIONS_AT_STARTUP before next startup", count)
-			time.Sleep(5 * time.Minute)
-		}
-	}
-	enterrors.GoWrapper(f, m.logger)
+	err := eg.Wait()
 
-	return nil
+	logger.WithField("shards", shards.Load()).
+		WithField("shards_failed", failed.Load()).
+		WithField("objects", objects.Load()).
+		Warn("Reindexing dimensions complete. Please remove environment variable " +
+			"REINDEX_VECTOR_DIMENSIONS_AT_STARTUP before next startup")
+	return err
 }
 
 func (m *Migrator) RecountProperties(ctx context.Context) error {
