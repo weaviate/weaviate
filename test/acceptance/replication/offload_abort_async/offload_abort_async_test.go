@@ -52,7 +52,7 @@ func TestFreezeAbortDoesNotSilentlyDivergeReplicas(t *testing.T) {
 		WithOffloadS3("offloading", "us-west-1").
 		WithWeaviateEnv("OFFLOAD_TIMEOUT", "5").
 		WithoutWeaviateEnvs("OFFLOAD_S3_BUCKET_AUTO_CREATE").
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		With3NodeCluster().
 		Start(ctx)
 	require.Nil(t, err)
