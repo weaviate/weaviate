@@ -974,12 +974,20 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	configureServer = makeConfigureServer(appState)
 
-	// Add dimensions to all the objects in the database, if requested by the user
+	// Recalculate the tracked dimensions of all objects in the database, if requested by the
+	// user. In the background, as the inverted reindexing above: the db is ready for it only
+	// once the meta store is.
 	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup && repo.GetConfig().TrackVectorDimensions {
-		appState.Logger.
-			WithField("action", "startup").
-			Info("Reindexing dimensions")
-		migrator.RecalculateVectorDimensions(ctx)
+		enterrors.GoWrapper(func() {
+			l := appState.Logger.WithField("action", "startup")
+			if err := metaStoreReady.waitForMetaStore(); err != nil {
+				l.Errorf("Reindexing dimensions skipped: %v", err)
+				return
+			}
+			if err := migrator.RecalculateVectorDimensions(reindexCtx); err != nil {
+				l.Errorf("Reindexing dimensions failed: %v", err)
+			}
+		}, appState.Logger)
 	}
 
 	// Add recount properties of all the objects in the database, if requested by the user
