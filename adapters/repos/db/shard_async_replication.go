@@ -746,7 +746,13 @@ func aggregateHashTreeLeaf(ht hashtree.AggregatedHashTree, height int, uuidBytes
 
 // initHashtree runs one init attempt: under the write lock it installs a fresh tree, arms the write gate and snapshots the bucket, then folds the snapshot outside the lock.
 // Writers put and fold under one RLock hold, so each write lands entirely before the snapshot (folded by the scan) or entirely after (folded by the writer): never twice, never missed.
+// The tree height is re-derived under that lock, so a height change applied while the attempt was queued is scanned once instead of scanned and then rebuilt.
 func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig, bucket *lsmkv.Bucket) (err error) {
+	// A cancelled attempt is a stop, not an init: keep it out of the counters.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	start := time.Now()
 
 	s.metrics.IncAsyncReplicationHashTreeInitCount()
@@ -756,7 +762,9 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 		s.metrics.DecAsyncReplicationHashTreeInitRunning()
 
 		if err != nil {
-			s.metrics.IncAsyncReplicationHashTreeInitFailure()
+			if ctx.Err() == nil {
+				s.metrics.IncAsyncReplicationHashTreeInitFailure()
+			}
 			return
 		}
 
@@ -769,21 +777,23 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 	closeInitCh := func() { closeOnce.Do(func() { close(initCh) }) }
 	defer closeInitCh()
 
-	// Pinning a lazy segment loads it (disk I/O); do that with no shard lock held so the locked snapshot below stays cheap.
-	bucket.CursorOnDiskDigest(storobj.MarshallerV1HeaderLen).Close()
-
 	var ht hashtree.AggregatedHashTree
 	var scan *lsmkv.ObjectDigestScan
 	stopped, err := func() (bool, error) {
 		s.asyncReplicationRWMux.Lock()
-		defer s.asyncReplicationRWMux.Unlock() // deferred: a segment load panic must not wedge the shard mutex
+		defer s.asyncReplicationRWMux.Unlock() // deferred: a panic in the snapshot must not wedge the shard mutex
 
 		// Disabled, or a disable+enable flap spawned a newer goroutine that owns the current tree and gate.
 		if s.hashtree == nil || ctx.Err() != nil {
 			return true, nil
 		}
+		// The height is read live: an enable on a running shard only updates the stored config.
+		effective := s.asyncReplicationConfig
+		if s.index != nil && s.index.globalreplicationConfig != nil {
+			effective = effective.Effective(*s.index.globalreplicationConfig)
+		}
 		// Fresh tree, not Reset: folds racing a cancelled attempt die with its own object.
-		fresh, err := hashtree.NewHashTree(config.hashtreeHeight)
+		fresh, err := hashtree.NewHashTree(effective.hashtreeHeight)
 		if err != nil {
 			return false, err
 		}
