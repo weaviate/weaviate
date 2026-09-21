@@ -31,6 +31,13 @@ type ObjectDigestScan struct {
 // The memtable view blocks every writer of this bucket until Apply ends its in-memory pass (or Close runs); taking the disk view loads lazy segments.
 func (b *Bucket) NewObjectDigestScan() *ObjectDigestScan {
 	inMem := b.CursorInMemWithTombstones()
+	// A panic taking the disk view must not leave the flush and memtable locks held.
+	defer func() {
+		if r := recover(); r != nil {
+			inMem.Close()
+			panic(r)
+		}
+	}()
 	// Digest mode: Apply reads only the header, so the value copy is skipped.
 	onDisk := b.CursorOnDiskDigest(storobj.MarshallerV1HeaderLen)
 	return &ObjectDigestScan{inMem: inMem, onDisk: onDisk}

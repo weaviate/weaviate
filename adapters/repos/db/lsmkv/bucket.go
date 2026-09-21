@@ -498,7 +498,7 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 }
 
 // pauseCompaction / resumeCompaction are ref-counted at the bucket level so
-// snapshot, ApplyToObjectDigests, and runtime-reindex callers share one pause
+// snapshot and runtime-reindex callers share one pause
 // (weaviate/0-weaviate-issues#251 + weaviate/weaviate#11486 review).
 func (b *Bucket) pauseCompaction(ctx context.Context) error {
 	b.pauseCompactionMu.Lock()

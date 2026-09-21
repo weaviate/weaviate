@@ -340,3 +340,15 @@ func TestObjectDigestScanRejectsNonUUIDKey(t *testing.T) {
 		})
 	}
 }
+
+func TestObjectDigestScanReleasesMemtableLocksWhenDiskViewPanics(t *testing.T) {
+	active := newTestMemtableReplace(map[string][]byte{string(digestScanKey(0x0a)): []byte("value")})
+	b := Bucket{active: active, disk: nil, strategy: StrategyReplace, logger: nullLogger()}
+
+	require.Panics(t, func() { b.NewObjectDigestScan() })
+
+	require.True(t, b.flushLock.TryLock(), "flush lock leaked by the panicking snapshot")
+	b.flushLock.Unlock()
+	require.True(t, active.TryLock(), "memtable lock leaked by the panicking snapshot")
+	active.Unlock()
+}
