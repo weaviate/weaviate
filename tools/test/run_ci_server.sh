@@ -59,20 +59,8 @@ fi
 if [ $# -eq 1 ] && [ "$1" == "--with-mcp" ]; then
   START_WEAVIATE_MCP="true"
 fi
-# --with-model2vec starts the shared test server backed by text2vec-model2vec
-# instead of text2vec-contextionary. Both use the same ports, so only one of
-# them can run at a time.
-START_WEAVIATE_MODEL2VEC=""
-if [ $# -eq 1 ] && [ "$1" == "--with-model2vec" ]; then
-  START_WEAVIATE_MODEL2VEC="true"
-fi
-
 COMPOSE_FILE=docker-compose-test.yml
-VECTORIZER_SERVICE=contextionary
-if [ "$START_WEAVIATE_MODEL2VEC" == "true" ]; then
-  COMPOSE_FILE=docker-compose-model2vec-test.yml
-  VECTORIZER_SERVICE=text2vec-model2vec
-fi
+VECTORIZER_SERVICE=text2vec-model2vec
 
 build "$COMPOSE_FILE" weaviate
 surpress_on_success docker compose -f "$COMPOSE_FILE" up --force-recreate -d weaviate "$VECTORIZER_SERVICE"

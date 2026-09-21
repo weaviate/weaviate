@@ -31,7 +31,7 @@ func TestGRPC_Aggregate(t *testing.T) {
 	grpcClient, _ := newClient(t)
 	require.NotNil(t, grpcClient)
 
-	cities.CreateCountryCityAirportSchema(t, host)
+	cities.CreateCountryCityAirportSchemaWithVectorizer(t, host, "text2vec-model2vec")
 	cities.InsertCountryCityAirportObjects(t, host)
 	defer cities.DeleteCountryCityAirportSchema(t, host)
 
