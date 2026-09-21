@@ -314,21 +314,9 @@ type Shard struct {
 	// in-flight cycles terminate promptly when the shard is deregistered.
 	asyncRepCtx context.Context
 
-	// asyncRepWg tracks all async replication goroutines that may access shard
-	// resources: in-flight hashbeat cycles, hashtree init goroutines, and
-	// scheduler-register goroutines. The counter is usually 0 or 1 but may
-	// briefly exceed 1 when an init goroutine overlaps with a dispatch.
-	// Done() for hashbeat cycles is called before the result is sent back to
-	// the dispatcher, so the scheduler cannot re-dispatch until Done() fires.
-	// Callers that need a strict happens-before guarantee call asyncRepWg.Wait()
-	// after Deregister; Deregister settles Done()s for batches still queued, so
-	// Wait() only covers cycles that actually started.
-	// A theoretical Add-vs-Wait reuse race degrades to a recovered panic, not a wedge (observers and pool are panic-safe).
-	asyncRepWg sync.WaitGroup
-
-	// asyncRepDrainObserver (guarded by asyncRepDrainMu) is shared by bounded drain waits so retries against a wedged worker don't accumulate waiter goroutines.
-	asyncRepDrainMu       sync.Mutex
-	asyncRepDrainObserver chan struct{}
+	// asyncRepWg tracks async replication goroutines touching shard resources: hashbeat cycles, hashtree init, scheduler register.
+	// Done() before the result plus Wait()/Drained() after Deregister gives a strict happens-before against a stopped cycle.
+	asyncRepWg drainLatch
 
 	// asyncRepNeedsRebuild is set by runEntry when the effective hashtree height
 	// (after applying runtime-config overrides) differs from the current hashtree

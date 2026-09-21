@@ -2001,7 +2001,11 @@ func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool
 
 	// Pre-drain BEFORE the apply lock (a bounded wait inside it stalls every schema apply); a cycle dispatched in between is absorbed by the post-disable drain.
 	select {
-	case <-s.asyncRepDrained(sched.logger):
+	case <-s.asyncRepDrained():
+		// An idle latch ties with ctx.Done(); standing down here keeps Close() from leaving the shard disabled with no .ht.
+		if sched.ctx.Err() != nil {
+			return false, 0, false, false
+		}
 	case <-sched.ctx.Done():
 		return false, 0, false, false
 	case <-time.After(time.Duration(asyncReplicationWorkerDrainTimeout.Load())):
@@ -2049,7 +2053,11 @@ func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool
 
 	// Pre-drain BEFORE the disable: a wedged cycle must yield with the shard still in the repair mesh.
 	select {
-	case <-s.asyncRepDrained(sched.logger):
+	case <-s.asyncRepDrained():
+		// An idle latch ties with ctx.Done(); standing down here keeps Close() from leaving the shard disabled with no .ht.
+		if sched.ctx.Err() != nil {
+			return false, 0, false, false
+		}
 	case <-sched.ctx.Done():
 		return false, 0, false, false
 	case <-time.After(time.Duration(asyncReplicationWorkerDrainTimeout.Load())):
@@ -2068,7 +2076,7 @@ func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool
 	// leaves the shard out of the mesh (enabling over a straggler risks a double-fold), so it
 	// must be a loud failure with growing backoff, not a silent spin.
 	select {
-	case <-s.asyncRepDrained(sched.logger):
+	case <-s.asyncRepDrained():
 	case <-time.After(time.Duration(asyncReplicationWorkerDrainTimeout.Load())):
 		drainTimeout := time.Duration(asyncReplicationWorkerDrainTimeout.Load())
 		return true, fail("drain", fmt.Errorf("worker drain timed out after %s", drainTimeout)), false, false

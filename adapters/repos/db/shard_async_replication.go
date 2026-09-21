@@ -1351,25 +1351,9 @@ func init() {
 	asyncReplicationWorkerDrainTimeout.Store(int64(10 * time.Second))
 }
 
-// asyncRepDrained returns a channel closed when asyncRepWg next reaches zero; callers share one waiter goroutine per pinned episode.
-func (s *Shard) asyncRepDrained(logger logrus.FieldLogger) <-chan struct{} {
-	s.asyncRepDrainMu.Lock()
-	defer s.asyncRepDrainMu.Unlock()
-	if s.asyncRepDrainObserver == nil {
-		ch := make(chan struct{})
-		s.asyncRepDrainObserver = ch
-		enterrors.GoWrapper(func() {
-			// Deferred (nil-before-close order preserved) so a panicking Wait cannot poison the observer forever.
-			defer func() {
-				s.asyncRepDrainMu.Lock()
-				s.asyncRepDrainObserver = nil
-				s.asyncRepDrainMu.Unlock()
-				close(ch)
-			}()
-			s.asyncRepWg.Wait()
-		}, logger)
-	}
-	return s.asyncRepDrainObserver
+// asyncRepDrained returns a channel closed when asyncRepWg next reaches zero; already closed when idle.
+func (s *Shard) asyncRepDrained() <-chan struct{} {
+	return s.asyncRepWg.Drained()
 }
 
 // dumpPublishGate: cancel never blocks; once it wins, no published .ht survives (late publisher self-deletes).
