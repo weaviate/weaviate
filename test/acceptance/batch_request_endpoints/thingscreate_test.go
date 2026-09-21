@@ -29,8 +29,9 @@ import (
 func TestBatchThingsCreateResultsOrder(t *testing.T) {
 	t.Parallel()
 
-	classOneName := "ItIsExtremelyUnlikelyThatThisClassActuallyExistsButJustToBeSureHereAreSomeRandomNumbers12987825624398509861298409782539802434516542"
-	classTwoName := "ItIsExtremelyUnlikelyThatThisClassActuallyExistsButJustToBeSureHereAreSomeRandomNumbers12987825624398509861298409782539802434516541"
+	// the names are invalid on purpose, so that auto schema can not create the classes
+	classOneName := "Not-A-Valid-Things-Class-One"
+	classTwoName := "Not-A-Valid-Things-Class-Two"
 	expectedResult := "class '%s' not present in schema"
 
 	// generate actioncreate content

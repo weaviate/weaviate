@@ -16,8 +16,10 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -96,7 +98,7 @@ type memtable interface {
 	roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error
 	roaringSetAddRemoveSlices(key []byte, additions []uint64, deletions []uint64) error
 	roaringSetGet(key []byte) (roaringset.BitmapLayer, error)
-	roaringSetAdjustMeta(entriesChanged int)
+	roaringSetAdjustMeta()
 	roaringSetAddCommitLog(node *roaringset.SegmentNodeList) error
 
 	roaringSetRangeAdd(key uint64, values ...uint64) error
@@ -111,7 +113,7 @@ type memtable interface {
 	flushDataMap(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
 	flushDataCollection(f *segmentindex.SegmentFile, flat []*binarySearchNodeMulti) ([]segmentindex.Key, error)
 	flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.MeteredWriter, bufw *bufio.Writer) ([]segmentindex.Key, *sroar.Bitmap, error)
-	flushDataRoaringSet(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
+	flushDataRoaringSet(f *segmentindex.SegmentFile, ogF io.WriteSeeker, bufw *bufio.Writer) error
 	flushDataRoaringSetRange(f *segmentindex.SegmentFile) ([]segmentindex.Key, error)
 
 	incWriterCount()
@@ -128,6 +130,9 @@ type Memtable struct {
 	roaringSet      *roaringset.BinarySearchTree
 	roaringSetRange *roaringsetrange.Memtable
 	commitlog       memtableCommitLogger
+	// scratch for appendMapSorted, guarded by the embedded lock
+	mapPairScratch  []byte
+	mapValueScratch [1]value
 	allocChecker    memwatch.AllocChecker
 	size            uint64
 	// netCountAdditions approximates the net live keys this memtable adds on
@@ -576,23 +581,24 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 		return fmt.Errorf("Memtable::appendMapSorted(): %w", err)
 	}
 
-	valuesForCommitLog, err := pair.Bytes()
-	if err != nil {
+	m.Lock()
+	defer m.Unlock()
+
+	// The commit log serializes the node before returning, so the scratch
+	// buffers can be reused by the next write.
+	size := pair.Size()
+	m.mapPairScratch = slices.Grow(m.mapPairScratch[:0], size)[:size]
+	if err := pair.EncodeBytes(m.mapPairScratch); err != nil {
 		return err
 	}
+	valuesForCommitLog := m.mapPairScratch
+	m.mapValueScratch[0] = value{value: valuesForCommitLog, tombstone: pair.Tombstone}
 
 	newNode := segmentCollectionNode{
 		primaryKey: key,
-		values: []value{
-			{
-				value:     valuesForCommitLog,
-				tombstone: pair.Tombstone,
-			},
-		},
+		values:     m.mapValueScratch[:],
 	}
 
-	m.Lock()
-	defer m.Unlock()
 	m.writesSinceLastSync = true
 
 	if err := m.commitlog.append(newNode); err != nil {
@@ -815,4 +821,21 @@ func (m *Memtable) extractRoaringSetRange() *roaringsetrange.Memtable {
 
 	result := m.roaringSetRange
 	return result
+}
+
+func (m *Memtable) flattenKeyMap() []*binarySearchNodeMap {
+	m.RLock()
+	defer m.RUnlock()
+
+	return m.keyMap.flattenInOrder()
+}
+
+// roaringSetRangeNodes returns the key-0 node, which carries every value and is
+// the only one with deletions, then one node per set bit. Nodes() allocates
+// every bitmap it returns, so the caller serializes them without the lock.
+func (m *Memtable) roaringSetRangeNodes() []*roaringsetrange.MemtableNode {
+	m.RLock()
+	defer m.RUnlock()
+
+	return m.roaringSetRange.Nodes()
 }

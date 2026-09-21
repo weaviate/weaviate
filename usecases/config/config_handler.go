@@ -1105,29 +1105,32 @@ type DistributedTasksConfig struct {
 }
 
 type Persistence struct {
-	DataPath                                     string `json:"dataPath" yaml:"dataPath"`
-	MemtablesFlushDirtyAfter                     int    `json:"flushDirtyMemtablesAfter" yaml:"flushDirtyMemtablesAfter"`
-	MemtablesMaxSizeMB                           int    `json:"memtablesMaxSizeMB" yaml:"memtablesMaxSizeMB"`
-	MemtablesMinActiveDurationSeconds            int    `json:"memtablesMinActiveDurationSeconds" yaml:"memtablesMinActiveDurationSeconds"`
-	MemtablesMaxActiveDurationSeconds            int    `json:"memtablesMaxActiveDurationSeconds" yaml:"memtablesMaxActiveDurationSeconds"`
-	LSMMaxSegmentSize                            int64  `json:"lsmMaxSegmentSize" yaml:"lsmMaxSegmentSize"`
-	LSMSegmentsCleanupIntervalSeconds            int    `json:"lsmSegmentsCleanupIntervalSeconds" yaml:"lsmSegmentsCleanupIntervalSeconds"`
-	LSMSeparateObjectsCompactions                bool   `json:"lsmSeparateObjectsCompactions" yaml:"lsmSeparateObjectsCompactions"`
-	LSMEnableSegmentsChecksumValidation          bool   `json:"lsmEnableSegmentsChecksumValidation" yaml:"lsmEnableSegmentsChecksumValidation"`
-	LSMSkipWriteClassNameEnabled                 bool   `json:"lsmSkipClassNameEnabled" yaml:"lsmSkipClassNameEnabled"`
-	LSMCycleManagerRoutinesFactor                int    `json:"lsmCycleManagerRoutinesFactor" yaml:"lsmCycleManagerRoutinesFactor"`
-	IndexRangeableInMemory                       bool   `json:"indexRangeableInMemory" yaml:"indexRangeableInMemory"`
-	MinMMapSize                                  int64  `json:"minMMapSize" yaml:"minMMapSize"`
-	LazySegmentsDisabled                         bool   `json:"lazySegmentsDisabled" yaml:"lazySegmentsDisabled"`
-	SegmentInfoIntoFileNameEnabled               bool   `json:"segmentFileInfoEnabled" yaml:"segmentFileInfoEnabled"`
-	WriteMetadataFilesEnabled                    bool   `json:"writeMetadataFilesEnabled" yaml:"writeMetadataFilesEnabled"`
-	MaxReuseWalSize                              int64  `json:"MaxReuseWalSize" yaml:"MaxReuseWalSize"`
-	HNSWMaxLogSize                               int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
-	HNSWDisableSnapshots                         bool   `json:"hnswDisableSnapshots" yaml:"hnswDisableSnapshots"`
-	HNSWSnapshotIntervalSeconds                  int    `json:"hnswSnapshotIntervalSeconds" yaml:"hnswSnapshotIntervalSeconds"`
-	HNSWSnapshotOnStartup                        bool   `json:"hnswSnapshotOnStartup" yaml:"hnswSnapshotOnStartup"`
-	HNSWSnapshotMinDeltaCommitlogsNumber         int    `json:"hnswSnapshotMinDeltaCommitlogsNumber" yaml:"hnswSnapshotMinDeltaCommitlogsNumber"`
-	HNSWSnapshotMinDeltaCommitlogsSizePercentage int    `json:"hnswSnapshotMinDeltaCommitlogsSizePercentage" yaml:"hnswSnapshotMinDeltaCommitlogsSizePercentage"`
+	DataPath                            string `json:"dataPath" yaml:"dataPath"`
+	MemtablesFlushDirtyAfter            int    `json:"flushDirtyMemtablesAfter" yaml:"flushDirtyMemtablesAfter"`
+	MemtablesMaxSizeMB                  int    `json:"memtablesMaxSizeMB" yaml:"memtablesMaxSizeMB"`
+	MemtablesMinActiveDurationSeconds   int    `json:"memtablesMinActiveDurationSeconds" yaml:"memtablesMinActiveDurationSeconds"`
+	MemtablesMaxActiveDurationSeconds   int    `json:"memtablesMaxActiveDurationSeconds" yaml:"memtablesMaxActiveDurationSeconds"`
+	LSMMaxSegmentSize                   int64  `json:"lsmMaxSegmentSize" yaml:"lsmMaxSegmentSize"`
+	LSMSegmentsCleanupIntervalSeconds   int    `json:"lsmSegmentsCleanupIntervalSeconds" yaml:"lsmSegmentsCleanupIntervalSeconds"`
+	LSMSeparateObjectsCompactions       bool   `json:"lsmSeparateObjectsCompactions" yaml:"lsmSeparateObjectsCompactions"`
+	LSMEnableSegmentsChecksumValidation bool   `json:"lsmEnableSegmentsChecksumValidation" yaml:"lsmEnableSegmentsChecksumValidation"`
+	LSMSkipWriteClassNameEnabled        bool   `json:"lsmSkipClassNameEnabled" yaml:"lsmSkipClassNameEnabled"`
+	LSMCycleManagerRoutinesFactor       int    `json:"lsmCycleManagerRoutinesFactor" yaml:"lsmCycleManagerRoutinesFactor"`
+	IndexRangeableInMemory              bool   `json:"indexRangeableInMemory" yaml:"indexRangeableInMemory"`
+	// Properties whose rangeable index keeps its segments in memory, per
+	// collection. Read only when IndexRangeableInMemory is false.
+	IndexRangeableInMemoryProps                  map[string][]string `json:"indexRangeableInMemoryProps" yaml:"indexRangeableInMemoryProps"`
+	MinMMapSize                                  int64               `json:"minMMapSize" yaml:"minMMapSize"`
+	LazySegmentsDisabled                         bool                `json:"lazySegmentsDisabled" yaml:"lazySegmentsDisabled"`
+	SegmentInfoIntoFileNameEnabled               bool                `json:"segmentFileInfoEnabled" yaml:"segmentFileInfoEnabled"`
+	WriteMetadataFilesEnabled                    bool                `json:"writeMetadataFilesEnabled" yaml:"writeMetadataFilesEnabled"`
+	MaxReuseWalSize                              int64               `json:"MaxReuseWalSize" yaml:"MaxReuseWalSize"`
+	HNSWMaxLogSize                               int64               `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
+	HNSWDisableSnapshots                         bool                `json:"hnswDisableSnapshots" yaml:"hnswDisableSnapshots"`
+	HNSWSnapshotIntervalSeconds                  int                 `json:"hnswSnapshotIntervalSeconds" yaml:"hnswSnapshotIntervalSeconds"`
+	HNSWSnapshotOnStartup                        bool                `json:"hnswSnapshotOnStartup" yaml:"hnswSnapshotOnStartup"`
+	HNSWSnapshotMinDeltaCommitlogsNumber         int                 `json:"hnswSnapshotMinDeltaCommitlogsNumber" yaml:"hnswSnapshotMinDeltaCommitlogsNumber"`
+	HNSWSnapshotMinDeltaCommitlogsSizePercentage int                 `json:"hnswSnapshotMinDeltaCommitlogsSizePercentage" yaml:"hnswSnapshotMinDeltaCommitlogsSizePercentage"`
 }
 
 // DefaultPersistenceDataPath is the default location for data directory when no location is provided
@@ -1187,6 +1190,19 @@ const (
 func (p Persistence) Validate() error {
 	if p.DataPath == "" {
 		return fmt.Errorf("persistence.dataPath must be set")
+	}
+
+	// A config file writes this field past the environment parser's refusals.
+	for collection, props := range p.IndexRangeableInMemoryProps {
+		if _, err := schema.ValidateClassName(collection); err != nil {
+			return fmt.Errorf("persistence.indexRangeableInMemoryProps names %q: %w",
+				collection, err)
+		}
+		if len(props) == 0 {
+			return fmt.Errorf("persistence.indexRangeableInMemoryProps names %q with no "+
+				"properties: list them, or write %q for every rangeable property it has",
+				collection, AllProperties)
+		}
 	}
 
 	return nil

@@ -360,6 +360,10 @@ type Index struct {
 
 	closed bool
 
+	// inflight counts operations admitted by enterRead. beginClose drains it
+	// instead of holding closeLock across teardown.
+	inflight sync.WaitGroup
+
 	shardReindexer ShardReindexerV3
 
 	router         routerTypes.Router
@@ -1155,11 +1159,10 @@ func (db *DB) ReconcileAsyncReplication(ctx context.Context) error {
 		err := func() error {
 			idx.dropIndex.RLock()
 			defer idx.dropIndex.RUnlock()
-			idx.closeLock.RLock()
-			defer idx.closeLock.RUnlock()
-			if idx.closed {
+			if err := idx.enterRead(); err != nil {
 				return nil // index is shutting down; nothing to reconcile
 			}
+			defer idx.exitRead()
 			return idx.reconcileAsyncReplication(ctx)
 		}()
 		if err != nil {
@@ -1214,6 +1217,7 @@ type IndexConfig struct {
 	SeparateObjectsCompactions          bool
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
+	IndexRangeableInMemoryProps         []string
 	MaxSegmentSize                      int64
 	ReplicationFactor                   int64
 	DeletionStrategy                    string
@@ -1263,6 +1267,14 @@ type IndexConfig struct {
 	AutoTenantActivation bool
 
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
+}
+
+// keepRangeableInMemory reports whether propName's rangeable bucket keeps its
+// segments in memory.
+func (c IndexConfig) keepRangeableInMemory(propName string) bool {
+	return c.IndexRangeableInMemory ||
+		slices.Contains(c.IndexRangeableInMemoryProps, config.AllProperties) ||
+		slices.Contains(c.IndexRangeableInMemoryProps, propName)
 }
 
 func indexID(class schema.ClassName) string {
@@ -3039,12 +3051,10 @@ func (i *Index) DropLocalShard(name string) error {
 }
 
 func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool, implicitShardLoading bool) error {
-	i.closeLock.RLock()
-	defer i.closeLock.RUnlock()
-
-	if i.closed {
-		return errAlreadyShutdown
+	if err := i.enterRead(); err != nil {
+		return err
 	}
+	defer i.exitRead()
 
 	// make sure same shard is not inited in parallel
 	i.shardCreateLocks.Lock(shardName)
@@ -3080,12 +3090,10 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 }
 
 func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
-	i.closeLock.RLock()
-	defer i.closeLock.RUnlock()
-
-	if i.closed {
-		return errAlreadyShutdown
+	if err := i.enterRead(); err != nil {
+		return err
 	}
+	defer i.exitRead()
 
 	i.shardCreateLocks.Lock(shardName)
 	defer i.shardCreateLocks.Unlock(shardName)
@@ -3165,12 +3173,10 @@ func (i *Index) getLoadedShard(shardName string) (shard ShardLike, release func(
 func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensureInit bool) (
 	shard ShardLike, release func(), err error,
 ) {
-	i.closeLock.RLock()
-	defer i.closeLock.RUnlock()
-
-	if i.closed {
-		return nil, func() {}, fmt.Errorf("local shard %q: %w", shardName, errAlreadyShutdown)
+	if err := i.enterRead(); err != nil {
+		return nil, func() {}, fmt.Errorf("local shard %q: %w", shardName, err)
 	}
+	defer i.exitRead()
 
 	// make sure same shard is not inited in parallel. In case it is not loaded yet, switch to a RW lock and initialize
 	// the shard
@@ -3371,21 +3377,15 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 }
 
 func (i *Index) drop() error {
-	i.closeLock.Lock()
-	defer i.closeLock.Unlock()
-
-	if i.closed {
-		return errAlreadyShutdown
+	if err := i.beginClose(); err != nil {
+		return err
 	}
 
-	i.closed = true
-
-	// Terminal registry sweep. Safe because i.closed is set under closeLock.Lock and every
-	// bucket-registering init path re-checks it under closeLock.RLock, so no live
-	// bucket for this index can register once the drop begins.
+	// Terminal registry sweep. Safe because beginClose sets i.closed under
+	// closeLock.Lock and drains every reader admitted before it, and every
+	// bucket-registering init path checks i.closed under closeLock.RLock, so no
+	// live bucket for this index can register once the drop begins.
 	defer lsmkv.GlobalBucketRegistry.RemoveByPrefixes(i.path())
-
-	i.closingCancel()
 
 	// Check if a backup is in progress. Dont delete files in this case so the backup process can complete successfully
 	// The files will be deleted after the backup is completed and in case of a crash on next startup.
@@ -3440,8 +3440,15 @@ func (i *Index) drop() error {
 
 	if keepFiles {
 		// backup framework expects the DeleteMarkerAdd-prefixed rename
-		if err := os.Rename(i.path(), filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID()))); err != nil {
+		marker := filepath.Join(i.Config.RootPath, backup.DeleteMarkerAdd(i.ID()))
+		if err := os.Rename(i.path(), marker); err != nil {
 			ec.Add(fmt.Errorf("rename index for delete marker: %w", err))
+		} else if i.lastBackup.Load() == nil {
+			// drop blocks on backupLock until ReleaseBackup runs, so if that already
+			// finished it looked for the marker before this rename created it.
+			if err := os.RemoveAll(marker); err != nil {
+				ec.Add(fmt.Errorf("remove delete marker after backup release: %w", err))
+			}
 		}
 	} else {
 		// rename sync (must complete even if ctx is expired); RemoveAll async
@@ -3467,32 +3474,27 @@ func causesOf(err error) []error {
 	return []error{err}
 }
 
-// withCloseRLockGuard runs fn under i.closeLock.RLock, returning
-// context.Canceled WITHOUT running fn if the index is closing/closed. fn
-// must be short and must not acquire i.closeLock for writing or any lock
-// drop() holds in an inverting order.
+// withCloseRLockGuard runs fn only if the index is not closing/closed,
+// returning context.Canceled without running it otherwise. fn must not acquire
+// i.closeLock for writing or any lock drop() holds in an inverting order.
 //
 // Covers whole-index drops only: dropShards never sets i.closed, so tenant
 // deletes are invisible to the guard. Tracked in
 // https://github.com/weaviate/0-weaviate-issues/issues/288.
 func (i *Index) withCloseRLockGuard(fn func() error) error {
-	i.closeLock.RLock()
-	defer i.closeLock.RUnlock()
-
-	if i.closed {
+	if err := i.enterRead(); err != nil {
 		return context.Canceled
 	}
+	defer i.exitRead()
 
 	return fn()
 }
 
 func (i *Index) dropShards(names []string) error {
-	i.closeLock.RLock()
-	defer i.closeLock.RUnlock()
-
-	if i.closed {
-		return errAlreadyShutdown
+	if err := i.enterRead(); err != nil {
+		return err
 	}
+	defer i.exitRead()
 
 	ec := errorcompounder.NewSafe()
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
@@ -3577,12 +3579,10 @@ func (i *Index) purgeUnloadedShardRegistry(names []string) {
 }
 
 func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.OffloadCloud, names []string, nodeId string) error {
-	i.closeLock.RLock()
-	defer i.closeLock.RUnlock()
-
-	if i.closed {
-		return errAlreadyShutdown
+	if err := i.enterRead(); err != nil {
+		return err
 	}
+	defer i.exitRead()
 
 	ec := errorcompounder.NewSafe()
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
@@ -3611,19 +3611,12 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 }
 
 func (i *Index) Shutdown(ctx context.Context) error {
-	// a reader holding closeLock would hold up the whole DB shutdown
+	// a reader admitted by enterRead would hold up the whole DB shutdown
 	i.signalCloseRequested(errIndexShutdown)
 
-	i.closeLock.Lock()
-	defer i.closeLock.Unlock()
-
-	if i.closed {
-		return errAlreadyShutdown
+	if err := i.beginClose(); err != nil {
+		return err
 	}
-
-	i.closed = true
-
-	i.closingCancel()
 
 	ec := errorcompounder.NewSafe()
 
@@ -4200,5 +4193,37 @@ func (i *Index) DebugRequantizeIndex(ctx context.Context, shardName, targetVecto
 		}
 	}, i.logger)
 
+	return nil
+}
+
+// enterRead admits an operation onto a live index; pair it with exitRead. The
+// Add runs under closeLock.RLock, so it cannot land after beginClose's Wait.
+func (i *Index) enterRead() error {
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return errAlreadyShutdown
+	}
+	i.inflight.Add(1)
+	return nil
+}
+
+func (i *Index) exitRead() { i.inflight.Done() }
+
+// beginClose closes the index and drains in-flight readers. It returns holding
+// no lock: teardown must not exclude readers, or a peer's RPC handler blocks
+// behind it while this node waits on that peer.
+func (i *Index) beginClose() error {
+	i.closeLock.Lock()
+	if i.closed {
+		i.closeLock.Unlock()
+		return errAlreadyShutdown
+	}
+	i.closed = true
+	i.closingCancel()
+	i.closeLock.Unlock()
+
+	i.inflight.Wait()
 	return nil
 }

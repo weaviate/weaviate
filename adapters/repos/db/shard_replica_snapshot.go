@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/usecases/file"
 )
@@ -83,7 +84,20 @@ func (s *Shard) collectShardRelativeFiles(ctx context.Context, stagingRoot strin
 	if err != nil {
 		return nil, err
 	}
-	return append(out, mutables...), nil
+	out = append(out, mutables...)
+
+	// index.db holds the dynamic upgrade verdicts; a target without it reads
+	// an upgraded legacy dynamic index as flat and deletes the hnsw it was
+	// sent. Copied, like the bookkeeping files: the live file is open and
+	// mutating.
+	if s.dynamicVectorIndexDB != nil {
+		rel, err := dynamic.SnapshotSharedStateDB(s.dynamicVectorIndexDB, s.path(), s.path(), stagingRoot)
+		if err != nil {
+			return nil, fmt.Errorf("snapshot dynamic state for replica: %w", err)
+		}
+		out = append(out, rel)
+	}
+	return out, nil
 }
 
 // shardRelativePath converts a path returned by ListBackupFiles (relative to

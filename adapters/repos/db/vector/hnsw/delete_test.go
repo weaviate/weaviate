@@ -1308,42 +1308,36 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 		{1, 2, 3, 4, 5, 6, 7, 8},
 	})
 	index.nodes[0] = &vertex{
-		id:          0,
 		connections: conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		{0, 2, 3, 4, 5, 6, 7, 8},
 	})
 	index.nodes[1] = &vertex{
-		id:          1,
 		connections: conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		{1, 0, 3, 4, 5, 6, 7, 8},
 	})
 	index.nodes[2] = &vertex{
-		id:          2,
 		connections: conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		{2, 1, 0, 4, 5, 6, 7, 8},
 	})
 	index.nodes[3] = &vertex{
-		id:          3,
 		connections: conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		{3, 2, 1, 0, 5, 6, 7, 8},
 	})
 	index.nodes[4] = &vertex{
-		id:          4,
 		connections: conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		{3, 4, 2, 1, 0, 6, 7, 8},
 	})
 	index.nodes[5] = &vertex{
-		id:          5,
 		connections: conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
@@ -1351,7 +1345,6 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 		{7},
 	})
 	index.nodes[6] = &vertex{
-		id:          6,
 		connections: conns,
 		level:       1,
 	}
@@ -1360,7 +1353,6 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 		{6},
 	})
 	index.nodes[7] = &vertex{
-		id:          7,
 		connections: conns,
 		level:       1,
 	}
@@ -1368,7 +1360,6 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 		{7, 6, 4, 3, 5, 2, 1, 0},
 	})
 	index.nodes[8] = &vertex{
-		id:          8,
 		connections: conns,
 	}
 
@@ -1468,7 +1459,6 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		{1},
 	})
 	index.nodes[0] = &vertex{
-		id:          0,
 		connections: conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
@@ -1476,7 +1466,6 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		1: {2},
 	})
 	index.nodes[1] = &vertex{
-		id:          1,
 		connections: conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
@@ -1484,7 +1473,6 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		1: {1},
 	})
 	index.nodes[2] = &vertex{
-		id:          2,
 		connections: conns,
 	}
 
@@ -2189,7 +2177,6 @@ func TestDelete_EntrypointWithLowerLevelThanOtherNodes(t *testing.T) {
 		{1}, // connections at level 0
 	})
 	index.nodes[0] = &vertex{
-		id:          0,
 		level:       0,
 		connections: conns0,
 	}
@@ -2203,7 +2190,6 @@ func TestDelete_EntrypointWithLowerLevelThanOtherNodes(t *testing.T) {
 		{},  // level 3
 	})
 	index.nodes[1] = &vertex{
-		id:          1,
 		level:       3, // Higher than entrypoint
 		connections: conns1,
 	}
@@ -2212,8 +2198,8 @@ func TestDelete_EntrypointWithLowerLevelThanOtherNodes(t *testing.T) {
 	// Verify the setup is correct
 	require.Equal(t, uint64(0), index.entryPointID)
 	require.Equal(t, 0, index.currentMaximumLayer)
-	require.Equal(t, 0, index.nodes[0].level)
-	require.Equal(t, 3, index.nodes[1].level)
+	require.Equal(t, 0, int(index.nodes[0].level))
+	require.Equal(t, 3, int(index.nodes[1].level))
 	require.Equal(t, uint8(1), index.nodes[0].connections.Layers())
 	require.Equal(t, uint8(4), index.nodes[1].connections.Layers())
 

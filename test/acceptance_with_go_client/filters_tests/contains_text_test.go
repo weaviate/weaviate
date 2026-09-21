@@ -12,6 +12,7 @@
 package filters_tests
 
 import (
+	"acceptance_tests_with_client/fixtures"
 	"context"
 	"fmt"
 	"testing"
@@ -48,7 +49,8 @@ func testContainsText(host string) func(t *testing.T) {
 
 		t.Run("init data", func(t *testing.T) {
 			class := &models.Class{
-				Class: className,
+				Class:        className,
+				VectorConfig: fixtures.DefaultVectorConfig(),
 				Properties: []*models.Property{
 					{
 						Name:         "textField",

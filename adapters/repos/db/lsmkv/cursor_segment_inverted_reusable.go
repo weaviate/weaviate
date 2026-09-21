@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 type segmentCursorInvertedReusable struct {
@@ -122,7 +123,7 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeFromMemory(offset nodeO
 	keyStart := dataEnd
 	keyEnd := keyStart + uint64(keyLen)
 
-	s.keyBuf = growBytes(s.keyBuf, int(keyLen))
+	s.keyBuf = byteops.Resize(s.keyBuf, int(keyLen))
 	if keyLen > 0 {
 		copy(s.keyBuf, contents[keyStart:keyEnd])
 	}
@@ -138,7 +139,7 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeFromMemory(offset nodeO
 // are not resident in memory.
 func (s *segmentCursorInvertedReusable) parseInvertedNodeFromDisk(offset nodeOffset) error {
 	var header [16]byte
-	r, err := s.segment.newNodeReader(offset, "segmentCursorInvertedReusable")
+	r, err := s.segment.newNodeReader(offset, segmentCursorInvertedReusableOp)
 	if err != nil {
 		return err
 	}
@@ -154,13 +155,13 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeFromDisk(offset nodeOff
 	}
 	offset.end = offset.start + end + 4
 
-	r, err = s.segment.newNodeReader(offset, "segmentCursorInvertedReusable")
+	r, err = s.segment.newNodeReader(offset, segmentCursorInvertedReusableOp)
 	if err != nil {
 		return err
 	}
 	defer r.Release()
 
-	s.readBuf = growBytes(s.readBuf, int(offset.end-offset.start))
+	s.readBuf = byteops.Resize(s.readBuf, int(offset.end-offset.start))
 	// io.ReadFull is required: readBuf is reused across nodes, so a short read
 	// would leave trailing bytes from a prior node and the decoder / keyLen
 	// parser below would operate on stale data.
@@ -175,10 +176,10 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeFromDisk(offset nodeOff
 	offset.start = offset.end
 	offset.end += uint64(keyLen)
 
-	s.keyBuf = growBytes(s.keyBuf, int(keyLen))
+	s.keyBuf = byteops.Resize(s.keyBuf, int(keyLen))
 	// empty keys are possible with non-word tokenizers
 	if keyLen > 0 {
-		r, err = s.segment.newNodeReader(offset, "segmentCursorInvertedReusable")
+		r, err = s.segment.newNodeReader(offset, segmentCursorInvertedReusableOp)
 		if err != nil {
 			return err
 		}
@@ -266,13 +267,4 @@ func (s *segmentCursorInvertedReusable) decodeBlocksAndConvert(data []byte, coll
 			s.mapPairBuf = append(s.mapPairBuf, MapPair{Key: key, Value: value})
 		}
 	}
-}
-
-// growBytes returns buf resliced to length n, reallocating only when cap is
-// too small.
-func growBytes(buf []byte, n int) []byte {
-	if cap(buf) < n {
-		return make([]byte, n)
-	}
-	return buf[:n]
 }

@@ -95,9 +95,9 @@ func validatePermissions(namespacesEnabled, allowEmpty bool, permissions ...*mod
 			if p.Tenant != nil {
 				tenantName(*p.Tenant)
 			}
-			if p.Object != nil {
-				add(validateRegexTarget("object", *p.Object))
-			}
+			// Data.Object is deprecated and ignored: the data resource wildcards its
+			// objects segment, so the value never becomes a casbin pattern and there is
+			// nothing left to validate. A value an old client still sends is a no-op.
 		}
 		if p := perm.Backups; p != nil && p.Collection != nil {
 			className(*p.Collection)

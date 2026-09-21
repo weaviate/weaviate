@@ -296,6 +296,7 @@ jobs:
   Buf-Checks:
     name: buf checks
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
@@ -312,6 +313,7 @@ jobs:
   Run-Swagger:
     name: swagger
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
@@ -390,6 +392,7 @@ jobs:
   Modules-Acceptance-Tests:
     name: modules (${{ matrix.name }})
     runs-on: ubicloud-standard-4
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -439,7 +442,7 @@ jobs:
   Modules-On-Demand-Tests-Check:
     name: modules on demand
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    if: ${{ !github.event.pull_request.head.repo.fork && (github.event_name != 'push' || github.ref_type != 'branch') }}  # no PRs from fork, skipped on branch pushes
     outputs:
       run_pipeline: ${{ steps.check.outputs.run_pipeline }}
     steps:
@@ -649,6 +652,7 @@ jobs:
   Acceptance-Tests:
     name: acceptance (${{ matrix.name }})
     runs-on: ubicloud-standard-4
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -705,6 +709,7 @@ jobs:
   Acceptance-Tests-4-cores:
     name: acceptance large (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -772,6 +777,7 @@ jobs:
   Acceptance-Reindex-Tests:
     name: reindex (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -822,6 +828,7 @@ jobs:
   Acceptance-Tests-github-4-cores:
     name: acceptance large (${{ matrix.name }})
     runs-on: DB-ubuntu-24.04-4-cores
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -896,6 +903,7 @@ jobs:
   Compile-and-upload-binaries:
     name: compile and upload binaries
     runs-on: ubicloud-standard-4-ubuntu-2404
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
       - name: Set up Go
@@ -954,7 +962,7 @@ jobs:
         uses: ./.github/actions/setup-go
       - name: start weaviate
         shell: bash
-        # Weaviate is started without a Vectorizer as running text2vec-contextionary on GH actions is difficult:
+        # Weaviate is started without a Vectorizer as running a vectorizer container on GH actions is difficult:
         # - docker on GHA only supports windows container - which we currently are not build
         # - building those containers without a windows machine is difficult to figure out
         run: ./weaviate.exe --scheme http --port 8080 &

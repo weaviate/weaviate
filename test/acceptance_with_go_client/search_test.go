@@ -12,9 +12,11 @@
 package acceptance_with_go_client
 
 import (
+	"acceptance_tests_with_client/fixtures"
 	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/google/uuid"
@@ -38,7 +40,9 @@ var (
 	ctx  = context.Background()
 )
 
-func AddClassAndObjects(t *testing.T, className string, datatype string, c *client.Client, vectorizer string) {
+// AddClassAndObjects creates the class with the given named vector configuration.
+// A nil vectorConfig creates a class without a vectorizer.
+func AddClassAndObjects(t *testing.T, className string, datatype string, c *client.Client, vectorConfig map[string]models.VectorConfig) {
 	class := &models.Class{
 		Class: className,
 		Properties: []*models.Property{
@@ -46,7 +50,10 @@ func AddClassAndObjects(t *testing.T, className string, datatype string, c *clie
 			{Name: "num", DataType: []string{"int"}},
 		},
 		InvertedIndexConfig: &models.InvertedIndexConfig{Bm25: &models.BM25Config{K1: 1.2, B: 0.75}, UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND},
-		Vectorizer:          vectorizer,
+		VectorConfig:        vectorConfig,
+	}
+	if vectorConfig == nil {
+		class.Vectorizer = "none"
 	}
 	require.Nil(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
 
@@ -217,7 +224,7 @@ func TestAutocut(t *testing.T) {
 	c.Schema().AllDeleter().Do(ctx)
 	className := "Paragraph453745"
 
-	AddClassAndObjects(t, className, string(schema.DataTypeTextArray), c, "none")
+	AddClassAndObjects(t, className, string(schema.DataTypeTextArray), c, nil)
 	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
 	searchQuery := []string{"hybrid:{query:\"rain nice\", alpha: 0.0, fusionType: relativeScoreFusion", "bm25:{query:\"rain nice\""}
@@ -247,7 +254,7 @@ func TestHybridWithPureVectorSearch(t *testing.T) {
 	c.Schema().AllDeleter().Do(ctx)
 	className := "ParagraphWithManyWords"
 
-	AddClassAndObjects(t, className, string(schema.DataTypeTextArray), c, "text2vec-contextionary")
+	AddClassAndObjects(t, className, string(schema.DataTypeTextArray), c, fixtures.DefaultVectorConfig())
 	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
 	results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid: {query: \"rain nice\" properties: [\"contents\"], alpha:1}, autocut: -1){num}}}", className)).Do(ctx)
@@ -262,7 +269,7 @@ func TestHybridWithNearTextSubsearch(t *testing.T) {
 	c.Schema().AllDeleter().Do(ctx)
 	className := "ParagraphWithManyWords"
 
-	AddClassAndObjects(t, className, string(schema.DataTypeTextArray), c, "text2vec-contextionary")
+	AddClassAndObjects(t, className, string(schema.DataTypeTextArray), c, fixtures.DefaultVectorConfig())
 	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
 	results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid: { searches: { nearText: {concepts: [\"rain\", \"nice\"]}},  properties: [\"contents\"], alpha:1}, autocut: -1){num}}}", className)).Do(ctx)
@@ -282,7 +289,7 @@ func TestHybridWithOnlyVectorSearch(t *testing.T) {
 		Properties: []*models.Property{
 			{Name: "text", DataType: []string{"text"}},
 		},
-		Vectorizer: "text2vec-contextionary",
+		VectorConfig: fixtures.DefaultVectorConfig(),
 	}
 	require.Nil(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
 
@@ -291,7 +298,7 @@ func TestHybridWithOnlyVectorSearch(t *testing.T) {
 		map[string]interface{}{"text": "how much wood can a woodchuck chuck?"}).Do(ctx)
 	require.Nil(t, err)
 
-	results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{searches: { nearVector: {vector:%v}}}){text}}}", className, model.Object.Vector)).Do(ctx)
+	results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{searches: { nearVector: {vector:%v}}}){text}}}", className, model.Object.Vectors[fixtures.DefaultVectorName])).Do(ctx)
 	require.Nil(t, err)
 	result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
 	require.Len(t, result, 1)
@@ -308,7 +315,7 @@ func TestHybridWithVectorSubsearch(t *testing.T) {
 		Properties: []*models.Property{
 			{Name: "text", DataType: []string{"text"}},
 		},
-		Vectorizer: "text2vec-contextionary",
+		VectorConfig: fixtures.DefaultVectorConfig(),
 	}
 	require.Nil(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
 
@@ -317,7 +324,7 @@ func TestHybridWithVectorSubsearch(t *testing.T) {
 		map[string]interface{}{"text": "how much wood can a woodchuck chuck?"}).Do(ctx)
 	require.Nil(t, err)
 
-	results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{searches: { nearVector: { vector:%v}}}){text}}}", className, model.Object.Vector)).Do(ctx)
+	results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{searches: { nearVector: { vector:%v}}}){text}}}", className, model.Object.Vectors[fixtures.DefaultVectorName])).Do(ctx)
 	require.Nil(t, err)
 	result := results.Data["Get"].(map[string]interface{})[className].([]interface{})
 	require.Len(t, result, 1)
@@ -386,7 +393,7 @@ func TestHybridExplainScore(t *testing.T) {
 	c.Schema().AllDeleter().Do(ctx)
 	className := "ParagraphWithManyWords"
 
-	AddClassAndObjects(t, className, string(schema.DataTypeTextArray), c, "text2vec-contextionary")
+	AddClassAndObjects(t, className, string(schema.DataTypeTextArray), c, fixtures.DefaultVectorConfig())
 	creator := c.Data().Creator()
 	creator.WithClassName(className).WithProperties(
 		map[string]interface{}{"contents": []string{
@@ -408,8 +415,8 @@ func TestHybridExplainScore(t *testing.T) {
 			require.NotNil(t, score)
 		}
 		explainScore := result[0].(map[string]interface{})["_additional"].(map[string]interface{})["explainScore"].(string)
-		require.Contains(t, explainScore, "contributed 0.008333334 to the score")
-		require.Contains(t, explainScore, "contributed 0.008196721 to the score")
+		// the top result ranks first in both the vector and the keyword result set
+		require.Equal(t, 2, strings.Count(explainScore, "contributed 0.008333334 to the score"))
 	})
 	t.Run("hybrid explainscore 2", func(t *testing.T) {
 		results, err := c.GraphQL().Raw().WithQuery(fmt.Sprintf("{Get{%s(hybrid:{query:\"rain snow sun score\",fusionType: rankedFusion, properties: [\"contents\"]}){num _additional { score explainScore }}}}", className)).Do(ctx)
@@ -454,7 +461,7 @@ func TestNearTextAutocut(t *testing.T) {
 				Tokenization: models.PropertyTokenizationWord,
 			},
 		},
-		Vectorizer: "text2vec-contextionary",
+		VectorConfig: fixtures.DefaultVectorConfig(),
 	}
 	require.Nil(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
 	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)

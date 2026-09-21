@@ -331,6 +331,17 @@ func (bucketCreator) NewBucket(ctx context.Context, dir, rootDir string, logger 
 		return nil, errors.New("strategy needs to be explicitly set for all buckets")
 	}
 
+	// These strategies write their own index and skip the shared writer, so none
+	// of them emits the secondary-index offsets table a header claiming one
+	// needs. Refusing here rather than at the first flush means the bucket never
+	// accepts a write it cannot flush: roaring set and its range sibling would
+	// record a count of zero and lose the option silently, while inverted stamps
+	// the count it was given and then cannot load the segment it just wrote.
+	if b.secondaryIndices != 0 && !strategyUsesSharedIndexWriter(b.strategy) {
+		return nil, fmt.Errorf("strategy %s cannot carry %d secondary indexes",
+			b.strategy, b.secondaryIndices)
+	}
+
 	if !b.immutable && IsSnapshotDir(dir) {
 		return nil, fmt.Errorf("cannot open a snapshot directory (%q) with NewBucket; use NewSnapshotBucket instead", dir)
 	}
@@ -673,10 +684,9 @@ type NarrowedConsistentView struct {
 // WithoutEmptyActiveMemtable returns a view with an active memtable that has
 // taken no writes dropped.
 //
-// Size only ever rises, so a zero read proves the memtable held nothing at that
-// instant, and a racing write is one this view legitimately predates. Callers
-// opening several readers want that decision made once, up front, or readers
-// disagree when a write lands between two of them.
+// Only a roaring-set bucket may narrow a view: every row of one costs a fixed
+// minimum, so a zero size proves the memtable holds no rows, and a racing write
+// is one this view legitimately predates.
 func (cv BucketConsistentView) WithoutEmptyActiveMemtable() NarrowedConsistentView {
 	if cv.Active != nil && cv.Active.Size() == 0 {
 		cv.Active = nil
@@ -1177,11 +1187,11 @@ func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) (err error) 
 		b.metrics.ObserveBucketWriteOpDuration("put", time.Since(start))
 	}()
 
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.put(key, value, opts...)
 }
@@ -1193,22 +1203,18 @@ func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) (err error) 
 // is ongoing, because the actual flush only happens once the writer count
 // has dropped to zero. Essentially the switch just switches pointers, but we
 // will always work on the same pointer for the duration of the write.
-func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func(), err error) {
+func (b *Bucket) getActiveMemtableForWrite() (memtable, error) {
 	if err := b.readOnlyErr(); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	active = b.active
+	active := b.active
 	active.incWriterCount()
 
-	release = func() {
-		active.decWriterCount()
-	}
-
-	return active, release, nil
+	return active, nil
 }
 
 // SetAdd adds one or more Set-Entries to a Set for the given key. SetAdd is
@@ -1227,11 +1233,11 @@ func (b *Bucket) getActiveMemtableForWrite() (active memtable, release func(), e
 // SetAdd is specific to the Set strategy. For Replace, use [Bucket.Put], for
 // Map use either [Bucket.MapSet] or [Bucket.MapSetMulti].
 func (b *Bucket) SetAdd(key []byte, values [][]byte) error {
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.append(key, newSetEncoder().Do(values))
 }
@@ -1249,11 +1255,11 @@ func (b *Bucket) SetAdd(key []byte, values [][]byte) error {
 // [Bucket.Delete] to delete the entire row, for Maps use [Bucket.MapDeleteKey]
 // to delete a single map entry.
 func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.append(key, []value{
 		{
@@ -1490,11 +1496,11 @@ func (b *Bucket) loadAllTombstones(view BucketConsistentView) ([]*sroar.Bitmap, 
 //
 // MapSet is specific to the Map Strategy, for Replace use [Bucket.Put], and for Set use [Bucket.SetAdd] instead.
 func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.appendMapSorted(rowKey, kv)
 }
@@ -1502,11 +1508,11 @@ func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
 // MapSetMulti is the same as [Bucket.MapSet], except that it takes in multiple
 // [MapPair] objects at the same time.
 func (b *Bucket) MapSetMulti(rowKey []byte, kvs []MapPair) error {
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	for _, kv := range kvs {
 		if err := active.appendMapSorted(rowKey, kv); err != nil {
@@ -1529,11 +1535,11 @@ func (b *Bucket) MapSetMulti(rowKey []byte, kvs []MapPair) error {
 // MapDeleteKey is specific to the Map Strategy. For Replace, you can use
 // [Bucket.Delete] to delete the entire row, for Sets use [Bucket.SetDeleteSingle] to delete a single set element.
 func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	pair := MapPair{
 		Key:       mapKey,
@@ -1581,11 +1587,11 @@ func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) (err error) {
 		b.metrics.ObserveBucketWriteOpDuration("delete", time.Since(start))
 	}()
 
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.setTombstone(key, opts...)
 }
@@ -1607,11 +1613,11 @@ func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...Secondar
 		return fmt.Errorf("bucket requires option `keepTombstones` set to delete keys at a given timestamp")
 	}
 
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.setTombstoneWith(key, deletionTime, opts...)
 }
@@ -1809,6 +1815,16 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 	}
 
 	b.flushLock.Lock()
+	// getActiveMemtableForWrite releases the read lock before its caller writes,
+	// so flushLock alone does not say the memtable is idle. A write past that
+	// point would land in a memtable this flush has already serialized, behind a
+	// commit log it has already closed, so nothing replays it.
+	//
+	// This closes only that window. A writer that has not yet reached
+	// getActiveMemtableForWrite parks on flushLock instead, and once Shutdown
+	// releases it, writes into the memtable that was just flushed.
+	b.waitForZeroWriters(b.active)
+
 	if b.active.getStrategy() == StrategyInverted {
 
 		// we need to calculate it outside of b.GetAveragePropertyLength()
