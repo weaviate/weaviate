@@ -26,24 +26,24 @@ func (c *Connections) bulkInsertAtLayerOriginal(conns []uint64, layer uint8) {
 		return
 	}
 
-	layerData := c.layer(layer)
+	data, packed := c.layer(layer)
 
-	if layerData.packed == 0 {
+	if *packed == 0 {
 		// Empty layer - just encode all values
 		scheme := determineOptimalScheme(conns)
-		layerData.packed = packSchemeAndCount(scheme, uint32(len(conns)))
-		layerData.data = encodeValues(conns, scheme)
+		*packed = packSchemeAndCount(scheme, uint32(len(conns)))
+		*data = encodeValues(conns, scheme)
 		return
 	}
 
 	// Always decode, merge, and re-encode (original behavior)
-	currentScheme := unpackScheme(layerData.packed)
-	existing := decodeValues(layerData.data, currentScheme, unpackCount(layerData.packed))
+	currentScheme := unpackScheme(*packed)
+	existing := decodeValues(*data, currentScheme, unpackCount(*packed))
 	all := append(existing, conns...)
 
 	scheme := determineOptimalScheme(all)
-	layerData.packed = packSchemeAndCount(scheme, uint32(len(all)))
-	layerData.data = encodeValues(all, scheme)
+	*packed = packSchemeAndCount(scheme, uint32(len(all)))
+	*data = encodeValues(all, scheme)
 }
 
 // Generate test data with different value ranges
