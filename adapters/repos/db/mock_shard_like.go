@@ -4639,54 +4639,6 @@ func (_c *MockShardLike_drop_Call) RunAndReturn(run func(bool) error) *MockShard
 	return _c
 }
 
-// extendDimensionTrackerLSM provides a mock function with given fields: dimLength, docID, targetVector
-func (_m *MockShardLike) extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error {
-	ret := _m.Called(dimLength, docID, targetVector)
-
-	if len(ret) == 0 {
-		panic("no return value specified for extendDimensionTrackerLSM")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(int, uint64, string) error); ok {
-		r0 = rf(dimLength, docID, targetVector)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockShardLike_extendDimensionTrackerLSM_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'extendDimensionTrackerLSM'
-type MockShardLike_extendDimensionTrackerLSM_Call struct {
-	*mock.Call
-}
-
-// extendDimensionTrackerLSM is a helper method to define mock.On call
-//   - dimLength int
-//   - docID uint64
-//   - targetVector string
-func (_e *MockShardLike_Expecter) extendDimensionTrackerLSM(dimLength interface{}, docID interface{}, targetVector interface{}) *MockShardLike_extendDimensionTrackerLSM_Call {
-	return &MockShardLike_extendDimensionTrackerLSM_Call{Call: _e.mock.On("extendDimensionTrackerLSM", dimLength, docID, targetVector)}
-}
-
-func (_c *MockShardLike_extendDimensionTrackerLSM_Call) Run(run func(dimLength int, docID uint64, targetVector string)) *MockShardLike_extendDimensionTrackerLSM_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(int), args[1].(uint64), args[2].(string))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_extendDimensionTrackerLSM_Call) Return(_a0 error) *MockShardLike_extendDimensionTrackerLSM_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_extendDimensionTrackerLSM_Call) RunAndReturn(run func(int, uint64, string) error) *MockShardLike_extendDimensionTrackerLSM_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // filePutter provides a mock function with given fields: _a0, _a1
 func (_m *MockShardLike) filePutter(_a0 context.Context, _a1 string) (io.WriteCloser, error) {
 	ret := _m.Called(_a0, _a1)
@@ -5630,48 +5582,58 @@ func (_c *MockShardLike_removeTargetNodeOverride_Call) RunAndReturn(run func(con
 	return _c
 }
 
-// resetDimensionsLSM provides a mock function with given fields: ctx
-func (_m *MockShardLike) resetDimensionsLSM(ctx context.Context) error {
+// recalculateDimensions provides a mock function with given fields: ctx
+func (_m *MockShardLike) recalculateDimensions(ctx context.Context) (int, error) {
 	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
-		panic("no return value specified for resetDimensionsLSM")
+		panic("no return value specified for recalculateDimensions")
 	}
 
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+	var r0 int
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (int, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) int); ok {
 		r0 = rf(ctx)
 	} else {
-		r0 = ret.Error(0)
+		r0 = ret.Get(0).(int)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
-// MockShardLike_resetDimensionsLSM_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'resetDimensionsLSM'
-type MockShardLike_resetDimensionsLSM_Call struct {
+// MockShardLike_recalculateDimensions_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'recalculateDimensions'
+type MockShardLike_recalculateDimensions_Call struct {
 	*mock.Call
 }
 
-// resetDimensionsLSM is a helper method to define mock.On call
+// recalculateDimensions is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *MockShardLike_Expecter) resetDimensionsLSM(ctx interface{}) *MockShardLike_resetDimensionsLSM_Call {
-	return &MockShardLike_resetDimensionsLSM_Call{Call: _e.mock.On("resetDimensionsLSM", ctx)}
+func (_e *MockShardLike_Expecter) recalculateDimensions(ctx interface{}) *MockShardLike_recalculateDimensions_Call {
+	return &MockShardLike_recalculateDimensions_Call{Call: _e.mock.On("recalculateDimensions", ctx)}
 }
 
-func (_c *MockShardLike_resetDimensionsLSM_Call) Run(run func(ctx context.Context)) *MockShardLike_resetDimensionsLSM_Call {
+func (_c *MockShardLike_recalculateDimensions_Call) Run(run func(ctx context.Context)) *MockShardLike_recalculateDimensions_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context))
 	})
 	return _c
 }
 
-func (_c *MockShardLike_resetDimensionsLSM_Call) Return(_a0 error) *MockShardLike_resetDimensionsLSM_Call {
-	_c.Call.Return(_a0)
+func (_c *MockShardLike_recalculateDimensions_Call) Return(_a0 int, _a1 error) *MockShardLike_recalculateDimensions_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockShardLike_resetDimensionsLSM_Call) RunAndReturn(run func(context.Context) error) *MockShardLike_resetDimensionsLSM_Call {
+func (_c *MockShardLike_recalculateDimensions_Call) RunAndReturn(run func(context.Context) (int, error)) *MockShardLike_recalculateDimensions_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -312,6 +312,9 @@ func (s *Shard) removeDimensionsLSM(dimLength int, docID uint64, targetVector st
 }
 
 func (s *Shard) addToDimensionBucket(dimLength int, docID uint64, vecName string, tombstone bool) error {
+	s.dimensionsLock.RLock()
+	defer s.dimensionsLock.RUnlock()
+
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
 		return errors.Errorf("add dimension bucket: no bucket dimensions")
@@ -338,6 +341,9 @@ func (s *Shard) addToDimensionBucket(dimLength int, docID uint64, vecName string
 		binary.LittleEndian.PutUint32(buf[8+nameLen:], dim)
 		copy(buf[8:], vecNameBytes)
 
+		if s.dimensionsRecalculation != nil {
+			s.dimensionsRecalculation.record(buf[8:], docID, tombstone)
+		}
 		return b.MapSet(buf[8:], lsmkv.MapPair{
 			Key:       buf[:8],
 			Value:     []byte{},
@@ -348,6 +354,9 @@ func (s *Shard) addToDimensionBucket(dimLength int, docID uint64, vecName string
 		copy(key[:nameLen], vecNameBytes)
 		binary.LittleEndian.PutUint32(key[nameLen:], dim)
 
+		if s.dimensionsRecalculation != nil {
+			s.dimensionsRecalculation.record(key, docID, tombstone)
+		}
 		if tombstone {
 			return b.RoaringSetRemoveOne(key, docID)
 		}

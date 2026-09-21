@@ -40,9 +40,15 @@ import (
 // before anything opens the bucket, whether or not the migration is enabled.
 const (
 	dimensionsMigrationBuildSuffix = "__to_roaringset_build"
-	dimensionsMigrationReadySuffix = "__to_roaringset_ready"
-	dimensionsMigrationDelSuffix   = "___del"
+	dimensionsMigrationReadySuffix = DimensionsReplacementBucketSuffix
+	// of lsmkv.Store.ReplaceBuckets as well, which a recalculation switches with
+	dimensionsMigrationDelSuffix = "___del"
 )
+
+// DimensionsReplacementBucketSuffix names a complete roaring set bucket about to
+// replace the dimensions bucket. One found when a shard loads takes its place if
+// the dimensions bucket was moved aside already, and is removed otherwise.
+const DimensionsReplacementBucketSuffix = "__to_roaringset_ready"
 
 // LockUnloadedDimensionsBucket waits for exclusive use of the dimensions bucket
 // dir of a shard, against usage scans that open the bucket of an unloaded shard.

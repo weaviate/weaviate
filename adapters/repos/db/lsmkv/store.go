@@ -566,6 +566,21 @@ func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, re
 	return currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir, nil
 }
 
+// moveBucketRegistration makes [GlobalBucketRegistry] follow a bucket to the dir
+// it was moved to. Left at the old dir, the registry would refuse a new bucket
+// there, and would not notice a second bucket opened on the dir in use.
+func moveBucketRegistration(bucket *Bucket, newDir string) error {
+	if bucket.registeredPath == newDir {
+		return nil
+	}
+	if err := GlobalBucketRegistry.TryAdd(newDir); err != nil {
+		return err
+	}
+	GlobalBucketRegistry.Remove(bucket.registeredPath)
+	bucket.registeredPath = newDir
+	return nil
+}
+
 // freezeAndSwapForReplace makes the replacement name-visible while frozen:
 // flushLock is taken before the map swap and held on success, so a by-name
 // writer landing before ReplaceBuckets' tail completes blocks instead of
@@ -625,6 +640,9 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	}
 
 	replacementBucket.dir = newReplacementBucketDir
+	if err := moveBucketRegistration(replacementBucket, newReplacementBucketDir); err != nil {
+		return err
+	}
 
 	mt, err := replacementBucket.createNewActiveMemtable()
 	if err != nil {
@@ -689,6 +707,9 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 
 	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
 		return errors.Wrapf(err, "failed renaming bucket dir '%s' to '%s'", currBucketDir, newBucketDir)
+	}
+	if err := moveBucketRegistration(currBucket, newBucketDir); err != nil {
+		return err
 	}
 
 	s.updateBucketDir(currBucket, currBucketDir, newBucketDir)

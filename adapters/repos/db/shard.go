@@ -163,8 +163,7 @@ type ShardLike interface {
 	Dimensions(ctx context.Context, targetVector string) (int, error)
 	QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error)
 
-	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
-	resetDimensionsLSM(ctx context.Context) error
+	recalculateDimensions(ctx context.Context) (objects int, err error)
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
@@ -496,6 +495,12 @@ type Shard struct {
 	searchableBlockmaxPropNamesLock *sync.Mutex
 
 	usingBlockMaxWAND bool
+
+	// dimensionsLock is read-held by every write to the dimensions bucket, and
+	// write-held by a recalculation to start and to switch buckets, so that no
+	// write is caught halfway by either. It guards dimensionsRecalculation.
+	dimensionsLock          sync.RWMutex
+	dimensionsRecalculation *dimensionsRecalculation
 
 	// shutdownRequested marks shard as requested for shutdown
 	shutdownRequested atomic.Bool
