@@ -35,8 +35,9 @@ type LayerData struct {
 }
 
 // Connections keeps layer 0 inline and the rare upper layers behind a
-// pointer: 97% of HNSW nodes have a single layer, so this is one heap
-// object instead of two and stays in the 48 B size class.
+// pointer. 97% of HNSW nodes have a single layer, and that layer no longer
+// needs a separate backing array: one heap object instead of two, in the
+// 48 B size class.
 type Connections struct {
 	layer0     LayerData
 	upper      *[]LayerData
