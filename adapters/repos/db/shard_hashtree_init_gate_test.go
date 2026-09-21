@@ -15,7 +15,11 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -23,13 +27,19 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	entreplication "github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/storobj"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
@@ -129,6 +139,23 @@ func hookHasMessage(hook *test.Hook, substr string) bool {
 	return countMessages(hook, substr) > 0
 }
 
+// registeredInScheduler reports whether the scheduler currently holds an entry for s.
+func registeredInScheduler(sched *AsyncReplicationScheduler, s *Shard) bool {
+	sched.mu.Lock()
+	defer sched.mu.Unlock()
+	_, ok := sched.entries[s]
+	return ok
+}
+
+// requireUnreadyHashtree asserts a tree is installed but not yet served to hashbeat.
+func requireUnreadyHashtree(t *testing.T, s *Shard) {
+	t.Helper()
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+	require.NotNil(t, s.hashtree)
+	require.False(t, s.hashtreeFullyInitialized)
+}
+
 func leafUUID(high bool, n int) strfmt.UUID {
 	prefix := "0"
 	if high {
@@ -169,6 +196,287 @@ func (h *parkingLogHook) Fire(e *logrus.Entry) error {
 }
 
 func (h *parkingLogHook) release() { h.releaseOnce.Do(func() { close(h.resume) }) }
+
+// injectedScanPanic must not contain the matched message: the recovery log line repeats it and would re-arm the hook.
+const injectedScanPanic = "injected scan failure"
+
+// panickingLogHook panics from Fire on every matching message while armed, injecting a failure into whatever goroutine logs it.
+type panickingLogHook struct {
+	match string
+	armed atomic.Bool
+}
+
+func (h *panickingLogHook) Levels() []logrus.Level { return logrus.AllLevels }
+
+func (h *panickingLogHook) Fire(e *logrus.Entry) error {
+	if h.armed.Load() && strings.Contains(e.Message, h.match) {
+		panic(injectedScanPanic)
+	}
+	return nil
+}
+
+// enableRecoveryOnPanic opts a test out of the integration suite's DISABLE_RECOVERY_ON_PANIC, under which initHashtree re-panics and an injected scan panic kills the test binary.
+// Call it before the shard is built so the restore runs after the shutdown cleanup.
+func enableRecoveryOnPanic(t *testing.T) {
+	t.Helper()
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+}
+
+func histogramSampleCount(t *testing.T, h prometheus.Histogram) uint64 {
+	t.Helper()
+	var mtr dto.Metric
+	require.NoError(t, h.Write(&mtr))
+	return mtr.GetHistogram().GetSampleCount()
+}
+
+// corruptNewestObjectsSegment overwrites the first node's value length in the newest objects segment so the lsmkv replace cursor panics; the returned func restores it.
+func corruptNewestObjectsSegment(t *testing.T, s *Shard) (repair func()) {
+	t.Helper()
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	require.NotNil(t, bucket)
+	segments, err := filepath.Glob(filepath.Join(bucket.GetDir(), "segment-*.db"))
+	require.NoError(t, err)
+	require.NotEmpty(t, segments, "a flushed objects bucket must have at least one segment")
+	slices.Sort(segments)
+	path := segments[len(segments)-1]
+
+	// node layout right after the segment header: [tombstone:1][valueLength:8][value]...
+	const valueLengthOffset = int64(segmentindex.HeaderSize) + 1
+	const bogusValueLength = uint64(1) << 40
+
+	writeAt := func(b []byte) {
+		t.Helper()
+		// in place: the segment is mmapped MAP_SHARED, so truncating it would SIGBUS the open cursor
+		f, err := os.OpenFile(path, os.O_RDWR, 0)
+		require.NoError(t, err)
+		defer func() { require.NoError(t, f.Close()) }()
+		_, err = f.WriteAt(b, valueLengthOffset)
+		require.NoError(t, err)
+	}
+
+	original := make([]byte, 8)
+	f, err := os.OpenFile(path, os.O_RDONLY, 0)
+	require.NoError(t, err)
+	_, err = f.ReadAt(original, valueLengthOffset)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	corrupt := make([]byte, 8)
+	binary.LittleEndian.PutUint64(corrupt, bogusValueLength)
+	writeAt(corrupt)
+
+	return func() { writeAt(original) }
+}
+
+// TestHashtreeInitPanicIsRetriedAsFailedAttempt pins that a panicking init scan is a failed attempt, not an abandoned init leaving the shard unready and unregistered.
+func TestHashtreeInitPanicIsRetriedAsFailedAttempt(t *testing.T) {
+	enableRecoveryOnPanic(t)
+
+	ctx := context.Background()
+	const t0, t1 = tsFarPast, tsFarPast + 1
+	const failureMsg = "hashtree initialization attempt"
+
+	armHook := func(t *testing.T, s *Shard, hook *panickingLogHook) func() {
+		hook.armed.Store(true)
+		return func() { hook.armed.Store(false) }
+	}
+
+	tests := []struct {
+		name      string
+		seed      func(t *testing.T, sl ShardLike, class string) map[strfmt.UUID]int64
+		breakScan func(t *testing.T, s *Shard, hook *panickingLogHook) (repair func())
+	}{
+		{
+			name: "memtablePass",
+			seed: func(t *testing.T, sl ShardLike, class string) map[strfmt.UUID]int64 {
+				require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, t0)))
+				return map[strfmt.UUID]int64{uuidLow: t0}
+			},
+			breakScan: armHook,
+		},
+		{
+			name: "diskPass",
+			seed: func(t *testing.T, sl ShardLike, class string) map[strfmt.UUID]int64 {
+				require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, t0)))
+				flushShard(t, ctx, sl)
+				return map[strfmt.UUID]int64{uuidLow: t0}
+			},
+			breakScan: armHook,
+		},
+		{
+			name: "corruptSegment",
+			seed: func(t *testing.T, sl ShardLike, class string) map[strfmt.UUID]int64 {
+				require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, t0)))
+				require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidMid, t0)))
+				flushShard(t, ctx, sl)
+				return map[strfmt.UUID]int64{uuidLow: t0, uuidMid: t0}
+			},
+			breakScan: func(t *testing.T, s *Shard, _ *panickingLogHook) func() {
+				return corruptNewestObjectsSegment(t, s)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			class := "InitPanicRetry" + tc.name
+			hook := &panickingLogHook{match: "hashtree initialization in progress"}
+			sl, s, sched, logs := newQueuedInitShard(t, ctx, class, hook)
+			t.Cleanup(func() { hook.armed.Store(false) })
+
+			m, err := NewMetrics(s.index.logger, monitoring.GetMetrics(), class, s.name)
+			require.NoError(t, err)
+			s.metrics = m
+
+			expected := tc.seed(t, sl, class)
+
+			initsBefore := testutil.ToFloat64(m.asyncReplicationHashTreeInitCount)
+			failuresBefore := testutil.ToFloat64(m.asyncReplicationHashTreeInitFailureCount)
+			runningBefore := testutil.ToFloat64(m.asyncReplicationHashTreeInitRunning)
+			durationsBefore := histogramSampleCount(t, m.asyncReplicationHashTreeInitDuration)
+
+			repair := tc.breakScan(t, s, hook)
+
+			release := holdInitSlot(t, sched)
+			require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+			requireQueuedInitState(t, s)
+			release()
+
+			require.Eventually(t, func() bool { return hookHasMessage(logs, failureMsg+" 0 failure") },
+				initGateWriteTimeout, 10*time.Millisecond, "a panicking scan must be logged as a failed attempt")
+
+			holdCtx, cancelHold := context.WithTimeout(ctx, initGateWriteTimeout)
+			require.NoError(t, sched.hashtreeInitSem.Acquire(holdCtx, 1), "a panicking attempt must return its init slot")
+			cancelHold()
+			var releaseOnce sync.Once
+			releaseHold := func() { releaseOnce.Do(func() { sched.hashtreeInitSem.Release(1) }) }
+			t.Cleanup(releaseHold)
+
+			require.Eventually(t, func() bool {
+				n := float64(countMessages(logs, failureMsg))
+				return n >= 1 &&
+					testutil.ToFloat64(m.asyncReplicationHashTreeInitCount) == initsBefore+n &&
+					testutil.ToFloat64(m.asyncReplicationHashTreeInitFailureCount) == failuresBefore+n
+			}, initGateWriteTimeout, 10*time.Millisecond, "every panicking attempt must be counted once as an init and once as a failure")
+
+			attempts := countMessages(logs, failureMsg)
+			for _, e := range logs.AllEntries() {
+				if strings.Contains(e.Message, failureMsg) {
+					require.Contains(t, e.Message, "panicked", "the attempt error must carry the recovered panic")
+				}
+			}
+			require.Equal(t, runningBefore, testutil.ToFloat64(m.asyncReplicationHashTreeInitRunning))
+			require.Equal(t, durationsBefore, histogramSampleCount(t, m.asyncReplicationHashTreeInitDuration),
+				"a panicking attempt must not observe a success duration")
+
+			assertCompletesWithin(t, initGateWriteTimeout, "write after a panicking attempt", func() error {
+				return sl.PutObject(ctx, testObjWithTime(class, uuidHigh, t1))
+			})
+			expected[uuidHigh] = t1
+
+			requireUnreadyHashtree(t, s)
+			require.False(t, registeredInScheduler(sched, s), "a shard whose init panicked must not be registered as ready")
+
+			repair()
+			releaseHold()
+			awaitHashtreeInitialized(t, s)
+
+			got := liveRoot(t, s)
+			require.Equal(t, referenceRoot(t, expected), got, "the retried attempt must fold every object exactly once")
+			require.Equal(t, serialRebuildRoot(t, ctx, s), got)
+			require.Equal(t, failuresBefore+float64(attempts), testutil.ToFloat64(m.asyncReplicationHashTreeInitFailureCount),
+				"the succeeding attempt must not be counted as a failure")
+		})
+	}
+}
+
+// TestHashtreeInitPanicAfterSuccessResetsReadiness pins that an attempt panicking past the readiness flag leaves no shard serving the retry's fresh, empty tree as ready.
+func TestHashtreeInitPanicAfterSuccessResetsReadiness(t *testing.T) {
+	enableRecoveryOnPanic(t)
+
+	ctx := context.Background()
+	const class = "InitPanicAfterSuccess"
+	const t0 = tsFarPast
+
+	panicking := &panickingLogHook{match: "hashtree successfully initialized"}
+	scanning := newParkingLogHook("hashtree initialization in progress")
+	sl, s, sched, logs := newQueuedInitShard(t, ctx, class, panicking, scanning)
+	t.Cleanup(scanning.release)
+	t.Cleanup(func() { panicking.armed.Store(false) })
+	panicking.armed.Store(true)
+
+	release := holdInitSlot(t, sched)
+	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+	requireQueuedInitState(t, s)
+	release()
+
+	require.Eventually(t, func() bool { return hookHasMessage(logs, "hashtree initialization attempt 0 failure") },
+		initGateWriteTimeout, 10*time.Millisecond, "a panic past the success log must be a failed attempt")
+
+	holdCtx, cancelHold := context.WithTimeout(ctx, initGateWriteTimeout)
+	require.NoError(t, sched.hashtreeInitSem.Acquire(holdCtx, 1), "a panicking attempt must return its init slot")
+	cancelHold()
+	var releaseOnce sync.Once
+	releaseHold := func() { releaseOnce.Do(func() { sched.hashtreeInitSem.Release(1) }) }
+	t.Cleanup(releaseHold)
+
+	panicking.armed.Store(false)
+	require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, t0)))
+	releaseHold()
+
+	select {
+	case <-scanning.parked:
+	case <-time.After(initGateWriteTimeout):
+		t.Fatal("the retried attempt did not reach its memtable pass")
+	}
+
+	requireUnreadyHashtree(t, s)
+	_, served := s.HashTreeRoot()
+	require.False(t, served, "a half-scanned retry tree must not be served to peers")
+	require.False(t, registeredInScheduler(sched, s))
+
+	scanning.release()
+	awaitHashtreeInitialized(t, s)
+	require.Eventually(t, func() bool { return registeredInScheduler(sched, s) },
+		initGateWriteTimeout, 10*time.Millisecond, "the completed retry must register the shard")
+
+	got := liveRoot(t, s)
+	require.Equal(t, referenceRoot(t, map[strfmt.UUID]int64{uuidLow: t0}), got, "the retried attempt must fold every object exactly once")
+	require.Equal(t, serialRebuildRoot(t, ctx, s), got)
+}
+
+// TestHashtreeInitPanicIsFatalWhenRecoveryIsDisabled pins that DISABLE_RECOVERY_ON_PANIC keeps a scan panic fatal (the integration suite sets it) instead of silently retrying it, with the write gate still released on the way out.
+func TestHashtreeInitPanicIsFatalWhenRecoveryIsDisabled(t *testing.T) {
+	ctx := context.Background()
+	const class = "InitPanicRecoveryDisabled"
+
+	panicking := &panickingLogHook{match: "hashtree initialization in progress"}
+	sl, s, _, _ := newQueuedInitShard(t, ctx, class, panicking)
+	t.Cleanup(func() { panicking.armed.Store(false) })
+
+	require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidLow, tsFarPast)))
+	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+	awaitHashtreeInitialized(t, s)
+
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	require.NotNil(t, bucket)
+
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "true")
+	panicking.armed.Store(true)
+	require.PanicsWithValue(t, injectedScanPanic, func() {
+		require.NoError(t, s.initHashtree(ctx, minAsyncReplicationConfig(), bucket))
+	})
+	panicking.armed.Store(false)
+
+	requireUnreadyHashtree(t, s)
+	gate := gateChannel(s)
+	require.NotNil(t, gate)
+	select {
+	case <-gate:
+	default:
+		t.Fatal("the write gate must be released before the panic leaves initHashtree")
+	}
+}
 
 func TestWritesDoNotBlockWhileHashtreeInitQueued(t *testing.T) {
 	ctx := context.Background()
