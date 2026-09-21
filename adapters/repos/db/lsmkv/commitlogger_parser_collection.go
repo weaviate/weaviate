@@ -26,6 +26,10 @@ func (p *commitloggerParser) doCollection() error {
 		} else if !ok {
 			break
 		}
+
+		if err := p.chunkIfFull(); err != nil {
+			return err
+		}
 	}
 	return nil
 }

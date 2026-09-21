@@ -29,6 +29,14 @@ type commitloggerParser struct {
 	bufNode *bytes.Buffer
 
 	memtable *Memtable
+
+	chunking   *chunkedReplay
+	chunkStart int64
+
+	// writeErr is a failure to write a chunk to disk, which Do returns the way it
+	// returns a read failure. Recovery unlinks a WAL it cannot read any further, but
+	// a WAL whose chunk never reached the disk is still the only copy of it.
+	writeErr error
 }
 
 func newCommitLoggerParser(strategy string, reader io.Reader, memtable *Memtable,
@@ -40,6 +48,52 @@ func newCommitLoggerParser(strategy string, reader io.Reader, memtable *Memtable
 		bufNode:        bytes.NewBuffer(nil),
 		memtable:       memtable,
 	}
+}
+
+// chunkedReplay cuts on flushAndSwitchIfThresholdsMet's two size triggers, so a
+// replay lands where the flush cycle would have. Neither alone covers every
+// strategy. A roaringsetrange memtable reports entries changed rather than bytes,
+// and a roaring-set one several times the bytes of the records behind it.
+type chunkedReplay struct {
+	memtableThreshold uint64
+	walThreshold      int64
+	walBytesRead      func() int64
+	writeChunk        func(full *Memtable) (*Memtable, error)
+}
+
+// replayInChunks leaves the tail in p.memtable for the caller to write out.
+func (p *commitloggerParser) replayInChunks(c chunkedReplay) {
+	p.chunking = &c
+}
+
+// chunkFull takes held rather than reading the memtable, because the replace
+// strategy carries the entries read so far in its deduplication cache.
+func (p *commitloggerParser) chunkFull(held uint64) bool {
+	if p.chunking == nil {
+		return false
+	}
+
+	return held >= p.chunking.memtableThreshold ||
+		p.chunking.walBytesRead()-p.chunkStart >= p.chunking.walThreshold
+}
+
+// chunkIfFull may only be called between entries. A record split across two
+// segments cannot be read back.
+func (p *commitloggerParser) chunkIfFull() error {
+	if !p.chunkFull(p.memtable.Size()) {
+		return nil
+	}
+
+	next, err := p.chunking.writeChunk(p.memtable)
+	if err != nil {
+		p.writeErr = err
+		return err
+	}
+
+	p.memtable = next
+	p.chunkStart = p.chunking.walBytesRead()
+
+	return nil
 }
 
 func (p *commitloggerParser) Do() error {
