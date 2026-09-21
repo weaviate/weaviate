@@ -284,6 +284,6 @@ require (
 	gopkg.in/ini.v1 v1.67.2 // indirect
 )
 
-go 1.26.0
+go 1.27.0
 
 replace github.com/weaviate/weaviate/grpc/generated/protocol => ./grpc/generated/protocol
