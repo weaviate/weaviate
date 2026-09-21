@@ -17,6 +17,7 @@ import (
 	"math"
 	"os"
 	"regexp"
+	goruntime "runtime"
 	"slices"
 	"strings"
 	"time"
@@ -934,6 +935,8 @@ func (b BackupGCS) Validate() error {
 	return validateBackupGCSConnPool(b.GRPCConnPool, "backup_gcs.grpc_conn_pool")
 }
 
+var DefaultBatchStreamWorkers = goruntime.GOMAXPROCS(0)
+
 const (
 	DefaultBatchStreamGateRatio   = 0.9
 	DefaultBatchStreamEngageRatio = 0.5
@@ -962,14 +965,18 @@ type BatchStream struct {
 	// admission check before it fails the stream. Zero fails the stream on the
 	// first failed check.
 	holdSeconds *int
+
+	// workers is the number of worker goroutines the BatchStream receiver uses. Zero lets the receiver choose a default.
+	workers *int
 }
 
-func NewBatchStream(gateRatio, engageRatio *float64, maxAckDelay *time.Duration, holdSeconds *int) BatchStream {
+func NewBatchStream(gateRatio, engageRatio *float64, maxAckDelay *time.Duration, holdSeconds, workers *int) BatchStream {
 	return BatchStream{
 		gateRatio:   gateRatio,
 		engageRatio: engageRatio,
 		maxAckDelay: maxAckDelay,
 		holdSeconds: holdSeconds,
+		workers:     workers,
 	}
 }
 
@@ -1007,7 +1014,15 @@ func (b BatchStream) WithHoldSeconds(holdSeconds int) BatchStream {
 		engageRatio: b.engageRatio,
 		maxAckDelay: b.maxAckDelay,
 		holdSeconds: &holdSeconds,
+		workers:     b.workers,
 	}
+}
+
+func (b BatchStream) Workers() int {
+	if b.workers == nil {
+		return DefaultBatchStreamWorkers
+	}
+	return *b.workers
 }
 
 // batchStreamFile is the config-file shape of BatchStream. The yaml and json
@@ -1017,6 +1032,7 @@ type batchStream struct {
 	EngageRatio *float64       `json:"engage_ratio" yaml:"engage_ratio"`
 	MaxAckDelay *time.Duration `json:"max_ack_delay" yaml:"max_ack_delay"`
 	HoldSeconds *int           `json:"hold_seconds" yaml:"hold_seconds"`
+	Workers     *int           `json:"workers" yaml:"workers"`
 }
 
 func (b *BatchStream) UnmarshalYAML(node *yaml.Node) error {
@@ -1024,7 +1040,7 @@ func (b *BatchStream) UnmarshalYAML(node *yaml.Node) error {
 	if err := node.Decode(&f); err != nil {
 		return err
 	}
-	*b = NewBatchStream(f.GateRatio, f.EngageRatio, f.MaxAckDelay, f.HoldSeconds)
+	*b = NewBatchStream(f.GateRatio, f.EngageRatio, f.MaxAckDelay, f.HoldSeconds, f.Workers)
 	return nil
 }
 
@@ -1033,7 +1049,7 @@ func (b *BatchStream) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &f); err != nil {
 		return err
 	}
-	*b = NewBatchStream(f.GateRatio, f.EngageRatio, f.MaxAckDelay, f.HoldSeconds)
+	*b = NewBatchStream(f.GateRatio, f.EngageRatio, f.MaxAckDelay, f.HoldSeconds, f.Workers)
 	return nil
 }
 

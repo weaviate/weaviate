@@ -653,7 +653,7 @@ func TestOutOfMemoryReply(t *testing.T) {
 		mockStream, sent := newDataStream(t, ctx, newBatchStreamObjsAndRefsRequest(objs, refs))
 
 		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, false,
-			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(1))))
+			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(1), nil)))
 		require.NoError(t, handler.Handle(mockStream))
 
 		oom := sent.indexOf(isOutOfMemory)
@@ -692,7 +692,7 @@ func Test_receiver_holdForMemory(t *testing.T) {
 		mockStream, sent := newDataStream(t, ctx, objsRequest(collection, 1, 0))
 
 		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, false,
-			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(1))))
+			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(1), nil)))
 		require.NoError(t, handler.Handle(mockStream))
 
 		require.GreaterOrEqual(t, len(checks.recordedSizes()), 2, "a failed check must be retried, not fatal")
@@ -737,7 +737,7 @@ func Test_receiver_holdForMemory(t *testing.T) {
 		mockStream, sent := newDataStream(t, ctx, objsRequest(collection, 1, 0), objsRequest(collection, 1, 0))
 
 		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, false,
-			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(1))))
+			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(1), nil)))
 		require.NoError(t, handler.Handle(mockStream))
 
 		require.GreaterOrEqual(t, len(checks.recordedSizes()), 3, "the held message must be re-checked at least once")
@@ -762,7 +762,7 @@ func Test_receiver_holdForMemory(t *testing.T) {
 		mockStream, _ := newDataStream(t, ctx, objsRequest(collection, 2, 1024))
 
 		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, false,
-			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(1))))
+			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(1), nil)))
 		require.NoError(t, handler.Handle(mockStream))
 
 		sizes := checks.recordedSizes()
@@ -782,7 +782,7 @@ func Test_receiver_holdForMemory(t *testing.T) {
 		mockStream, sent := newDataStream(t, ctx, objsRequest(collection, 1, 0))
 
 		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, false,
-			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(0))))
+			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(0), nil)))
 		require.NoError(t, handler.Handle(mockStream))
 
 		require.Len(t, checks.recordedSizes(), 1, "a zero hold must not retry")
@@ -794,7 +794,7 @@ func Test_receiver_holdForMemory(t *testing.T) {
 		defer cancel()
 
 		// at the gate, so every admitted message costs the full 400ms
-		cfg := config.NewBatchStream(new(0.9), new(0.5), new(400*time.Millisecond), new(5))
+		cfg := config.NewBatchStream(new(0.9), new(0.5), new(400*time.Millisecond), new(5), nil)
 		var admittedAt atomic.Int64
 		checker, _ := newAdmissionChecker(t, 0.9, func(call int, _ int64) bool {
 			if call < 4 {
@@ -904,7 +904,7 @@ func Test_receiver_holdForMemory(t *testing.T) {
 		freeStream, freeSent := newDataStream(t, ctx, objsRequest(collection, 1, 0))
 
 		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 2, logger, false,
-			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(3))))
+			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(3), nil)))
 
 		heldDone := make(chan error, 1)
 		go func() { heldDone <- handler.Handle(heldStream) }()
@@ -975,7 +975,7 @@ func TestAtomicAdmission(t *testing.T) {
 		streamB, sentB := newDataStream(t, ctx, reqB)
 
 		handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 2, logger, false,
-			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(5))))
+			batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(5), nil)))
 
 		aDone := make(chan error, 1)
 		go func() { aDone <- handler.Handle(streamA) }()
@@ -1030,7 +1030,7 @@ func Test_receiver_ackForDelay(t *testing.T) {
 		defer cancel()
 
 		// halfway between engage and gate, so a quarter of the 400ms maximum
-		cfg := config.NewBatchStream(new(0.9), new(0.5), new(400*time.Millisecond), nil)
+		cfg := config.NewBatchStream(new(0.9), new(0.5), new(400*time.Millisecond), nil, nil)
 		admit, admittedAt, _ := admissionClock(admitAll)
 		checker, _ := newAdmissionChecker(t, 0.7, admit)
 
@@ -1051,7 +1051,7 @@ func Test_receiver_ackForDelay(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		cfg := config.NewBatchStream(new(0.9), new(0.5), new(time.Millisecond), nil)
+		cfg := config.NewBatchStream(new(0.9), new(0.5), new(time.Millisecond), nil, nil)
 		const ratio = 0.42
 		checker, _ := newAdmissionChecker(t, ratio, admitAll)
 
@@ -1081,7 +1081,7 @@ func Test_receiver_ackForDelay(t *testing.T) {
 		defer cancel()
 
 		// at the gate, so the ack waits the full second while the worker reports
-		cfg := config.NewBatchStream(new(0.9), new(0.5), new(time.Second), nil)
+		cfg := config.NewBatchStream(new(0.9), new(0.5), new(time.Second), nil, nil)
 		checker, _ := newAdmissionChecker(t, 0.9, admitAll)
 
 		mockBatcher, mockSchemaManager, mockAuthenticator := newStreamMocks(t, collection, 1)
@@ -1109,7 +1109,7 @@ func Test_receiver_ackForDelay(t *testing.T) {
 			{FromCollection: collection, FromUuid: uuid.New().String(), ToUuid: uuid.New().String(), Name: "ref"},
 		}
 
-		cfg := config.NewBatchStream(new(0.9), new(0.5), new(400*time.Millisecond), nil)
+		cfg := config.NewBatchStream(new(0.9), new(0.5), new(400*time.Millisecond), nil, nil)
 		checker, _ := newAdmissionChecker(t, 0.7, admitAll)
 
 		mockBatcher, mockSchemaManager, mockAuthenticator := newStreamMocks(t, collection, 1)
@@ -1133,7 +1133,7 @@ func Test_receiver_ackForDelay(t *testing.T) {
 		defer cancel()
 
 		// a 5s maximum, so anything under 2s can only mean the curve stayed at zero
-		cfg := config.NewBatchStream(new(0.9), new(0.5), new(5*time.Second), nil)
+		cfg := config.NewBatchStream(new(0.9), new(0.5), new(5*time.Second), nil, nil)
 		checker, _ := newAdmissionChecker(t, 0.3, admitAll)
 
 		mockBatcher, mockSchemaManager, mockAuthenticator := newStreamMocks(t, collection, 1)
@@ -1151,7 +1151,7 @@ func Test_receiver_ackForDelay(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		cfg := config.NewBatchStream(new(0.9), new(0.5), new(5*time.Second), nil)
+		cfg := config.NewBatchStream(new(0.9), new(0.5), new(5*time.Second), nil, nil)
 		admit, _, admitted := admissionClock(admitAll)
 		checker, _ := newAdmissionChecker(t, 0.9, admit)
 
@@ -1177,7 +1177,7 @@ func Test_receiver_ackForDelay(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 
-		cfg := config.NewBatchStream(new(0.9), new(0.5), new(5*time.Second), nil)
+		cfg := config.NewBatchStream(new(0.9), new(0.5), new(5*time.Second), nil, nil)
 		admit, _, admitted := admissionClock(admitAll)
 		checker, _ := newAdmissionChecker(t, 0.9, admit)
 
@@ -1677,7 +1677,7 @@ func TestStreamHandlerRecvGoroutineDoesNotLeakOnEarlyExit(t *testing.T) {
 			// the "out of memory" row never admits, so the hold is set to one
 			// second to keep the case from waiting out the 30s default
 			handler, drain := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, tc.namespacesEnabled,
-				batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(1))))
+				batch.WithAdmissionChecker(checker), batch.WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(1), nil)))
 			// Defers run last-in first-out: drain retires the workers first, then the
 			// leak check runs with only the stream's own goroutines left to account for.
 			defer leaktest.Check(t)()

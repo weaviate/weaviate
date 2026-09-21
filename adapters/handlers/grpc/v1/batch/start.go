@@ -27,8 +27,8 @@ import (
 type Drain func()
 
 type options struct {
-	admissionChecker admissionChecker
-	backpressure     config.BatchStream
+	admissionChecker  admissionChecker
+	batchStreamConfig config.BatchStream
 }
 
 type Option func(*options)
@@ -46,7 +46,7 @@ func WithAdmissionChecker(c admissionChecker) Option {
 // to incoming messages. Nil fields take their defaults.
 func WithStreamConfig(cfg config.BatchStream) Option {
 	return func(o *options) {
-		o.backpressure = cfg
+		o.batchStreamConfig = cfg
 	}
 }
 
@@ -77,13 +77,13 @@ func Start(
 	// While a receiver holds for memory, drain is stuck waiting on recvWg. The
 	// hold must therefore not outlast the grace period drain allows. The clamp
 	// gets a fresh pointer so it never writes into the caller's config.
-	backpressure := o.backpressure.WithHoldSeconds(min(o.backpressure.HoldSeconds(), int(SHUTDOWN_GRACE_PERIOD/time.Second)))
+	backpressure := o.batchStreamConfig.WithHoldSeconds(min(o.batchStreamConfig.HoldSeconds(), int(SHUTDOWN_GRACE_PERIOD/time.Second)))
 	if o.admissionChecker == nil {
 		// The batch stream gets its own memory monitor with a lower threshold than
 		// the global one (0.9 vs 0.97 of GOMEMLIMIT by default). Imports should slow
 		// down before the rest of the process runs short of memory, because accepted
 		// batches sit in memory until the workers drain them.
-		o.admissionChecker = memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, backpressure.GateRatio())
+		o.admissionChecker = memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, o.batchStreamConfig.GateRatio())
 	}
 
 	recvWg := sync.WaitGroup{}

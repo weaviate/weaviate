@@ -39,12 +39,12 @@ func TestStartBackpressure(t *testing.T) {
 	}
 
 	t.Run("a hold longer than the grace period is clamped", func(t *testing.T) {
-		handler := start(WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(1000))))
+		handler := start(WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(1000), nil)))
 		require.Equal(t, int(SHUTDOWN_GRACE_PERIOD/time.Second), handler.config.HoldSeconds())
 	})
 
 	t.Run("a zero hold is kept", func(t *testing.T) {
-		handler := start(WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(0))))
+		handler := start(WithStreamConfig(config.NewBatchStream(nil, nil, nil, new(0), nil)))
 		require.Zero(t, handler.config.HoldSeconds())
 	})
 }
@@ -126,7 +126,7 @@ func TestEnqueueReleasesReservation(t *testing.T) {
 }
 
 func TestAckDelay(t *testing.T) {
-	cfg := config.NewBatchStream(new(0.9), new(0.5), new(time.Second), nil)
+	cfg := config.NewBatchStream(new(0.9), new(0.5), new(time.Second), nil, nil)
 
 	t.Run("zero at and below the engage ratio", func(t *testing.T) {
 		for _, ratio := range []float64{0, 0.1, 0.49, 0.5} {
@@ -156,14 +156,14 @@ func TestAckDelay(t *testing.T) {
 	})
 
 	t.Run("zero everywhere when gate is at or below engage", func(t *testing.T) {
-		off := config.NewBatchStream(new(0.5), new(0.9), new(time.Second), nil)
+		off := config.NewBatchStream(new(0.5), new(0.9), new(time.Second), nil, nil)
 		for _, ratio := range []float64{0, 0.5, 0.7, 0.9, 1} {
 			require.Zero(t, ackDelay(off, ratio), "ratio %v", ratio)
 		}
 	})
 
 	t.Run("a zero max delay is no delay at any ratio", func(t *testing.T) {
-		off := config.NewBatchStream(new(0.5), new(0.9), new(time.Duration(0)), nil)
+		off := config.NewBatchStream(new(0.5), new(0.9), new(time.Duration(0)), nil, nil)
 		for _, ratio := range []float64{0, 0.7, 0.9, 1} {
 			require.Zero(t, ackDelay(off, ratio), "ratio %v", ratio)
 		}

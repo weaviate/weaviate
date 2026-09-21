@@ -2436,6 +2436,13 @@ func (c *Config) parseBatchStreamConfig() error {
 		}
 	}
 
+	if os.Getenv("BATCH_STREAM_WORKERS") != "" {
+		if err := parseNonNegativeInt("BATCH_STREAM_WORKERS",
+			func(val int) { c.BatchStream.workers = &val }, 0); err != nil {
+			return err
+		}
+	}
+
 	if c.BatchStream.GateRatio() <= c.BatchStream.EngageRatio() {
 		return fmt.Errorf("BATCH_STREAM_GATE_RATIO (%v) must be above BATCH_STREAM_ENGAGE_RATIO (%v)",
 			c.BatchStream.GateRatio(), c.BatchStream.EngageRatio())

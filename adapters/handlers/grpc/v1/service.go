@@ -82,7 +82,7 @@ func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *sta
 		batchHandler,
 		state.SchemaManager,
 		prometheus.DefaultRegisterer,
-		NUMCPU,
+		state.ServerConfig.Config.BatchStream.Workers(),
 		state.Logger,
 		state.ServerConfig.Config.Namespaces.Enabled,
 		batch.WithStreamConfig(state.ServerConfig.Config.BatchStream),
