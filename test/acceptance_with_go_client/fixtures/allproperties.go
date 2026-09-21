@@ -24,7 +24,8 @@ var (
 )
 
 var AllPropertiesClass = &models.Class{
-	Class: AllPropertiesClassName,
+	Class:        AllPropertiesClassName,
+	VectorConfig: DefaultVectorConfig(),
 	Properties: []*models.Property{
 		{
 			Name:            "objectProperty",

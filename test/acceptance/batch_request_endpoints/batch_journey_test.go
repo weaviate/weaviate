@@ -119,7 +119,7 @@ func Test_BugFlakyResultCountWithVectorSearch(t *testing.T) {
 			createObjectClass(t, &models.Class{
 				Class: className,
 				// the journey verifies the import with a nearText query
-				Vectorizer: "text2vec-contextionary",
+				Vectorizer: "text2vec-model2vec",
 				Properties: []*models.Property{
 					{
 						Name:         "title",

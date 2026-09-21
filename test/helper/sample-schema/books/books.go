@@ -65,10 +65,18 @@ func ClassNamedOpenAIWithOptions() *models.Class {
 }
 
 func ClassNamedContextionaryVectorizer() *models.Class {
-	vc := map[string]models.VectorConfig{
+	return classNamedVectors(DefaultClassName, namedVectorConfig("text2vec-contextionary"))
+}
+
+func ClassNamedModel2VecVectorizer() *models.Class {
+	return classNamedVectors(DefaultClassName, namedVectorConfig("text2vec-model2vec"))
+}
+
+func namedVectorConfig(vectorizer string) map[string]models.VectorConfig {
+	return map[string]models.VectorConfig{
 		"all": {
 			Vectorizer: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
+				vectorizer: map[string]interface{}{
 					"vectorizeClassName": false,
 				},
 			},
@@ -76,7 +84,7 @@ func ClassNamedContextionaryVectorizer() *models.Class {
 		},
 		"title": {
 			Vectorizer: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
+				vectorizer: map[string]interface{}{
 					"vectorizeClassName": false,
 					"properties":         []string{"title"},
 				},
@@ -85,7 +93,7 @@ func ClassNamedContextionaryVectorizer() *models.Class {
 		},
 		"description": {
 			Vectorizer: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
+				vectorizer: map[string]interface{}{
 					"vectorizeClassName": false,
 					"properties":         []string{"description"},
 				},
@@ -93,56 +101,48 @@ func ClassNamedContextionaryVectorizer() *models.Class {
 			VectorIndexType: "hnsw",
 		},
 	}
-
-	return classNamedVectors(DefaultClassName, vc)
 }
 
 func ClassMixedContextionaryVectorizer() *models.Class {
-	vc := map[string]models.VectorConfig{
-		"contextionary_all": {
-			Vectorizer: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"vectorizeClassName": true,
-				},
-			},
-			VectorIndexType: "hnsw",
-		},
-		"title": {
-			Vectorizer: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"vectorizeClassName": false,
-					"properties":         []string{"title"},
-				},
-			},
-			VectorIndexType: "hnsw",
-		},
-	}
-
-	return classBase(DefaultClassName, "text2vec-contextionary", vc)
+	return classMixed("text2vec-contextionary", "contextionary_all", "hnsw")
 }
 
 func ClassMixedContextionaryVectorizerFlat() *models.Class {
+	return classMixed("text2vec-contextionary", "contextionary_all", "flat")
+}
+
+// Model2VecAllTargetVector is the named vector of ClassMixedModel2VecVectorizer
+// that vectorizes all properties.
+const Model2VecAllTargetVector = "model2vec_all"
+
+func ClassMixedModel2VecVectorizer() *models.Class {
+	return classMixed("text2vec-model2vec", Model2VecAllTargetVector, "hnsw")
+}
+
+// classMixed has a legacy vector plus two named vectors, allTargetVector is
+// configured exactly like the legacy one.
+func classMixed(vectorizer, allTargetVector, vectorIndexType string) *models.Class {
 	vc := map[string]models.VectorConfig{
-		"contextionary_all": {
+		allTargetVector: {
 			Vectorizer: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
+				vectorizer: map[string]interface{}{
 					"vectorizeClassName": true,
 				},
 			},
-			VectorIndexType: "flat",
+			VectorIndexType: vectorIndexType,
 		},
 		"title": {
 			Vectorizer: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
+				vectorizer: map[string]interface{}{
 					"vectorizeClassName": false,
 					"properties":         []string{"title"},
 				},
 			},
-			VectorIndexType: "flat",
+			VectorIndexType: vectorIndexType,
 		},
 	}
 
-	return classBase(DefaultClassName, "text2vec-contextionary", vc)
+	return classBase(DefaultClassName, vectorizer, vc)
 }
 
 func ClassContextionaryVectorizerWithName(className string) *models.Class {
