@@ -12,7 +12,6 @@
 package lsmkv
 
 import (
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -27,11 +26,10 @@ func (b *Bucket) doStartPauseTimer() {
 	if b.pauseTimerCount > 1 {
 		return
 	}
-	metric, err := monitoring.GetMetrics().BucketPauseDurations.GetMetricWithLabelValues(label)
-	if err != nil {
-		return
-	}
-	b.pauseTimer = prometheus.NewTimer(metric)
+	b.pauseTimerStop = monitoring.ObserveDurationBoth(
+		monitoring.GetMetrics().BucketPauseDurations,
+		monitoring.GetMetrics().BucketPauseSeconds,
+		label)
 }
 
 func (b *Bucket) doStopPauseTimer() {
@@ -44,8 +42,8 @@ func (b *Bucket) doStopPauseTimer() {
 	if b.pauseTimerCount > 0 {
 		return
 	}
-	if b.pauseTimer != nil {
-		b.pauseTimer.ObserveDuration()
-		b.pauseTimer = nil
+	if b.pauseTimerStop != nil {
+		b.pauseTimerStop()
+		b.pauseTimerStop = nil
 	}
 }

@@ -35,7 +35,6 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/pkg/errors"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/sroar"
@@ -164,7 +163,7 @@ type Bucket struct {
 	// pauseTimerMu ref-counts the timer across backup + reindex pause paths.
 	pauseTimerMu    sync.Mutex
 	pauseTimerCount int
-	pauseTimer      *prometheus.Timer
+	pauseTimerStop  func()
 
 	// Whether tombstones (set/map/replace types) or deletions (roaringset type)
 	// should be kept in root segment during compaction process.

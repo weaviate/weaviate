@@ -311,7 +311,7 @@ func (m *Module) Upload(ctx context.Context, className, shardName, nodeName stri
 	defer func() {
 		// Update few useful metrics
 		size, _ := dirSize(localPath)
-		m.metrics.FetchedBytes.Add(float64(size))
+		m.metrics.TransferredBytes.Add(float64(size))
 		status := "success"
 		if err != nil {
 			status = "failed"

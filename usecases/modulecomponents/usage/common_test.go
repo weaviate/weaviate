@@ -87,6 +87,42 @@ func TestMetrics_Initialization(t *testing.T) {
 	assert.NotNil(t, metrics.UploadedFileSize)
 }
 
+// TestMetrics_AllRegistered pins that every metric NewMetrics builds is also
+// registered with the registerer it is handed.
+//
+// A non-nil metric is not a reachable one: OperationLatency was constructed
+// with prometheus.NewHistogramVec instead of promauto.With(reg), so it was
+// observed on every collect/upload but never appeared on /metrics. The
+// NotNil assertion above passes either way, which is why the bug shipped —
+// this test gathers from the registry instead.
+func TestMetrics_AllRegistered(t *testing.T) {
+	registry := prometheus.NewRegistry()
+	metrics := NewMetrics(registry, "test-module")
+
+	// Give every metric a child so it has something to gather.
+	metrics.OperationTotal.WithLabelValues("collect", "success").Inc()
+	metrics.OperationLatency.WithLabelValues("collect").Observe(0.5)
+	metrics.ResourceCount.WithLabelValues("collections").Set(3)
+	metrics.UploadedFileSize.Set(1024)
+
+	gathered, err := registry.Gather()
+	require.NoError(t, err)
+
+	got := make(map[string]bool, len(gathered))
+	for _, mf := range gathered {
+		got[mf.GetName()] = true
+	}
+
+	for _, want := range []string{
+		"weaviate_test_module_operations_total",
+		"weaviate_test_module_operation_latency_seconds",
+		"weaviate_test_module_resource_count",
+		"weaviate_test_module_uploaded_file_size_bytes",
+	} {
+		assert.True(t, got[want], "%s was written but never reached the registry", want)
+	}
+}
+
 // TestStorageConfig_Validation tests the storage config validation
 func TestStorageConfig_Validation(t *testing.T) {
 	tests := []struct {

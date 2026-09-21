@@ -222,3 +222,29 @@ func TestManager_CloseCancelsDrainRetry(t *testing.T) {
 		// Correct: the drain was cancelled, so the report is withheld.
 	}
 }
+
+// TestInflightDrainFailuresCounterIsRegistered pins that the drain-failure
+// counter reaches the registry it is constructed with.
+//
+// It was built with a bare prometheus.NewCounter while NewManager already held
+// a Registerer, so every Inc at the drain-failure site was written to a
+// collector nothing could scrape: weaviate_inflight_drain_failures_total never
+// appeared on /metrics at all.
+func TestInflightDrainFailuresCounterIsRegistered(t *testing.T) {
+	reg := prometheus.NewPedanticRegistry()
+	m := NewManager(schema.SchemaReader{}, nil, reg)
+
+	m.inflightDrainFailuresCounter.Inc()
+
+	gathered, err := reg.Gather()
+	require.NoError(t, err)
+
+	const want = "weaviate_inflight_drain_failures_total"
+	for _, mf := range gathered {
+		if mf.GetName() == want {
+			require.Equal(t, 1.0, mf.GetMetric()[0].GetCounter().GetValue())
+			return
+		}
+	}
+	t.Fatalf("%s was incremented but never reached the registry", want)
+}

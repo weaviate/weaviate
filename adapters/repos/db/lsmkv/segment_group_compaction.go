@@ -884,6 +884,7 @@ type segmentLevelStats struct {
 	indexes  map[uint16]int
 	payloads map[uint16]int
 	count    map[uint16]int
+	objects  map[uint16]int
 	unloaded int
 }
 
@@ -892,6 +893,7 @@ func newSegmentLevelStats() segmentLevelStats {
 		indexes:  map[uint16]int{},
 		payloads: map[uint16]int{},
 		count:    map[uint16]int{},
+		objects:  map[uint16]int{},
 		unloaded: 0,
 	}
 }
@@ -917,6 +919,13 @@ func (sg *SegmentGroup) segmentLevelStats() segmentLevelStats {
 		cur = stats.payloads[level]
 		cur += seg.payloadSize()
 		stats.payloads[level] = cur
+
+		// Net additions is the only per-segment entry count the group tracks. It
+		// is only maintained for the Replace strategy, so other strategies report
+		// zero rather than a wrong number.
+		cur = stats.objects[level]
+		cur += seg.getCountNetAdditions()
+		stats.objects[level] = cur
 	}
 
 	return stats
@@ -948,6 +957,7 @@ func (s *segmentLevelStats) fillMissingLevels() {
 			s.count[level] = 0
 			s.indexes[level] = 0
 			s.payloads[level] = 0
+			s.objects[level] = 0
 		}
 	}
 }
@@ -971,6 +981,14 @@ func (s *segmentLevelStats) report(metrics *Metrics,
 			"level":    fmt.Sprint(level),
 			"path":     dir,
 		}).Set(float64(size))
+	}
+
+	for level, objects := range s.objects {
+		metrics.SegmentObjects.With(prometheus.Labels{
+			"strategy": strategy,
+			"level":    fmt.Sprint(level),
+			"path":     dir,
+		}).Set(float64(objects))
 	}
 
 	for level, count := range s.count {
