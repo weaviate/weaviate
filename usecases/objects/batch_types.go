@@ -74,6 +74,17 @@ type BatchSimpleObject struct {
 
 type BatchSimpleObjects []BatchSimpleObject
 
+// FailedBatchSimpleObjects reports err at every id of a batch that failed as a
+// whole. A single entry without an id undercounts the failures, and a verbose
+// gRPC batch delete reply cannot encode an entry without an id.
+func FailedBatchSimpleObjects(uuids []strfmt.UUID, err error) BatchSimpleObjects {
+	out := make(BatchSimpleObjects, len(uuids))
+	for i, id := range uuids {
+		out[i] = BatchSimpleObject{UUID: id, Err: err}
+	}
+	return out
+}
+
 type BatchDeleteParams struct {
 	ClassName    schema.ClassName     `json:"className"`
 	Filters      *filters.LocalFilter `json:"filters"`

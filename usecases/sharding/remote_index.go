@@ -366,13 +366,13 @@ func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
 	owner, err := ri.stateGetter.ShardOwner(ri.class, shardName)
 	if err != nil {
 		err := fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
-		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
+		return objects.FailedBatchSimpleObjects(uuids, err)
 	}
 
 	host, ok := ri.nodeResolver.NodeHostname(owner)
 	if !ok {
 		err := fmt.Errorf("resolve node name %q to host", owner)
-		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
+		return objects.FailedBatchSimpleObjects(uuids, err)
 	}
 
 	return ri.client.DeleteObjectBatch(ctx, host, ri.class, shardName, uuids, deletionTime, dryRun, schemaVersion)

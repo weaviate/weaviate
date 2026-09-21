@@ -32,9 +32,7 @@ import (
 func (s *Shard) DeleteObjectBatch(ctx context.Context, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects {
 	s.activityTrackerWrite.Add(1)
 	if err := s.isReadOnly(); err != nil {
-		return objects.BatchSimpleObjects{
-			objects.BatchSimpleObject{Err: err},
-		}
+		return objects.FailedBatchSimpleObjects(uuids, err)
 	}
 	return newDeleteObjectsBatcher(s).Delete(ctx, uuids, deletionTime, dryRun)
 }
@@ -65,16 +63,13 @@ func (b *deleteObjectsBatcher) deleteSingleBatchInLSM(ctx context.Context,
 	before := time.Now()
 	defer b.shard.Metrics().BatchDelete(before, "shard_delete_all")
 
-	result := make(objects.BatchSimpleObjects, len(batch))
-	objLock := &sync.Mutex{}
-
 	// if the context is expired fail all
 	if err := ctx.Err(); err != nil {
-		for i := range result {
-			result[i] = objects.BatchSimpleObject{Err: errors.Wrap(err, "begin batch")}
-		}
-		return result
+		return objects.FailedBatchSimpleObjects(batch, errors.Wrap(err, "begin batch"))
 	}
+
+	result := make(objects.BatchSimpleObjects, len(batch))
+	objLock := &sync.Mutex{}
 
 	eg := enterrors.NewErrorGroupWrapper(b.shard.Index().logger)
 	eg.SetLimit(_NUMCPU) // prevent unbounded concurrency
@@ -100,8 +95,15 @@ outer:
 		lastDeleted = i
 
 	}
-	// safe to ignore error, as the internal routines never return an error
-	eg.Wait()
+	// eg.Go recovers a panic in f and Wait returns it. f never wrote that row,
+	// and every row f writes carries its id.
+	if err := eg.Wait(); err != nil {
+		for i := 0; i <= lastDeleted; i++ {
+			if result[i].UUID == "" {
+				result[i] = objects.BatchSimpleObject{UUID: batch[i], Err: err}
+			}
+		}
+	}
 
 	ctxErr := ctx.Err()
 	for i, count := lastDeleted+1, len(batch); i < count; i++ {

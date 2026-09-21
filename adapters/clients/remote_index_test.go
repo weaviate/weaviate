@@ -24,6 +24,7 @@ package clients
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -34,10 +35,12 @@ import (
 
 	"github.com/weaviate/weaviate/entities/additional"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	clusterapi "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/queryadmission"
 )
 
@@ -472,4 +475,105 @@ func TestRemoteIndexAggregateNon429NotOverloaded(t *testing.T) {
 	_, err := client.Aggregate(ctx, fs.host, "C1", "S1", aggregation.Params{})
 	require.Error(t, err)
 	require.NotErrorIs(t, err, queryadmission.ErrOverloaded)
+}
+
+// TestRemoteIndexDeleteObjectBatch asserts that every id sent to the remote
+// shard comes back with its own result, whether the remote shard answered per
+// object or the request failed as a whole.
+func TestRemoteIndexDeleteObjectBatch(t *testing.T) {
+	t.Parallel()
+
+	const (
+		id1 = strfmt.UUID("00000000-0000-0000-0000-000000000001")
+		id2 = strfmt.UUID("00000000-0000-0000-0000-000000000002")
+	)
+	path := "/indices/C1/shards/S1/objects"
+	writeResults := func(w http.ResponseWriter, body []byte) {
+		clusterapi.IndicesPayloads.BatchDeleteResults.SetContentTypeHeader(w)
+		_, _ = w.Write(body)
+	}
+
+	tests := []struct {
+		name string
+		// unreachable sends the request to an empty host name.
+		unreachable bool
+		respond     func(t *testing.T, w http.ResponseWriter)
+		// wantErrs maps a position to a substring of its error, empty for a
+		// deleted object.
+		wantErrs []string
+	}{
+		{
+			name: "per-object results",
+			respond: func(t *testing.T, w http.ResponseWriter) {
+				body, err := clusterapi.IndicesPayloads.BatchDeleteResults.Marshal(objects.BatchSimpleObjects{
+					{UUID: id1},
+					{UUID: id2, Err: errors.New("store is read-only")},
+				})
+				require.NoError(t, err)
+				writeResults(w, body)
+			},
+			wantErrs: []string{"", "store is read-only"},
+		},
+		{
+			name:        "connection error",
+			unreachable: true,
+			wantErrs:    []string{"send http request", "send http request"},
+		},
+		{
+			name:     "unexpected status code",
+			respond:  func(t *testing.T, w http.ResponseWriter) { w.WriteHeader(http.StatusInternalServerError) },
+			wantErrs: []string{"unexpected status code", "unexpected status code"},
+		},
+		{
+			name:     "unexpected content type",
+			respond:  func(t *testing.T, w http.ResponseWriter) { _, _ = w.Write([]byte("[]")) },
+			wantErrs: []string{"unexpected content type", "unexpected content type"},
+		},
+		{
+			name:     "unparseable body",
+			respond:  func(t *testing.T, w http.ResponseWriter) { writeResults(w, []byte("not json")) },
+			wantErrs: []string{"unmarshal body", "unmarshal body"},
+		},
+		{
+			name:     "one row without an id",
+			respond:  func(t *testing.T, w http.ResponseWriter) { writeResults(w, []byte(`[{"UUID":"","Err":{}}]`)) },
+			wantErrs: []string{"without an error message", "without an error message"},
+		},
+		{
+			name: "rows without ids",
+			respond: func(t *testing.T, w http.ResponseWriter) {
+				writeResults(w, []byte(`[{"UUID":"","Err":{}},{"UUID":"","Err":null}]`))
+			},
+			wantErrs: []string{"without an error message", "no result for this id"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			fs := newFakeRemoteIndexServer(t, http.MethodDelete, path)
+			fs.doAfter = func(w http.ResponseWriter, r *http.Request) { test.respond(t, w) }
+			ts := fs.server(t)
+			defer ts.Close()
+			host := fs.host
+			if test.unreachable {
+				host = ""
+			}
+			ids := []strfmt.UUID{id1, id2}
+
+			results := newRemoteIndex(ts.Client()).DeleteObjectBatch(context.Background(),
+				host, "C1", "S1", ids, time.Now(), false, 0)
+
+			require.Len(t, results, len(ids))
+			for pos, result := range results {
+				require.Equalf(t, ids[pos], result.UUID, "position %d must keep its id", pos)
+				if test.wantErrs[pos] == "" {
+					require.NoErrorf(t, result.Err, "position %d was deleted", pos)
+					continue
+				}
+				require.ErrorContainsf(t, result.Err, test.wantErrs[pos], "position %d must carry its failure", pos)
+			}
+		})
+	}
 }

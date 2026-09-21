@@ -785,6 +785,133 @@ func TestErrorListPayload_MixedShape(t *testing.T) {
 	assert.Equal(t, "third error", got[2].Error())
 }
 
+// TestBatchDeleteResultsPayload asserts that every row keeps its id and whether
+// it failed, including a row whose error arrives as {}.
+func TestBatchDeleteResultsPayload(t *testing.T) {
+	const (
+		id1 = strfmt.UUID("00000000-0000-0000-0000-000000000001")
+		id2 = strfmt.UUID("00000000-0000-0000-0000-000000000002")
+		id3 = strfmt.UUID("00000000-0000-0000-0000-000000000003")
+	)
+	type row struct {
+		id strfmt.UUID
+		// wantErr is a substring of the error expected at the row, empty for a
+		// deleted row.
+		wantErr string
+	}
+
+	tests := []struct {
+		name          string
+		body          func(t *testing.T) []byte
+		want          []row
+		wantDecodeErr bool
+	}{
+		{
+			name: "round trip",
+			body: func(t *testing.T) []byte {
+				body, err := IndicesPayloads.BatchDeleteResults.Marshal(objects.BatchSimpleObjects{
+					{UUID: id1},
+					{UUID: id2, Err: stderrors.New("store is read-only")},
+					{UUID: id3, Err: fmt.Errorf("delete: %w", stderrors.New("not found"))},
+				})
+				require.NoError(t, err)
+				return body
+			},
+			want: []row{{id1, ""}, {id2, "store is read-only"}, {id3, "delete: not found"}},
+		},
+		{
+			name: "round trip of an empty batch",
+			body: func(t *testing.T) []byte {
+				body, err := IndicesPayloads.BatchDeleteResults.Marshal(objects.BatchSimpleObjects{})
+				require.NoError(t, err)
+				return body
+			},
+			want: []row{},
+		},
+		{
+			name: "error written as the error value",
+			body: func(t *testing.T) []byte {
+				body, err := json.Marshal(objects.BatchSimpleObjects{
+					{UUID: id1},
+					{UUID: id2, Err: stderrors.New("lost on the wire")},
+				})
+				require.NoError(t, err)
+				return body
+			},
+			want: []row{{id1, ""}, {id2, "without an error message"}},
+		},
+		{
+			name:          "truncated body",
+			body:          func(t *testing.T) []byte { return []byte(`[{"UUID":"`) },
+			wantDecodeErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			got, err := IndicesPayloads.BatchDeleteResults.Unmarshal(test.body(t))
+			if test.wantDecodeErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+
+			require.Len(t, got, len(test.want))
+			for i, want := range test.want {
+				assert.Equalf(t, want.id, got[i].UUID, "row %d must keep its id", i)
+				if want.wantErr == "" {
+					assert.NoErrorf(t, got[i].Err, "row %d was deleted", i)
+					continue
+				}
+				assert.ErrorContainsf(t, got[i].Err, want.wantErr, "row %d failed", i)
+			}
+		})
+	}
+}
+
+// TestBatchDeleteResultsPayloadPlainJSONDecode asserts what json.Unmarshal into
+// objects.BatchSimpleObjects reads from Marshal: every id and no error when no
+// row failed, and a decode error once a row failed.
+func TestBatchDeleteResultsPayloadPlainJSONDecode(t *testing.T) {
+	const (
+		id1 = strfmt.UUID("00000000-0000-0000-0000-000000000001")
+		id2 = strfmt.UUID("00000000-0000-0000-0000-000000000002")
+	)
+
+	tests := []struct {
+		name          string
+		in            objects.BatchSimpleObjects
+		wantDecodeErr bool
+	}{
+		{name: "no failed row", in: objects.BatchSimpleObjects{{UUID: id1}, {UUID: id2}}},
+		{
+			name:          "a failed row",
+			in:            objects.BatchSimpleObjects{{UUID: id1}, {UUID: id2, Err: stderrors.New("store is read-only")}},
+			wantDecodeErr: true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			body, err := IndicesPayloads.BatchDeleteResults.Marshal(test.in)
+			require.NoError(t, err)
+
+			var got objects.BatchSimpleObjects
+			err = json.Unmarshal(body, &got)
+			if test.wantDecodeErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, got, len(test.in))
+			for i, want := range test.in {
+				assert.Equalf(t, want.UUID, got[i].UUID, "row %d must keep its id", i)
+				assert.NoErrorf(t, got[i].Err, "row %d was deleted", i)
+			}
+		})
+	}
+}
+
 func objectListFramingTestObject() *storobj.Object {
 	obj := storobj.New(11)
 	obj.MarshallerVersion = 1

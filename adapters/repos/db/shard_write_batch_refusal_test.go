@@ -12,8 +12,10 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -31,13 +33,17 @@ import (
 // (Index.putObjectBatch, Index.AddReferencesBatch), so a shorter slice leaves
 // the remaining positions nil, and a nil position is reported to the client as a
 // written item. A batch of one hides this: the single error covers the single
-// item.
+// item. A refused delete also keeps the id at every position, because the
+// verbose gRPC batch delete reply cannot encode a result without one.
 func TestBatchWriteRefusalReportsOneErrorPerItem(t *testing.T) {
 	className := "BatchWriteRefusal"
 
 	idx, shard := refCountTestIndex(t, className)
 	require.NoError(t, shard.SetStatusReadonly(statusReasonResourcePressure))
 	unloadable := newColdShard(idx, shard.name+"_unloadable")
+	_, writable := refCountTestIndex(t, className+"Writable")
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
 
 	tests := []struct {
 		name string
@@ -74,6 +80,27 @@ func TestBatchWriteRefusalReportsOneErrorPerItem(t *testing.T) {
 				return unloadable.AddReferencesBatch(t.Context(), batchOfReferences(className, count))
 			},
 		},
+		{
+			name:    "read-only shard, deletes",
+			wantErr: "read-only",
+			write: func(t *testing.T, count int) []error {
+				return deleteBatchErrors(t.Context(), t, shard, count)
+			},
+		},
+		{
+			name:    "unloadable shard, deletes",
+			wantErr: "memory pressure",
+			write: func(t *testing.T, count int) []error {
+				return deleteBatchErrors(t.Context(), t, unloadable, count)
+			},
+		},
+		{
+			name:    "canceled context, deletes",
+			wantErr: "begin batch",
+			write: func(t *testing.T, count int) []error {
+				return deleteBatchErrors(canceled, t, writable, count)
+			},
+		},
 	}
 
 	for _, test := range tests {
@@ -97,6 +124,25 @@ func batchOfObjects(className string, count int) []*storobj.Object {
 		out[i] = testObject(className)
 	}
 	return out
+}
+
+// deleteBatchErrors deletes count random ids from shard and returns the error at
+// each position, after asserting that every position kept the id it was handed.
+func deleteBatchErrors(ctx context.Context, t *testing.T, shard ShardLike, count int) []error {
+	ids := make([]strfmt.UUID, count)
+	for i := range ids {
+		ids[i] = strfmt.UUID(uuid.NewString())
+	}
+
+	results := shard.DeleteObjectBatch(ctx, ids, time.Now(), false)
+
+	require.Len(t, results, count, "a refused delete must report one result per id")
+	errs := make([]error, count)
+	for pos, result := range results {
+		require.Equalf(t, ids[pos], result.UUID, "position %d must keep its id", pos)
+		errs[pos] = result.Err
+	}
+	return errs
 }
 
 func batchOfReferences(className string, count int) objects.BatchReferences {
