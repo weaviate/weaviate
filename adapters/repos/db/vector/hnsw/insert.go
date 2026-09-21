@@ -475,8 +475,6 @@ func (h *hnsw) addOne(ctx context.Context, id uint64, vector []float32, node *ve
 	h.RUnlock()
 
 	targetLevel := int(node.connections.Level())
-	// the vertex is fresh, so growing its zero-value connections is the same
-	// as constructing them
 	node.connections.GrowLayersTo(uint8(targetLevel))
 
 	var err error
@@ -571,8 +569,7 @@ func (h *hnsw) insertInitialElement(id uint64, node *vertex, nodeVec []float32) 
 
 	h.entryPointID = id
 	h.currentMaximumLayer = 0
-	// the vertex is fresh: give it its single layer in place so the
-	// maintenance tag set by the caller survives
+	// grown in place: assigning new connections would drop the maintenance tag
 	node.connections.SetLevel(0)
 	node.connections.GrowLayersTo(0)
 	if err := h.commitLog.AddNode(id, node.connections.Level()); err != nil {

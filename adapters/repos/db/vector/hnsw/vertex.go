@@ -18,9 +18,7 @@ import (
 )
 
 type vertex struct {
-	// the node's level and maintenance flag live inside connections, which has
-	// the padding for them; that keeps the vertex at 48 B, one allocation per
-	// node
+	// the level and the maintenance flag are stored in connections
 	connections packedconn.Connections
 	sync.Mutex
 }

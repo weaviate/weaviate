@@ -34,21 +34,15 @@ type LayerData struct {
 	packed uint16
 }
 
-// Connections keeps layer 0 inline and the rare upper layers behind a
-// pointer. 97% of HNSW nodes have a single layer, and that layer no longer
-// needs a separate backing array: one heap object instead of two, in the
-// 48 B size class.
+// Connections holds a node's neighbours per layer. Layer 0 is stored in the
+// struct itself; the upper layers, which few nodes have, sit behind a pointer.
 type Connections struct {
-	// layer 0 is plain fields rather than a nested LayerData so its header
-	// shares the struct's padding: 38 B of payload, 40 B padded
-	data       []byte
-	upper      *[]LayerData
-	packed     uint16
+	data       []byte       // layer 0 values
+	upper      *[]LayerData // layers 1 and up, nil for single-layer nodes
+	packed     uint16       // layer 0 scheme and count
 	layerCount uint8
-	// level and tag belong to the owning HNSW node, not to the encoding.
-	// They sit here because this struct has 5 B of padding left and the
-	// vertex has none: keeping them in the vertex would push it from the
-	// 48 B size class to 64 B.
+	// level and tag belong to the owning HNSW node; the struct has spare
+	// padding for them and the vertex has none
 	level uint16
 	tag   uint8
 }
@@ -94,15 +88,15 @@ func NewWithMaxLayer(maxLayer uint8) (*Connections, error) {
 		return nil, fmt.Errorf("max supported layer is %d", math.MaxUint8-1)
 	}
 
-	c := &Connections{}
+	var c Connections
 	c.setLayerCount(maxLayer + 1)
-	return c, nil
+	return &c, nil
 }
 
 func NewWithData(data []byte) *Connections {
-	c := &Connections{}
+	var c Connections
 	if len(data) == 0 {
-		return c
+		return &c
 	}
 
 	offset := 0
@@ -131,7 +125,7 @@ func NewWithData(data []byte) *Connections {
 			break // Malformed data
 		}
 
-		// an empty layer stays nil, as it is when built in memory
+		// empty layers are nil, the same as layers built in memory
 		var layerData []byte
 		if dataLen > 0 {
 			// View into the caller's blob rather than a copy. cap==len forces any
@@ -145,7 +139,7 @@ func NewWithData(data []byte) *Connections {
 		*d, *p = layerData, packed
 	}
 
-	return c
+	return &c
 }
 
 func NewWithElements(elements [][]uint64) (*Connections, error) {
