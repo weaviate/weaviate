@@ -16,8 +16,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -469,86 +467,6 @@ func TestHeightChangeWhileHashtreeInitQueued(t *testing.T) {
 		release()
 		assertConverged(t, s, expected)
 	})
-}
-
-func TestConcurrentWritesOnUnflushedSeedWhileHashtreeInitQueued(t *testing.T) {
-	ctx := context.Background()
-	const class = "InitQueuedUnflushedSeed"
-	const n = 200
-	const writers = 4
-	const t0, t1 = tsFarPast, tsFarPast + 5
-
-	uuids := make([]strfmt.UUID, n)
-	for i := range uuids {
-		uuids[i] = leafUUID(i%2 == 1, i+1)
-	}
-
-	sl, s, sched, _ := newQueuedInitShard(t, ctx, class)
-	for i := range n {
-		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuids[i], t0)))
-	}
-
-	release := holdInitSlot(t, sched)
-	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
-	requireQueuedInitState(t, s)
-
-	var (
-		progress atomic.Int64
-		errMu    sync.Mutex
-		errs     []error
-		wg       sync.WaitGroup
-	)
-	record := func(err error) {
-		if err != nil {
-			errMu.Lock()
-			errs = append(errs, err)
-			errMu.Unlock()
-		}
-	}
-	for w := range writers {
-		wg.Add(1)
-		go func(w int) {
-			defer wg.Done()
-			for i := w; i < n; i += writers {
-				switch i % 4 {
-				case 0:
-					record(sl.PutObject(ctx, testObjWithTime(class, uuids[i], t1)))
-				case 1:
-					record(sl.DeleteObject(ctx, uuids[i], time.Now()))
-				case 2:
-					record(sl.PutObject(ctx, testObjWithTime(class, uuids[i], t1)))
-					if i%40 == 2 {
-						record(s.store.FlushMemtables(ctx))
-					}
-				case 3:
-					record(s.MergeObject(ctx, objects.MergeDocument{Class: class, ID: uuids[i], UpdateTime: t1}))
-				}
-				if progress.Add(1) == n/4 {
-					release()
-				}
-			}
-		}(w)
-	}
-
-	done := make(chan struct{})
-	go func() { wg.Wait(); close(done) }()
-	select {
-	case <-done:
-	case <-time.After(initGateWatchdog):
-		t.Fatalf("writers did not finish within %s", initGateWatchdog)
-	}
-	require.Empty(t, errs)
-
-	awaitHashtreeInitialized(t, s)
-	expected := map[strfmt.UUID]int64{}
-	for i := range uuids {
-		if i%4 != 1 {
-			expected[uuids[i]] = t1
-		}
-	}
-	got := liveRoot(t, s)
-	require.Equal(t, referenceRoot(t, expected), got)
-	require.Equal(t, serialRebuildRoot(t, ctx, s), got)
 }
 
 func TestCancelledHashtreeInitAttemptIsNotCountedAsFailure(t *testing.T) {

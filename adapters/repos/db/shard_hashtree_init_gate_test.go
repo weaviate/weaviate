@@ -65,21 +65,8 @@ func holdInitSlot(t *testing.T, sched *AsyncReplicationScheduler) (release func(
 // newQueuedInitShard builds a shard on a one-slot scheduler with a log hook, so a test can hold the slot and observe init messages.
 func newQueuedInitShard(t *testing.T, ctx context.Context, class string, hooks ...logrus.Hook) (ShardLike, *Shard, *AsyncReplicationScheduler, *test.Hook) {
 	t.Helper()
-	logger, hook := test.NewNullLogger()
-	for _, h := range hooks {
-		logger.AddHook(h)
-	}
 	sched := newSingleSlotScheduler(t)
-	sl, _ := testShard(t, ctx, class, func(idx *Index) {
-		idx.asyncReplicationScheduler = sched
-		idx.logger = logger
-	})
-	s := concreteShard(t, sl)
-	t.Cleanup(func() {
-		if err := sl.Shutdown(ctx); err != nil {
-			t.Errorf("shutdown: %v", err)
-		}
-	})
+	sl, s, _, hook := newSharedSlotShard(t, ctx, class, sched, hooks...)
 	return sl, s, sched, hook
 }
 
@@ -97,14 +84,7 @@ func assertCompletesWithin(t *testing.T, d time.Duration, name string, fn func()
 
 func referenceRoot(t *testing.T, entries map[strfmt.UUID]int64) hashtree.Digest {
 	t.Helper()
-	ht, err := hashtree.NewHashTree(1)
-	require.NoError(t, err)
-	for id, updateTime := range entries {
-		idBytes, err := bytesFromUUID(id)
-		require.NoError(t, err)
-		require.NoError(t, aggregateHashTreeLeaf(ht, 1, idBytes, updateTime))
-	}
-	return ht.Root()
+	return referenceRootAtHeight(t, entries, minAsyncReplicationConfig().hashtreeHeight)
 }
 
 func liveRoot(t *testing.T, s *Shard) hashtree.Digest {
@@ -117,10 +97,7 @@ func liveRoot(t *testing.T, s *Shard) hashtree.Digest {
 
 func serialRebuildRoot(t *testing.T, ctx context.Context, s *Shard) hashtree.Digest {
 	t.Helper()
-	require.NoError(t, s.disableAsyncReplication(ctx))
-	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
-	awaitHashtreeInitialized(t, s)
-	return liveRoot(t, s)
+	return serialRebuildRootWith(t, ctx, s, minAsyncReplicationConfig())
 }
 
 func gateChannel(s *Shard) chan struct{} {
@@ -363,85 +340,99 @@ func TestWritesDoNotBlockWhileHashtreeInitQueued(t *testing.T) {
 }
 
 func TestConcurrentWritesWhileHashtreeInitQueuedThenReleased(t *testing.T) {
-	ctx := context.Background()
-	const class = "InitQueuedConcurrent"
 	const n = 240
 	const writers = 4
 	const t0, t1 = tsFarPast, tsFarPast + 5
 
-	uuids := make([]strfmt.UUID, n)
-	for i := range uuids {
-		uuids[i] = leafUUID(i%2 == 1, i+1)
+	tests := []struct {
+		name         string
+		flushSeedAt  int
+		releaseAfter int64
+	}{
+		{name: "seedHalfFlushed", flushSeedAt: n / 2, releaseAfter: n / 2},
+		{name: "seedUnflushed", flushSeedAt: -1, releaseAfter: n / 4},
 	}
 
-	sl, s, sched, _ := newQueuedInitShard(t, ctx, class)
-	for i := 0; i < n; i++ {
-		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuids[i], t0)))
-		if i == n/2 {
-			require.NoError(t, s.store.FlushMemtables(ctx))
-		}
-	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			class := "InitQueuedConcurrent" + tc.name
 
-	release := holdInitSlot(t, sched)
-	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
-	requireQueuedInitState(t, s)
+			uuids := make([]strfmt.UUID, n)
+			for i := range uuids {
+				uuids[i] = leafUUID(i%2 == 1, i+1)
+			}
 
-	var (
-		progress atomic.Int64
-		errMu    sync.Mutex
-		errs     []error
-		wg       sync.WaitGroup
-	)
-	record := func(err error) {
-		if err != nil {
-			errMu.Lock()
-			errs = append(errs, err)
-			errMu.Unlock()
-		}
-	}
-	for w := 0; w < writers; w++ {
-		wg.Add(1)
-		go func(w int) {
-			defer wg.Done()
-			for i := w; i < n; i += writers {
-				switch i % 4 {
-				case 0:
-					record(sl.PutObject(ctx, testObjWithTime(class, uuids[i], t1)))
-				case 1:
-					record(sl.DeleteObject(ctx, uuids[i], time.Now()))
-				case 2:
-					record(sl.PutObject(ctx, testObjWithTime(class, uuids[i], t1)))
-					record(s.store.FlushMemtables(ctx))
-				case 3:
-					record(s.MergeObject(ctx, objects.MergeDocument{Class: class, ID: uuids[i], UpdateTime: t1}))
-				}
-				if progress.Add(1) == n/2 {
-					release()
+			sl, s, sched, _ := newQueuedInitShard(t, ctx, class)
+			for i := range n {
+				require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuids[i], t0)))
+				if i == tc.flushSeedAt {
+					require.NoError(t, s.store.FlushMemtables(ctx))
 				}
 			}
-		}(w)
-	}
 
-	done := make(chan struct{})
-	go func() { wg.Wait(); close(done) }()
-	select {
-	case <-done:
-	case <-time.After(initGateWatchdog):
-		t.Fatalf("writers did not finish within %s: writes blocked while hashtree init was queued", initGateWatchdog)
-	}
-	require.Empty(t, errs)
+			release := holdInitSlot(t, sched)
+			require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
+			requireQueuedInitState(t, s)
 
-	awaitHashtreeInitialized(t, s)
+			var (
+				progress atomic.Int64
+				errMu    sync.Mutex
+				errs     []error
+				wg       sync.WaitGroup
+			)
+			record := func(err error) {
+				if err != nil {
+					errMu.Lock()
+					errs = append(errs, err)
+					errMu.Unlock()
+				}
+			}
+			for w := range writers {
+				wg.Add(1)
+				go func(w int) {
+					defer wg.Done()
+					for i := w; i < n; i += writers {
+						switch i % 4 {
+						case 0:
+							record(sl.PutObject(ctx, testObjWithTime(class, uuids[i], t1)))
+						case 1:
+							record(sl.DeleteObject(ctx, uuids[i], time.Now()))
+						case 2:
+							record(sl.PutObject(ctx, testObjWithTime(class, uuids[i], t1)))
+							record(s.store.FlushMemtables(ctx))
+						case 3:
+							record(s.MergeObject(ctx, objects.MergeDocument{Class: class, ID: uuids[i], UpdateTime: t1}))
+						}
+						if progress.Add(1) == tc.releaseAfter {
+							release()
+						}
+					}
+				}(w)
+			}
 
-	expected := map[strfmt.UUID]int64{}
-	for i := range uuids {
-		if i%4 != 1 {
-			expected[uuids[i]] = t1
-		}
+			done := make(chan struct{})
+			go func() { wg.Wait(); close(done) }()
+			select {
+			case <-done:
+			case <-time.After(initGateWatchdog):
+				t.Fatalf("writers did not finish within %s: writes blocked while hashtree init was queued", initGateWatchdog)
+			}
+			require.Empty(t, errs)
+
+			awaitHashtreeInitialized(t, s)
+
+			expected := map[strfmt.UUID]int64{}
+			for i := range uuids {
+				if i%4 != 1 {
+					expected[uuids[i]] = t1
+				}
+			}
+			got := liveRoot(t, s)
+			require.Equal(t, referenceRoot(t, expected), got)
+			require.Equal(t, serialRebuildRoot(t, ctx, s), got)
+		})
 	}
-	got := liveRoot(t, s)
-	require.Equal(t, referenceRoot(t, expected), got)
-	require.Equal(t, serialRebuildRoot(t, ctx, s), got)
 }
 
 func TestConcurrentWritesUnderFlappingWhileHashtreeInitQueued(t *testing.T) {
@@ -452,50 +443,7 @@ func TestConcurrentWritesUnderFlappingWhileHashtreeInitQueued(t *testing.T) {
 
 	ids := []strfmt.UUID{uuidLow, uuidMid, uuidHigh}
 
-	tests := []struct {
-		name  string
-		write func(s *Shard, id strfmt.UUID, updateTime int64) error
-	}{
-		{
-			name: "PutObject",
-			write: func(s *Shard, id strfmt.UUID, updateTime int64) error {
-				return s.PutObject(context.Background(), testObjWithTime(s.class.Class, id, updateTime))
-			},
-		},
-		{
-			name: "MergeObject",
-			write: func(s *Shard, id strfmt.UUID, updateTime int64) error {
-				return s.MergeObject(context.Background(), objects.MergeDocument{
-					Class:      s.class.Class,
-					ID:         id,
-					UpdateTime: updateTime,
-				})
-			},
-		},
-		{
-			name: "mutableMergeObjectLSM",
-			write: func(s *Shard, id strfmt.UUID, updateTime int64) error {
-				idBytes, err := bytesFromUUID(id)
-				if err != nil {
-					return err
-				}
-				_, err = s.mutableMergeObjectLSM(context.Background(), objects.MergeDocument{
-					Class:      s.class.Class,
-					ID:         id,
-					UpdateTime: updateTime,
-				}, idBytes)
-				return err
-			},
-		},
-		{
-			name: "DeleteObject",
-			write: func(s *Shard, id strfmt.UUID, updateTime int64) error {
-				return s.DeleteObject(context.Background(), id, time.UnixMilli(updateTime))
-			},
-		},
-	}
-
-	for _, tc := range tests {
+	for _, tc := range asyncWriteJourneys() {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 			sl, s, sched, _ := newQueuedInitShard(t, ctx, "InitQueuedFlapping"+tc.name)

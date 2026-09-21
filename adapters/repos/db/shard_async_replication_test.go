@@ -1689,22 +1689,22 @@ func TestConcurrentEnableDisable(t *testing.T) {
 	_ = s.disableAsyncReplication(ctx)
 }
 
-// TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping guards against the recursive-RLock deadlock where the merge paths called waitForMinimalHashTreeInitialization while holding asyncReplicationRWMux.RLock(); pre-fix it hangs (watchdog fires), post-fix it completes. Run with -race.
-func TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping(t *testing.T) {
-	const (
-		writers    = 8
-		iterations = 150
-		watchdog   = 30 * time.Second
-	)
+// asyncWriteJourney is one object write path driven against async replication state changes.
+type asyncWriteJourney struct {
+	name  string
+	write func(s *Shard, id strfmt.UUID, updateTime int64) error
+}
 
-	ids := []strfmt.UUID{uuidLow, uuidMid, uuidHigh}
-
-	tests := []struct {
-		name  string
-		write func(s *Shard, id strfmt.UUID, updateTime int64) error
-	}{
+// asyncWriteJourneys returns the put, merge, mutable merge and delete journeys, or only the named ones in the given order.
+func asyncWriteJourneys(names ...string) []asyncWriteJourney {
+	all := []asyncWriteJourney{
 		{
-			// Exercises mergeObjectInStorage via the public MergeObject entry point.
+			name: "PutObject",
+			write: func(s *Shard, id strfmt.UUID, updateTime int64) error {
+				return s.PutObject(context.Background(), testObjWithTime(s.class.Class, id, updateTime))
+			},
+		},
+		{
 			name: "MergeObject",
 			write: func(s *Shard, id strfmt.UUID, updateTime int64) error {
 				return s.MergeObject(context.Background(), objects.MergeDocument{
@@ -1715,7 +1715,6 @@ func TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping(t *testing.T) {
 			},
 		},
 		{
-			// Exercises mutableMergeObjectLSM directly (the AddReferencesBatch path).
 			name: "mutableMergeObjectLSM",
 			write: func(s *Shard, id strfmt.UUID, updateTime int64) error {
 				idBytes, err := bytesFromUUID(id)
@@ -1730,9 +1729,38 @@ func TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping(t *testing.T) {
 				return err
 			},
 		},
+		{
+			name: "DeleteObject",
+			write: func(s *Shard, id strfmt.UUID, updateTime int64) error {
+				return s.DeleteObject(context.Background(), id, time.UnixMilli(updateTime))
+			},
+		},
 	}
+	if len(names) == 0 {
+		return all
+	}
+	out := make([]asyncWriteJourney, 0, len(names))
+	for _, name := range names {
+		for _, j := range all {
+			if j.name == name {
+				out = append(out, j)
+			}
+		}
+	}
+	return out
+}
 
-	for _, tc := range tests {
+// TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping guards against the recursive-RLock deadlock where the merge paths called waitForMinimalHashTreeInitialization while holding asyncReplicationRWMux.RLock(); pre-fix it hangs (watchdog fires), post-fix it completes. Run with -race.
+func TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping(t *testing.T) {
+	const (
+		writers    = 8
+		iterations = 150
+		watchdog   = 30 * time.Second
+	)
+
+	ids := []strfmt.UUID{uuidLow, uuidMid, uuidHigh}
+
+	for _, tc := range asyncWriteJourneys("MergeObject", "mutableMergeObjectLSM") {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 			sl, _ := testShard(t, ctx, "MergeDeadlock"+tc.name, withAsyncScheduler(t))
