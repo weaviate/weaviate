@@ -12,7 +12,6 @@
 package cluster
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -213,8 +212,7 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 		if st.lastAppliedIndexToDB.Load() <= snapIndex {
 			// db shall reload after snapshot applied to schema; a running load
 			// is superseded by it
-			st.dbLoad.stop()
-			st.reloadDBFromSchema(context.Background())
+			st.dbLoad.runInline(st.loadDBFromSchema)
 		}
 
 		st.log.WithFields(logrus.Fields{

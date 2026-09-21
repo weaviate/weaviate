@@ -36,13 +36,11 @@ import (
 )
 
 // TestDBLoaderRunsQueuedWritesOnceInOrder pins that every queued write runs
-// once, in order.
+// once, in order, including writes queued while an earlier batch is running.
 func TestDBLoaderRunsQueuedWritesOnceInOrder(t *testing.T) {
 	t.Parallel()
 
 	l := newDBLoader(logrus.New())
-	ctx, ok := l.begin()
-	require.True(t, ok)
 
 	var got []int
 	var queue func(i int)
@@ -50,53 +48,59 @@ func TestDBLoaderRunsQueuedWritesOnceInOrder(t *testing.T) {
 		require.True(t, l.deferWrite(func() {
 			got = append(got, i)
 			if i == 1 {
-				queue(3)
+				queue(3) // lands mid-batch
 			}
 		}), "a write landing mid-load must be queued")
 	}
-	queue(1)
-	queue(2)
 
-	l.drain(ctx)
+	l.runInline(func(context.Context) {
+		queue(1)
+		queue(2)
+	})
 
 	require.Equal(t, []int{1, 2, 3}, got)
-	require.False(t, l.inFlight.Load(), "an empty queue ends the load")
+	require.True(t, l.done(), "an empty queue publishes the DB")
 	require.False(t, l.deferWrite(func() { t.Fatal("ran a write queued after the load") }),
 		"the load is over: the caller writes now")
 }
 
+// TestDBLoaderIsOneShot pins that nothing is queued before or after the load,
+// and that Apply cannot start a second one.
 func TestDBLoaderIsOneShot(t *testing.T) {
 	t.Parallel()
 
 	l := newDBLoader(logrus.New())
-	require.False(t, l.deferStoreWrite("op", func() error { return nil }), "no load in flight: nothing to defer")
+	require.False(t, l.deferStoreWrite("op", func() error { return nil }), "no load in flight")
 
-	ctx, ok := l.begin()
-	require.True(t, ok)
-	l.drain(ctx)
+	require.True(t, l.run(func(context.Context) {}))
+	require.True(t, tryNTimesWithWait(100, 10*time.Millisecond, l.done))
 
-	require.False(t, l.deferStoreWrite("op", func() error { return nil }), "the load is over: nothing to defer")
+	require.False(t, l.deferStoreWrite("op", func() error { return nil }), "the load is over")
 	require.Empty(t, l.queued, "a write that was not deferred must not be queued")
-
-	_, ok = l.begin()
-	require.False(t, ok, "the load is one-shot")
+	require.False(t, l.run(func(context.Context) { t.Fatal("started a second load") }))
 }
 
-func TestDBLoaderDropsQueueOnShutdown(t *testing.T) {
+// TestDBLoaderStopEndsALoad pins that shutdown cancels the load and leaves
+// nothing queueing behind it.
+func TestDBLoaderStopEndsALoad(t *testing.T) {
 	t.Parallel()
 
 	l := newDBLoader(logrus.New())
-	ctx, ok := l.begin()
-	require.True(t, ok)
+	loading := make(chan struct{})
+	require.True(t, l.run(func(ctx context.Context) {
+		close(loading)
+		<-ctx.Done()
+	}))
+	<-loading
 	require.True(t, l.deferWrite(func() { t.Fatal("ran a write after shutdown") }))
 
-	l.cancel()
-	l.drain(ctx)
-	require.False(t, l.inFlight.Load())
+	l.stop()
+	require.True(t, l.done())
+	require.False(t, l.deferWrite(func() { t.Fatal("queued a write after shutdown") }))
 }
 
-// TestDBLoaderHandoverUnderStress checks that every write the loader took
-// runs.
+// TestDBLoaderHandoverUnderStress hammers the handover: a write the loader
+// took must run, and one it refused must never be queued.
 func TestDBLoaderHandoverUnderStress(t *testing.T) {
 	t.Parallel()
 
@@ -104,23 +108,13 @@ func TestDBLoaderHandoverUnderStress(t *testing.T) {
 
 	for i := 0; i < rounds; i++ {
 		var (
-			l        = newDBLoader(logrus.New())
-			queued   atomic.Int64
-			ran      atomic.Int64
-			refused  atomic.Int64
-			start    = make(chan struct{})
-			wg       sync.WaitGroup
-			ctx, ok  = l.begin()
-			commands = 4
+			l           = newDBLoader(logrus.New())
+			queued, ran atomic.Int64
+			refused     atomic.Int64
+			start       = make(chan struct{})
+			wg          sync.WaitGroup
+			commands    = 4
 		)
-		require.True(t, ok, "round %d: the load must start idle", i)
-
-		wg.Add(1)
-		enterrors.GoWrapper(func() {
-			defer wg.Done()
-			<-start
-			l.drain(ctx)
-		}, l.log)
 
 		for j := 0; j < commands; j++ {
 			wg.Add(1)
@@ -135,10 +129,10 @@ func TestDBLoaderHandoverUnderStress(t *testing.T) {
 			}, l.log)
 		}
 
-		close(start)
+		l.runInline(func(context.Context) { close(start) })
 		wg.Wait()
 
-		require.False(t, l.inFlight.Load(), "round %d: the loader must leave the load idle", i)
+		require.True(t, l.done(), "round %d: the loader must publish the DB", i)
 		require.Equal(t, int64(commands), queued.Load()+refused.Load())
 		require.Equal(t, queued.Load(), ran.Load(),
 			"round %d: %d write(s) queued but %d ran; the rest never reach the DB", i, queued.Load(), ran.Load())
@@ -230,7 +224,7 @@ func TestStoreDeferredDBWritesReachTheDB(t *testing.T) {
 				"%s reached the DB while the load was still running", test.method)
 
 			close(release)
-			require.True(t, tryNTimesWithWait(200, 10*time.Millisecond, st.dbLoaded.Load),
+			require.True(t, tryNTimesWithWait(200, 10*time.Millisecond, st.dbLoad.done),
 				"the load must finish")
 			require.True(t, called(ms.indexer, test.method),
 				"%s applied mid-load never reached the DB", test.method)
@@ -265,7 +259,7 @@ func TestStoreDeferredDBWritesKeepLogOrder(t *testing.T) {
 	apply(logEntry(4, "C", cmd.ApplyRequest_TYPE_DELETE_CLASS, nil, nil))
 
 	close(release)
-	require.True(t, tryNTimesWithWait(200, 10*time.Millisecond, st.dbLoaded.Load), "the load must finish")
+	require.True(t, tryNTimesWithWait(200, 10*time.Millisecond, st.dbLoad.done), "the load must finish")
 
 	var got []string
 	for _, c := range ms.indexer.Calls {
@@ -305,7 +299,7 @@ func holdLoad(t *testing.T, ms *MockStore) chan struct{} {
 		close(loading)
 		<-release
 	}
-	ms.store.dbLoad.start(ms.store.reloadDBFromSchema)
+	ms.store.dbLoad.run(ms.store.loadDBFromSchema)
 	<-loading
 	return release
 }
@@ -355,7 +349,7 @@ func TestStoreRestoreDuringLoadSupersedesIt(t *testing.T) {
 		}
 	}
 
-	target.store.dbLoad.start(target.store.reloadDBFromSchema)
+	target.store.dbLoad.run(target.store.loadDBFromSchema)
 	<-loading
 
 	restored := make(chan error, 1)
@@ -369,7 +363,7 @@ func TestStoreRestoreDuringLoadSupersedesIt(t *testing.T) {
 		t.Fatal("Restore did not cancel the running load")
 	}
 
-	require.True(t, target.store.dbLoaded.Load())
+	require.True(t, target.store.dbLoad.done())
 	require.Equal(t, int32(2), calls.Load(), "the restored schema must be loaded")
 	require.Equal(t, int32(1), maxActive.Load(), "the restore's reload ran beside the load")
 }

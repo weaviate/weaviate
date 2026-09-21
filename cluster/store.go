@@ -236,9 +236,7 @@ type Store struct {
 
 	// open is set on opening the store
 	open atomic.Bool
-	// dbLoaded is set when the DB is loaded at startup
-	dbLoaded atomic.Bool
-
+	// dbLoad runs the startup load and owns the local DB's readiness.
 	dbLoad *dbLoader
 
 	// raft implementation from external library
@@ -547,7 +545,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	snapIndex := lastSnapshotIndex(st.snapshotStore)
 	if st.lastAppliedIndexToDB.Load() == 0 && snapIndex == 0 {
 		// if empty node report ready
-		st.dbLoaded.Store(true)
+		st.dbLoad.markDone()
 	}
 
 	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
@@ -729,14 +727,14 @@ func (st *Store) Close(ctx context.Context) error {
 func (st *Store) SetDB(db schema.Indexer) { st.schemaManager.SetIndexer(db) }
 
 func (st *Store) Ready() bool {
-	return st.open.Load() && st.dbLoaded.Load() && st.Leader() != ""
+	return st.open.Load() && st.dbLoad.done() && st.Leader() != ""
 }
 
 // WaitToLoadDB waits for the DB to be loaded. The DB might be first loaded
 // after RAFT is in a healthy state, which is when the leader has been elected and there
 // is consensus on the log.
 func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, close chan struct{}) error {
-	if st.dbLoaded.Load() {
+	if st.dbLoad.done() {
 		return nil
 	}
 	t := time.NewTicker(period)
@@ -750,7 +748,7 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, clos
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-t.C:
-			if st.dbLoaded.Load() {
+			if st.dbLoad.done() {
 				return nil
 			}
 			if time.Since(lastLog) >= logInterval {
@@ -900,7 +898,7 @@ func (st *Store) SchemaReader() schema.SchemaReader {
 // The value of "last_applied_index" is the index of the latest update to the store,
 // see Store.lastAppliedIndex.
 //
-// The value of "db_loaded" indicates whether the DB has finished loading, see Store.dbLoaded.
+// The value of "db_loaded" indicates whether the DB has finished loading.
 //
 // Since this is for information/debugging we want to avoid enforcing unnecessary restrictions on
 // what can go in these stats, thus we're returning map[string]any. However, any values added to
@@ -920,7 +918,7 @@ func (st *Store) Stats() map[string]any {
 	stats["candidates"] = st.candidates
 	stats["last_store_log_applied_index"] = st.lastAppliedIndexToDB.Load()
 	stats["last_applied_index"] = st.lastIndex()
-	stats["db_loaded"] = st.dbLoaded.Load()
+	stats["db_loaded"] = st.dbLoad.done()
 
 	// If the raft stats exist, add them as a nested map
 	if st.raft != nil {
@@ -1021,7 +1019,7 @@ func (st *Store) raftConfig() *raft.Config {
 }
 
 func (st *Store) openDatabase(ctx context.Context) {
-	if st.dbLoaded.Load() {
+	if st.dbLoad.done() {
 		return
 	}
 
@@ -1037,14 +1035,6 @@ func (st *Store) openDatabase(ctx context.Context) {
 	}
 
 	st.log.WithField("n", st.schemaManager.NewSchemaReader().Len()).Info("schema manager loaded")
-}
-
-// reloadDBFromSchema loads the local DB, then runs the DB writes queued behind
-// it. Apply runs it in the background so a long load does not stall the FSM.
-func (st *Store) reloadDBFromSchema(ctx context.Context) {
-	st.loadDBFromSchema(ctx)
-	st.dbLoad.drain(ctx)
-	st.dbLoaded.Store(true)
 }
 
 // waitLeaderFSMCaughtUp blocks until this node's FSM has applied what it
@@ -1116,7 +1106,7 @@ var errStartupLoadPending = errors.New("local DB still loading after restart")
 // startupLoadPending reports whether a node restarted with state has not yet
 // loaded its local DB.
 func (st *Store) startupLoadPending() bool {
-	return st.lastAppliedIndexToDB.Load() != 0 && !st.dbLoaded.Load()
+	return st.lastAppliedIndexToDB.Load() != 0 && !st.dbLoad.done()
 }
 
 func (st *Store) FSMHasCaughtUp() bool {

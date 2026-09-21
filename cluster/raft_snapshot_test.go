@@ -133,7 +133,7 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 // that decides where progress logging can live. On a node restarting with a
 // snapshot, the DB reload runs inside raft.NewRaft, inside Store.Open —
 // before the caller can invoke WaitToRestoreDB. So WaitToRestoreDB returns
-// having logged nothing, and only the tracker inside reloadDBFromSchema can
+// having logged nothing, and only the tracker inside the load can
 // report that load.
 func TestSnapshotRestoreReloadsDBBeforeWaitToRestoreDB(t *testing.T) {
 	ctx := context.Background()
@@ -206,10 +206,10 @@ func TestSnapshotRestoreReloadsDBBeforeWaitToRestoreDB(t *testing.T) {
 	m.indexer.AssertCalled(t, "TriggerSchemaUpdateCallbacks")
 	assert.True(t, reloadRanDuringOpen.Load(),
 		"the snapshot-path reload must run inside Open, via raft.NewRaft restoring the FSM")
-	assert.True(t, m.store.dbLoaded.Load(),
+	assert.True(t, m.store.dbLoad.done(),
 		"the DB must be fully loaded by the time Open returns")
 	assert.Equal(t, 1, countMsg("local DB loaded from schema"),
-		"the tracker inside reloadDBFromSchema is what reported this load")
+		"the tracker inside the load is what reported this load")
 
 	require.NoError(t, srv.WaitUntilDBRestored(ctx, time.Second, make(chan struct{})))
 	assert.Equal(t, 0, countMsg("waiting for database to be restored"),

@@ -63,7 +63,7 @@ func TestStoreLeavesNoOrphanedClassData(t *testing.T) {
 		{
 			name: "runtime snapshot restore without the class",
 			run: func(t *testing.T, ms MockStore) {
-				ms.store.dbLoaded.Store(true)
+				ms.store.dbLoad.markDone()
 				applyOK(t, ms.store, orphanAddClass(1))
 				restoreOK(t, ms, emptySnapshot(t))
 			},
@@ -73,7 +73,7 @@ func TestStoreLeavesNoOrphanedClassData(t *testing.T) {
 			run: func(t *testing.T, ms MockStore) {
 				applyOK(t, ms.store, orphanAddClass(1))
 				held := holdReload(t, ms)
-				ms.store.dbLoad.start(ms.store.reloadDBFromSchema)
+				ms.store.dbLoad.run(ms.store.loadDBFromSchema)
 				<-held.loading
 				restoreOK(t, ms, emptySnapshot(t))
 				close(held.release)
@@ -155,7 +155,7 @@ func applyOK(t *testing.T, st *Store, l *raft.Log) {
 
 func waitLoaded(t *testing.T, st *Store) {
 	t.Helper()
-	require.True(t, tryNTimesWithWait(500, 10*time.Millisecond, st.dbLoaded.Load), "the load must finish")
+	require.True(t, tryNTimesWithWait(500, 10*time.Millisecond, st.dbLoad.done), "the load must finish")
 }
 
 // emptySnapshot is a leader's snapshot taken after every class was deleted.
@@ -236,4 +236,25 @@ func TestStoreRefusesSnapshotsUntilStartupLoad(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+// TestStoreRestoreDuringLoadRunsQueuedWrites pins that a snapshot restored
+// mid-load does not drop the writes queued behind the cancelled load. They
+// predate the snapshot, and the restored schema no longer names what they
+// deleted, so nothing else would remove its data.
+func TestStoreRestoreDuringLoadRunsQueuedWrites(t *testing.T) {
+	t.Parallel()
+
+	ms := newOrphanStore(t)
+	applyOK(t, ms.store, orphanAddClass(1))
+
+	held := holdReload(t, ms)
+	ms.store.dbLoad.run(ms.store.loadDBFromSchema)
+	<-held.loading
+	applyOK(t, ms.store, orphanDeleteClass(2)) // queued behind the load
+
+	restoreOK(t, ms, emptySnapshot(t))
+	close(held.release)
+
+	ms.indexer.AssertCalled(t, "DropOrphanedClass", mock.Anything, "C", false)
 }

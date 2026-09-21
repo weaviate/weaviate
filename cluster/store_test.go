@@ -1544,9 +1544,9 @@ func TestStoreReloadDBFromSchemaReportsProgressDuringReload(t *testing.T) {
 		}).Return()
 	})
 
-	st.reloadDBFromSchema(context.Background())
+	st.dbLoad.runInline(st.loadDBFromSchema)
 
-	require.True(t, st.dbLoaded.Load())
+	require.True(t, st.dbLoad.done())
 	require.True(t, logged("local DB loaded from schema"))
 	for _, e := range logHook.AllEntries() {
 		if e.Message == "local DB loaded from schema" {
@@ -1691,11 +1691,11 @@ func TestStoreWaitToRestoreDBAnnouncesOnce(t *testing.T) {
 	assert.Equal(t, 1, countMsg("waiting for database to be restored"),
 		"announced once, not once per tick")
 
-	st.dbLoaded.Store(true)
+	st.dbLoad.markDone()
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
-		t.Fatal("WaitToRestoreDB did not return once dbLoaded flipped")
+		t.Fatal("WaitToRestoreDB did not return once the DB was published")
 	}
 }
 
@@ -1719,14 +1719,14 @@ func TestStoreApplyDoesNotBlockOnShardLoad(t *testing.T) {
 	returned := make(chan struct{})
 	enterrors.GoWrapper(func() {
 		defer close(returned)
-		st.dbLoad.start(st.reloadDBFromSchema)
+		st.dbLoad.run(st.loadDBFromSchema)
 	}, ms.logger)
 
 	select {
 	case <-returned:
 	case <-time.After(5 * time.Second):
 		close(release)
-		t.Fatal("reloadDBFromSchema blocked on the shard load; the FSM goroutine is still occupied")
+		t.Fatal("the load blocked the caller; the FSM goroutine is still occupied")
 	}
 
 	select {
@@ -1735,11 +1735,11 @@ func TestStoreApplyDoesNotBlockOnShardLoad(t *testing.T) {
 		close(release)
 		t.Fatal("the background load never started")
 	}
-	require.False(t, st.dbLoaded.Load(), "dbLoaded must not be set until the load finishes")
+	require.False(t, st.dbLoad.done(), "the DB must not be published until the load finishes")
 
 	close(release)
-	require.True(t, tryNTimesWithWait(200, 10*time.Millisecond, st.dbLoaded.Load),
-		"dbLoaded must be set once the load finishes")
+	require.True(t, tryNTimesWithWait(200, 10*time.Millisecond, st.dbLoad.done),
+		"the DB must be published once the load finishes")
 }
 
 func TestStoreApplyQueuesDBWritesWhileLoading(t *testing.T) {
@@ -1774,15 +1774,15 @@ func TestStoreApplyQueuesDBWritesWhileLoading(t *testing.T) {
 
 	t.Run("loading: the DB write waits for the load", func(t *testing.T) {
 		ms := newStore(t)
-		ctx, ok := ms.store.dbLoad.begin()
-		require.True(t, ok)
 
-		resp := ms.store.Apply(addClass(1)).(Response)
-		require.NoError(t, resp.Error)
-		require.True(t, ms.store.SchemaReader().ClassInfo("C").Exists, "the schema half must land at once")
-		ms.indexer.AssertNotCalled(t, "AddClass", mock.Anything)
+		// The command lands inside the load, so its DB write queues behind it.
+		ms.store.dbLoad.runInline(func(context.Context) {
+			resp := ms.store.Apply(addClass(1)).(Response)
+			require.NoError(t, resp.Error)
+			require.True(t, ms.store.SchemaReader().ClassInfo("C").Exists, "the schema half must land at once")
+			ms.indexer.AssertNotCalled(t, "AddClass", mock.Anything)
+		})
 
-		ms.store.dbLoad.drain(ctx)
 		ms.indexer.AssertCalled(t, "AddClass", mock.Anything)
 	})
 }
@@ -1826,7 +1826,7 @@ func TestStoreRestorePathStaysSynchronous(t *testing.T) {
 
 	close(release)
 	require.NoError(t, <-restored)
-	require.True(t, target.store.dbLoaded.Load(), "dbLoaded must be set before Restore returns")
+	require.True(t, target.store.dbLoad.done(), "the DB must be published before Restore returns")
 }
 
 func TestStoreDeferredDeleteClassReachesTheDB(t *testing.T) {
@@ -1874,7 +1874,7 @@ func TestStoreDeferredDeleteClassReachesTheDB(t *testing.T) {
 				}
 			}).Return()
 
-			st.dbLoad.start(st.reloadDBFromSchema)
+			st.dbLoad.run(st.loadDBFromSchema)
 			<-loading
 
 			st.Apply(&raft.Log{Index: 2, Type: raft.LogCommand, Data: cmdAsBytes("C",
@@ -1882,7 +1882,7 @@ func TestStoreDeferredDeleteClassReachesTheDB(t *testing.T) {
 			ms.indexer.AssertNotCalled(t, "DropOrphanedClass", mock.Anything, mock.Anything, mock.Anything)
 
 			close(release)
-			require.True(t, tryNTimesWithWait(200, 10*time.Millisecond, st.dbLoaded.Load),
+			require.True(t, tryNTimesWithWait(200, 10*time.Millisecond, st.dbLoad.done),
 				"the load must finish")
 
 			ms.indexer.AssertCalled(t, "DropOrphanedClass", mock.Anything, "C", test.wantFrozen)
@@ -1900,9 +1900,9 @@ func TestStoreIncompleteLoadStillGoesReady(t *testing.T) {
 		name string
 		run  func(st *Store)
 	}{
-		{name: "called directly", run: func(st *Store) { st.reloadDBFromSchema(context.Background()) }},
+		{name: "called directly", run: func(st *Store) { st.dbLoad.runInline(st.loadDBFromSchema) }},
 		{name: "started in the background", run: func(st *Store) {
-			st.dbLoad.start(st.reloadDBFromSchema)
+			st.dbLoad.run(st.loadDBFromSchema)
 		}},
 	}
 
@@ -1917,7 +1917,7 @@ func TestStoreIncompleteLoadStillGoesReady(t *testing.T) {
 
 			test.run(st)
 
-			require.True(t, tryNTimesWithWait(200, 10*time.Millisecond, st.dbLoaded.Load),
+			require.True(t, tryNTimesWithWait(200, 10*time.Millisecond, st.dbLoad.done),
 				"a partial load must still report ready")
 			require.Equal(t, float64(1), testutil.ToFloat64(st.metrics.localDBLoadFailures),
 				"a partial load must be counted; it is the only signal that the node's data is incomplete")
@@ -1941,6 +1941,6 @@ func TestWaitForAppliedIndexWaitsForTheLocalDB(t *testing.T) {
 	require.ErrorIs(t, st.WaitForAppliedIndex(context.Background(), time.Millisecond, 10),
 		types.ErrDeadlineExceeded, "the DB writes are still queued behind the load")
 
-	st.dbLoaded.Store(true)
+	st.dbLoad.markDone()
 	require.NoError(t, st.WaitForAppliedIndex(context.Background(), time.Millisecond, 10))
 }

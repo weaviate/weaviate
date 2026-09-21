@@ -21,17 +21,29 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-// dbLoader runs the startup shard load off the FSM goroutine. DB writes applied
-// meanwhile are queued and run in log order once the load is done.
+// loadState is the local DB's readiness.
+type loadState int32
+
+const (
+	loadIdle loadState = iota
+	loadRunning
+	loadDone
+)
+
+// dbLoader runs the startup shard load off the FSM goroutine and owns whether
+// the local DB is ready.
+//
+// The load rebuilds indexes from the schema as it stood when it started, so it
+// owns the DB until then: commands applied meanwhile queue their DB write, and
+// the loader runs them in log order before publishing the DB.
 type dbLoader struct {
 	log logrus.FieldLogger
 
-	inFlight atomic.Bool // read on every apply, outside mu
+	state atomic.Int32 // read on every apply, outside mu
 
-	mu      sync.Mutex
-	started bool
-	queued  []func()
-	cancel  context.CancelFunc
+	mu     sync.Mutex
+	queued []func()
+	cancel context.CancelFunc
 
 	wg sync.WaitGroup
 }
@@ -40,37 +52,60 @@ func newDBLoader(log logrus.FieldLogger) *dbLoader {
 	return &dbLoader{log: log}
 }
 
-// begin reports whether this call owns the load; the caller must call l.wg.Done.
-// One-shot: inFlight clears before dbLoaded is set, so Apply could otherwise
-// start a second loader in between.
-func (l *dbLoader) begin() (context.Context, bool) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.started {
-		return nil, false
-	}
-	l.started = true
-	l.inFlight.Store(true)
-	l.wg.Add(1)
-	ctx, cancel := context.WithCancel(context.Background())
-	l.cancel = cancel
-	return ctx, true
+func (l *dbLoader) done() bool {
+	return l != nil && loadState(l.state.Load()) == loadDone
 }
 
-// start runs load in the background unless a load has already run.
-func (l *dbLoader) start(load func(context.Context)) bool {
-	ctx, ok := l.begin()
-	if !ok {
+// markDone publishes a DB that needs no load, as an empty node's does.
+func (l *dbLoader) markDone() {
+	l.state.Store(int32(loadDone))
+}
+
+// run loads in the background unless a load has already run. Apply is raft's
+// FSM goroutine: a load of minutes to hours there stalls every other command,
+// bootstrap joins included.
+func (l *dbLoader) run(load func(context.Context)) bool {
+	l.mu.Lock()
+	if loadState(l.state.Load()) != loadIdle {
+		l.mu.Unlock()
 		return false
 	}
+	ctx := l.beginLocked()
+	l.mu.Unlock()
+
 	enterrors.GoWrapper(func() {
 		defer l.wg.Done()
-		load(ctx)
+		l.loadThenPublish(ctx, load)
 	}, l.log)
 	return true
 }
 
-// stop cancels a running load and waits for it.
+// runInline loads on the caller's goroutine, superseding a running load: raft
+// requires a restore not to overlap other commands.
+func (l *dbLoader) runInline(load func(context.Context)) {
+	l.stop()
+
+	l.mu.Lock()
+	ctx := l.beginLocked()
+	l.mu.Unlock()
+	defer l.wg.Done()
+
+	// Writes the superseded load left queued predate the snapshot, and the
+	// restored schema no longer names what they deleted: run them first, or
+	// nothing ever removes that data.
+	l.drain(ctx, false)
+	l.loadThenPublish(ctx, load)
+}
+
+func (l *dbLoader) beginLocked() context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	l.cancel = cancel
+	l.wg.Add(1)
+	l.state.Store(int32(loadRunning))
+	return ctx
+}
+
+// stop cancels a running load and waits for it, so it cannot hold shutdown open.
 func (l *dbLoader) stop() {
 	if l == nil {
 		return
@@ -85,15 +120,15 @@ func (l *dbLoader) stop() {
 	l.wg.Wait()
 }
 
-// deferWrite queues write if a load is running. The check shares mu with drain,
-// so a write cannot be queued after drain found the queue empty.
+// deferWrite queues write if a load is running. The check shares mu with the
+// drain below, so nothing is queued once the DB is published.
 func (l *dbLoader) deferWrite(write func()) bool {
-	if !l.inFlight.Load() {
+	if loadState(l.state.Load()) != loadRunning {
 		return false
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if !l.inFlight.Load() {
+	if loadState(l.state.Load()) != loadRunning {
 		return false
 	}
 	l.queued = append(l.queued, write)
@@ -102,9 +137,6 @@ func (l *dbLoader) deferWrite(write func()) bool {
 
 // deferStoreWrite adapts deferWrite to [schema.StoreWriteDeferrer].
 func (l *dbLoader) deferStoreWrite(op string, write func() error) bool {
-	if !l.inFlight.Load() {
-		return false
-	}
 	return l.deferWrite(func() {
 		if err := write(); err != nil {
 			l.log.WithField("op", op).Errorf("DB write deferred behind the local DB load: %v", err)
@@ -112,18 +144,29 @@ func (l *dbLoader) deferStoreWrite(op string, write func() error) bool {
 	})
 }
 
-// drain runs queued writes in order until none are left, then ends the load.
-// On cancellation the queue is dropped.
-func (l *dbLoader) drain(ctx context.Context) {
+// loadThenPublish loads, then runs the writes queued behind it in order and
+// publishes the DB.
+func (l *dbLoader) loadThenPublish(ctx context.Context, load func(context.Context)) {
+	load(ctx)
+	l.drain(ctx, true)
+}
+
+// drain runs the queued writes in order until none are left, stopping early on
+// cancellation and leaving the rest for whoever supersedes the load. With
+// publish, the DB goes ready under the same lock as the last emptiness check,
+// so nothing is queued once it is published.
+func (l *dbLoader) drain(ctx context.Context, publish bool) {
 	for {
 		l.mu.Lock()
-		batch := l.queued
-		l.queued = nil
-		if len(batch) == 0 || ctx.Err() != nil {
-			l.inFlight.Store(false)
+		if len(l.queued) == 0 || ctx.Err() != nil {
+			if publish {
+				l.state.Store(int32(loadDone))
+			}
 			l.mu.Unlock()
 			return
 		}
+		batch := l.queued
+		l.queued = nil
 		l.mu.Unlock()
 
 		for _, write := range batch {
