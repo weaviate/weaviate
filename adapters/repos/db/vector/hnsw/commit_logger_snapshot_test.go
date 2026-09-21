@@ -1512,7 +1512,7 @@ func TestSnapshotCleanedTombstoneKeepsSlotAlignment(t *testing.T) {
 			continue
 		}
 		require.NotNilf(t, restored.Nodes[i], "node %d must survive", i)
-		require.Equalf(t, i, restored.Nodes[i].level, "node %d shifted id/level", i)
+		require.Equalf(t, i, int(restored.Nodes[i].level), "node %d shifted id/level", i)
 	}
 }
 
@@ -1574,7 +1574,7 @@ func TestReadSnapshotConcurrent(t *testing.T) {
 					if !assert.NotNilf(t, node, "shard %d node %d missing", s, i) {
 						return
 					}
-					if !assert.Equalf(t, (i+s)%6, node.level, "shard %d node %d holds another shard's data", s, i) {
+					if !assert.Equalf(t, (i+s)%6, int(node.level), "shard %d node %d holds another shard's data", s, i) {
 						return
 					}
 				}
