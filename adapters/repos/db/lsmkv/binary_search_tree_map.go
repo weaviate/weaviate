@@ -13,7 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
-	"sort"
+	"slices"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rbtree"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -231,6 +231,10 @@ func (n *binarySearchNodeMap) subtreeSize() int {
 	return s
 }
 
+func compareMapPairByKey(a, b MapPair) int {
+	return bytes.Compare(a.Key, b.Key)
+}
+
 // takes a list of MapPair and sorts it while keeping the original order. Then
 // removes redundancies (from updates or deletes after previous inserts) using
 // a simple deduplication process.
@@ -238,12 +242,13 @@ func sortAndDedupValues(in []MapPair) []MapPair {
 	out := make([]MapPair, len(in))
 	copy(out, in)
 
-	// use SliceStable so that we keep the insert order on duplicates. This is
-	// important because otherwise we can't dedup them correctly if we don't know
-	// in which order they came in.
-	sort.SliceStable(out, func(a, b int) bool {
-		return bytes.Compare(out[a].Key, out[b].Key) < 0
-	})
+	// the sort must be stable: the dedup below keeps the last of a run of equal
+	// keys, which is only the newest write if insert order survives. The sorted
+	// check skips the sort on buckets whose map keys are BigEndian doc IDs, as
+	// those arrive ascending. See BenchmarkSortAndDedupValues.
+	if !slices.IsSortedFunc(out, compareMapPairByKey) {
+		slices.SortStableFunc(out, compareMapPairByKey)
+	}
 
 	// now deduping is as simple as looking one key ahead - if it's the same key
 	// simply skip the current element. Meaning "out" will be a subset of
