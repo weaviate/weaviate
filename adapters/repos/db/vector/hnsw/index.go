@@ -765,6 +765,28 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	return h.nodes[id]
 }
 
+// nodeAbsent reports whether id has no live vertex (out of range or a nil
+// slot). It takes only the single node-shard read lock for id and holds no
+// other lock, so callers may safely acquire tombstoneLock afterwards without
+// inverting the delete/reset lock order.
+func (h *hnsw) nodeAbsent(id uint64) bool {
+	h.shardedNodeLocks.RLock(id)
+	defer h.shardedNodeLocks.RUnlock(id)
+
+	return id >= uint64(len(h.nodes)) || h.nodes[id] == nil
+}
+
+// docIDVectorExists reports whether a multivector docID maps to any vector.
+// It preserves the node-shard read-lock scope the ACORN seed loop used for
+// this map read while keeping that scope off the subsequent distToNode call.
+func (h *hnsw) docIDVectorExists(id uint64) bool {
+	h.shardedNodeLocks.RLock(id)
+	defer h.shardedNodeLocks.RUnlock(id)
+
+	_, exists := h.docIDVectors[id]
+	return exists
+}
+
 // Drop stops the index exactly as Shutdown does, then removes the commit log's
 // files. Dropping before stopping would leave the maintenance cycles and the
 // tombstone cleanup running against state being torn down underneath them.
