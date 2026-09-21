@@ -776,7 +776,10 @@ func Test_Explorer_GetClass(t *testing.T) {
 				{Class: "BestClass"},
 			}}},
 		})
+		// the module may compute its prop from the vector, which objects of
+		// remote shards only carry if it is requested
 		expectedParamsToSearch := params
+		expectedParamsToSearch.AdditionalProperties.Vector = true
 		search.
 			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
@@ -913,6 +916,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			}}},
 		})
 		expectedParamsToSearch := params
+		expectedParamsToSearch.AdditionalProperties.Vector = true
 		search.
 			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
@@ -1185,6 +1189,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			}}},
 		})
 		expectedParamsToSearch := params
+		expectedParamsToSearch.AdditionalProperties.Vector = true
 		searcher.
 			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
@@ -1291,6 +1296,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			}}},
 		})
 		expectedParamsToSearch := params
+		expectedParamsToSearch.AdditionalProperties.Vector = true
 		searcher.
 			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)
@@ -2044,6 +2050,7 @@ func Test_Explorer_GetClass(t *testing.T) {
 			}}},
 		})
 		expectedParamsToSearch := params
+		expectedParamsToSearch.AdditionalProperties.Vector = true
 		searcher.
 			On("Search", expectedParamsToSearch).
 			Return(searchResults, nil)

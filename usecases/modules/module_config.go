@@ -58,6 +58,9 @@ func (cbmc *ClassBasedModuleConfig) TargetVector() string {
 
 func (cbmc *ClassBasedModuleConfig) PropertiesDataTypes() map[string]schema.DataType {
 	primitiveProps := map[string]schema.DataType{}
+	if cbmc.class == nil {
+		return primitiveProps
+	}
 	for _, schemaProp := range cbmc.class.Properties {
 		dt, err := schema.GetValueDataTypeFromString(schemaProp.DataType[0])
 		if err != nil {
@@ -89,6 +92,10 @@ func (cbmc *ClassBasedModuleConfig) ClassByModuleName(moduleName string) map[str
 }
 
 func (cbmc *ClassBasedModuleConfig) getModuleConfig() interface{} {
+	// a cross class config (e.g. Explore) is not bound to any class
+	if cbmc.class == nil {
+		return nil
+	}
 	if cbmc.targetVector != "" {
 		if vectorConfig, ok := cbmc.class.VectorConfig[cbmc.targetVector]; ok {
 			return vectorConfig.Vectorizer
@@ -100,6 +107,9 @@ func (cbmc *ClassBasedModuleConfig) getModuleConfig() interface{} {
 
 func (cbmc *ClassBasedModuleConfig) Property(propName string) map[string]interface{} {
 	defaultConf := map[string]interface{}{}
+	if cbmc.class == nil {
+		return defaultConf
+	}
 	prop, err := schema.GetPropertyByName(cbmc.class, propName)
 	if err != nil {
 		return defaultConf

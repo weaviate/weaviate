@@ -443,6 +443,10 @@ func (d *DockerCompose) GetText2VecTransformers() *DockerContainer {
 	return d.getContainerByName(Text2VecTransformers)
 }
 
+func (d *DockerCompose) GetText2VecModel2Vec() *DockerContainer {
+	return d.getContainerByName(Text2VecModel2Vec)
+}
+
 func (d *DockerCompose) GetText2VecContextionary() *DockerContainer {
 	return d.getContainerByName(Text2VecContextionary)
 }
