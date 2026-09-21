@@ -183,6 +183,9 @@ type commitLogger struct {
 
 	bufNode *bytes.Buffer
 	tmpBuf  []byte
+	// scratch for the collection node length prefixes and the record checksum
+	nodeScratch     [9]byte
+	checksumScratch [crc32.Size]byte
 
 	// e.g. when recovering from an existing log, we do not want to write into a
 	// new log again
@@ -316,7 +319,7 @@ func (cl *commitLogger) writeEntry(commitType CommitType, nodeBytes []byte) erro
 	}
 
 	// write record checksum directly on the writer
-	checksumSize, err := cl.writer.Write(cl.checksumWriter.Hash())
+	checksumSize, err := cl.writer.Write(cl.checksumWriter.HashInto(cl.checksumScratch[:0]))
 	if err != nil {
 		return err
 	}
@@ -351,11 +354,11 @@ func (cl *commitLogger) append(node segmentCollectionNode) error {
 
 	cl.bufNode.Reset()
 
-	ki, err := node.KeyIndexAndWriteTo(cl.bufNode)
+	ki, err := node.KeyIndexAndWriteToRedux(cl.bufNode, cl.nodeScratch[:])
 	if err != nil {
 		return err
 	}
-	if len(cl.bufNode.Bytes()) != ki.ValueEnd-ki.ValueStart {
+	if len(cl.bufNode.Bytes()) != ki.ValueEnd-node.offset {
 		return fmt.Errorf("unexpected error, node size mismatch")
 	}
 

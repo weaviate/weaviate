@@ -19,6 +19,7 @@ import (
 	"io"
 	"math"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -129,6 +130,9 @@ type Memtable struct {
 	roaringSet      *roaringset.BinarySearchTree
 	roaringSetRange *roaringsetrange.Memtable
 	commitlog       memtableCommitLogger
+	// scratch for appendMapSorted, guarded by the embedded lock
+	mapPairScratch  []byte
+	mapValueScratch [1]value
 	allocChecker    memwatch.AllocChecker
 	size            uint64
 	// netCountAdditions approximates the net live keys this memtable adds on
@@ -577,23 +581,24 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 		return fmt.Errorf("Memtable::appendMapSorted(): %w", err)
 	}
 
-	valuesForCommitLog, err := pair.Bytes()
-	if err != nil {
+	m.Lock()
+	defer m.Unlock()
+
+	// The commit log serializes the node before returning, so the scratch
+	// buffers can be reused by the next write.
+	size := pair.Size()
+	m.mapPairScratch = slices.Grow(m.mapPairScratch[:0], size)[:size]
+	if err := pair.EncodeBytes(m.mapPairScratch); err != nil {
 		return err
 	}
+	valuesForCommitLog := m.mapPairScratch
+	m.mapValueScratch[0] = value{value: valuesForCommitLog, tombstone: pair.Tombstone}
 
 	newNode := segmentCollectionNode{
 		primaryKey: key,
-		values: []value{
-			{
-				value:     valuesForCommitLog,
-				tombstone: pair.Tombstone,
-			},
-		},
+		values:     m.mapValueScratch[:],
 	}
 
-	m.Lock()
-	defer m.Unlock()
 	m.writesSinceLastSync = true
 
 	if err := m.commitlog.append(newNode); err != nil {
