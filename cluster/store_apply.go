@@ -130,18 +130,31 @@ func (st *Store) admitShardStatus(req *api.ApplyRequest) error {
 	return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
 }
 
-// admitCreateLike refuses a create-like command outside the active state. The
-// alias commands write schema and no store, and the RBAC and user commands write
-// neither, so a late one leaves nothing half-built. The class and tenant commands
-// do materialize a shard, and admitPropose says why a late one is still safe.
+// admitCreateLike refuses a create-like or property command outside the active
+// state. The alias commands write schema and no store, and the RBAC and user
+// commands write neither, so a late one leaves nothing half-built. The property
+// commands load no shard. The class and tenant commands do materialize a shard,
+// and admitPropose says why a late one is still safe.
 func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
 	switch req.Type {
 	case api.ApplyRequest_TYPE_ADD_CLASS,
 		api.ApplyRequest_TYPE_RESTORE_CLASS,
 		api.ApplyRequest_TYPE_ADD_TENANT,
-		api.ApplyRequest_TYPE_UPDATE_TENANT:
+		api.ApplyRequest_TYPE_UPDATE_TENANT,
+		api.ApplyRequest_TYPE_ADD_PROPERTY:
 		// These name their class outright, so the namespace comes off the
 		// request rather than a subcommand.
+		return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
+
+	case api.ApplyRequest_TYPE_UPDATE_PROPERTY:
+		sub := &api.UpdatePropertyRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal update-property subcommand: %w", err)
+		}
+		// A reindex's schema flip finishes work that a suspend does not cancel.
+		if sub.FromInFlightMigration {
+			return nil
+		}
 		return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
 
 	case api.ApplyRequest_TYPE_CREATE_ALIAS:
