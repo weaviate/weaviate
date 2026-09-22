@@ -19,10 +19,11 @@ import (
 )
 
 type vertex struct {
-	id uint64
-	sync.Mutex
+	// pointer first so the GC scans only the leading word; the narrow fields
+	// at the tail keep the struct in the 24 B size class (one per node)
 	connections *packedconn.Connections
-	level       int
+	sync.Mutex
+	level       uint16
 	maintenance bool
 }
 
@@ -50,7 +51,7 @@ func (v *vertex) connectionsAtLevelNoLock(level int) []uint64 {
 }
 
 func (v *vertex) upgradeToLevelNoLock(level int) {
-	v.level = level
+	v.level = uint16(level)
 	v.connections.GrowLayersTo(uint8(level))
 }
 
@@ -91,8 +92,7 @@ func convertEntityNodes(entNodes []*ent.Vertex) []*vertex {
 	for i, en := range entNodes {
 		if en != nil {
 			nodes[i] = &vertex{
-				id:          en.ID,
-				level:       en.Level,
+				level:       uint16(en.Level),
 				connections: en.Connections,
 			}
 		}

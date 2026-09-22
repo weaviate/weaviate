@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"testing"
+	"unsafe"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
@@ -209,4 +210,9 @@ func TestVertex_Maintenance(t *testing.T) {
 	assert.True(t, v.isUnderMaintenance())
 	v.unmarkAsMaintenance()
 	assert.False(t, v.isUnderMaintenance())
+}
+
+func TestVertex_Size(t *testing.T) {
+	// one vertex per node: a size-class bump costs GiBs on large indexes
+	assert.Equal(t, uintptr(24), unsafe.Sizeof(vertex{}))
 }

@@ -1481,6 +1481,7 @@ type IndexConfig struct {
 	SeparateObjectsCompactions          bool
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
+	IndexRangeableInMemoryProps         []string
 	MaxSegmentSize                      int64
 	ReplicationFactor                   int64
 	DeletionStrategy                    string
@@ -1533,6 +1534,14 @@ type IndexConfig struct {
 // off. Which shards a non-negative value loads is warmupCandidate's call.
 func (c IndexConfig) backgroundWarmupEnabled() bool {
 	return c.EnableLazyLoadShards && c.LazyLoadShardWarmupMinObjects >= 0
+}
+
+// keepRangeableInMemory reports whether propName's rangeable bucket keeps its
+// segments in memory.
+func (c IndexConfig) keepRangeableInMemory(propName string) bool {
+	return c.IndexRangeableInMemory ||
+		slices.Contains(c.IndexRangeableInMemoryProps, config.AllProperties) ||
+		slices.Contains(c.IndexRangeableInMemoryProps, propName)
 }
 
 func indexID(class schema.ClassName) string {
