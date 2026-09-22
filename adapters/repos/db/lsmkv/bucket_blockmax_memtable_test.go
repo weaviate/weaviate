@@ -39,9 +39,9 @@ func TestBlockMaxWandMemtableTermNotPruned(t *testing.T) {
 	const rareDocID = uint64(99) // highest id => processed last, after the heap fills
 	commonDocs := []uint64{10, 11, 12, 13, 14}
 	for _, id := range commonDocs {
-		require.NoError(t, bucket.MapSet([]byte("common"), NewMapPairFromDocIdAndTf(id, 1, 1, false)))
+		require.NoError(t, bucket.InvertedSet([]byte("common"), id, 1, 1))
 	}
-	require.NoError(t, bucket.MapSet([]byte("rare"), NewMapPairFromDocIdAndTf(rareDocID, 8, 1, false)))
+	require.NoError(t, bucket.InvertedSet([]byte("rare"), rareDocID, 8, 1))
 
 	// deliberately NOT flushed: the terms stay memtable-resident.
 
@@ -98,8 +98,7 @@ func TestInvertedMapCursorSeekOnDiskSegment(t *testing.T) {
 	// terms leave gaps, so a probe can land between two of them
 	terms := []string{"term-02", "term-04", "term-06", "term-08"}
 	for i, term := range terms {
-		require.NoError(t, bucket.MapSet([]byte(term),
-			NewMapPairFromDocIdAndTf(uint64(i)+1, 1, 1, false)))
+		require.NoError(t, bucket.InvertedSet([]byte(term), uint64(i)+1, 1, 1))
 	}
 	// everything must live on disk: a memtable hit would not reach the cursor
 	require.NoError(t, bucket.FlushAndSwitch())
