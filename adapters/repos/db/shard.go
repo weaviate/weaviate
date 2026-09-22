@@ -168,10 +168,9 @@ type ShardLike interface {
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	deleteFromPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
-	addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error
+	addToPropertyMapBucket(bucket *lsmkv.Bucket, docID uint64, key []byte, tf, propLen float32) error
 	addToPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
 	deleteFromPropertyRangeBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
-	pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair
 
 	setFallbackToSearchable(fallback bool)
 	addJobToQueue(job job)
@@ -282,11 +281,14 @@ type Shard struct {
 	geoQueues map[string]*VectorIndexQueue
 
 	// async replication
-	asyncReplicationRWMux           sync.RWMutex
-	targetNodeOverrides             additional.AsyncReplicationTargetNodeOverrides
-	asyncReplicationConfig          AsyncReplicationConfig
-	hashtree                        hashtree.AggregatedHashTree
-	hashtreeFullyInitialized        bool
+	asyncReplicationRWMux  sync.RWMutex
+	targetNodeOverrides    additional.AsyncReplicationTargetNodeOverrides
+	asyncReplicationConfig AsyncReplicationConfig
+	// hashtree is non-nil iff async replication is enabled; until hashtreeFullyInitialized it is the enable-time placeholder or an in-progress scan's tree and must not be served.
+	hashtree hashtree.AggregatedHashTree
+	// hashtreeFullyInitialized gates readers (hashbeat, HashTreeLevel/Root, checkpoints, .ht capture); set only after a complete scan or a cached load.
+	hashtreeFullyInitialized bool
+	// minimalHashtreeInitializationCh is nil while init is queued or done and non-nil only from a scan's snapshot until its in-memory pass ends; writers park on it best-effort.
 	minimalHashtreeInitializationCh chan struct{}
 	asyncReplicationCancelFunc      context.CancelFunc
 

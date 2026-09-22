@@ -237,16 +237,9 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 		if err != nil {
 			return err
 		}
-		res.Nodes[id] = &vertex{level: uint16(level), connections: conns}
+		res.Nodes[id] = &vertex{level: uint16(level), connections: *conns}
 	} else {
-		if res.Nodes[id].connections == nil {
-			res.Nodes[id].connections, err = packedconn.NewWithMaxLayer(uint8(level))
-			if err != nil {
-				return err
-			}
-		} else {
-			res.Nodes[id].connections.GrowLayersTo(uint8(level))
-		}
+		res.Nodes[id].connections.GrowLayersTo(uint8(level))
 		res.Nodes[id].level = uint16(level)
 	}
 	return nil
@@ -314,18 +307,10 @@ func (d *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 		if err != nil {
 			return err
 		}
-		res.Nodes[int(source)] = &vertex{connections: conns}
+		res.Nodes[int(source)] = &vertex{connections: *conns}
 	}
 
-	if res.Nodes[source].connections == nil {
-		conns, err := packedconn.NewWithMaxLayer(uint8(level))
-		if err != nil {
-			return err
-		}
-		res.Nodes[source].connections = conns
-	} else {
-		res.Nodes[source].connections.GrowLayersTo(uint8(level))
-	}
+	res.Nodes[source].connections.GrowLayersTo(uint8(level))
 	res.Nodes[source].connections.InsertAtLayer(target, uint8(level))
 	return nil
 }
@@ -385,11 +370,7 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 		res.Nodes[int(source)] = &vertex{}
 	}
 
-	if res.Nodes[source].connections == nil {
-		res.Nodes[source].connections = &packedconn.Connections{}
-	} else {
-		res.Nodes[source].connections.GrowLayersTo(uint8(level))
-	}
+	res.Nodes[source].connections.GrowLayersTo(uint8(level))
 	res.Nodes[source].connections.ReplaceLayer(uint8(level), targets)
 
 	if keepReplaceInfo {
@@ -442,11 +423,7 @@ func (d *Deserializer) ReadAddLinks(r io.Reader,
 	if res.Nodes[int(source)] == nil {
 		res.Nodes[int(source)] = &vertex{}
 	}
-	if res.Nodes[source].connections == nil {
-		res.Nodes[source].connections = &packedconn.Connections{}
-	} else {
-		res.Nodes[source].connections.GrowLayersTo(uint8(level))
-	}
+	res.Nodes[source].connections.GrowLayersTo(uint8(level))
 
 	res.Nodes[source].connections.BulkInsertAtLayer(targets, uint8(level))
 
@@ -505,8 +482,9 @@ func (d *Deserializer) ReadClearLinks(r io.Reader, res *DeserializationResult,
 		return nil
 	}
 
-	res.Nodes[id].connections, err = packedconn.NewWithMaxLayer(uint8(res.Nodes[id].level))
-	return err
+	res.Nodes[id].connections = packedconn.Connections{}
+	res.Nodes[id].connections.GrowLayersTo(uint8(res.Nodes[id].level))
+	return nil
 }
 
 func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationResult,
@@ -557,22 +535,14 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 			return err
 		}
 		res.Nodes[id] = &vertex{
-			connections: conns,
+			connections: *conns,
 		}
 	}
 
-	if res.Nodes[id].connections == nil {
-		conns, err := packedconn.NewWithMaxLayer(uint8(level))
-		if err != nil {
-			return err
-		}
-		res.Nodes[id].connections = conns
-	} else {
-		res.Nodes[id].connections.GrowLayersTo(uint8(level))
-		// Only clear if the layer is not already empty
-		if res.Nodes[id].connections.LenAtLayer(uint8(level)) > 0 {
-			res.Nodes[id].connections.ClearLayer(uint8(level))
-		}
+	res.Nodes[id].connections.GrowLayersTo(uint8(level))
+	// Only clear if the layer is not already empty
+	if res.Nodes[id].connections.LenAtLayer(uint8(level)) > 0 {
+		res.Nodes[id].connections.ClearLayer(uint8(level))
 	}
 
 	if keepReplaceInfo {

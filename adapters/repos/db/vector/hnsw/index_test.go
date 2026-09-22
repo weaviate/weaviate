@@ -479,9 +479,9 @@ func TestCalculateUnreachablePoints_NodeZero(t *testing.T) {
 	index.entryPointID = 1
 	index.currentMaximumLayer = 0
 	index.nodes = []*vertex{
-		{connections: conns0},
-		{connections: conns1},
-		{connections: conns2},
+		{connections: *conns0},
+		{connections: *conns1},
+		{connections: *conns2},
 	}
 	index.Unlock()
 

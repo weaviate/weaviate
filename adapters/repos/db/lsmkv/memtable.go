@@ -49,8 +49,10 @@ type memtable interface {
 	getCollection(key []byte) ([]value, error)
 	getCollectionBytes(key []byte) ([][]byte, error)
 	getMap(key []byte) ([]MapPair, error)
+	getInverted(key []byte) ([]invertedPair, error)
 	append(key []byte, values []value) error
 	appendMapSorted(key []byte, pair MapPair) error
+	appendInverted(key []byte, pair invertedPair) error
 
 	Size() uint64
 	Path() string
@@ -125,12 +127,13 @@ type Memtable struct {
 	sync.RWMutex
 	key             *binarySearchTree
 	keyMulti        *binarySearchTreeMulti
-	keyMap          *binarySearchTreeMap
+	keyMap          *binarySearchTreeMap[MapPair]
+	keyInverted     *binarySearchTreeMap[invertedPair]
 	primaryIndex    *binarySearchTree
 	roaringSet      *roaringset.BinarySearchTree
 	roaringSetRange *roaringsetrange.Memtable
 	commitlog       memtableCommitLogger
-	// scratch for appendMapSorted, guarded by the embedded lock
+	// scratch for the map and inverted write paths, guarded by the embedded lock
 	mapPairScratch  []byte
 	mapValueScratch [1]value
 	allocChecker    memwatch.AllocChecker
@@ -166,6 +169,8 @@ type Memtable struct {
 	invMu sync.RWMutex
 
 	enableChecksumValidation bool
+
+	invRecordBuf [invertedRecordPostingLen]byte
 
 	bm25config                   *models.BM25Config
 	averagePropLength            float64
@@ -212,7 +217,8 @@ func newMemtable(cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldL
 	m := &Memtable{
 		key:                          &binarySearchTree{},
 		keyMulti:                     &binarySearchTreeMulti{},
-		keyMap:                       &binarySearchTreeMap{},
+		keyMap:                       &binarySearchTreeMap[MapPair]{},
+		keyInverted:                  &binarySearchTreeMap[invertedPair]{},
 		primaryIndex:                 &binarySearchTree{}, // todo, sort upfront
 		roaringSet:                   &roaringset.BinarySearchTree{},
 		roaringSetRange:              roaringsetrange.NewMemtable(logger),
@@ -535,12 +541,35 @@ func (m *Memtable) getMap(key []byte) ([]MapPair, error) {
 	m.RLock()
 	defer m.RUnlock()
 
+	if m.strategy == StrategyInverted {
+		v, err := m.keyInverted.get(key)
+		if err != nil {
+			return nil, err
+		}
+
+		return invertedPairsToMapPairs(v), nil
+	}
+
 	v, err := m.keyMap.get(key)
 	if err != nil {
 		return nil, err
 	}
 
 	return v, nil
+}
+
+func (m *Memtable) getInverted(key []byte) ([]invertedPair, error) {
+	start := time.Now()
+	defer m.metrics.observeGetMap(start.UnixNano())
+
+	if err := m.checkStrategy(StrategyInverted); err != nil {
+		return nil, fmt.Errorf("Memtable::getInverted(): %w", err)
+	}
+
+	m.RLock()
+	defer m.RUnlock()
+
+	return m.keyInverted.get(key)
 }
 
 func (m *Memtable) append(key []byte, values []value) error {
@@ -577,7 +606,7 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	start := time.Now()
 	defer m.metrics.observeAppendMapSorted(start.UnixNano())
 
-	if err := m.checkStrategy(StrategyMapCollection, StrategyInverted); err != nil {
+	if err := m.checkStrategy(StrategyMapCollection); err != nil {
 		return fmt.Errorf("Memtable::appendMapSorted(): %w", err)
 	}
 
@@ -610,19 +639,42 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	m.metrics.observeSize(m.size)
 	m.updateDirtyAt()
 
-	if m.strategy == StrategyInverted && !pair.Tombstone {
-		// Must match SetTombstone's decode (BigEndian): StrategyInverted keys are
-		// always BigEndian, required for byte-wise sortability. A mismatch here
-		// makes propLengthExists.Set/Remove address different bitmap positions for
-		// the same doc, so SetTombstone can't re-arm the dedup gate below — a doc
-		// re-added after being tombstoned in the same memtable (e.g. an update)
-		// has its new prop length silently dropped instead of recounted.
-		docID := binary.BigEndian.Uint64(pair.Key)
-		fieldLength := math.Float32frombits(binary.LittleEndian.Uint32(pair.Value[4:]))
-		// propLengthExists + currPropLength* are shared with SetTombstone, which no
-		// longer holds the tree lock; guard them with invMu (nested inside m.Lock).
+	return nil
+}
+
+func (m *Memtable) appendInverted(key []byte, pair invertedPair) error {
+	start := time.Now()
+	defer m.metrics.observeAppendMapSorted(start.UnixNano())
+
+	if err := m.checkStrategy(StrategyInverted); err != nil {
+		return fmt.Errorf("Memtable::appendInverted(): %w", err)
+	}
+
+	m.Lock()
+	defer m.Unlock()
+	m.writesSinceLastSync = true
+
+	recordLen := pair.encodeCommitLog(m.invRecordBuf[:])
+	m.mapValueScratch[0] = value{value: m.invRecordBuf[:recordLen], tombstone: pair.tombstone}
+
+	if err := m.commitlog.append(segmentCollectionNode{
+		primaryKey: key,
+		values:     m.mapValueScratch[:],
+	}); err != nil {
+		return errors.Wrap(err, "write into commit log")
+	}
+
+	m.keyInverted.insert(key, pair)
+	m.size += uint64(len(key) + recordLen)
+	m.metrics.observeSize(m.size)
+	m.updateDirtyAt()
+
+	if !pair.tombstone {
+		// SetTombstone touches these without the tree lock, so invMu guards them
+		// here too (nested inside m.Lock).
+		fieldLength := math.Float32frombits(pair.propLenBits)
 		m.invMu.Lock()
-		if m.propLengthExists.Set(docID) {
+		if m.propLengthExists.Set(pair.docID) {
 			m.currPropLengthSum += uint64(fieldLength)
 			m.currPropLengthCount++
 		}
@@ -823,11 +875,18 @@ func (m *Memtable) extractRoaringSetRange() *roaringsetrange.Memtable {
 	return result
 }
 
-func (m *Memtable) flattenKeyMap() []*binarySearchNodeMap {
+func (m *Memtable) flattenKeyMap() []*binarySearchNodeMap[MapPair] {
 	m.RLock()
 	defer m.RUnlock()
 
 	return m.keyMap.flattenInOrder()
+}
+
+func (m *Memtable) flattenKeyInverted() []*binarySearchNodeMap[invertedPair] {
+	m.RLock()
+	defer m.RUnlock()
+
+	return m.keyInverted.flattenInOrder()
 }
 
 // roaringSetRangeNodes returns the key-0 node, which carries every value and is

@@ -82,8 +82,7 @@ func TestCompactor_AbortOnShouldAbort(t *testing.T) {
 			seed: func(t *testing.T, bucket *Bucket, seg, n int) {
 				for i := 0; i < n; i++ {
 					key := []byte(fmt.Sprintf("seg-%d-row-%08d", seg, i))
-					pair := NewMapPairFromDocIdAndTf(uint64(seg*n+i), float32(i+1), float32(i+2), false)
-					require.NoError(t, bucket.MapSet(key, pair))
+					require.NoError(t, bucket.InvertedSet(key, uint64(seg*n+i), float32(i+1), float32(i+2)))
 				}
 			},
 		},

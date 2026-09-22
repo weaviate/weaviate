@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/sync/semaphore"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -48,7 +49,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
-var NUMCPU = runtime.GOMAXPROCS(0)
+var (
+	NUMCPU                     = runtime.GOMAXPROCS(0)
+	MaxBatchObjectsConcurrency = int64(4 * NUMCPU)
+)
 
 type Service struct {
 	pb.UnimplementedWeaviateServer
@@ -62,8 +66,9 @@ type Service struct {
 	logger               logrus.FieldLogger
 
 	authenticator      *auth.Handler
-	batchHandler       *batch.Handler
+	batchHandler       batch.Batcher
 	batchStreamHandler *batch.StreamHandler
+	batchObjectsSem    *semaphore.Weighted
 }
 
 func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *state.State) (*Service, batch.Drain) {
@@ -99,6 +104,7 @@ func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *sta
 		authenticator:        authenticator,
 		batchHandler:         batchHandler,
 		batchStreamHandler:   batchStreamHandler,
+		batchObjectsSem:      semaphore.NewWeighted(MaxBatchObjectsConcurrency),
 	}, batchDrain
 }
 
@@ -251,6 +257,11 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
 	var result *pb.BatchObjectsReply
 	var errInner error
+
+	if err := s.batchObjectsSem.Acquire(ctx, 1); err != nil {
+		return nil, status.FromContextError(err).Err()
+	}
+	defer s.batchObjectsSem.Release(1)
 
 	if err := enterrors.GoWrapperWithBlock(func() {
 		result, errInner = s.batchHandler.BatchObjects(ctx, req)

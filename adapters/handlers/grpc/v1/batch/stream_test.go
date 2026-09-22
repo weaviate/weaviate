@@ -45,7 +45,7 @@ func TestStreamHandler(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		defer cancel()
 
-		mockBatcher := mocks.NewMockbatcher(t)
+		mockBatcher := mocks.NewMockBatcher(t)
 		mockSchemaManager := mocks.NewMockschemaManager(t)
 		mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 		mockStream := newMockStream(t)
@@ -77,7 +77,7 @@ func TestStreamHandler(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		defer cancel()
 
-		mockBatcher := mocks.NewMockbatcher(t)
+		mockBatcher := mocks.NewMockBatcher(t)
 		mockSchemaManager := mocks.NewMockschemaManager(t)
 		mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 		mockStream := newMockStream(t)
@@ -109,7 +109,7 @@ func TestStreamHandler(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 1*time.Second)
 		defer cancel()
 
-		mockBatcher := mocks.NewMockbatcher(t)
+		mockBatcher := mocks.NewMockBatcher(t)
 		mockSchemaManager := mocks.NewMockschemaManager(t)
 		mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 		mockStream := newMockStream(t)
@@ -164,7 +164,7 @@ func TestStreamHandler(t *testing.T) {
 		defer cancel()
 
 		collection := "TestClass"
-		mockBatcher := mocks.NewMockbatcher(t)
+		mockBatcher := mocks.NewMockBatcher(t)
 		mockSchemaManager := mocks.NewMockschemaManager(t)
 		mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 		mockSchemaManager.EXPECT().
@@ -220,7 +220,7 @@ func TestStreamHandler(t *testing.T) {
 
 		logger := logrus.New()
 
-		mockBatcher := mocks.NewMockbatcher(t)
+		mockBatcher := mocks.NewMockBatcher(t)
 		mockSchemaManager := mocks.NewMockschemaManager(t)
 		mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 		mockStream := newMockStream(t)
@@ -285,7 +285,7 @@ func TestStreamHandler(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 
-		mockBatcher := mocks.NewMockbatcher(t)
+		mockBatcher := mocks.NewMockBatcher(t)
 		mockSchemaManager := mocks.NewMockschemaManager(t)
 		mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 		mockStream := newMockStream(t)
@@ -349,7 +349,7 @@ func TestStreamHandler(t *testing.T) {
 		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 
-		mockBatcher := mocks.NewMockbatcher(t)
+		mockBatcher := mocks.NewMockBatcher(t)
 		mockSchemaManager := mocks.NewMockschemaManager(t)
 		mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 		mockStream := newMockStream(t)
@@ -1267,7 +1267,7 @@ func TestStreamHandlerCollectionResolution(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 
-			mockBatcher := mocks.NewMockbatcher(t)
+			mockBatcher := mocks.NewMockBatcher(t)
 			mockSchemaManager := mocks.NewMockschemaManager(t)
 			mockStream := newMockStream(t)
 			mockStream.EXPECT().Context().Return(ctx).Maybe()
@@ -1367,7 +1367,7 @@ func TestStreamHandlerReportsSchemaResolutionFailures(t *testing.T) {
 				{FromCollection: tc.collection, FromUuid: uuid.New().String(), ToUuid: uuid.New().String(), Name: "ref"},
 			}
 
-			mockBatcher := mocks.NewMockbatcher(t)
+			mockBatcher := mocks.NewMockBatcher(t)
 			mockSchemaManager := mocks.NewMockschemaManager(t)
 			mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 			mockSchemaManager.EXPECT().GetCachedClassNoAuth(mock.Anything, mock.Anything).
@@ -1445,7 +1445,7 @@ func TestHandleRejectsStreamsThatStartDuringDrain(t *testing.T) {
 
 	collection := "TestClass"
 
-	mockBatcher := mocks.NewMockbatcher(t)
+	mockBatcher := mocks.NewMockBatcher(t)
 	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).
 		Return(&pb.BatchObjectsReply{}, nil).Maybe()
 	mockSchemaManager := mocks.NewMockschemaManager(t)
@@ -1511,7 +1511,7 @@ func TestReceiverPanicEndsStreamWithError(t *testing.T) {
 
 	collection := "TestClass"
 
-	mockBatcher := mocks.NewMockbatcher(t)
+	mockBatcher := mocks.NewMockBatcher(t)
 	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).
 		Return(&pb.BatchObjectsReply{}, nil).Maybe()
 	mockSchemaManager := mocks.NewMockschemaManager(t)
@@ -1620,7 +1620,7 @@ func TestStreamHandlerRecvGoroutineDoesNotLeakOnEarlyExit(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 
-			mockBatcher := mocks.NewMockbatcher(t)
+			mockBatcher := mocks.NewMockBatcher(t)
 			mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).
 				Return(&pb.BatchObjectsReply{}, nil).Maybe()
 
@@ -1699,7 +1699,7 @@ func TestSendNotSerialisedAcrossStreams(t *testing.T) {
 
 	collection := "TestClass"
 
-	mockBatcher := mocks.NewMockbatcher(t)
+	mockBatcher := mocks.NewMockBatcher(t)
 	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).
 		Return(&pb.BatchObjectsReply{}, nil).Maybe()
 	mockSchemaManager := mocks.NewMockschemaManager(t)

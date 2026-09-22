@@ -15,6 +15,7 @@ import (
 	"math/rand"
 	"sort"
 	"testing"
+	"unsafe"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -913,7 +914,7 @@ func TestConnections_InsertAtLayer_SchemeGrowth(t *testing.T) {
 	}
 	assert.ElementsMatch(t, expectedConns, c.GetLayer(0))
 	assert.Equal(t, 62, c.LenAtLayer(0))
-	assert.Equal(t, uint8(SCHEME_2BYTE), unpackScheme(c.layers[0].packed))
+	assert.Equal(t, uint8(SCHEME_2BYTE), unpackScheme(c.layer0.packed))
 
 	// SCHEME_3BYTE
 	val2 := uint64(1 << 16) // 65536
@@ -921,7 +922,7 @@ func TestConnections_InsertAtLayer_SchemeGrowth(t *testing.T) {
 	c.InsertAtLayer(val2, 0)
 	assert.ElementsMatch(t, expectedConns, c.GetLayer(0))
 	assert.Equal(t, 63, c.LenAtLayer(0))
-	assert.Equal(t, uint8(SCHEME_3BYTE), unpackScheme(c.layers[0].packed))
+	assert.Equal(t, uint8(SCHEME_3BYTE), unpackScheme(c.layer0.packed))
 
 	// SCHEME_4BYTE
 	val3 := uint64(1 << 24) // 16777216
@@ -929,7 +930,7 @@ func TestConnections_InsertAtLayer_SchemeGrowth(t *testing.T) {
 	c.InsertAtLayer(val3, 0)
 	assert.ElementsMatch(t, expectedConns, c.GetLayer(0))
 	assert.Equal(t, 64, c.LenAtLayer(0))
-	assert.Equal(t, uint8(SCHEME_4BYTE), unpackScheme(c.layers[0].packed))
+	assert.Equal(t, uint8(SCHEME_4BYTE), unpackScheme(c.layer0.packed))
 
 	// SCHEME_5BYTE
 	val4 := uint64(1 << 32)
@@ -937,7 +938,7 @@ func TestConnections_InsertAtLayer_SchemeGrowth(t *testing.T) {
 	c.InsertAtLayer(val4, 0)
 	assert.ElementsMatch(t, expectedConns, c.GetLayer(0))
 	assert.Equal(t, 65, c.LenAtLayer(0))
-	assert.Equal(t, uint8(SCHEME_5BYTE), unpackScheme(c.layers[0].packed))
+	assert.Equal(t, uint8(SCHEME_5BYTE), unpackScheme(c.layer0.packed))
 
 	// SCHEME_8BYTE
 	val5 := uint64(1 << 40)
@@ -945,7 +946,7 @@ func TestConnections_InsertAtLayer_SchemeGrowth(t *testing.T) {
 	c.InsertAtLayer(val5, 0)
 	assert.ElementsMatch(t, expectedConns, c.GetLayer(0))
 	assert.Equal(t, 66, c.LenAtLayer(0))
-	assert.Equal(t, uint8(SCHEME_8BYTE), unpackScheme(c.layers[0].packed))
+	assert.Equal(t, uint8(SCHEME_8BYTE), unpackScheme(c.layer0.packed))
 }
 
 func BenchmarkInsertAtLayer(b *testing.B) {
@@ -1408,4 +1409,9 @@ func TestNewWithData_AppendDoesNotCorruptAdjacentLayer(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestConnections_Size(t *testing.T) {
+	// one per HNSW node: layer 0 inline, upper layers behind a pointer
+	assert.Equal(t, uintptr(48), unsafe.Sizeof(Connections{}))
 }
