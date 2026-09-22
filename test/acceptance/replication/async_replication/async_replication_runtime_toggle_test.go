@@ -61,7 +61,7 @@ func TestAsyncReplicationRuntimeToggle(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		WithWeaviateEnv("ASYNC_REPLICATION_DISABLED", "true").
 		WithWeaviateEnv("RUNTIME_OVERRIDES_ENABLED", "true").
 		WithWeaviateEnv("RUNTIME_OVERRIDES_PATH", overridePath).
@@ -80,7 +80,7 @@ func TestAsyncReplicationRuntimeToggle(t *testing.T) {
 
 	t.Run("create RF=3 schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
-		paragraphClass.Vectorizer = "text2vec-contextionary"
+		paragraphClass.Vectorizer = "text2vec-model2vec"
 		helper.CreateClass(t, paragraphClass)
 	})
 
@@ -222,7 +222,7 @@ func TestAsyncReplicationRuntimeToggle_EnableDisableEnable(t *testing.T) {
 	// Boot with async replication ENABLED by default — no ASYNC_REPLICATION_DISABLED env.
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		WithWeaviateEnv("RUNTIME_OVERRIDES_ENABLED", "true").
 		WithWeaviateEnv("RUNTIME_OVERRIDES_PATH", overridePath).
 		WithWeaviateEnv("RUNTIME_OVERRIDES_LOAD_INTERVAL", "1s").
@@ -240,7 +240,7 @@ func TestAsyncReplicationRuntimeToggle_EnableDisableEnable(t *testing.T) {
 
 	t.Run("create RF=3 schema (async on by default)", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
-		paragraphClass.Vectorizer = "text2vec-contextionary"
+		paragraphClass.Vectorizer = "text2vec-model2vec"
 		helper.CreateClass(t, paragraphClass)
 	})
 
@@ -363,7 +363,7 @@ func TestAsyncReplicationRuntimeToggle_ClassCreatedWhileDisabled(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		WithWeaviateEnv("RUNTIME_OVERRIDES_ENABLED", "true").
 		WithWeaviateEnv("RUNTIME_OVERRIDES_PATH", overridePath).
 		WithWeaviateEnv("RUNTIME_OVERRIDES_LOAD_INTERVAL", "1s").
@@ -388,7 +388,7 @@ func TestAsyncReplicationRuntimeToggle_ClassCreatedWhileDisabled(t *testing.T) {
 
 	t.Run("create an RF=3 class while disabled — Migrator.AddClass honors the live flag", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
-		paragraphClass.Vectorizer = "text2vec-contextionary"
+		paragraphClass.Vectorizer = "text2vec-model2vec"
 		helper.CreateClass(t, paragraphClass)
 
 		// asyncReplicationStatus must be empty across every shard on every node:

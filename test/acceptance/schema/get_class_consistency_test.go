@@ -31,7 +31,7 @@ func TestGetClassWithConsistency(t *testing.T) {
 
 	// 3 Node cluster so that we can verify that the proxy to leader feature work
 	compose, err := docker.New().WithWeaviateCluster(3).
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		Start(ctx)
 	require.Nil(t, err)
 	defer func() {

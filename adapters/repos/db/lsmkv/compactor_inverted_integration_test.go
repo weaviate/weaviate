@@ -242,6 +242,16 @@ func partialCompare(expected, actual kv) error {
 	return nil
 }
 
+func writeInvertedMapPair(bucket *Bucket, rowKey []byte, pair MapPair) error {
+	docID := binary.BigEndian.Uint64(pair.Key)
+	if pair.Tombstone {
+		return bucket.InvertedDeleteDoc(rowKey, docID)
+	}
+	tf := math.Float32frombits(binary.LittleEndian.Uint32(pair.Value[0:4]))
+	propLen := math.Float32frombits(binary.LittleEndian.Uint32(pair.Value[4:8]))
+	return bucket.InvertedSet(rowKey, docID, tf, propLen)
+}
+
 func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []BucketOption,
 	expectedMinSize, expectedMaxSize int64,
 ) {
@@ -547,7 +557,7 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	t.Run("import previous1 segments", func(t *testing.T) {
 		for _, kvs := range previous1 {
 			for _, pair := range kvs.values {
-				err := bucket.MapSet(kvs.key, pair)
+				err := writeInvertedMapPair(bucket, kvs.key, pair)
 
 				require.Nil(t, err)
 			}
@@ -588,7 +598,7 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	t.Run("import previous2 segments", func(t *testing.T) {
 		for _, kvs := range previous2 {
 			for _, pair := range kvs.values {
-				err := bucket.MapSet(kvs.key, pair)
+				err := writeInvertedMapPair(bucket, kvs.key, pair)
 				require.Nil(t, err)
 			}
 		}
@@ -628,7 +638,7 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	t.Run("import segment 1", func(t *testing.T) {
 		for _, kvs := range segment1 {
 			for _, pair := range kvs.values {
-				err := bucket.MapSet(kvs.key, pair)
+				err := writeInvertedMapPair(bucket, kvs.key, pair)
 				require.Nil(t, err)
 			}
 		}
@@ -697,7 +707,7 @@ func compactionInvertedStrategy(ctx context.Context, t *testing.T, opts []Bucket
 	t.Run("import segment 2", func(t *testing.T) {
 		for _, kvs := range segment2 {
 			for _, pair := range kvs.values {
-				err := bucket.MapSet(kvs.key, pair)
+				err := writeInvertedMapPair(bucket, kvs.key, pair)
 				require.Nil(t, err)
 			}
 		}
@@ -907,21 +917,18 @@ func compactionInvertedStrategy_RemoveUnnecessary(ctx context.Context, t *testin
 		for i := 0; i < size; i++ {
 			if i != 0 {
 				// we can only update an existing value if this isn't the first write
-				pair := NewMapPairFromDocIdAndTf(uint64(i-1), float32(i), float32(i), false)
-				err := bucket.MapSet(key, pair)
+				err := bucket.InvertedSet(key, uint64(i-1), float32(i), float32(i))
 				require.Nil(t, err)
 			}
 
 			if i > 1 {
 				// we can only delete two back an existing value if this isn't the
 				// first or second write
-				pair := NewMapPairFromDocIdAndTf(uint64(i-2), float32(i), float32(i), true)
-				err := bucket.MapSet(key, pair)
+				err := bucket.InvertedDeleteDoc(key, uint64(i-2))
 				require.Nil(t, err)
 			}
 
-			pair := NewMapPairFromDocIdAndTf(uint64(i), float32(i), float32(i), false)
-			err := bucket.MapSet(key, pair)
+			err := bucket.InvertedSet(key, uint64(i), float32(i), float32(i))
 			require.Nil(t, err)
 			require.Nil(t, bucket.FlushAndSwitch())
 		}
@@ -1051,8 +1058,6 @@ func compactionInvertedStrategy_FrequentPutDeleteOperations(ctx context.Context,
 	maxSize := 10
 
 	key := []byte("my-key")
-	mapKey := make([]byte, 8)
-	binary.BigEndian.PutUint64(mapKey, 0)
 
 	for size := 4; size < maxSize; size++ {
 		t.Run(fmt.Sprintf("compact %v segments", size), func(t *testing.T) {
@@ -1074,16 +1079,16 @@ func compactionInvertedStrategy_FrequentPutDeleteOperations(ctx context.Context,
 				for i := 0; i < size; i++ {
 					pair := NewMapPairFromDocIdAndTf(0, float32(i), float32(i), false)
 
-					err := bucket.MapSet(key, pair)
+					err := bucket.InvertedSet(key, 0, float32(i), float32(i))
 					require.Nil(t, err)
 
 					if size == 5 || size == 6 {
 						// delete all
-						err = bucket.MapDeleteKey(key, mapKey)
+						err = bucket.InvertedDeleteDoc(key, 0)
 						require.Nil(t, err)
 					} else if i != size-1 {
 						// don't delete at the end
-						err := bucket.MapDeleteKey(key, mapKey)
+						err := bucket.InvertedDeleteDoc(key, 0)
 						require.Nil(t, err)
 					}
 

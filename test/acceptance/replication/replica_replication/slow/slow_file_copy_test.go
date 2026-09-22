@@ -58,7 +58,7 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementOneWriteExtraSlowFileC
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		WithWeaviateEnv("WEAVIATE_TEST_COPY_REPLICA_SLEEP", "20s").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
@@ -81,7 +81,7 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementOneWriteExtraSlowFileC
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor: 1,
 		}
-		paragraphClass.Vectorizer = "text2vec-contextionary"
+		paragraphClass.Vectorizer = "text2vec-model2vec"
 		helper.CreateClass(t, paragraphClass)
 	})
 

@@ -127,6 +127,16 @@ func (c *Counter) PreviewNext() uint64 {
 	return c.count
 }
 
+// Close releases the counter file. Drop still removes the file afterwards.
+func (c *Counter) Close() error {
+	c.Lock()
+	defer c.Unlock()
+	if err := c.f.Close(); err != nil {
+		return errors.Wrap(err, "close counter file")
+	}
+	return nil
+}
+
 func (c *Counter) Drop(keepFiles bool) error {
 	c.Lock()
 	defer c.Unlock()

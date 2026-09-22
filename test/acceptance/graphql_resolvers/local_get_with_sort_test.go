@@ -663,8 +663,9 @@ func gettingObjectsWithSort(t *testing.T) {
 			Get {
 				City(
 					nearText: {
-						concepts: ["Berlin"]
-						distance: 0.6
+						# "Missing Island" is the only city beyond this threshold
+						concepts: ["Berlin", "Amsterdam"]
+						distance: 0.83
 					}
 					%s
 				) {
@@ -748,8 +749,9 @@ func gettingObjectsWithSort(t *testing.T) {
 			Get {
 				City(
 					nearText: {
-						concepts: ["Berlin"]
-						certainty: 0.7
+						# "Missing Island" is the only city beyond this threshold
+						concepts: ["Berlin", "Amsterdam"]
+						certainty: 0.585
 					}
 					%s
 				) {
@@ -833,8 +835,9 @@ func gettingObjectsWithSort(t *testing.T) {
 			Get {
 				City(
 					nearText: {
-						concepts: ["Berlin"]
-						distance: 0.6
+						# "Missing Island" is the only city beyond this threshold
+						concepts: ["Berlin", "Amsterdam"]
+						distance: 0.83
 					}
 					%s
 					limit: 2
@@ -907,8 +910,9 @@ func gettingObjectsWithSort(t *testing.T) {
 			Get {
 				City(
 					nearText: {
-						concepts: ["Berlin"]
-						certainty: 0.7
+						# "Missing Island" is the only city beyond this threshold
+						concepts: ["Berlin", "Amsterdam"]
+						certainty: 0.585
 					}
 					%s
 					limit: 2
@@ -987,7 +991,7 @@ func gettingObjectsWithSort(t *testing.T) {
 					}
 					nearText: {
 						concepts: ["Amsterdam"]
-						distance: 0.6
+						distance: 1.5
 					}
 					%s
 					limit: 2
@@ -1066,7 +1070,7 @@ func gettingObjectsWithSort(t *testing.T) {
 					}
 					nearText: {
 						concepts: ["Amsterdam"]
-						certainty: 0.7
+						certainty: 0.25
 					}
 					%s
 					limit: 2

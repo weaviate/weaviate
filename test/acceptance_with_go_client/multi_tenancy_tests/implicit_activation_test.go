@@ -136,10 +136,10 @@ func TestImplicitActivation(t *testing.T) {
 		client *wvt.Client,
 		cleanupFn func(t *testing.T, ctx context.Context),
 	) {
-		compose, err := docker.New().WithWeaviateCluster(3).Start(ctx)
+		compose, err := docker.New().WithWeaviateCluster(3).WithText2VecModel2Vec().Start(ctx)
 		require.Nil(t, err)
 
-		client, err = wvt.NewClient(wvt.Config{Scheme: "http", Host: compose.ContainerURI(0)})
+		client, err = wvt.NewClient(wvt.Config{Scheme: "http", Host: compose.GetWeaviate().URI()})
 		require.Nil(t, err)
 
 		cleanupFn = func(t *testing.T, ctx context.Context) {
@@ -198,7 +198,9 @@ func assertTenantActiveNoRequire(t assert.TestingT, client *wvt.Client, classNam
 	assert.NotEmpty(t, gotTenants)
 
 	byName := fixtures.Tenants(gotTenants).ByName(tenantName)
-	assert.NotNil(t, byName)
+	if !assert.NotNil(t, byName) {
+		return
+	}
 	assert.Equal(t, models.TenantActivityStatusHOT, byName.ActivityStatus)
 }
 
@@ -212,7 +214,9 @@ func assertTenantInactiveNoRequire(t assert.TestingT, client *wvt.Client, classN
 	assert.NotEmpty(t, gotTenants)
 
 	byName := fixtures.Tenants(gotTenants).ByName(tenantName)
-	assert.NotNil(t, byName)
+	if !assert.NotNil(t, byName) {
+		return
+	}
 	assert.Equal(t, models.TenantActivityStatusCOLD, byName.ActivityStatus)
 }
 
