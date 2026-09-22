@@ -64,11 +64,15 @@ func ClassNamedOpenAIWithOptions() *models.Class {
 	return classNamedVectors(DefaultClassName, vc)
 }
 
-func ClassNamedContextionaryVectorizer() *models.Class {
-	vc := map[string]models.VectorConfig{
+func ClassNamedModel2VecVectorizer() *models.Class {
+	return classNamedVectors(DefaultClassName, namedVectorConfig("text2vec-model2vec"))
+}
+
+func namedVectorConfig(vectorizer string) map[string]models.VectorConfig {
+	return map[string]models.VectorConfig{
 		"all": {
 			Vectorizer: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
+				vectorizer: map[string]interface{}{
 					"vectorizeClassName": false,
 				},
 			},
@@ -76,7 +80,7 @@ func ClassNamedContextionaryVectorizer() *models.Class {
 		},
 		"title": {
 			Vectorizer: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
+				vectorizer: map[string]interface{}{
 					"vectorizeClassName": false,
 					"properties":         []string{"title"},
 				},
@@ -85,7 +89,7 @@ func ClassNamedContextionaryVectorizer() *models.Class {
 		},
 		"description": {
 			Vectorizer: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
+				vectorizer: map[string]interface{}{
 					"vectorizeClassName": false,
 					"properties":         []string{"description"},
 				},
@@ -93,68 +97,48 @@ func ClassNamedContextionaryVectorizer() *models.Class {
 			VectorIndexType: "hnsw",
 		},
 	}
-
-	return classNamedVectors(DefaultClassName, vc)
 }
 
-func ClassMixedContextionaryVectorizer() *models.Class {
+// Model2VecAllTargetVector is the named vector of ClassMixedModel2VecVectorizer
+// that vectorizes all properties.
+const Model2VecAllTargetVector = "model2vec_all"
+
+func ClassMixedModel2VecVectorizer() *models.Class {
+	return classMixed("text2vec-model2vec", Model2VecAllTargetVector, "hnsw")
+}
+
+// classMixed has a legacy vector plus two named vectors, allTargetVector is
+// configured exactly like the legacy one.
+func classMixed(vectorizer, allTargetVector, vectorIndexType string) *models.Class {
 	vc := map[string]models.VectorConfig{
-		"contextionary_all": {
+		allTargetVector: {
 			Vectorizer: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
+				vectorizer: map[string]interface{}{
 					"vectorizeClassName": true,
 				},
 			},
-			VectorIndexType: "hnsw",
+			VectorIndexType: vectorIndexType,
 		},
 		"title": {
 			Vectorizer: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
+				vectorizer: map[string]interface{}{
 					"vectorizeClassName": false,
 					"properties":         []string{"title"},
 				},
 			},
-			VectorIndexType: "hnsw",
+			VectorIndexType: vectorIndexType,
 		},
 	}
 
-	return classBase(DefaultClassName, "text2vec-contextionary", vc)
+	return classBase(DefaultClassName, vectorizer, vc)
 }
 
-func ClassMixedContextionaryVectorizerFlat() *models.Class {
-	vc := map[string]models.VectorConfig{
-		"contextionary_all": {
-			Vectorizer: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"vectorizeClassName": true,
-				},
-			},
-			VectorIndexType: "flat",
-		},
-		"title": {
-			Vectorizer: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
-					"vectorizeClassName": false,
-					"properties":         []string{"title"},
-				},
-			},
-			VectorIndexType: "flat",
-		},
-	}
-
-	return classBase(DefaultClassName, "text2vec-contextionary", vc)
+func ClassModel2VecVectorizerWithSumTransformers() *models.Class {
+	return class(DefaultClassName, "text2vec-model2vec", "sum-transformers")
 }
 
-func ClassContextionaryVectorizerWithName(className string) *models.Class {
-	return class(className, "text2vec-contextionary")
-}
-
-func ClassContextionaryVectorizerWithSumTransformers() *models.Class {
-	return class(DefaultClassName, "text2vec-contextionary", "sum-transformers")
-}
-
-func ClassContextionaryVectorizerWithQnATransformers() *models.Class {
-	return class(DefaultClassName, "text2vec-contextionary", "qna-transformers")
+func ClassModel2VecVectorizerWithQnATransformers() *models.Class {
+	return class(DefaultClassName, "text2vec-model2vec", "qna-transformers")
 }
 
 func ClassTransformersVectorizer() *models.Class {

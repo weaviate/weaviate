@@ -47,13 +47,6 @@ func TestMain(m *testing.M) {
 	// Log container URI for debugging
 	weaviateURI := sharedCompose.GetWeaviate().URI()
 
-	// Verify contextionary is available
-	contextionary := sharedCompose.GetText2VecContextionary()
-	if contextionary != nil {
-		// Log contextionary URI for debugging
-		_ = contextionary.URI() // This ensures the container is accessible
-	}
-
 	// Set up environment variables for tests to use
 	os.Setenv(envSharedWeaviateEndpoint, weaviateURI)
 
@@ -75,7 +68,7 @@ func TestMain(m *testing.M) {
 // The cluster includes:
 // - Single-node Weaviate (filesystem backup only works on single-node clusters)
 // - Filesystem backup module with BACKUP_FILESYSTEM_PATH=/tmp/backups
-// - text2vec-contextionary vectorizer (for tests that need vectorization)
+// - text2vec-model2vec vectorizer (for tests that need vectorization)
 // - Async indexing and a debug port, which the dynamic index test needs
 func setupSharedCluster(ctx context.Context) (*docker.DockerCompose, error) {
 	// PERSISTENCE_LSM_MAX_SEGMENT_SIZE=1024 effectively disables LSM compaction:
@@ -90,7 +83,7 @@ func setupSharedCluster(ctx context.Context) (*docker.DockerCompose, error) {
 	// queue chunk from sitting unindexed for the default interval.
 	compose, err := docker.New().
 		WithBackendFilesystem().
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		WithWeaviateEnv("PERSISTENCE_LSM_MAX_SEGMENT_SIZE", "1024").
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
 		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "1s").
@@ -102,10 +95,8 @@ func setupSharedCluster(ctx context.Context) (*docker.DockerCompose, error) {
 		return nil, errors.Wrap(err, "failed to start docker compose")
 	}
 
-	// Verify contextionary container is running
-	contextionary := compose.GetText2VecContextionary()
-	if contextionary == nil {
-		return nil, errors.New("text2vec-contextionary container not found - vectorizer may not be available")
+	if compose.GetText2VecModel2Vec() == nil {
+		return nil, errors.New("text2vec-model2vec container not found - vectorizer may not be available")
 	}
 
 	return compose, nil

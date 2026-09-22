@@ -148,6 +148,7 @@ func (db *DB) init(ctx context.Context) error {
 				SeparateObjectsCompactions:     db.config.SeparateObjectsCompactions,
 				CycleManagerRoutinesFactor:     db.config.CycleManagerRoutinesFactor,
 				IndexRangeableInMemory:         db.config.IndexRangeableInMemory,
+				IndexRangeableInMemoryProps:    db.config.IndexRangeableInMemoryProps[class.Class],
 				ObjectsTTLBatchSize:            db.config.ObjectsTTLBatchSize,
 				ObjectsTTLPauseEveryNoBatches:  db.config.ObjectsTTLPauseEveryNoBatches,
 				ObjectsTTLPauseDuration:        db.config.ObjectsTTLPauseDuration,
@@ -374,8 +375,12 @@ func (db *DB) migrateFileStructureIfNecessary() error {
 		if err = db.migrateToHierarchicalFS(); err != nil {
 			return fmt.Errorf("migrate to hierarchical fs: %w", err)
 		}
-		if _, err = os.Create(fsMigrationPath); err != nil {
+		f, err := os.Create(fsMigrationPath)
+		if err != nil {
 			return fmt.Errorf("create hierarchical fs indicator: %w", err)
+		}
+		if err := f.Close(); err != nil {
+			return fmt.Errorf("close hierarchical fs indicator: %w", err)
 		}
 	}
 	return nil

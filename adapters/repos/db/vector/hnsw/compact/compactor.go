@@ -401,8 +401,9 @@ func (c *Compactor) decideAction(state *DirectoryState) Action {
 	action, reason := c.chooseAction(state, totalSize, sortedRatio)
 
 	// RunCycle decides on every maintenance cycle, so skip building fields a
-	// logger below debug would discard.
-	if c.debugEnabled() {
+	// logger below debug would discard. ActionNone is the idle steady state
+	// and would repeat every cycle for every graph, so only real work is logged.
+	if action != ActionNone && c.debugEnabled() {
 		c.logger.WithFields(logrus.Fields{
 			"action":        "hnsw_compactor_decide",
 			"snapshot_size": snapshotSize,
@@ -423,6 +424,12 @@ func (c *Compactor) chooseAction(state *DirectoryState, totalSize int64, sortedR
 	sortedCount := len(state.SortedFiles)
 
 	if totalSize == 0 {
+		// Forced rotations of a never-written log leave 0-byte sorted files
+		// behind. They carry nothing to snapshot, but must still be collapsed
+		// or one accumulates per rotation.
+		if sortedCount > 1 {
+			return ActionMergeSorted, "no data to snapshot, merging empty sorted files to reduce count"
+		}
 		return ActionNone, "no data to compact (total size is 0)"
 	}
 

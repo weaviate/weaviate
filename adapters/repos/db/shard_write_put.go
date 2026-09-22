@@ -276,11 +276,7 @@ func (s *Shard) putObjectLSM(ctx context.Context, obj *storobj.Object, idBytes [
 	// Afterwards the bucket is updated. To avoid races, only one goroutine can do this at once.
 	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
 
-	// Wait for hashtree initialization before acquiring the RLock.
-	// waitForMinimalHashTreeInitialization must not be called while holding
-	// RLock: if initHashtree fails and retries, it needs write-lock to replace
-	// minimalHashtreeInitializationCh; a caller blocking under RLock would
-	// deadlock with the retry until the caller's context expired.
+	// Wait outside the RLock: initHashtree arms the gate under the write lock, so parking under RLock would deadlock it.
 	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
 		return objectInsertStatus{}, err
 	}

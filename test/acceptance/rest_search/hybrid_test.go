@@ -11,7 +11,7 @@
 
 // This file covers POST /v1/search/{collection}/hybrid end to end: the raw
 // wire contract and the live error-status mapping. The vector part embeds the
-// query server-side, so the suite runs with the contextionary vectorizer —
+// query server-side, so the suite runs with the model2vec vectorizer —
 // except the alpha-0 cases, which pin that a pure keyword hybrid search
 // needs no vectorizer at all.
 package rest_search
@@ -47,7 +47,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 		WithWeaviate().
 		// the endpoint is experimental and off by default; enable it
 		WithWeaviateEnv("EXPERIMENTAL_REST_SEARCH_ENABLED", "true").
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -59,7 +59,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 
 	songClass := &models.Class{
 		Class:      "Song",
-		Vectorizer: "text2vec-contextionary",
+		Vectorizer: "text2vec-model2vec",
 		Properties: []*models.Property{
 			{Name: "title", DataType: schema.DataTypeText.PropString()},
 			{Name: "lyrics", DataType: schema.DataTypeText.PropString()},
@@ -76,7 +76,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 	}
 	zettelClass := &models.Class{
 		Class:      "Zettel",
-		Vectorizer: "text2vec-contextionary",
+		Vectorizer: "text2vec-model2vec",
 		Properties: []*models.Property{
 			{Name: "title", DataType: schema.DataTypeText.PropString()},
 		},
@@ -85,7 +85,7 @@ func TestRESTSearchHybrid(t *testing.T) {
 
 	// vectorized but with no searchable property: the keyword part has
 	// nothing to expand to, while the vector part works
-	classes := []*models.Class{songClass, zineClass, zettelClass, unsearchableLedgerClass("text2vec-contextionary")}
+	classes := []*models.Class{songClass, zineClass, zettelClass, unsearchableLedgerClass("text2vec-model2vec")}
 	for _, class := range classes {
 		helper.CreateClass(t, class)
 	}

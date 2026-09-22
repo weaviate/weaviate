@@ -19,6 +19,8 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strconv"
+	"syscall"
 	"testing"
 	"time"
 
@@ -558,6 +560,36 @@ func testShardWithSettings(t testing.TB, ctx context.Context, class *models.Clas
 	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
 	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, false, withAsyncIndexingEnabled, indexOpts...)
+}
+
+// openDescriptorCount returns how many of this process's file descriptors
+// refer to the file at filePath, matched by device and inode.
+func openDescriptorCount(t *testing.T, filePath string) int {
+	t.Helper()
+
+	info, err := os.Stat(filePath)
+	require.NoError(t, err)
+	want := info.Sys().(*syscall.Stat_t)
+
+	entries, err := os.ReadDir("/dev/fd")
+	require.NoError(t, err)
+
+	count := 0
+	for _, entry := range entries {
+		fd, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue
+		}
+		var got syscall.Stat_t
+		// ReadDir closed the descriptor it listed /dev/fd through, so Fstat fails on it
+		if err := syscall.Fstat(fd, &got); err != nil {
+			continue
+		}
+		if got.Dev == want.Dev && got.Ino == want.Ino {
+			count++
+		}
+	}
+	return count
 }
 
 func testObject(className string) *storobj.Object {
