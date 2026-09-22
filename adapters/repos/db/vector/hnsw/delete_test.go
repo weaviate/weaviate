@@ -1308,44 +1308,44 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 		{1, 2, 3, 4, 5, 6, 7, 8},
 	})
 	index.nodes[0] = &vertex{
-		connections: conns,
+		connections: *conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		{0, 2, 3, 4, 5, 6, 7, 8},
 	})
 	index.nodes[1] = &vertex{
-		connections: conns,
+		connections: *conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		{1, 0, 3, 4, 5, 6, 7, 8},
 	})
 	index.nodes[2] = &vertex{
-		connections: conns,
+		connections: *conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		{2, 1, 0, 4, 5, 6, 7, 8},
 	})
 	index.nodes[3] = &vertex{
-		connections: conns,
+		connections: *conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		{3, 2, 1, 0, 5, 6, 7, 8},
 	})
 	index.nodes[4] = &vertex{
-		connections: conns,
+		connections: *conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		{3, 4, 2, 1, 0, 6, 7, 8},
 	})
 	index.nodes[5] = &vertex{
-		connections: conns,
+		connections: *conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		{4, 3, 1, 3, 5, 0, 7, 8},
 		{7},
 	})
 	index.nodes[6] = &vertex{
-		connections: conns,
+		connections: *conns,
 		level:       1,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
@@ -1353,14 +1353,14 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 		{6},
 	})
 	index.nodes[7] = &vertex{
-		connections: conns,
+		connections: *conns,
 		level:       1,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		{7, 6, 4, 3, 5, 2, 1, 0},
 	})
 	index.nodes[8] = &vertex{
-		connections: conns,
+		connections: *conns,
 	}
 
 	dumpIndex(index, "before delete")
@@ -1459,21 +1459,21 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		{1},
 	})
 	index.nodes[0] = &vertex{
-		connections: conns,
+		connections: *conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		0: {0, 2},
 		1: {2},
 	})
 	index.nodes[1] = &vertex{
-		connections: conns,
+		connections: *conns,
 	}
 	conns, _ = packedconn.NewWithElements([][]uint64{
 		0: {1},
 		1: {1},
 	})
 	index.nodes[2] = &vertex{
-		connections: conns,
+		connections: *conns,
 	}
 
 	dumpIndex(index, "before adding another element")
@@ -2178,7 +2178,7 @@ func TestDelete_EntrypointWithLowerLevelThanOtherNodes(t *testing.T) {
 	})
 	index.nodes[0] = &vertex{
 		level:       0,
-		connections: conns0,
+		connections: *conns0,
 	}
 
 	// Node 1: has level 3 (higher than entrypoint's level 0)
@@ -2191,7 +2191,7 @@ func TestDelete_EntrypointWithLowerLevelThanOtherNodes(t *testing.T) {
 	})
 	index.nodes[1] = &vertex{
 		level:       3, // Higher than entrypoint
-		connections: conns1,
+		connections: *conns1,
 	}
 	index.Unlock()
 
@@ -2261,9 +2261,9 @@ func newTombstonedNilEntrypointIndex(t *testing.T, withLiveNodes bool) *hnsw {
 	// entrypoint was persisted, the matching RemoveTombstone was not
 	if withLiveNodes {
 		conns1, _ := packedconn.NewWithElements([][]uint64{{2}})
-		index.nodes[1] = &vertex{level: 0, connections: conns1}
+		index.nodes[1] = &vertex{level: 0, connections: *conns1}
 		conns2, _ := packedconn.NewWithElements([][]uint64{{1}})
-		index.nodes[2] = &vertex{level: 0, connections: conns2}
+		index.nodes[2] = &vertex{level: 0, connections: *conns2}
 	}
 	index.Unlock()
 

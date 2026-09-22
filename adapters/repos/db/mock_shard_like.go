@@ -4014,17 +4014,17 @@ func (_c *MockShardLike_addTargetNodeOverride_Call) RunAndReturn(run func(contex
 	return _c
 }
 
-// addToPropertyMapBucket provides a mock function with given fields: bucket, pair, key
-func (_m *MockShardLike) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
-	ret := _m.Called(bucket, pair, key)
+// addToPropertyMapBucket provides a mock function with given fields: bucket, docID, key, tf, propLen
+func (_m *MockShardLike) addToPropertyMapBucket(bucket *lsmkv.Bucket, docID uint64, key []byte, tf float32, propLen float32) error {
+	ret := _m.Called(bucket, docID, key, tf, propLen)
 
 	if len(ret) == 0 {
 		panic("no return value specified for addToPropertyMapBucket")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(*lsmkv.Bucket, lsmkv.MapPair, []byte) error); ok {
-		r0 = rf(bucket, pair, key)
+	if rf, ok := ret.Get(0).(func(*lsmkv.Bucket, uint64, []byte, float32, float32) error); ok {
+		r0 = rf(bucket, docID, key, tf, propLen)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -4039,15 +4039,17 @@ type MockShardLike_addToPropertyMapBucket_Call struct {
 
 // addToPropertyMapBucket is a helper method to define mock.On call
 //   - bucket *lsmkv.Bucket
-//   - pair lsmkv.MapPair
+//   - docID uint64
 //   - key []byte
-func (_e *MockShardLike_Expecter) addToPropertyMapBucket(bucket interface{}, pair interface{}, key interface{}) *MockShardLike_addToPropertyMapBucket_Call {
-	return &MockShardLike_addToPropertyMapBucket_Call{Call: _e.mock.On("addToPropertyMapBucket", bucket, pair, key)}
+//   - tf float32
+//   - propLen float32
+func (_e *MockShardLike_Expecter) addToPropertyMapBucket(bucket interface{}, docID interface{}, key interface{}, tf interface{}, propLen interface{}) *MockShardLike_addToPropertyMapBucket_Call {
+	return &MockShardLike_addToPropertyMapBucket_Call{Call: _e.mock.On("addToPropertyMapBucket", bucket, docID, key, tf, propLen)}
 }
 
-func (_c *MockShardLike_addToPropertyMapBucket_Call) Run(run func(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte)) *MockShardLike_addToPropertyMapBucket_Call {
+func (_c *MockShardLike_addToPropertyMapBucket_Call) Run(run func(bucket *lsmkv.Bucket, docID uint64, key []byte, tf float32, propLen float32)) *MockShardLike_addToPropertyMapBucket_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(*lsmkv.Bucket), args[1].(lsmkv.MapPair), args[2].([]byte))
+		run(args[0].(*lsmkv.Bucket), args[1].(uint64), args[2].([]byte), args[3].(float32), args[4].(float32))
 	})
 	return _c
 }
@@ -4057,7 +4059,7 @@ func (_c *MockShardLike_addToPropertyMapBucket_Call) Return(_a0 error) *MockShar
 	return _c
 }
 
-func (_c *MockShardLike_addToPropertyMapBucket_Call) RunAndReturn(run func(*lsmkv.Bucket, lsmkv.MapPair, []byte) error) *MockShardLike_addToPropertyMapBucket_Call {
+func (_c *MockShardLike_addToPropertyMapBucket_Call) RunAndReturn(run func(*lsmkv.Bucket, uint64, []byte, float32, float32) error) *MockShardLike_addToPropertyMapBucket_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -4695,54 +4697,6 @@ func (_c *MockShardLike_mutableMergeObjectLSM_Call) Return(_a0 mutableMergeResul
 }
 
 func (_c *MockShardLike_mutableMergeObjectLSM_Call) RunAndReturn(run func(context.Context, objects.MergeDocument, []byte) (mutableMergeResult, error)) *MockShardLike_mutableMergeObjectLSM_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// pairPropertyWithFrequency provides a mock function with given fields: docID, freq, propLen
-func (_m *MockShardLike) pairPropertyWithFrequency(docID uint64, freq float32, propLen float32) lsmkv.MapPair {
-	ret := _m.Called(docID, freq, propLen)
-
-	if len(ret) == 0 {
-		panic("no return value specified for pairPropertyWithFrequency")
-	}
-
-	var r0 lsmkv.MapPair
-	if rf, ok := ret.Get(0).(func(uint64, float32, float32) lsmkv.MapPair); ok {
-		r0 = rf(docID, freq, propLen)
-	} else {
-		r0 = ret.Get(0).(lsmkv.MapPair)
-	}
-
-	return r0
-}
-
-// MockShardLike_pairPropertyWithFrequency_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'pairPropertyWithFrequency'
-type MockShardLike_pairPropertyWithFrequency_Call struct {
-	*mock.Call
-}
-
-// pairPropertyWithFrequency is a helper method to define mock.On call
-//   - docID uint64
-//   - freq float32
-//   - propLen float32
-func (_e *MockShardLike_Expecter) pairPropertyWithFrequency(docID interface{}, freq interface{}, propLen interface{}) *MockShardLike_pairPropertyWithFrequency_Call {
-	return &MockShardLike_pairPropertyWithFrequency_Call{Call: _e.mock.On("pairPropertyWithFrequency", docID, freq, propLen)}
-}
-
-func (_c *MockShardLike_pairPropertyWithFrequency_Call) Run(run func(docID uint64, freq float32, propLen float32)) *MockShardLike_pairPropertyWithFrequency_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(uint64), args[1].(float32), args[2].(float32))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_pairPropertyWithFrequency_Call) Return(_a0 lsmkv.MapPair) *MockShardLike_pairPropertyWithFrequency_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockShardLike_pairPropertyWithFrequency_Call) RunAndReturn(run func(uint64, float32, float32) lsmkv.MapPair) *MockShardLike_pairPropertyWithFrequency_Call {
 	_c.Call.Return(run)
 	return _c
 }

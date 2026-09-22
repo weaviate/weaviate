@@ -359,8 +359,7 @@ func (r *ShardInvertedReindexer) handleProperty(ctx context.Context, checker *re
 		}
 		propLen := float32(len(property.Items))
 		for _, item := range property.Items {
-			pair := r.shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
-			if err := r.shard.addToPropertyMapBucket(bucketSearchableValue, pair, item.Data); err != nil {
+			if err := r.shard.addToPropertyMapBucket(bucketSearchableValue, docID, item.Data, item.TermFrequency, propLen); err != nil {
 				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
 			}
 		}

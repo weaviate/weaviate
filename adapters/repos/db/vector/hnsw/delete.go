@@ -625,7 +625,7 @@ func (h *hnsw) reassignNeighbor(
 
 	neighborNode.Lock()
 	neighborLevel := int(neighborNode.level)
-	if !connectionsPointTo(neighborNode.connections, deleteList) {
+	if !connectionsPointTo(&neighborNode.connections, deleteList) {
 		// nothing needs to be changed, skip
 		neighborNode.Unlock()
 		return true, nil
@@ -709,7 +709,7 @@ func (h *hnsw) deleteEntrypoint(id uint64, denyList helpers.AllowList) error {
 	return nil
 }
 
-var errNoUsableEntrypoint = errors.New("no valid entrypoint available")
+var errNoUsableEntrypoint = enterrors.ErrNoUsableEntrypoint
 
 // repairGlobalEntrypoint replaces an unusable global entrypoint with a usable
 // node, skipping nodes in denyList (which must already contain oldEntrypoint).

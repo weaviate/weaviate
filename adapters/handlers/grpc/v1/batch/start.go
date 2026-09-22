@@ -50,7 +50,7 @@ func WithAllocChecker(c memwatch.AllocChecker) Option {
 func Start(
 	authenticator authenticator,
 	authorizer authorization.Authorizer,
-	batchHandler batcher,
+	batchHandler Batcher,
 	schemaManager schemaManager,
 	reg prometheus.Registerer,
 	numWorkers int,
