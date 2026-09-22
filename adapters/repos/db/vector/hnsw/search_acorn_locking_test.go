@@ -404,3 +404,36 @@ func TestSearchSeedLoopDoesNotHoldNodeLocksAcrossTombstoneLock(t *testing.T) {
 
 	require.NoError(t, <-searchDone)
 }
+
+// Pins the latent panic the deadlock fix also closed: the seed loop reads
+// h.nodes[idx] for every allow-list id, and the pre-fix code indexed the slice
+// directly, so an allow-list id >= len(h.nodes) was an out-of-range panic. The
+// nodeAbsent helper bounds-checks before the index. An allow list can outrun
+// the node slice whenever it is built from ids the store knows but the index
+// has not grown to yet (e.g. crash recovery with the object store ahead of
+// hnsw, the same skew nodeByID guards against for #1838).
+func TestSearchSeedLoopSkipsOutOfRangeAllowListID(t *testing.T) {
+	const size = 400
+
+	ctx := context.Background()
+	vectors, queries := testinghelpers.RandomVecs(size, 1, 8)
+	index := newSeededIndex(t, "acorn-out-of-range-seed", vectors, size, ent.FilterStrategyAcorn)
+
+	// an id past the end of the node slice, reached by the seed loop after a
+	// valid seed so the loop indexes h.nodes[outOfRange] on its next pass
+	outOfRange := uint64(len(index.nodes)) + 5
+	allowed := helpers.NewAllowList(0, outOfRange)
+
+	var (
+		ids []uint64
+		err error
+	)
+	require.NotPanics(t, func() {
+		ids, _, err = index.SearchByVector(ctx, queries[0], 10, allowed)
+	}, "seed loop panicked on an allow-list id past the end of the node slice")
+	require.NoError(t, err)
+	// the out-of-range id has no vector, so only the valid seed can come back
+	for _, id := range ids {
+		require.Less(t, id, uint64(len(index.nodes)))
+	}
+}
