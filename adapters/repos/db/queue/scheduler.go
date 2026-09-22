@@ -46,6 +46,14 @@ type Scheduler struct {
 	chans     []chan *Batch
 	triggerCh chan chan struct{}
 
+	// batches handed back by a worker under memory pressure, re-dispatched from
+	// the scheduler goroutine once their pause elapsed. See Batch.Requeue.
+	parked struct {
+		sync.Mutex
+
+		list []parkedBatch
+	}
+
 	// closeOnce: OnClose fires exactly once, started or not (owners count it in a shutdown WaitGroup).
 	closeOnce sync.Once
 	// closeLock serialises concurrent Close calls (double close of chans panics and would skip OnClose).
@@ -151,6 +159,8 @@ func (s *Scheduler) UnregisterQueue(ctx context.Context, id string) {
 
 	q.cancelFn()
 
+	s.releaseParked(q)
+
 	// wait for the workers to finish processing the queue's tasks
 	_ = s.Wait(ctx, id)
 
@@ -218,6 +228,8 @@ func (s *Scheduler) Close(ctx context.Context) error {
 	// stop scheduling
 	s.cancelFn()
 
+	s.releaseParked(nil)
+
 	// wait for the workers to finish processing tasks
 	_ = s.activeTasks.Wait(ctx)
 
@@ -256,6 +268,8 @@ func (s *Scheduler) PauseQueue(id string) {
 	q.m.Lock()
 	q.paused = true
 	q.m.Unlock()
+
+	s.releaseParked(q)
 
 	s.updatePausedMetric()
 
@@ -372,8 +386,10 @@ func (s *Scheduler) runScheduler() {
 			t.Stop()
 			return
 		case <-t.C:
+			s.dispatchParked()
 			s.schedule()
 		case ch := <-s.triggerCh:
+			s.dispatchParked()
 			s.scheduleQueues()
 			close(ch)
 		}
@@ -540,7 +556,7 @@ func (s *Scheduler) dispatchQueue(q *queueState) (taskCount int64, err error) {
 		start := time.Now()
 
 		// prepare the batch for the worker
-		wb := Batch{
+		wb := &Batch{
 			Tasks: partitions[i],
 			Ctx:   q.ctx,
 			OnDone: func() {
@@ -574,7 +590,13 @@ func (s *Scheduler) dispatchQueue(q *queueState) (taskCount int64, err error) {
 			},
 		}
 
-		err = s.sendToAvailableWorker(q, &wb)
+		// a parked batch keeps holding the active-task gauges on purpose: that
+		// stops the queue from being scheduled again while the node has no memory
+		wb.OnRequeue = func(after time.Duration) {
+			s.parkBatch(q, wb, after)
+		}
+
+		err = s.sendToAvailableWorker(q, wb)
 		if err != nil {
 			s.activeTasks.Decr()
 			q.activeTasks.Decr()
@@ -585,6 +607,94 @@ func (s *Scheduler) dispatchQueue(q *queueState) (taskCount int64, err error) {
 	s.logQueueStats(q.q, taskCount)
 
 	return taskCount, nil
+}
+
+// parkedBatch is a batch handed back under memory pressure, with its due time.
+type parkedBatch struct {
+	q     *queueState
+	batch *Batch
+	dueAt time.Time
+}
+
+// parkBatch is the Batch.OnRequeue hook. It runs on a worker goroutine, while
+// re-dispatch only happens on the scheduler one, so it cannot race Close().
+func (s *Scheduler) parkBatch(q *queueState, b *Batch, after time.Duration) {
+	s.parked.Lock()
+	s.parked.list = append(s.parked.list, parkedBatch{
+		q:     q,
+		batch: b,
+		dueAt: time.Now().Add(after),
+	})
+	parked := len(s.parked.list)
+	s.parked.Unlock()
+
+	s.Logger.
+		WithField("queue_id", q.q.ID()).
+		WithField("tasks", len(b.Tasks)).
+		WithField("resume_in", after).
+		WithField("parked_batches", parked).
+		Warnf("queue is under sustained memory pressure; its batch is parked and will be retried in %s, no task is discarded", after)
+}
+
+// dispatchParked hands back every parked batch whose pause elapsed, on the
+// goroutine owning the worker channels. A batch shutting down is canceled
+// instead, which never marks it done.
+func (s *Scheduler) dispatchParked() {
+	s.parked.Lock()
+	if len(s.parked.list) == 0 {
+		s.parked.Unlock()
+		return
+	}
+
+	now := time.Now()
+	keep := s.parked.list[:0:0]
+	due := make([]parkedBatch, 0, len(s.parked.list))
+
+	for _, p := range s.parked.list {
+		if now.Before(p.dueAt) && p.q.ctx.Err() == nil && s.ctx.Err() == nil && !p.q.Paused() {
+			keep = append(keep, p)
+			continue
+		}
+		due = append(due, p)
+	}
+	s.parked.list = keep
+	s.parked.Unlock()
+
+	for _, p := range due {
+		// catches a queue paused between parkBatch and PauseQueue's own sweep
+		if s.ctx.Err() != nil || p.q.ctx.Err() != nil || p.q.Paused() {
+			p.batch.Cancel()
+			continue
+		}
+
+		if err := s.sendToAvailableWorker(p.q, p.batch); err != nil {
+			p.batch.Cancel()
+			s.Logger.
+				WithField("queue_id", p.q.q.ID()).
+				Errorf("failed to hand a parked batch back to a worker: %v", err)
+		}
+	}
+}
+
+// releaseParked drops q's parked batches (all when q is nil) and releases their
+// gauges, so shutdown and pausing need not wait out the pause.
+func (s *Scheduler) releaseParked(q *queueState) {
+	s.parked.Lock()
+	keep := s.parked.list[:0:0]
+	release := make([]parkedBatch, 0, len(s.parked.list))
+	for _, p := range s.parked.list {
+		if q != nil && p.q != q {
+			keep = append(keep, p)
+			continue
+		}
+		release = append(release, p)
+	}
+	s.parked.list = keep
+	s.parked.Unlock()
+
+	for _, p := range release {
+		p.batch.Cancel()
+	}
 }
 
 // sendToAvailableWorker tries to send the batch to an available worker channel.

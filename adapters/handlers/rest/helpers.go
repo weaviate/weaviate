@@ -19,6 +19,7 @@ import (
 	"github.com/go-openapi/runtime"
 	middleware "github.com/go-openapi/runtime/middleware"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -50,4 +51,14 @@ func tooManyRequestsResponder(principal *models.Principal, err error) middleware
 			panic(perr) // let the recovery middleware deal with this
 		}
 	})
+}
+
+// memoryShedResponder renders a memwatch rejection as HTTP 429, or nil so the
+// caller falls through: as a 500 a shed cannot be told apart from a fault. Keyed
+// off the sentinels, the only thing surviving every wrapping shape.
+func memoryShedResponder(principal *models.Principal, err error) middleware.Responder {
+	if !enterrors.IsMemoryPressure(err) {
+		return nil
+	}
+	return tooManyRequestsResponder(principal, err)
 }

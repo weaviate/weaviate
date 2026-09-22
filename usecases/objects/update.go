@@ -57,8 +57,8 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	defer m.metrics.UpdateObjectDec()
 
 	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectMemory(updates)); err != nil {
-		m.logger.WithError(err).Errorf("memory pressure: cannot process update object")
-		return nil, fmt.Errorf("cannot process update object: %w", err)
+		m.logger.Errorf("memory pressure: cannot process update object: %v", err)
+		return nil, NewMemoryShedError("cannot process update object", err)
 	}
 
 	return m.updateObjectToConnectorAndSchema(ctx, principal, className, id, updates, repl, fetchedClasses)
