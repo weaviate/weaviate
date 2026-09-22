@@ -308,10 +308,7 @@ type Shard struct {
 	asyncCheckpointCreatedAt   time.Time
 	asyncCheckpointActivatedAt time.Time
 
-	// asyncRepCtx is the per-shard context for the hashbeat cycle. It is
-	// derived from context.Background() and cancelled by asyncReplicationCancelFunc
-	// when async replication is stopped. Workers receive this context so that
-	// in-flight cycles terminate promptly when the shard is deregistered.
+	// asyncRepCtx is the per-shard hashbeat context, derived from the scheduler's ctx (Background only when there is no scheduler) and cancelled by asyncReplicationCancelFunc.
 	asyncRepCtx context.Context
 
 	// asyncRepWg tracks async replication goroutines touching shard resources: hashbeat cycles, hashtree init, scheduler register.
@@ -320,8 +317,7 @@ type Shard struct {
 
 	// asyncRepNeedsRebuild is set by runEntry when the effective hashtree height
 	// (after applying runtime-config overrides) differs from the current hashtree
-	// height. The scheduler spawns a rebuild goroutine after asyncRepWg.Done()
-	// so that DisableAsyncReplication can safely call Deregister+Wait.
+	// height. The scheduler spawns the rebuild after asyncRepWg.Done() so a teardown's Deregister+drain is never pinned by the cycle that armed it.
 	asyncRepNeedsRebuild atomic.Bool
 
 	// asyncRepRebuildInFlight prevents concurrent rebuildHashtree goroutines.

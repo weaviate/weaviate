@@ -422,12 +422,7 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 		// asyncReplicationRWMux.RLock (in onResultLocked), causing a deadlock.
 		// Spawning a goroutine mirrors the pattern used by the new-hashtree path.
 		//
-		// asyncRepWg tracks this goroutine so that rebuildHashtree's
-		// asyncRepWg.Wait() serialises rebuilds against it. Without tracking, a
-		// rapid disable→enable cycle (e.g. during a rebuild or a repair override
-		// remove→add) would spawn a new goroutine before the old one exits.
-		// Note: disableAsyncReplication does NOT call asyncRepWg.Wait(); the
-		// goroutine exits promptly once the context is cancelled or hashtree is nil.
+		// Latched so a rebuild's drain waits for this Register; a disable does not wait (the goroutine exits on a cancelled ctx or a nil hashtree).
 		s.asyncRepWg.Add(1)
 		enterrors.GoWrapper(func() {
 			defer s.asyncRepWg.Done()
@@ -474,12 +469,7 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 	}
 	s.hashtree = ht
 
-	// asyncRepWg tracks this goroutine so that rebuildHashtree's
-	// asyncRepWg.Wait() serialises rebuilds against it, preventing the old
-	// goroutine from overlapping with a new one spawned by the next
-	// enableAsyncReplication call (e.g. during a rebuild or repair cycle).
-	// Note: disableAsyncReplication does NOT call asyncRepWg.Wait(); the
-	// goroutine exits promptly once ctx is cancelled or hashtree is nil.
+	// Latched so a rebuild's drain waits for this init scan; a disable does not wait (the goroutine exits on a cancelled ctx or a nil hashtree).
 	s.asyncRepWg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer s.asyncRepWg.Done()

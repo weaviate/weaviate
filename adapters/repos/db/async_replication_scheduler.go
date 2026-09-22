@@ -1816,7 +1816,7 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry, ski
 
 	// Done and the rebuild spawn must survive a panic in the recover block below (logging hook).
 	defer func() {
-		// Done() before the resultCh send so the WG drops before the dispatcher re-enqueues; inFlight (not asyncRepWg) enforces one cycle per shard.
+		// Done() before the resultCh send so the latch drops before the dispatcher re-enqueues; inFlight (not asyncRepWg) enforces one cycle per shard.
 		s.asyncRepWg.Done()
 
 		if needsRebuild {
@@ -2090,8 +2090,7 @@ func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool
 		return true, fail("drain", fmt.Errorf("worker drain timed out after %s", drainTimeout)), false, false
 	}
 
-	// Bail if Close() fired: enableAsyncReplication would otherwise spawn an
-	// init-scan goroutine with no cancellable context.
+	// Bail if Close() fired: the enable's Register would fail, leaving a tree that is never scanned, dispatched or capturable.
 	if sched.ctx.Err() != nil {
 		return false, 0, false, false
 	}
