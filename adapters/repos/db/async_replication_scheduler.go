@@ -2094,6 +2094,7 @@ func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool
 	// Report success only when a tree at the effective target height is actually
 	// installed — an enable that no-opped (e.g. a transfer halt raced the window,
 	// or a bypass door installed a wrong-height tree) must not read as completed.
+	// The tree may still be a placeholder whose scan is queued for an init slot.
 	effectiveCfg := baseCfg
 	if s.index.globalreplicationConfig != nil {
 		effectiveCfg = baseCfg.Effective(*s.index.globalreplicationConfig)

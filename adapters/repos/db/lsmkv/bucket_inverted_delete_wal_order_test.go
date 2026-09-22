@@ -18,32 +18,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// errInjectingMemtable wraps a real memtable and lets a test force
-// appendMapSorted to fail on demand, while every other call (including
-// SetTombstone, ReadOnlyTombstones, getMap, GetPropLengths) passes straight
-// through to the wrapped memtable via interface embedding.
+// errInjectingMemtable forces appendInverted to fail on demand; every other
+// call passes through to the wrapped memtable.
 type errInjectingMemtable struct {
 	memtable
-	appendMapSortedErr error
+	appendInvertedErr error
 }
 
-func (e *errInjectingMemtable) appendMapSorted(key []byte, pair MapPair) error {
-	if e.appendMapSortedErr != nil {
-		return e.appendMapSortedErr
+func (e *errInjectingMemtable) appendInverted(key []byte, pair invertedPair) error {
+	if e.appendInvertedErr != nil {
+		return e.appendInvertedErr
 	}
-	return e.memtable.appendMapSorted(key, pair)
+	return e.memtable.appendInverted(key, pair)
 }
 
-// TestBucketMapDeleteKey_InvertedWALOrder pins MapDeleteKey's ordering for
-// StrategyInverted: the WAL append (appendMapSorted) must happen before the
-// doc-tombstone bitmap is published (SetTombstone). If appendMapSorted fails,
-// the bitmap must be left untouched -- otherwise a restart (which replays the
-// WAL and derives the bitmap from persisted pairs) would silently resurrect a
-// document that reads currently suppress.
-func TestBucketMapDeleteKey_InvertedWALOrder(t *testing.T) {
+// A failed WAL append must leave no doc tombstone behind: a restart derives
+// the bitmap from the persisted records, and would resurrect the document.
+func TestBucketInvertedDeleteDoc_WALOrder(t *testing.T) {
 	rowKey := []byte("row1")
 	docID := uint64(42)
-	mapKey := NewMapPairFromDocIdAndTf(docID, 1, 5, false).Key
 	boom := errors.New("boom: simulated WAL append failure")
 
 	tests := []struct {
@@ -70,7 +63,7 @@ func TestBucketMapDeleteKey_InvertedWALOrder(t *testing.T) {
 			})
 			sumBefore, countBefore := real.GetPropLengths()
 
-			wrapped := &errInjectingMemtable{memtable: real, appendMapSortedErr: tt.appendErr}
+			wrapped := &errInjectingMemtable{memtable: real, appendInvertedErr: tt.appendErr}
 			b := Bucket{
 				active:   wrapped,
 				disk:     &SegmentGroup{},
@@ -78,7 +71,7 @@ func TestBucketMapDeleteKey_InvertedWALOrder(t *testing.T) {
 				logger:   nullLogger(),
 			}
 
-			err := b.MapDeleteKey(rowKey, mapKey)
+			err := b.InvertedDeleteDoc(rowKey, docID)
 			if tt.appendErr != nil {
 				require.ErrorIs(t, err, tt.appendErr)
 			} else {
@@ -90,33 +83,27 @@ func TestBucketMapDeleteKey_InvertedWALOrder(t *testing.T) {
 			require.Equal(t, tt.wantTombstoned, tomb.Contains(docID))
 
 			if tt.appendErr != nil {
-				// A failed append must be a complete no-op on prop-length tracking too.
 				sumAfter, countAfter := real.GetPropLengths()
 				require.Equal(t, sumBefore, sumAfter)
 				require.Equal(t, countBefore, countAfter)
 			} else {
-				pairs, gErr := real.getMap(rowKey)
+				pairs, gErr := real.getInverted(rowKey)
 				require.NoError(t, gErr)
 				found := false
 				for _, p := range pairs {
-					if string(p.Key) == string(mapKey) && p.Tombstone {
+					if p.docID == docID && p.tombstone {
 						found = true
 					}
 				}
-				require.True(t, found, "expected a tombstone MapPair for the docID in the row")
+				require.True(t, found, "expected a tombstone entry for the docID in the row")
 			}
 		})
 	}
 }
 
-// TestBucketMapDeleteKey_InvertedWALOrder_PartialFailure pins the multi-doc
-// case: a failed delete for one docID must not affect an unrelated,
-// successful delete for another docID in the same row.
-func TestBucketMapDeleteKey_InvertedWALOrder_PartialFailure(t *testing.T) {
+func TestBucketInvertedDeleteDoc_WALOrder_PartialFailure(t *testing.T) {
 	rowKey := []byte("row1")
 	docID1, docID2 := uint64(1), uint64(2)
-	mapKey1 := NewMapPairFromDocIdAndTf(docID1, 1, 5, false).Key
-	mapKey2 := NewMapPairFromDocIdAndTf(docID2, 1, 5, false).Key
 	boom := errors.New("boom: simulated WAL append failure")
 
 	real := newTestMemtableInverted(map[string][]MapPair{
@@ -125,7 +112,7 @@ func TestBucketMapDeleteKey_InvertedWALOrder_PartialFailure(t *testing.T) {
 			NewMapPairFromDocIdAndTf(docID2, 1, 5, false),
 		},
 	})
-	wrapped := &errInjectingMemtable{memtable: real, appendMapSortedErr: boom}
+	wrapped := &errInjectingMemtable{memtable: real, appendInvertedErr: boom}
 	b := Bucket{
 		active:   wrapped,
 		disk:     &SegmentGroup{},
@@ -133,11 +120,11 @@ func TestBucketMapDeleteKey_InvertedWALOrder_PartialFailure(t *testing.T) {
 		logger:   nullLogger(),
 	}
 
-	err := b.MapDeleteKey(rowKey, mapKey1)
+	err := b.InvertedDeleteDoc(rowKey, docID1)
 	require.ErrorIs(t, err, boom)
 
-	wrapped.appendMapSortedErr = nil
-	err = b.MapDeleteKey(rowKey, mapKey2)
+	wrapped.appendInvertedErr = nil
+	err = b.InvertedDeleteDoc(rowKey, docID2)
 	require.NoError(t, err)
 
 	tomb, tErr := real.ReadOnlyTombstones()

@@ -672,7 +672,7 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		require.Nil(t, err)
 
 		conns, _ := packedconn.NewWithMaxLayer(3)
-		assert.Contains(t, res.Nodes, &vertex{level: 3, connections: conns})
+		assert.Contains(t, res.Nodes, &vertex{level: 3, connections: *conns})
 		assert.Equal(t, uint64(17), res.Entrypoint)
 		assert.Equal(t, uint16(3), res.Level)
 	})
