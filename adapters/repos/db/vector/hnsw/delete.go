@@ -710,7 +710,7 @@ func (h *hnsw) deleteEntrypoint(id uint64, denyList helpers.AllowList) error {
 	return nil
 }
 
-var errNoUsableEntrypoint = errors.New("no valid entrypoint available")
+var errNoUsableEntrypoint = enterrors.ErrNoUsableEntrypoint
 
 // repairGlobalEntrypoint replaces an unusable global entrypoint with a usable
 // node, skipping nodes in denyList (which must already contain oldEntrypoint).
