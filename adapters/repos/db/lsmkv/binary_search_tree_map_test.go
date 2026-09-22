@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"encoding/binary"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -315,4 +316,47 @@ func TestBSTMap_Flatten(t *testing.T) {
 			assertFlattenedMatches(t, flatAfterUpdate, expectedAfterUpdate)
 		})
 	})
+}
+
+// at 200k pairs a sort that is not stable, or one the sorted check wrongly
+// skips, keeps the wrong write of a re-written doc ID; the tables above are too
+// short to expose either
+func TestSortAndDedupValuesAtScale(t *testing.T) {
+	const docs = 200_000
+
+	docIDs := make([]uint64, 0, docs+docs/5)
+	for i := 0; i < docs; i++ {
+		docIDs = append(docIDs, uint64(i))
+		if i%5 == 0 {
+			docIDs = append(docIDs, uint64(i)) // re-written doc
+		}
+	}
+
+	// the position of the last write of each doc ID, which is what its
+	// surviving pair must carry as its value
+	lastWrite := make(map[uint64][]byte, docs)
+	for i, id := range docIDs {
+		v := make([]byte, 8)
+		binary.BigEndian.PutUint64(v, uint64(i))
+		lastWrite[id] = v
+	}
+
+	for _, bigEndian := range []bool{true, false} {
+		out := sortAndDedupValues(mapPairsForDocIDs(docIDs, bigEndian))
+		require.Len(t, out, docs)
+
+		for i, pair := range out {
+			if i > 0 {
+				require.Negative(t, compareMapPairByKey(out[i-1], pair),
+					"output must be sorted by key, big endian: %v", bigEndian)
+			}
+
+			id := binary.LittleEndian.Uint64(pair.Key)
+			if bigEndian {
+				id = binary.BigEndian.Uint64(pair.Key)
+			}
+			require.Equal(t, lastWrite[id], pair.Value,
+				"doc %d kept a write other than its last, big endian: %v", id, bigEndian)
+		}
+	}
 }

@@ -171,6 +171,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			SeparateObjectsCompactions:     m.db.config.SeparateObjectsCompactions,
 			CycleManagerRoutinesFactor:     m.db.config.CycleManagerRoutinesFactor,
 			IndexRangeableInMemory:         m.db.config.IndexRangeableInMemory,
+			IndexRangeableInMemoryProps:    m.db.config.IndexRangeableInMemoryProps[class.Class],
 			ObjectsTTLBatchSize:            m.db.config.ObjectsTTLBatchSize,
 			ObjectsTTLPauseEveryNoBatches:  m.db.config.ObjectsTTLPauseEveryNoBatches,
 			ObjectsTTLPauseDuration:        m.db.config.ObjectsTTLPauseDuration,

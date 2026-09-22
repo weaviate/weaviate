@@ -16,10 +16,11 @@ import (
 	"testing"
 
 	"github.com/weaviate/weaviate/test/helper/journey"
+	"github.com/weaviate/weaviate/test/helper/sample-schema/documents"
 )
 
 func Test_WeaviateCluster_GroupBy(t *testing.T) {
 	t.Run("multi node", func(t *testing.T) {
-		journey.GroupBySingleAndMultiShardTests(t, os.Getenv(weaviateNode1Endpoint))
+		journey.GroupBySingleAndMultiShardTests(t, os.Getenv(weaviateNode1Endpoint), documents.ClassesContextionaryVectorizer)
 	})
 }

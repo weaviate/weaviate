@@ -30,11 +30,11 @@ func Test_SUMTransformers(t *testing.T) {
 	}{
 		{
 			name:  "with module config for sum-transformers module",
-			class: books.ClassContextionaryVectorizerWithSumTransformers(),
+			class: books.ClassModel2VecVectorizerWithSumTransformers(),
 		},
 		{
 			name:  "without module config",
-			class: books.ClassContextionaryVectorizer(),
+			class: books.ClassModel2VecVectorizer(),
 		},
 	}
 	for _, tt := range tests {

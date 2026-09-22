@@ -40,7 +40,7 @@ func Test_OffloadBucketNotAutoCreate(t *testing.T) {
 
 	compose, err := docker.New().
 		WithOffloadS3("offloading", "us-west-1").
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		WithWeaviateEnv("OFFLOAD_TIMEOUT", "1").
 		WithoutWeaviateEnvs("OFFLOAD_S3_BUCKET_AUTO_CREATE").
 		WithWeaviate().
@@ -63,7 +63,7 @@ func Test_OffloadBucketNotAutoCreateMinioManualCreate(t *testing.T) {
 
 		compose, err := docker.New().
 			WithOffloadS3(bucketname, "us-west-1").
-			WithText2VecContextionary().
+			WithText2VecModel2Vec().
 			WithWeaviateEnv("OFFLOAD_S3_BUCKET_AUTO_CREATE", "false").
 			With3NodeCluster().
 			Start(ctx)

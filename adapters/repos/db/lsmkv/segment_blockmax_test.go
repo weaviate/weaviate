@@ -127,6 +127,53 @@ func TestBlockMaxWandSinglePostingNotPruned(t *testing.T) {
 	}
 }
 
+// A pread segment loads a term's block entries off the file; the scores must
+// match what the same data gives when the segment is read from memory.
+func TestBlockMaxWandPreadMatchesMemory(t *testing.T) {
+	ctx := context.Background()
+
+	const (
+		singleTerm = "single" // one doc: the entries come from the node's first bytes alone
+		manyTerm   = "many"   // several blocks: the block entries are a second read
+	)
+	manyDocs := 3*terms.BLOCK_SIZE + 7
+
+	tests := []struct {
+		name  string
+		pread bool
+	}{
+		{name: "memory", pread: false},
+		{name: "pread", pread: true},
+	}
+	results := make(map[string]map[uint64]float32, len(tests))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bucket, err := NewBucketCreator().NewBucket(ctx, t.TempDir(), "", logrus.New(), nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				WithStrategy(StrategyInverted), WithPread(tt.pread))
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, bucket.Shutdown(ctx)) })
+
+			for id := uint64(0); id < uint64(manyDocs); id++ {
+				require.NoError(t, bucket.MapSet([]byte(manyTerm),
+					NewMapPairFromDocIdAndTf(id, float32(1+id%5), 1, false)))
+			}
+			require.NoError(t, bucket.MapSet([]byte(singleTerm),
+				NewMapPairFromDocIdAndTf(uint64(manyDocs)+1, 8, 1, false)))
+			require.NoError(t, bucket.FlushAndSwitch())
+
+			segments := bucket.disk.segments
+			require.Len(t, segments, 1)
+			require.Equal(t, !tt.pread, segments[0].(*segment).readFromMemory)
+
+			got := runBlockMaxWand(t, bucket, []string{manyTerm, singleTerm}, nil, manyDocs+1, manyDocs+1)
+			require.Len(t, got, manyDocs+1)
+			results[tt.name] = got
+		})
+	}
+	require.Equal(t, results["memory"], results["pread"])
+}
+
 // runBlockMaxWand runs the block-max WAND search the same way createDiskTermFromCV
 // feeds it in production, under an optional filter, and returns docID -> score
 // across all segments/memtables.
