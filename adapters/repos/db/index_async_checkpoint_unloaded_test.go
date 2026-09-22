@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
 	"os"
 	"path/filepath"
 	"testing"
@@ -21,6 +22,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
@@ -205,4 +207,30 @@ func TestUnloadedAsyncCheckpoint_LoadBeforeStatusTakesLoadedPath(t *testing.T) {
 	require.Zero(t, gotCutoff, "no live checkpoint was created")
 	_, registered := f.index.unloadedCheckpoints.get(f.name)
 	require.False(t, registered)
+}
+
+func TestUnloadedAsyncCheckpoint_OrphanedSnapshotIsRefused(t *testing.T) {
+	ctx := testCtx()
+	f := newUnloadedCheckpointFixture(t, "UnloadedCkptOrphaned", true)
+	writePersistedHashtree(t, f.dir, "hashtree-0000000000000001.ht", 7)
+	shardDir := shardPath(f.index.path(), f.name)
+	objectsDir := filepath.Join(shardPathLSM(f.index.path(), f.name), helpers.ObjectsBucketLSM)
+	require.NoError(t, os.WriteFile(filepath.Join(shardDir, "indexcount"), binary.LittleEndian.AppendUint64(nil, 5), 0o644))
+	require.NoError(t, os.RemoveAll(objectsDir))
+	createdAt := time.Now().UTC()
+	cutoffMs := createdAt.Add(time.Hour).UnixMilli()
+
+	err := f.index.createAsyncCheckpoint(ctx, f.name, cutoffMs, createdAt)
+	require.ErrorIs(t, err, errAsyncReplicationNotActive)
+	require.ErrorContains(t, err, errPersistedHashtreeOrphaned.Error())
+	_, registered := f.index.unloadedCheckpoints.get(f.name)
+	require.False(t, registered)
+	_, _, _, ok := f.status(t, ctx)
+	require.False(t, ok)
+
+	require.NoError(t, os.MkdirAll(objectsDir, 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(objectsDir, "segment-1.wal"), []byte{1}, 0o644))
+	require.NoError(t, f.index.createAsyncCheckpoint(ctx, f.name, cutoffMs, createdAt.Add(time.Second)))
+	_, registered = f.index.unloadedCheckpoints.get(f.name)
+	require.True(t, registered)
 }
