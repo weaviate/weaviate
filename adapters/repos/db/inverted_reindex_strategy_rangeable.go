@@ -158,7 +158,8 @@ func (s *FilterableToRangeableStrategy) PreReindexHook(shard *Shard, props []str
 		if shard.store.Bucket(bucketName) != nil {
 			continue
 		}
-		opts := shard.makeDefaultBucketOptions(lsmkv.StrategyRoaringSetRange)
+		opts := shard.makeDefaultBucketOptions(lsmkv.StrategyRoaringSetRange,
+			lsmkv.WithKeepSegmentsInMemory(shard.index.Config.keepRangeableInMemory(propName)))
 		if err := shard.store.CreateOrLoadBucket(ctx, bucketName, opts...); err != nil {
 			shard.index.logger.WithField("bucket", bucketName).
 				Errorf("PreReindexHook: failed to create rangeable bucket: %v", err)

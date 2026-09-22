@@ -31,7 +31,7 @@ func hybridSearchGroupByArrayTests(t *testing.T) {
 	t.Run("create schema", func(t *testing.T) {
 		class := &models.Class{
 			Class:      className,
-			Vectorizer: "text2vec-contextionary",
+			Vectorizer: "text2vec-model2vec",
 			Properties: []*models.Property{
 				{
 					Name:     "title",

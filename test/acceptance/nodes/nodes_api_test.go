@@ -36,7 +36,7 @@ func Test_NodesAPI(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
 		WithWeaviate().
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		WithWeaviateEnv("PERSISTENCE_MAX_REUSE_WAL_SIZE", "0").
 		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "2"). // flush fast enough so object counts are correct
 		Start(ctx)
@@ -67,7 +67,7 @@ func Test_NodesAPI(t *testing.T) {
 	})
 
 	t.Run("DB with Books (1 class ,1 shard configuration, 1 node)", func(t *testing.T) {
-		booksClass := books.ClassContextionaryVectorizer()
+		booksClass := books.ClassModel2VecVectorizer()
 		helper.CreateClass(t, booksClass)
 		defer helper.DeleteClass(t, booksClass.Class)
 
@@ -100,7 +100,7 @@ func Test_NodesAPI(t *testing.T) {
 	})
 
 	t.Run("DB with MultiShard (1 class, 2 shards configuration, 1 node)", func(t *testing.T) {
-		multiShardClass := multishard.ClassContextionaryVectorizer()
+		multiShardClass := multishard.ClassModel2VecVectorizer()
 		helper.CreateClass(t, multiShardClass)
 		defer helper.DeleteClass(t, multiShardClass.Class)
 
@@ -134,7 +134,7 @@ func Test_NodesAPI(t *testing.T) {
 	})
 
 	t.Run("with class name: DB with Books and Documents, 1 shard, 1 node", func(t *testing.T) {
-		booksClass := books.ClassContextionaryVectorizer()
+		booksClass := books.ClassModel2VecVectorizer()
 		helper.CreateClass(t, booksClass)
 		defer helper.DeleteClass(t, booksClass.Class)
 
@@ -155,7 +155,7 @@ func Test_NodesAPI(t *testing.T) {
 		})
 
 		t.Run("insert and check documents", func(t *testing.T) {
-			docsClasses := documents.ClassesContextionaryVectorizer(false)
+			docsClasses := documents.ClassesModel2VecVectorizer(false)
 			helper.CreateClass(t, docsClasses[0])
 			helper.CreateClass(t, docsClasses[1])
 			defer helper.DeleteClass(t, docsClasses[0].Class)
@@ -194,7 +194,7 @@ func Test_NodesAPI(t *testing.T) {
 	// This test prevents a regression of
 	// https://github.com/weaviate/weaviate/issues/2454
 	t.Run("validate count with updates", func(t *testing.T) {
-		booksClass := books.ClassContextionaryVectorizer()
+		booksClass := books.ClassModel2VecVectorizer()
 		helper.CreateClass(t, booksClass)
 		defer helper.DeleteClass(t, booksClass.Class)
 
@@ -243,7 +243,7 @@ func TestNodesApi_Compression_AsyncIndexing(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
 		WithWeaviate().
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
 		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "500ms").
 		WithWeaviateEnv("QUEUE_SCHEDULER_INTERVAL", "100ms").
@@ -257,7 +257,7 @@ func TestNodesApi_Compression_AsyncIndexing(t *testing.T) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 
 	t.Run("validate flat compression status", func(t *testing.T) {
-		booksClass := books.ClassContextionaryVectorizer()
+		booksClass := books.ClassModel2VecVectorizer()
 		booksClass.VectorIndexType = "flat"
 		booksClass.VectorIndexConfig = map[string]interface{}{
 			"bq": map[string]interface{}{
@@ -291,7 +291,7 @@ func TestNodesApi_Compression_AsyncIndexing(t *testing.T) {
 	})
 
 	t.Run("validate hnsw pq async compression", func(t *testing.T) {
-		booksClass := books.ClassContextionaryVectorizer()
+		booksClass := books.ClassModel2VecVectorizer()
 		booksClass.VectorIndexConfig = map[string]interface{}{
 			"pq": map[string]interface{}{
 				"trainingLimit": 256,
@@ -368,7 +368,7 @@ func TestNodesApi_Compression_SyncIndexing(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
 		WithWeaviate().
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -378,7 +378,7 @@ func TestNodesApi_Compression_SyncIndexing(t *testing.T) {
 	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
 	helper.SetupClient(compose.GetWeaviate().URI())
 	t.Run("validate flat compression status", func(t *testing.T) {
-		booksClass := books.ClassContextionaryVectorizer()
+		booksClass := books.ClassModel2VecVectorizer()
 		booksClass.VectorIndexType = "flat"
 		booksClass.VectorIndexConfig = map[string]interface{}{
 			"bq": map[string]interface{}{
