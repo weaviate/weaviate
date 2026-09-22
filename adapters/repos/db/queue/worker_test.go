@@ -144,9 +144,7 @@ func (m *mockWorkerTask) Op() uint8 {
 	return 0
 }
 
-// Stays on the production backoff ladder on purpose: it is the only coverage
-// that the real 1s,2s,4s,8s,16s backoff is applied, and it pins that a run
-// shorter than maxMemoryPressureAttempts still converges.
+// Stays on the real backoff ladder on purpose: it is its only coverage.
 func TestWorker_TransientErrorsRetriedWithinBound(t *testing.T) {
 	tests := []struct {
 		name    string

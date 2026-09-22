@@ -53,9 +53,7 @@ func tooManyRequestsResponder(principal *models.Principal, err error) middleware
 	})
 }
 
-// memoryShedResponder renders a memwatch rejection as HTTP 429, or nil so the
-// caller falls through: as a 500 a shed cannot be told apart from a fault. Keyed
-// off the sentinels, the only thing surviving every wrapping shape.
+// memoryShedResponder renders a memwatch rejection as HTTP 429, or returns nil to fall through
 func memoryShedResponder(principal *models.Principal, err error) middleware.Responder {
 	if !enterrors.IsMemoryPressure(err) {
 		return nil

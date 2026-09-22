@@ -25,11 +25,7 @@ import (
 	uco "github.com/weaviate/weaviate/usecases/objects"
 )
 
-// memoryShedResponder is the single classifier every object write handler
-// routes its memory-guard rejections through, and the guard wraps its sentinel
-// differently at each layer, so every shape is pinned here. The batch rows have
-// no handler-level test of their own: batchObjectHandlers.manager is a concrete
-// *objects.BatchManager, so the handler cannot be driven with a fake.
+// memoryShedResponder must classify every wrapping shape of a memory-guard rejection.
 func TestMemoryShedResponder(t *testing.T) {
 	tests := []struct {
 		name     string

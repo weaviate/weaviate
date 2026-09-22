@@ -24,10 +24,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-// The memory-shed retry ladder cannot self-heal: re-executing the insert needs
-// exactly the memory that is missing. The worker must stop spinning, but must
-// not abandon the batch either - the objects are already written, so dropping
-// their vectors is silent data loss. The bounded outcome is a park.
+// A batch that can only fail with memory sheds must be parked, not retried forever or dropped.
 const (
 	// safety net: the test fails if the loop never terminates
 	memoryShedRetryBudget = 5 * time.Second
@@ -38,8 +35,7 @@ const (
 	memoryShedTestPause = 42 * time.Second
 )
 
-// Stopping must mean parked, not discarded: the batch is never marked done,
-// which is what would let the disk queue delete the chunk holding its vectors.
+// Parked means never marked done, so the disk queue keeps the chunk.
 func TestWorker_ParksBatchAfterBoundedMemoryPressureRetries(t *testing.T) {
 	tests := []struct {
 		name string
@@ -169,9 +165,7 @@ func TestWorker_ParksBatchAfterBoundedMemoryPressureRetries(t *testing.T) {
 	}
 }
 
-// A parked batch is only safe if something hands it back: the scheduler keeps
-// it, holds the queue's active-task gauge and re-dispatches once the pause
-// elapsed.
+// The scheduler must hand a parked batch back once its pause elapsed.
 func TestScheduler_ParkedBatchIsRedispatched(t *testing.T) {
 	s := makeScheduler(t)
 	s.Start()
@@ -212,8 +206,7 @@ func TestScheduler_ParkedBatchIsRedispatched(t *testing.T) {
 	}
 }
 
-// Pausing a queue (a backup does this, then waits for it to go quiet) must not
-// wait out a parked batch's pause interval.
+// Pausing a queue must not wait out a parked batch's pause.
 func TestScheduler_PauseReleasesParkedBatch(t *testing.T) {
 	s := makeScheduler(t)
 	s.Start()
@@ -252,8 +245,7 @@ func TestScheduler_PauseReleasesParkedBatch(t *testing.T) {
 	q.Resume()
 }
 
-// Shutdown must not wait out the pause interval, nor mark a parked batch done:
-// releasing it leaves the tasks on disk for the next start.
+// Shutdown must neither wait out the pause nor mark a parked batch done.
 func TestScheduler_CloseReleasesParkedBatch(t *testing.T) {
 	s := makeScheduler(t)
 	s.Start()
