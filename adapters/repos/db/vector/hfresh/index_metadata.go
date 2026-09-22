@@ -19,6 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/vmihailenco/msgpack/v5"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/entities/vectorindex/compression"
@@ -83,7 +84,7 @@ func NewSharedBucket(store *lsmkv.Store, indexID string, cfg StoreConfig) (bucke
 }
 
 func sharedBucketName(id string) string {
-	return fmt.Sprintf("hfresh_shared_%s", id)
+	return helpers.HFreshSharedBucketName(id)
 }
 
 func cleanupLegacyReassignBucket(bucket *lsmkv.Bucket) error {

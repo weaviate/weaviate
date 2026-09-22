@@ -13,7 +13,9 @@ package db
 
 import (
 	"context"
+	"io/fs"
 	"maps"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -23,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/models"
 	entflat "github.com/weaviate/weaviate/entities/vectorindex/flat"
+	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -135,4 +138,88 @@ func TestIndex_UsageForCollection_LoadedAndUnloadedAgree(t *testing.T) {
 			assert.Equal(t, loaded.Shards[0].FullShardStorageBytes, recomputed.Shards[0].FullShardStorageBytes)
 		})
 	}
+}
+
+// TestIndex_UsageForCollection_CountsEveryByteOnDisk pins that a shard's full
+// storage figure equals the bytes under its directory, whether the shard is
+// loaded or not. Usage sums classified parts rather than walking the directory,
+// so a bucket no classifier recognises would silently drop out of the bill. The
+// hfresh index is the case that did: its postings and shared buckets live in the
+// shard's LSM store under names that neither the vector nor the index classifier
+// matched.
+func TestIndex_UsageForCollection_CountsEveryByteOnDisk(t *testing.T) {
+	hnswCfg := enthnsw.NewDefaultUserConfig()
+	hnswCfg.RQ.Enabled = true
+	flatCfg := entflat.NewDefaultUserConfig()
+	flatCfg.BQ.Enabled = true
+	hfreshCfg := enthfresh.NewDefaultUserConfig()
+	namedVectors := map[string]models.VectorConfig{
+		"hnsw-rq": {VectorIndexType: hnswCfg.IndexType(), VectorIndexConfig: hnswCfg},
+		"flat-bq": {VectorIndexType: flatCfg.IndexType(), VectorIndexConfig: flatCfg},
+		"hfresh":  {VectorIndexType: hfreshCfg.IndexType(), VectorIndexConfig: hfreshCfg},
+	}
+
+	tests := []struct {
+		name             string
+		vectorDimensions int
+	}{
+		{name: "configured vectors without data"},
+		{name: "configured vectors with data", vectorDimensions: 32},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			tenantName := "test-tenant"
+
+			index, vectorConfigs := setupPopulatedLazyIndex(ctx, t, usageIndexParams{
+				namedVectors:     namedVectors,
+				vectorDimensions: tt.vectorDimensions,
+			})
+			t.Cleanup(func() { _ = index.Shutdown(ctx) })
+			shardPath := filepath.Join(index.path(), tenantName)
+
+			_, release, err := index.GetShard(ctx, tenantName)
+			require.NoError(t, err)
+			onDisk := shardBytesOnDisk(t, shardPath)
+			loaded, err := index.usageForCollection(ctx, semaphore.NewWeighted(4), true, vectorConfigs)
+			release()
+			require.NoError(t, err)
+			require.Len(t, loaded.Shards, 1)
+			assert.Equal(t, onDisk, loaded.Shards[0].FullShardStorageBytes)
+
+			// shutting down persists index state, so the cold shard is measured afresh
+			loadedShard, ok := index.shards.LoadAndDelete(tenantName)
+			require.True(t, ok)
+			require.NoError(t, loadedShard.Shutdown(ctx))
+
+			onDisk = shardBytesOnDisk(t, shardPath)
+			unloaded, err := index.usageForCollection(ctx, semaphore.NewWeighted(4), true, vectorConfigs)
+			require.NoError(t, err)
+			require.Len(t, unloaded.Shards, 1)
+			assert.Equal(t, onDisk, unloaded.Shards[0].FullShardStorageBytes)
+		})
+	}
+}
+
+// shardBytesOnDisk sums every regular file under a shard directory.
+func shardBytesOnDisk(t *testing.T, shardPath string) uint64 {
+	t.Helper()
+	var total uint64
+	err := filepath.WalkDir(shardPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		total += uint64(info.Size())
+		return nil
+	})
+	require.NoError(t, err)
+	return total
 }
