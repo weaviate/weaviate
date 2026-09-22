@@ -64,10 +64,6 @@ func ClassNamedOpenAIWithOptions() *models.Class {
 	return classNamedVectors(DefaultClassName, vc)
 }
 
-func ClassNamedContextionaryVectorizer() *models.Class {
-	return classNamedVectors(DefaultClassName, namedVectorConfig("text2vec-contextionary"))
-}
-
 func ClassNamedModel2VecVectorizer() *models.Class {
 	return classNamedVectors(DefaultClassName, namedVectorConfig("text2vec-model2vec"))
 }
@@ -101,14 +97,6 @@ func namedVectorConfig(vectorizer string) map[string]models.VectorConfig {
 			VectorIndexType: "hnsw",
 		},
 	}
-}
-
-func ClassMixedContextionaryVectorizer() *models.Class {
-	return classMixed("text2vec-contextionary", "contextionary_all", "hnsw")
-}
-
-func ClassMixedContextionaryVectorizerFlat() *models.Class {
-	return classMixed("text2vec-contextionary", "contextionary_all", "flat")
 }
 
 // Model2VecAllTargetVector is the named vector of ClassMixedModel2VecVectorizer
@@ -145,16 +133,12 @@ func classMixed(vectorizer, allTargetVector, vectorIndexType string) *models.Cla
 	return classBase(DefaultClassName, vectorizer, vc)
 }
 
-func ClassContextionaryVectorizerWithName(className string) *models.Class {
-	return class(className, "text2vec-contextionary")
+func ClassModel2VecVectorizerWithSumTransformers() *models.Class {
+	return class(DefaultClassName, "text2vec-model2vec", "sum-transformers")
 }
 
-func ClassContextionaryVectorizerWithSumTransformers() *models.Class {
-	return class(DefaultClassName, "text2vec-contextionary", "sum-transformers")
-}
-
-func ClassContextionaryVectorizerWithQnATransformers() *models.Class {
-	return class(DefaultClassName, "text2vec-contextionary", "qna-transformers")
+func ClassModel2VecVectorizerWithQnATransformers() *models.Class {
+	return class(DefaultClassName, "text2vec-model2vec", "qna-transformers")
 }
 
 func ClassTransformersVectorizer() *models.Class {

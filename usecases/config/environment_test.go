@@ -1841,6 +1841,41 @@ func TestParseCollectionPropsTenants(t *testing.T) {
 			},
 		},
 
+		// every property
+		{
+			env: "Collection1:*",
+			expected: []CollectionPropsTenants{
+				{
+					Collection: "Collection1",
+					Props:      []string{AllProperties},
+				},
+			},
+		},
+		{
+			// no property can be named "*", so it never collides with one
+			env: "Collection1:prop1,*;Collection2:*,prop2",
+			expected: []CollectionPropsTenants{
+				{
+					Collection: "Collection1",
+					Props:      []string{"prop1", AllProperties},
+				},
+				{
+					Collection: "Collection2",
+					Props:      []string{AllProperties, "prop2"},
+				},
+			},
+		},
+		{
+			env: "Collection1:*:tenant1",
+			expected: []CollectionPropsTenants{
+				{
+					Collection: "Collection1",
+					Props:      []string{AllProperties},
+					Tenants:    []string{"tenant1"},
+				},
+			},
+		},
+
 		// unique / merged
 		{
 			env: "Collection1:prop1,prop2:tenant1,tenant2;Collection2:propX;Collection1:prop2,prop3;Collection3::tenantY;Collection1:prop4:tenant2,tenant3",
@@ -1863,6 +1898,19 @@ func TestParseCollectionPropsTenants(t *testing.T) {
 
 		// errors
 		{
+			// merging would drop the bare segment, leaving a value that asks
+			// for two different property sets reading as one of them. The
+			// partial result stands beside the error, as every error case here
+			env:            "Collection1:prop1;Collection1",
+			expected:       []CollectionPropsTenants{{Collection: "Collection1", Props: []string{"prop1"}}},
+			expectedErrMsg: "both with and without a property list",
+		},
+		{
+			env:            "Collection1;Collection1:prop1",
+			expected:       []CollectionPropsTenants{{Collection: "Collection1"}},
+			expectedErrMsg: "both with and without a property list",
+		},
+		{
 			env:            "lowerCaseCollectionName",
 			expectedErrMsg: "invalid collection name",
 		},
@@ -1877,6 +1925,15 @@ func TestParseCollectionPropsTenants(t *testing.T) {
 		{
 			env:            "Collection1::InvalidChars#",
 			expectedErrMsg: "invalid tenant/shard name",
+		},
+		{
+			// the tenant position is not widened
+			env:            "Collection1:prop1:*",
+			expectedErrMsg: "invalid tenant/shard name",
+		},
+		{
+			env:            "*:prop1",
+			expectedErrMsg: "invalid collection name",
 		},
 		{
 			env:            ":prop",
@@ -2630,6 +2687,175 @@ func TestEnvironmentQueryAdmissionControlDisabled(t *testing.T) {
 			require.Nil(t, err)
 			require.NotNil(t, conf.QueryAdmissionControlDisabled)
 			require.Equal(t, tt.expected, conf.QueryAdmissionControlDisabled.Get())
+		})
+	}
+}
+
+// The index is resident for the life of the process, so the wide reading of a
+// value is the expensive one. "*" is written out, and a tenant is refused.
+func TestEnvironmentIndexRangeableInMemory(t *testing.T) {
+	tests := []struct {
+		name          string
+		env           string
+		expectedAll   bool
+		expectedProps map[string][]string
+		errMsg        string
+	}{
+		{
+			// the config file's value stands, which is why every other row
+			// starts from a pre-set true
+			name:        "unset leaves the config file's value alone",
+			expectedAll: true,
+		},
+		{
+			name:        "true covers every collection",
+			env:         "true",
+			expectedAll: true,
+		},
+		{
+			name:        "1 covers every collection",
+			env:         "1",
+			expectedAll: true,
+		},
+		{
+			name:        "on covers every collection",
+			env:         "on",
+			expectedAll: true,
+		},
+		{
+			// "True" matches ClassNameRegexCore, so a parse-first order would
+			// read it as a collection of that name
+			name:        "True covers every collection",
+			env:         "True",
+			expectedAll: true,
+		},
+		{
+			name: "false covers nothing",
+			env:  "false",
+		},
+		{
+			name: "off covers nothing",
+			env:  "off",
+		},
+		{
+			name:        "enabled covers every collection",
+			env:         "enabled",
+			expectedAll: true,
+		},
+		{
+			name: "0 covers nothing",
+			env:  "0",
+		},
+		{
+			// naming no collection, so it stays off rather than failing startup
+			name: "no covers nothing rather than failing",
+			env:  "no",
+		},
+		{
+			// a ConfigMap written as a "|" block scalar delivers this
+			name:        "a trailing newline is trimmed, not parsed",
+			env:         "true\n",
+			expectedAll: true,
+		},
+		{
+			name:          "surrounding spaces are trimmed, not parsed",
+			env:           "  Foo:prop1  ",
+			expectedProps: map[string][]string{"Foo": {"prop1"}},
+		},
+		{
+			name:          "one property",
+			env:           "Foo:prop1",
+			expectedProps: map[string][]string{"Foo": {"prop1"}},
+		},
+		{
+			name:          "several properties over several collections",
+			env:           "Foo:prop1,prop2;Bar:prop3",
+			expectedProps: map[string][]string{"Foo": {"prop1", "prop2"}, "Bar": {"prop3"}},
+		},
+		{
+			name:          "every property of a collection",
+			env:           "Foo:*",
+			expectedProps: map[string][]string{"Foo": {"*"}},
+		},
+		{
+			// the same string means no properties to REINDEX_INDEXES_AT_STARTUP,
+			// which shares this parser
+			name:   "a collection with no properties is refused",
+			env:    "Foo",
+			errMsg: "with no properties",
+		},
+		{
+			name:   "a collection with an empty property list is refused",
+			env:    "Foo:",
+			errMsg: "with no properties",
+		},
+		{
+			name:   "a bare collection beside a listed one is refused too",
+			env:    "Foo:prop1;Foo",
+			errMsg: "both with and without a property list",
+		},
+		{
+			name:   "a tenant is refused, not ignored",
+			env:    "Foo:prop1:tenantA",
+			errMsg: "takes no tenants",
+		},
+		{
+			name:   "a tenant is refused even without properties",
+			env:    "Foo::tenantA",
+			errMsg: "takes no tenants",
+		},
+		{
+			name:   "an unparseable value fails",
+			env:    "foo:prop1",
+			errMsg: "INDEX_RANGEABLE_IN_MEMORY",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// spelled out rather than taken from the constant, because this
+			// is what an operator types
+			t.Setenv("INDEX_RANGEABLE_IN_MEMORY", tt.env)
+
+			// pre-set the way a config file would, so a value that selects
+			// properties is seen to replace it rather than add to it
+			conf := Config{Persistence: Persistence{IndexRangeableInMemory: true}}
+			err := FromEnv(&conf)
+			if tt.errMsg != "" {
+				require.ErrorContains(t, err, tt.errMsg)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.expectedAll, conf.Persistence.IndexRangeableInMemory)
+			require.Equal(t, tt.expectedProps, conf.Persistence.IndexRangeableInMemoryProps)
+		})
+	}
+}
+
+// A reindex matches a property by name, so "*" would reindex nothing and say
+// so only at Debug level.
+func TestEnvironmentReindexIndexesAtStartupRejectsAllProperties(t *testing.T) {
+	tests := []struct {
+		name   string
+		env    string
+		errMsg string
+	}{
+		{name: "named properties are reindexed", env: "Foo:prop1,prop2"},
+		{name: "every property is refused", env: "Foo:*", errMsg: "takes no"},
+		{name: "every property is refused beside a named one", env: "Foo:prop1,*", errMsg: "takes no"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("REINDEX_INDEXES_AT_STARTUP", tt.env)
+
+			conf := Config{}
+			err := FromEnv(&conf)
+			if tt.errMsg != "" {
+				require.ErrorContains(t, err, tt.errMsg)
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
 }

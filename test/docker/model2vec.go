@@ -37,7 +37,9 @@ func startT2VModel2Vec(ctx context.Context, networkName, model2vecImage string) 
 			NetworkAliases: map[string][]string{
 				networkName: {Text2VecModel2Vec},
 			},
-			Name:         Text2VecModel2Vec,
+			// Per-network name + Reuse:false so each cluster gets its own model2vec:
+			// a shared one lives on only one network, unreachable by concurrent clusters.
+			Name:         Text2VecModel2Vec + "-" + networkName,
 			ExposedPorts: []string{"8080/tcp"},
 			AutoRemove:   true,
 			WaitingFor: wait.
@@ -49,7 +51,7 @@ func startT2VModel2Vec(ctx context.Context, networkName, model2vecImage string) 
 				WithStartupTimeout(240 * time.Second),
 		},
 		Started: true,
-		Reuse:   true,
+		Reuse:   false,
 	})
 	if err != nil {
 		return nil, err

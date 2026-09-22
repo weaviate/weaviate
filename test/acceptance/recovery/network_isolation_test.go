@@ -30,7 +30,7 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 
 	compose, err := docker.New().
 		With3NodeCluster().
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		Start(ctx)
 	require.NoError(t, err)
 
