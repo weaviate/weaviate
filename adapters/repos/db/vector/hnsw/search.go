@@ -1158,17 +1158,27 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		it := allowList.Iterator()
 		defer it.Stop()
 		idx, ok := it.Next()
-		h.shardedNodeLocks.RLockAll()
 		for seeds > 0 {
 			if !isMultivec {
-				for ok && (h.nodes[idx] == nil || h.hasTombstone(idx)) {
+				// Only the h.nodes[idx] read needs a node-shard lock, and it is
+				// released before hasTombstone/distToNode. Those take
+				// tombstoneLock, and holding a node-shard lock across that
+				// acquisition inverts the delete/reset order (tombstoneLock ->
+				// shardedNodeLocks in resetIfEmpty/resetIfOnlyNode) and
+				// deadlocks with a concurrent delete. See the ACORN
+				// filtered-search + delete + insert deadlock.
+				for ok {
+					absent := h.nodeAbsent(idx)
+					if !absent && !h.hasTombstone(idx) {
+						break
+					}
 					idx, ok = it.Next()
 				}
 			} else {
-				_, exists := h.docIDVectors[idx]
+				exists := h.docIDVectorExists(idx)
 				for ok && !exists {
 					idx, ok = it.Next()
-					_, exists = h.docIDVectors[idx]
+					exists = h.docIDVectorExists(idx)
 				}
 			}
 
@@ -1181,7 +1191,6 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 			idx, ok = it.Next()
 			seeds--
 		}
-		h.shardedNodeLocks.RUnlockAll()
 	}
 	res, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, strategy)
 	if err != nil {

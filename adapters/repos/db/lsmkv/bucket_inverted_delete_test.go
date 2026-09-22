@@ -154,20 +154,12 @@ func runTombstoneInvertedCompactionTest(t *testing.T, size int) {
 			name: "DeleteAndCompaction",
 			mutateOnOdd: func(bucket *Bucket, key []byte, i int) error {
 				// delete the prior odd entry
-				pair := NewMapPairFromDocIdAndTf(uint64(i-2), float32(1), float32(1), true)
-				if err := bucket.MapSet(key, pair); err != nil {
-					return err
-				}
-				return bucket.MapDeleteKey(key, pair.Key)
+				return bucket.InvertedDeleteDoc(key, uint64(i-2))
 			},
 			bulkDeleteEvery100: func(bucket *Bucket, key []byte, i int) error {
 				// delete all even entries in the prior 100
 				for j := i - 100; j < i; j += 2 {
-					pair := NewMapPairFromDocIdAndTf(uint64(j), float32(1), float32(1), true)
-					if err := bucket.MapSet(key, pair); err != nil {
-						return err
-					}
-					if err := bucket.MapDeleteKey(key, pair.Key); err != nil {
+					if err := bucket.InvertedDeleteDoc(key, uint64(j)); err != nil {
 						return err
 					}
 				}
@@ -192,20 +184,15 @@ func runTombstoneInvertedCompactionTest(t *testing.T, size int) {
 				if (i-2)%100 == 99 {
 					return nil
 				}
-				pair := NewMapPairFromDocIdAndTf(uint64(i-2), float32(2), float32(2), false)
-				if err := bucket.MapDeleteKey(key, pair.Key); err != nil {
+				if err := bucket.InvertedDeleteDoc(key, uint64(i-2)); err != nil {
 					return err
 				}
-				return bucket.MapSet(key, pair)
+				return bucket.InvertedSet(key, uint64(i-2), 2, 2)
 			},
 			bulkDeleteEvery100: func(bucket *Bucket, key []byte, i int) error {
 				// delete all entries in the prior 100
 				for j := i - 100; j < i; j++ {
-					pair := NewMapPairFromDocIdAndTf(uint64(j), float32(1), float32(1), true)
-					if err := bucket.MapSet(key, pair); err != nil {
-						return err
-					}
-					if err := bucket.MapDeleteKey(key, pair.Key); err != nil {
+					if err := bucket.InvertedDeleteDoc(key, uint64(j)); err != nil {
 						return err
 					}
 				}
@@ -258,8 +245,7 @@ func runTombstoneInvertedCompactionTest(t *testing.T, size int) {
 					lastTime := time.Now()
 					errorCount := 0
 					for i := range size {
-						pair := NewMapPairFromDocIdAndTf(uint64(i), float32(1), float32(1), false)
-						err := bucket.MapSet(key, pair)
+						err := bucket.InvertedSet(key, uint64(i), 1, 1)
 						require.Nil(t, err)
 
 						if i%2 != 0 && i > 1 {
@@ -408,15 +394,12 @@ func TestBlockMaxWand_DeferTombstone_FlagEquivalence(t *testing.T) {
 
 	// varying tf so per-doc scores differ — top-K ordering becomes meaningful
 	for id := uint64(10); id <= 50; id++ {
-		require.NoError(t, b.MapSet(key,
-			NewMapPairFromDocIdAndTf(id, float32(id), 1, false)))
+		require.NoError(t, b.InvertedSet(key, id, float32(id), 1))
 	}
 	require.NoError(t, b.FlushAndSwitch())
 
 	// cross-segment tombstone for doc 42
-	tomb := NewMapPairFromDocIdAndTf(tombstonedDocID, 1, 1, true)
-	require.NoError(t, b.MapSet(key, tomb))
-	require.NoError(t, b.MapDeleteKey(key, tomb.Key))
+	require.NoError(t, b.InvertedDeleteDoc(key, tombstonedDocID))
 	require.NoError(t, b.FlushAndSwitch())
 
 	runQuery := func(deferToScore bool) map[uint64]float32 {
@@ -479,15 +462,12 @@ func TestBlockMaxAndCrossProp_DeferTombstone_FlagEquivalence(t *testing.T) {
 
 		// varying tf so per-doc scores differ — top-K ordering becomes meaningful
 		for id := uint64(10); id <= 50; id++ {
-			require.NoError(t, b.MapSet(key,
-				NewMapPairFromDocIdAndTf(id, float32(id), 1, false)))
+			require.NoError(t, b.InvertedSet(key, id, float32(id), 1))
 		}
 		require.NoError(t, b.FlushAndSwitch())
 
 		// cross-segment tombstone for doc 42
-		tomb := NewMapPairFromDocIdAndTf(tombstonedDocID, 1, 1, true)
-		require.NoError(t, b.MapSet(key, tomb))
-		require.NoError(t, b.MapDeleteKey(key, tomb.Key))
+		require.NoError(t, b.InvertedDeleteDoc(key, tombstonedDocID))
 		require.NoError(t, b.FlushAndSwitch())
 		return b
 	}

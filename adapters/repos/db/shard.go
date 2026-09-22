@@ -171,8 +171,7 @@ type ShardLike interface {
 	resetDimensionsLSM(ctx context.Context) error
 
 	addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error
-	addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error
-	pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair
+	addToPropertyMapBucket(bucket *lsmkv.Bucket, docID uint64, key []byte, tf, propLen float32) error
 
 	setFallbackToSearchable(fallback bool)
 	addJobToQueue(job job)
