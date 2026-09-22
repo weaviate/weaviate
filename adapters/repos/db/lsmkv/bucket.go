@@ -1462,21 +1462,41 @@ func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 		Tombstone: true,
 	}
 
-	// The doc-tombstone bitmap must never lead the WAL: replay reconstructs it
-	// from the persisted pair (commitlogger_parser_collection.go), so a failed
-	// append must leave no bitmap change.
-	if err := active.appendMapSorted(rowKey, pair); err != nil {
+	return active.appendMapSorted(rowKey, pair)
+}
+
+// InvertedSet writes one posting into a term's row. Inverted strategy only;
+// for Map use [Bucket.MapSet].
+func (b *Bucket) InvertedSet(rowKey []byte, docID uint64, tf, propLen float32) error {
+	active, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
+	defer active.decWriterCount()
+
+	return active.appendInverted(rowKey, invertedPair{
+		docID:       docID,
+		tfBits:      math.Float32bits(tf),
+		propLenBits: math.Float32bits(propLen),
+	})
+}
+
+// InvertedDeleteDoc appends a tombstone for one document in a term's row.
+// Inverted strategy only; for Map use [Bucket.MapDeleteKey].
+func (b *Bucket) InvertedDeleteDoc(rowKey []byte, docID uint64) error {
+	active, err := b.getActiveMemtableForWrite()
+	if err != nil {
+		return err
+	}
+	defer active.decWriterCount()
+
+	// Replay rebuilds the bitmap from persisted records, so a failed append must
+	// leave it untouched: the WAL write has to come first.
+	if err := active.appendInverted(rowKey, invertedPair{docID: docID, tombstone: true}); err != nil {
 		return err
 	}
 
-	if active.getStrategy() == StrategyInverted {
-		docID := binary.BigEndian.Uint64(mapKey)
-		if err := active.SetTombstone(docID); err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return active.SetTombstone(docID)
 }
 
 // Delete removes the given row. Note that LSM stores are append only, thus
@@ -2393,9 +2413,9 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 
 		var active, flushing *SegmentBlockMax
 		if view.Active != nil {
-			if mapPairs, err := view.Active.getMap(key); err == nil {
+			if pairs, err := view.Active.getInverted(key); err == nil {
 				if active = NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, bm25Config); active != nil {
-					n2, _ := addDataToTerm(mapPairs, filterDocIds, active)
+					n2, _ := addDataToTerm(pairs, filterDocIds, active)
 					if active.Count() > 0 {
 						output[len(view.Disk)+1] = append(output[len(view.Disk)+1], active)
 					}
@@ -2409,9 +2429,9 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 		}
 
 		if view.Flushing != nil {
-			if mapPairs, err := view.Flushing.getMap(key); err == nil {
+			if pairs, err := view.Flushing.getInverted(key); err == nil {
 				if flushing = NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, bm25Config); flushing != nil {
-					n2, _ := addDataToTerm(mapPairs, filterDocIds, flushing)
+					n2, _ := addDataToTerm(pairs, filterDocIds, flushing)
 					if flushing.Count() > 0 {
 						output[len(view.Disk)] = append(output[len(view.Disk)], flushing)
 					}
@@ -2580,21 +2600,21 @@ func (b *Bucket) createDiskTermFromCV(ctx context.Context, view BucketConsistent
 }
 
 func fillTerm(memtable memtable, key []byte, blockmax *SegmentBlockMax, filterDocIds helpers.AllowList) (uint64, error) {
-	mapPairs, err := memtable.getMap(key)
+	pairs, err := memtable.getInverted(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return 0, err
 	}
 	if errors.Is(err, lsmkv.NotFound) {
 		return 0, nil
 	}
-	n, err := addDataToTerm(mapPairs, filterDocIds, blockmax)
+	n, err := addDataToTerm(pairs, filterDocIds, blockmax)
 	if err != nil {
 		return 0, err
 	}
 	return n, nil
 }
 
-func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentBlockMax) (uint64, error) {
+func addDataToTerm(mem []invertedPair, filterDocIds helpers.AllowList, term *SegmentBlockMax) (uint64, error) {
 	n := uint64(0)
 	term.blockDataDecoded = &terms.BlockDataDecoded{
 		DocIds: make([]uint64, 0, len(mem)),
@@ -2609,32 +2629,27 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 	var maxImpactTf, maxImpactPropLength uint32
 
 	for _, v := range mem {
-		if v.Tombstone {
+		if v.tombstone {
 			continue
 		}
 		n++
-		if len(v.Value) < 8 {
-			// b.logger.Warnf("Skipping pair in BM25: MapPair.Value should be 8 bytes long, but is %d.", len(v.Value))
-			continue
-		}
-		d := terms.DocPointerWithScore{}
-		if err := d.FromKeyVal(v.Key, v.Value, false, 1.0); err != nil {
-			return 0, err
-		}
-		if filterDocIds != nil && !filterDocIds.Contains(d.Id) {
+		if filterDocIds != nil && !filterDocIds.Contains(v.docID) {
 			continue
 		}
 
-		term.blockDataDecoded.DocIds = append(term.blockDataDecoded.DocIds, d.Id)
-		term.blockDataDecoded.Tfs = append(term.blockDataDecoded.Tfs, uint64(d.Frequency))
-		term.propLengths[d.Id] = uint32(d.PropLength)
+		frequency := math.Float32frombits(v.tfBits)
+		propLength := math.Float32frombits(v.propLenBits)
 
-		tf := float64(d.Frequency)
-		pl := float64(d.PropLength)
+		term.blockDataDecoded.DocIds = append(term.blockDataDecoded.DocIds, v.docID)
+		term.blockDataDecoded.Tfs = append(term.blockDataDecoded.Tfs, uint64(frequency))
+		term.propLengths[v.docID] = uint32(propLength)
+
+		tf := float64(frequency)
+		pl := float64(propLength)
 		if impact := tf / (tf + term.k1*(1-term.b+term.b*(pl/term.averagePropLength))); impact > maxImpact {
 			maxImpact = impact
-			maxImpactTf = uint32(d.Frequency)
-			maxImpactPropLength = uint32(d.PropLength)
+			maxImpactTf = uint32(frequency)
+			maxImpactPropLength = uint32(propLength)
 		}
 	}
 	if len(term.blockDataDecoded.DocIds) == 0 {
