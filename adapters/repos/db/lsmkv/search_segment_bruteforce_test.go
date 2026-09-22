@@ -69,8 +69,7 @@ func TestBlockMaxWandMatchesBruteForce(t *testing.T) {
 		}
 		for tid, tf := range seen {
 			key := keyFor(tid)
-			require.NoError(t, bucket.MapSet([]byte(key),
-				NewMapPairFromDocIdAndTf(uint64(d), float32(tf), pl, false)))
+			require.NoError(t, bucket.InvertedSet([]byte(key), uint64(d), float32(tf), pl))
 			termDocCount[key]++
 		}
 	}

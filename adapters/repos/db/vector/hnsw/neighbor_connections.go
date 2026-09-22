@@ -494,7 +494,7 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 			return err
 		}
 		if localDeny.Contains(alternative) && alternative != n.graph.getEntrypoint() {
-			return fmt.Errorf("no usable entrypoint: local fallback exhausted")
+			return fmt.Errorf("%w: local fallback exhausted", errNoUsableEntrypoint)
 		}
 		// an alternative on the deny list is retried when it is the current
 		// global entrypoint: a concurrent insert may have promoted a node we
