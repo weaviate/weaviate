@@ -45,7 +45,7 @@ func (suite *ReplicationTestSuite) TestReadRepairDeleteOnConflict() {
 			Factor:           3,
 			DeletionStrategy: models.ReplicationConfigDeletionStrategyDeleteOnConflict,
 		}
-		paragraphClass.Vectorizer = "text2vec-contextionary"
+		paragraphClass.Vectorizer = "text2vec-model2vec"
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor:           3,

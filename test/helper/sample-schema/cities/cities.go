@@ -54,10 +54,7 @@ const (
 )
 
 func CreateCountryCityAirportSchema(t *testing.T, host string) {
-	CreateCountryCityAirportSchemaWithVectorizer(t, host, "text2vec-contextionary")
-}
-
-func CreateCountryCityAirportSchemaWithVectorizer(t *testing.T, host, vectorizer string) {
+	const vectorizer = "text2vec-model2vec"
 	helper.SetupClient(host)
 	helper.CreateClass(t, &models.Class{
 		Class:        Country,

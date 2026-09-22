@@ -46,7 +46,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairRootPrefilterManyTenants(
 
 	compose, err := docker.New().
 		WithWeaviateCluster(clusterSize).
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		Start(ctx)
 	require.Nil(t, err)
 	defer func() {
@@ -66,7 +66,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairRootPrefilterManyTenants(
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor: int64(clusterSize),
 		}
-		paragraphClass.Vectorizer = "text2vec-contextionary"
+		paragraphClass.Vectorizer = "text2vec-model2vec"
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
 			AutoTenantActivation: true,
 			Enabled:              true,

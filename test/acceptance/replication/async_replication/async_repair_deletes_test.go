@@ -46,7 +46,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 			Factor:           int64(clusterSize),
 			DeletionStrategy: models.ReplicationConfigDeletionStrategyTimeBasedResolution,
 		}
-		paragraphClass.Vectorizer = "text2vec-contextionary"
+		paragraphClass.Vectorizer = "text2vec-model2vec"
 
 		helper.SetupClient(compose.GetWeaviate().URI())
 		helper.CreateClass(t, paragraphClass)
