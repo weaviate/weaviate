@@ -35,7 +35,7 @@ const (
 	// defaultPullHostHedgeDelay is how long a read waits on one replica before also trying an idle one
 	defaultPullHostHedgeDelay = 500 * time.Millisecond
 
-	// defaultPrepareTimeout bounds the prepare phase, within the caller's deadline
+	// defaultPrepareTimeout bounds the prepare phase, which must not be caller-cancellable either: below ALL the caller leaves while other replicas are still being written
 	defaultPrepareTimeout = 20 * time.Second
 
 	// defaultCommitTimeout bounds the commit phase, which must not be caller-cancellable
@@ -72,6 +72,8 @@ type (
 		pullBackOffMaxElapsedTime     time.Duration // stop retrying after this long
 		pullHostHedgeDelay            time.Duration
 		deletionStrategy              string
+		// onSettled runs once Push has no request in flight to any replica
+		onSettled func()
 	}
 )
 
@@ -288,13 +290,15 @@ func (c *coordinator[T, R]) Push(ctx context.Context,
 	options := c.Router.BuildRoutingPlanOptions(c.Shard, c.Shard, cl, "")
 	writeRoutingPlan, err := c.Router.BuildWriteRoutingPlan(options)
 	if err != nil {
+		c.settle()
 		return nil, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
 
 	level := writeRoutingPlan.IntConsistencyLevel
 
-	//nolint:govet // cancelling here would abort prepares that commitAll may still be consuming; the timeout bounds it
-	ctxWithTimeout, _ := context.WithTimeout(ctx, defaultPrepareTimeout)
+	// keeps the caller's values, never its cancellation: see defaultPrepareTimeout
+	//nolint:govet // deliberately outlives the caller; defaultPrepareTimeout bounds it
+	ctxWithTimeout, _ := context.WithTimeout(context.WithoutCancel(ctx), defaultPrepareTimeout)
 	c.log.WithFields(writeRoutingPlan.LogFields()).WithFields(logrus.Fields{
 		"action":     "coordinator_push",
 		"duration":   defaultPrepareTimeout,
@@ -312,6 +316,8 @@ func (c *coordinator[T, R]) Push(ctx context.Context,
 		start := time.Now()
 
 		return func(successful int) {
+			// commitAll calls this after every prepare and commit has answered
+			defer c.settle()
 			numReplicas := len(writeRoutingPlan.Replicas())
 
 			if numReplicas == successful {
@@ -334,6 +340,13 @@ func (c *coordinator[T, R]) Push(ctx context.Context,
 	commitCh := c.commitAll(commitCtx, nodeCh, com, callback)
 
 	return c.read(level, commitCh, onResult, onFlatten, batchSize), nil
+}
+
+// settle runs onSettled, if any
+func (c *coordinator[T, R]) settle() {
+	if c.onSettled != nil {
+		c.onSettled()
+	}
 }
 
 // Pull data from replica depending on consistency level, trying to reach level successful calls
