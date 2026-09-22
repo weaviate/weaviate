@@ -12,6 +12,7 @@
 package journey
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -19,12 +20,17 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/documents"
 )
 
-func GroupBySingleAndMultiShardTests(t *testing.T, weaviateEndpoint string) {
+// GroupBySingleAndMultiShardTests creates the Document and Passage classes
+// returned by classes (single- or multi-shard) and runs the groupBy journey.
+func GroupBySingleAndMultiShardTests(t *testing.T, weaviateEndpoint string,
+	classes func(multishard bool) []*models.Class,
+) {
 	if weaviateEndpoint != "" {
 		helper.SetupClient(weaviateEndpoint)
 	}
@@ -33,16 +39,20 @@ func GroupBySingleAndMultiShardTests(t *testing.T, weaviateEndpoint string) {
 		group := value.(map[string]interface{})["_additional"].(map[string]interface{})["group"].(map[string]interface{})
 		return group
 	}
-	getGroupHits := func(group map[string]interface{}) (string, []string) {
-		result := []string{}
+	getGroupHits := func(t *testing.T, group map[string]interface{}) (string, []string, []float64) {
+		ids := []string{}
+		distances := []float64{}
 		hits := group["hits"].([]interface{})
 		for _, hit := range hits {
 			additional := hit.(map[string]interface{})["_additional"].(map[string]interface{})
-			result = append(result, additional["id"].(string))
+			ids = append(ids, additional["id"].(string))
+			distance, err := additional["distance"].(json.Number).Float64()
+			require.NoError(t, err)
+			distances = append(distances, distance)
 		}
 		groupedBy := group["groupedBy"].(map[string]interface{})
 		groupedByValue := groupedBy["value"].(string)
-		return groupedByValue, result
+		return groupedByValue, ids, distances
 	}
 	getContents := func(t *testing.T, group map[string]interface{}) []string {
 		result := []string{}
@@ -56,7 +66,7 @@ func GroupBySingleAndMultiShardTests(t *testing.T, weaviateEndpoint string) {
 	}
 	// test methods
 	create := func(t *testing.T, multishard bool) {
-		for _, class := range documents.ClassesContextionaryVectorizer(multishard) {
+		for _, class := range classes(multishard) {
 			helper.CreateClass(t, class)
 		}
 		for _, obj := range documents.Objects() {
@@ -107,35 +117,38 @@ func GroupBySingleAndMultiShardTests(t *testing.T, weaviateEndpoint string) {
 
 		require.Len(t, groups, groupsCount)
 
-		expectedResults := map[string][]string{}
-
+		// the hits of a group are ordered by distance, which depends on the
+		// vectorizer, so only the members of a group are pinned
 		groupedBy1 := `weaviate://localhost/Document/00000000-0000-0000-0000-000000000011`
-		expectedGroup1 := []string{
-			documents.PassageIDs[0].String(),
-			documents.PassageIDs[5].String(),
-			documents.PassageIDs[4].String(),
-			documents.PassageIDs[3].String(),
-			documents.PassageIDs[2].String(),
-			documents.PassageIDs[1].String(),
-		}
-		expectedResults[groupedBy1] = expectedGroup1
-
 		groupedBy2 := `weaviate://localhost/Document/00000000-0000-0000-0000-000000000012`
-		expectedGroup2 := []string{
-			documents.PassageIDs[6].String(),
-			documents.PassageIDs[7].String(),
+		expectedResults := map[string][]string{
+			groupedBy1: {
+				documents.PassageIDs[0].String(),
+				documents.PassageIDs[1].String(),
+				documents.PassageIDs[2].String(),
+				documents.PassageIDs[3].String(),
+				documents.PassageIDs[4].String(),
+				documents.PassageIDs[5].String(),
+			},
+			groupedBy2: {
+				documents.PassageIDs[6].String(),
+				documents.PassageIDs[7].String(),
+			},
 		}
-		expectedResults[groupedBy2] = expectedGroup2
-
 		groupsOrder := []string{groupedBy1, groupedBy2}
 
 		for i, current := range groups {
 			group := getGroup(current)
-			groupedBy, ids := getGroupHits(group)
+			groupedBy, ids, distances := getGroupHits(t, group)
 			assert.Equal(t, groupsOrder[i], groupedBy)
-			for j := range ids {
-				assert.Equal(t, expectedResults[groupedBy][j], ids[j])
+			require.NotEmpty(t, ids)
+			if i == 0 {
+				// the searched object itself is the closest hit
+				assert.Equal(t, documents.PassageIDs[0].String(), ids[0])
 			}
+			assert.IsNonDecreasing(t, distances)
+			assert.Subset(t, expectedResults[groupedBy], ids)
+			assert.Len(t, ids, min(objectsPerGroup, len(expectedResults[groupedBy])))
 			contents := getContents(t, group)
 			for _, content := range contents {
 				assert.True(t, strings.HasPrefix(content, "Content of Passage"))

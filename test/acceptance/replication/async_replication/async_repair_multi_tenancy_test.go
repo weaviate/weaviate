@@ -67,7 +67,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyScenario() {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor: int64(clusterSize),
 		}
-		paragraphClass.Vectorizer = "text2vec-contextionary"
+		paragraphClass.Vectorizer = "text2vec-model2vec"
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
 			AutoTenantActivation: true,
 			Enabled:              true,
@@ -191,7 +191,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyColdTenantCon
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor: int64(clusterSize),
 		}
-		paragraphClass.Vectorizer = "text2vec-contextionary"
+		paragraphClass.Vectorizer = "text2vec-model2vec"
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
 			AutoTenantActivation: true,
 			Enabled:              true,
@@ -371,7 +371,7 @@ func TestAsyncRepairMultiTenancyRuntimeToggle(t *testing.T) {
 	// Boot with async replication ENABLED by default — no ASYNC_REPLICATION_DISABLED env.
 	compose, err := docker.New().
 		WithWeaviateCluster(clusterSize).
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		WithWeaviateEnv("RUNTIME_OVERRIDES_ENABLED", "true").
 		WithWeaviateEnv("RUNTIME_OVERRIDES_PATH", overridePath).
 		WithWeaviateEnv("RUNTIME_OVERRIDES_LOAD_INTERVAL", "1s").
@@ -389,7 +389,7 @@ func TestAsyncRepairMultiTenancyRuntimeToggle(t *testing.T) {
 
 	t.Run("create RF=3 multi-tenant class", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: int64(clusterSize)}
-		paragraphClass.Vectorizer = "text2vec-contextionary"
+		paragraphClass.Vectorizer = "text2vec-model2vec"
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
 		helper.CreateClass(t, paragraphClass)
 	})

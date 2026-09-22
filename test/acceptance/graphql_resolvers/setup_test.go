@@ -34,7 +34,7 @@ import (
 )
 
 func TestGraphQL_AsyncIndexing(t *testing.T) {
-	testGraphQL(t, startWeaviateWithContextionary(t, map[string]string{
+	testGraphQL(t, startWeaviateWithModel2Vec(t, map[string]string{
 		"ASYNC_INDEXING":               "true",
 		"ASYNC_INDEXING_STALE_TIMEOUT": "100ms",
 		"QUEUE_SCHEDULER_INTERVAL":     "100ms",
@@ -42,7 +42,7 @@ func TestGraphQL_AsyncIndexing(t *testing.T) {
 }
 
 func TestGraphQL_SyncIndexing(t *testing.T) {
-	testGraphQL(t, startWeaviateWithContextionary(t, nil))
+	testGraphQL(t, startWeaviateWithModel2Vec(t, nil))
 }
 
 // TestMetricsStability scrapes the metrics port of the shared test server,
@@ -55,13 +55,13 @@ func TestMetricsStability(t *testing.T) {
 // sharedServerHost is the test server started from docker-compose-test.yml
 const sharedServerHost = "localhost:8080"
 
-// startWeaviateWithContextionary starts a single node that is torn down with
+// startWeaviateWithModel2Vec starts a single node that is torn down with
 // the test, afterwards the client points at the shared test server again.
-func startWeaviateWithContextionary(t *testing.T, env map[string]string) string {
+func startWeaviateWithModel2Vec(t *testing.T, env map[string]string) string {
 	ctx := context.Background()
 	compose := docker.New().
 		WithWeaviate().
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		WithBackendFilesystem().
 		WithWeaviateEnv("API_BASED_MODULES_DISABLED", "true")
 	for name, value := range env {
@@ -92,6 +92,7 @@ func testGraphQL(t *testing.T, host string) {
 	// setup tests
 	t.Run("setup test schema", func(t *testing.T) { addTestSchema(t, host) })
 	t.Run("import test data (city, country, airport)", func(t *testing.T) { addTestDataCityAirport(t, host) })
+	t.Run("import test data (capitals anchor)", addTestDataCapitalsAnchor)
 	t.Run("import test data (companies)", addTestDataCompanies)
 	t.Run("import test data (person)", addTestDataPersons)
 	t.Run("import test data (pizzas)", addTestDataPizzas)
@@ -145,6 +146,7 @@ func testGraphQL(t *testing.T, host string) {
 	t.Run("expected aggregate failures with invalid conditions", aggregatesWithExpectedFailures)
 
 	// tear down
+	deleteObjectClass(t, capitalsAnchorClass)
 	deleteObjectClass(t, "Person")
 	deleteObjectClass(t, "Pizza")
 	deleteObjectClass(t, "Country")
@@ -171,7 +173,7 @@ func testGraphQL(t *testing.T, host string) {
 }
 
 func TestAggregateHybrid(t *testing.T) {
-	host := startWeaviateWithContextionary(t, nil)
+	host := startWeaviateWithModel2Vec(t, nil)
 	t.Run("setup test schema", func(t *testing.T) { addTestSchema(t, host) })
 
 	t.Run("import test data (company groups)", addTestDataCompanyGroups)
@@ -197,7 +199,7 @@ func TestAggregateHybrid(t *testing.T) {
 }
 
 func TestGroupBy(t *testing.T) {
-	host := startWeaviateWithContextionary(t, nil)
+	host := startWeaviateWithModel2Vec(t, nil)
 	t.Run("setup test schema", func(t *testing.T) { addTestSchema(t, host) })
 
 	t.Run("import test data (company groups)", addTestDataCompanyGroups)
@@ -239,9 +241,9 @@ func addTestSchema(t *testing.T, host string) {
 
 	createObjectClass(t, &models.Class{
 		Class:      "Company",
-		Vectorizer: "text2vec-contextionary",
+		Vectorizer: "text2vec-model2vec",
 		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			"text2vec-model2vec": map[string]interface{}{
 				"vectorizeClassName": false,
 			},
 		},
@@ -251,7 +253,7 @@ func addTestSchema(t *testing.T, host string) {
 				DataType:     schema.DataTypeText.PropString(),
 				Tokenization: models.PropertyTokenizationWhitespace,
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					"text2vec-model2vec": map[string]interface{}{
 						"vectorizePropertyName": false,
 					},
 				},
@@ -260,7 +262,7 @@ func addTestSchema(t *testing.T, host string) {
 				Name:     "inCity",
 				DataType: []string{"City"},
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					"text2vec-model2vec": map[string]interface{}{
 						"vectorizePropertyName": false,
 					},
 				},
@@ -270,9 +272,9 @@ func addTestSchema(t *testing.T, host string) {
 
 	createObjectClass(t, &models.Class{
 		Class:      "CompanyGroup",
-		Vectorizer: "text2vec-contextionary",
+		Vectorizer: "text2vec-model2vec",
 		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			"text2vec-model2vec": map[string]interface{}{
 				"vectorizeClassName": false,
 			},
 		},
@@ -284,7 +286,7 @@ func addTestSchema(t *testing.T, host string) {
 				IndexFilterable: boolRef(true),
 				IndexSearchable: boolRef(true),
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					"text2vec-model2vec": map[string]interface{}{
 						"vectorizePropertyName": false,
 					},
 				},
@@ -296,7 +298,7 @@ func addTestSchema(t *testing.T, host string) {
 				IndexFilterable: boolRef(true),
 				IndexSearchable: boolRef(true),
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					"text2vec-model2vec": map[string]interface{}{
 						"vectorizePropertyName": false,
 					},
 				},
@@ -306,9 +308,9 @@ func addTestSchema(t *testing.T, host string) {
 
 	createObjectClass(t, &models.Class{
 		Class:      "Person",
-		Vectorizer: "text2vec-contextionary",
+		Vectorizer: "text2vec-model2vec",
 		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			"text2vec-model2vec": map[string]interface{}{
 				"vectorizeClassName": false,
 			},
 		},
@@ -318,7 +320,7 @@ func addTestSchema(t *testing.T, host string) {
 				DataType:     schema.DataTypeText.PropString(),
 				Tokenization: models.PropertyTokenizationWhitespace,
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					"text2vec-model2vec": map[string]interface{}{
 						"vectorizePropertyName": false,
 					},
 				},
@@ -327,7 +329,7 @@ func addTestSchema(t *testing.T, host string) {
 				Name:     "livesIn",
 				DataType: []string{"City"},
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					"text2vec-model2vec": map[string]interface{}{
 						"vectorizePropertyName": false,
 					},
 				},
@@ -337,7 +339,7 @@ func addTestSchema(t *testing.T, host string) {
 				DataType:     schema.DataTypeText.PropString(),
 				Tokenization: models.PropertyTokenizationField,
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					"text2vec-model2vec": map[string]interface{}{
 						"vectorizePropertyName": false,
 					},
 				},
@@ -347,7 +349,7 @@ func addTestSchema(t *testing.T, host string) {
 				DataType:     schema.DataTypeTextArray.PropString(),
 				Tokenization: models.PropertyTokenizationField,
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					"text2vec-model2vec": map[string]interface{}{
 						"vectorizePropertyName": false,
 					},
 				},
@@ -357,9 +359,9 @@ func addTestSchema(t *testing.T, host string) {
 
 	createObjectClass(t, &models.Class{
 		Class:      "Pizza",
-		Vectorizer: "text2vec-contextionary",
+		Vectorizer: "text2vec-model2vec",
 		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			"text2vec-model2vec": map[string]interface{}{
 				"vectorizeClassName": false,
 			},
 		},
@@ -369,7 +371,7 @@ func addTestSchema(t *testing.T, host string) {
 				DataType:     schema.DataTypeText.PropString(),
 				Tokenization: models.PropertyTokenizationField,
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					"text2vec-model2vec": map[string]interface{}{
 						"vectorizePropertyName": false,
 					},
 				},
@@ -379,7 +381,7 @@ func addTestSchema(t *testing.T, host string) {
 				DataType:     []string{string(schema.DataTypeText)},
 				Tokenization: models.PropertyTokenizationWord,
 				ModuleConfig: map[string]interface{}{
-					"text2vec-contextionary": map[string]interface{}{
+					"text2vec-model2vec": map[string]interface{}{
 						"vectorizePropertyName": false,
 					},
 				},
@@ -392,7 +394,7 @@ func addTestSchema(t *testing.T, host string) {
 	createObjectClass(t, &models.Class{
 		Class: "RansomNote",
 		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			"text2vec-model2vec": map[string]interface{}{
 				"vectorizeClassName": true,
 			},
 		},
@@ -406,13 +408,13 @@ func addTestSchema(t *testing.T, host string) {
 		},
 	})
 
-	createObjectClass(t, multishard.ClassContextionaryVectorizer())
+	createObjectClass(t, multishard.ClassModel2VecVectorizer())
 
 	createObjectClass(t, &models.Class{
 		Class:      "HasDateField",
-		Vectorizer: "text2vec-contextionary",
+		Vectorizer: "text2vec-model2vec",
 		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			"text2vec-model2vec": map[string]interface{}{
 				"vectorizeClassName": true,
 			},
 		},
@@ -483,6 +485,32 @@ var (
 
 func addTestDataCityAirport(t *testing.T, host string) {
 	cities.InsertCountryCityAirportObjects(t, host)
+}
+
+const (
+	capitalsAnchorClass  = "CapitalsAnchor"
+	capitalsAnchorID     = "aaaaaaaa-0000-4000-8000-000000000001"
+	capitalsAnchorBeacon = "weaviate://localhost/" + capitalsAnchorClass + "/" + capitalsAnchorID
+)
+
+// addTestDataCapitalsAnchor creates an object whose vector lies between the
+// capitals (Amsterdam and Berlin), a nearObject search from it separates them
+// from the other cities.
+func addTestDataCapitalsAnchor(t *testing.T) {
+	createObjectClass(t, &models.Class{
+		Class:      capitalsAnchorClass,
+		Vectorizer: "text2vec-model2vec",
+		ModuleConfig: map[string]interface{}{
+			"text2vec-model2vec": map[string]interface{}{"vectorizeClassName": false},
+		},
+		Properties: []*models.Property{{Name: "name", DataType: schema.DataTypeText.PropString()}},
+	})
+	createObject(t, &models.Object{
+		Class:      capitalsAnchorClass,
+		ID:         capitalsAnchorID,
+		Properties: map[string]interface{}{"name": "City Berlin Amsterdam"},
+	})
+	assertGetObjectEventually(t, capitalsAnchorID)
 }
 
 func addTestDataCompanies(t *testing.T) {
@@ -783,11 +811,10 @@ func addTestDataRansomNotes(t *testing.T) {
 		}
 
 		// One note is pinned so the nearObject cases have a fixed anchor to
-		// search from. Its vector is set explicitly rather than vectorized, so
-		// it does not move with the random contents.
+		// search from.
 		if i == 0 {
 			batch[0].ID = ransomNoteAnchorID
-			batch[0].Vector = ransomNoteAnchorVector
+			batch[0].Properties = map[string]interface{}{"contents": ransomNoteAnchorContents}
 		}
 
 		createObjectsBatch(t, batch)
@@ -826,9 +853,9 @@ func addTestDataNearObjectSearch(t *testing.T) {
 	for _, className := range classNames {
 		createObjectClass(t, &models.Class{
 			Class:      className,
-			Vectorizer: "text2vec-contextionary",
+			Vectorizer: "text2vec-model2vec",
 			ModuleConfig: map[string]interface{}{
-				"text2vec-contextionary": map[string]interface{}{
+				"text2vec-model2vec": map[string]interface{}{
 					"vectorizeClassName": true,
 				},
 			},
@@ -915,9 +942,9 @@ func addTestDataCursorSearch(t *testing.T) {
 
 	createObjectClass(t, &models.Class{
 		Class:      className,
-		Vectorizer: "text2vec-contextionary",
+		Vectorizer: "text2vec-model2vec",
 		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			"text2vec-model2vec": map[string]interface{}{
 				"vectorizeClassName": true,
 			},
 		},

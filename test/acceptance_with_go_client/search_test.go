@@ -488,3 +488,37 @@ func TestNearTextAutocut(t *testing.T) {
 		})
 	}
 }
+
+// Explore vectorizes the query without any class at hand, the vectorizer
+// module must cope with that.
+func TestExploreNearText(t *testing.T) {
+	ctx := context.Background()
+	c := client.New(client.Config{Scheme: "http", Host: wvhost.REST()})
+	c.Schema().AllDeleter().Do(ctx)
+	className := "ExploreNearText"
+
+	class := &models.Class{
+		Class: className,
+		Properties: []*models.Property{
+			{Name: "text", DataType: schema.DataTypeText.PropString()},
+		},
+		VectorConfig: fixtures.DefaultVectorConfig(),
+	}
+	require.Nil(t, c.Schema().ClassCreator().WithClass(class).Do(ctx))
+	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
+
+	created, err := c.Data().Creator().WithClassName(className).WithProperties(
+		map[string]interface{}{"text": "pizza is a dish of Italian origin"}).Do(ctx)
+	require.Nil(t, err)
+
+	query := fmt.Sprintf("{Explore(nearText:{concepts:[\"Italian\"], targetVectors:[%q]}){beacon className}}", fixtures.DefaultVectorName)
+	results, err := c.GraphQL().Raw().WithQuery(query).Do(ctx)
+	require.Nil(t, err)
+	require.Empty(t, results.Errors)
+
+	result := results.Data["Explore"].([]interface{})
+	require.Len(t, result, 1)
+	found := result[0].(map[string]interface{})
+	require.Equal(t, className, found["className"])
+	require.Contains(t, found["beacon"], created.Object.ID.String())
+}
