@@ -2000,15 +2000,18 @@ func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool
 	}
 
 	// Pre-drain BEFORE the apply lock (a bounded wait inside it stalls every schema apply); a cycle dispatched in between is absorbed by the post-disable drain.
+	preLockTimer := time.NewTimer(time.Duration(asyncReplicationWorkerDrainTimeout.Load()))
 	select {
 	case <-s.asyncRepDrained():
+		preLockTimer.Stop()
 		// An idle latch ties with ctx.Done(); standing down here keeps Close() from leaving the shard disabled with no .ht.
 		if sched.ctx.Err() != nil {
 			return false, 0, false, false
 		}
 	case <-sched.ctx.Done():
+		preLockTimer.Stop()
 		return false, 0, false, false
-	case <-time.After(time.Duration(asyncReplicationWorkerDrainTimeout.Load())):
+	case <-preLockTimer.C:
 		return yield()
 	}
 
@@ -2052,15 +2055,18 @@ func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool
 	}
 
 	// Pre-drain BEFORE the disable: a wedged cycle must yield with the shard still in the repair mesh.
+	preDisableTimer := time.NewTimer(time.Duration(asyncReplicationWorkerDrainTimeout.Load()))
 	select {
 	case <-s.asyncRepDrained():
+		preDisableTimer.Stop()
 		// An idle latch ties with ctx.Done(); standing down here keeps Close() from leaving the shard disabled with no .ht.
 		if sched.ctx.Err() != nil {
 			return false, 0, false, false
 		}
 	case <-sched.ctx.Done():
+		preDisableTimer.Stop()
 		return false, 0, false, false
-	case <-time.After(time.Duration(asyncReplicationWorkerDrainTimeout.Load())):
+	case <-preDisableTimer.C:
 		return yield()
 	}
 
@@ -2075,10 +2081,12 @@ func (sched *AsyncReplicationScheduler) tryRebuildHashtree(s *Shard) (retry bool
 	// Post-disable drain (normally instant — disable cancelled ctx + deregistered); a timeout
 	// leaves the shard out of the mesh (enabling over a straggler risks a double-fold), so it
 	// must be a loud failure with growing backoff, not a silent spin.
+	drainTimeout := time.Duration(asyncReplicationWorkerDrainTimeout.Load())
+	postDisableTimer := time.NewTimer(drainTimeout)
 	select {
 	case <-s.asyncRepDrained():
-	case <-time.After(time.Duration(asyncReplicationWorkerDrainTimeout.Load())):
-		drainTimeout := time.Duration(asyncReplicationWorkerDrainTimeout.Load())
+		postDisableTimer.Stop()
+	case <-postDisableTimer.C:
 		return true, fail("drain", fmt.Errorf("worker drain timed out after %s", drainTimeout)), false, false
 	}
 
