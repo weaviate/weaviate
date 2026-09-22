@@ -102,8 +102,8 @@ func (r *Replicator) PutObject(ctx context.Context,
 	schemaVersion uint64,
 ) error {
 	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opPutObject), r.log)
-	release := r.inflight.register(shard)
-	defer release()
+	// released once no request of this write is in flight to any replica, not when Push returns
+	coord.onSettled = r.inflight.register(shard)
 	isReady := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObject(ctx, host, r.class, shard, requestID, obj, schemaVersion)
 		if err == nil {
@@ -135,8 +135,8 @@ func (r *Replicator) MergeObject(ctx context.Context,
 	schemaVersion uint64,
 ) error {
 	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opMergeObject), r.log)
-	release := r.inflight.register(shard)
-	defer release()
+	// released once no request of this write is in flight to any replica, not when Push returns
+	coord.onSettled = r.inflight.register(shard)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.MergeObject(ctx, host, r.class, shard, requestID, doc, schemaVersion)
 		if err == nil {
@@ -173,8 +173,8 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 	schemaVersion uint64,
 ) error {
 	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opDeleteObject), r.log)
-	release := r.inflight.register(shard)
-	defer release()
+	// released once no request of this write is in flight to any replica, not when Push returns
+	coord.onSettled = r.inflight.register(shard)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.DeleteObject(ctx, host, r.class, shard, requestID, id, deletionTime, schemaVersion)
 		if err == nil {
@@ -206,8 +206,8 @@ func (r *Replicator) PutObjects(ctx context.Context,
 	schemaVersion uint64,
 ) []error {
 	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opPutObjects), r.log)
-	release := r.inflight.register(shard)
-	defer release()
+	// released once no request of this write is in flight to any replica, not when Push returns
+	coord.onSettled = r.inflight.register(shard)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObjects(ctx, host, r.class, shard, requestID, objs, schemaVersion)
 		if err == nil {
@@ -245,8 +245,8 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 	schemaVersion uint64,
 ) []objects.BatchSimpleObject {
 	coord := NewWriteCoordinator[DeleteBatchResponse, objects.BatchSimpleObject](r.client, r.router, r.metrics, r.class, shard, r.requestID(opDeleteObjects), r.log)
-	release := r.inflight.register(shard)
-	defer release()
+	// released once no request of this write is in flight to any replica, not when Push returns
+	coord.onSettled = r.inflight.register(shard)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.DeleteObjects(ctx, host, r.class, shard, requestID, uuids, deletionTime, dryRun, schemaVersion)
 		if err == nil {
@@ -293,8 +293,8 @@ func (r *Replicator) AddReferences(ctx context.Context,
 	schemaVersion uint64,
 ) []error {
 	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opAddReferences), r.log)
-	release := r.inflight.register(shard)
-	defer release()
+	// released once no request of this write is in flight to any replica, not when Push returns
+	coord.onSettled = r.inflight.register(shard)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.AddReferences(ctx, host, r.class, shard, requestID, refs, schemaVersion)
 		if err == nil {

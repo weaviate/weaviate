@@ -44,8 +44,9 @@ func newInflightWrites() *inflightWrites {
 }
 
 // register records a new in-flight write to shard and returns a release closure
-// that removes it. The release must be called exactly once (via defer) when the
-// write coordination returns. Safe for concurrent callers.
+// that removes it. The release must be called exactly once, when no request of
+// the write is in flight to any replica: below ALL that is after the write has
+// returned to its caller. Safe for concurrent callers.
 func (w *inflightWrites) register(shard string) (release func()) {
 	id := w.nextID.Add(1)
 

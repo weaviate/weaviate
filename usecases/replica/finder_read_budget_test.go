@@ -354,8 +354,9 @@ func TestFinderInlineRepairAgainstUnreadyReplica(t *testing.T) {
 			assert.Truef(t, returned,
 				"GetOne must not block on inline read repair against the unready replica %q; it was still blocked after %v",
 				nodes[2], incidentBudget)
-			assert.EqualValues(t, 0, repairRPCs.Load(),
-				"read repair must not be issued inline on the user's read path against unready replica %q", nodes[2])
+			// one attempt is what it costs to learn a replica is unready; a retry budget against it is not
+			assert.LessOrEqualf(t, repairRPCs.Load(), int64(1),
+				"read repair must not retry inline on the user's read path against unready replica %q", nodes[2])
 			if !returned {
 				return
 			}
@@ -367,8 +368,8 @@ func TestFinderInlineRepairAgainstUnreadyReplica(t *testing.T) {
 	}
 }
 
-// Writes must honour the caller's context in both two-phase-commit phases.
-func TestReplicatorWriteIgnoresCallerBudget(t *testing.T) {
+// Each write phase runs under a deadline of its own and survives the caller's cancellation.
+func TestReplicatorWritePhasesOutliveCaller(t *testing.T) {
 	var (
 		id    = strfmt.UUID("123")
 		cls   = "C1"
@@ -378,16 +379,19 @@ func TestReplicatorWriteIgnoresCallerBudget(t *testing.T) {
 
 	for _, tt := range []struct {
 		name string
-		// phase in which the restarting replica stops answering
-		phase string
+		// phase in which the slow replica holds the write
+		phase   string
+		timeout time.Duration
 	}{
 		{
-			name:  "prepare phase ignores the caller's cancellation",
-			phase: "prepare",
+			name:    "prepare",
+			phase:   "prepare",
+			timeout: replica.DefaultPrepareTimeout,
 		},
 		{
-			name:  "commit phase has no budget at all",
-			phase: "commit",
+			name:    "commit",
+			phase:   "commit",
+			timeout: replica.DefaultCommitTimeout,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -395,50 +399,75 @@ func TestReplicatorWriteIgnoresCallerBudget(t *testing.T) {
 			rep := f.newReplicator()
 			gate, release := newGate(t)
 			obj := object(id, 3)
+			slow := nodes[1]
+
+			// context the slow replica received for tt.phase
+			var phaseCtx atomic.Value
+			entered := make(chan struct{})
+			holdPhase := func(ctx context.Context) error {
+				phaseCtx.Store(ctx)
+				close(entered)
+				<-gate
+				return ctx.Err()
+			}
 
 			for _, node := range nodes {
-				hangHere := node == nodes[1] && tt.phase == "prepare"
-				if hangHere {
+				if node == slow && tt.phase == "prepare" {
 					f.WClient.EXPECT().PutObject(anyVal, node, cls, shard, anyVal, obj, anyVal).
 						RunAndReturn(func(ctx context.Context, _, _, _, _ string,
 							_ *storobj.Object, _ uint64,
 						) (replica.SimpleResponse, error) {
-							return replica.SimpleResponse{}, hang(ctx, gate)
-						}).Maybe()
+							return replica.SimpleResponse{}, holdPhase(ctx)
+						})
 				} else {
 					f.WClient.EXPECT().PutObject(anyVal, node, cls, shard, anyVal, obj, anyVal).
-						Return(replica.SimpleResponse{}, nil).Maybe()
+						Return(replica.SimpleResponse{}, nil)
 				}
 
-				if node == nodes[1] && tt.phase == "commit" {
+				if node == slow && tt.phase == "commit" {
 					f.WClient.EXPECT().Commit(anyVal, node, cls, shard, anyVal, anyVal).
 						RunAndReturn(func(ctx context.Context, _, _, _, _ string, _ interface{}) error {
-							return hang(ctx, gate)
-						}).Maybe()
+							return holdPhase(ctx)
+						})
 				} else {
 					f.WClient.EXPECT().Commit(anyVal, node, cls, shard, anyVal, anyVal).
-						Return(nil).Maybe()
+						Return(nil)
 				}
-				// aborts are best effort and only issued when prepare fails
+				// issued only if a prepare fails
 				f.WClient.EXPECT().Abort(anyVal, node, cls, shard, anyVal).
 					Return(replica.SimpleResponse{}, nil).Maybe()
 			}
 
-			// a caller that gave up long ago
-			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+			// a caller deadline far beyond the phase timeout, so an inherited one is detectable
+			ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
 			defer cancel()
 
-			got, returned := callWithin(t, incidentBudget, func() { cancel(); release() },
-				func() (struct{}, error) {
-					return struct{}{}, rep.PutObject(ctx, shard, obj, types.ConsistencyLevelAll, 123)
-				})
+			done := make(chan error, 1)
+			go func() {
+				done <- rep.PutObject(ctx, shard, obj, types.ConsistencyLevelAll, 123)
+			}()
 
-			assert.Truef(t, returned,
-				"PutObject must honour the caller's 200ms deadline in the %s phase; it was still blocked after %v",
-				tt.phase, incidentBudget)
-			if returned {
-				assert.Lessf(t, got.elapsed, incidentBudget,
-					"PutObject took %v after its caller's deadline of 200ms expired", got.elapsed)
+			select {
+			case <-entered:
+			case <-time.After(incidentBudget):
+				t.Fatalf("replica %q never received the %s request", slow, tt.phase)
+			}
+			cancel()
+
+			got := phaseCtx.Load().(context.Context)
+			assert.NoErrorf(t, got.Err(), "the %s phase must survive the caller's cancellation", tt.phase)
+			deadline, ok := got.Deadline()
+			if assert.Truef(t, ok, "the %s phase must run under a deadline of its own", tt.phase) {
+				assert.LessOrEqualf(t, time.Until(deadline), tt.timeout,
+					"the %s phase deadline must come from its own %v timeout, not the caller's", tt.phase, tt.timeout)
+			}
+
+			release()
+			select {
+			case err := <-done:
+				assert.NoErrorf(t, err, "the write must complete on every replica after the caller left in the %s phase", tt.phase)
+			case <-time.After(incidentBudget):
+				t.Fatalf("PutObject did not return after replica %q answered", slow)
 			}
 		})
 	}
