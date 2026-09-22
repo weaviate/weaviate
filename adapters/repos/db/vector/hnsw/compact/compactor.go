@@ -424,6 +424,12 @@ func (c *Compactor) chooseAction(state *DirectoryState, totalSize int64, sortedR
 	sortedCount := len(state.SortedFiles)
 
 	if totalSize == 0 {
+		// Forced rotations of a never-written log leave 0-byte sorted files
+		// behind. They carry nothing to snapshot, but must still be collapsed
+		// or one accumulates per rotation.
+		if sortedCount > 1 {
+			return ActionMergeSorted, "no data to snapshot, merging empty sorted files to reduce count"
+		}
 		return ActionNone, "no data to compact (total size is 0)"
 	}
 
