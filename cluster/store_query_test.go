@@ -121,7 +121,7 @@ func attachFollowerRaft(t *testing.T, store *Store) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, r.Shutdown().Error()) })
 
-	store.raft = r
+	store.raft.Store(r)
 }
 
 func TestQueryExportUsersDispatch(t *testing.T) {

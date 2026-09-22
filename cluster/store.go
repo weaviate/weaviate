@@ -1064,20 +1064,21 @@ func (st *Store) reloadDBFromSchema() {
 // entry, the state machine may hold none of them. raft.Barrier waits out that
 // difference; VerifyLeader appends nothing, so it waits for nothing.
 func (st *Store) waitLeaderFSMCaughtUp() error {
-	if st.raft == nil {
+	rn := st.raft.Load()
+	if rn == nil {
 		return nil
 	}
 
 	st.fsmCatchUpMu.Lock()
 	defer st.fsmCatchUpMu.Unlock()
 
-	term := st.raft.CurrentTerm()
+	term := rn.CurrentTerm()
 	if st.fsmCaughtUpForTerm(term) {
 		return nil
 	}
 
 	st.metrics.leaderFSMBarriers.Inc()
-	if err := st.raft.Barrier(st.applyTimeout).Error(); err != nil {
+	if err := rn.Barrier(st.applyTimeout).Error(); err != nil {
 		st.log.Warnf("leader FSM catch-up barrier failed on term %d: %v", term, err)
 		return fmt.Errorf("%w: %w", types.ErrFSMNotCaughtUp, err)
 	}

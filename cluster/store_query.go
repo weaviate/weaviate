@@ -116,13 +116,13 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		// Barrier proves this node is still leader and has applied every committed
 		// entry, so a fresh leader cannot return a short roster. Per-id reads skip
 		// it; the apply re-checks them. raft is nil only in unit-test stores.
-		if st.raft != nil {
+		if rn := st.raft.Load(); rn != nil {
 			var sub cmd.QueryExportUsersRequest
 			if err := json.Unmarshal(req.SubCommand, &sub); err != nil {
 				return &cmd.QueryResponse{}, fmt.Errorf("could not export dynamic users: %w", err)
 			}
 			if len(sub.UserIds) == 0 {
-				if err := st.raft.Barrier(st.cfg.ConsistencyWaitTimeout).Error(); err != nil {
+				if err := rn.Barrier(st.cfg.ConsistencyWaitTimeout).Error(); err != nil {
 					return &cmd.QueryResponse{}, fmt.Errorf("verify leader before export: %w", err)
 				}
 			}
