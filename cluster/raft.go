@@ -127,10 +127,11 @@ func (s *Raft) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
 }
 
 func (s *Raft) ReplicationAllPeersAtLeast(opID uint64, target cmd.ShardReplicationState) (bool, error) {
-	if s.store.raft == nil {
+	rn := s.store.raft.Load()
+	if rn == nil {
 		return false, nil
 	}
-	cfg := s.store.raft.GetConfiguration()
+	cfg := rn.GetConfiguration()
 	if err := cfg.Error(); err != nil {
 		return false, fmt.Errorf("get raft configuration: %w", err)
 	}
