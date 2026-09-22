@@ -24,12 +24,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-// Every memory-guard rejection on the object write path must be a typed *Error
-// carrying StatusTooManyRequests, so REST renders 429 and gRPC
-// RESOURCE_EXHAUSTED from one classification. A load-shed returned as 500 is
-// indistinguishable from a server fault and is treated as retryable by the
-// internal replica client, which pulls more traffic onto a node that is already
-// out of memory.
+// Every memory-guard rejection on the object write path must be a typed *Error carrying 429.
 func TestObjectWriteMemoryGuardRejectionCarriesTooManyRequests(t *testing.T) {
 	const (
 		className = "ZooAction"
@@ -103,8 +98,7 @@ func TestObjectWriteMemoryGuardRejectionCarriesTooManyRequests(t *testing.T) {
 	}
 }
 
-// exhaustedAllocChecker builds a real memwatch.Monitor whose live heap is far
-// past its limit, so every CheckAlloc rejects with ErrNotEnoughMemory.
+// exhaustedAllocChecker returns a monitor whose every CheckAlloc rejects.
 func exhaustedAllocChecker() *memwatch.Monitor {
 	return memwatch.NewMonitor(
 		func() int64 { return 10 * memwatch.GiB },

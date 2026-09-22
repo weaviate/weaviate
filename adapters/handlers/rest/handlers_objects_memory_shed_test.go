@@ -29,10 +29,7 @@ import (
 	uco "github.com/weaviate/weaviate/usecases/objects"
 )
 
-// The wire contract for a memory-guard shed is HTTP 429, the same mapping the
-// handlers already apply for a usage-limit shed. Rendered as 500 it cannot be
-// told apart from a server fault, and the internal replica client classifies
-// 500 as retryable, so it invites more traffic onto a node with no memory.
+// A memory-guard shed must render as HTTP 429, not 500.
 func TestObjectWriteMemoryShedRendersTooManyRequests(t *testing.T) {
 	newHandler := func(f *fakeManager) *objectHandlers {
 		return &objectHandlers{
@@ -63,8 +60,7 @@ func TestObjectWriteMemoryShedRendersTooManyRequests(t *testing.T) {
 		call func() middleware.Responder
 	}{
 		{
-			// PATCH /v1/objects/{class}/{id}: the only journey whose usecase
-			// returns a typed *uco.Error rather than a bare wrapped one
+			// PATCH is the only journey whose usecase returns a typed *uco.Error
 			name: "patch object",
 			call: func() middleware.Responder {
 				h := newHandler(&fakeManager{patchObjectReturn: patchErr})

@@ -66,10 +66,7 @@ func (e *Error) TooManyRequests() bool {
 	return e.Code == StatusTooManyRequests
 }
 
-// NewMemoryShedError wraps a memwatch rejection into a typed *Error carrying
-// StatusTooManyRequests: reported as 500 a load-shed is indistinguishable from a
-// fault, and the replica client retries 500s onto a node already out of memory.
-// The wrapping keeps the sentinel reachable through errors.Is.
+// NewMemoryShedError wraps a memwatch rejection as a 429, keeping the sentinel reachable via errors.Is
 func NewMemoryShedError(op string, err error) *Error {
 	wrapped := fmt.Errorf("%s: %w", op, err)
 	return &Error{Msg: wrapped.Error(), Code: StatusTooManyRequests, Err: wrapped}

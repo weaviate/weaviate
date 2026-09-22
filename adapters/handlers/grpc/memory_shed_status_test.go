@@ -25,11 +25,7 @@ import (
 	authErrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
-// A memory-guard shed is deliberate load shedding, not a bug, so it must reach
-// the client as ResourceExhausted like a usage-limit shed. Untranslated it
-// falls through to codes.Unknown, which the client cannot tell from a crash and
-// which the internal cluster client keeps retrying. The guard error is wrapped
-// differently at each layer, so every shape is pinned, not just the sentinel.
+// A memory-guard shed must reach the client as ResourceExhausted, whatever its wrapping.
 func TestTranslateTypedErrorMapsMemoryShedToResourceExhausted(t *testing.T) {
 	tests := []struct {
 		name          string

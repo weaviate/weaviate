@@ -28,17 +28,13 @@ import (
 const (
 	maxBackoffDuration = 30 * time.Second
 
-	// maxAttemptsBeforeCap is the number of rungs on the backoff ladder
-	// (1s, 2s, 4s, 8s, 16s); past it the backoff sits at maxBackoffDuration.
+	// maxAttemptsBeforeCap is the number of rungs on the backoff ladder before it caps
 	maxAttemptsBeforeCap = 5
 
-	// maxMemoryPressureAttempts bounds consecutive attempts on a batch failing only
-	// with memory sheds: re-executing the insert needs the memory that is missing,
-	// so the ladder can never converge. Full ladder plus its first capped rung.
+	// maxMemoryPressureAttempts bounds a batch failing only with memory sheds, which retries cannot fix
 	maxMemoryPressureAttempts = maxAttemptsBeforeCap + 1
 
-	// memoryPressurePauseInterval dwarfs maxBackoffDuration on purpose: freeing
-	// memory (GC, flushes, compactions, a resize) happens on a scale of minutes.
+	// memoryPressurePauseInterval is long on purpose: freeing memory takes minutes
 	memoryPressurePauseInterval = 5 * time.Minute
 )
 
@@ -95,8 +91,7 @@ func (w *Worker) do(batch *Batch) (err error) {
 		}
 		switch {
 		case errors.Is(err, errMemoryPressurePause):
-			// Done() is deliberately not called: the disk queue removes the
-			// chunk backing these tasks only once the batch is done
+			// Done() is deliberately not called: it would let the disk queue delete the chunk
 			batch.Requeue(w.memoryPressurePause())
 		case err != nil:
 			batch.Cancel()
@@ -230,8 +225,7 @@ func (w *Worker) memoryPressurePause() time.Duration {
 	return memoryPressurePauseInterval
 }
 
-// allMemoryPressure reports whether errs is non-empty and every error is a memory
-// shed. "All", not "any": another recoverable failure may yet survive a retry.
+// allMemoryPressure reports whether errs is non-empty and every error is a memory shed
 func allMemoryPressure(errs []error) bool {
 	if len(errs) == 0 {
 		return false

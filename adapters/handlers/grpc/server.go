@@ -192,8 +192,7 @@ func translateTypedError(err error) error {
 	if v, ok := restrictions.AsViolation(err); ok {
 		return restrictionViolationToGrpcError(v)
 	}
-	// A memwatch rejection is a load-shed, so it gets the same backpressure code
-	// as a usage-limit one; untranslated it reaches the client as codes.Unknown.
+	// a memwatch rejection is a load-shed, so it gets the same code as a usage-limit one
 	if enterrors.IsMemoryPressure(err) {
 		return status.Error(codes.ResourceExhausted, err.Error())
 	}
