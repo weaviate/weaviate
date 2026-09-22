@@ -242,9 +242,7 @@ func (m *Memtable) flushDataSet(f *segmentindex.SegmentFile) ([]segmentindex.Key
 }
 
 func (m *Memtable) flushDataMap(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
-	m.RLock()
-	flat := m.keyMap.flattenInOrder()
-	m.RUnlock()
+	flat := m.flattenKeyMap()
 
 	// by encoding each map pair we can force the same structure as for a
 	// collection, which means we can reuse the same flushing logic

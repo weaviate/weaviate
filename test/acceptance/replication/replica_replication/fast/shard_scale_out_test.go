@@ -48,7 +48,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementShardScaleOutPara
 	clusterSize := 3
 	compose, err := docker.New().
 		WithWeaviateCluster(clusterSize).
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		WithWeaviateEnv("REPLICATION_ENGINE_MAX_WORKERS", "10").
 		Start(mainCtx)
@@ -289,7 +289,7 @@ func dumpClusterLogs(t *testing.T, compose *docker.DockerCompose) {
 	}
 	ctx := context.Background()
 	for _, c := range compose.Containers() {
-		// Only the weaviate-N nodes; skip the contextionary vectorizer etc.
+		// Only the weaviate-N nodes; skip the vectorizer etc.
 		if !strings.HasPrefix(c.Name(), "weaviate") {
 			continue
 		}

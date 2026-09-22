@@ -44,7 +44,7 @@ func TestScaleDownAfterRemoveNode(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
 	require.NoError(t, err)
@@ -62,7 +62,7 @@ func TestScaleDownAfterRemoveNode(t *testing.T) {
 	paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 		Factor: 2,
 	}
-	paragraphClass.Vectorizer = "text2vec-contextionary"
+	paragraphClass.Vectorizer = "text2vec-model2vec"
 
 	t.Run("create schema", func(t *testing.T) {
 		helper.DeleteClass(t, paragraphClass.Class)

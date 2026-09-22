@@ -39,7 +39,7 @@ func (suite *ReplicationTestSuite) TestGraphqlSearch() {
 
 	helper.SetupClient(compose.ContainerURI(1))
 	paragraphClass := articles.ParagraphsClass()
-	paragraphClass.Vectorizer = "text2vec-contextionary"
+	paragraphClass.Vectorizer = "text2vec-model2vec"
 	articleClass := articles.ArticlesClass()
 
 	t.Run("CreateSchema", func(t *testing.T) {
