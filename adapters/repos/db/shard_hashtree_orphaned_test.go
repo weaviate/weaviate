@@ -55,6 +55,101 @@ func TestShardInitDiscardsOrphanedHashtree(t *testing.T) {
 	require.Empty(t, htFilesInDir(t, s3.pathHashTree()))
 }
 
+// TestShardInitDiscardsOrphanedHashtreeDespiteFileTrouble: the discard only unlinks, so a corrupt, undeletable or absent .ht still loads the shard.
+func TestShardInitDiscardsOrphanedHashtreeDespiteFileTrouble(t *testing.T) {
+	tests := []struct {
+		name        string
+		mangle      func(t *testing.T, dir string)
+		seam        func(string) error
+		wantDemoted bool
+	}{
+		{
+			name: "corrupt snapshot",
+			mangle: func(t *testing.T, dir string) {
+				for _, e := range htFilesInDir(t, dir) {
+					require.NoError(t, os.WriteFile(filepath.Join(dir, e.Name()), []byte("garbage"), 0o600))
+				}
+			},
+		},
+		{
+			name: "truncated snapshot",
+			mangle: func(t *testing.T, dir string) {
+				for _, e := range htFilesInDir(t, dir) {
+					require.NoError(t, os.Truncate(filepath.Join(dir, e.Name()), 3))
+				}
+			},
+		},
+		{
+			name:   "no snapshot at all",
+			mangle: func(t *testing.T, dir string) { require.NoError(t, os.RemoveAll(dir)) },
+		},
+		{
+			name:        "undeletable snapshot",
+			mangle:      func(t *testing.T, dir string) {},
+			seam:        func(string) error { return os.ErrPermission },
+			wantDemoted: true,
+		},
+		{
+			name: "undeletable corrupt snapshot",
+			mangle: func(t *testing.T, dir string) {
+				for _, e := range htFilesInDir(t, dir) {
+					require.NoError(t, os.WriteFile(filepath.Join(dir, e.Name()), []byte("garbage"), 0o600))
+				}
+			},
+			seam:        func(string) error { return os.ErrPermission },
+			wantDemoted: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			class := "OrphanedHashtreeTrouble"
+			sl, idx := testShard(t, ctx, class, withAsyncScheduler(t))
+			s := concreteShard(t, sl)
+			for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
+				require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, id, tsFarPast)))
+			}
+			flushShard(t, ctx, sl)
+			enableAndAwaitAsync(t, ctx, s)
+			planted := hashtreeRoot(s)
+			require.NoError(t, sl.Shutdown(ctx))
+			dir := s.pathHashTree()
+			require.Len(t, htFilesInDir(t, dir), 1)
+
+			idx.replicationConfigLock.Lock()
+			idx.Config.ReplicationFactor = 2
+			idx.Config.AsyncReplicationConfig = minAsyncReplicationConfig()
+			idx.replicationConfigLock.Unlock()
+
+			require.NoError(t, os.RemoveAll(filepath.Join(shardPathLSM(idx.path(), s.name), helpers.ObjectsBucketLSM)))
+			tc.mangle(t, dir)
+
+			if tc.seam != nil {
+				prev := removeHashtreeFile
+				removeHashtreeFile = tc.seam
+				defer func() { removeHashtreeFile = prev }()
+			}
+
+			s2 := reopenShard(t, ctx, idx, s.name)
+			require.NotEqual(t, planted, hashtreeRoot(s2), "the orphaned tree must never be served")
+			require.Empty(t, htFilesInDir(t, dir), "no trustable .ht may survive the discard")
+
+			if tc.wantDemoted {
+				entries, err := os.ReadDir(dir)
+				require.NoError(t, err)
+				var demoted int
+				for _, e := range entries {
+					if filepath.Ext(e.Name()) == ".tmp" {
+						demoted++
+					}
+				}
+				require.Equal(t, 1, demoted, "an undeletable .ht must demote to a stray .tmp, not fail the load")
+			}
+		})
+	}
+}
+
 func reopenShard(t *testing.T, ctx context.Context, idx *Index, name string) *Shard {
 	t.Helper()
 	idx.shards.LoadAndDelete(name)
