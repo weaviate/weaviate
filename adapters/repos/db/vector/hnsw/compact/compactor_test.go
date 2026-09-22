@@ -568,7 +568,9 @@ func TestCompactor_EmptyRotationsStayBounded(t *testing.T) {
 	cases := []struct {
 		name string
 		// seed writes any pre-existing state under timestamps below 2000.
-		seed         func(t *testing.T, dir string, compactor *Compactor)
+		seed func(t *testing.T, dir string, compactor *Compactor)
+		// fill writes the content of each rotated-out log; nil leaves it empty.
+		fill         func(t *testing.T, path string)
 		wantSnapshot bool
 		wantNode     bool
 	}{
@@ -596,6 +598,19 @@ func TestCompactor_EmptyRotationsStayBounded(t *testing.T) {
 			wantSnapshot: true,
 			wantNode:     true,
 		},
+		{
+			// Not every 0-byte sorted file starts as a 0-byte log: the sorted
+			// writer drops a tombstone that was added and removed again.
+			name: "rotations whose only commits cancel out",
+			fill: func(t *testing.T, path string) {
+				f, err := os.Create(path)
+				require.NoError(t, err)
+				defer f.Close()
+				w := NewWALWriter(f)
+				require.NoError(t, w.WriteAddTombstone(7))
+				require.NoError(t, w.WriteRemoveTombstone(7))
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -608,9 +623,12 @@ func TestCompactor_EmptyRotationsStayBounded(t *testing.T) {
 
 			ts := int64(2000)
 			createEmptyFile(t, dir, fmt.Sprint(ts))
-			// rotate seals the live file by opening a newer one, exactly what a
-			// forced switchCommitLogs does on a never-written index.
+			// rotate fills the live file, then seals it by opening a newer empty
+			// one, exactly what a forced switchCommitLogs does.
 			rotate := func() {
+				if tc.fill != nil {
+					tc.fill(t, filepath.Join(dir, fmt.Sprint(ts)))
+				}
 				ts++
 				createEmptyFile(t, dir, fmt.Sprint(ts))
 			}
