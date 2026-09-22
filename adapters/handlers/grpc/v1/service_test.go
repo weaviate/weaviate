@@ -169,19 +169,23 @@ func TestBatchObjectsSemaphore(t *testing.T) {
 	}
 
 	wg := &sync.WaitGroup{}
+	barrier := &sync.WaitGroup{}
 	errs := make(chan error, 3)
 
 	// acquire sem three times
 	wg.Add(3)
+	barrier.Add(2)
 
 	ctx := context.Background()
 	enterrors.GoWrapper(func() {
 		defer wg.Done()
+		barrier.Done()
 		_, err := s.BatchObjects(ctx, &pb.BatchObjectsRequest{})
 		errs <- err
 	}, logger)
 	enterrors.GoWrapper(func() {
 		defer wg.Done()
+		barrier.Done()
 		_, err := s.BatchObjects(ctx, &pb.BatchObjectsRequest{})
 		errs <- err
 	}, logger)
@@ -193,6 +197,7 @@ func TestBatchObjectsSemaphore(t *testing.T) {
 			wg.Done()
 			close(done)
 		}()
+		barrier.Wait()
 		_, err := s.BatchObjects(ctxTimeout, &pb.BatchObjectsRequest{})
 		errs <- err
 	}, logger)
