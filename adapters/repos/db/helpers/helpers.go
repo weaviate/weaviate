@@ -54,6 +54,16 @@ func MVMappingsBucketName(indexID string) string {
 	return indexID + "_mv_mappings"
 }
 
+// HFreshPostingsBucketName is the LSM bucket holding hfresh's posting lists.
+func HFreshPostingsBucketName(indexID string) string {
+	return fmt.Sprintf("hfresh_postings_%s", indexID)
+}
+
+// HFreshSharedBucketName is the LSM bucket holding hfresh's shared metadata.
+func HFreshSharedBucketName(indexID string) string {
+	return fmt.Sprintf("hfresh_shared_%s", indexID)
+}
+
 func GetHNSWCommitLogDirName(targetVector string) string {
 	if targetVector != "" {
 		return fmt.Sprintf("%s.hnsw.commitlog.d", GetVectorsBucketName(targetVector))
