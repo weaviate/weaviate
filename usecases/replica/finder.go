@@ -74,31 +74,22 @@ const (
 // defaultRequestBudget bounds a replicated read, pull and repair, when the caller set no deadline
 const defaultRequestBudget = 20 * time.Second
 
-var noopCancel = func() {}
-
 // withRequestBudget applies defaultRequestBudget only when ctx has no deadline
 func withRequestBudget(ctx context.Context) (context.Context, context.CancelFunc) {
 	if _, ok := ctx.Deadline(); ok {
-		return ctx, noopCancel
+		return ctx, func() {}
 	}
 	return context.WithTimeout(ctx, defaultRequestBudget)
 }
 
-// replicaUnavailable reports whether the replica could not serve at all, as opposed to rejecting
+// replicaUnavailable reports whether the replica could not serve at all, as opposed to rejecting;
+// the readiness gate is matched by message because both transports make it opaque
 func replicaUnavailable(err error) bool {
 	if err == nil {
 		return false
 	}
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return true
-	}
-	return IsNodeNotReady(err)
-}
-
-// IsNodeNotReady matches the readiness gate by message: both transports make it opaque
-func IsNodeNotReady(err error) bool {
-	if err == nil {
-		return false
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, NodeNotReadyMsg) || strings.Contains(msg, LocalIndexNotReadyMsg)
