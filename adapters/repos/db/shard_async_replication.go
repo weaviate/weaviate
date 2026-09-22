@@ -519,13 +519,13 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 				WithField("shard_name", s.name).
 				Errorf("hashtree initialization attempt %d failure: %v", i, err)
 
-			// Exponential backoff capped at 5 min. Use select instead of
-			// time.Sleep so that context cancellation (shard shutdown) is
-			// respected immediately rather than after up to 5 minutes.
+			// Exponential backoff capped at 5 min; the select keeps a shutdown from waiting it out.
 			// No re-arm here: the next attempt installs its own tree and gate under the write lock.
+			retryTimer := time.NewTimer(initRetryBackoff(i))
 			select {
-			case <-time.After(initRetryBackoff(i)):
+			case <-retryTimer.C:
 			case <-ctx.Done():
+				retryTimer.Stop()
 				return
 			}
 		}
@@ -1388,9 +1388,11 @@ func (s *Shard) dumpHashTreeWithTimeout(ht hashtree.AggregatedHashTree, timeout 
 				Errorf("store hashtree failed: %v", err)
 		}
 	}, s.index.logger)
+	dumpTimer := time.NewTimer(timeout)
+	defer dumpTimer.Stop()
 	select {
 	case <-done:
-	case <-time.After(timeout):
+	case <-dumpTimer.C:
 		if gate.cancel() {
 			s.index.logger.
 				WithField("action", "async_replication").
