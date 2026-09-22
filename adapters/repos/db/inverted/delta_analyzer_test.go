@@ -2353,6 +2353,40 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 			assert.ElementsMatch(t, allExpectedToDel, delta.ToDelete)
 		})
 	})
+
+	// The delta rebuilds Property with named fields, so a dropped overlay flag
+	// reads as false and puts the length tracker back on a property the
+	// overlay forced into the index.
+	t.Run("overlay flags survive the rebuild", func(t *testing.T) {
+		prev := Property{
+			Name: "overlaid",
+			Items: []Countable{
+				{Data: []byte("kept"), TermFrequency: 1},
+				{Data: []byte("dropped"), TermFrequency: 2},
+			},
+			Length:             11,
+			HasFilterableIndex: true,
+			HasSearchableIndex: true,
+			OverlayForcedOnly:  true,
+			OverlaySearchable:  true,
+		}
+		next := prev
+		next.Items = []Countable{
+			{Data: []byte("kept"), TermFrequency: 1},
+			{Data: []byte("added"), TermFrequency: 3},
+		}
+
+		delta := DeltaSkipSearchable([]Property{prev}, []Property{next}, []string{prev.Name})
+
+		assert.NotEmpty(t, delta.ToAdd)
+		assert.NotEmpty(t, delta.ToDelete)
+		for _, props := range [][]Property{delta.ToAdd, delta.ToDelete} {
+			for _, p := range props {
+				assert.True(t, p.OverlayForcedOnly, "OverlayForcedOnly must survive the round-trip")
+				assert.True(t, p.OverlaySearchable, "OverlaySearchable must survive the round-trip")
+			}
+		}
+	})
 }
 
 func TestDeltaAnalyzer_Arrays(t *testing.T) {
