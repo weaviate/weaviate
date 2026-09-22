@@ -352,6 +352,23 @@ func TestRecoverDimensionsBucketMigration(t *testing.T) {
 			},
 		},
 		{
+			name: "map bucket moved aside, roaring set bucket lost",
+			crash: func(t *testing.T, logger logrus.FieldLogger, indexPath string) {
+				moveMapAside(t, indexPath)
+			},
+			mapBucketKept: true,
+		},
+		{
+			name: "map bucket moved aside, roaring set bucket lost, missing bucket opened meanwhile",
+			crash: func(t *testing.T, logger logrus.FieldLogger, indexPath string) {
+				moveMapAside(t, indexPath)
+				b, err := openUnloadedDimensionsBucket(ctx, logger, indexPath, shardPathDimensionsLSM(indexPath, migrationTestShard))
+				require.NoError(t, err)
+				require.NoError(t, b.Shutdown(ctx))
+			},
+			mapBucketKept: true,
+		},
+		{
 			name: "switched, map bucket not removed",
 			crash: func(t *testing.T, logger logrus.FieldLogger, indexPath string) {
 				buildReady(t, logger, indexPath)
