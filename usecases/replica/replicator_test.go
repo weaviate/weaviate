@@ -25,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	clusterRouter "github.com/weaviate/weaviate/cluster/router"
@@ -167,6 +168,10 @@ func TestReplicatorPutObject(t *testing.T) {
 
 			err := rep.PutObject(ctx, shard, obj, types.ConsistencyLevelOne, 123)
 			assert.Nil(t, err)
+			// wait until every replica answered, so mock expectations cover the lagging ones
+			drainCtx, drainCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer drainCancel()
+			require.NoError(t, rep.WaitForDrain(drainCtx, shard))
 		})
 
 		t.Run(fmt.Sprintf("SuccessWithConsistencyLevelQuorum_%v", tc.variant), func(t *testing.T) {
@@ -563,6 +568,10 @@ func TestReplicatorDeleteObjects(t *testing.T) {
 			assert.Equal(t, []objects.BatchSimpleObject{{UUID: "1"}, {UUID: "2"}}, result)
 			// Wait for all Commit RunFn callbacks to complete before test cleanup runs
 			wg.Wait()
+			// wait until every replica answered, so mock expectations cover the lagging ones
+			drainCtx, drainCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer drainCancel()
+			require.NoError(t, rep.WaitForDrain(drainCtx, shard))
 		})
 
 		t.Run(fmt.Sprintf("SuccessWithConsistencyQuorum_%v", tc.variant), func(t *testing.T) {
@@ -665,6 +674,10 @@ func TestReplicatorPutObjects(t *testing.T) {
 			assert.Equal(t, []error{nil, nil, nil}, errs)
 			// Wait for all Commit RunFn callbacks to complete before test cleanup runs
 			wg.Wait()
+			// wait until every replica answered, so mock expectations cover the lagging ones
+			drainCtx, drainCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer drainCancel()
+			require.NoError(t, rep.WaitForDrain(drainCtx, shard))
 		})
 
 		t.Run(fmt.Sprintf("SuccessWithConsistencyLevelQuorum_%v", tc.variant), func(t *testing.T) {

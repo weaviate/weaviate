@@ -78,9 +78,6 @@ func (b *hostBreakers) newBreaker() *hostBreaker {
 
 // allow bypasses failsafe's permit API: a cancelled probe would leak the permit and strand the host
 func (b *hostBreakers) allow(host string) error {
-	if b == nil {
-		return nil
-	}
 	b.mu.RLock()
 	hb := b.hosts[host]
 	b.mu.RUnlock()
@@ -102,9 +99,6 @@ func (b *hostBreakers) allow(host string) error {
 
 // observe records a finished call's outcome; errors from the caller giving up are ignored
 func (b *hostBreakers) observe(ctx context.Context, host string, err error) {
-	if b == nil {
-		return
-	}
 	switch {
 	case err == nil:
 		b.succeeded(host)
@@ -164,9 +158,7 @@ func (b *hostBreakers) evictIdle() {
 func hostLevelFailure(err error) bool {
 	if httpErr, ok := AsHTTPError(err); ok {
 		switch httpErr.Code {
-		case http.StatusServiceUnavailable, http.StatusBadGateway, http.StatusGatewayTimeout:
-			return true
-		case http.StatusTooManyRequests:
+		case http.StatusServiceUnavailable, http.StatusBadGateway, http.StatusGatewayTimeout, http.StatusTooManyRequests:
 			return true
 		default:
 			return false

@@ -32,8 +32,8 @@ const (
 	defaultBackOffInitialInterval = time.Millisecond * 250
 	defaultBackOffMaxElapsedTime  = time.Second * 128
 
-	// defaultPullHostHedgeDelay is how long a read waits on one replica before also trying an idle one
-	defaultPullHostHedgeDelay = 500 * time.Millisecond
+	// pullHostHedgeDelay is how long a read waits on one replica before also trying an idle one
+	pullHostHedgeDelay = 500 * time.Millisecond
 
 	// defaultPrepareTimeout bounds the prepare phase, which must not be caller-cancellable either: below ALL the caller leaves while other replicas are still being written
 	defaultPrepareTimeout = 20 * time.Second
@@ -70,7 +70,6 @@ type (
 		// wait twice this duration for the first Pull backoff for each host
 		pullBackOffPreInitialInterval time.Duration
 		pullBackOffMaxElapsedTime     time.Duration // stop retrying after this long
-		pullHostHedgeDelay            time.Duration
 		deletionStrategy              string
 		// onSettled runs once Push has no request in flight to any replica
 		onSettled func()
@@ -94,7 +93,6 @@ func NewWriteCoordinator[T, R any](client Client,
 		TxID:                          requestID,
 		pullBackOffPreInitialInterval: defaultBackOffInitialInterval / 2,
 		pullBackOffMaxElapsedTime:     defaultBackOffMaxElapsedTime,
-		pullHostHedgeDelay:            defaultPullHostHedgeDelay,
 	}
 }
 
@@ -112,7 +110,6 @@ func NewReadCoordinator[T any](router types.Router,
 		metrics:                       metrics,
 		pullBackOffPreInitialInterval: defaultBackOffInitialInterval / 2,
 		pullBackOffMaxElapsedTime:     defaultBackOffMaxElapsedTime,
-		pullHostHedgeDelay:            defaultPullHostHedgeDelay,
 		deletionStrategy:              deletionStrategy,
 	}
 }
@@ -437,7 +434,7 @@ type hostRetry struct {
 }
 
 type hostResult[T any] struct {
-	host string
+	hostRetry
 	resp T
 	err  error
 }
@@ -456,58 +453,40 @@ func (c *coordinator[T, any]) pullWorker(ctx context.Context,
 	defer workerCancel() // releases every attempt this worker stopped waiting for
 
 	attempts := make(chan hostResult[T], cap(retryQueue)+1)
-
-	inFlight := make([]hostRetry, 0, cap(retryQueue)+1)
+	pending := 0 // attempts started, including those waiting out a backoff, not yet answered
 
 	start := func(hr hostRetry, after time.Duration) {
-		inFlight = append(inFlight, hr)
+		pending++
 		g := func() {
 			if after > 0 {
 				timer := time.NewTimer(after)
+				defer timer.Stop()
 				select {
 				case <-timer.C:
 				case <-workerCtx.Done():
-					timer.Stop()
 					return
 				}
-				timer.Stop()
 			}
 			resp, err := op(workerCtx, hr.host, fullRead)
 			select {
-			case attempts <- hostResult[T]{host: hr.host, resp: resp, err: err}:
+			case attempts <- hostResult[T]{hr, resp, err}:
 			case <-workerCtx.Done():
 			}
 		}
 		enterrors.GoWrapper(g, c.log)
 	}
 
-	settle := func(host string) (hostRetry, bool) {
-		for i, hr := range inFlight {
-			if hr.host != host {
-				continue
-			}
-			inFlight = append(inFlight[:i], inFlight[i+1:]...)
-			return hr, true
-		}
-		return hostRetry{}, false
-	}
-
-	takeIdleReplica := func() (hostRetry, bool) {
+	startIdleReplica := func() {
 		select {
 		case hr := <-retryQueue:
-			return hr, true
+			start(hr, 0)
 		default:
-			return hostRetry{}, false
 		}
 	}
 
 	start(own, 0)
 
-	hedgeDelay := c.pullHostHedgeDelay
-	if hedgeDelay <= 0 { // a coordinator built without one must still hedge
-		hedgeDelay = defaultPullHostHedgeDelay
-	}
-	hedge := time.NewTicker(hedgeDelay)
+	hedge := time.NewTicker(pullHostHedgeDelay)
 	defer hedge.Stop()
 
 	var (
@@ -524,7 +503,7 @@ func (c *coordinator[T, any]) pullWorker(ctx context.Context,
 			return
 
 		case res := <-attempts:
-			hr, ok := settle(res.host)
+			pending--
 			if res.err == nil {
 				successful.Add(1)
 				replyCh <- Result[T]{res.resp, nil}
@@ -532,26 +511,17 @@ func (c *coordinator[T, any]) pullWorker(ctx context.Context,
 			}
 			lastResp, lastErr = res.resp, res.err
 
-			if idle, found := takeIdleReplica(); found {
-				start(idle, 0)
+			startIdleReplica()
+			if next := res.currentBackOff.NextBackOff(); next != backoff.Stop {
+				start(res.hostRetry, next)
 			}
-			if ok {
-				if next := hr.currentBackOff.NextBackOff(); next != backoff.Stop {
-					start(hr, next)
-				}
-			}
-			if len(inFlight) == 0 {
+			if pending == 0 {
 				replyCh <- Result[T]{lastResp, lastErr}
 				return
 			}
 
-		case <-hedge.C:
-			if len(inFlight) == 0 {
-				continue
-			}
-			if idle, found := takeIdleReplica(); found {
-				start(idle, 0)
-			}
+		case <-hedge.C: // pending is never zero here: the worker returns once it is
+			startIdleReplica()
 		}
 	}
 }

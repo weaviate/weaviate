@@ -472,3 +472,89 @@ func TestReplicatorWritePhasesOutliveCaller(t *testing.T) {
 		})
 	}
 }
+
+// An unavailable repair target neither aborts nor masks the repair of another stale replica.
+func TestFinderRepairWithOneUnavailableTarget(t *testing.T) {
+	var (
+		id        = strfmt.UUID("123")
+		cls       = "C1"
+		shard     = "SH1"
+		nodes     = []string{"A", "B", "C"}
+		adds      = additional.Properties{}
+		proj      = search.SelectProperties{}
+		digestIDs = []strfmt.UUID{id}
+		item      = replica.Replica{ID: id, Object: object(id, 3)}
+		freshR    = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
+		staleR    = []types.RepairResponse{{ID: id.String(), UpdateTime: 1}}
+		// the healthy target answers after the unavailable one has already failed
+		healthyDelay = 100 * time.Millisecond
+	)
+
+	for _, entry := range []string{"GetOne", "Exists"} {
+		for _, tt := range []struct {
+			name string
+			// the healthy stale target's answer to the repair write
+			answer   []types.RepairResponse
+			wantErr  error
+			wantRead bool
+		}{
+			{
+				name:     "healthy target repaired",
+				answer:   nil,
+				wantRead: true,
+			},
+			{
+				name:    "healthy target conflict reported",
+				answer:  []types.RepairResponse{{ID: id.String(), Err: "conflict"}},
+				wantErr: replicaerrors.ErrConflictObjectChanged,
+			},
+		} {
+			t.Run(entry+"/"+tt.name, func(t *testing.T) {
+				f := newFakeFactory(t, cls, shard, nodes, false)
+				finder := f.newFinder("A")
+				healthy, unavailable := nodes[1], nodes[2]
+
+				if entry == "GetOne" {
+					f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, 0).Return(item, nil)
+				} else {
+					f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, 0).Return(freshR, nil)
+					f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, 9).Return(item, nil)
+				}
+				f.RClient.EXPECT().DigestObjects(anyVal, healthy, cls, shard, digestIDs, 0).Return(staleR, nil)
+				f.RClient.EXPECT().DigestObjects(anyVal, unavailable, cls, shard, digestIDs, 0).Return(staleR, nil)
+
+				var healthyCtxErr atomic.Value
+				f.RClient.EXPECT().OverwriteObjects(anyVal, healthy, cls, shard, anyVal).
+					RunAndReturn(func(ctx context.Context, _, _, _ string, _ []*objects.VObject) ([]types.RepairResponse, error) {
+						select {
+						case <-ctx.Done():
+							healthyCtxErr.Store(ctx.Err())
+							return nil, ctx.Err()
+						case <-time.After(healthyDelay):
+						}
+						return tt.answer, nil
+					})
+				f.RClient.EXPECT().OverwriteObjects(anyVal, unavailable, cls, shard, anyVal).
+					Return(nil, errNodeNotReady)
+
+				var err error
+				var found bool
+				if entry == "GetOne" {
+					var obj *storobj.Object
+					obj, err = finder.GetOne(context.Background(), types.ConsistencyLevelAll, shard, id, proj, adds)
+					found = obj != nil
+				} else {
+					found, err = finder.Exists(context.Background(), types.ConsistencyLevelAll, shard, id)
+				}
+
+				assert.Nilf(t, healthyCtxErr.Load(), "the repair of %q must not be cancelled because %q is unavailable", healthy, unavailable)
+				if tt.wantErr != nil {
+					assert.ErrorIsf(t, err, tt.wantErr, "a conflict on %q must not be masked by %q being unavailable", healthy, unavailable)
+					return
+				}
+				assert.NoError(t, err)
+				assert.Equal(t, tt.wantRead, found)
+			})
+		}
+	}
+}
