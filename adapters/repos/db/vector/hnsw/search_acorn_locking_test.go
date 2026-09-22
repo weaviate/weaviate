@@ -192,14 +192,14 @@ func TestSearchUnlocksVertexWhenConnectionDecodePanics(t *testing.T) {
 					neighbor = 1
 				}
 				index.nodes[index.entryPointID].connections.ReplaceLayer(0, []uint64{neighbor})
-				index.nodes[neighbor].connections = packedconn.NewWithData(layerClaimingMoreEntriesThanItStores())
+				index.nodes[neighbor].connections = *packedconn.NewWithData(layerClaimingMoreEntriesThanItStores())
 				return neighbor
 			},
 		},
 		{
 			name: "entrypoint",
 			corrupt: func(index *hnsw) uint64 {
-				index.nodes[index.entryPointID].connections = packedconn.NewWithData(layerClaimingMoreEntriesThanItStores())
+				index.nodes[index.entryPointID].connections = *packedconn.NewWithData(layerClaimingMoreEntriesThanItStores())
 				return index.entryPointID
 			},
 		},
@@ -258,7 +258,7 @@ func TestSearchReleasesEntrypointLockWhenEntrypointHasNoLayers(t *testing.T) {
 	index := newSeededIndex(t, "acorn-entrypoint-without-layers", vectors, size, ent.FilterStrategyAcorn)
 
 	index.currentMaximumLayer = 0
-	index.nodes[index.entryPointID].connections = packedconn.NewWithData(nil)
+	index.nodes[index.entryPointID].connections = *packedconn.NewWithData(nil)
 
 	// small enough against the filled vector cache that acorn stays enabled
 	allowed := make([]uint64, 0, 10)

@@ -83,12 +83,12 @@ func TestNilCheckOnPartiallyCleanedNode(t *testing.T) {
 			{
 				// must be on a non-zero layer for this bug to occur
 				level:       1,
-				connections: conns1,
+				connections: *conns1,
 			},
 			nil, // corrupt node
 			{
 				level:       0,
-				connections: conns2,
+				connections: *conns2,
 			},
 		}
 	})

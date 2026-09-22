@@ -34,9 +34,33 @@ type LayerData struct {
 	packed uint16
 }
 
+// Connections holds a node's neighbours per layer. Layer 0 is stored in the
+// struct itself; the upper layers, which few nodes have, sit behind a pointer.
 type Connections struct {
-	layers     []LayerData
+	layer0     LayerData
+	upper      *[]LayerData // layers 1 and up, nil for single-layer nodes
 	layerCount uint8
+}
+
+func (c *Connections) layer(i uint8) *LayerData {
+	if i == 0 {
+		return &c.layer0
+	}
+	return &(*c.upper)[i-1]
+}
+
+// setLayerCount sizes the upper layers for n layers in total, keeping any
+// existing layer data.
+func (c *Connections) setLayerCount(n uint8) {
+	if n > 1 {
+		if c.upper == nil {
+			s := make([]LayerData, n-1)
+			c.upper = &s
+		} else if int(n-1) > len(*c.upper) {
+			*c.upper = append(*c.upper, make([]LayerData, int(n-1)-len(*c.upper))...)
+		}
+	}
+	c.layerCount = n
 }
 
 func NewWithMaxLayer(maxLayer uint8) (*Connections, error) {
@@ -44,33 +68,22 @@ func NewWithMaxLayer(maxLayer uint8) (*Connections, error) {
 		return nil, fmt.Errorf("max supported layer is %d", math.MaxUint8-1)
 	}
 
-	layerCount := maxLayer + 1
-	c := &Connections{
-		layers:     make([]LayerData, layerCount),
-		layerCount: layerCount,
-	}
-	for i := uint8(0); i < layerCount; i++ {
-		c.layers[i].data = make([]byte, 0, InitialCapacity)
-	}
-	return c, nil
+	var c Connections
+	c.setLayerCount(maxLayer + 1)
+	return &c, nil
 }
 
 func NewWithData(data []byte) *Connections {
+	var c Connections
 	if len(data) == 0 {
-		return &Connections{
-			layers:     make([]LayerData, 0),
-			layerCount: 0,
-		}
+		return &c
 	}
 
 	offset := 0
 	layerCount := data[offset]
 	offset++
 
-	c := &Connections{
-		layers:     make([]LayerData, layerCount),
-		layerCount: layerCount,
-	}
+	c.setLayerCount(layerCount)
 
 	for i := uint8(0); i < layerCount; i++ {
 		if offset+6 > len(data) { // 2 for packed, 4 for dataLen
@@ -92,19 +105,23 @@ func NewWithData(data []byte) *Connections {
 			break // Malformed data
 		}
 
-		// View into the caller's blob rather than a copy. cap==len forces any
-		// later append on this layer to reallocate instead of writing into the
-		// blob and corrupting the neighboring layer's bytes.
-		layerData := data[offset : offset+int(dataLen) : offset+int(dataLen)]
+		// empty layers are nil, the same as layers built in memory
+		var layerData []byte
+		if dataLen > 0 {
+			// View into the caller's blob rather than a copy. cap==len forces any
+			// later append on this layer to reallocate instead of writing into the
+			// blob and corrupting the neighboring layer's bytes.
+			layerData = data[offset : offset+int(dataLen) : offset+int(dataLen)]
+		}
 		offset += int(dataLen)
 
-		c.layers[i] = LayerData{
+		*c.layer(i) = LayerData{
 			data:   layerData,
 			packed: packed,
 		}
 	}
 
-	return c
+	return &c
 }
 
 func NewWithElements(elements [][]uint64) (*Connections, error) {
@@ -120,8 +137,7 @@ func NewWithElements(elements [][]uint64) (*Connections, error) {
 }
 
 func (c *Connections) AddLayer() {
-	c.layerCount++
-	c.layers = append(c.layers, LayerData{})
+	c.setLayerCount(c.layerCount + 1)
 }
 
 func (c *Connections) GrowLayersTo(newLayers uint8) {
@@ -129,17 +145,7 @@ func (c *Connections) GrowLayersTo(newLayers uint8) {
 	if targetCount <= c.layerCount {
 		return
 	}
-
-	// Optimize for the common case: 1 layer
-	if c.layerCount == 0 && targetCount == 1 {
-		c.layers = make([]LayerData, 1)
-		c.layerCount = 1
-		return
-	}
-
-	for c.layerCount < targetCount {
-		c.AddLayer()
-	}
+	c.setLayerCount(targetCount)
 }
 
 // determineOptimalScheme analyzes values to pick the most efficient encoding
@@ -294,14 +300,14 @@ func (c *Connections) ReplaceLayer(layer uint8, conns []uint64) {
 	}
 
 	if len(conns) == 0 {
-		c.layers[layer] = LayerData{}
+		*c.layer(layer) = LayerData{}
 		return
 	}
 
 	scheme := determineOptimalScheme(conns)
 	data := encodeValues(conns, scheme)
 
-	c.layers[layer] = LayerData{
+	*c.layer(layer) = LayerData{
 		data:   data,
 		packed: packSchemeAndCount(scheme, uint32(len(conns))),
 	}
@@ -313,7 +319,7 @@ func (c *Connections) InsertAtLayer(conn uint64, layer uint8) {
 		c.GrowLayersTo(layer)
 	}
 
-	layerData := &c.layers[layer]
+	layerData := c.layer(layer)
 
 	// If layer is empty, start with optimal scheme for this value
 	if layerData.packed == 0 {
@@ -341,7 +347,7 @@ func (c *Connections) InsertAtLayer(conn uint64, layer uint8) {
 
 // appendToLayer appends a single value using the current scheme
 func (c *Connections) appendToLayer(conn uint64, layer uint8) {
-	layerData := &c.layers[layer]
+	layerData := c.layer(layer)
 	scheme := unpackScheme(layerData.packed)
 	count := unpackCount(layerData.packed)
 
@@ -443,7 +449,7 @@ func (c *Connections) BulkInsertAtLayer(conns []uint64, layer uint8) {
 		return
 	}
 
-	layerData := &c.layers[layer]
+	layerData := c.layer(layer)
 
 	if layerData.packed == 0 {
 		// Empty layer - just encode all values
@@ -486,9 +492,9 @@ func (c *Connections) Data() []byte {
 	// Calculate total size
 	totalSize := 1 // layer count
 	for i := uint8(0); i < c.layerCount; i++ {
-		totalSize += 2                     // packed scheme and count
-		totalSize += 4                     // data length
-		totalSize += len(c.layers[i].data) // data
+		totalSize += 2                    // packed scheme and count
+		totalSize += 4                    // data length
+		totalSize += len(c.layer(i).data) // data
 	}
 
 	data := make([]byte, totalSize)
@@ -498,7 +504,7 @@ func (c *Connections) Data() []byte {
 	offset++
 
 	for i := uint8(0); i < c.layerCount; i++ {
-		layer := &c.layers[i]
+		layer := c.layer(i)
 
 		// Write packed scheme and count (2 bytes, little endian)
 		data[offset] = byte(layer.packed)
@@ -525,27 +531,27 @@ func (c *Connections) LenAtLayer(layer uint8) int {
 	if layer >= c.layerCount {
 		return 0
 	}
-	return int(unpackCount(c.layers[layer].packed))
+	return int(unpackCount(c.layer(layer).packed))
 }
 
 // emptyConnections is a shared empty slice to avoid nil returns
 var emptyConnections = []uint64{}
 
 func (c *Connections) GetLayer(layer uint8) []uint64 {
-	if layer >= c.layerCount || c.layers[layer].packed == 0 {
+	if layer >= c.layerCount || c.layer(layer).packed == 0 {
 		return emptyConnections
 	}
 
-	layerData := &c.layers[layer]
+	layerData := c.layer(layer)
 	return decodeValues(layerData.data, unpackScheme(layerData.packed), unpackCount(layerData.packed))
 }
 
 func (c *Connections) CopyLayer(conns []uint64, layer uint8) []uint64 {
-	if layer >= c.layerCount || c.layers[layer].packed == 0 {
+	if layer >= c.layerCount || c.layer(layer).packed == 0 {
 		return conns[:0]
 	}
 
-	layerData := &c.layers[layer]
+	layerData := c.layer(layer)
 	count := int(unpackCount(layerData.packed))
 
 	if cap(conns) < count {
@@ -625,10 +631,10 @@ func (c *Connections) ElementIterator(layer uint8) *LayerElementIterator {
 	maxIndex := 0
 	var values []uint64
 
-	if layer < c.layerCount && c.layers[layer].packed != 0 {
-		maxIndex = int(unpackCount(c.layers[layer].packed))
+	if layer < c.layerCount && c.layer(layer).packed != 0 {
+		maxIndex = int(unpackCount(c.layer(layer).packed))
 		// Decode values once for the iterator's lifetime
-		layerData := &c.layers[layer]
+		layerData := c.layer(layer)
 		values = decodeValues(layerData.data, unpackScheme(layerData.packed), uint32(maxIndex))
 	}
 
@@ -683,7 +689,7 @@ func (iter *LayerElementIterator) Count() int {
 
 func (c *Connections) ClearLayer(layer uint8) {
 	if layer < c.layerCount {
-		c.layers[layer].data = c.layers[layer].data[:0]
-		c.layers[layer].packed = 0
+		c.layer(layer).data = c.layer(layer).data[:0]
+		c.layer(layer).packed = 0
 	}
 }
