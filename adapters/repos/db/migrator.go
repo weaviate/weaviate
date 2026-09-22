@@ -949,11 +949,14 @@ func (m *Migrator) UpdateReplicationConfig(ctx context.Context, className string
 	return nil
 }
 
-// RecalculateVectorDimensions rebuilds the dimensions bucket of every loaded shard
-// from its objects, a few shards at a time. Shards keep serving meanwhile, see
-// [Shard.recalculateDimensions]. Shards of inactive tenants are not touched.
+// RecalculateVectorDimensions rebuilds the dimensions bucket of every shard the db
+// has loaded, or loads lazily, from its objects, a few shards at a time. Shards
+// keep serving meanwhile, see [Shard.recalculateDimensions]. Shards of inactive
+// tenants are not touched, nor are shards that go away meanwhile.
 //
-// It returns the first error and still goes through the remaining shards.
+// A shard that fails is logged and does not keep the remaining ones from their
+// turn, unless ctx has expired. The error returned sums up what was left undone,
+// for the caller to report.
 func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	// before that the indices are not all there, and none would not be an error
 	if !m.db.StartupComplete() {
@@ -969,36 +972,62 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	}
 	m.db.indexLock.RUnlock()
 
-	var shards, failed, objects atomic.Int64
+	var shards, skipped, failed, objects atomic.Int64
 	eg := enterrors.NewErrorGroupWrapper(m.logger)
 	eg.SetLimit(max(1, _NUMCPU/2))
+	var err error
 	for _, index := range indices {
-		err := index.ForEachShard(func(name string, shard ShardLike) error {
+		// Only the name is taken along: Go waits for a free slot, and the shard can
+		// be unloaded or dropped by the time it gets one.
+		err = index.ForEachShard(func(name string, _ ShardLike) error {
+			if ctx.Err() != nil {
+				return fmt.Errorf("reindex dimensions: %w", context.Cause(ctx))
+			}
 			eg.Go(func() error {
-				count, err := shard.recalculateDimensions(ctx)
-				if err != nil {
-					failed.Add(1)
-					logger.WithField("shard", shard.ID()).Errorf("could not reindex dimensions: %v", err)
-					return fmt.Errorf("reindex dimensions of shard %q: %w", shard.ID(), err)
+				count, wasSkipped, err := index.recalculateShardDimensions(ctx, name)
+				switch {
+				case err != nil && ctx.Err() != nil:
+					// cut short as all the others, which the returned error says once
+				case err != nil:
+					// one line per tenant otherwise
+					if failed.Add(1) <= maxReportedErrors {
+						logger.WithField("index", index.ID()).WithField("shard", name).
+							Errorf("could not reindex dimensions: %v", err)
+					}
+					return nil
+				case wasSkipped:
+					skipped.Add(1)
+				default:
+					shards.Add(1)
+					objects.Add(int64(count))
 				}
-				shards.Add(1)
-				objects.Add(int64(count))
 				return nil
 			}, name)
 			return nil
 		})
 		if err != nil {
-			return err
+			break
 		}
 	}
-	err := eg.Wait()
+	// shard failures are counted, not returned
+	_ = eg.Wait()
 
+	if err == nil && ctx.Err() != nil {
+		err = fmt.Errorf("reindex dimensions: %w", context.Cause(ctx))
+	}
+	if err != nil {
+		return fmt.Errorf("%w, with %d shards reindexed and %d failed", err, shards.Load(), failed.Load())
+	}
+	if failed.Load() > 0 {
+		// each of them is in the log already, up to the cap
+		return fmt.Errorf("reindex dimensions: %d shards failed, %d reindexed", failed.Load(), shards.Load())
+	}
 	logger.WithField("shards", shards.Load()).
-		WithField("shards_failed", failed.Load()).
+		WithField("shards_skipped", skipped.Load()).
 		WithField("objects", objects.Load()).
 		Warn("Reindexing dimensions complete. Please remove environment variable " +
 			"REINDEX_VECTOR_DIMENSIONS_AT_STARTUP before next startup")
-	return err
+	return nil
 }
 
 func (m *Migrator) RecountProperties(ctx context.Context) error {

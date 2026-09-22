@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -91,13 +92,78 @@ func (r *dimensionsRecalculation) applyTo(rows dimensionsRows) {
 	}
 }
 
+// recalculateShardDimensions recalculates the dimensions of a shard the index
+// has loaded, or loads lazily. skipped reports a shard that is gone, or that went
+// away meanwhile: a tenant deactivated, a shard dropped, the index shut down.
+func (i *Index) recalculateShardDimensions(ctx context.Context, shardName string) (objects int, skipped bool, err error) {
+	shard, err := i.shardForDimensionsRecalculation(ctx, shardName)
+	if err != nil {
+		return 0, false, err
+	}
+	if shard == nil {
+		return 0, true, nil
+	}
+
+	objects, err = shard.recalculateDimensions(ctx)
+	if err != nil && (shard.shutOrDropped() || errors.Is(err, errShutdownInProgress) ||
+		errors.Is(err, errDropInProgress) || errors.Is(err, errAlreadyShutdown)) {
+		return 0, true, nil
+	}
+	return objects, false, err
+}
+
+// shardForDimensionsRecalculation returns the loaded shard itself, never its lazy
+// wrapper. Whatever unloads a shard takes shardCreateLocks for write, so holding
+// it over both the lookup and the load keeps the wrapper from loading a shard that
+// left i.shards in between, which nothing could shut down anymore.
+//
+// The shard is returned without a reference held, as a recalculation can take
+// long and must not keep the shard from shutting down. It ends by itself then.
+func (i *Index) shardForDimensionsRecalculation(ctx context.Context, shardName string) (*Shard, error) {
+	if err := i.enterRead(); err != nil {
+		return nil, nil
+	}
+	defer i.exitRead()
+
+	i.shardCreateLocks.RLock(shardName)
+	defer i.shardCreateLocks.RUnlock(shardName)
+
+	switch shard := i.shards.Load(shardName).(type) {
+	case nil:
+		return nil, nil
+	case *Shard:
+		return shard, nil
+	case *LazyLoadShard:
+		if err := shard.Load(ctx); err != nil {
+			return nil, err
+		}
+		return shard.shard, nil
+	default:
+		return nil, fmt.Errorf("shard %q: unexpected type %T", shardName, shard)
+	}
+}
+
 // recalculateDimensions rebuilds the dimensions bucket from the objects of the
 // shard, which keeps serving reads and writes meanwhile. The bucket in use is
 // replaced only once the new one is complete, so an interrupted recalculation
 // changes nothing. The new bucket is a roaring set one, whatever the old one was.
+//
+// It ends with an error when the shard is shut down or dropped.
 func (s *Shard) recalculateDimensions(ctx context.Context) (objects int, err error) {
 	if err := s.isReadOnly(); err != nil {
 		return 0, err
+	}
+
+	// shutting down the store waits for the scan to let go of the objects bucket
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	if s.shutCtx != nil {
+		stop := context.AfterFunc(s.shutCtx, func() { cancel(context.Cause(s.shutCtx)) })
+		defer stop()
+		// AfterFunc calls back from a goroutine of its own, too late for a short scan
+		if s.shutCtx.Err() != nil {
+			cancel(context.Cause(s.shutCtx))
+		}
 	}
 
 	recalculation := newDimensionsRecalculation()
@@ -110,21 +176,76 @@ func (s *Shard) recalculateDimensions(ctx context.Context) (objects int, err err
 	// stored its object by now, and the scan will find it
 	s.dimensionsRecalculation = recalculation
 	s.dimensionsLock.Unlock()
+	defer func() {
+		s.dimensionsLock.Lock()
+		s.dimensionsRecalculation = nil
+		s.dimensionsLock.Unlock()
+	}()
 
-	rows, objects, scanErr := s.scanObjectDimensions(ctx)
-
-	s.dimensionsLock.Lock()
-	defer s.dimensionsLock.Unlock()
-	s.dimensionsRecalculation = nil
-	if scanErr != nil {
-		return 0, scanErr
+	rows, objects, err := s.scanObjectDimensions(ctx)
+	if err != nil {
+		return 0, err
 	}
-
-	recalculation.applyTo(rows)
-	if err := s.replaceDimensionsBucket(ctx, rows); err != nil {
+	if err := s.switchToRecalculatedDimensions(ctx, recalculation, rows); err != nil {
 		return 0, err
 	}
 	return objects, nil
+}
+
+// switchToRecalculatedDimensions renames bucket dirs, which must not happen to a
+// shard whose files are being copied, to a store that is shutting down, or to a
+// bucket a usage scan has open or is recovering. It is short, and it keeps all of
+// them out until it is done, as well as the writes to the bucket.
+func (s *Shard) switchToRecalculatedDimensions(ctx context.Context,
+	recalculation *dimensionsRecalculation, rows dimensionsRows,
+) error {
+	if ctx.Err() != nil {
+		return fmt.Errorf("switch dimensions bucket of shard %q: %w", s.ID(), context.Cause(ctx))
+	}
+	if err := s.lockNotHaltedForTransfer(ctx); err != nil {
+		return err
+	}
+	defer s.haltForTransferMux.Unlock()
+
+	release, err := s.preventShutdown()
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	unlockBucket, err := shardusage.LockUnloadedDimensionsBucket(ctx, s.index.path(), s.name)
+	if err != nil {
+		return err
+	}
+	defer unlockBucket()
+
+	s.dimensionsLock.Lock()
+	defer s.dimensionsLock.Unlock()
+
+	recalculation.applyTo(rows)
+	// not to be interrupted: a switch given up halfway has to be rolled back
+	return s.replaceDimensionsBucket(context.WithoutCancel(ctx), rows)
+}
+
+// lockNotHaltedForTransfer returns holding haltForTransferMux, once the shard is
+// not halted. A halt in turn waits for the mutex, so none can start meanwhile.
+func (s *Shard) lockNotHaltedForTransfer(ctx context.Context) error {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+
+	for {
+		s.haltForTransferMux.Lock()
+		if !s.haltedForTransfer() {
+			return nil
+		}
+		s.haltForTransferMux.Unlock()
+
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for transfer of shard %q to end: %w", s.ID(), context.Cause(ctx))
+		case <-ticker.C:
+		}
+	}
 }
 
 func (s *Shard) scanObjectDimensions(ctx context.Context) (dimensionsRows, int, error) {
@@ -184,8 +305,7 @@ func (s *Shard) scanObjectDimensions(ctx context.Context) (dimensionsRows, int, 
 	return rows, objects, nil
 }
 
-// replaceDimensionsBucket must run with dimensionsLock write-held: a write that
-// reaches either bucket while they are switched is lost.
+// replaceDimensionsBucket must run under the locks of [Shard.switchToRecalculatedDimensions].
 func (s *Shard) replaceDimensionsBucket(ctx context.Context, rows dimensionsRows) error {
 	if s.store.Bucket(helpers.DimensionsBucketLSM) == nil {
 		return errors.New("no bucket dimensions")
@@ -194,18 +314,36 @@ func (s *Shard) replaceDimensionsBucket(ctx context.Context, rows dimensionsRows
 	// Named as the migration names its replacement, so that a switch interrupted
 	// between its two renames is recovered the same way when the shard loads next.
 	name := helpers.DimensionsBucketLSM + shardusage.DimensionsReplacementBucketSuffix
+	bucketPath := filepath.Join(s.pathLSM(), helpers.DimensionsBucketLSM)
 	if s.store.Bucket(name) != nil {
 		if err := s.store.ShutdownBucket(ctx, name); err != nil {
 			return fmt.Errorf("shutdown stale bucket %q: %w", name, err)
 		}
 	}
-	if err := os.RemoveAll(filepath.Join(s.pathLSM(), name)); err != nil {
-		return fmt.Errorf("remove stale bucket %q: %w", name, err)
+	// Left over by a switch that failed. The shard has its dimensions bucket in
+	// use, so neither is needed, and one moved aside would fail the switch.
+	for _, stale := range []string{
+		bucketPath + shardusage.DimensionsReplacementBucketSuffix,
+		bucketPath + shardusage.DimensionsReplacedBucketSuffix,
+	} {
+		if err := os.RemoveAll(stale); err != nil {
+			return fmt.Errorf("remove stale bucket %q: %w", stale, err)
+		}
 	}
 
 	if err := s.store.CreateOrLoadBucket(ctx, name, s.makeDefaultBucketOptions(lsmkv.StrategyRoaringSet)...); err != nil {
 		return fmt.Errorf("create bucket %q: %w", name, err)
 	}
+	if err := s.fillAndSwitchDimensionsBucket(ctx, name, rows); err != nil {
+		if rollbackErr := s.rollBackDimensionsBucketSwitch(ctx, name, bucketPath); rollbackErr != nil {
+			return fmt.Errorf("%w: roll back: %w", err, rollbackErr)
+		}
+		return err
+	}
+	return nil
+}
+
+func (s *Shard) fillAndSwitchDimensionsBucket(ctx context.Context, name string, rows dimensionsRows) error {
 	replacement := s.store.Bucket(name)
 	for key, docIDs := range rows {
 		if docIDs.IsEmpty() {
@@ -227,4 +365,40 @@ func (s *Shard) replaceDimensionsBucket(ctx context.Context, rows dimensionsRows
 		return fmt.Errorf("fsync %q: %w", s.pathLSM(), err)
 	}
 	return nil
+}
+
+// rollBackDimensionsBucketSwitch puts the shard back on the dimensions bucket it
+// had. ReplaceBuckets gives the replacement the name of the bucket before it can
+// fail, and does not take it back: left alone, the shard would go on writing to
+// the replacement's dir, which the next load removes as unfinished.
+func (s *Shard) rollBackDimensionsBucketSwitch(ctx context.Context, name, bucketPath string) error {
+	readyPath := bucketPath + shardusage.DimensionsReplacementBucketSuffix
+	delPath := bucketPath + shardusage.DimensionsReplacedBucketSuffix
+
+	if s.store.Bucket(name) != nil {
+		// not switched, the shard still uses the bucket it had
+		if err := s.store.ShutdownBucket(ctx, name); err != nil {
+			s.index.logger.WithField("bucket", name).Warnf("failed to shutdown bucket: %v", err)
+		}
+		return os.RemoveAll(readyPath)
+	}
+
+	// what goes by the name of the dimensions bucket now is the replacement
+	if err := s.store.ShutdownBucket(ctx, helpers.DimensionsBucketLSM); err != nil {
+		s.index.logger.WithField("bucket", helpers.DimensionsBucketLSM).Warnf("failed to shutdown bucket: %v", err)
+	}
+	if _, err := os.Stat(readyPath); err == nil {
+		if _, err := os.Stat(bucketPath); errors.Is(err, os.ErrNotExist) {
+			if err := os.Rename(delPath, bucketPath); err != nil {
+				return fmt.Errorf("move dimensions bucket back: %w", err)
+			}
+		}
+		if err := os.RemoveAll(readyPath); err != nil {
+			return fmt.Errorf("remove bucket %q: %w", readyPath, err)
+		}
+	} else if err := os.RemoveAll(delPath); err != nil {
+		// the replacement made it in place, it is what gets loaded below
+		return fmt.Errorf("remove bucket %q: %w", delPath, err)
+	}
+	return s.createDimensionsBucket(ctx, helpers.DimensionsBucketLSM)
 }
