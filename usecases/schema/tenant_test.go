@@ -219,7 +219,7 @@ func TestUpdateTenants(t *testing.T) {
 			expectedTenants: tenants,
 			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
 				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(uint64(0), nil)
-				fakeMetaHandler.On("TenantsShardsWithVersion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(
+				fakeMetaHandler.On("TenantsShardsStatusWithVersion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(
 					map[string]string{"USER1": models.TenantActivityStatusCOLD, "USER2": models.TenantActivityStatusCOLD}, nil)
 			},
 		},
@@ -231,7 +231,7 @@ func TestUpdateTenants(t *testing.T) {
 			expectedTenants: tenants,
 			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
 				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(uint64(0), nil)
-				fakeMetaHandler.On("TenantsShardsWithVersion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(
+				fakeMetaHandler.On("TenantsShardsStatusWithVersion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(
 					map[string]string{"USER1": models.TenantActivityStatusCOLD, "USER2": models.TenantActivityStatusCOLD}, nil)
 			},
 		},
@@ -243,7 +243,7 @@ func TestUpdateTenants(t *testing.T) {
 			expectedTenants: tenants,
 			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
 				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(uint64(0), nil)
-				fakeMetaHandler.On("TenantsShardsWithVersion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(
+				fakeMetaHandler.On("TenantsShardsStatusWithVersion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(
 					map[string]string{"USER1": models.TenantActivityStatusCOLD, "USER2": models.TenantActivityStatusCOLD}, nil)
 			},
 		},
@@ -297,7 +297,7 @@ func TestUpdateTenants(t *testing.T) {
 			},
 			mockCalls: func(fakeMetaHandler *fakeSchemaManager) {
 				fakeMetaHandler.On("UpdateTenants", mock.Anything, mock.Anything).Return(uint64(0), nil)
-				fakeMetaHandler.On("TenantsShardsWithVersion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(
+				fakeMetaHandler.On("TenantsShardsStatusWithVersion", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(
 					map[string]string{"USER1": models.TenantActivityStatusCOLD, "USER2": models.TenantActivityStatusHOT}, nil)
 			},
 		},
@@ -537,7 +537,7 @@ type autoActivateSM struct {
 	tenantStatuses map[string]string
 }
 
-func (a *autoActivateSM) QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error) {
+func (a *autoActivateSM) QueryTenantsShardsStatus(class string, tenants ...string) (map[string]string, uint64, error) {
 	result := make(map[string]string, len(tenants))
 	for _, t := range tenants {
 		if s, ok := a.tenantStatuses[t]; ok {
@@ -630,7 +630,7 @@ func TestAutoTenantActivation_TransitionalStateRejected(t *testing.T) {
 			},
 		}
 
-		_, _, err := m.TenantsShardsWithVersion(ctx, className, tenantName)
+		_, _, err := m.TenantsShardsStatusWithVersion(ctx, className, tenantName)
 
 		require.Error(t, err)
 		require.ErrorIs(t, err, clusterSchema.ErrTenantTransitionalState)

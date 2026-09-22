@@ -246,7 +246,7 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageInde
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
 	mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 	mockSchema.EXPECT().ShardOwner(className, tenantName).Maybe().Return("test-node", nil)
-	mockSchema.EXPECT().TenantsShards(ctx, className, tenantName).Maybe().
+	mockSchema.EXPECT().TenantsShardsStatus(ctx, className, tenantName).Maybe().
 		Return(map[string]string{tenantName: models.TenantActivityStatusHOT}, nil)
 
 	mockRouter := types.NewMockRouter(t)

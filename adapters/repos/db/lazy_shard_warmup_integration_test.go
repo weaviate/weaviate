@@ -93,7 +93,7 @@ func newWarmupIndex(t *testing.T, dirName string, minObjects int64,
 	mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
 	mockSchema.EXPECT().ReadOnlyClass(warmupClassName).Maybe().Return(class)
 	mockSchema.EXPECT().NodeName().Maybe().Return(warmupNodeName)
-	mockSchema.EXPECT().TenantsShards(mock.Anything, warmupClassName, mock.Anything).Maybe().
+	mockSchema.EXPECT().TenantsShardsStatus(mock.Anything, warmupClassName, mock.Anything).Maybe().
 		Return(tenantStatus, nil)
 
 	mockRouter := types.NewMockRouter(t)
