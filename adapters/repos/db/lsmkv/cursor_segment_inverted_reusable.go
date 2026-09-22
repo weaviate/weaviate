@@ -139,7 +139,7 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeFromMemory(offset nodeO
 // are not resident in memory.
 func (s *segmentCursorInvertedReusable) parseInvertedNodeFromDisk(offset nodeOffset) error {
 	var header [16]byte
-	r, err := s.segment.newNodeReader(offset, "segmentCursorInvertedReusable")
+	r, err := s.segment.newNodeReader(offset, segmentCursorInvertedReusableOp)
 	if err != nil {
 		return err
 	}
@@ -155,7 +155,7 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeFromDisk(offset nodeOff
 	}
 	offset.end = offset.start + end + 4
 
-	r, err = s.segment.newNodeReader(offset, "segmentCursorInvertedReusable")
+	r, err = s.segment.newNodeReader(offset, segmentCursorInvertedReusableOp)
 	if err != nil {
 		return err
 	}
@@ -179,7 +179,7 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeFromDisk(offset nodeOff
 	s.keyBuf = byteops.Resize(s.keyBuf, int(keyLen))
 	// empty keys are possible with non-word tokenizers
 	if keyLen > 0 {
-		r, err = s.segment.newNodeReader(offset, "segmentCursorInvertedReusable")
+		r, err = s.segment.newNodeReader(offset, segmentCursorInvertedReusableOp)
 		if err != nil {
 			return err
 		}

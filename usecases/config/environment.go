@@ -16,6 +16,7 @@ import (
 	"math"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -306,6 +307,11 @@ func FromEnv(config *Config) error {
 
 		asClassesWithProps := make(map[string][]string, len(cpts))
 		for _, cpt := range cpts {
+			// A reindex matches a property by name, so "*" would match none.
+			if slices.Contains(cpt.Props, AllProperties) {
+				return fmt.Errorf("REINDEX_INDEXES_AT_STARTUP takes no %q, and %q uses one: "+
+					"name the properties to reindex", AllProperties, cpt.Collection)
+			}
 			asClassesWithProps[cpt.Collection] = cpt.Props
 		}
 		config.ReindexIndexesAtStartup = asClassesWithProps
@@ -659,8 +665,13 @@ func FromEnv(config *Config) error {
 
 	config.HFreshEnabled = true
 
-	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
-		config.Persistence.IndexRangeableInMemory = true
+	if v := strings.TrimSpace(os.Getenv(indexRangeableInMemoryEnv)); v != "" {
+		all, props, err := parseIndexRangeableInMemory(cptParser, v)
+		if err != nil {
+			return err
+		}
+		config.Persistence.IndexRangeableInMemory = all
+		config.Persistence.IndexRangeableInMemoryProps = props
 	}
 
 	if err := parseInt(
@@ -2216,6 +2227,48 @@ func parseClusterConfig() (cluster.Config, error) {
 	return cfg, nil
 }
 
+const indexRangeableInMemoryEnv = "INDEX_RANGEABLE_IN_MEMORY"
+
+// parseIndexRangeableInMemory reads INDEX_RANGEABLE_IN_MEMORY, which is either a
+// value [entcfg.Enabled] accepts or the "Col1:prop1,prop2;Col2:*" shape naming
+// the properties that get the index. [entcfg.Enabled] is asked first because
+// "True" matches [schema.ClassNameRegexCore]. A namespaced collection cannot be
+// named, since [schema.NamespaceSeparator] is the ":" a segment splits on.
+func parseIndexRangeableInMemory(p *collectionPropsTenantsParser, v string,
+) (all bool, props map[string][]string, err error) {
+	if entcfg.Enabled(v) {
+		return true, nil, nil
+	}
+	// Naming no collection leaves the index off, so "false" and "2" still start.
+	if !strings.ContainsAny(v, ":;") && !p.regexpCollection.MatchString(v) {
+		return false, nil, nil
+	}
+
+	cpts, err := p.parse(v)
+	if err != nil {
+		return false, nil, fmt.Errorf("parse %s as class with props: %w", indexRangeableInMemoryEnv, err)
+	}
+
+	// Refused rather than guessed at, since either reading costs memory for the
+	// life of the process. A tenant narrows nothing, because an index is built
+	// per shard. A bare collection means no properties to the reindex variable.
+	props = make(map[string][]string, len(cpts))
+	for _, cpt := range cpts {
+		if len(cpt.Tenants) > 0 {
+			return false, nil, fmt.Errorf("%s takes no tenants, and %q names %d: the in-memory "+
+				"rangeable index is built per shard, so it covers every tenant of a "+
+				"collection or none", indexRangeableInMemoryEnv, cpt.Collection, len(cpt.Tenants))
+		}
+		if len(cpt.Props) == 0 {
+			return false, nil, fmt.Errorf("%s names %q with no properties: list them, or write %q "+
+				"for every rangeable property it has", indexRangeableInMemoryEnv,
+				cpt.Collection, cpt.Collection+":"+AllProperties)
+		}
+		props[cpt.Collection] = cpt.Props
+	}
+	return false, props, nil
+}
+
 /*
 parses variable of format "colName1:propNames1:tenantNames1;colName2:propNames2:tenantNames2"
 propNames = prop1,prop2,...
@@ -2234,7 +2287,14 @@ examples:
   - collection + tenants/shards:
     "ColName1::tenantName1"
     "ColName1::tenantName1,tenantName2;ColName2::tenantName3"
+
+A property may be given as "*". Each consumer either reads it as every property
+of the collection or refuses it.
 */
+// AllProperties stands for every property of the collection carrying it. No
+// property can be named this, so it is never ambiguous.
+const AllProperties = "*"
+
 type collectionPropsTenantsParser struct {
 	regexpCollection *regexp.Regexp
 	regexpProp       *regexp.Regexp
@@ -2244,8 +2304,9 @@ type collectionPropsTenantsParser struct {
 func newCollectionPropsTenantsParser() *collectionPropsTenantsParser {
 	return &collectionPropsTenantsParser{
 		regexpCollection: regexp.MustCompile(`^` + schema.ClassNameRegexCore + `$`),
-		regexpProp:       regexp.MustCompile(`^` + schema.PropertyNameRegex + `$`),
-		regexpTenant:     regexp.MustCompile(`^` + schema.ShardNameRegexCore + `$`),
+		regexpProp: regexp.MustCompile(`^(` + schema.PropertyNameRegex + `|` +
+			regexp.QuoteMeta(AllProperties) + `)$`),
+		regexpTenant: regexp.MustCompile(`^` + schema.ShardNameRegexCore + `$`),
 	}
 }
 
@@ -2266,7 +2327,12 @@ func (p *collectionPropsTenantsParser) parse(v string) ([]CollectionPropsTenants
 				ec.Add(fmt.Errorf("parse '%s': %w", single, err))
 			} else {
 				if prevIdx, ok := uniqMapIdx[cpt.Collection]; ok {
-					cpts[prevIdx] = p.mergeCpt(cpts[prevIdx], cpt)
+					merged, err := p.mergeCpt(cpts[prevIdx], cpt)
+					if err != nil {
+						ec.Add(err)
+					} else {
+						cpts[prevIdx] = merged
+					}
 				} else {
 					uniqMapIdx[cpt.Collection] = len(cpts)
 					cpts = append(cpts, cpt)
@@ -2366,13 +2432,19 @@ func (p *collectionPropsTenantsParser) parseElems(str string, reg *regexp.Regexp
 	return elems, ec.ToError()
 }
 
-func (p *collectionPropsTenantsParser) mergeCpt(cptDst, cptSrc CollectionPropsTenants) CollectionPropsTenants {
+func (p *collectionPropsTenantsParser) mergeCpt(cptDst, cptSrc CollectionPropsTenants) (CollectionPropsTenants, error) {
 	if cptDst.Collection != cptSrc.Collection {
-		return cptDst
+		return cptDst, nil
+	}
+	// Merging would drop the empty side, leaving "Col:prop1;Col" reading as
+	// "Col:prop1" though the two segments ask for different property sets.
+	if (len(cptDst.Props) == 0) != (len(cptSrc.Props) == 0) {
+		return cptDst, fmt.Errorf("collection '%s' is named both with and without a property list",
+			cptDst.Collection)
 	}
 	cptDst.Props = p.mergeUniqueElems(cptDst.Props, cptSrc.Props)
 	cptDst.Tenants = p.mergeUniqueElems(cptDst.Tenants, cptSrc.Tenants)
-	return cptDst
+	return cptDst, nil
 }
 
 func (p *collectionPropsTenantsParser) mergeUniqueElems(uniqueA, uniqueB []string) []string {

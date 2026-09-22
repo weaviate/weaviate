@@ -279,11 +279,14 @@ type Shard struct {
 	geoQueues map[string]*VectorIndexQueue
 
 	// async replication
-	asyncReplicationRWMux           sync.RWMutex
-	targetNodeOverrides             additional.AsyncReplicationTargetNodeOverrides
-	asyncReplicationConfig          AsyncReplicationConfig
-	hashtree                        hashtree.AggregatedHashTree
-	hashtreeFullyInitialized        bool
+	asyncReplicationRWMux  sync.RWMutex
+	targetNodeOverrides    additional.AsyncReplicationTargetNodeOverrides
+	asyncReplicationConfig AsyncReplicationConfig
+	// hashtree is non-nil iff async replication is enabled; until hashtreeFullyInitialized it is the enable-time placeholder or an in-progress scan's tree and must not be served.
+	hashtree hashtree.AggregatedHashTree
+	// hashtreeFullyInitialized gates readers (hashbeat, HashTreeLevel/Root, checkpoints, .ht capture); set only after a complete scan or a cached load.
+	hashtreeFullyInitialized bool
+	// minimalHashtreeInitializationCh is nil while init is queued or done and non-nil only from a scan's snapshot until its in-memory pass ends; writers park on it best-effort.
 	minimalHashtreeInitializationCh chan struct{}
 	asyncReplicationCancelFunc      context.CancelFunc
 
