@@ -572,10 +572,10 @@ func (r *replyRecorder) indexOf(pick func(*pb.BatchStreamReply) bool) int {
 // newStreamMocks builds the mocks the backpressure tests share: a batcher that
 // always succeeds, a schema manager that resolves collection, and an
 // authenticator that expects one Handle call per stream.
-func newStreamMocks(t *testing.T, collection string, streams int) (*mocks.Mockbatcher, *mocks.MockschemaManager, *mocks.Mockauthenticator) {
+func newStreamMocks(t *testing.T, collection string, streams int) (*mocks.MockBatcher, *mocks.MockschemaManager, *mocks.Mockauthenticator) {
 	t.Helper()
 
-	batcher := mocks.NewMockbatcher(t)
+	batcher := mocks.NewMockBatcher(t)
 	batcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).
 		Return(&pb.BatchObjectsReply{Took: 1}, nil).Maybe()
 	batcher.EXPECT().BatchReferences(mock.Anything, mock.Anything).
@@ -721,7 +721,7 @@ func Test_receiver_holdForMemory(t *testing.T) {
 			return false
 		})
 
-		mockBatcher := mocks.NewMockbatcher(t)
+		mockBatcher := mocks.NewMockBatcher(t)
 		mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).
 			RunAndReturn(func(context.Context, *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
 				<-held
@@ -953,7 +953,7 @@ func TestAtomicAdmission(t *testing.T) {
 		aInLookup := make(chan struct{})
 		releaseA := make(chan struct{})
 
-		mockBatcher := mocks.NewMockbatcher(t)
+		mockBatcher := mocks.NewMockBatcher(t)
 		mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).
 			Return(&pb.BatchObjectsReply{Took: 1}, nil).Maybe()
 
