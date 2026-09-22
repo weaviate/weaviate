@@ -268,6 +268,7 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageInde
 			ShardLoadLimiter:      loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 			TrackVectorDimensions: trackDimensions,
 			EnableLazyLoadShards:  lazy,
+			HFreshEnabled:         true,
 		}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 			legacyVectorConfig,
 			namedVectorConfigs,
