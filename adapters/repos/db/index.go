@@ -226,9 +226,7 @@ func (m *shardMap) loaded(name string) *Shard {
 	case *Shard:
 		return s
 	case *LazyLoadShard:
-		if s.isLoaded() {
-			return s.shard
-		}
+		return s.loadedShard()
 	}
 	return nil
 }
@@ -891,7 +889,7 @@ func (i *Index) loadLocalShardIfActive(shardName string) (monitoring.WarmupOutco
 	ctx, done := i.cancelOnCloseRequested(context.Background())
 	defer done()
 
-	loaded, err := lazyShard.loadIfCold(ctx)
+	_, loaded, err := lazyShard.loadIfCold(ctx)
 	if err != nil {
 		return "", err
 	}

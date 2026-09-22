@@ -1261,7 +1261,7 @@ func TestGuardRequestPath(t *testing.T) {
 		require.ErrorIs(t, err, namespaces.ErrNamespaceSuspended)
 		assert.Nil(t, shard)
 		require.NotNil(t, release)
-		assert.False(t, lazy.loaded, "the resident shard must not have been loaded")
+		assert.False(t, lazy.isLoaded(), "the resident shard must not have been loaded")
 	})
 
 	// The data-plane case: nothing here needs loading, so a refusal can only come

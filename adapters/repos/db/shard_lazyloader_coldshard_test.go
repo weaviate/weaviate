@@ -29,6 +29,7 @@ import (
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -619,4 +620,146 @@ func TestResumeMaintenanceCycles_DoesNotForceLoadColdShards(t *testing.T) {
 	for name, shard := range cold {
 		require.False(t, shard.isLoaded(), "cold shard %q must not be force-loaded", name)
 	}
+}
+
+// noLoadReaders lists the LazyLoadShard readers that never load the shard, each
+// with the answer it must return while the shard is cold.
+var noLoadReaders = []struct {
+	name  string
+	check func(t *testing.T, l *LazyLoadShard)
+}{
+	{"isLoaded", func(t *testing.T, l *LazyLoadShard) {
+		require.False(t, l.isLoaded())
+	}},
+	{"Activity", func(t *testing.T, l *LazyLoadShard) {
+		read, write := l.Activity()
+		require.Equal(t, [2]int32{0, 0}, [2]int32{read, write})
+	}},
+	{"GetStatus", func(t *testing.T, l *LazyLoadShard) {
+		require.Equal(t, storagestate.StatusLazyLoading, l.GetStatus())
+	}},
+	{"GetStatusReason", func(t *testing.T, l *LazyLoadShard) {
+		require.Equal(t, storagestate.StatusLazyLoading.String(), l.GetStatusReason())
+	}},
+	{"HashTreeRoot", func(t *testing.T, l *LazyLoadShard) {
+		_, ok := l.HashTreeRoot()
+		require.False(t, ok)
+	}},
+	{"HashTreeLevel", func(t *testing.T, l *LazyLoadShard) {
+		_, err := l.HashTreeLevel(context.Background(), 0, nil)
+		require.ErrorIs(t, err, errAsyncReplicationNotActive)
+	}},
+	{"AsyncCheckpointRoot", func(t *testing.T, l *LazyLoadShard) {
+		_, _, _, ok := l.AsyncCheckpointRoot(context.Background())
+		require.False(t, ok)
+	}},
+	{"IsAsyncCheckpointHostable", func(t *testing.T, l *LazyLoadShard) {
+		require.False(t, l.IsAsyncCheckpointHostable())
+	}},
+	{"hasActiveAsyncReplicationTargetOverrides", func(t *testing.T, l *LazyLoadShard) {
+		require.False(t, l.hasActiveAsyncReplicationTargetOverrides())
+	}},
+	{"hasGeoIndexForProp", func(t *testing.T, l *LazyLoadShard) {
+		require.False(t, l.hasGeoIndexForProp("location"))
+	}},
+	{"migrationRecordStore", func(t *testing.T, l *LazyLoadShard) {
+		require.Nil(t, l.migrationRecordStore())
+	}},
+	{"DebugGetDocIdLockStatus", func(t *testing.T, l *LazyLoadShard) {
+		_, err := l.DebugGetDocIdLockStatus()
+		require.Error(t, err)
+	}},
+}
+
+// A shard that was shut down is cold again, so each noLoadReaders entry must
+// answer the same after a Load and Shutdown as before the first Load.
+func TestLazyLoadShard_NoLoadReadersAfterShutdown(t *testing.T) {
+	ctx := context.Background()
+	repo, index := newReplConfigDeadlockFixture(t, "NoLoadReadersAfterShutdown")
+	lazy := soleColdShard(t, index)
+
+	for _, reader := range noLoadReaders {
+		t.Run("cold/"+reader.name, func(t *testing.T) { reader.check(t, lazy) })
+	}
+
+	require.NoError(t, lazy.Load(ctx))
+	require.True(t, lazy.isLoaded(), "precondition: the reads below happen after a real load")
+	require.NoError(t, lazy.Shutdown(ctx))
+
+	for _, reader := range noLoadReaders {
+		t.Run("after shutdown/"+reader.name, func(t *testing.T) { reader.check(t, lazy) })
+	}
+
+	require.NoError(t, repo.Shutdown(context.Background()))
+}
+
+// The noLoadReaders run without l.mutex while the shard loads and shuts down.
+// Each must read the shard pointer once, or a shutdown between its nil check and
+// its use makes it dereference nil.
+func TestLazyLoadShard_NoLoadReadersAcrossLoadAndShutdown(t *testing.T) {
+	ctx := context.Background()
+	repo, index := newReplConfigDeadlockFixture(t, "NoLoadReadersConcurrent")
+	lazy := soleColdShard(t, index)
+
+	stop := make(chan struct{})
+	reading := make(chan struct{})
+	go func() {
+		defer close(reading)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			// The answers depend on timing, so only the calls are under test.
+			lazy.isLoaded()
+			lazy.Activity()
+			lazy.GetStatus()
+			lazy.HashTreeRoot()
+			lazy.AsyncCheckpointRoot(ctx)
+			lazy.hasActiveAsyncReplicationTargetOverrides()
+			lazy.hasGeoIndexForProp("location")
+			lazy.migrationRecordStore()
+			lazy.DebugGetDocIdLockStatus()
+		}
+	}()
+
+	for i := 0; i < 3; i++ {
+		require.NoError(t, lazy.Load(ctx))
+		require.True(t, lazy.isLoaded())
+		require.NoError(t, lazy.Shutdown(ctx))
+		require.False(t, lazy.isLoaded())
+	}
+
+	close(stop)
+	<-reading
+	require.NoError(t, repo.Shutdown(context.Background()))
+}
+
+// A shutdown stops the shard's halt watchdog, so MayResetTransferInactivityTimer
+// must not push forward the deadline of a shard that was shut down.
+func TestLazyLoadShard_TransferTimerNotResetAfterShutdown(t *testing.T) {
+	ctx := context.Background()
+	repo, index := newReplConfigDeadlockFixture(t, "TransferTimerAfterShutdown")
+	lazy := soleColdShard(t, index)
+
+	require.NoError(t, lazy.Load(ctx))
+	shard := lazy.loadedShard()
+	require.NotNil(t, shard)
+
+	// Without a timeout no path sets the deadline, and the assertion below
+	// would pass regardless.
+	shard.haltForTransferMux.Lock()
+	shard.haltForTransferInactivityTimeout = time.Hour
+	shard.haltForTransferMux.Unlock()
+
+	require.NoError(t, lazy.Shutdown(ctx))
+	lazy.MayResetTransferInactivityTimer()
+
+	shard.haltForTransferMux.Lock()
+	defer shard.haltForTransferMux.Unlock()
+	require.True(t, shard.haltForTransferInactivityDeadline.IsZero(),
+		"a shut down shard's transfer deadline must not be pushed forward")
+
+	require.NoError(t, repo.Shutdown(context.Background()))
 }

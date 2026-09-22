@@ -213,11 +213,12 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 
 				lazyShard, ok := shard.(*LazyLoadShard)
 				require.True(t, ok)
-				require.NoError(t, lazyShard.Load(ctx))
-
-				objectStorageSize, err := lazyShard.shard.ObjectStorageSize(ctx)
+				loaded, err := lazyShard.Unwrap(ctx)
 				require.NoError(t, err)
-				objectCount, err := lazyShard.shard.ObjectCount(ctx)
+
+				objectStorageSize, err := loaded.ObjectStorageSize(ctx)
+				require.NoError(t, err)
+				objectCount, err := loaded.ObjectCount(ctx)
 				require.NoError(t, err)
 
 				// Verify object count
@@ -238,9 +239,10 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 
 				lazyShard, ok := shard.(*LazyLoadShard)
 				require.True(t, ok)
-				require.NoError(t, lazyShard.Load(ctx))
+				loaded, err := lazyShard.Unwrap(ctx)
+				require.NoError(t, err)
 
-				objectStorageSize, err := lazyShard.shard.ObjectStorageSize(ctx)
+				objectStorageSize, err := loaded.ObjectStorageSize(ctx)
 				require.NoError(t, err)
 				objectCount, err := shard.ObjectCount(ctx)
 				require.NoError(t, err)

@@ -818,8 +818,15 @@ func newColdShard(index *Index, name string) *LazyLoadShard {
 func installLoadedShard(lazy *LazyLoadShard, shard *Shard) {
 	lazy.mutex.Lock()
 	defer lazy.mutex.Unlock()
-	lazy.shard, lazy.loaded = shard, true
-	lazy.loadedShard.Store(shard)
+	lazy.shard.Store(shard)
+}
+
+// newLoadedLazyShard returns a LazyLoadShard already holding shard, for tests
+// that only need the wrapper to report itself loaded.
+func newLoadedLazyShard(shard *Shard) *LazyLoadShard {
+	lazy := &LazyLoadShard{}
+	installLoadedShard(lazy, shard)
+	return lazy
 }
 
 // Tenant activity is polled for every shard on the node, so a cold tenant has to

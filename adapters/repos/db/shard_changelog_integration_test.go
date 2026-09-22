@@ -72,8 +72,9 @@ func setupChangelogTestShard(t *testing.T, ctx context.Context) *Shard {
 	case *Shard:
 		return s
 	case *LazyLoadShard:
-		require.NoError(t, s.Load(ctx), "force-load lazy shard")
-		return s.shard
+		shard, err := s.Unwrap(ctx)
+		require.NoError(t, err, "force-load lazy shard")
+		return shard
 	default:
 		t.Fatalf("setupChangelogTestShard: unexpected shard type %T", shardLike)
 		return nil

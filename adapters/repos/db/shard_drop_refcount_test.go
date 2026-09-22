@@ -50,8 +50,9 @@ func loadTestShard(t *testing.T, index *Index) (string, *Shard) {
 	})
 	entry := index.shards.Load(name)
 	require.NotNil(t, entry)
-	require.NoError(t, entry.(*LazyLoadShard).Load(context.Background()))
-	return name, entry.(*LazyLoadShard).shard
+	shard, err := entry.(*LazyLoadShard).Unwrap(context.Background())
+	require.NoError(t, err)
+	return name, shard
 }
 
 // dropTestShard pins the shard as Index.withShardForWrite does, then races a

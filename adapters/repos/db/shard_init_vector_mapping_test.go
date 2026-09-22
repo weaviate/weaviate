@@ -490,7 +490,7 @@ func TestInitShardVectors_RecoveryFromARefusedLoad(t *testing.T) {
 
 	require.NoError(t, cold.Load(ctx))
 	t.Cleanup(func() { require.NoError(t, cold.Shutdown(context.Background())) })
-	found, err := cold.shard.WithVectorIndex("", func(index VectorIndex) error {
+	found, err := cold.loadedShard().WithVectorIndex("", func(index VectorIndex) error {
 		for _, obj := range objs {
 			if !index.ContainsDoc(obj.DocID) {
 				return fmt.Errorf("doc %d is gone", obj.DocID)

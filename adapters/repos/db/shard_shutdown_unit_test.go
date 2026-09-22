@@ -46,10 +46,10 @@ func TestShardStillAlive(t *testing.T) {
 	require.False(t, shardStillAlive(&LazyLoadShard{}),
 		"an unloaded lazy shard holds nothing to orphan")
 
-	loaded := &LazyLoadShard{loaded: true, shard: live}
+	loaded := newLoadedLazyShard(live)
 	require.True(t, shardStillAlive(loaded))
 
-	loadedShut := &LazyLoadShard{loaded: true, shard: shut}
+	loadedShut := newLoadedLazyShard(shut)
 	require.False(t, shardStillAlive(loadedShut))
 }
 
@@ -233,8 +233,8 @@ func TestShardKnownShut(t *testing.T) {
 	shut := &Shard{shutdownLock: new(sync.RWMutex)}
 	shut.shut.Store(true)
 	require.True(t, shardKnownShut(shut))
-	require.True(t, shardKnownShut(&LazyLoadShard{loaded: true, shard: shut}))
-	require.False(t, shardKnownShut(&LazyLoadShard{loaded: true, shard: &Shard{shutdownLock: new(sync.RWMutex)}}))
+	require.True(t, shardKnownShut(newLoadedLazyShard(shut)))
+	require.False(t, shardKnownShut(newLoadedLazyShard(&Shard{shutdownLock: new(sync.RWMutex)})))
 
 	// A deep-teardown failure (shut=true, sticky teardownErr) is NOT
 	// evictable: the map entry is the last reference to its possibly-leaked

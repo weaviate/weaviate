@@ -521,7 +521,7 @@ func dropDuringDeferredShutdown(t *testing.T, h *shardMetricsHarness, className 
 
 	lazy, ok := index.shards.Load(shardName).(*LazyLoadShard)
 	require.True(t, ok, "a shard put back after a failed unload stays in the map")
-	shard := lazy.shard
+	shard := lazy.loadedShard()
 	require.NotNil(t, shard)
 
 	// Files removed underneath the shard end the drop early, so its metric

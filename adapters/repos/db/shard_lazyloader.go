@@ -57,11 +57,10 @@ import (
 
 type LazyLoadShard struct {
 	shardOpts *deferredShardOpts
-	shard     *Shard
-	loaded    bool
-	// loadedShard is shard while loaded is true and nil otherwise. Activity reads
-	// it without mutex, so it never waits behind a load, a backup or a shutdown.
-	loadedShard atomic.Pointer[Shard]
+	// shard is the loaded shard, and nil while the shard is cold. Only l.mutex
+	// holders store it. Readers take it once through currentShard or loadedShard,
+	// so a load or shutdown mid-call does not change which shard they work on.
+	shard atomic.Pointer[Shard]
 	// unloadedCount caches the object count read off disk while the shard is
 	// cold, which a cold shard cannot change without loading first. nil means
 	// not read yet; Load clears it.
@@ -110,38 +109,67 @@ type deferredShardOpts struct {
 	bitmapBufPool  roaringset.BitmapBufPool
 }
 
-func (l *LazyLoadShard) mustLoad() {
-	l.mustLoadCtx(context.Background())
+// mustLoad loads the shard if it is cold and returns it, and panics when the
+// load fails. Callers use the returned shard rather than re-reading l.shard,
+// which a shutdown can clear right after the load.
+func (l *LazyLoadShard) mustLoad() *Shard {
+	return l.mustLoadCtx(context.Background())
 }
 
-func (l *LazyLoadShard) mustLoadCtx(ctx context.Context) {
-	if err := l.Load(ctx); err != nil {
+func (l *LazyLoadShard) mustLoadCtx(ctx context.Context) *Shard {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		panic(err.Error())
 	}
+	return shard
+}
+
+// ensureLoaded loads the shard if it is cold and returns it.
+func (l *LazyLoadShard) ensureLoaded(ctx context.Context) (*Shard, error) {
+	shard, _, err := l.loadIfCold(ctx)
+	return shard, err
 }
 
 func (l *LazyLoadShard) Load(ctx context.Context) error {
-	_, err := l.loadIfCold(ctx)
+	_, err := l.ensureLoaded(ctx)
 	return err
 }
 
-// loadIfCold builds the shard unless it is loaded already, and reports whether
-// this call is the one that built it. The startup sweep counts only the loads it
-// performed, and a request can take the shard first.
-func (l *LazyLoadShard) loadIfCold(ctx context.Context) (bool, error) {
+// currentShard returns the shard, or nil while it is cold, without taking
+// l.mutex, so a load in flight reads as cold. Callers hold l.mutex already or
+// must not wait behind a load.
+func (l *LazyLoadShard) currentShard() *Shard {
+	return l.shard.Load()
+}
+
+// loadedShard waits for any load in flight, then returns the shard, or nil when
+// it is cold. It never starts a load. The wait keeps enableAsyncReplication from
+// skipping a shard whose load read the config too early. Callers must not hold
+// l.mutex.
+func (l *LazyLoadShard) loadedShard() *Shard {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if l.loaded {
-		return false, nil
+	return l.currentShard()
+}
+
+// loadIfCold builds the shard unless it is loaded already, and returns it and
+// whether this call built it. The startup sweep counts only the loads it
+// performed, and a request can take the shard first.
+func (l *LazyLoadShard) loadIfCold(ctx context.Context) (*Shard, bool, error) {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if shard := l.currentShard(); shard != nil {
+		return shard, false, nil
 	}
 
 	if err := l.memMonitor.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
-		return false, errors.Wrap(err, "memory pressure: cannot load shard")
+		return nil, false, errors.Wrap(err, "memory pressure: cannot load shard")
 	}
 
 	if err := l.shardLoadLimiter.Acquire(ctx); err != nil {
-		return false, fmt.Errorf("acquiring permit to load shard: %w", err)
+		return nil, false, fmt.Errorf("acquiring permit to load shard: %w", err)
 	}
 	defer l.shardLoadLimiter.Release()
 
@@ -167,17 +195,15 @@ func (l *LazyLoadShard) loadIfCold(ctx context.Context) (bool, error) {
 		l.shardOpts.promMetrics.FailLoadingShard()
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
 		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
-		return false, errors.New(msg)
+		return nil, false, errors.New(msg)
 	}
 
 	l.shardOpts.promMetrics.FinishLoadingShard()
 	shard.metricsRegistered.Store(true)
 
-	l.shard = shard
-	l.loaded = true
-	l.loadedShard.Store(shard)
+	l.shard.Store(shard)
 
-	return true, nil
+	return shard, true, nil
 }
 
 func (l *LazyLoadShard) Index() *Index {
@@ -189,29 +215,24 @@ func (l *LazyLoadShard) Name() string {
 }
 
 func (l *LazyLoadShard) Store() *lsmkv.Store {
-	l.mustLoad()
-	return l.shard.Store()
+	return l.mustLoad().Store()
 }
 
 // Unwrap loads the shard if necessary and returns the underlying concrete *Shard.
 func (l *LazyLoadShard) Unwrap(ctx context.Context) (*Shard, error) {
-	if err := l.Load(ctx); err != nil {
-		return nil, err
-	}
-	return l.shard, nil
+	return l.ensureLoaded(ctx)
 }
 
 func (l *LazyLoadShard) NotifyReady() {
-	l.mustLoad()
-	l.shard.NotifyReady()
+	l.mustLoad().NotifyReady()
 }
 
 func (l *LazyLoadShard) GetStatus() storagestate.Status {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if l.loaded {
-		return l.shard.GetStatus()
+	if shard := l.currentShard(); shard != nil {
+		return shard.GetStatus()
 	}
 	return storagestate.StatusLazyLoading
 }
@@ -220,15 +241,14 @@ func (l *LazyLoadShard) GetStatusReason() string {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if l.loaded {
-		return l.shard.GetStatusReason()
+	if shard := l.currentShard(); shard != nil {
+		return shard.GetStatusReason()
 	}
 	return storagestate.StatusLazyLoading.String()
 }
 
 func (l *LazyLoadShard) UpdateStatus(status, reason string) error {
-	l.mustLoad()
-	return l.shard.UpdateStatus(status, reason)
+	return l.mustLoad().UpdateStatus(status, reason)
 }
 
 // UpdateStatusIf leaves an unloaded shard alone instead of loading it: the
@@ -238,40 +258,39 @@ func (l *LazyLoadShard) UpdateStatusIf(cond func(ShardStatus) bool, status, reas
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if !l.loaded {
+	shard := l.currentShard()
+	if shard == nil {
 		return nil
 	}
-	return l.shard.UpdateStatusIf(cond, status, reason)
+	return shard.UpdateStatusIf(cond, status, reason)
 }
 
 func (l *LazyLoadShard) SetStatusReadonly(reason string) error {
-	l.mustLoad()
-	return l.shard.SetStatusReadonly(reason)
+	return l.mustLoad().SetStatusReadonly(reason)
 }
 
 func (l *LazyLoadShard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return []strfmt.UUID{}, err
 	}
-	return l.shard.FindUUIDs(ctx, filters, limit)
+	return shard.FindUUIDs(ctx, filters, limit)
 }
 
 func (l *LazyLoadShard) Counter() *indexcounter.Counter {
-	l.mustLoad()
-	return l.shard.Counter()
+	return l.mustLoad().Counter()
 }
 
 func (l *LazyLoadShard) ObjectCount(ctx context.Context) (int, error) {
-	l.mustLoad()
-	return l.shard.ObjectCount(ctx)
+	return l.mustLoad().ObjectCount(ctx)
 }
 
 func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if l.loaded {
-		return l.shard.ObjectCountAsync(ctx)
+	if shard := l.currentShard(); shard != nil {
+		return shard.ObjectCountAsync(ctx)
 	}
 	if l.unloadedCount != nil {
 		return *l.unloadedCount, nil
@@ -295,223 +314,241 @@ func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
 }
 
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
-	l.mustLoad()
-	return l.shard.GetPropertyLengthTracker()
+	return l.mustLoad().GetPropertyLengthTracker()
 }
 
 func (l *LazyLoadShard) PutObject(ctx context.Context, object *storobj.Object) error {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return err
 	}
-	return l.shard.PutObject(ctx, object)
+	return shard.PutObject(ctx, object)
 }
 
 func (l *LazyLoadShard) PutObjectBatch(ctx context.Context, objects []*storobj.Object) []error {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return duplicateErr(err, len(objects))
 	}
-	return l.shard.PutObjectBatch(ctx, objects)
+	return shard.PutObjectBatch(ctx, objects)
 }
 
 func (l *LazyLoadShard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return l.shard.ObjectByID(ctx, id, props, additional)
+	return shard.ObjectByID(ctx, id, props, additional)
 }
 
 func (l *LazyLoadShard) ObjectDigestErrDeleted(ctx context.Context, id strfmt.UUID) (types.RepairResponse, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return types.RepairResponse{}, err
 	}
-	return l.shard.ObjectDigestErrDeleted(ctx, id)
+	return shard.ObjectDigestErrDeleted(ctx, id)
 }
 
 func (l *LazyLoadShard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return false, err
 	}
-	return l.shard.Exists(ctx, id)
+	return shard.Exists(ctx, id)
 }
 
 func (l *LazyLoadShard) ObjectSearch(ctx context.Context, limit int, filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, properties []string) ([]*storobj.Object, []float32, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return nil, nil, err
 	}
-	return l.shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional, properties)
+	return shard.ObjectSearch(ctx, limit, filters, keywordRanking, sort, cursor, additional, properties)
 }
 
 func (l *LazyLoadShard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return nil, nil, err
 	}
-	return l.shard.ObjectVectorSearch(ctx, searchVectors, targetVectors, targetDist, limit, filters, sort, groupBy, additional, targetCombination, properties)
+	return shard.ObjectVectorSearch(ctx, searchVectors, targetVectors, targetDist, limit, filters, sort, groupBy, additional, targetCombination, properties)
 }
 
 func (l *LazyLoadShard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfig.VectorIndexConfig) error {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return err
 	}
-	return l.shard.UpdateVectorIndexConfig(ctx, updated)
+	return shard.UpdateVectorIndexConfig(ctx, updated)
 }
 
 func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string]schemaConfig.VectorIndexConfig) error {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return err
 	}
-	return l.shard.UpdateVectorIndexConfigs(ctx, updated)
+	return shard.UpdateVectorIndexConfigs(ctx, updated)
 }
 
 func (l *LazyLoadShard) enableAsyncReplication(ctx context.Context, config AsyncReplicationConfig) error {
-	// Never load (init applies config at load); isLoaded takes l.mutex, so callers must not hold replicationConfigLock.
-	if !l.isLoaded() {
+	// A cold shard stays cold, since NewShard applies the config when it loads.
+	// loadedShard takes l.mutex, so callers must not hold replicationConfigLock.
+	shard := l.loadedShard()
+	if shard == nil {
 		return nil
 	}
-	return l.shard.enableAsyncReplication(ctx, config)
+	return shard.enableAsyncReplication(ctx, config)
 }
 
 func (l *LazyLoadShard) disableAsyncReplication(ctx context.Context) error {
-	l.mutex.Lock()
-	loaded := l.loaded
-	l.mutex.Unlock()
-	if !loaded {
+	shard := l.loadedShard()
+	if shard == nil {
 		return nil
 	}
-	return l.shard.disableAsyncReplication(ctx)
+	return shard.disableAsyncReplication(ctx)
 }
 
 func (l *LazyLoadShard) hasActiveAsyncReplicationTargetOverrides() bool {
-	l.mutex.Lock()
-	loaded := l.loaded
-	l.mutex.Unlock()
-	if !loaded {
+	shard := l.loadedShard()
+	if shard == nil {
 		// An unloaded shard holds no in-memory overrides.
 		return false
 	}
-	return l.shard.hasActiveAsyncReplicationTargetOverrides()
+	return shard.hasActiveAsyncReplicationTargetOverrides()
 }
 
 func (l *LazyLoadShard) removePersistedHashtree() error {
-	l.mutex.Lock()
-	loaded := l.loaded
-	l.mutex.Unlock()
-	if !loaded {
+	shard := l.loadedShard()
+	if shard == nil {
 		return nil // unloaded shards take no writes, so a persisted .ht stays valid; init scrubs it when async is off
 	}
-	return l.shard.removePersistedHashtree()
+	return shard.removePersistedHashtree()
 }
 
 func (l *LazyLoadShard) rebuildAsyncReplicationFromScratch(ctx context.Context, enabled bool, config AsyncReplicationConfig) error {
 	// Never load: matches resumeAfterAbortedOffload's no-op-when-unloaded contract.
-	if !l.isLoaded() {
+	shard := l.loadedShard()
+	if shard == nil {
 		return nil
 	}
-	return l.shard.rebuildAsyncReplicationFromScratch(ctx, enabled, config)
+	return shard.rebuildAsyncReplicationFromScratch(ctx, enabled, config)
 }
 
 func (l *LazyLoadShard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return err
 	}
-	return l.shard.addTargetNodeOverride(ctx, targetNodeOverride)
+	return shard.addTargetNodeOverride(ctx, targetNodeOverride)
 }
 
 func (l *LazyLoadShard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return err
 	}
-	return l.shard.removeTargetNodeOverride(ctx, targetNodeOverride)
+	return shard.removeTargetNodeOverride(ctx, targetNodeOverride)
 }
 
 func (l *LazyLoadShard) removeAllTargetNodeOverrides(ctx context.Context) error {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return err
 	}
-	return l.shard.removeAllTargetNodeOverrides(ctx)
+	return shard.removeAllTargetNodeOverrides(ctx)
 }
 
 func (l *LazyLoadShard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return nil
 	}
-	return l.shard.getAsyncReplicationStats(ctx)
+	return shard.getAsyncReplicationStats(ctx)
 }
 
 func (l *LazyLoadShard) ActivateChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return l.shard.ActivateChangeLog(ctx, opID)
+	return shard.ActivateChangeLog(ctx, opID)
 }
 
 func (l *LazyLoadShard) SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return 0, err
 	}
-	return l.shard.SnapshotChangeLogLSN(ctx, opID)
+	return shard.SnapshotChangeLogLSN(ctx, opID)
 }
 
 func (l *LazyLoadShard) FinalizeChangeLog(ctx context.Context, opID string) (uint64, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return 0, err
 	}
-	return l.shard.FinalizeChangeLog(ctx, opID)
+	return shard.FinalizeChangeLog(ctx, opID)
 }
 
 func (l *LazyLoadShard) StopChangeCapture(ctx context.Context, opID string) error {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return err
 	}
-	return l.shard.StopChangeCapture(ctx, opID)
+	return shard.StopChangeCapture(ctx, opID)
 }
 
 func (l *LazyLoadShard) GetChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, bool) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return nil, false
 	}
-	return l.shard.GetChangeLog(ctx, opID)
+	return shard.GetChangeLog(ctx, opID)
 }
 
 func (l *LazyLoadShard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return duplicateErr(err, len(refs))
 	}
-	return l.shard.AddReferencesBatch(ctx, refs)
+	return shard.AddReferencesBatch(ctx, refs)
 }
 
 func (l *LazyLoadShard) DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects {
-	l.mustLoadCtx(ctx)
-	return l.shard.DeleteObjectBatch(ctx, ids, deletionTime, dryRun)
+	return l.mustLoadCtx(ctx).DeleteObjectBatch(ctx, ids, deletionTime, dryRun)
 }
 
 func (l *LazyLoadShard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return err
 	}
-	return l.shard.DeleteObject(ctx, id, deletionTime)
+	return shard.DeleteObject(ctx, id, deletionTime)
 }
 
 func (l *LazyLoadShard) MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return l.shard.MultiObjectByID(ctx, query)
+	return shard.MultiObjectByID(ctx, query)
 }
 
 func (l *LazyLoadShard) ObjectDigests(ctx context.Context, query []multi.Identifier) ([]types.RepairResponse, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return l.shard.ObjectDigests(ctx, query)
+	return shard.ObjectDigests(ctx, query)
 }
 
 func (l *LazyLoadShard) ObjectDigestsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int,
 ) (objs []types.RepairDigest, err error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return l.shard.ObjectDigestsInRange(ctx, initialUUID, finalUUID, limit)
+	return shard.ObjectDigestsInRange(ctx, initialUUID, finalUUID, limit)
 }
 
 func (l *LazyLoadShard) ID() string {
@@ -526,7 +563,8 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if !l.loaded {
+	shard := l.currentShard()
+	if shard == nil {
 		// The shard is out of the shard map before drop runs, so it stops being
 		// counted even when the cleanup below fails partway.
 		defer l.shardOpts.promMetrics.DeleteUnloadedShard(monitoring.ShardRegistrationLazy)
@@ -567,28 +605,28 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 		return nil
 	}
 
-	return l.shard.drop(keepFiles)
+	return shard.drop(keepFiles)
 }
 
 func (l *LazyLoadShard) DebugResetVectorIndex(ctx context.Context, targetVector string) error {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return err
 	}
-	return l.shard.DebugResetVectorIndex(ctx, targetVector)
+	return shard.DebugResetVectorIndex(ctx, targetVector)
 }
 
 func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
 	lazyLoadSegments bool, props ...*models.Property,
 ) {
-	l.mustLoad()
-	l.shard.initPropertyBuckets(ctx, eg, lazyLoadSegments, props...)
+	l.mustLoad().initPropertyBuckets(ctx, eg, lazyLoadSegments, props...)
 }
 
 func (l *LazyLoadShard) updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
 	property *models.Property, payloadReads *atomic.Int64,
 ) {
-	if l.isLoaded() {
-		l.shard.updatePropertyBuckets(ctx, eg, property, payloadReads)
+	if shard := l.loadedShard(); shard != nil {
+		shard.updatePropertyBuckets(ctx, eg, property, payloadReads)
 	} else {
 		// The unloaded path removes bucket dirs by name and reads no payloads.
 		l.updateUnloadedPropertyBuckets(ctx, eg, property)
@@ -610,7 +648,7 @@ func (l *LazyLoadShard) updateUnloadedPropertyBuckets(ctx context.Context,
 			if !ok {
 				return fmt.Errorf("cannot remove unloaded %s index for %s property: no main bucket for this index type", indexType, prop.Name)
 			}
-			if err := l.shard.removeDirIfExists(l.pathLSM(), mainBucket); err != nil {
+			if err := removeDirIfExists(l.pathLSM(), mainBucket); err != nil {
 				return fmt.Errorf("cannot remove unloaded %s index for %s property: %w", indexType, prop.Name, err)
 			}
 		}
@@ -634,8 +672,8 @@ func (l *LazyLoadShard) DropVectorIndex(ctx context.Context, targetVector string
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if l.loaded && l.shard != nil && !l.shard.teardownFinished() {
-		return l.shard.DropVectorIndex(ctx, targetVector)
+	if shard := l.currentShard(); shard != nil && !shard.teardownFinished() {
+		return shard.DropVectorIndex(ctx, targetVector)
 	}
 	return l.dropUnloadedVectorIndex(targetVector)
 }
@@ -668,95 +706,97 @@ func (l *LazyLoadShard) dropUnloadedVectorIndex(targetVector string) error {
 }
 
 func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return err
 	}
-	return l.shard.HaltForTransfer(ctx, offloading, inactivityTimeout)
+	return shard.HaltForTransfer(ctx, offloading, inactivityTimeout)
 }
 
-// Skips Load: a never-loaded shard can't be halted, so there's no timer.
+// MayResetTransferInactivityTimer never loads the shard. A cold shard has no
+// timer to reset, since it was never halted or its shutdown stopped the timer.
 func (l *LazyLoadShard) MayResetTransferInactivityTimer() {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
-	if l.shard == nil {
-		return
+	if shard := l.currentShard(); shard != nil {
+		shard.MayResetTransferInactivityTimer()
 	}
-	l.shard.MayResetTransferInactivityTimer()
 }
 
 func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) ([]string, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return l.shard.ListBackupFiles(ctx, ret)
+	return shard.ListBackupFiles(ctx, ret)
 }
 
 func (l *LazyLoadShard) CreateBackupSnapshot(ctx context.Context, sd *backup.ShardDescriptor, stagingRoot string) ([]string, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return l.shard.CreateBackupSnapshot(ctx, sd, stagingRoot)
+	return shard.CreateBackupSnapshot(ctx, sd, stagingRoot)
 }
 
 func (l *LazyLoadShard) CreateReplicaSnapshot(ctx context.Context, stagingRoot string) ([]string, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return l.shard.CreateReplicaSnapshot(ctx, stagingRoot)
+	return shard.CreateReplicaSnapshot(ctx, stagingRoot)
 }
 
 func (l *LazyLoadShard) ListReplicaSnapshotFiles(ctx context.Context, stagingRoot string) ([]string, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return l.shard.ListReplicaSnapshotFiles(ctx, stagingRoot)
+	return shard.ListReplicaSnapshotFiles(ctx, stagingRoot)
 }
 
 func (l *LazyLoadShard) resumeMaintenanceCycles(ctx context.Context) error {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return err
 	}
-	return l.shard.resumeMaintenanceCycles(ctx)
+	return shard.resumeMaintenanceCycles(ctx)
 }
 
 func (l *LazyLoadShard) GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return file.FileMetadata{}, err
 	}
-	return l.shard.GetFileMetadata(ctx, relativeFilePath)
+	return shard.GetFileMetadata(ctx, relativeFilePath)
 }
 
 func (l *LazyLoadShard) GetFile(ctx context.Context, relativeFilePath string) (io.ReadCloser, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return l.shard.GetFile(ctx, relativeFilePath)
+	return shard.GetFile(ctx, relativeFilePath)
 }
 
 func (l *LazyLoadShard) SetPropertyLengths(props []inverted.Property) error {
-	l.mustLoad()
-	return l.shard.SetPropertyLengths(props)
+	return l.mustLoad().SetPropertyLengths(props)
 }
 
 func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, []inverted.NestedProperty, error) {
-	l.mustLoad()
-	return l.shard.AnalyzeObject(object)
+	return l.mustLoad().AnalyzeObject(object)
 }
 
 func (l *LazyLoadShard) AnalyzeObjectForMigrationWithOverlay(object *storobj.Object,
 	overlay map[string]inverted.PropertyOverlay,
 ) ([]inverted.Property, []inverted.NilProperty, error) {
-	l.mustLoad()
-	return l.shard.AnalyzeObjectForMigrationWithOverlay(object, overlay)
+	return l.mustLoad().AnalyzeObjectForMigrationWithOverlay(object, overlay)
 }
 
 func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (int, error) {
-	l.mutex.Lock()
-	if l.loaded {
-		l.mutex.Unlock()
-		return l.shard.Dimensions(ctx, targetVector)
+	if shard := l.loadedShard(); shard != nil {
+		return shard.Dimensions(ctx, targetVector)
 	}
-	l.mutex.Unlock()
 
 	// For unloaded shards, get dimensions from unloaded shard/tenant calculation
 	idx := l.shardOpts.index
@@ -768,140 +808,136 @@ func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (in
 }
 
 func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) (int, error) {
-	l.mustLoad()
-	return l.shard.QuantizedDimensions(ctx, targetVector, segments)
+	return l.mustLoad().QuantizedDimensions(ctx, targetVector, segments)
 }
 
 func (l *LazyLoadShard) resetDimensionsLSM(ctx context.Context) error {
-	l.mustLoad()
-	return l.shard.resetDimensionsLSM(ctx)
+	return l.mustLoad().resetDimensionsLSM(ctx)
 }
 
 func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return l.shard.Aggregate(ctx, params, modules)
+	return shard.Aggregate(ctx, params, modules)
 }
 
 func (l *LazyLoadShard) MergeObject(ctx context.Context, object objects.MergeDocument) error {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return err
 	}
-	return l.shard.MergeObject(ctx, object)
+	return shard.MergeObject(ctx, object)
 }
 
 func (l *LazyLoadShard) WithVectorIndex(targetVector string, f func(index VectorIndex) error) (bool, error) {
-	l.mustLoad()
-	return l.shard.WithVectorIndex(targetVector, f)
+	return l.mustLoad().WithVectorIndex(targetVector, f)
 }
 
 func (l *LazyLoadShard) WithVectorIndexQueue(targetVector string, f func(queue *VectorIndexQueue) error) (bool, error) {
-	l.mustLoad()
-	return l.shard.WithVectorIndexQueue(targetVector, f)
+	return l.mustLoad().WithVectorIndexQueue(targetVector, f)
 }
 
 func (l *LazyLoadShard) AcquireVectorIndex(targetVector string) (VectorIndex, func(), bool) {
-	l.mustLoad()
-	return l.shard.AcquireVectorIndex(targetVector)
+	return l.mustLoad().AcquireVectorIndex(targetVector)
 }
 
 func (l *LazyLoadShard) AcquireVectorIndexQueue(targetVector string) (*VectorIndexQueue, func(), bool) {
-	l.mustLoad()
-	return l.shard.AcquireVectorIndexQueue(targetVector)
+	return l.mustLoad().AcquireVectorIndexQueue(targetVector)
 }
 
 func (l *LazyLoadShard) ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error {
-	l.mustLoad()
-	return l.shard.ForEachVectorIndex(f)
+	return l.mustLoad().ForEachVectorIndex(f)
 }
 
 func (l *LazyLoadShard) ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error {
-	l.mustLoad()
-	return l.shard.ForEachVectorQueue(f)
+	return l.mustLoad().ForEachVectorQueue(f)
 }
 
 func (l *LazyLoadShard) ForEachGeoQueue(f func(propName string, queue *VectorIndexQueue) error) error {
-	l.mustLoad()
-	return l.shard.ForEachGeoQueue(f)
+	return l.mustLoad().ForEachGeoQueue(f)
 }
 
 func (l *LazyLoadShard) VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targets []string) ([]float32, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return l.shard.VectorDistanceForQuery(ctx, id, searchVectors, targets)
+	return shard.VectorDistanceForQuery(ctx, id, searchVectors, targets)
 }
 
 func (l *LazyLoadShard) FillQueue(targetVector string, from uint64) error {
-	l.mustLoad()
-	return l.shard.FillQueue(targetVector, from)
+	return l.mustLoad().FillQueue(targetVector, from)
 }
 
 func (l *LazyLoadShard) RepairIndex(ctx context.Context, targetVector string) error {
-	l.mustLoad()
-	return l.shard.RepairIndex(ctx, targetVector)
+	return l.mustLoad().RepairIndex(ctx, targetVector)
 }
 
 func (l *LazyLoadShard) RequantizeIndex(ctx context.Context, targetVector string) error {
-	l.mustLoad()
-	return l.shard.RequantizeIndex(ctx, targetVector)
+	return l.mustLoad().RequantizeIndex(ctx, targetVector)
 }
 
 func (l *LazyLoadShard) Shutdown(ctx context.Context) error {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if !l.loaded {
+	shard := l.currentShard()
+	if shard == nil {
 		return nil
 	}
 
-	if err := l.shard.Shutdown(ctx); err != nil {
+	if err := shard.Shutdown(ctx); err != nil {
 		return err
 	}
 
 	// Mark as unloaded so drop() knows the correct state
-	l.loaded = false
-	l.loadedShard.Store(nil)
+	l.shard.Store(nil)
 	return nil
 }
 
 func (l *LazyLoadShard) preventShutdown() (release func(), err error) {
-	if err := l.Load(context.Background()); err != nil {
+	shard, err := l.ensureLoaded(context.Background())
+	if err != nil {
 		return func() {}, fmt.Errorf("LazyLoadShard::preventShutdown: %w", err)
 	}
-	return l.shard.preventShutdown()
+	return shard.preventShutdown()
 }
 
 // HashTreeLevel maps unloaded to ErrAsyncReplicationNotActive; an empty level would read as convergence.
 func (l *LazyLoadShard) HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error) {
-	if !l.isLoaded() {
+	shard := l.loadedShard()
+	if shard == nil {
 		return nil, errAsyncReplicationNotActive
 	}
-	return l.shard.HashTreeLevel(ctx, level, discriminant)
+	return shard.HashTreeLevel(ctx, level, discriminant)
 }
 
 // CreateAsyncCheckpoint maps unloaded to ErrAsyncReplicationNotActive so transports
 // return REST 412 / gRPC FailedPrecondition (matching the loaded path).
 func (l *LazyLoadShard) CreateAsyncCheckpoint(ctx context.Context, cutoffMs int64, createdAt time.Time) error {
-	if !l.isLoaded() {
+	shard := l.loadedShard()
+	if shard == nil {
 		return errAsyncReplicationNotActive
 	}
-	return l.shard.CreateAsyncCheckpoint(ctx, cutoffMs, createdAt)
+	return shard.CreateAsyncCheckpoint(ctx, cutoffMs, createdAt)
 }
 
 func (l *LazyLoadShard) DeleteAsyncCheckpoint(ctx context.Context) error {
-	if !l.isLoaded() {
+	shard := l.loadedShard()
+	if shard == nil {
 		return nil
 	}
-	return l.shard.DeleteAsyncCheckpoint(ctx)
+	return shard.DeleteAsyncCheckpoint(ctx)
 }
 
 func (l *LazyLoadShard) AsyncCheckpointRoot(ctx context.Context) (root hashtree.Digest, cutoffMs int64, createdAt time.Time, ok bool) {
-	if !l.isLoaded() {
+	shard := l.loadedShard()
+	if shard == nil {
 		return hashtree.Digest{}, 0, time.Time{}, false
 	}
-	return l.shard.AsyncCheckpointRoot(ctx)
+	return shard.AsyncCheckpointRoot(ctx)
 }
 
 // IsAsyncCheckpointHostable lets Index.GetAsyncCheckpointShardStatus
@@ -911,190 +947,172 @@ func (l *LazyLoadShard) IsAsyncCheckpointHostable() bool {
 }
 
 func (l *LazyLoadShard) HashTreeRoot() (root hashtree.Digest, ok bool) {
-	if !l.isLoaded() {
+	shard := l.loadedShard()
+	if shard == nil {
 		return hashtree.Digest{}, false
 	}
-	return l.shard.HashTreeRoot()
+	return shard.HashTreeRoot()
 }
 
 func (l *LazyLoadShard) CompareDigests(ctx context.Context, sourceDigests []types.RepairDigest) ([]types.RepairDigest, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return l.shard.CompareDigests(ctx, sourceDigests)
+	return shard.CompareDigests(ctx, sourceDigests)
 }
 
 func (l *LazyLoadShard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return l.shard.ObjectList(ctx, limit, sort, cursor, additional, className)
+	return shard.ObjectList(ctx, limit, sort, cursor, additional, className)
 }
 
 func (l *LazyLoadShard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return false, time.Time{}, err
 	}
-	return l.shard.WasDeleted(ctx, id)
+	return shard.WasDeleted(ctx, id)
 }
 
 func (l *LazyLoadShard) Versioner() *shardVersioner {
-	l.mustLoad()
-	return l.shard.Versioner()
+	return l.mustLoad().Versioner()
 }
 
 func (l *LazyLoadShard) isReadOnly() error {
-	l.mustLoad()
-	return l.shard.isReadOnly()
+	return l.mustLoad().isReadOnly()
 }
 
 func (l *LazyLoadShard) preparePutObject(ctx context.Context, shardID string, object *storobj.Object) replica.SimpleResponse {
-	l.mustLoadCtx(ctx)
-	return l.shard.preparePutObject(ctx, shardID, object)
+	return l.mustLoadCtx(ctx).preparePutObject(ctx, shardID, object)
 }
 
 func (l *LazyLoadShard) preparePutObjects(ctx context.Context, shardID string, objects []*storobj.Object) replica.SimpleResponse {
-	l.mustLoadCtx(ctx)
-	return l.shard.preparePutObjects(ctx, shardID, objects)
+	return l.mustLoadCtx(ctx).preparePutObjects(ctx, shardID, objects)
 }
 
 func (l *LazyLoadShard) prepareMergeObject(ctx context.Context, shardID string, object *objects.MergeDocument) replica.SimpleResponse {
-	l.mustLoadCtx(ctx)
-	return l.shard.prepareMergeObject(ctx, shardID, object)
+	return l.mustLoadCtx(ctx).prepareMergeObject(ctx, shardID, object)
 }
 
 func (l *LazyLoadShard) prepareDeleteObject(ctx context.Context, shardID string, id strfmt.UUID, deletionTime time.Time) replica.SimpleResponse {
-	l.mustLoadCtx(ctx)
-	return l.shard.prepareDeleteObject(ctx, shardID, id, deletionTime)
+	return l.mustLoadCtx(ctx).prepareDeleteObject(ctx, shardID, id, deletionTime)
 }
 
 func (l *LazyLoadShard) prepareDeleteObjects(ctx context.Context, shardID string,
 	ids []strfmt.UUID, deletionTime time.Time, dryRun bool,
 ) replica.SimpleResponse {
-	l.mustLoadCtx(ctx)
-	return l.shard.prepareDeleteObjects(ctx, shardID, ids, deletionTime, dryRun)
+	return l.mustLoadCtx(ctx).prepareDeleteObjects(ctx, shardID, ids, deletionTime, dryRun)
 }
 
 func (l *LazyLoadShard) prepareAddReferences(ctx context.Context, shardID string, refs []objects.BatchReference) replica.SimpleResponse {
-	l.mustLoadCtx(ctx)
-	return l.shard.prepareAddReferences(ctx, shardID, refs)
+	return l.mustLoadCtx(ctx).prepareAddReferences(ctx, shardID, refs)
 }
 
 func (l *LazyLoadShard) commitReplication(ctx context.Context, shardID string) interface{} {
-	l.mustLoad()
-	return l.shard.commitReplication(ctx, shardID)
+	return l.mustLoad().commitReplication(ctx, shardID)
 }
 
 func (l *LazyLoadShard) abortReplication(ctx context.Context, shardID string) replica.SimpleResponse {
-	l.mustLoad()
-	return l.shard.abortReplication(ctx, shardID)
+	return l.mustLoad().abortReplication(ctx, shardID)
 }
 
 func (l *LazyLoadShard) filePutter(ctx context.Context, shardID string) (io.WriteCloser, error) {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return nil, err
 	}
-	return l.shard.filePutter(ctx, shardID)
+	return shard.filePutter(ctx, shardID)
 }
 
 func (l *LazyLoadShard) extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error {
-	if err := l.Load(context.Background()); err != nil {
+	shard, err := l.ensureLoaded(context.Background())
+	if err != nil {
 		return err
 	}
-	return l.shard.extendDimensionTrackerLSM(dimLength, docID, targetVector)
+	return shard.extendDimensionTrackerLSM(dimLength, docID, targetVector)
 }
 
 func (l *LazyLoadShard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
-	l.mustLoad()
-	return l.shard.addToPropertySetBucket(bucket, docID, key)
+	return l.mustLoad().addToPropertySetBucket(bucket, docID, key)
 }
 
 func (l *LazyLoadShard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
-	l.mustLoad()
-	return l.shard.addToPropertyMapBucket(bucket, pair, key)
+	return l.mustLoad().addToPropertyMapBucket(bucket, pair, key)
 }
 
 func (l *LazyLoadShard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair {
-	l.mustLoad()
-	return l.shard.pairPropertyWithFrequency(docID, freq, propLen)
+	return l.mustLoad().pairPropertyWithFrequency(docID, freq, propLen)
 }
 
 func (l *LazyLoadShard) setFallbackToSearchable(fallback bool) {
-	l.mustLoad()
-	l.shard.setFallbackToSearchable(fallback)
+	l.mustLoad().setFallbackToSearchable(fallback)
 }
 
 func (l *LazyLoadShard) addJobToQueue(job job) {
-	l.mustLoad()
-	l.shard.addJobToQueue(job)
+	l.mustLoad().addJobToQueue(job)
 }
 
 func (l *LazyLoadShard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
-	if err := l.Load(ctx); err != nil {
+	shard, err := l.ensureLoaded(ctx)
+	if err != nil {
 		return err
 	}
-	return l.shard.batchDeleteObject(ctx, id, deletionTime)
+	return shard.batchDeleteObject(ctx, id, deletionTime)
 }
 
 func (l *LazyLoadShard) putObjectLSM(ctx context.Context, object *storobj.Object, idBytes []byte) (objectInsertStatus, error) {
-	l.mustLoad()
-	return l.shard.putObjectLSM(ctx, object, idBytes)
+	return l.mustLoad().putObjectLSM(ctx, object, idBytes)
 }
 
 func (l *LazyLoadShard) mutableMergeObjectLSM(ctx context.Context, merge objects.MergeDocument, idBytes []byte) (mutableMergeResult, error) {
-	l.mustLoad()
-	return l.shard.mutableMergeObjectLSM(ctx, merge, idBytes)
+	return l.mustLoad().mutableMergeObjectLSM(ctx, merge, idBytes)
 }
 
 func (l *LazyLoadShard) updatePropertySpecificIndices(ctx context.Context, object *storobj.Object, status objectInsertStatus) error {
-	l.mustLoad()
-	return l.shard.updatePropertySpecificIndices(ctx, object, status)
+	return l.mustLoad().updatePropertySpecificIndices(ctx, object, status)
 }
 
 func (l *LazyLoadShard) updateVectorIndexIgnoreDelete(ctx context.Context, vector []float32, status objectInsertStatus) error {
-	l.mustLoad()
-	return l.shard.updateVectorIndexIgnoreDelete(ctx, vector, status)
+	return l.mustLoad().updateVectorIndexIgnoreDelete(ctx, vector, status)
 }
 
 func (l *LazyLoadShard) updateVectorIndexesIgnoreDelete(ctx context.Context, vectors map[string][]float32, status objectInsertStatus) error {
-	l.mustLoad()
-	return l.shard.updateVectorIndexesIgnoreDelete(ctx, vectors, status)
+	return l.mustLoad().updateVectorIndexesIgnoreDelete(ctx, vectors, status)
 }
 
 func (l *LazyLoadShard) updateMultiVectorIndexesIgnoreDelete(ctx context.Context, multiVectors map[string][][]float32, status objectInsertStatus) error {
-	l.mustLoad()
-	return l.shard.updateMultiVectorIndexesIgnoreDelete(ctx, multiVectors, status)
+	return l.mustLoad().updateMultiVectorIndexesIgnoreDelete(ctx, multiVectors, status)
 }
 
 func (l *LazyLoadShard) hasGeoIndex() bool {
-	l.mustLoad()
-	return l.shard.hasGeoIndex()
+	return l.mustLoad().hasGeoIndex()
 }
 
 // A cold shard reports false rather than loading: the only caller reaches this
 // through ForEachLoadedShard, and the addProperty that false triggers skips cold
 // shards too.
 func (l *LazyLoadShard) hasGeoIndexForProp(propName string) bool {
-	if !l.isLoaded() {
+	shard := l.loadedShard()
+	if shard == nil {
 		return false
 	}
-	return l.shard.hasGeoIndexForProp(propName)
+	return shard.hasGeoIndexForProp(propName)
 }
 
 func (l *LazyLoadShard) Metrics() *Metrics {
-	l.mustLoad()
-	return l.shard.Metrics()
+	return l.mustLoad().Metrics()
 }
 
 func (l *LazyLoadShard) isLoaded() bool {
-	l.mutex.Lock()
-	defer l.mutex.Unlock()
-
-	return l.loaded
+	return l.loadedShard() != nil
 }
 
 func (l *LazyLoadShard) Activity() (int32, int32) {
-	shard := l.loadedShard.Load()
+	shard := l.currentShard()
 	if shard == nil {
 		// don't force-load the shard, just report the same number every time, so
 		// the caller can figure out there was no activity
@@ -1146,7 +1164,7 @@ func (l *LazyLoadShard) canSkipUnloadedSweep(
 	release := l.blockLoading()
 	defer release()
 
-	if l.loaded {
+	if l.currentShard() != nil {
 		return false, 0
 	}
 	if props == nil {

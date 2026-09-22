@@ -396,7 +396,7 @@ type dirNamesCache struct {
 // to read.
 //
 // Safe across tuples in both directions: a skipped shard is unchanged, and a
-// hydrated one answers from [LazyLoadShard.loaded] before it consults the
+// hydrated one answers from [LazyLoadShard.loadedShard] before it consults the
 // memo again. A nil cache has no memo; its callers keep one per call instead.
 func (c *dirNamesCache) trackerProps() *taskPropsCache {
 	if c == nil {

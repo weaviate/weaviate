@@ -193,8 +193,9 @@ func underlyingShard(t *testing.T, sl ShardLike) *Shard {
 	case *Shard:
 		return s
 	case *LazyLoadShard:
-		require.NoError(t, s.Load(context.Background()))
-		return s.shard
+		shard, err := s.Unwrap(context.Background())
+		require.NoError(t, err)
+		return shard
 	default:
 		t.Fatalf("unexpected ShardLike type %T", sl)
 		return nil

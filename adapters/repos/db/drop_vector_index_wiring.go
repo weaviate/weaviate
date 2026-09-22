@@ -78,13 +78,8 @@ func (db *DB) EditOpBucketsForLoadedShards(collection string, shardNames []strin
 		if s == nil {
 			continue
 		}
-		if lazy, ok := s.(*LazyLoadShard); ok {
-			lazy.mutex.Lock()
-			loaded := lazy.loaded
-			lazy.mutex.Unlock()
-			if !loaded {
-				continue
-			}
+		if lazy, ok := s.(*LazyLoadShard); ok && !lazy.isLoaded() {
+			continue
 		}
 		if b := s.Store().Bucket(helpers.ObjectsBucketLSM); b != nil {
 			buckets[name] = b
@@ -190,11 +185,7 @@ func loadedShardForDimensionsClear(idx *Index, shardName string) (*Shard, func()
 	case *Shard:
 		shard = s
 	case *LazyLoadShard:
-		s.mutex.Lock()
-		if s.loaded {
-			shard = s.shard
-		}
-		s.mutex.Unlock()
+		shard = s.loadedShard()
 	}
 	if shard == nil {
 		return nil, nil, notLoaded

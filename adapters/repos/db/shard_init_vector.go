@@ -480,7 +480,7 @@ func (s *Shard) removeVectorIndexArtifacts(ctx context.Context, name, physicalID
 		}
 	}
 	for _, dir := range artifacts.ShardDirs {
-		err := s.removeDirIfExists(s.path(), dir)
+		err := removeDirIfExists(s.path(), dir)
 		if err != nil {
 			return fmt.Errorf("drop directory %q for vector %q: %w", dir, name, err)
 		}
