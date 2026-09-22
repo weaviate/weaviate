@@ -242,7 +242,7 @@ func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	var errInner error
 
 	if err := s.batchObjectsSem.Acquire(ctx, 1); err != nil {
-		return nil, err
+		return nil, status.FromContextError(err).Err()
 	}
 	defer s.batchObjectsSem.Release(1)
 
