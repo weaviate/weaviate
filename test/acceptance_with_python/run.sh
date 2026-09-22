@@ -4,6 +4,14 @@ set -euo pipefail
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
 
+# JUNIT_DIR (when set) enables JUnit XML output for CI result reporting.
+# test/run.sh exports it absolute already; normalizing here covers direct
+# invocation with a relative path, which must survive the cd below.
+if [[ -n "${JUNIT_DIR:-}" ]]; then
+    mkdir -p "$JUNIT_DIR"
+    JUNIT_DIR="$(cd "$JUNIT_DIR" && pwd)"
+fi
+
 # Check if Python is installed
 if ! command -v python3 &>/dev/null; then
     echo "Python is not installed. Please install Python and try again."
@@ -37,12 +45,17 @@ pip install -r requirements.txt --quiet
 #   pytest test/acceptance_with_python/test_readonly_recovery.py
 MODE="${1:-default}"
 
+declare -a JUNIT_ARGS=()
+if [[ -n "${JUNIT_DIR:-}" ]]; then
+    JUNIT_ARGS+=("--junitxml=${JUNIT_DIR}/pytest-${MODE}.xml")
+fi
+
 case "$MODE" in
   namespaces)
-    pytest -n auto --dist loadgroup test_namespace_refs.py
+    pytest -n auto --dist loadgroup ${JUNIT_ARGS[@]+"${JUNIT_ARGS[@]}"} test_namespace_refs.py
     ;;
   default)
-    pytest -n auto --dist loadgroup \
+    pytest -n auto --dist loadgroup ${JUNIT_ARGS[@]+"${JUNIT_ARGS[@]}"} \
       --ignore=test_readonly_recovery.py \
       --ignore=test_namespace_refs.py \
       .
