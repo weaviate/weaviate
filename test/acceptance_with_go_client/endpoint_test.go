@@ -12,6 +12,7 @@
 package acceptance_with_go_client
 
 import (
+	"acceptance_tests_with_client/fixtures"
 	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"testing"
@@ -58,6 +59,7 @@ func TestUpdatingPropertiesWithNil(t *testing.T) {
 					Tokenization: "whitespace",
 				}},
 				InvertedIndexConfig: &models.InvertedIndexConfig{IndexNullState: true, UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND},
+				VectorConfig:        fixtures.DefaultVectorConfig(),
 			}
 			require.Nil(t, classCreator.WithClass(&class).Do(ctx))
 
@@ -116,7 +118,7 @@ func TestUpdateWithVectorVectorizer(t *testing.T) {
 		Properties: []*models.Property{{
 			Name: "prop", DataType: []string{string(schema.DataTypeText)},
 		}},
-		Vectorizer: "text2vec-contextionary",
+		VectorConfig: fixtures.DefaultVectorConfig(),
 	}
 	require.Nil(t, classCreator.WithClass(&class).Do(ctx))
 
@@ -127,11 +129,12 @@ func TestUpdateWithVectorVectorizer(t *testing.T) {
 
 	// get object to have vector
 	objBeforeUpdate, err := c.Data().ObjectsGetter().WithID(UUID1).WithVector().WithClassName(className).Do(ctx)
-	require.Nil(t, c.Data().Updater().WithClassName(className).WithVector(objBeforeUpdate[0].Vector).WithProperties(map[string]interface{}{"prop": "Other text"}).WithID(UUID1).WithMerge().Do(ctx))
+	require.NotEmpty(t, objBeforeUpdate[0].Vectors[fixtures.DefaultVectorName])
+	require.Nil(t, c.Data().Updater().WithClassName(className).WithVectors(objBeforeUpdate[0].Vectors).WithProperties(map[string]interface{}{"prop": "Other text"}).WithID(UUID1).WithMerge().Do(ctx))
 
 	// update should not have changed the vector
 	objAfterUpdate, err := c.Data().ObjectsGetter().WithID(UUID1).WithVector().WithClassName(className).Do(ctx)
-	require.Equal(t, objBeforeUpdate[0].Vector, objAfterUpdate[0].Vector)
+	require.Equal(t, objBeforeUpdate[0].Vectors[fixtures.DefaultVectorName], objAfterUpdate[0].Vectors[fixtures.DefaultVectorName])
 }
 
 func TestUpdateWithVectorVectorizerNone(t *testing.T) {

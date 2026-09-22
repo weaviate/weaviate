@@ -25,9 +25,10 @@ import (
 // text, so it lives here rather than once per package.
 var ErrDiskFull = errors.New("no space left on device")
 
-// FailingWriteSeeker fails the FailOnWrite'th Write, counting from 1, or every
-// Seek when FailSeek is set. It stands in for the ENOSPC or EIO a real segment
-// file returns, which nothing else can produce in a unit test.
+// FailingWriteSeeker fails the FailOnWrite'th Write or the Write carrying the
+// FailAtByte'th byte, both counting from 1, or every Seek when FailSeek is set.
+// It stands in for the ENOSPC or EIO a real segment file returns, which nothing
+// else can produce in a unit test.
 //
 // It tracks a size the way a file does, so Seek reports a position a caller can
 // assert on: SeekEnd answers from the furthest byte written, not from wherever
@@ -37,13 +38,18 @@ type FailingWriteSeeker struct {
 	// that returned a nil error on a short write would violate io.Writer, and a
 	// bufio.Writer in front of it would read that as success.
 	Err error
-	// FailOnWrite is 1-based; zero fails no write.
+	// FailOnWrite fails no write when zero.
 	FailOnWrite int
-	FailSeek    bool
+	// FailAtByte counts bytes accepted through Write, so it names a position in
+	// the stream rather than a call. A caller sweeping it does not have to know
+	// how the writer under test splits its output.
+	FailAtByte int
+	FailSeek   bool
 
-	writes int
-	offset int64
-	size   int64
+	writes  int
+	written int
+	offset  int64
+	size    int64
 }
 
 func (w *FailingWriteSeeker) err() error {
@@ -58,9 +64,19 @@ func (w *FailingWriteSeeker) Write(p []byte) (int, error) {
 	if w.writes == w.FailOnWrite {
 		return 0, w.err()
 	}
+	if w.FailAtByte > 0 && w.written+len(p) >= w.FailAtByte {
+		accepted := w.FailAtByte - 1 - w.written
+		w.accept(p[:accepted])
+		return accepted, w.err()
+	}
+	w.accept(p)
+	return len(p), nil
+}
+
+func (w *FailingWriteSeeker) accept(p []byte) {
+	w.written += len(p)
 	w.offset += int64(len(p))
 	w.size = max(w.size, w.offset)
-	return len(p), nil
 }
 
 func (w *FailingWriteSeeker) Seek(offset int64, whence int) (int64, error) {

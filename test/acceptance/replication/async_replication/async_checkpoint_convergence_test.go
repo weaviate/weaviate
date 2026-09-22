@@ -50,7 +50,7 @@ func (suite *AsyncCheckpointConvergenceTestSuite) SetupSuite() {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		Start(ctx)
 	require.NoError(t, err)
 	suite.compose = compose
@@ -99,7 +99,7 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor: 3,
 		}
-		paragraphClass.Vectorizer = "text2vec-contextionary"
+		paragraphClass.Vectorizer = "text2vec-model2vec"
 		helper.CreateClass(t, paragraphClass)
 	})
 
@@ -264,7 +264,7 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_RestartDro
 	helper.SetupClient(node1REST)
 	paragraphClass := articles.ParagraphsClass()
 	paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
-	paragraphClass.Vectorizer = "text2vec-contextionary"
+	paragraphClass.Vectorizer = "text2vec-model2vec"
 	helper.CreateClass(t, paragraphClass)
 
 	batch := make([]*models.Object, 5)
