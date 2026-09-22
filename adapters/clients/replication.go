@@ -53,12 +53,16 @@ const (
 const (
 	NO_RETRIES  = 0
 	MAX_RETRIES = 9
+	// SHED_ATTEMPTS caps the attempts one call may spend on 429 answers
+	SHED_ATTEMPTS = 2
 )
 
 type replicationClient struct {
 	retryClient
 	// Shared instance: EncodeAll is concurrency-safe and internally multiplexes a capped set of sub-encoders.
 	zstdEncoder *zstd.Encoder
+	// breakers stops calls to replicas that just proved they cannot serve.
+	breakers *hostBreakers
 }
 
 var _ replica.Client = (*replicationClient)(nil)
@@ -73,12 +77,15 @@ func NewReplicationClient(httpClient *http.Client) (*replicationClient, error) {
 	if err != nil {
 		return nil, fmt.Errorf("create zstd encoder: %w", err)
 	}
+	retry := newRetryer()
+	retry.maxShedAttempts = SHED_ATTEMPTS
 	return &replicationClient{
 		retryClient: retryClient{
 			client:  httpClient,
-			retryer: newRetryer(),
+			retryer: retry,
 		},
 		zstdEncoder: enc,
+		breakers:    newHostBreakers(),
 	}, nil
 }
 
@@ -884,14 +891,22 @@ func newHttpReplicaCMD(ctx context.Context, host, cmd, index, shard, requestId s
 	path := fmt.Sprintf("/replicas/indices/%s/shards/%s:%s", index, shard, cmd)
 	q := url.Values{replica.RequestKey: []string{requestId}}.Encode()
 	url := url.URL{Scheme: "http", Host: host, Path: path, RawQuery: q}
-	return http.NewRequest(http.MethodPost, url.String(), body)
+	return http.NewRequestWithContext(ctx, http.MethodPost, url.String(), body)
 }
 
 func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, numRetries int) (err error) {
+	host := req.URL.Host
+	if err := c.breakers.allow(host); err != nil {
+		return err
+	}
+
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
 
-	return c.doRetry(req.WithContext(ctx), body, resp, numRetries)
+	err = c.doRetry(req.WithContext(ctx), body, resp, numRetries)
+	// req still carries the caller's context: req.WithContext returns a copy.
+	c.breakers.observe(req.Context(), host, err)
+	return err
 }
 
 func (c *replicationClient) doRetry(req *http.Request, body []byte, resp interface{}, numRetries int) (err error) {
@@ -907,7 +922,8 @@ func (c *replicationClient) doRetry(req *http.Request, body []byte, resp interfa
 
 		if code := res.StatusCode; code != http.StatusOK {
 			b, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, b)
+			// typed so the retryer and the breaker can classify it; the message is unchanged
+			return shouldRetry(code), &HTTPError{Code: code, Body: b}
 		}
 		if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
 			return false, fmt.Errorf("decode response: %w", err)
@@ -920,7 +936,14 @@ func (c *replicationClient) doRetry(req *http.Request, body []byte, resp interfa
 func (c *replicationClient) doCustomUnmarshal(timeout time.Duration,
 	req *http.Request, body []byte, decode func([]byte) error, numRetries int,
 ) (err error) {
-	return c.doWithCustomMarshaller(timeout, req, body, decode, successCode, numRetries)
+	host := req.URL.Host
+	if err := c.breakers.allow(host); err != nil {
+		return err
+	}
+
+	err = c.doWithCustomMarshaller(timeout, req, body, decode, successCode, numRetries)
+	c.breakers.observe(req.Context(), host, err)
+	return err
 }
 
 // backOff return a new random duration in the interval [d, 3d].
@@ -929,10 +952,11 @@ func backOff(d time.Duration) time.Duration {
 	return time.Duration(float64(d.Nanoseconds()*2) * (0.5 + rand.Float64()))
 }
 
+// shouldRetry reports whether another attempt could succeed. 503 is excluded: internally it
+// is a node readiness gate that stays shut far longer than the retry window.
 func shouldRetry(code int) bool {
 	return code == http.StatusInternalServerError ||
-		code == http.StatusTooManyRequests ||
-		code == http.StatusServiceUnavailable
+		code == http.StatusTooManyRequests
 }
 
 // readDigestsBinaryStream reads fixed-size digest records directly from r without

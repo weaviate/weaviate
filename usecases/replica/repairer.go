@@ -18,18 +18,35 @@ import (
 	"sort"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/models"
-
-	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-
 	"github.com/go-openapi/strfmt"
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/additional"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
+
+// defaultReadRepairBudget bounds inline repair; what it does not finish converges asynchronously
+const defaultReadRepairBudget = time.Second
+
+// toleratesUnavailableTargets reports whether every failed repair write hit an unreachable target
+func toleratesUnavailableTargets(errs []error) bool {
+	sawUnavailable := false
+	for _, err := range errs {
+		if err == nil {
+			continue
+		}
+		if !replicaUnavailable(err) {
+			return false
+		}
+		sawUnavailable = true
+	}
+	return sawUnavailable
+}
 
 // repairer tries to detect inconsistencies and repair objects when reading them from replicas
 type repairer struct {
@@ -58,6 +75,10 @@ func (r *repairer) repairOne(ctx context.Context,
 		r.metrics.ObserveReadRepairDuration(time.Since(start))
 	}(time.Now())
 
+	// bounded inside whatever the request has left
+	ctx, cancel := context.WithTimeout(ctx, defaultReadRepairBudget)
+	defer cancel()
+
 	var (
 		deleted          bool
 		deletionTime     int64
@@ -83,12 +104,13 @@ func (r *repairer) repairOne(ctx context.Context,
 
 	if deleted && deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
 		gr := enterrors.NewErrorGroupWrapper(r.logger)
-		for _, vote := range votes {
+		writeErrs := make([]error, len(votes))
+		for i, vote := range votes {
 			if vote.O.Deleted && vote.UTime == deletionTime {
 				continue
 			}
 
-			vote := vote
+			i, vote := i, vote
 
 			gr.Go(func() error {
 				ups := []*objects.VObject{{
@@ -99,16 +121,25 @@ func (r *repairer) repairOne(ctx context.Context,
 				}}
 				resp, err := cl.Overwrite(ctx, vote.Sender, r.class, shard, ups)
 				if err != nil {
-					return fmt.Errorf("node %q could not repair deleted object: %w", vote.Sender, err)
+					writeErrs[i] = fmt.Errorf("node %q could not repair deleted object: %w", vote.Sender, err)
+					return writeErrs[i]
 				}
 				if len(resp) > 0 && resp[0].Err != "" {
-					return fmt.Errorf("overwrite deleted object %w %s: %s", replicaerrors.ErrConflictObjectChanged, vote.Sender, resp[0].Err)
+					writeErrs[i] = fmt.Errorf("overwrite deleted object %w %s: %s", replicaerrors.ErrConflictObjectChanged, vote.Sender, resp[0].Err)
+					return writeErrs[i]
 				}
 				return nil
 			})
 		}
 
-		return nil, gr.Wait()
+		if err := gr.Wait(); err != nil {
+			if toleratesUnavailableTargets(writeErrs) {
+				r.logUnrepairedTargets(shard, id, writeErrs)
+				return nil, nil
+			}
+			return nil, err
+		}
+		return nil, nil
 	}
 
 	if deleted && deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
@@ -138,12 +169,13 @@ func (r *repairer) repairOne(ctx context.Context,
 	}
 
 	gr := enterrors.NewErrorGroupWrapper(r.logger)
-	for _, vote := range votes { // repair
+	writeErrs := make([]error, len(votes))
+	for i, vote := range votes { // repair
 		if vote.UTime == lastUTime {
 			continue
 		}
 
-		vote := vote
+		i, vote := i, vote
 
 		gr.Go(func() error {
 			var latestObject *models.Object
@@ -180,16 +212,34 @@ func (r *repairer) repairOne(ctx context.Context,
 			}}
 			resp, err := cl.Overwrite(ctx, vote.Sender, r.class, shard, ups)
 			if err != nil {
-				return fmt.Errorf("node %q could not repair object: %w", vote.Sender, err)
+				writeErrs[i] = fmt.Errorf("node %q could not repair object: %w", vote.Sender, err)
+				return writeErrs[i]
 			}
 			if len(resp) > 0 && resp[0].Err != "" {
-				return fmt.Errorf("overwrite %w %s: %s", replicaerrors.ErrConflictObjectChanged, vote.Sender, resp[0].Err)
+				writeErrs[i] = fmt.Errorf("overwrite %w %s: %s", replicaerrors.ErrConflictObjectChanged, vote.Sender, resp[0].Err)
+				return writeErrs[i]
 			}
 			return nil
 		})
 	}
 
-	return updates.Object, gr.Wait()
+	if err := gr.Wait(); err != nil {
+		// the winning version is in hand; an unreachable replica converges later
+		if toleratesUnavailableTargets(writeErrs) {
+			r.logUnrepairedTargets(shard, id, writeErrs)
+			return updates.Object, nil
+		}
+		return updates.Object, err
+	}
+
+	return updates.Object, nil
+}
+
+// logUnrepairedTargets records replicas an inline repair could not reach
+func (r *repairer) logUnrepairedTargets(shard string, id strfmt.UUID, errs []error) {
+	r.logger.WithField("op", "repair_one").WithField("class", r.class).
+		WithField("shard", shard).WithField("uuid", id).
+		Warnf("read repair skipped, replica unavailable: %v", errors.Join(errs...))
 }
 
 // iTuple tuple of indices used to identify a unique object
@@ -214,6 +264,9 @@ func (r *repairer) repairExist(ctx context.Context,
 		}
 		r.metrics.ObserveReadRepairDuration(time.Since(start))
 	}(time.Now())
+
+	ctx, cancel := context.WithTimeout(ctx, defaultReadRepairBudget)
+	defer cancel()
 
 	if len(votes) == 0 {
 		return false, fmt.Errorf("no replies to repair from")
@@ -244,13 +297,14 @@ func (r *repairer) repairExist(ctx context.Context,
 
 	if deleted && deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict {
 		gr := enterrors.NewErrorGroupWrapper(r.logger)
+		writeErrs := make([]error, len(votes))
 
-		for _, vote := range votes {
+		for i, vote := range votes {
 			if vote.O.Deleted && vote.UTime == deletionTime {
 				continue
 			}
 
-			vote := vote
+			i, vote := i, vote
 
 			gr.Go(func() error {
 				ups := []*objects.VObject{{
@@ -261,16 +315,25 @@ func (r *repairer) repairExist(ctx context.Context,
 				}}
 				resp, err := cl.Overwrite(ctx, vote.Sender, r.class, shard, ups)
 				if err != nil {
-					return fmt.Errorf("node %q could not repair deleted object: %w", vote.Sender, err)
+					writeErrs[i] = fmt.Errorf("node %q could not repair deleted object: %w", vote.Sender, err)
+					return writeErrs[i]
 				}
 				if len(resp) > 0 && resp[0].Err != "" {
-					return fmt.Errorf("overwrite deleted object %w %s: %s", replicaerrors.ErrConflictObjectChanged, vote.Sender, resp[0].Err)
+					writeErrs[i] = fmt.Errorf("overwrite deleted object %w %s: %s", replicaerrors.ErrConflictObjectChanged, vote.Sender, resp[0].Err)
+					return writeErrs[i]
 				}
 				return nil
 			})
 		}
 
-		return false, gr.Wait()
+		if err := gr.Wait(); err != nil {
+			if toleratesUnavailableTargets(writeErrs) {
+				r.logUnrepairedTargets(shard, id, writeErrs)
+				return false, nil
+			}
+			return false, err
+		}
+		return false, nil
 	}
 
 	if deleted && deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
@@ -288,13 +351,14 @@ func (r *repairer) repairExist(ctx context.Context,
 	}
 
 	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(r.logger, ctx)
+	writeErrs := make([]error, len(votes))
 
-	for _, vote := range votes { // repair
+	for i, vote := range votes { // repair
 		if vote.UTime == lastUTime {
 			continue
 		}
 
-		vote := vote
+		i, vote := i, vote
 
 		gr.Go(func() error {
 			var latestObject *models.Object
@@ -332,17 +396,27 @@ func (r *repairer) repairExist(ctx context.Context,
 
 			resp, err := cl.Overwrite(ctx, vote.Sender, r.class, shard, ups)
 			if err != nil {
-				return fmt.Errorf("node %q could not repair object: %w", vote.Sender, err)
+				writeErrs[i] = fmt.Errorf("node %q could not repair object: %w", vote.Sender, err)
+				return writeErrs[i]
 			}
 			if len(resp) > 0 && resp[0].Err != "" {
-				return fmt.Errorf("overwrite %w %s: %s", replicaerrors.ErrConflictObjectChanged, vote.Sender, resp[0].Err)
+				writeErrs[i] = fmt.Errorf("overwrite %w %s: %s", replicaerrors.ErrConflictObjectChanged, vote.Sender, resp[0].Err)
+				return writeErrs[i]
 			}
 
 			return nil
 		})
 	}
 
-	return !resp.Deleted, gr.Wait()
+	if err := gr.Wait(); err != nil {
+		if toleratesUnavailableTargets(writeErrs) {
+			r.logUnrepairedTargets(shard, id, writeErrs)
+			return !resp.Deleted, nil
+		}
+		return !resp.Deleted, err
+	}
+
+	return !resp.Deleted, nil
 }
 
 // repairBatchPart brings the replicas that disagree about any of ids up to the
