@@ -985,7 +985,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 				return
 			}
 			if err := migrator.RecalculateVectorDimensions(reindexCtx); err != nil {
-				l.Errorf("Reindexing dimensions failed: %v", err)
+				l.Errorf("Reindexing dimensions failed, keep environment variable "+
+					"REINDEX_VECTOR_DIMENSIONS_AT_STARTUP set to try again at next startup: %v", err)
 			}
 		}, appState.Logger)
 	}
