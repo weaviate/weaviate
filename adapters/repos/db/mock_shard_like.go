@@ -5582,62 +5582,6 @@ func (_c *MockShardLike_removeTargetNodeOverride_Call) RunAndReturn(run func(con
 	return _c
 }
 
-// recalculateDimensions provides a mock function with given fields: ctx
-func (_m *MockShardLike) recalculateDimensions(ctx context.Context) (int, error) {
-	ret := _m.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for recalculateDimensions")
-	}
-
-	var r0 int
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context) (int, error)); ok {
-		return rf(ctx)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context) int); ok {
-		r0 = rf(ctx)
-	} else {
-		r0 = ret.Get(0).(int)
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
-		r1 = rf(ctx)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockShardLike_recalculateDimensions_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'recalculateDimensions'
-type MockShardLike_recalculateDimensions_Call struct {
-	*mock.Call
-}
-
-// recalculateDimensions is a helper method to define mock.On call
-//   - ctx context.Context
-func (_e *MockShardLike_Expecter) recalculateDimensions(ctx interface{}) *MockShardLike_recalculateDimensions_Call {
-	return &MockShardLike_recalculateDimensions_Call{Call: _e.mock.On("recalculateDimensions", ctx)}
-}
-
-func (_c *MockShardLike_recalculateDimensions_Call) Run(run func(ctx context.Context)) *MockShardLike_recalculateDimensions_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context))
-	})
-	return _c
-}
-
-func (_c *MockShardLike_recalculateDimensions_Call) Return(_a0 int, _a1 error) *MockShardLike_recalculateDimensions_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockShardLike_recalculateDimensions_Call) RunAndReturn(run func(context.Context) (int, error)) *MockShardLike_recalculateDimensions_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // resumeMaintenanceCycles provides a mock function with given fields: ctx
 func (_m *MockShardLike) resumeMaintenanceCycles(ctx context.Context) error {
 	ret := _m.Called(ctx)

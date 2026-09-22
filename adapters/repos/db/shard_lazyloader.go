@@ -725,13 +725,6 @@ func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector st
 	return l.shard.QuantizedDimensions(ctx, targetVector, segments)
 }
 
-func (l *LazyLoadShard) recalculateDimensions(ctx context.Context) (int, error) {
-	if err := l.Load(ctx); err != nil {
-		return 0, err
-	}
-	return l.shard.recalculateDimensions(ctx)
-}
-
 func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err

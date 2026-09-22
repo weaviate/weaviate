@@ -41,9 +41,13 @@ import (
 const (
 	dimensionsMigrationBuildSuffix = "__to_roaringset_build"
 	dimensionsMigrationReadySuffix = DimensionsReplacementBucketSuffix
-	// of lsmkv.Store.ReplaceBuckets as well, which a recalculation switches with
-	dimensionsMigrationDelSuffix = "___del"
+	dimensionsMigrationDelSuffix   = DimensionsReplacedBucketSuffix
 )
+
+// DimensionsReplacedBucketSuffix names the dimensions bucket moved aside for its
+// replacement. lsmkv.Store.ReplaceBuckets, which a recalculation switches with,
+// uses the same.
+const DimensionsReplacedBucketSuffix = "___del"
 
 // DimensionsReplacementBucketSuffix names a complete roaring set bucket about to
 // replace the dimensions bucket. One found when a shard loads takes its place if
@@ -298,11 +302,7 @@ func recoverDimensionsBucketMigration(logger logrus.FieldLogger, bucketPath stri
 	case !readyExists && !delExists:
 		return nil
 	case !readyExists:
-		// the switch was done, only the map bucket was left to remove
-		if err := os.RemoveAll(delPath); err != nil {
-			return fmt.Errorf("remove map dimensions bucket %q: %w", delPath, err)
-		}
-		return nil
+		return recoverDimensionsBucketMovedAside(logger, bucketPath, delPath, rootPath)
 	case !delExists:
 		// the map bucket was not moved aside yet and may have been written to since
 		if err := os.RemoveAll(readyPath); err != nil {
@@ -341,6 +341,45 @@ func recoverDimensionsBucketMigration(logger logrus.FieldLogger, bucketPath stri
 		WithField("path", bucketPath).
 		Info("finishing interrupted dimensions bucket migration")
 	return switchDimensionsBucket(bucketPath, rootPath)
+}
+
+// recoverDimensionsBucketMovedAside handles a bucket that was moved aside with no
+// replacement left to take its place. After a completed switch the bucket in
+// place holds the data and the one moved aside is only left to remove. With the
+// bucket in place missing or empty, the one moved aside is the only copy.
+func recoverDimensionsBucketMovedAside(logger logrus.FieldLogger, bucketPath, delPath, rootPath string) error {
+	bucketExists, err := dirExists(bucketPath)
+	if err != nil {
+		return err
+	}
+	hasData := false
+	if bucketExists {
+		if hasData, err = dirHasData(bucketPath); err != nil {
+			return err
+		}
+	}
+	if hasData {
+		if err := os.RemoveAll(delPath); err != nil {
+			return fmt.Errorf("remove replaced dimensions bucket %q: %w", delPath, err)
+		}
+		return nil
+	}
+
+	logger.WithField("action", "dimensions_bucket_migration").
+		WithField("path", bucketPath).
+		Warn("dimensions bucket was moved aside and not replaced, moving it back")
+	if bucketExists {
+		if err := os.RemoveAll(bucketPath); err != nil {
+			return fmt.Errorf("remove empty dimensions bucket %q: %w", bucketPath, err)
+		}
+	}
+	if err := os.Rename(delPath, bucketPath); err != nil {
+		return fmt.Errorf("move dimensions bucket back: %w", err)
+	}
+	if err := diskio.Fsync(rootPath); err != nil {
+		return fmt.Errorf("fsync %q: %w", rootPath, err)
+	}
+	return nil
 }
 
 func dirExists(path string) (bool, error) {
