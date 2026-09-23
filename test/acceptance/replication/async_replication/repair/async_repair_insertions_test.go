@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replication
+package repair
 
 import (
 	"context"
@@ -28,7 +28,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
+func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectInsertionScenario() {
 	t := suite.T()
 	mainCtx := context.Background()
 
@@ -43,27 +43,13 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor:           int64(clusterSize),
-			DeletionStrategy: models.ReplicationConfigDeletionStrategyTimeBasedResolution,
+			Factor:      int64(clusterSize),
+			AsyncConfig: common.FastAsyncConfig(),
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 
 		helper.SetupClient(compose.GetWeaviate().URI())
 		helper.CreateClass(t, paragraphClass)
-	})
-
-	paragraphCount := len(paragraphIDs)
-
-	t.Run("insert paragraphs", func(t *testing.T) {
-		batch := make([]*models.Object, paragraphCount)
-		for i, id := range paragraphIDs {
-			batch[i] = articles.NewParagraph().
-				WithID(id).
-				WithContents(fmt.Sprintf("paragraph#%d", i)).
-				Object()
-		}
-
-		common.CreateObjectsCL(t, compose.GetWeaviate().URI(), batch, types.ConsistencyLevelAll)
 	})
 
 	node := 2
@@ -72,12 +58,16 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 		common.StopNodeAt(ctx, t, compose, node)
 	})
 
-	host := compose.GetWeaviate().URI()
-	helper.SetupClient(host)
+	t.Run("insert paragraphs", func(t *testing.T) {
+		batch := make([]*models.Object, len(paragraphIDs))
+		for i := range paragraphIDs {
+			batch[i] = articles.NewParagraph().
+				WithContents(fmt.Sprintf("paragraph#%d", i)).
+				Object()
+		}
 
-	for _, id := range paragraphIDs {
-		helper.DeleteObjectCL(t, paragraphClass.Class, id, types.ConsistencyLevelQuorum)
-	}
+		common.CreateObjectsCL(t, compose.GetWeaviate().URI(), batch, types.ConsistencyLevelOne)
+	})
 
 	t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
 		common.StartNodeAt(ctx, t, compose, node)
@@ -100,10 +90,10 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 		}, 15*time.Second, 500*time.Millisecond)
 	})
 
-	t.Run(fmt.Sprintf("all the objects should have been deleted from node %d", node), func(t *testing.T) {
+	t.Run(fmt.Sprintf("assert node %d has all the objects", node), func(t *testing.T) {
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			resp := common.GQLGet(t, compose.ContainerURI(node), "Paragraph", types.ConsistencyLevelOne)
-			require.Len(ct, resp, 0)
+			require.Len(ct, resp, len(paragraphIDs))
 		}, 120*time.Second, 5*time.Second, "not all the objects have been asynchronously replicated")
 	})
 }

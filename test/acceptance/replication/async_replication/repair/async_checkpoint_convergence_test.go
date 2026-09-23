@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replication
+package repair
 
 import (
 	"context"
@@ -97,7 +97,8 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_Convergenc
 
 	t.Run("create schema with async replication enabled", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 3,
+			Factor:      3,
+			AsyncConfig: common.FastAsyncConfig(),
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
@@ -263,7 +264,7 @@ func (suite *AsyncCheckpointConvergenceTestSuite) TestAsyncCheckpoint_RestartDro
 
 	helper.SetupClient(node1REST)
 	paragraphClass := articles.ParagraphsClass()
-	paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
+	paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3, AsyncConfig: common.FastAsyncConfig()}
 	paragraphClass.Vectorizer = "text2vec-contextionary"
 	helper.CreateClass(t, paragraphClass)
 

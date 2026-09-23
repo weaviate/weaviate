@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replication
+package repair
 
 import (
 	"context"
@@ -67,8 +67,8 @@ type AsyncReplicationTestSuite struct {
 
 // SetupSuite starts one shared 3-node cluster for the plain async-repair
 // scenarios. The methods run sequentially and each restarts the nodes it
-// stops, so the cluster stays healthy between them. Scenarios that need a
-// bespoke cluster env (e.g. the runtime-override toggle) start their own.
+// stops, so the cluster stays healthy between them. Scenarios that need their
+// own cluster are standalone tests, so they never run next to this one.
 func (suite *AsyncReplicationTestSuite) SetupSuite() {
 	t := suite.T()
 	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
@@ -121,12 +121,14 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 3,
+			Factor:      3,
+			AsyncConfig: common.FastAsyncConfig(),
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
 		articleClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: 3,
+			Factor:      3,
+			AsyncConfig: common.FastAsyncConfig(),
 		}
 		helper.CreateClass(t, articleClass)
 	})

@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replication
+package repair
 
 import (
 	"context"
@@ -31,8 +31,8 @@ import (
 )
 
 // TestAsyncRepairRootPrefilterManyTenants: a node restarts and every MT tenant reconciles via the batched root pre-filter; async replication never loads shards, so lazy tenants are touched first.
-func (suite *AsyncReplicationTestSuite) TestAsyncRepairRootPrefilterManyTenants() {
-	t := suite.T()
+func TestAsyncRepairRootPrefilterManyTenants(t *testing.T) {
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 	mainCtx := context.Background()
 
 	var (
@@ -64,7 +64,8 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairRootPrefilterManyTenants(
 
 	t.Run("create multi-tenant schema replicated with async enabled", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: int64(clusterSize),
+			Factor:      int64(clusterSize),
+			AsyncConfig: common.FastAsyncConfig(),
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
