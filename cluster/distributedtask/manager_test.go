@@ -1967,27 +1967,30 @@ func TestManager_HasActiveTaskForCollection(t *testing.T) {
 		extracted   string
 		extractOK   bool
 		status      TaskStatus
-		plusRunning bool
+		runningInNS string
 		active      bool
 	}{
-		{"a running task", "Movies", true, TaskStatusStarted, false, true},
-		{"a case twin of the collection name", "mOVIES", true, TaskStatusStarted, false, true},
-		{"a finished task", "Movies", true, TaskStatusFinished, false, false},
-		{"a finished task beside a running one", "Movies", true, TaskStatusFinished, true, true},
-		{"a cancelled task", "Movies", true, TaskStatusCancelled, false, false},
-		{"a task on another collection", "Books", true, TaskStatusStarted, false, false},
-		{"a payload the extractor could not read", "Movies", false, TaskStatusStarted, false, false},
+		{"a running task", "Movies", true, TaskStatusStarted, "", true},
+		{"a case twin of the collection name", "mOVIES", true, TaskStatusStarted, "", true},
+		{"a finished task", "Movies", true, TaskStatusFinished, "", false},
+		{"a finished task beside a running one", "Movies", true, TaskStatusFinished, "ns", true},
+		{"a finished task beside one running in another namespace", "Movies", true, TaskStatusFinished, "ns2", true},
+		{"a cancelled task", "Movies", true, TaskStatusCancelled, "", false},
+		{"a task on another collection", "Books", true, TaskStatusStarted, "", false},
+		{"a payload the extractor could not read", "Movies", false, TaskStatusStarted, "", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newTestHarness(t).init(t)
-			h.manager.RegisterCollectionExtractor("ns",
-				func([]byte) (string, bool) { return tc.extracted, tc.extractOK })
+			for _, ns := range []string{"ns", "ns2"} {
+				h.manager.RegisterCollectionExtractor(ns,
+					func([]byte) (string, bool) { return tc.extracted, tc.extractOK })
+			}
 			fixtureInStatus(t, h, tc.status)
-			if tc.plusRunning {
-				addTaskWithUnits(t, h, "ns", "task2", 11, []string{"u-n2"})
+			if tc.runningInNS != "" {
+				addTaskWithUnits(t, h, tc.runningInNS, "task2", 11, []string{"u-n2"})
 			}
 
-			// Map iteration order is random, so repeat until both visit orders have run.
+			// Map iteration order is random, so 32 calls almost surely visit both orders.
 			for range 32 {
 				require.Equal(t, tc.active, h.manager.HasActiveTaskForCollection("Movies"))
 			}
