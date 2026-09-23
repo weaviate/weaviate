@@ -91,6 +91,9 @@ func replicaUnavailable(err error) bool {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return true
 	}
+	if errors.Is(err, ErrHostCircuitOpen) { // the client refused to contact it, so it never rejected anything
+		return true
+	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, NodeNotReadyMsg) || strings.Contains(msg, LocalIndexNotReadyMsg)
 }
@@ -722,7 +725,8 @@ func (f *Finder) CountObjects(ctx context.Context, shard string, cl types.Consis
 		return count, nil
 	}, "", time.Minute)
 	if err != nil {
-		return 0, nil
+		// a routing failure must not read as an empty shard: aggregateCount sums these
+		return 0, err
 	}
 
 	// Fan in results from all concurrent Pull requests. Results with
