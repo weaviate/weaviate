@@ -9,12 +9,11 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replication
+package repair
 
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"testing"
 	"time"
 
@@ -29,13 +28,13 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
+func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectInsertionScenario() {
 	t := suite.T()
 	mainCtx := context.Background()
 
 	clusterSize := 3
 
-	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
+	ctx, cancel := context.WithTimeout(mainCtx, 15*time.Minute)
 	defer cancel()
 
 	compose := suite.compose
@@ -58,30 +57,19 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 		common.StopNodeAt(ctx, t, compose, node)
 	})
 
-	t.Run("upsert paragraphs", func(t *testing.T) {
+	t.Run("insert paragraphs", func(t *testing.T) {
 		batch := make([]*models.Object, len(paragraphIDs))
-		for i, id := range paragraphIDs {
+		for i := range paragraphIDs {
 			batch[i] = articles.NewParagraph().
-				WithID(id).
 				WithContents(fmt.Sprintf("paragraph#%d", i)).
 				Object()
 		}
 
-		// choose one more node to insert the objects into
-		var targetNode int
-		for {
-			targetNode = 1 + rand.Intn(clusterSize)
-			if targetNode != node {
-				break
-			}
-		}
-
-		common.CreateObjectsCL(t, compose.GetWeaviateNode(targetNode).URI(), batch, types.ConsistencyLevelOne)
+		common.CreateObjectsCL(t, compose.GetWeaviate().URI(), batch, types.ConsistencyLevelOne)
 	})
 
 	t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
 		common.StartNodeAt(ctx, t, compose, node)
-		time.Sleep(5 * time.Second)
 	})
 
 	t.Run("verify that all nodes are running", func(t *testing.T) {
@@ -101,20 +89,10 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 		}, 15*time.Second, 500*time.Millisecond)
 	})
 
-	t.Run(fmt.Sprintf("assert node %d has all the objects at its latest version", node), func(t *testing.T) {
+	t.Run(fmt.Sprintf("assert node %d has all the objects", node), func(t *testing.T) {
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			count := common.CountObjects(t, compose.GetWeaviateNode(node).URI(), paragraphClass.Class)
-			require.EqualValues(ct, len(paragraphIDs), count)
-
-			for i, id := range paragraphIDs {
-				resp, err := common.GetObjectCL(t, compose.GetWeaviateNode(node).URI(), paragraphClass.Class, id, types.ConsistencyLevelOne)
-				require.NoError(ct, err)
-				require.NotNil(ct, resp)
-				require.Equal(ct, id, resp.ID)
-
-				props := resp.Properties.(map[string]interface{})
-				props["contents"] = fmt.Sprintf("paragraph#%d", i)
-			}
+			resp := common.GQLGet(t, compose.ContainerURI(node), "Paragraph", types.ConsistencyLevelOne)
+			require.Len(ct, resp, len(paragraphIDs))
 		}, 120*time.Second, 5*time.Second, "not all the objects have been asynchronously replicated")
 	})
 }

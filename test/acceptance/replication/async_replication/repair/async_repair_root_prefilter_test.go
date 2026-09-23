@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replication
+package repair
 
 import (
 	"context"
@@ -31,8 +31,8 @@ import (
 )
 
 // TestAsyncRepairRootPrefilterManyTenants: a node restarts and every MT tenant reconciles via the batched root pre-filter; async replication never loads shards, so lazy tenants are touched first.
-func (suite *AsyncReplicationTestSuite) TestAsyncRepairRootPrefilterManyTenants() {
-	t := suite.T()
+func TestAsyncRepairRootPrefilterManyTenants(t *testing.T) {
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 	mainCtx := context.Background()
 
 	var (
