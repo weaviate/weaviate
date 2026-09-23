@@ -642,10 +642,11 @@ func TestExecuteGate_DestructiveApplyTypes(t *testing.T) {
 // sentinel proves nothing was appended: reaching the append would panic.
 func TestExecuteGate_RefusesBeforeTheAppend(t *testing.T) {
 	for _, tc := range []struct {
-		name    string
-		store   func(*testing.T) *Store
-		command func(*testing.T) *api.ApplyRequest
-		wantErr error
+		name     string
+		store    func(*testing.T) *Store
+		command  func(*testing.T) *api.ApplyRequest
+		wantErr  error
+		wantText string
 	}{
 		{
 			name: "a class delete in a suspended namespace",
@@ -666,13 +667,15 @@ func TestExecuteGate_RefusesBeforeTheAppend(t *testing.T) {
 				seedExclusionTask(t, s)
 				return s
 			},
-			command: exclusionMovementCommand,
-			wantErr: replicationTypes.ErrMovementBlockedByTask,
+			command:  exclusionMovementCommand,
+			wantErr:  replicationTypes.ErrMovementBlockedByTask,
+			wantText: exclusionCollection,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := tc.store(t).Execute(tc.command(t))
 			require.ErrorIs(t, err, tc.wantErr)
+			require.Contains(t, err.Error(), tc.wantText)
 		})
 	}
 }

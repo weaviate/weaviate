@@ -1821,10 +1821,6 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 		command  func(*testing.T) *cmd.ApplyRequest
 		wantErrs []error
 	}{
-		{
-			name: "a movement is refused while a task runs on the collection", command: movement,
-			seed: seedExclusionTask, wantErrs: []error{replicationTypes.ErrMovementBlockedByTask},
-		},
 		{name: "a movement is admitted when no task runs", command: movement},
 		{
 			name: "a task is refused while a movement runs on the collection", command: reindexTask,
