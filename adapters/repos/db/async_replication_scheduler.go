@@ -1869,6 +1869,7 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry, ski
 	var base AsyncReplicationConfig
 	var currentHT hashtree.AggregatedHashTree
 	var currentHTHeight int
+	var ready bool
 	func() {
 		// Deferred unlock: a panic here must not leak the RLock, or every later write-lock (teardown) wedges.
 		s.asyncReplicationRWMux.RLock()
@@ -1876,6 +1877,7 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry, ski
 		base = s.asyncReplicationConfig
 		ctx = s.asyncRepCtx
 		currentHT = s.hashtree
+		ready = s.hashtreeFullyInitialized
 		if currentHT != nil {
 			currentHTHeight = currentHT.Height()
 		}
@@ -1885,6 +1887,12 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry, ski
 	if s.index != nil && s.index.globalreplicationConfig != nil {
 		sched.runtimeClampWarner.checkGlobals(*s.index.globalreplicationConfig)
 		cfg = base.Effective(*s.index.globalreplicationConfig)
+	}
+
+	if currentHT != nil && !ready {
+		// Registered ahead of its scan (a stale registration under flapping): skip before a placeholder's height can arm a rebuild.
+		err = errors.New("hashtree not ready")
+		return
 	}
 
 	// Runtime config changed the hashtree height — flag a rebuild. The rebuild

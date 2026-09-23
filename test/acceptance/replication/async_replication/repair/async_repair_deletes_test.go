@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replication
+package repair
 
 import (
 	"context"
@@ -44,6 +44,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 	t.Run("create schema", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor:           int64(clusterSize),
+			AsyncConfig:      common.FastAsyncConfig(),
 			DeletionStrategy: models.ReplicationConfigDeletionStrategyTimeBasedResolution,
 		}
 		paragraphClass.Vectorizer = "text2vec-model2vec"
