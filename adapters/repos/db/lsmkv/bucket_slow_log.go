@@ -25,7 +25,7 @@ type BucketSlowLogEntry struct {
 	Recheck          time.Duration // only for secondary index reads
 }
 
-// reduceSlowLogEntries summarizes one entry per lookup as percentiles.
+// reduceSlowLogEntries summarizes one entry per lookup as a count and percentiles.
 func reduceSlowLogEntries(entries []BucketSlowLogEntry) BucketSlowLogEntryStats {
 	if len(entries) == 0 {
 		return BucketSlowLogEntryStats{}
@@ -44,6 +44,7 @@ func reduceSlowLogEntries(entries []BucketSlowLogEntry) BucketSlowLogEntryStats 
 	}
 
 	return BucketSlowLogEntryStats{
+		Count:            len(entries),
 		Total:            reduceDurationStats(totalDurations),
 		View:             reduceDurationStats(viewDurations),
 		ActiveMemtable:   reduceDurationStats(activeMemtableDurations),
@@ -54,6 +55,9 @@ func reduceSlowLogEntries(entries []BucketSlowLogEntry) BucketSlowLogEntryStats 
 }
 
 type BucketSlowLogEntryStats struct {
+	// Count is the number of lookups summarized, so Count times Segments.Mean
+	// is the time those lookups spent in segments.
+	Count            int           `json:"count"`
 	Total            DurationStats `json:"total"`
 	View             DurationStats `json:"view"`
 	ActiveMemtable   DurationStats `json:"activeMemtable"`
