@@ -45,6 +45,13 @@ type cronsRegistrationConfig[T comparable] struct {
 	serverShutdownCtx context.Context
 }
 
+// The causes a cancelOnChange job's tick context ends with, so the work the
+// tick runs can say why it stopped.
+var (
+	errScheduleChanged = errors.NewCanceledCause("cron job schedule changed")
+	errJobDisabled     = errors.NewCanceledCause("cron job disabled by its configured value")
+)
+
 // cronsRegistration holds a cron job's enable gate, the buffered channel its
 // runtime-config hook pushes to, and the loop that registers the job and
 // re-registers it as values arrive.
@@ -163,14 +170,14 @@ func (c *cronsRegistration[T]) start(cr *gocron.Cron, tickGate func() bool,
 func (c *cronsRegistration[T]) loop(cr *gocron.Cron, tickGate func() bool,
 	tick func(context.Context),
 ) {
-	cancel := func() {} // noop until a cancelOnChange job replaces it
+	var cancel context.CancelCauseFunc = func(error) {} // noop until a cancelOnChange job replaces it
 
 	for {
 		select {
 		case value := <-c.valueCh:
 			spec, register := c.resolve(value)
 			if !register {
-				cancel()
+				cancel(errJobDisabled)
 				if cr.RemoveByName(c.name) {
 					c.jobLogger.Info("cron job removed")
 				}
@@ -191,7 +198,7 @@ func (c *cronsRegistration[T]) loop(cr *gocron.Cron, tickGate func() bool,
 					Errorf("cron job schedule refused, %s: %v", outcome, err)
 				continue
 			}
-			cancel()
+			cancel(errScheduleChanged)
 
 			// Wait out the tick in flight before swapping the job, and say so:
 			// the wait can last a whole tick body. gocron drains for us only
@@ -211,13 +218,13 @@ func (c *cronsRegistration[T]) loop(cr *gocron.Cron, tickGate func() bool,
 
 			tickCtx := c.serverShutdownCtx
 			if c.cancelOnChange {
-				tickCtx, cancel = context.WithCancel(c.serverShutdownCtx)
+				tickCtx, cancel = context.WithCancelCause(c.serverShutdownCtx)
 			}
 			entryId, err := cr.DrainAndUpsertJob(spec, c.tickJob(tickCtx, tickGate, tick),
 				gocron.WithName(c.name))
 			if err != nil {
 				// The entry the upsert did not replace still holds the tick
-				// cancel() ended above, so leaving it registered keeps a job
+				// the cancel above ended, so leaving it registered keeps a job
 				// firing that can only skip itself.
 				outcome := "no job is registered"
 				if cr.RemoveByName(c.name) {
@@ -233,7 +240,7 @@ func (c *cronsRegistration[T]) loop(cr *gocron.Cron, tickGate func() bool,
 			}).Info("cron job added")
 
 		case <-c.serverShutdownCtx.Done():
-			cancel()
+			cancel(context.Cause(c.serverShutdownCtx))
 			c.jobLogger.Debug("server shutdown context cancelled")
 			return
 		}

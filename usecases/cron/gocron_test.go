@@ -13,6 +13,8 @@ package cron
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"slices"
 	"sync/atomic"
 	"testing"
@@ -282,6 +284,42 @@ func TestCronsObjectsTTL_RuntimeDisableRemovesTheJob(t *testing.T) {
 		return slices.Contains(messages(hook), "cron job removed")
 	}, 2*time.Second, 10*time.Millisecond, "taking the job away must be reported")
 	assert.False(t, cr.EntryByName(objectsTTLJobName).Valid())
+}
+
+// A tick's deletion that was stopped logs at Warn, since a stop such as a
+// schedule change ending the tick context is not a failure.
+func TestLogTTLDeletionResult(t *testing.T) {
+	stopped := fmt.Errorf("%w: schedule changed", objectttl.ErrDeletionStopped)
+	failed := errors.New("batch delete failed")
+
+	tests := []struct {
+		name      string
+		err       error
+		wantLevel logrus.Level
+		wantMsg   string
+	}{
+		{name: "a finished deletion", wantLevel: logrus.DebugLevel, wantMsg: "trigger ttl deletion finished"},
+		{
+			name: "a stopped deletion", err: stopped,
+			wantLevel: logrus.WarnLevel, wantMsg: "trigger ttl deletion stopped: " + stopped.Error(),
+		},
+		{
+			name: "a failed deletion", err: failed,
+			wantLevel: logrus.ErrorLevel, wantMsg: "trigger ttl deletion failed: " + failed.Error(),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, hook := test.NewNullLogger()
+			logger.SetLevel(logrus.DebugLevel)
+
+			logTTLDeletionResult(logger, tt.err)
+
+			require.Len(t, hook.AllEntries(), 1)
+			assert.Equal(t, tt.wantLevel, hook.LastEntry().Level)
+			assert.Equal(t, tt.wantMsg, hook.LastEntry().Message)
+		})
+	}
 }
 
 func TestCronsObjectsTTL_Init_NilCoordinator(t *testing.T) {

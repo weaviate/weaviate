@@ -23,16 +23,21 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hfresh"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	ucfg "github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/namespaces"
+	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 func TestDebugDumpConfig_RuntimeDynamicValues(t *testing.T) {
@@ -351,4 +356,49 @@ func TestHFreshReassignAllShardsRunsInBackground(t *testing.T) {
 		t.Fatal("all-shard scan did not finish")
 	}
 	require.Equal(t, "b", <-started)
+}
+
+// POST /debug/ttl/deleteall runs a single-node deletion on the server's
+// shutdown context, so a shutdown stops it and it reports the failure.
+func TestTTLDeleteAllHandlerStopsOnServerShutdown(t *testing.T) {
+	for _, tc := range []struct {
+		name           string
+		shutdownBefore bool
+		status         int
+	}{
+		{name: "running server lets the deletion finish", status: http.StatusAccepted},
+		{name: "server shutdown stops the deletion", shutdownBefore: true, status: http.StatusInternalServerError},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+
+			reader := schemaUC.NewMockSchemaReader(t)
+			reader.EXPECT().ReadSchema(mock.Anything).RunAndReturn(func(read func(models.Class, uint64)) error {
+				read(models.Class{
+					Class:           "Movies",
+					ObjectTTLConfig: &models.ObjectTTLConfig{Enabled: true, DeleteOn: "_creationTimeUnix"},
+				}, 1)
+				return nil
+			})
+			// One node sends the deletion down the local branch, whose db holds no indexes.
+			getter := schemaUC.NewMockSchemaGetter(t)
+			getter.EXPECT().NodeName().Return("node1")
+			getter.EXPECT().Nodes().Return([]string{"node1"})
+			status := objectttl.NewLocalStatus()
+			coordinator := objectttl.NewCoordinator(reader, getter, namespaces.NewController(logger), &db.DB{}, logger,
+				nil, nil, status)
+
+			shutdownCtx, cancelShutdown := context.WithCancelCause(context.Background())
+			defer cancelShutdown(nil)
+			if tc.shutdownBefore {
+				cancelShutdown(errors.New("server shutdown"))
+			}
+
+			rec := httptest.NewRecorder()
+			newTTLDeleteAllHandler(coordinator, shutdownCtx)(rec, httptest.NewRequest(http.MethodPost, "/debug/ttl/deleteall", nil))
+
+			require.Equal(t, tc.status, rec.Code)
+			require.False(t, status.IsRunning())
+		})
+	}
 }

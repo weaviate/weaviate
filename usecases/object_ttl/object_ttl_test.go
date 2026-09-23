@@ -23,10 +23,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	logtest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/namespaces"
@@ -148,6 +151,235 @@ func TestCoordinatorStartSkipsClassesWithoutActiveNamespace(t *testing.T) {
 	}
 }
 
+// ttlFailures reads weaviate_objects_ttl_deletion_db_failure_count.
+func ttlFailures(t *testing.T) float64 {
+	t.Helper()
+	families, err := prometheus.DefaultGatherer.Gather()
+	require.NoError(t, err)
+	for _, family := range families {
+		if family.GetName() == "weaviate_objects_ttl_deletion_db_failure_count" {
+			return family.GetMetric()[0].GetCounter().GetValue()
+		}
+	}
+	t.Fatal("the ttl failure counter is not registered")
+	return 0
+}
+
+// messagesAt returns the messages hook caught at level.
+func messagesAt(hook *logtest.Hook, level logrus.Level) []string {
+	var messages []string
+	for _, entry := range hook.AllEntries() {
+		if entry.Level == level {
+			messages = append(messages, entry.Message)
+		}
+	}
+	return messages
+}
+
+func TestDeletionResult(t *testing.T) {
+	collected := errors.New("batch delete failed")
+	shutdown := errors.New("server shutdown")
+	ended, end := context.WithCancelCause(context.Background())
+	end(shutdown)
+
+	tests := []struct {
+		name        string
+		ctx         context.Context
+		collected   error
+		wantErr     bool
+		wantStopped bool
+	}{
+		{name: "a clean run succeeds", ctx: context.Background()},
+		{name: "a clean run that finished before its context ended succeeds", ctx: ended},
+		{
+			name: "errors on a live context are a failure", ctx: context.Background(),
+			collected: collected, wantErr: true,
+		},
+		{
+			name: "errors once the context ended are a stop", ctx: ended,
+			collected: collected, wantErr: true, wantStopped: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := DeletionResult(tt.ctx, tt.collected)
+			if !tt.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, collected)
+			assert.Equal(t, tt.wantStopped, errors.Is(err, ErrDeletionStopped))
+			assert.Equal(t, tt.wantStopped, errors.Is(err, shutdown), "a stop names its cause")
+		})
+	}
+}
+
+// A deletion on the local node stops at its per-collection check once its
+// caller's context has ended. A stop is not a failure: Start returns
+// ErrDeletionStopped with the context's cause, logs it at Warn and leaves the
+// failure count alone. The db holds no indexes, so a deletion that goes ahead
+// finishes without error.
+func TestCoordinatorLocalDeletionStopsWithCallerContext(t *testing.T) {
+	shutdown := errors.New("server shutdown")
+
+	tests := []struct {
+		name         string
+		cancelCaller bool
+		wantStopped  bool
+	}{
+		{
+			name: "live caller context lets the deletion finish",
+		},
+		{
+			name:         "cancelled caller context stops the deletion with its cause",
+			cancelCaller: true,
+			wantStopped:  true,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			logger, hook := logtest.NewNullLogger()
+
+			reader := schemaUC.NewMockSchemaReader(t)
+			reader.EXPECT().ReadSchema(mock.Anything).RunAndReturn(func(read func(models.Class, uint64)) error {
+				for _, class := range []string{"Foo", "Bar"} {
+					read(models.Class{
+						Class:           class,
+						ObjectTTLConfig: &models.ObjectTTLConfig{Enabled: true, DeleteOn: "_creationTimeUnix"},
+					}, 1)
+				}
+				return nil
+			})
+
+			// One node sends the deletion down the local branch.
+			getter := schemaUC.NewMockSchemaGetter(t)
+			getter.EXPECT().NodeName().Return("node1")
+			getter.EXPECT().Nodes().Return([]string{"node1"})
+
+			status := NewLocalStatus()
+			c := NewCoordinator(reader, getter, namespaces.NewController(logger), &db.DB{}, logger,
+				nil, nil, status)
+
+			ctx, cancel := context.WithCancelCause(context.Background())
+			defer cancel(nil)
+			if test.cancelCaller {
+				cancel(shutdown)
+			}
+
+			failures := ttlFailures(t)
+			now := time.Now()
+			err := c.Start(ctx, false, now, now)
+
+			if test.wantStopped {
+				require.ErrorIs(t, err, ErrDeletionStopped)
+				require.ErrorIs(t, err, shutdown)
+				assert.Equal(t, []string{"ttl deletion on local node stopped: " + err.Error()},
+					messagesAt(hook, logrus.WarnLevel))
+			} else {
+				require.NoError(t, err)
+				assert.Empty(t, messagesAt(hook, logrus.WarnLevel))
+			}
+			assert.Empty(t, messagesAt(hook, logrus.ErrorLevel))
+			assert.Equal(t, failures, ttlFailures(t), "a stop is not a failure")
+			assert.False(t, status.IsRunning())
+		})
+	}
+}
+
+// A stop that cuts the hand-off to a peer short is a stop too, whether it lands
+// on the check of the last node or on the hand-off itself.
+func TestCoordinatorRemoteDeletionStopsWithCallerContext(t *testing.T) {
+	tests := []struct {
+		name string
+		// lastNode makes Start check the node it picked last round first.
+		lastNode     string
+		cancelCaller bool
+		wantHandOffs int32
+	}{
+		{name: "live caller context hands the deletion off", wantHandOffs: 1},
+		{name: "a stop during the hand-off", cancelCaller: true},
+		{name: "a stop during the check of the last node", lastNode: "node2", cancelCaller: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, hook := logtest.NewNullLogger()
+
+			var handOffs atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/cluster/object_ttl/delete_expired" {
+					handOffs.Add(1)
+				}
+				w.WriteHeader(http.StatusAccepted)
+			}))
+			defer server.Close()
+
+			reader := schemaUC.NewMockSchemaReader(t)
+			reader.EXPECT().ReadSchema(mock.Anything).RunAndReturn(func(read func(models.Class, uint64)) error {
+				read(models.Class{
+					Class:           "Foo",
+					ObjectTTLConfig: &models.ObjectTTLConfig{Enabled: true, DeleteOn: "_creationTimeUnix"},
+				}, 1)
+				return nil
+			})
+			getter := schemaUC.NewMockSchemaGetter(t)
+			getter.EXPECT().NodeName().Return("node1")
+			getter.EXPECT().Nodes().Return([]string{"node1", "node2"})
+
+			// A nil db is safe because two nodes always route the deletion to the
+			// remote node.
+			c := NewCoordinator(reader, getter, namespaces.NewController(logger), nil, logger,
+				server.Client(), fixedNodeResolver(strings.TrimPrefix(server.URL, "http://")), NewLocalStatus())
+			c.objectTTLLastNode = tt.lastNode
+
+			ctx, cancel := context.WithCancelCause(context.Background())
+			defer cancel(nil)
+			shutdown := errors.New("server shutdown")
+			if tt.cancelCaller {
+				cancel(shutdown)
+			}
+
+			now := time.Now()
+			err := c.Start(ctx, false, now, now)
+
+			if tt.cancelCaller {
+				require.ErrorIs(t, err, ErrDeletionStopped)
+				require.ErrorIs(t, err, shutdown)
+				assert.Equal(t, []string{"ttl deletion on remote node stopped: " + err.Error()},
+					messagesAt(hook, logrus.WarnLevel))
+			} else {
+				require.NoError(t, err)
+			}
+			assert.Empty(t, messagesAt(hook, logrus.ErrorLevel))
+			assert.Equal(t, tt.wantHandOffs, handOffs.Load())
+		})
+	}
+}
+
+// Abort writes a remote node's abort failure into its log line as well as
+// returning it.
+func TestCoordinatorAbortLogsRemoteFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "node is down", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	getter := schemaUC.NewMockSchemaGetter(t)
+	getter.EXPECT().NodeName().Return("node1")
+	getter.EXPECT().Nodes().Return([]string{"node1", "node2"})
+
+	logger, hook := logtest.NewNullLogger()
+	c := NewCoordinator(nil, getter, nil, &db.DB{}, logger, server.Client(),
+		fixedNodeResolver(strings.TrimPrefix(server.URL, "http://")), NewLocalStatus())
+
+	aborted, err := c.Abort(context.Background(), false)
+	require.ErrorContains(t, err, "node is down")
+	assert.False(t, aborted)
+	assert.Equal(t, []string{"abort ttl deletion on all nodes: " + err.Error()},
+		messagesAt(hook, logrus.WarnLevel))
+}
+
 func TestLocalState(t *testing.T) {
 	t.Run("initial state is not running", func(t *testing.T) {
 		s := NewLocalStatus()
@@ -157,7 +389,7 @@ func TestLocalState(t *testing.T) {
 	t.Run("SetRunning succeeds when not running", func(t *testing.T) {
 		s := NewLocalStatus()
 
-		ok, ctx := s.SetRunning()
+		ok, ctx := s.SetRunning(context.Background())
 
 		require.True(t, ok)
 		require.NotNil(t, ctx)
@@ -168,7 +400,7 @@ func TestLocalState(t *testing.T) {
 	t.Run("SetRunning returns valid non-cancelled context", func(t *testing.T) {
 		s := NewLocalStatus()
 
-		ok, ctx := s.SetRunning()
+		ok, ctx := s.SetRunning(context.Background())
 
 		require.True(t, ok)
 		require.NotNil(t, ctx)
@@ -183,10 +415,10 @@ func TestLocalState(t *testing.T) {
 
 	t.Run("SetRunning fails when already running", func(t *testing.T) {
 		s := NewLocalStatus()
-		ok, _ := s.SetRunning()
+		ok, _ := s.SetRunning(context.Background())
 		require.True(t, ok, "first SetRunning should succeed")
 
-		ok2, ctx2 := s.SetRunning()
+		ok2, ctx2 := s.SetRunning(context.Background())
 
 		assert.False(t, ok2)
 		assert.Nil(t, ctx2)
@@ -195,7 +427,7 @@ func TestLocalState(t *testing.T) {
 
 	t.Run("ResetRunning succeeds when running and cancels context", func(t *testing.T) {
 		s := NewLocalStatus()
-		ok, ctx := s.SetRunning()
+		ok, ctx := s.SetRunning(context.Background())
 		require.True(t, ok)
 		require.NotNil(t, ctx)
 
@@ -215,7 +447,7 @@ func TestLocalState(t *testing.T) {
 
 	t.Run("ResetRunning sets context error to context.Canceled", func(t *testing.T) {
 		s := NewLocalStatus()
-		ok, ctx := s.SetRunning()
+		ok, ctx := s.SetRunning(context.Background())
 		require.True(t, ok)
 
 		s.ResetRunning("finished")
@@ -225,7 +457,7 @@ func TestLocalState(t *testing.T) {
 
 	t.Run("ResetRunning cause contains the provided reason", func(t *testing.T) {
 		s := NewLocalStatus()
-		ok, ctx := s.SetRunning()
+		ok, ctx := s.SetRunning(context.Background())
 		require.True(t, ok)
 
 		s.ResetRunning("aborted")
@@ -255,7 +487,7 @@ func TestLocalState(t *testing.T) {
 
 	t.Run("second ResetRunning after first returns false", func(t *testing.T) {
 		s := NewLocalStatus()
-		ok, _ := s.SetRunning()
+		ok, _ := s.SetRunning(context.Background())
 		require.True(t, ok)
 
 		first := s.ResetRunning("finished")
@@ -268,11 +500,11 @@ func TestLocalState(t *testing.T) {
 	t.Run("SetRunning can be called again after ResetRunning", func(t *testing.T) {
 		s := NewLocalStatus()
 
-		ok1, ctx1 := s.SetRunning()
+		ok1, ctx1 := s.SetRunning(context.Background())
 		require.True(t, ok1)
 		s.ResetRunning("finished")
 
-		ok2, ctx2 := s.SetRunning()
+		ok2, ctx2 := s.SetRunning(context.Background())
 
 		assert.True(t, ok2)
 		require.NotNil(t, ctx2)
@@ -286,11 +518,11 @@ func TestLocalState(t *testing.T) {
 	t.Run("each SetRunning produces an independent context", func(t *testing.T) {
 		s := NewLocalStatus()
 
-		ok1, ctx1 := s.SetRunning()
+		ok1, ctx1 := s.SetRunning(context.Background())
 		require.True(t, ok1)
 		s.ResetRunning("round 1")
 
-		ok2, ctx2 := s.SetRunning()
+		ok2, ctx2 := s.SetRunning(context.Background())
 		require.True(t, ok2)
 
 		// ctx1 is cancelled, ctx2 is not
@@ -313,7 +545,7 @@ func TestLocalState(t *testing.T) {
 		for range goroutines {
 			go func() {
 				defer wg.Done()
-				ok, _ := s.SetRunning()
+				ok, _ := s.SetRunning(context.Background())
 				if ok {
 					successCount.Add(1)
 				}
@@ -327,7 +559,7 @@ func TestLocalState(t *testing.T) {
 
 	t.Run("concurrent ResetRunning calls: only one succeeds", func(t *testing.T) {
 		s := NewLocalStatus()
-		ok, _ := s.SetRunning()
+		ok, _ := s.SetRunning(context.Background())
 		require.True(t, ok)
 
 		const goroutines = 50
@@ -352,7 +584,7 @@ func TestLocalState(t *testing.T) {
 	t.Run("concurrent SetRunning and ResetRunning: consistent state", func(t *testing.T) {
 		s := NewLocalStatus()
 		// prime with a running state
-		ok, _ := s.SetRunning()
+		ok, _ := s.SetRunning(context.Background())
 		require.True(t, ok)
 
 		var wg sync.WaitGroup
@@ -367,7 +599,7 @@ func TestLocalState(t *testing.T) {
 			}()
 			go func() {
 				defer wg.Done()
-				s.SetRunning()
+				s.SetRunning(context.Background())
 			}()
 		}
 		wg.Wait()
@@ -380,7 +612,7 @@ func TestLocalState(t *testing.T) {
 
 	t.Run("context cancelled by ResetRunning is propagated to child contexts", func(t *testing.T) {
 		s := NewLocalStatus()
-		ok, parentCtx := s.SetRunning()
+		ok, parentCtx := s.SetRunning(context.Background())
 		require.True(t, ok)
 
 		childCtx, cancel := context.WithCancel(parentCtx)
@@ -396,19 +628,56 @@ func TestLocalState(t *testing.T) {
 		}
 	})
 
+	t.Run("parent context ending cancels the running context but keeps it running", func(t *testing.T) {
+		s := NewLocalStatus()
+		parentCtx, cancelParent := context.WithCancelCause(context.Background())
+		ok, ctx := s.SetRunning(parentCtx)
+		require.True(t, ok)
+
+		shutdown := errors.New("server shutdown")
+		cancelParent(shutdown)
+
+		assert.ErrorIs(t, context.Cause(ctx), shutdown)
+		assert.True(t, s.IsRunning(), "the deletion clears the status once it finishes")
+		ok2, _ := s.SetRunning(context.Background())
+		assert.False(t, ok2, "no second deletion while the cancelled one winds down")
+		assert.True(t, s.FinishRunning(ctx, "finished"))
+		assert.False(t, s.IsRunning())
+	})
+
+	// An abort frees the status at once, so a new deletion can take it while
+	// the aborted one winds down. The aborted one finishing must leave the new
+	// one running.
+	t.Run("an aborted deletion finishing leaves the next deletion running", func(t *testing.T) {
+		s := NewLocalStatus()
+		ok, abortedCtx := s.SetRunning(context.Background())
+		require.True(t, ok)
+		require.True(t, s.ResetRunning("aborted"))
+
+		ok, nextCtx := s.SetRunning(context.Background())
+		require.True(t, ok, "an abort frees the status at once")
+
+		assert.False(t, s.FinishRunning(abortedCtx, "finished"))
+		assert.NoError(t, nextCtx.Err())
+		assert.True(t, s.IsRunning())
+
+		assert.True(t, s.FinishRunning(nextCtx, "finished"))
+		assert.False(t, s.IsRunning())
+	})
+
 	t.Run("IsRunning reflects state changes correctly across lifecycle", func(t *testing.T) {
 		s := NewLocalStatus()
 
 		assert.False(t, s.IsRunning(), "initially not running")
 
-		ok, _ := s.SetRunning()
+		ok, _ := s.SetRunning(context.Background())
 		require.True(t, ok)
 		assert.True(t, s.IsRunning(), "running after SetRunning")
 
 		s.ResetRunning("finished")
 		assert.False(t, s.IsRunning(), "not running after ResetRunning")
 
-		ok2, _ := s.SetRunning()
+		ok2, _ := s.SetRunning(context.Background())
 		require.True(t, ok2)
 		assert.True(t, s.IsRunning(), "running again after second SetRunning")
 	})
@@ -417,7 +686,7 @@ func TestLocalState(t *testing.T) {
 		s := NewLocalStatus()
 
 		for i := range 5 {
-			ok, ctx := s.SetRunning()
+			ok, ctx := s.SetRunning(context.Background())
 			require.True(t, ok, "cycle %d: SetRunning should succeed", i)
 			require.NotNil(t, ctx)
 			assert.NoError(t, ctx.Err())

@@ -13,6 +13,7 @@ package cron
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"slices"
 	"time"
@@ -215,9 +216,9 @@ func newCronsObjectsTTL(serverShutdownCtx context.Context,
 		configuredValue: func() string { return configGetter().ObjectsTTLDeleteSchedule.Get() },
 		// An empty schedule disables the job rather than falling back to a default.
 		resolve: func(schedule string) (string, bool) { return schedule, schedule != "" },
-		// A schedule change cancels the tick context. On the single-node path
-		// that only stops the next collection from starting, so the barrier can
-		// still wait out deletions already in flight.
+		// A schedule change cancels the tick context. On a single node that stops
+		// the deletion the tick runs, so the barrier waits only until it notices.
+		// With more nodes the tick hands the deletion to a peer, which keeps running.
 		cancelOnChange: true,
 
 		logger:            logger,
@@ -245,15 +246,22 @@ func (c *cronsObjectsTTL) Init(cr *gocron.Cron, tickGate func() bool,
 		c.jobLogger.Debug("trigger ttl deletion started")
 
 		err := coordinator.Start(ctx, false, started, started)
-
-		jobLogger := c.jobLogger.WithField("took", time.Since(started))
-		if err != nil {
-			jobLogger.Errorf("trigger ttl deletion failed: %v", err)
-			return
-		}
-		jobLogger.Debug("trigger ttl deletion finished")
+		logTTLDeletionResult(c.jobLogger.WithField("took", time.Since(started)), err)
 	})
 	return err
+}
+
+// logTTLDeletionResult logs how a tick's deletion ended. A stop, such as a
+// schedule change ending the tick context, is not a failure.
+func logTTLDeletionResult(logger logrus.FieldLogger, err error) {
+	switch {
+	case stderrors.Is(err, objectttl.ErrDeletionStopped):
+		logger.Warnf("trigger ttl deletion stopped: %v", err)
+	case err != nil:
+		logger.Errorf("trigger ttl deletion failed: %v", err)
+	default:
+		logger.Debug("trigger ttl deletion finished")
+	}
 }
 
 func initGoCron(ctx context.Context, logger gocron.Logger) *gocron.Cron {

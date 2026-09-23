@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -36,6 +37,26 @@ import (
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
+
+// ErrDeletionStopped marks a deletion that ended because its context did: an
+// abort, a schedule change or a server shutdown. A stop is not a failure, so it
+// is logged at Warn and left out of the failure count.
+var ErrDeletionStopped = errors.New("ttl deletion stopped")
+
+// DeletionResult is the error a deletion that ran on ctx ends with, given the
+// errors it collected. If ctx has ended by then, the errors make it a stop and
+// the stop carries them, since most are the stop reaching a collection and the
+// next run retries the rest. A deletion that finished clean before it noticed
+// ctx ending succeeded.
+func DeletionResult(ctx context.Context, collected error) error {
+	if collected == nil {
+		return nil
+	}
+	if cause := context.Cause(ctx); cause != nil {
+		return fmt.Errorf("%w (%w): %w", ErrDeletionStopped, cause, collected)
+	}
+	return collected
+}
 
 type objectTTLAndVersion struct {
 	version   uint64
@@ -204,9 +225,10 @@ func (c *Coordinator) Abort(ctx context.Context, targetOwnNode bool) (bool, erro
 		"nodes":   abortedNodes,
 	})
 	if err != nil {
-		l.WithError(err)
+		l.Warnf("abort ttl deletion on all nodes: %v", err)
+	} else {
+		l.Warn("abort ttl deletion on all nodes")
 	}
-	l.Warn("abort ttl deletion on all nodes")
 
 	return anyAborted, err
 }
@@ -214,11 +236,11 @@ func (c *Coordinator) Abort(ctx context.Context, targetOwnNode bool) (bool, erro
 func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context, classesWithTTL map[string]objectTTLAndVersion,
 	ttlTime, deletionTime time.Time,
 ) (err error) {
-	ok, ttlCtx := c.localStatus.SetRunning()
+	ok, ttlCtx := c.localStatus.SetRunning(ctx)
 	if !ok {
 		return fmt.Errorf("another request is still being processed")
 	}
-	defer c.localStatus.ResetRunning("finished")
+	defer c.localStatus.FinishRunning(ttlCtx, "finished")
 
 	started := time.Now()
 
@@ -252,13 +274,15 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 		metrics.ObserveObjectsTtlDuration(took)
 		metrics.AddObjectsTtlObjectsDeleted(float64(total))
 
-		if err != nil {
+		switch {
+		case errors.Is(err, ErrDeletionStopped):
+			logger.Warnf("ttl deletion on local node stopped: %v", err)
+		case err != nil:
 			metrics.IncObjectsTtlFailureCount()
-
-			logger.WithError(err).Error("ttl deletion on local node failed")
-			return
+			logger.Errorf("ttl deletion on local node failed: %v", err)
+		default:
+			logger.Debug("ttl deletion on local node finished")
 		}
-		logger.Debug("ttl deletion on local node finished")
 	}()
 
 	ec := errorcompounder.NewSafe()
@@ -266,7 +290,8 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 	eg.SetLimit(concurrency.TimesFloatGOMAXPROCS(c.db.GetConfig().ObjectsTTLConcurrencyFactor.Get()))
 
 	for name, collection := range classesWithTTL {
-		if err := ctx.Err(); err != nil {
+		if err := context.Cause(ttlCtx); err != nil {
+			ec.Add(err)
 			break
 		}
 		objsDeletedCounters[name] = &atomic.Int32{}
@@ -277,10 +302,11 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 
 	eg.Wait() // ignore errors from eg as they are already collected in ec
 
-	if err := ec.ToError(); err != nil {
+	err = DeletionResult(ttlCtx, ec.ToError())
+	if err != nil && !errors.Is(err, ErrDeletionStopped) {
 		return fmt.Errorf("deletion of expired objects on local node: %w", err)
 	}
-	return nil
+	return err
 }
 
 func (c *Coordinator) triggerDeletionObjectsExpiredRemoteNode(ctx context.Context, classesWithTTL map[string]objectTTLAndVersion,
@@ -295,11 +321,14 @@ func (c *Coordinator) triggerDeletionObjectsExpiredRemoteNode(ctx context.Contex
 	l.Debug("ttl deletion on remote node started")
 	defer func() {
 		l = l.WithField("took", time.Since(started))
-		if err != nil {
-			l.WithError(err).Error("ttl deletion on remote node failed")
-			return
+		switch {
+		case errors.Is(err, ErrDeletionStopped):
+			l.Warnf("ttl deletion on remote node stopped: %v", err)
+		case err != nil:
+			l.Errorf("ttl deletion on remote node failed: %v", err)
+		default:
+			l.Debug("ttl deletion on remote node finished")
 		}
-		l.Debug("ttl deletion on remote node finished")
 	}()
 
 	// check if deletion is running on the last node we picked
@@ -307,10 +336,13 @@ func (c *Coordinator) triggerDeletionObjectsExpiredRemoteNode(ctx context.Contex
 		l := l.WithField("last_node", c.objectTTLLastNode)
 
 		ttlOngoing, err := c.remoteObjectTTL.CheckIfStillRunning(ctx, c.objectTTLLastNode)
-		if err != nil {
+		switch {
+		case err != nil && ctx.Err() != nil:
+			return DeletionResult(ctx, err)
+		case err != nil:
 			l.Errorf("Checking objectTTL running status failed: %v", err)
 			// proceed with deletion
-		} else if ttlOngoing {
+		case ttlOngoing:
 			l.Warn("ObjectTTL is still running, skipping this round")
 			return nil // deletion for collection still running, skip this round
 		}
@@ -330,7 +362,9 @@ func (c *Coordinator) triggerDeletionObjectsExpiredRemoteNode(ctx context.Contex
 	}
 
 	c.objectTTLLastNode = node
-	return c.remoteObjectTTL.StartRemoteDelete(ctx, node, ttlCollections)
+	// A stop that cuts the request short may land after the node took the
+	// deletion on, so the deletion can still run there.
+	return DeletionResult(ctx, c.remoteObjectTTL.StartRemoteDelete(ctx, node, ttlCollections))
 }
 
 // dropClassesWithoutActiveNamespace removes every collection whose namespace is
@@ -504,10 +538,12 @@ func (dc DeletedCounters) ToLogFields(maxCollectionNameLen int) (fields logrus.F
 // isRunning is set to true when TTL deletion start and reset when finishes.
 // Status is global per node. Only one deletion can run at a time, following requests
 // to start new deletion should be rejected until ongoing one finishes.
-// When running flag is set new context is created to be passed to started process.
-// Context can be cancelled by abort call, which should eventually stop ongoing deletion.
-// Abort call do not change isRunning flag. It is changed when deletion is actually finished,
-// as context can be verified with delay.
+// SetRunning derives the deletion's context from the caller's, so the deletion
+// stops when that context ends or when ResetRunning is called on abort. The
+// caller's context ending leaves isRunning set until the deletion finishes and
+// calls FinishRunning, since the deletion notices the cancel with a delay. An
+// abort clears isRunning at once, so a new deletion can start while the aborted
+// one winds down, and FinishRunning leaves the new one's status alone.
 type LocalStatus struct {
 	lock          *sync.Mutex
 	isRunning     bool
@@ -529,7 +565,7 @@ func (s *LocalStatus) IsRunning() bool {
 	return s.isRunning
 }
 
-func (s *LocalStatus) SetRunning() (success bool, ctx context.Context) {
+func (s *LocalStatus) SetRunning(ctx context.Context) (success bool, runningCtx context.Context) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -538,10 +574,11 @@ func (s *LocalStatus) SetRunning() (success bool, ctx context.Context) {
 	}
 
 	s.isRunning = true
-	s.runningCtx, s.runningCancel = context.WithCancelCause(context.Background())
+	s.runningCtx, s.runningCancel = context.WithCancelCause(ctx)
 	return true, s.runningCtx
 }
 
+// ResetRunning ends whichever deletion is running, as an abort does.
 func (s *LocalStatus) ResetRunning(cause string) (success bool) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
@@ -549,10 +586,27 @@ func (s *LocalStatus) ResetRunning(cause string) (success bool) {
 	if !s.isRunning {
 		return false
 	}
+	s.reset(cause)
+	return true
+}
 
+// FinishRunning ends the deletion SetRunning handed runningCtx to, and does
+// nothing once an abort has ended it, since the status may belong to a newer
+// deletion by then.
+func (s *LocalStatus) FinishRunning(runningCtx context.Context, cause string) (success bool) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	if !s.isRunning || s.runningCtx != runningCtx {
+		return false
+	}
+	s.reset(cause)
+	return true
+}
+
+func (s *LocalStatus) reset(cause string) {
 	s.runningCancel(enterrors.NewCanceledCause(cause))
 
 	s.isRunning = false
 	s.runningCtx, s.runningCancel = nil, nil
-	return true
 }

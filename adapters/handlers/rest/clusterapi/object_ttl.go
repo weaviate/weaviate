@@ -14,6 +14,7 @@ package clusterapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sync/atomic"
@@ -35,17 +36,21 @@ type ObjectTTL struct {
 	logger      logrus.FieldLogger
 	config      config.Config
 	localStatus *objectttl.LocalStatus
+	// serverShutdownCtx bounds the deletions incomingDelete starts, which
+	// outlive the request that started them.
+	serverShutdownCtx context.Context
 }
 
 func NewObjectTTL(remoteIndex *sharding.RemoteIndexIncoming, auth auth, logger logrus.FieldLogger,
-	config config.Config, localStatus *objectttl.LocalStatus,
+	config config.Config, localStatus *objectttl.LocalStatus, serverShutdownCtx context.Context,
 ) *ObjectTTL {
 	return &ObjectTTL{
-		remoteIndex: remoteIndex,
-		auth:        auth,
-		logger:      logger,
-		config:      config,
-		localStatus: localStatus,
+		remoteIndex:       remoteIndex,
+		auth:              auth,
+		logger:            logger,
+		config:            config,
+		localStatus:       localStatus,
+		serverShutdownCtx: serverShutdownCtx,
 	}
 }
 
@@ -113,7 +118,7 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
 
-		ok, ttlCtx := d.localStatus.SetRunning()
+		ok, ttlCtx := d.localStatus.SetRunning(d.serverShutdownCtx)
 		if !ok {
 			http.Error(w, "another request is still being processed", http.StatusTooManyRequests)
 			return
@@ -121,7 +126,7 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 
 		var body []objectttl.ObjectsExpiredPayload
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			d.localStatus.ResetRunning("bad request")
+			d.localStatus.FinishRunning(ttlCtx, "bad request")
 			http.Error(w, "Error parsing JSON body", http.StatusBadRequest)
 			return
 		}
@@ -129,7 +134,7 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 		// run the deletion in a separate goroutine to free up the HTTP handler immediately
 		enterrors.GoWrapper(func() {
 			// make sure to unlock the requestRunning flag when all deletions are done
-			defer d.localStatus.ResetRunning("finished")
+			defer d.localStatus.FinishRunning(ttlCtx, "finished")
 
 			started := time.Now()
 
@@ -162,13 +167,15 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 				metrics.ObserveObjectsTtlDuration(took)
 				metrics.AddObjectsTtlObjectsDeleted(float64(total))
 
-				if err != nil {
+				switch {
+				case errors.Is(err, objectttl.ErrDeletionStopped):
+					logger.Warnf("incoming ttl deletion on remote node stopped: %v", err)
+				case err != nil:
 					metrics.IncObjectsTtlFailureCount()
-
-					logger.WithError(err).Error("incoming ttl deletion on remote node failed")
-					return
+					logger.Errorf("incoming ttl deletion on remote node failed: %v", err)
+				default:
+					logger.Debug("incoming ttl deletion on remote node finished")
 				}
-				logger.Debug("incoming ttl deletion on remote node finished")
 			}()
 
 			ec := errorcompounder.NewSafe()
@@ -176,12 +183,16 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 			eg.SetLimit(concurrency.TimesFloatGOMAXPROCS(d.config.ObjectsTTLConcurrencyFactor.Get()))
 
 			for _, classPayload := range body {
+				if err := context.Cause(ttlCtx); err != nil {
+					ec.Add(err)
+					break
+				}
 				className := classPayload.Class
 				objsDeletedCounters[className] = &atomic.Int32{}
 				countDeleted := func(count int32) { objsDeletedCounters[className].Add(count) }
 
 				// TODO aliszka:ttl handle graceful index close / drop
-				idx, err := d.remoteIndex.IndexForIncomingWrite(context.Background(), className, classPayload.ClassVersion)
+				idx, err := d.remoteIndex.IndexForIncomingWrite(ttlCtx, className, classPayload.ClassVersion)
 				if err != nil {
 					ec.AddGroups(fmt.Errorf("get index: %w", err), className)
 					continue
@@ -193,7 +204,7 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 
 			eg.Wait() // ignore errors from goroutines, they are collected in ec
 
-			err = ec.ToError()
+			err = objectttl.DeletionResult(ttlCtx, ec.ToError())
 		}, d.logger)
 
 		w.WriteHeader(http.StatusAccepted)

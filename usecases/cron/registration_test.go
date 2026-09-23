@@ -748,6 +748,56 @@ func TestCronsRegistration_CancelOnChangeEndsTheReplacedTick(t *testing.T) {
 	}
 }
 
+// A cancelOnChange job ends the tick in flight with a cause that says why, so
+// the work the tick runs can report it.
+func TestCronsRegistration_CancelOnChangeNamesItsCause(t *testing.T) {
+	tests := []struct {
+		name      string
+		end       func(c *cronsRegistration[time.Duration], shutdown context.CancelFunc)
+		wantCause error
+	}{
+		{
+			name:      "a schedule change",
+			end:       func(c *cronsRegistration[time.Duration], _ context.CancelFunc) { c.valueCh <- 2 * time.Minute },
+			wantCause: errScheduleChanged,
+		},
+		{
+			name:      "a value that disables the job",
+			end:       func(c *cronsRegistration[time.Duration], _ context.CancelFunc) { c.valueCh <- 0 },
+			wantCause: errJobDisabled,
+		},
+		{
+			name:      "server shutdown",
+			end:       func(_ *cronsRegistration[time.Duration], shutdown context.CancelFunc) { shutdown() },
+			wantCause: context.Canceled,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c, cr, _, shutdown := newTestRegistration(t, time.Minute)
+			c.cancelOnChange = true
+
+			var tickCtx atomic.Pointer[context.Context]
+			started, err := c.start(cr, cron.RunOnEveryNode, func(ctx context.Context) {
+				tickCtx.Store(&ctx)
+			})
+			require.NoError(t, err)
+			require.True(t, started)
+			requireRegisteredAt(t, cr, testJobName, time.Minute)
+
+			cr.EntryByName(testJobName).Run()
+			require.NotNil(t, tickCtx.Load())
+			ended := *tickCtx.Load()
+
+			tt.end(c, shutdown)
+
+			require.Eventually(t, func() bool { return ended.Err() != nil }, 2*time.Second, 10*time.Millisecond,
+				"the tick context never ended")
+			assert.Equal(t, tt.wantCause, context.Cause(ended))
+		})
+	}
+}
+
 func TestCronsRegistration_ShutdownAfterTheBarrierRegistersNothing(t *testing.T) {
 	c, cr, hook, cancel := newTestRegistration(t, time.Minute)
 

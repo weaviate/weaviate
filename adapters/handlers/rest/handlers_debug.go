@@ -37,10 +37,11 @@ import (
 	"github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/schema"
+	objectttl "github.com/weaviate/weaviate/usecases/object_ttl"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 )
 
-func setupDebugHandlers(appState *state.State) {
+func setupDebugHandlers(appState *state.State, serverShutdownCtx context.Context) {
 	logger := appState.Logger.WithField("handler", "debug")
 
 	// newLogLevel can be one of: panic, fatal, error, warn, info, debug, trace (defaults to info)
@@ -637,38 +638,7 @@ func setupDebugHandlers(appState *state.State) {
 		w.Write(jsonBytes)
 	}))
 
-	http.HandleFunc("/debug/ttl/deleteall", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		expiration := r.URL.Query().Get("expiration")
-		targetOwnNodeStr := r.URL.Query().Get("targetOwnNode")
-
-		var err error
-		var expirationTime time.Time
-
-		if expiration != "" {
-			expirationTime, err = time.Parse(time.RFC3339, expiration)
-			if err != nil {
-				http.Error(w, fmt.Errorf("invalid expiration: %w", err).Error(), http.StatusBadRequest)
-				return
-			}
-		} else {
-			expirationTime = time.Now()
-		}
-
-		targetOwnNode := config.Enabled(targetOwnNodeStr)
-
-		err = appState.ObjectTTLCoordinator.Start(context.Background(), targetOwnNode, expirationTime, expirationTime)
-		if err != nil {
-			http.Error(w, "failed to delete expired objects", http.StatusInternalServerError)
-			return
-		}
-
-		w.WriteHeader(http.StatusAccepted)
-	}))
+	http.HandleFunc("/debug/ttl/deleteall", newTTLDeleteAllHandler(appState.ObjectTTLCoordinator, serverShutdownCtx))
 
 	http.HandleFunc("/debug/ttl/abort", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -917,6 +887,44 @@ type hnswStats interface {
 type hfreshReassignIndex interface {
 	GetShard(context.Context, string) (db.ShardLike, func(), error)
 	ForEachShard(func(string, db.ShardLike) error) error
+}
+
+// newTTLDeleteAllHandler runs a TTL deletion on serverShutdownCtx and waits for
+// it. The request's context would stop the deletion when the client hangs up,
+// and would not end on shutdown, since nothing shuts the debug listener down.
+func newTTLDeleteAllHandler(coordinator *objectttl.Coordinator, serverShutdownCtx context.Context) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		expiration := r.URL.Query().Get("expiration")
+		targetOwnNodeStr := r.URL.Query().Get("targetOwnNode")
+
+		var err error
+		var expirationTime time.Time
+
+		if expiration != "" {
+			expirationTime, err = time.Parse(time.RFC3339, expiration)
+			if err != nil {
+				http.Error(w, fmt.Errorf("invalid expiration: %w", err).Error(), http.StatusBadRequest)
+				return
+			}
+		} else {
+			expirationTime = time.Now()
+		}
+
+		targetOwnNode := config.Enabled(targetOwnNodeStr)
+
+		err = coordinator.Start(serverShutdownCtx, targetOwnNode, expirationTime, expirationTime)
+		if err != nil {
+			http.Error(w, "failed to delete expired objects", http.StatusInternalServerError)
+			return
+		}
+
+		w.WriteHeader(http.StatusAccepted)
+	}
 }
 
 func newHFreshReassignHandler(logger logrus.FieldLogger, getIndex func(schema.ClassName) hfreshReassignIndex) http.HandlerFunc {

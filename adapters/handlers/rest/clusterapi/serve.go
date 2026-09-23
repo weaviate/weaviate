@@ -45,7 +45,7 @@ type Server struct {
 var _ types.ClusterServer = (*Server)(nil)
 
 // NewServer creates a new cluster API server instance
-func NewServer(appState *state.State) *Server {
+func NewServer(appState *state.State, serverShutdownCtx context.Context) *Server {
 	port := appState.ServerConfig.Config.Cluster.DataBindPort
 	auth := NewBasicAuthHandler(appState.ServerConfig.Config.Cluster.AuthConfig)
 
@@ -66,7 +66,7 @@ func NewServer(appState *state.State) *Server {
 	backups := NewBackups(appState.BackupManager, auth)
 	exportsHandler := NewExports(appState.ExportParticipant, auth)
 	dbUsers := NewDbUsers(appState.APIKeyRemote, auth)
-	objectTTL := NewObjectTTL(appState.RemoteIndexIncoming, auth, appState.Logger, appState.ServerConfig.Config, appState.ObjectTTLLocalStatus)
+	objectTTL := NewObjectTTL(appState.RemoteIndexIncoming, auth, appState.Logger, appState.ServerConfig.Config, appState.ObjectTTLLocalStatus, serverShutdownCtx)
 
 	mux := http.NewServeMux()
 	mux.Handle("/classifications/transactions/",

@@ -565,7 +565,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.TenantActivity.SetSource(appState.DB)
 	}
 
-	setupDebugHandlers(appState)
+	setupDebugHandlers(appState, serverShutdownCtx)
 	setupGoProfiling(appState)
 	setupRuntimeProfiling(appState)
 
@@ -819,7 +819,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.ServerConfig.Config.ExportParallelism,
 	)
 
-	appState.InternalServer = clusterapi.NewServer(appState)
+	appState.InternalServer = clusterapi.NewServer(appState, serverShutdownCtx)
 	enterrors.GoWrapper(func() { appState.InternalServer.Serve() }, appState.Logger)
 
 	vectorRepo.SetSchemaGetter(schemaManager)
