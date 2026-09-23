@@ -43,9 +43,8 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.tenantAddLocks.Unlock(req.Class)
 	}
 
-	// Serialize a reindex task and a movement per collection so the check below
-	// can't race the apply that makes the other side active. Never held with the
-	// tenant lock above: a command has one type and the two sets are disjoint.
+	// Serialize reindex and movement per collection so the check can't race the other's apply.
+	// Never held with the tenant lock above: the two command-type sets are disjoint.
 	collection, err := st.reindexOrMovementCollection(req)
 	if err != nil {
 		return 0, err
@@ -56,8 +55,8 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	}
 
 	// PreApplyFilter below judges against in-memory FSM state, so a leader that
-	// has not drained what it inherited must not judge yet. After the locks
-	// above, not before: each is held across the apply, so a caller can wait
+	// has not drained what it inherited must not judge yet. After the tenant
+	// and collection locks, not before: each is held across the apply, so a caller can wait
 	// on it long enough for leadership to turn over, and a term confirmed before
 	// the wait says nothing about the term it wakes up in.
 	if err := st.waitLeaderFSMCaughtUp(); err != nil {
@@ -102,8 +101,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 }
 
 // admitPropose refuses a command whose namespace is not in a state that admits
-// it, and one that would run a reindex task and a replica movement on one
-// collection. It runs on the leader before the entry is appended, the only
+// it. It runs on the leader before the entry is appended, which is the only
 // place such a refusal can live: Apply must be a pure function of the log, so a
 // check there would have an older binary carry out what an upgraded one refuses,
 // live during a rolling update and again on every replay of that entry.
@@ -158,9 +156,7 @@ func (st *Store) reindexOrMovementCollection(req *api.ApplyRequest) (string, err
 	}
 }
 
-// admitReindexOrMovement refuses the second of a reindex task and a replica
-// movement on one collection: the reindex rewrites the shard files the
-// movement copies.
+// The reindex rewrites the shard files the movement copies.
 func (st *Store) admitReindexOrMovement(cmdType api.ApplyRequest_Type, collection string) error {
 	if collection == "" {
 		return nil

@@ -409,8 +409,6 @@ func (m *Manager) CollectionOfTask(namespace string, payload []byte) (string, bo
 	return extractor(payload)
 }
 
-// HasActiveTaskForCollection reports whether a non-terminal task runs on
-// `collection`, matched case-insensitively as DeleteTasksForCollection does.
 func (m *Manager) HasActiveTaskForCollection(collection string) bool {
 	if collection == "" {
 		return false

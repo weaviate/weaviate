@@ -2017,17 +2017,12 @@ func (p *ReindexProvider) IsCleanupInProgress(collection, shard string) bool {
 // terminal-cleanup is still running.
 type CleanupInProgressLookup func(collection, shard string) bool
 
-// CleanupInProgressLookupBuilder returns a fresh snapshot of node-local state,
-// which cannot fail, so it returns no error.
 type CleanupInProgressLookupBuilder func() CleanupInProgressLookup
 
 // CleanupInProgressLookupBuilder returns a builder whose closures
 // re-read the live [cleanupInProgress] registry on every invocation.
 // Use to wire the backup gate into the provider without coupling the
 // DB struct to the concrete *ReindexProvider type.
-//
-// Returning the closure (rather than a direct method handle) lets the gate
-// take a snapshot per probe rather than caching the underlying state.
 func (p *ReindexProvider) CleanupInProgressLookupBuilder() CleanupInProgressLookupBuilder {
 	return func() CleanupInProgressLookup {
 		return p.IsCleanupInProgress

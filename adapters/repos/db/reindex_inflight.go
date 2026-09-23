@@ -33,14 +33,10 @@ var unwiredGateWarnOnce sync.Once
 // AnyLiveReindexForShard answers the cluster-wide question: does DTM
 // have any LIVE reindex task targeting (collection, shardName)?
 //
-// The lookup builder is installed by [DB.SetShardReindexActivityLookup]
-// from the post-bootstrap goroutine in configure_api.go.
-//
-// Defaults to "no live reindex" when the lookup is unwired (with a
-// one-time WARN): production gates HTTP serving on bootstrap
-// completion, so no external request reaches the unwired window, and
-// module-test fixtures skip the install path entirely. A builder that
-// cannot reach DTM returns an error, which the caller refuses on.
+// Default to "no live reindex" when the lookup is unwired (with a
+// one-time WARN): module-test fixtures skip the post-bootstrap
+// install path; production HTTP gates on bootstrap completion so the
+// unwired window is unreachable by external traffic.
 func (db *DB) AnyLiveReindexForShard(collection, shardName string) (bool, error) {
 	if db.config.RuntimeReindexDisabled {
 		// Runtime reindex is off, so no new task can start. Return before
@@ -119,21 +115,11 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 	db.reindexCleanupInProgressLookupBldr = builder
 }
 
-// ErrReindexGateUnavailable marks a refusal the gate issued without being able
-// to check. Only a refusal naming a live task is something to wait for, so a
-// replica movement counts this one against its error budget instead.
+// A movement counts this refusal as an error, not a wait: nothing would end the wait.
 var ErrReindexGateUnavailable = errors.New("cannot check for a running runtime-reindex task")
 
-// Only a partially constructed fixture produces this; nothing fills the
-// reference in later.
 const noDatabaseBackReference = "this index has no database back-reference, so the check cannot run"
 
-// refuseIfReindexInFlight is the per-shard backup-gate check used by
-// [DB.Backupable], [Index.backupInactiveShardWithHardlinks],
-// [Index.backupInactiveShardWithoutHardlinks], and
-// [Shard.HaltForTransfer]. Consults DTM via [DB.AnyLiveReindexForShard],
-// and refuses when it cannot check, so an unreachable DTM cannot let a
-// backup race a reindex nobody can see.
 func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	collection := i.Config.ClassName.String()
 	if i.db == nil {
@@ -149,11 +135,8 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	return reindexInFlightError(collection, shardName)
 }
 
-// reindexGateUnavailableError formats the refusal for a check that could not
-// run. It wraps the in-flight sentinel too, so the backup path answers as it
-// does for a live task. The reason arrives as text, not as an error to chain:
-// IsReversibleRefusal in cluster/replication pulls a wrapped gRPC status out of
-// the chain, and a FailedPrecondition one would put this back on the wait path.
+// The reason is text, not a chained error: IsReversibleRefusal would find a
+// wrapped FailedPrecondition gRPC status and put this back on the wait path.
 func reindexGateUnavailableError(collection, shardName, reason string) error {
 	return fmt.Errorf("%w: shard %q (collection %q): %s; refusing in case one is running unseen (%w)",
 		ErrReindexGateUnavailable, shardName, collection, reason,
@@ -161,10 +144,8 @@ func reindexGateUnavailableError(collection, shardName, reason string) error {
 	)
 }
 
-// reindexInFlightError formats the operator-facing rejection for a reindex the
-// shard is still busy with: a task DTM lists as live, or one whose sidecar
-// teardown is still running. This gate never sees the task's status, so it
-// states the cancel remedy with its condition attached rather than branching.
+// This gate never sees the task's status, so it states the cancel remedy
+// with its condition attached rather than branching on it.
 func reindexInFlightError(collection, shardName string) error {
 	return fmt.Errorf(
 		"%w: shard %q (collection %q) has an active runtime-reindex task in DTM; retry once that task reaches a terminal state, which GET /v1/schema/<class>/indexes reports by moving the index off status=\"pending\" and status=\"indexing\". A cancel via POST /v1/schema/<class>/properties/<prop>/index/<indexType>/cancel is accepted only while the task is STARTED: it is refused with 409 in a coordination phase, and for a status this node cannot classify, which has to terminate on the nodes that do recognize it",
