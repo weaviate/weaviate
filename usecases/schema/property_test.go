@@ -933,7 +933,7 @@ func TestHandler_DeleteClassVectorIndex(t *testing.T) {
 					},
 				}},
 			}, nil)
-		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser).Return(nil)
 
 		err := handler.DeleteClassVectorIndex(ctx, nil, "TestClass", "vec1")
 		require.NoError(t, err)
@@ -1616,7 +1616,7 @@ func TestDeleteClassVectorIndex_Namespacing(t *testing.T) {
 			if tt.wantErrIs == nil {
 				sm.On("UpdateClass", mock.MatchedBy(func(c *models.Class) bool {
 					return c.Class == tt.wantAuthName
-				}), mock.Anything).Return(nil)
+				}), mock.Anything, command.ClassUpdateOriginUser).Return(nil)
 			}
 
 			err = handler.DeleteClassVectorIndex(context.Background(), tt.principal,

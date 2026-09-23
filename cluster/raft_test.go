@@ -170,19 +170,19 @@ func TestRaftEndpoints(t *testing.T) {
 	}
 
 	// ShardOwnerFromLeader
-	srv.UpdateClass(ctx, cls, &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0", BelongsToNodes: []string{"N0"}}}})
+	srv.UpdateClass(ctx, cls, &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0", BelongsToNodes: []string{"N0"}}}}, command.ClassUpdateOriginUser)
 	getShardOwner, _, err := srv.ShardOwnerFromLeader(cls.Class, "T0")
 	assert.Nil(t, err)
 	assert.Equal(t, "N0", getShardOwner)
 	// Verify that updating with nil sharding state does not change the sharding state
-	srv.UpdateClass(ctx, cls, nil)
+	srv.UpdateClass(ctx, cls, nil, command.ClassUpdateOriginUser)
 	getShardOwner, _, err = srv.ShardOwnerFromLeader(cls.Class, "T0")
 	assert.Nil(t, err)
 	assert.Equal(t, "N0", getShardOwner)
 
 	// ShardingStateFromLeader
 	shardingState := &sharding.State{PartitioningEnabled: true, Physical: map[string]sharding.Physical{"T0": {Name: "T0", BelongsToNodes: []string{"N0"}}}, ReplicationFactor: 1}
-	srv.UpdateClass(ctx, cls, shardingState)
+	srv.UpdateClass(ctx, cls, shardingState, command.ClassUpdateOriginUser)
 
 	getShardingState, _, err := srv.ShardingStateFromLeader(cls.Class)
 	assert.Nil(t, err)
@@ -195,12 +195,12 @@ func TestRaftEndpoints(t *testing.T) {
 		ReplicationFactor: 1,
 		Tenants:           1,
 	}
-	_, err = srv.UpdateClass(ctx, nil, nil)
+	_, err = srv.UpdateClass(ctx, nil, nil, command.ClassUpdateOriginUser)
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
 	cls.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
 	cls.ReplicationConfig = &models.ReplicationConfig{Factor: 1}
 	ss.Physical = map[string]sharding.Physical{"T0": {Name: "T0"}}
-	version, err := srv.UpdateClass(ctx, cls, nil)
+	version, err := srv.UpdateClass(ctx, cls, nil, command.ClassUpdateOriginUser)
 	info.ClassVersion = version
 	info.ShardVersion = version0
 	assert.Nil(t, err)

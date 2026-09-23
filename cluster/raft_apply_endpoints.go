@@ -47,12 +47,12 @@ func (s *Raft) AddClass(ctx context.Context, cls *models.Class, ss *sharding.Sta
 	return s.Execute(ctx, command)
 }
 
-func (s *Raft) UpdateClass(ctx context.Context, cls *models.Class, _ *sharding.State) (uint64, error) {
+func (s *Raft) UpdateClass(ctx context.Context, cls *models.Class, _ *sharding.State, origin cmd.ClassUpdateOrigin) (uint64, error) {
 	if cls == nil || cls.Class == "" {
 		return 0, fmt.Errorf("nil class or empty class name: %w", schema.ErrBadRequest)
 	}
 
-	req := cmd.UpdateClassRequest{Class: cls}
+	req := cmd.UpdateClassRequest{Class: cls, Origin: origin}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
 		return 0, fmt.Errorf("marshal request: %w", err)

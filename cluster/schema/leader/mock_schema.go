@@ -1221,9 +1221,9 @@ func (_c *MockSchema_TenantsShardsFromLeader_Call) RunAndReturn(run func(string,
 	return _c
 }
 
-// UpdateClass provides a mock function with given fields: ctx, cls, ss
-func (_m *MockSchema) UpdateClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
-	ret := _m.Called(ctx, cls, ss)
+// UpdateClass provides a mock function with given fields: ctx, cls, ss, origin
+func (_m *MockSchema) UpdateClass(ctx context.Context, cls *models.Class, ss *sharding.State, origin api.ClassUpdateOrigin) (uint64, error) {
+	ret := _m.Called(ctx, cls, ss, origin)
 
 	if len(ret) == 0 {
 		panic("no return value specified for UpdateClass")
@@ -1231,17 +1231,17 @@ func (_m *MockSchema) UpdateClass(ctx context.Context, cls *models.Class, ss *sh
 
 	var r0 uint64
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, *models.Class, *sharding.State) (uint64, error)); ok {
-		return rf(ctx, cls, ss)
+	if rf, ok := ret.Get(0).(func(context.Context, *models.Class, *sharding.State, api.ClassUpdateOrigin) (uint64, error)); ok {
+		return rf(ctx, cls, ss, origin)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, *models.Class, *sharding.State) uint64); ok {
-		r0 = rf(ctx, cls, ss)
+	if rf, ok := ret.Get(0).(func(context.Context, *models.Class, *sharding.State, api.ClassUpdateOrigin) uint64); ok {
+		r0 = rf(ctx, cls, ss, origin)
 	} else {
 		r0 = ret.Get(0).(uint64)
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, *models.Class, *sharding.State) error); ok {
-		r1 = rf(ctx, cls, ss)
+	if rf, ok := ret.Get(1).(func(context.Context, *models.Class, *sharding.State, api.ClassUpdateOrigin) error); ok {
+		r1 = rf(ctx, cls, ss, origin)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -1258,13 +1258,14 @@ type MockSchema_UpdateClass_Call struct {
 //   - ctx context.Context
 //   - cls *models.Class
 //   - ss *sharding.State
-func (_e *MockSchema_Expecter) UpdateClass(ctx interface{}, cls interface{}, ss interface{}) *MockSchema_UpdateClass_Call {
-	return &MockSchema_UpdateClass_Call{Call: _e.mock.On("UpdateClass", ctx, cls, ss)}
+//   - origin api.ClassUpdateOrigin
+func (_e *MockSchema_Expecter) UpdateClass(ctx interface{}, cls interface{}, ss interface{}, origin interface{}) *MockSchema_UpdateClass_Call {
+	return &MockSchema_UpdateClass_Call{Call: _e.mock.On("UpdateClass", ctx, cls, ss, origin)}
 }
 
-func (_c *MockSchema_UpdateClass_Call) Run(run func(ctx context.Context, cls *models.Class, ss *sharding.State)) *MockSchema_UpdateClass_Call {
+func (_c *MockSchema_UpdateClass_Call) Run(run func(ctx context.Context, cls *models.Class, ss *sharding.State, origin api.ClassUpdateOrigin)) *MockSchema_UpdateClass_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(*models.Class), args[2].(*sharding.State))
+		run(args[0].(context.Context), args[1].(*models.Class), args[2].(*sharding.State), args[3].(api.ClassUpdateOrigin))
 	})
 	return _c
 }
@@ -1274,7 +1275,7 @@ func (_c *MockSchema_UpdateClass_Call) Return(_a0 uint64, _a1 error) *MockSchema
 	return _c
 }
 
-func (_c *MockSchema_UpdateClass_Call) RunAndReturn(run func(context.Context, *models.Class, *sharding.State) (uint64, error)) *MockSchema_UpdateClass_Call {
+func (_c *MockSchema_UpdateClass_Call) RunAndReturn(run func(context.Context, *models.Class, *sharding.State, api.ClassUpdateOrigin) (uint64, error)) *MockSchema_UpdateClass_Call {
 	_c.Call.Return(run)
 	return _c
 }
