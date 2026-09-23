@@ -158,10 +158,10 @@ func TestBatchObjectsSemaphore(t *testing.T) {
 	mockBatcher := batchMocks.NewMockBatcher(t)
 	logger := logrus.New()
 
-	// the handler only runs once a slot is held, so a receive on entered means
-	// the caller owns a semaphore slot
 	entered := make(chan struct{}, 3)
 	done := make(chan struct{})
+	release := sync.OnceFunc(func() { close(done) })
+	t.Cleanup(release)
 	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
 		entered <- struct{}{}
 		select {
@@ -178,6 +178,15 @@ func TestBatchObjectsSemaphore(t *testing.T) {
 		logger:          logger,
 	}
 
+	waitFor := func(ch <-chan struct{}, what string) {
+		t.Helper()
+		select {
+		case <-ch:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("timed out waiting for %s", what)
+		}
+	}
+
 	wg := &sync.WaitGroup{}
 	errs := make(chan error, 2)
 	for range 2 {
@@ -188,18 +197,26 @@ func TestBatchObjectsSemaphore(t *testing.T) {
 			errs <- err
 		}, logger)
 	}
-	<-entered
-	<-entered
+	waitFor(entered, "the first call to enter the handler")
+	waitFor(entered, "the second call to enter the handler")
+	require.False(t, s.batchObjectsSem.TryAcquire(1), "both slots must be held while two calls are in the handler")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
-	_, err := s.BatchObjects(ctx, &pb.BatchObjectsRequest{})
+	var err error
+	returned := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		defer close(returned)
+		_, err = s.BatchObjects(ctx, &pb.BatchObjectsRequest{})
+	}, logger)
+	waitFor(returned, "the third call to give up on its deadline")
 
-	close(done)
+	release()
 	wg.Wait()
 
+	mockBatcher.AssertNumberOfCalls(t, "BatchObjects", 2)
 	require.Equal(t, codes.DeadlineExceeded, status.Code(err), "third call must time out waiting for a slot: %v", err)
 	require.NoError(t, <-errs)
 	require.NoError(t, <-errs)
-	mockBatcher.AssertNumberOfCalls(t, "BatchObjects", 2)
+	require.True(t, s.batchObjectsSem.TryAcquire(2), "both slots must be free once the calls return")
 }
