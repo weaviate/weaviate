@@ -12,41 +12,55 @@
 package errors
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-func Test_ForbiddenError_NoGroups(t *testing.T) {
-	principal := &models.Principal{
-		Username: "john",
+func Test_ForbiddenError(t *testing.T) {
+	tests := []struct {
+		name         string
+		nilPrincipal bool
+		groups       []string
+		wantMsg      string
+	}{
+		{
+			name:         "nil principal",
+			nilPrincipal: true,
+			wantMsg:      "authorization, forbidden action: user 'anonymous' has insufficient permissions to delete [schema/things]",
+		},
+		{
+			name:    "no groups",
+			wantMsg: "authorization, forbidden action: user 'john' has insufficient permissions to delete [schema/things]",
+		},
+		{
+			name:    "single group",
+			groups:  []string{"worstusers"},
+			wantMsg: "authorization, forbidden action: user 'john' (of group 'worstusers') has insufficient permissions to delete [schema/things]",
+		},
+		{
+			name:   "multiple groups",
+			groups: []string{"worstusers", "fraudsters", "evilpeople"},
+			wantMsg: "authorization, forbidden action: user 'john' (of groups 'worstusers', 'fraudsters', 'evilpeople') " +
+				"has insufficient permissions to delete [schema/things]",
+		},
 	}
 
-	err := NewForbidden(principal, "delete", "schema/things")
-	expectedErrMsg := "authorization, forbidden action: user 'john' has insufficient permissions to delete [schema/things]"
-	assert.Equal(t, expectedErrMsg, err.Error())
-}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.nilPrincipal {
+				assert.Equal(t, tt.wantMsg, NewForbidden(nil, "delete", "schema/things").Error())
+				return
+			}
+			principal := &models.Principal{Username: "john", Groups: slices.Clone(tt.groups)}
+			err := NewForbidden(principal, "delete", "schema/things")
 
-func Test_ForbiddenError_SingleGroup(t *testing.T) {
-	principal := &models.Principal{
-		Username: "john",
-		Groups:   []string{"worstusers"},
+			// Formatting twice pins that Error leaves the principal's groups alone.
+			assert.Equal(t, tt.wantMsg, err.Error())
+			assert.Equal(t, tt.wantMsg, err.Error())
+			assert.Equal(t, tt.groups, principal.Groups)
+		})
 	}
-
-	err := NewForbidden(principal, "delete", "schema/things")
-	expectedErrMsg := "authorization, forbidden action: user 'john' (of group 'worstusers') has insufficient permissions to delete [schema/things]"
-	assert.Equal(t, expectedErrMsg, err.Error())
-}
-
-func Test_ForbiddenError_MultipleGroups(t *testing.T) {
-	principal := &models.Principal{
-		Username: "john",
-		Groups:   []string{"worstusers", "fraudsters", "evilpeople"},
-	}
-
-	err := NewForbidden(principal, "delete", "schema/things")
-	expectedErrMsg := "authorization, forbidden action: user 'john' (of groups 'worstusers', 'fraudsters', 'evilpeople') " +
-		"has insufficient permissions to delete [schema/things]"
-	assert.Equal(t, expectedErrMsg, err.Error())
 }
