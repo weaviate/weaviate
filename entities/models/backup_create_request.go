@@ -24,7 +24,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// BackupCreateRequest Request body for creating a backup for a set of collections.
+// BackupCreateRequest Request body for creating a backup. The resolved selection must contain at least one collection, dynamic user, or RBAC role.
 //
 // swagger:model BackupCreateRequest
 type BackupCreateRequest struct {
@@ -32,19 +32,19 @@ type BackupCreateRequest struct {
 	// Custom configuration for the backup creation process
 	Config *BackupConfig `json:"config,omitempty"`
 
-	// List of collections to exclude from the backup creation process. If not set, all collections are included. Cannot be used together with `include`. Permits wildcards, e.g. `*` or `prefix*`.
+	// List of collections to exclude from the backup creation process. If not set, all available collections are included. Cannot be used together with `include`. Permits wildcards, e.g. `*` or `prefix*`. Excluding every collection is allowed only when `includeUsers` or `includeRoles` selects at least one identity.
 	Exclude []string `json:"exclude"`
 
 	// The ID of the backup (required). Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	ID string `json:"id,omitempty"`
 
-	// List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with `exclude`. Permits wildcards, e.g. `*` or `prefix*`. A list made only of wildcards that match no collection is rejected.
+	// List of collections to include in the backup creation process. If not set, all available collections are included. Cannot be used together with `exclude`. Permits wildcards, e.g. `*` or `prefix*`. A list that matches no collection is allowed only when `includeUsers` or `includeRoles` selects at least one identity.
 	Include []string `json:"include"`
 
-	// List of RBAC roles to include in the backup. Permits `*` and `?` wildcards, e.g. `*` or `prefix*`. When omitted, the whole RBAC state is captured as part of the cluster snapshot; when set, the RBAC blob is filtered to the matching roles. An exact role name that does not exist is rejected; wildcards that match nothing back up no roles. Built-in roles are rejected and are never selected by wildcards (they are re-applied automatically on restore). No per-role permission check is applied.
+	// List of RBAC roles to include in the backup. Permits `*` and `?` wildcards, e.g. `*` or `prefix*`. When omitted, the whole RBAC state is captured as part of the cluster snapshot; omission does not count as selecting a role for a backup with zero collections. When set, the RBAC blob is filtered to the matching roles, and a match permits a backup with zero collections. An exact role name that does not exist is rejected; wildcards that match nothing back up no roles. Built-in roles are rejected and are never selected by wildcards (they are re-applied automatically on restore). No per-role permission check is applied.
 	IncludeRoles []string `json:"includeRoles"`
 
-	// List of dynamic DB users to include in the backup. Permits `*` and `?` wildcards, e.g. `*` or `prefix*`. When omitted, the whole dynamic-user store is captured as part of the cluster snapshot and no per-user permission check is applied; when set, only matching users are captured. An exact user name that does not exist is rejected; wildcards that match nothing back up no users.
+	// List of dynamic DB users to include in the backup. Permits `*` and `?` wildcards, e.g. `*` or `prefix*`. When omitted, the whole dynamic-user store is captured as part of the cluster snapshot and no per-user permission check is applied; omission does not count as selecting a user for a backup with zero collections. When set, only matching users are captured, and a match permits a backup with zero collections. An exact user name that does not exist is rejected; wildcards that match nothing back up no users.
 	IncludeUsers []string `json:"includeUsers"`
 
 	// The ID of an existing backup to use as the base for a file-based incremental backup. If set, only files that have changed since the base backup will be included in the new backup.

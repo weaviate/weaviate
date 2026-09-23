@@ -24,7 +24,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// BackupRestoreRequest Request body for restoring a backup for a set of collections (classes).
+// BackupRestoreRequest Request body for restoring a backup. A backup with no collections can restore users or roles when the matching restore option is enabled.
 //
 // swagger:model BackupRestoreRequest
 type BackupRestoreRequest struct {
@@ -32,10 +32,10 @@ type BackupRestoreRequest struct {
 	// Custom configuration for the backup restoration process.
 	Config *RestoreConfig `json:"config,omitempty"`
 
-	// List of collections (classes) to exclude from the backup restoration process.
+	// List of collections (classes) to exclude from the backup restoration process. Any entry is rejected when the backup contains no collections.
 	Exclude []string `json:"exclude"`
 
-	// List of collections (classes) to include in the backup restoration process. Permits wildcards, e.g. `*` or `prefix*`. A list made only of wildcards that match no collection in the backup is rejected.
+	// List of collections (classes) to include in the backup restoration process. Permits wildcards, e.g. `*` or `prefix*`. A list made only of wildcards that match no collection in the backup is rejected. Any entry is rejected when the backup contains no collections.
 	Include []string `json:"include"`
 
 	// Allows overriding the node names stored in the backup with different ones. Useful when restoring backups to a different environment.
