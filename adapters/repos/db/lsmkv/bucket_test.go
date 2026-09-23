@@ -2185,9 +2185,7 @@ func TestBucketInvertedStrategyWriteVsFlush(t *testing.T) {
 	active, err := b.getActiveMemtableForWrite()
 	require.NoError(t, err)
 	freeRefs := active.decWriterCount
-	err = active.appendMapSorted([]byte("key1"),
-		NewMapPairFromDocIdAndTf(1, 2, 1, false),
-	)
+	err = active.appendInverted([]byte("key1"), newInvertedPair(1, 2, 1, false))
 	require.NoError(t, err)
 
 	switchDone := make(chan struct{})
@@ -2211,9 +2209,7 @@ func TestBucketInvertedStrategyWriteVsFlush(t *testing.T) {
 	<-switchDone
 
 	// Second write (post-switch) through the old active reference
-	err = active.appendMapSorted([]byte("key1"),
-		NewMapPairFromDocIdAndTf(2, 2, 1, false),
-	)
+	err = active.appendInverted([]byte("key1"), newInvertedPair(2, 2, 1, false))
 	require.NoError(t, err)
 
 	// Release and let flush proceed
@@ -2418,7 +2414,7 @@ func newTestMemtableMap(initialData map[string][]MapPair) *testMemtable {
 
 	m := &Memtable{
 		strategy:  StrategyMapCollection,
-		keyMap:    &binarySearchTreeMap{},
+		keyMap:    &binarySearchTreeMap[MapPair]{},
 		commitlog: newDummyCommitLogger(),
 		metrics:   metrics,
 	}
@@ -2440,7 +2436,7 @@ func newTestMemtableInverted(initialData map[string][]MapPair) *testMemtable {
 
 	m := &Memtable{
 		strategy:         StrategyInverted,
-		keyMap:           &binarySearchTreeMap{},
+		keyInverted:      &binarySearchTreeMap[invertedPair]{},
 		commitlog:        newDummyCommitLogger(),
 		metrics:          metrics,
 		tombstones:       sroar.NewBitmap(),
@@ -2449,7 +2445,15 @@ func newTestMemtableInverted(initialData map[string][]MapPair) *testMemtable {
 
 	for k, v := range initialData {
 		for _, mp := range v {
-			m.appendMapSorted([]byte(k), mp)
+			pair := invertedPair{
+				docID:     binary.BigEndian.Uint64(mp.Key),
+				tombstone: mp.Tombstone,
+			}
+			if !mp.Tombstone {
+				pair.tfBits = binary.LittleEndian.Uint32(mp.Value[0:4])
+				pair.propLenBits = binary.LittleEndian.Uint32(mp.Value[4:8])
+			}
+			m.appendInverted([]byte(k), pair)
 		}
 	}
 
@@ -2506,12 +2510,10 @@ func flushMapTestMemtableIntoTestSegment(m memtable) *fakeSegment {
 }
 
 func flushInvertedTestMemtableIntoTestSegment(m memtable) *fakeSegment {
-	allEntries := m.(*testMemtable).keyMap.flattenInOrder()
+	allEntries := m.(*testMemtable).keyInverted.flattenInOrder()
 	data := map[string][]MapPair{}
 	for _, e := range allEntries {
-		valuesCopy := make([]MapPair, len(e.values))
-		copy(valuesCopy, e.values)
-		data[string(e.key)] = valuesCopy
+		data[string(e.key)] = invertedPairsToMapPairs(e.values)
 	}
 	return newFakeInvertedSegment(data)
 }
@@ -2573,6 +2575,15 @@ func mapFromDocPointers(id uint64, frequency, proplength float32) MapPair {
 
 func docPointers(id uint64, frequency, proplength float32) terms.DocPointerWithScore {
 	return terms.DocPointerWithScore{Id: id, Frequency: frequency, PropLength: proplength}
+}
+
+func newInvertedPair(docID uint64, tf, propLength float32, isTombstone bool) invertedPair {
+	return invertedPair{
+		docID:       docID,
+		tfBits:      math.Float32bits(tf),
+		propLenBits: math.Float32bits(propLength),
+		tombstone:   isTombstone,
+	}
 }
 
 // moved from an intregation test, so we can use it both in unit and

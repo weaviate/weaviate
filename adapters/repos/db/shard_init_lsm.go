@@ -46,6 +46,8 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	if err := s.initIndexCounterVersionerAndBitmapFactory(); err != nil {
 		return fmt.Errorf("init shard %q: %w", s.ID(), err)
 	}
+	// Checked before the buckets open: tryLoadHashtreeFromDisk would trust an orphaned .ht verbatim.
+	orphanedHashtree := persistedHashtreeHasObjectStore(s.index.path(), s.name)
 
 	// Run all other inits in parallel and use a single error group to wait for
 	// all init tasks, the wait statement is at the end of this method. No other
@@ -103,9 +105,16 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 			effectiveConfig = config.Effective(*s.index.globalreplicationConfig)
 		}
 		var cached hashtree.AggregatedHashTree
-		cached, err = s.tryLoadHashtreeFromDisk(effectiveConfig.hashtreeHeight)
-		if err != nil {
-			return fmt.Errorf("load hashtree from disk on shard %q: %w", s.ID(), err)
+		if orphanedHashtree != nil {
+			s.index.logger.WithField("shard", s.ID()).Warnf("discarding persisted hashtree, rebuilding by scan: %v", orphanedHashtree)
+			if err := s.removePersistedHashtree(); err != nil {
+				return fmt.Errorf("discard orphaned hashtree on shard %q: %w", s.ID(), err)
+			}
+		} else {
+			cached, err = s.tryLoadHashtreeFromDisk(effectiveConfig.hashtreeHeight)
+			if err != nil {
+				return fmt.Errorf("load hashtree from disk on shard %q: %w", s.ID(), err)
+			}
 		}
 
 		func() {

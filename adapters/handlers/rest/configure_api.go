@@ -1762,13 +1762,6 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	}
 
 	logger.WithFields(logrus.Fields{
-		"action":                    "startup",
-		"default_vectorizer_module": serverConfig.Config.DefaultVectorizerModule,
-	}).Infof("the default vectorizer modules is set to %q, as a result all new "+
-		"schema classes without an explicit vectorizer setting, will use this "+
-		"vectorizer", serverConfig.Config.DefaultVectorizerModule)
-
-	logger.WithFields(logrus.Fields{
 		"action":              "startup",
 		"auto_schema_enabled": serverConfig.Config.AutoSchema.Enabled,
 	}).Infof("auto schema enabled setting is set to \"%v\"", serverConfig.Config.AutoSchema.Enabled)
@@ -1832,9 +1825,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 			WithField("action", "startup").
 			Fatalf("modules didn't initialize: %v", err)
 	}
-	// now that modules are loaded we can run the remaining config validation
-	// which is module dependent
-	if err := appState.ServerConfig.Config.ValidateModules(appState.Modules); err != nil {
+	if err := appState.ServerConfig.Config.ValidateDefaultVectorDistanceMetric(); err != nil {
 		appState.Logger.
 			WithField("action", "startup").
 			Fatalf("invalid config: %v", err)

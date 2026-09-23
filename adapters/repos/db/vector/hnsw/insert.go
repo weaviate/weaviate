@@ -24,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
-	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 )
 
 const (
@@ -477,12 +476,9 @@ func (h *hnsw) addOne(ctx context.Context, id uint64, vector []float32, node *ve
 	h.RUnlock()
 
 	targetLevel := int(node.level)
-	var err error
-	node.connections, err = packedconn.NewWithMaxLayer(uint8(targetLevel))
-	if err != nil {
-		return err
-	}
+	node.connections.GrowLayersTo(uint8(targetLevel))
 
+	var err error
 	if err = h.commitLog.AddNode(id, node.level); err != nil {
 		return err
 	}
@@ -574,19 +570,13 @@ func (h *hnsw) insertInitialElement(id uint64, node *vertex, nodeVec []float32) 
 
 	h.entryPointID = id
 	h.currentMaximumLayer = 0
-	conns, err := packedconn.NewWithElements([][]uint64{
-		make([]uint64, 0, h.maximumConnectionsLayerZero),
-	})
-	if err != nil {
-		return err
-	}
-	node.connections = conns
 	node.level = 0
+	node.connections.GrowLayersTo(0)
 	if err := h.commitLog.AddNode(id, node.level); err != nil {
 		return err
 	}
 
-	err = h.growIndexToAccomodateNode(id, h.logger)
+	err := h.growIndexToAccomodateNode(id, h.logger)
 	if err != nil {
 		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", id)
 	}

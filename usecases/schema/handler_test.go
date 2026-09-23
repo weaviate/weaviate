@@ -31,7 +31,6 @@ var schemaTests = []struct {
 }{
 	{name: "AddObjectClass", fn: testAddObjectClass},
 	{name: "AddObjectClassWithExplicitVectorizer", fn: testAddObjectClassExplicitVectorizer},
-	{name: "AddObjectClassWithImplicitVectorizer", fn: testAddObjectClassImplicitVectorizer},
 	{name: "AddObjectClassWithWrongVectorizer", fn: testAddObjectClassWrongVectorizer},
 	{name: "AddObjectClassWithWrongIndexType", fn: testAddObjectClassWrongIndexType},
 	{name: "RemoveObjectClass", fn: testRemoveObjectClass},
@@ -78,24 +77,6 @@ func testAddObjectClassExplicitVectorizer(t *testing.T, handler *Handler, fakeSc
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
-	_, _, err := handler.AddClass(context.Background(), nil, class)
-	assert.Nil(t, err)
-}
-
-func testAddObjectClassImplicitVectorizer(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
-	t.Parallel()
-	handler.config.DefaultVectorizerModule = config.VectorizerModuleText2VecContextionary
-	class := &models.Class{
-		Class: "Car",
-		Properties: []*models.Property{{
-			DataType:     schema.DataTypeText.PropString(),
-			Tokenization: models.PropertyTokenizationWhitespace,
-			Name:         "dummy",
-		}},
-		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
-	}
-
-	fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 	_, _, err := handler.AddClass(context.Background(), nil, class)
 	assert.Nil(t, err)
 }

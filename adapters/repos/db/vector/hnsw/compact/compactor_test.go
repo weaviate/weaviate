@@ -556,3 +556,155 @@ func createWALFile(t *testing.T, path string) {
 	err = walWriter.WriteSetEntryPointMaxLevel(0, 0)
 	require.NoError(t, err)
 }
+
+// TestCompactor_EmptyRotationsStayBounded covers forced commit-log rotations
+// (the backup path rotates regardless of size) on an index that receives no
+// commits. Each rotation leaves a 0-byte raw file that compaction converts
+// into a 0-byte .sorted file; those must be collapsed like any other sorted
+// file instead of accumulating one per rotation.
+func TestCompactor_EmptyRotationsStayBounded(t *testing.T) {
+	const rotations = 12
+
+	cases := []struct {
+		name string
+		// seed writes any pre-existing state under timestamps below 2000.
+		seed func(t *testing.T, dir string, compactor *Compactor)
+		// fill writes the content of each rotated-out log; nil leaves it empty.
+		fill         func(t *testing.T, path string)
+		wantSnapshot bool
+		wantNode     bool
+	}{
+		{
+			name: "never-written index",
+		},
+		{
+			name: "real commits, then only empty rotations",
+			seed: func(t *testing.T, dir string, _ *Compactor) {
+				createWALFile(t, filepath.Join(dir, "1000"))
+			},
+			wantSnapshot: true,
+			wantNode:     true,
+		},
+		{
+			name: "empty rotations on top of an existing snapshot",
+			seed: func(t *testing.T, dir string, compactor *Compactor) {
+				createWALFile(t, filepath.Join(dir, "1000"))
+				createEmptyFile(t, dir, "1001")
+				runCompactionToQuiescence(t, compactor)
+				state, err := NewFileDiscovery(dir).Scan()
+				require.NoError(t, err)
+				require.NotNil(t, state.Snapshot, "seed must produce a snapshot")
+			},
+			wantSnapshot: true,
+			wantNode:     true,
+		},
+		{
+			// Not every 0-byte sorted file starts as a 0-byte log: the sorted
+			// writer drops a tombstone that was added and removed again.
+			name: "rotations whose only commits cancel out",
+			fill: func(t *testing.T, path string) {
+				f, err := os.Create(path)
+				require.NoError(t, err)
+				defer f.Close()
+				w := NewWALWriter(f)
+				require.NoError(t, w.WriteAddTombstone(7))
+				require.NoError(t, w.WriteRemoveTombstone(7))
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			compactor := NewCompactor(DefaultCompactorConfig(dir), logrus.New())
+			if tc.seed != nil {
+				tc.seed(t, dir, compactor)
+			}
+
+			ts := int64(2000)
+			createEmptyFile(t, dir, fmt.Sprint(ts))
+			// rotate fills the live file, then seals it by opening a newer empty
+			// one, exactly what a forced switchCommitLogs does.
+			rotate := func() {
+				if tc.fill != nil {
+					tc.fill(t, filepath.Join(dir, fmt.Sprint(ts)))
+				}
+				ts++
+				createEmptyFile(t, dir, fmt.Sprint(ts))
+			}
+
+			check := func(phase string) {
+				t.Helper()
+				runCompactionToQuiescence(t, compactor)
+
+				state, err := NewFileDiscovery(dir).Scan()
+				require.NoError(t, err)
+				assert.LessOrEqualf(t, len(state.SortedFiles), 1,
+					"%s: empty sorted files were not collapsed: %v", phase, sortedNames(state))
+				assert.Emptyf(t, state.RawFiles, "%s: unconverted raw files remain", phase)
+				assert.Equal(t, tc.wantSnapshot, state.Snapshot != nil, "%s: snapshot presence", phase)
+
+				// A fixed point: another cycle changes nothing.
+				before := dirEntries(t, dir)
+				action, err := compactor.RunCycle(nil)
+				require.NoError(t, err)
+				assert.Equal(t, ActionNone, action, "%s: compactor did not settle", phase)
+				assert.Equal(t, before, dirEntries(t, dir), "%s: idle cycle changed the directory", phase)
+
+				res, err := NewLoader(LoaderConfig{Dir: dir, Logger: logrus.New()}).Load()
+				require.NoError(t, err, "%s: load", phase)
+				if tc.wantNode {
+					require.NotNil(t, res, "%s: load returned no state", phase)
+					require.NotEmpty(t, res.State.Graph.Nodes, "%s: node lost", phase)
+					require.NotNil(t, res.State.Graph.Nodes[0], "%s: node lost", phase)
+				}
+			}
+
+			// Burst: many rotations before compaction gets to run, the state an
+			// upgraded deployment starts from.
+			for i := 0; i < rotations; i++ {
+				rotate()
+			}
+			check("burst")
+
+			// Steady state: one rotation per backup with compaction in between.
+			for i := 0; i < rotations; i++ {
+				rotate()
+				check(fmt.Sprintf("rotation %d", i))
+			}
+		})
+	}
+}
+
+// runCompactionToQuiescence runs cycles until the compactor reports nothing
+// left to do, failing if it never settles.
+func runCompactionToQuiescence(t *testing.T, compactor *Compactor) {
+	t.Helper()
+	for i := 0; i < 100; i++ {
+		action, err := compactor.RunCycle(nil)
+		require.NoError(t, err)
+		if action == ActionNone {
+			return
+		}
+	}
+	t.Fatal("compactor did not reach a fixed point within 100 cycles")
+}
+
+func sortedNames(state *DirectoryState) []string {
+	names := make([]string, 0, len(state.SortedFiles))
+	for _, f := range state.SortedFiles {
+		names = append(names, filepath.Base(f.Path))
+	}
+	return names
+}
+
+func dirEntries(t *testing.T, dir string) []string {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err)
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
+}
