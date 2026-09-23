@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"math/bits"
 	"strings"
 	"sync/atomic"
 
@@ -105,8 +106,7 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 		}
 		for _, item := range property.Items {
 			key := item.Data
-			pair := s.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
-			if err := s.addToPropertyMapBucket(bucketValue, pair, key); err != nil {
+			if err := s.addToPropertyMapBucket(bucketValue, docID, key, item.TermFrequency, propLen); err != nil {
 				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
 			}
 		}
@@ -169,17 +169,20 @@ func (s *Shard) addToPropertyNullIndex(propName string, docID uint64, isNull boo
 	return nil
 }
 
+// searchableDocID is the doc ID as a searchable bucket's key reads big-endian.
+// Shards below index version 2 wrote those keys little-endian, so reverse.
+func (s *Shard) searchableDocID(docID uint64) uint64 {
+	if s.versioner.Version() < 2 {
+		return bits.ReverseBytes64(docID)
+	}
+	return docID
+}
+
 func (s *Shard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair {
 	// 8 bytes for doc id, 4 bytes for frequency, 4 bytes for prop term length
 	buf := make([]byte, 16)
 
-	// Shard Index version 2 requires BigEndian for sorting, if the shard was
-	// built prior assume it uses LittleEndian
-	if s.versioner.Version() < 2 {
-		binary.LittleEndian.PutUint64(buf[0:8], docID)
-	} else {
-		binary.BigEndian.PutUint64(buf[0:8], docID)
-	}
+	binary.BigEndian.PutUint64(buf[0:8], s.searchableDocID(docID))
 	binary.LittleEndian.PutUint32(buf[8:12], math.Float32bits(freq))
 	binary.LittleEndian.PutUint32(buf[12:16], math.Float32bits(propLen))
 
@@ -189,10 +192,14 @@ func (s *Shard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) l
 	}
 }
 
-func (s *Shard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
+func (s *Shard) addToPropertyMapBucket(bucket *lsmkv.Bucket, docID uint64, key []byte, tf, propLen float32) error {
 	lsmkv.MustBeExpectedStrategy(bucket.Strategy(), lsmkv.StrategyMapCollection, lsmkv.StrategyInverted)
 
-	return bucket.MapSet(key, pair)
+	if bucket.Strategy() == lsmkv.StrategyInverted {
+		return bucket.InvertedSet(key, s.searchableDocID(docID), tf, propLen)
+	}
+
+	return bucket.MapSet(key, s.pairPropertyWithFrequency(docID, tf, propLen))
 }
 
 func (s *Shard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {

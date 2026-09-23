@@ -3170,7 +3170,6 @@ func Test_AddClass_NoImplicitLegacyVectorIndex(t *testing.T) {
 
 	tests := []struct {
 		name                string
-		defaultVectorizer   string
 		defaultIndexType    string
 		defaultQuantization string
 		class               *models.Class
@@ -3181,11 +3180,6 @@ func Test_AddClass_NoImplicitLegacyVectorIndex(t *testing.T) {
 		{
 			name:  "class asking for no vector stays vector-less",
 			class: &models.Class{Class: "NewClass"},
-		},
-		{
-			name:              "default vectorizer module does not create an index",
-			defaultVectorizer: "text2vec-contextionary",
-			class:             &models.Class{Class: "NewClass"},
 		},
 		{
 			name:             "default index type does not create an index",
@@ -3213,6 +3207,13 @@ func Test_AddClass_NoImplicitLegacyVectorIndex(t *testing.T) {
 			wantIndexConfig:  true,
 		},
 		{
+			name:            "explicit index config keeps the legacy index without a vectorizer",
+			class:           &models.Class{Class: "NewClass", VectorIndexConfig: map[string]interface{}{"distance": "dot"}},
+			wantVectorizer:  config.VectorizerModuleNone,
+			wantIndexType:   hnswT,
+			wantIndexConfig: true,
+		},
+		{
 			name: "named vectors leave the legacy fields empty",
 			class: &models.Class{Class: "NewClass", VectorConfig: map[string]models.VectorConfig{
 				"vec1": {
@@ -3228,9 +3229,6 @@ func Test_AddClass_NoImplicitLegacyVectorIndex(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-			if tt.defaultVectorizer != "" {
-				handler.config.DefaultVectorizerModule = tt.defaultVectorizer
-			}
 			handler.config.DefaultVectorIndexType = runtime.NewDynamicValue(tt.defaultIndexType)
 			handler.config.DefaultQuantization = runtime.NewDynamicValue(tt.defaultQuantization)
 			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
@@ -3322,7 +3320,6 @@ func Test_SetClassDefaults_DefaultVectorIndexType(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, _ := newTestHandler(t, &fakeDB{})
 			handler.config.DefaultVectorIndexType = runtime.NewDynamicValue(tt.defaultIndexType)
-			handler.config.DefaultVectorizerModule = config.VectorizerModuleNone
 
 			class := &models.Class{
 				Vectorizer:        tt.classVectorizer,

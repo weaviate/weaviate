@@ -143,7 +143,7 @@ func NewFromJSONDump(dumpBytes []byte, vecForID common.VectorForID[float32]) (*h
 		}
 		index.nodes[n.ID] = &vertex{
 			level:       uint16(n.Level),
-			connections: connections,
+			connections: *connections,
 		}
 	}
 
@@ -183,7 +183,7 @@ func NewFromJSONDumpMap(dumpBytes []byte, vecForID common.VectorForID[float32]) 
 		}
 		index.nodes[n.ID] = &vertex{
 			level:       uint16(n.Level),
-			connections: connections,
+			connections: *connections,
 		}
 		for level, conns := range n.Connections {
 			index.nodes[n.ID].connections.ReplaceLayer(uint8(level), conns)

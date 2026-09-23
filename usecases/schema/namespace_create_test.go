@@ -63,7 +63,6 @@ func newTestHandlerWithNamespaces(t *testing.T, enabled bool) (*Handler, *fakeSc
 		valid: []string{"text2vec-contextionary", "model1", "model2"},
 	}
 	cfg := config.Config{
-		DefaultVectorizerModule:     config.VectorizerModuleNone,
 		DefaultVectorDistanceMetric: "cosine",
 	}
 	cfg.Namespaces.Enabled = enabled

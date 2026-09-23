@@ -57,7 +57,13 @@ func BenchmarkBucketMapSet(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				if err := bucket.MapSet(rowKeys[i], MapPair{Key: mks[i], Value: val}); err != nil {
+				var err error
+				if tc.strategy == StrategyInverted {
+					err = bucket.InvertedSet(rowKeys[i], binary.BigEndian.Uint64(mks[i]), 1, 1)
+				} else {
+					err = bucket.MapSet(rowKeys[i], MapPair{Key: mks[i], Value: val})
+				}
+				if err != nil {
 					b.Fatal(err)
 				}
 			}

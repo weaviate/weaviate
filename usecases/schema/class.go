@@ -768,9 +768,11 @@ func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication
 // setLegacyVectorDefaults fills the class-level vector fields from the global
 // defaults. Whether a class is entitled to a legacy index at all is the
 // caller's decision — this never creates one for a class that asked for none.
+// A legacy index without a vectorizer never gets one: vectorization must be
+// asked for explicitly, so it defaults to "none".
 func (h *Handler) setLegacyVectorDefaults(class *models.Class) {
 	if class.Vectorizer == "" {
-		class.Vectorizer = h.config.DefaultVectorizerModule
+		class.Vectorizer = config.VectorizerModuleNone
 	}
 
 	if class.VectorIndexType == "" {

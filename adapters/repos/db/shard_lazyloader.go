@@ -1020,12 +1020,8 @@ func (l *LazyLoadShard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint6
 	return l.mustLoad(context.Background()).addToPropertySetBucket(bucket, docID, key)
 }
 
-func (l *LazyLoadShard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
-	return l.mustLoad(context.Background()).addToPropertyMapBucket(bucket, pair, key)
-}
-
-func (l *LazyLoadShard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair {
-	return l.mustLoad(context.Background()).pairPropertyWithFrequency(docID, freq, propLen)
+func (l *LazyLoadShard) addToPropertyMapBucket(bucket *lsmkv.Bucket, docID uint64, key []byte, tf, propLen float32) error {
+	return l.mustLoad(context.Background()).addToPropertyMapBucket(bucket, docID, key, tf, propLen)
 }
 
 func (l *LazyLoadShard) setFallbackToSearchable(fallback bool) {

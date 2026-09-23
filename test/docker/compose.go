@@ -112,7 +112,6 @@ const (
 type Compose struct {
 	netOctet                    int // second octet of this cluster's subnet, set in Start
 	enableModules               []string
-	defaultVectorizerModule     string
 	withMinIO                   bool
 	withGCS                     bool
 	withAzurite                 bool
@@ -189,7 +188,6 @@ func (d *Compose) WithAzurite() *Compose {
 func (d *Compose) WithText2VecTransformers() *Compose {
 	d.withTransformers = true
 	d.enableModules = append(d.enableModules, Text2VecTransformers)
-	d.defaultVectorizerModule = Text2VecTransformers
 	return d
 }
 
@@ -197,14 +195,12 @@ func (d *Compose) WithText2VecTransformersImage(image string) *Compose {
 	d.withTransformers = true
 	d.withTransformersImage = image
 	d.enableModules = append(d.enableModules, Text2VecTransformers)
-	d.defaultVectorizerModule = Text2VecTransformers
 	return d
 }
 
 func (d *Compose) WithText2VecContextionary() *Compose {
 	d.withContextionary = true
 	d.enableModules = append(d.enableModules, Text2VecContextionary)
-	d.defaultVectorizerModule = Text2VecContextionary
 	return d
 }
 
@@ -470,7 +466,6 @@ func (d *Compose) WithText2VecNvidia(apiKey string) *Compose {
 func (d *Compose) WithText2VecModel2Vec() *Compose {
 	d.withModel2Vec = true
 	d.enableModules = append(d.enableModules, modmodel2vec.Name)
-	d.defaultVectorizerModule = modmodel2vec.Name
 	return d
 }
 
@@ -1051,7 +1046,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready", d.weaviateFiles, d.weaviateHostGateway)
+		container, err := startWeaviate(ctx, d.enableModules, envSettings, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready", d.weaviateFiles, d.weaviateHostGateway)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
@@ -1231,7 +1226,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 					hostname, attempt+1, ctx.Err())
 			}
 			attemptCtx, cancel := context.WithTimeout(context.Background(), perAttemptTimeout)
-			c, err := startWeaviate(attemptCtx, d.enableModules, d.defaultVectorizerModule,
+			c, err := startWeaviate(attemptCtx, d.enableModules,
 				cfg, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, livenessEndpoint, d.weaviateFiles, d.weaviateHostGateway)
 			cancel()
 			if err == nil {

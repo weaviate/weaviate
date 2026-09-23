@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/go-openapi/swag"
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 
@@ -175,7 +174,6 @@ type Config struct {
 	Authorization                    Authorization            `json:"authorization" yaml:"authorization"`
 	Origin                           string                   `json:"origin" yaml:"origin"`
 	Persistence                      Persistence              `json:"persistence" yaml:"persistence"`
-	DefaultVectorizerModule          string                   `json:"default_vectorizer_module" yaml:"default_vectorizer_module"`
 	DefaultVectorDistanceMetric      string                   `json:"default_vector_distance_metric" yaml:"default_vector_distance_metric"`
 	EnableModules                    string                   `json:"enable_modules" yaml:"enable_modules"`
 	EnableApiBasedModules            bool                     `json:"api_based_modules_disabled" yaml:"api_based_modules_disabled"`
@@ -796,38 +794,12 @@ func runtimeMismatchProblems(allowList []string, defaultDV *runtime.DynamicValue
 	return out
 }
 
-// ValidateModules validates the non-nested parameters. Nested objects must provide their own
-// validation methods
-func (c *Config) ValidateModules(modProv moduleProvider) error {
-	if err := c.validateDefaultVectorizerModule(modProv); err != nil {
-		return errors.Wrap(err, "default vectorizer module")
-	}
-
-	if err := c.validateDefaultVectorDistanceMetric(); err != nil {
-		return errors.Wrap(err, "default vector distance metric")
-	}
-
-	return nil
-}
-
-func (c *Config) validateDefaultVectorizerModule(modProv moduleProvider) error {
-	if c.DefaultVectorizerModule == VectorizerModuleNone {
-		return nil
-	}
-
-	return modProv.ValidateVectorizer(c.DefaultVectorizerModule)
-}
-
-type moduleProvider interface {
-	ValidateVectorizer(moduleName string) error
-}
-
-func (c *Config) validateDefaultVectorDistanceMetric() error {
+func (c *Config) ValidateDefaultVectorDistanceMetric() error {
 	switch c.DefaultVectorDistanceMetric {
 	case "", common.DistanceCosine, common.DistanceDot, common.DistanceL2Squared, common.DistanceManhattan, common.DistanceHamming:
 		return nil
 	default:
-		return fmt.Errorf("must be one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]")
+		return fmt.Errorf("default vector distance metric: must be one of [\"cosine\", \"dot\", \"l2-squared\", \"manhattan\",\"hamming\"]")
 	}
 }
 

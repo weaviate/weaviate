@@ -131,6 +131,10 @@ func (i *Index) createUnloadedAsyncCheckpoint(ctx context.Context, shardName str
 			}
 			return notActive(err.Error())
 		}
+		if err := persistedHashtreeHasObjectStore(i.path(), shardName); err != nil {
+			logger.Warnf("persisted hashtree refused for checkpoint: %v", err)
+			return notActive(err.Error())
+		}
 		if enabled, _ := i.asyncReplicationStateForShard(shardName); !enabled {
 			return notActive("async replication disabled")
 		}
