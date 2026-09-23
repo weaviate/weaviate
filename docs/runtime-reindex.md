@@ -159,7 +159,8 @@ Response shapes (PUT / rebuild / cancel):
 - `404 Not Found` — class or property doesn't exist.
 - `409 Conflict` — three distinct meanings. On PUT / rebuild, an in-flight
   task already touches this property; the error names the offending task
-  ID. On PUT / rebuild, a replica movement is in flight on the collection.
+  ID unless another submit won the race. On PUT / rebuild, a replica
+  movement is in flight on the collection.
   On cancel, either arm can refuse. The pre-flight refuses a status
   other than `STARTED` (`PREPARING` or `SWAPPING`, where nodes may
   already have written merged state or renamed bucket directories, or one
