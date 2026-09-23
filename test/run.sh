@@ -587,7 +587,7 @@ function run_unit_tests() {
     adapters)     packages=$(echo "$packages" | grep -E "/adapters/|$adapters_extra");;
     non-adapters) packages=$(echo "$packages" | grep -vE "/adapters/|$adapters_extra");;
   esac
-  if [[ -n "${JUNIT_DIR:-}" ]]; then
+  if [[ -n "${JUNIT_DIR:-}" && -n "$GOTESTSUM_BIN" ]]; then
     # gotestsum's --format-hide-empty-pkg replaces the grep below; a pipe
     # here would also mangle its terminal output.
     go_test -race -coverprofile=coverage-unit.txt -covermode=atomic -count 1 $packages
