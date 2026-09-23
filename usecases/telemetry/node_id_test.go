@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -77,6 +78,68 @@ func TestReadOrCreateNodeID_UnwritableDirReturnsError(t *testing.T) {
 
 	_, err := ReadOrCreateNodeID(dir)
 	assert.Error(t, err, "caller relies on this error to trigger its ephemeral-id fallback")
+}
+
+// TestReadOrCreateNodeID_ConcurrentFirstBoot pins the concurrent first-boot race:
+// N goroutines call ReadOrCreateNodeID against one fresh, shared data dir at the
+// same instant (the embedded-mode shape, where multiple instances default to one
+// PERSISTENCE_DATA_PATH). Before the os.Link + read-back fix, this reproduced a
+// ~75% caller-error rate (rename racing on a fixed tmp name) plus callers that
+// succeeded but disagreed with the file another caller's rename had already
+// overwritten. This test catches both failure modes because it asserts on the
+// actual returned values from every goroutine against the actual on-disk content,
+// not just that ReadOrCreateNodeID returns without error.
+func TestReadOrCreateNodeID_ConcurrentFirstBoot(t *testing.T) {
+	tests := []struct {
+		name     string
+		callers  int
+		attempts int
+	}{
+		{name: "4 concurrent callers", callers: 4, attempts: 150},
+		{name: "8 concurrent callers", callers: 8, attempts: 50},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for a := 0; a < tt.attempts; a++ {
+				dir := t.TempDir()
+
+				var wg sync.WaitGroup
+				ids := make([]string, tt.callers)
+				errs := make([]error, tt.callers)
+				start := make(chan struct{})
+				for i := 0; i < tt.callers; i++ {
+					wg.Add(1)
+					go func(i int) {
+						defer wg.Done()
+						<-start
+						ids[i], errs[i] = ReadOrCreateNodeID(dir)
+					}(i)
+				}
+				close(start)
+				wg.Wait()
+
+				for i, err := range errs {
+					require.NoErrorf(t, err, "attempt %d caller %d: unexpected error", a, i)
+				}
+
+				onDiskBytes, err := os.ReadFile(filepath.Join(dir, nodeIDFileName))
+				require.NoErrorf(t, err, "attempt %d: node-id file must exist after all callers return", a)
+				onDisk := strings.TrimSpace(string(onDiskBytes))
+				require.NotEmptyf(t, onDisk, "attempt %d: on-disk id must not be empty", a)
+
+				for i, id := range ids {
+					assert.Equalf(t, onDisk, id, "attempt %d caller %d: returned id must equal the on-disk id, never a locally-minted value that lost the race", a, i)
+				}
+
+				entries, err := os.ReadDir(dir)
+				require.NoError(t, err)
+				for _, e := range entries {
+					assert.NotContainsf(t, e.Name(), ".tmp", "attempt %d: no leftover tmp file after all callers finish, got %q", a, e.Name())
+				}
+			}
+		})
+	}
 }
 
 func TestReadOrCreateNodeID_ExistingFileContentVariants(t *testing.T) {
