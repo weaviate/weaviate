@@ -3514,9 +3514,13 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 // loaded, and it is not. Every returned error means the shard is still loaded:
 // errAlreadyShutdown once the index is closed, and errIndexShutdown or
 // errIndexDropped while its close is only requested.
-func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
+//
+// The outcome is unloaded if and only if the error is nil, and index_closing if
+// and only if the error wraps ErrIndexClosing.
+func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) (ShardUnloadOutcome, error) {
+	// enterRead refuses only after beginClose, so a refusal means the index is closing.
 	if err := i.enterRead(); err != nil {
-		return err
+		return ShardUnloadOutcomeIndexClosing, fmt.Errorf("%w: %w", ErrIndexClosing, err)
 	}
 	defer i.exitRead()
 
@@ -3525,7 +3529,7 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 
 	shardLike, ok := i.shards.LoadAndDelete(shardName)
 	if !ok {
-		return nil // shard was not found, nothing to unload
+		return ShardUnloadOutcomeUnloaded, nil // shard was not found, nothing to unload
 	}
 
 	// The shutdown retries for seconds while enterRead holds the index open. A
@@ -3533,25 +3537,33 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 	shutdownCtx, done := i.cancelOnCloseRequested(ctx)
 	defer done()
 
-	if err := shutdownOrRestoreShard(shutdownCtx, i, shardName, shardLike); err != nil {
+	outcome, err := shutdownOrRestoreShard(shutdownCtx, i, shardName, shardLike)
+	if err != nil {
 		if errors.Is(err, errAlreadyShutdown) {
 			// The shard is shut, which is the outcome this call asked for. It
 			// is worth a line: reaching it means the shutdown burned its retry
 			// backoff holding shardCreateLocks.
 			i.logger.WithField("shard", shardName).
 				Debugf("shard was already shut or dropped: %v", err)
-			return nil
+			return ShardUnloadOutcomeUnloaded, nil
 		}
 		// backoff reports the aborted wait as a plain cancellation, so only
 		// context.Cause names the teardown. The two are joined because a shutdown
 		// that failed on its own also cancels, and that is what to act on.
-		if shutdownCtx.Err() != nil && ctx.Err() == nil && errors.Is(err, context.Canceled) {
+		closedByUs := shutdownCtx.Err() != nil && ctx.Err() == nil
+		switch {
+		case closedByUs && outcome == ShardUnloadOutcomeRefusedInUse:
+			// The last retry can run out just before the close, so a refusal
+			// here counts as index_closing too.
+			outcome = ShardUnloadOutcomeIndexClosing
+			err = fmt.Errorf("%w: %w: %w", ErrIndexClosing, context.Cause(shutdownCtx), err)
+		case closedByUs && errors.Is(err, context.Canceled):
 			err = fmt.Errorf("%w: %w", context.Cause(shutdownCtx), err)
 		}
-		return errors.Wrapf(err, "shutdown shard %q", shardName)
+		return outcome, errors.Wrapf(err, "shutdown shard %q", shardName)
 	}
 
-	return nil
+	return outcome, nil
 }
 
 func (i *Index) GetShard(ctx context.Context, shardName string) (

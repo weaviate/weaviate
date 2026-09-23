@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path"
 	"sync"
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -253,4 +255,86 @@ func TestShardKnownShut(t *testing.T) {
 	require.True(t, restoreShardIfStillAlive(&m, "torn", torn),
 		"a torn shard is retained as the last reference to its leaked handles")
 	require.NotNil(t, m.Load("torn"))
+}
+
+// TestShutdownOrRestoreShardOutcome maps each Shutdown error to its outcome.
+func TestShutdownOrRestoreShardOutcome(t *testing.T) {
+	tests := []struct {
+		name        string
+		shutdownErr error
+		want        ShardUnloadOutcome
+	}{
+		{
+			name: "a clean shutdown",
+			want: ShardUnloadOutcomeUnloaded,
+		},
+		{
+			name:        "a shard that was already shut",
+			shutdownErr: errAlreadyShutdown,
+			want:        ShardUnloadOutcomeUnloaded,
+		},
+		{
+			// performShutdown wraps errShardStillInUse, so this row does too.
+			name:        "a shard still serving requests",
+			shutdownErr: fmt.Errorf("shard %q: %w", "s1", errShardStillInUse),
+			want:        ShardUnloadOutcomeRefusedInUse,
+		},
+		{
+			name:        "a backoff that ran out of time",
+			shutdownErr: context.DeadlineExceeded,
+			want:        ShardUnloadOutcomeRefusedInUse,
+		},
+		{
+			name:        "a backoff ended by a close request",
+			shutdownErr: context.Canceled,
+			want:        ShardUnloadOutcomeRefusedInUse,
+		},
+		{
+			// No other test in the package reaches failed.
+			name:        "a teardown that failed for its own reason",
+			shutdownErr: errors.New("bucket close failed"),
+			want:        ShardUnloadOutcomeFailed,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			shard := NewMockShardLike(t)
+			shard.On("Shutdown", mock.Anything).Return(tc.shutdownErr)
+			idx := indexForShutdownOutcomeTest(t)
+
+			got, err := shutdownOrRestoreShard(context.Background(), idx, "s1", shard)
+
+			require.Equal(t, tc.want, got)
+			if tc.shutdownErr == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, tc.shutdownErr)
+		})
+	}
+}
+
+// TestShutdownOrRestoreShardOutcomeTorn covers torn with a real *Shard.
+func TestShutdownOrRestoreShardOutcomeTorn(t *testing.T) {
+	torn := &Shard{shutdownLock: new(sync.RWMutex), teardownErr: errors.New("bucket close failed")}
+	torn.shut.Store(true)
+	idx := indexForShutdownOutcomeTest(t)
+
+	got, err := shutdownOrRestoreShard(context.Background(), idx, "s1", torn)
+
+	require.Equal(t, ShardUnloadOutcomeTorn, got)
+	require.ErrorIs(t, err, errTeardownFailed)
+	require.NotNil(t, idx.shards.Load("s1"), "a torn shard is retained in the map")
+}
+
+// indexForShutdownOutcomeTest builds only what shutdownOrRestoreShard reads.
+func indexForShutdownOutcomeTest(t *testing.T) *Index {
+	t.Helper()
+
+	logger, _ := test.NewNullLogger()
+	metrics, err := NewMetrics(logger, nil, "Abc", "n/a")
+	require.NoError(t, err)
+
+	return &Index{logger: logger, metrics: metrics, shards: shardMap{}}
 }

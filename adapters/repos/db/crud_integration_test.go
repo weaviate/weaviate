@@ -2631,7 +2631,8 @@ func TestOverwriteObjects(t *testing.T) {
 		shd, err := idx.shardResolver.ResolveShardByObjectID(context.Background(), fresh.ID, "")
 		require.Nil(t, err)
 
-		require.Nil(t, idx.UnloadLocalShard(context.Background(), shd))
+		_, unloadErr := idx.UnloadLocalShard(context.Background(), shd)
+		require.Nil(t, unloadErr)
 		require.Nil(t, idx.shards.Load(shd))
 
 		input := []*objects.VObject{
