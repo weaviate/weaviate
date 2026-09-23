@@ -100,7 +100,8 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 }
 
 // admitPropose refuses a command whose namespace is not in a state that admits
-// it. It runs on the leader before the entry is appended, which is the only
+// it, or a replica movement and a task on one collection (collection is "" for every other command).
+// It runs on the leader before the entry is appended, which is the only
 // place such a refusal can live: Apply must be a pure function of the log, so a
 // check there would have an older binary carry out what an upgraded one refuses,
 // live during a rolling update and again on every replay of that entry.
