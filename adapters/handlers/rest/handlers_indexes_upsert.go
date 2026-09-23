@@ -815,6 +815,7 @@ func (h *indexesHandlers) cleanStalePartialStateOrFail(ctx context.Context, prin
 	return nil
 }
 
+// mapSubmitTaskError logs a racing concurrent submit's task ID server-side, not returned, so the 409 exposes no other task.
 func (h *indexesHandlers) mapSubmitTaskError(principal *models.Principal, collection, taskID string, err error) middleware.Responder {
 	if errors.Is(err, distributedtask.ErrTaskConflict) {
 		h.appState.Logger.WithFields(logrus.Fields{
