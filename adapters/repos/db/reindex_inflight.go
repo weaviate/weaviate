@@ -115,7 +115,7 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 	db.reindexCleanupInProgressLookupBldr = builder
 }
 
-// A movement counts this refusal as an error, not a wait: nothing would end the wait.
+// ErrReindexGateUnavailable counts as a movement error, not a wait: nothing would end the wait.
 var ErrReindexGateUnavailable = errors.New("cannot check for a running runtime-reindex task")
 
 const noDatabaseBackReference = "this index has no database back-reference, so the check cannot run"
