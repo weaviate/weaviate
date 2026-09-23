@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replication
+package runtimetoggle
 
 import (
 	"context"
@@ -79,7 +79,7 @@ func TestAsyncReplicationRuntimeToggle(t *testing.T) {
 	paragraphClass := articles.ParagraphsClass()
 
 	t.Run("create RF=3 schema", func(t *testing.T) {
-		paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
+		paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3, AsyncConfig: common.FastAsyncConfig()}
 		paragraphClass.Vectorizer = "text2vec-model2vec"
 		helper.CreateClass(t, paragraphClass)
 	})
@@ -168,31 +168,6 @@ func writeAsyncReplicationOverride(ctx context.Context, t *testing.T, compose *d
 	}
 }
 
-// shardsAsyncReplicationLen returns the total len(asyncReplicationStatus)
-// across every node × every shard of the given class as seen from the
-// verbose nodes endpoint. Zero means async replication is registered
-// nowhere; >0 means at least one shard has it active. Returns an error so
-// callers can use it inside EventuallyWithT's CollectT scope (assertions
-// retry instead of failing the outer test on a transient HTTP error).
-func shardsAsyncReplicationLen(t *testing.T, class string) (int, error) {
-	verbose := verbosity.OutputVerbose
-	params := nodes.NewNodesGetClassParams().WithClassName(class).WithOutput(&verbose)
-	body, err := helper.Client(t).Nodes.NodesGetClass(params, nil)
-	if err != nil {
-		return 0, err
-	}
-	if body.Payload == nil {
-		return 0, fmt.Errorf("nil payload from NodesGetClass")
-	}
-	total := 0
-	for _, n := range body.Payload.Nodes {
-		for _, s := range n.Shards {
-			total += len(s.AsyncReplicationStatus)
-		}
-	}
-	return total, nil
-}
-
 // TestAsyncReplicationRuntimeToggle_EnableDisableEnable exercises the runtime
 // kill-switch from the opposite direction of TestAsyncReplicationRuntimeToggle:
 // the cluster boots with async replication ENABLED (the new default at RF>1).
@@ -239,13 +214,13 @@ func TestAsyncReplicationRuntimeToggle_EnableDisableEnable(t *testing.T) {
 	paragraphClass := articles.ParagraphsClass()
 
 	t.Run("create RF=3 schema (async on by default)", func(t *testing.T) {
-		paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
+		paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3, AsyncConfig: common.FastAsyncConfig()}
 		paragraphClass.Vectorizer = "text2vec-model2vec"
 		helper.CreateClass(t, paragraphClass)
 	})
 
 	t.Run("async replication is registered on every shard at boot", func(t *testing.T) {
-		// Gate on a healthy cluster and allow >1 hashbeat frequency (30s): a first cycle before peers are reachable errors and only repopulates asyncReplicationStatus a full frequency later.
+		// Gate on a healthy cluster and allow >1 hashbeat frequency: a first cycle before peers are reachable errors and only repopulates asyncReplicationStatus a full frequency later.
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			verbose := verbosity.OutputVerbose
 			params := nodes.NewNodesGetClassParams().
@@ -262,7 +237,7 @@ func TestAsyncReplicationRuntimeToggle_EnableDisableEnable(t *testing.T) {
 			}
 			require.Greater(ct, shards, 0, "class shards not reported yet")
 
-			n, err := shardsAsyncReplicationLen(t, paragraphClass.Class)
+			n, err := common.ShardsAsyncReplicationLen(t, paragraphClass.Class)
 			require.NoError(ct, err)
 			require.Greater(ct, n, 0,
 				"asyncReplicationStatus must be populated on at least one shard at boot")
@@ -273,7 +248,7 @@ func TestAsyncReplicationRuntimeToggle_EnableDisableEnable(t *testing.T) {
 		writeAsyncReplicationOverride(ctx, t, compose, 3, overridePath, true)
 		// The hook drains asyncReplicationStatus on every loaded shard.
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			n, err := shardsAsyncReplicationLen(t, paragraphClass.Class)
+			n, err := common.ShardsAsyncReplicationLen(t, paragraphClass.Class)
 			require.NoError(ct, err)
 			require.Equal(ct, 0, n,
 				"asyncReplicationStatus must drain to empty on every shard once the override disables it")
@@ -387,14 +362,14 @@ func TestAsyncReplicationRuntimeToggle_ClassCreatedWhileDisabled(t *testing.T) {
 	})
 
 	t.Run("create an RF=3 class while disabled — Migrator.AddClass honors the live flag", func(t *testing.T) {
-		paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
+		paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3, AsyncConfig: common.FastAsyncConfig()}
 		paragraphClass.Vectorizer = "text2vec-model2vec"
 		helper.CreateClass(t, paragraphClass)
 
 		// asyncReplicationStatus must be empty across every shard on every node:
 		// the new index's shards loaded while the live flag was disabled.
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			n, err := shardsAsyncReplicationLen(t, paragraphClass.Class)
+			n, err := common.ShardsAsyncReplicationLen(t, paragraphClass.Class)
 			require.NoError(ct, err)
 			require.Equal(ct, 0, n,
 				"asyncReplicationStatus must be empty for a class created while async replication is runtime-disabled")
@@ -446,7 +421,7 @@ func TestAsyncReplicationRuntimeToggle_ClassCreatedWhileDisabled(t *testing.T) {
 
 	t.Run("async replication is now registered on the new class's shards", func(t *testing.T) {
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			n, err := shardsAsyncReplicationLen(t, paragraphClass.Class)
+			n, err := common.ShardsAsyncReplicationLen(t, paragraphClass.Class)
 			require.NoError(ct, err)
 			require.Greater(ct, n, 0,
 				"reconcile hook must register async replication on the class created while disabled")

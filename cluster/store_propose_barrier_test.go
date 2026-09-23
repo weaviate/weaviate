@@ -78,11 +78,11 @@ func addClassCmd(t *testing.T, name string) *command.ApplyRequest {
 // the election, so the delta measured after it belongs to the barrier alone.
 func settledLogIndex(t *testing.T, st *Store) uint64 {
 	t.Helper()
-	last := st.raft.LastIndex()
+	last := st.raft.Load().LastIndex()
 	stable := 0
 	for i := 0; i < 100; i++ {
 		time.Sleep(20 * time.Millisecond)
-		if cur := st.raft.LastIndex(); cur != last {
+		if cur := st.raft.Load().LastIndex(); cur != last {
 			last, stable = cur, 0
 			continue
 		}
@@ -119,7 +119,7 @@ func TestProposeBarrier_WaitsForTheFSMNotJustTheLog(t *testing.T) {
 	// Append without waiting, so the entry is in flight.
 	cmdBytes, err := proto.Marshal(addClassCmd(t, "InFlight"))
 	require.NoError(t, err)
-	fut := st.raft.Apply(cmdBytes, st.applyTimeout)
+	fut := st.raft.Load().Apply(cmdBytes, st.applyTimeout)
 
 	// A fresh leader has stamped no term yet.
 	st.fsmCaughtUpTerm.Store(0)
@@ -152,7 +152,7 @@ func TestProposeBarrier_IsACatchUpBarrierNotALeadershipCheck(t *testing.T) {
 	st.fsmCaughtUpTerm.Store(0)
 	before := settledLogIndex(t, st)
 	require.NoError(t, st.waitLeaderFSMCaughtUp())
-	require.Equal(t, uint64(1), st.raft.LastIndex()-before,
+	require.Equal(t, uint64(1), st.raft.Load().LastIndex()-before,
 		"a catch-up barrier is a log entry")
 }
 

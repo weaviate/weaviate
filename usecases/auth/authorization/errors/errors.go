@@ -66,23 +66,31 @@ func (f Forbidden) Error() string {
 		}
 		return fmt.Sprintf("user '%s' must be namespaced on a namespaces-enabled cluster", username)
 	}
+	// The backup scheduler passes a nil principal for a request without credentials.
+	username, principalGroups := "anonymous", []string(nil)
+	if f.principal != nil {
+		username, principalGroups = f.principal.Username, f.principal.Groups
+	}
 	optionalGroups := ""
-	if len(f.principal.Groups) == 1 {
-		optionalGroups = fmt.Sprintf(" (of group '%s')", f.principal.Groups[0])
-	} else if len(f.principal.Groups) > 1 {
-		groups := wrapInSingleQuotes(f.principal.Groups)
+	if len(principalGroups) == 1 {
+		optionalGroups = fmt.Sprintf(" (of group '%s')", principalGroups[0])
+	} else if len(principalGroups) > 1 {
+		groups := wrapInSingleQuotes(principalGroups)
 		groupsList := strings.Join(groups, ", ")
 		optionalGroups = fmt.Sprintf(" (of groups %s)", groupsList)
 	}
 
 	return fmt.Sprintf("authorization, forbidden action: user '%s'%s has insufficient permissions to %s %s",
-		f.principal.Username, optionalGroups, f.verb, f.resources)
+		username, optionalGroups, f.verb, f.resources)
 }
 
+// wrapInSingleQuotes returns a new slice and leaves input untouched, because
+// input is the principal's own Groups and later permission checks read it.
 func wrapInSingleQuotes(input []string) []string {
+	out := make([]string, len(input))
 	for i, s := range input {
-		input[i] = fmt.Sprintf("'%s'", s)
+		out[i] = fmt.Sprintf("'%s'", s)
 	}
 
-	return input
+	return out
 }
