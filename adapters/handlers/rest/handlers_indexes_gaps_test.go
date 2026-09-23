@@ -1204,12 +1204,20 @@ func TestShardReindexActivityBuilder(t *testing.T) {
 		{
 			name: "a reindex task is running",
 			list: func(context.Context) (map[string][]*distributedtask.Task, error) {
-				return map[string][]*distributedtask.Task{db.ReindexNamespace: {{
-					Status: distributedtask.TaskStatusStarted,
-					Payload: mustPayload(t, db.ReindexTaskPayload{
-						Collection: "C", UnitToShard: map[string]string{"u1": "shard1"},
-					}),
-				}}}, nil
+				return map[string][]*distributedtask.Task{
+					db.ReindexNamespace: {{
+						Status: distributedtask.TaskStatusStarted,
+						Payload: mustPayload(t, db.ReindexTaskPayload{
+							Collection: "C", UnitToShard: map[string]string{"u1": "shard1"},
+						}),
+					}},
+					db.DropVectorIndexNamespace: {{
+						Status: distributedtask.TaskStatusStarted,
+						Payload: mustPayload(t, db.ReindexTaskPayload{
+							Collection: "C", UnitToShard: map[string]string{"u2": "shard2"},
+						}),
+					}},
+				}, nil
 			},
 		},
 	} {
@@ -1221,6 +1229,7 @@ func TestShardReindexActivityBuilder(t *testing.T) {
 			}
 			require.NoError(t, err)
 			require.True(t, lookup("C", "shard1"))
+			require.False(t, lookup("C", "shard2"))
 		})
 	}
 }
