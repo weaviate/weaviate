@@ -247,11 +247,6 @@ func (s *Shard) warnUnreadableRows(logger logrus.FieldLogger, unreadable unreada
 				unreadable.count, unreadable.first)
 	}
 
-	// A Shard built without NewShard has no sampler.
-	if s.unreadableRowSampler == nil {
-		write(logger)
-		return
-	}
 	s.unreadableRowSampler.WithSampling(write)
 }
 
