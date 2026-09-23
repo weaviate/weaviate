@@ -43,7 +43,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.tenantAddLocks.Unlock(req.Class)
 	}
 
-	// A per-collection lock lets admitReindexOrMovement see the other's apply, and never nests with the tenant lock since their command types are disjoint.
+	// Held across the apply so admitReindexOrMovement sees the other's; like the tenant lock it comes before the catch-up wait, and the two never nest (disjoint command types).
 	collection, err := st.reindexOrMovementCollection(req)
 	if err != nil {
 		return 0, err
@@ -55,8 +55,8 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 
 	// PreApplyFilter below judges against in-memory FSM state, so a leader that
 	// has not drained what it inherited must not judge yet. After the tenant
-	// or collection lock, because either is held across the apply and a caller
-	// can wait on it long enough for leadership to turn over. A term confirmed before
+	// lock, not before: that lock is held across the apply, so a caller can wait
+	// on it long enough for leadership to turn over, and a term confirmed before
 	// the wait says nothing about the term it wakes up in.
 	if err := st.waitLeaderFSMCaughtUp(); err != nil {
 		return 0, err
@@ -100,8 +100,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 }
 
 // admitPropose refuses a command whose namespace is not in a state that admits
-// it, or a replica movement and a task on one collection (collection is "" for every other command).
-// It runs on the leader before the entry is appended, which is the only
+// it. It runs on the leader before the entry is appended, which is the only
 // place such a refusal can live: Apply must be a pure function of the log, so a
 // check there would have an older binary carry out what an upgraded one refuses,
 // live during a rolling update and again on every replay of that entry.
@@ -121,6 +120,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // apply whose schema half has committed. An Apply-side check would not close
 // that window either: the DB half runs after the schema half commits, so a flip
 // landing in between produces the same state.
+// It also keeps a replica movement and a task off one collection; collection is "" unless the command is a replicate or a task whose namespace registered a collection extractor.
 func (st *Store) admitPropose(req *api.ApplyRequest, collection string) error {
 	if err := st.admitDestructive(req); err != nil {
 		return err
