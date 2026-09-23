@@ -594,6 +594,36 @@ func TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot(t *testing.T) {
 	}
 }
 
+// TestBatchDeleteObjects_UnreadableRowDoesNotBurnASlot is the dead doc id case for a row
+// that is there but carries no readable id. The walk skips it like a missing row and reads
+// on to the next match, so the reply still reaches limit + 1, and the skip is reported once.
+func TestBatchDeleteObjects_UnreadableRowDoesNotBurnASlot(t *testing.T) {
+	ctx := context.Background()
+	const objectCount = 30
+
+	repo := newBatchDeleteRepo(t, batchDeleteTestClass(false), singleShardState(), batchDeleteLimit)
+	simpleInsertObjectsForTenant(t, repo, batchDeleteClassName, "", objectCount)
+
+	before, err := repo.BatchDeleteObjects(ctx, batchDeleteMatchAllParams(true), time.Now(), nil, "", 0)
+	require.NoError(t, err)
+	require.NotEmpty(t, before.Objects)
+	corruptObjectRow(t, repo, batchDeleteClassName, before.Objects[0].UUID)
+
+	hook := batchDeleteLogs(t, repo)
+	after, err := repo.BatchDeleteObjects(ctx, batchDeleteMatchAllParams(true), time.Now(), nil, "", 0)
+	require.NoError(t, err)
+	require.Equal(t, batchDeleteLimit+1, after.Matches, "%d readable objects still match", objectCount-1)
+	require.Len(t, after.Objects, int(batchDeleteLimit))
+
+	warns := 0
+	for _, entry := range hook.AllEntries() {
+		if entry.Level == logrus.WarnLevel && entry.Data["op"] == "shard.find_uuids" {
+			warns++
+		}
+	}
+	require.Equal(t, 1, warns, "the skip is reported once per call, not once per doc id")
+}
+
 // TestFindUUIDs_ResolvesTheFilterOnce pins that a call runs the inverted resolve once,
 // counted through the per-leaf entries the searcher appends to the slow query details.
 // Dead doc ids inside the first limit matches are the shape that could tempt a second,
@@ -652,20 +682,17 @@ func TestBatchDeleteObjects_FailsOnAReadError(t *testing.T) {
 	simpleInsertObjectsForTenant(t, repo, batchDeleteClassName, "", 30)
 
 	// Load the shard through a real call, then drive the seam under it directly: the
-	// lookup is a parameter, so a failing one needs no broken store.
+	// bucket is a parameter, so a failing one needs no broken store.
 	_, err := repo.BatchDeleteObjects(ctx, batchDeleteMatchAllParams(true), time.Now(), nil, "", 0)
 	require.NoError(t, err)
 	shard := loadedShard(t, repo, batchDeleteClassName)
 
-	failing := func(_ context.Context, _ int, _, buffer []byte) ([]byte, []byte, error) {
-		return nil, buffer, readErr
-	}
+	failing := &stubDocIDBucket{err: readErr}
 
 	limit := int(batchDeleteLimit)
 	pass, err := shard.resolveAndCollectUUIDs(ctx, batchDeleteMatchAllParams(true).Filters,
 		limit, failing)
-	require.ErrorContains(t, err, "resolve doc id",
-		"the error names the doc id the read failed on")
+	require.ErrorContains(t, err, "resolve uuids")
 	require.ErrorIs(t, err, readErr, "the store's error still reaches the caller")
 	require.Empty(t, pass.uuids, "a failed resolve returns no UUIDs")
 }
@@ -1046,6 +1073,31 @@ func dropObjectRow(t *testing.T, repo *DB, className string, id strfmt.UUID) uin
 		lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes)))
 
 	return docID
+}
+
+// corruptObjectRow overwrites an object's row with bytes the object decoder rejects, under
+// the same doc id, and leaves its inverted postings alone.
+func corruptObjectRow(t *testing.T, repo *DB, className string, id strfmt.UUID) {
+	t.Helper()
+
+	shard := loadedShard(t, repo, className)
+	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
+	require.NoError(t, err)
+
+	bucket := shard.store.Bucket(helpers.ObjectsBucketLSM)
+	require.NotNil(t, bucket)
+
+	existing, err := bucket.Get(idBytes)
+	require.NoError(t, err)
+	require.NotNil(t, existing, "the object must exist before its row is corrupted")
+
+	docID, _, err := storobj.DocIDAndTimeFromBinary(existing)
+	require.NoError(t, err)
+
+	docIDBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(docIDBytes, docID)
+	require.NoError(t, bucket.Put(idBytes, []byte("garbage"),
+		lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes)))
 }
 
 // loadedShard returns the class's first loaded shard. The shard loads lazily, so a call

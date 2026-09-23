@@ -25,7 +25,9 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -173,14 +175,17 @@ func (b *deleteObjectsBatcher) setErrorAtIndex(err error, index int) {
 // FindUUIDs returns the UUID of every object the filter matches, at most limit of them
 // when limit is positive. The limit counts UUIDs returned, not doc ids read, so a shard
 // holding more than limit matching objects returns limit of them and which ones is
-// unspecified. A read error fails the call rather than skipping the doc id.
+// unspecified. A read error fails the call rather than skipping the doc id. A row that
+// carries no readable id is skipped, and the skips are logged once per call.
 //
-// The filter is resolved once and without a cap, so a doc id whose object row is gone
-// cannot shorten the reply: the walk reads past it to the next match.
+// The filter is resolved once and without a cap, so a doc id whose object row is gone, or
+// whose row carries no readable id, cannot shorten the reply: the walk reads past it to the
+// next match.
 //
-// The object view is taken before the resolve, so a row written into a new active
-// memtable after a flush swap is invisible to this call. Such ids are at or above
-// [Shard.docIDPruneWatermark] and are kept, never pruned.
+// The object rows are read after the resolve, through one consistent view per bucket
+// call. A doc id an insert has taken but not yet written reads as missing; such ids are at
+// or above [Shard.docIDPruneWatermark] and are kept, never pruned. An id below it only
+// ever goes from live to dead, so a later view cannot turn a pruned id back into a row.
 //
 // It mutates the shard: a doc id whose object row is gone is dropped from the doc id
 // universe a deny-list filter starts from, so a later call does not read it again. That
@@ -198,9 +203,6 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 	}
 	defer release()
 
-	lookup, releaseView := bucket.SecondaryViewLookup()
-	defer releaseView()
-
 	var pass findUUIDsPass
 
 	defer func() {
@@ -216,16 +218,21 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 			"dead_docids_above_watermark": pass.kept,
 		})
 		if err != nil {
-			// log as debug
 			logger.Debugf("Shard::FindUUIDs failed: %v", err)
 			return
 		}
 		logger.Debug("Shard::FindUUIDs finished")
 	}()
 
-	pass, err = s.resolveAndCollectUUIDs(ctx, filters, limit, lookup)
+	pass, err = s.resolveAndCollectUUIDs(ctx, filters, limit, bucket)
 	if err != nil {
 		return nil, err
+	}
+
+	if pass.unreadable.count > 0 {
+		logger.WithField("op", "shard.find_uuids").
+			Warnf("skipped %d doc ids without a readable id, one of them: %v",
+				pass.unreadable.count, pass.unreadable.first)
 	}
 	return pass.uuids, nil
 }
@@ -241,14 +248,24 @@ type findUUIDsPass struct {
 	// many stayed because they sit at or above the watermark.
 	pruned int
 	kept   int
+	// unreadable counts rows the walk skipped because they carry no readable id. Those
+	// rows exist, so their doc ids are never pruned.
+	unreadable unreadableRows
 	// resolveTook is how long the inverted resolve took, without the walk.
 	resolveTook time.Duration
+}
+
+// unreadableRows counts object rows a resolve read that carry no readable id.
+type unreadableRows struct {
+	count int
+	// first is the parse error of one of them, for the log line.
+	first error
 }
 
 // resolveAndCollectUUIDs resolves the filter with no cap and walks the allow list for at
 // most limit UUIDs.
 func (s *Shard) resolveAndCollectUUIDs(ctx context.Context, filter *filters.LocalFilter,
-	limit int, lookup secondaryDocIDLookup,
+	limit int, bucket docIDBatchBucket,
 ) (pass findUUIDsPass, err error) {
 	resolveStart := time.Now()
 
@@ -269,18 +286,6 @@ func (s *Shard) resolveAndCollectUUIDs(ctx context.Context, filter *filters.Loca
 
 	it := allowList.Iterator()
 	pass.docIDsRead = it.Len()
-
-	capacity := pass.docIDsRead
-	if limit > 0 && limit < capacity {
-		capacity = limit
-	}
-	uuids := make([]strfmt.UUID, capacity)
-	currIdx := 0
-
-	docIDBuf := make([]byte, 8)
-	// objBuf is reused across iterations and grows to fit the largest object seen. That
-	// is safe because uuidFromDocIDWithLookup copies the id out before returning.
-	var objBuf []byte
 
 	// A doc id with no object row is dropped from the doc id universe a deny-list filter
 	// starts from, which is otherwise rebuilt with every deleted id in it at shard init.
@@ -315,28 +320,60 @@ func (s *Shard) resolveAndCollectUUIDs(ctx context.Context, filter *filters.Loca
 		}
 	}
 
-	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
-		if ctx.Err() != nil {
-			return pass, fmt.Errorf("uuids loop: %w", ctx.Err())
-		}
-
-		uuid, newBuf, found, err := uuidFromDocIDWithLookup(ctx, lookup, docID, docIDBuf, objBuf)
-		objBuf = newBuf
-		if err != nil {
-			return pass, fmt.Errorf("resolve doc id %d: %w", docID, err)
-		}
-		if !found {
-			noteDeadDocID(docID)
-			continue
-		}
-
-		uuids[currIdx] = uuid
-		currIdx++
-		if limit > 0 && currIdx == limit {
-			break
-		}
+	want := pass.docIDsRead
+	if limit > 0 {
+		want = min(limit, want)
 	}
+	pass.uuids, pass.unreadable, err = resolveUUIDs(ctx, bucket, it, want, noteDeadDocID)
+	return pass, err
+}
 
-	pass.uuids = uuids[:currIdx]
-	return pass, nil
+// docIDBatchBucket is the objects bucket as the uuid resolve uses it.
+type docIDBatchBucket interface {
+	GetBySecondaryBatch(ctx context.Context, pos int, keys [][]byte, visit func(i int, value []byte) error) error
+}
+
+// docIDIterator yields the doc ids to read.
+type docIDIterator interface {
+	Next() (uint64, bool)
+	Len() int
+}
+
+// resolveUUIDs reads the id of the object behind each of the iterator's doc ids until it
+// has limit of them. A doc id with no object row costs no slot and goes to onMissing,
+// which runs on the calling goroutine. An object whose stored bytes carry no readable id
+// is skipped and counted in the returned unreadableRows. A bucket read error fails the
+// call.
+func resolveUUIDs(ctx context.Context, bucket docIDBatchBucket, it docIDIterator, limit int,
+	onMissing func(docID uint64),
+) ([]strfmt.UUID, unreadableRows, error) {
+	// The searcher sets its concurrency budget on a context it does not return,
+	// so the uuid resolve has to set its own.
+	ctx = concurrency.CtxWithBudgetIfAbsent(ctx, concurrency.TimesGOMAXPROCS(2))
+
+	var unreadableMu sync.Mutex
+	var unreadable unreadableRows
+	uuids, err := storobj.DecodeByDocID(ctx, bucket, it, limit, func(docID uint64, object []byte) (strfmt.UUID, bool, error) {
+		if object == nil { // deleted after the allow list was built, or dead since before
+			onMissing(docID)
+			return "", false, nil
+		}
+		prop, _, err := storobj.ParseAndExtractProperty(object, "id")
+		if err == nil && len(prop) == 0 {
+			err = errors.New("no id property")
+		}
+		if err != nil {
+			unreadableMu.Lock()
+			defer unreadableMu.Unlock()
+			if unreadable.count++; unreadable.first == nil {
+				unreadable.first = fmt.Errorf("doc id %d: %w", docID, err)
+			}
+			return "", false, nil
+		}
+		return strfmt.UUID(prop[0]), true, nil
+	})
+	if err != nil {
+		return nil, unreadableRows{}, fmt.Errorf("resolve uuids: %w", err)
+	}
+	return uuids, unreadable, nil
 }
