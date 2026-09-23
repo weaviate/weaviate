@@ -96,9 +96,9 @@ func isCommitLogCompatibleReplace(wal io.ReadSeeker) (compatible bool, err error
 	}
 
 	parser := newCommitLoggerParser(StrategyReplace, wal, memtable)
-	nodeCache := make(map[string]segmentReplaceNode)
+	cache := newReplaceCache()
 	for range commitlogEntriesToCheck {
-		if ok, err := parser.doReplaceOnce(nodeCache); err != nil {
+		if ok, err := parser.doReplaceOnce(cache); err != nil {
 			return false, err
 		} else if !ok {
 			break
@@ -172,7 +172,7 @@ func isCommitLogCompatibleRoaringSet(wal io.ReadSeeker) (compatible bool, err er
 	parser := newCommitLoggerParser(StrategyRoaringSet, wal, nil)
 	rsParser := &commitlogParserRoaringSet{
 		parser:  parser,
-		consume: func(key []byte, additions, deletions []uint64) error { return nil },
+		consume: func(mt *Memtable, key []byte, additions, deletions []uint64) error { return nil },
 	}
 	for range commitlogEntriesToCheck {
 		if ok, err := rsParser.parseOnce(); err != nil {
@@ -203,7 +203,7 @@ func isCommitLogCompatibleRoaringSetRange(wal io.ReadSeeker) (compatible bool, e
 	parser := newCommitLoggerParser(StrategyRoaringSetRange, wal, nil)
 	rsParser := &commitlogParserRoaringSet{
 		parser: parser,
-		consume: func(key []byte, additions, deletions []uint64) error {
+		consume: func(mt *Memtable, key []byte, additions, deletions []uint64) error {
 			if len(key) != 8 {
 				return fmt.Errorf("commitloggerParser: invalid value length %d, should be 8 bytes", len(key))
 			}

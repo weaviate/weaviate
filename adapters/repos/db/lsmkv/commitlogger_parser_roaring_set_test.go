@@ -49,7 +49,8 @@ func TestCommitlogParserRoaringSetLegacyNode(t *testing.T) {
 			var gotKey []byte
 			var gotAdditions, gotDeletions []uint64
 			prs := &commitlogParserRoaringSet{
-				consume: func(key []byte, additions, deletions []uint64) error {
+				parser: &commitloggerParser{},
+				consume: func(mt *Memtable, key []byte, additions, deletions []uint64) error {
 					gotKey = key
 					gotAdditions = additions
 					gotDeletions = deletions
@@ -118,7 +119,8 @@ func TestCommitlogParserRoaringSetCopiesKey(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var gotKey []byte
 			prs := &commitlogParserRoaringSet{
-				consume: func(key []byte, _, _ []uint64) error {
+				parser: &commitloggerParser{},
+				consume: func(mt *Memtable, key []byte, _, _ []uint64) error {
 					gotKey = key
 					return nil
 				},
@@ -134,4 +136,16 @@ func TestCommitlogParserRoaringSetCopiesKey(t *testing.T) {
 			require.Equal(t, wantKey, gotKey)
 		})
 	}
+}
+
+// TestChunkIsFullWithoutChunking pins the nil-chunking deref: a parser with no
+// chunkedReplay set must answer "not full" without dereferencing p.chunking.
+func TestChunkIsFullWithoutChunking(t *testing.T) {
+	// a WAL whose name has no usable id reaches chunkIsFull with a real memtable
+	p := &commitloggerParser{memtable: &Memtable{}}
+
+	for _, held := range []uint64{0, 1, 1 << 20, 1 << 40} {
+		require.False(t, p.chunkIsFull(held))
+	}
+	require.NoError(t, p.cutChunkIfFull(p.memtable.Size()))
 }
