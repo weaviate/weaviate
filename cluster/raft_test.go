@@ -495,6 +495,7 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 
 	class := "TestCollection"
 	shard := "ShardA"
+	otherShard := "ShardB"
 	sourceNode := "Node-1"
 	destNode := "Node-2"
 	removeNode := "Node-3"
@@ -503,7 +504,8 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 	shardingState := &sharding.State{
 		PartitioningEnabled: true,
 		Physical: map[string]sharding.Physical{
-			shard: {Name: shard, BelongsToNodes: []string{sourceNode, removeNode}},
+			shard:      {Name: shard, BelongsToNodes: []string{sourceNode, removeNode}},
+			otherShard: {Name: otherShard, BelongsToNodes: []string{sourceNode}},
 		},
 	}
 	_, err := r.AddClass(ctx, cls, shardingState)
@@ -579,14 +581,19 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 					AddNodes:    map[string]string{destNode: sourceNode},
 					RemoveNodes: map[string]struct{}{removeNode: {}},
 				},
+				otherShard: {AddNodes: map[string]string{destNode: ""}},
 			},
 		}
-		_, err = r.ApplyReplicationScalePlan(ctx, plan)
-		require.ErrorIs(t, err, replicationTypes.ErrMovementBlockedByTask)
+		// Map iteration order is random, so 32 calls almost surely visit the copying shard both first and last.
+		for range 32 {
+			_, err = r.ApplyReplicationScalePlan(ctx, plan)
+			require.ErrorIs(t, err, replicationTypes.ErrMovementBlockedByTask)
+		}
 
 		after, err := readShardingState(r.SchemaReader(), class)
 		require.NoError(t, err)
 		require.Equal(t, before.Physical[shard].BelongsToNodes, after.Physical[shard].BelongsToNodes)
+		require.Equal(t, before.Physical[otherShard].BelongsToNodes, after.Physical[otherShard].BelongsToNodes)
 		require.Contains(t, after.Physical[shard].BelongsToNodes, removeNode)
 
 		plan = command.ReplicationScalePlan{
