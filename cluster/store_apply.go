@@ -43,7 +43,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.tenantAddLocks.Unlock(req.Class)
 	}
 
-	// Serialize reindex and movement per collection so the check can't race the other's apply.
+	// Serialize replicate and task-add commands per collection so admitReindexOrMovement sees the other's apply.
 	// Never held with the tenant lock above: the two command-type sets are disjoint.
 	collection, err := st.reindexOrMovementCollection(req)
 	if err != nil {
@@ -156,7 +156,7 @@ func (st *Store) reindexOrMovementCollection(req *api.ApplyRequest) (string, err
 	}
 }
 
-// The reindex rewrites the shard files the movement copies.
+// admitReindexOrMovement keeps a task and a movement off one collection, since a reindex rewrites the files a movement copies.
 func (st *Store) admitReindexOrMovement(cmdType api.ApplyRequest_Type, collection string) error {
 	if collection == "" {
 		return nil

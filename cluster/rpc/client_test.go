@@ -150,7 +150,7 @@ func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 	tests := []struct {
 		name string
 		send error
-		want error // the sentinel the receiver must recover; defaults to send
+		want error
 	}{
 		{name: "ErrAlreadyExists", send: namespaces.ErrAlreadyExists},
 		{name: "ErrBadRequest", send: namespaces.ErrBadRequest},
@@ -175,9 +175,7 @@ func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 		{name: "ErrUserIdentifierExists", send: apikey.ErrUserIdentifierExists},
 		{name: "ErrUserExists", send: apikey.ErrUserExists},
 		{name: "ErrUnknownCommand", send: types.ErrUnknownCommand},
-		// Unmapped it arrives as codes.Internal and renders HTTP 500 instead of 409
-		// on the forwarding node. Sent with the wrapping text the leader adds, so
-		// the test proves the substring match still finds the sentinel inside it.
+		// Sent with the leader's wrapping text, so fromRPCError must find the sentinel inside it or the follower answers 500.
 		{
 			name: "ErrMovementBlockedByTask",
 			send: fmt.Errorf("%w: collection %q has a running background task; retry after it completes",

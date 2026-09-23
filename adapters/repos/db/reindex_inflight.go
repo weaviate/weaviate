@@ -33,10 +33,7 @@ var unwiredGateWarnOnce sync.Once
 // AnyLiveReindexForShard answers the cluster-wide question: does DTM
 // have any LIVE reindex task targeting (collection, shardName)?
 //
-// Default to "no live reindex" when the lookup is unwired (with a
-// one-time WARN): module-test fixtures skip the post-bootstrap
-// install path; production HTTP gates on bootstrap completion so the
-// unwired window is unreachable by external traffic.
+// An unwired lookup answers false, since module-test fixtures never install it and production HTTP waits for bootstrap.
 func (db *DB) AnyLiveReindexForShard(collection, shardName string) (bool, error) {
 	if db.config.RuntimeReindexDisabled {
 		// Runtime reindex is off, so no new task can start. Return before
@@ -135,8 +132,7 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	return reindexInFlightError(collection, shardName)
 }
 
-// The reason is text, not a chained error: IsReversibleRefusal would find a
-// wrapped FailedPrecondition gRPC status and put this back on the wait path.
+// The cause is text, not wrapped, so IsReversibleRefusal finds no FailedPrecondition status in it.
 func reindexGateUnavailableError(collection, shardName, reason string) error {
 	return fmt.Errorf("%w: shard %q (collection %q): %s; refusing in case one is running unseen (%w)",
 		ErrReindexGateUnavailable, shardName, collection, reason,

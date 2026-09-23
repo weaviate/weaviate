@@ -28,10 +28,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// A reindex rewrites the same shard files a replica movement copies, so a
-// collection may run one or the other, never both. Pins all three answers the
-// operator gets: refused, refused the other way round, and admitted once the
-// first operation is over.
+// A movement is refused during a reindex, a reindex during a movement, and a movement is admitted once the reindex ends.
 func TestMultiNode_ReindexAndReplicaMovementExcludeEachOther(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t,
@@ -40,13 +37,11 @@ func TestMultiNode_ReindexAndReplicaMovementExcludeEachOther(t *testing.T) {
 	defer cleanup()
 	defer dumpContainerLogs(ctx, t, compose)
 
-	// Large enough that the migration is still running when the movement request
-	// goes out; awaitReindexMidFlight fails loudly if it is not.
+	// 10,000 objects keep the reindex running past awaitReindexMidFlight and the two refused requests.
 	const totalObjects = 10_000
 	className, copyType := "ExclusiveOps", "COPY"
 	restURI := restURIOf(compose, 1)
 
-	// One shard, one replica: the two nodes without it are movement targets.
 	createCollection(t, compose, restURI, className, 1, 1, textProps("title", "body"))
 	batchImportMultiProp(t, restURI, className, totalObjects, func(i int) map[string]interface{} {
 		return map[string]interface{}{
@@ -55,7 +50,7 @@ func TestMultiNode_ReindexAndReplicaMovementExcludeEachOther(t *testing.T) {
 		}
 	})
 
-	// createCollection already waited for the class on every node, so one read.
+	// createCollection waited for the class on every node, so one read suffices.
 	var state models.ReplicationShardingStateResponse
 	require.True(t, httpGetJSON(fmt.Sprintf("http://%s/v1/replication/sharding-state?collection=%s",
 		restURI, className), &state) && state.ShardingState != nil)
@@ -63,8 +58,7 @@ func TestMultiNode_ReindexAndReplicaMovementExcludeEachOther(t *testing.T) {
 	require.Len(t, state.ShardingState.Shards[0].Replicas, 1, "fixture expects replication factor 1")
 	shard, sourceNode := state.ShardingState.Shards[0].Shard, state.ShardingState.Shards[0].Replicas[0]
 
-	// Never weaviate-0, which the test keeps talking to after the target is
-	// stopped, and never the shard owner, which cannot be its own target.
+	// The target is never weaviate-0, which the test uses after the target stops, nor the shard's owner.
 	targetNode, targetIdx := docker.Weaviate1, 1
 	if sourceNode == targetNode {
 		targetNode, targetIdx = docker.Weaviate2, 2
@@ -80,8 +74,7 @@ func TestMultiNode_ReindexAndReplicaMovementExcludeEachOther(t *testing.T) {
 		return err
 	}
 
-	// The same copy, asked for through the scale plan, which reaches the RAFT
-	// endpoint without going through the replicate handler.
+	// The scale plan reaches Raft.ApplyReplicationScalePlan without the replicate handler, so it is checked too.
 	scale := func(t *testing.T, uri string) error {
 		helper.SetupClient(uri)
 		_, err := helper.Client(t).Replication.ApplyReplicationScalePlan(
@@ -99,8 +92,7 @@ func TestMultiNode_ReindexAndReplicaMovementExcludeEachOther(t *testing.T) {
 		`{"algorithm":"blockmax"}`)
 	awaitReindexMidFlight(t, restURI, taskID, 120*time.Second)
 
-	// Sent to a node that is not the leader, so the refusal has to survive the
-	// follower-to-leader hop that reduces it to a string.
+	// A follower forwards the request, so the refusal must survive fromRPCError's string match.
 	followerURI := restURIOf(compose, (raftLeaderIndex(t, compose)+1)%3+1)
 	var conflict *replicationclient.ReplicateConflict
 	require.ErrorAs(t, replicate(t, followerURI), &conflict,
@@ -118,9 +110,9 @@ func TestMultiNode_ReindexAndReplicaMovementExcludeEachOther(t *testing.T) {
 
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(300*time.Second))
 
-	// Only the target node works on a movement, so stopping it holds the op in
-	// flight instead of racing the copy. It may have been the leader, so wait.
+	// The target is the only node that runs a movement, so stopping it keeps the op in flight.
 	require.NoError(t, compose.StopNode(ctx, targetIdx, nil))
+	// The stopped node may have been the leader.
 	raftLeaderIndex(t, compose)
 	require.NoError(t, replicate(t, restURI), "the movement must be admitted once the reindex is over")
 

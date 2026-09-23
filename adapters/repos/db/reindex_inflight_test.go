@@ -206,8 +206,7 @@ func TestRefuseIfReindexInFlight_AllowsWhenNoLiveTask(t *testing.T) {
 	require.NoError(t, idx.refuseIfReindexInFlight("ABC123"))
 }
 
-// The two ways the gate can fail to get an answer. Both refuse, both keep the
-// backup path's response, and both are marked so a movement counts them.
+// Each way refuseIfReindexInFlight can fail to look must still refuse and count as a movement error.
 func TestRefuseIfReindexInFlight_CannotCheck(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -311,9 +310,7 @@ func TestShard_HaltForTransfer_OffloadIgnoresInFlightReindex(t *testing.T) {
 	require.NoError(t, shd.(*Shard).resumeMaintenanceCycles(ctx))
 }
 
-// Waiting is only right when something will end the wait. A movement that
-// waited on an unreachable task manager would re-dispatch for the whole outage,
-// showing no errors and making no progress.
+// A movement that waited on an unreachable task manager would retry for the whole outage and report no error.
 func TestReplicaSnapshotDefersOnlyForALiveReindex(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -331,8 +328,7 @@ func TestReplicaSnapshotDefersOnlyForALiveReindex(t *testing.T) {
 			wantDefer: false,
 		},
 		{
-			// The refusal must not inherit its cause's gRPC status: the wait path
-			// reads a wrapped status out of the chain and matches on its message.
+			// A wrapped status here would let IsReversibleRefusal match its message and make the movement wait.
 			name: "the task manager answers with the text the wait path matches",
 			builder: func() (ShardReindexActivityLookup, error) {
 				return nil, status.Error(codes.FailedPrecondition, enterrors.ErrShardBusyStructuralOp.Error())
@@ -340,7 +336,7 @@ func TestReplicaSnapshotDefersOnlyForALiveReindex(t *testing.T) {
 			wantDefer: false,
 		},
 	} {
-		// Both wrapped call sites: the snapshot and the halt-for-duration fallback.
+		// IncomingCreateReplicaSnapshot defers on both the hardlink snapshot and the halt-for-duration fallback.
 		for _, mode := range []struct {
 			name         string
 			withHardlink bool

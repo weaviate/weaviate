@@ -101,8 +101,7 @@ func TestToRPCError(t *testing.T) {
 // the (status.Code, message) pair after a gRPC round-trip. Every
 // sentinel must survive.
 func TestRehydratePermanentRejection_RoundTripsEverySentinel(t *testing.T) {
-	// The loop below only visits registered sentinels; naming each one here is
-	// what makes leaving one out of permanentMarkers go red.
+	// The round-trip loop visits only permanentMarkers, so this list catches a sentinel missing from it.
 	registered := make(map[error]bool, len(permanentMarkers))
 	for _, marker := range permanentMarkers {
 		registered[marker.sentinel] = true

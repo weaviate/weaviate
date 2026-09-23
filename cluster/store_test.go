@@ -1561,8 +1561,7 @@ type MockStore struct {
 	replicationFSM *schema.MockreplicationFSM
 }
 
-// tweaks adjust the config before the FSM reads it, for a store whose gates
-// depend on what the config carries.
+// tweaks edit the config before NewFSM reads it, e.g. to register DistributedTaskCollectionExtractors.
 func NewMockStore(t *testing.T, nodeID string, raftPort int, tweaks ...func(*Config)) MockStore {
 	indexer := fakes.NewMockSchemaExecutor()
 	parser := fakes.NewMockParser()
@@ -1750,8 +1749,7 @@ func seedExclusionMovement(t *testing.T, s *Store) {
 	require.NoError(t, s.replicationManager.GetReplicationFSM().Replicate(1, exclusionMovement))
 }
 
-// openExclusionStore is exclusionStore on a live single-node raft, so a submit
-// that wins the race really applies and the loser has something to see.
+// openExclusionStore opens a single-node raft, so the admitted submit applies before the other one's check runs.
 func openExclusionStore(t *testing.T) *Store {
 	t.Helper()
 	srv, _ := newBarrierTestStore(t, func(c *Config) {
@@ -1760,8 +1758,7 @@ func openExclusionStore(t *testing.T) *Store {
 		}
 	})
 
-	// The movement's apply validates against the schema, so the winner only
-	// registers an op if the shard is really where the request says it is.
+	// Manager.Replicate validates against the schema, so the class must place shard1 on node1.
 	addClass, err := json.Marshal(cmd.AddClassRequest{
 		Class: &models.Class{Class: exclusionCollection, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
 		State: &sharding.State{Physical: map[string]sharding.Physical{
@@ -1775,9 +1772,7 @@ func openExclusionStore(t *testing.T) *Store {
 	return srv.store
 }
 
-// Refusing one submit at a time is not the exclusion: two that arrive together
-// must not both be admitted. Red without the per-collection lock in Store.Execute,
-// which is what keeps the check from racing the apply that answers it.
+// Without Store.Execute's per-collection lock both submits pass admitReindexOrMovement before either applies.
 func TestExecute_ConcurrentSubmitsAdmitOnlyOne(t *testing.T) {
 	s := openExclusionStore(t)
 	commands := []*cmd.ApplyRequest{
@@ -1813,14 +1808,11 @@ func TestExecute_ConcurrentSubmitsAdmitOnlyOne(t *testing.T) {
 		"both submits were admitted, so the check ran against state the other one had not committed yet")
 }
 
-// Pins the reindex/replica-movement exclusion in both directions, on the
-// propose-time check rather than the apply.
 func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 	movement := exclusionMovementCommand
 	reindexTask := func(t *testing.T) *cmd.ApplyRequest { return exclusionTaskCommand(t, exclusionNamespace) }
 	unregisteredTask := func(t *testing.T) *cmd.ApplyRequest { return exclusionTaskCommand(t, "other") }
-	// Both sentinels: the permanent one is what carries the refusal across gRPC as a
-	// 409, round-tripped in TestRehydratePermanentRejection_RoundTripsEverySentinel.
+	// ErrPermanentRejection lets a follower recover the sentinel after the gRPC hop, so it still answers 409.
 	taskRefused := []error{distributedtask.ErrTaskBlockedByReplicaMovement, distributedtask.ErrPermanentRejection}
 
 	for _, tc := range []struct {
