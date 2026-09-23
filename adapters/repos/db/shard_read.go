@@ -1024,28 +1024,6 @@ func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter
 	return list, nil
 }
 
-func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
-	bucket, release, err := s.objectsBucket()
-	if err != nil {
-		return "", err
-	}
-	defer release()
-
-	docIDBytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(docIDBytes, docID)
-	res, err := bucket.GetBySecondary(context.TODO(), 0, docIDBytes) // TODO: context
-	if err != nil {
-		return "", fmt.Errorf("get object by doc id: %w", err)
-	}
-
-	prop, _, err := storobj.ParseAndExtractProperty(res, "id")
-	if err != nil {
-		return "", fmt.Errorf("parse and extract property: %w", err)
-	}
-
-	return strfmt.UUID(prop[0]), nil
-}
-
 func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
 	// Wait outside the RLock; see shard_write_put.go.
 	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {

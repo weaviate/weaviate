@@ -422,12 +422,7 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 		// asyncReplicationRWMux.RLock (in onResultLocked), causing a deadlock.
 		// Spawning a goroutine mirrors the pattern used by the new-hashtree path.
 		//
-		// asyncRepWg tracks this goroutine so that rebuildHashtree's
-		// asyncRepWg.Wait() serialises rebuilds against it. Without tracking, a
-		// rapid disable→enable cycle (e.g. during a rebuild or a repair override
-		// remove→add) would spawn a new goroutine before the old one exits.
-		// Note: disableAsyncReplication does NOT call asyncRepWg.Wait(); the
-		// goroutine exits promptly once the context is cancelled or hashtree is nil.
+		// Latched so a rebuild's drain waits for this Register; a disable does not wait (the goroutine exits on a cancelled ctx or a nil hashtree).
 		s.asyncRepWg.Add(1)
 		enterrors.GoWrapper(func() {
 			defer s.asyncRepWg.Done()
@@ -474,12 +469,7 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 	}
 	s.hashtree = ht
 
-	// asyncRepWg tracks this goroutine so that rebuildHashtree's
-	// asyncRepWg.Wait() serialises rebuilds against it, preventing the old
-	// goroutine from overlapping with a new one spawned by the next
-	// enableAsyncReplication call (e.g. during a rebuild or repair cycle).
-	// Note: disableAsyncReplication does NOT call asyncRepWg.Wait(); the
-	// goroutine exits promptly once ctx is cancelled or hashtree is nil.
+	// Latched so a rebuild's drain waits for this init scan; a disable does not wait (the goroutine exits on a cancelled ctx or a nil hashtree).
 	s.asyncRepWg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer s.asyncRepWg.Done()
@@ -529,13 +519,13 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 				WithField("shard_name", s.name).
 				Errorf("hashtree initialization attempt %d failure: %v", i, err)
 
-			// Exponential backoff capped at 5 min. Use select instead of
-			// time.Sleep so that context cancellation (shard shutdown) is
-			// respected immediately rather than after up to 5 minutes.
+			// Exponential backoff capped at 5 min; the select keeps a shutdown from waiting it out.
 			// No re-arm here: the next attempt installs its own tree and gate under the write lock.
+			retryTimer := time.NewTimer(initRetryBackoff(i))
 			select {
-			case <-time.After(initRetryBackoff(i)):
+			case <-retryTimer.C:
 			case <-ctx.Done():
+				retryTimer.Stop()
 				return
 			}
 		}
@@ -950,49 +940,35 @@ func (s *Shard) mayStopAsyncReplication(capture bool) hashtree.AggregatedHashTre
 
 	s.asyncReplicationRWMux.Unlock()
 
-	// Remove from the scheduler so no new cycles are dispatched, then wait for
-	// any in-flight cycle to drain. asyncRepCtx is already cancelled so the
-	// cycle unwinds quickly (context errors on RPCs); the Wait adds ~0 latency
-	// in the common case and gives a strict happens-before guarantee that no
-	// hashbeat worker accesses shard resources after this call returns.
-	//
-	// asyncRepWg drain is bounded by asyncReplicationWorkerDrainTimeout.
-	// Workers should exit almost immediately once their context is cancelled;
-	// the timeout guards against a non-cancellable downstream RPC (e.g. a
-	// kernel-level TCP stall) blocking shard shutdown indefinitely. If the
-	// deadline fires, we proceed anyway: the worker goroutine is stuck in a
-	// blocking syscall and cannot touch Go heap safely, but holding up the
-	// entire shard shutdown is worse operationally.
+	// Deregister then drain: the bounded drain is the happens-before that no worker touches shard resources after this returns.
 	if s.index.asyncReplicationScheduler != nil {
 		if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
 			s.index.logger.WithField("action", "async_replication").Error(err)
 		}
 	}
+
+	// Snapshot one episode: a re-enable can open a new one, and an idle latch hands back a pre-closed sentinel.
+	drained := s.asyncRepDrained()
 	drainTimeout := time.Duration(asyncReplicationWorkerDrainTimeout.Load())
 	drainStart := time.Now()
-	workersDone := make(chan struct{})
-	enterrors.GoWrapper(func() {
-		defer close(workersDone)
-		s.asyncRepWg.Wait()
-		// Distinguish a late drain from a permanently leaked waiter in goroutine dumps.
-		if elapsed := time.Since(drainStart); elapsed > drainTimeout {
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Warnf("async replication drain completed after deadline (took %s)", elapsed)
-		}
-	}, s.index.logger)
+	drainTimer := time.NewTimer(drainTimeout)
+	defer drainTimer.Stop()
+
 	select {
-	case <-workersDone:
-	case <-time.After(drainTimeout):
+	case <-drained:
+	case <-drainTimer.C:
 		// A surviving worker can still write; a snapshot missing those writes must not be published.
 		capturedHT = nil
-		s.index.logger.
+		lateLog := s.index.logger.
 			WithField("action", "async_replication").
 			WithField("class_name", s.class.Class).
-			WithField("shard_name", s.name).
-			Warn("async replication worker did not stop within deadline; skipping snapshot and proceeding with forced shutdown")
+			WithField("shard_name", s.name)
+		lateLog.Warn("async replication worker did not stop within deadline; skipping snapshot and proceeding with forced shutdown")
+		// Distinguish a late drain from a permanently leaked waiter in goroutine dumps.
+		enterrors.GoWrapper(func() {
+			<-drained
+			lateLog.Infof("async replication drain completed after deadline (took %s)", time.Since(drainStart))
+		}, lateLog)
 	}
 
 	return capturedHT
@@ -1086,9 +1062,7 @@ func (s *Shard) enableAsyncReplication(ctx context.Context, config AsyncReplicat
 //
 // It also scrubs any persisted .ht: none may exist while the shard is live with async off.
 //
-// Unlike mayStopAsyncReplication, this function does NOT call
-// asyncRepWg.Wait(); use mayStopAsyncReplication (or Deregister + explicit
-// Wait) when a happens-before with in-flight cycles is required.
+// Unlike mayStopAsyncReplication, this function does NOT drain in-flight cycles; use that one when a happens-before with them is required.
 func (s *Shard) disableAsyncReplication(_ context.Context) error {
 	// A shut shard's .ht is legitimate and a dropped shard's dir is renamed away; a config apply racing teardown must not scrub or recreate anything.
 	if s.shutOrDropped() {
@@ -1351,25 +1325,9 @@ func init() {
 	asyncReplicationWorkerDrainTimeout.Store(int64(10 * time.Second))
 }
 
-// asyncRepDrained returns a channel closed when asyncRepWg next reaches zero; callers share one waiter goroutine per pinned episode.
-func (s *Shard) asyncRepDrained(logger logrus.FieldLogger) <-chan struct{} {
-	s.asyncRepDrainMu.Lock()
-	defer s.asyncRepDrainMu.Unlock()
-	if s.asyncRepDrainObserver == nil {
-		ch := make(chan struct{})
-		s.asyncRepDrainObserver = ch
-		enterrors.GoWrapper(func() {
-			// Deferred (nil-before-close order preserved) so a panicking Wait cannot poison the observer forever.
-			defer func() {
-				s.asyncRepDrainMu.Lock()
-				s.asyncRepDrainObserver = nil
-				s.asyncRepDrainMu.Unlock()
-				close(ch)
-			}()
-			s.asyncRepWg.Wait()
-		}, logger)
-	}
-	return s.asyncRepDrainObserver
+// asyncRepDrained returns a channel closed when asyncRepWg next reaches zero; already closed when idle.
+func (s *Shard) asyncRepDrained() <-chan struct{} {
+	return s.asyncRepWg.Drained()
 }
 
 // dumpPublishGate: cancel never blocks; once it wins, no published .ht survives (late publisher self-deletes).
@@ -1430,9 +1388,11 @@ func (s *Shard) dumpHashTreeWithTimeout(ht hashtree.AggregatedHashTree, timeout 
 				Errorf("store hashtree failed: %v", err)
 		}
 	}, s.index.logger)
+	dumpTimer := time.NewTimer(timeout)
+	defer dumpTimer.Stop()
 	select {
 	case <-done:
-	case <-time.After(timeout):
+	case <-dumpTimer.C:
 		if gate.cancel() {
 			s.index.logger.
 				WithField("action", "async_replication").

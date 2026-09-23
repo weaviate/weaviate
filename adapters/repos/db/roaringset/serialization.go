@@ -242,10 +242,16 @@ func NewSegmentNodeCompacted(
 		additions.CompactedToBuf(func(size int) []byte {
 			aSize = size
 			buf = byteops.Resize(buf, overhead+aSize+dSize+len(key))
-			// The cap stops CompactedToBuf adopting the deletions region and the
-			// key as this bitmap's spare capacity.
-			return buf[16 : 16+aSize : 16+aSize]
+			end := 16 + aSize
+			// The three-index slice holds sroar to this payload's own region,
+			// which it would otherwise adopt to the end of buf's capacity.
+			return buf[16:end:end]
 		})
+	}
+	deletionsRegion := func() []byte {
+		start := 24 + aSize
+		end := start + dSize
+		return buf[start:end:end]
 	}
 
 	switch {
@@ -253,7 +259,7 @@ func NewSegmentNodeCompacted(
 		deletions.CompactedToBuf(func(size int) []byte {
 			dSize = size
 			writeAdditions()
-			return buf[24+aSize : 24+aSize+dSize : 24+aSize+dSize]
+			return deletionsRegion()
 		})
 	case !addEmpty:
 		writeAdditions()
@@ -261,7 +267,7 @@ func NewSegmentNodeCompacted(
 		deletions.CompactedToBuf(func(size int) []byte {
 			dSize = size
 			buf = byteops.Resize(buf, overhead+dSize+len(key))
-			return buf[24 : 24+dSize : 24+dSize]
+			return deletionsRegion()
 		})
 	default:
 		buf = byteops.Resize(buf, overhead+len(key))

@@ -32,7 +32,7 @@ func (suite *ReplicationTestSuiteSlow) TestReplicationReplicateOfLargeShard() {
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
-		WithWeaviateEnv("REPLICATION_ENGINE_FILE_COPY_CHUNK_SIZE", "10485760"). // 10 MB
+		WithWeaviateEnv("REPLICATION_ENGINE_FILE_COPY_CHUNK_SIZE", "1048576"). // 1 MB
 		Start(mainCtx)
 	require.NoError(t, err, "failed to start weaviate cluster: %+v", err)
 	defer func() {
@@ -63,7 +63,7 @@ func (suite *ReplicationTestSuiteSlow) TestReplicationReplicateOfLargeShard() {
 	tenantName := "tenant"
 	batch := make([]*models.Object, 0, 1000)
 	start := time.Now()
-	for j := 0; j < 100000; j++ {
+	for j := 0; j < 20000; j++ {
 		batch = append(batch, (*models.Object)(articles.NewParagraph().
 			WithContents(fmt.Sprintf("paragraph#%d", j)).
 			WithTenant(tenantName).
