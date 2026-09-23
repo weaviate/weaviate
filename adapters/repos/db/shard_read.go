@@ -1012,26 +1012,39 @@ func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter
 	return list, nil
 }
 
-func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
-	bucket, release, err := s.objectsBucket()
-	if err != nil {
-		return "", err
-	}
-	defer release()
+// secondaryDocIDLookup is what [lsmkv.Bucket.SecondaryViewLookup] hands back: a doc id
+// lookup bound to one consistent view, so a scan pays for the view once.
+type secondaryDocIDLookup func(ctx context.Context, pos int, seckey, buffer []byte) ([]byte, []byte, error)
 
-	docIDBytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(docIDBytes, docID)
-	res, err := bucket.GetBySecondary(context.TODO(), 0, docIDBytes) // TODO: context
+// uuidFromDocIDWithLookup reads one object row through a hoisted lookup and returns the
+// id property on it. It returns found=false when the doc id has no object row. Any caller
+// that read the doc id earlier has to expect this, since the object may have been deleted
+// in between.
+//
+// docIDBuf takes the key and objBuf takes the object row. Both are reusable across calls,
+// because the returned UUID is a fresh string rather than a view into either. Use the
+// returned buffer as the next objBuf: the lookup grows it to the largest row it has read.
+func uuidFromDocIDWithLookup(ctx context.Context, lookup secondaryDocIDLookup,
+	docID uint64, docIDBuf, objBuf []byte,
+) (strfmt.UUID, []byte, bool, error) {
+	binary.LittleEndian.PutUint64(docIDBuf, docID)
+	res, newBuf, err := lookup(ctx, helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBuf, objBuf)
 	if err != nil {
-		return "", fmt.Errorf("get object by doc id: %w", err)
+		return "", newBuf, false, fmt.Errorf("get object by doc id: %w", err)
+	}
+	if res == nil {
+		return "", newBuf, false, nil
 	}
 
 	prop, _, err := storobj.ParseAndExtractProperty(res, "id")
 	if err != nil {
-		return "", fmt.Errorf("parse and extract property: %w", err)
+		return "", newBuf, false, fmt.Errorf("parse and extract property: %w", err)
+	}
+	if len(prop) == 0 {
+		return "", newBuf, false, fmt.Errorf("object row for doc id %d carries no id property", docID)
 	}
 
-	return strfmt.UUID(prop[0]), nil
+	return strfmt.UUID(prop[0]), newBuf, true, nil
 }
 
 func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
