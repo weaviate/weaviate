@@ -44,6 +44,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
@@ -71,7 +72,7 @@ type State struct {
 	SchemaManager *schema.Manager
 	Cluster       *cluster.State
 
-	RemoteIndexIncoming *sharding.RemoteIndexIncoming
+	RemoteIndexIncoming *remote.IndexIncoming
 	RemoteNodeIncoming  *sharding.RemoteNodeIncoming
 	Traverser           *traverser.Traverser
 

@@ -179,6 +179,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -794,7 +795,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// initialize needed services after all components are ready
 	postInitModules(appState)
 
-	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)
+	appState.RemoteIndexIncoming = remote.NewIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 
 	// Assign only when RBAC is on. A nil *rbac.Manager put into this interface

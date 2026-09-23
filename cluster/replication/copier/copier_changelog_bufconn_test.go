@@ -34,14 +34,14 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/fakes"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 )
 
 // bufconnFakeIndex implements only the 4 change-log methods; the other
 // RemoteIndexIncomingRepo methods panic via the embedded nil interface, which
 // is what we want — the tests must not touch them.
 type bufconnFakeIndex struct {
-	sharding.RemoteIndexIncomingRepo
+	remote.IndexIncomingRepo
 	log *changelog.ChangeLog
 }
 
@@ -71,7 +71,7 @@ type bufconnFakeRepo struct {
 	idx *bufconnFakeIndex
 }
 
-func (r *bufconnFakeRepo) GetIndexForIncomingSharding(schema.ClassName) sharding.RemoteIndexIncomingRepo {
+func (r *bufconnFakeRepo) GetIndexForIncomingSharding(schema.ClassName) remote.IndexIncomingRepo {
 	return r.idx
 }
 

@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package sharding
+package remote
 
 import (
 	"context"
@@ -60,7 +60,7 @@ func TestQueryReplica(t *testing.T) {
 	}
 
 	for _, test := range tests {
-		rindex := RemoteIndex{"C", &test.schema, nil, &test.resolver}
+		rindex := Index{"C", &test.schema, nil, &test.resolver}
 		got, lastNode, err := rindex.queryReplicas(test.ctx, "S", doIf(test.targetNode))
 		if !test.success {
 			if got != nil {

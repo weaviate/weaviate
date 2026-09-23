@@ -52,6 +52,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
@@ -61,7 +62,7 @@ type DB struct {
 	schemaGetter              schemaUC.SchemaGetter
 	config                    Config
 	indices                   map[string]*Index
-	remoteIndex               sharding.RemoteIndexClient
+	remoteIndex               remote.IndexClient
 	asyncReplicationScheduler *AsyncReplicationScheduler
 	replicaClient             replica.Client
 	nodeResolver              cluster.NodeResolver
@@ -185,7 +186,7 @@ func (db *DB) GetConfig() Config {
 	return db.config
 }
 
-func (db *DB) GetRemoteIndex() sharding.RemoteIndexClient {
+func (db *DB) GetRemoteIndex() remote.IndexClient {
 	return db.remoteIndex
 }
 
@@ -302,7 +303,7 @@ type IndexLike interface {
 }
 
 func New(logger logrus.FieldLogger, localNodeName string, config Config,
-	remoteIndex sharding.RemoteIndexClient, nodeResolver cluster.NodeResolver,
+	remoteIndex remote.IndexClient, nodeResolver cluster.NodeResolver,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
 	nodeSelector cluster.NodeSelector, schemaReader schemaUC.SchemaReader, replicationFSM types.ReplicationFSMReader,
@@ -669,7 +670,7 @@ func (db *DB) IndexExists(className schema.ClassName) bool {
 // GetIndexForIncomingSharding returns the index if it exists or nil if it doesn't
 // by default it will retry 3 times between 0-150 ms to get the index
 // to handle the eventual consistency.
-func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
+func (db *DB) GetIndexForIncomingSharding(className schema.ClassName) remote.IndexIncomingRepo {
 	index := db.GetIndex(className)
 	if index == nil {
 		return nil
