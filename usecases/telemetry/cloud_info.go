@@ -16,7 +16,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"regexp"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -31,79 +34,219 @@ type cloudInfoProvider interface {
 	getCloudInfo() *cloudInfo
 }
 
+// cloudInfoHelper detects the cloud provider lazily: newCloudInfoHelper does
+// no network I/O, so building a Telemeter never blocks server startup. The
+// first provider a caller finds is cached; while none is found, detection is
+// retried on every call. getCloudInfo is only ever called from buildPayload,
+// which only ever runs inside the telemetry goroutine (Start and its ticker
+// loop), so retries never land on the synchronous startup path either.
 type cloudInfoHelper struct {
+	logger  logrus.FieldLogger
+	enabled bool
+	// detect finds a cloud provider, or returns nil if none is detected yet.
+	// Set by newCloudInfoHelper to detectRealProvider; overridable in tests.
+	// A cloudInfoHelper built as a bare struct literal (every existing test
+	// that sets `provider` directly) leaves this nil, which is fine because
+	// getCloudInfo only calls it when provider is still nil.
+	detect func() cloudInfoProvider
+
+	mu       sync.Mutex
 	provider cloudInfoProvider
-	logger   logrus.FieldLogger
 }
 
 func newCloudInfoHelper(logger logrus.FieldLogger, telemetryEnabled bool) *cloudInfoHelper {
-	if telemetryEnabled {
-		aws := newAWSCloudInfo("http://169.254.169.254")
-		if aws.isDetected() {
-			logTelemetryInfo(logger)
-			return &cloudInfoHelper{logger: logger, provider: aws}
-		}
-
-		gcp := newGCPCloudInfo("http://metadata.google.internal/computeMetadata/v1")
-		if gcp.isDetected() {
-			logTelemetryInfo(logger)
-			return &cloudInfoHelper{logger: logger, provider: gcp}
-		}
-
-		azure := newAzureCloudInfo("http://169.254.169.254", "2021-02-01")
-		if azure.isDetected() {
-			logTelemetryInfo(logger)
-			return &cloudInfoHelper{logger: logger, provider: azure}
-		}
-	}
-	return &cloudInfoHelper{logger: logger}
+	c := &cloudInfoHelper{logger: logger, enabled: telemetryEnabled}
+	c.detect = c.detectRealProvider
+	return c
 }
 
 func (c *cloudInfoHelper) getCloudInfo() *cloudInfo {
-	if c.provider != nil {
-		return c.provider.getCloudInfo()
+	provider := c.cachedProvider()
+	if provider == nil {
+		provider = c.detectAndCache()
+		if provider == nil {
+			return nil
+		}
 	}
-	return nil
+	return provider.getCloudInfo()
 }
+
+func (c *cloudInfoHelper) cachedProvider() cloudInfoProvider {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.provider
+}
+
+// detectAndCache runs c.detect and caches the first non-nil result. A test
+// that constructs a cloudInfoHelper directly with a pre-set provider
+// (bypassing newCloudInfoHelper) never reaches here.
+func (c *cloudInfoHelper) detectAndCache() cloudInfoProvider {
+	if !c.enabled || c.detect == nil {
+		return nil
+	}
+
+	provider := c.detect()
+	if provider == nil {
+		return nil
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.provider = provider
+	return provider
+}
+
+// detectRealProvider tries each cloud provider's real metadata endpoint in
+// turn. It is c's default detect function; tests substitute their own.
+func (c *cloudInfoHelper) detectRealProvider() cloudInfoProvider {
+	aws := newAWSCloudInfo(awsIMDSIPv4BaseURL, awsIMDSIPv6BaseURL, os.Getenv("ECS_CONTAINER_METADATA_URI_V4"), c.logger)
+	gcp := newGCPCloudInfo(gcpMetadataBaseURL)
+	azure := newAzureCloudInfo(azureMetadataBaseURL, azureAPIVersion)
+	switch {
+	case aws.isDetected():
+		return aws
+	case gcp.isDetected():
+		return gcp
+	case azure.isDetected():
+		return azure
+	default:
+		return nil
+	}
+}
+
+const (
+	awsIMDSIPv4BaseURL = "http://169.254.169.254"
+	// awsIMDSIPv6BaseURL is AWS's link-local IMDS endpoint for IPv6-only
+	// networking, tried when the IPv4 endpoint is unreachable.
+	awsIMDSIPv6BaseURL   = "http://[fd00:ec2::254]"
+	gcpMetadataBaseURL   = "http://metadata.google.internal/computeMetadata/v1"
+	azureMetadataBaseURL = "http://169.254.169.254"
+	azureAPIVersion      = "2021-02-01"
+)
 
 type awsCloudInfo struct {
-	metadataURL, tokenURL, documentURL string
+	metadataURL, tokenURL, documentURL             string
+	ipv6MetadataURL, ipv6TokenURL, ipv6DocumentURL string
+	// ecsTaskMetadataURL is $ECS_CONTAINER_METADATA_URI_V4/task, empty
+	// outside ECS/Fargate. It never reads role credentials or calls STS;
+	// the account id comes only from the task metadata endpoint's own
+	// TaskARN field.
+	ecsTaskMetadataURL string
+	logger             logrus.FieldLogger
+	warnOnce           sync.Once
 }
 
-func newAWSCloudInfo(baseURL string) *awsCloudInfo {
-	return &awsCloudInfo{
+func newAWSCloudInfo(baseURL, ipv6BaseURL, ecsMetadataURI string, logger logrus.FieldLogger) *awsCloudInfo {
+	c := &awsCloudInfo{
 		metadataURL: fmt.Sprintf("%s/latest/meta-data/", baseURL),
 		tokenURL:    fmt.Sprintf("%s/latest/api/token", baseURL),
 		documentURL: fmt.Sprintf("%s/latest/dynamic/instance-identity/document", baseURL),
+		logger:      logger,
 	}
+	if ipv6BaseURL != "" {
+		c.ipv6MetadataURL = fmt.Sprintf("%s/latest/meta-data/", ipv6BaseURL)
+		c.ipv6TokenURL = fmt.Sprintf("%s/latest/api/token", ipv6BaseURL)
+		c.ipv6DocumentURL = fmt.Sprintf("%s/latest/dynamic/instance-identity/document", ipv6BaseURL)
+	}
+	if ecsMetadataURI != "" {
+		c.ecsTaskMetadataURL = ecsMetadataURI + "/task"
+	}
+	return c
 }
 
 func (c *awsCloudInfo) isDetected() bool {
-	_, awsStatus, _ := sendRequest(c.metadataURL, nil, "GET")
-	return awsStatus == 200 || awsStatus == 401
+	if c.imdsAnswers(c.metadataURL) {
+		return true
+	}
+	if c.imdsAnswers(c.ipv6MetadataURL) {
+		return true
+	}
+	// The ECS agent injects this env var only inside an ECS/Fargate task, so
+	// its presence alone is a reliable detection signal without a network call.
+	return c.ecsTaskMetadataURL != ""
+}
+
+func (c *awsCloudInfo) imdsAnswers(metadataURL string) bool {
+	if metadataURL == "" {
+		return false
+	}
+	_, status, _ := sendRequest(metadataURL, nil, "GET")
+	return status == 200 || status == 401
 }
 
 func (c *awsCloudInfo) getCloudInfo() *cloudInfo {
+	accountID := c.readIMDSAccountID(c.tokenURL, c.documentURL)
+	if accountID == "" {
+		accountID = c.readIMDSAccountID(c.ipv6TokenURL, c.ipv6DocumentURL)
+	}
+	if accountID == "" {
+		accountID = c.readECSAccountID()
+	}
+	if accountID == "" {
+		c.warnOnce.Do(func() {
+			c.logger.WithField("action", "telemetry_cloud_info").
+				Warn("AWS detected but no account id could be read from the IPv4 IMDS, IPv6 IMDS or ECS task metadata endpoints")
+		})
+	}
+	return &cloudInfo{cloudProvider: "AWS", uniqueID: accountID}
+}
+
+// readIMDSAccountID fetches an IMDSv2 token, then the identity document,
+// returning "" if either URL is unset. When the token request fails, the
+// document GET is still tried without a token (the IMDSv1 shape), since
+// some environments allow that even where IMDSv2 is available.
+func (c *awsCloudInfo) readIMDSAccountID(tokenURL, documentURL string) string {
+	if tokenURL == "" || documentURL == "" {
+		return ""
+	}
 	headers := map[string]string{"X-aws-ec2-metadata-token-ttl-seconds": "21600"}
-	token, status, _ := sendRequest(c.tokenURL, headers, "PUT")
+	token, status, _ := sendRequest(tokenURL, headers, "PUT")
 
 	headers = nil
 	if status == 200 {
 		headers = map[string]string{"X-aws-ec2-metadata-token": token}
 	}
 
-	accountID := ""
-	doc, _, _ := sendRequest(c.documentURL, headers, "GET")
-	if re, err := regexp.Compile(`"accountId"\s*:\s*"([^"]+)"`); err == nil {
-		if match := re.FindStringSubmatch(doc); len(match) > 1 {
-			accountID = match[1]
-		}
-	}
+	doc, _, _ := sendRequest(documentURL, headers, "GET")
+	return extractAWSAccountID(doc)
+}
 
-	return &cloudInfo{
-		cloudProvider: "AWS",
-		uniqueID:      accountID,
+var awsAccountIDPattern = regexp.MustCompile(`"accountId"\s*:\s*"([^"]+)"`)
+
+func extractAWSAccountID(doc string) string {
+	if match := awsAccountIDPattern.FindStringSubmatch(doc); len(match) > 1 {
+		return match[1]
 	}
+	return ""
+}
+
+// readECSAccountID reads the account id from the task's own ARN via the ECS
+// task metadata endpoint (metadata only - no role credentials, no STS call).
+func (c *awsCloudInfo) readECSAccountID() string {
+	if c.ecsTaskMetadataURL == "" {
+		return ""
+	}
+	body, status, _ := sendRequest(c.ecsTaskMetadataURL, nil, "GET")
+	if status != 200 {
+		return ""
+	}
+	var task struct {
+		TaskARN string `json:"TaskARN"`
+	}
+	if err := json.Unmarshal([]byte(body), &task); err != nil {
+		return ""
+	}
+	return accountIDFromARN(task.TaskARN)
+}
+
+// accountIDFromARN extracts the fixed fifth field of an ARN
+// (arn:partition:service:region:account-id:resource).
+func accountIDFromARN(arn string) string {
+	parts := strings.SplitN(arn, ":", 6)
+	if len(parts) < 5 {
+		return ""
+	}
+	return parts[4]
 }
 
 type gcpCloudInfo struct {
@@ -176,6 +319,14 @@ func logTelemetryInfo(logger logrus.FieldLogger) {
 	logger.Info("Learn more about our telemetrics: https://docs.weaviate.io/deploy/configuration/telemetry")
 }
 
+// metadataHTTPClient never honours HTTP_PROXY/HTTPS_PROXY/NO_PROXY: an
+// operator's egress proxy config must not redirect an in-VM loopback probe
+// bound for 169.254.169.254 or metadata.google.internal.
+var metadataHTTPClient = &http.Client{
+	Timeout:   1 * time.Second,
+	Transport: &http.Transport{Proxy: nil},
+}
+
 func sendRequest(url string, headers map[string]string, method string) (string, int, error) {
 	req, err := http.NewRequest(method, url, nil)
 	if err != nil {
@@ -185,8 +336,7 @@ func sendRequest(url string, headers map[string]string, method string) (string, 
 		req.Header.Set(k, v)
 	}
 
-	client := &http.Client{Timeout: 1 * time.Second}
-	resp, err := client.Do(req)
+	resp, err := metadataHTTPClient.Do(req)
 	if err != nil {
 		return "", 0, fmt.Errorf("send request: %w", err)
 	}

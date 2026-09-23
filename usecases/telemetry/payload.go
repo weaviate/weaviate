@@ -28,17 +28,17 @@ var PayloadType = struct {
 
 // Payload is the object transmitted for telemetry purposes
 type Payload struct {
-	MachineID              strfmt.UUID                     `json:"machineId"`
-	Type                   string                          `json:"type"`
-	Version                string                          `json:"version"`
-	ObjectsCount           int64                           `json:"objs"`
-	OS                     string                          `json:"os"`
-	Arch                   string                          `json:"arch"`
-	UsedModules            []string                        `json:"usedModules,omitempty"`
-	CollectionsCount       int                             `json:"collectionsCount"`
-	ClientUsage            map[ClientType]map[string]int64 `json:"clientUsage,omitempty"`
-	CloudProvider          *string                         `json:"cloudProvider,omitempty"`
-	UniqueID               *string                         `json:"uniqueID,omitempty"`
+	MachineID        strfmt.UUID                     `json:"machineId"`
+	Type             string                          `json:"type"`
+	Version          string                          `json:"version"`
+	ObjectsCount     int64                           `json:"objs"`
+	OS               string                          `json:"os"`
+	Arch             string                          `json:"arch"`
+	UsedModules      []string                        `json:"usedModules,omitempty"`
+	CollectionsCount int                             `json:"collectionsCount"`
+	ClientUsage      map[ClientType]map[string]int64 `json:"clientUsage,omitempty"`
+	CloudProvider    *string                         `json:"cloudProvider,omitempty"`
+	UniqueID         *string                         `json:"uniqueID,omitempty"`
 
 	// NodeID is a UUID persisted to the data volume, not the hostname: stable
 	// across restarts, unique per node even when hostnames collide (e.g. every

@@ -489,6 +489,44 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 	assert.Equal(t, PayloadType.Terminate, terminatePayload.Type)
 }
 
+// TestTelemetry_Start_PrintsOptOutNoticeEveryBoot pins (c): the notice used to
+// print only from inside the per-cloud-provider branches in cloud_info.go, so
+// a deployment where no cloud was ever detected never saw it. Start() must
+// print it unconditionally, once, every time telemetry actually runs.
+func TestTelemetry_Start_PrintsOptOutNoticeEveryBoot(t *testing.T) {
+	sg := &fakeNodesStatusGetter{}
+	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
+		&models.NodeStatus{Stats: &models.NodeStats{ObjectCount: 0}},
+	).Maybe()
+	sm := schemaUC.NewMockSchemaGetter(t)
+	sm.EXPECT().Nodes().Return([]string{"node1"}).Maybe()
+	sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	logger, hook := test.NewNullLogger()
+	tel := New(sg, sm, logger, server.URL, time.Hour, true, Config{ClusterID: func() string { return "" }})
+	// Deterministic and hermetic: this test is about the notice, not about
+	// cloud detection, so force "no cloud detected" instead of hitting the
+	// real metadata endpoints.
+	tel.cloudInfoHelper = newCloudInfoHelper(logger, false)
+
+	require.NoError(t, tel.Start(context.Background()))
+	defer func() { _ = tel.Stop(context.Background()) }()
+
+	found := false
+	for _, e := range hook.AllEntries() {
+		if strings.Contains(e.Message, "DISABLE_TELEMETRY=true") {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "opt-out notice must print on boot even when no cloud was detected")
+}
+
 func TestTelemetry_BuildPayload_WithCloudInfo(t *testing.T) {
 	t.Run("on init with cloud info present", func(t *testing.T) {
 		tel, sg, sm, ci := newTestTelemeterWithCloudInfo(t)
@@ -613,7 +651,10 @@ func TestTelemetry_WithCloudInfoConsumer_GCP(t *testing.T) {
 func TestTelemetry_WithCloudInfoConsumer_AWS(t *testing.T) {
 	server := httptest.NewServer(&awsTestConsumer{t})
 	defer server.Close()
-	tel, sg, sm := newTestTelemeterWithCustomCloudInfo(t, newAWSCloudInfo(server.URL))
+	logger, _ := test.NewNullLogger()
+	// No IPv6 base URL or ECS metadata URI: this test only exercises the
+	// IMDSv4 path against the single test server, same as before.
+	tel, sg, sm := newTestTelemeterWithCustomCloudInfo(t, newAWSCloudInfo(server.URL, "", "", logger))
 	sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
 
 	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
