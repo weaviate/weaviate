@@ -59,7 +59,7 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementOneWriteExtraSlowFileC
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithText2VecModel2Vec().
-		WithWeaviateEnv("WEAVIATE_TEST_COPY_REPLICA_SLEEP", "20s").
+		WithWeaviateEnv("WEAVIATE_TEST_COPY_REPLICA_SLEEP", "10s").
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
 	require.NoError(t, err, "failed to start compose cluster: %+v", err)
@@ -161,8 +161,8 @@ func (suite *ReplicationTestSuiteSlow) TestReplicaMovementOneWriteExtraSlowFileC
 				wg.Add(1)
 				enterrors.GoWrapper(func() {
 					defer wg.Done()
-					// sleep 20s so that the source node has paused compaction but not resumed yet
-					time.Sleep(20 * time.Second)
+					// land the write while the target holds the copy open
+					time.Sleep(5 * time.Second)
 					for i := 0; i < numParagraphsInsertedWhileStarting; i++ {
 						err := createObjectThreadSafe(
 							compose.ContainerURI(sourceNode),

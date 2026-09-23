@@ -25,17 +25,8 @@ import (
 )
 
 func TestAuthnGetOwnInfoWithAnonAccessEnabled(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().Start(ctx)
-	require.Nil(t, err)
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-
-	defer func() {
-		helper.ResetClient()
-		require.NoError(t, compose.Terminate(ctx))
-		cancel()
-	}()
+	helper.SetupClient(helper.SharedServerURI)
+	defer helper.ResetClient()
 
 	t.Run("Get own info for anonymous access", func(t *testing.T) {
 		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), nil)

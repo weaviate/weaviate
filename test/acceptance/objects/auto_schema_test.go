@@ -28,7 +28,6 @@ import (
 
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -210,32 +209,26 @@ func autoSchemaObjects(t *testing.T) {
 
 func TestClassCapitalisationInBatchWithAutoSchemaAndExistingClass(t *testing.T) {
 	ctx := context.Background()
-	compose, err := docker.New().
-		WithWeaviateWithGRPC().
-		WithWeaviateEnv("AUTOSCHEMA_ENABLED", "true").
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
 
 	defer helper.ResetClient()
-	helper.SetupClient(compose.GetWeaviate().URI())
-	helper.SetupGRPCClient(t, compose.GetWeaviate().GrpcURI())
+	helper.SetupClient(helper.SharedServerURI)
+	helper.SetupGRPCClient(t, helper.SharedServerGRPCURI)
 
+	const className, lowercaseClassName = "CapitalisationWithAutoSchema", "capitalisationWithAutoSchema"
+	helper.DeleteClass(t, className)
 	helper.CreateClass(t, &models.Class{
-		Class: "Test",
+		Class: className,
 		Properties: []*models.Property{{
 			DataType: []string{"text"},
 			Name:     "name",
 		}},
 	})
-	defer helper.DeleteClass(t, "Test")
+	defer helper.DeleteClass(t, className)
 
 	t.Run("batch insert object over grpc with lowercase class name", func(t *testing.T) {
 		res, err := helper.ClientGRPC(t).BatchObjects(ctx, &pb.BatchObjectsRequest{
 			Objects: []*pb.BatchObject{{
-				Collection: "test",
+				Collection: lowercaseClassName,
 				Properties: &pb.BatchObject_Properties{
 					NonRefProperties: &structpb.Struct{
 						Fields: map[string]*structpb.Value{
@@ -258,7 +251,7 @@ func TestClassCapitalisationInBatchWithAutoSchemaAndExistingClass(t *testing.T) 
 		res, err := helper.Client(t).Batch.BatchObjectsCreate(batch.NewBatchObjectsCreateParams().WithBody(batch.BatchObjectsCreateBody{
 			Objects: []*models.Object{
 				{
-					Class: "test",
+					Class: lowercaseClassName,
 					Properties: map[string]interface{}{
 						"name": "test",
 					},
