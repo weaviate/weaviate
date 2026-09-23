@@ -388,7 +388,7 @@ func (c *allocCheckerLosingTheFirstReservation) CheckMappingAndReserve(int64, in
 		return nil
 	}
 	c.missed = true
-	c.lazy.shard, c.lazy.loaded = c.shard, true
+	c.lazy.shard.Store(c.shard)
 	return errors.New("no mapping headroom")
 }
 
