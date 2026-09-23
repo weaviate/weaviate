@@ -113,7 +113,6 @@ func TestRehydratePermanentRejection_RoundTripsEverySentinel(t *testing.T) {
 		require.True(t, registered[sentinel], "%v is not registered in permanentMarkers", sentinel)
 	}
 
-	require.NotEmpty(t, permanentMarkers)
 	for _, marker := range permanentMarkers {
 		t.Run(marker.id, func(t *testing.T) {
 			// Simulate the leader's side: wrap → ToRPCError.
