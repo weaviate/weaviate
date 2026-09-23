@@ -246,21 +246,40 @@ function main() {
 
   if $run_acceptance_tests  || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_4 || $run_acceptance_only_fast_group_5 || $run_acceptance_only_fast_group_6 || $run_acceptance_only_authz || $run_acceptance_only_mcp || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_only_python || $run_all_tests || $run_benchmark || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_only_fast_group_3 || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $only_acceptance || $run_acceptance_objects
   then
-    echo "Start docker container needed for acceptance and/or benchmark test"
-    echo_green "Stop any running docker-compose containers..."
-    suppress_on_success docker compose -f docker-compose-test.yml down --remove-orphans
+    # Every suite gets the shared docker-compose server on localhost:8080
+    # except these, which start their own testcontainers clusters. Assumes one
+    # suite flag per run, as CI does.
+    local needs_shared_server=true
+    if $run_acceptance_only_fast_group_4 || $run_acceptance_only_authz \
+      || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests \
+      || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests \
+      || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster
+    then
+      needs_shared_server=false
+    fi
 
-    echo_green "Start up weaviate and backing dbs in docker-compose..."
-    echo "This could take some time..."
+    if $needs_shared_server
+    then
+      echo "Start docker container needed for acceptance and/or benchmark test"
+      echo_green "Stop any running docker-compose containers..."
+      suppress_on_success docker compose -f docker-compose-test.yml down --remove-orphans
+
+      echo_green "Start up weaviate and backing dbs in docker-compose..."
+      echo "This could take some time..."
+      if $run_acceptance_only_authz || $run_acceptance_only_python
+      then
+        tools/test/run_ci_server.sh --with-auth
+      elif $run_acceptance_only_mcp
+      then
+        tools/test/run_ci_server.sh --with-mcp
+      else
+        tools/test/run_ci_server.sh
+      fi
+    fi
+
     if $run_acceptance_only_authz || $run_acceptance_only_python
     then
-      tools/test/run_ci_server.sh --with-auth
       build_mockoidc_docker_image_for_tests
-    elif $run_acceptance_only_mcp
-    then
-      tools/test/run_ci_server.sh --with-mcp
-    else
-      tools/test/run_ci_server.sh
     fi
 
     # echo_green "Import required schema and test fixtures..."
@@ -1403,6 +1422,7 @@ function run_acceptance_only_mcp() {
 }
 
 function run_acceptance_replica_replication_fast_tests() {
+  build_weaviate_test_image
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/replica_replication/fast'); do
     if ! go test -timeout=30m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
@@ -1412,6 +1432,7 @@ function run_acceptance_replica_replication_fast_tests() {
 }
 
 function run_acceptance_replica_replication_slow_tests() {
+  build_weaviate_test_image
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/replica_replication/slow'); do
     if ! go test -timeout=45m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
@@ -1421,6 +1442,7 @@ function run_acceptance_replica_replication_slow_tests() {
 }
 
 function run_acceptance_replication_tests() {
+  build_weaviate_test_image
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/read_repair'); do
     if ! go test -timeout=20m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2

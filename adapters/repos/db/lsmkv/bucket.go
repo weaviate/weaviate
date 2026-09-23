@@ -1006,16 +1006,29 @@ func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buf
 	defer view.ReleaseView()
 	tookView := time.Since(beforeAll)
 
-	return b.getBySecondaryCore(ctx, pos, seckey, buffer, view, tookView, "lsm_get_by_secondary")
+	v, allocBuf, entry, fromSegments, err := b.getBySecondaryCore(pos, seckey, buffer, view, tookView)
+	if err == nil && fromSegments {
+		helpers.AnnotateSlowQueryLogAppendReducible(ctx, SlowLogKeyGetBySecondary, entry, reduceSlowLogEntries)
+	}
+	return v, allocBuf, err
 }
 
 func (b *Bucket) getBySecondaryWithView(ctx context.Context, pos int, seckey []byte, buffer []byte, view BucketConsistentView) ([]byte, []byte, error) {
-	return b.getBySecondaryCore(ctx, pos, seckey, buffer, view, 0, "lsm_get_by_secondary_with_view")
+	v, allocBuf, entry, fromSegments, err := b.getBySecondaryCore(pos, seckey, buffer, view, 0)
+	if err == nil && fromSegments {
+		helpers.AnnotateSlowQueryLogAppendReducible(ctx, SlowLogKeyGetBySecondaryWithView, entry, reduceSlowLogEntries)
+	}
+	return v, allocBuf, err
 }
 
-func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte, buffer []byte, view BucketConsistentView, viewTiming time.Duration, logKey string) ([]byte, []byte, error) {
-	if pos >= int(b.secondaryIndices) {
-		return nil, nil, fmt.Errorf("no secondary index at pos %d", pos)
+// getBySecondaryCore returns the slow-log entry instead of recording it, so a
+// caller resolving many keys can batch the recording rather than taking the
+// slow-query lock per key. fromSegments is false for a memtable hit (nothing
+// to record).
+func (b *Bucket) getBySecondaryCore(pos int, seckey []byte, buffer []byte, view BucketConsistentView, viewTiming time.Duration,
+) (value []byte, allocBuf []byte, entry BucketSlowLogEntry, fromSegments bool, err error) {
+	if pos < 0 || pos >= int(b.secondaryIndices) {
+		return nil, nil, entry, false, fmt.Errorf("no secondary index at pos %d", pos)
 	}
 
 	beforeAll := time.Now()
@@ -1037,31 +1050,31 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 				// - "default" exists(k) == lsmkv.NotFound: the doc was not found, so we can return the item found in the flushing memtable
 				err = memtables[0].exists(k)
 				if err == nil {
-					return nil, nil, lsmkv.NotFound
+					return nil, nil, entry, false, lsmkv.NotFound
 				} else if errors.Is(err, lsmkv.Deleted) {
-					return nil, nil, err
+					return nil, nil, entry, false, err
 				} else if !errors.Is(err, lsmkv.NotFound) {
-					return nil, nil, fmt.Errorf("Bucket::getBySecondary() %q: %w", memtableNames[0], err)
+					return nil, nil, entry, false, fmt.Errorf("Bucket::getBySecondary() %q: %w", memtableNames[0], err)
 				}
 			}
 			// item found and no error, return and stop searching, since the strategy
 			// is replace
-			return v, buffer, nil
+			return v, buffer, entry, false, nil
 		}
 		if errors.Is(err, lsmkv.Deleted) {
 			// deleted in the mem-table (which is always the latest) means we don't
 			// have to check the disk segments, return nil now
-			return nil, nil, err
+			return nil, nil, entry, false, err
 		}
 		if !errors.Is(err, lsmkv.NotFound) {
-			return nil, nil, fmt.Errorf("Bucket::getBySecondary() %q: %w", memtableNames[i], err)
+			return nil, nil, entry, false, fmt.Errorf("Bucket::getBySecondary() %q: %w", memtableNames[i], err)
 		}
 	}
 
 	beforeSegments := time.Now()
 	priKey, v, allocBuf, secSegIndex, err := b.getBySecondaryFromSegmentGroup(pos, seckey, buffer, view.Disk)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, entry, false, err
 	}
 	segmentsTook := time.Since(beforeSegments)
 
@@ -1076,26 +1089,26 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 	// if it exists on a later segment for priKey (err == nil), it means it was updated
 	// thus, we return lsmkv.NotFound to avoid returning stale data.
 	if err == nil {
-		return nil, nil, lsmkv.NotFound
+		return nil, nil, entry, false, lsmkv.NotFound
 	}
 
 	// if there is an error other than not found, we propagate the err
 	if !errors.Is(err, lsmkv.NotFound) {
-		return nil, nil, err
+		return nil, nil, entry, false, err
 	}
 
 	recheckTook := time.Since(beforeReCheck)
 
-	helpers.AnnotateSlowQueryLogAppendReducible(ctx, logKey, BucketSlowLogEntry{
+	entry = BucketSlowLogEntry{
 		View:             viewTiming,
 		ActiveMemtable:   memtablesTook[0],
 		FlushingMemtable: memtablesTook[1],
 		Segments:         segmentsTook,
 		Recheck:          recheckTook,
 		Total:            time.Since(beforeAll),
-	}, reduceSlowLogEntries)
+	}
 
-	return v, allocBuf, nil
+	return v, allocBuf, entry, true, nil
 }
 
 func (b *Bucket) getFromMemtable(key []byte, memtable memtable, component string) (v []byte, err error) {
