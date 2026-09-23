@@ -273,6 +273,7 @@ func (m *Manager) RegisterCollectionExtractor(namespace string, extractor Collec
 	}
 }
 
+// cacheCollectionWithLock runs once per add, restore or registration, since HasActiveTaskForCollection runs on every replica copy.
 func (m *Manager) cacheCollectionWithLock(task *Task) {
 	task.collection = ""
 	if extractor := m.collectionExtractors[task.Namespace]; extractor != nil {
