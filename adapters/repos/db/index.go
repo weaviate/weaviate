@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -75,6 +76,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -401,14 +403,7 @@ func (i *Index) snapshotsPath() string {
 }
 
 func (i *Index) debugLoggingEnabled() bool {
-	switch logger := i.logger.(type) {
-	case *logrus.Logger:
-		return logger.IsLevelEnabled(logrus.DebugLevel)
-	case *logrus.Entry:
-		return logger.Logger.IsLevelEnabled(logrus.DebugLevel)
-	default:
-		return false
-	}
+	return logrusext.LevelEnabled(i.logger, logrus.DebugLevel)
 }
 
 // NewIndex creates an index with the specified amount of shards, using only
@@ -743,6 +738,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				i.logger.
 					WithField("action", "load_shard").
 					WithField("shard_name", shardName).
+					WithFields(enterrors.DocsLinkFields(err)).
 					Errorf("failed to load shard, loading the rest anyway: %v", err)
 				// A failure says nothing about the shards behind this one: memory
 				// pressure is node-wide and transient, anything else is specific
@@ -1484,6 +1480,7 @@ type IndexConfig struct {
 	SeparateObjectsCompactions          bool
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
+	IndexRangeableInMemoryProps         []string
 	MaxSegmentSize                      int64
 	ReplicationFactor                   int64
 	DeletionStrategy                    string
@@ -1536,6 +1533,14 @@ type IndexConfig struct {
 // off. Which shards a non-negative value loads is warmupCandidate's call.
 func (c IndexConfig) backgroundWarmupEnabled() bool {
 	return c.EnableLazyLoadShards && c.LazyLoadShardWarmupMinObjects >= 0
+}
+
+// keepRangeableInMemory reports whether propName's rangeable bucket keeps its
+// segments in memory.
+func (c IndexConfig) keepRangeableInMemory(propName string) bool {
+	return c.IndexRangeableInMemory ||
+		slices.Contains(c.IndexRangeableInMemoryProps, config.AllProperties) ||
+		slices.Contains(c.IndexRangeableInMemoryProps, propName)
 }
 
 func indexID(class schema.ClassName) string {
@@ -3836,6 +3841,10 @@ func (i *Index) drop() error {
 	// otherwise leave the shard un-dropped without failing the call
 	ec.Add(eg.Wait())
 
+	// Covers the inactive tenants too: they were never in i.shards, but a cold
+	// usage scan creates a count for any shard it reads.
+	shardusage.ForgetComputedUsageGenerationsUnder(i.path())
+
 	// 1s target contract per weaviate/0-weaviate-issues#250; ctx errors
 	// are best-effort (flush doesn't honor ctx yet — separable follow-up).
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -3942,6 +3951,11 @@ func (i *Index) dropShards(names []string) error {
 				}
 			}
 
+			// After the drop, not before: a drop-vector clear holding a reference
+			// on this shard invalidates its usage record as it finishes, which
+			// re-creates the count, and the drop is what waits that reference out.
+			shardusage.ForgetComputedUsageGeneration(i.path(), name)
+
 			return nil
 		})
 	}
@@ -4021,7 +4035,7 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 }
 
 func (i *Index) Shutdown(ctx context.Context) error {
-	// a reader holding closeLock would hold up the whole DB shutdown
+	// a reader admitted by enterRead would hold up the whole DB shutdown
 	i.signalCloseRequested(errIndexShutdown)
 	if err := i.beginClose(); err != nil {
 		return err

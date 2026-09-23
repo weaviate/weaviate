@@ -194,6 +194,7 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			if !ok {
 				return fmt.Errorf("cannot remove %s index for %s property: no main bucket for this index type", indexType, prop.Name)
 			}
+			s.retirePropertyOverlay(prop.Name, indexType)
 			if err := s.removeBucket(ctx, mainBucket); err != nil {
 				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
 			}
@@ -639,9 +640,11 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	}
 
 	if inverted.HasRangeableIndex(prop) {
+		// Appended last so it wins over makeDefaultBucketOptions' value.
+		opts := append(makeBucketOptions(lsmkv.StrategyRoaringSetRange),
+			lsmkv.WithKeepSegmentsInMemory(s.index.Config.keepRangeableInMemory(prop.Name)))
 		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketRangeableFromPropNameLSM(prop.Name),
-			makeBucketOptions(lsmkv.StrategyRoaringSetRange)...,
+			helpers.BucketRangeableFromPropNameLSM(prop.Name), opts...,
 		); err != nil {
 			return err
 		}

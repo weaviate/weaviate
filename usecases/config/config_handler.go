@@ -259,6 +259,7 @@ type Config struct {
 
 	RuntimeOverrides RuntimeOverrides `json:"runtime_overrides" yaml:"runtime_overrides"`
 
+	// Kept for BC with config files, value piped into Replication.ReplicaMovementEnabled as runtime config
 	ReplicaMovementEnabled bool `json:"replica_movement_enabled" yaml:"replica_movement_enabled"`
 
 	// RuntimeReindexEnabled gates runtime reindex (RUNTIME_REINDEX_ENABLED),
@@ -368,8 +369,10 @@ type Config struct {
 	DisableDimensionMetrics *runtime.DynamicValue[bool] `json:"disable_dimension_metrics" yaml:"disable_dimension_metrics"`
 
 	// WeaviateLicense gates the functionality that is licensed under the
-	// Weaviate License (the "wl" directory) instead of BSD-3-Clause.
-	WeaviateLicense *runtime.DynamicValue[bool] `json:"weaviate_license" yaml:"weaviate_license"`
+	// Weaviate License (the "wl" directory) instead of BSD-3-Clause. It is set
+	// once at startup from the LICENSE_KEY form check and cannot be overridden
+	// at runtime.
+	WeaviateLicense bool `json:"weaviate_license" yaml:"weaviate_license"`
 }
 
 type CollectionPropsTenants struct {
@@ -997,12 +1000,15 @@ type Persistence struct {
 	LSMSkipWriteClassNameEnabled        bool   `json:"lsmSkipClassNameEnabled" yaml:"lsmSkipClassNameEnabled"`
 	LSMCycleManagerRoutinesFactor       int    `json:"lsmCycleManagerRoutinesFactor" yaml:"lsmCycleManagerRoutinesFactor"`
 	IndexRangeableInMemory              bool   `json:"indexRangeableInMemory" yaml:"indexRangeableInMemory"`
-	MinMMapSize                         int64  `json:"minMMapSize" yaml:"minMMapSize"`
-	LazySegmentsDisabled                bool   `json:"lazySegmentsDisabled" yaml:"lazySegmentsDisabled"`
-	SegmentInfoIntoFileNameEnabled      bool   `json:"segmentFileInfoEnabled" yaml:"segmentFileInfoEnabled"`
-	WriteMetadataFilesEnabled           bool   `json:"writeMetadataFilesEnabled" yaml:"writeMetadataFilesEnabled"`
-	MaxReuseWalSize                     int64  `json:"MaxReuseWalSize" yaml:"MaxReuseWalSize"`
-	HNSWMaxLogSize                      int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
+	// Properties whose rangeable index keeps its segments in memory, per
+	// collection. Read only when IndexRangeableInMemory is false.
+	IndexRangeableInMemoryProps    map[string][]string `json:"indexRangeableInMemoryProps" yaml:"indexRangeableInMemoryProps"`
+	MinMMapSize                    int64               `json:"minMMapSize" yaml:"minMMapSize"`
+	LazySegmentsDisabled           bool                `json:"lazySegmentsDisabled" yaml:"lazySegmentsDisabled"`
+	SegmentInfoIntoFileNameEnabled bool                `json:"segmentFileInfoEnabled" yaml:"segmentFileInfoEnabled"`
+	WriteMetadataFilesEnabled      bool                `json:"writeMetadataFilesEnabled" yaml:"writeMetadataFilesEnabled"`
+	MaxReuseWalSize                int64               `json:"MaxReuseWalSize" yaml:"MaxReuseWalSize"`
+	HNSWMaxLogSize                 int64               `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
 
 	// HNSW snapshot settings below are deprecated no-ops. Kept for YAML/JSON
 	// back-compat so existing config files parse without error. No consumer
@@ -1061,6 +1067,19 @@ const (
 func (p Persistence) Validate() error {
 	if p.DataPath == "" {
 		return fmt.Errorf("persistence.dataPath must be set")
+	}
+
+	// A config file writes this field past the environment parser's refusals.
+	for collection, props := range p.IndexRangeableInMemoryProps {
+		if _, err := schema.ValidateClassName(collection); err != nil {
+			return fmt.Errorf("persistence.indexRangeableInMemoryProps names %q: %w",
+				collection, err)
+		}
+		if len(props) == 0 {
+			return fmt.Errorf("persistence.indexRangeableInMemoryProps names %q with no "+
+				"properties: list them, or write %q for every rangeable property it has",
+				collection, AllProperties)
+		}
 	}
 
 	return nil

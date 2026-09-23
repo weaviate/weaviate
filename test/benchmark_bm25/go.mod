@@ -8,8 +8,8 @@ require (
 	github.com/go-openapi/strfmt v0.25.0
 	github.com/google/uuid v1.6.0
 	github.com/spf13/cobra v1.10.2
-	github.com/weaviate/weaviate v1.29.0
-	github.com/weaviate/weaviate-go-client/v5 v5.0.2
+	github.com/weaviate/weaviate v1.38.16-0.20260915093746-7ecf175277a5
+	github.com/weaviate/weaviate-go-client/v5 v5.7.4-0.20260915114333-a2d4b0937103
 	gopkg.in/yaml.v3 v3.0.1
 )
 
@@ -81,11 +81,11 @@ require (
 	github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
-	github.com/stretchr/objx v0.5.2 // indirect
+	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
-	github.com/weaviate/sroar v0.0.17 // indirect
+	github.com/weaviate/sroar v0.0.18 // indirect
 	go.mongodb.org/mongo-driver v1.17.7 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel v1.44.0 // indirect

@@ -147,7 +147,7 @@ func observe(hist *prometheus.HistogramVec, fullMethod string, err error, durati
 	// `hist` has following labels
 	// service - gRPC service name (e.g: weaviate.v1.Weaviate, weaviate.internal.cluster.ClusterService)
 	// method - Method from the gRPC service that got invoked. (e.g: Search, RemovePeer)
-	// status - grpc status (e.g: "OK", "CANCELED", "UNKNOWN", etc)
+	// status - grpc status (e.g: "OK", "Canceled", "Unknown", etc)
 
 	labelValues := []string{
 		service,

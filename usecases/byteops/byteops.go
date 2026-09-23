@@ -365,3 +365,15 @@ func IntsFromByteVector(vector []byte) []int64 {
 	CopyBytesToSlice(ints, vector)
 	return ints
 }
+
+// Resize returns buf with length n, reallocating only when its capacity cannot
+// hold n. The returned bytes are whatever buf already held, so a caller reusing
+// one buffer across writes must overwrite every byte it means to be read back.
+// n below len(buf) shortens it, which is how a caller sheds a previous, larger
+// write.
+func Resize(buf []byte, n int) []byte {
+	if cap(buf) < n {
+		return make([]byte, n)
+	}
+	return buf[:n]
+}

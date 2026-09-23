@@ -116,8 +116,8 @@ func TestDeleteObject_RbacResolveAlias(t *testing.T) {
 	assert.Contains(t, auth.Calls()[0].Resources[0], class) // make sure rbac is called with "resolved class" name
 }
 
-func newDeleteDependency() (*Manager, *fakeVectorRepo, *mocks.FakeAuthorizer, *fakeSchemaManager) {
-	vectorRepo := new(fakeVectorRepo)
+func newDeleteDependency() (*Manager, *fakeObjectFinder, *mocks.FakeAuthorizer, *fakeSchemaManager) {
+	vectorRepo := new(fakeObjectFinder)
 	logger, _ := test.NewNullLogger()
 	authorizer := mocks.NewMockAuthorizer()
 	smanager := new(fakeSchemaManager)

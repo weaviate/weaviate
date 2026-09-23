@@ -82,16 +82,7 @@ type MigrationStrategy interface {
 	PreReindexHook(shard *Shard, props []string)
 
 	// AnalyzerOverlay returns a per-property override map applied by the
-	// inverted analyzer during the backfill scan. It is used by
-	// "from-scratch" strategies (e.g. enable-filterable / enable-searchable)
-	// that build a brand-new inverted bucket while the corresponding
-	// schema flag is still false in the RAFT-stored schema. Without this
-	// override the analyzer would skip the targeted property and produce
-	// an empty target bucket.
-	//
-	// Strategies that don't need an overlay (the live schema flag is
-	// already true for the targeted properties — e.g. retokenize,
-	// map→blockmax, roaring-set refresh) should return nil.
+	// analyzer; without it a property whose schema flag is false is skipped.
 	AnalyzerOverlay(props []string) map[string]inverted.PropertyOverlay
 
 	// No heavy disk I/O on the new main bucket: it is live, and a stalled compaction shows as latency.

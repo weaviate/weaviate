@@ -81,8 +81,7 @@ func (s *SearchableRetokenizeStrategy) WriteToReindexBucket(shard ShardLike, buc
 	propLen := s.calcPropLen(items)
 
 	for _, item := range items {
-		pair := shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
-		if err := shard.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
+		if err := shard.addToPropertyMapBucket(bucket, docID, item.Data, item.TermFrequency, propLen); err != nil {
 			return fmt.Errorf("retokenize prop '%s': %w", prop.Name, err)
 		}
 	}
@@ -117,8 +116,7 @@ func (s *SearchableRetokenizeStrategy) MakeAddCallback(bucketNamer func(string) 
 
 		propLen := s.calcPropLen(items)
 		for _, item := range items {
-			pair := shard.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
-			if err := shard.addToPropertyMapBucket(bucket, pair, item.Data); err != nil {
+			if err := shard.addToPropertyMapBucket(bucket, docID, item.Data, item.TermFrequency, propLen); err != nil {
 				return fmt.Errorf("retokenize add prop '%s' to bucket '%s': %w", item.Data, bucketName, err)
 			}
 		}

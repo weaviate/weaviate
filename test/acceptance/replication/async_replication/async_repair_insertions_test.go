@@ -45,7 +45,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectInsertionScenario()
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor: int64(clusterSize),
 		}
-		paragraphClass.Vectorizer = "text2vec-contextionary"
+		paragraphClass.Vectorizer = "text2vec-model2vec"
 
 		helper.SetupClient(compose.GetWeaviate().URI())
 		helper.CreateClass(t, paragraphClass)

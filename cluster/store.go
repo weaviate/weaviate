@@ -201,8 +201,6 @@ type Config struct {
 	// per-target cascade deletion (drop-vector marker introduction).
 	DistributedTaskTargetVectorExtractors map[string]distributedtask.TargetVectorExtractor
 
-	ReplicaMovementEnabled bool
-
 	// DrainSleep is the time the node will wait for the cluster to process any ongoing
 	// operations before shutting down.
 	DrainSleep time.Duration
@@ -370,6 +368,7 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 
 func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
+	schemaManager.SetMetadataOnly(cfg.MetadataOnlyVoters)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
 	if dv := cfg.MaxTenantsPerCollection; dv != nil {
@@ -659,6 +658,7 @@ func (st *Store) onLeaderFound(timeout time.Duration) {
 		if st.IsLeader() {
 			st.maybeCommitClusterID()
 		}
+
 		return
 	}
 }

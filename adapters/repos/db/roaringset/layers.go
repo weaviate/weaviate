@@ -37,13 +37,19 @@ import (
 //
 // As a result, an element is either a net addition or a net deletion in a
 // layer, but it can never be both.
+//
+// A nil side means the layer holds nothing for it. A layer [BinarySearchTree]
+// holds has at least one non-nil side: a node exists only for a write carrying
+// one, and a side is only ever assigned, never cleared. A nil side fills on the
+// first write to it, so a layer held by value goes stale where the bitmaps it
+// names have not moved.
 type BitmapLayer struct {
 	Additions *sroar.Bitmap
 	Deletions *sroar.Bitmap
 }
 
-// Clone copies both sides, keeping an allocated-but-empty one allocated. Where
-// that distinction matters, see [BitmapLayer.CloneIfWithin].
+// Clone copies both sides, keeping an allocated-but-empty one allocated and a
+// nil one nil. Where that distinction matters, see [BitmapLayer.CloneIfWithin].
 func (l *BitmapLayer) Clone() BitmapLayer {
 	clone := BitmapLayer{}
 	if l.Additions != nil {
@@ -53,6 +59,25 @@ func (l *BitmapLayer) Clone() BitmapLayer {
 		clone.Deletions = l.Deletions.Clone()
 	}
 	return clone
+}
+
+// Compacted copies both sides with their container slack reclaimed, so the copy
+// holds what its values need rather than what the source grew to. It keeps a nil
+// side nil, which [sroar.Bitmap.Compacted] on its own does not — that returns an
+// allocated empty bitmap for a nil receiver.
+//
+// It repeats [BitmapLayer.Clone]'s per-side shape rather than factoring it out:
+// the three copies here differ only in the sroar call, and folding them costs a
+// func-valued parameter for six lines.
+func (l *BitmapLayer) Compacted() BitmapLayer {
+	compacted := BitmapLayer{}
+	if l.Additions != nil {
+		compacted.Additions = l.Additions.Compacted()
+	}
+	if l.Deletions != nil {
+		compacted.Deletions = l.Deletions.Compacted()
+	}
+	return compacted
 }
 
 // LenInBytes is what copying this layer allocates. An allocated-but-empty side

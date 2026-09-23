@@ -12,6 +12,7 @@
 package object_property_tests
 
 import (
+	"acceptance_tests_with_client/fixtures"
 	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"encoding/json"
@@ -285,7 +286,8 @@ func TestObjectProperty_Batch(t *testing.T) {
 			t.Run("without auto schema", func(t *testing.T) {
 				className := "BatchArrayJsonWithoutAutoSchema"
 				err := client.Schema().ClassCreator().WithClass(&models.Class{
-					Class: className,
+					Class:        className,
+					VectorConfig: fixtures.DefaultVectorConfig(),
 					Properties: []*models.Property{
 						{
 							Name:     "objectArray",

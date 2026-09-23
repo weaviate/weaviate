@@ -296,6 +296,7 @@ jobs:
   Buf-Checks:
     name: buf checks
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
@@ -312,6 +313,7 @@ jobs:
   Run-Swagger:
     name: swagger
     runs-on: ubuntu-latest
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
@@ -366,6 +368,8 @@ jobs:
             test: "--integration-vector-package-only"
           - name: "without vector"
             test: "--integration-without-vector-package"
+          - name: "integrationslowtest"
+            test: "--integration-slow-package-only"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
@@ -388,6 +392,7 @@ jobs:
   Modules-Acceptance-Tests:
     name: modules (${{ matrix.name }})
     runs-on: ubicloud-standard-4
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -437,7 +442,7 @@ jobs:
   Modules-On-Demand-Tests-Check:
     name: modules on demand
     runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.head.repo.fork }}  # no PRs from fork
+    if: ${{ !github.event.pull_request.head.repo.fork && (github.event_name != 'push' || github.ref_type != 'branch') }}  # no PRs from fork, skipped on branch pushes
     outputs:
       run_pipeline: ${{ steps.check.outputs.run_pipeline }}
     steps:
@@ -652,6 +657,7 @@ jobs:
   Acceptance-Tests:
     name: acceptance (${{ matrix.name }})
     runs-on: ubicloud-standard-4
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -661,7 +667,9 @@ jobs:
           - name: "fast-group-2"
             test: "--acceptance-only-fast-group-2"
           - name: "fast-group-3"
-            test: "--acceptance-only-fast-group-3"          
+            test: "--acceptance-only-fast-group-3"
+          - name: "fast-group-6"
+            test: "--acceptance-only-fast-group-6"
           - name: "graphql"
             test: "--acceptance-only-graphql"
           - name: "authz"
@@ -708,6 +716,7 @@ jobs:
   Acceptance-Tests-4-cores:
     name: acceptance large (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -775,6 +784,7 @@ jobs:
   Acceptance-Reindex-Tests:
     name: reindex (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -827,6 +837,7 @@ jobs:
   Acceptance-DropVectorIndex-Tests:
     name: drop-vector-index (${{ matrix.name }})
     runs-on: ubicloud-standard-4-ubuntu-2404
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -863,6 +874,7 @@ jobs:
   Acceptance-Tests-github-4-cores:
     name: acceptance large (${{ matrix.name }})
     runs-on: DB-ubuntu-24.04-4-cores
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     strategy:
       fail-fast: false
       matrix:
@@ -923,15 +935,21 @@ jobs:
         with:
           name: coverage-report-integration--integration-vector-package-only
           path: coverage-integration-vector-package-only.txt
+      - name: Download coverage integration slow package only
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: coverage-report-integration--integration-slow-package-only
+          path: coverage-integration-slow-package-only.txt
       - name: Codecov
         uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v6
         with:
           fail_ci_if_error: false
-          files: ./coverage-integration-without-vector-package.txt, ./coverage-integration-vector-package-only.txt, ./coverage-unit-adapters/coverage-unit.txt, ./coverage-unit-non-adapters/coverage-unit.txt
+          files: ./coverage-integration-without-vector-package.txt, ./coverage-integration-vector-package-only.txt, ./coverage-integration-slow-package-only.txt, ./coverage-unit-adapters/coverage-unit.txt, ./coverage-unit-non-adapters/coverage-unit.txt
           verbose: true
   Compile-and-upload-binaries:
     name: compile and upload binaries
     runs-on: ubicloud-standard-4-ubuntu-2404
+    if: ${{ github.event_name != 'push' || github.ref_type != 'branch' }}  # skipped on branch pushes
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Set up Go
@@ -990,7 +1008,7 @@ jobs:
         uses: ./.github/actions/setup-go
       - name: start weaviate
         shell: bash
-        # Weaviate is started without a Vectorizer as running text2vec-contextionary on GH actions is difficult:
+        # Weaviate is started without a Vectorizer as running a vectorizer container on GH actions is difficult:
         # - docker on GHA only supports windows container - which we currently are not build
         # - building those containers without a windows machine is difficult to figure out
         run: ./weaviate.exe --scheme http --port 8080 &

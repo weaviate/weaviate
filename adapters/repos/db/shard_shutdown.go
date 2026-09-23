@@ -380,6 +380,12 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		storeDurable = err == nil
 	}
 
+	// counter is nil if the shard failed to initialize before opening it
+	if s.counter != nil {
+		err = s.counter.Close()
+		ec.AddWrapf(err, "close index counter")
+	}
+
 	// Publish only after the store flushed: a crash-surviving snapshot must never over-represent the store.
 	if capturedHT != nil && storeDurable {
 		s.dumpHashTreeWithTimeout(capturedHT, hashtreeDumpTimeout)
@@ -428,6 +434,16 @@ const msgReleasedMoreThanOnce = "shard reference released more than once per acq
 // shutCtx (bare test fixtures) reads as not dropped.
 func (s *Shard) shutOrDropped() bool {
 	return s.shut.Load() || (s.shutCtx != nil && s.shutCtx.Err() != nil)
+}
+
+// teardownFinished reports that a shutdown has run to completion. shut alone
+// only says one has started: performShutdown sets it before flushing anything
+// and holds shutdownLock for writing until the store is closed, so taking the
+// read lock waits out a teardown in progress.
+func (s *Shard) teardownFinished() bool {
+	s.shutdownLock.RLock()
+	defer s.shutdownLock.RUnlock()
+	return s.shut.Load()
 }
 
 func (s *Shard) preventShutdown() (release func(), err error) {

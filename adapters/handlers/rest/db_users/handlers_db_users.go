@@ -16,7 +16,9 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
+	"slices"
 	"sync"
 	"time"
 
@@ -56,6 +58,8 @@ import (
 type dynUserHandler struct {
 	authorizer           authorization.Authorizer
 	dbUsers              DbUserAndRolesGetter
+	localUsers           LocalUsersGetter
+	localRoles           authorization.Controller // nil when RBAC is disabled
 	staticApiKeysConfigs config.StaticAPIKey
 	rbacConfig           rbacconf.Config
 	adminListConfig      adminlist.Config
@@ -73,16 +77,24 @@ type DbUserAndRolesGetter interface {
 	RevokeRolesForUser(userName string, roles ...string) error
 }
 
+// LocalUsersGetter reads db users from this node's store without asking the RAFT
+// leader.
+type LocalUsersGetter interface {
+	GetUsers(userIds ...string) (map[string]apikey.UserView, error)
+}
+
 var validateUserNameRegex = regexp.MustCompile(`^` + apikey.UserNameRegexCore + `$`)
 
 func SetupHandlers(
-	api *operations.WeaviateAPI, dbUsers DbUserAndRolesGetter, authorizer authorization.Authorizer, authNConfig config.Authentication,
-	authZConfig config.Authorization, remoteUser *clients.RemoteUser, nodesGetter schema.SchemaGetter,
+	api *operations.WeaviateAPI, dbUsers DbUserAndRolesGetter, localUsers LocalUsersGetter, localRoles authorization.Controller, authorizer authorization.Authorizer,
+	authNConfig config.Authentication, authZConfig config.Authorization, remoteUser *clients.RemoteUser, nodesGetter schema.SchemaGetter,
 	namespacesEnabled bool, ns namespaces.Exister, logger logrus.FieldLogger,
 ) {
 	h := &dynUserHandler{
 		authorizer:           authorizer,
 		dbUsers:              dbUsers,
+		localUsers:           localUsers,
+		localRoles:           localRoles,
 		staticApiKeysConfigs: authNConfig.APIKey,
 		dbUserEnabled:        authNConfig.DBUsers.Enabled,
 		rbacConfig:           authZConfig.Rbac,
@@ -113,15 +125,12 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 		return users.NewListAllUsersOK().WithPayload([]*models.DBUserInfo{})
 	}
 
-	allDbUsers, err := h.dbUsers.GetUsers()
+	allDbUsers, err := h.localUsers.GetUsers()
 	if err != nil {
 		return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
-	allUsers := make([]apikey.UserView, 0, len(allDbUsers))
-	for _, dbUser := range allDbUsers {
-		allUsers = append(allUsers, dbUser)
-	}
+	allUsers := slices.Collect(maps.Values(allDbUsers))
 
 	resourceFilter := filter.New[apikey.UserView](h.authorizer, h.rbacConfig)
 	filteredUsers := resourceFilter.Filter(
@@ -185,9 +194,15 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 }
 
 func (h *dynUserHandler) addToListAllResponse(ctx context.Context, principal *models.Principal, response []*models.DBUserInfo, internalID, displayID, userType string, active bool, apiKeyFirstLetter, namespace string, createdAt *time.Time, lastusedAt *time.Time) ([]*models.DBUserInfo, error) {
-	roles, err := h.dbUsers.GetRolesForUserOrGroup(internalID, authentication.AuthTypeDb, false)
-	if err != nil {
-		return response, err
+	// The list reads roles once per user, so it reads this node's controller
+	// rather than querying the leader.
+	var roles map[string][]authorization.Policy
+	if h.localRoles != nil {
+		var err error
+		roles, err = h.localRoles.GetRolesForUserOrGroup(internalID, authentication.AuthTypeDb, false)
+		if err != nil {
+			return response, err
+		}
 	}
 
 	own := principal != nil && internalID == principal.Username && principal.UserType == models.UserTypeInputDb
