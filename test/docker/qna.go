@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -28,7 +27,7 @@ func startQnATransformers(ctx context.Context, networkName, qnaImage string) (*D
 	if len(qnaImage) > 0 {
 		image = qnaImage
 	}
-	port := nat.Port("8080/tcp")
+	port := "8080/tcp"
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:    image,
@@ -59,7 +58,7 @@ func startQnATransformers(ctx context.Context, networkName, qnaImage string) (*D
 		return nil, err
 	}
 	envSettings := make(map[string]string)
-	envSettings["QNA_INFERENCE_API"] = fmt.Sprintf("http://%s:%s", QnATransformers, port.Port())
+	envSettings["QNA_INFERENCE_API"] = fmt.Sprintf("http://%s:%s", QnATransformers, portNumber(port))
 	endpoints := make(map[EndpointName]endpoint)
 	endpoints[HTTP] = endpoint{port, uri}
 	return &DockerContainer{QnATransformers, endpoints, container, envSettings}, nil

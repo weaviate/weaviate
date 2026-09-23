@@ -19,7 +19,6 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
-	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/network"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -85,7 +84,7 @@ func (b *AzureBackend) Start(ctx context.Context) error {
 	}
 
 	// Start Azurite container
-	blobPort := nat.Port(azureBlobPort)
+	blobPort := azureBlobPort
 	req := testcontainers.ContainerRequest{
 		Image:        azureImage,
 		ExposedPorts: []string{azureBlobPort, azureQueuePort, azureTablePort},

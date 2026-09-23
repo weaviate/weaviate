@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -28,7 +27,7 @@ func startI2VNeural(ctx context.Context, networkName, img2vecImage string) (*Doc
 	if len(img2vecImage) > 0 {
 		image = img2vecImage
 	}
-	port := nat.Port("8080/tcp")
+	port := "8080/tcp"
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:    image,
@@ -59,7 +58,7 @@ func startI2VNeural(ctx context.Context, networkName, img2vecImage string) (*Doc
 		return nil, err
 	}
 	envSettings := make(map[string]string)
-	envSettings["IMAGE_INFERENCE_API"] = fmt.Sprintf("http://%s:%s", Img2VecNeural, port.Port())
+	envSettings["IMAGE_INFERENCE_API"] = fmt.Sprintf("http://%s:%s", Img2VecNeural, portNumber(port))
 	endpoints := make(map[EndpointName]endpoint)
 	endpoints[HTTP] = endpoint{port, uri}
 	return &DockerContainer{Img2VecNeural, endpoints, container, envSettings}, nil
