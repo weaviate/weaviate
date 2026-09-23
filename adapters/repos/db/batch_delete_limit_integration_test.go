@@ -607,13 +607,18 @@ func TestBatchDeleteObjects_UnreadableRowDoesNotBurnASlot(t *testing.T) {
 	before, err := repo.BatchDeleteObjects(ctx, batchDeleteMatchAllParams(true), time.Now(), nil, "", 0)
 	require.NoError(t, err)
 	require.NotEmpty(t, before.Objects)
-	corruptObjectRow(t, repo, batchDeleteClassName, before.Objects[0].UUID)
+	corrupted := before.Objects[0].UUID
+	corruptObjectRow(t, repo, batchDeleteClassName, corrupted)
 
 	hook := batchDeleteLogs(t, repo)
 	after, err := repo.BatchDeleteObjects(ctx, batchDeleteMatchAllParams(true), time.Now(), nil, "", 0)
 	require.NoError(t, err)
 	require.Equal(t, batchDeleteLimit+1, after.Matches, "%d readable objects still match", objectCount-1)
 	require.Len(t, after.Objects, int(batchDeleteLimit))
+	for i, obj := range after.Objects {
+		require.NotEmpty(t, obj.UUID, "object %d: a slot went to the row with no readable id", i)
+		require.NotEqual(t, corrupted, obj.UUID, "object %d is the unreadable row", i)
+	}
 
 	warns := 0
 	for _, entry := range hook.AllEntries() {
