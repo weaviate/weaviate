@@ -175,7 +175,7 @@ func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 		{name: "ErrUserIdentifierExists", send: apikey.ErrUserIdentifierExists},
 		{name: "ErrUserExists", send: apikey.ErrUserExists},
 		{name: "ErrUnknownCommand", send: types.ErrUnknownCommand},
-		// Sent with the leader's wrapping text, so fromRPCError must find the sentinel inside it or the follower answers 500.
+		// The leader wraps this error's text, so fromRPCError must find the sentinel inside it or the follower answers 500.
 		{
 			name: "ErrMovementBlockedByTask",
 			send: fmt.Errorf("%w: collection %q has a running background task; retry after it completes",
