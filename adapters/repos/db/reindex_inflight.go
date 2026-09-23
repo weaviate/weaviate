@@ -115,7 +115,7 @@ func (db *DB) SetReindexCleanupInProgressLookup(builder CleanupInProgressLookupB
 	db.reindexCleanupInProgressLookupBldr = builder
 }
 
-// ErrReindexGateUnavailable counts as a movement error, not a wait: nothing would end the wait.
+// ErrReindexGateUnavailable keeps a movement from waiting, so a task-manager outage shows as errors, not a stall.
 var ErrReindexGateUnavailable = errors.New("cannot check for a running runtime-reindex task")
 
 const noDatabaseBackReference = "this index has no database back-reference, so the check cannot run"

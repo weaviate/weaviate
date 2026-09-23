@@ -13,6 +13,5 @@ package errors
 
 import "errors"
 
-// ErrShardBusyStructuralOp signals HaltForTransfer rejection due to an
-// in-flight compression or dynamic flat→HNSW upgrade.
+// ErrShardBusyStructuralOp marks a replica-transfer refusal the movement waits out instead of counting (see replication.IsReversibleRefusal).
 var ErrShardBusyStructuralOp = errors.New("shard busy: structural vector op in progress")

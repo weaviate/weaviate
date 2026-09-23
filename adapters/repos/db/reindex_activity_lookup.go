@@ -25,7 +25,7 @@ import (
 // markers, so the answer is cluster-wide-consistent.
 type ShardReindexActivityLookup func(collection, shardName string) bool
 
-// ShardReindexActivityLookupBuilder returns a fresh snapshot.
+// ShardReindexActivityLookupBuilder returns a fresh snapshot, or an error that refuses the backup or movement.
 type ShardReindexActivityLookupBuilder func() (ShardReindexActivityLookup, error)
 
 // NewShardReindexActivityLookup snapshots which shards a reindex is
