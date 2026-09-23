@@ -589,6 +589,10 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 			_, err = r.ApplyReplicationScalePlan(ctx, plan)
 			require.ErrorIs(t, err, replicationTypes.ErrMovementBlockedByTask)
 		}
+		caseTwin := plan
+		caseTwin.Collection = strings.ToUpper(class)
+		_, err = r.ApplyReplicationScalePlan(ctx, caseTwin)
+		require.ErrorIs(t, err, replicationTypes.ErrNotFound)
 
 		after, err := readShardingState(r.SchemaReader(), class)
 		require.NoError(t, err)
