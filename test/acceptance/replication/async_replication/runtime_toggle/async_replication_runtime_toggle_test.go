@@ -79,7 +79,7 @@ func TestAsyncReplicationRuntimeToggle(t *testing.T) {
 	paragraphClass := articles.ParagraphsClass()
 
 	t.Run("create RF=3 schema", func(t *testing.T) {
-		paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
+		paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3, AsyncConfig: common.FastAsyncConfig()}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
 	})
@@ -214,13 +214,13 @@ func TestAsyncReplicationRuntimeToggle_EnableDisableEnable(t *testing.T) {
 	paragraphClass := articles.ParagraphsClass()
 
 	t.Run("create RF=3 schema (async on by default)", func(t *testing.T) {
-		paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
+		paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3, AsyncConfig: common.FastAsyncConfig()}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
 	})
 
 	t.Run("async replication is registered on every shard at boot", func(t *testing.T) {
-		// Gate on a healthy cluster and allow >1 hashbeat frequency (30s): a first cycle before peers are reachable errors and only repopulates asyncReplicationStatus a full frequency later.
+		// Gate on a healthy cluster and allow >1 hashbeat frequency: a first cycle before peers are reachable errors and only repopulates asyncReplicationStatus a full frequency later.
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			verbose := verbosity.OutputVerbose
 			params := nodes.NewNodesGetClassParams().
@@ -362,7 +362,7 @@ func TestAsyncReplicationRuntimeToggle_ClassCreatedWhileDisabled(t *testing.T) {
 	})
 
 	t.Run("create an RF=3 class while disabled — Migrator.AddClass honors the live flag", func(t *testing.T) {
-		paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
+		paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3, AsyncConfig: common.FastAsyncConfig()}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		helper.CreateClass(t, paragraphClass)
 

@@ -85,7 +85,7 @@ func TestAsyncRepairMultiTenancyRuntimeToggle(t *testing.T) {
 	paragraphClass := articles.ParagraphsClass()
 
 	t.Run("create RF=3 multi-tenant class", func(t *testing.T) {
-		paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: int64(clusterSize)}
+		paragraphClass.ReplicationConfig = &models.ReplicationConfig{Factor: int64(clusterSize), AsyncConfig: common.FastAsyncConfig()}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true}
 		helper.CreateClass(t, paragraphClass)
@@ -114,7 +114,7 @@ func TestAsyncRepairMultiTenancyRuntimeToggle(t *testing.T) {
 	})
 
 	t.Run("async replication is registered on hot tenant shards", func(t *testing.T) {
-		// Gate on a healthy cluster and allow >1 hashbeat frequency (30s): a first cycle before peers are reachable errors and only repopulates asyncReplicationStatus a full frequency later.
+		// Gate on a healthy cluster and allow >1 hashbeat frequency: a first cycle before peers are reachable errors and only repopulates asyncReplicationStatus a full frequency later.
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			verbose := verbosity.OutputVerbose
 			params := nodes.NewNodesGetClassParams().

@@ -64,7 +64,8 @@ func TestAsyncRepairRootPrefilterManyTenants(t *testing.T) {
 
 	t.Run("create multi-tenant schema replicated with async enabled", func(t *testing.T) {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
-			Factor: int64(clusterSize),
+			Factor:      int64(clusterSize),
+			AsyncConfig: common.FastAsyncConfig(),
 		}
 		paragraphClass.Vectorizer = "text2vec-contextionary"
 		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{

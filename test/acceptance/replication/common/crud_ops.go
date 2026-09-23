@@ -391,6 +391,20 @@ func GetNodes(t *testing.T, host string) *models.NodesStatusResponse {
 	return resp.Payload
 }
 
+// FastAsyncConfig replaces the async replication defaults (30s propagation
+// delay, 30s hashbeat) for a class so a repair lands within seconds. It is
+// per-class on purpose: the ASYNC_REPLICATION_* env vars take precedence over
+// every class's asyncConfig, so setting them would override tests that
+// configure their own.
+func FastAsyncConfig() *models.ReplicationAsyncConfig {
+	frequency, whilePropagating, delay := int64(5000), int64(1000), int64(1000)
+	return &models.ReplicationAsyncConfig{
+		Frequency:                 &frequency,
+		FrequencyWhilePropagating: &whilePropagating,
+		PropagationDelay:          &delay,
+	}
+}
+
 // ShardsAsyncReplicationLen returns the total len(asyncReplicationStatus)
 // across every node × every shard of the given class as seen from the
 // verbose nodes endpoint. Zero means async replication is registered
