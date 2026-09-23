@@ -420,10 +420,6 @@ func (m *Manager) CollectionOfTask(namespace string, payload []byte) (string, bo
 }
 
 func (m *Manager) HasActiveTaskForCollection(collection string) bool {
-	if collection == "" {
-		return false
-	}
-
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
