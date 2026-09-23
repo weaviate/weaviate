@@ -36,7 +36,6 @@ func newTestHandlerWithRealVectorConfigParser(t *testing.T) *Handler {
 		valid: []string{"text2vec-contextionary", "model1", "model2"},
 	}
 	cfg := config.Config{
-		DefaultVectorizerModule:     config.VectorizerModuleNone,
 		DefaultVectorDistanceMetric: "cosine",
 	}
 	fakeClusterState := fakes.NewFakeClusterState()
