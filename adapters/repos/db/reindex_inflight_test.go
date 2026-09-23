@@ -370,7 +370,7 @@ func TestReplicaSnapshotDefersOnlyForALiveReindex(t *testing.T) {
 	}
 }
 
-// Any other snapshot or halt failure must spend the movement's error budget instead of waiting.
+// deferIfReindexInFlight marks only a live-reindex refusal as ErrShardBusyStructuralOp, so a timed-out halt still counts against MaxErrors.
 func TestDeferIfReindexInFlight_ReturnsOtherErrorsUnchanged(t *testing.T) {
 	plain := errors.New("pause compaction: context deadline exceeded")
 	require.Same(t, plain, deferIfReindexInFlight(plain))
