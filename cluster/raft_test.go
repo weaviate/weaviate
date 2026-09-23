@@ -588,6 +588,19 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, before.Physical[shard].BelongsToNodes, after.Physical[shard].BelongsToNodes)
 		require.Contains(t, after.Physical[shard].BelongsToNodes, removeNode)
+
+		plan = command.ReplicationScalePlan{
+			Collection: class,
+			ShardReplicationScaleActions: map[string]command.ShardReplicationScaleActions{
+				shard: {RemoveNodes: map[string]struct{}{removeNode: {}}},
+			},
+		}
+		_, err = r.ApplyReplicationScalePlan(ctx, plan)
+		require.NoError(t, err)
+
+		after, err = readShardingState(r.SchemaReader(), class)
+		require.NoError(t, err)
+		require.NotContains(t, after.Physical[shard].BelongsToNodes, removeNode)
 	})
 }
 
