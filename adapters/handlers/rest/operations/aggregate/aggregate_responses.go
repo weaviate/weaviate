@@ -249,11 +249,56 @@ func (o *AggregateNotFound) WriteResponse(rw http.ResponseWriter, producer runti
 	}
 }
 
+// AggregateRequestEntityTooLargeCode is the HTTP code returned for type AggregateRequestEntityTooLarge
+const AggregateRequestEntityTooLargeCode int = 413
+
+/*
+AggregateRequestEntityTooLarge The request body exceeded the 4194304 byte (4 MiB) limit.
+
+swagger:response aggregateRequestEntityTooLarge
+*/
+type AggregateRequestEntityTooLarge struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewAggregateRequestEntityTooLarge creates AggregateRequestEntityTooLarge with default headers values
+func NewAggregateRequestEntityTooLarge() *AggregateRequestEntityTooLarge {
+
+	return &AggregateRequestEntityTooLarge{}
+}
+
+// WithPayload adds the payload to the aggregate request entity too large response
+func (o *AggregateRequestEntityTooLarge) WithPayload(payload *models.ErrorResponse) *AggregateRequestEntityTooLarge {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the aggregate request entity too large response
+func (o *AggregateRequestEntityTooLarge) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *AggregateRequestEntityTooLarge) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(413)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // AggregateUnprocessableEntityCode is the HTTP code returned for type AggregateUnprocessableEntity
 const AggregateUnprocessableEntityCode int = 422
 
 /*
-AggregateUnprocessableEntity Either a request-schema violation (an invalid enum or field type in the where filter), or a well-formed request that cannot run: a reserved (not yet supported) parameter or returnMetrics entry is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).
+AggregateUnprocessableEntity Either a request-schema violation (an invalid enum or field type in the where filter), or a well-formed request that cannot run: a reserved (not yet supported) parameter or returnMetrics entry is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.
 
 swagger:response aggregateUnprocessableEntity
 */

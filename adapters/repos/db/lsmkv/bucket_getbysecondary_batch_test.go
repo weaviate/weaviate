@@ -859,7 +859,8 @@ func TestBucketGetBySecondaryBatchTurnsPanicIntoError(t *testing.T) {
 
 // TestBucketGetBySecondaryBatchRecordsEveryLookupEntry pins that batched
 // recording keeps exactly the entries per-lookup recording would have (none
-// for a memtable hit).
+// for a memtable hit), and that the slow-query log summarises them rather than
+// listing one entry per lookup.
 func TestBucketGetBySecondaryBatchRecordsEveryLookupEntry(t *testing.T) {
 	const numSegmentKeys = 200
 	b, keys := newSingleSegmentBucket(t, numSegmentKeys, &observedSegment{})
@@ -870,7 +871,7 @@ func TestBucketGetBySecondaryBatchRecordsEveryLookupEntry(t *testing.T) {
 	_, err := batchLookup(ctx, b, secondaryPos, keys)
 	require.NoError(t, err)
 
-	entries, ok := helpers.ExtractSlowQueryDetails(ctx)[SlowLogKeyGetBySecondaryWithView].([]BucketSlowLogEntry)
-	require.True(t, ok, "the batch must record its per-lookup entries")
-	require.Len(t, entries, numSegmentKeys)
+	stats, ok := helpers.ExtractSlowQueryDetails(ctx)[SlowLogKeyGetBySecondaryWithView].(BucketSlowLogEntryStats)
+	require.True(t, ok, "the batch must record its lookups and register the summary")
+	require.Equal(t, numSegmentKeys, stats.Count, "every segment lookup must reach the summary")
 }

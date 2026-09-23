@@ -87,53 +87,90 @@ func TestAnnotateSlowQueryLogAppendFunc(t *testing.T) {
 	})
 }
 
-func TestAnnotateSlowQueryLogAppendMany(t *testing.T) {
+func TestAnnotateSlowQueryLogAppendReducible(t *testing.T) {
+	sum := func(values []int) int {
+		total := 0
+		for _, v := range values {
+			total += v
+		}
+		return total
+	}
+
+	t.Run("a second extract reduces the same entries again", func(t *testing.T) {
+		ctx := InitSlowQueryDetails(context.Background())
+		AnnotateSlowQueryLogAppendReducible(ctx, "k", 7, sum)
+		require.Equal(t, 7, ExtractSlowQueryDetails(ctx)["k"])
+		AnnotateSlowQueryLogAppendReducible(ctx, "k", 5, sum)
+		require.Equal(t, 12, ExtractSlowQueryDetails(ctx)["k"],
+			"a second extract must return the same summary, because a query can both log and report a profile")
+	})
+
+	t.Run("skip path allocates nothing", func(t *testing.T) {
+		ctx := context.Background()
+		allocs := testing.AllocsPerRun(100, func() {
+			AnnotateSlowQueryLogAppendReducible(ctx, "k", 1, sum)
+		})
+		require.Zero(t, allocs, "a query the gate closed must pay nothing per lookup")
+	})
+
+	t.Run("nil reduce is tolerated", func(t *testing.T) {
+		ctx := InitSlowQueryDetails(context.Background())
+		AnnotateSlowQueryLogAppendReducible[int, int](ctx, "k", 1, nil)
+		require.NotContains(t, ExtractSlowQueryDetails(ctx), "k")
+	})
+}
+
+func TestAnnotateSlowQueryLogAppendManyReducible(t *testing.T) {
 	const key = "entries"
+	sum := func(values []int) int {
+		total := 0
+		for _, v := range values {
+			total += v
+		}
+		return total
+	}
+	count := func(values []int) int { return len(values) }
 
 	t.Run("a nil context is ignored", func(t *testing.T) {
 		// A typed nil variable rather than a nil literal: staticcheck's SA1012
 		// rejects the literal, and the callers these guards exist for arrive with
 		// an unchecked context, which is the same input.
 		var noCtx context.Context
-		require.NotPanics(t, func() { AnnotateSlowQueryLogAppendMany(noCtx, key, []int{1}) })
+		require.NotPanics(t, func() { AnnotateSlowQueryLogAppendManyReducible(noCtx, key, []int{1}, sum) })
 	})
 
 	t.Run("a context without details is ignored", func(t *testing.T) {
 		ctx := context.Background()
-		AnnotateSlowQueryLogAppendMany(ctx, key, []int{1})
+		AnnotateSlowQueryLogAppendManyReducible(ctx, key, []int{1}, sum)
 		require.Nil(t, ExtractSlowQueryDetails(ctx))
 	})
 
 	t.Run("no values writes no key", func(t *testing.T) {
 		ctx := InitSlowQueryDetails(context.Background())
-		AnnotateSlowQueryLogAppendMany(ctx, key, []int{})
-		AnnotateSlowQueryLogAppendMany[int](ctx, key, nil)
+		AnnotateSlowQueryLogAppendManyReducible(ctx, key, []int{}, sum)
+		AnnotateSlowQueryLogAppendManyReducible(ctx, key, nil, sum)
 		require.NotContains(t, ExtractSlowQueryDetails(ctx), key)
 	})
 
-	t.Run("values land under a fresh key", func(t *testing.T) {
+	t.Run("nil reduce is tolerated", func(t *testing.T) {
 		ctx := InitSlowQueryDetails(context.Background())
-		AnnotateSlowQueryLogAppendMany(ctx, key, []int{1, 2})
-		require.Equal(t, []int{1, 2}, ExtractSlowQueryDetails(ctx)[key])
+		AnnotateSlowQueryLogAppendManyReducible[int, int](ctx, key, []int{1}, nil)
+		require.NotContains(t, ExtractSlowQueryDetails(ctx), key)
 	})
 
-	t.Run("values append to what is already there", func(t *testing.T) {
+	t.Run("values join the ones appended one at a time and are reduced together", func(t *testing.T) {
 		ctx := InitSlowQueryDetails(context.Background())
-		AnnotateSlowQueryLogAppend(ctx, key, 1)
-		AnnotateSlowQueryLogAppendMany(ctx, key, []int{2, 3})
-		AnnotateSlowQueryLogAppendMany(ctx, key, []int{4})
-		require.Equal(t, []int{1, 2, 3, 4}, ExtractSlowQueryDetails(ctx)[key])
+		AnnotateSlowQueryLogAppendReducible(ctx, key, 1, sum)
+		AnnotateSlowQueryLogAppendManyReducible(ctx, key, []int{2, 3}, sum)
+		AnnotateSlowQueryLogAppendManyReducible(ctx, key, []int{4}, sum)
+		require.Equal(t, 10, ExtractSlowQueryDetails(ctx)[key])
 	})
 
 	t.Run("a key holding another type is left alone", func(t *testing.T) {
 		ctx := InitSlowQueryDetails(context.Background())
-		AnnotateSlowQueryLog(ctx, key, "already reduced")
-
-		AnnotateSlowQueryLogAppendMany(ctx, key, []int{1, 2})
-
-		// The append is dropped rather than clobbering the value that is there,
-		// which is what a reduce leaves behind.
-		require.Equal(t, "already reduced", ExtractSlowQueryDetails(ctx)[key])
+		AnnotateSlowQueryLog(ctx, key, "set directly")
+		AnnotateSlowQueryLogAppendManyReducible(ctx, key, []int{1, 2}, sum)
+		require.Equal(t, "set directly", ExtractSlowQueryDetails(ctx)[key])
 	})
 
 	t.Run("concurrent appends all arrive", func(t *testing.T) {
@@ -143,41 +180,19 @@ func TestAnnotateSlowQueryLogAppendMany(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				AnnotateSlowQueryLogAppendMany(ctx, key, []int{1, 1})
+				AnnotateSlowQueryLogAppendManyReducible(ctx, key, []int{1, 1}, count)
 			}()
 		}
 		wg.Wait()
-		require.Len(t, ExtractSlowQueryDetails(ctx)[key], 100)
-	})
-}
-
-func TestDropSlowQueryEntry(t *testing.T) {
-	const key = "entries"
-
-	t.Run("a nil context is ignored", func(t *testing.T) {
-		var noCtx context.Context
-		require.NotPanics(t, func() { DropSlowQueryEntry(noCtx, key) })
+		require.Equal(t, 100, ExtractSlowQueryDetails(ctx)[key])
 	})
 
-	t.Run("a context without details is ignored", func(t *testing.T) {
-		require.NotPanics(t, func() { DropSlowQueryEntry(context.Background(), key) })
-	})
-
-	t.Run("an absent key is ignored", func(t *testing.T) {
-		ctx := InitSlowQueryDetails(context.Background())
-		DropSlowQueryEntry(ctx, key)
-		require.Empty(t, ExtractSlowQueryDetails(ctx))
-	})
-
-	t.Run("the key is gone and its neighbours are not", func(t *testing.T) {
-		ctx := InitSlowQueryDetails(context.Background())
-		AnnotateSlowQueryLogAppendMany(ctx, key, []int{1, 2})
-		AnnotateSlowQueryLog(ctx, "other", "kept")
-
-		DropSlowQueryEntry(ctx, key)
-
-		details := ExtractSlowQueryDetails(ctx)
-		require.NotContains(t, details, key)
-		require.Equal(t, "kept", details["other"])
+	t.Run("skip path allocates nothing", func(t *testing.T) {
+		ctx := context.Background()
+		values := []int{1, 2}
+		allocs := testing.AllocsPerRun(100, func() {
+			AnnotateSlowQueryLogAppendManyReducible(ctx, key, values, sum)
+		})
+		require.Zero(t, allocs, "a query the gate closed must pay nothing per chunk")
 	})
 }

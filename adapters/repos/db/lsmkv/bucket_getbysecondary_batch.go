@@ -124,7 +124,7 @@ func (b *Bucket) resolveSecondaryChunk(ctx context.Context, pos int, keys [][]by
 		entries = make([]BucketSlowLogEntry, 0, end-start)
 	}
 	defer func() {
-		helpers.AnnotateSlowQueryLogAppendMany(ctx, SlowLogKeyGetBySecondaryWithView, entries)
+		helpers.AnnotateSlowQueryLogAppendManyReducible(ctx, SlowLogKeyGetBySecondaryWithView, entries, reduceSlowLogEntries)
 	}()
 
 	for p := start; p < end; p++ {

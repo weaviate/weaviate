@@ -1008,7 +1008,7 @@ func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buf
 
 	v, allocBuf, entry, fromSegments, err := b.getBySecondaryCore(pos, seckey, buffer, view, tookView)
 	if err == nil && fromSegments {
-		helpers.AnnotateSlowQueryLogAppend(ctx, SlowLogKeyGetBySecondary, entry)
+		helpers.AnnotateSlowQueryLogAppendReducible(ctx, SlowLogKeyGetBySecondary, entry, reduceSlowLogEntries)
 	}
 	return v, allocBuf, err
 }
@@ -1016,7 +1016,7 @@ func (b *Bucket) getBySecondary(ctx context.Context, pos int, seckey []byte, buf
 func (b *Bucket) getBySecondaryWithView(ctx context.Context, pos int, seckey []byte, buffer []byte, view BucketConsistentView) ([]byte, []byte, error) {
 	v, allocBuf, entry, fromSegments, err := b.getBySecondaryCore(pos, seckey, buffer, view, 0)
 	if err == nil && fromSegments {
-		helpers.AnnotateSlowQueryLogAppend(ctx, SlowLogKeyGetBySecondaryWithView, entry)
+		helpers.AnnotateSlowQueryLogAppendReducible(ctx, SlowLogKeyGetBySecondaryWithView, entry, reduceSlowLogEntries)
 	}
 	return v, allocBuf, err
 }
