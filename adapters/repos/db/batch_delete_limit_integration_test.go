@@ -630,6 +630,38 @@ func TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot(t *testing.T) {
 	}
 }
 
+// TestBatchDeleteObjects_UnreadableRowDoesNotBurnASlot is the dead doc id case for a row
+// that is there but carries no readable id. The resolve skips it like a missing row, so in a
+// window the searcher cut off at the limit it costs a slot the same way, and without the
+// uncapped resolve the reply would land on exactly limit with more objects still matching.
+func TestBatchDeleteObjects_UnreadableRowDoesNotBurnASlot(t *testing.T) {
+	ctx := context.Background()
+	const objectCount = 30
+
+	repo := newBatchDeleteRepo(t, batchDeleteTestClass(false), singleShardState(), batchDeleteLimit)
+	simpleInsertObjectsForTenant(t, repo, batchDeleteClassName, "", objectCount)
+
+	before, err := repo.BatchDeleteObjects(ctx, batchDeleteMatchAllParams(true), time.Now(), nil, "", 0)
+	require.NoError(t, err)
+	require.NotEmpty(t, before.Objects)
+	corruptObjectRow(t, repo, batchDeleteClassName, before.Objects[0].UUID)
+
+	hook := batchDeleteLogs(t, repo)
+	after, err := repo.BatchDeleteObjects(ctx, batchDeleteMatchAllParams(true), time.Now(), nil, "", 0)
+	require.NoError(t, err)
+	require.Equal(t, batchDeleteLimit+1, after.Matches, "%d readable objects still match", objectCount-1)
+	require.Len(t, after.Objects, int(batchDeleteLimit))
+	require.True(t, secondResolveLogged(hook))
+
+	warns := 0
+	for _, entry := range hook.AllEntries() {
+		if entry.Level == logrus.WarnLevel && entry.Data["op"] == "shard.find_uuids" {
+			warns++
+		}
+	}
+	require.Equal(t, 1, warns, "the skip is reported once per call, not once per pass")
+}
+
 // TestBatchDeleteObjects_SamplesTheSecondResolveLine pins the rate on the line the shard
 // writes when it resolves twice. The condition behind that line does not clear itself: the
 // dropped row below leaves a doc id whose object is gone inside the first window of every
@@ -1067,6 +1099,31 @@ func dropObjectRow(t *testing.T, repo *DB, className string, id strfmt.UUID) uin
 		lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes)))
 
 	return docID
+}
+
+// corruptObjectRow overwrites an object's row with bytes the object decoder rejects, under
+// the same doc id, and leaves its inverted postings alone.
+func corruptObjectRow(t *testing.T, repo *DB, className string, id strfmt.UUID) {
+	t.Helper()
+
+	shard := loadedShard(t, repo, className)
+	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
+	require.NoError(t, err)
+
+	bucket := shard.store.Bucket(helpers.ObjectsBucketLSM)
+	require.NotNil(t, bucket)
+
+	existing, err := bucket.Get(idBytes)
+	require.NoError(t, err)
+	require.NotNil(t, existing, "the object must exist before its row is corrupted")
+
+	docID, _, err := storobj.DocIDAndTimeFromBinary(existing)
+	require.NoError(t, err)
+
+	docIDBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(docIDBytes, docID)
+	require.NoError(t, bucket.Put(idBytes, []byte("garbage"),
+		lsmkv.WithSecondaryKey(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes)))
 }
 
 // loadedShard returns the class's first loaded shard. The shard loads lazily, so a call

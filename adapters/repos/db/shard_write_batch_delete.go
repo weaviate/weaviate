@@ -248,7 +248,8 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 
 	// A short reply is only suspect when the resolve could have been cut off, and the
 	// searcher does not report that. The one signal it leaves is an allow list at least
-	// as long as the limit it was given (inverted/searcher_doc_bitmap.go:96).
+	// as long as the limit it was given (inverted/searcher_doc_bitmap.go:96). A row with
+	// no readable id costs the window a slot the same way a dead doc id does.
 	//
 	// Two shapes satisfy this without having been truncated, and both pay an uncapped
 	// resolve for nothing: a compound root, which inverted/prop_value_pairs.go:142 and
@@ -256,7 +257,8 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 	// whole doc id universe and after a restart carries the ids earlier calls deleted.
 	// Telling them apart needs a truncated bit on helpers.AllowList that the searcher does
 	// not set today.
-	if limit > 0 && len(uuids) < limit && total.skippedDead && total.docIDsRead >= limit {
+	skipped := total.skippedDead || total.unreadable.count > 0
+	if limit > 0 && len(uuids) < limit && skipped && total.docIDsRead >= limit {
 		secondPass = true
 
 		var uncapped findUUIDsPass
@@ -289,17 +291,17 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 // paid a full uncapped resolve of the filter.
 //
 // It is sampled rather than written per call because the condition does not clear itself.
-// A doc id at or above the watermark is never pruned, and its postings keep it inside the
-// first window of a leaf filter until the shard is reopened, so every call from then on
-// takes the second pass. The objects TTL sweep (index_objects_ttl.go:167) makes that a
-// standing stream with nobody reading it.
+// A doc id at or above the watermark is never pruned, nor is a row with no readable id,
+// and either keeps its place inside the first window of a leaf filter until the shard is
+// reopened, so every call from then on takes the second pass. The objects TTL sweep
+// (index_objects_ttl.go:167) makes that a standing stream with nobody reading it.
 func (s *Shard) logSecondResolve(logger logrus.FieldLogger, limit, docIDsRead int) {
 	write := func(l logrus.FieldLogger) {
 		l.WithFields(logrus.Fields{
 			"action":       "find_uuids_second_resolve",
 			"limit":        limit,
 			"docids_found": docIDsRead,
-		}).Infof("resolved the filter a second time with no cap: a doc id in the window bounded at %d had no object row", limit)
+		}).Infof("resolved the filter a second time with no cap: a doc id in the window bounded at %d had no object row or no readable id", limit)
 	}
 
 	// A Shard built without the constructor has no sampler; log unsampled rather than
