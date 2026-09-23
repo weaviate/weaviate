@@ -48,8 +48,7 @@ func TestReadOrCreateNodeID_RestartStability(t *testing.T) {
 	first, err := ReadOrCreateNodeID(dir)
 	require.NoError(t, err)
 
-	// Simulate N process restarts against the same data volume: every call
-	// must return the id minted on the first boot, never a fresh one.
+	// Restarts against the same data volume must return the first-boot id.
 	for i := 0; i < 3; i++ {
 		again, err := ReadOrCreateNodeID(dir)
 		require.NoError(t, err)
@@ -80,15 +79,9 @@ func TestReadOrCreateNodeID_UnwritableDirReturnsError(t *testing.T) {
 	assert.Error(t, err, "caller relies on this error to trigger its ephemeral-id fallback")
 }
 
-// TestReadOrCreateNodeID_ConcurrentFirstBoot pins the concurrent first-boot race:
-// N goroutines call ReadOrCreateNodeID against one fresh, shared data dir at the
-// same instant (the embedded-mode shape, where multiple instances default to one
-// PERSISTENCE_DATA_PATH). Before the os.Link + read-back fix, this reproduced a
-// ~75% caller-error rate (rename racing on a fixed tmp name) plus callers that
-// succeeded but disagreed with the file another caller's rename had already
-// overwritten. This test catches both failure modes because it asserts on the
-// actual returned values from every goroutine against the actual on-disk content,
-// not just that ReadOrCreateNodeID returns without error.
+// TestReadOrCreateNodeID_ConcurrentFirstBoot pins concurrent callers racing
+// on one fresh, shared data dir (the embedded-mode shape) to converge on a
+// single on-disk id with no leftover tmp files.
 func TestReadOrCreateNodeID_ConcurrentFirstBoot(t *testing.T) {
 	tests := []struct {
 		name     string

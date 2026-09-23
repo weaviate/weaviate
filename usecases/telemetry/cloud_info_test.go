@@ -76,9 +76,8 @@ func awsIMDSStub(accountID string) http.HandlerFunc {
 	}
 }
 
-// deadAddr starts and immediately closes a local server, so a request
-// against its URL fails fast with connection-refused instead of timing out
-// against an unroutable address.
+// deadAddr opens and immediately closes a server, so requests to its URL
+// fail fast with connection-refused instead of timing out.
 func deadAddr(t *testing.T) string {
 	t.Helper()
 	s := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
@@ -88,8 +87,7 @@ func deadAddr(t *testing.T) string {
 }
 
 func TestAWSCloudInfo_IPv6Fallback(t *testing.T) {
-	// Covers the IPv6 IMDS fallback: without it, an unreachable IPv4
-	// endpoint means no account id at all, ever.
+	// Covers IPv6 IMDS fallback when the IPv4 endpoint is unreachable.
 	ipv6Server := httptest.NewServer(awsIMDSStub("222"))
 	defer ipv6Server.Close()
 
@@ -103,10 +101,8 @@ func TestAWSCloudInfo_IPv6Fallback(t *testing.T) {
 }
 
 func TestAWSCloudInfo_ECSTaskMetadataFallback(t *testing.T) {
-	// Covers the ECS/Fargate task metadata fallback: without it, a task
-	// whose IMDS paths are both unreachable (the common ECS awsvpc shape)
-	// never reports an account id, even though the ECS-injected task
-	// metadata endpoint has it in the TaskARN.
+	// Covers the ECS/Fargate fallback: when both IMDS paths are unreachable
+	// (the common awsvpc shape), the account id still comes from TaskARN.
 	ecsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/task") {
 			fmt.Fprint(w, `{"TaskARN":"arn:aws:ecs:us-east-1:555566667777:task/cluster/abc123"}`)
@@ -129,9 +125,8 @@ func TestAWSCloudInfo_ECSTaskMetadataFallback(t *testing.T) {
 }
 
 func TestAWSCloudInfo_LogsOnceWhenNoAccountID(t *testing.T) {
-	// All three sources fail (no ECS URI configured, both IMDS paths dead).
-	// This pins the "log the reason once" requirement: repeated pushes with
-	// no account id must not spam the log once per push.
+	// All three account-id sources fail; repeated calls must log the
+	// warning once, not once per call.
 	logger, hook := test.NewNullLogger()
 	c := newAWSCloudInfo(deadAddr(t), "", "", logger)
 
@@ -239,9 +234,8 @@ func TestCloudInfoHelper_DisabledNeverDetects(t *testing.T) {
 }
 
 func TestCloudInfoHelper_ConstructionDoesNotDetect(t *testing.T) {
-	// newCloudInfoHelper must do no network I/O: detection is lazy, deferred
-	// to getCloudInfo, which is only ever called from inside the telemetry
-	// goroutine, never on the synchronous startup path.
+	// newCloudInfoHelper must do no network I/O; detection is deferred to
+	// getCloudInfo.
 	logger, _ := test.NewNullLogger()
 	c := newCloudInfoHelper(logger, true)
 

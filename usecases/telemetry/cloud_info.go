@@ -34,20 +34,14 @@ type cloudInfoProvider interface {
 	getCloudInfo() *cloudInfo
 }
 
-// cloudInfoHelper detects the cloud provider lazily: newCloudInfoHelper does
-// no network I/O, so building a Telemeter never blocks server startup. The
-// first provider a caller finds is cached; while none is found, detection is
-// retried on every call. getCloudInfo is only ever called from buildPayload,
-// which only ever runs inside the telemetry goroutine (Start and its ticker
-// loop), so retries never land on the synchronous startup path either.
+// cloudInfoHelper detects the cloud provider lazily and caches the first
+// hit; detection only ever runs from the telemetry goroutine, never on the
+// synchronous startup path.
 type cloudInfoHelper struct {
 	logger  logrus.FieldLogger
 	enabled bool
-	// detect finds a cloud provider, or returns nil if none is detected yet.
-	// Set by newCloudInfoHelper to detectRealProvider; overridable in tests.
-	// A cloudInfoHelper built as a bare struct literal (every existing test
-	// that sets `provider` directly) leaves this nil, which is fine because
-	// getCloudInfo only calls it when provider is still nil.
+	// detect finds a cloud provider, or nil if none detected yet. Tests may
+	// leave it nil; detectAndCache checks for that before calling it.
 	detect func() cloudInfoProvider
 
 	mu       sync.Mutex
@@ -77,9 +71,6 @@ func (c *cloudInfoHelper) cachedProvider() cloudInfoProvider {
 	return c.provider
 }
 
-// detectAndCache runs c.detect and caches the first non-nil result. A test
-// that constructs a cloudInfoHelper directly with a pre-set provider
-// (bypassing newCloudInfoHelper) never reaches here.
 func (c *cloudInfoHelper) detectAndCache() cloudInfoProvider {
 	if !c.enabled || c.detect == nil {
 		return nil
@@ -96,8 +87,6 @@ func (c *cloudInfoHelper) detectAndCache() cloudInfoProvider {
 	return provider
 }
 
-// detectRealProvider tries each cloud provider's real metadata endpoint in
-// turn. It is c's default detect function; tests substitute their own.
 func (c *cloudInfoHelper) detectRealProvider() cloudInfoProvider {
 	aws := newAWSCloudInfo(awsIMDSIPv4BaseURL, awsIMDSIPv6BaseURL, os.Getenv("ECS_CONTAINER_METADATA_URI_V4"), c.logger)
 	gcp := newGCPCloudInfo(gcpMetadataBaseURL)
@@ -127,10 +116,9 @@ const (
 type awsCloudInfo struct {
 	metadataURL, tokenURL, documentURL             string
 	ipv6MetadataURL, ipv6TokenURL, ipv6DocumentURL string
-	// ecsTaskMetadataURL is $ECS_CONTAINER_METADATA_URI_V4/task, empty
-	// outside ECS/Fargate. It never reads role credentials or calls STS;
-	// the account id comes only from the task metadata endpoint's own
-	// TaskARN field.
+	// ecsTaskMetadataURL is $ECS_CONTAINER_METADATA_URI_V4/task, empty outside
+	// ECS/Fargate. Reads only the task's own TaskARN field; never role
+	// credentials or STS calls.
 	ecsTaskMetadataURL string
 	logger             logrus.FieldLogger
 	warnOnce           sync.Once
@@ -161,8 +149,8 @@ func (c *awsCloudInfo) isDetected() bool {
 	if c.imdsAnswers(c.ipv6MetadataURL) {
 		return true
 	}
-	// The ECS agent injects this env var only inside an ECS/Fargate task, so
-	// its presence alone is a reliable detection signal without a network call.
+	// ECS injects this env var only inside an ECS/Fargate task, so its
+	// presence alone is a reliable signal without a network call.
 	return c.ecsTaskMetadataURL != ""
 }
 
@@ -191,10 +179,9 @@ func (c *awsCloudInfo) getCloudInfo() *cloudInfo {
 	return &cloudInfo{cloudProvider: "AWS", uniqueID: accountID}
 }
 
-// readIMDSAccountID fetches an IMDSv2 token, then the identity document,
-// returning "" if either URL is unset. When the token request fails, the
-// document GET is still tried without a token (the IMDSv1 shape), since
-// some environments allow that even where IMDSv2 is available.
+// readIMDSAccountID fetches an IMDSv2 token then the identity document. If
+// the token request fails, the document GET is retried without a token,
+// since some environments still allow the IMDSv1 shape.
 func (c *awsCloudInfo) readIMDSAccountID(tokenURL, documentURL string) string {
 	if tokenURL == "" || documentURL == "" {
 		return ""
@@ -220,8 +207,8 @@ func extractAWSAccountID(doc string) string {
 	return ""
 }
 
-// readECSAccountID reads the account id from the task's own ARN via the ECS
-// task metadata endpoint (metadata only - no role credentials, no STS call).
+// readECSAccountID gets the account id from the task's own TaskARN; it
+// never touches role credentials or STS.
 func (c *awsCloudInfo) readECSAccountID() string {
 	if c.ecsTaskMetadataURL == "" {
 		return ""

@@ -241,12 +241,10 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeGo]["1.0.0"])
 			assert.NotNil(t, payload.ClientUsage[ClientTypeCSharp])
 			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeCSharp]["1.0.0"])
-			// clientIntegrationUsage is no longer sent: the payload has no such field at all, so it can't be set here.
-			// The integration tracker keeps counting regardless - buildPayload must
-			// not touch it - since it still backs the local debug endpoint.
+			// clientIntegrationUsage has no payload field; buildPayload must not
+			// touch the integration tracker, which keeps counting for the debug endpoint.
 			assert.Equal(t, int64(2), tel.integrationTracker.Get()["llamaindex"]["0.10.5"])
 			assert.Equal(t, int64(1), tel.integrationTracker.Get()["langchain"]["0.2.0"])
-			// Verify the client tracker was reset after GetAndReset
 			currentCounts := tel.clientTracker.Get()
 			assert.Empty(t, currentCounts)
 			assert.Nil(t, payload.CloudProvider)
@@ -294,9 +292,8 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeJava]["1.0.0"])
 			assert.NotNil(t, payload.ClientUsage[ClientTypeTypeScript])
 			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeTypeScript]["1.0.0"])
-			// clientIntegrationUsage no longer leaves the node; buildPayload must not
-			// touch the integration tracker, which keeps counting for the debug
-			// endpoint regardless of payload building.
+			// clientIntegrationUsage has no payload field; buildPayload must not
+			// touch the integration tracker, which keeps counting for the debug endpoint.
 			assert.Equal(t, int64(1), tel.integrationTracker.Get()["llamaindex"]["0.10.5"])
 			assert.Equal(t, int64(1), tel.integrationTracker.Get()["dspy"]["0.1.0"])
 			assert.Nil(t, payload.CloudProvider)
@@ -489,10 +486,9 @@ func TestTelemetry_WithConsumer(t *testing.T) {
 	assert.Equal(t, PayloadType.Terminate, terminatePayload.Type)
 }
 
-// TestTelemetry_Start_PrintsOptOutNoticeEveryBoot pins (c): the notice used to
-// print only from inside the per-cloud-provider branches in cloud_info.go, so
-// a deployment where no cloud was ever detected never saw it. Start() must
-// print it unconditionally, once, every time telemetry actually runs.
+// TestTelemetry_Start_PrintsOptOutNoticeEveryBoot pins the opt-out notice
+// printing unconditionally on every boot, not only when a cloud provider is
+// detected.
 func TestTelemetry_Start_PrintsOptOutNoticeEveryBoot(t *testing.T) {
 	sg := &fakeNodesStatusGetter{}
 	sg.On("LocalNodeStatus", context.Background(), "", "", verbosity.OutputVerbose).Return(
@@ -509,9 +505,7 @@ func TestTelemetry_Start_PrintsOptOutNoticeEveryBoot(t *testing.T) {
 
 	logger, hook := test.NewNullLogger()
 	tel := New(sg, sm, logger, server.URL, time.Hour, true, Config{ClusterID: func() string { return "" }})
-	// Deterministic and hermetic: this test is about the notice, not about
-	// cloud detection, so force "no cloud detected" instead of hitting the
-	// real metadata endpoints.
+	// Force no-cloud-detected: this test is about the notice, not detection.
 	tel.cloudInfoHelper = newCloudInfoHelper(logger, false)
 
 	require.NoError(t, tel.Start(context.Background()))
@@ -652,8 +646,8 @@ func TestTelemetry_WithCloudInfoConsumer_AWS(t *testing.T) {
 	server := httptest.NewServer(&awsTestConsumer{t})
 	defer server.Close()
 	logger, _ := test.NewNullLogger()
-	// No IPv6 base URL or ECS metadata URI: this test only exercises the
-	// IMDSv4 path against the single test server, same as before.
+	// No IPv6 base URL or ECS metadata URI: only exercises the IMDSv4 path
+	// against the single test server.
 	tel, sg, sm := newTestTelemeterWithCustomCloudInfo(t, newAWSCloudInfo(server.URL, "", "", logger))
 	sm.EXPECT().GetSchemaSkipAuth().Return(schema.Schema{}).Maybe()
 

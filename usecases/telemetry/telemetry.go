@@ -333,11 +333,10 @@ func (tel *Telemeter) curatedFields() curatedFields {
 	return cf
 }
 
-// collectUsageForPayload returns the client SDK usage map for the given payload
-// type, resetting the tracker. Returns nil for Init payloads and for a tracker
-// holding no data. The integration tracker is intentionally not read here: it
-// still runs for the debug endpoint (GetIntegrationTracker), but its data no
-// longer leaves the node in the telemetry payload.
+// collectUsageForPayload returns the client SDK usage map for payloadType,
+// resetting the tracker (nil for Init or an empty tracker). The integration
+// tracker is deliberately not read here: it still feeds the debug endpoint
+// (GetIntegrationTracker), but its data stays off the telemetry payload.
 func (tel *Telemeter) collectUsageForPayload(payloadType string) (clientUsage map[ClientType]map[string]int64) {
 	if payloadType == PayloadType.Init {
 		return nil

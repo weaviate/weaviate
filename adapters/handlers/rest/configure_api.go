@@ -1411,9 +1411,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	setupNodesHandlers(api, appState.SchemaManager, appState.DB, appState)
 	setupDistributedTasksHandlers(api, appState.Authorizer, appState.ClusterService.Raft)
 
-	// No-op when telemetry is disabled: an operator who opted out never gets an
-	// identity artifact minted in their data volume. Mirrors the leader-local
-	// gate on maybeCommitClusterID in cluster/store.go.
+	// Skip minting a persisted node id for operators who opted out of telemetry.
 	var persistedNodeID string
 	if telemetryEnabled(appState) {
 		var err error
@@ -2644,8 +2642,6 @@ func telemetryEnabled(state *state.State) bool {
 	return !state.ServerConfig.Config.DisableTelemetry
 }
 
-// getTelemetryURL returns the telemetry consumer URL from config, or empty
-// string if no custom URL is set (telemetry.New will use the default).
 func getTelemetryURL(state *state.State) string {
 	return state.ServerConfig.Config.TelemetryURL
 }
