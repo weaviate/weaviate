@@ -419,9 +419,7 @@ func batchDeleteMatchAllParams(dryRun bool) objects.BatchDeleteParams {
 	return batchDeleteParams(batchDeleteMatchAllClause(), dryRun)
 }
 
-// batchDeleteAndRootParams matches every object through an And of two leaf clauses. A
-// compound root is resolved with the limit dropped (inverted/prop_value_pairs.go:142),
-// so the allow list it produces is complete and was never truncated by the bound.
+// batchDeleteAndRootParams matches every object through an And of two leaf clauses.
 func batchDeleteAndRootParams(dryRun bool) objects.BatchDeleteParams {
 	return batchDeleteParams(&filters.Clause{
 		Operator: filters.OperatorAnd,
@@ -507,11 +505,7 @@ func newBatchDeleteRepoAt(t *testing.T, rootDir string, class *models.Class,
 	}, class)
 }
 
-// TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot pins that a doc id whose object row is
-// gone while the inverted postings still name it costs a read and not one of the caller's
-// limit slots. Were the filter resolved capped at the limit, a dead id inside that window
-// would leave the reply at exactly limit, which the published contract reads as "exact,
-// everything handled".
+// TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot pins that a doc id with no object row costs a read, not a limit slot.
 func TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -540,8 +534,8 @@ func TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot(t *testing.T) {
 			wantHandled: int(batchDeleteLimit),
 		},
 		{
-			// A deny list resolves against the doc id universe, which still holds the
-			// dead id until a walk prunes it.
+			// A deny list resolves against the doc id universe, which keeps the dead id:
+			// with no restart the prune watermark is 0.
 			name:        "deny-list filter",
 			params:      batchDeleteDenyListParams,
 			objectCount: 30,
@@ -579,8 +573,8 @@ func TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot(t *testing.T) {
 			require.NoError(t, err)
 			require.GreaterOrEqual(t, len(before.Objects), tt.dropRows)
 
-			// The UUIDs a dry run lists are the lowest doc ids the filter resolved, which
-			// is the window a truncated allow list holds.
+			// A dry run lists the lowest doc ids the filter resolved, so the dropped rows
+			// sit in front of the walk.
 			for i := 0; i < tt.dropRows; i++ {
 				dropObjectRow(t, repo, batchDeleteClassName, before.Objects[i].UUID)
 			}
@@ -594,9 +588,7 @@ func TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot(t *testing.T) {
 	}
 }
 
-// TestBatchDeleteObjects_UnreadableRowDoesNotBurnASlot is the dead doc id case for a row
-// that is there but carries no readable id. The walk skips it like a missing row and reads
-// on to the next match, so the reply still reaches limit + 1, and the skip is reported once.
+// TestBatchDeleteObjects_UnreadableRowDoesNotBurnASlot pins that a row with no readable id takes no limit slot.
 func TestBatchDeleteObjects_UnreadableRowDoesNotBurnASlot(t *testing.T) {
 	ctx := context.Background()
 	const objectCount = 30
@@ -629,11 +621,7 @@ func TestBatchDeleteObjects_UnreadableRowDoesNotBurnASlot(t *testing.T) {
 	require.Equal(t, 1, warns, "the skip is reported once per call, not once per doc id")
 }
 
-// TestFindUUIDs_ResolvesTheFilterOnce pins that a call runs the inverted resolve once,
-// counted through the per-leaf entries the searcher appends to the slow query details.
-// Dead doc ids inside the first limit matches are the shape that could tempt a second,
-// uncapped resolve; a positive filter's postings keep naming them, since pruning only
-// touches the deny-list universe, so a second resolve would be paid on every call.
+// TestFindUUIDs_ResolvesTheFilterOnce pins one inverted resolve per call, with or without dead doc ids.
 func TestFindUUIDs_ResolvesTheFilterOnce(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -756,7 +744,7 @@ func TestBatchDeleteObjects_PrunesOnlyBelowTheDocIDWatermark(t *testing.T) {
 //
 // What this does NOT pin is the watermark, and the reason is worth writing down so the next
 // reader does not assume it does. The hazard the watermark exists for is an id an insert
-// has taken (shard_write_put.go:319) whose row has not landed yet (:342) being read by a
+// has taken (determineInsertStatus) whose row has not landed yet (upsertObjectDataLSM) being read by a
 // walk. A walk reads the universe in ascending doc id order, so the newest id is the last
 // one it reads, by which point the write is long done: instrumenting this test at 500 to
 // 1000 overlapping walks per run measured zero ids read without a row. The watermark's pin
@@ -845,7 +833,7 @@ func TestBatchDeleteObjects_WalksWhileObjectsAreInserted(t *testing.T) {
 	}
 }
 
-// TestObjectsTTLSweepResolvesPastDeadDocIDs pins that dead doc ids in front of the expired objects cost the sweep reads, not objects left behind.
+// TestObjectsTTLSweepResolvesPastDeadDocIDs pins that the TTL sweep deletes past dead doc ids.
 func TestObjectsTTLSweepResolvesPastDeadDocIDs(t *testing.T) {
 	const (
 		expiredCount = 12
@@ -1069,8 +1057,8 @@ func insertBatchDeleteObjects(t *testing.T, repo *DB, from, count int) {
 }
 
 // dropObjectRow removes an object's row from the objects bucket and leaves its inverted
-// postings alone, which is the state every delete passes through between
-// shard_write_delete.go:90 and :112. It returns the doc id the postings still name.
+// postings alone, which is the state every delete passes through between the objects
+// bucket delete and cleanupInvertedIndexOnDelete. It returns the doc id the postings still name.
 func dropObjectRow(t *testing.T, repo *DB, className string, id strfmt.UUID) uint64 {
 	t.Helper()
 

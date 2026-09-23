@@ -857,10 +857,7 @@ func TestBucketGetBySecondaryBatchTurnsPanicIntoError(t *testing.T) {
 	}
 }
 
-// TestBucketGetBySecondaryBatchRecordsEveryLookupEntry pins that batched
-// recording keeps exactly the entries per-lookup recording would have (none
-// for a memtable hit), and that the slow-query log summarises them rather than
-// listing one entry per lookup.
+// TestBucketGetBySecondaryBatchRecordsEveryLookupEntry pins one summarised entry per segment lookup, none for a memtable hit.
 func TestBucketGetBySecondaryBatchRecordsEveryLookupEntry(t *testing.T) {
 	const numSegmentKeys = 200
 	b, keys := newSingleSegmentBucket(t, numSegmentKeys, &observedSegment{})
