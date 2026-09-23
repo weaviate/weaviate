@@ -180,8 +180,8 @@ func TestFromRPCError_SentinelRoundTrip(t *testing.T) {
 		// the test proves the substring match still finds the sentinel inside it.
 		{
 			name: "ErrMovementBlockedByTask",
-			send: fmt.Errorf("%w: collection %q has an active %s task; retry after it completes",
-				replicationTypes.ErrMovementBlockedByTask, "Movies", "reindex"),
+			send: fmt.Errorf("%w: collection %q has a running background task; retry after it completes",
+				replicationTypes.ErrMovementBlockedByTask, "Movies"),
 			want: replicationTypes.ErrMovementBlockedByTask,
 		},
 	}

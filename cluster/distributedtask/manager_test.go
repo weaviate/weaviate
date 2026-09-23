@@ -1962,9 +1962,8 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 }
 
 // Pins what the reindex/movement admission check sees: a task still running on
-// the collection, and the namespace it runs in, which the refusal quotes so the
-// operator knows what kind of task to wait for.
-func TestManager_ActiveTaskForCollection(t *testing.T) {
+// the collection.
+func TestManager_HasActiveTaskForCollection(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		extracted string
@@ -1985,11 +1984,7 @@ func TestManager_ActiveTaskForCollection(t *testing.T) {
 				func([]byte) (string, bool) { return tc.extracted, tc.extractOK })
 			fixtureInStatus(t, h, tc.status)
 
-			namespace, active := h.manager.ActiveTaskForCollection("Movies")
-			require.Equal(t, tc.active, active)
-			if tc.active {
-				require.Equal(t, "ns", namespace)
-			}
+			require.Equal(t, tc.active, h.manager.HasActiveTaskForCollection("Movies"))
 		})
 	}
 }

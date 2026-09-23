@@ -107,15 +107,14 @@ func TestMultiNode_ReindexAndReplicaMovementExcludeEachOther(t *testing.T) {
 		"a movement must be refused while the reindex runs")
 	require.NotEmpty(t, conflict.Payload.Error)
 	require.Contains(t, conflict.Payload.Error[0].Message, className)
-	require.Contains(t, conflict.Payload.Error[0].Message, "reindex",
-		"the refusal must name the task the operator has to wait for")
+	require.Contains(t, conflict.Payload.Error[0].Message, "retry after it completes")
 
 	var scaleConflict *replicationclient.ApplyReplicationScalePlanConflict
 	require.ErrorAs(t, scale(t, followerURI), &scaleConflict,
 		"the scale plan must be refused too, and as a conflict rather than a server error")
 	require.NotEmpty(t, scaleConflict.Payload.Error)
 	require.Contains(t, scaleConflict.Payload.Error[0].Message, className)
-	require.Contains(t, scaleConflict.Payload.Error[0].Message, "reindex")
+	require.Contains(t, scaleConflict.Payload.Error[0].Message, "retry after it completes")
 
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID, reindexhelpers.WithTimeout(300*time.Second))
 

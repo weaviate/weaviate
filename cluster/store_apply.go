@@ -167,12 +167,11 @@ func (st *Store) admitReindexOrMovement(cmdType api.ApplyRequest_Type, collectio
 	}
 	switch cmdType {
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
-		namespace, active := st.distributedTasksManager.ActiveTaskForCollection(collection)
-		if !active {
+		if !st.distributedTasksManager.HasActiveTaskForCollection(collection) {
 			return nil
 		}
-		return fmt.Errorf("%w: collection %q has an active %s task; retry after it completes",
-			replicationTypes.ErrMovementBlockedByTask, collection, namespace)
+		return fmt.Errorf("%w: collection %q has a running background task; retry after it completes",
+			replicationTypes.ErrMovementBlockedByTask, collection)
 
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
 		if !st.replicationManager.GetReplicationFSM().HasActiveReplicationForCollection(collection) {
