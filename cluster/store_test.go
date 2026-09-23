@@ -1749,7 +1749,7 @@ func seedExclusionMovement(t *testing.T, s *Store) {
 	require.NoError(t, s.replicationManager.GetReplicationFSM().Replicate(1, exclusionMovement))
 }
 
-// openExclusionStore opens a single-node raft, so the admitted submit applies before the other one's check runs.
+// openExclusionStore opens a single-node raft, so the admitted submit really applies and the other one's check can see it.
 func openExclusionStore(t *testing.T) *Store {
 	t.Helper()
 	srv, _ := newBarrierTestStore(t, func(c *Config) {
