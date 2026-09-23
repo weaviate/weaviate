@@ -27,7 +27,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/cluster/utils"
@@ -457,7 +459,11 @@ func readShardingState(schemaReader schema.SchemaReader, className string) (*sha
 func TestApplyReplicationScalePlan(t *testing.T) {
 	ctx := context.Background()
 
-	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort(), func(c *Config) {
+		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
+			exclusionNamespace: func([]byte) (string, bool) { return "TestCollection", true },
+		}
+	})
 	m.parser.On("ParseClass", mock.Anything).Return(nil)
 	m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
 
@@ -559,6 +565,29 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 		}
 		_, err := r.ApplyReplicationScalePlan(ctx, plan)
 		require.ErrorContains(t, err, "invalid scale plan: source node")
+	})
+
+	t.Run("Plan with a copy is refused before any removal while a reindex runs", func(t *testing.T) {
+		seedExclusionTask(t, r.store)
+		before, err := readShardingState(r.SchemaReader(), class)
+		require.NoError(t, err)
+
+		plan := command.ReplicationScalePlan{
+			Collection: class,
+			ShardReplicationScaleActions: map[string]command.ShardReplicationScaleActions{
+				shard: {
+					AddNodes:    map[string]string{destNode: sourceNode},
+					RemoveNodes: map[string]struct{}{removeNode: {}},
+				},
+			},
+		}
+		_, err = r.ApplyReplicationScalePlan(ctx, plan)
+		require.ErrorIs(t, err, replicationTypes.ErrMovementBlockedByTask)
+
+		after, err := readShardingState(r.SchemaReader(), class)
+		require.NoError(t, err)
+		require.Equal(t, before.Physical[shard].BelongsToNodes, after.Physical[shard].BelongsToNodes)
+		require.Contains(t, after.Physical[shard].BelongsToNodes, removeNode)
 	})
 }
 
