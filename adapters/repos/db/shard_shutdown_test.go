@@ -62,8 +62,9 @@ func TestShardShutdownWhenIdle(t *testing.T) {
 	require.NotNil(t, release2)
 
 	// sanity check, no flags marked
-	requireShardShutdownRequested(t, shard, false)
-	requireShardShut(t, shard, false)
+	inner := loadedShardOf(t, shard)
+	requireShardShutdownRequested(t, inner, false)
+	requireShardShut(t, inner, false)
 
 	// release shard 2x
 	release1()
@@ -72,8 +73,8 @@ func TestShardShutdownWhenIdle(t *testing.T) {
 	// shutdown succeeds, shard idle
 	err = shard.Shutdown(context.Background())
 	require.NoError(t, err)
-	requireShardShutdownRequested(t, shard, false)
-	requireShardShut(t, shard, true)
+	requireShardShutdownRequested(t, inner, false)
+	requireShardShut(t, inner, true)
 }
 
 func TestShardShutdownWhenIdleEventually(t *testing.T) {
@@ -100,14 +101,15 @@ func TestShardShutdownWhenIdleEventually(t *testing.T) {
 	require.NotNil(t, release2)
 
 	// sanity check, no flags marked
-	requireShardShutdownRequested(t, shard, false)
-	requireShardShut(t, shard, false)
+	inner := loadedShardOf(t, shard)
+	requireShardShutdownRequested(t, inner, false)
+	requireShardShut(t, inner, false)
 
 	// shutdown fails, shard in use 2x
 	err = shard.Shutdown(context.Background())
 	require.ErrorContains(t, err, "still in use")
-	requireShardShutdownRequested(t, shard, true)
-	requireShardShut(t, shard, false)
+	requireShardShutdownRequested(t, inner, true)
+	requireShardShut(t, inner, false)
 
 	// getting shard fails, shutdown in progress
 	sameShardAgain, _, err := index.GetShard(context.Background(), shardName)
@@ -118,15 +120,15 @@ func TestShardShutdownWhenIdleEventually(t *testing.T) {
 	release1()
 
 	// shutdown still in progress, shard in use 1x
-	requireShardShutdownRequested(t, shard, true)
-	requireShardShut(t, shard, false)
+	requireShardShutdownRequested(t, inner, true)
+	requireShardShut(t, inner, false)
 
 	// release shard 1x
 	release2()
 
 	// shutdown eventually completed, shard idle
-	requireShardShutdownRequested(t, shard, false)
-	requireShardShut(t, shard, true)
+	requireShardShutdownRequested(t, inner, false)
+	requireShardShut(t, inner, true)
 
 	// getting shard fails, shutdown completed
 	sameShardYetAgain, _, err := index.GetShard(context.Background(), shardName)
@@ -227,19 +229,30 @@ func initIndexAndPopulateWithLogger(t *testing.T, dirName string, logger *logrus
 	return index, cleanup
 }
 
-func requireShardShutdownRequested(t *testing.T, shard ShardLike, expected bool) {
+// loadedShardOf returns the Shard inside a loaded LazyLoadShard, so its shutdown
+// flags stay readable after Shutdown sets the wrapper's pointer to nil.
+func loadedShardOf(t *testing.T, shard ShardLike) *Shard {
+	t.Helper()
+	lazy, ok := shard.(*LazyLoadShard)
+	require.True(t, ok, "expected a lazy shard")
+	inner := lazy.loadedShard()
+	require.NotNil(t, inner, "expected a loaded shard")
+	return inner
+}
+
+func requireShardShutdownRequested(t *testing.T, shard *Shard, expected bool) {
 	if expected {
-		require.True(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should be marked for shut down")
+		require.True(t, shard.shutdownRequested.Load(), "shard should be marked for shut down")
 	} else {
-		require.False(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should not be marked for shut down")
+		require.False(t, shard.shutdownRequested.Load(), "shard should not be marked for shut down")
 	}
 }
 
-func requireShardShut(t *testing.T, shard ShardLike, expected bool) {
+func requireShardShut(t *testing.T, shard *Shard, expected bool) {
 	if expected {
-		require.True(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should be marked as shut down")
+		require.True(t, shard.shut.Load(), "shard should be marked as shut down")
 	} else {
-		require.False(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should not be marked as shut down")
+		require.False(t, shard.shut.Load(), "shard should not be marked as shut down")
 	}
 }
 
@@ -264,10 +277,11 @@ func TestShardReinitAfterDeferredShutdown(t *testing.T) {
 	require.NoError(t, err)
 
 	shard := index.shards.Load(shardName)
+	inner := loadedShardOf(t, shard)
 	require.ErrorContains(t, shard.Shutdown(context.Background()), "still in use")
 	release() // deferred completion fires here
 
-	requireShardShut(t, shard, true)
+	requireShardShut(t, inner, true)
 
 	// Read path: terminal error, per the eventual-shutdown contract.
 	_, _, err = index.GetShard(context.Background(), shardName)
@@ -524,8 +538,8 @@ func tearShard(t *testing.T, s ShardLike, cause error) {
 	case *Shard:
 		inner = sh
 	case *LazyLoadShard:
-		require.True(t, sh.isLoaded(), "only a loaded shard can be torn")
-		inner = sh.shard
+		inner = sh.loadedShard()
+		require.NotNil(t, inner, "only a loaded shard can be torn")
 	default:
 		t.Fatalf("cannot tear a %T", s)
 	}

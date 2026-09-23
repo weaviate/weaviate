@@ -78,8 +78,9 @@ func setupDropVectorShard(t *testing.T, ctx context.Context) (*Shard, *models.Cl
 	case *Shard:
 		return s, class
 	case *LazyLoadShard:
-		require.NoError(t, s.Load(ctx))
-		return s.shard, class
+		shard, _, err := s.loadIfCold(ctx)
+		require.NoError(t, err)
+		return shard, class
 	default:
 		t.Fatalf("unexpected shard type %T", shardLike)
 		return nil, nil

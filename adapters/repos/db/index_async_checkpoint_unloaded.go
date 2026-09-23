@@ -93,7 +93,7 @@ func (i *Index) withUnloadedShard(shardName string, fn func(state unloadedShardS
 	case *LazyLoadShard:
 		release := sl.blockLoading()
 		defer release()
-		if sl.loaded {
+		if sl.currentShard() != nil {
 			return fn(shardLoaded)
 		}
 		return fn(shardUnloadedInMap)

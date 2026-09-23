@@ -41,7 +41,8 @@ func shardKnownShut(s ShardLike) bool {
 	case *LazyLoadShard:
 		sh.mutex.Lock()
 		defer sh.mutex.Unlock()
-		return sh.loaded && sh.shard.shut.Load() && sh.shard.teardownError() == nil
+		loaded := sh.currentShard()
+		return loaded != nil && loaded.shut.Load() && loaded.teardownError() == nil
 	default:
 		return false
 	}
@@ -97,10 +98,11 @@ func shardTeardownError(s ShardLike) error {
 	case *LazyLoadShard:
 		sh.mutex.Lock()
 		defer sh.mutex.Unlock()
-		if !sh.loaded {
+		loaded := sh.currentShard()
+		if loaded == nil {
 			return nil
 		}
-		return sh.shard.teardownError()
+		return loaded.teardownError()
 	default:
 		return nil
 	}
@@ -118,7 +120,8 @@ func shardStillAlive(s ShardLike) bool {
 	case *LazyLoadShard:
 		sh.mutex.Lock()
 		defer sh.mutex.Unlock()
-		return sh.loaded && !sh.shard.shut.Load()
+		loaded := sh.currentShard()
+		return loaded != nil && !loaded.shut.Load()
 	default:
 		// Unknown wrapper: restoring a live shard is the safe direction — a
 		// dead map entry fails requests loudly, an orphaned live instance

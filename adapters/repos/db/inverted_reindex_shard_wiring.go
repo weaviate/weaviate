@@ -103,8 +103,9 @@ func (l *LazyLoadShard) migrationRecordStore() *MigrationRecordStore {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if !l.loaded {
+	shard := l.currentShard()
+	if shard == nil {
 		return nil
 	}
-	return l.shard.migrationRecordStore()
+	return shard.migrationRecordStore()
 }

@@ -431,9 +431,6 @@ func (o *nodeWideMetricsObserver) getCurrentActivity() activityByCollection {
 		current[cn] = tenants
 
 		index.ForEachShard(func(name string, shard ShardLike) error {
-			index.shardCreateLocks.RLock(name)
-			defer index.shardCreateLocks.RUnlock(name)
-
 			act := activity{}
 			act.read, act.write = shard.Activity()
 			tenants[name] = act

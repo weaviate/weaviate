@@ -479,7 +479,8 @@ func TestInitShardVectors_RecoveryFromARefusedLoad(t *testing.T) {
 	require.NoError(t, err)
 	cold := coldShard.(*LazyLoadShard)
 	idx.shards.Store(shard.Name(), cold)
-	require.ErrorContains(t, cold.Load(ctx), `vectors "" and "compressed" share "vectors_compressed"`)
+	_, _, err = cold.loadIfCold(ctx)
+	require.ErrorContains(t, err, `vectors "" and "compressed" share "vectors_compressed"`)
 
 	// the drop runs against the cold shard, by path; checked before the
 	// reload, which would recreate an empty bucket and hide the loss
@@ -488,9 +489,10 @@ func TestInitShardVectors_RecoveryFromARefusedLoad(t *testing.T) {
 	require.NoError(t, err, "the drop spared the legacy vector's bucket")
 	require.NotEmpty(t, entries)
 
-	require.NoError(t, cold.Load(ctx))
+	_, _, err = cold.loadIfCold(ctx)
+	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, cold.Shutdown(context.Background())) })
-	found, err := cold.shard.WithVectorIndex("", func(index VectorIndex) error {
+	found, err := cold.loadedShard().WithVectorIndex("", func(index VectorIndex) error {
 		for _, obj := range objs {
 			if !index.ContainsDoc(obj.DocID) {
 				return fmt.Errorf("doc %d is gone", obj.DocID)

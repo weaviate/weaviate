@@ -588,13 +588,13 @@ func (s *Shard) removeBucket(ctx context.Context, bucketName string) error {
 	}
 	// Remove the directory even if the store forgot the bucket: a removal
 	// that failed here after the shutdown left it behind.
-	if err := s.removeDirIfExists(s.pathLSM(), bucketName); err != nil {
+	if err := removeDirIfExists(s.pathLSM(), bucketName); err != nil {
 		return fmt.Errorf("bucket %s shut down successfully but directory removal failed: %w", bucketName, err)
 	}
 	return nil
 }
 
-func (s *Shard) removeDirIfExists(parentDir, dirName string) error {
+func removeDirIfExists(parentDir, dirName string) error {
 	dirPath := filepath.Join(parentDir, dirName)
 	if _, err := os.Stat(dirPath); !os.IsNotExist(err) {
 		if err := os.RemoveAll(dirPath); err != nil {

@@ -163,7 +163,7 @@ func TestLazyLoadShardMigrationRecordStoreLocksAgainstTheLoader(t *testing.T) {
 	}()
 
 	<-spinning
-	loadErr := cold.Load(ctx)
+	_, _, loadErr := cold.loadIfCold(ctx)
 	close(loadDone)
 	readers.Wait()
 

@@ -126,7 +126,7 @@ func IsCleanupCollectionDropped(err error) bool {
 // compaction and flush waits both wrap it. Both are pinned, since a step that
 // started swallowing the cause would silently turn every cancelled run back
 // into a broken shard. A cancellation surfacing deeper, inside NewShard, is
-// flattened to a string in [LazyLoadShard.Load] and reads as a shard failure —
+// flattened to a string in [LazyLoadShard.loadIfCold] and reads as a shard failure —
 // an Error-level false alarm on that arm, accepted over masking a real failure
 // as a timeout.
 func truncatedByCancellation(reported error) error {
@@ -209,7 +209,7 @@ func (i *Index) cleanStalePartialReindexState(
 				skippedShards++
 				return nil
 			}
-			unwrapped, unwrapErr := lazy.Unwrap(ctx)
+			unwrapped, _, unwrapErr := lazy.loadIfCold(ctx)
 			if unwrapErr != nil {
 				reported := fmt.Errorf(
 					"shard %q: unwrap for partial-reindex cleanup: %w", name, unwrapErr)
@@ -396,7 +396,7 @@ type dirNamesCache struct {
 // to read.
 //
 // Safe across tuples in both directions: a skipped shard is unchanged, and a
-// hydrated one answers from [LazyLoadShard.loaded] before it consults the
+// hydrated one answers from [LazyLoadShard.loadedShard] before it consults the
 // memo again. A nil cache has no memo; its callers keep one per call instead.
 func (c *dirNamesCache) trackerProps() *taskPropsCache {
 	if c == nil {
