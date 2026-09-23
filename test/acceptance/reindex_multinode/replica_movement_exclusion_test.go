@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// A movement is refused during a reindex, a reindex during a movement, and a movement is admitted once the reindex ends.
 func TestMultiNode_ReindexAndReplicaMovementExcludeEachOther(t *testing.T) {
 	ctx := context.Background()
 	compose, cleanup := start3NodeReindexCluster(ctx, t,
