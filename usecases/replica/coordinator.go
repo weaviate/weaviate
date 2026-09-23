@@ -15,22 +15,24 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"math/rand/v2"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 const (
-	defaultBackOffInitialInterval = time.Millisecond * 250
-	defaultBackOffMaxElapsedTime  = time.Second * 128
+	// pull retries a failed replica after a jittered exponential delay, like cenkalti/backoff's defaults
+	pullRetryInitialDelay = 125 * time.Millisecond
+	pullRetryMultiplier   = 1.5
+	pullRetryMaxDelay     = time.Minute
 
 	// pullHostHedgeDelay is how long a read waits on one replica before also trying an idle one
 	pullHostHedgeDelay = 500 * time.Millisecond
@@ -61,16 +63,13 @@ type (
 	// coordinator coordinates replication of write and read requests
 	coordinator[T, R any] struct {
 		Client
-		Router  types.Router
-		metrics *Metrics
-		log     logrus.FieldLogger
-		Class   string
-		Shard   string
-		TxID    string // transaction ID
-		// wait twice this duration for the first Pull backoff for each host
-		pullBackOffPreInitialInterval time.Duration
-		pullBackOffMaxElapsedTime     time.Duration // stop retrying after this long
-		deletionStrategy              string
+		Router           types.Router
+		metrics          *Metrics
+		log              logrus.FieldLogger
+		Class            string
+		Shard            string
+		TxID             string // transaction ID
+		deletionStrategy string
 		// onSettled runs once Push has no request in flight to any replica
 		onSettled func()
 	}
@@ -84,15 +83,13 @@ func NewWriteCoordinator[T, R any](client Client,
 	l logrus.FieldLogger,
 ) *coordinator[T, R] {
 	return &coordinator[T, R]{
-		Client:                        client,
-		Router:                        router,
-		metrics:                       metrics,
-		log:                           l,
-		Class:                         className,
-		Shard:                         shard,
-		TxID:                          requestID,
-		pullBackOffPreInitialInterval: defaultBackOffInitialInterval / 2,
-		pullBackOffMaxElapsedTime:     defaultBackOffMaxElapsedTime,
+		Client:  client,
+		Router:  router,
+		metrics: metrics,
+		log:     l,
+		Class:   className,
+		Shard:   shard,
+		TxID:    requestID,
 	}
 }
 
@@ -103,14 +100,12 @@ func NewReadCoordinator[T any](router types.Router,
 	log logrus.FieldLogger,
 ) *coordinator[T, any] {
 	return &coordinator[T, any]{
-		Router:                        router,
-		Class:                         className,
-		Shard:                         shard,
-		log:                           log,
-		metrics:                       metrics,
-		pullBackOffPreInitialInterval: defaultBackOffInitialInterval / 2,
-		pullBackOffMaxElapsedTime:     defaultBackOffMaxElapsedTime,
-		deletionStrategy:              deletionStrategy,
+		Router:           router,
+		Class:            className,
+		Shard:            shard,
+		log:              log,
+		metrics:          metrics,
+		deletionStrategy: deletionStrategy,
 	}
 }
 
@@ -357,7 +352,7 @@ func (c *coordinator[T, R]) settle() {
 // - Only send error messages on replyCh once it's unlikely we'll ever reach level successes
 // - Never forward two replies from the same replica, so votes are always distinct
 //
-// Note that the first retry for a given host, may happen before c.pullBackOff.initial has passed
+// A failed replica is retried after pullRetryDelay, which is jittered, so the first retry may come before pullRetryInitialDelay
 func (c *coordinator[T, any]) Pull(ctx context.Context,
 	cl types.ConsistencyLevel,
 	op readOp[T], directCandidate string,
@@ -392,10 +387,7 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 
 		// put the "backups/fallbacks" on the retry queue
 		for i := level; i < len(hosts); i++ {
-			hostRetryQueue <- hostRetry{
-				hosts[i],
-				backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), ctx),
-			}
+			hostRetryQueue <- hostRetry{host: hosts[i]}
 		}
 
 		// kick off only level workers so that we avoid querying nodes unnecessarily
@@ -407,10 +399,7 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 			// because that will be the direct candidate (if a direct candidate was provided),
 			// if we only used the retry queue then we would not have the guarantee that the
 			// fullRead will be tried on hosts[0] first.
-			own := hostRetry{
-				hosts[i],
-				backoff.WithContext(utils.NewExponentialBackoff(c.pullBackOffPreInitialInterval, c.pullBackOffMaxElapsedTime), ctx),
-			}
+			own := hostRetry{host: hosts[i]}
 			isFullReadWorker := i == 0 // first worker will perform the fullRead
 			workerFunc := func() {
 				defer wg.Done()
@@ -427,10 +416,17 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 	return replyCh, level, nil
 }
 
-// hostRetry tracks how long we should wait to retry this host again
+// hostRetry is a replica, how many times it has failed in this read, and whether its breaker may still refuse it
 type hostRetry struct {
-	host           string
-	currentBackOff backoff.BackOff
+	host          string
+	attempt       int
+	ignoreBreaker bool
+}
+
+// pullRetryDelay is the jittered exponential delay before a replica is read again after attempt failures
+func pullRetryDelay(attempt int) time.Duration {
+	d := min(float64(pullRetryInitialDelay)*math.Pow(pullRetryMultiplier, float64(attempt)), float64(pullRetryMaxDelay))
+	return time.Duration(d * (0.5 + rand.Float64()))
 }
 
 type hostResult[T any] struct {
@@ -453,10 +449,8 @@ func (c *coordinator[T, any]) pullWorker(ctx context.Context,
 	defer workerCancel() // releases every attempt this worker stopped waiting for
 
 	attempts := make(chan hostResult[T], cap(retryQueue)+1)
-	pending := 0 // attempts started, including those waiting out a backoff, not yet answered
 
 	start := func(hr hostRetry, after time.Duration) {
-		pending++
 		g := func() {
 			if after > 0 {
 				timer := time.NewTimer(after)
@@ -467,7 +461,11 @@ func (c *coordinator[T, any]) pullWorker(ctx context.Context,
 					return
 				}
 			}
-			resp, err := op(workerCtx, hr.host, fullRead)
+			attemptCtx := workerCtx
+			if hr.ignoreBreaker {
+				attemptCtx = WithoutHostBreaker(attemptCtx)
+			}
+			resp, err := op(attemptCtx, hr.host, fullRead)
 			select {
 			case attempts <- hostResult[T]{hr, resp, err}:
 			case <-workerCtx.Done():
@@ -503,7 +501,6 @@ func (c *coordinator[T, any]) pullWorker(ctx context.Context,
 			return
 
 		case res := <-attempts:
-			pending--
 			if res.err == nil {
 				successful.Add(1)
 				replyCh <- Result[T]{res.resp, nil}
@@ -512,15 +509,12 @@ func (c *coordinator[T, any]) pullWorker(ctx context.Context,
 			lastResp, lastErr = res.resp, res.err
 
 			startIdleReplica()
-			if next := res.currentBackOff.NextBackOff(); next != backoff.Stop {
-				start(res.hostRetry, next)
-			}
-			if pending == 0 {
-				replyCh <- Result[T]{lastResp, lastErr}
-				return
-			}
+			next := hostRetry{host: res.host, attempt: res.attempt + 1}
+			// an open breaker costs this read a replica, never the read itself: once no other one is left, ignore it
+			next.ignoreBreaker = errors.Is(res.err, ErrHostCircuitOpen) && len(retryQueue) == 0
+			start(next, pullRetryDelay(res.attempt))
 
-		case <-hedge.C: // pending is never zero here: the worker returns once it is
+		case <-hedge.C:
 			startIdleReplica()
 		}
 	}

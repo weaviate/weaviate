@@ -25,6 +25,8 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 // Only node-level failures may take a replica out of rotation.
@@ -56,9 +58,9 @@ func TestHostBreakerClassification(t *testing.T) {
 				b.observe(context.Background(), "h1:7001", test.err)
 			}
 			if test.wantOpens {
-				require.ErrorIs(t, b.allow("h1:7001"), ErrHostCircuitOpen)
+				require.ErrorIs(t, b.allow(context.Background(), "h1:7001"), ErrHostCircuitOpen)
 			} else {
-				require.NoError(t, b.allow("h1:7001"))
+				require.NoError(t, b.allow(context.Background(), "h1:7001"))
 			}
 		})
 	}
@@ -76,21 +78,21 @@ func TestHostBreakerRecovery(t *testing.T) {
 	for i := 0; i < hostBreakerThreshold; i++ {
 		b.observe(context.Background(), host, unavailable)
 	}
-	require.ErrorIs(t, b.allow(host), ErrHostCircuitOpen, "breaker must be open right after the budget is spent")
+	require.ErrorIs(t, b.allow(context.Background(), host), ErrHostCircuitOpen, "breaker must be open right after the budget is spent")
 
 	time.Sleep(b.coolOff + 10*time.Millisecond)
-	require.NoError(t, b.allow(host), "after the cool-off a probe must be let through")
+	require.NoError(t, b.allow(context.Background(), host), "after the cool-off a probe must be let through")
 
 	// still down: one failed probe re-opens without spending the budget again
 	b.observe(context.Background(), host, unavailable)
-	require.ErrorIs(t, b.allow(host), ErrHostCircuitOpen, "a failed probe must re-open the breaker at once")
+	require.ErrorIs(t, b.allow(context.Background(), host), ErrHostCircuitOpen, "a failed probe must re-open the breaker at once")
 
-	// recovered: the probe succeeds and the host is back in rotation
-	time.Sleep(b.coolOff + 10*time.Millisecond)
-	require.NoError(t, b.allow(host))
+	// recovered: the probe succeeds and the host is back in rotation; the second open waits twice as long
+	time.Sleep(2*b.coolOff + 10*time.Millisecond)
+	require.NoError(t, b.allow(context.Background(), host))
 	b.observe(context.Background(), host, nil)
 	for i := 0; i < 5; i++ {
-		require.NoError(t, b.allow(host), "a recovered host must be served normally")
+		require.NoError(t, b.allow(context.Background(), host), "a recovered host must be served normally")
 	}
 }
 
@@ -147,11 +149,11 @@ func TestHostBreakerEvictsRecoveredHosts(t *testing.T) {
 				for i := 0; i < hostBreakerThreshold; i++ {
 					b.observe(context.Background(), host, unavailable)
 				}
-				require.ErrorIs(t, b.allow(host), ErrHostCircuitOpen)
+				require.ErrorIs(t, b.allow(context.Background(), host), ErrHostCircuitOpen)
 				require.Equal(t, 1, tracked(b), "an open breaker must be tracked")
 
 				time.Sleep(b.coolOff + 10*time.Millisecond)
-				require.NoError(t, b.allow(host))
+				require.NoError(t, b.allow(context.Background(), host))
 				b.observe(context.Background(), host, nil)
 			},
 		},
@@ -166,7 +168,7 @@ func TestHostBreakerEvictsRecoveredHosts(t *testing.T) {
 			test.run(t, b)
 
 			require.Zero(t, tracked(b), "a healthy host must leave no entry behind")
-			require.NoError(t, b.allow(host))
+			require.NoError(t, b.allow(context.Background(), host))
 		})
 	}
 }
@@ -181,7 +183,7 @@ func TestHostBreakerEvictsIdleHosts(t *testing.T) {
 	for i := 0; i < hostBreakerThreshold; i++ {
 		b.observe(context.Background(), "gone:7001", unavailable)
 	}
-	require.ErrorIs(t, b.allow("gone:7001"), ErrHostCircuitOpen)
+	require.ErrorIs(t, b.allow(context.Background(), "gone:7001"), ErrHostCircuitOpen)
 
 	// backdate the entry past the idle TTL
 	b.mu.Lock()
@@ -207,7 +209,7 @@ func TestHostBreakerIgnoresCallerCancellation(t *testing.T) {
 	for i := 0; i < hostBreakerThreshold*3; i++ {
 		b.observe(ctx, "h1:7001", context.Canceled)
 	}
-	require.NoError(t, b.allow("h1:7001"))
+	require.NoError(t, b.allow(context.Background(), "h1:7001"))
 }
 
 // The breaker counts consecutive failures, so blips must never accumulate.
@@ -220,7 +222,7 @@ func TestHostBreakerSuccessResetsStreak(t *testing.T) {
 	for i := 0; i < hostBreakerThreshold*5; i++ {
 		b.observe(context.Background(), host, unavailable)
 		b.observe(context.Background(), host, nil)
-		require.NoError(t, b.allow(host))
+		require.NoError(t, b.allow(context.Background(), host))
 	}
 }
 
@@ -238,7 +240,7 @@ func TestHostBreakerConcurrentUse(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < 200; j++ {
-				_ = b.allow(host)
+				_ = b.allow(context.Background(), host)
 				if j%3 == 0 {
 					b.observe(context.Background(), host, &HTTPError{Code: http.StatusServiceUnavailable})
 				} else {
@@ -305,5 +307,129 @@ func TestReplicaClient_BreakerLetsRecoveredHostBackIn(t *testing.T) {
 
 	_, err = c.DigestObjects(context.Background(), host, "C1", "S1", []strfmt.UUID{UUID1}, MAX_RETRIES)
 	require.NoError(t, err, "a recovered host must be picked up again after the cool-off")
+	assert.EqualValues(t, hostBreakerThreshold+1, requests.Load())
+}
+
+// A pod that returns quickly must not be shut out for the full cool-off: it escalates only while the node stays down.
+func TestHostBreakerCoolOffEscalatesAndResets(t *testing.T) {
+	t.Parallel()
+
+	const host = "h1:7001"
+	b := newHostBreakers()
+	b.coolOff = 10 * time.Millisecond
+	b.maxCoolOff = 40 * time.Millisecond
+	unavailable := &HTTPError{Code: http.StatusServiceUnavailable}
+
+	spendBudget := func() {
+		for i := 0; i < hostBreakerThreshold; i++ {
+			b.observe(context.Background(), host, unavailable)
+		}
+	}
+	// coolOff reports the delay the breaker would serve next, without waiting it out
+	coolOff := func() time.Duration {
+		b.mu.RLock()
+		hb := b.hosts[host]
+		b.mu.RUnlock()
+		require.NotNil(t, hb, "a failing host must be tracked")
+		hb.mu.Lock()
+		defer hb.mu.Unlock()
+		return hb.coolOff
+	}
+	// failProbe lets the cool-off elapse, takes the probe and answers it with the node still down
+	failProbe := func() {
+		time.Sleep(coolOff() + 5*time.Millisecond)
+		require.NoError(t, b.allow(context.Background(), host), "an elapsed cool-off must let a probe through")
+		b.observe(context.Background(), host, unavailable)
+		require.ErrorIs(t, b.allow(context.Background(), host), ErrHostCircuitOpen)
+	}
+
+	spendBudget()
+	require.ErrorIs(t, b.allow(context.Background(), host), ErrHostCircuitOpen)
+	require.Equal(t, 10*time.Millisecond, coolOff(), "the first open must use the initial cool-off")
+
+	for _, want := range []time.Duration{20 * time.Millisecond, 40 * time.Millisecond, 40 * time.Millisecond} {
+		failProbe()
+		require.Equal(t, want, coolOff(), "every consecutive open must back off harder, capped at maxCoolOff")
+	}
+
+	// recovered: the breaker closes, so the next outage starts over at the initial cool-off
+	time.Sleep(coolOff() + 5*time.Millisecond)
+	require.NoError(t, b.allow(context.Background(), host))
+	b.observe(context.Background(), host, nil)
+	spendBudget()
+	require.Equal(t, 10*time.Millisecond, coolOff(), "closing the breaker must reset the escalated cool-off")
+}
+
+// A caller with no other replica left must reach the host anyway: a breaker must never make a shard unreadable.
+func TestHostBreakerLastResortIsLetThrough(t *testing.T) {
+	t.Parallel()
+
+	const host = "h1:7001"
+	unavailable := &HTTPError{Code: http.StatusServiceUnavailable}
+
+	tests := []struct {
+		name    string
+		outcome error
+		recover bool
+	}{
+		{name: "probe succeeds, host is back in rotation", outcome: nil, recover: true},
+		{name: "probe fails, host stays refused", outcome: unavailable, recover: false},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			b := newHostBreakers()
+			for i := 0; i < hostBreakerThreshold; i++ {
+				b.observe(context.Background(), host, unavailable)
+			}
+			require.ErrorIs(t, b.allow(context.Background(), host), ErrHostCircuitOpen)
+
+			lastResort := replica.WithoutHostBreaker(context.Background())
+			require.NoError(t, b.allow(lastResort, host), "the last replica left must be contacted")
+			b.observe(context.Background(), host, test.outcome)
+
+			if test.recover {
+				require.NoError(t, b.allow(context.Background(), host), "a last-resort probe that answers must close the breaker")
+				return
+			}
+			require.ErrorIs(t, b.allow(context.Background(), host), ErrHostCircuitOpen,
+				"a failed last-resort probe must keep every other caller out")
+		})
+	}
+}
+
+// The whole point of the last-resort marker: it must reach the host through the client, not just the registry.
+func TestReplicaClient_LastResortReachesHostWithOpenBreaker(t *testing.T) {
+	t.Parallel()
+
+	var requests atomic.Int64
+	var ready atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		if !ready.Load() {
+			http.Error(w, nodeNotReadyBody, http.StatusServiceUnavailable)
+			return
+		}
+		w.Write([]byte(`[]`)) //nolint:errcheck
+	}))
+	defer server.Close()
+
+	c := newReplicationClient(t, server.Client())
+	host := server.URL[len("http://"):]
+
+	for i := 0; i < hostBreakerThreshold; i++ {
+		_, err := c.DigestObjects(context.Background(), host, "C1", "S1", []strfmt.UUID{UUID1}, NO_RETRIES)
+		require.Error(t, err)
+	}
+	_, err := c.DigestObjects(context.Background(), host, "C1", "S1", []strfmt.UUID{UUID1}, NO_RETRIES)
+	require.ErrorIs(t, err, ErrHostCircuitOpen)
+	require.EqualValues(t, hostBreakerThreshold, requests.Load(), "an open breaker must not reach the host")
+
+	ready.Store(true)
+	_, err = c.DigestObjects(replica.WithoutHostBreaker(context.Background()), host,
+		"C1", "S1", []strfmt.UUID{UUID1}, NO_RETRIES)
+	require.NoError(t, err, "a last-resort read must reach the host without waiting out the cool-off")
 	assert.EqualValues(t, hostBreakerThreshold+1, requests.Load())
 }

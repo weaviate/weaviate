@@ -896,7 +896,7 @@ func newHttpReplicaCMD(ctx context.Context, host, cmd, index, shard, requestId s
 
 func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, numRetries int) (err error) {
 	host := req.URL.Host
-	if err := c.breakers.allow(host); err != nil {
+	if err := c.breakers.allow(req.Context(), host); err != nil {
 		return err
 	}
 
@@ -937,7 +937,7 @@ func (c *replicationClient) doCustomUnmarshal(timeout time.Duration,
 	req *http.Request, body []byte, decode func([]byte) error, numRetries int,
 ) (err error) {
 	host := req.URL.Host
-	if err := c.breakers.allow(host); err != nil {
+	if err := c.breakers.allow(req.Context(), host); err != nil {
 		return err
 	}
 
