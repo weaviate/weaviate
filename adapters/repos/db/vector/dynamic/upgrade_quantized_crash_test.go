@@ -110,7 +110,7 @@ func TestUpgrade_InterruptedQuantizedUpgradeCorruptsCompressedBucket(t *testing.
 		},
 		{
 			// named target vector: a crash must not be misread as upgraded by the
-			// commit-log-dir inference; {2} must win.
+			// commit-log-dir inference; the in-progress marker must win.
 			name:         "named target vector, flat RQ8 -> hnsw BQ",
 			targetVector: "namedtarget",
 			flatUC:       rq8(),
@@ -206,8 +206,9 @@ func runInterruptedQuantizedUpgrade(t *testing.T, targetVector string, flatUC fl
 	// ids 0..batchSize-1. GoWrapper recovers the panic, so doUpgrade's cleanup
 	// never runs — exactly the on-disk residue a hard crash leaves.
 	var once sync.Once
-	idx.betweenCopyBatchesHook = func() {
+	idx.betweenCopyBatchesHook = func() error {
 		once.Do(func() { panic("simulated crash during quantized dynamic upgrade") })
+		return nil
 	}
 
 	done := make(chan struct{})
@@ -215,11 +216,15 @@ func runInterruptedQuantizedUpgrade(t *testing.T, targetVector string, flatUC fl
 	<-done
 	require.False(t, idx.IsUpgraded(), "upgrade must have been interrupted, not completed")
 
-	// The upgrade-start marker must have been persisted as UPGRADING ({2}) and
-	// must not read as "upgraded" — for a named vector this is exactly what the
-	// commit-log-dir inference would otherwise get wrong.
-	require.Equal(t, verdictUpgrading, readVerdict(t, db, targetVector),
-		"doUpgrade must persist the UPGRADING marker before the copy")
+	// The in-progress-upgrade marker (a sibling of the verdict key) must be set,
+	// the verdict must stay flat, and the offline reader must report not-upgraded
+	// — even for a named vector, whose commit-log dir would otherwise be inferred
+	// as upgraded.
+	present, err := idx.upgradingMarkerPresent()
+	require.NoError(t, err)
+	assert.True(t, present, "doUpgrade must persist the in-progress-upgrade marker before the copy")
+	assert.NotEqual(t, verdictUpgraded, readVerdict(t, db, targetVector),
+		"the verdict itself must stay flat while an upgrade is in progress")
 
 	// Restart through a full store shutdown + reopen from the same directory, so
 	// recovery runs against the on-disk buckets, not an in-memory store.
@@ -343,8 +348,9 @@ func TestUpgrade_InterruptedUpgradeRepairIsDurableAcrossCrash(t *testing.T) {
 	key := make([]byte, 8)
 	binary.BigEndian.PutUint64(key, 0)
 	require.NoError(t, store.Bucket(idx.getCompressedBucketName()).Put(key, make([]byte, 8)))
-	// mark the upgrade as in progress, as doUpgrade's start marker would
-	writeVerdict(t, db, "", verdictUpgrading)
+	// mark the upgrade as in progress, as doUpgrade's start marker would (the
+	// verdict itself stays flat/absent)
+	markUpgradingInDB(t, db, "")
 	require.NoError(t, store.Shutdown(ctx))
 
 	// Phase 2: reopen and let recovery run against the on-disk residue.
@@ -393,29 +399,217 @@ func TestUpgrade_InterruptedUpgradeRepairIsDurableAcrossCrash(t *testing.T) {
 	}
 }
 
+// readVerdict returns the recorded verdict byte, or verdictFlat when no verdict
+// key is stored (which is the state while an upgrade is only marked in progress).
 func readVerdict(t *testing.T, db *bbolt.DB, targetVector string) byte {
 	t.Helper()
-	var v byte
+	v := verdictFlat
 	require.NoError(t, db.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
-		require.NotNil(t, b)
-		raw := b.Get(dbKey(targetVector))
-		require.NotEmpty(t, raw)
-		v = raw[0]
+		if b == nil {
+			return nil
+		}
+		if raw := b.Get(dbKey(targetVector)); len(raw) > 0 {
+			v = raw[0]
+		}
 		return nil
 	}))
 	return v
 }
 
-func writeVerdict(t *testing.T, db *bbolt.DB, targetVector string, verdict byte) {
+// markUpgradingInDB sets the in-progress-upgrade sibling key directly, as
+// doUpgrade's start marker would.
+func markUpgradingInDB(t *testing.T, db *bbolt.DB, targetVector string) {
 	t.Helper()
 	require.NoError(t, db.Update(func(tx *bbolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists(dynamicBucket)
 		if err != nil {
 			return err
 		}
-		return b.Put(dbKey(targetVector), []byte{verdict})
+		return b.Put(upgradingKey(targetVector), []byte{1})
 	}))
+}
+
+// TestUpgrade_OrdinaryUpgradeFailureRecoversInline covers an upgrade that fails
+// WITHOUT a crash — the copy errors after >=1 batch has already written
+// HNSW-format codes into the shared compressed bucket. The flat stage stays
+// live, so doUpgrade must recover it in place (rebuild from raw, durable flush,
+// clear marker) before it resumes serving: searches must succeed immediately,
+// with no restart, and the in-progress marker must be gone.
+func TestUpgrade_OrdinaryUpgradeFailureRecoversInline(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	dimensions := 32
+	vectorsSize := 2 * batchSize
+	queriesSize := 20
+	k := 10
+
+	vectors, queries := testinghelpers.RandomVecs(vectorsSize, queriesSize, dimensions)
+	dist := distancer.NewL2SquaredProvider()
+
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+
+	fuc := flatent.UserConfig{}
+	fuc.SetDefaults()
+	fuc.RQ.Enabled = true
+	fuc.RQ.Bits = 8
+	hnswuc := hnswent.UserConfig{MaxConnections: 30, EFConstruction: 64, EF: 32, VectorCacheMaxObjects: 1_000_000}
+	hnswuc.SetDefaults()
+	hnswuc.BQ.Enabled = true
+
+	config := Config{
+		AllocChecker:                 memwatch.NewDummyMonitor(),
+		RootPath:                     t.TempDir(),
+		ID:                           "ordinary-upgrade-failure",
+		Logger:                       logger,
+		DistanceProvider:             dist,
+		MakeCommitLoggerThunk:        hnsw.MakeNoopCommitLogger,
+		VectorForIDThunk:             func(ctx context.Context, id uint64) ([]float32, error) { return vectors[int(id)], nil },
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		TombstoneCallbacks:           cyclemanager.NewCallbackGroupNoop(),
+		SharedDB:                     db,
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+		AsyncIndexingEnabled:         true,
+	}
+	uc := ent.UserConfig{Threshold: uint64(vectorsSize), Distance: dist.Type(), HnswUC: hnswuc, FlatUC: fuc}
+
+	idx, err := New(config, uc, testinghelpers.NewDummyStore(t))
+	require.NoError(t, err)
+	idx.PostStartup(ctx)
+	t.Cleanup(func() { idx.Shutdown(context.Background()) })
+	for i := 0; i < vectorsSize; i++ {
+		require.NoError(t, idx.Add(ctx, uint64(i), vectors[i]))
+	}
+	require.True(t, idx.Compressed())
+
+	baseline := make([][]uint64, queriesSize)
+	for i := range queries {
+		ids, _, err := idx.SearchByVector(ctx, queries[i], k, nil)
+		require.NoError(t, err)
+		baseline[i] = ids
+	}
+
+	// abort the copy with an ordinary error after the first batch (ids
+	// 0..batchSize-1 have BQ codes in the shared bucket by now)
+	var once sync.Once
+	idx.betweenCopyBatchesHook = func() error {
+		var e error
+		once.Do(func() { e = assert.AnError })
+		return e
+	}
+
+	done := make(chan struct{})
+	require.NoError(t, idx.Upgrade(func() { close(done) }))
+	<-done
+	require.False(t, idx.IsUpgraded(), "the upgrade failed, so it must not be marked upgraded")
+
+	// No restart: the live flat index must already serve correctly again, and
+	// the in-progress marker must have been cleared by the inline recovery.
+	present, err := idx.upgradingMarkerPresent()
+	require.NoError(t, err)
+	assert.False(t, present, "inline recovery must clear the in-progress marker on an ordinary abort")
+	for i := range queries {
+		ids, _, err := idx.SearchByVector(ctx, queries[i], k, nil)
+		require.NoErrorf(t, err, "the live flat index must serve correctly right after an aborted upgrade (query %d)", i)
+		assert.ElementsMatch(t, baseline[i], ids)
+	}
+}
+
+// TestUpgradedOnDisk_InProgressMarkerReadsNotUpgraded pins that the offline
+// reader treats an in-progress-upgrade sibling key as not-upgraded, for both an
+// unnamed vector and a named one whose HNSW commit-log dir exists (which the
+// dir-existence fallback would otherwise read as upgraded).
+func TestUpgradedOnDisk_InProgressMarkerReadsNotUpgraded(t *testing.T) {
+	rootPath := t.TempDir()
+	db, err := bbolt.Open(filepath.Join(rootPath, ent.StateDBFileName), 0o666, nil)
+	require.NoError(t, err)
+
+	const unnamedTV = "" // no dir fallback
+	const namedTV = "namedtarget"
+	const namedID = "vectors_namedtarget"
+
+	markUpgradingInDB(t, db, unnamedTV)
+	markUpgradingInDB(t, db, namedTV)
+	// give the named vector an HNSW commit-log dir, the exact state that without
+	// the sibling-key override would be inferred as upgraded
+	require.NoError(t, os.MkdirAll(hnswCommitLogDirectory(rootPath, namedID), 0o777))
+	require.NoError(t, db.Close()) // UpgradedOnDisk opens the file read-only itself
+
+	up, err := UpgradedOnDisk(rootPath, "main", unnamedTV)
+	require.NoError(t, err)
+	assert.False(t, up, "unnamed vector with in-progress marker must read as not upgraded")
+
+	up, err = UpgradedOnDisk(rootPath, namedID, namedTV)
+	require.NoError(t, err)
+	assert.False(t, up, "named vector with in-progress marker must read as not upgraded despite the HNSW dir")
+}
+
+// TestUpgrade_FailedRebuildKeepsMarker pins that a partial rebuild does not clear
+// the in-progress marker: if re-encoding a vector fails, recovery errors out and
+// leaves the marker set so the next restart retries, rather than sealing a
+// corrupt bucket behind a "flat, all good" state.
+func TestUpgrade_FailedRebuildKeepsMarker(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	dimensions := 32
+	vectors, _ := testinghelpers.RandomVecs(8, 0, dimensions)
+	dist := distancer.NewL2SquaredProvider()
+
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+
+	fuc := flatent.UserConfig{}
+	fuc.SetDefaults()
+	fuc.RQ.Enabled = true
+	fuc.RQ.Bits = 8
+	hnswuc := hnswent.UserConfig{MaxConnections: 30, EFConstruction: 64, EF: 32, VectorCacheMaxObjects: 1_000_000}
+	hnswuc.SetDefaults()
+	hnswuc.BQ.Enabled = true
+
+	config := Config{
+		AllocChecker:                 memwatch.NewDummyMonitor(),
+		RootPath:                     t.TempDir(),
+		ID:                           "failed-rebuild-keeps-marker",
+		Logger:                       logger,
+		DistanceProvider:             dist,
+		MakeCommitLoggerThunk:        hnsw.MakeNoopCommitLogger,
+		VectorForIDThunk:             func(ctx context.Context, id uint64) ([]float32, error) { return vectors[int(id)], nil },
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		TombstoneCallbacks:           cyclemanager.NewCallbackGroupNoop(),
+		SharedDB:                     db,
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+		AsyncIndexingEnabled:         true,
+	}
+	uc := ent.UserConfig{Threshold: 8, Distance: dist.Type(), HnswUC: hnswuc, FlatUC: fuc}
+
+	store := testinghelpers.NewDummyStore(t)
+	idx, err := New(config, uc, store)
+	require.NoError(t, err)
+	idx.PostStartup(ctx)
+	t.Cleanup(func() { idx.Shutdown(context.Background()) })
+	for i := range vectors {
+		require.NoError(t, idx.Add(ctx, uint64(i), vectors[i]))
+	}
+	require.True(t, idx.Compressed())
+
+	// mark an upgrade in progress, then make the compressed bucket unavailable so
+	// the re-encode's store fails partway.
+	require.NoError(t, idx.markUpgrading())
+	require.NoError(t, store.ShutdownBucket(ctx, idx.getCompressedBucketName()))
+
+	err = idx.recoverInterruptedUpgrade()
+	require.Error(t, err, "a failed re-encode must surface as an error, not be silently logged")
+
+	present, perr := idx.upgradingMarkerPresent()
+	require.NoError(t, perr)
+	assert.True(t, present, "a failed rebuild must keep the in-progress marker for a retry")
 }
 
 // snapshotTree recursively copies src into dst, capturing exactly what is on disk —
