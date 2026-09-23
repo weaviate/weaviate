@@ -196,3 +196,73 @@ func TestDiversifyResultsBoundedWork(t *testing.T) {
 	assert.LessOrEqual(t, calls, page*window,
 		"MMR must not compute a full ordering of the window")
 }
+
+func TestDiversifyResultsUnnormalizedCosine(t *testing.T) {
+	ctx := context.Background()
+
+	clusterA1 := []float32{5, 0, 0}
+	clusterA2 := []float32{4.95, 0.05, 0}
+	clusterA3 := []float32{7.84, 0.16, 0}
+	clusterB := []float32{1, 0, 10}
+
+	tests := []struct {
+		name         string
+		targetVector string
+		prov         distancer.Provider
+		wantSecond   strfmt.UUID
+	}{
+		{
+			name:       "cosine: legacy vector, far candidate takes slot two",
+			prov:       distancer.NewCosineDistanceProvider(),
+			wantSecond: strfmtUUID(3),
+		},
+		{
+			name:         "cosine: named vector, far candidate takes slot two",
+			targetVector: "my_vec",
+			prov:         distancer.NewCosineDistanceProvider(),
+			wantSecond:   strfmtUUID(3),
+		},
+		{
+			name:       "l2-squared: raw magnitudes are honored, B is still the far candidate",
+			prov:       distancer.NewL2SquaredProvider(),
+			wantSecond: strfmtUUID(3),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			vecs := [][]float32{clusterA1, clusterA2, clusterA3, clusterB}
+			results := resultsFromVecs(tt.targetVector, vecs)
+			orig := make([][]float32, len(vecs))
+			for i, v := range vecs {
+				orig[i] = append([]float32(nil), v...)
+			}
+
+			out, err := diversifyResults(ctx, mmrSelection(2, 0), tt.targetVector, tt.prov, results, false)
+			require.NoError(t, err)
+			require.Len(t, out, 4)
+			assert.Equal(t, strfmtUUID(0), out[0].ID)
+			assert.Equal(t, tt.wantSecond, out[1].ID, "expected diverse candidate, got %v", ids(out))
+
+			for i, v := range vecs {
+				assert.Equal(t, orig[i], v, "result vector %d must not be mutated", i)
+			}
+		})
+	}
+}
+
+func TestDiversifyResultsUnnormalizedCosineSmallNorm(t *testing.T) {
+	ctx := context.Background()
+	prov := distancer.NewCosineDistanceProvider()
+
+	clusterA1 := []float32{0.1, 0, 0}
+	clusterA2 := []float32{0.099, 0.001, 0}
+	clusterA3 := []float32{0.098, 0.002, 0}
+	clusterB := []float32{0, 0, 0.1}
+
+	results := resultsFromVecs("", [][]float32{clusterA1, clusterA2, clusterA3, clusterB})
+	out, err := diversifyResults(ctx, mmrSelection(2, 0), "", prov, results, false)
+	require.NoError(t, err)
+	require.Len(t, out, 4)
+	assert.Equal(t, strfmtUUID(0), out[0].ID)
+	assert.Equal(t, strfmtUUID(3), out[1].ID, "expected diverse candidate, got %v", ids(out))
+}

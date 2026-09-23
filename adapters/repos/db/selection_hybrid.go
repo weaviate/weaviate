@@ -47,6 +47,9 @@ func diversifyResults(ctx context.Context, selection *searchparams.Selection,
 		return results, nil
 	}
 
+	// stored vectors are raw; cosine SingleDist needs unit vectors
+	normalize := distProv.Type() == distancer.CosineDistanceProviderType
+
 	vectoredPos := make([]int, 0, len(results))
 	vecs := make([][]float32, 0, len(results))
 	hasVector := make([]bool, len(results))
@@ -54,6 +57,9 @@ func diversifyResults(ctx context.Context, selection *searchparams.Selection,
 		vec, ok := resultVector(&results[i], targetVector)
 		if !ok {
 			continue
+		}
+		if normalize {
+			vec = distancer.Normalize(vec)
 		}
 		hasVector[i] = true
 		vectoredPos = append(vectoredPos, i)
