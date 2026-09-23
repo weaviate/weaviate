@@ -49,7 +49,7 @@ type SchemaManager interface {
 	// Schema writes operation.
 	AddClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
 	RestoreClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
-	UpdateClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
+	UpdateClass(ctx context.Context, cls *models.Class, ss *sharding.State, origin command.ClassUpdateOrigin) (uint64, error)
 	DeleteClass(ctx context.Context, name string) (uint64, error)
 	AddProperty(ctx context.Context, class string, p ...*models.Property) (uint64, error)
 	// UpdateProperty merges `property` into the named class. When `fields`

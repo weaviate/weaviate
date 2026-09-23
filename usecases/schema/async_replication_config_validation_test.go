@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -80,7 +81,7 @@ func Test_UpdateClass_AsyncReplicationConfigValidation(t *testing.T) {
 				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 			}
 			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-			fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
+			fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything, command.ClassUpdateOriginUser).Return(nil)
 			fakeSchemaManager.On("ReadOnlyClass", "AsyncCfgClass", mock.Anything).Return(initial)
 			// The update diffs named vectors against the leader's view; this
 			// class has none, so the leader read only has to succeed.

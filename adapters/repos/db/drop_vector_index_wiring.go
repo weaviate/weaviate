@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
@@ -211,12 +212,10 @@ func invalidateComputedUsage(idx *Index, shardName string) error {
 	return nil
 }
 
-// schemaClassUpdater is the slice of the schema manager the finalizer needs: read a
-// class and apply an internal class update. Narrowed to an interface so the
-// finalizer's read-modify-write / retry / guard logic is unit-testable.
+// schemaClassUpdater lets tests fake *schema.Manager's class updates.
 type schemaClassUpdater interface {
 	ReadOnlyClass(collection string) *models.Class
-	UpdateClassInternal(ctx context.Context, collection string, updated *models.Class) error
+	UpdateClassInternal(ctx context.Context, collection string, updated *models.Class, origin api.ClassUpdateOrigin) error
 }
 
 // schemaVectorConfigFinalizer removes dropped named-vector entries from a class's
@@ -226,21 +225,10 @@ type schemaVectorConfigFinalizer struct {
 	mgr schemaClassUpdater
 }
 
-// managerClassUpdater adapts *schema.Manager to schemaClassUpdater.
-type managerClassUpdater struct{ mgr *schema.Manager }
-
-func (a managerClassUpdater) ReadOnlyClass(collection string) *models.Class {
-	return a.mgr.ReadOnlyClass(collection)
-}
-
-func (a managerClassUpdater) UpdateClassInternal(ctx context.Context, collection string, updated *models.Class) error {
-	return schema.UpdateClassInternal(&a.mgr.Handler, ctx, collection, updated)
-}
-
 // NewSchemaVectorConfigFinalizer builds the schema finalizer used to construct
 // the DropVectorIndexProvider (exported so the REST wiring can pass it).
 func NewSchemaVectorConfigFinalizer(mgr *schema.Manager) *schemaVectorConfigFinalizer {
-	return &schemaVectorConfigFinalizer{mgr: managerClassUpdater{mgr}}
+	return &schemaVectorConfigFinalizer{mgr: mgr}
 }
 
 // deepCopyClass returns a fully independent copy (JSON round-trip; finalize is
@@ -295,7 +283,7 @@ func (f *schemaVectorConfigFinalizer) RemoveDroppedVectorConfig(ctx context.Cont
 		// the FSM keeps the legacy fields genuinely empty — nothing to set
 		// here.
 
-		if err := f.mgr.UpdateClassInternal(ctx, collection, next); err != nil {
+		if err := f.mgr.UpdateClassInternal(ctx, collection, next, api.ClassUpdateOriginDropVectorFinalize); err != nil {
 			lastErr = err
 			select {
 			case <-ctx.Done():

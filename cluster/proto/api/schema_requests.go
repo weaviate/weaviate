@@ -22,9 +22,30 @@ type AddClassRequest struct {
 	State *sharding.State
 }
 
+// ClassUpdateOrigin names what an UPDATE_CLASS command is for. Nothing
+// verifies it, so pass the matching constant or add a new one.
+type ClassUpdateOrigin string
+
+const (
+	// ClassUpdateOriginUnspecified is what an update from a node that predates
+	// the field decodes to. Never send it.
+	ClassUpdateOriginUnspecified ClassUpdateOrigin = ""
+	// ClassUpdateOriginUser is for an update a user sends through the API.
+	ClassUpdateOriginUser ClassUpdateOrigin = "user"
+	// ClassUpdateOriginDropVectorFinalize is for removing a dropped vector's
+	// VectorConfig entry.
+	ClassUpdateOriginDropVectorFinalize ClassUpdateOrigin = "dropVectorFinalize"
+	// ClassUpdateOriginBlockmaxCutover is for setting UsingBlockMaxWAND after
+	// the BlockMax migration.
+	ClassUpdateOriginBlockmaxCutover ClassUpdateOrigin = "blockmaxCutover"
+)
+
 type UpdateClassRequest struct {
 	Class *models.Class
 	State *sharding.State
+	// Origin is in the RAFT log, so keep its type. Reading it on apply is a
+	// compatibility change, and no check may exempt ClassUpdateOriginUnspecified.
+	Origin ClassUpdateOrigin `json:"Origin"`
 }
 
 type AddPropertyRequest struct {
