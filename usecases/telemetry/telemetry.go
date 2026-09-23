@@ -59,7 +59,8 @@ type Telemeter struct {
 	integrationTracker *IntegrationTracker
 	cloudInfoHelper    *cloudInfoHelper
 
-	// nodeID is CLUSTER_HOSTNAME (the raft node name): a stable per-node identity.
+	// nodeID is the UUID persisted via ReadOrCreateNodeID: a stable per-node
+	// identity that is not the hostname.
 	nodeID string
 	// clusterID is the raft-committed cluster identity, read on every push.
 	clusterID            func() string
@@ -74,7 +75,8 @@ type Config struct {
 	PushInterval time.Duration
 	// Enabled gates whether usage trackers spin up and payloads are pushed.
 	Enabled bool
-	// NodeID is CLUSTER_HOSTNAME (the raft node name): a stable per-node identity.
+	// NodeID is the UUID from ReadOrCreateNodeID: a stable per-node identity
+	// that is not the hostname.
 	NodeID string
 	// AsyncIndexingEnabled is wired from server config.
 	AsyncIndexingEnabled bool
