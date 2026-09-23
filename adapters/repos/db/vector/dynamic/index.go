@@ -63,7 +63,7 @@ const (
 //     which a quantized upgrade may have polluted with HNSW-format codes. This
 //     is the upgrade-*start* marker; without it a crash between the first copy
 //     batch and the commit leaves the flat stage reading mismatched-length codes
-//     ("vector lengths don't match"). See https://github.com/weaviate/weaviate/issues/451.
+//     ("vector lengths don't match"). See https://github.com/weaviate/0-weaviate-issues/issues/451.
 const (
 	verdictFlat      byte = 0
 	verdictUpgraded  byte = 1
@@ -328,6 +328,16 @@ func (dynamic *dynamic) recoverInterruptedUpgrade() error {
 		if err := dynamic.rebuildCompressedFromRaw(); err != nil {
 			return errors.Wrap(err, "rebuild flat compressed bucket after interrupted upgrade")
 		}
+		// Make the rebuilt codes durable BEFORE clearing the marker. The marker
+		// lives in the shard metadata DB (fsync'd on write), while the codes go
+		// to the compressed bucket's write-ahead log, which is bufio-buffered with
+		// no per-Put fsync. Without this flush a crash could persist the "flat, all
+		// good" verdict while losing rebuilt codes still sitting in the WAL buffer,
+		// resurfacing the corruption. The rebuild is idempotent, so a crash after
+		// the flush but before the marker clear just re-runs the identical repair.
+		if err := dynamic.flushCompressedBucket(); err != nil {
+			return errors.Wrap(err, "flush rebuilt compressed bucket after interrupted upgrade")
+		}
 	}
 
 	err := dynamic.db.Update(func(tx *bbolt.Tx) error {
@@ -341,6 +351,20 @@ func (dynamic *dynamic) recoverInterruptedUpgrade() error {
 		return errors.Wrap(err, "clear dynamic upgrade marker")
 	}
 	return nil
+}
+
+// flushCompressedBucket flushes the flat stage's shared compressed bucket to a
+// durable on-disk segment. The interrupted-upgrade recovery uses it to persist
+// the rebuilt codes before it clears the upgrade marker, so the ordering between
+// the (fsync'd) marker and the (WAL-buffered) codes cannot invert across a crash.
+func (dynamic *dynamic) flushCompressedBucket() error {
+	bucket, release := dynamic.store.AcquireBucketForRead(dynamic.getCompressedBucketName())
+	if bucket == nil {
+		// no compressed bucket: nothing was rebuilt, nothing to flush
+		return nil
+	}
+	defer release()
+	return bucket.FlushMemtable()
 }
 
 // rebuildCompressedFromRaw re-encodes every raw vector back into the flat
@@ -813,7 +837,7 @@ func (dynamic *dynamic) doUpgrade() error {
 	// quantized codes into the compressed bucket the flat stage shares, so a
 	// crash before the commit below must be recoverable: on restart this marker
 	// tells init to roll back to the flat stage and rebuild that bucket from the
-	// raw vectors. See https://github.com/weaviate/weaviate/issues/451.
+	// raw vectors. See https://github.com/weaviate/0-weaviate-issues/issues/451.
 	if err := dynamic.db.Update(func(tx *bbolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists(dynamicBucket)
 		if err != nil {
