@@ -25,17 +25,16 @@ type BucketSlowLogEntry struct {
 	Recheck          time.Duration // only for secondary index reads
 }
 
-type BucketSlowLogEntries []BucketSlowLogEntry
-
-func (b BucketSlowLogEntries) Reduce() BucketSlowLogEntryStats {
-	if len(b) == 0 {
+// reduceSlowLogEntries summarizes one entry per lookup as a count and percentiles.
+func reduceSlowLogEntries(entries []BucketSlowLogEntry) BucketSlowLogEntryStats {
+	if len(entries) == 0 {
 		return BucketSlowLogEntryStats{}
 	}
 
 	var totalDurations, viewDurations, activeMemtableDurations,
 		flushingMemtableDurations, segmentsDurations, recheckDurations []time.Duration
 
-	for _, entry := range b {
+	for _, entry := range entries {
 		totalDurations = append(totalDurations, entry.Total)
 		viewDurations = append(viewDurations, entry.View)
 		activeMemtableDurations = append(activeMemtableDurations, entry.ActiveMemtable)
@@ -45,6 +44,7 @@ func (b BucketSlowLogEntries) Reduce() BucketSlowLogEntryStats {
 	}
 
 	return BucketSlowLogEntryStats{
+		Count:            len(entries),
 		Total:            reduceDurationStats(totalDurations),
 		View:             reduceDurationStats(viewDurations),
 		ActiveMemtable:   reduceDurationStats(activeMemtableDurations),
@@ -55,6 +55,9 @@ func (b BucketSlowLogEntries) Reduce() BucketSlowLogEntryStats {
 }
 
 type BucketSlowLogEntryStats struct {
+	// Count is the number of lookups summarized, so Count times Segments.Mean
+	// is the time those lookups spent in segments.
+	Count            int           `json:"count"`
 	Total            DurationStats `json:"total"`
 	View             DurationStats `json:"view"`
 	ActiveMemtable   DurationStats `json:"activeMemtable"`

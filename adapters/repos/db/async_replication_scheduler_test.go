@@ -3602,3 +3602,62 @@ func TestClassifyCrossClass(t *testing.T) {
 		})
 	}
 }
+
+// parkRebuildInBackoff keeps a height-armed rebuild from spawning its goroutine, so a test observes the flag instead.
+func parkRebuildInBackoff(s *Shard) {
+	s.asyncRepRebuildBackoffUntil.Store(time.Now().Add(time.Hour).UnixNano())
+}
+
+// TestRunEntrySkipsUnreadyHashtree pins that a cycle dispatched for a registered-but-unready tree is skipped before the height check can arm a rebuild.
+func TestRunEntrySkipsUnreadyHashtree(t *testing.T) {
+	tests := []struct {
+		name      string
+		ready     bool
+		cfgHeight int
+		wantSkip  bool
+	}{
+		{name: "readyTree", ready: true, cfgHeight: 4},
+		{name: "unreadyTree", cfgHeight: 4, wantSkip: true},
+		{name: "unreadyTreeStaleHeight", cfgHeight: 6, wantSkip: true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			sched := newBareScheduler(512, 1)
+			sched.ctx = context.Background()
+			sched.resultCh = make(chan asyncSchedulerResult, 1)
+
+			ht, err := hashtree.NewHashTree(4)
+			require.NoError(t, err)
+			s := &Shard{
+				index:                    &Index{Config: IndexConfig{ClassName: "C"}},
+				class:                    &models.Class{Class: "C"},
+				name:                     "S",
+				asyncRepCtx:              context.Background(),
+				hashtree:                 ht,
+				hashtreeFullyInitialized: tc.ready,
+				asyncReplicationConfig:   AsyncReplicationConfig{hashtreeHeight: tc.cfgHeight},
+			}
+			s.asyncRepWg.Add(1)
+			parkRebuildInBackoff(s)
+
+			sched.runEntry(&asyncSchedulerEntry{shard: s}, false)
+
+			var res asyncSchedulerResult
+			select {
+			case res = <-sched.resultCh:
+			case <-time.After(5 * time.Second):
+				t.Fatal("runEntry produced no result")
+			}
+
+			if tc.wantSkip {
+				require.False(t, s.asyncRepNeedsRebuild.Load())
+				require.EqualError(t, res.err, "hashtree not ready")
+				return
+			}
+			if res.err != nil {
+				require.NotEqual(t, "hashtree not ready", res.err.Error())
+			}
+		})
+	}
+}
