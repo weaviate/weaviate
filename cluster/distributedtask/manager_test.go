@@ -1976,6 +1976,9 @@ func TestManager_HasActiveTaskForCollection(t *testing.T) {
 		{"a finished task beside a running one", "Movies", true, TaskStatusFinished, "ns", true},
 		{"a finished task beside one running in another namespace", "Movies", true, TaskStatusFinished, "ns2", true},
 		{"a cancelled task", "Movies", true, TaskStatusCancelled, "", false},
+		{"a preparing task", "Movies", true, TaskStatusPreparing, "", true},
+		{"a swapping task", "Movies", true, TaskStatusSwapping, "", true},
+		{"a failed task", "Movies", true, TaskStatusFailed, "", false},
 		{"a task on another collection", "Books", true, TaskStatusStarted, "", false},
 		{"a payload the extractor could not read", "Movies", false, TaskStatusStarted, "", false},
 	} {
