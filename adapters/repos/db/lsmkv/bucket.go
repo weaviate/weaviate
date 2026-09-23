@@ -1086,14 +1086,14 @@ func (b *Bucket) getBySecondaryCore(ctx context.Context, pos int, seckey []byte,
 
 	recheckTook := time.Since(beforeReCheck)
 
-	helpers.AnnotateSlowQueryLogAppend(ctx, logKey, BucketSlowLogEntry{
+	helpers.AnnotateSlowQueryLogAppendReducible(ctx, logKey, BucketSlowLogEntry{
 		View:             viewTiming,
 		ActiveMemtable:   memtablesTook[0],
 		FlushingMemtable: memtablesTook[1],
 		Segments:         segmentsTook,
 		Recheck:          recheckTook,
 		Total:            time.Since(beforeAll),
-	})
+	}, reduceSlowLogEntries)
 
 	return v, allocBuf, nil
 }

@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replication
+package hashtreerebuild
 
 import (
 	"context"
@@ -71,7 +71,7 @@ func TestMaintenanceModePeerIsQuietForAsyncReplication(t *testing.T) {
 
 	t.Run("async replication is active on the healthy nodes", func(t *testing.T) {
 		require.EventuallyWithT(t, func(ct *assert.CollectT) {
-			n, err := shardsAsyncReplicationLen(t, paragraphClass.Class)
+			n, err := common.ShardsAsyncReplicationLen(t, paragraphClass.Class)
 			require.NoError(ct, err)
 			require.Greater(ct, n, 0)
 		}, rebuildEventuallyDeadline, 1*time.Second)
