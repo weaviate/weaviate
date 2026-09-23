@@ -736,20 +736,7 @@ func TestBatchDeleteObjects_PrunesOnlyBelowTheDocIDWatermark(t *testing.T) {
 		"a doc id at or above the watermark is kept: its object row may still be on its way")
 }
 
-// TestBatchDeleteObjects_WalksWhileObjectsAreInserted runs the walk against a shard that is
-// being written to. The walk is not read-only: it subtracts the doc ids it found no object
-// row for from the doc id universe, under the same BitmapFactory lock an insert's universe
-// read takes, so this is the one case that exercises the two against each other. No object
-// an insert completed may be missing from a resolve that follows it.
-//
-// What this does NOT pin is the watermark, and the reason is worth writing down so the next
-// reader does not assume it does. The hazard the watermark exists for is an id an insert
-// has taken (determineInsertStatus) whose row has not landed yet (upsertObjectDataLSM) being read by a
-// walk. A walk reads the universe in ascending doc id order, so the newest id is the last
-// one it reads, by which point the write is long done: instrumenting this test at 500 to
-// 1000 overlapping walks per run measured zero ids read without a row. The watermark's pin
-// is TestBatchDeleteObjects_PrunesOnlyBelowTheDocIDWatermark, which puts an id on each side
-// of it directly.
+// TestBatchDeleteObjects_WalksWhileObjectsAreInserted pins that a resolve run concurrently with inserts never misses an object whose insert has already completed.
 func TestBatchDeleteObjects_WalksWhileObjectsAreInserted(t *testing.T) {
 	ctx := context.Background()
 	const (
