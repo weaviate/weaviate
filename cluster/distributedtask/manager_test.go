@@ -2005,8 +2005,8 @@ func TestManager_HasActiveTaskForCollection(t *testing.T) {
 				wantExtracts += tasks
 			}
 
-			// Map iteration order is random, so 32 calls almost surely visit both orders.
-			for range 32 {
+			// A two-key map starts at its first key about 7 times in 8, so 32 calls see one order in about 1 run in 71; 128 make that negligible.
+			for range 128 {
 				require.Equal(t, tc.active, h.manager.HasActiveTaskForCollection("Movies"))
 			}
 			require.Equal(t, wantExtracts, extracts, "each payload is decoded once when stored, not on every check")

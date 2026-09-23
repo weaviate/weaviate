@@ -584,8 +584,8 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 				otherShard: {AddNodes: map[string]string{destNode: ""}},
 			},
 		}
-		// Map iteration order is random, so 32 calls almost surely visit the copying shard both first and last.
-		for range 32 {
+		// A two-key map starts at its first key about 7 times in 8, so 32 calls see one order in about 1 run in 71; 128 make that negligible.
+		for range 128 {
 			_, err = r.ApplyReplicationScalePlan(ctx, plan)
 			require.ErrorIs(t, err, replicationTypes.ErrMovementBlockedByTask)
 		}
