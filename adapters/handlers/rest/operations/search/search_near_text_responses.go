@@ -249,11 +249,56 @@ func (o *SearchNearTextNotFound) WriteResponse(rw http.ResponseWriter, producer 
 	}
 }
 
+// SearchNearTextRequestEntityTooLargeCode is the HTTP code returned for type SearchNearTextRequestEntityTooLarge
+const SearchNearTextRequestEntityTooLargeCode int = 413
+
+/*
+SearchNearTextRequestEntityTooLarge The request body exceeded the 4194304 byte (4 MiB) limit.
+
+swagger:response searchNearTextRequestEntityTooLarge
+*/
+type SearchNearTextRequestEntityTooLarge struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewSearchNearTextRequestEntityTooLarge creates SearchNearTextRequestEntityTooLarge with default headers values
+func NewSearchNearTextRequestEntityTooLarge() *SearchNearTextRequestEntityTooLarge {
+
+	return &SearchNearTextRequestEntityTooLarge{}
+}
+
+// WithPayload adds the payload to the search near text request entity too large response
+func (o *SearchNearTextRequestEntityTooLarge) WithPayload(payload *models.ErrorResponse) *SearchNearTextRequestEntityTooLarge {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the search near text request entity too large response
+func (o *SearchNearTextRequestEntityTooLarge) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *SearchNearTextRequestEntityTooLarge) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(413)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // SearchNearTextUnprocessableEntityCode is the HTTP code returned for type SearchNearTextUnprocessableEntity
 const SearchNearTextUnprocessableEntityCode int = 422
 
 /*
-SearchNearTextUnprocessableEntity Either a request-schema violation (a missing required field such as `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).
+SearchNearTextUnprocessableEntity Either a request-schema violation (a missing required field such as `query`, or an invalid enum value), or a well-formed request that cannot run: no vectorizer module is configured for the collection, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.
 
 swagger:response searchNearTextUnprocessableEntity
 */

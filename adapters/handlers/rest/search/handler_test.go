@@ -14,6 +14,7 @@ package search
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -22,9 +23,11 @@ import (
 	"github.com/go-openapi/strfmt"
 	pkgerrors "github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	dbinverted "github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -37,7 +40,6 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -150,6 +152,37 @@ func comicClass() *models.Class {
 	}
 }
 
+// catalogClass carries the property types the Movie fixture lacks; nullState
+// switches the collection's null-state index.
+func catalogClass(nullState bool) *models.Class {
+	off := false
+	return &models.Class{
+		Class:               "Catalog",
+		Vectorizer:          "text2vec-contextionary",
+		InvertedIndexConfig: &models.InvertedIndexConfig{IndexNullState: nullState},
+		Properties: []*models.Property{
+			{Name: "title", DataType: schema.DataTypeText.PropString()},
+			{Name: "tags", DataType: schema.DataTypeTextArray.PropString()},
+			{Name: "year", DataType: schema.DataTypeInt.PropString()},
+			{Name: "published", DataType: schema.DataTypeDate.PropString()},
+			{Name: "meta", DataType: schema.DataTypeObject.PropString(), NestedProperties: []*models.NestedProperty{
+				{Name: "isbn", DataType: schema.DataTypeText.PropString()},
+			}},
+			{Name: "location", DataType: schema.DataTypeGeoCoordinates.PropString()},
+			{Name: "phone", DataType: schema.DataTypePhoneNumber.PropString()},
+			{Name: "hasAuthor", DataType: []string{"Author"}},
+			{Name: "secret", DataType: schema.DataTypeText.PropString(), IndexFilterable: &off, IndexSearchable: &off},
+		},
+	}
+}
+
+func newCatalogHandler(t *testing.T, nullState bool) *testDeps {
+	t.Helper()
+	deps := newTestHandler(t)
+	deps.schemaReader.classes["Catalog"] = catalogClass(nullState)
+	return deps
+}
+
 type testDeps struct {
 	searcher     *fakeSearcher
 	schemaReader *fakeSchemaReader
@@ -180,9 +213,7 @@ func newTestHandler(t *testing.T) *testDeps {
 		// matches DefaultQueryCrossReferenceDepthLimit
 		CrossRefDepthLimit: 5,
 		MaximumResults:     10000,
-		// happy-path fixture: the experimental feature is enabled
-		Enabled: runtime.NewDynamicValue(true),
-		Logger:  logrus.New(),
+		Logger:             logrus.New(),
 	})
 	return deps
 }
@@ -288,25 +319,17 @@ func TestExecuteIsSearchTypeAgnostic(t *testing.T) {
 		}, nil
 	}
 
-	payload, apiErr := deps.handler.execute(context.Background(), nil, "Movie", "",
+	payload, apiErr := deps.handler.execute(context.Background(), nil, "near-text", "Movie", "",
 		&models.SearchCommon{}, build)
 	require.Nil(t, apiErr)
 	assert.Equal(t, "Movie", gotClass)
 	require.Len(t, payload.Results, 1)
 	assert.Equal(t, "Dune", payload.Results[0].Properties["title"])
 
-	// execute honors the not-enabled gate and the reserved-field gate,
-	// before ever calling the builder
-	deps.handler.enabled = runtime.NewDynamicValue(false)
-	_, apiErr = deps.handler.execute(context.Background(), nil, "Movie", "",
-		&models.SearchCommon{}, build)
-	require.NotNil(t, apiErr)
-	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-
-	deps.handler.enabled = runtime.NewDynamicValue(true)
+	// execute honors the reserved-field gate before ever calling the builder
 	rerankProp := "title"
 	rerank := &models.SearchRerank{Property: &rerankProp}
-	_, apiErr = deps.handler.execute(context.Background(), nil, "Movie", "",
+	_, apiErr = deps.handler.execute(context.Background(), nil, "near-text", "Movie", "",
 		&models.SearchCommon{Rerank: rerank}, build)
 	require.NotNil(t, apiErr)
 	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
@@ -375,58 +398,6 @@ func TestHandlerIDAlwaysReturned(t *testing.T) {
 			assert.Nil(t, obj.Metadata)
 		})
 	}
-}
-
-func TestHandlerDisabled(t *testing.T) {
-	deps := newTestHandler(t)
-	deps.handler.enabled = runtime.NewDynamicValue(false)
-
-	_, apiErr := doNearText(t, deps, nil, "Movie", `{"query":["space"]}`)
-	require.NotNil(t, apiErr)
-	// mirrors DISABLE_GRAPHQL: the operation stays registered and rejects
-	// requests with 422
-	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-	assert.Contains(t, apiErr.Error(), "not enabled")
-	assert.Contains(t, apiErr.Error(), "EXPERIMENTAL_REST_SEARCH_ENABLED")
-}
-
-// TestHandlerDefaultDisabled guards the new opt-in default: a handler whose
-// flag is off (the unset-env default, NewDynamicValue(false)) rejects every
-// search with the not-enabled 422.
-func TestHandlerDefaultDisabled(t *testing.T) {
-	deps := newTestHandler(t)
-	// simulate the process default: EXPERIMENTAL_REST_SEARCH_ENABLED unset
-	deps.handler.enabled = runtime.NewDynamicValue(false)
-
-	_, apiErr := doNearText(t, deps, nil, "Movie", `{"query":["space"]}`)
-	require.NotNil(t, apiErr)
-	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-	assert.Contains(t, apiErr.Error(), "not enabled")
-}
-
-// TestHandlerDisabledMissingCollection: a disabled endpoint answers 422 even
-// for a missing collection (the not-enabled check runs after authz, before
-// existence).
-func TestHandlerDisabledMissingCollection(t *testing.T) {
-	deps := newTestHandler(t)
-	deps.handler.enabled = runtime.NewDynamicValue(false)
-
-	_, apiErr := doNearText(t, deps, nil, "NoSuchCollection", `{"query":["space"]}`)
-	require.NotNil(t, apiErr)
-	assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-	assert.Contains(t, apiErr.Error(), "not enabled")
-}
-
-// TestHandlerDisabledUnauthorized: unauthorized caller gets 403, not the
-// not-enabled 422 (a denied caller must not learn the endpoint is off).
-func TestHandlerDisabledUnauthorized(t *testing.T) {
-	deps := newTestHandler(t)
-	deps.handler.enabled = runtime.NewDynamicValue(false)
-	deps.authorizer.SetErr(autherrs.NewForbidden(&models.Principal{Username: "someone"}, "read", "collections/Movie"))
-
-	_, apiErr := doNearText(t, deps, nil, "Movie", `{"query":["space"]}`)
-	require.NotNil(t, apiErr)
-	assert.Equal(t, http.StatusForbidden, apiErr.Status)
 }
 
 func TestHandlerUnknownBodyFieldIgnored(t *testing.T) {
@@ -564,6 +535,25 @@ func TestHandlerAliasForbiddenNoExistenceOracle(t *testing.T) {
 	assert.Equal(t, plainErr.Status, aliasErr.Status)
 	assert.Equal(t, plainErr.Error(), aliasErr.Error(),
 		"alias and non-alias denials must be indistinguishable")
+}
+
+// TestAliasDenialKeepsAuthorizerShape: a denial on an alias target must be
+// byte-identical to one on a plain collection of the alias name.
+func TestAliasDenialKeepsAuthorizerShape(t *testing.T) {
+	aliased := newTestHandler(t)
+	aliased.schemaReader.aliases = map[string]string{"Films": "Movie"}
+	aliased.handler.authorizer = &denyCollections{denied: map[string]bool{"Movie": true}}
+	_, aliasErr := doNearText(t, aliased, nil, "Films", `{"query":["space"]}`)
+	require.NotNil(t, aliasErr)
+	assert.Equal(t, http.StatusForbidden, aliasErr.Status)
+
+	plain := newTestHandler(t)
+	plain.handler.authorizer = &denyCollections{denied: map[string]bool{"Films": true}}
+	_, plainErr := doNearText(t, plain, nil, "Films", `{"query":["space"]}`)
+	require.NotNil(t, plainErr)
+
+	assert.Equal(t, plainErr.Error(), aliasErr.Error())
+	assert.NotContains(t, aliasErr.Error(), "Movie")
 }
 
 // denyCollections denies READ on the named collections (by resource path) and
@@ -794,6 +784,111 @@ func TestHandlerTraverserErrorMapping(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, apiErr.Status, apiErr.Error())
 		})
 	}
+}
+
+// TestStatusFromErrorMessages: engine errors reach the client with their wrap
+// chain intact, for parity with GraphQL and gRPC. The one exception is the
+// provider response, whose credential-bearing detail stays in the log.
+func TestStatusFromErrorMessages(t *testing.T) {
+	wrap := func(err error) error {
+		return fmt.Errorf("explorer: get class: vector search: object search at index movie: local shard object search movie_abc: %w", err)
+	}
+	tests := []struct {
+		name string
+		err  error
+		// wantMsg empty means the client sees err's own message, unchanged
+		wantStatus     int
+		wantMsg        string
+		wantCause      string
+		wantDocumented bool
+	}{
+		{
+			name:       "source object not found keeps the full chain",
+			err:        wrap(enterrors.NewErrSourceObjectNotFound(errors.New("nearObject search-object with id 123 not found"))),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "multi-tenancy mismatch keeps the full chain",
+			err:        wrap(objects.NewErrMultiTenancy(errors.New("class Movie has multi-tenancy disabled, but request was with tenant"))),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
+			name:       "tenant not found keeps the full chain",
+			err:        wrap(fmt.Errorf("%w: tenant \"t1\"", enterrors.ErrTenantNotFound)),
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "only-stopwords pattern is a 400",
+			err:        wrap(dbinverted.ErrOnlyStopwords),
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "provider failure is a fixed 500 with the detail as cause",
+			err:        wrap(enterrors.NewErrQueryVectorization(errors.New("OpenAI API failed with status: 401, Incorrect API key provided: sk-bad"))),
+			wantStatus: http.StatusInternalServerError,
+			wantMsg:    errVectorizationFailed.Error(),
+			wantCause:  "sk-bad",
+		},
+		{
+			name:       "unclassified failure is a 500 carrying the chain",
+			err:        wrap(errors.New("trying parse time as RFC3339 string: cannot parse")),
+			wantStatus: http.StatusInternalServerError,
+			wantCause:  "RFC3339",
+		},
+		{
+			name:           "documented failure keeps the chain and matches its page",
+			err:            wrap(fmt.Errorf("cannot init shard: %w", enterrors.ErrNotEnoughMappings)),
+			wantStatus:     http.StatusInternalServerError,
+			wantCause:      "explorer:",
+			wantDocumented: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			apiErr := statusFromError(tt.err)
+			assert.Equal(t, tt.wantStatus, apiErr.Status)
+			wantMsg := tt.wantMsg
+			if wantMsg == "" {
+				wantMsg = tt.err.Error()
+			}
+			assert.Equal(t, wantMsg, apiErr.Error())
+			if tt.wantCause != "" {
+				assert.Contains(t, apiErr.Cause().Error(), tt.wantCause)
+			}
+			if tt.wantDocumented {
+				_, ok := enterrors.Documented(apiErr.Cause())
+				assert.True(t, ok, "the reply matches the docs link on the cause")
+			}
+		})
+	}
+}
+
+// TestHandlerLogsFailures: server-side failures are logged with their full
+// cause, client errors only at debug level.
+func TestHandlerLogsFailures(t *testing.T) {
+	deps := newTestHandler(t)
+	logger, hook := test.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+	deps.handler.logger = logger
+
+	deps.searcher.err = enterrors.NewErrQueryVectorization(errors.New("provider said: Incorrect API key provided: sk-bad"))
+	_, apiErr := doNearText(t, deps, nil, "Movie", `{"query":["space"]}`)
+	require.NotNil(t, apiErr)
+	assert.Equal(t, http.StatusInternalServerError, apiErr.Status)
+	assert.NotContains(t, apiErr.Error(), "sk-bad")
+
+	require.Len(t, hook.AllEntries(), 1)
+	entry := hook.LastEntry()
+	assert.Equal(t, logrus.ErrorLevel, entry.Level)
+	assert.Contains(t, entry.Message, "sk-bad")
+	assert.Equal(t, "near-text", entry.Data["op"])
+	assert.Equal(t, "Movie", entry.Data["collection"])
+
+	hook.Reset()
+	_, apiErr = doNearText(t, deps, nil, "Movie", `{"query":[]}`)
+	require.NotNil(t, apiErr)
+	require.Len(t, hook.AllEntries(), 1)
+	assert.Equal(t, logrus.DebugLevel, hook.LastEntry().Level)
 }
 
 // TestBm25HandlerHappyPath: the bm25 wrapper drives the same execute() flow
