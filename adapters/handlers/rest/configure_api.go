@@ -1112,14 +1112,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// fall back to refusing every backup until DTM is reachable, to
 		// avoid races against in-flight reindexes that the local node
 		// cannot see.
-		buildShardReindexActivity := func() (db.ShardReindexActivityLookup, error) {
-			tasksByNamespace, err := appState.ClusterService.ListDistributedTasks(auditCtx)
-			if err != nil {
-				return nil, fmt.Errorf("cannot list the cluster's distributed tasks: %w", err)
-			}
-			return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], appState.Logger), nil
-		}
-		repo.SetShardReindexActivityLookup(buildShardReindexActivity)
+		repo.SetShardReindexActivityLookup(shardReindexActivityBuilder(auditCtx,
+			appState.ClusterService.ListDistributedTasks, appState.Logger))
 		// S1: the DTM-activity lookup flips a shard "free" the moment a
 		// task lands in a terminal status; autoCleanupAfterTerminal then
 		// tears the sidecar __reindex / __ingest dirs over the next
@@ -1130,6 +1124,18 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}, appState.Logger)
 
 	return appState
+}
+
+func shardReindexActivityBuilder(ctx context.Context,
+	listTasks func(context.Context) (map[string][]*distributedtask.Task, error), logger logrus.FieldLogger,
+) db.ShardReindexActivityLookupBuilder {
+	return func() (db.ShardReindexActivityLookup, error) {
+		tasksByNamespace, err := listTasks(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("cannot list the cluster's distributed tasks: %w", err)
+		}
+		return db.NewShardReindexActivityLookup(tasksByNamespace[db.ReindexNamespace], logger), nil
+	}
 }
 
 func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPool, close func()) {

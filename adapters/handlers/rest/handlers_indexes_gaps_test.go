@@ -29,11 +29,13 @@ package rest
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/go-openapi/runtime"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -1182,6 +1184,43 @@ func TestNormalizeSearchableAlgorithm(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			got := normalizeSearchableAlgorithm(tc.input)
 			require.Equal(t, tc.want, got)
+		})
+	}
+}
+
+func TestShardReindexActivityBuilder(t *testing.T) {
+	errNoLeader := errors.New("no leader")
+	logger, _ := test.NewNullLogger()
+	for _, tc := range []struct {
+		name    string
+		list    func(context.Context) (map[string][]*distributedtask.Task, error)
+		wantErr error
+	}{
+		{
+			name:    "the task list is unavailable",
+			list:    func(context.Context) (map[string][]*distributedtask.Task, error) { return nil, errNoLeader },
+			wantErr: errNoLeader,
+		},
+		{
+			name: "a reindex task is running",
+			list: func(context.Context) (map[string][]*distributedtask.Task, error) {
+				return map[string][]*distributedtask.Task{db.ReindexNamespace: {{
+					Status: distributedtask.TaskStatusStarted,
+					Payload: mustPayload(t, db.ReindexTaskPayload{
+						Collection: "C", UnitToShard: map[string]string{"u1": "shard1"},
+					}),
+				}}}, nil
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			lookup, err := shardReindexActivityBuilder(context.Background(), tc.list, logger)()
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.True(t, lookup("C", "shard1"))
 		})
 	}
 }
