@@ -55,8 +55,8 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 
 	// PreApplyFilter below judges against in-memory FSM state, so a leader that
 	// has not drained what it inherited must not judge yet. After the tenant
-	// or collection lock, not before: it spans the apply, so a caller can wait
-	// on it long enough for leadership to turn over, and a term confirmed before
+	// or collection lock, because either is held across the apply and a caller
+	// can wait on it long enough for leadership to turn over. A term confirmed before
 	// the wait says nothing about the term it wakes up in.
 	if err := st.waitLeaderFSMCaughtUp(); err != nil {
 		return 0, err
