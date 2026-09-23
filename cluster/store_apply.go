@@ -43,8 +43,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.tenantAddLocks.Unlock(req.Class)
 	}
 
-	// Serialize replicate and task-add commands per collection so admitReindexOrMovement sees the other's apply.
-	// Never held with the tenant lock above: the two command-type sets are disjoint.
+	// A per-collection lock lets admitReindexOrMovement see the other's apply, and never nests with the tenant lock since their command types are disjoint.
 	collection, err := st.reindexOrMovementCollection(req)
 	if err != nil {
 		return 0, err

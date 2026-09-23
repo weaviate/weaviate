@@ -69,9 +69,9 @@ together into a small REST surface rooted at
 > already running stays observable and, for as long as it is still
 > `STARTED`, cancellable (§12). Everything below describes behavior with
 > the flag on.
->
-> A replica movement requested while a migration runs is refused with 409;
-> one already in flight waits for it.
+
+A replica movement requested while a migration runs is refused with 409;
+one already in flight waits for it.
 
 ### `PUT /v1/schema/{className}/properties/{propertyName}/index/{indexType}`
 
