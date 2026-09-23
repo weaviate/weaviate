@@ -1961,30 +1961,36 @@ func TestManager_DeleteTasksForCollection(t *testing.T) {
 	})
 }
 
-// Pins what the reindex/movement admission check sees: a task still running on
-// the collection.
 func TestManager_HasActiveTaskForCollection(t *testing.T) {
 	for _, tc := range []struct {
-		name      string
-		extracted string
-		extractOK bool
-		status    TaskStatus
-		active    bool
+		name        string
+		extracted   string
+		extractOK   bool
+		status      TaskStatus
+		plusRunning bool
+		active      bool
 	}{
-		{"a running task", "Movies", true, TaskStatusStarted, true},
-		{"a case twin of the collection name", "mOVIES", true, TaskStatusStarted, true},
-		{"a finished task", "Movies", true, TaskStatusFinished, false},
-		{"a cancelled task", "Movies", true, TaskStatusCancelled, false},
-		{"a task on another collection", "Books", true, TaskStatusStarted, false},
-		{"a payload the extractor could not read", "Movies", false, TaskStatusStarted, false},
+		{"a running task", "Movies", true, TaskStatusStarted, false, true},
+		{"a case twin of the collection name", "mOVIES", true, TaskStatusStarted, false, true},
+		{"a finished task", "Movies", true, TaskStatusFinished, false, false},
+		{"a finished task beside a running one", "Movies", true, TaskStatusFinished, true, true},
+		{"a cancelled task", "Movies", true, TaskStatusCancelled, false, false},
+		{"a task on another collection", "Books", true, TaskStatusStarted, false, false},
+		{"a payload the extractor could not read", "Movies", false, TaskStatusStarted, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newTestHarness(t).init(t)
 			h.manager.RegisterCollectionExtractor("ns",
 				func([]byte) (string, bool) { return tc.extracted, tc.extractOK })
 			fixtureInStatus(t, h, tc.status)
+			if tc.plusRunning {
+				addTaskWithUnits(t, h, "ns", "task2", 11, []string{"u-n2"})
+			}
 
-			require.Equal(t, tc.active, h.manager.HasActiveTaskForCollection("Movies"))
+			// Map iteration order is random, so repeat until both visit orders have run.
+			for range 32 {
+				require.Equal(t, tc.active, h.manager.HasActiveTaskForCollection("Movies"))
+			}
 		})
 	}
 }
