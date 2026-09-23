@@ -217,17 +217,16 @@ function main() {
 
   if $run_acceptance_tests  || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_4 || $run_acceptance_only_fast_group_5 || $run_acceptance_only_authz || $run_acceptance_only_mcp || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_only_python || $run_all_tests || $run_benchmark || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_only_fast_group_3 || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $only_acceptance || $run_acceptance_objects
   then
-    # Only these suites talk to the shared docker-compose server on
-    # localhost:8080. The others (authz, async/read-repair/replica replication,
-    # fast group 4, named vectors) start their own testcontainers clusters, so
-    # they skip it; a package moved into one of them must do the same.
-    local needs_shared_server=false
-    if $run_acceptance_tests || $run_all_tests || $run_benchmark || $only_acceptance || $run_acceptance_objects \
-      || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_5 \
-      || $run_acceptance_only_mcp || $run_acceptance_graphql_tests || $run_acceptance_only_python \
-      || $run_acceptance_go_client || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_only_fast_group_3
+    # Every suite gets the shared docker-compose server on localhost:8080
+    # except these, which start their own testcontainers clusters. Assumes one
+    # suite flag per run, as CI does.
+    local needs_shared_server=true
+    if $run_acceptance_only_fast_group_4 || $run_acceptance_only_authz \
+      || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests \
+      || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests \
+      || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster
     then
-      needs_shared_server=true
+      needs_shared_server=false
     fi
 
     if $needs_shared_server
