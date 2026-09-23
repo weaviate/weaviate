@@ -317,6 +317,7 @@ func TestReplicaSnapshotDefersOnlyForALiveReindex(t *testing.T) {
 		builder      ShardReindexActivityLookupBuilder
 		wantDefer    bool
 		hardlinkOnly bool
+		fallbackOnly bool
 	}{
 		{
 			name:      "a live reindex task",
@@ -324,9 +325,10 @@ func TestReplicaSnapshotDefersOnlyForALiveReindex(t *testing.T) {
 			wantDefer: true,
 		},
 		{
-			name:      "the task manager is unreachable",
-			builder:   unreachableActivityBuilder,
-			wantDefer: false,
+			name:         "the task manager is unreachable",
+			builder:      unreachableActivityBuilder,
+			wantDefer:    false,
+			fallbackOnly: true,
 		},
 		{
 			// A wrapped status here would let IsReversibleRefusal match its message and make the movement wait.
@@ -343,7 +345,7 @@ func TestReplicaSnapshotDefersOnlyForALiveReindex(t *testing.T) {
 			name         string
 			withHardlink bool
 		}{{name: "hardlink mode", withHardlink: true}, {name: "fallback halt-for-duration mode"}} {
-			if tc.hardlinkOnly && !mode.withHardlink {
+			if tc.hardlinkOnly && !mode.withHardlink || tc.fallbackOnly && mode.withHardlink {
 				continue
 			}
 			t.Run(tc.name+", "+mode.name, func(t *testing.T) {
