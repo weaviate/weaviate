@@ -593,6 +593,14 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 		caseTwin.Collection = strings.ToUpper(class)
 		_, err = r.ApplyReplicationScalePlan(ctx, caseTwin)
 		require.ErrorIs(t, err, replicationTypes.ErrNotFound)
+		removalOnly := command.ReplicationScalePlan{
+			Collection: strings.ToUpper(class),
+			ShardReplicationScaleActions: map[string]command.ShardReplicationScaleActions{
+				shard: {RemoveNodes: map[string]struct{}{removeNode: {}}},
+			},
+		}
+		_, err = r.ApplyReplicationScalePlan(ctx, removalOnly)
+		require.ErrorIs(t, err, replicationTypes.ErrNotFound)
 
 		after, err := readShardingState(r.SchemaReader(), class)
 		require.NoError(t, err)
