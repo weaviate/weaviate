@@ -305,7 +305,7 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 		VectorIndexType: vectorindex.VectorIndexTypeNone,
 	}
 
-	if _, err = h.schemaManager.UpdateClass(ctx, class, nil); err != nil {
+	if _, err = h.schemaManager.UpdateClass(ctx, class, nil, command.ClassUpdateOriginUser); err != nil {
 		// The FSM's retryable refusals (e.g. the previous drop of this name is
 		// still completing) arrive wrapped in the cluster-layer bad-request
 		// sentinel; translate to the domain sentinel so the REST handler
