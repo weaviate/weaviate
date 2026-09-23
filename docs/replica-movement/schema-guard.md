@@ -30,9 +30,9 @@ The guard works in **both directions**, plus one special case that has no user t
                                          │
    ┌─────────────────────┐  ┌────────────────────────┐  ┌──────────────────────┐
    │ FORWARD             │  │ REVERSE                │  │ DEFER                │
-   │ schema change while │  │ move starts while a    │  │ automatic flat→HNSW  │
-   │ a move is running   │  │ structural op is       │  │ upgrade (no user)    │
-   │                     │  │ already running        │  │                      │
+   │ schema change while │  │ move starts while      │  │ automatic flat→HNSW  │
+   │ a move is running   │  │ compression or a       │  │ upgrade (no user)    │
+   │                     │  │ flat→HNSW upgrade runs │  │                      │
    │  → REJECT           │  │  → WAIT, then proceed  │  │  → POSTPONE          │
    │  clear error,       │  │  never silently        │  │  retry next tick     │
    │  retry after move   │  │  cancelled             │  │  after move ends     │
