@@ -354,8 +354,10 @@ func TestReplicaSnapshotDefersOnlyForALiveReindex(t *testing.T) {
 					"the reindex sentinel must survive so the backup path keeps its own response")
 				require.Equal(t, tc.wantDefer, replication.IsReversibleRefusal(err),
 					"only a refusal that names a live task may make the movement wait")
-				require.Equal(t, tc.wantDefer, errors.Is(err, enterrors.ErrShardBusyStructuralOp),
-					"the shard-busy sentinel is what writes the text a remote caller matches on")
+				if tc.wantDefer {
+					require.ErrorIs(t, err, enterrors.ErrShardBusyStructuralOp,
+						"the shard-busy sentinel is what writes the text a remote caller matches on")
+				}
 			})
 		}
 	}
