@@ -299,7 +299,6 @@ func TestResolveUUIDsFailsOnReadError(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			logger, _ := test.NewNullLogger()
 			bucket := &stubDocIDBucket{objects: map[uint64][]byte{}, failAfter: tc.failAfter, err: readErr}
 			ids := make([]uint64, 5)
 			for i := range ids {
@@ -307,12 +306,97 @@ func TestResolveUUIDsFailsOnReadError(t *testing.T) {
 				bucket.objects[uint64(i)] = object(strfmt.UUID(uuid.NewString()))
 			}
 
-			uuids, err := resolveUUIDs(context.Background(), logger, bucket, &sliceDocIDIterator{ids: ids})
+			uuids, _, err := resolveUUIDs(context.Background(), bucket, &sliceDocIDIterator{ids: ids}, len(ids), func(uint64) {})
 			require.ErrorIs(t, err, readErr)
 			require.ErrorContains(t, err, "resolve uuids")
 			require.Nil(t, uuids)
 		})
 	}
+}
+
+// rowStateObject returns the stored bytes of an object with the given id.
+func rowStateObject(t *testing.T, id strfmt.UUID) []byte {
+	t.Helper()
+	obj := &storobj.Object{
+		MarshallerVersion: 1,
+		Object:            models.Object{ID: id, Class: "RowStateTest"},
+	}
+	data, err := obj.MarshalBinary()
+	require.NoError(t, err)
+	return data
+}
+
+// TestResolveUUIDsTellsRowStatesApart covers the four states one doc id can land in. The
+// caller has to tell them apart: a missing row means the object is gone and its doc id may
+// be pruned, a row with no readable id is skipped and reported but never pruned, and a read
+// error means the store could not answer and the resolve fails.
+func TestResolveUUIDsTellsRowStatesApart(t *testing.T) {
+	const docID = 42
+	id := strfmt.UUID(uuid.NewString())
+	row := rowStateObject(t, id)
+	readErr := errors.New("segment read failed")
+
+	cases := []struct {
+		name string
+		// row is what the bucket holds for the doc id; nil means the row is gone.
+		row            []byte
+		readErr        error
+		wantUUIDs      []strfmt.UUID
+		wantMissing    []uint64
+		wantUnreadable int
+	}{
+		{name: "present", row: row, wantUUIDs: []strfmt.UUID{id}},
+		{name: "absent", wantMissing: []uint64{docID}},
+		{name: "corrupt row", row: row[:8], wantUnreadable: 1},
+		{name: "read error", row: row, readErr: readErr},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			bucket := &stubDocIDBucket{objects: map[uint64][]byte{}, failAfter: 1}
+			if tc.row != nil {
+				bucket.objects[docID] = tc.row
+			}
+			if tc.readErr != nil {
+				bucket.failAfter, bucket.err = 0, tc.readErr
+			}
+
+			var missing []uint64
+			uuids, unreadable, err := resolveUUIDs(context.Background(), bucket,
+				&sliceDocIDIterator{ids: []uint64{docID}}, 1, func(d uint64) { missing = append(missing, d) })
+			if tc.readErr != nil {
+				require.ErrorIs(t, err, tc.readErr, "the error a caller sees wraps the one the store returned")
+				require.Nil(t, uuids)
+				return
+			}
+			require.NoError(t, err)
+			require.ElementsMatch(t, tc.wantUUIDs, uuids)
+			require.Equal(t, tc.wantMissing, missing)
+			require.Equal(t, tc.wantUnreadable, unreadable.count)
+			if tc.wantUnreadable > 0 {
+				require.ErrorContains(t, unreadable.first, fmt.Sprintf("doc id %d", docID))
+			}
+		})
+	}
+}
+
+// TestResolveUUIDsLimitCountsUUIDsProduced pins that the limit counts UUIDs returned, not
+// doc ids read: a missing row and an unreadable one in front of the live objects cost a
+// read each and no slot, so the resolve walks past both to fill the limit.
+func TestResolveUUIDsLimitCountsUUIDsProduced(t *testing.T) {
+	first, second := strfmt.UUID(uuid.NewString()), strfmt.UUID(uuid.NewString())
+	bucket := &stubDocIDBucket{failAfter: 100, objects: map[uint64][]byte{
+		2: []byte("garbage"),
+		3: rowStateObject(t, first),
+		4: rowStateObject(t, second),
+	}}
+
+	var missing []uint64
+	uuids, unreadable, err := resolveUUIDs(context.Background(), bucket,
+		&sliceDocIDIterator{ids: []uint64{1, 2, 3, 4}}, 1, func(d uint64) { missing = append(missing, d) })
+	require.NoError(t, err)
+	require.Equal(t, []strfmt.UUID{first}, uuids)
+	require.Equal(t, []uint64{1}, missing)
+	require.Equal(t, 1, unreadable.count)
 }
 
 // TestResolveUUIDsSetsConcurrencyBudget pins the budget the resolve puts on the
@@ -337,7 +421,6 @@ func TestResolveUUIDsSetsConcurrencyBudget(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			logger, _ := test.NewNullLogger()
 			const docID = 7
 			bucket := &stubDocIDBucket{objects: map[uint64][]byte{docID: data}, failAfter: 1}
 
@@ -346,7 +429,7 @@ func TestResolveUUIDsSetsConcurrencyBudget(t *testing.T) {
 				ctx = concurrency.CtxWithBudget(ctx, tc.callerBudget)
 			}
 
-			uuids, err := resolveUUIDs(ctx, logger, bucket, &sliceDocIDIterator{ids: []uint64{docID}})
+			uuids, _, err := resolveUUIDs(ctx, bucket, &sliceDocIDIterator{ids: []uint64{docID}}, 1, func(uint64) {})
 			require.NoError(t, err)
 			require.Equal(t, []strfmt.UUID{object.ID()}, uuids)
 			require.Equal(t, tc.wantBudget, bucket.gotBudget)
