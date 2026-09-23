@@ -25,14 +25,8 @@ import (
 
 func TestConfigModules(t *testing.T) {
 	t.Run("invalid DefaultVectorDistanceMetric", func(t *testing.T) {
-		moduleProvider := &fakeModuleProvider{
-			valid: []string{"text2vec-contextionary"},
-		}
-		config := Config{
-			DefaultVectorizerModule:     "text2vec-contextionary",
-			DefaultVectorDistanceMetric: "euclidean",
-		}
-		err := config.ValidateModules(moduleProvider)
+		config := Config{DefaultVectorDistanceMetric: "euclidean"}
+		err := config.ValidateDefaultVectorDistanceMetric()
 		assert.EqualError(
 			t,
 			err,
@@ -40,54 +34,14 @@ func TestConfigModules(t *testing.T) {
 		)
 	})
 
-	t.Run("invalid DefaultVectorizerModule", func(t *testing.T) {
-		moduleProvider := &fakeModuleProvider{
-			valid: []string{"text2vec-contextionary"},
-		}
-		config := Config{
-			DefaultVectorizerModule:     "contextionary",
-			DefaultVectorDistanceMetric: "cosine",
-		}
-		err := config.ValidateModules(moduleProvider)
-		assert.EqualError(
-			t,
-			err,
-			"default vectorizer module: invalid vectorizer \"contextionary\"",
-		)
-	})
-
-	t.Run("all valid configurations", func(t *testing.T) {
-		moduleProvider := &fakeModuleProvider{
-			valid: []string{"text2vec-contextionary"},
-		}
-		config := Config{
-			DefaultVectorizerModule:     "text2vec-contextionary",
-			DefaultVectorDistanceMetric: "l2-squared",
-		}
-		err := config.ValidateModules(moduleProvider)
-		assert.Nil(t, err, "should not error")
+	t.Run("valid DefaultVectorDistanceMetric", func(t *testing.T) {
+		config := Config{DefaultVectorDistanceMetric: "l2-squared"}
+		assert.NoError(t, config.ValidateDefaultVectorDistanceMetric())
 	})
 
 	t.Run("without DefaultVectorDistanceMetric", func(t *testing.T) {
-		moduleProvider := &fakeModuleProvider{
-			valid: []string{"text2vec-contextionary"},
-		}
-		config := Config{
-			DefaultVectorizerModule: "text2vec-contextionary",
-		}
-		err := config.ValidateModules(moduleProvider)
-		assert.Nil(t, err, "should not error")
-	})
-
-	t.Run("with none DefaultVectorizerModule", func(t *testing.T) {
-		moduleProvider := &fakeModuleProvider{
-			valid: []string{"text2vec-contextionary"},
-		}
-		config := Config{
-			DefaultVectorizerModule: "none",
-		}
-		err := config.ValidateModules(moduleProvider)
-		assert.Nil(t, err, "should not error")
+		config := Config{}
+		assert.NoError(t, config.ValidateDefaultVectorDistanceMetric())
 	})
 
 	t.Run("parse config.yaml file", func(t *testing.T) {
