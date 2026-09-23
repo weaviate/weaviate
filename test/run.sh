@@ -240,7 +240,7 @@ function main() {
     # they skip it; a package moved into one of them must do the same.
     local needs_shared_server=false
     if $run_acceptance_tests || $run_all_tests || $run_benchmark || $only_acceptance || $run_acceptance_objects \
-      || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_5 \
+      || $run_acceptance_only_fast_group_1 || $run_acceptance_only_fast_group_2 || $run_acceptance_only_fast_group_3 || $run_acceptance_only_fast_group_5 || $run_acceptance_only_fast_group_6 \
       || $run_acceptance_only_mcp || $run_acceptance_graphql_tests || $run_acceptance_only_python \
       || $run_acceptance_go_client || $run_acceptance_go_client_only_fast_group_1 || $run_acceptance_go_client_only_fast_group_2 || $run_acceptance_go_client_only_fast_group_3
     then
