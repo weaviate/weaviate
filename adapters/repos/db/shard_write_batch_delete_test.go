@@ -124,7 +124,7 @@ func TestShardFindUUIDs(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			shard, _ := testShardWithSettings(t, ctx, class, hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false, false)
+			shard, _ := testShardWithSettings(t, ctx, class, hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false)
 
 			matching := make([]*storobj.Object, tc.matching)
 			for i := range matching {
@@ -425,7 +425,7 @@ func TestShardObjectSearchSummarisesBatchedLookups(t *testing.T) {
 	class := textNameClass("SlowLogSummaryTest")
 	const matches = 70
 
-	shard, _ := testShardWithSettings(t, ctx, class, hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false, false)
+	shard, _ := testShardWithSettings(t, ctx, class, hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false)
 	for range matches {
 		putNamedObject(t, ctx, shard, class, "match")
 	}
