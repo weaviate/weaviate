@@ -584,7 +584,7 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 				otherShard: {AddNodes: map[string]string{destNode: ""}},
 			},
 		}
-		// A two-key map starts at its first key about 7 times in 8, so 32 calls see one order in about 1 run in 71; 128 make that negligible.
+		// Go ranges a two-key map from its first-inserted key 7 times in 8, so all 128 calls visit the copying shard first only once in 26 million runs.
 		for range 128 {
 			_, err = r.ApplyReplicationScalePlan(ctx, plan)
 			require.ErrorIs(t, err, replicationTypes.ErrMovementBlockedByTask)
