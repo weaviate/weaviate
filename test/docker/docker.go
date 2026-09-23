@@ -21,7 +21,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/go-connections/nat"
 	"github.com/pkg/errors"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -234,7 +233,7 @@ func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
 
 	endPoints := map[EndpointName]endpoint{}
 	for name, e := range c.endpoints {
-		newURI, err := c.container.PortEndpoint(context.Background(), nat.Port(e.port), "")
+		newURI, err := c.container.PortEndpoint(context.Background(), e.port, "")
 		if err != nil {
 			return fmt.Errorf("failed to get new uri for container %q: %w", c.name, err)
 		}
@@ -245,7 +244,7 @@ func (d *DockerCompose) StartAt(ctx context.Context, nodeIndex int) error {
 	c.endpoints = endPoints
 
 	if e, ok := endPoints[HTTP]; ok {
-		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port)).
+		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(e.port).
 			WithStartupTimeout(nodeReadinessTimeout)
 		if err := waitStrategy.WaitUntilReady(ctx, c.container); err != nil {
 			return fmt.Errorf("StartAt[%s]: readiness check /v1/.well-known/ready failed: %w",
@@ -288,7 +287,7 @@ func (d *DockerCompose) RestartAt(ctx context.Context, nodeIndex int, timeout *t
 
 	endPoints := map[EndpointName]endpoint{}
 	for name, e := range c.endpoints {
-		newURI, err := c.container.PortEndpoint(ctx, nat.Port(e.port), "")
+		newURI, err := c.container.PortEndpoint(ctx, e.port, "")
 		if err != nil {
 			return fmt.Errorf("RestartAt[%s]: failed to resolve port %s: %w",
 				c.name, e.port, err)
@@ -300,7 +299,7 @@ func (d *DockerCompose) RestartAt(ctx context.Context, nodeIndex int, timeout *t
 	c.endpoints = endPoints
 
 	if e, ok := endPoints[HTTP]; ok {
-		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(nat.Port(e.port)).
+		waitStrategy := wait.ForHTTP("/v1/.well-known/ready").WithPort(e.port).
 			WithStartupTimeout(nodeReadinessTimeout)
 		if err := waitStrategy.WaitUntilReady(ctx, c.container); err != nil {
 			return fmt.Errorf("RestartAt[%s]: readiness check /v1/.well-known/ready failed: %w",

@@ -15,15 +15,15 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/netip"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
-	dockernetwork "github.com/docker/docker/api/types/network"
-	"github.com/docker/go-connections/nat"
+	"github.com/moby/moby/api/types/container"
+	dockernetwork "github.com/moby/moby/api/types/network"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 )
@@ -107,7 +107,7 @@ func startWeaviate(ctx context.Context,
 		env[key] = value
 	}
 
-	httpPort := nat.Port("8080/tcp")
+	httpPort := "8080/tcp"
 	exposedPorts := []string{"8080/tcp"}
 	waitStrategies := []wait.Strategy{
 		wait.ForListeningPort(httpPort),
@@ -117,7 +117,7 @@ func startWeaviate(ctx context.Context,
 	// Expose the cluster API port (CLUSTER_DATA_BIND_PORT) if configured.
 	// This allows tests to access /v1/cluster/* endpoints from the host.
 	var (
-		clusterPort     nat.Port
+		clusterPort     string
 		hasClusterPort  bool
 		clusterPortStr  string
 		clusterPortSpec string
@@ -125,18 +125,18 @@ func startWeaviate(ctx context.Context,
 	if p, ok := env["CLUSTER_DATA_BIND_PORT"]; ok && p != "" {
 		clusterPortStr = p
 		clusterPortSpec = fmt.Sprintf("%s/tcp", clusterPortStr)
-		clusterPort = nat.Port(clusterPortSpec)
+		clusterPort = clusterPortSpec
 		exposedPorts = append(exposedPorts, clusterPortSpec)
 		// Wait until the cluster API port is listening as well, so tests don't race it.
 		waitStrategies = append(waitStrategies, wait.ForListeningPort(clusterPort))
 		hasClusterPort = true
 	}
-	grpcPort := nat.Port("50051/tcp")
+	grpcPort := "50051/tcp"
 	if exposeGRPCPort {
 		exposedPorts = append(exposedPorts, "50051/tcp")
 		waitStrategies = append(waitStrategies, wait.ForListeningPort(grpcPort))
 	}
-	debugPort := nat.Port("6060/tcp")
+	debugPort := "6060/tcp"
 	if exposeDebugPort {
 		exposedPorts = append(exposedPorts, "6060/tcp")
 		waitStrategies = append(waitStrategies, wait.ForListeningPort(debugPort))
@@ -179,7 +179,7 @@ func startWeaviate(ctx context.Context,
 		req.EndpointSettingsModifier = func(settings map[string]*dockernetwork.EndpointSettings) {
 			s := settings[networkName]
 			s.IPAMConfig = &dockernetwork.EndpointIPAMConfig{
-				IPv4Address: ip,
+				IPv4Address: netip.MustParseAddr(ip),
 			}
 		}
 	}

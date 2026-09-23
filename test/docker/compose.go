@@ -14,14 +14,14 @@ package docker
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"os"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	dockernetwork "github.com/docker/docker/api/types/network"
-	"github.com/docker/go-connections/nat"
+	dockernetwork "github.com/moby/moby/api/types/network"
 	"github.com/pkg/errors"
 	"github.com/testcontainers/testcontainers-go"
 	tescontainersnetwork "github.com/testcontainers/testcontainers-go/network"
@@ -795,7 +795,10 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 			tescontainersnetwork.WithAttachable(),
 			tescontainersnetwork.WithIPAM(&dockernetwork.IPAM{
 				Config: []dockernetwork.IPAMConfig{
-					{Subnet: subnetForOctet(d.netOctet), Gateway: gatewayForOctet(d.netOctet)},
+					{
+						Subnet:  netip.MustParsePrefix(subnetForOctet(d.netOctet)),
+						Gateway: netip.MustParseAddr(gatewayForOctet(d.netOctet)),
+					},
 				},
 			}),
 		)
@@ -1303,7 +1306,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 			defer cancel()
 			endpoint := readinessEndpointFunc(hostname)
 			if err := wait.ForHTTP(endpoint).
-				WithPort(nat.Port("8080/tcp")).
+				WithPort("8080/tcp").
 				WaitUntilReady(readyCtx, c.container); err != nil {
 				return fmt.Errorf("startCluster[%s]: readiness check failed (endpoint=%s, timeout=%s): %w",
 					hostname, endpoint, readinessTimeout, err)

@@ -17,7 +17,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/docker/go-connections/nat"
+	"github.com/moby/moby/api/types/network"
 	"github.com/testcontainers/testcontainers-go"
 )
 
@@ -36,6 +36,9 @@ func pickNetOctet() int {
 	}
 	return rand.Intn(112) + 16 // [16, 127]
 }
+
+// portNumber returns the number part of a port spec such as "8080/tcp".
+func portNumber(spec string) string { return network.MustParsePort(spec).Port() }
 
 func subnetForOctet(octet int) string  { return fmt.Sprintf("10.%d.0.0/16", octet) }
 func gatewayForOctet(octet int) string { return fmt.Sprintf("10.%d.0.1", octet) }
@@ -74,7 +77,7 @@ var (
 )
 
 type endpoint struct {
-	port nat.Port
+	port string
 	uri  string
 }
 
