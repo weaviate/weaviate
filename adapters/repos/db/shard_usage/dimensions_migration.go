@@ -141,7 +141,7 @@ func MigrateDimensionsBucketToRoaringSet(ctx context.Context, logger logrus.Fiel
 	if err := diskio.Fsync(rootPath); err != nil {
 		return false, fmt.Errorf("fsync %q: %w", rootPath, err)
 	}
-	if err := switchDimensionsBucket(bucketPath, rootPath); err != nil {
+	if err := switchDimensionsBucket(logger, bucketPath, rootPath); err != nil {
 		return false, err
 	}
 
@@ -248,7 +248,7 @@ func openDimensionsBucket(ctx context.Context, logger logrus.FieldLogger,
 
 // switchDimensionsBucket puts the ready bucket in place of the dimensions
 // bucket. It is safe to repeat from any point it was interrupted at.
-func switchDimensionsBucket(bucketPath, rootPath string) error {
+func switchDimensionsBucket(logger logrus.FieldLogger, bucketPath, rootPath string) error {
 	readyPath := bucketPath + dimensionsMigrationReadySuffix
 	delPath := bucketPath + dimensionsMigrationDelSuffix
 
@@ -267,10 +267,18 @@ func switchDimensionsBucket(bucketPath, rootPath string) error {
 	if err := diskio.Fsync(rootPath); err != nil {
 		return fmt.Errorf("fsync %q: %w", rootPath, err)
 	}
-	if err := os.RemoveAll(delPath); err != nil {
-		return fmt.Errorf("remove map dimensions bucket %q: %w", delPath, err)
-	}
+	removeReplacedDimensionsBucket(logger, delPath)
 	return nil
+}
+
+// removeReplacedDimensionsBucket is cleanup after a switch that went through. A
+// failure is logged only, the next recovery tries again.
+func removeReplacedDimensionsBucket(logger logrus.FieldLogger, delPath string) {
+	if err := os.RemoveAll(delPath); err != nil {
+		logger.WithField("action", "dimensions_bucket_migration").
+			WithField("path", delPath).
+			Warnf("failed to remove replaced dimensions bucket: %v", err)
+	}
 }
 
 func recoverDimensionsBucketMigration(logger logrus.FieldLogger, bucketPath string) error {
@@ -340,39 +348,27 @@ func recoverDimensionsBucketMigration(logger logrus.FieldLogger, bucketPath stri
 	logger.WithField("action", "dimensions_bucket_migration").
 		WithField("path", bucketPath).
 		Info("finishing interrupted dimensions bucket migration")
-	return switchDimensionsBucket(bucketPath, rootPath)
+	return switchDimensionsBucket(logger, bucketPath, rootPath)
 }
 
 // recoverDimensionsBucketMovedAside handles a bucket that was moved aside with no
-// replacement left to take its place. After a completed switch the bucket in
-// place holds the data and the one moved aside is only left to remove. With the
-// bucket in place missing or empty, the one moved aside is the only copy.
+// replacement left to take its place. That is a switch that went through, and the
+// bucket in place is the one to keep, even when it holds nothing: the one moved
+// aside can be partly removed, and missing the segments that deleted doc ids.
+// Only with no bucket in place at all is the one moved aside put back.
 func recoverDimensionsBucketMovedAside(logger logrus.FieldLogger, bucketPath, delPath, rootPath string) error {
 	bucketExists, err := dirExists(bucketPath)
 	if err != nil {
 		return err
 	}
-	hasData := false
 	if bucketExists {
-		if hasData, err = dirHasData(bucketPath); err != nil {
-			return err
-		}
-	}
-	if hasData {
-		if err := os.RemoveAll(delPath); err != nil {
-			return fmt.Errorf("remove replaced dimensions bucket %q: %w", delPath, err)
-		}
+		removeReplacedDimensionsBucket(logger, delPath)
 		return nil
 	}
 
 	logger.WithField("action", "dimensions_bucket_migration").
 		WithField("path", bucketPath).
 		Warn("dimensions bucket was moved aside and not replaced, moving it back")
-	if bucketExists {
-		if err := os.RemoveAll(bucketPath); err != nil {
-			return fmt.Errorf("remove empty dimensions bucket %q: %w", bucketPath, err)
-		}
-	}
 	if err := os.Rename(delPath, bucketPath); err != nil {
 		return fmt.Errorf("move dimensions bucket back: %w", err)
 	}
