@@ -268,12 +268,9 @@ func (m *Manager) RegisterCollectionExtractor(namespace string, extractor Collec
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.collectionExtractors[namespace] = extractor
-	for _, task := range m.tasks[namespace] {
-		m.cacheCollectionWithLock(task)
-	}
 }
 
-// cacheCollectionWithLock runs once per add, restore or registration, since HasActiveTaskForCollection runs on every replica copy.
+// cacheCollectionWithLock runs once per add or restore, since HasActiveTaskForCollection runs on every replica copy.
 func (m *Manager) cacheCollectionWithLock(task *Task) {
 	task.collection = ""
 	if extractor := m.collectionExtractors[task.Namespace]; extractor != nil {
