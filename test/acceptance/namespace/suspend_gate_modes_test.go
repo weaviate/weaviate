@@ -177,26 +177,26 @@ func restSearch(t *testing.T, uri, collection, key string) (int, map[string]any)
 		map[string]any{"query": gateSearchTitle})
 }
 
-// restAggregateCount runs POST /v1/aggregate/<collection> asking only for the
-// count, which is the shape whose replica fan-out swallows the shard guard's
-// error and answers 0 inside a success.
+// restAggregateCount runs POST /v1/aggregate/<collection> asking only for the count.
 func restAggregateCount(t *testing.T, uri, collection, key string) (int, map[string]any) {
 	t.Helper()
 	return postJSON(t, uri, "/v1/aggregate/"+collection, key,
 		map[string]any{"returnMetrics": []string{"count"}})
 }
 
-// requireRefused retries until the call is turned away and says why.
-// SuspendNamespace confirms the flip on one node and no surface reads another
-// node's own copy, so a row aimed elsewhere can only wait for the answer to change.
-func requireRefused(t *testing.T, call func() error) {
+// requireRefused retries until the call fails with "suspended" and every
+// alsoContains. It retries because other nodes apply the suspend later. Pass the
+// gate's own wrap where the shard-load guard refuses the same verb.
+func requireRefused(t *testing.T, call func() error, alsoContains ...string) {
 	t.Helper()
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		err := call()
 		if !assert.Error(c, err) {
 			return
 		}
-		assert.Contains(c, err.Error(), "suspended")
+		for _, want := range append([]string{"suspended"}, alsoContains...) {
+			assert.Contains(c, err.Error(), want)
+		}
 	}, 30*time.Second, 200*time.Millisecond, "the refusal never reached the node the request went to")
 }
 
@@ -226,23 +226,9 @@ func requireRESTRefused(t *testing.T, call func() (int, map[string]any)) {
 	}, 30*time.Second, 200*time.Millisecond, "the refusal never reached the node the request went to")
 }
 
-// awaitSuspendVisible blocks until the node at grpcURI turns a root search away,
-// which is the only signal that its own copy of the state has caught up. A row
-// whose assertion holds whatever the state is needs this, or it passes against a
-// namespace the node still believes is active.
-func awaitSuspendVisible(t *testing.T, grpcURI, qualifiedClass string) {
-	t.Helper()
-	client := grpcTo(t, grpcURI)
-	requireRefused(t, func() error {
-		_, err := client.Search(authCtx(adminKey), searchReq(qualifiedClass, 10))
-		return err
-	})
-}
-
-// restErrMessage reads the message out of either error shape the REST tier
-// produces: the handler's ErrorResponse, or the swagger bind tier's flat object.
-// It returns the whole body when neither shape matches, so a row that fails says
-// what came back.
+// restErrMessage reads the message out of a handler's ErrorResponse or the swagger
+// bind tier's flat object. It returns the whole body when neither matches, so a
+// failing row shows what came back.
 func restErrMessage(body map[string]any) string {
 	if items, ok := body["error"].([]any); ok && len(items) > 0 {
 		if item, ok := items[0].(map[string]any); ok {

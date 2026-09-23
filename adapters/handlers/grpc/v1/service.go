@@ -231,10 +231,11 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 		return nil, err
 	}
 
-	if err := s.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.DELETE, req.Collection, authorization.ShardsData(req.Collection, tenant)...); err != nil {
+	if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.ShardsData(req.Collection, tenant)...); err != nil {
 		return nil, err
 	}
 
+	// classGetterWithAuthzFunc's READ also requires an active namespace, so a missing DELETE is refused first.
 	params, err := batchDeleteParamsFromProto(req, s.classGetterWithAuthzFunc(ctx, principal, tenant), s.qualifier, principal)
 	if err != nil {
 		return nil, fmt.Errorf("batch delete params: %w", err)

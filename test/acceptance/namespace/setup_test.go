@@ -81,11 +81,6 @@ const (
 // groups; a dedicated identity keeps that grant from leaking into other tests.
 const gAdmin, gAdminKey = "gadmin", "gadmin-key"
 
-// gNoRole is a global static-key operator no test ever binds a role to, so a row
-// asserting a denial cannot be raced by a parallel test's runtime grant. gAdmin,
-// gCaller and gTarget each take one from a parallel test.
-const gNoRole, gNoRoleKey = "gnorole", "gnorole-key"
-
 var sharedCompose *docker.DockerCompose
 
 func TestMain(m *testing.M) {
@@ -105,7 +100,6 @@ func TestMain(m *testing.M) {
 		WithUserApiKey(gCaller, gCallerKey).
 		WithUserApiKey(gTarget, gTargetKey).
 		WithUserApiKey(gAdmin, gAdminKey).
-		WithUserApiKey(gNoRole, gNoRoleKey).
 		WithRbacRoots(adminUser).
 		WithDbUsers().
 		WithNamespaces().

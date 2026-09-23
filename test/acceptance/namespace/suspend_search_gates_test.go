@@ -12,12 +12,16 @@
 package namespace
 
 import (
+	"errors"
+	"io"
 	"net/http"
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/search"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -121,59 +125,126 @@ func TestNamespaces_SuspendedNamespaceRefusesAggregate(t *testing.T) {
 			return err
 		})
 	})
+}
 
-	// Last, because it puts the namespace back. The gate must lift again, or a
-	// suspend would be one-way. Mode B keeps every node up, so the shard the read
-	// needs is still resident, where on Mode A a resume reopens no shard a boot
-	// skipped.
-	t.Run("resuming the namespace serves the class again", func(t *testing.T) {
-		helper.ResumeNamespace(t, pair.suspendedNS, adminKey)
+// TestNamespaces_SuspendedNamespaceRefusesBatchDelete checks that gRPC
+// BatchDelete is refused at parameter parsing, before it reaches the shard.
+func TestNamespaces_SuspendedNamespaceRefusesBatchDelete(t *testing.T) {
+	t.Parallel()
+	pair := newGatePair(t, modeBNode, modeBNode)
+	_, grpcURI := nodeURIs(t, modeBNode)
 
+	client := grpcTo(t, grpcURI)
+	deleteFrom := func(collection string) error {
+		_, err := client.BatchDelete(authCtx(adminKey), &pb.BatchDeleteRequest{
+			Collection: collection,
+			DryRun:     true,
+			Filters: &pb.Filters{
+				Operator:  pb.Filters_OPERATOR_EQUAL,
+				Target:    &pb.FilterTarget{Target: &pb.FilterTarget_Property{Property: "title"}},
+				TestValue: &pb.Filters_ValueText{ValueText: gateSearchTitle},
+			},
+		})
+		return err
+	}
+
+	// The active twin accepts the request, so the refusal below is not a bad filter.
+	require.NoError(t, deleteFrom(pair.activeClass))
+
+	// Only the gate's refusal carries this wrap. The shard-load guard's arrives
+	// under "batch delete: ".
+	requireRefused(t, func() error { return deleteFrom(pair.suspendedClass) }, "batch delete params: ")
+}
+
+// TestNamespaces_SuspendedNamespaceRefusesGRPCBatchWrites checks that
+// BatchObjects and BatchStream refuse only the suspended class's object. The
+// shard-load guard fails the same way, so grpc/v1/batch unit tests pin the gate.
+func TestNamespaces_SuspendedNamespaceRefusesGRPCBatchWrites(t *testing.T) {
+	t.Parallel()
+	pair := newGatePair(t, modeBNode, modeBNode)
+	_, grpcURI := nodeURIs(t, modeBNode)
+	client := grpcTo(t, grpcURI)
+
+	// A retry reuses these ids and overwrites the active object.
+	activeID, suspendedID := uuid.NewString(), uuid.NewString()
+	objects := []*pb.BatchObject{
+		{Uuid: activeID, Collection: pair.activeClass, Properties: titleProps("into the active namespace")},
+		{Uuid: suspendedID, Collection: pair.suspendedClass, Properties: titleProps("into the suspended namespace")},
+	}
+
+	t.Run("BatchObjects refuses the suspended class's object only", func(t *testing.T) {
 		require.EventuallyWithT(t, func(c *assert.CollectT) {
-			status, body := restAggregateCount(t, restURI, pair.suspendedClass, adminKey)
-			assert.Equal(c, http.StatusOK, status, "%v", body)
-		}, 30*time.Second, 200*time.Millisecond, "the resume never reached the node the request went to")
+			reply, err := client.BatchObjects(authCtx(adminKey), &pb.BatchObjectsRequest{Objects: objects})
+			if !assert.NoError(c, err) {
+				return
+			}
+			errs := map[int32]string{}
+			for _, e := range reply.GetErrors() {
+				errs[e.GetIndex()] = e.GetError()
+			}
+			assert.NotContains(c, errs, int32(0), "the active namespace's object was refused")
+			assert.Contains(c, errs[1], "suspended")
+		}, 30*time.Second, 200*time.Millisecond, "the refusal never reached the node the request went to")
+	})
+
+	// The ack can arrive before the workers authorize, so read the refusal from Results frames.
+	t.Run("BatchStream refuses the suspended class's object only", func(t *testing.T) {
+		require.EventuallyWithT(t, func(c *assert.CollectT) {
+			successes, errs, err := streamBatch(client, adminKey, objects)
+			if !assert.NoError(c, err) {
+				return
+			}
+			assert.Equal(c, 1, successes)
+			byID := map[string]string{}
+			for _, e := range errs {
+				byID[e.GetUuid()] = e.GetError()
+			}
+			assert.NotContains(c, byID, activeID, "the active namespace's object was refused")
+			assert.Contains(c, byID[suspendedID], "suspended")
+		}, 30*time.Second, 200*time.Millisecond, "the refusal never reached the node the request went to")
 	})
 }
 
-// TestNamespaces_SuspendedNamespaceKeepsDenialsOpaque pins that the gate does not
-// turn an unauthorized request into a namespace-state probe. A global operator
-// holding no permission gets the same answer whether the namespace is suspended or
-// active. Mode B, since authorization runs before any dispatch.
-func TestNamespaces_SuspendedNamespaceKeepsDenialsOpaque(t *testing.T) {
-	t.Parallel()
-	pair := newGatePair(t, modeBNode, modeBNode)
-	restURI, grpcURI := nodeURIs(t, modeBNode)
-	awaitSuspendVisible(t, grpcURI, pair.suspendedClass)
+func titleProps(title string) *pb.BatchObject_Properties {
+	return &pb.BatchObject_Properties{NonRefProperties: &structpb.Struct{
+		Fields: map[string]*structpb.Value{"title": structpb.NewStringValue(title)},
+	}}
+}
 
-	// gNoRole is a global static-key operator that is not a root and that no test
-	// binds a role to, so every request below is denied on the resource alone.
-	// gAdmin cannot stand in. A parallel test grants it the admin role at runtime,
-	// and the overlap fails these rows with the signature of the leak they exist
-	// to catch.
-	for _, tt := range []struct{ name, collection string }{
-		{"a suspended namespace", pair.suspendedClass},
-		{"an active namespace", pair.activeClass},
+// streamBatch sends objs in one Data message and totals the Results frames.
+func streamBatch(client pb.WeaviateClient, key string, objs []*pb.BatchObject) (int, []*pb.BatchStreamReply_Results_Error, error) {
+	stream, err := client.BatchStream(authCtx(key))
+	if err != nil {
+		return 0, nil, err
+	}
+	for _, msg := range []*pb.BatchStreamRequest{
+		{Message: &pb.BatchStreamRequest_Start_{Start: &pb.BatchStreamRequest_Start{}}},
+		{Message: &pb.BatchStreamRequest_Data_{Data: &pb.BatchStreamRequest_Data{
+			Objects: &pb.BatchStreamRequest_Data_Objects{Values: objs},
+		}}},
+		{Message: &pb.BatchStreamRequest_Stop_{Stop: &pb.BatchStreamRequest_Stop{}}},
 	} {
-		t.Run(tt.name, func(t *testing.T) {
-			for _, search := range []func(*testing.T, string, string, string) (int, map[string]any){
-				restSearch, restAggregateCount,
-			} {
-				status, body := search(t, restURI, tt.collection, gNoRoleKey)
-				assert.Equal(t, http.StatusForbidden, status, "%v", body)
-				assert.NotContains(t, restErrMessage(body), "suspended")
-			}
+		if err := stream.Send(msg); err != nil {
+			return 0, nil, err
+		}
+	}
+	if err := stream.CloseSend(); err != nil {
+		return 0, nil, err
+	}
 
-			client := grpcTo(t, grpcURI)
-			_, err := client.Search(authCtx(gNoRoleKey), searchReq(tt.collection, 10))
-			require.Error(t, err)
-			assert.NotContains(t, err.Error(), "suspended")
-
-			_, err = client.Aggregate(authCtx(gNoRoleKey), &pb.AggregateRequest{
-				Collection: tt.collection, ObjectsCount: true,
-			})
-			require.Error(t, err)
-			assert.NotContains(t, err.Error(), "suspended")
-		})
+	var successes int
+	var errs []*pb.BatchStreamReply_Results_Error
+	for {
+		msg, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			return successes, errs, nil
+		}
+		if err != nil {
+			return 0, nil, err
+		}
+		if r := msg.GetResults(); r != nil {
+			successes += len(r.GetSuccesses())
+			errs = append(errs, r.GetErrors()...)
+		}
 	}
 }

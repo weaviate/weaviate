@@ -45,8 +45,8 @@ func (e *Error) Unwrap() error {
 	return e.Err
 }
 
-// gateErr renders a non-nil error from AuthorizeAndRequireActiveNamespace. An
-// autherrs.Forbidden answers 403, everything else 422. It cannot test the
+// gateErr renders an authorizer error in a method that checks namespace state.
+// An autherrs.Forbidden answers 403, everything else 422. It cannot test the
 // namespace sentinel instead, because usecases/namespaces imports this package.
 func gateErr(err error) *Error {
 	code := StatusUnprocessableEntity

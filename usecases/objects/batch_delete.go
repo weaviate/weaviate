@@ -43,7 +43,7 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 		class = match.Class
 	}
 
-	err := b.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.DELETE, class, authorization.ShardsData(class, tenant)...)
+	err := b.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.ShardsData(class, tenant)...)
 	if err != nil {
 		return nil, err
 	}
@@ -146,11 +146,16 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 		return nil, 0, NewErrInvalidUserInput("empty match.where clause")
 	}
 
-	// GetCachedClass authorizes READ; preserve Forbidden (→ 403), classify
-	// other lookup failures as caller input (→ 422).
-	vclasses, err := b.schemaManager.GetCachedClass(ctx, principal, match.Class)
+	// This is the READ GetCachedClassNoAuth skips. Its error returns unwrapped, so
+	// REST answers 403 for a Forbidden and 422 for a namespace refusal.
+	if err := b.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.READ, match.Class, authorization.CollectionsMetadata(match.Class)...); err != nil {
+		return nil, 0, err
+	}
+
+	// A lookup failure here is caller input (→ 422), not a fault.
+	vclasses, err := b.schemaManager.GetCachedClassNoAuth(ctx, match.Class)
 	if err != nil {
-		return nil, 0, userInputOrForbidden(fmt.Errorf("failed to get class: %s: %w", match.Class, err))
+		return nil, 0, NewErrInvalidUserInput("failed to get class: %s: %v", match.Class, err)
 	}
 	if vclasses[match.Class].Class == nil {
 		return nil, 0, NewErrInvalidUserInput("failed to get class: %s", match.Class)

@@ -138,11 +138,8 @@ func TestNamespaces_SuspendedNamespaceRefusesObjectRequests(t *testing.T) {
 		})
 	})
 
-	// Two classes, one of them suspended. Without the gate a batch reports
-	// per-object failures inside a 200, so a row asserting only that something
-	// went wrong passes either way. With the gate the whole request is refused
-	// before any object is written. Which class the error names is not asserted:
-	// batch_add.go ranges a map, so the one reported first varies.
+	// Without the gate this batch answers 200 with a per-object failure for the
+	// suspended class. With it, the whole request is refused before any write.
 	t.Run("a REST batch naming the suspended class is refused as a whole", func(t *testing.T) {
 		requireRESTRefusedAs(t, http.StatusUnprocessableEntity, func() (int, map[string]any) {
 			return requestJSON(t, http.MethodPost, restURI, "/v1/batch/objects", adminKey,

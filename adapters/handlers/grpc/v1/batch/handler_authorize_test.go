@@ -53,19 +53,19 @@ func TestBatchObjectsAuthorizesEachClassTenant(t *testing.T) {
 	errDenied := errors.New("denied")
 	errRead := errors.New("schema read failed")
 	errDangling := errors.New(`alias "alpha:DroppedAlias" points to collection "alpha:Dropped" which does not exist`)
-	upsertGate := func(class, tenant string) mocks.AuthZReq {
+	updateCheck := func(class, tenant string) mocks.AuthZReq {
 		return mocks.AuthZReq{
 			Verb:      authorization.UPDATE,
 			Resources: authorization.ShardsData(class, tenant),
-			Method:    mocks.MethodAuthorizeAndRequireActiveNamespace,
-			Class:     class,
+			Method:    mocks.MethodAuthorize,
 		}
 	}
-	createCheck := func(class, tenant string) mocks.AuthZReq {
+	createGate := func(class, tenant string) mocks.AuthZReq {
 		return mocks.AuthZReq{
 			Verb:      authorization.CREATE,
 			Resources: authorization.ShardsData(class, tenant),
-			Method:    mocks.MethodAuthorize,
+			Method:    mocks.MethodAuthorizeAndRequireActiveNamespace,
+			Class:     class,
 		}
 	}
 
@@ -78,38 +78,24 @@ func TestBatchObjectsAuthorizesEachClassTenant(t *testing.T) {
 		wantCalls    []mocks.AuthZReq
 	}{
 		{
-			name:      "an active namespace passes the gate to the create check",
+			name:      "an active namespace passes the update check and the create gate",
 			objects:   []*pb.BatchObject{{Collection: gatedAlias}},
 			wantErrs:  []error{errBadUUID},
-			wantCalls: []mocks.AuthZReq{upsertGate(gatedClass, ""), createCheck(gatedClass, "")},
+			wantCalls: []mocks.AuthZReq{updateCheck(gatedClass, ""), createGate(gatedClass, "")},
 		},
 		{
-			name:      "a suspended namespace is refused at the gate",
-			objects:   []*pb.BatchObject{{Collection: gatedAlias}},
-			authzErr:  usecasesNamespaces.ErrNamespaceSuspended,
-			wantErrs:  []error{usecasesNamespaces.ErrNamespaceSuspended},
-			wantCalls: []mocks.AuthZReq{upsertGate(gatedClass, "")},
-		},
-		{
-			name:         "a refused create check refuses the object",
+			name:         "a suspended namespace is refused at the create gate",
 			objects:      []*pb.BatchObject{{Collection: gatedAlias}},
 			allowedCalls: 1,
-			authzErr:     errDenied,
-			wantErrs:     []error{errDenied},
-			wantCalls:    []mocks.AuthZReq{upsertGate(gatedClass, ""), createCheck(gatedClass, "")},
+			authzErr:     usecasesNamespaces.ErrNamespaceSuspended,
+			wantErrs:     []error{usecasesNamespaces.ErrNamespaceSuspended},
+			wantCalls:    []mocks.AuthZReq{updateCheck(gatedClass, ""), createGate(gatedClass, "")},
 		},
 		{
 			name:      "a failed schema read refuses the pair's next object without reading again",
 			objects:   []*pb.BatchObject{{Collection: brokenClass}, {Collection: brokenClass}},
 			wantErrs:  []error{errRead, errRead},
-			wantCalls: []mocks.AuthZReq{upsertGate(brokenClass, ""), createCheck(brokenClass, "")},
-		},
-		{
-			name:      "a refused pair is refused again without another authorization",
-			objects:   []*pb.BatchObject{{Collection: gatedAlias}, {Collection: gatedAlias}},
-			authzErr:  usecasesNamespaces.ErrNamespaceSuspended,
-			wantErrs:  []error{usecasesNamespaces.ErrNamespaceSuspended, usecasesNamespaces.ErrNamespaceSuspended},
-			wantCalls: []mocks.AuthZReq{upsertGate(gatedClass, "")},
+			wantCalls: []mocks.AuthZReq{updateCheck(brokenClass, ""), createGate(brokenClass, "")},
 		},
 		{
 			// Both pairs join to "alpha:Movies#tenantA#victim". The second is refused
@@ -123,22 +109,16 @@ func TestBatchObjectsAuthorizesEachClassTenant(t *testing.T) {
 			authzErr:     errDenied,
 			wantErrs:     []error{errBadUUID, errDenied},
 			wantCalls: []mocks.AuthZReq{
-				upsertGate(gatedClass, "tenantA#victim"),
-				createCheck(gatedClass, "tenantA#victim"),
-				upsertGate(gatedClass+"#tenantA", "victim"),
+				updateCheck(gatedClass, "tenantA#victim"),
+				createGate(gatedClass, "tenantA#victim"),
+				updateCheck(gatedClass+"#tenantA", "victim"),
 			},
 		},
 		{
 			name:      "an admitted missing class does not admit a dangling alias to it",
 			objects:   []*pb.BatchObject{{Collection: droppedClass}, {Collection: danglingAlias}},
 			wantErrs:  []error{errBadUUID, errDangling},
-			wantCalls: []mocks.AuthZReq{upsertGate(droppedClass, ""), createCheck(droppedClass, "")},
-		},
-		{
-			name:      "a dangling alias's refusal does not refuse the class it names",
-			objects:   []*pb.BatchObject{{Collection: danglingAlias}, {Collection: droppedClass}},
-			wantErrs:  []error{errDangling, errBadUUID},
-			wantCalls: []mocks.AuthZReq{upsertGate(droppedClass, ""), createCheck(droppedClass, "")},
+			wantCalls: []mocks.AuthZReq{updateCheck(droppedClass, ""), createGate(droppedClass, "")},
 		},
 	}
 

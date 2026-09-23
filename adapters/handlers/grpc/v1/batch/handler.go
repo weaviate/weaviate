@@ -151,11 +151,13 @@ func errorMessage(principal *models.Principal, err error) string {
 
 func (h *Handler) authorizeObjectsWrite(ctx context.Context, principal *models.Principal, classname, shard string) (versioned.Class, error) {
 	// batch is upsert
-	if err := h.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, classname, authorization.ShardsData(classname, shard)...); err != nil {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(classname, shard)...); err != nil {
 		return versioned.Class{}, err
 	}
 
-	if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(classname, shard)...); err != nil {
+	// Only CREATE also requires an active namespace, so a caller missing either permission
+	// gets a Forbidden in any namespace state.
+	if err := h.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.CREATE, classname, authorization.ShardsData(classname, shard)...); err != nil {
 		return versioned.Class{}, err
 	}
 
