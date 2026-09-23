@@ -33,7 +33,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storagestate"
-	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -71,7 +70,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	shutCtx, shutCtxCancel := context.WithCancelCause(context.Background())
-	shardLogger := index.logger.WithField("shard", shardName)
 
 	s := &Shard{
 		index:       index,
@@ -81,11 +79,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		metrics:     metrics,
 		slowQueryReporter: helpers.NewSlowQueryReporter(index.Config.QuerySlowLogEnabled,
 			index.Config.QuerySlowLogThreshold, index.logger),
-		secondResolveSampler: logrusext.NewSampler(shardLogger, 1, secondResolveLogWindow),
-		replicationMap:       pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
-		centralJobQueue:      jobQueueCh,
-		scheduler:            scheduler,
-		indexCheckpoints:     indexCheckpoints,
+		replicationMap:   pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
+		centralJobQueue:  jobQueueCh,
+		scheduler:        scheduler,
+		indexCheckpoints: indexCheckpoints,
 
 		shutdownLock:  new(sync.RWMutex),
 		shutCtx:       shutCtx,

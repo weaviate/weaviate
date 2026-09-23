@@ -415,17 +415,6 @@ func shardsAtTheResolveLimit(t *testing.T, repo *DB, className string, limit int
 	return atLimit
 }
 
-// secondResolveLogged returns whether the hook saw the line the shard writes when it had
-// to resolve the filter a second time with no cap.
-func secondResolveLogged(hook *test.Hook) bool {
-	for _, entry := range hook.AllEntries() {
-		if entry.Data["action"] == "find_uuids_second_resolve" {
-			return true
-		}
-	}
-	return false
-}
-
 func batchDeleteMatchAllParams(dryRun bool) objects.BatchDeleteParams {
 	return batchDeleteParams(batchDeleteMatchAllClause(), dryRun)
 }
@@ -520,16 +509,9 @@ func newBatchDeleteRepoAt(t *testing.T, rootDir string, class *models.Class,
 
 // TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot pins that a doc id whose object row is
 // gone while the inverted postings still name it costs a read and not one of the caller's
-// limit slots. A leaf allow-list filter is the shape the bounded resolve truncates: the
-// searcher stops the row reader once the allow list reaches the limit it was given
-// (inverted/searcher_doc_bitmap.go:96), so a dead id inside a window that short leaves
-// the walk nothing to retry against and the reply lands on exactly limit, which the
-// published contract reads as "exact, everything handled". The resolve is then run again
-// with no cap, and only then.
-//
-// The last case is the other side of that rule: a shard that matched fewer objects than
-// the limit was never truncated, so a short reply there is the whole answer and running
-// the filter a second time would buy nothing.
+// limit slots. Were the filter resolved capped at the limit, a dead id inside that window
+// would leave the reply at exactly limit, which the published contract reads as "exact,
+// everything handled".
 func TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -540,59 +522,44 @@ func TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot(t *testing.T) {
 		dropRows    int
 		wantMatches int64
 		wantHandled int
-		// wantSecondResolve is whether the shard had to resolve the filter a second time
-		// with no cap to answer, which it reports on its own info line.
-		wantSecondResolve bool
 	}{
 		{
-			name:              "leaf allow-list filter with one dead doc id in the window",
-			params:            batchDeleteMatchAllParams,
-			objectCount:       30,
-			dropRows:          1,
-			wantMatches:       batchDeleteLimit + 1,
-			wantHandled:       int(batchDeleteLimit),
-			wantSecondResolve: true,
+			name:        "leaf allow-list filter with one dead doc id in the window",
+			params:      batchDeleteMatchAllParams,
+			objectCount: 30,
+			dropRows:    1,
+			wantMatches: batchDeleteLimit + 1,
+			wantHandled: int(batchDeleteLimit),
 		},
 		{
-			// Three dead ids leave the bounded pass at 8 of 11, so the uncapped pass is
-			// what carries the reply back to a full window.
-			name:              "leaf allow-list filter with several dead doc ids in the window",
-			params:            batchDeleteMatchAllParams,
-			objectCount:       30,
-			dropRows:          3,
-			wantMatches:       batchDeleteLimit + 1,
-			wantHandled:       int(batchDeleteLimit),
-			wantSecondResolve: true,
+			name:        "leaf allow-list filter with several dead doc ids in the window",
+			params:      batchDeleteMatchAllParams,
+			objectCount: 30,
+			dropRows:    3,
+			wantMatches: batchDeleteLimit + 1,
+			wantHandled: int(batchDeleteLimit),
 		},
 		{
-			// A deny list resolves against the whole doc id universe rather than a
-			// truncated allow list, so the walk reaches a full window past the dead id on
-			// the first pass and the second resolve would buy nothing.
-			name:              "deny-list filter",
-			params:            batchDeleteDenyListParams,
-			objectCount:       30,
-			dropRows:          1,
-			wantMatches:       batchDeleteLimit + 1,
-			wantHandled:       int(batchDeleteLimit),
-			wantSecondResolve: false,
+			// A deny list resolves against the doc id universe, which still holds the
+			// dead id until a walk prunes it.
+			name:        "deny-list filter",
+			params:      batchDeleteDenyListParams,
+			objectCount: 30,
+			dropRows:    1,
+			wantMatches: batchDeleteLimit + 1,
+			wantHandled: int(batchDeleteLimit),
 		},
 		{
-			// An And root is the common production filter shape and takes a different
-			// path: inverted/prop_value_pairs.go:142 resolves a compound root with the
-			// limit dropped, so the allow list is complete and the walk reaches a full
-			// window past the dead id on the first pass. Nothing was truncated, so the
-			// second resolve would buy nothing, and the condition has to see that.
-			name:              "compound root with one dead doc id",
-			params:            batchDeleteAndRootParams,
-			objectCount:       30,
-			dropRows:          1,
-			wantMatches:       batchDeleteLimit + 1,
-			wantHandled:       int(batchDeleteLimit),
-			wantSecondResolve: false,
+			name:        "compound root with one dead doc id",
+			params:      batchDeleteAndRootParams,
+			objectCount: 30,
+			dropRows:    1,
+			wantMatches: batchDeleteLimit + 1,
+			wantHandled: int(batchDeleteLimit),
 		},
 		{
-			// Five matches never fill the window, so nothing was truncated and the reply
-			// is short because one object is genuinely gone.
+			// Five matches never fill the window, so the reply is short because one
+			// object is genuinely gone.
 			name:        "fewer matches than the limit with one of them dead",
 			params:      batchDeleteMatchAllParams,
 			objectCount: 5,
@@ -618,22 +585,18 @@ func TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot(t *testing.T) {
 				dropObjectRow(t, repo, batchDeleteClassName, before.Objects[i].UUID)
 			}
 
-			hook := batchDeleteLogs(t, repo)
 			after, err := repo.BatchDeleteObjects(ctx, tt.params(true), time.Now(), nil, "", 0)
 			require.NoError(t, err)
 			require.Equal(t, tt.wantMatches, after.Matches,
 				"%d objects still match", tt.objectCount-tt.dropRows)
 			require.Len(t, after.Objects, tt.wantHandled)
-			require.Equal(t, tt.wantSecondResolve, secondResolveLogged(hook),
-				"the uncapped resolve is what an operator pays for and the only place it is visible")
 		})
 	}
 }
 
 // TestBatchDeleteObjects_UnreadableRowDoesNotBurnASlot is the dead doc id case for a row
-// that is there but carries no readable id. The resolve skips it like a missing row, so in a
-// window the searcher cut off at the limit it costs a slot the same way, and without the
-// uncapped resolve the reply would land on exactly limit with more objects still matching.
+// that is there but carries no readable id. The walk skips it like a missing row and reads
+// on to the next match, so the reply still reaches limit + 1, and the skip is reported once.
 func TestBatchDeleteObjects_UnreadableRowDoesNotBurnASlot(t *testing.T) {
 	ctx := context.Background()
 	const objectCount = 30
@@ -651,7 +614,6 @@ func TestBatchDeleteObjects_UnreadableRowDoesNotBurnASlot(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, batchDeleteLimit+1, after.Matches, "%d readable objects still match", objectCount-1)
 	require.Len(t, after.Objects, int(batchDeleteLimit))
-	require.True(t, secondResolveLogged(hook))
 
 	warns := 0
 	for _, entry := range hook.AllEntries() {
@@ -659,40 +621,52 @@ func TestBatchDeleteObjects_UnreadableRowDoesNotBurnASlot(t *testing.T) {
 			warns++
 		}
 	}
-	require.Equal(t, 1, warns, "the skip is reported once per call, not once per pass")
+	require.Equal(t, 1, warns, "the skip is reported once per call, not once per doc id")
 }
 
-// TestBatchDeleteObjects_SamplesTheSecondResolveLine pins the rate on the line the shard
-// writes when it resolves twice. The condition behind that line does not clear itself: the
-// dropped row below leaves a doc id whose object is gone inside the first window of every
-// later call, so without a rate the objects TTL sweep would write the line on every batch
-// of every cycle until the shard is reopened.
-func TestBatchDeleteObjects_SamplesTheSecondResolveLine(t *testing.T) {
-	ctx := context.Background()
-	const calls = 20
-
-	repo := newBatchDeleteRepo(t, batchDeleteTestClass(false), singleShardState(), batchDeleteLimit)
-	simpleInsertObjectsForTenant(t, repo, batchDeleteClassName, "", 30)
-
-	before, err := repo.BatchDeleteObjects(ctx, batchDeleteMatchAllParams(true), time.Now(), nil, "", 0)
-	require.NoError(t, err)
-	require.NotEmpty(t, before.Objects)
-	dropObjectRow(t, repo, batchDeleteClassName, before.Objects[0].UUID)
-
-	hook := batchDeleteLogs(t, repo)
-	for i := 0; i < calls; i++ {
-		_, err := repo.BatchDeleteObjects(ctx, batchDeleteMatchAllParams(true), time.Now(), nil, "", 0)
-		require.NoError(t, err)
+// TestFindUUIDs_ResolvesTheFilterOnce pins that a call runs the inverted resolve once,
+// counted through the per-leaf entries the searcher appends to the slow query details.
+// Dead doc ids inside the first limit matches are the shape that could tempt a second,
+// uncapped resolve; a positive filter's postings keep naming them, since pruning only
+// touches the deny-list universe, so a second resolve would be paid on every call.
+func TestFindUUIDs_ResolvesTheFilterOnce(t *testing.T) {
+	tests := []struct {
+		name     string
+		params   func(dryRun bool) objects.BatchDeleteParams
+		dropRows int
+	}{
+		{name: "leaf allow-list filter, no dead doc id", params: batchDeleteMatchAllParams},
+		{name: "leaf allow-list filter, one dead doc id in the window", params: batchDeleteMatchAllParams, dropRows: 1},
+		{name: "leaf allow-list filter, several dead doc ids in the window", params: batchDeleteMatchAllParams, dropRows: 3},
+		{name: "deny-list filter, one dead doc id", params: batchDeleteDenyListParams, dropRows: 1},
 	}
 
-	lines := 0
-	for _, entry := range hook.AllEntries() {
-		if entry.Data["action"] == "find_uuids_second_resolve" {
-			lines++
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			repo := newBatchDeleteRepo(t, batchDeleteTestClass(false), singleShardState(), batchDeleteLimit)
+			simpleInsertObjectsForTenant(t, repo, batchDeleteClassName, "", 30)
+
+			before, err := repo.BatchDeleteObjects(ctx, tt.params(true), time.Now(), nil, "", 0)
+			require.NoError(t, err)
+			for i := 0; i < tt.dropRows; i++ {
+				dropObjectRow(t, repo, batchDeleteClassName, before.Objects[i].UUID)
+			}
+
+			shard := loadedShard(t, repo, batchDeleteClassName)
+			limit := perShardResolveLimit(batchDeleteLimit)
+			for call := 0; call < 2; call++ {
+				callCtx := helpers.InitSlowQueryDetails(ctx)
+				uuids, err := shard.FindUUIDs(callCtx, tt.params(true).Filters, limit)
+				require.NoError(t, err)
+				require.Len(t, uuids, limit, "call %d fills the window past the dead ids", call)
+
+				resolves, ok := helpers.ExtractSlowQueryDetails(callCtx)["build_allow_list_doc_bitmap"].([]map[string]any)
+				require.True(t, ok, "call %d: the searcher records each leaf it resolves", call)
+				require.Len(t, resolves, 1, "call %d resolves the filter once", call)
+			}
+		})
 	}
-	require.Equal(t, 1, lines,
-		"%d calls that all took the second resolve must collapse to one line per window", calls)
 }
 
 // TestBatchDeleteObjects_FailsOnAReadError pins the behaviour this change leads its own
@@ -716,8 +690,8 @@ func TestBatchDeleteObjects_FailsOnAReadError(t *testing.T) {
 	failing := &stubDocIDBucket{err: readErr}
 
 	limit := int(batchDeleteLimit)
-	pass, err := shard.resolveAndCollect(ctx, batchDeleteMatchAllParams(true).Filters,
-		limit, limit, failing)
+	pass, err := shard.resolveAndCollectUUIDs(ctx, batchDeleteMatchAllParams(true).Filters,
+		limit, failing)
 	require.ErrorContains(t, err, "resolve uuids")
 	require.ErrorIs(t, err, readErr, "the store's error still reaches the caller")
 	require.Empty(t, pass.uuids, "a failed resolve returns no UUIDs")
