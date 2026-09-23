@@ -22,6 +22,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/semaphore"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	batchMocks "github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -156,57 +158,65 @@ func TestBatchObjectsSemaphore(t *testing.T) {
 	mockBatcher := batchMocks.NewMockBatcher(t)
 	logger := logrus.New()
 
+	entered := make(chan struct{}, 3)
 	done := make(chan struct{})
-	// block to simulate long-running batching request
+	release := sync.OnceFunc(func() { close(done) })
+	t.Cleanup(release)
 	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
-		<-done
-		return &pb.BatchObjectsReply{}, nil
-	}).Times(2)
+		entered <- struct{}{}
+		select {
+		case <-done:
+			return &pb.BatchObjectsReply{}, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	})
 
 	s := &Service{
 		batchObjectsSem: semaphore.NewWeighted(2),
 		batchHandler:    mockBatcher,
+		logger:          logger,
+	}
+
+	waitFor := func(ch <-chan struct{}, what string) {
+		t.Helper()
+		select {
+		case <-ch:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("timed out waiting for %s", what)
+		}
 	}
 
 	wg := &sync.WaitGroup{}
-	barrier := &sync.WaitGroup{}
-	errs := make(chan error, 3)
+	errs := make(chan error, 2)
+	for range 2 {
+		wg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			_, err := s.BatchObjects(context.Background(), &pb.BatchObjectsRequest{})
+			errs <- err
+		}, logger)
+	}
+	waitFor(entered, "the first call to enter the handler")
+	waitFor(entered, "the second call to enter the handler")
+	require.False(t, s.batchObjectsSem.TryAcquire(1), "both slots must be held while two calls are in the handler")
 
-	// acquire sem three times
-	wg.Add(3)
-	barrier.Add(2)
-
-	ctx := context.Background()
-	enterrors.GoWrapper(func() {
-		defer wg.Done()
-		barrier.Done()
-		_, err := s.BatchObjects(ctx, &pb.BatchObjectsRequest{})
-		errs <- err
-	}, logger)
-	enterrors.GoWrapper(func() {
-		defer wg.Done()
-		barrier.Done()
-		_, err := s.BatchObjects(ctx, &pb.BatchObjectsRequest{})
-		errs <- err
-	}, logger)
-
-	ctxTimeout, cancel := context.WithTimeout(ctx, 1*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
+	var err error
+	returned := make(chan struct{})
 	enterrors.GoWrapper(func() {
-		defer func() {
-			wg.Done()
-			close(done)
-		}()
-		barrier.Wait()
-		_, err := s.BatchObjects(ctxTimeout, &pb.BatchObjectsRequest{})
-		errs <- err
+		defer close(returned)
+		_, err = s.BatchObjects(ctx, &pb.BatchObjectsRequest{})
 	}, logger)
+	waitFor(returned, "the third call to give up on its deadline")
 
-	// wait for calls to complete
+	release()
 	wg.Wait()
 
-	// timeout error will return before the other two successful calls
-	require.Error(t, <-errs)
+	mockBatcher.AssertNumberOfCalls(t, "BatchObjects", 2)
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err), "third call must time out waiting for a slot: %v", err)
 	require.NoError(t, <-errs)
 	require.NoError(t, <-errs)
+	require.True(t, s.batchObjectsSem.TryAcquire(2), "both slots must be free once the calls return")
 }

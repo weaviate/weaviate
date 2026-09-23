@@ -297,7 +297,10 @@ func (b *BM25Searcher) generateQueryTermsAndStats(ctx context.Context, class *mo
 		if strings.Contains(propertyWithBoost, "^") {
 			property = strings.Split(propertyWithBoost, "^")[0]
 			boostStr := strings.Split(propertyWithBoost, "^")[1]
-			boost, _ := strconv.ParseFloat(boostStr, 32)
+			boost, err := strconv.ParseFloat(boostStr, 32)
+			if err != nil {
+				return queryTerms{}, queryStats{}, pins, fmt.Errorf("parse boost of property %q: %w", propertyWithBoost, err)
+			}
 			propBoost = float32(boost)
 		}
 		propertyBoosts[property] = propBoost

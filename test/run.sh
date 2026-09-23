@@ -25,6 +25,7 @@ function main() {
   run_acceptance_replica_replication_fast_tests=false
   run_acceptance_replica_replication_slow_tests=false
   run_acceptance_async_replication_tests=false
+  run_acceptance_async_replication_group=""
   run_acceptance_objects=false
   only_acceptance=false
   run_module_tests=false
@@ -105,6 +106,8 @@ function main() {
           --acceptance-only-replica-replication-fast|-aorrf) run_all_tests=false; run_acceptance_replica_replication_fast_tests=true ;;
           --acceptance-only-replica-replication-slow|-aorrs) run_all_tests=false; run_acceptance_replica_replication_slow_tests=true ;;
           --acceptance-only-async-replication|-aoar) run_all_tests=false; run_acceptance_async_replication_tests=true ;;
+          --acceptance-only-async-replication-group-1|-aoar-g1) run_all_tests=false; run_acceptance_async_replication_tests=true; run_acceptance_async_replication_group=1 ;;
+          --acceptance-only-async-replication-group-2|-aoar-g2) run_all_tests=false; run_acceptance_async_replication_tests=true; run_acceptance_async_replication_group=2 ;;
           --acceptance-only-objects|-aoob) run_all_tests=false; run_acceptance_objects=true ;;
           --only-acceptance-*|-oa)run_all_tests=false; only_acceptance=true;only_acceptance_value=$1;;
           --only-module-*|-om)run_all_tests=false; only_module=true;only_module_value=$1;;
@@ -170,6 +173,8 @@ function main() {
               "--acceptance-only-replica-replication-fast | -aorrf"\
               "--acceptance-only-replica-replication-slow | -aorrs"\
               "--acceptance-only-async-replication | -aoar"\
+              "--acceptance-only-async-replication-group-1 | -aoar-g1"\
+              "--acceptance-only-async-replication-group-2 | -aoar-g2"\
               "--acceptance-module-tests-only | --modules-only | -m"\
               "--acceptance-module-tests-only-backup | --modules-backup-only | -mob"\
               "--acceptance-module-tests-except-backup | --modules-except-backup | -meb"\
@@ -1360,10 +1365,19 @@ function run_acceptance_async_replication_tests() {
   # Build once up front and reuse via TEST_WEAVIATE_IMAGE; otherwise each package
   # below rebuilds the image through testcontainers and the second package can
   # exceed the container-start deadline in CI.
-  # offload_abort_async is an async-replication divergence test triggered via
-  # tenant offload; it reuses the same image (the offload-s3 module is compiled in).
+  # CI runs the two groups as separate jobs: group 1 is the packages listed
+  # here, group 2 is everything else, so a new package runs in group 2.
+  local base='test/acceptance/replication/async_replication'
+  local group_1="$base/(repair|offload_abort_async)(/|$)"
+  local all_pkgs
+  all_pkgs=$(go list ./.../ | grep "$base/")
+  local pkgs="$all_pkgs"
+  case "$run_acceptance_async_replication_group" in
+    1) pkgs=$(echo "$all_pkgs" | grep -E "$group_1" || true) ;;
+    2) pkgs=$(echo "$all_pkgs" | grep -vE "$group_1" || true) ;;
+  esac
   build_weaviate_test_image
-  for pkg in $(go list ./.../ | grep -E 'test/acceptance/replication/(async_replication|offload_abort_async)'); do
+  for pkg in $pkgs; do
     if ! go test -timeout=20m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1

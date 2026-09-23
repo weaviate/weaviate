@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -446,21 +447,17 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 				return
 			}
 
-			// Guard against disableAsyncReplication running between the lock
-			// release above and Register() returning. If disable ran in that
-			// window, it called Deregister as a no-op (shard wasn't registered
-			// yet) and set hashtree to nil. Self-deregister now so the disabled
-			// shard is not left in the scheduler. RLock is held across Deregister
-			// to close the TOCTOU window: enableAsyncReplication needs WLock to
-			// set hashtree, so it cannot race between the nil-check and Deregister.
-			s.asyncReplicationRWMux.RLock()
-			stillRunning := s.hashtree != nil
-			if !stillRunning {
+			// Keep the registration only for a ready tree (own or a newer goroutine's, whose Register is idempotent); nil or unready means a flap whose owner registers later, so self-deregister under RLock.
+			func() {
+				s.asyncReplicationRWMux.RLock()
+				defer s.asyncReplicationRWMux.RUnlock() // deferred: a panic while logging must not leak the RLock
+				if s.hashtreeFullyInitialized {
+					return
+				}
 				if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
 					s.index.logger.WithField("action", "async_replication").Error(err)
 				}
-			}
-			s.asyncReplicationRWMux.RUnlock()
+			}()
 		}, s.index.logger)
 		return nil
 	}
@@ -506,8 +503,8 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 				return // context cancelled before a slot became available
 			}
 			// Wrapped in a closure so that releaseHashtreeInitSlot is deferred
-			// and runs even if initHashtree panics (GoWrapper recovers at
-			// the goroutine boundary, after the deferred release fires).
+			// and runs even if initHashtree panics; initHashtree recovers such
+			// a panic and returns it as the attempt error, so the loop retries.
 			err := func() error {
 				defer sched.releaseHashtreeInitSlot()
 				return s.initHashtree(ctx, effectiveConfig, bucket)
@@ -747,6 +744,7 @@ func aggregateHashTreeLeaf(ht hashtree.AggregatedHashTree, height int, uuidBytes
 // initHashtree runs one init attempt: under the write lock it installs a fresh tree, arms the write gate and snapshots the bucket, then folds the snapshot outside the lock.
 // Writers put and fold under one RLock hold, so each write lands entirely before the snapshot (folded by the scan) or entirely after (folded by the writer): never twice, never missed.
 // The tree height is re-derived under that lock, so a height change applied while the attempt was queued is scanned once instead of scanned and then rebuilt.
+// A panic in the scan (the lsmkv replace cursor panics on a corrupt segment or a read error) is a failed attempt, retried with backoff, not an abandoned init.
 func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig, bucket *lsmkv.Bucket) (err error) {
 	// A cancelled attempt is a stop, not an init: keep it out of the counters.
 	if err := ctx.Err(); err != nil {
@@ -759,6 +757,20 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 	s.metrics.IncAsyncReplicationHashTreeInitRunning()
 
 	defer func() {
+		// Registered first, so it recovers last: the gate is already closed and the scan released by the time the attempt is turned into an error.
+		if r := recover(); r != nil {
+			if entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+				panic(r)
+			}
+			err = fmt.Errorf("hashtree init attempt panicked: %v", r)
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Errorf("recovered from panic in hashtree initialization: %v", r)
+			enterrors.PrintStack(s.index.logger)
+		}
+
 		s.metrics.DecAsyncReplicationHashTreeInitRunning()
 
 		if err != nil {
@@ -798,6 +810,8 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 			return false, err
 		}
 		s.hashtree = fresh
+		// A retry after a panic past the success point must not serve its fresh, empty tree as ready.
+		s.hashtreeFullyInitialized = false
 		s.minimalHashtreeInitializationCh = initCh
 		scan = bucket.NewObjectDigestScan()
 		ht = fresh
@@ -838,12 +852,19 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 		return fmt.Errorf("iterating objects: %w", err)
 	}
 
-	s.asyncReplicationRWMux.Lock()
+	stopped = func() bool {
+		s.asyncReplicationRWMux.Lock()
+		defer s.asyncReplicationRWMux.Unlock() // deferred: a panic here must not wedge the shard mutex
 
-	// Bail if a concurrent disable nil-ed the tree or a disable+enable flap replaced
-	// it: finalizing here would mark a different, partially-scanned tree ready.
-	if s.hashtree != ht {
-		s.asyncReplicationRWMux.Unlock()
+		// Bail if a concurrent disable nil-ed the tree or a disable+enable flap replaced
+		// it: finalizing here would mark a different, partially-scanned tree ready.
+		if s.hashtree != ht {
+			return true
+		}
+		s.hashtreeFullyInitialized = true
+		return false
+	}()
+	if stopped {
 		s.index.logger.
 			WithField("action", "async_replication").
 			WithField("class_name", s.class.Class).
@@ -851,9 +872,6 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 			Info("hashtree initialization stopped")
 		return nil
 	}
-
-	s.hashtreeFullyInitialized = true
-	s.asyncReplicationRWMux.Unlock()
 
 	// Register is called outside the write lock: it sends on a channel received
 	// by the dispatcher goroutine, and concurrent object-write goroutines acquire
@@ -870,20 +888,17 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 		if err := s.index.asyncReplicationScheduler.Register(s); err != nil {
 			s.index.logger.WithField("action", "async_replication").Error(err)
 		} else {
-			// Guard against disableAsyncReplication running between the lock release
-			// above and Register() returning. If disable ran in that window, it called
-			// Deregister as a no-op (shard wasn't registered yet) and set hashtree to
-			// nil. Self-deregister now so the disabled shard is not left in the scheduler.
-			// RLock is held across Deregister to close the TOCTOU window: enableAsyncReplication
-			// needs WLock to set hashtree, so it cannot race between the nil-check and Deregister.
-			s.asyncReplicationRWMux.RLock()
-			stillRunning := s.hashtree != nil
-			if !stillRunning {
+			// Keep the registration only for a ready tree (own or a newer goroutine's, whose Register is idempotent); nil or unready means a flap whose owner registers later, so self-deregister under RLock.
+			func() {
+				s.asyncReplicationRWMux.RLock()
+				defer s.asyncReplicationRWMux.RUnlock() // deferred: a panic while logging must not leak the RLock
+				if s.hashtreeFullyInitialized {
+					return
+				}
 				if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
 					s.index.logger.WithField("action", "async_replication").Error(err)
 				}
-			}
-			s.asyncReplicationRWMux.RUnlock()
+			}()
 		}
 	}
 
@@ -1911,10 +1926,10 @@ func (s *Shard) hashBeat(
 	var targetNodeOverridesSnapshot additional.AsyncReplicationTargetNodeOverrides
 
 	s.asyncReplicationRWMux.RLock()
-	if s.hashtree == nil {
+	// Authoritative readiness check: runEntry's snapshot is released before this call, so a rebuild landing in between would otherwise hand hashbeat a partially scanned placeholder.
+	if s.hashtree == nil || !s.hashtreeFullyInitialized {
 		s.asyncReplicationRWMux.RUnlock()
-		// handling the case of a hashtree being explicitly set to nil
-		return nil, fmt.Errorf("hashtree not initialized on shard %q", s.ID())
+		return nil, fmt.Errorf("%w: hashtree not initialized on shard %q", errAsyncReplicationNotActive, s.ID())
 	}
 	ht = s.hashtree
 	cpht = s.asyncCheckpointHashtree
