@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
@@ -40,7 +41,7 @@ type NamespaceRaftGetter interface {
 	ChangeNamespaceState(ctx context.Context, name string, target cmd.NamespaceState) (uint64, error)
 	ChangeNamespaceStateIfUnchanged(ctx context.Context, name string, target cmd.NamespaceState) (uint64, error)
 	GetNamespaces(names ...string) ([]cmd.Namespace, error)
-	StorageCandidates() []string
+	cluster.StorageCandidateLister
 }
 
 type namespaceHandler struct {

@@ -75,6 +75,53 @@ func (_c *MockNodeSelector_AllHostnames_Call) RunAndReturn(run func() []string) 
 	return _c
 }
 
+// AllNames provides a mock function with no fields
+func (_m *MockNodeSelector) AllNames() []string {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for AllNames")
+	}
+
+	var r0 []string
+	if rf, ok := ret.Get(0).(func() []string); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	return r0
+}
+
+// MockNodeSelector_AllNames_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AllNames'
+type MockNodeSelector_AllNames_Call struct {
+	*mock.Call
+}
+
+// AllNames is a helper method to define mock.On call
+func (_e *MockNodeSelector_Expecter) AllNames() *MockNodeSelector_AllNames_Call {
+	return &MockNodeSelector_AllNames_Call{Call: _e.mock.On("AllNames")}
+}
+
+func (_c *MockNodeSelector_AllNames_Call) Run(run func()) *MockNodeSelector_AllNames_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockNodeSelector_AllNames_Call) Return(_a0 []string) *MockNodeSelector_AllNames_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockNodeSelector_AllNames_Call) RunAndReturn(run func() []string) *MockNodeSelector_AllNames_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // AllOtherClusterMembers provides a mock function with given fields: port
 func (_m *MockNodeSelector) AllOtherClusterMembers(port int) map[string]string {
 	ret := _m.Called(port)

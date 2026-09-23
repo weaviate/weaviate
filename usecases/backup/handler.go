@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -155,9 +156,9 @@ type schemaManger interface {
 }
 
 type NodeResolver interface {
-	NodeHostname(nodeName string) (string, bool)
-	AllNames() []string
-	NodeCount() int
+	cluster.HostnameResolver
+	cluster.NodeLister
+	cluster.NodeCounter
 
 	// LeaderID is used to return the current leader ID
 	// It may return empty strings if there is no current leader or the leader is unknown.
