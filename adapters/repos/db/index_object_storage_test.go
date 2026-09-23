@@ -213,7 +213,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 
 				lazyShard, ok := shard.(*LazyLoadShard)
 				require.True(t, ok)
-				loaded, err := lazyShard.Unwrap(ctx)
+				loaded, _, err := lazyShard.loadIfCold(ctx)
 				require.NoError(t, err)
 
 				objectStorageSize, err := loaded.ObjectStorageSize(ctx)
@@ -239,7 +239,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 
 				lazyShard, ok := shard.(*LazyLoadShard)
 				require.True(t, ok)
-				loaded, err := lazyShard.Unwrap(ctx)
+				loaded, _, err := lazyShard.loadIfCold(ctx)
 				require.NoError(t, err)
 
 				objectStorageSize, err := loaded.ObjectStorageSize(ctx)

@@ -50,7 +50,7 @@ func loadTestShard(t *testing.T, index *Index) (string, *Shard) {
 	})
 	entry := index.shards.Load(name)
 	require.NotNil(t, entry)
-	shard, err := entry.(*LazyLoadShard).Unwrap(context.Background())
+	shard, _, err := entry.(*LazyLoadShard).loadIfCold(context.Background())
 	require.NoError(t, err)
 	return name, shard
 }

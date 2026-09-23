@@ -115,12 +115,13 @@ func TestLazyLoadShard_InheritsResourcePressureOnLoad(t *testing.T) {
 			cold := f.coldShard(t)
 
 			f.repo.diskUseReadonly(tt.du)
-			require.NoError(t, cold.Load(ctx))
+			_, _, err := cold.loadIfCold(ctx)
+			require.NoError(t, err)
 
 			assert.Equal(t, tt.wantStatus, cold.GetStatus())
 			assert.Equal(t, tt.wantReason, cold.GetStatusReason())
 
-			err := cold.PutObject(ctx, testObject(f.className))
+			err = cold.PutObject(ctx, testObject(f.className))
 			if tt.wantReadOnly {
 				require.ErrorContains(t, err, "store is read-only",
 					"a shard loaded under resource pressure must reject writes")
@@ -190,7 +191,8 @@ func TestLazyLoadShard_InheritedReadOnlyRecovers(t *testing.T) {
 	cold := f.coldShard(t)
 
 	f.repo.diskUseReadonly(diskUse{total: 100, free: 5, avail: 5})
-	require.NoError(t, cold.Load(ctx))
+	_, _, err := cold.loadIfCold(ctx)
+	require.NoError(t, err)
 	require.Equal(t, storagestate.StatusReadOnly, cold.GetStatus())
 
 	mon := newTestMemMonitor(0, 100)
@@ -559,7 +561,8 @@ func TestLazyLoadShard_NoInheritanceAfterRecovery(t *testing.T) {
 	mon := newTestMemMonitor(0, 100)
 	f.repo.resourceUseRecovery(mon, diskUse{total: 100, free: 50, avail: 50})
 
-	require.NoError(t, cold.Load(ctx))
+	_, _, err := cold.loadIfCold(ctx)
+	require.NoError(t, err)
 
 	assert.Equal(t, storagestate.StatusReady, cold.GetStatus())
 	require.NoError(t, cold.PutObject(ctx, testObject(f.className)))

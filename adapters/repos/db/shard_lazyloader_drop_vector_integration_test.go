@@ -94,7 +94,8 @@ func newLazyDropTenant(t *testing.T) (lazy *LazyLoadShard, reload func() *LazyLo
 	}
 
 	lazy = reload()
-	require.NoError(t, lazy.Load(ctx))
+	_, _, err := lazy.loadIfCold(ctx)
+	require.NoError(t, err)
 	for i := 0; i < objects; i++ {
 		require.NoError(t, lazy.PutObject(ctx, &storobj.Object{
 			MarshallerVersion: 1,
@@ -130,7 +131,8 @@ func requireTenantReloads(t *testing.T, lazy *LazyLoadShard, reload func() *Lazy
 		"the teardown failed: the drop removed the vector's files from disk while the store "+
 			"still held them, so its flush wrote into directories that were gone")
 	again := reload()
-	require.NoError(t, again.Load(t.Context()), "the tenant cannot be loaded again")
+	_, _, err := again.loadIfCold(t.Context())
+	require.NoError(t, err, "the tenant cannot be loaded again")
 	require.NoError(t, again.Shutdown(t.Context()))
 }
 

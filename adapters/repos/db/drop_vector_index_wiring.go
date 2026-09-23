@@ -48,7 +48,7 @@ func (db *DB) EditOpBucketsForShards(ctx context.Context, collection string, sha
 			continue
 		}
 		if lazy, ok := s.(*LazyLoadShard); ok {
-			if err := lazy.Load(ctx); err != nil {
+			if _, _, err := lazy.loadIfCold(ctx); err != nil {
 				db.logger.WithField("collection", collection).WithField("shard", name).
 					WithFields(enterrors.DocsLinkFields(err)).
 					Warnf("drop-vector: load lazy shard: %v", err)

@@ -218,7 +218,8 @@ func TestShardRegistrationSplitsLoadedFromUnloaded(t *testing.T) {
 
 			shard := h.repo.GetIndex(className).shards.Load(shardName)
 			if lazyShard, ok := shard.(*LazyLoadShard); ok {
-				require.NoError(t, lazyShard.Load(ctx))
+				_, _, err := lazyShard.loadIfCold(ctx)
+				require.NoError(t, err)
 			}
 
 			require.Equal(t, tt.afterAccess, h.gaugesFor(tt.registration))
@@ -288,7 +289,8 @@ func TestShardRemovalStopsCountingIt(t *testing.T) {
 
 			if tt.loadFirst {
 				shard := h.repo.GetIndex(className).shards.Load(shardName)
-				require.NoError(t, shard.(*LazyLoadShard).Load(ctx))
+				_, _, err := shard.(*LazyLoadShard).loadIfCold(ctx)
+				require.NoError(t, err)
 				require.Equal(t, shardGauges{loaded: 1}, h.gauges())
 			}
 
@@ -421,7 +423,8 @@ func TestDropStopsCountingTheShard(t *testing.T) {
 			name: "a loaded shard",
 			prepare: func(t *testing.T, h *shardMetricsHarness, shardName string) {
 				shard := h.repo.GetIndex(className).shards.Load(shardName)
-				require.NoError(t, shard.(*LazyLoadShard).Load(ctx))
+				_, _, err := shard.(*LazyLoadShard).loadIfCold(ctx)
+				require.NoError(t, err)
 				require.Equal(t, shardGauges{loaded: 1}, h.gauges())
 			},
 		},
@@ -445,7 +448,8 @@ func TestDropStopsCountingTheShard(t *testing.T) {
 			prepare: func(t *testing.T, h *shardMetricsHarness, shardName string) {
 				index := h.repo.GetIndex(className)
 				shard := index.shards.Load(shardName)
-				require.NoError(t, shard.(*LazyLoadShard).Load(ctx))
+				_, _, err := shard.(*LazyLoadShard).loadIfCold(ctx)
+				require.NoError(t, err)
 				// Files removed underneath the shard fail the drop before it
 				// finishes.
 				require.NoError(t, os.RemoveAll(shardPath(index.path(), shardName)))
@@ -632,7 +636,7 @@ func TestLazyLoadShardMetricsLifecycle(t *testing.T) {
 		// Load the shard - this should update metrics:
 		// StartLoadingShard: unloaded--, loading++
 		// FinishLoadingShard: loading--, loaded++
-		err = lazyShard.Load(ctx)
+		_, _, err = lazyShard.loadIfCold(ctx)
 		require.NoError(t, err)
 
 		// After loading, shard should be counted as loaded
@@ -673,7 +677,7 @@ func TestLazyLoadShardMetricsLifecycle(t *testing.T) {
 		lazyShard := shard.(*LazyLoadShard)
 
 		// Load again - should be a no-op since already loaded
-		err = lazyShard.Load(ctx)
+		_, _, err = lazyShard.loadIfCold(ctx)
 		require.NoError(t, err)
 
 		// Metrics should remain unchanged

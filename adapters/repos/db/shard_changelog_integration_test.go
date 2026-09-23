@@ -72,7 +72,7 @@ func setupChangelogTestShard(t *testing.T, ctx context.Context) *Shard {
 	case *Shard:
 		return s
 	case *LazyLoadShard:
-		shard, err := s.Unwrap(ctx)
+		shard, _, err := s.loadIfCold(ctx)
 		require.NoError(t, err, "force-load lazy shard")
 		return shard
 	default:

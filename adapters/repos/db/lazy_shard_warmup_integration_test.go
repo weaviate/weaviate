@@ -315,7 +315,8 @@ func TestLazyShardBackgroundWarmup(t *testing.T) {
 			}
 
 			// Leaving a shard out of the sweep must keep it loadable on demand.
-			require.NoError(t, lazy.Load(ctx))
+			_, _, err := lazy.loadIfCold(ctx)
+			require.NoError(t, err)
 			require.True(t, lazy.isLoaded())
 		})
 	}
@@ -361,7 +362,7 @@ func TestLazyShardBackgroundWarmupSkipsSpendNoTick(t *testing.T) {
 }
 
 // refusingAllocChecker refuses the load attempts listed in refuse, counted from
-// one, and allows the rest. LazyLoadShard.Load asks it before it builds the shard,
+// one, and allows the rest. LazyLoadShard.loadIfCold asks it before it builds the shard,
 // so this fails a load without having to damage anything on disk.
 type refusingAllocChecker struct {
 	mu     sync.Mutex
@@ -533,7 +534,8 @@ func TestLazyShardWarmupSkipsShardWithNothingToWarm(t *testing.T) {
 			defer index.Shutdown(ctx)
 
 			if tt.loadFirst {
-				require.NoError(t, coldWarmupShard(t, index, tenant).Load(ctx))
+				_, _, err := coldWarmupShard(t, index, tenant).loadIfCold(ctx)
+				require.NoError(t, err)
 			}
 
 			shouldWarm, outcome := index.warmupCandidate(tt.asked)
@@ -595,7 +597,8 @@ func TestLazyShardWarmupLoadOutcome(t *testing.T) {
 			defer index.Shutdown(ctx)
 
 			if tt.loadFirst {
-				require.NoError(t, coldWarmupShard(t, index, tenant).Load(ctx))
+				_, _, err := coldWarmupShard(t, index, tenant).loadIfCold(ctx)
+				require.NoError(t, err)
 			}
 
 			outcome, err := index.loadLocalShardIfActive(tt.asked)

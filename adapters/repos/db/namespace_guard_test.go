@@ -561,7 +561,7 @@ func existerWithState(t *testing.T, state api.NamespaceState) namespaces.Exister
 
 // The guard sits above the resident-shard branch, so a shard already in i.shards
 // is refused rather than force-loaded. Seeding a zero-value LazyLoadShard makes
-// that observable: reaching the branch would call Load on it, which cannot
+// that observable: reaching the branch would call loadIfCold on it, which cannot
 // succeed, so a namespace error proves the guard ran first.
 func TestGuardLoadPath(t *testing.T) {
 	const class = "alpha:Product"
@@ -1233,7 +1233,7 @@ func TestMovementCannotStartWhileSuspended(t *testing.T) {
 // Each case is discriminating in its own way. Without a resident shard and with
 // ensureInit false the function otherwise returns no shard and no error, so a
 // refusal there is red if the guard moves into the ensureInit branch. With a
-// resident zero-value LazyLoadShard, reaching preventShutdown panics on Load, so
+// resident zero-value LazyLoadShard, reaching preventShutdown panics on loadIfCold, so
 // a namespace error rather than a panic is what proves the guard ran first. With
 // a resident loaded shard there is no load left to refuse at all, so that case
 // is the one that pins the guard above the lookup.
@@ -1717,7 +1717,7 @@ func TestGuardBoot(t *testing.T) {
 // the shards behind it.
 //
 // The seeded shard's alloc checker fails every reservation, so an error reaching
-// the caller is what says LazyLoadShard.Load was entered.
+// the caller is what says LazyLoadShard.loadIfCold was entered.
 func TestGuardBackgroundLoad(t *testing.T) {
 	const class = "alpha:Product"
 
@@ -2087,7 +2087,7 @@ func TestReopenShard(t *testing.T) {
 	// A resuming namespace refuses requests, so a shard left registered-but-cold
 	// would have nothing left to load it. The reopen therefore has to force the
 	// load rather than register a lazy placeholder. The injected failure is only
-	// reachable from inside Load, so it is what says the load was entered: were
+	// reachable from inside loadIfCold, so it is what says the load was entered: were
 	// the reopen to stop forcing, this would return nil instead.
 	t.Run("a resident lazy shard is forced to load", func(t *testing.T) {
 		db, idx := dbForReopen(t, class, existerWithState(t, api.NamespaceStateResuming))

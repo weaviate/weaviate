@@ -3483,7 +3483,8 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 			if mustLoad {
 				lazyShard, ok := shard.(*LazyLoadShard)
 				if ok {
-					return lazyShard.Load(ctx)
+					_, _, err := lazyShard.loadIfCold(ctx)
+					return err
 				}
 			}
 			return nil

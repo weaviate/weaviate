@@ -948,7 +948,7 @@ func TestShardActivityWalkDoesNotWaitOnBusyTenant(t *testing.T) {
 	}
 }
 
-// Activity reads the shard that Load and Shutdown publish under the mutex without
+// Activity reads the shard that loadIfCold and Shutdown publish under the mutex without
 // taking the mutex. The reader below runs throughout so -race sees those reads,
 // and each step checks that a shut down shard reports zeros again.
 func TestLazyLoadShardActivityAcrossLoadAndShutdown(t *testing.T) {
@@ -971,7 +971,8 @@ func TestLazyLoadShardActivityAcrossLoadAndShutdown(t *testing.T) {
 	}()
 
 	for i := 0; i < 3; i++ {
-		require.NoError(t, lazy.Load(ctx))
+		_, _, err := lazy.loadIfCold(ctx)
+		require.NoError(t, err)
 		read, write := lazy.Activity()
 		require.Equal(t, [2]int32{1, 1}, [2]int32{read, write}, "a freshly loaded shard starts at its initial counters")
 

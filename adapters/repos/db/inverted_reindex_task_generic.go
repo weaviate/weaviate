@@ -881,7 +881,8 @@ func unwrapShard(ctx context.Context, shard ShardLike) (*Shard, error) {
 	case *Shard:
 		return s, nil
 	case *LazyLoadShard:
-		return s.Unwrap(ctx)
+		shard, _, err := s.loadIfCold(ctx)
+		return shard, err
 	default:
 		return nil, fmt.Errorf("unsupported shard type %T", shard)
 	}

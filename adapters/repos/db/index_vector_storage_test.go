@@ -303,7 +303,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				// Get active metrics BEFORE releasing the shard
 				lazyShard, ok := shard.(*LazyLoadShard)
 				require.True(t, ok)
-				loaded, err := lazyShard.Unwrap(ctx)
+				loaded, _, err := lazyShard.loadIfCold(ctx)
 				require.NoError(t, err)
 				lsmPath := filepath.Join(index.path(), shard.Name(), "lsm")
 				directories, err := diskio.GetSubdirNames(lsmPath)
@@ -375,7 +375,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				// Get active metrics BEFORE releasing the shard
 				lazyShard, ok := shard.(*LazyLoadShard)
 				require.True(t, ok)
-				loaded, err := lazyShard.Unwrap(ctx)
+				loaded, _, err := lazyShard.loadIfCold(ctx)
 				require.NoError(t, err)
 
 				lsmPath := filepath.Join(index.path(), shard.Name(), "lsm")
@@ -619,7 +619,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				// Get active metrics BEFORE releasing the shard
 				lazyShard, ok := shard.(*LazyLoadShard)
 				require.True(t, ok)
-				loaded, err := lazyShard.Unwrap(ctx)
+				loaded, _, err := lazyShard.loadIfCold(ctx)
 				require.NoError(t, err)
 
 				dimensionality, err := loaded.DimensionsUsage(ctx, tt.targetVector, 0)
@@ -651,7 +651,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				// Get active metrics BEFORE releasing the shard
 				lazyShard, ok := shard.(*LazyLoadShard)
 				require.True(t, ok)
-				loaded, err := lazyShard.Unwrap(ctx)
+				loaded, _, err := lazyShard.loadIfCold(ctx)
 				require.NoError(t, err)
 
 				dimensionality, err := loaded.DimensionsUsage(ctx, tt.targetVector, 0)

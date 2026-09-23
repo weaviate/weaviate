@@ -78,7 +78,7 @@ func setupDropVectorShard(t *testing.T, ctx context.Context) (*Shard, *models.Cl
 	case *Shard:
 		return s, class
 	case *LazyLoadShard:
-		shard, err := s.Unwrap(ctx)
+		shard, _, err := s.loadIfCold(ctx)
 		require.NoError(t, err)
 		return shard, class
 	default:

@@ -193,7 +193,7 @@ func underlyingShard(t *testing.T, sl ShardLike) *Shard {
 	case *Shard:
 		return s
 	case *LazyLoadShard:
-		shard, err := s.Unwrap(context.Background())
+		shard, _, err := s.loadIfCold(context.Background())
 		require.NoError(t, err)
 		return shard
 	default:

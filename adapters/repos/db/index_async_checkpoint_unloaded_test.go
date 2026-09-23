@@ -197,7 +197,8 @@ func TestUnloadedAsyncCheckpoint_LoadBeforeStatusTakesLoadedPath(t *testing.T) {
 	cutoffMs := createdAt.Add(time.Hour).UnixMilli()
 
 	require.NoError(t, f.index.createAsyncCheckpoint(ctx, f.name, cutoffMs, createdAt))
-	require.NoError(t, f.lazy.Load(ctx))
+	_, _, err := f.lazy.loadIfCold(ctx)
+	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, f.lazy.Shutdown(context.Background())) })
 
 	_, gotCutoff, _, ok := f.status(t, ctx)

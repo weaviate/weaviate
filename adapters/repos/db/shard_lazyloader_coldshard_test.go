@@ -39,11 +39,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// errInjectedMemoryPressure is only reachable from inside LazyLoadShard.Load,
+// errInjectedMemoryPressure is only reachable from inside LazyLoadShard.loadIfCold,
 // so a test can assert on it to tell that a shard was force-loaded.
 var errInjectedMemoryPressure = errors.New("memory pressure: injected")
 
-// failingAllocChecker fails every mapping reservation, so LazyLoadShard.Load
+// failingAllocChecker fails every mapping reservation, so LazyLoadShard.loadIfCold
 // (and therefore mustLoad) fails for any shard that gets force-loaded.
 type failingAllocChecker struct{}
 
@@ -236,7 +236,8 @@ func TestAddProperty_ColdShardMaterializesAtLoad(t *testing.T) {
 			}
 
 			for _, shard := range cold {
-				require.NoError(t, shard.Load(ctx))
+				_, _, err := shard.loadIfCold(ctx)
+				require.NoError(t, err)
 				for propName, want := range tc.wantBuckets {
 					bucket := shard.Store().Bucket(helpers.BucketFromPropNameLSM(propName))
 					if want {
@@ -262,7 +263,8 @@ func TestLazyLoadShard_LoadReflectsSchemaChangedWhileCold(t *testing.T) {
 	f.schemaClass.Properties = append(f.schemaClass.Properties, prop)
 
 	for _, shard := range cold {
-		require.NoError(t, shard.Load(ctx))
+		_, _, err := shard.loadIfCold(ctx)
+		require.NoError(t, err)
 		require.NotNil(t, shard.Store().Bucket(helpers.BucketFromPropNameLSM(prop.Name)),
 			"load must reflect the property added while the shard was cold")
 	}
@@ -279,7 +281,8 @@ func TestAddProperty_LoadedAndColdShardsMix(t *testing.T) {
 	// Warm exactly one shard.
 	var warmName string
 	for name, shard := range shards {
-		require.NoError(t, shard.Load(ctx))
+		_, _, err := shard.loadIfCold(ctx)
+		require.NoError(t, err)
 		warmName = name
 		break
 	}
@@ -296,7 +299,8 @@ func TestAddProperty_LoadedAndColdShardsMix(t *testing.T) {
 			continue
 		}
 		require.False(t, shard.isLoaded(), "cold shard %q must not be force-loaded", name)
-		require.NoError(t, shard.Load(ctx))
+		_, _, err := shard.loadIfCold(ctx)
+		require.NoError(t, err)
 		require.NotNil(t, shard.Store().Bucket(bucketName),
 			"cold shard %q must materialize the bucket at load", name)
 	}
@@ -412,7 +416,8 @@ func coldTestObject(className string) *storobj.Object {
 func writeCountedObjects(t *testing.T, shard *LazyLoadShard, className string, n int) {
 	t.Helper()
 	ctx := testCtx()
-	require.NoError(t, shard.Load(ctx))
+	_, _, err := shard.loadIfCold(ctx)
+	require.NoError(t, err)
 	for range n {
 		require.NoError(t, shard.PutObject(ctx, coldTestObject(className)))
 	}
@@ -427,7 +432,8 @@ func writeCountedObjects(t *testing.T, shard *LazyLoadShard, className string, n
 func writeUncountedObjects(t *testing.T, shard *LazyLoadShard, className string, n int) {
 	t.Helper()
 	ctx := testCtx()
-	require.NoError(t, shard.Load(ctx))
+	_, _, err := shard.loadIfCold(ctx)
+	require.NoError(t, err)
 	for range n {
 		require.NoError(t, shard.PutObject(ctx, coldTestObject(className)))
 	}
@@ -543,7 +549,7 @@ func TestLazyLoadShard_LoadInvalidatesCachedColdCount(t *testing.T) {
 					"shard %q counts the segments whose sidecar is on disk", name)
 
 				tc.breakLoad(t, shard)
-				loadErr := shard.Load(ctx)
+				_, _, loadErr := shard.loadIfCold(ctx)
 				if tc.wantErr {
 					require.Error(t, loadErr)
 				} else {
@@ -672,7 +678,7 @@ var noLoadReaders = []struct {
 }
 
 // A shard that was shut down is cold again, so each noLoadReaders entry must
-// answer the same after a Load and Shutdown as before the first Load.
+// answer the same after a loadIfCold and Shutdown as before the first loadIfCold.
 func TestLazyLoadShard_NoLoadReadersAfterShutdown(t *testing.T) {
 	ctx := context.Background()
 	repo, index := newReplConfigDeadlockFixture(t, "NoLoadReadersAfterShutdown")
@@ -682,7 +688,8 @@ func TestLazyLoadShard_NoLoadReadersAfterShutdown(t *testing.T) {
 		t.Run("cold/"+reader.name, func(t *testing.T) { reader.check(t, lazy) })
 	}
 
-	require.NoError(t, lazy.Load(ctx))
+	_, _, err := lazy.loadIfCold(ctx)
+	require.NoError(t, err)
 	require.True(t, lazy.isLoaded(), "precondition: the reads below happen after a real load")
 	require.NoError(t, lazy.Shutdown(ctx))
 
@@ -725,7 +732,8 @@ func TestLazyLoadShard_NoLoadReadersAcrossLoadAndShutdown(t *testing.T) {
 	}()
 
 	for i := 0; i < 3; i++ {
-		require.NoError(t, lazy.Load(ctx))
+		_, _, err := lazy.loadIfCold(ctx)
+		require.NoError(t, err)
 		require.True(t, lazy.isLoaded())
 		require.NoError(t, lazy.Shutdown(ctx))
 		require.False(t, lazy.isLoaded())
@@ -743,7 +751,8 @@ func TestLazyLoadShard_TransferTimerNotResetAfterShutdown(t *testing.T) {
 	repo, index := newReplConfigDeadlockFixture(t, "TransferTimerAfterShutdown")
 	lazy := soleColdShard(t, index)
 
-	require.NoError(t, lazy.Load(ctx))
+	_, _, err := lazy.loadIfCold(ctx)
+	require.NoError(t, err)
 	shard := lazy.loadedShard()
 	require.NotNil(t, shard)
 
