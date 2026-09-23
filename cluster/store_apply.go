@@ -43,14 +43,14 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.tenantAddLocks.Unlock(req.Class)
 	}
 
-	// reindexMovementLocks is held until the apply returns, so admitReindexOrMovement sees the other command. Like tenantAddLocks it is taken before waitLeaderFSMCaughtUp, and the two never nest.
-	collection, err := st.reindexOrMovementCollection(req)
+	// taskMovementLocks is held until the apply returns, so admitTaskOrMovement sees the other command. Like tenantAddLocks it is taken before waitLeaderFSMCaughtUp, and the two never nest.
+	collection, err := st.taskOrMovementCollection(req)
 	if err != nil {
 		return 0, err
 	}
 	if collection != "" {
-		st.reindexMovementLocks.Lock(collection)
-		defer st.reindexMovementLocks.Unlock(collection)
+		st.taskMovementLocks.Lock(collection)
+		defer st.taskMovementLocks.Unlock(collection)
 	}
 
 	// PreApplyFilter below judges against in-memory FSM state, so a leader that
@@ -131,10 +131,10 @@ func (st *Store) admitPropose(req *api.ApplyRequest, collection string) error {
 	if err := st.admitShardStatus(req); err != nil {
 		return err
 	}
-	return st.admitReindexOrMovement(req.Type, collection)
+	return st.admitTaskOrMovement(req.Type, collection)
 }
 
-func (st *Store) reindexOrMovementCollection(req *api.ApplyRequest) (string, error) {
+func (st *Store) taskOrMovementCollection(req *api.ApplyRequest) (string, error) {
 	switch req.Type {
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
 		sub := &api.ReplicationReplicateShardRequest{}
@@ -156,8 +156,8 @@ func (st *Store) reindexOrMovementCollection(req *api.ApplyRequest) (string, err
 	}
 }
 
-// admitReindexOrMovement keeps a task and a movement off one collection, since a reindex rewrites the files a movement copies.
-func (st *Store) admitReindexOrMovement(cmdType api.ApplyRequest_Type, collection string) error {
+// admitTaskOrMovement keeps a task and a movement off one collection, since a reindex rewrites the files a movement copies.
+func (st *Store) admitTaskOrMovement(cmdType api.ApplyRequest_Type, collection string) error {
 	if collection == "" {
 		return nil
 	}

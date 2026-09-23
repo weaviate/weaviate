@@ -68,7 +68,7 @@ func (s *Raft) ApplyReplicationScalePlan(ctx context.Context, scalePlan api.Repl
 		if !s.SchemaReader().ClassInfo(scalePlan.Collection).Exists {
 			return nil, fmt.Errorf("collection %q: %w", scalePlan.Collection, replicationTypes.ErrNotFound)
 		}
-		if err := s.store.admitReindexOrMovement(api.ApplyRequest_TYPE_REPLICATION_REPLICATE, scalePlan.Collection); err != nil {
+		if err := s.store.admitTaskOrMovement(api.ApplyRequest_TYPE_REPLICATION_REPLICATE, scalePlan.Collection); err != nil {
 			return nil, err
 		}
 	}

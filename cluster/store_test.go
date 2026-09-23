@@ -1772,7 +1772,7 @@ func openExclusionStore(t *testing.T) *Store {
 	return srv.store
 }
 
-// Without Store.Execute's per-collection lock both submits pass admitReindexOrMovement before either applies.
+// Without Store.Execute's per-collection lock both submits pass admitTaskOrMovement before either applies.
 func TestExecute_ConcurrentSubmitsAdmitOnlyOne(t *testing.T) {
 	s := openExclusionStore(t)
 	commands := []*cmd.ApplyRequest{
@@ -1843,7 +1843,7 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 			}
 
 			command := tc.command(t)
-			collection, err := s.reindexOrMovementCollection(command)
+			collection, err := s.taskOrMovementCollection(command)
 			require.NoError(t, err)
 
 			err = s.admitPropose(command, collection)
