@@ -43,7 +43,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.tenantAddLocks.Unlock(req.Class)
 	}
 
-	// taskMovementLocks is held until the apply returns, so admitTaskOrMovement sees the other command. Like tenantAddLocks it is taken before waitLeaderFSMCaughtUp, and the two never nest.
+	// taskMovementLocks is held until the apply returns, so a second submit on the same collection is checked only after the first has applied. Like tenantAddLocks it is taken before waitLeaderFSMCaughtUp, and the two never nest.
 	collection, err := st.taskOrMovementCollection(req)
 	if err != nil {
 		return 0, err
@@ -156,7 +156,7 @@ func (st *Store) taskOrMovementCollection(req *api.ApplyRequest) (string, error)
 	}
 }
 
-// admitTaskOrMovement keeps a task and a movement off one collection, since a reindex rewrites the files a movement copies.
+// admitTaskOrMovement keeps a task and a movement from running on the same collection at once, since a reindex rewrites the files a movement copies.
 func (st *Store) admitTaskOrMovement(cmdType api.ApplyRequest_Type, collection string) error {
 	if collection == "" {
 		return nil

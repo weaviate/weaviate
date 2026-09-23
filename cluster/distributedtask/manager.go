@@ -260,7 +260,7 @@ func NewManager(params ManagerParameters) *Manager {
 // RegisterCollectionExtractor opts a task namespace into DeleteTasksForCollection's
 // cascade. Extractor may run concurrently, with or without the Manager lock — must not block or recurse. Last
 // write wins per namespace; nil / empty arguments are silently dropped.
-// It also keeps this namespace's tasks and replica movements off one collection (HasActiveTaskForCollection, CollectionOfTask).
+// It also keeps this namespace's tasks and replica movements from running on the same collection at once (HasActiveTaskForCollection, CollectionOfTask).
 func (m *Manager) RegisterCollectionExtractor(namespace string, extractor CollectionExtractor) {
 	if namespace == "" || extractor == nil {
 		return

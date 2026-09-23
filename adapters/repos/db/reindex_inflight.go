@@ -152,7 +152,7 @@ func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	return reindexInFlightError(collection, shardName)
 }
 
-// The cause is text, not wrapped, so IsReversibleRefusal finds no FailedPrecondition status in it.
+// reindexGateUnavailableError formats reason as text, not a wrapped error, so IsReversibleRefusal finds no FailedPrecondition status in it.
 func reindexGateUnavailableError(collection, shardName, reason string) error {
 	return fmt.Errorf("%w: shard %q (collection %q): %s; refusing in case one is running unseen (%w)",
 		ErrReindexGateUnavailable, shardName, collection, reason,
