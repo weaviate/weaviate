@@ -758,6 +758,10 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if err := config.parseBatchStreamConfig(); err != nil {
+		return err
+	}
+
 	if v := os.Getenv("ORIGIN"); v != "" {
 		config.Origin = v
 	}
@@ -2521,6 +2525,54 @@ func (c *Config) parseBackupGCSConfig() error {
 		func(val int) { c.BackupGCS.GRPCConnPool = val },
 		validateBackupGCSConnPool); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (c *Config) parseBatchStreamConfig() error {
+	if os.Getenv("BATCH_STREAM_GATE_RATIO") != "" {
+		if err := parsePercentage("BATCH_STREAM_GATE_RATIO",
+			func(val float64) { c.BatchStream.gateRatio = &val }, 0); err != nil {
+			return err
+		}
+	}
+
+	if os.Getenv("BATCH_STREAM_ENGAGE_RATIO") != "" {
+		if err := parsePercentage("BATCH_STREAM_ENGAGE_RATIO",
+			func(val float64) { c.BatchStream.engageRatio = &val }, 0); err != nil {
+			return err
+		}
+	}
+
+	if v := os.Getenv("BATCH_STREAM_MAX_ACK_DELAY"); v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse BATCH_STREAM_MAX_ACK_DELAY as duration: %w", err)
+		}
+		if d < 0 {
+			return fmt.Errorf("BATCH_STREAM_MAX_ACK_DELAY must be a duration of 0 or more. Got: %v", d)
+		}
+		c.BatchStream.maxAckDelay = &d
+	}
+
+	if os.Getenv("BATCH_STREAM_HOLD_SECONDS") != "" {
+		if err := parseNonNegativeInt("BATCH_STREAM_HOLD_SECONDS",
+			func(val int) { c.BatchStream.holdSeconds = &val }, 0); err != nil {
+			return err
+		}
+	}
+
+	if os.Getenv("BATCH_STREAM_WORKERS") != "" {
+		if err := parseNonNegativeInt("BATCH_STREAM_WORKERS",
+			func(val int) { c.BatchStream.workers = &val }, 0); err != nil {
+			return err
+		}
+	}
+
+	if c.BatchStream.GateRatio() <= c.BatchStream.EngageRatio() {
+		return fmt.Errorf("BATCH_STREAM_GATE_RATIO (%v) must be above BATCH_STREAM_ENGAGE_RATIO (%v)",
+			c.BatchStream.GateRatio(), c.BatchStream.EngageRatio())
 	}
 
 	return nil
