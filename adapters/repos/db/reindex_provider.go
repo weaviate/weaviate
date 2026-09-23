@@ -2017,6 +2017,7 @@ func (p *ReindexProvider) IsCleanupInProgress(collection, shard string) bool {
 // terminal-cleanup is still running.
 type CleanupInProgressLookup func(collection, shard string) bool
 
+// CleanupInProgressLookupBuilder returns a fresh snapshot.
 type CleanupInProgressLookupBuilder func() CleanupInProgressLookup
 
 // CleanupInProgressLookupBuilder returns a builder whose closures

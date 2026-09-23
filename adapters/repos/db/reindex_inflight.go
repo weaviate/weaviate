@@ -33,7 +33,17 @@ var unwiredGateWarnOnce sync.Once
 // AnyLiveReindexForShard answers the cluster-wide question: does DTM
 // have any LIVE reindex task targeting (collection, shardName)?
 //
-// An unwired lookup answers false, since module-test fixtures never install it and production HTTP waits for bootstrap.
+// Replaces the prior filesystem-marker check, which only saw this node
+// and lagged DTM's actual state. The lookup builder is installed by
+// [DB.SetShardReindexActivityLookup] from the post-bootstrap goroutine
+// in configure_api.go.
+//
+// Default to "no live reindex" when the lookup is unwired (with a
+// one-time WARN). The original conservative default (refuse) was
+// correct in isolation but broke every module-test fixture that
+// spins up Weaviate without going through the post-bootstrap
+// install path; production HTTP gates on bootstrap completion so the
+// unwired window is unreachable by external traffic.
 func (db *DB) AnyLiveReindexForShard(collection, shardName string) (bool, error) {
 	if db.config.RuntimeReindexDisabled {
 		// Runtime reindex is off, so no new task can start. Return before
@@ -117,9 +127,19 @@ var ErrReindexGateUnavailable = errors.New("cannot check for a running runtime-r
 
 const noDatabaseBackReference = "this index has no database back-reference, so the check cannot run"
 
+// refuseIfReindexInFlight is the per-shard backup-gate check used by
+// [DB.Backupable], [Index.backupInactiveShardWithHardlinks],
+// [Index.backupInactiveShardWithoutHardlinks], and
+// [Shard.HaltForTransfer]. Consults DTM via
+// [DB.AnyLiveReindexForShard]; the filesystem-marker variant it
+// replaced only saw the local node and lagged DTM's actual state.
+//
+// If i.db is nil the gate is conservative: it refuses the backup.
 func (i *Index) refuseIfReindexInFlight(shardName string) error {
 	collection := i.Config.ClassName.String()
 	if i.db == nil {
+		// Index was constructed without a back-reference (test
+		// fixtures, partial init). Be conservative.
 		return reindexGateUnavailableError(collection, shardName, noDatabaseBackReference)
 	}
 	live, err := i.db.AnyLiveReindexForShard(collection, shardName)
@@ -140,6 +160,8 @@ func reindexGateUnavailableError(collection, shardName, reason string) error {
 	)
 }
 
+// reindexInFlightError formats the operator-facing rejection.
+//
 // This gate never sees the task's status, so it states the cancel remedy
 // with its condition attached rather than branching on it.
 func reindexInFlightError(collection, shardName string) error {
