@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
@@ -1228,6 +1229,49 @@ func TestBackupsWildcardProbeRequiresBlanketGrant(t *testing.T) {
 			}
 			require.Error(t, err)
 			assert.ErrorAs(t, err, new(authzErrors.Forbidden))
+		})
+	}
+}
+
+// TestAuthorize_DenialKeepsGroupGrants pins that a denied check leaves the
+// principal's groups intact, so a later check still finds the group's role.
+func TestAuthorize_DenialKeepsGroupGrants(t *testing.T) {
+	tests := []struct {
+		name   string
+		groups []string
+	}{
+		{name: "one group", groups: []string{"g1"}},
+		{name: "two groups", groups: []string{"g1", "g2"}},
+		{name: "three groups", groups: []string{"g2", "g1", "g3"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			m, err := setupTestManager(t, logger)
+			require.NoError(t, err)
+
+			role := conv.PrefixRoleName("group-role")
+			_, err = m.casbin.AddNamedPolicy("p", role, authorization.CollectionsMetadata("Mine")[0], authorization.READ, authorization.SchemaDomain)
+			require.NoError(t, err)
+			_, err = m.casbin.AddRoleForUser(conv.PrefixGroupName("g1"), role)
+			require.NoError(t, err)
+
+			principal := &models.Principal{Username: "alice", Groups: slices.Clone(tt.groups), UserType: models.UserTypeInputOidc}
+			granted := authorization.CollectionsMetadata("Mine")
+			notGranted := authorization.CollectionsMetadata("Other")
+
+			require.NoError(t, m.Authorize(context.Background(), principal, authorization.READ, granted...))
+			for range 2 {
+				err = m.Authorize(context.Background(), principal, authorization.READ, notGranted...)
+				require.ErrorAs(t, err, new(authzErrors.Forbidden))
+			}
+			require.NoError(t, m.Authorize(context.Background(), principal, authorization.READ, granted...))
+
+			allowed, err := m.FilterAuthorizedResources(context.Background(), principal, authorization.READ, append(notGranted, granted...)...)
+			require.NoError(t, err)
+			assert.Equal(t, granted, allowed)
+			assert.Equal(t, tt.groups, principal.Groups)
 		})
 	}
 }
