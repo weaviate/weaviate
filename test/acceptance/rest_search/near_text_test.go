@@ -762,18 +762,9 @@ func TestRESTSearchNearText(t *testing.T) {
 // EXPERIMENTAL_REST_SEARCH_ENABLED unset, every search answers 422 before
 // any schema access.
 func TestRESTSearchDisabled(t *testing.T) {
-	ctx := context.Background()
-	compose, err := docker.New().
-		// no EXPERIMENTAL_REST_SEARCH_ENABLED: the feature is off by default
-		WithWeaviate().
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-
+	// The shared server does not set EXPERIMENTAL_REST_SEARCH_ENABLED.
 	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
-	helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupClient(helper.SharedServerURI)
 
 	status, out := postNearText(t, "Anything", map[string]any{
 		"query": []string{"anything"},

@@ -29,23 +29,15 @@ func Test_AutoTenantActivation_SingleNode(t *testing.T) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
-	compose, err := docker.New().
-		WithWeaviateWithGRPC().
-		Start(ctx)
-	require.Nil(t, err)
-
-	defer func() {
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-	helper.SetupGRPCClient(t, compose.GetWeaviate().GrpcURI())
+	helper.SetupClient(helper.SharedServerURI)
+	helper.SetupGRPCClient(t, helper.SharedServerGRPCURI)
+	defer helper.ResetClient()
 
 	cls := articles.ParagraphsClass()
 	cls.MultiTenancyConfig = &models.MultiTenancyConfig{Enabled: true, AutoTenantActivation: true, AutoTenantCreation: true}
+	helper.DeleteClass(t, cls.Class)
 	helper.CreateClass(t, cls)
+	defer helper.DeleteClass(t, cls.Class)
 
 	tenant := "tenant"
 	paragraph := articles.NewParagraph().WithTenant(tenant)
