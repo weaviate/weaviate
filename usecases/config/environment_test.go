@@ -2304,6 +2304,133 @@ func TestEnvironmentAsyncReplicationGlobalSentinels(t *testing.T) {
 	}
 }
 
+func TestBatchStreamFromEnv(t *testing.T) {
+	names := []string{
+		"BATCH_STREAM_GATE_RATIO",
+		"BATCH_STREAM_ENGAGE_RATIO",
+		"BATCH_STREAM_MAX_ACK_DELAY",
+		"BATCH_STREAM_HOLD_SECONDS",
+	}
+	unsetAll := func(t *testing.T) {
+		for _, name := range names {
+			t.Setenv(name, "")
+		}
+	}
+
+	t.Run("config-file values survive unset variables", func(t *testing.T) {
+		unsetAll(t)
+
+		configFileName := "config.yaml"
+		configYaml := `batch_stream:
+  gate_ratio: 0.8
+  engage_ratio: 0.4
+  max_ack_delay: 1500ms
+  hold_seconds: 12
+`
+		filepath := fmt.Sprintf("%s/%s", t.TempDir(), configFileName)
+		require.NoError(t, os.WriteFile(filepath, []byte(configYaml), 0o600))
+
+		file, err := os.ReadFile(filepath)
+		require.NoError(t, err)
+		weaviateConfig := &WeaviateConfig{}
+		config, err := weaviateConfig.parseConfigFile(file, configFileName)
+		require.NoError(t, err)
+
+		expected := BatchStream{
+			gateRatio:   new(0.8),
+			engageRatio: new(0.4),
+			maxAckDelay: new(1500 * time.Millisecond),
+			holdSeconds: new(12),
+		}
+		require.Equal(t, expected, config.BatchStream)
+
+		// LoadConfig reads the file before the environment, so an unset variable
+		// has to leave the parsed value alone.
+		require.NoError(t, FromEnv(&config))
+		require.Equal(t, expected, config.BatchStream)
+	})
+
+	t.Run("a json config file loads the same fields", func(t *testing.T) {
+		configJSON := `{"batch_stream": {"gate_ratio": 0.8, "engage_ratio": 0.4, "max_ack_delay": 1500000000, "hold_seconds": 12}}`
+		weaviateConfig := &WeaviateConfig{}
+		config, err := weaviateConfig.parseConfigFile([]byte(configJSON), "config.json")
+		require.NoError(t, err)
+		require.Equal(t, BatchStream{
+			gateRatio:   new(0.8),
+			engageRatio: new(0.4),
+			maxAckDelay: new(1500 * time.Millisecond),
+			holdSeconds: new(12),
+		}, config.BatchStream)
+	})
+
+	t.Run("each variable overrides its field", func(t *testing.T) {
+		t.Setenv("BATCH_STREAM_GATE_RATIO", "0.6")
+		t.Setenv("BATCH_STREAM_ENGAGE_RATIO", "0.2")
+		t.Setenv("BATCH_STREAM_MAX_ACK_DELAY", "750ms")
+		t.Setenv("BATCH_STREAM_HOLD_SECONDS", "7")
+
+		config := Config{BatchStream: BatchStream{
+			gateRatio:   new(0.99),
+			engageRatio: new(0.98),
+			maxAckDelay: new(time.Minute),
+			holdSeconds: new(99),
+		}}
+		require.NoError(t, FromEnv(&config))
+		require.Equal(t, BatchStream{
+			gateRatio:   new(0.6),
+			engageRatio: new(0.2),
+			maxAckDelay: new(750 * time.Millisecond),
+			holdSeconds: new(7),
+		}, config.BatchStream)
+	})
+
+	t.Run("a ratio outside 0..1 is rejected", func(t *testing.T) {
+		for _, name := range []string{"BATCH_STREAM_GATE_RATIO", "BATCH_STREAM_ENGAGE_RATIO"} {
+			unsetAll(t)
+			t.Setenv(name, "1.5")
+			config := Config{}
+			require.ErrorContains(t, FromEnv(&config), name)
+		}
+	})
+
+	t.Run("a gate at or below the engage ratio is rejected", func(t *testing.T) {
+		for _, gate := range []string{"0.5", "0.4", "0"} {
+			unsetAll(t)
+			// engage stays at its 0.5 default
+			t.Setenv("BATCH_STREAM_GATE_RATIO", gate)
+			config := Config{}
+			require.ErrorContains(t, FromEnv(&config), "BATCH_STREAM_GATE_RATIO")
+		}
+	})
+
+	t.Run("an explicit zero is kept", func(t *testing.T) {
+		unsetAll(t)
+		t.Setenv("BATCH_STREAM_ENGAGE_RATIO", "0")
+		t.Setenv("BATCH_STREAM_MAX_ACK_DELAY", "0s")
+		t.Setenv("BATCH_STREAM_HOLD_SECONDS", "0")
+		config := Config{}
+		require.NoError(t, FromEnv(&config))
+		require.Equal(t, BatchStream{
+			engageRatio: new(0.0),
+			maxAckDelay: new(time.Duration(0)),
+			holdSeconds: new(0),
+		}, config.BatchStream)
+		require.Equal(t, DefaultBatchStreamGateRatio, config.BatchStream.GateRatio())
+	})
+
+	t.Run("a negative hold or delay is rejected", func(t *testing.T) {
+		for name, value := range map[string]string{
+			"BATCH_STREAM_HOLD_SECONDS":  "-1",
+			"BATCH_STREAM_MAX_ACK_DELAY": "-1s",
+		} {
+			unsetAll(t)
+			t.Setenv(name, value)
+			config := Config{}
+			require.ErrorContains(t, FromEnv(&config), name)
+		}
+	})
+}
+
 func TestEnvironmentQueryAdmissionBudget(t *testing.T) {
 	assertNonNegativeIntEnv(t, "QUERY_ADMISSION_BUDGET",
 		func(c *Config) int { return c.QueryAdmissionBudget })

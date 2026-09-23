@@ -373,8 +373,9 @@ func TestGRPC_OutOfMemoryBatching(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateWithGRPC().
-		WithWeaviateEnv("GOMEMLIMIT", "268435456").
+		WithWeaviateEnv("GOMEMLIMIT", "33554432").
 		WithWeaviateEnv("GRPC_MAX_MESSAGE_SIZE", "536870912").
+		WithWeaviateEnv("BATCH_STREAM_HOLD_SECONDS", "1").
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -430,6 +431,11 @@ func TestGRPC_OutOfMemoryBatching(t *testing.T) {
 		require.NoError(t, err, "BatchStream should return a response")
 		require.NotNil(t, msg.GetOutOfMemory(), "Response should indicate out of memory got %T instead", msg.Message)
 		require.Equal(t, len(uuids), len(msg.GetOutOfMemory().GetUuids()), "All sent objects should be listed in out of memory response")
+
+		// The server closes its side after OutOfMemory and sends nothing further,
+		// in particular no ShuttingDown message.
+		_, err = stream.Recv()
+		require.ErrorIs(t, err, io.EOF, "the server must close the stream after the out of memory message")
 	})
 }
 
