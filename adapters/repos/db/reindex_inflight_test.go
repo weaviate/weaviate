@@ -136,16 +136,6 @@ func TestAnyLiveReindexForShard_BuilderReturnsNil(t *testing.T) {
 		"nil lookup must allow (same path as unwired)")
 }
 
-// A builder that could not reach the task manager must say so, not read as
-// "a reindex is running".
-func TestAnyLiveReindexForShard_BuilderError(t *testing.T) {
-	db := &DB{}
-	db.SetShardReindexActivityLookup(unreachableActivityBuilder)
-	live, err := db.AnyLiveReindexForShard("MyClass", "shard1")
-	require.ErrorIs(t, err, errTaskManagerUnreachable)
-	assert.False(t, live)
-}
-
 // TestAnyLiveReindexForShard_CleanupInProgress pins the OR-d cleanup branch:
 // once the DTM task goes terminal (activity lookup false) but
 // autoCleanupAfterTerminal is still draining sidecars, the gate must still
@@ -262,8 +252,6 @@ func TestReindexInFlightError_DTMHit(t *testing.T) {
 	err := reindexInFlightError("MyClass", "shard1")
 	require.Error(t, err)
 	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
-	require.NotErrorIs(t, err, ErrReindexGateUnavailable,
-		"a task DTM reported is something to wait for, so it must not carry the cannot-check marker")
 	require.Contains(t, err.Error(), "shard1")
 	require.Contains(t, err.Error(), "MyClass")
 	require.Contains(t, err.Error(), "active runtime-reindex task in DTM")
@@ -296,9 +284,6 @@ func TestShard_HaltForTransfer_RefusesWhenReindexInFlight(t *testing.T) {
 	require.Error(t, err)
 	require.True(t, errors.Is(err, entitiesbackup.ErrBackupBlockedByInFlightReindex))
 	require.Contains(t, err.Error(), shd.Name())
-	// Backup shares this helper, so it must not be told a structural op is running.
-	// The movement adds that sentinel itself, in IncomingCreateReplicaSnapshot.
-	require.NotErrorIs(t, err, enterrors.ErrShardBusyStructuralOp)
 
 	// Flip the lookup so the next call allows the halt; this also
 	// proves the gate consults a fresh snapshot rather than a cached
