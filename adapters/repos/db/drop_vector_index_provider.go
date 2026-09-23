@@ -97,13 +97,13 @@ type dropVectorSchemaFinalizer interface {
 type DropVectorIndexProvider struct {
 	recorder distributedtask.TaskCompletionRecorder
 
-	shards    dropVectorShards
-	schema    dropVectorSchemaFinalizer
+	shards dropVectorShards
+	schema dropVectorSchemaFinalizer
 	// leader answers the leader-consistent reads: the sharding state (which nodes
 	// hold each shard/tenant) and the class, so op-arming can re-verify the targets
 	// are still marked dropped.
-	leader leader.SchemaReader
-	tasks  distributedtask.TaskLister
+	leader    leader.SchemaReader
+	tasks     distributedtask.TaskLister
 	logger    logrus.FieldLogger
 	localNode string
 
