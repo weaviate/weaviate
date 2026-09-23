@@ -176,7 +176,8 @@ func (b *deleteObjectsBatcher) setErrorAtIndex(err error, index int) {
 // when limit is positive. The limit counts UUIDs returned, not doc ids read, so a shard
 // holding more than limit matching objects returns limit of them and which ones is
 // unspecified. A read error fails the call rather than skipping the doc id. A row that
-// carries no readable id is skipped, and the skips are logged once per call.
+// carries no readable id is skipped, and the skips are logged at most once per
+// unreadableRowLogWindow per shard.
 //
 // The filter is resolved once and without a cap, so a doc id whose object row is gone, or
 // whose row carries no readable id, cannot shorten the reply: the walk reads past it to the
@@ -230,11 +231,28 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 	}
 
 	if pass.unreadable.count > 0 {
-		logger.WithField("op", "shard.find_uuids").
-			Warnf("skipped %d doc ids without a readable id, one of them: %v",
-				pass.unreadable.count, pass.unreadable.first)
+		s.warnUnreadableRows(logger, pass.unreadable)
 	}
 	return pass.uuids, nil
+}
+
+// unreadableRowLogWindow is how often one shard warns about rows with no readable id.
+const unreadableRowLogWindow = time.Minute
+
+// warnUnreadableRows reports the rows a call skipped because they carry no readable id.
+func (s *Shard) warnUnreadableRows(logger logrus.FieldLogger, unreadable unreadableRows) {
+	write := func(l logrus.FieldLogger) {
+		l.WithField("op", "shard.find_uuids").
+			Warnf("skipped %d doc ids without a readable id, one of them: %v",
+				unreadable.count, unreadable.first)
+	}
+
+	// A Shard built without NewShard has no sampler.
+	if s.unreadableRowSampler == nil {
+		write(logger)
+		return
+	}
+	s.unreadableRowSampler.WithSampling(write)
 }
 
 // findUUIDsPass is the result of one resolve-and-walk pass: the UUIDs it produced and

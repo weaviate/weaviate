@@ -97,6 +97,8 @@ func TestShardFindUUIDs(t *testing.T) {
 		wantWarnSkipped   int
 		wantErr           error
 		wantErrText       string
+		// earlierCalls is how many calls run on the same shard before the one checked.
+		earlierCalls int
 	}
 	cases := []testCase{
 		{name: "no match", other: 5, wantCount: 0},
@@ -117,6 +119,10 @@ func TestShardFindUUIDs(t *testing.T) {
 			// The only case resolved from a flushed segment, exercising the
 			// worker read buffer.
 			name: "matches resolved from a flushed segment", matching: 600, other: 5, flushObjects: true, wantCount: 600,
+		},
+		{
+			name: "an unreadable row seen by repeated calls is warned about once", matching: 10,
+			unreadable: 1, earlierCalls: 2, wantCount: 9, wantWarnSkipped: 1,
 		},
 		{name: "cancelled context", matching: 5, cancelCtx: true, wantErr: context.Canceled},
 		{name: "a missing objects bucket fails the call instead of skipping", matching: 5, objectsBucketGone: true, wantErr: lsmkv.ErrBucketNotFound, wantErrText: "objects bucket"},
@@ -166,6 +172,10 @@ func TestShardFindUUIDs(t *testing.T) {
 				cancel()
 			}
 
+			for range tc.earlierCalls {
+				_, err := shard.FindUUIDs(findCtx, nameEquals(class, "match"), tc.limit)
+				require.NoError(t, err)
+			}
 			uuids, err := shard.FindUUIDs(findCtx, nameEquals(class, "match"), tc.limit)
 			if tc.wantErr != nil {
 				require.ErrorIs(t, err, tc.wantErr)
