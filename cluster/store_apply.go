@@ -43,7 +43,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.tenantAddLocks.Unlock(req.Class)
 	}
 
-	// Held across the apply so admitReindexOrMovement sees the other's; like the tenant lock it comes before the catch-up wait, and the two never nest (disjoint command types).
+	// reindexMovementLocks is held until the apply returns, so admitReindexOrMovement sees the other command. Like tenantAddLocks it is taken before waitLeaderFSMCaughtUp, and the two never nest.
 	collection, err := st.reindexOrMovementCollection(req)
 	if err != nil {
 		return 0, err
@@ -120,7 +120,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // apply whose schema half has committed. An Apply-side check would not close
 // that window either: the DB half runs after the schema half commits, so a flip
 // landing in between produces the same state.
-// It also keeps a replica movement and a task off one collection; collection is "" unless the command is a replicate or a task whose namespace registered a collection extractor.
+// admitPropose also refuses a replicate while a task is active on its collection, and a task while a movement is. collection is "" unless the command is a replicate or a task whose namespace registered a collection extractor.
 func (st *Store) admitPropose(req *api.ApplyRequest, collection string) error {
 	if err := st.admitDestructive(req); err != nil {
 		return err
