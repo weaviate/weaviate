@@ -224,11 +224,10 @@ func (db *DB) NamespaceStateForClass(className string) (api.NamespaceState, erro
 	return state, nil
 }
 
-// ReopenShard loads a shard on behalf of a resuming namespace, which the request
-// path refuses to do while the namespace comes back. The shard is loaded outright
-// rather than registered lazily, since no request would come along to load it. A
-// namespace that keeps no shards open is still refused, so a stale reopen cannot
-// revive a suspended one.
+// ReopenShard eagerly loads a shard for a resuming namespace, which the request
+// path refuses and no request would trigger. A namespace keeping no shards open
+// is still refused, so a stale reopen cannot revive a suspended one.
+// DB.UnloadShard is its deliberately ungated counterpart.
 func (db *DB) ReopenShard(ctx context.Context, className, shardName string) error {
 	index := db.GetIndex(schema.ClassName(className))
 	if index == nil {
