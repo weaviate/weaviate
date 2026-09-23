@@ -357,7 +357,7 @@ func TestReloadKeepsNestedRangeFiltersInSchema(t *testing.T) {
 		Type: cmd.ApplyRequest_TYPE_ADD_CLASS, Class: "C", SubCommand: sub,
 	}, "node1", true, false))
 
-	sm.ReloadDBFromSchema()
+	require.NoError(t, sm.ReloadDBFromSchema(context.Background()))
 
 	class, _ := sm.schema.ReadOnlyClass("C")
 	require.NotNil(t, class)

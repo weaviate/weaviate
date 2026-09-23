@@ -174,3 +174,28 @@ func writeShardSignature(t *testing.T, indexDir string) {
 	require.NoError(t, os.MkdirAll(filepath.Join(indexDir, "shard1", "lsm"), 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(indexDir, "shard1", "version"), []byte{1, 0}, 0o644))
 }
+
+// TestDeleteIndexUnloadedIsIdempotent pins that deleting a class with
+// nothing on disk is a no-op.
+func TestDeleteIndexUnloadedIsIdempotent(t *testing.T) {
+	t.Parallel()
+
+	logger, _ := test.NewNullLogger()
+	db := &DB{
+		logger:  logger,
+		config:  Config{RootPath: t.TempDir()},
+		indices: map[string]*Index{},
+	}
+
+	require.NoError(t, db.DeleteIndex(schema.ClassName("NeverExisted")))
+}
+
+// TestDropOrphanedClassIsQuietWithNothingOnDisk pins that a missing
+// directory drops without a warning.
+func TestDropOrphanedClassIsQuietWithNothingOnDisk(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	db := &DB{config: Config{RootPath: t.TempDir()}, logger: logger, indices: map[string]*Index{}}
+
+	require.NoError(t, db.DropOrphanedClass(schema.ClassName("Gone")))
+	require.Empty(t, hook.AllEntries(), "a missing directory is not worth a log line")
+}

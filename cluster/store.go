@@ -236,8 +236,8 @@ type Store struct {
 
 	// open is set on opening the store
 	open atomic.Bool
-	// dbLoaded is set when the DB is loaded at startup
-	dbLoaded atomic.Bool
+	// dbLoad runs the startup load and owns the local DB's readiness.
+	dbLoad *dbLoader
 
 	// raft implementation from external library
 	raft          *raft.Raft
@@ -324,7 +324,8 @@ type storeMetrics struct {
 
 	// leaderFSMBarriers counts catch-up barriers. Once per leadership change
 	// when healthy, so a climbing rate reads as leadership churn.
-	leaderFSMBarriers prometheus.Counter
+	leaderFSMBarriers   prometheus.Counter
+	localDBLoadFailures prometheus.Counter
 }
 
 // newStoreMetrics cretes and registers the store related metrics on
@@ -359,8 +360,12 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 			ConstLabels: prometheus.Labels{"nodeID": nodeID},
 		}),
 		leaderFSMBarriers: r.NewCounter(prometheus.CounterOpts{
-			Name:        "weaviate_cluster_store_leader_fsm_barriers_total",
-			Help:        "Catch-up barriers issued by this node after winning an election",
+			Name: "weaviate_cluster_store_leader_fsm_barriers_total",
+			Help: "Catch-up barriers issued by this node after winning an election",
+		}),
+		localDBLoadFailures: r.NewCounter(prometheus.CounterOpts{
+			Name:        "weaviate_cluster_store_local_db_load_failures_total",
+			Help:        "Total count of local DB loads that did not open every shard the schema names in local node. The node still serves, with data that may be missing",
 			ConstLabels: prometheus.Labels{"nodeID": nodeID},
 		}),
 	}
@@ -369,6 +374,8 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
 	schemaManager.SetMetadataOnly(cfg.MetadataOnlyVoters)
+	dbLoad := newDBLoader(cfg.Logger)
+	schemaManager.SetStoreWriteDeferrer(dbLoad.deferStoreWrite)
 	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), cfg.NodeSelector, reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
 	if dv := cfg.MaxTenantsPerCollection; dv != nil {
@@ -426,6 +433,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 			LocalAddress:       net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.RaftPort)),
 		}),
 		schemaManager:           schemaManager,
+		dbLoad:                  dbLoad,
 		tenantAddLocks:          entsync.NewKeyLocker(),
 		authZController:         authZController,
 		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger),
@@ -537,7 +545,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	snapIndex := lastSnapshotIndex(st.snapshotStore)
 	if st.lastAppliedIndexToDB.Load() == 0 && snapIndex == 0 {
 		// if empty node report ready
-		st.dbLoaded.Store(true)
+		st.dbLoad.markDone()
 	}
 
 	st.lastAppliedIndex.Store(st.raft.AppliedIndex())
@@ -699,6 +707,9 @@ func (st *Store) Close(ctx context.Context) error {
 
 	st.open.Store(false)
 
+	// after raft: Apply queues writes behind the load until then
+	st.dbLoad.stop()
+
 	// close log store after raft shutdown to persist final log entries
 	st.log.Info("closing log store ...")
 	if err := st.logStore.Close(); err != nil {
@@ -716,14 +727,14 @@ func (st *Store) Close(ctx context.Context) error {
 func (st *Store) SetDB(db schema.Indexer) { st.schemaManager.SetIndexer(db) }
 
 func (st *Store) Ready() bool {
-	return st.open.Load() && st.dbLoaded.Load() && st.Leader() != ""
+	return st.open.Load() && st.dbLoad.done() && st.Leader() != ""
 }
 
 // WaitToLoadDB waits for the DB to be loaded. The DB might be first loaded
 // after RAFT is in a healthy state, which is when the leader has been elected and there
 // is consensus on the log.
 func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, close chan struct{}) error {
-	if st.dbLoaded.Load() {
+	if st.dbLoad.done() {
 		return nil
 	}
 	t := time.NewTicker(period)
@@ -737,7 +748,7 @@ func (st *Store) WaitToRestoreDB(ctx context.Context, period time.Duration, clos
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-t.C:
-			if st.dbLoaded.Load() {
+			if st.dbLoad.done() {
 				return nil
 			}
 			if time.Since(lastLog) >= logInterval {
@@ -814,7 +825,7 @@ func (st *Store) trackDBLoadProgress() func() {
 
 // WaitForAppliedIndex waits until the update with the given version is propagated to this follower node
 func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, version uint64) error {
-	if idx := st.lastAppliedIndex.Load(); idx >= version {
+	if st.appliedLocally(version) {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(ctx, st.cfg.ConsistencyWaitTimeout)
@@ -827,7 +838,7 @@ func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, 
 		case <-ctx.Done():
 			return fmt.Errorf("%w: version got=%d  want=%d", types.ErrDeadlineExceeded, idx, version)
 		case <-ticker.C:
-			if idx = st.lastAppliedIndex.Load(); idx >= version {
+			if idx = st.lastAppliedIndex.Load(); st.appliedLocally(version) {
 				return nil
 			} else {
 				st.log.WithFields(logrus.Fields{
@@ -837,6 +848,12 @@ func (st *Store) WaitForAppliedIndex(ctx context.Context, period time.Duration, 
 			}
 		}
 	}
+}
+
+// appliedLocally reports whether version reached the local DB, not just the
+// schema: while the startup load runs, DB writes are queued behind it.
+func (st *Store) appliedLocally(version uint64) bool {
+	return st.lastAppliedIndex.Load() >= version && !st.startupLoadPending()
 }
 
 // IsLeader returns whether this node is the leader of the cluster
@@ -881,7 +898,7 @@ func (st *Store) SchemaReader() schema.SchemaReader {
 // The value of "last_applied_index" is the index of the latest update to the store,
 // see Store.lastAppliedIndex.
 //
-// The value of "db_loaded" indicates whether the DB has finished loading, see Store.dbLoaded.
+// The value of "db_loaded" indicates whether the DB has finished loading.
 //
 // Since this is for information/debugging we want to avoid enforcing unnecessary restrictions on
 // what can go in these stats, thus we're returning map[string]any. However, any values added to
@@ -901,7 +918,7 @@ func (st *Store) Stats() map[string]any {
 	stats["candidates"] = st.candidates
 	stats["last_store_log_applied_index"] = st.lastAppliedIndexToDB.Load()
 	stats["last_applied_index"] = st.lastIndex()
-	stats["db_loaded"] = st.dbLoaded.Load()
+	stats["db_loaded"] = st.dbLoad.done()
 
 	// If the raft stats exist, add them as a nested map
 	if st.raft != nil {
@@ -1002,7 +1019,7 @@ func (st *Store) raftConfig() *raft.Config {
 }
 
 func (st *Store) openDatabase(ctx context.Context) {
-	if st.dbLoaded.Load() {
+	if st.dbLoad.done() {
 		return
 	}
 
@@ -1018,41 +1035,6 @@ func (st *Store) openDatabase(ctx context.Context) {
 	}
 
 	st.log.WithField("n", st.schemaManager.NewSchemaReader().Len()).Info("schema manager loaded")
-}
-
-// reloadDBFromSchema() it will be called from two places Restore(), Apply()
-// on constructing raft.NewRaft(..) the raft lib. will
-// call Restore() first to restore from snapshots if there is any and
-// then later will call Apply() on any new committed log
-func (st *Store) reloadDBFromSchema() {
-	if !st.cfg.MetadataOnlyVoters {
-		func() {
-			stop := st.trackDBLoadProgress()
-			defer stop()
-			st.schemaManager.ReloadDBFromSchema()
-		}()
-		st.log.WithFields(st.dbLoadProgressFields()).Info("local DB loaded from schema")
-	} else {
-		st.log.Info("skipping reload DB from schema as the node is metadata only")
-	}
-	st.dbLoaded.Store(true)
-
-	// in this path it means it was called from Apply()
-	// or forced Restore()
-	if st.raft != nil {
-		// we don't update lastAppliedIndexToDB if not a restore
-		return
-	}
-
-	// restore requests from snapshots before init new RAFT node
-	lastLogApplied, err := st.LastAppliedCommand()
-	if err != nil {
-		st.log.WithField("error", err).Warn("can't detect the last applied command, setting the lastLogApplied to 0")
-	}
-
-	val := max(lastSnapshotIndex(st.snapshotStore), lastLogApplied)
-	st.lastAppliedIndexToDB.Store(val)
-	st.metrics.fsmStartupAppliedIndex.Set(float64(val))
 }
 
 // waitLeaderFSMCaughtUp blocks until this node's FSM has applied what it
@@ -1089,6 +1071,42 @@ func (st *Store) waitLeaderFSMCaughtUp() error {
 // fsmCaughtUpForTerm reports whether a barrier has confirmed term.
 func (st *Store) fsmCaughtUpForTerm(term uint64) bool {
 	return term != 0 && st.fsmCaughtUpTerm.Load() == term
+}
+
+// reportIncompleteLoad counts a load that did not open everything. The node
+// still goes ready: WaitUntilDBRestored has no timeout.
+func (st *Store) reportIncompleteLoad() {
+	st.metrics.localDBLoadFailures.Inc()
+	st.log.Error("local DB did not load fully; going ready anyway, some data may be missing")
+}
+
+func (st *Store) loadDBFromSchema(ctx context.Context) {
+	if st.cfg.MetadataOnlyVoters {
+		st.log.Info("skipping reload DB from schema as the node is metadata only")
+		return
+	}
+	err := func() error {
+		stop := st.trackDBLoadProgress()
+		defer stop()
+		return st.schemaManager.ReloadDBFromSchema(ctx)
+	}()
+	if err != nil {
+		st.log.Errorf("reload local DB from schema: %v", err)
+		if ctx.Err() == nil {
+			st.reportIncompleteLoad()
+		}
+		return
+	}
+
+	st.log.WithFields(st.dbLoadProgressFields()).Info("local DB loaded from schema")
+}
+
+var errStartupLoadPending = errors.New("local DB still loading after restart")
+
+// startupLoadPending reports whether a node restarted with state has not yet
+// loaded its local DB.
+func (st *Store) startupLoadPending() bool {
+	return st.lastAppliedIndexToDB.Load() != 0 && !st.dbLoad.done()
 }
 
 func (st *Store) FSMHasCaughtUp() bool {
