@@ -147,7 +147,7 @@ func requireRoaringSetRangeNodesWritten(t *testing.T, nodes []*roaringsetrange.M
 		expected.Write(sn.ToBuffer())
 	}
 
-	var scratch [roaringSetRangeNodePrefixSize]byte
+	var scratch [roaringsetrange.AdditionsStart]byte
 	var written bytes.Buffer
 	for _, node := range nodes {
 		require.NoError(t, writeRoaringSetRangeNode(&written, node, &scratch))
@@ -164,7 +164,7 @@ func requireRoaringSetRangeNodesWritten(t *testing.T, nodes []*roaringsetrange.M
 func TestWriteRoaringSetRangeNodeWriteError(t *testing.T) {
 	for _, shape := range roaringSetRangeNodeShapes {
 		t.Run(shape.name, func(t *testing.T) {
-			var scratch [roaringSetRangeNodePrefixSize]byte
+			var scratch [roaringsetrange.AdditionsStart]byte
 
 			var full bytes.Buffer
 			require.NoError(t, writeRoaringSetRangeNode(&full, shape.node, &scratch))
@@ -210,7 +210,7 @@ func roaringSetRangeFixtureNodeStarts(t *testing.T) []int {
 	nodes := newRoaringSetRangeFlushFixture(t).roaringSetRangeNodes()
 	require.Greater(t, len(nodes), 1, "the fixture must produce a node after the key 0 one")
 
-	var scratch [roaringSetRangeNodePrefixSize]byte
+	var scratch [roaringsetrange.AdditionsStart]byte
 	var body bytes.Buffer
 	starts := make([]int, 0, len(nodes))
 	for _, node := range nodes {
