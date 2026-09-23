@@ -967,7 +967,7 @@ func (s *Shard) mayStopAsyncReplication(capture bool) hashtree.AggregatedHashTre
 		// Distinguish a late drain from a permanently leaked waiter in goroutine dumps.
 		enterrors.GoWrapper(func() {
 			<-drained
-			lateLog.Warnf("async replication drain completed after deadline (took %s)", time.Since(drainStart))
+			lateLog.Infof("async replication drain completed after deadline (took %s)", time.Since(drainStart))
 		}, lateLog)
 	}
 

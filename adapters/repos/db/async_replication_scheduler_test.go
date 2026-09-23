@@ -3663,17 +3663,17 @@ func TestAsyncRepDrainedAfterAbandonedWait(t *testing.T) {
 	}
 }
 
-func loggedContaining(hook *test.Hook, want string) bool {
+func loggedContainingAt(hook *test.Hook, level logrus.Level, want string) bool {
 	for _, entry := range hook.AllEntries() {
-		if strings.Contains(entry.Message, want) {
+		if entry.Level == level && strings.Contains(entry.Message, want) {
 			return true
 		}
 	}
 	return false
 }
 
-// TestMayStopWarnsWhenDrainCompletesAfterDeadline: a straggler that settles after the deadline must still be reported, so a goroutine dump can tell a late drain from a leak.
-func TestMayStopWarnsWhenDrainCompletesAfterDeadline(t *testing.T) {
+// TestMayStopLogsWhenDrainCompletesAfterDeadline: a straggler that settles after the deadline must still be reported, so a goroutine dump can tell a late drain from a leak.
+func TestMayStopLogsWhenDrainCompletesAfterDeadline(t *testing.T) {
 	prevDrain := asyncReplicationWorkerDrainTimeout.Load()
 	asyncReplicationWorkerDrainTimeout.Store(int64(50 * time.Millisecond))
 	t.Cleanup(func() { asyncReplicationWorkerDrainTimeout.Store(prevDrain) })
@@ -3688,10 +3688,10 @@ func TestMayStopWarnsWhenDrainCompletesAfterDeadline(t *testing.T) {
 
 	s.asyncRepWg.Add(1)
 	require.Nil(t, s.mayStopAsyncReplication(true), "a timed-out drain must not capture")
-	require.True(t, loggedContaining(hook, "did not stop within deadline"))
+	require.True(t, loggedContainingAt(hook, logrus.WarnLevel, "did not stop within deadline"))
 
 	s.asyncRepWg.Done()
 	require.Eventually(t, func() bool {
-		return loggedContaining(hook, "drain completed after deadline")
-	}, 5*time.Second, 10*time.Millisecond, "a late drain must be reported")
+		return loggedContainingAt(hook, logrus.InfoLevel, "drain completed after deadline")
+	}, 5*time.Second, 10*time.Millisecond, "a late drain must be reported at info level")
 }
