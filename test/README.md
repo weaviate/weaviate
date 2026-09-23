@@ -34,6 +34,8 @@ JUNIT_DIR=$PWD/junit ./test/run.sh --unit-only
 Each `go test` invocation then runs through [gotestsum](https://github.com/gotestyourself/gotestsum)
 (installed on demand, pinned in `test/tools/gotest_junit.sh`) and writes one
 `go-<pid>-<seq>.xml` file into `JUNIT_DIR`; the pytest suite writes
-`pytest-<mode>.xml`. Flags, exit codes, and console output are unchanged.
-The directory's XML files are wiped at the start of every `run.sh` invocation,
-so a CI retry reports only the final attempt.
+`pytest-<mode>.xml`. Test flags and exit codes are unchanged. Console output
+comes from gotestsum: close to `go test`'s, plus a final `DONE N tests`
+summary. If gotestsum cannot be installed, Go tests fall back to plain
+`go test` without XML. The directory's XML files are wiped at the start of
+every `run.sh` invocation, so a CI retry reports only the final attempt.
