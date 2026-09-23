@@ -22,6 +22,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/semaphore"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	batchMocks "github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -156,57 +158,48 @@ func TestBatchObjectsSemaphore(t *testing.T) {
 	mockBatcher := batchMocks.NewMockBatcher(t)
 	logger := logrus.New()
 
+	// the handler only runs once a slot is held, so a receive on entered means
+	// the caller owns a semaphore slot
+	entered := make(chan struct{}, 3)
 	done := make(chan struct{})
-	// block to simulate long-running batching request
 	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
-		<-done
-		return &pb.BatchObjectsReply{}, nil
-	}).Times(2)
+		entered <- struct{}{}
+		select {
+		case <-done:
+			return &pb.BatchObjectsReply{}, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	})
 
 	s := &Service{
 		batchObjectsSem: semaphore.NewWeighted(2),
 		batchHandler:    mockBatcher,
+		logger:          logger,
 	}
 
 	wg := &sync.WaitGroup{}
-	barrier := &sync.WaitGroup{}
-	errs := make(chan error, 3)
+	errs := make(chan error, 2)
+	for range 2 {
+		wg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			_, err := s.BatchObjects(context.Background(), &pb.BatchObjectsRequest{})
+			errs <- err
+		}, logger)
+	}
+	<-entered
+	<-entered
 
-	// acquire sem three times
-	wg.Add(3)
-	barrier.Add(2)
-
-	ctx := context.Background()
-	enterrors.GoWrapper(func() {
-		defer wg.Done()
-		barrier.Done()
-		_, err := s.BatchObjects(ctx, &pb.BatchObjectsRequest{})
-		errs <- err
-	}, logger)
-	enterrors.GoWrapper(func() {
-		defer wg.Done()
-		barrier.Done()
-		_, err := s.BatchObjects(ctx, &pb.BatchObjectsRequest{})
-		errs <- err
-	}, logger)
-
-	ctxTimeout, cancel := context.WithTimeout(ctx, 1*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
-	enterrors.GoWrapper(func() {
-		defer func() {
-			wg.Done()
-			close(done)
-		}()
-		barrier.Wait()
-		_, err := s.BatchObjects(ctxTimeout, &pb.BatchObjectsRequest{})
-		errs <- err
-	}, logger)
+	_, err := s.BatchObjects(ctx, &pb.BatchObjectsRequest{})
 
-	// wait for calls to complete
+	close(done)
 	wg.Wait()
 
-	// timeout error will return before the other two successful calls
-	require.Error(t, <-errs)
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err), "third call must time out waiting for a slot: %v", err)
 	require.NoError(t, <-errs)
 	require.NoError(t, <-errs)
+	mockBatcher.AssertNumberOfCalls(t, "BatchObjects", 2)
 }
