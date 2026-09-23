@@ -686,7 +686,7 @@ func TestBatchDeleteObjects_FailsOnAReadError(t *testing.T) {
 	}
 
 	limit := int(batchDeleteLimit)
-	pass, err := shard.resolveAndCollect(ctx, batchDeleteMatchAllParams(true).Filters,
+	pass, err := shard.resolveAndCollectUUIDs(ctx, batchDeleteMatchAllParams(true).Filters,
 		limit, limit, failing)
 	require.ErrorContains(t, err, "resolve doc id",
 		"the error names the doc id the read failed on")

@@ -240,7 +240,7 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 		logger.Debug("Shard::FindUUIDs finished")
 	}()
 
-	total, err = s.resolveAndCollect(ctx, filters, limit, limit, lookup)
+	total, err = s.resolveAndCollectUUIDs(ctx, filters, limit, limit, lookup)
 	if err != nil {
 		return nil, err
 	}
@@ -260,7 +260,7 @@ func (s *Shard) FindUUIDs(ctx context.Context, filters *filters.LocalFilter, lim
 		secondPass = true
 
 		var uncapped findUUIDsPass
-		uncapped, err = s.resolveAndCollect(ctx, filters, resolveUncapped, limit, lookup)
+		uncapped, err = s.resolveAndCollectUUIDs(ctx, filters, resolveUncapped, limit, lookup)
 		total.docIDsRead = uncapped.docIDsRead
 		// pruned, kept and resolveTook are summed over both passes; docIDsRead is the
 		// second pass's, since the first pass's ids are a subset of it.
@@ -324,10 +324,10 @@ type findUUIDsPass struct {
 	resolveTook time.Duration
 }
 
-// resolveAndCollect resolves the filter and walks the allow list for at most limit UUIDs.
+// resolveAndCollectUUIDs resolves the filter and walks the allow list for at most limit UUIDs.
 // resolveLimit caps the inverted resolve itself; zero leaves it uncapped. The allow list
 // is released before this returns, so a caller running a second pass holds only one.
-func (s *Shard) resolveAndCollect(ctx context.Context, filter *filters.LocalFilter,
+func (s *Shard) resolveAndCollectUUIDs(ctx context.Context, filter *filters.LocalFilter,
 	resolveLimit, limit int, lookup secondaryDocIDLookup,
 ) (pass findUUIDsPass, err error) {
 	resolveStart := time.Now()
@@ -403,10 +403,8 @@ func (s *Shard) resolveAndCollect(ctx context.Context, filter *filters.LocalFilt
 	}
 
 	for docID, ok := it.Next(); ok; docID, ok = it.Next() {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return pass, fmt.Errorf("uuids loop: %w", ctx.Err())
-		default:
 		}
 
 		uuid, newBuf, found, err := uuidFromDocIDWithLookup(ctx, lookup, docID, docIDBuf, objBuf)
