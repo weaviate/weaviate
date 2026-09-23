@@ -14,6 +14,8 @@ package objects
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 	"sync"
 
@@ -94,11 +96,10 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 		pathsByClass[val.Class] = append(pathsByClass[val.Class], authorization.ShardsData(val.Class, val.Shard)...)
 	}
 
-	// One source class in a non-active namespace refuses the whole batch. The
-	// single-class signature cannot carry the set, so the gate runs per class
-	// on that class's own resources.
-	for class, paths := range pathsByClass {
-		if err := b.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, class, paths...); err != nil {
+	// One source class in a non-active namespace refuses the whole batch. Sorted
+	// order returns the same error on every run.
+	for _, class := range slices.Sorted(maps.Keys(pathsByClass)) {
+		if err := b.authorizer.AuthorizeAndRequireActiveNamespace(ctx, principal, authorization.UPDATE, class, pathsByClass[class]...); err != nil {
 			return nil, err
 		}
 	}

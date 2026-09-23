@@ -240,17 +240,19 @@ func restAggregateCount(t *testing.T, uri, collection, key string) (int, map[str
 		map[string]any{"returnMetrics": []string{"count"}})
 }
 
-// requireRefused retries until the call is turned away and says why.
-// SuspendNamespace confirms the flip on one node and no surface reads another
-// node's own copy, so a row aimed elsewhere can only wait for the answer to change.
-func requireRefused(t *testing.T, call func() error) {
+// requireRefused retries until the call fails with "suspended" and every
+// alsoContains. It retries because other nodes apply the suspend later. Pass the
+// gate's own wrap where the shard-load guard refuses the same verb.
+func requireRefused(t *testing.T, call func() error, alsoContains ...string) {
 	t.Helper()
 	require.EventuallyWithT(t, func(c *assert.CollectT) {
 		err := call()
 		if !assert.Error(c, err) {
 			return
 		}
-		assert.Contains(c, err.Error(), "suspended")
+		for _, want := range append([]string{"suspended"}, alsoContains...) {
+			assert.Contains(c, err.Error(), want)
+		}
 	}, 30*time.Second, 200*time.Millisecond, "the refusal never reached the node the request went to")
 }
 

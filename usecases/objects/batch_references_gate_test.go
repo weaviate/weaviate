@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -57,10 +58,9 @@ func twoSourceNSSchema() []*models.Class {
 	}
 }
 
-// Test_BatchReferences_NamespaceGate covers the two AddReferences behaviours the
-// per-site sweep in authorization_test.go cannot reach. That sweep drives one
-// class per call, so it sees neither the per-class loop nor the early return
-// that precedes every authorizer call.
+// Test_BatchReferences_NamespaceGate drives AddReferences over two source
+// classes and the early return before any authorizer call. The one-class sweep
+// in authorization_test.go reaches neither.
 func Test_BatchReferences_NamespaceGate(t *testing.T) {
 	id := strfmt.UUID("d18c8e5e-0000-0000-0000-56b0cfe33ce7")
 	refID := strfmt.UUID("d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
@@ -77,31 +77,48 @@ func Test_BatchReferences_NamespaceGate(t *testing.T) {
 		},
 	}
 
-	t.Run("the gate runs once per distinct source class", func(t *testing.T) {
+	t.Run("each source class is checked once for UPDATE, at the gate", func(t *testing.T) {
 		_, b, repo, _, authz := newNSManagers(t, twoSourceNSSchema(), true)
 		repo.On("AddBatchReferences", mock.Anything).Return(nil).Once()
 
 		_, err := b.AddReferences(context.Background(), principal, twoSourceRefs, nil)
 		require.NoError(t, err)
 
-		gated := map[string]bool{}
-		for _, c := range authz.Calls() {
-			if c.Method == mocks.MethodAuthorizeAndRequireActiveNamespace {
-				gated[c.Class] = true
-			}
+		// The third call is addReferences' READ on the target class.
+		calls := authz.Calls()
+		require.Len(t, calls, 3, "no permission may be checked twice")
+		for _, c := range calls[:2] {
+			assert.Equal(t, mocks.MethodAuthorizeAndRequireActiveNamespace, c.Method)
+			assert.Equal(t, authorization.UPDATE, c.Verb)
 		}
-		assert.Equal(t, map[string]bool{"customer1:Zoo": true, "customer1:Barn": true}, gated,
+		assert.Equal(t, authorization.READ, calls[2].Verb)
+		assert.Equal(t, []string{"customer1:Barn", "customer1:Zoo"}, gateClasses(calls),
 			"each source class must reach the gate under its own qualified name")
 	})
 
 	t.Run("one refusing source class refuses the whole batch", func(t *testing.T) {
-		_, b, _, _, authz := newNSManagers(t, twoSourceNSSchema(), true)
-		authz.SetErr(errors.New("namespace is suspended"))
+		_, b, repo, _, authz := newNSManagers(t, twoSourceNSSchema(), true)
+		// Only the second class's gate refuses.
+		authz.SetErrAfter(1, errors.New("namespace is suspended"))
 
 		_, err := b.AddReferences(context.Background(), principal, twoSourceRefs, nil)
 
 		require.Error(t, err, "the batch must fail as a whole rather than per reference")
 		assert.EqualError(t, err, "namespace is suspended")
+		repo.AssertNotCalled(t, "AddBatchReferences", mock.Anything)
+	})
+
+	t.Run("the gate runs in sorted source class order", func(t *testing.T) {
+		// Map order varies, so a single run could pass by luck.
+		for range 20 {
+			_, b, _, _, authz := newNSManagers(t, twoSourceNSSchema(), true)
+			authz.SetErrAfter(1, errors.New("namespace is suspended"))
+
+			_, err := b.AddReferences(context.Background(), principal, twoSourceRefs, nil)
+
+			require.Error(t, err)
+			require.Equal(t, []string{"customer1:Barn", "customer1:Zoo"}, gateClasses(authz.Calls()))
+		}
 	})
 
 	t.Run("no source class survives resolution, so no gate call is made", func(t *testing.T) {

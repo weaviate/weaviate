@@ -155,17 +155,21 @@ func TestGRPCHandlersReturnTheNamespaceRefusal(t *testing.T) {
 	}
 }
 
-// TestBatchDeleteRequiresActiveNamespaceBeforeParsing pins that batchDelete's
-// DELETE authorization is the gate, so a suspended namespace is refused before
-// the params getter runs its own READ check.
-func TestBatchDeleteRequiresActiveNamespaceBeforeParsing(t *testing.T) {
+// TestBatchDeleteChecksDeleteBeforeTheNamespaceGate pins that a caller missing
+// DELETE is refused before the params getter's READ runs the namespace gate.
+func TestBatchDeleteChecksDeleteBeforeTheNamespaceGate(t *testing.T) {
 	// gatedAlias resolves to gatedClass, so a gate handed the name as sent
 	// records a different Class.
 	const gatedAlias = "alpha:MoviesAlias"
-	errReadDenied := errors.New("read denied")
-	deleteGate := mocks.AuthZReq{
+	errDenied := errors.New("denied")
+	deleteCheck := mocks.AuthZReq{
 		Verb:      authorization.DELETE,
 		Resources: authorization.ShardsData(gatedClass, ""),
+		Method:    mocks.MethodAuthorize,
+	}
+	readGate := mocks.AuthZReq{
+		Verb:      authorization.READ,
+		Resources: authorization.CollectionsData(gatedClass),
 		Method:    mocks.MethodAuthorizeAndRequireActiveNamespace,
 		Class:     gatedClass,
 	}
@@ -177,23 +181,17 @@ func TestBatchDeleteRequiresActiveNamespaceBeforeParsing(t *testing.T) {
 		wantCalls []mocks.AuthZReq
 	}{
 		{
-			// The getter's READ check refusing keeps this row off ReadOnlyClass, which
-			// the mock reader does not expect. It runs only once the DELETE gate passes.
-			name:      "an active namespace passes the gate to the params getter",
-			configure: func(a *mocks.FakeAuthorizer) { a.SetErrAfter(1, errReadDenied) },
-			wantErr:   errReadDenied,
-			wantCalls: []mocks.AuthZReq{deleteGate, {
-				Verb:      authorization.READ,
-				Resources: authorization.CollectionsData(gatedClass),
-				Method:    mocks.MethodAuthorizeAndRequireActiveNamespace,
-				Class:     gatedClass,
-			}},
+			name:      "a denied DELETE is refused before the params getter",
+			configure: func(a *mocks.FakeAuthorizer) { a.SetErr(errDenied) },
+			wantErr:   errDenied,
+			wantCalls: []mocks.AuthZReq{deleteCheck},
 		},
 		{
-			name:      "a suspended namespace is refused at the DELETE gate",
-			configure: func(a *mocks.FakeAuthorizer) { a.SetErr(usecasesNamespaces.ErrNamespaceSuspended) },
+			// The refused gate never reaches ReadOnlyClass, which the mock does not expect.
+			name:      "a suspended namespace is refused at the params getter's gate",
+			configure: func(a *mocks.FakeAuthorizer) { a.SetErrAfter(1, usecasesNamespaces.ErrNamespaceSuspended) },
 			wantErr:   usecasesNamespaces.ErrNamespaceSuspended,
-			wantCalls: []mocks.AuthZReq{deleteGate},
+			wantCalls: []mocks.AuthZReq{deleteCheck, readGate},
 		},
 	}
 

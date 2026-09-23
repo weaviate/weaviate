@@ -23,10 +23,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -57,6 +60,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 
 	queryTenant := "tenant"
 	principal := &models.Principal{}
+	const refTargetID = "d18c8e5e-a339-4c15-8af6-56b0cfe33ce7"
 
 	tests := []testCase{
 		// single kind
@@ -191,6 +195,20 @@ func Test_Kinds_Authorization(t *testing.T) {
 			},
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.ShardsData("class", "tenant"),
+			expectedMethod:    mocks.MethodAuthorize,
+		},
+		{ // getAuthorizedFromClass gates the class read, after the write check
+			methodName: "AddObjectReference",
+			additionalArgs: []interface{}{
+				&AddReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "someProp"},
+				(*additional.ReplicationProperties)(nil), "tenant",
+			},
+			precedingCalls: []mocks.AuthZReq{{
+				Principal: principal, Verb: authorization.UPDATE,
+				Resources: authorization.ShardsData("class", "tenant"), Method: mocks.MethodAuthorize,
+			}},
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.CollectionsMetadata("class"),
 			expectedMethod:    mocks.MethodAuthorizeAndRequireActiveNamespace,
 			expectedClass:     "Class",
 		},
@@ -202,10 +220,9 @@ func Test_Kinds_Authorization(t *testing.T) {
 			},
 			expectedVerb:      authorization.READ,
 			expectedResources: authorization.ShardsData("class", "tenant"),
-			expectedMethod:    mocks.MethodAuthorizeAndRequireActiveNamespace,
-			expectedClass:     "Class",
+			expectedMethod:    mocks.MethodAuthorize,
 		},
-		{ // DeleteObjectReference authorizes READ then UPDATE, so this row pins the write gate
+		{ // DeleteObjectReference authorizes READ then UPDATE, so this row pins the second check
 			methodName: "DeleteObjectReference",
 			additionalArgs: []interface{}{
 				&DeleteReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "someProp"},
@@ -213,11 +230,33 @@ func Test_Kinds_Authorization(t *testing.T) {
 			},
 			precedingCalls: []mocks.AuthZReq{{
 				Principal: principal, Verb: authorization.READ,
-				Resources: authorization.ShardsData("class", "tenant"),
-				Method:    mocks.MethodAuthorizeAndRequireActiveNamespace, Class: "Class",
+				Resources: authorization.ShardsData("class", "tenant"), Method: mocks.MethodAuthorize,
 			}},
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.ShardsData("class", "tenant"),
+			expectedMethod:    mocks.MethodAuthorize,
+		},
+		{ // the beacon must parse for the call to reach getAuthorizedFromClass's gate
+			methodName: "DeleteObjectReference",
+			additionalArgs: []interface{}{
+				&DeleteReferenceInput{
+					Class: "class", ID: strfmt.UUID("foo"), Property: "someProp",
+					Reference: models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/" + refTargetID)},
+				},
+				(*additional.ReplicationProperties)(nil), "tenant",
+			},
+			precedingCalls: []mocks.AuthZReq{
+				{
+					Principal: principal, Verb: authorization.READ,
+					Resources: authorization.ShardsData("class", "tenant"), Method: mocks.MethodAuthorize,
+				},
+				{
+					Principal: principal, Verb: authorization.UPDATE,
+					Resources: authorization.ShardsData("class", "tenant"), Method: mocks.MethodAuthorize,
+				},
+			},
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.CollectionsMetadata("class"),
 			expectedMethod:    mocks.MethodAuthorizeAndRequireActiveNamespace,
 			expectedClass:     "Class",
 		},
@@ -229,6 +268,22 @@ func Test_Kinds_Authorization(t *testing.T) {
 			},
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.ShardsData("class", "tenant"),
+			expectedMethod:    mocks.MethodAuthorizeAndRequireActiveNamespace,
+			expectedClass:     "Class",
+		},
+		{ // the source object read sits between the two gates
+			methodName: "UpdateObjectReferences",
+			additionalArgs: []interface{}{
+				&PutReferenceInput{Class: "class", ID: strfmt.UUID("foo"), Property: "someProp"},
+				(*additional.ReplicationProperties)(nil), "tenant",
+			},
+			precedingCalls: []mocks.AuthZReq{{
+				Principal: principal, Verb: authorization.UPDATE,
+				Resources: authorization.ShardsData("class", "tenant"),
+				Method:    mocks.MethodAuthorizeAndRequireActiveNamespace, Class: "Class",
+			}},
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.CollectionsMetadata("class"),
 			expectedMethod:    mocks.MethodAuthorizeAndRequireActiveNamespace,
 			expectedClass:     "Class",
 		},
@@ -257,6 +312,11 @@ func Test_Kinds_Authorization(t *testing.T) {
 				authorizer := mocks.NewMockAuthorizer()
 				authorizer.SetErrAfter(len(test.precedingCalls), errAuthzFake)
 				vectorRepo := &fakeObjectFinder{}
+				if test.methodName == "UpdateObjectReferences" {
+					// UpdateObjectReferences reads the source object between its two gates.
+					vectorRepo.On("Object", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+						Return(&search.Result{ClassName: "Class"}, nil)
+				}
 				manager := NewManager(schemaManager,
 					cfg, logger, authorizer,
 					vectorRepo, getFakeModulesProvider(), &fakeMetrics{}, nil,
@@ -322,10 +382,9 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			},
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.ShardsData("class", "tenant"),
-			expectedMethod:    mocks.MethodAuthorizeAndRequireActiveNamespace,
-			expectedClass:     "Class",
+			expectedMethod:    mocks.MethodAuthorize,
 		},
-		{ // AddObjects authorizes UPDATE then CREATE, so this row pins the second check
+		{ // AddObjects authorizes UPDATE, then CREATE through the gate
 			methodName: "AddObjects",
 			additionalArgs: []interface{}{
 				[]*models.Object{{Class: "class", Tenant: "tenant"}},
@@ -334,14 +393,14 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			},
 			precedingCalls: []mocks.AuthZReq{{
 				Principal: principal, Verb: authorization.UPDATE,
-				Resources: authorization.ShardsData("class", "tenant"),
-				Method:    mocks.MethodAuthorizeAndRequireActiveNamespace, Class: "Class",
+				Resources: authorization.ShardsData("class", "tenant"), Method: mocks.MethodAuthorize,
 			}},
 			expectedVerb:      authorization.CREATE,
 			expectedResources: authorization.ShardsData("class", "tenant"),
-			expectedMethod:    mocks.MethodAuthorize,
+			expectedMethod:    mocks.MethodAuthorizeAndRequireActiveNamespace,
+			expectedClass:     "Class",
 		},
-		{
+		{ // AddReferences authorizes UPDATE through the gate only
 			methodName: "AddReferences",
 			additionalArgs: []interface{}{
 				[]*models.BatchReference{{From: uri + "/ref", To: uri, Tenant: "tenant"}},
@@ -364,6 +423,29 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 			},
 			expectedVerb:      authorization.DELETE,
 			expectedResources: authorization.ShardsData("class", "tenant"),
+			expectedMethod:    mocks.MethodAuthorize,
+		},
+		{ // the gate rides on the class lookup's READ, so DELETE is taken once
+			methodName: "DeleteObjects",
+			additionalArgs: []interface{}{
+				&models.BatchDeleteMatch{Class: "class", Where: &models.WhereFilter{
+					Path: []string{"name"}, Operator: "Equal", ValueText: ptString("x"),
+				}},
+				(*int64)(nil),
+				(*bool)(nil),
+				(*string)(nil),
+				&additional.ReplicationProperties{},
+				"tenant",
+			},
+			precedingCalls: []mocks.AuthZReq{
+				{
+					Principal: principal, Verb: authorization.DELETE,
+					Resources: authorization.ShardsData("class", "tenant"), Method: mocks.MethodAuthorize,
+				},
+			},
+			// resolveNS hands the gate the schema's own spelling, not the match's.
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.CollectionsMetadata("Class"),
 			expectedMethod:    mocks.MethodAuthorizeAndRequireActiveNamespace,
 			expectedClass:     "Class",
 		},
@@ -385,7 +467,14 @@ func Test_BatchKinds_Authorization(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		for _, test := range tests {
 			t.Run(test.methodName, func(t *testing.T) {
-				schemaManager := &fakeSchemaManager{}
+				// DeleteObjects reaches its gate only with a class and a where clause
+				// whose property resolves.
+				schemaManager := &fakeSchemaManager{GetSchemaResponse: schema.Schema{Objects: &models.Schema{
+					Classes: []*models.Class{{
+						Class:      "Class",
+						Properties: []*models.Property{{Name: "name", DataType: schema.DataTypeText.PropString()}},
+					}},
+				}}}
 				cfg := &config.WeaviateConfig{}
 				authorizer := mocks.NewMockAuthorizer()
 				authorizer.SetErrAfter(len(test.precedingCalls), errAuthzFake)

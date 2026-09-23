@@ -24,8 +24,8 @@ import (
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
-// Test_GateRefusal_RendersUnprocessable covers the seven sites whose gate error
-// is wrapped in an *Error. The namespace row of each pair fails without gateErr.
+// Test_GateRefusal_RendersUnprocessable covers the eight sites that wrap an
+// authorizer error in gateErr. The namespace row of each pair fails without it.
 // The permission row reddens if gateErr ever answers 422 for a denied caller.
 func Test_GateRefusal_RendersUnprocessable(t *testing.T) {
 	refID := strfmt.UUID("d18c8e5e-a339-4c15-8af6-56b0cfe33ce7")
@@ -40,12 +40,12 @@ func Test_GateRefusal_RendersUnprocessable(t *testing.T) {
 	// Error(), which gateErr calls to build the message.
 	permissionRefusal := authzerrs.NewForbidden(principal, "R", "data/collections/Zoo")
 
-	// allowFirst is how many gate calls a site makes before the one under test.
-	// Only DeleteObjectReference has two, and its second is reachable only once
-	// the first is allowed.
+	// allowFirst counts the authorizer calls a site must pass before the one under
+	// test. A plain site has no namespace check, so it runs only the permission row.
 	sites := []struct {
 		name       string
 		allowFirst int
+		plain      bool
 		call       func(m *Manager) *Error
 	}{
 		{
@@ -70,7 +70,16 @@ func Test_GateRefusal_RendersUnprocessable(t *testing.T) {
 			},
 		},
 		{
-			name: "AddObjectReference",
+			name:  "AddObjectReference",
+			plain: true,
+			call: func(m *Manager) *Error {
+				return m.AddObjectReference(context.Background(), principal,
+					&AddReferenceInput{Class: "Zoo", ID: id, Property: "hasAnimals"}, nil, "")
+			},
+		},
+		{
+			name:       "getAuthorizedFromClass",
+			allowFirst: 1,
 			call: func(m *Manager) *Error {
 				return m.AddObjectReference(context.Background(), principal,
 					&AddReferenceInput{Class: "Zoo", ID: id, Property: "hasAnimals"}, nil, "")
@@ -84,7 +93,8 @@ func Test_GateRefusal_RendersUnprocessable(t *testing.T) {
 			},
 		},
 		{
-			name: "DeleteObjectReference read",
+			name:  "DeleteObjectReference read",
+			plain: true,
 			call: func(m *Manager) *Error {
 				return m.DeleteObjectReference(context.Background(), principal,
 					&DeleteReferenceInput{Class: "Zoo", ID: id, Property: "hasAnimals"}, nil, "")
@@ -93,6 +103,7 @@ func Test_GateRefusal_RendersUnprocessable(t *testing.T) {
 		{
 			name:       "DeleteObjectReference update",
 			allowFirst: 1,
+			plain:      true,
 			call: func(m *Manager) *Error {
 				return m.DeleteObjectReference(context.Background(), principal,
 					&DeleteReferenceInput{Class: "Zoo", ID: id, Property: "hasAnimals"}, nil, "")
@@ -101,16 +112,18 @@ func Test_GateRefusal_RendersUnprocessable(t *testing.T) {
 	}
 
 	for _, site := range sites {
-		t.Run(site.name+" renders a namespace refusal as 422", func(t *testing.T) {
-			m, _, _, _, authz := newNSManagers(t, zooAnimalNSSchema(false), false)
-			authz.SetErrAfter(site.allowFirst, namespaceRefusal)
+		if !site.plain {
+			t.Run(site.name+" renders a namespace refusal as 422", func(t *testing.T) {
+				m, _, _, _, authz := newNSManagers(t, zooAnimalNSSchema(false), false)
+				authz.SetErrAfter(site.allowFirst, namespaceRefusal)
 
-			err := site.call(m)
+				err := site.call(m)
 
-			require.NotNil(t, err)
-			assert.Equal(t, StatusUnprocessableEntity, err.Code,
-				"a condition no credential fixes must not read as a permission failure")
-		})
+				require.NotNil(t, err)
+				assert.Equal(t, StatusUnprocessableEntity, err.Code,
+					"a condition no credential fixes must not read as a permission failure")
+			})
+		}
 
 		t.Run(site.name+" still renders a permission failure as 403", func(t *testing.T) {
 			m, _, _, _, authz := newNSManagers(t, zooAnimalNSSchema(false), false)
@@ -123,9 +136,8 @@ func Test_GateRefusal_RendersUnprocessable(t *testing.T) {
 		})
 	}
 
-	// The cost of discriminating on Forbidden rather than on the sentinel. An
-	// error that is neither now renders 422 where it rendered 403. This row pins
-	// that fallback. The seven sites never build an empty resource list.
+	// gateErr renders any non-Forbidden error as 422. An empty resource list, which
+	// no site builds, pins that fallback.
 	t.Run("a residual authorizer error renders 422", func(t *testing.T) {
 		m, _, _, _, authz := newNSManagers(t, zooAnimalNSSchema(false), false)
 		authz.SetErr(errors.New("at least 1 resource is required"))
@@ -136,12 +148,11 @@ func Test_GateRefusal_RendersUnprocessable(t *testing.T) {
 		assert.Equal(t, StatusUnprocessableEntity, err.Code)
 	})
 
-	// A site still on plain Authorize, which can only fail with a
-	// permission error. Without this row a later sweep applying gateErr across
-	// the package is invisible.
+	// AddObjectReference's target check skips gateErr, so a non-Forbidden error
+	// still renders 403.
 	t.Run("a cross-reference target check still renders 403", func(t *testing.T) {
 		m, _, _, _, authz := newNSManagers(t, zooAnimalNSSchema(false), false)
-		authz.SetErrAfter(1, permissionRefusal)
+		authz.SetErrAfter(2, errors.New("target check failed"))
 
 		err := m.AddObjectReference(context.Background(), principal,
 			&AddReferenceInput{
