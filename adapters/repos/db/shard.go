@@ -94,7 +94,7 @@ type ShardLike interface {
 	GetStatus() storagestate.Status                                                                // Return the shard status
 	GetStatusReason() string                                                                       // Return the reason for the current status
 	SetStatusReadonly(reason string) error                                                         // Set shard status to readonly with reason
-	FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) // Search and return document ids
+	FindUUIDs(ctx context.Context, filters *filters.LocalFilter, limit int) ([]strfmt.UUID, error) // Resolve a filter to the UUIDs it matches; see Shard.FindUUIDs
 
 	Counter() *indexcounter.Counter
 	ObjectCount(ctx context.Context) (int, error)
@@ -289,32 +289,16 @@ type Shard struct {
 	asyncCheckpointCreatedAt   time.Time
 	asyncCheckpointActivatedAt time.Time
 
-	// asyncRepCtx is the per-shard context for the hashbeat cycle. It is
-	// derived from context.Background() and cancelled by asyncReplicationCancelFunc
-	// when async replication is stopped. Workers receive this context so that
-	// in-flight cycles terminate promptly when the shard is deregistered.
+	// asyncRepCtx is the per-shard hashbeat context, derived from the scheduler's ctx (Background only when there is no scheduler) and cancelled by asyncReplicationCancelFunc.
 	asyncRepCtx context.Context
 
-	// asyncRepWg tracks all async replication goroutines that may access shard
-	// resources: in-flight hashbeat cycles, hashtree init goroutines, and
-	// scheduler-register goroutines. The counter is usually 0 or 1 but may
-	// briefly exceed 1 when an init goroutine overlaps with a dispatch.
-	// Done() for hashbeat cycles is called before the result is sent back to
-	// the dispatcher, so the scheduler cannot re-dispatch until Done() fires.
-	// Callers that need a strict happens-before guarantee call asyncRepWg.Wait()
-	// after Deregister; Deregister settles Done()s for batches still queued, so
-	// Wait() only covers cycles that actually started.
-	// A theoretical Add-vs-Wait reuse race degrades to a recovered panic, not a wedge (observers and pool are panic-safe).
-	asyncRepWg sync.WaitGroup
-
-	// asyncRepDrainObserver (guarded by asyncRepDrainMu) is shared by bounded drain waits so retries against a wedged worker don't accumulate waiter goroutines.
-	asyncRepDrainMu       sync.Mutex
-	asyncRepDrainObserver chan struct{}
+	// asyncRepWg tracks async replication goroutines touching shard resources: hashbeat cycles, hashtree init, scheduler register.
+	// Done() before the result plus Wait()/Drained() after Deregister gives a strict happens-before against a stopped cycle.
+	asyncRepWg drainLatch
 
 	// asyncRepNeedsRebuild is set by runEntry when the effective hashtree height
 	// (after applying runtime-config overrides) differs from the current hashtree
-	// height. The scheduler spawns a rebuild goroutine after asyncRepWg.Done()
-	// so that DisableAsyncReplication can safely call Deregister+Wait.
+	// height. The scheduler spawns the rebuild after asyncRepWg.Done() so a teardown's Deregister+drain is never pinned by the cycle that armed it.
 	asyncRepNeedsRebuild atomic.Bool
 
 	// asyncRepRebuildInFlight prevents concurrent rebuildHashtree goroutines.
@@ -419,6 +403,12 @@ type Shard struct {
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
 	bitmapBufPool  roaringset.BitmapBufPool
+	// docIDPruneWatermark is the doc id counter read at shard init. Every id below it
+	// is written or dead forever, so a scan that finds no object row for it may drop it
+	// from the doc id universe. An id at or above it may belong to an insert that has
+	// allocated the id and not yet written the row; dropping that one would hide a live
+	// object from every deny-list filter until the next shard init.
+	docIDPruneWatermark uint64
 
 	activityTrackerRead  atomic.Int32
 	activityTrackerWrite atomic.Int32

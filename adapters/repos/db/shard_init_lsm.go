@@ -224,6 +224,7 @@ func (s *Shard) initIndexCounterVersionerAndBitmapFactory() error {
 	// The counter is incremented whenever a new docID is fetched and never
 	// decremented on delete, so it is the count of IDs ever allocated.
 	s.bitmapFactory = roaringset.NewBitmapFactory(s.bitmapBufPool, s.counter.Get)
+	s.docIDPruneWatermark = s.counter.Get()
 
 	dataPresent := s.counter.PreviewNext() != 0
 	versionPath := path.Join(s.path(), "version")

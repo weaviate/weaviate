@@ -35,7 +35,7 @@ type BatchDeleteResponse struct {
 	// Timestamp of deletion in milliseconds since epoch UTC.
 	DeletionTimeUnixMilli *int64 `json:"deletionTimeUnixMilli,omitempty"`
 
-	// If true, objects will not be deleted yet, but merely listed. Defaults to false.
+	// If true, the call reported what the filter matched and deleted nothing. The list holds at most [`QUERY_MAXIMUM_RESULTS`](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS) IDs. Defaults to false.
 	DryRun *bool `json:"dryRun,omitempty"`
 
 	// match
@@ -277,7 +277,7 @@ type BatchDeleteResponseResults struct {
 	// The most amount of objects that can be deleted in a single query, equals [`QUERY_MAXIMUM_RESULTS`](https://docs.weaviate.io/deploy/configuration/env-vars#QUERY_MAXIMUM_RESULTS).
 	Limit int64 `json:"limit"`
 
-	// How many objects were matched by the filter.
+	// How many objects matched the filter. With a positive `limit` the count stops one above `limit`: at or below `limit` this is the exact number of matching objects and every one of them was handled by this call, and above `limit` more objects match than one call deletes, so call again. With a `limit` of 0 or below the count is exact and uncapped.
 	Matches int64 `json:"matches"`
 
 	// With output set to `minimal` only objects with error occurred will the be described. Successfully deleted objects would be omitted. Output set to `verbose` will list all of the objects with their respective statuses.
