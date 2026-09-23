@@ -202,16 +202,14 @@ func (s *Shard) switchToRecalculatedDimensions(ctx context.Context,
 	if ctx.Err() != nil {
 		return fmt.Errorf("switch dimensions bucket of shard %q: %w", s.ID(), context.Cause(ctx))
 	}
-	if err := s.lockNotHaltedForTransfer(ctx); err != nil {
-		return err
-	}
-	defer s.haltForTransferMux.Unlock()
-
-	release, err := s.preventShutdown()
+	release, err := s.lockNotHaltedForTransfer(ctx)
 	if err != nil {
 		return err
 	}
+	// Deferred first, so it runs last: a shutdown requested meanwhile runs within
+	// release, and takes haltForTransferMux.
 	defer release()
+	defer s.haltForTransferMux.Unlock()
 
 	unlockBucket, err := shardusage.LockUnloadedDimensionsBucket(ctx, s.index.path(), s.name)
 	if err != nil {
@@ -227,22 +225,30 @@ func (s *Shard) switchToRecalculatedDimensions(ctx context.Context,
 	return s.replaceDimensionsBucket(context.WithoutCancel(ctx), rows)
 }
 
-// lockNotHaltedForTransfer returns holding haltForTransferMux, once the shard is
-// not halted. A halt in turn waits for the mutex, so none can start meanwhile.
-func (s *Shard) lockNotHaltedForTransfer(ctx context.Context) error {
+// lockNotHaltedForTransfer returns holding haltForTransferMux and a reference to
+// the shard, once the shard is not halted. A halt in turn waits for the mutex, so
+// none can start meanwhile. The reference is taken first, as performShutdown takes
+// its lock before the mutex. Both are let go while the shard is halted, so that it
+// can be shut down or dropped meanwhile.
+func (s *Shard) lockNotHaltedForTransfer(ctx context.Context) (release func(), err error) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 
 	for {
+		release, err := s.preventShutdown()
+		if err != nil {
+			return nil, err
+		}
 		s.haltForTransferMux.Lock()
 		if !s.haltedForTransfer() {
-			return nil
+			return release, nil
 		}
 		s.haltForTransferMux.Unlock()
+		release()
 
 		select {
 		case <-ctx.Done():
-			return fmt.Errorf("wait for transfer of shard %q to end: %w", s.ID(), context.Cause(ctx))
+			return nil, fmt.Errorf("wait for transfer of shard %q to end: %w", s.ID(), context.Cause(ctx))
 		case <-ticker.C:
 		}
 	}
@@ -334,16 +340,14 @@ func (s *Shard) replaceDimensionsBucket(ctx context.Context, rows dimensionsRows
 	if err := s.store.CreateOrLoadBucket(ctx, name, s.makeDefaultBucketOptions(lsmkv.StrategyRoaringSet)...); err != nil {
 		return fmt.Errorf("create bucket %q: %w", name, err)
 	}
-	if err := s.fillAndSwitchDimensionsBucket(ctx, name, rows); err != nil {
-		if rollbackErr := s.rollBackDimensionsBucketSwitch(ctx, name, bucketPath); rollbackErr != nil {
-			return fmt.Errorf("%w: roll back: %w", err, rollbackErr)
-		}
+	if err := s.fillDimensionsBucket(name, rows); err != nil {
+		s.discardDimensionsReplacement(ctx, name, bucketPath+shardusage.DimensionsReplacementBucketSuffix)
 		return err
 	}
-	return nil
+	return s.switchToDimensionsReplacement(ctx, name, bucketPath)
 }
 
-func (s *Shard) fillAndSwitchDimensionsBucket(ctx context.Context, name string, rows dimensionsRows) error {
+func (s *Shard) fillDimensionsBucket(name string, rows dimensionsRows) error {
 	replacement := s.store.Bucket(name)
 	for key, docIDs := range rows {
 		if docIDs.IsEmpty() {
@@ -357,48 +361,78 @@ func (s *Shard) fillAndSwitchDimensionsBucket(ctx context.Context, name string, 
 	if err := replacement.FlushAndSwitch(); err != nil {
 		return fmt.Errorf("flush bucket %q: %w", name, err)
 	}
-
-	if err := s.store.ReplaceBuckets(ctx, helpers.DimensionsBucketLSM, name); err != nil {
-		return fmt.Errorf("replace dimensions bucket: %w", err)
-	}
-	if err := diskio.Fsync(s.pathLSM()); err != nil {
-		return fmt.Errorf("fsync %q: %w", s.pathLSM(), err)
-	}
 	return nil
 }
 
-// rollBackDimensionsBucketSwitch puts the shard back on the dimensions bucket it
-// had. ReplaceBuckets gives the replacement the name of the bucket before it can
-// fail, and does not take it back: left alone, the shard would go on writing to
-// the replacement's dir, which the next load removes as unfinished.
-func (s *Shard) rollBackDimensionsBucketSwitch(ctx context.Context, name, bucketPath string) error {
+// discardDimensionsReplacement leaves the shard on the dimensions bucket it has.
+// What it fails to remove the next switch or load removes.
+func (s *Shard) discardDimensionsReplacement(ctx context.Context, name, readyPath string) {
+	if err := s.store.ShutdownBucket(ctx, name); err != nil {
+		s.index.logger.WithField("bucket", name).Warnf("failed to shutdown bucket: %v", err)
+	}
+	if err := os.RemoveAll(readyPath); err != nil {
+		s.index.logger.WithField("path", readyPath).Warnf("failed to remove dir: %v", err)
+	}
+}
+
+// switchToDimensionsReplacement puts the filled replacement in place of the
+// dimensions bucket.
+func (s *Shard) switchToDimensionsReplacement(ctx context.Context, name, bucketPath string) error {
+	err := s.store.ReplaceBuckets(ctx, helpers.DimensionsBucketLSM, name)
+	if err == nil {
+		if err := diskio.Fsync(s.pathLSM()); err != nil {
+			return fmt.Errorf("fsync %q: %w", s.pathLSM(), err)
+		}
+		return nil
+	}
+	err = fmt.Errorf("replace dimensions bucket: %w", err)
+
+	readyPath := bucketPath + shardusage.DimensionsReplacementBucketSuffix
+	if s.store.Bucket(name) != nil {
+		s.discardDimensionsReplacement(ctx, name, readyPath)
+		return err
+	}
+	return s.recoverFailedDimensionsSwitch(ctx, bucketPath, err)
+}
+
+// recoverFailedDimensionsSwitch deals with ReplaceBuckets failing after it gave the
+// replacement the name of the dimensions bucket, which it does not take back. It
+// can have failed before, between or after its two renames, and the bucket now
+// going by the name may still be on a dir the next load removes, or have been
+// left halfway. So the dirs are put in order first, and the bucket in place is
+// loaded again, whatever failed on the way: the shard must not be left without
+// one. switchErr is returned unless only the cleanup after the switch failed.
+func (s *Shard) recoverFailedDimensionsSwitch(ctx context.Context, bucketPath string, switchErr error) error {
 	readyPath := bucketPath + shardusage.DimensionsReplacementBucketSuffix
 	delPath := bucketPath + shardusage.DimensionsReplacedBucketSuffix
+	logger := s.index.logger.WithField("action", "reindex_vector_dimensions").WithField("path", bucketPath)
 
-	if s.store.Bucket(name) != nil {
-		// not switched, the shard still uses the bucket it had
-		if err := s.store.ShutdownBucket(ctx, name); err != nil {
-			s.index.logger.WithField("bucket", name).Warnf("failed to shutdown bucket: %v", err)
-		}
-		return os.RemoveAll(readyPath)
-	}
-
-	// what goes by the name of the dimensions bucket now is the replacement
 	if err := s.store.ShutdownBucket(ctx, helpers.DimensionsBucketLSM); err != nil {
-		s.index.logger.WithField("bucket", helpers.DimensionsBucketLSM).Warnf("failed to shutdown bucket: %v", err)
+		logger.Warnf("failed to shutdown bucket: %v", err)
 	}
+
+	switched := true
 	if _, err := os.Stat(readyPath); err == nil {
+		switched = false
 		if _, err := os.Stat(bucketPath); errors.Is(err, os.ErrNotExist) {
 			if err := os.Rename(delPath, bucketPath); err != nil {
-				return fmt.Errorf("move dimensions bucket back: %w", err)
+				// loading now would start an empty bucket, the next load finishes the switch
+				return fmt.Errorf("%w: move dimensions bucket back: %w", switchErr, err)
 			}
 		}
 		if err := os.RemoveAll(readyPath); err != nil {
-			return fmt.Errorf("remove bucket %q: %w", readyPath, err)
+			logger.Warnf("failed to remove dir %q: %v", readyPath, err)
 		}
 	} else if err := os.RemoveAll(delPath); err != nil {
-		// the replacement made it in place, it is what gets loaded below
-		return fmt.Errorf("remove bucket %q: %w", delPath, err)
+		logger.Warnf("failed to remove dir %q: %v", delPath, err)
 	}
-	return s.createDimensionsBucket(ctx, helpers.DimensionsBucketLSM)
+
+	if err := s.loadDimensionsBucket(ctx, helpers.DimensionsBucketLSM); err != nil {
+		return fmt.Errorf("%w: load dimensions bucket again: %w", switchErr, err)
+	}
+	if switched {
+		logger.Warnf("dimensions bucket replaced, cleaning up after it failed: %v", switchErr)
+		return nil
+	}
+	return switchErr
 }

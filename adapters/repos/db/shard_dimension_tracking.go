@@ -67,10 +67,12 @@ func (c DimensionCategory) String() string {
 
 // DimensionsUsage scans the dimensions bucket for a given vector, see shardusage.ScanTargetVectorDimensions
 func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string, encodedDimensions int) (shardusage.DimensionsScan, error) {
-	b := s.store.Bucket(helpers.DimensionsBucketLSM)
+	// pinned, a recalculation can replace the bucket and shut it down meanwhile
+	b, release := s.store.AcquireBucketForRead(helpers.DimensionsBucketLSM)
 	if b == nil {
 		return shardusage.DimensionsScan{}, errors.Errorf("dimensionsUsage: no bucket dimensions")
 	}
+	defer release()
 	return shardusage.ScanTargetVectorDimensions(ctx, b, targetVector, encodedDimensions)
 }
 
@@ -93,7 +95,9 @@ func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, se
 
 func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string,
 ) (types.Dimensionality, error) {
-	if b := s.store.Bucket(helpers.DimensionsBucketLSM); b != nil {
+	// pinned, a recalculation can replace the bucket and shut it down meanwhile
+	if b, release := s.store.AcquireBucketForRead(helpers.DimensionsBucketLSM); b != nil {
+		defer release()
 		scan, err := shardusage.ScanTargetVectorDimensions(ctx, b, targetVector, 0)
 		if err != nil {
 			return types.Dimensionality{}, err
