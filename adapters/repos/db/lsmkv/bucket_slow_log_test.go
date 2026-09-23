@@ -76,6 +76,7 @@ func TestReduceSlowLogEntriesDuringAppends(t *testing.T) {
 	require.True(t, ok, "the log must carry the summary")
 	require.Equal(t, time.Duration(1), stats.Total.Min)
 	require.Equal(t, time.Duration(appendsEach), stats.Total.Max)
+	require.Equal(t, appenders*appendsEach, stats.Count, "the summary must count every appended entry")
 }
 
 // TestGetBySecondaryReducesSlowQueryLogEntries: unreduced, a query fetching 25k
@@ -137,6 +138,7 @@ func TestGetBySecondaryReducesSlowQueryLogEntries(t *testing.T) {
 			stats, ok := logged.(BucketSlowLogEntryStats)
 			require.True(t, ok, "the log must carry the summary, not one entry per lookup, got %T", logged)
 			require.Positive(t, stats.Total.Max, "the summary must reduce the recorded timings")
+			require.Equal(t, lookups, stats.Count, "the summary must count the lookups it reduced")
 		})
 	}
 }
