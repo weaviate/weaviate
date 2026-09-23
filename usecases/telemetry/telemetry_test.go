@@ -13,7 +13,6 @@ package telemetry
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -242,14 +241,14 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeGo]["1.0.0"])
 			assert.NotNil(t, payload.ClientUsage[ClientTypeCSharp])
 			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeCSharp]["1.0.0"])
-			// UPDATE payloads should include integration usage data
-			assert.NotNil(t, payload.ClientIntegrationUsage)
-			assert.Equal(t, int64(2), payload.ClientIntegrationUsage["llamaindex"]["0.10.5"])
-			assert.Equal(t, int64(1), payload.ClientIntegrationUsage["langchain"]["0.2.0"])
-			// Verify tracker was reset after GetAndReset
+			// clientIntegrationUsage is no longer sent: the payload has no such field at all, so it can't be set here.
+			// The integration tracker keeps counting regardless - buildPayload must
+			// not touch it - since it still backs the local debug endpoint.
+			assert.Equal(t, int64(2), tel.integrationTracker.Get()["llamaindex"]["0.10.5"])
+			assert.Equal(t, int64(1), tel.integrationTracker.Get()["langchain"]["0.2.0"])
+			// Verify the client tracker was reset after GetAndReset
 			currentCounts := tel.clientTracker.Get()
 			assert.Empty(t, currentCounts)
-			assert.Empty(t, tel.integrationTracker.Get())
 			assert.Nil(t, payload.CloudProvider)
 			assert.Nil(t, payload.UniqueID)
 		})
@@ -295,12 +294,11 @@ func TestTelemetry_BuildPayload(t *testing.T) {
 			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeJava]["1.0.0"])
 			assert.NotNil(t, payload.ClientUsage[ClientTypeTypeScript])
 			assert.Equal(t, int64(1), payload.ClientUsage[ClientTypeTypeScript]["1.0.0"])
-			// TERMINATE payloads should include integration usage data
-			assert.NotNil(t, payload.ClientIntegrationUsage)
-			assert.Equal(t, int64(1), payload.ClientIntegrationUsage["llamaindex"]["0.10.5"])
-			assert.Equal(t, int64(1), payload.ClientIntegrationUsage["dspy"]["0.1.0"])
-			// Verify integration tracker was reset after GetAndReset
-			assert.Empty(t, tel.integrationTracker.Get())
+			// clientIntegrationUsage no longer leaves the node; buildPayload must not
+			// touch the integration tracker, which keeps counting for the debug
+			// endpoint regardless of payload building.
+			assert.Equal(t, int64(1), tel.integrationTracker.Get()["llamaindex"]["0.10.5"])
+			assert.Equal(t, int64(1), tel.integrationTracker.Get()["dspy"]["0.1.0"])
 			assert.Nil(t, payload.CloudProvider)
 			assert.Nil(t, payload.UniqueID)
 		})
@@ -643,9 +641,8 @@ func TestTelemetry_WithCloudInfoConsumer_AWS(t *testing.T) {
 type telemetryOpt func(*Telemeter)
 
 func withConsumerURL(url string) telemetryOpt {
-	encoded := base64.StdEncoding.EncodeToString([]byte(url))
 	return func(tel *Telemeter) {
-		tel.consumer = encoded
+		tel.consumer = url
 	}
 }
 

@@ -13,7 +13,6 @@ package rest
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -2645,16 +2644,10 @@ func telemetryEnabled(state *state.State) bool {
 	return !state.ServerConfig.Config.DisableTelemetry
 }
 
-// getTelemetryURL returns the telemetry consumer URL from config.
-// If a custom URL is set, it's base64-encoded to match the expected format.
-// Returns empty string if no custom URL is set (telemetry.New will use default).
+// getTelemetryURL returns the telemetry consumer URL from config, or empty
+// string if no custom URL is set (telemetry.New will use the default).
 func getTelemetryURL(state *state.State) string {
-	url := state.ServerConfig.Config.TelemetryURL
-	if url == "" {
-		return ""
-	}
-	// The telemetry package expects base64-encoded URLs
-	return base64.StdEncoding.EncodeToString([]byte(url))
+	return state.ServerConfig.Config.TelemetryURL
 }
 
 type membership struct {

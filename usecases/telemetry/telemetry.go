@@ -14,7 +14,6 @@ package telemetry
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -36,8 +35,7 @@ import (
 )
 
 const (
-	DefaultTelemetryConsumerURL = "aHR0cHM6Ly90ZWxlbWV0cnkud2Vhdmlh" +
-		"dGUuaW8vd2VhdmlhdGUtdGVsZW1ldHJ5"
+	DefaultTelemetryConsumerURL  = "https://telemetry.weaviate.io/weaviate-telemetry"
 	DefaultTelemetryPushInterval = 24 * time.Hour
 )
 
@@ -69,7 +67,7 @@ type Telemeter struct {
 
 // Config holds the scalar settings for a Telemeter.
 type Config struct {
-	// ConsumerURL is base64-encoded. If empty, DefaultTelemetryConsumerURL is used.
+	// ConsumerURL is a plain URL. If empty, DefaultTelemetryConsumerURL is used.
 	ConsumerURL string
 	// PushInterval defaults to DefaultTelemetryPushInterval if zero.
 	PushInterval time.Duration
@@ -107,7 +105,6 @@ func New(nodesStatusGetter nodesStatusGetter, schemaManager schema.SchemaGetter,
 		shutdown:             make(chan struct{}),
 		consumer:             consumerURL,
 		pushInterval:         pushInterval,
-		clientTracker:        NewClientTracker(logger),
 		cloudInfoHelper:      newCloudInfoHelper(logger, cfg.Enabled),
 		nodeID:               cfg.NodeID,
 		asyncIndexingEnabled: cfg.AsyncIndexingEnabled,
@@ -134,8 +131,11 @@ func (tel *Telemeter) GetIntegrationTracker() *IntegrationTracker {
 	return tel.integrationTracker
 }
 
-// Start begins telemetry for the node
+// Start begins telemetry for the node. Only called when telemetry is
+// enabled, so the opt-out notice below always has something to opt out of.
 func (tel *Telemeter) Start(ctx context.Context) error {
+	logTelemetryInfo(tel.logger)
+
 	payload, err := tel.push(ctx, PayloadType.Init)
 	if err != nil {
 		tel.failedToStart = true
@@ -224,12 +224,7 @@ func (tel *Telemeter) push(ctx context.Context, payloadType string) (*Payload, e
 		return nil, fmt.Errorf("marshal payload: %w", err)
 	}
 
-	url, err := base64.StdEncoding.DecodeString(tel.consumer)
-	if err != nil {
-		return nil, fmt.Errorf("decode url: %w", err)
-	}
-
-	resp, err := http.Post(string(url), "application/json", bytes.NewReader(b))
+	resp, err := http.Post(tel.consumer, "application/json", bytes.NewReader(b))
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
@@ -265,7 +260,7 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 
 	// Get client usage data and reset for the next period.
 	// For Init payloads, we don't have client data yet, so skip it.
-	clientUsage, clientIntegrationUsage := tel.collectUsageForPayload(payloadType)
+	clientUsage := tel.collectUsageForPayload(payloadType)
 
 	cloudProvider, uniqueID := tel.getCloudInfo()
 
@@ -282,7 +277,6 @@ func (tel *Telemeter) buildPayload(ctx context.Context, payloadType string) (*Pa
 		UsedModules:                usedMods,
 		CollectionsCount:           cols,
 		ClientUsage:                clientUsage,
-		ClientIntegrationUsage:     clientIntegrationUsage,
 		CloudProvider:              cloudProvider,
 		UniqueID:                   uniqueID,
 		NodeID:                     tel.nodeID,
@@ -339,15 +333,14 @@ func (tel *Telemeter) curatedFields() curatedFields {
 	return cf
 }
 
-// collectUsageForPayload returns client and integration usage maps for the given
-// payload type, resetting the trackers. Returns (nil, nil) for Init payloads,
-// and nil for any map that contains no data.
-func (tel *Telemeter) collectUsageForPayload(payloadType string) (
-	clientUsage map[ClientType]map[string]int64,
-	clientIntegrationUsage map[string]map[string]int64,
-) {
+// collectUsageForPayload returns the client SDK usage map for the given payload
+// type, resetting the tracker. Returns nil for Init payloads and for a tracker
+// holding no data. The integration tracker is intentionally not read here: it
+// still runs for the debug endpoint (GetIntegrationTracker), but its data no
+// longer leaves the node in the telemetry payload.
+func (tel *Telemeter) collectUsageForPayload(payloadType string) (clientUsage map[ClientType]map[string]int64) {
 	if payloadType == PayloadType.Init {
-		return nil, nil
+		return nil
 	}
 	if tel.clientTracker != nil {
 		clientUsage = tel.clientTracker.GetAndReset()
@@ -355,13 +348,7 @@ func (tel *Telemeter) collectUsageForPayload(payloadType string) (
 			clientUsage = nil
 		}
 	}
-	if tel.integrationTracker != nil {
-		clientIntegrationUsage = tel.integrationTracker.GetAndReset()
-		if len(clientIntegrationUsage) == 0 {
-			clientIntegrationUsage = nil
-		}
-	}
-	return clientUsage, clientIntegrationUsage
+	return clientUsage
 }
 
 // replicationFactor returns the class replication factor, or 0 if unset.
