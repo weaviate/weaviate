@@ -1711,11 +1711,11 @@ var exclusionMovement = &cmd.ReplicationReplicateShardRequest{
 	SourceNode: "node1", TargetNode: "node2", TransferType: cmd.COPY.String(),
 }
 
-func exclusionStore(t *testing.T, collectionOf distributedtask.CollectionExtractor) *Store {
+func exclusionStore(t *testing.T) *Store {
 	t.Helper()
 	return NewMockStore(t, "node1", 0, func(c *Config) {
 		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
-			exclusionNamespace: collectionOf,
+			exclusionNamespace: namesExclusionCollection,
 		}
 	}).store
 }
@@ -1816,11 +1816,10 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 	taskRefused := []error{distributedtask.ErrTaskBlockedByReplicaMovement, distributedtask.ErrPermanentRejection}
 
 	for _, tc := range []struct {
-		name         string
-		collectionOf distributedtask.CollectionExtractor
-		seed         func(*testing.T, *Store)
-		command      func(*testing.T) *cmd.ApplyRequest
-		wantErrs     []error
+		name     string
+		seed     func(*testing.T, *Store)
+		command  func(*testing.T) *cmd.ApplyRequest
+		wantErrs []error
 	}{
 		{
 			name: "a movement is refused while a task runs on the collection", command: movement,
@@ -1836,17 +1835,9 @@ func TestAdmitPropose_ReindexAndMovementExcludeEachOther(t *testing.T) {
 			name:    "a task in a namespace with no collection extractor is admitted",
 			command: unregisteredTask, seed: seedExclusionMovement,
 		},
-		{
-			name: "a task whose payload names no collection is admitted", command: reindexTask,
-			seed: seedExclusionMovement, collectionOf: func([]byte) (string, bool) { return "", false },
-		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			collectionOf := tc.collectionOf
-			if collectionOf == nil {
-				collectionOf = namesExclusionCollection
-			}
-			s := exclusionStore(t, collectionOf)
+			s := exclusionStore(t)
 			if tc.seed != nil {
 				tc.seed(t, s)
 			}

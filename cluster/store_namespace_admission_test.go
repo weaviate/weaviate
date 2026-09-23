@@ -662,7 +662,7 @@ func TestExecuteGate_RefusesBeforeTheAppend(t *testing.T) {
 		{
 			name: "a movement while a reindex task runs on the collection",
 			store: func(t *testing.T) *Store {
-				s := exclusionStore(t, namesExclusionCollection)
+				s := exclusionStore(t)
 				seedExclusionTask(t, s)
 				return s
 			},
