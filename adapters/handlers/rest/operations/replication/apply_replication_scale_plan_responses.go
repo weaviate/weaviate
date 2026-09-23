@@ -233,7 +233,7 @@ func (o *ApplyReplicationScalePlanNotFound) WriteResponse(rw http.ResponseWriter
 const ApplyReplicationScalePlanConflictCode int = 409
 
 /*
-ApplyReplicationScalePlanConflict The collection has a reindex or vector-index-drop task that has not reached a terminal state, so the replica copies in the plan were refused: the two cannot run at the same time. GET /tasks reports the task and its status. If the reindex started while the plan was being applied, earlier steps of the plan may already be committed, so re-read the sharding state.
+ApplyReplicationScalePlanConflict The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the plan copies a replica, so the plan was stopped before that copy: the two cannot run at the same time. GET /tasks reports the task and its status. Earlier steps of the plan (replica removals, empty additions) may already be committed, so re-read the sharding state.
 
 swagger:response applyReplicationScalePlanConflict
 */
