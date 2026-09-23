@@ -671,10 +671,30 @@ func TestExecuteGate_RefusesBeforeTheAppend(t *testing.T) {
 			wantErr:  replicationTypes.ErrMovementBlockedByTask,
 			wantText: exclusionCollection,
 		},
+		{
+			name:  "a replicate whose payload does not parse",
+			store: exclusionStore,
+			command: func(*testing.T) *api.ApplyRequest {
+				return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_REPLICATION_REPLICATE, SubCommand: []byte("{")}
+			},
+			wantText: "unmarshal replicate subcommand",
+		},
+		{
+			name:  "an add-task whose payload does not parse",
+			store: exclusionStore,
+			command: func(*testing.T) *api.ApplyRequest {
+				return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD, SubCommand: []byte("{")}
+			},
+			wantText: "unmarshal add-task subcommand",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := tc.store(t).Execute(tc.command(t))
-			require.ErrorIs(t, err, tc.wantErr)
+			if tc.wantErr != nil {
+				require.ErrorIs(t, err, tc.wantErr)
+			} else {
+				require.ErrorAs(t, err, new(*json.SyntaxError))
+			}
 			require.Contains(t, err.Error(), tc.wantText)
 		})
 	}
