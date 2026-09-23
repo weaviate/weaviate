@@ -103,14 +103,47 @@ func AnnotateSlowQueryLogAppendReducible[T any, R any](ctx context.Context, key 
 		return
 	}
 
-	if _, ok := details.reducers[key]; !ok {
-		details.reducers[key] = func(list any) any {
-			typed, ok := list.([]T)
-			if !ok {
-				return list
-			}
-			return reduce(typed)
+	registerReducerLocked(details, key, reduce)
+}
+
+// AnnotateSlowQueryLogAppendManyReducible is AnnotateSlowQueryLogAppendReducible
+// for several values in one lock acquisition, so a fan-out that resolves many
+// keys does not serialise its workers on the details lock.
+func AnnotateSlowQueryLogAppendManyReducible[T any, R any](ctx context.Context, key string,
+	values []T, reduce func([]T) R,
+) {
+	details := slowQueryDetailsFromContext(ctx)
+	if details == nil || reduce == nil || len(values) == 0 {
+		return
+	}
+
+	details.Lock()
+	defer details.Unlock()
+
+	if !appendValuesLocked(details, key, values) {
+		return
+	}
+
+	registerReducerLocked(details, key, reduce)
+}
+
+// HasSlowQueryDetails reports whether ctx collects slow-query details, so a
+// caller can skip building values nothing will read.
+func HasSlowQueryDetails(ctx context.Context) bool {
+	return slowQueryDetailsFromContext(ctx) != nil
+}
+
+// registerReducerLocked sets reduce as the reducer for key unless it has one.
+func registerReducerLocked[T any, R any](details *SlowQueryDetails, key string, reduce func([]T) R) {
+	if _, ok := details.reducers[key]; ok {
+		return
+	}
+	details.reducers[key] = func(list any) any {
+		typed, ok := list.([]T)
+		if !ok {
+			return list
 		}
+		return reduce(typed)
 	}
 }
 
@@ -127,6 +160,22 @@ func appendValueLocked[T any](details *SlowQueryDetails, key string, value T) bo
 	}
 
 	details.values[key] = append(asList, value)
+	return true
+}
+
+// appendValuesLocked is appendValueLocked for several values.
+func appendValuesLocked[T any](details *SlowQueryDetails, key string, values []T) bool {
+	prev, ok := details.values[key]
+	if !ok {
+		prev = make([]T, 0, len(values))
+	}
+
+	asList, ok := prev.([]T)
+	if !ok {
+		return false
+	}
+
+	details.values[key] = append(asList, values...)
 	return true
 }
 

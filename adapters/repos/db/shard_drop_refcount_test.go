@@ -204,8 +204,8 @@ func TestObjectReadsAfterStoreTeardownReturnErrors(t *testing.T) {
 			_, err := shard.objectByIndexIDWithProps(context.Background(), 0, nil)
 			return err
 		},
-		"uuid from doc id": func() error {
-			_, err := shard.uuidFromDocID(0)
+		"find uuids": func() error {
+			_, err := shard.FindUUIDs(context.Background(), nil, 0)
 			return err
 		},
 		"object list": func() error {
