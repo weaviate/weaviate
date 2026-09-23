@@ -840,69 +840,84 @@ func TestBatchDeleteObjects_WalksWhileObjectsAreInserted(t *testing.T) {
 	}
 }
 
-// TestObjectsTTLSweepResolvesPastADeadDocID pins Shard.FindUUIDs' other caller. The objects
-// TTL sweep runs the same bounded resolve and inherits the same walk, so a doc id whose
-// object row is gone while its postings still name it must cost the sweep a read and not an
-// expired object left behind, and must leave the doc id universe like any other.
-func TestObjectsTTLSweepResolvesPastADeadDocID(t *testing.T) {
-	ctx := context.Background()
+// TestObjectsTTLSweepResolvesPastDeadDocIDs pins that dead doc ids in front of the expired objects cost the sweep reads, not objects left behind.
+func TestObjectsTTLSweepResolvesPastDeadDocIDs(t *testing.T) {
 	const (
 		expiredCount = 12
 		aliveCount   = 3
 		sweepBatch   = 5
 	)
 
-	rootDir := t.TempDir()
-	shardState := singleShardState()
-	class := batchDeleteTTLClass()
-	newTTLRepo := func() *DB {
-		return setupTestDBWithShardState(t, rootDir, shardState, func(cfg *Config) {
-			cfg.ObjectsTTLBatchSize = configRuntime.NewDynamicValue(sweepBatch)
-		}, class)
+	tests := []struct {
+		name string
+		// deadCount is how many of the oldest expired objects lose their row, postings kept.
+		deadCount int
+	}{
+		{name: "one dead doc id", deadCount: 1},
+		// A resolve capped at the batch size would read only the dead ids, and a batch
+		// that yields no UUID ends the sweep.
+		{name: "a dead prefix one batch long", deadCount: sweepBatch},
 	}
 
-	repo := newTTLRepo()
-	insertTTLObjects(t, repo, expiredCount, aliveCount)
-	// The first object is expired and loses its row, postings kept, which is the state
-	// every delete passes through.
-	deadDocID := dropObjectRow(t, repo, batchDeleteTTLClassName, batchDeleteObjectID(0))
-	require.NoError(t, repo.Shutdown(ctx))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			rootDir := t.TempDir()
+			shardState := singleShardState()
+			class := batchDeleteTTLClass()
+			newTTLRepo := func() *DB {
+				return setupTestDBWithShardState(t, rootDir, shardState, func(cfg *Config) {
+					cfg.ObjectsTTLBatchSize = configRuntime.NewDynamicValue(sweepBatch)
+				}, class)
+			}
 
-	// The reopen rebuilds the universe from the doc id counter, so the dead id is back in
-	// it and sits below the watermark.
-	repo = newTTLRepo()
-	t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
+			repo := newTTLRepo()
+			insertTTLObjects(t, repo, expiredCount, aliveCount)
+			deadDocIDs := make([]uint64, tt.deadCount)
+			for i := range deadDocIDs {
+				deadDocIDs[i] = dropObjectRow(t, repo, batchDeleteTTLClassName, batchDeleteObjectID(i))
+			}
+			require.NoError(t, repo.Shutdown(ctx))
 
-	index := repo.GetIndex(schema.ClassName(batchDeleteTTLClassName))
-	require.NotNil(t, index)
-	logger, ok := repo.logger.(*logrus.Logger)
-	require.True(t, ok, "the test DB logs through a *logrus.Logger")
+			// The reopen rebuilds the universe from the doc id counter, so the dead ids are
+			// back in it and sit below the watermark.
+			repo = newTTLRepo()
+			t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
 
-	var deleted atomic.Int32
-	eg := enterrors.NewErrorGroupWrapper(logger)
-	ec := errorcompounder.New()
-	index.incomingDeleteObjectsExpired(ctx, eg, ec, batchDeleteTTLProp, time.Now(), time.Now(),
-		func(n int32) { deleted.Add(n) }, 0)
-	eg.Wait()
-	require.NoError(t, ec.ToError())
+			index := repo.GetIndex(schema.ClassName(batchDeleteTTLClassName))
+			require.NotNil(t, index)
+			logger, ok := repo.logger.(*logrus.Logger)
+			require.True(t, ok, "the test DB logs through a *logrus.Logger")
 
-	require.Equal(t, int32(expiredCount-1), deleted.Load(),
-		"every expired object that still has a row goes; the one whose row is gone has none to delete")
+			var deleted atomic.Int32
+			eg := enterrors.NewErrorGroupWrapper(logger)
+			ec := errorcompounder.New()
+			index.incomingDeleteObjectsExpired(ctx, eg, ec, batchDeleteTTLProp, time.Now(), time.Now(),
+				func(n int32) { deleted.Add(n) }, 0)
+			eg.Wait()
+			require.NoError(t, ec.ToError())
 
-	shard := loadedShard(t, repo, batchDeleteTTLClassName)
-	bucket := shard.store.Bucket(helpers.ObjectsBucketLSM)
-	require.NotNil(t, bucket)
-	for i := 1; i < expiredCount; i++ {
-		require.Nil(t, ttlObjectRow(t, bucket, i), "expired object %d must be gone", i)
+			require.Equal(t, int32(expiredCount-tt.deadCount), deleted.Load(),
+				"every expired object that still has a row goes")
+
+			shard := loadedShard(t, repo, batchDeleteTTLClassName)
+			bucket := shard.store.Bucket(helpers.ObjectsBucketLSM)
+			require.NotNil(t, bucket)
+			for i := tt.deadCount; i < expiredCount; i++ {
+				require.Nil(t, ttlObjectRow(t, bucket, i), "expired object %d must be gone", i)
+			}
+			for i := expiredCount; i < expiredCount+aliveCount; i++ {
+				require.NotNil(t, ttlObjectRow(t, bucket, i), "object %d has not expired", i)
+			}
+
+			universe, release := shard.bitmapFactory.GetBitmap()
+			defer release()
+			for _, docID := range deadDocIDs {
+				require.False(t, universe.Contains(docID),
+					"the sweep drops dead doc id %d from the universe like the batch delete path does", docID)
+			}
+		})
 	}
-	for i := expiredCount; i < expiredCount+aliveCount; i++ {
-		require.NotNil(t, ttlObjectRow(t, bucket, i), "object %d has not expired", i)
-	}
-
-	universe, release := shard.bitmapFactory.GetBitmap()
-	defer release()
-	require.False(t, universe.Contains(deadDocID),
-		"the sweep drops a dead doc id from the universe like the batch delete path does")
 }
 
 // TestBatchDeleteObjects_PrunesMoreDeadDocIDsThanOneBatch pins the prune of a dead prefix
@@ -966,7 +981,8 @@ func batchDeleteTTLClass() *models.Class {
 }
 
 // insertTTLObjects writes expired objects first, then objects that have not expired, so
-// the expired ones hold the lowest doc ids.
+// the expired ones hold the lowest doc ids. Each expired object expires a second after the
+// one before it, so the date index holds one key per object.
 func insertTTLObjects(t *testing.T, repo *DB, expiredCount, aliveCount int) {
 	t.Helper()
 
@@ -975,7 +991,7 @@ func insertTTLObjects(t *testing.T, repo *DB, expiredCount, aliveCount int) {
 
 	batch := make(objects.BatchObjects, expiredCount+aliveCount)
 	for i := range batch {
-		expiresAt := past
+		expiresAt := past.Add(time.Duration(i) * time.Second)
 		if i >= expiredCount {
 			expiresAt = future
 		}
