@@ -786,7 +786,7 @@ func TestBatchDeleteObjects_WalksWhileObjectsAreInserted(t *testing.T) {
 		insertErr error
 	)
 	wg.Add(1)
-	go func() {
+	enterrors.GoWrapper(func() {
 		defer wg.Done()
 		defer close(inserting)
 		for i := 0; i < insertRounds; i++ {
@@ -803,7 +803,7 @@ func TestBatchDeleteObjects_WalksWhileObjectsAreInserted(t *testing.T) {
 				}
 			}
 		}
-	}()
+	}, repo.logger)
 
 	// A deny-list dry run walks the whole doc id universe, and keeps walking for as long
 	// as the inserts run.
