@@ -1240,23 +1240,16 @@ function run_acceptance_async_replication_tests() {
   # Build once up front and reuse via TEST_WEAVIATE_IMAGE; otherwise each package
   # below rebuilds the image through testcontainers and the second package can
   # exceed the container-start deadline in CI.
-  # CI runs the two groups as separate jobs, so every package must be in one.
+  # CI runs the two groups as separate jobs: group 1 is the packages listed
+  # here, group 2 is everything else, so a new package runs in group 2.
   local base='test/acceptance/replication/async_replication'
-  local group_1="$base/(repair|offload_abort_async)$"
-  local group_2="$base/(hashtree_rebuild|runtime_toggle|raw_propagation)$"
+  local group_1="$base/(repair|offload_abort_async)(/|$)"
   local all_pkgs
   all_pkgs=$(go list ./.../ | grep "$base/")
-  local ungrouped
-  ungrouped=$(echo "$all_pkgs" | grep -vE "$group_1|$group_2" || true)
-  if [[ -n "$ungrouped" ]]; then
-    echo "Async replication packages not assigned to a group in test/run.sh:" >&2
-    echo "$ungrouped" >&2
-    return 1
-  fi
   local pkgs="$all_pkgs"
   case "$run_acceptance_async_replication_group" in
-    1) pkgs=$(echo "$all_pkgs" | grep -E "$group_1") ;;
-    2) pkgs=$(echo "$all_pkgs" | grep -E "$group_2") ;;
+    1) pkgs=$(echo "$all_pkgs" | grep -E "$group_1" || true) ;;
+    2) pkgs=$(echo "$all_pkgs" | grep -vE "$group_1" || true) ;;
   esac
   build_weaviate_test_image
   for pkg in $pkgs; do
