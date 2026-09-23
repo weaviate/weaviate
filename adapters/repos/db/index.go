@@ -2782,6 +2782,15 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	return outObjects, outScores, nil
 }
 
+// withSlowQueryDetails collects details only when LogIfSlow or AddShardQueryProfile
+// will read them, since every annotated LSM lookup appends an entry.
+func (i *Index) withSlowQueryDetails(ctx context.Context, queryProfile bool) context.Context {
+	if !queryProfile && !i.Config.QuerySlowLogEnabled.Get() {
+		return ctx
+	}
+	return helpers.InitSlowQueryDetails(ctx)
+}
+
 func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties, tenant string, readPlan routerTypes.ReadRoutingPlan, properties []string,
@@ -2822,7 +2831,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		// GetShard would not.
 		return i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
 			func(shard ShardLike) error {
-				localCtx := helpers.InitSlowQueryDetails(ctx)
+				localCtx := i.withSlowQueryDetails(ctx, addlProps.QueryProfile)
 				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 				var shardStart time.Time
 				if addlProps.QueryProfile {
@@ -2950,7 +2959,7 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 	shard ShardLike, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	ctx = helpers.InitSlowQueryDetails(ctx)
+	ctx = i.withSlowQueryDetails(ctx, additional.QueryProfile)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", true)
 	if err := i.ensureShardLocallyReady(shard); err != nil {
 		return nil, nil, err
@@ -2984,7 +2993,7 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
 	}
 
-	localCtx := helpers.InitSlowQueryDetails(ctx)
+	localCtx := i.withSlowQueryDetails(ctx, additionalProps.QueryProfile)
 	helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 	var shardStart time.Time
 	if additionalProps.QueryProfile {
@@ -3251,7 +3260,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 		return nil, nil, nil, err
 	}
 
-	ctx = helpers.InitSlowQueryDetails(ctx)
+	ctx = i.withSlowQueryDetails(ctx, additional.QueryProfile)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", false)
 
 	if additional.QueryProfile {
