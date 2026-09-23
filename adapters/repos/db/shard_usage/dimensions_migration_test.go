@@ -359,16 +359,6 @@ func TestRecoverDimensionsBucketMigration(t *testing.T) {
 			mapBucketKept: true,
 		},
 		{
-			name: "map bucket moved aside, roaring set bucket lost, missing bucket opened meanwhile",
-			crash: func(t *testing.T, logger logrus.FieldLogger, indexPath string) {
-				moveMapAside(t, indexPath)
-				b, err := openUnloadedDimensionsBucket(ctx, logger, indexPath, shardPathDimensionsLSM(indexPath, migrationTestShard))
-				require.NoError(t, err)
-				require.NoError(t, b.Shutdown(ctx))
-			},
-			mapBucketKept: true,
-		},
-		{
 			name: "switched, map bucket not removed",
 			crash: func(t *testing.T, logger logrus.FieldLogger, indexPath string) {
 				buildReady(t, logger, indexPath)
@@ -547,4 +537,68 @@ func dirListing(t *testing.T, path string) map[string]int64 {
 		listing[entry.Name()] = info.Size()
 	}
 	return listing
+}
+
+// A switch that went through leaves the bucket moved aside to remove. A crash in
+// the middle of that removal leaves part of it, and the bucket in place is the one
+// to keep even when it holds nothing: the part left can miss the segments that
+// deleted doc ids, and would bring them back.
+func TestRecoverDimensionsBucketMigration_SwitchedToEmptyBucket(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	indexPath := t.TempDir()
+	bucketPath := shardPathDimensionsLSM(indexPath, migrationTestShard)
+	seedDimensionsBucket(t, logger, indexPath, lsmkv.StrategyMapCollection, [][]dimsOp{
+		{{targetVector: "text", dims: 128, docIDs: []uint64{1, 2}}},
+		{{targetVector: "text", dims: 128, docIDs: []uint64{1, 2}, remove: true}},
+	})
+
+	_, err := buildRoaringSetDimensionsBucket(ctx, logger, shardPathLSM(indexPath, migrationTestShard),
+		bucketPath, bucketPath+dimensionsMigrationBuildSuffix)
+	require.NoError(t, err)
+	require.NoError(t, os.Rename(bucketPath+dimensionsMigrationBuildSuffix, bucketPath+dimensionsMigrationReadySuffix))
+	require.NoError(t, os.Rename(bucketPath, bucketPath+dimensionsMigrationDelSuffix))
+	require.NoError(t, os.Rename(bucketPath+dimensionsMigrationReadySuffix, bucketPath))
+
+	// the removal got as far as the newest segment, the one with the deletes
+	segments, err := filepath.Glob(filepath.Join(bucketPath+dimensionsMigrationDelSuffix, "*.db"))
+	require.NoError(t, err)
+	require.Len(t, segments, 2)
+	require.NoError(t, os.Remove(segments[1]))
+
+	for range 2 {
+		require.NoError(t, RecoverDimensionsBucketMigration(logger, indexPath, migrationTestShard))
+		requireNoMigrationLeftovers(t, indexPath)
+	}
+	assert.Equal(t, map[string][]uint64{}, readRoaringSetDimensions(t, logger, indexPath))
+}
+
+// Removing the bucket moved aside is only cleanup: the switch is done, and failing
+// it, or the next load over it, would take the shard down for a leftover dir.
+func TestMigrateDimensionsBucketToRoaringSet_RemovalOfOldBucketFails(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	indexPath := t.TempDir()
+	bucketPath := shardPathDimensionsLSM(indexPath, migrationTestShard)
+	seedDimensionsBucket(t, logger, indexPath, lsmkv.StrategyMapCollection,
+		[][]dimsOp{{{targetVector: "text", dims: 128, docIDs: []uint64{1, 2, 3}}}})
+
+	stuck := filepath.Join(bucketPath, "stuck")
+	require.NoError(t, os.Mkdir(stuck, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(stuck, "file"), []byte("x"), 0o600))
+	require.NoError(t, os.Chmod(stuck, 0o500))
+	t.Cleanup(func() {
+		_ = os.Chmod(stuck, 0o700)
+		_ = os.Chmod(filepath.Join(bucketPath+dimensionsMigrationDelSuffix, "stuck"), 0o700)
+	})
+
+	migrated, err := MigrateDimensionsBucketToRoaringSet(ctx, logger, indexPath, migrationTestShard)
+	require.NoError(t, err, "a migration that went through must not be reported as failed")
+	require.True(t, migrated)
+	require.DirExists(t, bucketPath+dimensionsMigrationDelSuffix)
+	expected := map[string][]uint64{dimsKey("text", 128): {1, 2, 3}}
+	assert.Equal(t, expected, readRoaringSetDimensions(t, logger, indexPath))
+
+	require.NoError(t, PrepareDimensionsBucket(ctx, logger, indexPath, migrationTestShard, true), "the next load")
+	assert.Equal(t, expected, readRoaringSetDimensions(t, logger, indexPath))
 }
