@@ -99,14 +99,18 @@ type indexesHandlers struct {
 	appState *state.State
 	// taskSource is the status read's only route to the task list, resolved
 	// once at wiring. Reaching for appState.ClusterService inside getIndexes
-	// would put the leader-routed methods back within reach.
-	taskSource localTaskLister
+	// would put the leader-routed methods back within reach. A status read
+	// answers from this node's FSM, where both the task list and the class
+	// advance from the same log, so a class read taken after a task read is
+	// never the older of the two. A task read that decides a mutation stays on
+	// the leader-routed ListDistributedTasks, which LocalTaskLister omits.
+	taskSource distributedtask.LocalTaskLister
 }
 
 // resolveTaskSource keeps a nil ClusterService out of the interface: boxed,
 // the interface value is non-nil and LocalDistributedTasks nil-derefs on the
 // *cluster.Service receiver.
-func resolveTaskSource(appState *state.State) localTaskLister {
+func resolveTaskSource(appState *state.State) distributedtask.LocalTaskLister {
 	if appState.ClusterService == nil {
 		return nil
 	}
@@ -131,16 +135,6 @@ func (h *indexesHandlers) submitLock(collection, propertyName string) *sync.Mute
 	return h.appState.ReindexSubmitLocks.SubmitLockFor(collection, propertyName)
 }
 
-// localTaskLister is *cluster.Service narrowed to the local-only method.
-// A status read answers from this node's FSM, where both the task list and
-// the class advance from the same log, so a class read taken after a task
-// read is never the older of the two. Swapping that order is the one edit
-// this cannot take. A task read that decides a mutation stays on the
-// leader-routed ListDistributedTasks, which this interface omits.
-type localTaskLister interface {
-	LocalDistributedTasks() map[string][]*distributedtask.Task
-}
-
 // classReader reads a class from this node's schema. appState.SchemaManager,
 // a *usecases/schema.Manager, satisfies it.
 type classReader interface {
@@ -158,7 +152,7 @@ type classReader interface {
 // ReadOnlyClass below, after the task read, so the order above holds for
 // every class this returns. A collection deleted between the two reads
 // leaves ReadOnlyClass answering nil against an Exists that was true.
-func readClassAndTasks(collection string, taskSource localTaskLister, classes classReader) (*models.Class, []parsedReindexTask) {
+func readClassAndTasks(collection string, taskSource distributedtask.LocalTaskLister, classes classReader) (*models.Class, []parsedReindexTask) {
 	if !classes.ClassInfo(collection).Exists {
 		return nil, nil
 	}
