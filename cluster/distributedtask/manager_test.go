@@ -1969,34 +1969,47 @@ func TestManager_HasActiveTaskForCollection(t *testing.T) {
 		status      TaskStatus
 		runningInNS string
 		active      bool
+		restored    bool
 	}{
-		{"a running task", "Movies", true, TaskStatusStarted, "", true},
-		{"a case twin of the collection name", "mOVIES", true, TaskStatusStarted, "", true},
-		{"a finished task", "Movies", true, TaskStatusFinished, "", false},
-		{"a finished task beside a running one", "Movies", true, TaskStatusFinished, "ns", true},
-		{"a finished task beside one running in another namespace", "Movies", true, TaskStatusFinished, "ns2", true},
-		{"a cancelled task", "Movies", true, TaskStatusCancelled, "", false},
-		{"a preparing task", "Movies", true, TaskStatusPreparing, "", true},
-		{"a swapping task", "Movies", true, TaskStatusSwapping, "", true},
-		{"a failed task", "Movies", true, TaskStatusFailed, "", false},
-		{"a task on another collection", "Books", true, TaskStatusStarted, "", false},
-		{"a payload the extractor could not read", "Movies", false, TaskStatusStarted, "", false},
+		{"a running task", "Movies", true, TaskStatusStarted, "", true, false},
+		{"a case twin of the collection name", "mOVIES", true, TaskStatusStarted, "", true, false},
+		{"a finished task", "Movies", true, TaskStatusFinished, "", false, false},
+		{"a finished task beside a running one", "Movies", true, TaskStatusFinished, "ns", true, false},
+		{"a finished task beside one running in another namespace", "Movies", true, TaskStatusFinished, "ns2", true, false},
+		{"a cancelled task", "Movies", true, TaskStatusCancelled, "", false, false},
+		{"a preparing task", "Movies", true, TaskStatusPreparing, "", true, false},
+		{"a swapping task", "Movies", true, TaskStatusSwapping, "", true, false},
+		{"a failed task", "Movies", true, TaskStatusFailed, "", false, false},
+		{"a task on another collection", "Books", true, TaskStatusStarted, "", false, false},
+		{"a payload the extractor could not read", "Movies", false, TaskStatusStarted, "", false, false},
+		{"a running task restored from a snapshot", "Movies", true, TaskStatusStarted, "", true, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newTestHarness(t).init(t)
+			extracts := 0
 			for _, ns := range []string{"ns", "ns2"} {
 				h.manager.RegisterCollectionExtractor(ns,
-					func([]byte) (string, bool) { return tc.extracted, tc.extractOK })
+					func([]byte) (string, bool) { extracts++; return tc.extracted, tc.extractOK })
 			}
 			fixtureInStatus(t, h, tc.status)
+			tasks := 1
 			if tc.runningInNS != "" {
 				addTaskWithUnits(t, h, tc.runningInNS, "task2", 11, []string{"u-n2"})
+				tasks++
+			}
+			wantExtracts := tasks
+			if tc.restored {
+				snap, err := h.manager.Snapshot()
+				require.NoError(t, err)
+				require.NoError(t, h.manager.Restore(snap))
+				wantExtracts += tasks
 			}
 
 			// Map iteration order is random, so 32 calls almost surely visit both orders.
 			for range 32 {
 				require.Equal(t, tc.active, h.manager.HasActiveTaskForCollection("Movies"))
 			}
+			require.Equal(t, wantExtracts, extracts, "each payload is decoded once when stored, not on every check")
 		})
 	}
 }

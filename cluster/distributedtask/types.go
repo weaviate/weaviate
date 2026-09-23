@@ -579,6 +579,9 @@ type Task struct {
 	// Units tracks per-unit progress. Always non-nil for valid tasks.
 	Units map[string]*Unit `json:"units,omitempty"`
 
+	// collection is extracted once per add or restore, since HasActiveTaskForCollection runs on every replica copy.
+	collection string
+
 	// PreparationCompletionAcks records per-node PREP-phase confirmations during
 	// PREPARING. The FSM gates PREPARING → SWAPPING on every expected ack
 	// landing with Success=true; any Success=false flips to FAILED. Nil

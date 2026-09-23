@@ -268,6 +268,18 @@ func (m *Manager) RegisterCollectionExtractor(namespace string, extractor Collec
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.collectionExtractors[namespace] = extractor
+	for _, task := range m.tasks[namespace] {
+		m.cacheCollectionWithLock(task)
+	}
+}
+
+func (m *Manager) cacheCollectionWithLock(task *Task) {
+	task.collection = ""
+	if extractor := m.collectionExtractors[task.Namespace]; extractor != nil {
+		if c, ok := extractor(task.Payload); ok {
+			task.collection = c
+		}
+	}
 }
 
 // RegisterTargetVectorExtractor opts a task namespace into
@@ -418,13 +430,9 @@ func (m *Manager) HasActiveTaskForCollection(collection string) bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	for ns, extractor := range m.collectionExtractors {
+	for ns := range m.collectionExtractors {
 		for _, task := range m.tasks[ns] {
-			if !task.Status.IsActive() {
-				continue
-			}
-			c, ok := extractor(task.Payload)
-			if ok && strings.EqualFold(c, collection) {
+			if task.Status.IsActive() && strings.EqualFold(task.collection, collection) {
 				return true
 			}
 		}
@@ -506,6 +514,7 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 		return fmt.Errorf("task %s/%s must have at least one unit", r.Namespace, r.Id)
 	}
 
+	m.cacheCollectionWithLock(newTask)
 	m.setTaskWithLock(newTask)
 	m.notifySchedulerWithLock()
 
@@ -1212,6 +1221,7 @@ func (m *Manager) Restore(bytes []byte) error {
 				task.FinishedAt = time.Time{}
 			}
 
+			m.cacheCollectionWithLock(task)
 			m.tasks[namespace][task.ID] = task
 		}
 	}
