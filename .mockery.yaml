@@ -9,6 +9,13 @@ packages:
     interfaces:
       Parser:
       replicationFSM:
+  github.com/weaviate/weaviate/cluster/schema/leader:
+    interfaces:
+      Schema:
+      SchemaReader:
+  github.com/weaviate/weaviate/cluster/schema/local:
+    interfaces:
+      SchemaReader:
   github.com/weaviate/weaviate/usecases/replica:
    interfaces:
       RClient:
