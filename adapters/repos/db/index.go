@@ -43,6 +43,7 @@ import (
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hfresh"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
@@ -4538,24 +4539,16 @@ func (i *Index) DebugResetVectorIndex(ctx context.Context, shardName, targetVect
 		return errors.New("vector index not found")
 	}
 
-	if !hnsw.IsHNSWIndex(vidx) {
-		return errors.New("vector index is not hnsw")
+	_, isHFresh := vidx.(*hfresh.HFresh)
+	if !hnsw.IsHNSWIndex(vidx) && !isHFresh {
+		return errors.New("vector index is neither hnsw nor hfresh")
 	}
 
-	// Reset the vector index
+	// Reset the vector index; the shard refills it in the background
 	err = shard.DebugResetVectorIndex(ctx, targetVector)
 	if err != nil {
 		return errors.Wrap(err, "failed to reset vector index")
 	}
-
-	// Reindex in the background
-	enterrors.GoWrapper(func() {
-		err = shard.FillQueue(targetVector, 0)
-		if err != nil {
-			i.logger.WithField("shard", shardName).WithError(err).Error("failed to reindex vector index")
-			return
-		}
-	}, i.logger)
 
 	return nil
 }

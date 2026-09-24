@@ -20,6 +20,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -36,6 +37,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hfresh"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
@@ -1064,6 +1066,58 @@ func TestHFreshArtifactsFor_MatchDisk(t *testing.T) {
 				if strings.Contains(e.Name(), "hfresh") || strings.Contains(e.Name(), "centroids") {
 					assert.Contains(t, artifacts.LSMBuckets, e.Name())
 				}
+			}
+		})
+	}
+}
+
+func TestIndex_DebugResetVectorIndexHFresh(t *testing.T) {
+	for _, targetVector := range []string{"", "foo"} {
+		t.Run(fmt.Sprintf("vector=%q", targetVector), func(t *testing.T) {
+			ctx := context.Background()
+			shard, index, objs := hfreshTestShard(t, targetVector, 500)
+			vectorOf := func(obj *storobj.Object) []float32 {
+				if targetVector == "" {
+					return obj.Vector
+				}
+				return obj.Vectors[targetVector]
+			}
+
+			deleted, live := objs[:50], objs[50:]
+			for _, obj := range deleted {
+				require.NoError(t, shard.DeleteObject(ctx, obj.ID(), time.Now()))
+			}
+
+			waitForVectorQueue(t, shard, targetVector)
+			vidx, _ := getVectorIndexAndQueue(t, shard, targetVector)
+			tombstoned, err := vidx.(*hfresh.HFresh).VersionMap.IsDeleted(ctx, deleted[0].DocID)
+			require.NoError(t, err)
+			require.True(t, tombstoned, "precondition: the old index tombstones deleted docs")
+
+			require.NoError(t, index.DebugResetVectorIndex(ctx, shard.Name(), targetVector))
+
+			// the refill runs in the background
+			vidx, _ = getVectorIndexAndQueue(t, shard, targetVector)
+			require.Eventually(t, func() bool {
+				for _, obj := range live {
+					ids, _, err := vidx.SearchByVector(ctx, vectorOf(obj), 5, nil)
+					if err != nil || !slices.Contains(ids, obj.DocID) {
+						return false
+					}
+				}
+				return true
+			}, time.Minute, 500*time.Millisecond, "every live object must be found after the rebuild")
+			waitForVectorQueue(t, shard, targetVector)
+
+			for _, obj := range deleted {
+				ids, _, err := vidx.SearchByVector(ctx, vectorOf(obj), 5, nil)
+				require.NoError(t, err)
+				assert.NotContainsf(t, ids, obj.DocID, "deleted doc %d came back", obj.DocID)
+
+				// a fresh index never saw these docs, so holds no tombstone for them
+				tombstoned, err := vidx.(*hfresh.HFresh).VersionMap.IsDeleted(ctx, obj.DocID)
+				require.NoError(t, err)
+				assert.Falsef(t, tombstoned, "the rebuild kept the old index's state for doc %d", obj.DocID)
 			}
 		})
 	}
