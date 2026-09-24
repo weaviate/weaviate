@@ -375,6 +375,10 @@ type Index struct {
 	// empty for an unqualified class name.
 	namespacesExister namespaces.Exister
 	namespace         string
+	// lastRefusal is the refusal namespaceState last logged, so it can log a repeat
+	// at Debug instead of Error. A successful read clears it. It is atomic because
+	// a search calls namespaceState for all its shards in parallel.
+	lastRefusal atomic.Pointer[error]
 
 	closed bool
 
@@ -570,12 +574,7 @@ func NewIndex(
 func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	promMetrics *monitoring.PrometheusMetrics,
 ) error {
-	type shardInfo struct {
-		name           string
-		activityStatus string
-	}
-
-	var localShards []shardInfo
+	var openLocalShards []string
 	className := i.Config.ClassName.String()
 
 	state, err := i.namespaceState()
@@ -585,6 +584,10 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return err
 	}
 	if !namespaces.ShardsShouldBeOpen(state) {
+		// This logs at Info because suspended and deleting close shards on purpose.
+		i.logger.WithFields(logrus.Fields{
+			"class": className, "namespace": i.namespace, "state": state,
+		}).Info("registering no shards: this namespace keeps none open")
 		// Nothing loads, and leaving the flag false suppresses the node-wide
 		// object count for every index on this node.
 		i.allShardsReady.Store(true)
@@ -596,14 +599,9 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 			return fmt.Errorf("unable to retrieve sharding state for class %s", className)
 		}
 
-		for shardName, physical := range shardingState.Physical {
-			if shardingState.IsLocalShard(shardName) {
-				localShards = append(localShards, shardInfo{
-					name:           shardName,
-					activityStatus: physical.ActivityStatus(),
-				})
-			}
-		}
+		shardingState.ForEachLocalOpenPhysical(func(name string) {
+			openLocalShards = append(openLocalShards, name)
+		})
 
 		return nil
 	})
@@ -618,17 +616,10 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		startupShards = &startupShardCounters{}
 	}
 
-	hotShardNames := make([]string, 0, len(localShards))
-
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 
-	for _, shard := range localShards {
-		if shard.activityStatus != models.TenantActivityStatusHOT {
-			continue
-		}
-		hotShardNames = append(hotShardNames, shard.name)
-		shardName := shard.name
+	for _, shardName := range openLocalShards {
 		eg.Go(func() error {
 			switch {
 			case i.Config.EnableLazyLoadShards:
@@ -685,7 +676,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		i.logger.WithFields(logrus.Fields{
 			"action":     "skip_load_all_shards",
 			"class":      i.Config.ClassName.String(),
-			"hot_shards": len(hotShardNames),
+			"hot_shards": len(openLocalShards),
 		}).Debug("background warmup disabled; lazy shards will load on first access")
 		return nil
 	}
@@ -720,7 +711,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 			promMetrics.RecordWarmupOutcome(outcome)
 		}
 
-		for _, shardName := range hotShardNames {
+		for _, shardName := range openLocalShards {
 			if abortIfClosing() {
 				return
 			}
@@ -760,15 +751,16 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 
 		i.logger.
 			WithFields(logrus.Fields{
-				"action":                  "load_all_shards",
-				"class":                   i.Config.ClassName.String(),
-				"took":                    time.Since(now).String(),
-				"loaded":                  tally[monitoring.WarmupLoaded],
-				"failed":                  tally[monitoring.WarmupFailed],
-				"skipped_shard_gone":      tally[monitoring.WarmupSkippedShardGone],
-				"skipped_already_loaded":  tally[monitoring.WarmupSkippedAlreadyLoaded],
-				"skipped_empty":           tally[monitoring.WarmupSkippedEmpty],
-				"skipped_below_threshold": tally[monitoring.WarmupSkippedBelowThreshold],
+				"action":                    "load_all_shards",
+				"class":                     i.Config.ClassName.String(),
+				"took":                      time.Since(now).String(),
+				"loaded":                    tally[monitoring.WarmupLoaded],
+				"failed":                    tally[monitoring.WarmupFailed],
+				"skipped_shard_gone":        tally[monitoring.WarmupSkippedShardGone],
+				"skipped_already_loaded":    tally[monitoring.WarmupSkippedAlreadyLoaded],
+				"skipped_empty":             tally[monitoring.WarmupSkippedEmpty],
+				"skipped_below_threshold":   tally[monitoring.WarmupSkippedBelowThreshold],
+				"skipped_namespace_unknown": tally[monitoring.WarmupSkippedNamespaceUnknown],
 			}).
 			Debug("finished loading all shards")
 	}
@@ -845,8 +837,8 @@ func (i *Index) warmupCandidate(shardName string) (bool, monitoring.WarmupOutcom
 }
 
 // loadLocalShardIfActive loads a shard the startup sweep picked and reports the
-// outcome to record. An empty outcome means the index refused the load for a
-// reason that says nothing about this shard.
+// outcome to record. With a nil error, an empty outcome means the index is
+// closing or its namespace is in a state that keeps shards closed. Neither counts.
 func (i *Index) loadLocalShardIfActive(shardName string) (monitoring.WarmupOutcome, error) {
 	// Index.Shutdown skips a lazy shard that is not loaded yet, so a build racing
 	// its sweep leaves an open store nothing will ever close. The refcount holds
@@ -858,10 +850,14 @@ func (i *Index) loadLocalShardIfActive(shardName string) (monitoring.WarmupOutco
 	defer i.exitRead()
 
 	// The namespace state read at boot goes stale as initLazyShardsInBackground
-	// walks its shard list, so re-read it here. A refusal returns nil because an
-	// error would end that loop for every shard behind this one.
+	// walks its shard list, so re-read it here. A refusal returns nil because the
+	// loop would count an error as a failed load.
 	state, err := i.namespaceState()
-	if err != nil || !namespaces.ShardsShouldBeOpen(state) {
+	if err != nil {
+		// namespaceState already logged the refusal.
+		return monitoring.WarmupSkippedNamespaceUnknown, nil
+	}
+	if !namespaces.ShardsShouldBeOpen(state) {
 		return "", nil
 	}
 
@@ -3420,29 +3416,24 @@ func (i *Index) LoadLocalShardForTenantProcess(ctx context.Context, shardName st
 }
 
 // loadLocalShardForReload opens a shard for the reload replaying committed
-// schema. A namespace that keeps no shards open opens none and returns nil: an
-// error here would skip the tenant drops and property adds the same reload
-// owes, and nothing re-runs a reload. The skip is silent, like
-// initAndStoreShards', since a suspended namespace reaches this once per
-// tenant. mustLoad preserves the eager load each call site did before.
+// schema. A namespace refusal opens none and returns nil, since ReloadLocalDB
+// would log it as the whole class failing to reload.
 func (i *Index) loadLocalShardForReload(ctx context.Context, shardName string, mustLoad bool) error {
 	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, false, callerReload)
-	if stderrors.Is(err, errShardNamespaceClosed) {
+	if namespaceRefusedShardLoad(err) {
 		return nil
 	}
 	return err
 }
 
 // loadLocalShardUnlessNamespaceClosed loads a shard for an apply whose schema half
-// has already committed. A namespace whose state refuses this caller loads none
-// and returns nil rather than erroring. The schema change stands either way, and
-// the shard is materialized by whatever next loads it. A state that cannot be read
-// still errors.
+// has already committed. A namespace refusal loads none and returns nil, and
+// whatever next loads the shard materializes it. A failed namespace lookup still errors.
 func (i *Index) loadLocalShardUnlessNamespaceClosed(ctx context.Context, shardName string,
 	mustLoad, implicitShardLoading bool, caller shardLoadCaller, change string,
 ) error {
 	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, implicitShardLoading, caller)
-	if stderrors.Is(err, errShardNamespaceClosed) {
+	if namespaceRefusedShardLoad(err) {
 		i.logger.WithFields(logrus.Fields{
 			"class": i.Config.ClassName.String(), "namespace": i.namespace, "shard": shardName,
 		}).Infof("%s without loading the shard: %v", change, err)
