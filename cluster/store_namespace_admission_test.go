@@ -47,17 +47,10 @@ const (
 //
 // The maps record intent, not behaviour. The switch in store_apply.go is the
 // authority, so a type listed here but wired to a different check still leaves
-// this test green. The per-state cases in
-// TestExecuteGate_RejectsShardMaterializingApplyTypes,
-// TestExecuteGate_RejectsCreateLikeApplyTypes,
-// TestExecuteGate_RejectsPropertyApplyTypes and
-// TestExecuteGate_DestructiveApplyTypes pin the behaviour.
+// this test green. The TestExecuteGate_* tests pin the behaviour per state.
 
 // Commands gated by namespaces.RequireActive at propose time, in
-// store.admitCreateLike and store.admitShardStatus. The alias and user commands
-// materialize nothing, and the property commands load no shard. The class and
-// tenant commands do materialize a shard, and Store.admitPropose says why
-// refusing them before the append is still enough.
+// store.admitCreateLike and store.admitShardStatus.
 var requireActiveProposeTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_ADD_CLASS:                {},
 	api.ApplyRequest_TYPE_RESTORE_CLASS:            {},
@@ -65,6 +58,7 @@ var requireActiveProposeTypes = map[api.ApplyRequest_Type]struct{}{
 	api.ApplyRequest_TYPE_UPDATE_TENANT:            {},
 	api.ApplyRequest_TYPE_ADD_PROPERTY:             {},
 	api.ApplyRequest_TYPE_UPDATE_PROPERTY:          {},
+	api.ApplyRequest_TYPE_UPDATE_CLASS:             {},
 	api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS:      {},
 	api.ApplyRequest_TYPE_CREATE_ALIAS:             {},
 	api.ApplyRequest_TYPE_REPLACE_ALIAS:            {},
@@ -85,13 +79,17 @@ var destructiveApplyTypes = map[api.ApplyRequest_Type]struct{}{
 // Commands with no namespace check on either side of the log.
 //
 // The replication-record deletes remove in-memory operation records, not user
-// data. The RBAC and user commands stay ungated so access can always be cut off:
-// if a key leaks while a namespace is suspended, revoking it must not wait for a
-// resume. Their create direction is still refused, before the entry is appended.
-// DELETE_REPLICA_FROM_SHARD, TENANT_PROCESS and UPDATE_CLASS can destroy data
-// and are ungated on purpose, tracked outside this change.
+// data. The RBAC and user commands here stay ungated so a key that leaks while
+// a namespace is suspended can be revoked without a resume.
+// DELETE_REPLICA_FROM_SHARD can destroy data and is ungated on purpose.
+//
+// TENANT_PROCESS stays ungated because Migrator.freeze ends every offload with
+// one, and refusing it would leave the tenant FREEZING with its shard halted. A
+// new offload aborts because Index.GetShard refuses a suspended namespace's
+// shard. One in flight finishes through Migrator.frozen, which skips GetShard.
+// A future release of a suspended namespace's loaded shards that fails partway
+// would leave the FROZEN tenant unable to return to HOT until a node restart.
 var ungatedApplyTypes = map[api.ApplyRequest_Type]struct{}{
-	api.ApplyRequest_TYPE_UPDATE_CLASS:                                               {},
 	api.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD:                                       {},
 	api.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD:                                  {},
 	api.ApplyRequest_TYPE_TENANT_PROCESS:                                             {},
@@ -388,9 +386,6 @@ func destructiveCommands() []gatedCommand {
 	}
 }
 
-// createLikeCommands are the gated commands that write schema and no store. The
-// RBAC and user commands belong here too but cannot be driven through this mock
-// store; see applyUndrivableGatedTypes.
 // shardStatusCommand drives the manual shard status change through Apply. It
 // writes no schema, so reaching the Indexer is what says the apply took effect.
 func shardStatusCommand() gatedCommand {
@@ -422,6 +417,9 @@ func shardStatusCommand() gatedCommand {
 	}
 }
 
+// createLikeCommands are the gated commands that write schema and no store. The
+// RBAC and user commands belong here too but cannot be driven through this mock
+// store; see applyUndrivableGatedTypes.
 func createLikeCommands() []gatedCommand {
 	return []gatedCommand{
 		{
@@ -511,6 +509,29 @@ func schemaUpdateCommands() []gatedCommand {
 	updateLanded := func(ms *MockStore, target string) bool {
 		return propertyInClass(ms, target, updatedTokenization)
 	}
+	const updatedDescription = "updated"
+	buildClassUpdate := func(origin api.ClassUpdateOrigin) func(string) *api.ApplyRequest {
+		return func(target string) *api.ApplyRequest {
+			return build(api.ApplyRequest_TYPE_UPDATE_CLASS, api.UpdateClassRequest{
+				Class: &models.Class{
+					Class:              target,
+					Description:        updatedDescription,
+					MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
+				},
+				Origin: origin,
+			})(target)
+		}
+	}
+	expectClassUpdate := func(t *testing.T, ms *MockStore, _ string) {
+		ms.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(nil, nil)
+		ms.indexer.On("UpdateClass", mock.Anything).Return(nil)
+		ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+		ms.replicationFSM.On("HasActiveReplicationForCollection", mock.Anything).Return(false)
+	}
+	classUpdateLanded := func(ms *MockStore, target string) bool {
+		cls := ms.store.SchemaReader().ReadOnlyClass(target)
+		return cls != nil && cls.Description == updatedDescription
+	}
 
 	return []gatedCommand{
 		{
@@ -550,6 +571,22 @@ func schemaUpdateCommands() []gatedCommand {
 				ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 			},
 			landed: updateLanded,
+		},
+		{
+			cmdType:       api.ApplyRequest_TYPE_UPDATE_CLASS,
+			build:         buildClassUpdate(api.ClassUpdateOriginUser),
+			seedEntity:    seedClass,
+			expectApplied: expectClassUpdate,
+			landed:        classUpdateLanded,
+		},
+		{
+			// This entry is the BlockMax cutover, which admitCreateLike exempts. An
+			// apply arm copying that exemption would refuse only the entry above.
+			cmdType:       api.ApplyRequest_TYPE_UPDATE_CLASS,
+			build:         buildClassUpdate(api.ClassUpdateOriginBlockmaxCutover),
+			seedEntity:    seedClass,
+			expectApplied: expectClassUpdate,
+			landed:        classUpdateLanded,
 		},
 	}
 }
@@ -1122,6 +1159,63 @@ func TestExecuteGate_RejectsPropertyApplyTypes(t *testing.T) {
 		s := applyStateNamed(t, name)
 		t.Run("TYPE_UPDATE_PROPERTY/a reindex schema flip is admitted/"+s.name, func(t *testing.T) {
 			assertProposeAdmits(t, flip, s.seed)
+		})
+	}
+}
+
+// TestExecuteGate_RejectsClassUpdateApplyType drives the class update through
+// the propose-time check, for the origins and states
+// TestRaftUpdateClass_NamespaceGate leaves out.
+func TestExecuteGate_RejectsClassUpdateApplyType(t *testing.T) {
+	const class = "alpha:Foo"
+
+	tests := []struct {
+		name    string
+		origin  api.ClassUpdateOrigin
+		state   api.NamespaceState
+		wantErr error
+	}{
+		{
+			name:   "a user update is admitted while active",
+			origin: api.ClassUpdateOriginUser,
+			state:  api.NamespaceStateActive,
+		},
+		{
+			name:    "a user update is refused while resuming",
+			origin:  api.ClassUpdateOriginUser,
+			state:   api.NamespaceStateResuming,
+			wantErr: namespaces.ErrNamespaceResuming,
+		},
+		{
+			// This row seeds deleting rather than suspended, so an exemption scoped to
+			// suspended fails.
+			name:   "a drop-vector finalize is admitted while deleting",
+			origin: api.ClassUpdateOriginDropVectorFinalize,
+			state:  api.NamespaceStateDeleting,
+		},
+		{
+			// An arm that gates only the origins it names admits this one.
+			name:    "an origin this build does not name is refused",
+			origin:  api.ClassUpdateOrigin("undeclared"),
+			state:   api.NamespaceStateSuspended,
+			wantErr: namespaces.ErrNamespaceSuspended,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := proposeCommand{
+				cmdType:   api.ApplyRequest_TYPE_UPDATE_CLASS,
+				className: class,
+				jsonSub: api.UpdateClassRequest{
+					Class: &models.Class{Class: class}, Origin: tt.origin,
+				},
+			}
+			if tt.wantErr != nil {
+				assertProposeRefuses(t, cmd, inactiveNamespaceCase{seed: alphaAt(tt.state), wantErr: tt.wantErr})
+				return
+			}
+			assertProposeAdmits(t, cmd, alphaAt(tt.state))
 		})
 	}
 }

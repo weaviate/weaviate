@@ -130,11 +130,10 @@ func (st *Store) admitShardStatus(req *api.ApplyRequest) error {
 	return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
 }
 
-// admitCreateLike refuses a create-like or property command outside the active
-// state. The alias commands write schema and no store, and the RBAC and user
-// commands write neither, so a late one leaves nothing half-built. The property
-// commands load no shard. The class and tenant commands do materialize a shard,
-// and admitPropose says why a late one is still safe.
+// admitCreateLike refuses a create-like, property or class update command
+// outside the active state, except the completions its UPDATE_PROPERTY and
+// UPDATE_CLASS arms exempt. admitPropose says why a check this early is enough
+// for ADD_CLASS, RESTORE_CLASS and the tenant commands, which materialize a shard.
 func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
 	switch req.Type {
 	case api.ApplyRequest_TYPE_ADD_CLASS,
@@ -155,6 +154,22 @@ func (st *Store) admitCreateLike(req *api.ApplyRequest) error {
 		// which a suspend does not cancel.
 		if sub.FromInFlightMigration {
 			return nil
+		}
+		return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
+
+	case api.ApplyRequest_TYPE_UPDATE_CLASS:
+		sub := &api.UpdateClassRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return fmt.Errorf("unmarshal update-class subcommand: %w", err)
+		}
+		switch sub.Origin {
+		case api.ClassUpdateOriginDropVectorFinalize, api.ClassUpdateOriginBlockmaxCutover:
+			// A vector drop's cleanup and a BlockMax migration's cutover finish
+			// work accepted before the suspend, which a suspend does not cancel.
+			return nil
+		case api.ClassUpdateOriginUser, api.ClassUpdateOriginUnspecified:
+			// These reach RequireActive below, as does an origin this build does
+			// not name.
 		}
 		return usecasesNamespaces.RequireActive(st.namespaceManager, namespacing.NamespaceFromQualified(req.Class))
 
