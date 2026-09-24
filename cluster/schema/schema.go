@@ -411,7 +411,7 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error
 	}
 
 	for _, shard := range ss.Physical {
-		s.shardsCount.WithLabelValues(shard.Status).Inc()
+		s.shardsCount.WithLabelValues(entSchema.ActivityStatus(shard.Status)).Inc()
 	}
 
 	return nil
@@ -463,7 +463,7 @@ func (s *schema) deleteClass(name string) bool {
 	}
 
 	for status, count := range sc {
-		s.shardsCount.WithLabelValues(status).Sub(float64(count))
+		s.shardsCount.WithLabelValues(entSchema.ActivityStatus(status)).Sub(float64(count))
 	}
 
 	return true
@@ -485,7 +485,7 @@ func (s *schema) replaceClasses(classes map[string]*metaClass) {
 
 	for _, ss := range s.classes {
 		for _, shard := range ss.Sharding.Physical {
-			s.shardsCount.WithLabelValues(shard.Status).Dec()
+			s.shardsCount.WithLabelValues(entSchema.ActivityStatus(shard.Status)).Dec()
 		}
 	}
 
@@ -497,7 +497,7 @@ func (s *schema) replaceClasses(classes map[string]*metaClass) {
 
 	for _, ss := range s.classes {
 		for _, shard := range ss.Sharding.Physical {
-			s.shardsCount.WithLabelValues(shard.Status).Inc()
+			s.shardsCount.WithLabelValues(entSchema.ActivityStatus(shard.Status)).Inc()
 		}
 	}
 }
@@ -620,7 +620,7 @@ func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsReque
 		return err
 	}
 	for status, count := range sc {
-		s.shardsCount.WithLabelValues(status).Add(float64(count))
+		s.shardsCount.WithLabelValues(entSchema.ActivityStatus(status)).Add(float64(count))
 	}
 
 	return nil
@@ -656,7 +656,7 @@ func (s *schema) deleteTenants(class string, v uint64, req *command.DeleteTenant
 	}
 
 	for status, count := range sc {
-		s.shardsCount.WithLabelValues(status).Sub(float64(count))
+		s.shardsCount.WithLabelValues(entSchema.ActivityStatus(status)).Sub(float64(count))
 	}
 
 	return nil
@@ -671,7 +671,7 @@ func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenant
 	// partial update possible
 	for status, count := range sc {
 		// count can be positive or negative.
-		s.shardsCount.WithLabelValues(status).Add(float64(count))
+		s.shardsCount.WithLabelValues(entSchema.ActivityStatus(status)).Add(float64(count))
 	}
 
 	return err
@@ -687,7 +687,7 @@ func (s *schema) updateTenantsProcess(class string, v uint64, req *command.Tenan
 	// partial update possible
 	for status, count := range sc {
 		// count can be positive or negative.
-		s.shardsCount.WithLabelValues(status).Add(float64(count))
+		s.shardsCount.WithLabelValues(entSchema.ActivityStatus(status)).Add(float64(count))
 	}
 
 	return err

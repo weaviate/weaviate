@@ -206,7 +206,10 @@ func Test_schemaShardMetrics(t *testing.T) {
 	require.True(t, s.deleteClass(c2.Class))
 	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("HOT")))
 
-	// Adding class with non empty shard should increase the shard count
+	// A shard of a collection without multi-tenancy carries an empty Status.
+	// It must be counted as HOT, not under an empty status label: the metric
+	// documents its values as HOT/COLD/WARM/FROZEN, so an empty one makes
+	// `sum by (status)` silently drop every single-tenant shard.
 	ss = &sharding.State{
 		Physical: make(map[string]sharding.Physical),
 	}
@@ -214,9 +217,19 @@ func Test_schemaShardMetrics(t *testing.T) {
 		Name:   "random",
 		Status: "",
 	}
-	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("")))
+	hotBefore := testutil.ToFloat64(s.shardsCount.WithLabelValues("HOT"))
 	require.NoError(t, s.addClass(c2, ss, 0))
-	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("")))
+	assert.Equal(t, hotBefore+1, testutil.ToFloat64(s.shardsCount.WithLabelValues("HOT")),
+		"an empty shard status must be normalized to HOT")
+	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("")),
+		"no shard may be counted under an empty status label")
+
+	// Dropping the class must decrement the same HOT series it incremented,
+	// otherwise the gauge drifts on every create/delete cycle.
+	require.True(t, s.deleteClass(c2.Class))
+	assert.Equal(t, hotBefore, testutil.ToFloat64(s.shardsCount.WithLabelValues("HOT")),
+		"deleteClass must decrement the normalized series")
+	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("")))
 }
 
 // Test_UpdateTenants_TransitionalStateRejection verifies that status changes are

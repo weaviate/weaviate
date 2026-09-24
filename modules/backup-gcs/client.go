@@ -186,7 +186,7 @@ func (g *gcsClient) getObject(ctx context.Context, bucket *storage.BucketHandle,
 	}
 
 	content := buf.Bytes()
-	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(Name, "class")
+	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(Name, monitoring.BackupClassLabel(objectName))
 	if err == nil {
 		metric.Add(float64(len(content)))
 	}
@@ -323,7 +323,7 @@ func (g *gcsClient) PutObject(ctx context.Context, backupID, key, overrideBucket
 		return errors.Wrapf(err, "close writer for file: %v", objectName)
 	}
 
-	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues("backup-gcs", "class")
+	metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.GetMetricWithLabelValues(Name, monitoring.BackupClassLabel(key))
 	if err == nil {
 		metric.Add(float64(len(byes)))
 	}
@@ -397,7 +397,7 @@ func (g *gcsClient) Write(ctx context.Context, backupID, key, overrideBucket, ov
 	}
 
 	if metric, err := monitoring.GetMetrics().BackupStoreDataTransferred.
-		GetMetricWithLabelValues(Name, "class"); err == nil {
+		GetMetricWithLabelValues(Name, monitoring.BackupClassLabel(key)); err == nil {
 		metric.Add(float64(written))
 	}
 	return written, nil
@@ -430,7 +430,7 @@ func (g *gcsClient) Read(ctx context.Context, backupID, key, overrideBucket, ove
 	}
 
 	if metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.
-		GetMetricWithLabelValues(Name, "class"); err == nil {
+		GetMetricWithLabelValues(Name, monitoring.BackupClassLabel(key)); err == nil {
 		metric.Add(float64(float64(read)))
 	}
 

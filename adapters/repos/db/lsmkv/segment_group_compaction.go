@@ -917,6 +917,7 @@ func (sg *SegmentGroup) segmentLevelStats() segmentLevelStats {
 		cur = stats.payloads[level]
 		cur += seg.payloadSize()
 		stats.payloads[level] = cur
+
 	}
 
 	return stats

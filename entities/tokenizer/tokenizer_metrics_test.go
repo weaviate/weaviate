@@ -37,6 +37,11 @@ func tokensPerRequestObservations(t *testing.T, label string) uint64 {
 	return m.GetHistogram().GetSampleCount()
 }
 
+// tokenizerRequests reads the TokenizerRequests counter for label.
+func tokenizerRequests(label string) float64 {
+	return testutil.ToFloat64(monitoring.GetMetrics().TokenizerRequests.WithLabelValues(label))
+}
+
 // TestTokenizeMetricsRecordedAtDispatch pins that tokenization metrics are
 // recorded once, under the dispatched tokenization's own label: a lowercase
 // call must not also add to the whitespace count, even though lowercase
@@ -106,4 +111,66 @@ func TestGseChRecordsUnderOwnLabel(t *testing.T) {
 		"gse_ch tokenization must record under gse_ch")
 	require.Equal(t, gseBefore, tokenCount(models.PropertyTokenizationGse),
 		"gse_ch tokenization must not record under gse")
+}
+
+// TestTokenizerRequestsIncrementsPerCall pins tokenizer_requests_total, which
+// was declared but never written: metricsFor wired three of the four bound
+// metrics and omitted this one, so the counter could never leave zero.
+//
+// One public tokenization call must increment exactly once, under the
+// dispatched label only — a tokenizer that delegates internally (word ->
+// lowercase, trigram-with-wildcards -> word-with-wildcards) must not also
+// increment its delegate, exactly as the token counters behave.
+func TestTokenizerRequestsIncrementsPerCall(t *testing.T) {
+	t.Run("increments once under the dispatched label", func(t *testing.T) {
+		before := tokenizerRequests(models.PropertyTokenizationWhitespace)
+		Tokenize(models.PropertyTokenizationWhitespace, "Hello World")
+		require.Equal(t, before+1, tokenizerRequests(models.PropertyTokenizationWhitespace),
+			"one call must record exactly one request")
+	})
+
+	t.Run("counts requests, not tokens", func(t *testing.T) {
+		before := tokenizerRequests(models.PropertyTokenizationWhitespace)
+		Tokenize(models.PropertyTokenizationWhitespace, "one two three four five")
+		require.Equal(t, before+1, tokenizerRequests(models.PropertyTokenizationWhitespace),
+			"a five-token input is still a single request")
+	})
+
+	t.Run("delegated paths do not double count", func(t *testing.T) {
+		wordBefore := tokenizerRequests(models.PropertyTokenizationWord)
+		lowercaseBefore := tokenizerRequests(models.PropertyTokenizationLowercase)
+
+		Tokenize(models.PropertyTokenizationWord, "Hello World")
+
+		require.Equal(t, wordBefore+1, tokenizerRequests(models.PropertyTokenizationWord),
+			"word tokenization records its own request")
+		require.Equal(t, lowercaseBefore, tokenizerRequests(models.PropertyTokenizationLowercase),
+			"word tokenization must not record a request under its lowercase delegate")
+	})
+
+	t.Run("wildcard delegation does not double count", func(t *testing.T) {
+		trigramBefore := tokenizerRequests("trigram_with_wildcards")
+		wordBefore := tokenizerRequests("word_with_wildcards")
+
+		TokenizeWithWildcardsForClass(models.PropertyTokenizationTrigram, "Hello W?rld*", "")
+
+		require.Equal(t, trigramBefore+1, tokenizerRequests("trigram_with_wildcards"),
+			"trigram wildcards records its own request")
+		require.Equal(t, wordBefore, tokenizerRequests("word_with_wildcards"),
+			"trigram wildcards must not record a request under its internal word split")
+	})
+
+	t.Run("tracks the duration observations one-for-one", func(t *testing.T) {
+		label := models.PropertyTokenizationWhitespace
+		reqBefore := tokenizerRequests(label)
+		obsBefore := tokensPerRequestObservations(t, label)
+
+		for i := 0; i < 3; i++ {
+			Tokenize(label, "alpha beta")
+		}
+
+		require.Equal(t, reqBefore+3, tokenizerRequests(label))
+		require.Equal(t, obsBefore+3, tokensPerRequestObservations(t, label),
+			"requests and per-request observations must stay in step")
+	})
 }

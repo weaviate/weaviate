@@ -104,7 +104,6 @@ type Metrics struct {
 	ActiveSegments               *prometheus.GaugeVec
 	ObjectsBucketSegments        *prometheus.GaugeVec
 	CompressedVecsBucketSegments *prometheus.GaugeVec
-	SegmentObjects               *prometheus.GaugeVec
 	SegmentSize                  *prometheus.GaugeVec
 	SegmentCount                 *prometheus.GaugeVec
 	SegmentUnloaded              *prometheus.GaugeVec
@@ -684,10 +683,6 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 			"shard_name": shardName,
 		}),
 		CompressedVecsBucketSegments: promMetrics.LSMCompressedVecsBucketSegmentCount.MustCurryWith(prometheus.Labels{
-			"class_name": className,
-			"shard_name": shardName,
-		}),
-		SegmentObjects: promMetrics.LSMSegmentObjects.MustCurryWith(prometheus.Labels{
 			"class_name": className,
 			"shard_name": shardName,
 		}),

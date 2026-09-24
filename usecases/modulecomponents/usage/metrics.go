@@ -39,7 +39,7 @@ func NewMetrics(reg prometheus.Registerer, moduleName string) *Metrics {
 			},
 			[]string{"operation", "status"}, // operation: collect/upload, status: success/error/skipped
 		),
-		OperationLatency: prometheus.NewHistogramVec(
+		OperationLatency: promauto.With(reg).NewHistogramVec(
 			prometheus.HistogramOpts{
 				Name:    moduleName + "_operation_latency_seconds",
 				Help:    "Latency of usage operations in seconds",

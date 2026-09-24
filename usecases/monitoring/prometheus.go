@@ -14,6 +14,7 @@ package monitoring
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -55,7 +56,6 @@ type PrometheusMetrics struct {
 	LSMCompressedVecsBucketSegmentCount *prometheus.GaugeVec
 	LSMSegmentCountByLevel              *prometheus.GaugeVec
 	LSMSegmentUnloaded                  *prometheus.GaugeVec
-	LSMSegmentObjects                   *prometheus.GaugeVec
 	LSMSegmentSize                      *prometheus.GaugeVec
 	LSMMemtableSize                     *prometheus.GaugeVec
 	LSMMemtableDurations                *prometheus.SummaryVec
@@ -67,7 +67,6 @@ type PrometheusMetrics struct {
 	QueriesFilteredVectorDurations      *prometheus.SummaryVec
 	QueryDimensions                     *prometheus.CounterVec
 	QueryDimensionsCombined             prometheus.Counter
-	GoroutinesCount                     *prometheus.GaugeVec
 	FileIOWrites                        *prometheus.SummaryVec
 	FileIOReads                         *prometheus.SummaryVec
 	MmapOperations                      *prometheus.CounterVec
@@ -79,19 +78,26 @@ type PrometheusMetrics struct {
 	MigrationRecordsNotUnderstood    prometheus.Counter
 
 	// Backup/Restore metrics
-	BackupRestoreDurations            *prometheus.SummaryVec
-	BackupStoreDurations              *prometheus.SummaryVec
-	BucketPauseDurations              *prometheus.SummaryVec
-	BackupRestoreClassDurations       *prometheus.SummaryVec
-	BackupRestoreBackupInitDurations  *prometheus.SummaryVec
-	BackupRestoreFromStorageDurations *prometheus.SummaryVec
-	BackupRestoreDataTransferred      *prometheus.CounterVec
-	BackupDedupePlanningDurations     prometheus.Summary
-	BackupDedupeShards                *prometheus.CounterVec
-	BackupDedupeFallbacks             *prometheus.CounterVec
-	BackupDedupeRestoreAnomalies      *prometheus.CounterVec
-	BackupStoreDataTransferred        *prometheus.CounterVec
-	RestorePhaseDurations             *prometheus.HistogramVec
+	BackupRestoreDurations      *prometheus.SummaryVec
+	BackupStoreDurations        *prometheus.SummaryVec
+	BucketPauseDurations        *prometheus.SummaryVec
+	BackupRestoreClassDurations *prometheus.SummaryVec
+
+	// Correctly-named replacements for the four _ms summaries above, which
+	// record seconds despite their suffix. Both are written for one release;
+	// the _ms ones are deprecated and slated for removal.
+	BackupRestoreSeconds      *prometheus.SummaryVec
+	BackupStoreSeconds        *prometheus.SummaryVec
+	BucketPauseSeconds        *prometheus.SummaryVec
+	BackupRestoreClassSeconds *prometheus.SummaryVec
+
+	BackupRestoreDataTransferred  *prometheus.CounterVec
+	BackupDedupePlanningDurations prometheus.Summary
+	BackupDedupeShards            *prometheus.CounterVec
+	BackupDedupeFallbacks         *prometheus.CounterVec
+	BackupDedupeRestoreAnomalies  *prometheus.CounterVec
+	BackupStoreDataTransferred    *prometheus.CounterVec
+	RestorePhaseDurations         *prometheus.HistogramVec
 
 	// offload metric
 	QueueSize                        *prometheus.GaugeVec
@@ -383,11 +389,14 @@ func (pm *PrometheusMetrics) DeleteClass(className string) error {
 	}
 	pm.QueriesCount.DeletePartialMatch(labels)
 	pm.QueriesDurations.DeletePartialMatch(labels)
-	pm.GoroutinesCount.DeletePartialMatch(labels)
 	pm.BackupRestoreClassDurations.DeletePartialMatch(labels)
-	pm.BackupRestoreBackupInitDurations.DeletePartialMatch(labels)
-	pm.BackupRestoreFromStorageDurations.DeletePartialMatch(labels)
 	pm.BackupStoreDurations.DeletePartialMatch(labels)
+	pm.BackupRestoreClassSeconds.DeletePartialMatch(labels)
+	pm.BackupStoreSeconds.DeletePartialMatch(labels)
+	// The whole-restore summaries carry class_name too. Without these, deleting
+	// and recreating a class resurrects the old class's restore samples.
+	pm.BackupRestoreDurations.DeletePartialMatch(labels)
+	pm.BackupRestoreSeconds.DeletePartialMatch(labels)
 	pm.BackupRestoreDataTransferred.DeletePartialMatch(labels)
 	pm.BackupStoreDataTransferred.DeletePartialMatch(labels)
 	pm.QueriesFilteredVectorDurations.DeletePartialMatch(labels)
@@ -432,6 +441,75 @@ func InitConfig(cfg Config) {
 
 func GetMetrics() *PrometheusMetrics {
 	return metrics
+}
+
+// BackupClassLabel derives the class_name label for the backup byte counters
+// from a storage object key.
+//
+// The BackupBackend interface (entities/modulecapabilities/backup.go) takes a
+// key, not a class, so the storage layer cannot be told which class it is
+// moving bytes for. The bulk data path is the one place the class survives into
+// the key: usecases/backup.chunkKey formats it as "<class>/chunk-<n>", and the
+// backends prepend their own path segments. Scanning for the segment before a
+// "chunk-" element therefore recovers the class wherever that prefixing lands.
+//
+// Metadata objects (descriptors, config) carry no class and report "n/a", as
+// does every key when PROMETHEUS_MONITORING_GROUP collapses per-class series.
+func BackupClassLabel(key string) string {
+	if GetMetrics().Group {
+		return "n/a"
+	}
+	parts := strings.Split(key, "/")
+	// Scan from the end and require the exact generated chunk-<integer> form.
+	// A backend's configured bucket path is attacker-adjacent prefix data and
+	// may itself contain a "chunk-" segment (e.g. "archive/chunk-history/..."),
+	// which a forward scan would mistake for the class delimiter.
+	for i := len(parts) - 1; i > 0; i-- {
+		if isChunkSegment(parts[i]) && parts[i-1] != "" {
+			return parts[i-1]
+		}
+	}
+	return "n/a"
+}
+
+// isChunkSegment reports whether seg is exactly "chunk-<integer>", the form
+// usecases/backup.chunkKey generates.
+func isChunkSegment(seg string) bool {
+	digits, ok := strings.CutPrefix(seg, "chunk-")
+	if !ok || digits == "" {
+		return false
+	}
+	for _, r := range digits {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// ObserveDurationBoth times one operation into a deprecated _ms summary and its
+// correctly-named _seconds replacement, returning the stop function to defer.
+//
+// Both summaries receive the elapsed time in SECONDS. The _ms metrics have
+// always recorded seconds — they were fed by prometheus.NewTimer, whose
+// ObserveDuration reports seconds — so making them record real milliseconds
+// would rescale them by 1000x and silently invalidate every historical series.
+// They keep their existing (mis-named) behaviour until they are removed, and
+// the _seconds metric is the one to build new dashboards on.
+//
+// A label-cardinality error on either summary is dropped rather than returned:
+// a metric must never fail the operation it measures.
+func ObserveDurationBoth(deprecatedMs, seconds *prometheus.SummaryVec, labels ...string) func() {
+	start := time.Now()
+	return func() {
+		elapsed := time.Since(start).Seconds()
+		if m, err := deprecatedMs.GetMetricWithLabelValues(labels...); err == nil {
+			m.Observe(elapsed)
+		}
+		if m, err := seconds.GetMetricWithLabelValues(labels...); err == nil {
+			m.Observe(elapsed)
+		}
+	}
 }
 
 // EnsureRegisteredMetric tries to register the given metric with the given
@@ -531,11 +609,6 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Help: "Duration of queries in milliseconds",
 		}, []string{"class_name", "shard_name", "operation"}),
 
-		GoroutinesCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "concurrent_goroutines",
-			Help: "Number of concurrently running goroutines",
-		}, []string{"class_name", "query_type"}),
-
 		AsyncOperations: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "async_operations_running",
 			Help: "Number of currently ongoing async operations",
@@ -554,10 +627,6 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "lsm_compressed_vecs_bucket_segment_count",
 			Help: "Number of segments per shard in the vectors_compressed bucket",
 		}, []string{"strategy", "class_name", "shard_name", "path"}),
-		LSMSegmentObjects: promauto.NewGaugeVec(prometheus.GaugeOpts{
-			Name: "lsm_segment_objects",
-			Help: "Number of objects/entries of segment by level",
-		}, []string{"strategy", "class_name", "shard_name", "path", "level"}),
 		LSMSegmentSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "lsm_segment_size",
 			Help: "Size of segment by level and unit",
@@ -761,26 +830,35 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		// Backup/restore metrics
 		BackupRestoreDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "backup_restore_ms",
-			Help: "Duration of a backup restore",
+			Help: "DEPRECATED: records seconds despite the _ms suffix; use backup_restore_seconds instead. Duration of a backup restore",
 		}, []string{"backend_name", "class_name"}),
 		BackupRestoreClassDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "backup_restore_class_ms",
-			Help: "Duration restoring class",
+			Help: "DEPRECATED: records seconds despite the _ms suffix; use backup_restore_class_seconds instead. Duration restoring class",
 		}, []string{"class_name"}),
-		BackupRestoreBackupInitDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "backup_restore_init_ms",
-			Help: "startup phase of a backup restore",
-		}, []string{"backend_name", "class_name"}),
-		BackupRestoreFromStorageDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
-			Name: "backup_restore_from_backend_ms",
-			Help: "file transfer stage of a backup restore",
-		}, []string{"backend_name", "class_name"}),
 		BackupStoreDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "backup_store_to_backend_ms",
-			Help: "file transfer stage of a backup restore",
+			Help: "DEPRECATED: records seconds despite the _ms suffix; use backup_store_to_backend_seconds instead. file transfer stage of a backup store",
 		}, []string{"backend_name", "class_name"}),
 		BucketPauseDurations: promauto.NewSummaryVec(prometheus.SummaryOpts{
 			Name: "bucket_pause_durations_ms",
+			Help: "DEPRECATED: records seconds despite the _ms suffix; use bucket_pause_durations_seconds instead. bucket pause durations",
+		}, []string{"bucket_dir"}),
+
+		BackupRestoreSeconds: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "backup_restore_seconds",
+			Help: "Duration of a backup restore",
+		}, []string{"backend_name", "class_name"}),
+		BackupRestoreClassSeconds: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "backup_restore_class_seconds",
+			Help: "Duration restoring class",
+		}, []string{"class_name"}),
+		BackupStoreSeconds: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "backup_store_to_backend_seconds",
+			Help: "file transfer stage of a backup store",
+		}, []string{"backend_name", "class_name"}),
+		BucketPauseSeconds: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "bucket_pause_durations_seconds",
 			Help: "bucket pause durations",
 		}, []string{"bucket_dir"}),
 		BackupDedupePlanningDurations: promauto.NewSummary(prometheus.SummaryOpts{
