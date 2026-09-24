@@ -70,9 +70,9 @@ together into a small REST surface rooted at
 > `STARTED`, cancellable (§12). Everything below describes behavior with
 > the flag on.
 
-A replica movement requested while a migration runs is refused with 409.
-One that reaches a shard still being cleaned up after a cancelled or failed
-migration waits for the cleanup to finish.
+A replica movement requested while a migration runs on its collection is
+refused with 409. One that reaches a shard still being cleaned up after a
+cancelled or failed migration waits for the cleanup to finish.
 
 ### `PUT /v1/schema/{className}/properties/{propertyName}/index/{indexType}`
 
