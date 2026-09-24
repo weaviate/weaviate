@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -340,6 +341,12 @@ func (s *Shard) replaceDimensionsBucket(ctx context.Context, rows dimensionsRows
 	if err := s.store.CreateOrLoadBucket(ctx, name, s.makeDefaultBucketOptions(lsmkv.StrategyRoaringSet)...); err != nil {
 		return fmt.Errorf("create bucket %q: %w", name, err)
 	}
+	// Set read only while the scan ran, possibly as the disk is running full. A
+	// status set from now on reaches the replacement, and fails the fill.
+	if err := s.isReadOnly(); err != nil {
+		s.discardDimensionsReplacement(ctx, name, bucketPath+shardusage.DimensionsReplacementBucketSuffix)
+		return err
+	}
 	if err := s.fillDimensionsBucket(name, rows); err != nil {
 		s.discardDimensionsReplacement(ctx, name, bucketPath+shardusage.DimensionsReplacementBucketSuffix)
 		return err
@@ -400,39 +407,71 @@ func (s *Shard) switchToDimensionsReplacement(ctx context.Context, name, bucketP
 // can have failed before, between or after its two renames, and the bucket now
 // going by the name may still be on a dir the next load removes, or have been
 // left halfway. So the dirs are put in order first, and the bucket in place is
-// loaded again, whatever failed on the way: the shard must not be left without
-// one. switchErr is returned unless only the cleanup after the switch failed.
+// loaded again. Where that is not safe or fails, the shard is left without one, see
+// [Shard.leaveWithoutDimensionsBucket]. switchErr is returned unless only the
+// cleanup after the switch failed.
 func (s *Shard) recoverFailedDimensionsSwitch(ctx context.Context, bucketPath string, switchErr error) error {
 	readyPath := bucketPath + shardusage.DimensionsReplacementBucketSuffix
 	delPath := bucketPath + shardusage.DimensionsReplacedBucketSuffix
 	logger := s.index.logger.WithField("action", "reindex_vector_dimensions").WithField("path", bucketPath)
 
 	if err := s.store.ShutdownBucket(ctx, helpers.DimensionsBucketLSM); err != nil {
-		logger.Warnf("failed to shutdown bucket: %v", err)
+		return s.leaveWithoutDimensionsBucket(logger, fmt.Errorf("%w: shutdown bucket: %w", switchErr, err))
+	}
+	if errors.Is(switchErr, lsmkv.ErrReplacedBucketNotShutDown) {
+		return s.leaveWithoutDimensionsBucket(logger, switchErr)
 	}
 
-	switched := true
-	if _, err := os.Stat(readyPath); err == nil {
-		switched = false
-		if _, err := os.Stat(bucketPath); errors.Is(err, os.ErrNotExist) {
+	// Which dirs are there says how far the switch got. Unless that is known for
+	// sure, nothing is touched, the next load recovers the dirs.
+	readyExists, err := diskio.DirExists(readyPath)
+	if err != nil {
+		return s.leaveWithoutDimensionsBucket(logger, fmt.Errorf("%w: stat %q: %w", switchErr, readyPath, err))
+	}
+	switched := !readyExists
+	if switched {
+		if err := os.RemoveAll(delPath); err != nil {
+			logger.Warnf("failed to remove dir %q: %v", delPath, err)
+		}
+	} else {
+		bucketExists, err := diskio.DirExists(bucketPath)
+		if err != nil {
+			return s.leaveWithoutDimensionsBucket(logger, fmt.Errorf("%w: stat %q: %w", switchErr, bucketPath, err))
+		}
+		if !bucketExists {
 			if err := os.Rename(delPath, bucketPath); err != nil {
 				// loading now would start an empty bucket, the next load finishes the switch
-				return fmt.Errorf("%w: move dimensions bucket back: %w", switchErr, err)
+				return s.leaveWithoutDimensionsBucket(logger, fmt.Errorf("%w: move dimensions bucket back: %w", switchErr, err))
 			}
 		}
 		if err := os.RemoveAll(readyPath); err != nil {
 			logger.Warnf("failed to remove dir %q: %v", readyPath, err)
 		}
-	} else if err := os.RemoveAll(delPath); err != nil {
-		logger.Warnf("failed to remove dir %q: %v", delPath, err)
 	}
 
 	if err := s.loadDimensionsBucket(ctx, helpers.DimensionsBucketLSM); err != nil {
-		return fmt.Errorf("%w: load dimensions bucket again: %w", switchErr, err)
+		return s.leaveWithoutDimensionsBucket(logger, fmt.Errorf("%w: load dimensions bucket again: %w", switchErr, err))
 	}
 	if switched {
 		logger.Warnf("dimensions bucket replaced, cleaning up after it failed: %v", switchErr)
 		return nil
 	}
 	return switchErr
+}
+
+// leaveWithoutDimensionsBucket is for a switch that failed with no dimensions bucket
+// left loaded. A write would store its object and then fail on the missing bucket,
+// before it reaches the vector index, and a retry keeping the doc id would not
+// reach it either. So the shard is set read only, until it is loaded again and
+// recovers the bucket from the dirs. Writes that passed the read only check
+// already skip the dimensions then, see [Shard.addToDimensionBucket].
+//
+// It must run under dimensionsLock.
+func (s *Shard) leaveWithoutDimensionsBucket(logger logrus.FieldLogger, err error) error {
+	s.dimensionsBucketLost = true
+	if statusErr := s.SetStatusReadonly("dimensions bucket lost by a failed recalculation, load the shard again"); statusErr != nil {
+		logger.Errorf("failed to set shard read only: %v", statusErr)
+	}
+	logger.Errorf("shard left without dimensions bucket and set read only, load it again: %v", err)
+	return err
 }

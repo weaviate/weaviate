@@ -16,6 +16,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -35,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -748,6 +750,129 @@ func TestShard_RecalculateDimensions_FailedSwitch(t *testing.T) {
 	}
 }
 
+// A failed switch that cannot load the dimensions bucket again, or that must not,
+// leaves the shard without one. A write would then store its object and fail before
+// it reaches the vector index, and a retry keeping the doc id would not reach it
+// either: the object would be found by filters and never by a vector search.
+func TestShard_RecalculateDimensions_FailedSwitchLeavesNoBucket(t *testing.T) {
+	ctx := testCtx()
+
+	tests := []struct {
+		name string
+		// fail sets up the dirs as the switch left them, returns what it failed with,
+		// and undoes what would also fail the next load of the shard
+		fail func(t *testing.T, bucketPath string) (repair func(), switchErr error)
+	}{
+		{
+			name: "bucket to replace failed to shut down, it may still flush into its dir",
+			fail: func(t *testing.T, bucketPath string) (func(), error) {
+				return func() {}, fmt.Errorf("replace: %w", lsmkv.ErrReplacedBucketNotShutDown)
+			},
+		},
+		{
+			name: "whether the switch went through cannot be told",
+			fail: func(t *testing.T, bucketPath string) (func(), error) {
+				// the bucket in place is the complete one, and the one moved aside must
+				// not be taken for a leftover
+				require.NoError(t, os.Mkdir(bucketPath+"___del", 0o700))
+				require.NoError(t, os.WriteFile(filepath.Join(bucketPath+"___del", "segment-1.db"), []byte("x"), 0o600))
+				require.NoError(t, os.Symlink(bucketPath+"__to_roaringset_ready", bucketPath+"__to_roaringset_ready"))
+				return func() {
+					require.DirExists(t, bucketPath+"___del", "nothing is removed while the state is unknown")
+					require.NoError(t, os.Remove(bucketPath+"__to_roaringset_ready"))
+				}, errors.New("replace: failed renaming")
+			},
+		},
+		{
+			name: "loading the bucket again fails",
+			fail: func(t *testing.T, bucketPath string) (func(), error) {
+				require.NoError(t, os.Chmod(bucketPath, 0o300))
+				t.Cleanup(func() { _ = os.Chmod(bucketPath, 0o700) })
+				return func() { require.NoError(t, os.Chmod(bucketPath, 0o700)) }, errors.New("replace: failed removing dir")
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			class := &models.Class{Class: "TestClass"}
+			shd, idx := testShardWithSettings(t, ctx, class, enthnsw.NewDefaultUserConfig(), false, false, false,
+				func(i *Index) { i.Config.TrackVectorDimensions = true })
+			shard := shd.(*Shard)
+			putRecalculationObjects(t, ctx, shard, class, 5)
+			tracked := dimensionsBucketRows(t, shard)
+			bucketPath := filepath.Join(shard.pathLSM(), helpers.DimensionsBucketLSM)
+
+			repair, switchErr := tt.fail(t, bucketPath)
+			shard.dimensionsLock.Lock()
+			err := shard.recoverFailedDimensionsSwitch(ctx, bucketPath, switchErr)
+			shard.dimensionsLock.Unlock()
+			require.ErrorIs(t, err, switchErr)
+			require.Nil(t, shard.store.Bucket(helpers.DimensionsBucketLSM))
+
+			require.ErrorContains(t, shard.isReadOnly(), "read-only", "writes must be refused")
+			obj := testObject(class.Class)
+			obj.Vector = randVector(3)
+			require.Error(t, shard.PutObject(ctx, obj))
+
+			// as a write that passed the read only check before the switch failed
+			require.NoError(t, shard.UpdateStatus(storagestate.StatusReady.String(), "test"))
+			require.NoError(t, shard.PutObject(ctx, obj), "a write under way must not fail halfway")
+			stored, err := shard.ObjectByID(ctx, obj.ID(), nil, additional.Properties{})
+			require.NoError(t, err)
+			vectorIndex, ok := shard.GetVectorIndex("")
+			require.True(t, ok)
+			require.True(t, vectorIndex.ContainsDoc(stored.DocID), "the object must be in the vector index")
+
+			require.NoError(t, shard.Shutdown(ctx))
+			repair()
+			reloaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
+			require.NoError(t, err, "the shard must load again")
+			defer reloaded.Shutdown(ctx)
+			assert.Equal(t, tracked, dimensionsBucketRows(t, reloaded.(*Shard)), "the bucket in place must be recovered")
+			require.NoError(t, reloaded.(*Shard).isReadOnly())
+		})
+	}
+}
+
+// Set read only while the scan runs, as the disk-usage monitor does, the switch
+// must not write, flush and rename on the shard all the same.
+func TestShard_RecalculateDimensions_ReadOnlyMeanwhile(t *testing.T) {
+	ctx := testCtx()
+	shard, _, class := recalculationTestShard(t, ctx)
+	defer shard.Shutdown(ctx)
+	putRecalculationObjects(t, ctx, shard, class, 5)
+	tracked := dimensionsBucketRows(t, shard)
+	bucketPath := filepath.Join(shard.pathLSM(), helpers.DimensionsBucketLSM)
+
+	// holds the switch in lockNotHaltedForTransfer
+	require.NoError(t, shard.HaltForTransfer(ctx, false, 0))
+	before := dirListingForTest(t, bucketPath)
+	done := make(chan error, 1)
+	go func() {
+		_, err := shard.recalculateDimensions(ctx)
+		done <- err
+	}()
+	require.Eventually(t, func() bool {
+		shard.dimensionsLock.RLock()
+		defer shard.dimensionsLock.RUnlock()
+		return shard.dimensionsRecalculation != nil
+	}, 10*time.Second, time.Millisecond)
+	require.NoError(t, shard.SetStatusReadonly("disk full"))
+	require.NoError(t, shard.resumeMaintenanceCycles(ctx))
+
+	select {
+	case err := <-done:
+		require.ErrorContains(t, err, "read-only")
+	case <-time.After(30 * time.Second):
+		require.FailNow(t, "recalculation did not end")
+	}
+	assert.Equal(t, before, dirListingForTest(t, bucketPath), "the bucket in place must be left alone")
+	assert.Nil(t, shard.store.Bucket(helpers.DimensionsBucketLSM+"__to_roaringset_ready"))
+	require.NoDirExists(t, bucketPath+"__to_roaringset_ready")
+	require.NoError(t, shard.UpdateStatus(storagestate.StatusReady.String(), "test"))
+	assert.Equal(t, tracked, dimensionsBucketRows(t, shard))
+}
+
 // A shutdown requested while the switch holds the last reference to the shard runs
 // when that reference is released. It must not find the switch still holding a
 // lock the shutdown takes.
@@ -858,6 +983,18 @@ func TestRecalculateVectorDimensions_ReportsOutcome(t *testing.T) {
 			},
 			expectedErr: func(t *testing.T, err error) {
 				require.ErrorContains(t, err, "1 shards skipped")
+			},
+		},
+		{
+			name: "shard panics",
+			ctx:  testCtx,
+			prepare: func(t *testing.T, index *Index) {
+				// nothing in it is set up, the recalculation dereferences what is not there
+				index.shards.Store("panicking", &Shard{index: index, name: "panicking"})
+				t.Cleanup(func() { index.shards.LoadAndDelete("panicking") })
+			},
+			expectedErr: func(t *testing.T, err error) {
+				require.ErrorContains(t, err, "1 failed")
 			},
 		},
 	}
