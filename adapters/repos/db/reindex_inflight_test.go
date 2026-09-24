@@ -206,7 +206,7 @@ func TestRefuseIfReindexInFlight_AllowsWhenNoLiveTask(t *testing.T) {
 	require.NoError(t, idx.refuseIfReindexInFlight("ABC123"))
 }
 
-// Each way refuseIfReindexInFlight can fail to look must still refuse and count as a movement error.
+// A missing DB or a failed task-list fetch still refuses and counts as a movement error, since a reindex could be running unseen.
 func TestRefuseIfReindexInFlight_CannotCheck(t *testing.T) {
 	for _, tc := range []struct {
 		name        string

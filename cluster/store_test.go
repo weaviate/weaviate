@@ -1772,7 +1772,7 @@ func openExclusionStore(t *testing.T) *Store {
 	return srv.store
 }
 
-// Without Store.Execute's per-collection lock both submits pass admitTaskOrMovement before either applies.
+// Without Store.Execute's per-collection lock both submits can pass admitTaskOrMovement before either applies.
 func TestExecute_ConcurrentSubmitsAdmitOnlyOne(t *testing.T) {
 	s := openExclusionStore(t)
 	commands := []*cmd.ApplyRequest{
