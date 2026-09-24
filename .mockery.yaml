@@ -44,7 +44,6 @@ packages:
   github.com/weaviate/weaviate/usecases/schema:
     interfaces:
       SchemaGetter:
-      SchemaReader:
   github.com/weaviate/weaviate/usecases/auth/authorization:
     interfaces:
       Controller:
@@ -105,6 +104,9 @@ packages:
   github.com/weaviate/weaviate/usecases/modulecomponents/usage:
     interfaces:
       StorageBackend:
+  github.com/weaviate/weaviate/usecases/objects:
+    interfaces:
+      ClassResolver:
   github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch:
     interfaces:
       admissionChecker:
@@ -118,11 +120,6 @@ packages:
           outpkg: "mocks"
           inpackage: false
       authenticator:
-        config:
-          dir: "adapters/handlers/grpc/v1/batch/mocks"
-          outpkg: "mocks"
-          inpackage: false
-      schemaManager:
         config:
           dir: "adapters/handlers/grpc/v1/batch/mocks"
           outpkg: "mocks"

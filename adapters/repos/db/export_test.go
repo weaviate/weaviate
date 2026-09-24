@@ -23,12 +23,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -239,7 +239,7 @@ func TestIsAsyncReplicationEnabledOrIrrelevant(t *testing.T) {
 			// Leave readers nil at RF>1 so a regression that newly consults
 			// them surfaces as a nil-pointer panic rather than silently passing.
 			if tt.replicationFactor <= 1 {
-				sr := schemaUC.NewMockSchemaReader(t)
+				sr := local.NewMockSchemaReader(t)
 				call := sr.EXPECT().Read(className, true, mock.Anything)
 				if tt.readErr != nil {
 					call.Return(tt.readErr).Once()
@@ -297,7 +297,7 @@ func TestDBIsAsyncReplicationEnabled(t *testing.T) {
 			physical[name] = sharding.Physical{Name: name, BelongsToNodes: []string{"nodeA"}}
 		}
 
-		sr := schemaUC.NewMockSchemaReader(t)
+		sr := local.NewMockSchemaReader(t)
 		sr.EXPECT().Read(className, true, mock.Anything).
 			RunAndReturn(func(_ string, _ bool, r func(*models.Class, *sharding.State) error) error {
 				return r(nil, &sharding.State{Physical: physical})

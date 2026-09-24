@@ -37,6 +37,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -46,7 +47,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding/remote"
 )
 
@@ -425,7 +425,7 @@ func TestIndex_getShardsStorageStatus(t *testing.T) {
 	}
 
 	// Arrange
-	schemaReader := schemaUC.NewMockSchemaReader(t)
+	schemaReader := local.NewMockSchemaReader(t)
 	schemaReader.EXPECT().
 		Shards("Songs").
 		RunAndReturn(func(collectionName string) (shards []string, _ error) {

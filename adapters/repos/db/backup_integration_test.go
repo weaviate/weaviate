@@ -35,6 +35,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	entBackup "github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -43,7 +44,6 @@ import (
 	backupUC "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -301,7 +301,7 @@ func setupTestDBWithShardState(t *testing.T, rootDir string, shardState *shardin
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().LocalActiveShardsCount(mock.Anything).Return(len(shardState.AllPhysicalShards()), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
@@ -370,7 +370,7 @@ func TestDB_Shards(t *testing.T) {
 			},
 		}
 
-		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+		mockSchemaReader := local.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
 			func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
@@ -401,7 +401,7 @@ func TestDB_Shards(t *testing.T) {
 			},
 		}
 
-		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+		mockSchemaReader := local.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
 			func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
@@ -442,7 +442,7 @@ func TestDB_Shards(t *testing.T) {
 			},
 		}
 
-		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+		mockSchemaReader := local.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
 			func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
@@ -483,7 +483,7 @@ func TestDB_Shards(t *testing.T) {
 			},
 		}
 
-		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+		mockSchemaReader := local.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
 			func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
@@ -512,7 +512,7 @@ func TestDB_Shards(t *testing.T) {
 			Physical: map[string]sharding.Physical{},
 		}
 
-		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+		mockSchemaReader := local.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
 			func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				class := &models.Class{Class: className}
@@ -534,7 +534,7 @@ func TestDB_Shards(t *testing.T) {
 	t.Run("invalid sharding state (nil)", func(t *testing.T) {
 		className := "NilStateClass"
 
-		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+		mockSchemaReader := local.NewMockSchemaReader(t)
 		expectedErrorMsg := "invalid sharding state: state is nil"
 		mockSchemaReader.EXPECT().
 			Read(className, mock.Anything, mock.Anything).
@@ -554,7 +554,7 @@ func TestDB_Shards(t *testing.T) {
 	t.Run("schema reader error", func(t *testing.T) {
 		className := "ErrorClass"
 
-		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+		mockSchemaReader := local.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).Return(
 			fmt.Errorf("schema read failed"),
 		)

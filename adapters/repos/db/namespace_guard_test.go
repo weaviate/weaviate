@@ -33,6 +33,7 @@ import (
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
@@ -91,7 +92,7 @@ func newIndexForNamespaceTest(t *testing.T, className string, e namespaces.Exist
 
 	ss := &sharding.State{Physical: map[string]sharding.Physical{}}
 	ss.SetLocalName("node1")
-	reader := schemaUC.NewMockSchemaReader(t)
+	reader := local.NewMockSchemaReader(t)
 	reader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(_ string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
 			return readFunc(class, ss)
@@ -281,12 +282,12 @@ func TestShardStatusOpen(t *testing.T) {
 }
 
 // readerForShards serves one class's sharding state to the code under test.
-func readerForShards(t *testing.T, className string, shards map[string]sharding.Physical) *schemaUC.MockSchemaReader {
+func readerForShards(t *testing.T, className string, shards map[string]sharding.Physical) *local.MockSchemaReader {
 	t.Helper()
 
 	state := reloadState(false, shards)
 
-	reader := schemaUC.NewMockSchemaReader(t)
+	reader := local.NewMockSchemaReader(t)
 	reader.EXPECT().Read(className, mock.Anything, mock.Anything).
 		RunAndReturn(func(_ string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
 			return readFunc(&models.Class{Class: className}, state)
@@ -434,7 +435,7 @@ func TestDesiredOpenLocalShardCount(t *testing.T) {
 		e.EXPECT().GetNamespace("alpha").
 			Return(api.Namespace{Name: "alpha", State: api.NamespaceStateSuspended}, true)
 		logger, _ := logrustest.NewNullLogger()
-		db := &DB{logger: logger, schemaReader: schemaUC.NewMockSchemaReader(t), namespacesExister: e}
+		db := &DB{logger: logger, schemaReader: local.NewMockSchemaReader(t), namespacesExister: e}
 
 		got, err := db.DesiredOpenLocalShardCount(class)
 		require.NoError(t, err)
@@ -451,12 +452,12 @@ func TestDesiredOpenLocalShardCountReadFailures(t *testing.T) {
 
 	tests := []struct {
 		name    string
-		read    func(*schemaUC.MockSchemaReader)
+		read    func(*local.MockSchemaReader)
 		wantErr error
 	}{
 		{
 			name: "an absent sharding state",
-			read: func(r *schemaUC.MockSchemaReader) {
+			read: func(r *local.MockSchemaReader) {
 				r.EXPECT().Read(class, mock.Anything, mock.Anything).
 					RunAndReturn(func(_ string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
 						return readFunc(&models.Class{Class: class}, nil)
@@ -465,7 +466,7 @@ func TestDesiredOpenLocalShardCountReadFailures(t *testing.T) {
 		},
 		{
 			name: "a failing read",
-			read: func(r *schemaUC.MockSchemaReader) {
+			read: func(r *local.MockSchemaReader) {
 				r.EXPECT().Read(class, mock.Anything, mock.Anything).Return(errReadFailed)
 			},
 			wantErr: errReadFailed,
@@ -479,7 +480,7 @@ func TestDesiredOpenLocalShardCountReadFailures(t *testing.T) {
 			e.EXPECT().GetNamespace("alpha").
 				Return(api.Namespace{Name: "alpha", State: api.NamespaceStateActive}, true)
 
-			reader := schemaUC.NewMockSchemaReader(t)
+			reader := local.NewMockSchemaReader(t)
 			tc.read(reader)
 
 			db := &DB{logger: logger, schemaReader: reader, namespacesExister: e}
@@ -1602,7 +1603,7 @@ func TestTwoPhaseCommitSkipsTheGuard(t *testing.T) {
 // indexForBootTest builds the minimum Index initAndStoreShards needs. Lazy
 // loading keeps shard construction off disk, so what the test observes is which
 // shards were registered, not what they contain.
-func indexForBootTest(t *testing.T, className string, e namespaces.Exister, reader schemaUC.SchemaReader) (*Index, *logrustest.Hook) {
+func indexForBootTest(t *testing.T, className string, e namespaces.Exister, reader local.SchemaReader) (*Index, *logrustest.Hook) {
 	t.Helper()
 
 	logger, hook := logrustest.NewNullLogger()
@@ -1704,7 +1705,7 @@ func TestGuardBoot(t *testing.T) {
 	// when nothing may be open, boot must not walk every tenant to learn that.
 	t.Run("a suspended class is decided without reading the sharding state", func(t *testing.T) {
 		idx, _ := indexForBootTest(t, class, existerWithState(t, api.NamespaceStateSuspended),
-			schemaUC.NewMockSchemaReader(t))
+			local.NewMockSchemaReader(t))
 
 		require.NoError(t, idx.initAndStoreShards(ctx, &models.Class{Class: class}, nil))
 		assert.Empty(t, registeredShards(t, idx))
@@ -1816,7 +1817,7 @@ func TestEmptyTenantStatusBootVsReload(t *testing.T) {
 
 	t.Run("the multi-tenant reload unloads a tenant with no status", func(t *testing.T) {
 		idx, _ := indexForBootTest(t, class, existerWithState(t, api.NamespaceStateActive),
-			schemaUC.NewMockSchemaReader(t))
+			local.NewMockSchemaReader(t))
 
 		shard := NewMockShardLike(t)
 		shard.EXPECT().Shutdown(mock.Anything).Return(nil)

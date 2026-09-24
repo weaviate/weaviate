@@ -27,6 +27,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -43,7 +44,7 @@ type objectTTLAndVersion struct {
 	ttlConfig *models.ObjectTTLConfig
 }
 
-func NewCoordinator(schemaReader schemaUC.SchemaReader, schemaGetter schemaUC.SchemaGetter,
+func NewCoordinator(schemaReader local.ClassReader, schemaGetter schemaUC.SchemaGetter,
 	namespacesExister namespaces.Exister, db *db.DB, logger logrus.FieldLogger,
 	clusterClient *http.Client, nodeResolver cluster.HostnameResolver, localStatus *LocalStatus,
 ) *Coordinator {
@@ -62,7 +63,7 @@ func NewCoordinator(schemaReader schemaUC.SchemaReader, schemaGetter schemaUC.Sc
 }
 
 type Coordinator struct {
-	schemaReader      schemaUC.SchemaReader
+	schemaReader      local.ClassReader
 	schemaGetter      schemaUC.SchemaGetter
 	namespacesExister namespaces.Exister
 	db                *db.DB

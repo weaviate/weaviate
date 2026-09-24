@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/versioned"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 func TestDrainOfInProgressBatch(t *testing.T) {
@@ -37,7 +38,7 @@ func TestDrainOfInProgressBatch(t *testing.T) {
 	logger := logrus.New()
 
 	mockBatcher := mocks.NewMockBatcher(t)
-	mockSchemaManager := mocks.NewMockschemaManager(t)
+	mockSchemaManager := objects.NewMockClassResolver(t)
 	mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 	mockStream := newMockStream(t)
 	mockStream.EXPECT().Context().Return(ctx).Maybe()
@@ -149,7 +150,7 @@ func TestDrainOfFinishedBatch(t *testing.T) {
 	}).Maybe()
 
 	collection := "TestClass"
-	mockSchemaManager := mocks.NewMockschemaManager(t)
+	mockSchemaManager := objects.NewMockClassResolver(t)
 	mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 	mockSchemaManager.EXPECT().
 		GetCachedClassNoAuth(mock.Anything, collection).
@@ -231,7 +232,7 @@ func TestDrainAfterBrokenStream(t *testing.T) {
 	}).Maybe()
 
 	collection := "TestClass"
-	mockSchemaManager := mocks.NewMockschemaManager(t)
+	mockSchemaManager := objects.NewMockClassResolver(t)
 	mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 	mockSchemaManager.EXPECT().
 		GetCachedClassNoAuth(mock.Anything, collection).
@@ -285,7 +286,7 @@ func TestDrainWithHangingClient(t *testing.T) {
 	logger := logrus.New()
 
 	mockBatcher := mocks.NewMockBatcher(t)
-	mockSchemaManager := mocks.NewMockschemaManager(t)
+	mockSchemaManager := objects.NewMockClassResolver(t)
 	mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 	mockAuthenticator := mocks.NewMockauthenticator(t)
 	mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()
@@ -374,7 +375,7 @@ func TestDrainWithMisbehavingClient(t *testing.T) {
 	logger := logrus.New()
 
 	mockBatcher := mocks.NewMockBatcher(t)
-	mockSchemaManager := mocks.NewMockschemaManager(t)
+	mockSchemaManager := objects.NewMockClassResolver(t)
 	mockSchemaManager.EXPECT().ResolveAlias(mock.Anything).Return("").Maybe()
 	mockAuthenticator := mocks.NewMockauthenticator(t)
 	mockAuthenticator.EXPECT().PrincipalFromContext(ctx).Return(&models.Principal{}, nil).Once()

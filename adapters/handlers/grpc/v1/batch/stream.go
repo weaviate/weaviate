@@ -26,10 +26,10 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
-	"github.com/weaviate/weaviate/entities/versioned"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -44,11 +44,6 @@ func errShutdown(err error) error {
 
 type authenticator interface {
 	PrincipalFromContext(ctx context.Context) (*models.Principal, error)
-}
-
-type schemaManager interface {
-	GetCachedClassNoAuth(ctx context.Context, names ...string) (map[string]versioned.Class, error)
-	ResolveAlias(alias string) string
 }
 
 type StreamHandler struct {
@@ -69,7 +64,7 @@ type StreamHandler struct {
 	admissionChecker     admissionChecker
 	admitMu              sync.Mutex // taken only by tryAdmit, to check and reserve as one step
 	memInFlight          atomic.Int64
-	schemaManager        schemaManager
+	schemaManager        objects.ClassResolver
 	namespacesEnabled    bool
 	config               config.BatchStream
 }
@@ -84,7 +79,7 @@ func NewStreamHandler(
 	processingQueue processingQueue,
 	metrics *BatchStreamingMetrics,
 	logger logrus.FieldLogger,
-	schemaManager schemaManager,
+	schemaManager objects.ClassResolver,
 	namespacesEnabled bool,
 	admissionChecker admissionChecker,
 	cfg config.BatchStream,

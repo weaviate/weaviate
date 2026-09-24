@@ -25,11 +25,11 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	localschema "github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 // indexForCheckpointTest assembles a minimal *Index with just the wiring
@@ -113,7 +113,7 @@ func TestIndex_ResolveShardNames_UsesSchemaReaderWhenAvailable(t *testing.T) {
 	// the in-memory entry (stale-s1), it incorrectly fell back.
 	idx.shards.Store("stale-s1", NewMockShardLike(t))
 
-	sr := schemaUC.NewMockSchemaReader(t)
+	sr := localschema.NewMockSchemaReader(t)
 	sr.EXPECT().LocalShards("MyClass").Return([]string{"s2", "s3"}, nil).Once()
 	idx.schemaReader = sr
 
@@ -129,7 +129,7 @@ func TestIndex_ResolveShardNames_FallsBackOnSchemaReaderError(t *testing.T) {
 	idx := indexForCheckpointTest(t)
 	idx.shards.Store("fallback-s1", NewMockShardLike(t))
 
-	sr := schemaUC.NewMockSchemaReader(t)
+	sr := localschema.NewMockSchemaReader(t)
 	sr.EXPECT().LocalShards("MyClass").Return(nil, errors.New("schema unavailable")).Once()
 	idx.schemaReader = sr
 
@@ -142,7 +142,7 @@ func TestIndex_ResolveShardNames_ExplicitSubsetBypassesSchemaReader(t *testing.T
 	// already decided which shards to target. The mock will fail the test
 	// if LocalShards is unexpectedly called.
 	idx := indexForCheckpointTest(t)
-	sr := schemaUC.NewMockSchemaReader(t) // no expectations: any call fails
+	sr := localschema.NewMockSchemaReader(t) // no expectations: any call fails
 	idx.schemaReader = sr
 
 	got := idx.resolveShardNames([]string{"explicit-1", "explicit-2"})
