@@ -1045,19 +1045,28 @@ func waitForVectorQueue(t *testing.T, shard ShardLike, targetVector string) {
 	require.NoError(t, q.Wait(t.Context()))
 }
 
-func TestHFreshArtifactsFor_MatchDisk(t *testing.T) {
-	for _, targetVector := range []string{"", "foo"} {
-		t.Run(fmt.Sprintf("vector=%q", targetVector), func(t *testing.T) {
-			shard, _, _ := hfreshTestShard(t, targetVector, 200)
+// TestHFreshArtifacts_MatchDisk checks that the ID-keyed artifact list names
+// what an hfresh index really writes, for the legacy vector and a named one.
+func TestHFreshArtifacts_MatchDisk(t *testing.T) {
+	for _, tc := range []struct {
+		targetVector string
+		buckets      []string
+		dir          string
+	}{
+		{"", []string{"hfresh_postings_main", "hfresh_shared_main", "vectors_compressed"}, "main.hfresh.d"},
+		{"foo", []string{"hfresh_postings_vectors_foo", "hfresh_shared_vectors_foo", "vectors_compressed_foo_centroids"}, "vectors_foo.hfresh.d"},
+	} {
+		t.Run(fmt.Sprintf("vector=%q", tc.targetVector), func(t *testing.T) {
+			shard, _, _ := hfreshTestShard(t, tc.targetVector, 200)
+			artifacts := helpers.VectorIndexArtifactNamesForID(shard.vectorIndexID(tc.targetVector))
 
-			artifacts := helpers.HFreshArtifactsFor(shard.vectorIndexID(targetVector), targetVector, nil)
-			for _, bucket := range artifacts.LSMBuckets {
+			for _, bucket := range tc.buckets {
 				assert.NotNilf(t, shard.Store().Bucket(bucket), "bucket %q not open", bucket)
 				assert.DirExists(t, filepath.Join(shard.pathLSM(), bucket))
+				assert.Contains(t, artifacts.LSMBuckets, bucket)
 			}
-			for _, dir := range artifacts.ShardDirs {
-				assert.DirExists(t, filepath.Join(shard.path(), dir))
-			}
+			assert.DirExists(t, filepath.Join(shard.path(), tc.dir))
+			assert.Contains(t, artifacts.ShardDirs, tc.dir)
 
 			// every hfresh-looking bucket on disk must be listed
 			entries, err := os.ReadDir(shard.pathLSM())

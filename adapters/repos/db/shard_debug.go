@@ -84,10 +84,14 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 }
 
 // removeHFreshArtifacts deletes what a dropped hfresh index left on disk,
-// which the new index would otherwise load.
+// which the new index would otherwise load. The queue stays: the reset reuses it.
 func (s *Shard) removeHFreshArtifacts(ctx context.Context, targetVector string) error {
-	artifacts := helpers.HFreshArtifactsFor(s.vectorIndexID(targetVector), targetVector,
-		otherTargetVectors(s.class, targetVector))
+	id := s.vectorIndexID(targetVector)
+	var otherIDs []string
+	for _, other := range otherTargetVectors(s.class, targetVector) {
+		otherIDs = append(otherIDs, vectorIndexID(other))
+	}
+	artifacts := helpers.VectorIndexArtifactsForID(id, otherIDs)
 	for _, bucket := range artifacts.LSMBuckets {
 		err := s.removeBucket(ctx, bucket)
 		if err != nil {
@@ -95,6 +99,9 @@ func (s *Shard) removeHFreshArtifacts(ctx context.Context, targetVector string) 
 		}
 	}
 	for _, dir := range artifacts.ShardDirs {
+		if dir == id+".queue.d" {
+			continue
+		}
 		err := s.removeDirIfExists(s.path(), dir)
 		if err != nil {
 			return fmt.Errorf("drop directory %q: %w", dir, err)

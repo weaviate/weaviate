@@ -53,6 +53,54 @@ func GetVectorsBucketName(targetVector string) string {
 // while the cleanup keeps deleting the old name: removeBucket no-ops and the
 // leak returns silently.
 
+// VectorIndexIDForTarget derives the canonical physical index ID for a
+// target vector: "main" for the legacy unnamed vector, "vectors_<tv>"
+// otherwise. The shard derives its IDs through it, and so can packages
+// below the shard.
+func VectorIndexIDForTarget(targetVector string) string {
+	if targetVector != "" {
+		return fmt.Sprintf("%s_%s", VectorsBucketLSM, targetVector)
+	}
+	return "main"
+}
+
+// PhysicalIDSuffix extracts the naming suffix from a physical index ID:
+// "vectors_<x>" → "<x>", anything else (including "main") → "". Suffix-based
+// names (compressed bucket, flat metadata, dynamic state key) append
+// "_<suffix>" when it is non-empty and use their bare legacy form otherwise.
+// The anything-else→"" rule reproduces hnsw's historical CutPrefix fallback,
+// which is what shipped bytes on disk for geo and centroid IDs depend on.
+func PhysicalIDSuffix(physicalID string) string {
+	if suffix, found := strings.CutPrefix(physicalID, VectorsBucketLSM+"_"); found {
+		return suffix
+	}
+	return ""
+}
+
+// VectorsBucketNameForID names the raw-vectors LSM bucket for a physical
+// index ID. NOTE the legacy asymmetry: ID "main" stores raw vectors in
+// bucket "vectors", not "main".
+func VectorsBucketNameForID(physicalID string) string {
+	return GetVectorsBucketName(PhysicalIDSuffix(physicalID))
+}
+
+// CompressedBucketNameForID names the quantized-vectors LSM bucket for a
+// physical index ID.
+func CompressedBucketNameForID(physicalID string) string {
+	return GetCompressedBucketName(PhysicalIDSuffix(physicalID))
+}
+
+// FlatMetadataFileNameForID names the flat index's quantization metadata
+// file for a physical index ID.
+func FlatMetadataFileNameForID(physicalID string) string {
+	return FlatMetadataFileName(PhysicalIDSuffix(physicalID))
+}
+
+// HNSWCommitLogDirNameForID is GetHNSWCommitLogDirName by physical ID.
+func HNSWCommitLogDirNameForID(physicalID string) string {
+	return physicalID + ".hnsw.commitlog.d"
+}
+
 // MuveraBucketName is the bucket a muvera-encoded multivector index stores its
 // encoded vectors in. indexID is the vector index's ID.
 func MuveraBucketName(indexID string) string {
@@ -86,6 +134,12 @@ func HFreshSharedBucketName(indexID string) string {
 	return fmt.Sprintf("hfresh_shared_%s", indexID)
 }
 
+// CentroidsID is the physical ID of the hnsw graph hfresh keeps its centroids
+// in; hnsw names that graph's commit log and compressed bucket from it.
+func CentroidsID(indexID string) string {
+	return indexID + "_centroids"
+}
+
 // FlatMetadataFileName is the flat index's quantisation metadata, under the
 // shard directory (see flat.getMetadataFile).
 func FlatMetadataFileName(targetVector string) string {
@@ -113,17 +167,26 @@ func (a VectorIndexArtifacts) All() []string {
 // can compute what OTHER vectors own without recursing through the filter.
 func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 	indexID := GetVectorsBucketName(targetVector)
-	hfresh := hfreshArtifactNames(indexID)
 	return VectorIndexArtifacts{
-		LSMBuckets: append([]string{
+		LSMBuckets: []string{
 			indexID,                               // raw vectors
 			GetCompressedBucketName(targetVector), // BQ/PQ/SQ/RQ
 			MuveraBucketName(indexID),             // multivector + muvera
 			MVMappingsBucketName(indexID),         // multivector without muvera
-		}, hfresh.LSMBuckets...),
-		ShardDirs: append([]string{
+			HFreshPostingsBucketName(indexID),     // hfresh
+			HFreshSharedBucketName(indexID),       // hfresh
+			// hfresh runs a nested centroids HNSW whose id is
+			// "<indexID>_centroids"; hnsw derives its compressed bucket from
+			// that id with the "vectors_" prefix stripped, so it lands in the
+			// shard's lsm dir under this name. Its commitlog and snapshot dirs
+			// do NOT need listing — they live inside the .hfresh.d directory
+			// below, which goes wholesale.
+			GetCompressedBucketName(targetVector + "_centroids"),
+		},
+		ShardDirs: []string{
 			GetHNSWCommitLogDirName(targetVector),
 			GetHNSWSnapshotDirName(targetVector),
+			HFreshDirName(indexID),
 			// The async-indexing queue. The live drop closes it via queue.Drop,
 			// but every files-only path (cold lazy shard, inactive tenant, crash
 			// before the live drop) leaves it — and DiskQueue.Init replays stale
@@ -133,36 +196,62 @@ func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 			// flat.Drop removes this on the live path only; the files-only
 			// paths leave it, same gap as the queue directory above.
 			FlatMetadataFileName(targetVector),
-		}, hfresh.ShardDirs...),
+		},
 	}
 }
 
-// hfreshArtifactNames is what the hfresh index with id indexID keeps on disk.
-// Its centroids HNSW's commitlog and snapshot dirs live inside the .hfresh.d
-// directory, which goes wholesale.
-func hfreshArtifactNames(indexID string) VectorIndexArtifacts {
-	// hnsw names the centroids index's compressed bucket after its id
-	// "<indexID>_centroids" with the "vectors_" prefix cut; the legacy
-	// "main_centroids" has none and maps to the legacy bucket
-	centroidsTarget, found := strings.CutPrefix(indexID+"_centroids", VectorsBucketLSM+"_")
-	if !found {
-		centroidsTarget = ""
-	}
+// VectorIndexArtifactNamesForID is vectorIndexArtifactNames keyed by physical
+// ID. For a named vector the two agree; for the legacy vector only this one
+// names what the indexes write (the name-based list keys off "vectors").
+func VectorIndexArtifactNamesForID(physicalID string) VectorIndexArtifacts {
 	return VectorIndexArtifacts{
 		LSMBuckets: []string{
-			HFreshPostingsBucketName(indexID),
-			HFreshSharedBucketName(indexID),
-			GetCompressedBucketName(centroidsTarget),
+			VectorsBucketNameForID(physicalID),
+			CompressedBucketNameForID(physicalID),
+			MuveraBucketName(physicalID),
+			MVMappingsBucketName(physicalID),
+			HFreshPostingsBucketName(physicalID),
+			HFreshSharedBucketName(physicalID),
+			CompressedBucketNameForID(CentroidsID(physicalID)),
 		},
-		ShardDirs: []string{HFreshDirName(indexID)},
+		ShardDirs: []string{
+			HNSWCommitLogDirNameForID(physicalID),
+			physicalID + ".hnsw.snapshot.d",
+			HFreshDirName(physicalID),
+			physicalID + ".queue.d",
+			FlatMetadataFileNameForID(physicalID),
+		},
 	}
 }
 
-// HFreshArtifactsFor is what an hfresh index keeps on disk, which HFresh.Drop
-// leaves behind. Keyed by index id, so it covers the legacy "main" index too;
-// sibling buckets are left out as in VectorIndexArtifactsFor.
-func HFreshArtifactsFor(indexID, targetVector string, otherTargetVectors []string) VectorIndexArtifacts {
-	return withoutSiblingBuckets(hfreshArtifactNames(indexID), targetVector, otherTargetVectors)
+// VectorIndexArtifactsForID is VectorIndexArtifactsFor keyed by physical ID:
+// what dropping the index at physicalID has to remove, minus any LSM bucket
+// an index at one of otherIDs owns. The mapping's record is the source of
+// these IDs; the name-based twin serves callers without a record.
+func VectorIndexArtifactsForID(physicalID string, otherIDs []string) VectorIndexArtifacts {
+	artifacts := VectorIndexArtifactNamesForID(physicalID)
+	protected := map[string]struct{}{}
+	for _, other := range otherIDs {
+		if other == physicalID {
+			continue
+		}
+		for _, name := range VectorIndexArtifactNamesForID(other).All() {
+			protected[name] = struct{}{}
+		}
+	}
+	if len(protected) == 0 {
+		return artifacts
+	}
+	// only LSM buckets can collide, see VectorIndexArtifactsFor
+	var keptBuckets []string
+	for _, name := range artifacts.LSMBuckets {
+		if _, clash := protected[name]; clash {
+			continue
+		}
+		keptBuckets = append(keptBuckets, name)
+	}
+	artifacts.LSMBuckets = keptBuckets
+	return artifacts
 }
 
 // VectorIndexArtifactsFor lists what dropping targetVector has to remove. It is
@@ -181,12 +270,8 @@ func HFreshArtifactsFor(indexID, targetVector string, otherTargetVectors []strin
 // artifact a sibling claims is therefore dropped from the list: leaking beats
 // deleting data that is still in use.
 func VectorIndexArtifactsFor(targetVector string, otherTargetVectors []string) VectorIndexArtifacts {
-	return withoutSiblingBuckets(vectorIndexArtifactNames(targetVector), targetVector, otherTargetVectors)
-}
+	artifacts := vectorIndexArtifactNames(targetVector)
 
-// withoutSiblingBuckets drops from artifacts every LSM bucket one of
-// otherTargetVectors owns.
-func withoutSiblingBuckets(artifacts VectorIndexArtifacts, targetVector string, otherTargetVectors []string) VectorIndexArtifacts {
 	// Skipping the target itself is what keeps its OWN artifacts in the list,
 	// for a caller that passes the whole schema rather than filtering first.
 	protected := map[string]struct{}{}
