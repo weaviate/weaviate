@@ -34,6 +34,7 @@ func NewCacher(repo repo, logger logrus.FieldLogger, tenant string) *Cacher {
 	return &Cacher{
 		logger: logger,
 		repo:   repo,
+		jobIdx: map[multi.Identifier]int{},
 		store:  map[multi.Identifier]search.Result{},
 		tenant: tenant,
 	}
@@ -48,6 +49,7 @@ type cacherJob struct {
 type Cacher struct {
 	sync.Mutex
 	jobs       []cacherJob
+	jobIdx     map[multi.Identifier]int // first position of each identifier in jobs
 	logger     logrus.FieldLogger
 	repo       repo
 	store      map[multi.Identifier]search.Result
@@ -232,17 +234,27 @@ func (c *Cacher) ReplaceInitialPropertiesWithSpecific(obj search.Result,
 }
 
 func (c *Cacher) addJob(si multi.Identifier, props search.SelectProperties) {
+	if _, ok := c.jobIdx[si]; !ok {
+		c.jobIdx[si] = len(c.jobs)
+	}
 	c.jobs = append(c.jobs, cacherJob{si, props, false})
 }
 
 func (c *Cacher) findJob(si multi.Identifier) (cacherJob, bool) {
-	for _, job := range c.jobs {
-		if job.si == si {
-			return job, true
+	i, ok := c.jobIdx[si]
+	if !ok {
+		return cacherJob{}, false
+	}
+	return c.jobs[i], true
+}
+
+func (c *Cacher) reindexJobs() {
+	clear(c.jobIdx)
+	for i, job := range c.jobs {
+		if _, ok := c.jobIdx[job.si]; !ok {
+			c.jobIdx[job.si] = i
 		}
 	}
-
-	return cacherJob{}, false
 }
 
 // finds incompleteJobs without altering the original job list
@@ -308,6 +320,7 @@ func (c *Cacher) dedupJobList() {
 	}
 
 	c.jobs = append(c.completeJobs(), deduped[:n]...)
+	c.reindexJobs()
 
 	c.logger.
 		WithFields(logrus.Fields{

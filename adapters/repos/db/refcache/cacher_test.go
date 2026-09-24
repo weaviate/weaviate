@@ -1073,3 +1073,40 @@ func (f *fakeRepo) MultiGet(ctx context.Context, query []multi.Identifier, addit
 
 	return out, nil
 }
+
+// BenchmarkCacherBuildManyRefs resolves one reference per root object, the
+// shape of a search that returns many objects with a ref property selected.
+func BenchmarkCacherBuildManyRefs(b *testing.B) {
+	for _, n := range []int{1000, 10000, 50000} {
+		b.Run(fmt.Sprintf("refs=%d", n), func(b *testing.B) {
+			selectProps := search.SelectProperties{{
+				Name: "refProp",
+				Refs: []search.SelectClass{{
+					ClassName:     "SomeClass",
+					RefProperties: search.SelectProperties{{Name: "bar", IsPrimitive: true}},
+				}},
+			}}
+			repo := newFakeRepo()
+			input := make([]search.Result, n)
+			for i := range input {
+				id := strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012d", i))
+				repo.lookup[multi.Identifier{ID: id.String(), ClassName: "SomeClass"}] = search.Result{
+					ID: id, ClassName: "SomeClass", Schema: map[string]interface{}{"bar": "x"},
+				}
+				input[i] = search.Result{
+					ID:        strfmt.UUID(fmt.Sprintf("10000000-0000-0000-0000-%012d", i)),
+					ClassName: "BestClass",
+					Schema: map[string]interface{}{
+						"refProp": models.MultipleRef{{Beacon: strfmt.URI("weaviate://localhost/" + id)}},
+					},
+				}
+			}
+			logger, _ := test.NewNullLogger()
+			b.ResetTimer()
+			for range b.N {
+				cr := NewCacher(repo, logger, "")
+				require.NoError(b, cr.Build(context.Background(), input, selectProps, additional.Properties{}, nil))
+			}
+		})
+	}
+}
