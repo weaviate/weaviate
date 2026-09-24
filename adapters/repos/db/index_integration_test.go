@@ -20,6 +20,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
@@ -44,6 +46,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
+	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -980,6 +983,90 @@ func TestIndex_DebugResetVectorIndexFlat(t *testing.T) {
 
 	err = index.drop()
 	require.Nil(t, err)
+}
+
+// hfreshTestShard builds an async-indexing shard whose targetVector ("" for
+// the legacy vector) is hfresh, and indexes amount random objects into it.
+func hfreshTestShard(t *testing.T, targetVector string, amount int) (*Shard, *Index, []*storobj.Object) {
+	t.Helper()
+	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "100ms")
+
+	ctx := context.Background()
+	className := "HFreshRebuild"
+	cfg := hfreshent.NewDefaultUserConfig()
+
+	var shardLike ShardLike
+	var index *Index
+	if targetVector == "" {
+		shardLike, index = testShardWithSettings(t, ctx, &models.Class{Class: className}, cfg, false, true, true)
+	} else {
+		shardLike, index = testShardWithSettings(t, ctx, &models.Class{Class: className}, nil, false, true, true,
+			func(i *Index) {
+				i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{targetVector: cfg}
+			})
+	}
+	t.Cleanup(func() {
+		assert.NoError(t, index.drop())
+	})
+	shard, ok := shardLike.(*Shard)
+	require.True(t, ok, "expected *Shard, got %T", shardLike)
+
+	r := rand.New(rand.NewSource(1))
+	objs := make([]*storobj.Object, amount)
+	for i := range objs {
+		vec := make([]float32, 32)
+		for d := range vec {
+			vec[d] = r.Float32()
+		}
+		obj := testObject(className)
+		if targetVector == "" {
+			obj.Vector = vec
+		} else {
+			obj.Vectors = map[string][]float32{targetVector: vec}
+		}
+		objs[i] = obj
+	}
+	for _, err := range shard.PutObjectBatch(ctx, objs) {
+		require.NoError(t, err)
+	}
+	waitForVectorQueue(t, shard, targetVector)
+
+	return shard, index, objs
+}
+
+// waitForVectorQueue blocks until targetVector's queue is empty and its
+// in-flight tasks are applied.
+func waitForVectorQueue(t *testing.T, shard ShardLike, targetVector string) {
+	t.Helper()
+	_, q := getVectorIndexAndQueue(t, shard, targetVector)
+	require.Eventually(t, func() bool { return q.Size() == 0 }, 30*time.Second, 100*time.Millisecond)
+	require.NoError(t, q.Wait(t.Context()))
+}
+
+func TestHFreshArtifactsFor_MatchDisk(t *testing.T) {
+	for _, targetVector := range []string{"", "foo"} {
+		t.Run(fmt.Sprintf("vector=%q", targetVector), func(t *testing.T) {
+			shard, _, _ := hfreshTestShard(t, targetVector, 200)
+
+			artifacts := helpers.HFreshArtifactsFor(shard.vectorIndexID(targetVector), targetVector, nil)
+			for _, bucket := range artifacts.LSMBuckets {
+				assert.NotNilf(t, shard.Store().Bucket(bucket), "bucket %q not open", bucket)
+				assert.DirExists(t, filepath.Join(shard.pathLSM(), bucket))
+			}
+			for _, dir := range artifacts.ShardDirs {
+				assert.DirExists(t, filepath.Join(shard.path(), dir))
+			}
+
+			// every hfresh-looking bucket on disk must be listed
+			entries, err := os.ReadDir(shard.pathLSM())
+			require.NoError(t, err)
+			for _, e := range entries {
+				if strings.Contains(e.Name(), "hfresh") || strings.Contains(e.Name(), "centroids") {
+					assert.Contains(t, artifacts.LSMBuckets, e.Name())
+				}
+			}
+		})
+	}
 }
 
 func randVector(dim int) []float32 {

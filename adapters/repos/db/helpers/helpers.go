@@ -13,6 +13,7 @@ package helpers
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -112,26 +113,17 @@ func (a VectorIndexArtifacts) All() []string {
 // can compute what OTHER vectors own without recursing through the filter.
 func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 	indexID := GetVectorsBucketName(targetVector)
+	hfresh := hfreshArtifactNames(indexID)
 	return VectorIndexArtifacts{
-		LSMBuckets: []string{
+		LSMBuckets: append([]string{
 			indexID,                               // raw vectors
 			GetCompressedBucketName(targetVector), // BQ/PQ/SQ/RQ
 			MuveraBucketName(indexID),             // multivector + muvera
 			MVMappingsBucketName(indexID),         // multivector without muvera
-			HFreshPostingsBucketName(indexID),     // hfresh
-			HFreshSharedBucketName(indexID),       // hfresh
-			// hfresh runs a nested centroids HNSW whose id is
-			// "<indexID>_centroids"; hnsw derives its compressed bucket from
-			// that id with the "vectors_" prefix stripped, so it lands in the
-			// shard's lsm dir under this name. Its commitlog and snapshot dirs
-			// do NOT need listing — they live inside the .hfresh.d directory
-			// below, which goes wholesale.
-			GetCompressedBucketName(targetVector + "_centroids"),
-		},
-		ShardDirs: []string{
+		}, hfresh.LSMBuckets...),
+		ShardDirs: append([]string{
 			GetHNSWCommitLogDirName(targetVector),
 			GetHNSWSnapshotDirName(targetVector),
-			HFreshDirName(indexID),
 			// The async-indexing queue. The live drop closes it via queue.Drop,
 			// but every files-only path (cold lazy shard, inactive tenant, crash
 			// before the live drop) leaves it — and DiskQueue.Init replays stale
@@ -141,8 +133,36 @@ func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 			// flat.Drop removes this on the live path only; the files-only
 			// paths leave it, same gap as the queue directory above.
 			FlatMetadataFileName(targetVector),
-		},
+		}, hfresh.ShardDirs...),
 	}
+}
+
+// hfreshArtifactNames is what the hfresh index with id indexID keeps on disk.
+// Its centroids HNSW's commitlog and snapshot dirs live inside the .hfresh.d
+// directory, which goes wholesale.
+func hfreshArtifactNames(indexID string) VectorIndexArtifacts {
+	// hnsw names the centroids index's compressed bucket after its id
+	// "<indexID>_centroids" with the "vectors_" prefix cut; the legacy
+	// "main_centroids" has none and maps to the legacy bucket
+	centroidsTarget, found := strings.CutPrefix(indexID+"_centroids", VectorsBucketLSM+"_")
+	if !found {
+		centroidsTarget = ""
+	}
+	return VectorIndexArtifacts{
+		LSMBuckets: []string{
+			HFreshPostingsBucketName(indexID),
+			HFreshSharedBucketName(indexID),
+			GetCompressedBucketName(centroidsTarget),
+		},
+		ShardDirs: []string{HFreshDirName(indexID)},
+	}
+}
+
+// HFreshArtifactsFor is what an hfresh index keeps on disk, which HFresh.Drop
+// leaves behind. Keyed by index id, so it covers the legacy "main" index too;
+// sibling buckets are left out as in VectorIndexArtifactsFor.
+func HFreshArtifactsFor(indexID, targetVector string, otherTargetVectors []string) VectorIndexArtifacts {
+	return withoutSiblingBuckets(hfreshArtifactNames(indexID), targetVector, otherTargetVectors)
 }
 
 // VectorIndexArtifactsFor lists what dropping targetVector has to remove. It is
@@ -161,8 +181,12 @@ func vectorIndexArtifactNames(targetVector string) VectorIndexArtifacts {
 // artifact a sibling claims is therefore dropped from the list: leaking beats
 // deleting data that is still in use.
 func VectorIndexArtifactsFor(targetVector string, otherTargetVectors []string) VectorIndexArtifacts {
-	artifacts := vectorIndexArtifactNames(targetVector)
+	return withoutSiblingBuckets(vectorIndexArtifactNames(targetVector), targetVector, otherTargetVectors)
+}
 
+// withoutSiblingBuckets drops from artifacts every LSM bucket one of
+// otherTargetVectors owns.
+func withoutSiblingBuckets(artifacts VectorIndexArtifacts, targetVector string, otherTargetVectors []string) VectorIndexArtifacts {
 	// Skipping the target itself is what keeps its OWN artifacts in the list,
 	// for a caller that passes the whole schema rather than filtering first.
 	protected := map[string]struct{}{}

@@ -118,3 +118,57 @@ func TestVectorIndexArtifactsFor_UnrelatedSiblingsChangeNothing(t *testing.T) {
 	assert.Equal(t, plain.LSMBuckets, withSiblings.LSMBuckets)
 	assert.Equal(t, plain.ShardDirs, withSiblings.ShardDirs)
 }
+
+// TestHFreshArtifactsFor spells the names out literally, like
+// TestVectorIndexArtifactsFor_CoversEveryArtifact, so a rename on the side
+// that creates them fails here.
+func TestHFreshArtifactsFor(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		indexID      string
+		targetVector string
+		others       []string
+		wantBuckets  []string
+		wantDirs     []string
+	}{
+		{
+			name:         "named vector",
+			indexID:      "vectors_vec",
+			targetVector: "vec",
+			wantBuckets:  []string{"hfresh_postings_vectors_vec", "hfresh_shared_vectors_vec", "vectors_compressed_vec_centroids"},
+			wantDirs:     []string{"vectors_vec.hfresh.d"},
+		},
+		{
+			name:         "legacy vector",
+			indexID:      "main",
+			targetVector: "",
+			wantBuckets:  []string{"hfresh_postings_main", "hfresh_shared_main", "vectors_compressed"},
+			wantDirs:     []string{"main.hfresh.d"},
+		},
+		{
+			name:         "sibling owns the centroids bucket",
+			indexID:      "vectors_foo",
+			targetVector: "foo",
+			others:       []string{"foo_centroids"},
+			wantBuckets:  []string{"hfresh_postings_vectors_foo", "hfresh_shared_vectors_foo"},
+			wantDirs:     []string{"vectors_foo.hfresh.d"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := HFreshArtifactsFor(tc.indexID, tc.targetVector, tc.others)
+			assert.ElementsMatch(t, tc.wantBuckets, got.LSMBuckets)
+			assert.ElementsMatch(t, tc.wantDirs, got.ShardDirs)
+		})
+	}
+}
+
+// TestHFreshArtifactsFor_SubsetOfDropList keeps the reset and the drop from
+// drifting apart for named vectors.
+func TestHFreshArtifactsFor_SubsetOfDropList(t *testing.T) {
+	for _, others := range [][]string{nil, {"vec_centroids"}} {
+		drop := VectorIndexArtifactsFor("vec", others)
+		hfresh := HFreshArtifactsFor("vectors_vec", "vec", others)
+		assert.Subset(t, drop.LSMBuckets, hfresh.LSMBuckets)
+		assert.Subset(t, drop.ShardDirs, hfresh.ShardDirs)
+	}
+}
