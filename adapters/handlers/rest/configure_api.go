@@ -863,6 +863,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// FIXME to avoid import cycles, tasks are passed as strings
 	reindexTaskNamesWithArgs := map[string]any{}
 	reindexFinished := make(chan error, 1)
+	// closed once the inverted reindexing below is done, or not requested
+	invertedReindexDone := make(chan struct{})
 
 	if appState.ServerConfig.Config.ReindexSetToRoaringsetAtStartup {
 		reindexTaskNamesWithArgs["ShardInvertedReindexTaskSetToRoaringSet"] = nil
@@ -878,6 +880,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// start reindexing inverted indexes (if requested by user) in the background
 		// allowing db to complete api configuration and start handling requests
 		enterrors.GoWrapper(func() {
+			defer close(invertedReindexDone)
 			l := appState.Logger.WithField("action", "startup")
 			if err := metaStoreReady.waitForMetaStore(); err != nil {
 				l.Errorf("Reindexing inverted indexes skipped: %v", err)
@@ -886,6 +889,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			l.Info("Reindexing inverted indexes")
 			reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNamesWithArgs)
 		}, appState.Logger)
+	} else {
+		close(invertedReindexDone)
 	}
 
 	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager, appState.DB,
@@ -976,12 +981,19 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	// Recalculate the tracked dimensions of all objects in the database, if requested by the
 	// user. In the background, as the inverted reindexing above: the db is ready for it only
-	// once the meta store is.
+	// once the meta store is. After the inverted reindexing, which pauses the store of a
+	// shard and flushes all its buckets, while the recalculation replaces one of them.
 	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup && repo.GetConfig().TrackVectorDimensions {
 		enterrors.GoWrapper(func() {
 			l := appState.Logger.WithField("action", "startup")
 			if err := metaStoreReady.waitForMetaStore(); err != nil {
 				l.Errorf("Reindexing dimensions skipped: %v", err)
+				return
+			}
+			select {
+			case <-invertedReindexDone:
+			case <-reindexCtx.Done():
+				l.Errorf("Reindexing dimensions skipped: %v", context.Cause(reindexCtx))
 				return
 			}
 			if err := migrator.RecalculateVectorDimensions(reindexCtx); err != nil {

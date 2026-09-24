@@ -70,10 +70,25 @@ func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string, encode
 	// pinned, a recalculation can replace the bucket and shut it down meanwhile
 	b, release := s.store.AcquireBucketForRead(helpers.DimensionsBucketLSM)
 	if b == nil {
+		if s.dimensionsBucketLost.Load() {
+			s.logDimensionsBucketLost(targetVector)
+			return shardusage.DimensionsScan{}, nil
+		}
 		return shardusage.DimensionsScan{}, errors.Errorf("dimensionsUsage: no bucket dimensions")
 	}
 	defer release()
 	return shardusage.ScanTargetVectorDimensions(ctx, b, targetVector, encodedDimensions)
+}
+
+// logDimensionsBucketLost is for a read that reports no dimensions for a shard
+// that has lost its bucket. Failing it would fail the usage report of the node.
+// The files are not read instead: they may be moved around by the next load of
+// the shard, and a bucket left halfway may still write to them.
+func (s *Shard) logDimensionsBucketLost(targetVector string) {
+	s.index.logger.WithField("action", "dimensions_usage").
+		WithField("shard", s.ID()).
+		WithField("targetVector", targetVector).
+		Errorf("reporting no dimensions: %v", errDimensionsBucketLost)
 }
 
 // Dimensions returns the total number of dimensions for a given vector
@@ -103,6 +118,10 @@ func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector str
 			return types.Dimensionality{}, err
 		}
 		return scan.Raw, nil
+	}
+	if s.dimensionsBucketLost.Load() {
+		s.logDimensionsBucketLost(targetVector)
+		return types.Dimensionality{}, nil
 	}
 	if s.index.Config.TrackVectorDimensions {
 		return types.Dimensionality{}, errors.Errorf("calcTargetVectorDimensions: no bucket dimensions")
@@ -321,7 +340,7 @@ func (s *Shard) addToDimensionBucket(dimLength int, docID uint64, vecName string
 
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
-		if s.dimensionsBucketLost {
+		if s.dimensionsBucketLost.Load() {
 			return nil
 		}
 		return errors.Errorf("add dimension bucket: no bucket dimensions")
