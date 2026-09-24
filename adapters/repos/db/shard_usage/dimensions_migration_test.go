@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -524,6 +525,69 @@ func TestPrepareDimensionsBucket(t *testing.T) {
 		assert.Equal(t, logrus.ErrorLevel, hook.LastEntry().Level)
 		assert.Contains(t, hook.LastEntry().Message, "migrate dimensions bucket to roaring set")
 	})
+}
+
+// A dir recovery cannot remove stays next to the map bucket. Migrating over it
+// would fail at the switch, after a full copy, on every load of the shard, and
+// with the replaced one left the switch would report a torn state that is not.
+func TestPrepareDimensionsBucket_LeftoverCannotBeRemoved(t *testing.T) {
+	ctx := context.Background()
+	seed := [][]dimsOp{{{targetVector: "text", dims: 128, docIDs: []uint64{1, 2, 3}}}}
+
+	for _, suffix := range []string{dimensionsMigrationReadySuffix, dimensionsMigrationDelSuffix} {
+		t.Run(suffix, func(t *testing.T) {
+			logger, hook := test.NewNullLogger()
+			indexPath := t.TempDir()
+			bucketPath := shardPathDimensionsLSM(indexPath, migrationTestShard)
+			seedDimensionsBucket(t, logger, indexPath, lsmkv.StrategyMapCollection, seed)
+			stuckDirForTest(t, bucketPath+suffix)
+			before := dirListing(t, bucketPath)
+
+			for range 2 {
+				require.NoError(t, PrepareDimensionsBucket(ctx, logger, indexPath, migrationTestShard, true), "a load of the shard")
+			}
+
+			assert.Equal(t, before, dirListing(t, bucketPath))
+			require.NoDirExists(t, bucketPath+dimensionsMigrationBuildSuffix)
+			refused := 0
+			for _, entry := range hook.AllEntries() {
+				assert.NotContains(t, entry.Message, "torn state")
+				assert.NotContains(t, entry.Message, "move roaring set dimensions bucket in place")
+				if entry.Level == logrus.ErrorLevel && strings.Contains(entry.Message, "is still there") {
+					refused++
+				}
+			}
+			assert.Equal(t, 2, refused, "one refused migration per load")
+		})
+	}
+}
+
+// stuckDirForTest creates dir with a dir in it that makes its removal fail.
+func stuckDirForTest(t *testing.T, dir string) {
+	t.Helper()
+	stuck := filepath.Join(dir, "stuck")
+	require.NoError(t, os.MkdirAll(stuck, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(stuck, "file"), []byte("x"), 0o600))
+	require.NoError(t, os.Chmod(stuck, 0o500))
+	t.Cleanup(func() { _ = os.Chmod(stuck, 0o700) })
+}
+
+// A replacement left next to the bucket in place, which recovery cannot remove, is
+// a leftover dir only and must not keep the shard from loading.
+func TestRecoverDimensionsBucketMigration_UnusedBucketCannotBeRemoved(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	indexPath := t.TempDir()
+	bucketPath := shardPathDimensionsLSM(indexPath, migrationTestShard)
+	seedDimensionsBucket(t, logger, indexPath, lsmkv.StrategyRoaringSet,
+		[][]dimsOp{{{targetVector: "text", dims: 128, docIDs: []uint64{1, 2, 3}}}})
+	stuckDirForTest(t, bucketPath+dimensionsMigrationReadySuffix)
+
+	require.NoError(t, RecoverDimensionsBucketMigration(logger, indexPath, migrationTestShard))
+
+	require.DirExists(t, bucketPath+dimensionsMigrationReadySuffix)
+	assert.Equal(t, map[string][]uint64{dimsKey("text", 128): {1, 2, 3}}, readRoaringSetDimensions(t, logger, indexPath))
+	require.NotNil(t, hook.LastEntry())
+	assert.Equal(t, logrus.WarnLevel, hook.LastEntry().Level)
 }
 
 func dirListing(t *testing.T, path string) map[string]int64 {

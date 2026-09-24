@@ -127,6 +127,18 @@ func MigrateDimensionsBucketToRoaringSet(ctx context.Context, logger logrus.Fiel
 	buildPath := bucketPath + dimensionsMigrationBuildSuffix
 	readyPath := bucketPath + dimensionsMigrationReadySuffix
 
+	// Left over when recovery could not remove it. The switch would fail over it,
+	// after a full copy on every load.
+	for _, leftover := range []string{readyPath, bucketPath + dimensionsMigrationDelSuffix} {
+		exists, err := dirExists(leftover)
+		if err != nil {
+			return false, err
+		}
+		if exists {
+			return false, fmt.Errorf("dimensions bucket %q is still there", leftover)
+		}
+	}
+
 	rows, err := buildRoaringSetDimensionsBucket(ctx, logger, rootPath, bucketPath, buildPath)
 	if err != nil {
 		if rmErr := os.RemoveAll(buildPath); rmErr != nil {
@@ -312,9 +324,13 @@ func recoverDimensionsBucketMigration(logger logrus.FieldLogger, bucketPath stri
 	case !readyExists:
 		return recoverDimensionsBucketMovedAside(logger, bucketPath, delPath, rootPath)
 	case !delExists:
-		// the map bucket was not moved aside yet and may have been written to since
+		// The bucket in place was not moved aside yet and may have been written to
+		// since. Nothing renames the ready one without a bucket moved aside, so one
+		// that cannot be removed is only a leftover dir, not worth failing the load.
 		if err := os.RemoveAll(readyPath); err != nil {
-			return fmt.Errorf("remove unused dimensions bucket %q: %w", readyPath, err)
+			logger.WithField("action", "dimensions_bucket_migration").
+				WithField("path", readyPath).
+				Warnf("failed to remove unused dimensions bucket: %v", err)
 		}
 		return nil
 	}
