@@ -20,11 +20,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// Pins a defect of RECOUNT_PROPERTIES_AT_STARTUP, and fails until it is fixed.
-//
-// The server calls RecountProperties without waiting for the db to load its
-// indices. It then finds none, recounts nothing, and reports the recount as
-// complete.
+// Called before the db has loaded its indices, RecountProperties would find none,
+// recount nothing, and report the recount as complete.
 func TestRecountProperties_BeforeStartupCompleted(t *testing.T) {
 	repo := newUnstartedTestDB(t)
 	logger, _ := test.NewNullLogger()
