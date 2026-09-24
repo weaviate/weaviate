@@ -312,6 +312,11 @@ func (s *Store) Shutdown(ctx context.Context) error {
 // error normally.
 var ErrBucketNotFound = errors.New("bucket not found")
 
+// ErrReplacedBucketNotShutDown is returned by [Store.ReplaceBuckets] when the bucket
+// to replace failed to shut down. It can be left halfway, and still flush into its
+// dir, which must not be opened again in the meantime.
+var ErrReplacedBucketNotShutDown = errors.New("replaced bucket not shut down")
+
 func (s *Store) ShutdownBucket(ctx context.Context, bucketName string) error {
 	s.closeLock.RLock()
 	defer s.closeLock.RUnlock()
@@ -547,7 +552,7 @@ func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, re
 	newReplacementBucketDir := currBucketDir
 
 	if err := bucket.Shutdown(ctx); err != nil {
-		return "", "", "", "", errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
+		return "", "", "", "", fmt.Errorf("%w: failed shutting down bucket old '%s': %w", ErrReplacedBucketNotShutDown, bucketName, err)
 	}
 
 	s.logger.WithField("action", "lsm_replace_bucket").
@@ -564,6 +569,21 @@ func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, re
 	}
 
 	return currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir, nil
+}
+
+// moveBucketRegistration makes [GlobalBucketRegistry] follow a bucket to the dir
+// it was moved to. Left at the old dir, the registry would refuse a new bucket
+// there, and would not notice a second bucket opened on the dir in use.
+func moveBucketRegistration(bucket *Bucket, newDir string) error {
+	if bucket.registeredPath == newDir {
+		return nil
+	}
+	if err := GlobalBucketRegistry.TryAdd(newDir); err != nil {
+		return err
+	}
+	GlobalBucketRegistry.Remove(bucket.registeredPath)
+	bucket.registeredPath = newDir
+	return nil
 }
 
 // freezeAndSwapForReplace makes the replacement name-visible while frozen:
@@ -625,6 +645,9 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 	}
 
 	replacementBucket.dir = newReplacementBucketDir
+	if err := moveBucketRegistration(replacementBucket, newReplacementBucketDir); err != nil {
+		return err
+	}
 
 	mt, err := replacementBucket.createNewActiveMemtable()
 	if err != nil {
@@ -689,6 +712,9 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 
 	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
 		return errors.Wrapf(err, "failed renaming bucket dir '%s' to '%s'", currBucketDir, newBucketDir)
+	}
+	if err := moveBucketRegistration(currBucket, newBucketDir); err != nil {
+		return err
 	}
 
 	s.updateBucketDir(currBucket, currBucketDir, newBucketDir)

@@ -173,6 +173,11 @@ func CalculateUnloadedDimensionsUsage(ctx context.Context, logger logrus.FieldLo
 	}
 	defer unloadedDimensionsBucketLocks.Unlock(bucketPath)
 
+	// opening a bucket dir that a migration has left missing would create an empty one
+	if err := recoverDimensionsBucketMigration(logger, bucketPath); err != nil {
+		return types.Dimensionality{}, fmt.Errorf("recover dimensions bucket migration: %w", err)
+	}
+
 	bucket, err := openUnloadedDimensionsBucket(ctx, logger, path, bucketPath)
 	if err != nil {
 		return types.Dimensionality{}, err
@@ -202,6 +207,11 @@ func CalculateUnloadedDimensionsUsageAll(ctx context.Context,
 		return nil, fmt.Errorf("lock dimensions bucket: %w", err)
 	}
 	defer unloadedDimensionsBucketLocks.Unlock(bucketPath)
+
+	// opening a bucket dir that a migration has left missing would create an empty one
+	if err := recoverDimensionsBucketMigration(logger, bucketPath); err != nil {
+		return nil, fmt.Errorf("recover dimensions bucket migration: %w", err)
+	}
 
 	bucket, err := openUnloadedDimensionsBucket(ctx, logger, path, bucketPath)
 	if err != nil {

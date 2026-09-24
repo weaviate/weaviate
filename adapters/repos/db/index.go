@@ -319,6 +319,10 @@ type Index struct {
 	// concurrent Release and tank throughput.
 	replicaSnapshotOpLocks *esync.KeyRWLocker
 
+	// by shard, when the last replica copy started, see [Index.noteReplicaCopy]
+	replicaCopiesMu sync.Mutex
+	replicaCopies   map[string]uint64
+
 	metrics          *Metrics
 	centralJobQueue  chan job
 	scheduler        *queue.Scheduler
@@ -1232,6 +1236,7 @@ type IndexConfig struct {
 	SkipWriteClassNameOnDisk            bool
 	TrackVectorDimensions               bool
 	TrackVectorDimensionsInterval       time.Duration
+	MigrateDimensionsToRoaringSet       bool
 	UsageEnabled                        bool
 	ShardLoadLimiter                    *loadlimiter.LoadLimiter
 	StartupShards                       *startupShardCounters

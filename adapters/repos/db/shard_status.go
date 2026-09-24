@@ -12,6 +12,7 @@
 package db
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -119,6 +120,11 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 	targetStatus, err := storagestate.ValidateStatus(strings.ToUpper(in))
 	if err != nil {
 		return errors.Wrap(err, in)
+	}
+	// a SHUTDOWN of any other reason, as set by an operator, would take writes
+	if s.dimensionsBucketLost.Load() && targetStatus != storagestate.StatusReadOnly &&
+		(targetStatus != storagestate.StatusShutdown || reason != statusReasonShutdown) {
+		return fmt.Errorf("set shard status %s: %w", targetStatus, errDimensionsBucketLost)
 	}
 	oldStatus := s.status.Status
 	s.status.Status = targetStatus
