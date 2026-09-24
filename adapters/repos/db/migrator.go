@@ -955,14 +955,16 @@ func (m *Migrator) UpdateReplicationConfig(ctx context.Context, className string
 // RecalculateVectorDimensions rebuilds the dimensions bucket of every shard the db
 // has loaded, or loads lazily, from its objects, a few shards at a time. Shards
 // keep serving meanwhile, see [Shard.recalculateDimensions]. Shards of inactive
-// tenants are not touched. Shards that turn up while it runs, such as a tenant
-// activated, are gone through as well, unless they are still loading when it ends.
+// tenants are not touched. Shards of this node the schema has when it starts are
+// owed; those loaded while it runs, such as a tenant activated, are gone through
+// as well. Shards created while it runs track their dimensions from the start.
 //
 // A shard that fails is logged and does not keep the remaining ones from their
 // turn, unless ctx has expired. The error returned sums up what was left undone,
-// failed shards, shards that went away before their turn, inactive tenants with
-// objects, and local shards the schema has active but the index has not loaded,
-// for the caller to report: nothing rebuilds them once the flag is removed.
+// failed shards, shards that went away before their turn, owed shards of inactive
+// tenants with objects or not loaded, and shards a replica movement copied before
+// they were done, for the caller to report: nothing rebuilds them once the flag is
+// removed.
 func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	// before that the indices are not all there, and none would not be an error
 	if !m.db.StartupComplete() {
@@ -971,22 +973,34 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	logger := m.logger.WithField("action", "reindex_vector_dimensions")
 	logger.Info("Reindexing dimensions, this may take a while")
 
-	run := &dimensionsRecalculationRun{logger: logger, seen: map[*Index]map[string]struct{}{}}
+	run := &dimensionsRecalculationRun{
+		logger: logger, seen: map[*Index]map[string]struct{}{},
+		copiesSince: replicaCopySeq.Load(),
+	}
+	owed, err := m.owedShards()
+	if err != nil {
+		return run.incomplete(err)
+	}
 	for {
-		scheduled, err := run.pass(ctx, m.db.snapshotIndices())
+		for {
+			scheduled, err := run.pass(ctx, m.db.snapshotIndices())
+			if err != nil {
+				return run.incomplete(err)
+			}
+			if scheduled == 0 {
+				break
+			}
+		}
+		loadedMeanwhile, err := run.countNotReindexed(m.db, owed)
 		if err != nil {
 			return run.incomplete(err)
 		}
-		if scheduled == 0 {
+		if !loadedMeanwhile {
 			break
 		}
 	}
-	for _, index := range m.db.snapshotIndices() {
-		if err := run.countInactive(index); err != nil {
-			return run.incomplete(err)
-		}
-	}
-	if run.failed.Load() > 0 || run.skipped.Load() > 0 || run.inactive > 0 || run.notLoaded > 0 {
+	if run.failed.Load() > 0 || run.skipped.Load() > 0 || run.copied.Load() > 0 ||
+		run.inactive > 0 || run.notLoaded > 0 {
 		return run.incomplete(nil)
 	}
 	logger.WithField("shards", run.shards.Load()).
@@ -994,6 +1008,33 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 		Warn("Reindexing dimensions complete. Please remove environment variable " +
 			"REINDEX_VECTOR_DIMENSIONS_AT_STARTUP before next startup")
 	return nil
+}
+
+// owedShards returns, by class, the names of the shards of this node in the schema,
+// including those of classes the db has no index for, as it failed to create one.
+func (m *Migrator) owedShards() (map[string][]string, error) {
+	owed := map[string][]string{}
+	objects := m.db.schemaGetter.GetSchemaSkipAuth().Objects
+	if objects == nil {
+		return owed, nil
+	}
+	for _, class := range objects.Classes {
+		err := m.db.schemaReader.Read(class.Class, false, func(_ *models.Class, state *sharding.State) error {
+			if state == nil {
+				return fmt.Errorf("reindex dimensions: no sharding state for class %s", class.Class)
+			}
+			for name := range state.Physical {
+				if state.IsLocalShard(name) {
+					owed[class.Class] = append(owed[class.Class], name)
+				}
+			}
+			return nil
+		})
+		if err != nil && !errors.Is(err, clusterschema.ErrClassNotFound) {
+			return nil, err
+		}
+	}
+	return owed, nil
 }
 
 func (db *DB) snapshotIndices() []*Index {
@@ -1010,10 +1051,12 @@ type dimensionsRecalculationRun struct {
 	logger logrus.FieldLogger
 	// by index, the names of the shards a pass has taken on already
 	seen map[*Index]map[string]struct{}
+	// what replicaCopySeq was when the run started
+	copiesSince uint64
 
-	shards, skipped, failed, objects atomic.Int64
-	// local shards never taken on, as their tenant is not active, or as the index
-	// has not loaded them, while activating them or after that failed
+	shards, skipped, failed, copied, objects atomic.Int64
+	// owed shards never taken on, as their tenant is not active, or as they are not
+	// loaded, while activating them or after that failed
 	inactive, notLoaded int
 
 	skippedNamesLock sync.Mutex
@@ -1086,41 +1129,73 @@ func (r *dimensionsRecalculationRun) recalculate(ctx context.Context, index *Ind
 			r.skippedNames = append(r.skippedNames, index.ID()+"/"+name)
 			r.skippedNamesLock.Unlock()
 		}
+	case count > 0 && index.replicaCopiedSince(name, r.copiesSince):
+		// the copy may have the dimensions from before, and the shard be dropped
+		// here as the movement completes
+		if r.copied.Add(1) <= maxReportedErrors {
+			r.logger.WithField("index", index.ID()).WithField("shard", name).
+				Error("shard reindexed, but copied by a replica movement before")
+		}
 	default:
 		r.shards.Add(1)
 		r.objects.Add(int64(count))
 	}
 }
 
-func (r *dimensionsRecalculationRun) countInactive(index *Index) error {
-	className := index.Config.ClassName.String()
-	err := index.schemaReader.Read(className, false, func(_ *models.Class, state *sharding.State) error {
-		if state == nil {
-			return fmt.Errorf("reindex dimensions: no sharding state for class %s", className)
-		}
-		for name, physical := range state.Physical {
-			if _, ok := r.seen[index][name]; ok || !state.IsLocalShard(name) {
-				continue
+// countNotReindexed counts the owed shards no pass has taken on. loadedMeanwhile
+// tells that there are some the index has now, for another pass to take on.
+func (r *dimensionsRecalculationRun) countNotReindexed(db *DB, owed map[string][]string) (loadedMeanwhile bool, err error) {
+	r.inactive, r.notLoaded = 0, 0
+	for className, names := range owed {
+		db.indexLock.RLock()
+		index := db.indices[indexID(schema.ClassName(className))]
+		db.indexLock.RUnlock()
+
+		var cold []string
+		err := db.schemaReader.Read(className, false, func(_ *models.Class, state *sharding.State) error {
+			if state == nil {
+				return fmt.Errorf("reindex dimensions: no sharding state for class %s", className)
 			}
-			switch physical.ActivityStatus() {
-			case models.TenantActivityStatusHOT:
-				r.notLoaded++
-			case models.TenantActivityStatusCOLD:
-				// nothing to rebuild; not so for a frozen tenant, its dir is gone
-				if !index.unloadedShardIsEmpty(name) {
+			for _, name := range names {
+				physical, ok := state.Physical[name]
+				if !ok || !state.IsLocalShard(name) {
+					continue // dropped, or moved away
+				}
+				if index != nil {
+					if _, seen := r.seen[index][name]; seen {
+						continue
+					}
+				}
+				switch physical.ActivityStatus() {
+				case models.TenantActivityStatusHOT:
+					if index != nil && index.shards.Load(name) != nil {
+						loadedMeanwhile = true
+					} else {
+						r.notLoaded++
+					}
+				case models.TenantActivityStatusCOLD:
+					// not read here, that holds up changes to the schema
+					cold = append(cold, name)
+				default:
 					r.inactive++
 				}
-			default:
+			}
+			return nil
+		})
+		if errors.Is(err, clusterschema.ErrClassNotFound) {
+			continue // dropped meanwhile, nothing left to reindex
+		}
+		if err != nil {
+			return false, err
+		}
+		for _, name := range cold {
+			// nothing to rebuild; not so for a frozen tenant, its dir is gone
+			if index == nil || !index.unloadedShardIsEmpty(name) {
 				r.inactive++
 			}
 		}
-		return nil
-	})
-	if errors.Is(err, clusterschema.ErrClassNotFound) {
-		// dropped meanwhile, nothing left to reindex
-		return nil
 	}
-	return err
+	return loadedMeanwhile, nil
 }
 
 // incomplete sums up a run that left shards as they were.
@@ -1136,6 +1211,11 @@ func (r *dimensionsRecalculationRun) incomplete(cause error) error {
 			fmt.Fprintf(&msg, ", and %d more", skipped-maxReportedErrors)
 		}
 		msg.WriteString(")")
+	}
+	if copied := r.copied.Load(); copied > 0 {
+		fmt.Fprintf(&msg, ", %d shards copied by a replica movement while being reindexed, "+
+			"their copies are reindexed only at a later startup of the receiving node with "+
+			"REINDEX_VECTOR_DIMENSIONS_AT_STARTUP set", copied)
 	}
 	if r.inactive > 0 {
 		fmt.Fprintf(&msg, ", %d inactive tenants not reindexed", r.inactive)
