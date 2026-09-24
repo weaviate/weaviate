@@ -1243,6 +1243,8 @@ func TestRecalculateVectorDimensions_ReportsOutcome(t *testing.T) {
 			name: "shard panics",
 			ctx:  testCtx,
 			prepare: func(t *testing.T, _ *DB, index *Index) {
+				// the integration suite has panics kill the test binary otherwise
+				enableRecoveryOnPanic(t)
 				// nothing in it is set up, the recalculation dereferences what is not there
 				index.shards.Store("panicking", &Shard{index: index, name: "panicking"})
 				t.Cleanup(func() { index.shards.LoadAndDelete("panicking") })
