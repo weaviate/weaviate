@@ -23,16 +23,32 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
+// checkRoaringSetKey refuses a nil key. A roaring-set bucket indexes values, and
+// an absent one is indexed by the null pseudo-property's own bucket under a
+// one-byte key, so nil is a caller's mistake rather than a value. It is also the
+// end-of-walk marker every cursor over a memtable reads, so a stored nil key
+// would end a walk at that node: the flush would rename a header-only segment
+// into place and delete the commit log behind it.
+func checkRoaringSetKey(key []byte) error {
+	if key == nil {
+		return fmt.Errorf("roaring set key must not be nil")
+	}
+	return nil
+}
+
 func (b *Bucket) RoaringSetAddOne(key []byte, value uint64) error {
 	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
 		return err
 	}
+	if err := checkRoaringSetKey(key); err != nil {
+		return err
+	}
 
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.roaringSetAddOne(key, value)
 }
@@ -41,12 +57,15 @@ func (b *Bucket) RoaringSetRemoveOne(key []byte, value uint64) error {
 	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
 		return err
 	}
+	if err := checkRoaringSetKey(key); err != nil {
+		return err
+	}
 
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.roaringSetRemoveOne(key, value)
 }
@@ -55,12 +74,15 @@ func (b *Bucket) RoaringSetAddList(key []byte, values []uint64) error {
 	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
 		return err
 	}
+	if err := checkRoaringSetKey(key); err != nil {
+		return err
+	}
 
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.roaringSetAddList(key, values)
 }
@@ -77,12 +99,17 @@ func (b *Bucket) RoaringSetAddBatch(entries []RoaringSetBatchEntry) error {
 	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
 		return err
 	}
+	for i := range entries {
+		if err := checkRoaringSetKey(entries[i].Key); err != nil {
+			return fmt.Errorf("entry %d: %w", i, err)
+		}
+	}
 
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.roaringSetAddBatch(entries)
 }
@@ -93,12 +120,17 @@ func (b *Bucket) RoaringSetRemoveBatch(entries []RoaringSetBatchEntry) error {
 	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
 		return err
 	}
+	for i := range entries {
+		if err := checkRoaringSetKey(entries[i].Key); err != nil {
+			return fmt.Errorf("entry %d: %w", i, err)
+		}
+	}
 
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.roaringSetRemoveBatch(entries)
 }
@@ -107,12 +139,15 @@ func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
 		return err
 	}
+	if err := checkRoaringSetKey(key); err != nil {
+		return err
+	}
 
-	active, release, err := b.getActiveMemtableForWrite()
+	active, err := b.getActiveMemtableForWrite()
 	if err != nil {
 		return err
 	}
-	defer release()
+	defer active.decWriterCount()
 
 	return active.roaringSetAddBitmap(key, bm)
 }

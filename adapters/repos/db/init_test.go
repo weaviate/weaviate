@@ -312,7 +312,10 @@ func TestTotalShardSizeBytes_PrefersMetaFileWhenPresent(t *testing.T) {
 			shardPath := path.Join(indexPath, shardName)
 
 			require.NoError(t, os.MkdirAll(shardPath, 0o777))
-			require.NoError(t, shardusage.SaveComputedUsageData(indexPath, shardName, tt.usage, ""))
+			saved, err := shardusage.SaveComputedUsageData(indexPath, shardName, tt.usage, "",
+				shardusage.ComputedUsageGeneration(indexPath, shardName))
+			require.NoError(t, err)
+			require.True(t, saved)
 			require.NoError(t, os.WriteFile(path.Join(shardPath, "data.bin"), onDisk, 0o644))
 
 			want := fullShardBytes

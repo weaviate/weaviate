@@ -671,3 +671,51 @@ func TestMarshalSortedKeysRejectsOffsetPastFirstValueEnd(t *testing.T) {
 	_, err := MarshalSortedKeys(&buf, keys, 20)
 	require.Error(t, err)
 }
+
+// TestMarshalSortedKeysMatchesFromKeys pins the premise the roaring set flush's
+// switch to KeyRedux rests on: MarshalSortedKeys derives each key's start from
+// the previous key's end, where MarshalSortedKeysFromKeys reads ValueStart, so
+// the two agree while the keys are contiguous from dataStartOffset.
+func TestMarshalSortedKeysMatchesFromKeys(t *testing.T) {
+	// sortedKeyWriters() runs both writers only at dataStartOffset 0, so nothing
+	// compares them to each other where the chain starts past 0.
+	contiguousKeys := func(n int) []Key {
+		keys := make([]Key, n)
+		start := HeaderSize
+		for i := range keys {
+			keys[i] = Key{Key: varWidthKey(i), ValueStart: start, ValueEnd: start + 10}
+			start += 10
+		}
+		return keys
+	}
+
+	tests := []struct {
+		name string
+		n    int
+	}{
+		{name: "no keys", n: 0},
+		{name: "one key", n: 1},
+		{name: "two keys", n: 2},
+		{name: "many keys", n: 33},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			keys := contiguousKeys(tt.n)
+			redux := make([]KeyRedux, len(keys))
+			for i, key := range keys {
+				redux[i] = KeyRedux{Key: key.Key, ValueEnd: key.ValueEnd}
+			}
+
+			var fromKeys, fromRedux bytes.Buffer
+			nKeys, err := MarshalSortedKeysFromKeys(&fromKeys, keys)
+			require.NoError(t, err)
+			nRedux, err := MarshalSortedKeys(&fromRedux, redux, HeaderSize)
+			require.NoError(t, err)
+
+			require.Equal(t, nKeys, nRedux, "the two writers reported different lengths")
+			require.Equal(t, fromKeys.Bytes(), fromRedux.Bytes(),
+				"KeyRedux must produce the index bytes WriteIndexes would have written")
+		})
+	}
+}

@@ -12,6 +12,7 @@
 package rest
 
 import (
+	"fmt"
 	"net/http"
 
 	openapierrors "github.com/go-openapi/errors"
@@ -22,6 +23,7 @@ import (
 	searchops "github.com/weaviate/weaviate/adapters/handlers/rest/operations/search"
 	restsearch "github.com/weaviate/weaviate/adapters/handlers/rest/search"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -30,9 +32,7 @@ import (
 // /v1/search/{collection}/{near-text,bm25,hybrid,near-object}) and its
 // sibling aggregate API (operation aggregate, POST
 // /v1/aggregate/{collection}). The handler logic lives in
-// adapters/handlers/rest/search. The endpoints are experimental and off by
-// default; EXPERIMENTAL_REST_SEARCH_ENABLED=true enables them. When disabled
-// they reject requests with 422.
+// adapters/handlers/rest/search.
 func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 	h := restsearch.NewHandler(restsearch.HandlerConfig{
 		Traverser:          appState.Traverser,
@@ -42,7 +42,6 @@ func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 		DefaultLimit:       appState.ServerConfig.Config.QueryDefaults.Limit,
 		MaximumResults:     appState.ServerConfig.Config.QueryMaximumResults,
 		CrossRefDepthLimit: appState.ServerConfig.Config.QueryCrossReferenceDepthLimit,
-		Enabled:            appState.ServerConfig.Config.ExperimentalRESTSearchEnabled,
 		Logger:             appState.Logger,
 	})
 
@@ -106,10 +105,13 @@ func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 		})
 }
 
-// searchErrPayload renders a search APIError as the standard REST error body.
+// searchErrPayload renders a search APIError as the standard REST error body,
+// with the docs link appended for a documented error. Err is already stripped
+// for the caller, so the link is matched on the cause instead.
 func searchErrPayload(apiErr *restsearch.APIError) *models.ErrorResponse {
+	message := enterrors.AppendDocsLink(fmt.Sprintf("%v", apiErr.Err), apiErr.Cause())
 	return &models.ErrorResponse{
-		Error: []*models.ErrorResponseErrorItems0{{Message: apiErr.Error()}},
+		Error: []*models.ErrorResponseErrorItems0{{Message: message}},
 	}
 }
 

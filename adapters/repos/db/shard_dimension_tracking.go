@@ -302,7 +302,16 @@ func correctEmptySegments(segments int, dimensions int) int {
 	return common.CalculateOptimalSegments(dimensions)
 }
 
+// extendDimensionTrackerLSM records a vector's dimensions, but only for a vector
+// this shard still indexes. A drop removes the index in the schema apply and
+// clears the rows later, on the drop task. A write that checked the class
+// before the drop can arrive here after that clear, and would bring the rows
+// back for a re-created vector of the same name to inherit. The check sits at
+// the write so nothing can stall between the two.
 func (s *Shard) extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error {
+	if _, ok := s.GetVectorIndex(targetVector); !ok {
+		return nil
+	}
 	return s.addToDimensionBucket(dimLength, docID, targetVector, false)
 }
 
@@ -311,6 +320,55 @@ func (s *Shard) extendDimensionTrackerLSM(dimLength int, docID uint64, targetVec
 // targetVector,128 | 1,2,4,5,17, Tombstone 4,
 func (s *Shard) removeDimensionsLSM(dimLength int, docID uint64, targetVector string) error {
 	return s.addToDimensionBucket(dimLength, docID, targetVector, true)
+}
+
+// removeAllDimensionsLSM clears every dimension row targetVector owns.
+//
+// A missing bucket means the shard never tracked dimensions — unless it is
+// shutting down, because Store.Shutdown blanks bucketsByName before it drains.
+// Reporting success there would lose the clear for good: the finalizer then
+// drops the name from the schema and no route ever looks at it again. Callers
+// that can race a teardown hold preventShutdown; this is what catches the ones
+// that forget.
+func (s *Shard) removeAllDimensionsLSM(ctx context.Context, targetVector string) error {
+	// Stops when the shard is dropped. Store.Shutdown waits on the pin below, so
+	// a tenant or collection delete, which is a RAFT apply, would otherwise wait
+	// out the rest of the clear once its reference drain gives up.
+	if s.shutCtx != nil {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithCancel(ctx)
+		defer cancel()
+		stop := context.AfterFunc(s.shutCtx, cancel)
+		defer stop()
+		// AfterFunc cancels on its own goroutine even when shutCtx is already
+		// done, which could let the first chunk through.
+		if s.shutCtx.Err() != nil {
+			cancel()
+		}
+	}
+
+	// Pinned, not just fetched: the clear walks the bucket and then writes to
+	// it, and resetDimensionsLSM can swap this bucket underneath it
+	// (Store.ReplaceBuckets). The pin also covers the segments its cursors read,
+	// which a concurrent Shutdown would otherwise unmap.
+	b, release := s.store.AcquireBucketForRead(helpers.DimensionsBucketLSM)
+	defer release()
+	if b == nil {
+		if s.shut.Load() || s.shutdownRequested.Load() {
+			return fmt.Errorf("remove dimensions for %q: %w", targetVector, errAlreadyShutdown)
+		}
+		return nil
+	}
+	if err := shardusage.RemoveTargetVectorDimensions(ctx, b, targetVector); err != nil {
+		if s.shutCtx != nil && s.shutCtx.Err() != nil {
+			return fmt.Errorf("remove dimensions for %q: %w", targetVector, context.Cause(s.shutCtx))
+		}
+		return err
+	}
+	// Written through before returning, as every write path does. The caller
+	// records the drop complete next, and nothing retries a clear that a
+	// process crash undid.
+	return b.WriteWAL()
 }
 
 func (s *Shard) addToDimensionBucket(dimLength int, docID uint64, vecName string, tombstone bool) error {

@@ -21,6 +21,7 @@ import (
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/classcache"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/versioned"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -106,7 +107,7 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 
 	var objErrors []*pb.BatchObjectsReply_BatchError
 	for i, err := range objectParsingErrors {
-		objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(i), Error: namespacing.StripErrorMessage(principal, err.Error())})
+		objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(i), Error: errorMessage(principal, err)})
 	}
 
 	// If every object failed to parse, return early with the errors
@@ -127,7 +128,7 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 
 	for i, obj := range response {
 		if obj.Err != nil {
-			objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(objOriginalIndex[i]), Error: namespacing.StripErrorMessage(principal, obj.Err.Error())})
+			objErrors = append(objErrors, &pb.BatchObjectsReply_BatchError{Index: int32(objOriginalIndex[i]), Error: errorMessage(principal, obj.Err)})
 		}
 	}
 
@@ -136,6 +137,13 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 		Errors: objErrors,
 	}
 	return result, nil
+}
+
+// errorMessage renders a per-object error for the client: the caller's own
+// namespace is stripped first, then the docs link is appended, so a namespace
+// named "https" cannot cut the link's scheme.
+func errorMessage(principal *models.Principal, err error) string {
+	return enterrors.AppendDocsLink(namespacing.StripErrorMessage(principal, fmt.Sprintf("%v", err)), err)
 }
 
 func (h *Handler) BatchReferences(ctx context.Context, req *pb.BatchReferencesRequest) (reply *pb.BatchReferencesReply, retErr error) {
@@ -156,7 +164,7 @@ func (h *Handler) BatchReferences(ctx context.Context, req *pb.BatchReferencesRe
 	var refErrors []*pb.BatchReferencesReply_BatchError
 	for i, ref := range response {
 		if ref.Err != nil {
-			refErrors = append(refErrors, &pb.BatchReferencesReply_BatchError{Index: int32(i), Error: namespacing.StripErrorMessage(principal, ref.Err.Error())})
+			refErrors = append(refErrors, &pb.BatchReferencesReply_BatchError{Index: int32(i), Error: errorMessage(principal, ref.Err)})
 		}
 	}
 

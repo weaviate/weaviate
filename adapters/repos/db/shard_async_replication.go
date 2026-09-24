@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -399,6 +400,8 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 	s.asyncRepLastLog.Store(0)
 	s.asyncRepFailLastLog.Store(0)
 	s.asyncReplicationConfig = config
+	// Armed by initHashtree at scan start, never while queued for a slot; a stale channel from a previous enable must not park writers.
+	s.minimalHashtreeInitializationCh = nil
 
 	effectiveConfig := config
 	if s.index != nil && s.index.globalreplicationConfig != nil {
@@ -419,12 +422,7 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 		// asyncReplicationRWMux.RLock (in onResultLocked), causing a deadlock.
 		// Spawning a goroutine mirrors the pattern used by the new-hashtree path.
 		//
-		// asyncRepWg tracks this goroutine so that rebuildHashtree's
-		// asyncRepWg.Wait() serialises rebuilds against it. Without tracking, a
-		// rapid disable→enable cycle (e.g. during a rebuild or a repair override
-		// remove→add) would spawn a new goroutine before the old one exits.
-		// Note: disableAsyncReplication does NOT call asyncRepWg.Wait(); the
-		// goroutine exits promptly once the context is cancelled or hashtree is nil.
+		// Latched so a rebuild's drain waits for this Register; a disable does not wait (the goroutine exits on a cancelled ctx or a nil hashtree).
 		s.asyncRepWg.Add(1)
 		enterrors.GoWrapper(func() {
 			defer s.asyncRepWg.Done()
@@ -444,21 +442,17 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 				return
 			}
 
-			// Guard against disableAsyncReplication running between the lock
-			// release above and Register() returning. If disable ran in that
-			// window, it called Deregister as a no-op (shard wasn't registered
-			// yet) and set hashtree to nil. Self-deregister now so the disabled
-			// shard is not left in the scheduler. RLock is held across Deregister
-			// to close the TOCTOU window: enableAsyncReplication needs WLock to
-			// set hashtree, so it cannot race between the nil-check and Deregister.
-			s.asyncReplicationRWMux.RLock()
-			stillRunning := s.hashtree != nil
-			if !stillRunning {
+			// Keep the registration only for a ready tree (own or a newer goroutine's, whose Register is idempotent); nil or unready means a flap whose owner registers later, so self-deregister under RLock.
+			func() {
+				s.asyncReplicationRWMux.RLock()
+				defer s.asyncReplicationRWMux.RUnlock() // deferred: a panic while logging must not leak the RLock
+				if s.hashtreeFullyInitialized {
+					return
+				}
 				if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
 					s.index.logger.WithField("action", "async_replication").Error(err)
 				}
-			}
-			s.asyncReplicationRWMux.RUnlock()
+			}()
 		}, s.index.logger)
 		return nil
 	}
@@ -467,49 +461,21 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 	s.hashtreeFullyInitialized = false
 
 	// Publish only on success: a direct assignment stores a typed-nil interface on error.
+	// A placeholder: initHashtree installs a fresh tree at scan start, so folds into this one are discarded.
 	ht, err := hashtree.NewHashTree(effectiveConfig.hashtreeHeight)
 	if err != nil {
 		cancelFunc() // don't leak the child ctx in the scheduler's children
 		return err
 	}
 	s.hashtree = ht
-	s.minimalHashtreeInitializationCh = make(chan struct{})
-	// The init goroutine closes the channel it owns, not the shard field, which a
-	// concurrent enable may have swapped out under flapping. See closeInitCh.
-	initCh := s.minimalHashtreeInitializationCh
 
-	// asyncRepWg tracks this goroutine so that rebuildHashtree's
-	// asyncRepWg.Wait() serialises rebuilds against it, preventing the old
-	// goroutine from overlapping with a new one spawned by the next
-	// enableAsyncReplication call (e.g. during a rebuild or repair cycle).
-	// Note: disableAsyncReplication does NOT call asyncRepWg.Wait(); the
-	// goroutine exits promptly once ctx is cancelled or hashtree is nil.
+	// Latched so a rebuild's drain waits for this init scan; a disable does not wait (the goroutine exits on a cancelled ctx or a nil hashtree).
 	s.asyncRepWg.Add(1)
 	enterrors.GoWrapper(func() {
 		defer s.asyncRepWg.Done()
 
-		// closeInitCh closes this goroutine's owned channel exactly once, unblocking
-		// merges parked in waitForMinimalHashTreeInitialization. It runs as both
-		// initHashtree's afterInMemCallback and a defer covering the early exits
-		// (scheduler nil, slot acquisition cancelled) that never reach initHashtree
-		// and would otherwise leave the channel open forever. The retry loop replaces
-		// ownedCh per attempt.
-		//
-		// No lock: ownedCh/ownedClosed are goroutine-local and close() already
-		// synchronizes with receivers. It must NOT take asyncReplicationRWMux — it
-		// runs while writes hold the RLock, so becoming a pending writer would, under
-		// Go's writer-priority RWMutex, block every new RLock and deadlock them.
-		ownedCh := initCh
-		ownedClosed := false
-		closeInitCh := func() {
-			if !ownedClosed {
-				ownedClosed = true
-				close(ownedCh)
-			}
-		}
-		defer closeInitCh()
-
-		if s.index.asyncReplicationScheduler == nil {
+		sched := s.index.asyncReplicationScheduler
+		if sched == nil {
 			return
 		}
 
@@ -520,17 +486,18 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 		// The slot is acquired and released around each individual attempt rather
 		// than held for the entire retry lifetime. This prevents a shard with
 		// persistent initHashtree failures from permanently occupying a slot and
-		// blocking all other shards from initialising.
+		// blocking all other shards from initialising. Writers are never parked
+		// while queued: each attempt arms its own gate at scan start (see initHashtree).
 		for i := 0; ; i++ {
-			if err := s.index.asyncReplicationScheduler.acquireHashtreeInitSlot(ctx); err != nil {
+			if err := s.acquireHashtreeInitSlot(ctx, sched); err != nil {
 				return // context cancelled before a slot became available
 			}
 			// Wrapped in a closure so that releaseHashtreeInitSlot is deferred
-			// and runs even if initHashtree panics (GoWrapper recovers at
-			// the goroutine boundary, after the deferred release fires).
+			// and runs even if initHashtree panics; initHashtree recovers such
+			// a panic and returns it as the attempt error, so the loop retries.
 			err := func() error {
-				defer s.index.asyncReplicationScheduler.releaseHashtreeInitSlot()
-				return s.initHashtree(ctx, effectiveConfig, bucket, closeInitCh)
+				defer sched.releaseHashtreeInitSlot()
+				return s.initHashtree(ctx, effectiveConfig, bucket)
 			}()
 
 			if err == nil {
@@ -552,46 +519,26 @@ func (s *Shard) initAsyncReplication(config AsyncReplicationConfig, cached hasht
 				WithField("shard_name", s.name).
 				Errorf("hashtree initialization attempt %d failure: %v", i, err)
 
-			// Exponential backoff capped at 5 min. Use select instead of
-			// time.Sleep so that context cancellation (shard shutdown) is
-			// respected immediately rather than after up to 5 minutes.
-			backoff := initRetryBackoff(i)
+			// Exponential backoff capped at 5 min; the select keeps a shutdown from waiting it out.
+			// No re-arm here: the next attempt installs its own tree and gate under the write lock.
+			retryTimer := time.NewTimer(initRetryBackoff(i))
 			select {
-			case <-time.After(backoff):
+			case <-retryTimer.C:
 			case <-ctx.Done():
+				retryTimer.Stop()
 				return
 			}
-
-			s.asyncReplicationRWMux.Lock()
-			if s.hashtree == nil || ctx.Err() != nil {
-				// Disabled or cancelled while we slept; a concurrent enable owns any new tree.
-				s.asyncReplicationRWMux.Unlock()
-				return
-			}
-			// Fresh tree, not Reset: folds racing the failed attempt die with the old object.
-			fresh, freshErr := hashtree.NewHashTree(effectiveConfig.hashtreeHeight)
-			if freshErr != nil {
-				s.asyncReplicationRWMux.Unlock()
-				s.index.logger.
-					WithField("action", "async_replication").
-					WithField("class_name", s.class.Class).
-					WithField("shard_name", s.name).
-					Errorf("hashtree reallocation failed, aborting init retry: %v", freshErr)
-				return
-			}
-			s.hashtree = fresh
-			// initHashtree already closed ownedCh (afterInMemCallback fires once, even
-			// on error); take ownership of a fresh channel so writes arriving during
-			// the retry block until the next attempt completes.
-			newCh := make(chan struct{})
-			s.minimalHashtreeInitializationCh = newCh
-			ownedCh = newCh
-			ownedClosed = false
-			s.asyncReplicationRWMux.Unlock()
 		}
 	}, s.index.logger)
 
 	return nil
+}
+
+// acquireHashtreeInitSlot wraps the scheduler semaphore with the queued gauge so a long startup queue is observable.
+func (s *Shard) acquireHashtreeInitSlot(ctx context.Context, sched *AsyncReplicationScheduler) error {
+	s.metrics.IncAsyncReplicationHashTreeInitQueued()
+	defer s.metrics.DecAsyncReplicationHashTreeInitQueued()
+	return sched.acquireHashtreeInitSlot(ctx)
 }
 
 // removeHashtreeFile is a test seam: per-file unremovability has no portable filesystem simulation.
@@ -784,46 +731,94 @@ func aggregateHashTreeLeaf(ht hashtree.AggregatedHashTree, height int, uuidBytes
 	return ht.AggregateLeafWith(leaf, objectDigest[:])
 }
 
-// initHashtree performs a full on-disk object scan to populate the shard's
-// hashtree. It is called from a background goroutine after the write lock is
-// released so that concurrent reads and writes are not blocked. Progress is
-// logged at loggingFrequency intervals. The scan is gated by hashtreeInitSem
-// to bound concurrent I/O across all shards at startup.
-//
-// releaseInit runs once the in-memory scan completes (as ApplyToObjectDigests'
-// afterInMemCallback, which fires exactly once even on error).
-func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig, bucket *lsmkv.Bucket, releaseInit func()) (err error) {
+// initHashtree runs one init attempt: under the write lock it installs a fresh tree, arms the write gate and snapshots the bucket, then folds the snapshot outside the lock.
+// Writers put and fold under one RLock hold, so each write lands entirely before the snapshot (folded by the scan) or entirely after (folded by the writer): never twice, never missed.
+// The tree height is re-derived under that lock, so a height change applied while the attempt was queued is scanned once instead of scanned and then rebuilt.
+// A panic in the scan (the lsmkv replace cursor panics on a corrupt segment or a read error) is a failed attempt, retried with backoff, not an abandoned init.
+func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig, bucket *lsmkv.Bucket) (err error) {
+	// A cancelled attempt is a stop, not an init: keep it out of the counters.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+
 	start := time.Now()
 
 	s.metrics.IncAsyncReplicationHashTreeInitCount()
 	s.metrics.IncAsyncReplicationHashTreeInitRunning()
 
 	defer func() {
+		// Registered first, so it recovers last: the gate is already closed and the scan released by the time the attempt is turned into an error.
+		if r := recover(); r != nil {
+			if entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+				panic(r)
+			}
+			err = fmt.Errorf("hashtree init attempt panicked: %v", r)
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Errorf("recovered from panic in hashtree initialization: %v", r)
+			enterrors.PrintStack(s.index.logger)
+		}
+
 		s.metrics.DecAsyncReplicationHashTreeInitRunning()
 
 		if err != nil {
-			s.metrics.IncAsyncReplicationHashTreeInitFailure()
+			if ctx.Err() == nil {
+				s.metrics.IncAsyncReplicationHashTreeInitFailure()
+			}
 			return
 		}
 
 		s.metrics.ObserveAsyncReplicationHashTreeInitDuration(time.Since(start))
 	}()
 
-	// Capture the tree once so the scan never takes asyncReplicationRWMux per leaf
-	// under the memtable cursor: that inverts lock order vs writes (RLock → memtable) and deadlocks.
-	s.asyncReplicationRWMux.RLock()
-	ht := s.hashtree
-	s.asyncReplicationRWMux.RUnlock()
-	if ht == nil {
-		releaseInit()
-		return nil
+	// Created and close-deferred before the locked block: a panic after arming must not leave writers parked.
+	initCh := make(chan struct{})
+	var closeOnce sync.Once
+	closeInitCh := func() { closeOnce.Do(func() { close(initCh) }) }
+	defer closeInitCh()
+
+	var ht hashtree.AggregatedHashTree
+	var scan *lsmkv.ObjectDigestScan
+	stopped, err := func() (bool, error) {
+		s.asyncReplicationRWMux.Lock()
+		defer s.asyncReplicationRWMux.Unlock() // deferred: a panic in the snapshot must not wedge the shard mutex
+
+		// Disabled, or a disable+enable flap spawned a newer goroutine that owns the current tree and gate.
+		if s.hashtree == nil || ctx.Err() != nil {
+			return true, nil
+		}
+		// The height is read live: an enable on a running shard only updates the stored config.
+		effective := s.asyncReplicationConfig
+		if s.index != nil && s.index.globalreplicationConfig != nil {
+			effective = effective.Effective(*s.index.globalreplicationConfig)
+		}
+		// Fresh tree, not Reset: folds racing a cancelled attempt die with its own object.
+		fresh, err := hashtree.NewHashTree(effective.hashtreeHeight)
+		if err != nil {
+			return false, err
+		}
+		s.hashtree = fresh
+		// A retry after a panic past the success point must not serve its fresh, empty tree as ready.
+		s.hashtreeFullyInitialized = false
+		s.minimalHashtreeInitializationCh = initCh
+		scan = bucket.NewObjectDigestScan()
+		ht = fresh
+		return false, nil
+	}()
+	if err != nil {
+		return err
+	}
+	if stopped {
+		return ctx.Err()
 	}
 	height := ht.Height()
 
 	objCount := 0
 	prevProgressLogging := time.Now()
 
-	err = bucket.ApplyToObjectDigests(ctx, releaseInit, func(uuidBytes []byte, updateTime int64) error {
+	err = scan.Apply(ctx, closeInitCh, func(uuidBytes []byte, updateTime int64) error {
 		if time.Since(prevProgressLogging) >= config.loggingFrequency {
 			s.index.logger.
 				WithField("action", "async_replication").
@@ -847,12 +842,19 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 		return fmt.Errorf("iterating objects: %w", err)
 	}
 
-	s.asyncReplicationRWMux.Lock()
+	stopped = func() bool {
+		s.asyncReplicationRWMux.Lock()
+		defer s.asyncReplicationRWMux.Unlock() // deferred: a panic here must not wedge the shard mutex
 
-	// Bail if a concurrent disable nil-ed the tree or a disable+enable flap replaced
-	// it: finalizing here would mark a different, partially-scanned tree ready.
-	if s.hashtree != ht {
-		s.asyncReplicationRWMux.Unlock()
+		// Bail if a concurrent disable nil-ed the tree or a disable+enable flap replaced
+		// it: finalizing here would mark a different, partially-scanned tree ready.
+		if s.hashtree != ht {
+			return true
+		}
+		s.hashtreeFullyInitialized = true
+		return false
+	}()
+	if stopped {
 		s.index.logger.
 			WithField("action", "async_replication").
 			WithField("class_name", s.class.Class).
@@ -860,9 +862,6 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 			Info("hashtree initialization stopped")
 		return nil
 	}
-
-	s.hashtreeFullyInitialized = true
-	s.asyncReplicationRWMux.Unlock()
 
 	// Register is called outside the write lock: it sends on a channel received
 	// by the dispatcher goroutine, and concurrent object-write goroutines acquire
@@ -879,49 +878,30 @@ func (s *Shard) initHashtree(ctx context.Context, config AsyncReplicationConfig,
 		if err := s.index.asyncReplicationScheduler.Register(s); err != nil {
 			s.index.logger.WithField("action", "async_replication").Error(err)
 		} else {
-			// Guard against disableAsyncReplication running between the lock release
-			// above and Register() returning. If disable ran in that window, it called
-			// Deregister as a no-op (shard wasn't registered yet) and set hashtree to
-			// nil. Self-deregister now so the disabled shard is not left in the scheduler.
-			// RLock is held across Deregister to close the TOCTOU window: enableAsyncReplication
-			// needs WLock to set hashtree, so it cannot race between the nil-check and Deregister.
-			s.asyncReplicationRWMux.RLock()
-			stillRunning := s.hashtree != nil
-			if !stillRunning {
+			// Keep the registration only for a ready tree (own or a newer goroutine's, whose Register is idempotent); nil or unready means a flap whose owner registers later, so self-deregister under RLock.
+			func() {
+				s.asyncReplicationRWMux.RLock()
+				defer s.asyncReplicationRWMux.RUnlock() // deferred: a panic while logging must not leak the RLock
+				if s.hashtreeFullyInitialized {
+					return
+				}
 				if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
 					s.index.logger.WithField("action", "async_replication").Error(err)
 				}
-			}
-			s.asyncReplicationRWMux.RUnlock()
+			}()
 		}
 	}
 
 	return nil
 }
 
-// waitForMinimalHashTreeInitialization blocks until the hashtree has been
-// minimally initialized (enough to serve object writes) or ctx is cancelled.
-// "Minimal" means ApplyToObjectDigests has finished scanning the in-memory
-// memtable: at that point writes can safely update the hashtree concurrently
-// with the ongoing on-disk scan.
-//
-// It must NOT be called while holding asyncReplicationRWMux: the initHashtree
-// retry path needs write-lock to replace minimalHashtreeInitializationCh, so
-// holding RLock here while blocking on the channel would deadlock.
-//
-// The function does NOT loop after the channel fires. A closed channel means
-// either the in-mem scan completed (proceed) or the retry path replaced the
-// channel (also proceed — the retry resets the hashtree, concurrent writes on
-// the fresh tree are safe). Looping would cause a busy-spin because a closed
-// channel returns immediately on every iteration. This is safe even if the
-// retry path already issued a new minimalHashtreeInitializationCh by the time
-// the select fires: write paths that arrive between two retry attempts operate
-// on the reset hashtree, which is valid (writes update leaf digests regardless
-// of whether the full on-disk scan has completed).
+// waitForMinimalHashTreeInitialization parks a write while an init scan's in-memory pass holds the memtable locks, so the write does not block on them while holding RLock and its docIdLock.
+// Courtesy only: exactly-once folding comes from initHashtree snapshotting under the write lock. It returns at once when async replication is off, the tree is fully initialized, or no scan has armed the gate (nil while init is queued for a slot).
+// Must not be called under asyncReplicationRWMux (initHashtree needs the write lock to arm the gate), and it never re-checks a closed channel (that would spin).
 func (s *Shard) waitForMinimalHashTreeInitialization(ctx context.Context) error {
 	s.asyncReplicationRWMux.RLock()
-	done := s.hashtree == nil || s.hashtreeFullyInitialized
 	ch := s.minimalHashtreeInitializationCh
+	done := s.hashtree == nil || s.hashtreeFullyInitialized || ch == nil
 	s.asyncReplicationRWMux.RUnlock()
 
 	if done {
@@ -960,49 +940,35 @@ func (s *Shard) mayStopAsyncReplication(capture bool) hashtree.AggregatedHashTre
 
 	s.asyncReplicationRWMux.Unlock()
 
-	// Remove from the scheduler so no new cycles are dispatched, then wait for
-	// any in-flight cycle to drain. asyncRepCtx is already cancelled so the
-	// cycle unwinds quickly (context errors on RPCs); the Wait adds ~0 latency
-	// in the common case and gives a strict happens-before guarantee that no
-	// hashbeat worker accesses shard resources after this call returns.
-	//
-	// asyncRepWg drain is bounded by asyncReplicationWorkerDrainTimeout.
-	// Workers should exit almost immediately once their context is cancelled;
-	// the timeout guards against a non-cancellable downstream RPC (e.g. a
-	// kernel-level TCP stall) blocking shard shutdown indefinitely. If the
-	// deadline fires, we proceed anyway: the worker goroutine is stuck in a
-	// blocking syscall and cannot touch Go heap safely, but holding up the
-	// entire shard shutdown is worse operationally.
+	// Deregister then drain: the bounded drain is the happens-before that no worker touches shard resources after this returns.
 	if s.index.asyncReplicationScheduler != nil {
 		if err := s.index.asyncReplicationScheduler.Deregister(s); err != nil {
 			s.index.logger.WithField("action", "async_replication").Error(err)
 		}
 	}
+
+	// Snapshot one episode: a re-enable can open a new one, and an idle latch hands back a pre-closed sentinel.
+	drained := s.asyncRepDrained()
 	drainTimeout := time.Duration(asyncReplicationWorkerDrainTimeout.Load())
 	drainStart := time.Now()
-	workersDone := make(chan struct{})
-	enterrors.GoWrapper(func() {
-		defer close(workersDone)
-		s.asyncRepWg.Wait()
-		// Distinguish a late drain from a permanently leaked waiter in goroutine dumps.
-		if elapsed := time.Since(drainStart); elapsed > drainTimeout {
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Warnf("async replication drain completed after deadline (took %s)", elapsed)
-		}
-	}, s.index.logger)
+	drainTimer := time.NewTimer(drainTimeout)
+	defer drainTimer.Stop()
+
 	select {
-	case <-workersDone:
-	case <-time.After(drainTimeout):
+	case <-drained:
+	case <-drainTimer.C:
 		// A surviving worker can still write; a snapshot missing those writes must not be published.
 		capturedHT = nil
-		s.index.logger.
+		lateLog := s.index.logger.
 			WithField("action", "async_replication").
 			WithField("class_name", s.class.Class).
-			WithField("shard_name", s.name).
-			Warn("async replication worker did not stop within deadline; skipping snapshot and proceeding with forced shutdown")
+			WithField("shard_name", s.name)
+		lateLog.Warn("async replication worker did not stop within deadline; skipping snapshot and proceeding with forced shutdown")
+		// Distinguish a late drain from a permanently leaked waiter in goroutine dumps.
+		enterrors.GoWrapper(func() {
+			<-drained
+			lateLog.Infof("async replication drain completed after deadline (took %s)", time.Since(drainStart))
+		}, lateLog)
 	}
 
 	return capturedHT
@@ -1096,9 +1062,7 @@ func (s *Shard) enableAsyncReplication(ctx context.Context, config AsyncReplicat
 //
 // It also scrubs any persisted .ht: none may exist while the shard is live with async off.
 //
-// Unlike mayStopAsyncReplication, this function does NOT call
-// asyncRepWg.Wait(); use mayStopAsyncReplication (or Deregister + explicit
-// Wait) when a happens-before with in-flight cycles is required.
+// Unlike mayStopAsyncReplication, this function does NOT drain in-flight cycles; use that one when a happens-before with them is required.
 func (s *Shard) disableAsyncReplication(_ context.Context) error {
 	// A shut shard's .ht is legitimate and a dropped shard's dir is renamed away; a config apply racing teardown must not scrub or recreate anything.
 	if s.shutOrDropped() {
@@ -1361,25 +1325,9 @@ func init() {
 	asyncReplicationWorkerDrainTimeout.Store(int64(10 * time.Second))
 }
 
-// asyncRepDrained returns a channel closed when asyncRepWg next reaches zero; callers share one waiter goroutine per pinned episode.
-func (s *Shard) asyncRepDrained(logger logrus.FieldLogger) <-chan struct{} {
-	s.asyncRepDrainMu.Lock()
-	defer s.asyncRepDrainMu.Unlock()
-	if s.asyncRepDrainObserver == nil {
-		ch := make(chan struct{})
-		s.asyncRepDrainObserver = ch
-		enterrors.GoWrapper(func() {
-			// Deferred (nil-before-close order preserved) so a panicking Wait cannot poison the observer forever.
-			defer func() {
-				s.asyncRepDrainMu.Lock()
-				s.asyncRepDrainObserver = nil
-				s.asyncRepDrainMu.Unlock()
-				close(ch)
-			}()
-			s.asyncRepWg.Wait()
-		}, logger)
-	}
-	return s.asyncRepDrainObserver
+// asyncRepDrained returns a channel closed when asyncRepWg next reaches zero; already closed when idle.
+func (s *Shard) asyncRepDrained() <-chan struct{} {
+	return s.asyncRepWg.Drained()
 }
 
 // dumpPublishGate: cancel never blocks; once it wins, no published .ht survives (late publisher self-deletes).
@@ -1440,9 +1388,11 @@ func (s *Shard) dumpHashTreeWithTimeout(ht hashtree.AggregatedHashTree, timeout 
 				Errorf("store hashtree failed: %v", err)
 		}
 	}, s.index.logger)
+	dumpTimer := time.NewTimer(timeout)
+	defer dumpTimer.Stop()
 	select {
 	case <-done:
-	case <-time.After(timeout):
+	case <-dumpTimer.C:
 		if gate.cancel() {
 			s.index.logger.
 				WithField("action", "async_replication").
@@ -1936,10 +1886,10 @@ func (s *Shard) hashBeat(
 	var targetNodeOverridesSnapshot additional.AsyncReplicationTargetNodeOverrides
 
 	s.asyncReplicationRWMux.RLock()
-	if s.hashtree == nil {
+	// Authoritative readiness check: runEntry's snapshot is released before this call, so a rebuild landing in between would otherwise hand hashbeat a partially scanned placeholder.
+	if s.hashtree == nil || !s.hashtreeFullyInitialized {
 		s.asyncReplicationRWMux.RUnlock()
-		// handling the case of a hashtree being explicitly set to nil
-		return nil, fmt.Errorf("hashtree not initialized on shard %q", s.ID())
+		return nil, fmt.Errorf("%w: hashtree not initialized on shard %q", errAsyncReplicationNotActive, s.ID())
 	}
 	ht = s.hashtree
 	cpht = s.asyncCheckpointHashtree

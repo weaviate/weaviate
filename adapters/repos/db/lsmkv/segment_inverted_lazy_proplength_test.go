@@ -53,8 +53,7 @@ func TestInvertedLazyPropertyLengths(t *testing.T) {
 			b.SetMemtableThreshold(1e9)
 
 			for i := 0; i < size; i++ {
-				pair := NewMapPairFromDocIdAndTf(uint64(i), float32(1), float32(1), false)
-				require.Nil(t, b.MapSet(key, pair))
+				require.Nil(t, b.InvertedSet(key, uint64(i), float32(1), float32(1)))
 			}
 			require.Nil(t, b.FlushAndSwitch())
 
@@ -125,8 +124,7 @@ func TestInvertedCompactionFreesLazyPropertyLengths(t *testing.T) {
 	for seg := 0; seg < 2; seg++ {
 		for i := 0; i < perSegment; i++ {
 			docID := uint64(seg*perSegment + i)
-			pair := NewMapPairFromDocIdAndTf(docID, float32(1), float32(1), false)
-			require.Nil(t, b.MapSet(key, pair))
+			require.Nil(t, b.InvertedSet(key, docID, float32(1), float32(1)))
 		}
 		require.Nil(t, b.FlushAndSwitch())
 	}
@@ -180,7 +178,7 @@ func TestInvertedLazyPropertyLengthsStatsNoRace(t *testing.T) {
 
 	b := mk()
 	for i := 0; i < size; i++ {
-		require.Nil(t, b.MapSet(key, NewMapPairFromDocIdAndTf(uint64(i), float32(1), float32(1), false)))
+		require.Nil(t, b.InvertedSet(key, uint64(i), float32(1), float32(1)))
 	}
 	require.Nil(t, b.FlushAndSwitch())
 	require.Nil(t, b.Shutdown(ctx))
@@ -252,7 +250,7 @@ func TestInvertedPropertyLengthsViewNoEmptyUnderFree(t *testing.T) {
 	for i := 0; i < size; i++ {
 		propLen := float32(1 + i%50)
 		want[i] = uint32(propLen)
-		require.Nil(t, b.MapSet(key, NewMapPairFromDocIdAndTf(uint64(i), float32(1), propLen, false)))
+		require.Nil(t, b.InvertedSet(key, uint64(i), float32(1), propLen))
 	}
 	require.Nil(t, b.FlushAndSwitch())
 	require.Nil(t, b.Shutdown(ctx))
@@ -364,7 +362,7 @@ func TestInvertedLazyPropertyLengthsBlockMaxQuery(t *testing.T) {
 			require.Nil(t, err)
 			b.SetMemtableThreshold(1e9)
 			for id, exp := range expected {
-				require.Nil(t, b.MapSet(key, NewMapPairFromDocIdAndTf(id, exp.freq, exp.propLen, false)))
+				require.Nil(t, b.InvertedSet(key, id, exp.freq, exp.propLen))
 			}
 			require.Nil(t, b.FlushAndSwitch())
 
@@ -415,7 +413,7 @@ func TestInvertedLazyPropertyLengthsFilterPathDoesNotLoad(t *testing.T) {
 	require.Nil(t, err)
 	b.SetMemtableThreshold(1e9)
 	for i := 0; i < size; i++ {
-		require.Nil(t, b.MapSet(key, NewMapPairFromDocIdAndTf(uint64(i), float32(1), float32(1+i%5), false)))
+		require.Nil(t, b.InvertedSet(key, uint64(i), float32(1), float32(1+i%5)))
 	}
 	require.Nil(t, b.FlushAndSwitch())
 

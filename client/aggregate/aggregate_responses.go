@@ -64,6 +64,12 @@ func (o *AggregateReader) ReadResponse(response runtime.ClientResponse, consumer
 			return nil, err
 		}
 		return nil, result
+	case 413:
+		result := NewAggregateRequestEntityTooLarge()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 422:
 		result := NewAggregateUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -427,6 +433,74 @@ func (o *AggregateNotFound) readResponse(response runtime.ClientResponse, consum
 	return nil
 }
 
+// NewAggregateRequestEntityTooLarge creates a AggregateRequestEntityTooLarge with default headers values
+func NewAggregateRequestEntityTooLarge() *AggregateRequestEntityTooLarge {
+	return &AggregateRequestEntityTooLarge{}
+}
+
+/*
+AggregateRequestEntityTooLarge describes a response with status code 413, with default header values.
+
+The request body exceeded the 4194304 byte (4 MiB) limit.
+*/
+type AggregateRequestEntityTooLarge struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this aggregate request entity too large response has a 2xx status code
+func (o *AggregateRequestEntityTooLarge) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this aggregate request entity too large response has a 3xx status code
+func (o *AggregateRequestEntityTooLarge) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this aggregate request entity too large response has a 4xx status code
+func (o *AggregateRequestEntityTooLarge) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this aggregate request entity too large response has a 5xx status code
+func (o *AggregateRequestEntityTooLarge) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this aggregate request entity too large response a status code equal to that given
+func (o *AggregateRequestEntityTooLarge) IsCode(code int) bool {
+	return code == 413
+}
+
+// Code gets the status code for the aggregate request entity too large response
+func (o *AggregateRequestEntityTooLarge) Code() int {
+	return 413
+}
+
+func (o *AggregateRequestEntityTooLarge) Error() string {
+	return fmt.Sprintf("[POST /aggregate/{collection}][%d] aggregateRequestEntityTooLarge  %+v", 413, o.Payload)
+}
+
+func (o *AggregateRequestEntityTooLarge) String() string {
+	return fmt.Sprintf("[POST /aggregate/{collection}][%d] aggregateRequestEntityTooLarge  %+v", 413, o.Payload)
+}
+
+func (o *AggregateRequestEntityTooLarge) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *AggregateRequestEntityTooLarge) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
 // NewAggregateUnprocessableEntity creates a AggregateUnprocessableEntity with default headers values
 func NewAggregateUnprocessableEntity() *AggregateUnprocessableEntity {
 	return &AggregateUnprocessableEntity{}
@@ -435,7 +509,7 @@ func NewAggregateUnprocessableEntity() *AggregateUnprocessableEntity {
 /*
 AggregateUnprocessableEntity describes a response with status code 422, with default header values.
 
-Either a request-schema violation (an invalid enum or field type in the where filter), or a well-formed request that cannot run: a reserved (not yet supported) parameter or returnMetrics entry is present, the tenant usage does not match the collection's multi-tenancy configuration, a where filter targets a property whose inverted index is disabled, or the experimental REST Search API is not enabled (set EXPERIMENTAL_REST_SEARCH_ENABLED=true).
+Either a request-schema violation (an invalid enum or field type in the where filter), or a well-formed request that cannot run: a reserved (not yet supported) parameter or returnMetrics entry is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.
 */
 type AggregateUnprocessableEntity struct {
 	Payload *models.ErrorResponse

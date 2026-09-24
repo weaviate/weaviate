@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -28,9 +29,9 @@ import (
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
-// traceEnabled gates whether a hot-path log line is built at all, so a logger it
+// levelEnabled gates whether a hot-path log line is built at all, so a logger it
 // cannot read must still be logged to rather than silently dropped.
-func TestTraceEnabled(t *testing.T) {
+func TestLevelEnabled(t *testing.T) {
 	atLevel := func(level logrus.Level) *logrus.Logger {
 		l, _ := test.NewNullLogger()
 		l.SetLevel(level)
@@ -40,32 +41,181 @@ func TestTraceEnabled(t *testing.T) {
 	testCases := []struct {
 		name     string
 		logger   logrus.FieldLogger
+		level    logrus.Level
 		expected bool
 	}{
-		{name: "logger below trace", logger: atLevel(logrus.InfoLevel), expected: false},
-		{name: "logger at trace", logger: atLevel(logrus.TraceLevel), expected: true},
+		{name: "logger below trace", logger: atLevel(logrus.InfoLevel), level: logrus.TraceLevel, expected: false},
+		{name: "logger at trace", logger: atLevel(logrus.TraceLevel), level: logrus.TraceLevel, expected: true},
+		{name: "logger below debug", logger: atLevel(logrus.InfoLevel), level: logrus.DebugLevel, expected: false},
+		{name: "logger at debug", logger: atLevel(logrus.DebugLevel), level: logrus.DebugLevel, expected: true},
+		{name: "debug logger asked for trace", logger: atLevel(logrus.DebugLevel), level: logrus.TraceLevel, expected: false},
 		{
 			name:     "entry below trace",
 			logger:   atLevel(logrus.InfoLevel).WithField("action", "lsm_compaction"),
+			level:    logrus.TraceLevel,
 			expected: false,
 		},
 		{
 			name:     "entry at trace",
 			logger:   atLevel(logrus.TraceLevel).WithField("action", "lsm_compaction"),
+			level:    logrus.TraceLevel,
 			expected: true,
 		},
-		{name: "unreadable logger", logger: unreadableLogger{}, expected: true},
+		{
+			name:     "entry at debug",
+			logger:   atLevel(logrus.DebugLevel).WithField("action", "lsm_compaction"),
+			level:    logrus.DebugLevel,
+			expected: true,
+		},
+		{name: "unreadable logger", logger: unreadableLogger{}, level: logrus.DebugLevel, expected: true},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.expected, traceEnabled(tc.logger))
+			assert.Equal(t, tc.expected, levelEnabled(tc.logger, tc.level))
 		})
 	}
 }
 
-// unreadableLogger is a FieldLogger whose level traceEnabled cannot inspect.
+// unreadableLogger is a FieldLogger whose level levelEnabled cannot inspect.
 type unreadableLogger struct{ logrus.FieldLogger }
+
+// slowSegment delays every point lookup, so a probe crosses the slow-probe
+// log threshold.
+type slowSegment struct {
+	*fakeSegment
+	delay time.Duration
+}
+
+func (s *slowSegment) get(key []byte) ([]byte, error) {
+	time.Sleep(s.delay)
+	return s.fakeSegment.get(key)
+}
+
+func (s *slowSegment) exists(key []byte) error {
+	time.Sleep(s.delay)
+	return s.fakeSegment.exists(key)
+}
+
+func (s *slowSegment) getBySecondary(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error) {
+	time.Sleep(s.delay)
+	v, err := s.fakeSegment.get(key)
+	return key, v, buffer, err
+}
+
+// Probes are only timed at debug level. A slow probe must still be reported
+// there, and the lookup result must not depend on the level.
+func TestSegmentGroup_SlowSegmentProbeLog(t *testing.T) {
+	t.Parallel()
+
+	probes := []struct {
+		name   string
+		action string
+		probe  func(sg *SegmentGroup, key []byte, segments []Segment) error
+	}{
+		{
+			name:   "get",
+			action: "lsm_segment_group_get_individual_segment",
+			probe: func(sg *SegmentGroup, key []byte, segments []Segment) error {
+				_, err := sg.getWithSegmentList(key, segments)
+				return err
+			},
+		},
+		{
+			name:   "exists",
+			action: "lsm_segment_group_exists_individual_segment",
+			probe: func(sg *SegmentGroup, key []byte, segments []Segment) error {
+				return sg.existsWithSegmentList(key, segments)
+			},
+		},
+		{
+			name:   "getBySecondary",
+			action: "lsm_segment_group_getbysecondary_individual_segment",
+			probe: func(sg *SegmentGroup, key []byte, segments []Segment) error {
+				_, _, _, _, err := sg.getBySecondaryWithSegmentList(0, key, nil, segments)
+				return err
+			},
+		},
+	}
+
+	testCases := []struct {
+		name         string
+		level        logrus.Level
+		delay        time.Duration
+		key          string
+		expectedErr  error
+		expectedLogs int
+		expectedMsg  string
+	}{
+		{name: "debug, slow hit", level: logrus.DebugLevel, delay: 110 * time.Millisecond, key: "key1", expectedLogs: 1},
+		{
+			name: "debug, slow miss", level: logrus.DebugLevel, delay: 110 * time.Millisecond, key: "missing",
+			expectedErr: lsmkv.NotFound, expectedLogs: 1, expectedMsg: lsmkv.NotFound.Error(),
+		},
+		{name: "debug, fast hit", level: logrus.DebugLevel, key: "key1"},
+		{name: "info, slow hit", level: logrus.InfoLevel, delay: 110 * time.Millisecond, key: "key1"},
+		{name: "info, slow miss", level: logrus.InfoLevel, delay: 110 * time.Millisecond, key: "missing", expectedErr: lsmkv.NotFound},
+	}
+
+	for _, p := range probes {
+		for _, tc := range testCases {
+			t.Run(p.name+"/"+tc.name, func(t *testing.T) {
+				t.Parallel()
+
+				logger, hook := test.NewNullLogger()
+				logger.SetLevel(tc.level)
+				segments := []Segment{&slowSegment{
+					fakeSegment: newFakeReplaceSegment(map[string][]byte{"key1": []byte("value1")}),
+					delay:       tc.delay,
+				}}
+				sg := &SegmentGroup{logger: logger, strategy: StrategyReplace, segments: segments}
+
+				err := p.probe(sg, []byte(tc.key), segments)
+				if tc.expectedErr != nil {
+					require.ErrorIs(t, err, tc.expectedErr)
+				} else {
+					require.NoError(t, err)
+				}
+
+				entries := hook.AllEntries()
+				require.Len(t, entries, tc.expectedLogs)
+				for _, entry := range entries {
+					assert.Equal(t, logrus.DebugLevel, entry.Level)
+					assert.Equal(t, p.action, entry.Data["action"])
+					assert.Equal(t, 0, entry.Data["segment_pos"])
+					assert.GreaterOrEqual(t, entry.Data["duration"], tc.delay)
+					assert.Contains(t, entry.Message, tc.expectedMsg)
+					assert.NotContains(t, entry.Data, logrus.ErrorKey)
+				}
+			})
+		}
+	}
+}
+
+// A miss probes every segment, which is where per-probe clock reads add up.
+func BenchmarkSegmentGroup_ExistsMiss(b *testing.B) {
+	segments := make([]Segment, 10)
+	for i := range segments {
+		segments[i] = newFakeReplaceSegment(map[string][]byte{"key1": []byte("value1")})
+	}
+	key := []byte("missing")
+
+	for _, level := range []logrus.Level{logrus.InfoLevel, logrus.DebugLevel} {
+		b.Run(level.String(), func(b *testing.B) {
+			logger, _ := test.NewNullLogger()
+			logger.SetLevel(level)
+			sg := &SegmentGroup{logger: logger, strategy: StrategyReplace, segments: segments}
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				if err := sg.existsWithSegmentList(key, segments); !errors.Is(err, lsmkv.NotFound) {
+					b.Fatalf("unexpected result: %v", err)
+				}
+			}
+		})
+	}
+}
 
 // This test proves two things:
 //
