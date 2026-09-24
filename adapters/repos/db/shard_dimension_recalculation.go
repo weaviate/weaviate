@@ -228,12 +228,22 @@ func (s *Shard) switchToRecalculatedDimensions(ctx context.Context,
 	}
 	defer unlockBucket()
 
-	s.dimensionsLock.Lock()
-	defer s.dimensionsLock.Unlock()
-
-	recalculation.applyTo(rows)
-	// not to be interrupted: a switch given up halfway has to be rolled back
-	return s.replaceDimensionsBucket(context.WithoutCancel(ctx), rows)
+	// not to be interrupted from here on: a switch given up halfway has to be rolled back
+	ctx = context.WithoutCancel(ctx)
+	name, err := s.createDimensionsReplacement(ctx)
+	if err != nil {
+		return err
+	}
+	err = func() error {
+		s.dimensionsLock.Lock()
+		defer s.dimensionsLock.Unlock()
+		recalculation.applyTo(rows)
+		return s.replaceDimensionsBucket(ctx, name, rows)
+	}()
+	// Not under dimensionsLock: a status change waits for the vector indexes, and
+	// a usage report reading them can wait for dimensionsLock.
+	s.setReadOnlyIfDimensionsBucketLost()
+	return err
 }
 
 // lockNotHaltedForTransfer returns holding haltForTransferMux and a reference to
@@ -322,19 +332,22 @@ func (s *Shard) scanObjectDimensions(ctx context.Context) (dimensionsRows, int, 
 	return rows, objects, nil
 }
 
-// replaceDimensionsBucket must run under the locks of [Shard.switchToRecalculatedDimensions].
-func (s *Shard) replaceDimensionsBucket(ctx context.Context, rows dimensionsRows) error {
+// createDimensionsReplacement creates the empty bucket to fill and to put in place
+// of the dimensions bucket. It must run under the locks of
+// [Shard.switchToRecalculatedDimensions], but for dimensionsLock: writes to the
+// dimensions bucket do not reach it.
+func (s *Shard) createDimensionsReplacement(ctx context.Context) (name string, err error) {
 	if s.store.Bucket(helpers.DimensionsBucketLSM) == nil {
-		return errors.New("no bucket dimensions")
+		return "", errors.New("no bucket dimensions")
 	}
 
 	// Named as the migration names its replacement, so that a switch interrupted
 	// between its two renames is recovered the same way when the shard loads next.
-	name := helpers.DimensionsBucketLSM + shardusage.DimensionsReplacementBucketSuffix
+	name = helpers.DimensionsBucketLSM + shardusage.DimensionsReplacementBucketSuffix
 	bucketPath := filepath.Join(s.pathLSM(), helpers.DimensionsBucketLSM)
 	if s.store.Bucket(name) != nil {
 		if err := s.store.ShutdownBucket(ctx, name); err != nil {
-			return fmt.Errorf("shutdown stale bucket %q: %w", name, err)
+			return "", fmt.Errorf("shutdown stale bucket %q: %w", name, err)
 		}
 	}
 	// Left over by a switch that failed. The shard has its dimensions bucket in
@@ -344,19 +357,27 @@ func (s *Shard) replaceDimensionsBucket(ctx context.Context, rows dimensionsRows
 		bucketPath + shardusage.DimensionsReplacedBucketSuffix,
 	} {
 		if err := os.RemoveAll(stale); err != nil {
-			return fmt.Errorf("remove stale bucket %q: %w", stale, err)
+			return "", fmt.Errorf("remove stale bucket %q: %w", stale, err)
 		}
 	}
 
 	if err := s.store.CreateOrLoadBucket(ctx, name, s.makeDefaultBucketOptions(lsmkv.StrategyRoaringSet)...); err != nil {
-		return fmt.Errorf("create bucket %q: %w", name, err)
+		return "", fmt.Errorf("create bucket %q: %w", name, err)
 	}
 	// Set read only while the scan ran, possibly as the disk is running full. A
 	// status set from now on reaches the replacement, and fails the fill.
 	if err := s.isReadOnly(); err != nil {
 		s.discardDimensionsReplacement(ctx, name, bucketPath+shardusage.DimensionsReplacementBucketSuffix)
-		return err
+		return "", err
 	}
+	return name, nil
+}
+
+// replaceDimensionsBucket fills the replacement and puts it in place. It must run
+// under the locks of [Shard.switchToRecalculatedDimensions], and must not change
+// the status of the shard, see [Shard.leaveWithoutDimensionsBucket].
+func (s *Shard) replaceDimensionsBucket(ctx context.Context, name string, rows dimensionsRows) error {
+	bucketPath := filepath.Join(s.pathLSM(), helpers.DimensionsBucketLSM)
 	if err := s.fillDimensionsBucket(name, rows); err != nil {
 		s.discardDimensionsReplacement(ctx, name, bucketPath+shardusage.DimensionsReplacementBucketSuffix)
 		return err
@@ -477,19 +498,29 @@ var errDimensionsBucketLost = errors.New("dimensions bucket lost by a failed rec
 // leaveWithoutDimensionsBucket is for a switch that failed with no dimensions bucket
 // left loaded. A write would store its object and then fail on the missing bucket,
 // before it reaches the vector index, and a retry keeping the doc id would not
-// reach it either. So the shard is set read only, and refuses any other status
-// but its own shutdown, as well as a halt for transfer, which would copy it
-// without its dimensions, until it is loaded again. Writes that passed the read only check already skip
-// the dimensions then, see [Shard.addToDimensionBucket], and dimensions read as
+// reach it either. So the shard is to be set read only, see
+// [Shard.setReadOnlyIfDimensionsBucketLost], and refuses any other status but its
+// own shutdown, as well as a halt for transfer, which would copy it without its
+// dimensions, until it is loaded again. Writes that passed the read only check
+// skip the dimensions, see [Shard.addToDimensionBucket], and dimensions read as
 // none, see [Shard.calcTargetVectorDimensions].
 //
-// It must run under dimensionsLock.
+// It must run under dimensionsLock, and so must not set the status itself.
 func (s *Shard) leaveWithoutDimensionsBucket(logger logrus.FieldLogger, err error) error {
-	// before the status, a status set in between would be kept otherwise
 	s.dimensionsBucketLost.Store(true)
-	if statusErr := s.SetStatusReadonly(errDimensionsBucketLost.Error()); statusErr != nil {
-		logger.Errorf("failed to set shard read only: %v", statusErr)
-	}
-	logger.Errorf("shard set read only, %v: %v", errDimensionsBucketLost, err)
+	logger.Errorf("%v: %v", errDimensionsBucketLost, err)
 	return err
+}
+
+// setReadOnlyIfDimensionsBucketLost must not run under dimensionsLock: a status
+// change waits for the vector indexes, and a usage report holding them can wait
+// for dimensionsLock.
+func (s *Shard) setReadOnlyIfDimensionsBucketLost() {
+	if !s.dimensionsBucketLost.Load() {
+		return
+	}
+	if err := s.SetStatusReadonly(errDimensionsBucketLost.Error()); err != nil {
+		s.index.logger.WithField("action", "reindex_vector_dimensions").WithField("shard", s.ID()).
+			Errorf("failed to set shard read only: %v", err)
+	}
 }
