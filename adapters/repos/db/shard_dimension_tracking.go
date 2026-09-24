@@ -67,10 +67,9 @@ func (c DimensionCategory) String() string {
 
 // DimensionsUsage scans the dimensions bucket for a given vector, see shardusage.ScanTargetVectorDimensions
 func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string, encodedDimensions int) (shardusage.DimensionsScan, error) {
-	// pinned, a recalculation can replace the bucket and shut it down meanwhile
-	b, release := s.store.AcquireBucketForRead(helpers.DimensionsBucketLSM)
+	b, release, lost := s.acquireDimensionsBucketForRead()
 	if b == nil {
-		if s.dimensionsBucketLost.Load() {
+		if lost {
 			s.logDimensionsBucketLost(targetVector)
 			return shardusage.DimensionsScan{}, nil
 		}
@@ -78,6 +77,23 @@ func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string, encode
 	}
 	defer release()
 	return shardusage.ScanTargetVectorDimensions(ctx, b, targetVector, encodedDimensions)
+}
+
+// acquireDimensionsBucketForRead pins the dimensions bucket, as a recalculation
+// can replace it and shut it down meanwhile. A failed switch leaves the store
+// without the bucket until it has it back or marks it lost, all under
+// dimensionsLock, so a miss is looked at again under it. lost tells a bucket
+// lost from one never opened.
+func (s *Shard) acquireDimensionsBucketForRead() (b *lsmkv.Bucket, release func(), lost bool) {
+	if b, release = s.store.AcquireBucketForRead(helpers.DimensionsBucketLSM); b != nil {
+		return b, release, false
+	}
+	s.dimensionsLock.RLock()
+	defer s.dimensionsLock.RUnlock()
+	if b, release = s.store.AcquireBucketForRead(helpers.DimensionsBucketLSM); b != nil {
+		return b, release, false
+	}
+	return nil, release, s.dimensionsBucketLost.Load()
 }
 
 // logDimensionsBucketLost is for a read that reports no dimensions for a shard
@@ -110,8 +126,8 @@ func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, se
 
 func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string,
 ) (types.Dimensionality, error) {
-	// pinned, a recalculation can replace the bucket and shut it down meanwhile
-	if b, release := s.store.AcquireBucketForRead(helpers.DimensionsBucketLSM); b != nil {
+	b, release, lost := s.acquireDimensionsBucketForRead()
+	if b != nil {
 		defer release()
 		scan, err := shardusage.ScanTargetVectorDimensions(ctx, b, targetVector, 0)
 		if err != nil {
@@ -119,7 +135,7 @@ func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector str
 		}
 		return scan.Raw, nil
 	}
-	if s.dimensionsBucketLost.Load() {
+	if lost {
 		s.logDimensionsBucketLost(targetVector)
 		return types.Dimensionality{}, nil
 	}

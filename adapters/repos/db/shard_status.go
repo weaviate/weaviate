@@ -121,8 +121,9 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 	if err != nil {
 		return errors.Wrap(err, in)
 	}
-	if s.dimensionsBucketLost.Load() &&
-		targetStatus != storagestate.StatusReadOnly && targetStatus != storagestate.StatusShutdown {
+	// a SHUTDOWN of any other reason, as set by an operator, would take writes
+	if s.dimensionsBucketLost.Load() && targetStatus != storagestate.StatusReadOnly &&
+		(targetStatus != storagestate.StatusShutdown || reason != statusReasonShutdown) {
 		return fmt.Errorf("set shard status %s: %w", targetStatus, errDimensionsBucketLost)
 	}
 	oldStatus := s.status.Status

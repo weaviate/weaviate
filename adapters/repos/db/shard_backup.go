@@ -53,6 +53,10 @@ func (s *Shard) HaltForTransfer(ctx context.Context, offloading bool, inactivity
 	// Check before bumping haltForTransferCount so a rejection does not
 	// leave the counter incremented; the error path would not run a
 	// matching resume.
+	if s.dimensionsBucketLost.Load() {
+		// its dimensions are in dirs a copy would not take along
+		return fmt.Errorf("halt shard %q for transfer: %w", s.name, errDimensionsBucketLost)
+	}
 	if !offloading {
 		if blockedErr := s.index.refuseIfReindexInFlight(s.name); blockedErr != nil {
 			return blockedErr
