@@ -13,6 +13,7 @@ package schema
 
 import (
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/entities/versioned"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
@@ -20,7 +21,7 @@ import (
 type ClassGetter struct {
 	parser        *Parser
 	schemaReader  SchemaReader
-	schemaManager SchemaManager
+	schemaManager leader.ClassReader
 	logger        logrus.FieldLogger
 
 	collectionRetrievalStrategy *configRuntime.FeatureFlag[string]
@@ -28,7 +29,7 @@ type ClassGetter struct {
 
 func NewClassGetter(
 	schemaParser *Parser,
-	schemaManager SchemaManager,
+	schemaManager leader.ClassReader,
 	schemaReader SchemaReader,
 	collectionRetrievalStrategyFF *configRuntime.FeatureFlag[string],
 	logger logrus.FieldLogger,
@@ -58,7 +59,7 @@ func (cg *ClassGetter) getClasses(names []string) (map[string]versioned.Class, e
 }
 
 func (cg *ClassGetter) getClassesLeaderOnly(names []string) (map[string]versioned.Class, error) {
-	vclasses, err := cg.schemaManager.QueryReadOnlyClasses(names...)
+	vclasses, err := cg.schemaManager.ReadOnlyClassesFromLeader(names...)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +113,7 @@ func (cg *ClassGetter) getClassesLocalOnly(names []string) (map[string]versioned
 }
 
 func (cg *ClassGetter) getClassesLeaderOnMismatch(names []string) (map[string]versioned.Class, error) {
-	classVersions, err := cg.schemaManager.QueryClassVersions(names...)
+	classVersions, err := cg.schemaManager.ClassVersionsFromLeader(names...)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +145,7 @@ func (cg *ClassGetter) getClassesLeaderOnMismatch(names []string) (map[string]ve
 		return versionedClassesToReturn, nil
 	}
 
-	versionedClassesFromLeader, err := cg.schemaManager.QueryReadOnlyClasses(versionedClassesToQueryFromLeader...)
+	versionedClassesFromLeader, err := cg.schemaManager.ReadOnlyClassesFromLeader(versionedClassesToQueryFromLeader...)
 	if err != nil || len(versionedClassesFromLeader) == 0 {
 		cg.logger.WithFields(logrus.Fields{
 			"classes":    versionedClassesToQueryFromLeader,

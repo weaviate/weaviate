@@ -15,9 +15,13 @@ import (
 	"context"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 )
 
 type FSMUpdater interface {
+	leader.TenantWriter
+	local.UpdateWaiter
 	ReplicationAddReplicaToShard(ctx context.Context, collection string, shard string, nodeId string, opId uint64) (uint64, error)
 	DeleteReplicaFromShard(ctx context.Context, collection string, shard string, nodeId string) (uint64, error)
 	ReplicationUpdateReplicaOpStatus(ctx context.Context, id uint64, state api.ShardReplicationState) error
@@ -26,7 +30,5 @@ type FSMUpdater interface {
 	ReplicationCancellationComplete(ctx context.Context, id uint64) error
 	ReplicationGetReplicaOpStatus(ctx context.Context, id uint64) (api.ShardReplicationState, error)
 	ReplicationStoreSchemaVersion(ctx context.Context, id uint64, schemaVersion uint64) error
-	UpdateTenants(ctx context.Context, class string, req *api.UpdateTenantsRequest) (uint64, error)
-	WaitForUpdate(ctx context.Context, schemaVersion uint64) error
 	ReplicationAllPeersAtLeast(opID uint64, target api.ShardReplicationState) (bool, error)
 }

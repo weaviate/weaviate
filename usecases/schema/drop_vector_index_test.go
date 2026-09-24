@@ -51,7 +51,7 @@ func newDropVectorHandler(t *testing.T, cls *models.Class) (*Handler, *fakeSchem
 	h, sm := newTestHandler(t, nil)
 	enq := &fakeDropEnqueuer{}
 	h.dropVectorEnqueuer = enq
-	sm.On("QueryReadOnlyClasses", []string{cls.Class}).
+	sm.On("ReadOnlyClassesFromLeader", []string{cls.Class}).
 		Return(map[string]versioned.Class{cls.Class: {Class: cls}}, nil)
 	return h, sm, enq
 }
@@ -199,7 +199,7 @@ func TestDeleteClassVectorIndex_GuardBranches(t *testing.T) {
 
 	t.Run("class not found", func(t *testing.T) {
 		h, sm := newTestHandler(t, nil)
-		sm.On("QueryReadOnlyClasses", []string{"C"}).Return(map[string]versioned.Class{}, nil)
+		sm.On("ReadOnlyClassesFromLeader", []string{"C"}).Return(map[string]versioned.Class{}, nil)
 		err := h.DeleteClassVectorIndex(context.Background(), nil, "C", "foo")
 		require.ErrorIs(t, err, ErrNotFound)
 		sm.AssertNotCalled(t, "UpdateClass", mock.Anything, mock.Anything)

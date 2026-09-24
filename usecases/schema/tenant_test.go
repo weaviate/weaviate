@@ -465,7 +465,7 @@ func TestGetConsistentTenants_WithAlias(t *testing.T) {
 		}
 
 		// Mock the tenant retrieval with the resolved class name
-		fakeSchemaManager.On("QueryTenants", className, mock.Anything).Return(expectedTenants, uint64(0), nil)
+		fakeSchemaManager.On("TenantsFromLeader", className, mock.Anything).Return(expectedTenants, uint64(0), nil)
 
 		// Create a custom fakeSchemaManager with alias support
 		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{
@@ -489,7 +489,7 @@ func TestGetConsistentTenants_WithAlias(t *testing.T) {
 		}
 
 		// Mock the tenant retrieval with the alias name (will be called since alias doesn't resolve)
-		fakeSchemaManager.On("QueryTenants", aliasName, mock.Anything).Return(expectedTenants, uint64(0), nil)
+		fakeSchemaManager.On("TenantsFromLeader", aliasName, mock.Anything).Return(expectedTenants, uint64(0), nil)
 
 		// Create a custom fakeSchemaManager with empty alias resolution
 		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{
@@ -514,7 +514,7 @@ func TestGetConsistentTenants_WithAlias(t *testing.T) {
 		}
 
 		// Mock the direct tenant retrieval
-		fakeSchemaManager.On("QueryTenants", className, mock.Anything).Return(expectedTenants, uint64(0), nil)
+		fakeSchemaManager.On("TenantsFromLeader", className, mock.Anything).Return(expectedTenants, uint64(0), nil)
 
 		// Create a custom fakeSchemaManager (alias resolution returns empty for direct class names)
 		fakeSchemaManagerWithAlias := &fakeSchemaManagerWithAlias{
@@ -530,14 +530,14 @@ func TestGetConsistentTenants_WithAlias(t *testing.T) {
 	})
 }
 
-// autoActivateSM wraps fakeSchemaManager with a proper QueryTenantsShards
+// autoActivateSM wraps fakeSchemaManager with a proper TenantsShardsFromLeader
 // that returns configurable tenant statuses, needed to trigger auto-activation.
 type autoActivateSM struct {
 	*fakeSchemaManager
 	tenantStatuses map[string]string
 }
 
-func (a *autoActivateSM) QueryTenantsShardsStatus(class string, tenants ...string) (map[string]string, uint64, error) {
+func (a *autoActivateSM) TenantsShardsFromLeader(class string, tenants ...string) (map[string]string, uint64, error) {
 	result := make(map[string]string, len(tenants))
 	for _, t := range tenants {
 		if s, ok := a.tenantStatuses[t]; ok {
@@ -584,6 +584,7 @@ func TestAutoTenantActivation_TransitionalStateRejected(t *testing.T) {
 		m := &Manager{
 			Handler: Handler{
 				schemaManager: sm,
+				membership:    sm,
 			},
 		}
 
@@ -616,7 +617,7 @@ func TestAutoTenantActivation_TransitionalStateRejected(t *testing.T) {
 			fmt.Errorf("%w: mid-freeze", clusterSchema.ErrTenantTransitionalState),
 		)
 
-		// Wrap with autoActivateSM so QueryTenantsShards returns FREEZING (mid-freeze),
+		// Wrap with autoActivateSM so TenantsShardsFromLeader returns FREEZING (mid-freeze),
 		// which triggers auto-activation and matches the transitional-state scenario.
 		asm := &autoActivateSM{
 			fakeSchemaManager: sm,
@@ -626,6 +627,7 @@ func TestAutoTenantActivation_TransitionalStateRejected(t *testing.T) {
 		m := &Manager{
 			Handler: Handler{
 				schemaManager: asm,
+				membership:    asm,
 				schemaReader:  sm,
 			},
 		}

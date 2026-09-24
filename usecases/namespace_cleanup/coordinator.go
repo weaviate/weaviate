@@ -42,6 +42,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -69,9 +70,9 @@ type userLister interface {
 // raftExecutor is the subset of cluster.Raft used here. The RBAC writes
 // replicate through RAFT like the rest, so a follower's store is cleaned too.
 type raftExecutor interface {
+	leader.ClassWriter
+	leader.AliasWriter
 	DeleteUsersInNamespace(ctx context.Context, name string) error
-	DeleteAlias(ctx context.Context, alias string) (uint64, error)
-	DeleteClass(ctx context.Context, name string) (uint64, error)
 	RemoveNamespaceEntity(ctx context.Context, name string) (uint64, error)
 	DeleteRoles(names ...string) error
 	RevokeRolesForUser(user string, roles ...string) error
