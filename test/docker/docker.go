@@ -14,6 +14,7 @@ package docker
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,8 +24,11 @@ import (
 
 	"github.com/docker/go-connections/nat"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // nodeReadinessTimeout replaces the testcontainers default of 60s, which a node
@@ -98,19 +102,32 @@ func dumpWindowStart(lines []string, tail, ceiling int) int {
 	return start
 }
 
+// terminateStopTimeout bounds the graceful stop before a container is killed
+// and removed. Nothing survives Terminate, so a slow graceful shutdown only
+// adds time.
+const terminateStopTimeout = time.Second
+
+// Terminate removes all containers concurrently, then the network.
 func (d *DockerCompose) Terminate(ctx context.Context) error {
-	var errs error
-	for _, c := range d.containers {
-		if err := testcontainers.TerminateContainer(c.container, testcontainers.StopContext(ctx)); err != nil {
-			errs = errors.Wrapf(err, "cannot terminate: %v", c.name)
-		}
+	errs := make([]error, len(d.containers)+1)
+	eg := enterrors.NewErrorGroupWrapper(logrus.New())
+	for i, c := range d.containers {
+		eg.Go(func() error {
+			if err := testcontainers.TerminateContainer(c.container,
+				testcontainers.StopContext(ctx), testcontainers.StopTimeout(terminateStopTimeout),
+			); err != nil {
+				errs[i] = errors.Wrapf(err, "cannot terminate: %v", c.name)
+			}
+			return nil
+		})
 	}
+	eg.Wait()
 	if d.network != nil {
 		if err := d.network.Remove(ctx); err != nil {
-			errs = errors.Wrapf(err, "cannot remove network")
+			errs[len(d.containers)] = errors.Wrapf(err, "cannot remove network")
 		}
 	}
-	return errs
+	return stderrors.Join(errs...)
 }
 
 func (d *DockerCompose) Stop(ctx context.Context, container string, timeout *time.Duration) error {

@@ -125,7 +125,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 					},
 				},
 			},
-			objectCount:               1000,
+			objectCount:               100,
 			vectorDimensions:          defaultVectorDimensions,
 			expectedVectorStorageSize: 0, // Will be calculated based on actual compression ratio
 			setupData:                 true,
@@ -287,9 +287,6 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 					}
 				}
 
-				// Wait for vector indexing to complete
-				time.Sleep(1 * time.Second)
-
 				// Vector dimensions are always aggregated from nodeWideMetricsObserver,
 				// but we don't need DB for this test. Gimicky, but it does the job.
 				db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
@@ -360,11 +357,11 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				})
 				require.NoError(t, err)
 
-				// Wait a bit for all shards to complete shutdown and data to be flushed
-				time.Sleep(1 * time.Second)
-
 				// Unload the shard from memory to test inactive calculation methods
 				index.shards.LoadAndDelete(tt.shardName)
+
+				unloadedStorageSize := requireUnloadedUsage(t, ctx, index, tt.shardName, targetVector, tt.objectCount, tt.vectorDimensions)
+				assert.Equal(t, vectorStorageSize, unloadedStorageSize, "unloaded vector storage size should match the loaded one")
 			} else {
 				// Test empty shard
 				shard, release, err := index.GetShard(ctx, tt.shardName)
@@ -405,11 +402,11 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				})
 				require.NoError(t, err)
 
-				// Wait a bit for all shards to complete shutdown and data to be flushed
-				time.Sleep(1 * time.Second)
-
 				// Unload the shard from memory to test inactive calculation methods
 				index.shards.LoadAndDelete(tt.shardName)
+
+				unloadedStorageSize := requireUnloadedUsage(t, ctx, index, tt.shardName, "", 0, 0)
+				assert.Equal(t, vectorStorageSize, unloadedStorageSize, "unloaded vector storage size should match the loaded one")
 			}
 
 			// Verify all mock expectations were met
@@ -601,9 +598,6 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 					require.NoError(t, err)
 				}
 
-				// Wait for vector indexing to complete
-				time.Sleep(1 * time.Second)
-
 				// Vector dimensions are always aggregated from nodeWideMetricsObserver,
 				// but we don't need DB for this test. Gimicky, but it does the job.
 				db := createTestDatabaseWithClass(t, monitoring.GetMetrics(), class)
@@ -634,11 +628,10 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				})
 				require.NoError(t, err)
 
-				// Wait a bit for all shards to complete shutdown and data to be flushed
-				time.Sleep(1 * time.Second)
-
 				// Unload the shard from memory to test inactive calculation methods
 				index.shards.LoadAndDelete(tt.shardName)
+
+				requireUnloadedUsage(t, ctx, index, tt.shardName, tt.targetVector, tt.expectedCount, tt.expectedDims)
 			} else {
 				// Test empty shard
 				shard, release, err := index.GetShard(ctx, tt.shardName)
@@ -665,11 +658,10 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				})
 				require.NoError(t, err)
 
-				// Wait a bit for all shards to complete shutdown and data to be flushed
-				time.Sleep(1 * time.Second)
-
 				// Unload the shard from memory to test inactive calculation methods
 				index.shards.LoadAndDelete(tt.shardName)
+
+				requireUnloadedUsage(t, ctx, index, tt.shardName, tt.targetVector, tt.expectedCount, tt.expectedDims)
 			}
 
 			// Verify all mock expectations were met
@@ -958,4 +950,24 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 
 	// Verify all mock expectations were met
 	mockSchema.AssertExpectations(t)
+}
+
+// requireUnloadedUsage checks the from-disk calculations that serve a shard's
+// usage once it is unloaded, and returns its vector storage size.
+func requireUnloadedUsage(t *testing.T, ctx context.Context, index *Index, shardName, targetVector string, wantCount, wantDims int) int64 {
+	t.Helper()
+
+	scans, err := shardusage.CalculateUnloadedDimensionsUsageAll(ctx, index.logger, index.path(), shardName, map[string]int{targetVector: 0})
+	require.NoError(t, err)
+	require.Contains(t, scans, targetVector)
+	assert.Equal(t, wantCount, scans[targetVector].Raw.Count)
+	assert.Equal(t, wantDims, scans[targetVector].Raw.Dimensions)
+
+	lsmPath := shardPathLSM(index.path(), shardName)
+	directories, err := diskio.GetSubdirNames(lsmPath)
+	require.NoError(t, err)
+	vectors, err := shardusage.CalculateUnloadedVectorsMetrics(lsmPath, directories)
+	require.NoError(t, err)
+
+	return vectors.StorageBytes + int64(wantCount*wantDims*4)
 }
