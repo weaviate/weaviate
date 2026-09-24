@@ -158,9 +158,6 @@ func (st *Store) taskOrMovementCollection(req *api.ApplyRequest) (string, error)
 
 // admitTaskOrMovement keeps a task and a movement from running on the same collection at once, since a reindex rewrites the files a movement copies.
 func (st *Store) admitTaskOrMovement(cmdType api.ApplyRequest_Type, collection string) error {
-	if collection == "" {
-		return nil
-	}
 	switch cmdType {
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
 		if !st.distributedTasksManager.HasActiveTaskForCollection(collection) {
