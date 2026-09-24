@@ -13,17 +13,20 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"maps"
 	"path/filepath"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/semaphore"
 
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storobj"
 	entflat "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	enthfresh "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -125,6 +128,7 @@ func TestIndex_UsageForCollection_LoadedAndUnloadedAgree(t *testing.T) {
 			require.Len(t, loaded.Shards[0].NamedVectors, len(vectorConfigs))
 			assert.Equal(t, loaded.Shards[0].NamedVectors, unloaded.Shards[0].NamedVectors)
 			assert.Equal(t, loaded.Shards[0].FullShardStorageBytes, unloaded.Shards[0].FullShardStorageBytes)
+			assert.Equal(t, loaded.Shards[0].ObjectsCount, unloaded.Shards[0].ObjectsCount)
 
 			// the first cold report leaves its saved usage in the shard directory, so
 			// a second one walks a directory the loaded shard never has
@@ -222,4 +226,54 @@ func shardBytesOnDisk(t *testing.T, shardPath string) uint64 {
 	})
 	require.NoError(t, err)
 	return total
+}
+
+// TestIndex_UsageForCollection_UnloadedCountsWritesBeforeShutdown pins that a
+// tenant deactivated right after taking writes reports every object once cold.
+// Shutdown leaves those writes in a segment or a WAL that the cold path has to
+// count as well.
+func TestIndex_UsageForCollection_UnloadedCountsWritesBeforeShutdown(t *testing.T) {
+	tests := []struct {
+		name            string
+		maxReuseWalSize int64
+	}{
+		{name: "shutdown flushes the memtable into a segment", maxReuseWalSize: 0},
+		{name: "shutdown keeps the WAL", maxReuseWalSize: 1 << 30},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			tenantName := "test-tenant"
+			const newObjects = 7
+
+			index, vectorConfigs := setupPopulatedLazyIndex(ctx, t, usageIndexParams{})
+			t.Cleanup(func() { _ = index.Shutdown(ctx) })
+			index.Config.MaxReuseWalSize = tt.maxReuseWalSize
+
+			for i := range newObjects {
+				obj := &models.Object{
+					Class:  index.Config.ClassName.String(),
+					ID:     strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012d", populatedObjectsCount+int64(i))),
+					Tenant: tenantName,
+				}
+				require.NoError(t, index.putObject(ctx, storobj.FromObject(obj, nil, nil, nil), nil, tenantName, 0))
+			}
+			want := populatedObjectsCount + newObjects
+
+			loaded, err := index.usageForCollection(ctx, semaphore.NewWeighted(4), true, vectorConfigs)
+			require.NoError(t, err)
+			require.Len(t, loaded.Shards, 1)
+			require.Equal(t, want, loaded.Shards[0].ObjectsCount)
+
+			loadedShard, ok := index.shards.LoadAndDelete(tenantName)
+			require.True(t, ok)
+			require.NoError(t, loadedShard.Shutdown(ctx))
+
+			unloaded, err := index.usageForCollection(ctx, semaphore.NewWeighted(4), true, vectorConfigs)
+			require.NoError(t, err)
+			require.Len(t, unloaded.Shards, 1)
+			assert.Equal(t, want, unloaded.Shards[0].ObjectsCount)
+		})
+	}
 }
