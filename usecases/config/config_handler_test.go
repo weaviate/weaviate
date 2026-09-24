@@ -16,6 +16,9 @@ import (
 	"os"
 	"testing"
 
+	"github.com/go-openapi/swag"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
+
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 
@@ -283,6 +286,21 @@ func TestConfigParsing(t *testing.T) {
 		// has to leave the parsed value alone.
 		require.NoError(t, FromEnv(&config))
 		assert.Equal(t, BackupGCS{UseGRPC: true, GRPCConnPool: 32}, config.BackupGCS)
+	})
+
+	t.Run("a config file cannot grant the license", func(t *testing.T) {
+		t.Setenv("LICENSE_KEY", "")
+		t.Setenv("LICENSE_KEY_FILE", "")
+
+		filepath := fmt.Sprintf("%s/config.yaml", t.TempDir())
+		require.NoError(t, os.WriteFile(filepath, []byte("weaviate_license: true\n"), 0o600))
+
+		weaviateConfig := &WeaviateConfig{}
+		flags := &swag.CommandLineOptionsGroup{Options: &Flags{ConfigFile: filepath}}
+		logger, _ := logrustest.NewNullLogger()
+		require.NoError(t, weaviateConfig.LoadConfig(flags, logger))
+
+		assert.False(t, weaviateConfig.Config.WeaviateLicense)
 	})
 }
 

@@ -16,6 +16,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -1244,27 +1245,50 @@ func TestEnvironmentLicenseKeyFile(t *testing.T) {
 		require.True(t, conf.WeaviateLicense)
 	})
 
-	t.Run("trailing newline in the file is ignored", func(t *testing.T) {
+	t.Run("surrounding whitespace in the file is ignored", func(t *testing.T) {
 		t.Setenv("LICENSE_KEY", "")
-		t.Setenv("LICENSE_KEY_FILE", writeKeyFile(t, wellFormedLicenseKey()+"\n"))
+		t.Setenv("LICENSE_KEY_FILE", writeKeyFile(t, " "+wellFormedLicenseKey()+"\r\n"))
 		conf := Config{}
 		require.NoError(t, FromEnv(&conf))
 
 		require.True(t, conf.WeaviateLicense)
 	})
 
-	t.Run("both LICENSE_KEY and LICENSE_KEY_FILE set is a startup error", func(t *testing.T) {
-		t.Setenv("LICENSE_KEY", wellFormedLicenseKey())
-		t.Setenv("LICENSE_KEY_FILE", writeKeyFile(t, wellFormedLicenseKey()))
+	t.Run("surrounding whitespace in LICENSE_KEY is ignored", func(t *testing.T) {
+		hook := logrustest.NewGlobal()
+		defer hook.Reset()
+
+		t.Setenv("LICENSE_KEY", " "+wellFormedLicenseKey()+"\r\n")
+		t.Setenv("LICENSE_KEY_FILE", "")
 		conf := Config{}
-		require.ErrorContains(t, FromEnv(&conf), "mutually exclusive")
+		require.NoError(t, FromEnv(&conf))
+
+		require.True(t, conf.WeaviateLicense)
+		for _, entry := range hook.AllEntries() {
+			require.NotContains(t, entry.Message, "LICENSE_KEY")
+		}
 	})
 
-	t.Run("unreadable file is a startup error", func(t *testing.T) {
-		t.Setenv("LICENSE_KEY", "")
-		t.Setenv("LICENSE_KEY_FILE", filepath.Join(t.TempDir(), "does-not-exist"))
-		conf := Config{}
-		require.ErrorContains(t, FromEnv(&conf), "LICENSE_KEY_FILE")
+	t.Run("both LICENSE_KEY and LICENSE_KEY_FILE set is a startup error", func(t *testing.T) {
+		// A whitespace-only LICENSE_KEY still counts as set.
+		for _, envKey := range []string{wellFormedLicenseKey(), "  "} {
+			t.Setenv("LICENSE_KEY", envKey)
+			t.Setenv("LICENSE_KEY_FILE", writeKeyFile(t, wellFormedLicenseKey()))
+			conf := Config{}
+			require.ErrorContains(t, FromEnv(&conf), "mutually exclusive", "LICENSE_KEY=%q", envKey)
+		}
+	})
+
+	t.Run("unreadable file is a startup error that leaves out the path", func(t *testing.T) {
+		// An operator may paste the key itself into LICENSE_KEY_FILE.
+		for _, keyFile := range []string{wellFormedLicenseKey(), filepath.Join(t.TempDir(), "does-not-exist")} {
+			t.Setenv("LICENSE_KEY", "")
+			t.Setenv("LICENSE_KEY_FILE", keyFile)
+			conf := Config{}
+			err := FromEnv(&conf)
+			require.ErrorContains(t, err, "LICENSE_KEY_FILE")
+			require.NotContains(t, err.Error(), keyFile)
+		}
 	})
 
 	t.Run("file with malformed key disables the gate and logs a warning", func(t *testing.T) {
@@ -1297,6 +1321,27 @@ func TestEnvironmentLicenseKeyFile(t *testing.T) {
 		entry := hook.LastEntry()
 		require.NotNil(t, entry)
 		require.Contains(t, entry.Message, "LICENSE_KEY_FILE")
+	})
+
+	t.Run("whitespace-only LICENSE_KEY disables the gate and logs one warning", func(t *testing.T) {
+		hook := logrustest.NewGlobal()
+		defer hook.Reset()
+
+		t.Setenv("LICENSE_KEY", "  ")
+		t.Setenv("LICENSE_KEY_FILE", "")
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+
+		require.False(t, conf.WeaviateLicense)
+		var licenseEntries []*logrus.Entry
+		for _, entry := range hook.AllEntries() {
+			if strings.Contains(entry.Message, "LICENSE_KEY") {
+				licenseEntries = append(licenseEntries, entry)
+			}
+		}
+		require.Len(t, licenseEntries, 1)
+		require.Equal(t, logrus.WarnLevel, licenseEntries[0].Level)
+		require.Contains(t, licenseEntries[0].Message, "LICENSE_KEY is set but contains no key")
 	})
 }
 
