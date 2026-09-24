@@ -47,6 +47,12 @@ func TestMaintenanceMode(t *testing.T) {
 	testClass.ReplicationConfig = &models.ReplicationConfig{Factor: 3}
 
 	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
+
+	// The coordinator keeps retrying the node in maintenance mode, so requests
+	// needing ALL replicas hang until the client gives up. QUORUM requests on
+	// the same cluster take milliseconds.
+	const allTimeout = 500 * time.Millisecond
 
 	t.Run("create class", func(t *testing.T) {
 		helper.CreateClass(t, testClass)
@@ -91,15 +97,15 @@ func TestMaintenanceMode(t *testing.T) {
 			WithContents(fmt.Sprintf("paragraph#%d", 42)).
 			Object()
 		cls := string("ALL")
-		params := objects.NewObjectsCreateParamsWithTimeout(2 * time.Second).WithBody(o).WithConsistencyLevel(&cls)
+		params := objects.NewObjectsCreateParamsWithTimeout(allTimeout).WithBody(o).WithConsistencyLevel(&cls)
 		_, err := helper.Client(t).Objects.ObjectsCreate(params, nil)
-		require.NotNil(t, err, "expected error, got nil")
+		require.ErrorIs(t, err, context.DeadlineExceeded)
 	})
 
 	t.Run("Get objects with consistency level ALL should fail after timeout", func(t *testing.T) {
 		cls := string("ALL")
-		params := objects.NewObjectsClassGetParamsWithTimeout(2 * time.Second).WithID(paragraphIDs[0]).WithClassName(testClass.Class).WithConsistencyLevel(&cls)
+		params := objects.NewObjectsClassGetParamsWithTimeout(allTimeout).WithID(paragraphIDs[0]).WithClassName(testClass.Class).WithConsistencyLevel(&cls)
 		_, err = helper.Client(t).Objects.ObjectsClassGet(params, nil)
-		require.NotNil(t, err, "expected error, got nil")
+		require.ErrorIs(t, err, context.DeadlineExceeded)
 	})
 }

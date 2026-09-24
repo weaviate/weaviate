@@ -823,7 +823,7 @@ func TestCoordinatorCommitCancellation(t *testing.T) {
 		node2Addr := map[string]string{"N1": "N1", "N2": "N2"}
 
 		// Set a very short timeout to avoid waiting in the retry loop
-		// retryAfter will be timeoutNextRound / 5 = 0.2ms, which is fine for testing
+		// retryAfter is capped at timeoutNextRound, so the loop never waits long
 		coordinator.timeoutNextRound = 1 * time.Millisecond
 
 		coordinator.commit(ctx, req, node2Addr, true, false)
@@ -1563,4 +1563,34 @@ func TestCanCommitMixedVersionBookingCap(t *testing.T) {
 		require.Len(t, nodes, 2)
 		fc.client.AssertNotCalled(t, "Abort", mock.Anything, mock.Anything, mock.Anything)
 	})
+}
+
+// A participant that finishes quickly must not keep the coordinator waiting
+// for a full polling round.
+func TestCoordinatorCommitPollsQuicklyAtFirst(t *testing.T) {
+	t.Parallel()
+	const backupID = "fast-backup"
+	nodes := []string{"N1"}
+	fc := newFakeCoordinator(newFakeNodeResolver(nodes))
+	c := fc.coordinator()
+	c.timeoutNextRound = _NextRoundPeriod
+	c.descriptor = &backup.DistributedBackupDescriptor{
+		ID:          backupID,
+		NodeMapping: map[string]string{},
+		Nodes:       map[string]*backup.NodeDescriptor{"N1": {Classes: []string{"Class1"}}},
+	}
+	c.Participants["N1"] = participantStatus{Status: backup.Transferring, LastTime: time.Now()}
+
+	fc.client.On("Commit", mock.Anything, "N1", mock.Anything).Return(nil)
+	transferring := &StatusResponse{Status: backup.Transferring, ID: backupID, Method: OpRestore}
+	success := &StatusResponse{Status: backup.Success, ID: backupID, Method: OpRestore}
+	fc.client.On("Status", mock.Anything, "N1", mock.Anything).Return(transferring, nil).Twice()
+	fc.client.On("Status", mock.Anything, "N1", mock.Anything).Return(success, nil).Once()
+
+	start := time.Now()
+	c.commit(context.Background(), &StatusRequest{Method: OpRestore, ID: backupID, Backend: "s3"}, map[string]string{"N1": "N1"}, false, false)
+
+	assert.Less(t, time.Since(start), 2*time.Second)
+	assert.Equal(t, backup.Transferred, c.descriptor.Status)
+	fc.client.AssertNumberOfCalls(t, "Status", 3)
 }
