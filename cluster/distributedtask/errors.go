@@ -105,7 +105,7 @@ func NewBlockedByReplicaMovementError(collection string) error {
 // mid-flight, payload unparsable): the [Scheduler] fails the task
 // immediately instead of retrying. A plain error is transient and retried
 // up to the per-task bound. Distinct from [ErrPermanentRejection] (FSM
-// apply rejections crossing the RAFT/gRPC boundary).
+// rejections crossing the RAFT/gRPC boundary).
 var ErrTaskCompletionPermanent = errors.New("permanent task-completion failure")
 
 // PermanentRejectionRPCCode is the gRPC status code used to discriminate
