@@ -23,10 +23,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modelsext"
-	"github.com/weaviate/weaviate/entities/versioned"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 // defaultDropVectorPollInterval is how often a running unit polls the edit-ops
@@ -90,16 +89,6 @@ type dropVectorSchemaFinalizer interface {
 	RemoveDroppedVectorConfig(ctx context.Context, collection string, targets []string) error
 }
 
-// dropVectorSchemaReader provides leader-consistent schema reads: the sharding
-// state (so the finalize path can tell whether this task covered every current
-// shard/tenant) and the class (so op-arming can re-verify the targets are still
-// marked dropped). cluster.Raft satisfies it.
-type dropVectorSchemaReader interface {
-	QueryShardingState(class string) (*sharding.State, uint64, error)
-	QueryReadOnlyClasses(classes ...string) (map[string]versioned.Class, error)
-	distributedtask.TaskLister
-}
-
 // DropVectorIndexProvider executes drop-vector-index distributed tasks: each
 // local unit registers a remove_target_vectors edit op on its shard's objects
 // bucket and waits for the compaction/cleanup transformer to strip the dropped
@@ -108,9 +97,13 @@ type dropVectorSchemaReader interface {
 type DropVectorIndexProvider struct {
 	recorder distributedtask.TaskCompletionRecorder
 
-	shards    dropVectorShards
-	schema    dropVectorSchemaFinalizer
-	sharding  dropVectorSchemaReader
+	shards dropVectorShards
+	schema dropVectorSchemaFinalizer
+	// leader answers the leader-consistent reads: the sharding state (which nodes
+	// hold each shard/tenant) and the class, so op-arming can re-verify the targets
+	// are still marked dropped.
+	leader    leader.SchemaReader
+	tasks     distributedtask.TaskLister
 	logger    logrus.FieldLogger
 	localNode string
 
@@ -158,7 +151,8 @@ type DropVectorIndexProvider struct {
 func NewDropVectorIndexProvider(
 	shards dropVectorShards,
 	schema dropVectorSchemaFinalizer,
-	sharding dropVectorSchemaReader,
+	leaderReader leader.SchemaReader,
+	tasks distributedtask.TaskLister,
 	logger logrus.FieldLogger,
 	localNode string,
 	serverCtx context.Context,
@@ -167,7 +161,8 @@ func NewDropVectorIndexProvider(
 	return &DropVectorIndexProvider{
 		shards:               shards,
 		schema:               schema,
-		sharding:             sharding,
+		leader:               leaderReader,
+		tasks:                tasks,
 		logger:               logger,
 		localNode:            localNode,
 		serverCtx:            serverCtx,
@@ -813,7 +808,7 @@ func (p *DropVectorIndexProvider) OnTaskCompleted(task *distributedtask.Task) er
 // activeOverlappingDrop reports whether another ACTIVE drop task overlaps this
 // payload's collection+targets.
 func (p *DropVectorIndexProvider) activeOverlappingDrop(task *distributedtask.Task, payload *DropVectorIndexTaskPayload) (bool, error) {
-	tasks, err := p.sharding.ListDistributedTasks(p.serverCtx)
+	tasks, err := p.tasks.ListDistributedTasks(p.serverCtx)
 	if err != nil {
 		return false, err
 	}
@@ -831,7 +826,7 @@ func (p *DropVectorIndexProvider) activeOverlappingDrop(task *distributedtask.Ta
 // deliberately folds ANY instead — recorded progress stays valuable while any
 // target still owes a round.
 func (p *DropVectorIndexProvider) targetsStillDropped(payload *DropVectorIndexTaskPayload) (bool, error) {
-	vclasses, err := p.sharding.QueryReadOnlyClasses(payload.Collection)
+	vclasses, err := p.leader.ReadOnlyClassesFromLeader(payload.Collection)
 	if err != nil {
 		return false, err
 	}
@@ -910,7 +905,7 @@ func (p *DropVectorIndexProvider) memoizedTargetsStillDropped(
 // with no unit in this task and no entry in its inherited cleaned-shard set
 // (shards cleaned by the same epoch's earlier tasks).
 func (p *DropVectorIndexProvider) uncoveredShards(payload *DropVectorIndexTaskPayload) ([]string, error) {
-	state, _, err := p.sharding.QueryShardingState(payload.Collection)
+	state, _, err := p.leader.ShardingStateFromLeader(payload.Collection)
 	if err != nil {
 		return nil, err
 	}

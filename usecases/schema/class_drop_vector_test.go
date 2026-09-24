@@ -130,7 +130,7 @@ func TestDropVectorIndex_UpdateClassRejectsNoneIntroduction(t *testing.T) {
 	}
 	fakeSchemaManager.On("ReadOnlyClass", prev.Class).Return(prev)
 	// Leader-consistent view agrees the index is live, so the rejection stands.
-	fakeSchemaManager.On("QueryReadOnlyClasses", []string{prev.Class}).
+	fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{prev.Class}).
 		Return(map[string]versioned.Class{prev.Class: {Class: prev}}, nil)
 
 	updated := &models.Class{
@@ -174,7 +174,7 @@ func TestDropVectorIndex_UpdateClassAllowsExistingNoneOnStaleNode(t *testing.T) 
 		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("ReadOnlyClass", className).Return(stale)
-	fakeSchemaManager.On("QueryReadOnlyClasses", []string{className}).
+	fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{className}).
 		Return(map[string]versioned.Class{className: {Class: dropped}}, nil)
 	fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
 
@@ -243,7 +243,7 @@ func TestUpdateClass_VectorEntryRemovalEscalatesToCollectionsScope(t *testing.T)
 		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{},
 			&denyNthAuthorizer{inner: inner, denyAt: 2, deny: denied})
 		fakeSchemaManager.On("ReadOnlyClass", "C").Return(initial())
-		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"C"}).
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"C"}).
 			Return(map[string]versioned.Class{"C": {Class: initial()}}, nil)
 
 		updated := initial()
@@ -272,7 +272,7 @@ func TestUpdateClass_VectorEntryRemovalEscalatesToCollectionsScope(t *testing.T)
 			"keep": {VectorIndexType: hnswT},
 		}}
 		fakeSchemaManager.On("ReadOnlyClass", "C").Return(stale)
-		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"C"}).
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"C"}).
 			Return(map[string]versioned.Class{"C": {Class: initial()}}, nil)
 
 		updated := &models.Class{Class: "C", VectorConfig: map[string]models.VectorConfig{
@@ -289,7 +289,7 @@ func TestUpdateClass_VectorEntryRemovalEscalatesToCollectionsScope(t *testing.T)
 		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{},
 			&denyNthAuthorizer{inner: inner, denyAt: 2, deny: denied})
 		fakeSchemaManager.On("ReadOnlyClass", "C").Return(initial())
-		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"C"}).
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"C"}).
 			Return(nil, errors.New("no leader"))
 
 		err := handler.UpdateClass(context.Background(), principal, "C", initial())
@@ -306,9 +306,9 @@ func TestUpdateClass_VectorEntryRemovalEscalatesToCollectionsScope(t *testing.T)
 			"other": {VectorIndexType: hnswT},
 		}}
 		fakeSchemaManager.On("ReadOnlyClass", "C").Return(live).Maybe()
-		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"C"}).
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"C"}).
 			Return(map[string]versioned.Class{"C": {Class: live}}, nil).Maybe()
-		fakeSchemaManager.On("QueryReadOnlyClasses", mock.Anything).Return(nil, nil).Maybe()
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", mock.Anything).Return(nil, nil).Maybe()
 		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil).Maybe()
 
 		// The downstream internal update may fail or panic on unrelated nil

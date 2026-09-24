@@ -267,7 +267,7 @@ func (h *Handler) DeleteClassVectorIndex(ctx context.Context, principal *models.
 		return fmt.Errorf("%w: vector index name cannot be empty", ErrValidation)
 	}
 
-	vclasses, err := h.schemaManager.QueryReadOnlyClasses(className)
+	vclasses, err := h.schemaManager.ReadOnlyClassesFromLeader(className)
 	if err != nil {
 		return fmt.Errorf("querying class %q: %w", className, err)
 	}

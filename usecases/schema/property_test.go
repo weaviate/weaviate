@@ -854,7 +854,7 @@ func TestHandler_DeleteClassVectorIndex(t *testing.T) {
 
 	t.Run("class not found returns error", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"TestClass"}).
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"TestClass"}).
 			Return(map[string]versioned.Class{}, nil)
 
 		err := handler.DeleteClassVectorIndex(ctx, nil, "TestClass", "vec1")
@@ -869,7 +869,7 @@ func TestHandler_DeleteClassVectorIndex(t *testing.T) {
 
 	t.Run("class with no vector config returns error", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"TestClass"}).
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"TestClass"}).
 			Return(map[string]versioned.Class{
 				"TestClass": {Class: &models.Class{Class: "TestClass"}},
 			}, nil)
@@ -880,7 +880,7 @@ func TestHandler_DeleteClassVectorIndex(t *testing.T) {
 
 	t.Run("non-existent vector index returns error", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"TestClass"}).
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"TestClass"}).
 			Return(map[string]versioned.Class{
 				"TestClass": {Class: &models.Class{
 					Class: "TestClass",
@@ -896,7 +896,7 @@ func TestHandler_DeleteClassVectorIndex(t *testing.T) {
 
 	t.Run("already dropped vector index is a no-op", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"TestClass"}).
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"TestClass"}).
 			Return(map[string]versioned.Class{
 				"TestClass": {Class: &models.Class{
 					Class: "TestClass",
@@ -913,7 +913,7 @@ func TestHandler_DeleteClassVectorIndex(t *testing.T) {
 	t.Run("successful drop sets VectorIndexType to none", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
-		fakeSchemaManager.On("QueryReadOnlyClasses", []string{"TestClass"}).
+		fakeSchemaManager.On("ReadOnlyClassesFromLeader", []string{"TestClass"}).
 			Return(map[string]versioned.Class{
 				"TestClass": {Class: &models.Class{
 					Class: "TestClass",
@@ -1495,10 +1495,10 @@ func TestDeleteClassVectorIndex_Namespacing(t *testing.T) {
 				},
 			}
 			if lookup == tt.stored {
-				sm.On("QueryReadOnlyClasses", []string{lookup}).
+				sm.On("ReadOnlyClassesFromLeader", []string{lookup}).
 					Return(map[string]versioned.Class{lookup: {Class: storedClass}}, nil)
 			} else {
-				sm.On("QueryReadOnlyClasses", []string{lookup}).
+				sm.On("ReadOnlyClassesFromLeader", []string{lookup}).
 					Return(map[string]versioned.Class{}, nil)
 			}
 			if tt.wantErrIs == nil {

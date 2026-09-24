@@ -33,7 +33,7 @@ type activationSpySM struct {
 	updateCount int
 }
 
-func (a *activationSpySM) QueryTenantsShardsStatus(class string, tenants ...string) (map[string]string, uint64, error) {
+func (a *activationSpySM) TenantsShardsFromLeader(class string, tenants ...string) (map[string]string, uint64, error) {
 	a.queryCount++
 	res := make(map[string]string, len(tenants))
 	for _, t := range tenants {
@@ -182,7 +182,7 @@ func TestOptimisticTenantStatus_ImplicitActivation(t *testing.T) {
 				leaderStatus:      map[string]string{tenantName: tt.leaderStatus},
 			}
 
-			m := &Manager{Handler: Handler{schemaManager: sm, schemaReader: sr}}
+			m := &Manager{Handler: Handler{schemaManager: sm, membership: sm, schemaReader: sr}}
 
 			status, err := m.OptimisticTenantStatus(context.Background(), className, tenantName, tt.allowActivation)
 			require.NoError(t, err)

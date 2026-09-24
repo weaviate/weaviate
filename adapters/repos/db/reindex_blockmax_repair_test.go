@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	api "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -40,11 +41,11 @@ type stampCall struct {
 }
 
 // capturingSchemaManager records the stamp write (UpdatePropertyFromMigration)
-// and no-ops every other SchemaManager method via the nil embedded interface,
+// and no-ops every other leader.Schema method via the nil embedded interface,
 // so an unexpected schema dependency surfaces as a nil-pointer panic instead of
 // silently passing.
 type capturingSchemaManager struct {
-	schemauc.SchemaManager
+	leader.Schema
 	mu     sync.Mutex
 	stamps []stampCall
 }
@@ -130,7 +131,7 @@ func TestReconcileClassSearchableBlockmax_BackfillsResidualStamp(t *testing.T) {
 	// Real schema.Manager wired to fakes: the stamp write routes through
 	// Handler's unexported schemaManager/schemaReader, so NewHandler is the
 	// only way to inject the capture; mgr.ReadOnlyClass resolves via the embedded SchemaReader.
-	h, err := schemauc.NewHandler(reader, capMgr, nil, nil, logger, nil, nil, config.Config{},
+	h, err := schemauc.NewHandler(reader, capMgr, nil, nil, nil, logger, nil, nil, config.Config{},
 		nil, nil, nil, nil, nil, nil, schemauc.Parser{}, nil, nil, nil)
 	require.NoError(t, err)
 	mgr := &schemauc.Manager{Handler: h, SchemaReader: reader}
@@ -195,7 +196,7 @@ func TestReconcileClassSearchableBlockmax_SeedsFromFinishedTaskWhileShardless(t 
 	logger, _ := test.NewNullLogger()
 	capMgr := &capturingSchemaManager{}
 	reader := repairResidualReader{class: residualClass}
-	h, err := schemauc.NewHandler(reader, capMgr, nil, nil, logger, nil, nil, config.Config{},
+	h, err := schemauc.NewHandler(reader, capMgr, nil, nil, nil, logger, nil, nil, config.Config{},
 		nil, nil, nil, nil, nil, nil, schemauc.Parser{}, nil, nil, nil)
 	require.NoError(t, err)
 	mgr := &schemauc.Manager{Handler: h, SchemaReader: reader}
