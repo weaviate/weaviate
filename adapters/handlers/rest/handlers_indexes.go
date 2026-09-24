@@ -177,7 +177,7 @@ func readClassAndTasks(collection string, taskSource localTaskLister, classes cl
 func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams, principal *models.Principal) middleware.Responder {
 	// Resolve (alias-aware) before authz so authz and the lookup use the qualified name.
 	collection, _, rErr := namespacing.Resolve(principal, h.appState.SchemaManager,
-		h.appState.ServerConfig.Config.Namespaces.Enabled, params.ClassName)
+		h.appState.NamespaceQualifier, params.ClassName)
 	if rErr != nil {
 		return schema.NewSchemaObjectsIndexesGetUnprocessableEntity().WithPayload(errPayloadFromSingleErr(principal, rErr))
 	}

@@ -64,6 +64,7 @@ type Service struct {
 	config               *config.Config
 	authorizer           authorization.Authorizer
 	logger               logrus.FieldLogger
+	qualifier            namespacing.Qualifier
 
 	authenticator      *auth.Handler
 	batchHandler       batch.Batcher
@@ -79,7 +80,7 @@ func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *sta
 		state.Logger,
 		authenticator,
 		state.SchemaManager,
-		state.ServerConfig.Config.Namespaces.Enabled,
+		state.NamespaceQualifier,
 	)
 	batchStreamHandler, batchDrain := batch.Start(
 		authenticator,
@@ -89,7 +90,7 @@ func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *sta
 		prometheus.DefaultRegisterer,
 		state.ServerConfig.Config.BatchStream.Workers(),
 		state.Logger,
-		state.ServerConfig.Config.Namespaces.Enabled,
+		state.NamespaceQualifier,
 		batch.WithStreamConfig(state.ServerConfig.Config.BatchStream),
 	)
 	return &Service{
@@ -101,6 +102,7 @@ func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *sta
 		config:               &state.ServerConfig.Config,
 		logger:               state.Logger,
 		authorizer:           state.Authorizer,
+		qualifier:            state.NamespaceQualifier,
 		authenticator:        authenticator,
 		batchHandler:         batchHandler,
 		batchStreamHandler:   batchStreamHandler,
@@ -137,14 +139,14 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (repl
 	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
-	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection); err != nil {
+	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.qualifier, req.Collection); err != nil {
 		return nil, err
 	}
 
 	getClass := s.classGetterWithAuthzFunc(ctx, principal, req.Tenant)
 	parser := NewAggregateParser(
 		getClass,
-		s.config.Namespaces.Enabled,
+		s.qualifier,
 		principal,
 	)
 
@@ -223,7 +225,7 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 		tenant = *req.Tenant
 	}
 
-	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection); err != nil {
+	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.qualifier, req.Collection); err != nil {
 		return nil, err
 	}
 
@@ -231,7 +233,7 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 		return nil, err
 	}
 
-	params, err := batchDeleteParamsFromProto(req, s.classGetterWithAuthzFunc(ctx, principal, tenant), s.config.Namespaces.Enabled, principal)
+	params, err := batchDeleteParamsFromProto(req, s.classGetterWithAuthzFunc(ctx, principal, tenant), s.qualifier, principal)
 	if err != nil {
 		return nil, fmt.Errorf("batch delete params: %w", err)
 	}
@@ -348,7 +350,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (reply *pb.
 	defer func() { retErr = namespacing.StripErrForPrincipal(principal, retErr) }()
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)
 
-	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.config.Namespaces.Enabled, req.Collection); err != nil {
+	if req.Collection, _, err = namespacing.Resolve(principal, s.schemaManager, s.qualifier, req.Collection); err != nil {
 		return nil, err
 	}
 
@@ -357,7 +359,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (reply *pb.
 		req.Uses_127Api,
 		getClass,
 		principal,
-		s.config.Namespaces.Enabled,
+		s.qualifier,
 	)
 	replier := NewReplier(
 		req.Uses_127Api,

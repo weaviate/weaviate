@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // fsmStep is one applied-index position: the task list and the class as this
@@ -208,10 +209,11 @@ func TestGetIndexes_NilClusterService_AnswersSchemaOnly(t *testing.T) {
 	})
 
 	h := &indexesHandlers{appState: &state.State{
-		Authorizer:    &authorization.DummyAuthorizer{},
-		SchemaManager: &schemaUC.Manager{SchemaReader: reader},
-		ServerConfig:  &config.WeaviateConfig{},
-		Logger:        logrus.New(),
+		Authorizer:         &authorization.DummyAuthorizer{},
+		SchemaManager:      &schemaUC.Manager{SchemaReader: reader},
+		ServerConfig:       &config.WeaviateConfig{},
+		NamespaceQualifier: namespacing.Disabled,
+		Logger:             logrus.New(),
 	}}
 
 	resp := h.getIndexes(schema.SchemaObjectsIndexesGetParams{
@@ -294,10 +296,11 @@ func TestGetIndexes_AForeignCollectionsTaskReachesNoEntry(t *testing.T) {
 
 			h := &indexesHandlers{
 				appState: &state.State{
-					Authorizer:    &authorization.DummyAuthorizer{},
-					SchemaManager: &schemaUC.Manager{SchemaReader: reader},
-					ServerConfig:  &config.WeaviateConfig{},
-					Logger:        logrus.New(),
+					Authorizer:         &authorization.DummyAuthorizer{},
+					SchemaManager:      &schemaUC.Manager{SchemaReader: reader},
+					ServerConfig:       &config.WeaviateConfig{},
+					NamespaceQualifier: namespacing.Disabled,
+					Logger:             logrus.New(),
 				},
 				taskSource: staticTasks{db.ReindexNamespace: {task}},
 			}

@@ -34,6 +34,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // zooAnimalNSSchema returns a Zoo/Animal schema. When qualify is true both
@@ -150,9 +151,18 @@ func newNSManagers(t *testing.T, classes []*models.Class, nsEnabled bool,
 	authorizer := mocks.NewMockAuthorizer()
 	modulesProvider := getFakeModulesProvider()
 	autoSchema := NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry())
-	m := NewManager(schemaManager, cfg, logger, authorizer, vectorRepo, modulesProvider, &fakeMetrics{}, nil, autoSchema)
-	b := NewBatchManager(vectorRepo, modulesProvider, schemaManager, cfg, logger, authorizer, nil, autoSchema)
+	qualifier := qualifierFor(cfg.Config.Namespaces.Enabled)
+	m := NewManager(schemaManager, cfg, logger, authorizer, vectorRepo, modulesProvider, &fakeMetrics{}, nil, autoSchema, qualifier)
+	b := NewBatchManager(vectorRepo, modulesProvider, schemaManager, cfg, logger, authorizer, nil, autoSchema, qualifier)
 	return m, b, vectorRepo, modulesProvider, authorizer
+}
+
+// qualifierFor returns the Qualifier a node with the given namespaces flag runs.
+func qualifierFor(namespacesEnabled bool) namespacing.Qualifier {
+	if namespacesEnabled {
+		return namespacing.NewPrefixing()
+	}
+	return namespacing.Disabled
 }
 
 // Test_References_NamespaceResolution_Add covers AddObjectReference's two-view

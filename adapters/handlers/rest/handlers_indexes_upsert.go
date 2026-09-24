@@ -259,7 +259,7 @@ func (h *indexesHandlers) refuseIfReindexDisabled(principal *models.Principal) m
 // race this closes).
 func (h *indexesHandlers) qualifyAndAuthorize(ctx context.Context, principal *models.Principal, className string) (string, middleware.Responder) {
 	// Qualify (no alias resolution, like DeleteClassPropertyIndex).
-	collection, qErr := namespacing.QualifyClass(principal, h.appState.ServerConfig.Config.Namespaces.Enabled, className)
+	collection, qErr := namespacing.QualifyClass(principal, h.appState.NamespaceQualifier, className)
 	if qErr != nil {
 		// An unresolvable qualified name is an unknown collection.
 		return "", jsonResponder(http.StatusNotFound, errPayloadFromSingleErr(principal, qErr))

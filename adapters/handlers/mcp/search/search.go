@@ -26,24 +26,24 @@ import (
 type WeaviateSearcher struct {
 	auth.Auth
 
-	traverser         traverser
-	schemaReader      clusterSchema.SchemaReader
-	schemaManager     namespacing.SchemaManager
-	namespacesEnabled bool
-	logger            logrus.FieldLogger
+	traverser     traverser
+	schemaReader  clusterSchema.SchemaReader
+	schemaManager namespacing.SchemaManager
+	qualifier     namespacing.Qualifier
+	logger        logrus.FieldLogger
 }
 
 type traverser interface {
 	GetClass(ctx context.Context, principal *models.Principal, params dto.GetParams) ([]any, error)
 }
 
-func NewWeaviateSearcher(auth *auth.Auth, traverser traverser, schemaReader clusterSchema.SchemaReader, schemaManager namespacing.SchemaManager, namespacesEnabled bool, logger logrus.FieldLogger) *WeaviateSearcher {
+func NewWeaviateSearcher(auth *auth.Auth, traverser traverser, schemaReader clusterSchema.SchemaReader, schemaManager namespacing.SchemaManager, qualifier namespacing.Qualifier, logger logrus.FieldLogger) *WeaviateSearcher {
 	return &WeaviateSearcher{
-		traverser:         traverser,
-		schemaReader:      schemaReader,
-		schemaManager:     schemaManager,
-		namespacesEnabled: namespacesEnabled,
-		Auth:              *auth,
-		logger:            logger,
+		traverser:     traverser,
+		schemaReader:  schemaReader,
+		schemaManager: schemaManager,
+		qualifier:     qualifier,
+		Auth:          *auth,
+		logger:        logger,
 	}
 }

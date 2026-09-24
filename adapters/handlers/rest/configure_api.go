@@ -796,6 +796,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		collectionRetrievalStrategyConfigFlag,
 		appState.NamespacesController,
 		dropVectorEnqueuer,
+		appState.NamespaceQualifier,
 	)
 	if err != nil {
 		appState.Logger.
@@ -909,7 +910,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		appState.Logger, prometheus.DefaultRegisterer)
 	batchManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		schemaManager, appState.ServerConfig, appState.Logger,
-		appState.Authorizer, appState.Metrics, appState.AutoSchemaManager)
+		appState.Authorizer, appState.Metrics, appState.AutoSchemaManager,
+		appState.NamespaceQualifier)
 	appState.BatchManager = batchManager
 
 	err = migrator.AdjustFilterablePropSettings(ctx)
@@ -1497,13 +1499,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.APIKey.Dynamic, appState.AuthzController, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController, appState.Logger)
 	rest_namespaces.SetupHandlers(appState.ServerConfig.Config.Namespaces.Enabled, api, appState.ClusterService.Raft, appState.Authorizer)
 
-	setupSchemaHandlers(api, appState.SchemaManager, appState.Authorizer, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks, appState.ServerConfig.Config.Namespaces.Enabled)
+	setupSchemaHandlers(api, appState.SchemaManager, appState.Authorizer, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks, appState.NamespaceQualifier)
 	setupIndexesHandlers(api, appState)
-	setupTokenizeHandlers(api, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.Logger)
+	setupTokenizeHandlers(api, appState.SchemaManager, appState.NamespaceQualifier, appState.Logger)
 	setupAliasesHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.SchemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.DB, appState.Modules,
-		objects.NewMetrics(appState.Metrics), appState.MemWatch, appState.AutoSchemaManager)
+		objects.NewMetrics(appState.Metrics), appState.MemWatch, appState.AutoSchemaManager,
+		appState.NamespaceQualifier)
 	setupObjectHandlers(api, objectsManager, appState.ServerConfig.Config, appState.Logger,
 		appState.Modules, appState.Metrics)
 	setupObjectBatchHandlers(api, appState.BatchManager, appState.Metrics, appState.Logger)
@@ -1805,6 +1808,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	// classifier's nsExister, so the controller must be initialised
 	// before this call.
 	appState.NamespacesController = usecasesNamespaces.NewController(logger)
+	appState.NamespaceQualifier = namespaceQualifier(serverConfig.Config)
 	appState.OIDC = configureOIDC(appState)
 	appState.APIKey = configureAPIKey(appState)
 	appState.APIKeyRemote = apikey.NewRemoteApiKey(appState.APIKey)

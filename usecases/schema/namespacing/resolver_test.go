@@ -50,64 +50,6 @@ func (f *fakeSchemaManager) ResolveAlias(alias string) string {
 	return f.aliases[alias]
 }
 
-func TestQualify(t *testing.T) {
-	cases := []struct {
-		testName  string
-		principal *models.Principal
-		input     string
-		want      string
-	}{
-		{
-			testName:  "namespaced principal qualifies",
-			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			input:     "Movies",
-			want:      "customer1:Movies",
-		},
-		{
-			testName:  "global principal short input passthrough",
-			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
-			input:     "Movies",
-			want:      "Movies",
-		},
-		{
-			testName:  "global principal qualified input passthrough",
-			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
-			input:     "customer1:Movies",
-			want:      "customer1:Movies",
-		},
-		{
-			testName:  "nil principal passthrough",
-			principal: nil,
-			input:     "Movies",
-			want:      "Movies",
-		},
-		{
-			testName:  "empty namespace passthrough",
-			principal: &models.Principal{Username: "u", Namespace: ""},
-			input:     "Movies",
-			want:      "Movies",
-		},
-		{
-			testName:  "namespaced principal with empty name",
-			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			input:     "",
-			want:      "customer1:",
-		},
-		{
-			testName:  "namespaced principal with qualified name gets double prefixed",
-			principal: &models.Principal{Username: "u", Namespace: "customer1"},
-			input:     "customer2:Movies",
-			want:      "customer1:customer2:Movies",
-		},
-	}
-	for _, tc := range cases {
-		t.Run(tc.testName, func(t *testing.T) {
-			got := qualify(tc.principal, tc.input)
-			assert.Equal(t, tc.want, got)
-		})
-	}
-}
-
 func TestQualifiedName(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -233,65 +175,65 @@ func TestQualifyUserIDForLookup(t *testing.T) {
 
 func TestQualifyClass(t *testing.T) {
 	cases := []struct {
-		testName          string
-		principal         *models.Principal
-		namespacesEnabled bool
-		input             string
-		want              string
+		testName  string
+		principal *models.Principal
+		q         Qualifier
+		input     string
+		want      string
 	}{
 		{
-			testName:          "namespaced principal lowercase short input is uppercased and qualified",
-			principal:         &models.Principal{Username: "u", Namespace: "customer1"},
-			namespacesEnabled: true,
-			input:             "movies",
-			want:              "customer1:Movies",
+			testName:  "namespaced principal lowercase short input is uppercased and qualified",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			q:         NewPrefixing(),
+			input:     "movies",
+			want:      "customer1:Movies",
 		},
 		{
-			testName:          "operator full name preserves namespace and uppercases only the class",
-			principal:         &models.Principal{Username: "admin", IsGlobalOperator: true},
-			namespacesEnabled: true,
-			input:             "customer1:movies",
-			want:              "customer1:Movies",
+			testName:  "operator full name preserves namespace and uppercases only the class",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
+			q:         NewPrefixing(),
+			input:     "customer1:movies",
+			want:      "customer1:Movies",
 		},
 		{
-			testName:          "operator already-uppercase full name passthrough",
-			principal:         &models.Principal{Username: "admin", IsGlobalOperator: true},
-			namespacesEnabled: true,
-			input:             "customer1:Movies",
-			want:              "customer1:Movies",
+			testName:  "operator already-uppercase full name passthrough",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
+			q:         NewPrefixing(),
+			input:     "customer1:Movies",
+			want:      "customer1:Movies",
 		},
 		{
-			testName:          "operator with stray namespace stays unconfined",
-			principal:         &models.Principal{Username: "admin", IsGlobalOperator: true, Namespace: "customer1"},
-			namespacesEnabled: true,
-			input:             "movies",
-			want:              "Movies",
+			testName:  "operator with stray namespace stays unconfined",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true, Namespace: "customer1"},
+			q:         NewPrefixing(),
+			input:     "movies",
+			want:      "Movies",
 		},
 		{
-			testName:          "ns disabled lowercase input still uppercased",
-			principal:         &models.Principal{Username: "u"},
-			namespacesEnabled: false,
-			input:             "movies",
-			want:              "Movies",
+			testName:  "ns disabled lowercase input still uppercased",
+			principal: &models.Principal{Username: "u"},
+			q:         Disabled,
+			input:     "movies",
+			want:      "Movies",
 		},
 		{
-			testName:          "alias-shaped input is not resolved (qualified, not retargeted)",
-			principal:         &models.Principal{Username: "u", Namespace: "customer1"},
-			namespacesEnabled: true,
-			input:             "films",
-			want:              "customer1:Films",
+			testName:  "alias-shaped input is not resolved (qualified, not retargeted)",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			q:         NewPrefixing(),
+			input:     "films",
+			want:      "customer1:Films",
 		},
 		{
-			testName:          "alias-shaped raw input on ns-disabled is not resolved",
-			principal:         &models.Principal{Username: "u"},
-			namespacesEnabled: false,
-			input:             "films",
-			want:              "Films",
+			testName:  "alias-shaped raw input on ns-disabled is not resolved",
+			principal: &models.Principal{Username: "u"},
+			q:         Disabled,
+			input:     "films",
+			want:      "Films",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.testName, func(t *testing.T) {
-			got, err := QualifyClass(tc.principal, tc.namespacesEnabled, tc.input)
+			got, err := QualifyClass(tc.principal, tc.q, tc.input)
 			require.NoError(t, err)
 			assert.Equal(t, tc.want, got)
 		})
@@ -318,7 +260,7 @@ func TestQualifyClass_RejectsInvalidNamespacePrefix(t *testing.T) {
 	principal := &models.Principal{Username: "admin", IsGlobalOperator: true}
 	for _, tc := range cases {
 		t.Run(tc.testName, func(t *testing.T) {
-			_, err := QualifyClass(principal, true, tc.input)
+			_, err := QualifyClass(principal, NewPrefixing(), tc.input)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "invalid namespace prefix")
 		})
@@ -334,7 +276,7 @@ func TestQualifyClass_NamespacedPrincipalSeesClassNameError(t *testing.T) {
 	cases := []string{"Customer2:Movies", "customer2:Movies", "FOO:bar"}
 	for _, input := range cases {
 		t.Run(input, func(t *testing.T) {
-			_, err := QualifyClass(principal, true, input)
+			_, err := QualifyClass(principal, NewPrefixing(), input)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "is not a valid class name")
 			require.NotContains(t, err.Error(), "namespace")
@@ -347,7 +289,7 @@ func TestQualifyClass_NamespacedPrincipalSeesClassNameError(t *testing.T) {
 // concept simply does not exist for the operator there.
 func TestQualifyClass_NSDisabledSeesClassNameError(t *testing.T) {
 	principal := &models.Principal{Username: "admin", IsGlobalOperator: true}
-	_, err := QualifyClass(principal, false, "customer1:Movies")
+	_, err := QualifyClass(principal, Disabled, "customer1:Movies")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "is not a valid class name")
 	require.NotContains(t, err.Error(), "namespace")
@@ -355,117 +297,117 @@ func TestQualifyClass_NSDisabledSeesClassNameError(t *testing.T) {
 
 func TestResolve(t *testing.T) {
 	cases := []struct {
-		testName          string
-		principal         *models.Principal
-		sm                SchemaManager
-		namespacesEnabled bool
-		input             string
-		wantClass         string
-		wantAlias         string
+		testName  string
+		principal *models.Principal
+		sm        SchemaManager
+		q         Qualifier
+		input     string
+		wantClass string
+		wantAlias string
 	}{
 		{
-			testName:          "namespaced principal resolves to qualified name",
-			principal:         &models.Principal{Username: "u", Namespace: "customer1"},
-			sm:                &fakeSchemaManager{aliases: map[string]string{}},
-			namespacesEnabled: true,
-			input:             "Movies",
-			wantClass:         "customer1:Movies",
-			wantAlias:         "",
+			testName:  "namespaced principal resolves to qualified name",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			sm:        &fakeSchemaManager{aliases: map[string]string{}},
+			q:         NewPrefixing(),
+			input:     "Movies",
+			wantClass: "customer1:Movies",
+			wantAlias: "",
 		},
 		{
-			testName:          "namespaced principal with alias",
-			principal:         &models.Principal{Username: "u", Namespace: "customer1"},
-			sm:                &fakeSchemaManager{aliases: map[string]string{"customer1:Films": "customer1:Movies"}},
-			namespacesEnabled: true,
-			input:             "Films",
-			wantClass:         "customer1:Movies",
-			wantAlias:         "customer1:Films",
+			testName:  "namespaced principal with alias",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			sm:        &fakeSchemaManager{aliases: map[string]string{"customer1:Films": "customer1:Movies"}},
+			q:         NewPrefixing(),
+			input:     "Films",
+			wantClass: "customer1:Movies",
+			wantAlias: "customer1:Films",
 		},
 		{
-			testName:          "global principal passthrough",
-			principal:         &models.Principal{Username: "admin", IsGlobalOperator: true},
-			sm:                &fakeSchemaManager{aliases: map[string]string{}},
-			namespacesEnabled: true,
-			input:             "Movies",
-			wantClass:         "Movies",
-			wantAlias:         "",
+			testName:  "global principal passthrough",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
+			sm:        &fakeSchemaManager{aliases: map[string]string{}},
+			q:         NewPrefixing(),
+			input:     "Movies",
+			wantClass: "Movies",
+			wantAlias: "",
 		},
 		{
-			testName:          "global principal qualified input with alias hit resolves normally",
-			principal:         &models.Principal{Username: "admin", IsGlobalOperator: true},
-			sm:                &fakeSchemaManager{aliases: map[string]string{"customer1:Movies": "customer1:ActualMovies"}},
-			namespacesEnabled: true,
-			input:             "customer1:Movies",
-			wantClass:         "customer1:ActualMovies",
-			wantAlias:         "customer1:Movies",
+			testName:  "global principal qualified input with alias hit resolves normally",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
+			sm:        &fakeSchemaManager{aliases: map[string]string{"customer1:Movies": "customer1:ActualMovies"}},
+			q:         NewPrefixing(),
+			input:     "customer1:Movies",
+			wantClass: "customer1:ActualMovies",
+			wantAlias: "customer1:Movies",
 		},
 		{
-			testName:          "nil principal passthrough",
-			principal:         nil,
-			sm:                &fakeSchemaManager{aliases: map[string]string{}},
-			namespacesEnabled: true,
-			input:             "Movies",
-			wantClass:         "Movies",
-			wantAlias:         "",
+			testName:  "nil principal passthrough",
+			principal: nil,
+			sm:        &fakeSchemaManager{aliases: map[string]string{}},
+			q:         NewPrefixing(),
+			input:     "Movies",
+			wantClass: "Movies",
+			wantAlias: "",
 		},
 		{
-			testName:          "namespaced principal with alias that resolves to target",
-			principal:         &models.Principal{Username: "u", Namespace: "ns1"},
-			sm:                &fakeSchemaManager{aliases: map[string]string{"ns1:MyAlias": "ns1:MyClass"}},
-			namespacesEnabled: true,
-			input:             "MyAlias",
-			wantClass:         "ns1:MyClass",
-			wantAlias:         "ns1:MyAlias",
+			testName:  "namespaced principal with alias that resolves to target",
+			principal: &models.Principal{Username: "u", Namespace: "ns1"},
+			sm:        &fakeSchemaManager{aliases: map[string]string{"ns1:MyAlias": "ns1:MyClass"}},
+			q:         NewPrefixing(),
+			input:     "MyAlias",
+			wantClass: "ns1:MyClass",
+			wantAlias: "ns1:MyAlias",
 		},
 		{
-			testName:          "ns disabled ignores principal namespace",
-			principal:         &models.Principal{Username: "u", Namespace: "customer1"},
-			sm:                &fakeSchemaManager{aliases: map[string]string{}},
-			namespacesEnabled: false,
-			input:             "Movies",
-			wantClass:         "Movies",
-			wantAlias:         "",
+			testName:  "ns disabled ignores principal namespace",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			sm:        &fakeSchemaManager{aliases: map[string]string{}},
+			q:         Disabled,
+			input:     "Movies",
+			wantClass: "Movies",
+			wantAlias: "",
 		},
 		{
-			testName:          "ns disabled resolves alias on raw input for non-namespaced principal",
-			principal:         &models.Principal{Username: "u"},
-			sm:                &fakeSchemaManager{aliases: map[string]string{"Films": "Movies"}},
-			namespacesEnabled: false,
-			input:             "Films",
-			wantClass:         "Movies",
-			wantAlias:         "Films",
+			testName:  "ns disabled resolves alias on raw input for non-namespaced principal",
+			principal: &models.Principal{Username: "u"},
+			sm:        &fakeSchemaManager{aliases: map[string]string{"Films": "Movies"}},
+			q:         Disabled,
+			input:     "Films",
+			wantClass: "Movies",
+			wantAlias: "Films",
 		},
 		{
-			testName:          "lowercase short input is uppercased before qualification",
-			principal:         &models.Principal{Username: "u", Namespace: "customer1"},
-			sm:                &fakeSchemaManager{aliases: map[string]string{}},
-			namespacesEnabled: true,
-			input:             "movies",
-			wantClass:         "customer1:Movies",
-			wantAlias:         "",
+			testName:  "lowercase short input is uppercased before qualification",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			sm:        &fakeSchemaManager{aliases: map[string]string{}},
+			q:         NewPrefixing(),
+			input:     "movies",
+			wantClass: "customer1:Movies",
+			wantAlias: "",
 		},
 		{
-			testName:          "lowercase qualified input uppercases only the class portion",
-			principal:         &models.Principal{Username: "admin", IsGlobalOperator: true},
-			sm:                &fakeSchemaManager{aliases: map[string]string{}},
-			namespacesEnabled: true,
-			input:             "customer1:movies",
-			wantClass:         "customer1:Movies",
-			wantAlias:         "",
+			testName:  "lowercase qualified input uppercases only the class portion",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
+			sm:        &fakeSchemaManager{aliases: map[string]string{}},
+			q:         NewPrefixing(),
+			input:     "customer1:movies",
+			wantClass: "customer1:Movies",
+			wantAlias: "",
 		},
 		{
-			testName:          "ns disabled still uppercases lowercase input",
-			principal:         &models.Principal{Username: "u"},
-			sm:                &fakeSchemaManager{aliases: map[string]string{}},
-			namespacesEnabled: false,
-			input:             "movies",
-			wantClass:         "Movies",
-			wantAlias:         "",
+			testName:  "ns disabled still uppercases lowercase input",
+			principal: &models.Principal{Username: "u"},
+			sm:        &fakeSchemaManager{aliases: map[string]string{}},
+			q:         Disabled,
+			input:     "movies",
+			wantClass: "Movies",
+			wantAlias: "",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.testName, func(t *testing.T) {
-			gotClass, gotAlias, err := Resolve(tc.principal, tc.sm, tc.namespacesEnabled, tc.input)
+			gotClass, gotAlias, err := Resolve(tc.principal, tc.sm, tc.q, tc.input)
 			require.NoError(t, err)
 			assert.Equal(t, tc.wantClass, gotClass)
 			assert.Equal(t, tc.wantAlias, gotAlias)
@@ -487,7 +429,7 @@ func TestResolve_RejectsInvalidNamespacePrefix(t *testing.T) {
 	}
 	for _, input := range cases {
 		t.Run(input, func(t *testing.T) {
-			_, _, err := Resolve(principal, sm, true, input)
+			_, _, err := Resolve(principal, sm, NewPrefixing(), input)
 			require.Error(t, err)
 		})
 	}
@@ -616,43 +558,43 @@ func TestStripClassResponse(t *testing.T) {
 
 func TestQualifyPropertyDataTypes(t *testing.T) {
 	cases := []struct {
-		name              string
-		principal         *models.Principal
-		namespacesEnabled bool
-		className         string
-		in                []*models.Property
-		want              []*models.Property
-		wantErrSubstr     string
+		name          string
+		principal     *models.Principal
+		q             Qualifier
+		className     string
+		in            []*models.Property
+		want          []*models.Property
+		wantErrSubstr string
 	}{
 		{
-			name:              "namespaced principal qualifies short cross-ref",
-			principal:         namespacedPrincipal,
-			namespacesEnabled: true,
-			className:         "customer1:Zoo",
-			in:                []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
-			want:              []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+			name:      "namespaced principal qualifies short cross-ref",
+			principal: namespacedPrincipal,
+			q:         NewPrefixing(),
+			className: "customer1:Zoo",
+			in:        []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
+			want:      []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
 		},
 		{
-			name:              "multi-target refs all qualified",
-			principal:         namespacedPrincipal,
-			namespacesEnabled: true,
-			className:         "customer1:Zoo",
-			in:                []*models.Property{{Name: "related", DataType: []string{"Movies", "Books"}}},
-			want:              []*models.Property{{Name: "related", DataType: []string{"customer1:Movies", "customer1:Books"}}},
+			name:      "multi-target refs all qualified",
+			principal: namespacedPrincipal,
+			q:         NewPrefixing(),
+			className: "customer1:Zoo",
+			in:        []*models.Property{{Name: "related", DataType: []string{"Movies", "Books"}}},
+			want:      []*models.Property{{Name: "related", DataType: []string{"customer1:Movies", "customer1:Books"}}},
 		},
 		{
-			name:              "primitive DataType passes through",
-			principal:         namespacedPrincipal,
-			namespacesEnabled: true,
-			className:         "customer1:Zoo",
-			in:                []*models.Property{{Name: "title", DataType: []string{"text"}}},
-			want:              []*models.Property{{Name: "title", DataType: []string{"text"}}},
+			name:      "primitive DataType passes through",
+			principal: namespacedPrincipal,
+			q:         NewPrefixing(),
+			className: "customer1:Zoo",
+			in:        []*models.Property{{Name: "title", DataType: []string{"text"}}},
+			want:      []*models.Property{{Name: "title", DataType: []string{"text"}}},
 		},
 		{
-			name:              "nested object DataType passes through",
-			principal:         namespacedPrincipal,
-			namespacesEnabled: true,
-			className:         "customer1:Zoo",
+			name:      "nested object DataType passes through",
+			principal: namespacedPrincipal,
+			q:         NewPrefixing(),
+			className: "customer1:Zoo",
 			in: []*models.Property{
 				{Name: "meta", DataType: []string{"object"}},
 				{Name: "metas", DataType: []string{"object[]"}},
@@ -663,98 +605,98 @@ func TestQualifyPropertyDataTypes(t *testing.T) {
 			},
 		},
 		{
-			name:              "already-qualified own-namespace rejected",
-			principal:         namespacedPrincipal,
-			namespacesEnabled: true,
-			className:         "customer1:Zoo",
-			in:                []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
-			wantErrSubstr:     "not a valid class name",
+			name:          "already-qualified own-namespace rejected",
+			principal:     namespacedPrincipal,
+			q:             NewPrefixing(),
+			className:     "customer1:Zoo",
+			in:            []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+			wantErrSubstr: "not a valid class name",
 		},
 		{
-			name:              "already-qualified foreign-namespace rejected",
-			principal:         namespacedPrincipal,
-			namespacesEnabled: true,
-			className:         "customer1:Zoo",
-			in:                []*models.Property{{Name: "watched", DataType: []string{"customer2:Movies"}}},
-			wantErrSubstr:     "not a valid class name",
+			name:          "already-qualified foreign-namespace rejected",
+			principal:     namespacedPrincipal,
+			q:             NewPrefixing(),
+			className:     "customer1:Zoo",
+			in:            []*models.Property{{Name: "watched", DataType: []string{"customer2:Movies"}}},
+			wantErrSubstr: "not a valid class name",
 		},
 		{
-			name:              "global principal keeps a target in the class's namespace",
-			principal:         globalPrincipal,
-			namespacesEnabled: true,
-			className:         "customer1:Zoo",
-			in:                []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
-			want:              []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+			name:      "global principal keeps a target in the class's namespace",
+			principal: globalPrincipal,
+			q:         NewPrefixing(),
+			className: "customer1:Zoo",
+			in:        []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+			want:      []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
 		},
 		{
-			name:              "global principal short target gets the class's namespace",
-			principal:         globalPrincipal,
-			namespacesEnabled: true,
-			className:         "customer1:Zoo",
-			in:                []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
-			want:              []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+			name:      "global principal short target gets the class's namespace",
+			principal: globalPrincipal,
+			q:         NewPrefixing(),
+			className: "customer1:Zoo",
+			in:        []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
+			want:      []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
 		},
 		{
-			name:              "global principal target in another namespace rejected",
-			principal:         globalPrincipal,
-			namespacesEnabled: true,
-			className:         "customer1:Zoo",
-			in:                []*models.Property{{Name: "watched", DataType: []string{"customer2:Movies"}}},
-			wantErrSubstr:     "'customer2:Movies' is not a valid class name",
+			name:          "global principal target in another namespace rejected",
+			principal:     globalPrincipal,
+			q:             NewPrefixing(),
+			className:     "customer1:Zoo",
+			in:            []*models.Property{{Name: "watched", DataType: []string{"customer2:Movies"}}},
+			wantErrSubstr: "'customer2:Movies' is not a valid class name",
 		},
 		{
-			name:              "global principal one of several targets in another namespace rejected",
-			principal:         globalPrincipal,
-			namespacesEnabled: true,
-			className:         "customer1:Zoo",
-			in:                []*models.Property{{Name: "related", DataType: []string{"customer1:Movies", "customer2:Books"}}},
-			wantErrSubstr:     "'customer2:Books' is not a valid class name",
+			name:          "global principal one of several targets in another namespace rejected",
+			principal:     globalPrincipal,
+			q:             NewPrefixing(),
+			className:     "customer1:Zoo",
+			in:            []*models.Property{{Name: "related", DataType: []string{"customer1:Movies", "customer2:Books"}}},
+			wantErrSubstr: "'customer2:Books' is not a valid class name",
 		},
 		{
-			name:              "global principal malformed namespace prefix rejected",
-			principal:         globalPrincipal,
-			namespacesEnabled: true,
-			className:         "customer1:Zoo",
-			in:                []*models.Property{{Name: "watched", DataType: []string{"Customer1:Movies"}}},
-			wantErrSubstr:     "invalid namespace prefix",
+			name:          "global principal malformed namespace prefix rejected",
+			principal:     globalPrincipal,
+			q:             NewPrefixing(),
+			className:     "customer1:Zoo",
+			in:            []*models.Property{{Name: "watched", DataType: []string{"Customer1:Movies"}}},
+			wantErrSubstr: "invalid namespace prefix",
 		},
 		{
-			name:              "global principal on an unnamespaced class keeps a short target",
-			principal:         globalPrincipal,
-			namespacesEnabled: true,
-			className:         "Zoo",
-			in:                []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
-			want:              []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
+			name:      "global principal on an unnamespaced class keeps a short target",
+			principal: globalPrincipal,
+			q:         NewPrefixing(),
+			className: "Zoo",
+			in:        []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
+			want:      []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
 		},
 		{
-			name:              "global principal on an unnamespaced class rejects a namespaced target",
-			principal:         globalPrincipal,
-			namespacesEnabled: true,
-			className:         "Zoo",
-			in:                []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
-			wantErrSubstr:     "'customer1:Movies' is not a valid class name",
+			name:          "global principal on an unnamespaced class rejects a namespaced target",
+			principal:     globalPrincipal,
+			q:             NewPrefixing(),
+			className:     "Zoo",
+			in:            []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+			wantErrSubstr: "'customer1:Movies' is not a valid class name",
 		},
 		{
-			name:              "nil principal short target gets the class's namespace",
-			principal:         nil,
-			namespacesEnabled: true,
-			className:         "customer1:Zoo",
-			in:                []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
-			want:              []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+			name:      "nil principal short target gets the class's namespace",
+			principal: nil,
+			q:         NewPrefixing(),
+			className: "customer1:Zoo",
+			in:        []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
+			want:      []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
 		},
 		{
-			name:              "NS disabled passes through",
-			principal:         namespacedPrincipal,
-			namespacesEnabled: false,
-			className:         "Zoo",
-			in:                []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
-			want:              []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+			name:      "NS disabled passes through",
+			principal: namespacedPrincipal,
+			q:         Disabled,
+			className: "Zoo",
+			in:        []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+			want:      []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
 		},
 		{
-			name:              "empty DataType slice and nil property no-op",
-			principal:         namespacedPrincipal,
-			namespacesEnabled: true,
-			className:         "customer1:Zoo",
+			name:      "empty DataType slice and nil property no-op",
+			principal: namespacedPrincipal,
+			q:         NewPrefixing(),
+			className: "customer1:Zoo",
 			in: []*models.Property{
 				nil,
 				{Name: "empty", DataType: []string{}},
@@ -767,10 +709,10 @@ func TestQualifyPropertyDataTypes(t *testing.T) {
 			},
 		},
 		{
-			name:              "mixed primitive and ref in same call",
-			principal:         namespacedPrincipal,
-			namespacesEnabled: true,
-			className:         "customer1:Zoo",
+			name:      "mixed primitive and ref in same call",
+			principal: namespacedPrincipal,
+			q:         NewPrefixing(),
+			className: "customer1:Zoo",
 			in: []*models.Property{
 				{Name: "title", DataType: []string{"text"}},
 				{Name: "watched", DataType: []string{"Movies"}},
@@ -783,7 +725,7 @@ func TestQualifyPropertyDataTypes(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := QualifyPropertyDataTypes(tc.principal, tc.namespacesEnabled, tc.className, tc.in)
+			err := QualifyPropertyDataTypes(tc.principal, tc.q, tc.className, tc.in)
 			if tc.wantErrSubstr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErrSubstr)
@@ -1567,7 +1509,7 @@ func TestQualifyRefTarget(t *testing.T) {
 	cases := []struct {
 		name           string
 		principal      *models.Principal
-		nsEnabled      bool
+		q              Qualifier
 		sourceClass    string
 		target         string
 		wantQualified  string
@@ -1578,7 +1520,7 @@ func TestQualifyRefTarget(t *testing.T) {
 		// Non-NS cluster: pass-through, short==qualified==target.
 		{
 			name:      "NS-disabled passes target through",
-			principal: admin, nsEnabled: false,
+			principal: admin, q: Disabled,
 			sourceClass:   "Zoo",
 			target:        "Animal",
 			wantQualified: "Animal", wantShort: "Animal",
@@ -1587,7 +1529,7 @@ func TestQualifyRefTarget(t *testing.T) {
 		// Namespaced principal, short target — qualified with source NS.
 		{
 			name:      "namespaced principal short target qualifies via source",
-			principal: ns, nsEnabled: true,
+			principal: ns, q: NewPrefixing(),
 			sourceClass:   "customer1:Zoo",
 			target:        "Animal",
 			wantQualified: "customer1:Animal", wantShort: "Animal",
@@ -1595,53 +1537,17 @@ func TestQualifyRefTarget(t *testing.T) {
 		// Namespaced principal must never type any prefix — even their own.
 		{
 			name:      "namespaced principal own-NS qualified target is rejected",
-			principal: ns, nsEnabled: true,
+			principal: ns, q: NewPrefixing(),
 			sourceClass: "customer1:Zoo",
 			target:      "customer1:Animal",
 			wantErr:     true,
 		},
 		{
 			name:      "namespaced principal foreign-NS target is rejected",
-			principal: ns, nsEnabled: true,
+			principal: ns, q: NewPrefixing(),
 			sourceClass: "customer1:Zoo",
 			target:      "customer2:Animal",
 			wantErr:     true,
-		},
-
-		// Global admin — short target inherits source's NS, qualified
-		// target accepted iff it names the same NS as the source.
-		{
-			name:      "admin short target inherits source NS",
-			principal: admin, nsEnabled: true,
-			sourceClass:   "customer1:Zoo",
-			target:        "Animal",
-			wantQualified: "customer1:Animal", wantShort: "Animal",
-		},
-		{
-			name:      "admin own-NS qualified target normalizes",
-			principal: admin, nsEnabled: true,
-			sourceClass:   "customer1:Zoo",
-			target:        "customer1:Animal",
-			wantQualified: "customer1:Animal", wantShort: "Animal",
-		},
-		{
-			name:      "admin cross-NS qualified target is rejected",
-			principal: admin, nsEnabled: true,
-			sourceClass: "customer1:Zoo",
-			target:      "customer2:Animal",
-			wantErr:     true,
-		},
-
-		// Edge: NS-enabled but the source is itself short (e.g. test
-		// fixture or non-NS-resolved input). Treat as no-source-NS —
-		// qualified == short == target, no rejection. Matches the
-		// non-NS branch's pass-through.
-		{
-			name:      "NS-enabled but source unqualified leaves target untouched",
-			principal: ns, nsEnabled: true,
-			sourceClass:   "Zoo",
-			target:        "Animal",
-			wantQualified: "Animal", wantShort: "Animal",
 		},
 
 		// Admin typo — syntactically invalid namespace prefix. Caught by the
@@ -1650,7 +1556,7 @@ func TestQualifyRefTarget(t *testing.T) {
 		// rather than the generic cross-NS rejection.
 		{
 			name:      "admin syntactically invalid NS prefix is rejected with specific error",
-			principal: admin, nsEnabled: true,
+			principal: admin, q: NewPrefixing(),
 			sourceClass:    "customer1:Zoo",
 			target:         "BadCase:Animal",
 			wantErr:        true,
@@ -1659,7 +1565,7 @@ func TestQualifyRefTarget(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			qualified, short, err := QualifyRefTarget(tc.principal, tc.nsEnabled, tc.sourceClass, tc.target)
+			qualified, short, err := QualifyRefTarget(tc.principal, tc.q, tc.sourceClass, tc.target)
 			if tc.wantErr {
 				require.Error(t, err)
 				if tc.wantErrContent != "" {

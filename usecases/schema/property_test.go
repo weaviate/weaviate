@@ -1075,7 +1075,7 @@ func TestAddClassProperty_Namespacing(t *testing.T) {
 				handler.Authorizer = authorizer
 			}
 
-			lookup, err := namespacing.QualifyClass(tt.principal, tt.enabled, tt.inputName)
+			lookup, err := namespacing.QualifyClass(tt.principal, handler.qualifier, tt.inputName)
 			require.NoError(t, err)
 			if lookup == tt.stored {
 				sm.On("ReadOnlyClass", lookup).Return(&models.Class{
@@ -1186,7 +1186,7 @@ func TestDeleteClassPropertyIndex_Namespacing(t *testing.T) {
 			t.Parallel()
 			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
 
-			lookup, err := namespacing.QualifyClass(tt.principal, tt.enabled, tt.inputName)
+			lookup, err := namespacing.QualifyClass(tt.principal, handler.qualifier, tt.inputName)
 			require.NoError(t, err)
 			prop := &models.Property{
 				Name:            "title",
@@ -1598,7 +1598,7 @@ func TestDeleteClassVectorIndex_Namespacing(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
 
-			lookup, err := namespacing.QualifyClass(tt.principal, tt.enabled, tt.inputName)
+			lookup, err := namespacing.QualifyClass(tt.principal, handler.qualifier, tt.inputName)
 			require.NoError(t, err)
 			storedClass := &models.Class{
 				Class: tt.stored,

@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // mustAggregateModel is mustModel for the aggregate request model.
@@ -401,7 +402,7 @@ func TestAggregateHandlerResolvesAliases(t *testing.T) {
 
 func TestAggregateHandlerStripsNamespaceFromErrors(t *testing.T) {
 	deps := newTestHandler(t)
-	deps.handler.namespacesEnabled = true
+	deps.handler.qualifier = namespacing.NewPrefixing()
 	principal := &models.Principal{Username: "someone", Namespace: "ns1"}
 
 	// unknown collection: the internal error names the qualified collection
@@ -646,7 +647,7 @@ func TestAggregateGroupByRefDetection(t *testing.T) {
 	qualified := movieClass()
 	qualified.Class = "ns1:Movie"
 	deps := newTestHandlerWithClass(t, qualified)
-	deps.handler.namespacesEnabled = true
+	deps.handler.qualifier = namespacing.NewPrefixing()
 	principal := &models.Principal{Username: "someone", Namespace: "ns1"}
 	deps.searcher.aggregateRes = &aggregation.Result{Groups: []aggregation.Group{
 		{

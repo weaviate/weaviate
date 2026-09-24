@@ -165,7 +165,7 @@ func (b *BatchManager) validateBatchDelete(ctx context.Context, principal *model
 	// class name, etc.) is caller input, so classify it as ErrInvalidUserInput
 	// — otherwise the REST handler maps the parse/validation failure to a 500
 	// instead of a 422. The message wording is preserved for callers/tests.
-	filter, err := filterext.Parse(match.Where, class.Class, b.config.Config.Namespaces.Enabled, principal)
+	filter, err := filterext.Parse(match.Where, class.Class, b.qualifier, principal)
 	if err != nil {
 		return nil, 0, NewErrInvalidUserInput("failed to parse where filter: %v", err)
 	}

@@ -205,7 +205,7 @@ func (m *Manager) validateObjectAndNormalizeNames(ctx context.Context,
 	class := fetchedClasses[incoming.Class].Class
 
 	return validation.New(m.vectorRepo.Exists, m.config, repl,
-		principal, m.config.Config.Namespaces.Enabled).
+		principal, m.qualifier).
 		Object(ctx, class, incoming, existing)
 }
 

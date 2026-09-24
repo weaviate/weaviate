@@ -35,7 +35,7 @@ import (
 type nodesHandlers struct {
 	manager             *nodesUC.Manager
 	schemaManager       namespacing.SchemaManager
-	namespacesEnabled   bool
+	qualifier           namespacing.Qualifier
 	metricRequestsTotal restApiRequestsTotal
 }
 
@@ -69,7 +69,7 @@ func (n *nodesHandlers) getNodesStatusByClass(params nodes.NodesGetClassParams, 
 		shardName = *params.ShardName
 	}
 
-	className, _, err := namespacing.Resolve(principal, n.schemaManager, n.namespacesEnabled, params.ClassName)
+	className, _, err := namespacing.Resolve(principal, n.schemaManager, n.qualifier, params.ClassName)
 	if err != nil {
 		return nodes.NewNodesGetUnprocessableEntity().WithPayload(errPayloadFromSingleErr(principal, err))
 	}
@@ -175,7 +175,7 @@ func setupNodesHandlers(api *operations.WeaviateAPI,
 	h := &nodesHandlers{
 		manager:             nodesManager,
 		schemaManager:       schemaManger,
-		namespacesEnabled:   appState.ServerConfig.Config.Namespaces.Enabled,
+		qualifier:           appState.NamespaceQualifier,
 		metricRequestsTotal: newNodesRequestsTotal(appState.Metrics, appState.Logger),
 	}
 	api.NodesNodesGetHandler = nodes.

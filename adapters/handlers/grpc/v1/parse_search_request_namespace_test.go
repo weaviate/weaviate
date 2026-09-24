@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // nsParserSchema is a parser-test fixture used only by the namespace-stitching
@@ -86,7 +87,7 @@ func TestExtractPropertiesRequest_NamespaceStitching(t *testing.T) {
 	t.Run("single-target ref stitches parent namespace onto short DataType", func(t *testing.T) {
 		parser := NewParser(false,
 			nsParserClassGetter(),
-			&models.Principal{Username: "u", Namespace: "customer1"}, true,
+			&models.Principal{Username: "u", Namespace: "customer1"}, namespacing.NewPrefixing(),
 		)
 		req := &pb.SearchRequest{
 			Collection: "customer1:Zoo",
@@ -108,7 +109,7 @@ func TestExtractPropertiesRequest_NamespaceStitching(t *testing.T) {
 	t.Run("nested refs inherit namespace at each level", func(t *testing.T) {
 		parser := NewParser(false,
 			nsParserClassGetter(),
-			&models.Principal{Username: "u", Namespace: "customer1"}, true,
+			&models.Principal{Username: "u", Namespace: "customer1"}, namespacing.NewPrefixing(),
 		)
 		req := &pb.SearchRequest{
 			Collection: "customer1:Zoo",
@@ -146,7 +147,7 @@ func TestExtractPropertiesRequest_NamespaceStitching(t *testing.T) {
 	t.Run("non-namespace cluster passes through unchanged", func(t *testing.T) {
 		parser := NewParser(false,
 			nsParserClassGetter(),
-			&models.Principal{Username: "admin"}, false,
+			&models.Principal{Username: "admin"}, namespacing.Disabled,
 		)
 		req := &pb.SearchRequest{
 			Collection: "Zoo",
@@ -184,7 +185,7 @@ func TestExtractPropertiesRequest_NamespaceStitching(t *testing.T) {
 		}
 		parser := NewParser(false,
 			customGetter,
-			&models.Principal{Username: "u", Namespace: "customer1"}, true,
+			&models.Principal{Username: "u", Namespace: "customer1"}, namespacing.NewPrefixing(),
 		)
 		req := &pb.SearchRequest{
 			Collection: "customer1:Zoo",
@@ -228,7 +229,7 @@ func TestExtractPropertiesRequest_NamespaceStitching(t *testing.T) {
 		// authorizedGetClass lookup; QualifyRefTarget strips first.
 		parser := NewParser(false,
 			nsMultiTargetGetter(),
-			&models.Principal{Username: "admin"}, true,
+			&models.Principal{Username: "admin"}, namespacing.NewPrefixing(),
 		)
 		req := &pb.SearchRequest{
 			Collection: "customer1:Zoo",
@@ -251,7 +252,7 @@ func TestExtractPropertiesRequest_NamespaceStitching(t *testing.T) {
 	t.Run("multi-target global principal: short TargetCollection qualifies via parent NS", func(t *testing.T) {
 		parser := NewParser(false,
 			nsMultiTargetGetter(),
-			&models.Principal{Username: "admin"}, true,
+			&models.Principal{Username: "admin"}, namespacing.NewPrefixing(),
 		)
 		req := &pb.SearchRequest{
 			Collection: "customer1:Zoo",
@@ -277,7 +278,7 @@ func TestExtractPropertiesRequest_NamespaceStitching(t *testing.T) {
 		// "customer1:customer2:Animal"; QualifyRefTarget now rejects it.
 		parser := NewParser(false,
 			nsMultiTargetGetter(),
-			&models.Principal{Username: "admin"}, true,
+			&models.Principal{Username: "admin"}, namespacing.NewPrefixing(),
 		)
 		req := &pb.SearchRequest{
 			Collection: "customer1:Zoo",

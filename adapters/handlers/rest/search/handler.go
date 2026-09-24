@@ -61,12 +61,12 @@ type classSearcher interface {
 
 // HandlerConfig wires the handler's dependencies.
 type HandlerConfig struct {
-	Traverser         classSearcher
-	SchemaReader      schema.SchemaReader
-	Authorizer        authorization.Authorizer
-	NamespacesEnabled bool
-	DefaultLimit      int64
-	MaximumResults    int64
+	Traverser      classSearcher
+	SchemaReader   schema.SchemaReader
+	Authorizer     authorization.Authorizer
+	Qualifier      namespacing.Qualifier
+	DefaultLimit   int64
+	MaximumResults int64
 	// CrossRefDepthLimit is QUERY_CROSS_REFERENCE_DEPTH_LIMIT; the handler
 	// rejects deeper returnReferences nesting than the traverser would.
 	CrossRefDepthLimit int
@@ -79,7 +79,7 @@ type Handler struct {
 	traverser          classSearcher
 	schemaReader       schema.SchemaReader
 	authorizer         authorization.Authorizer
-	namespacesEnabled  bool
+	qualifier          namespacing.Qualifier
 	defaultLimit       int64
 	maximumResults     int64
 	crossRefDepthLimit int
@@ -91,7 +91,7 @@ func NewHandler(cfg HandlerConfig) *Handler {
 		traverser:          cfg.Traverser,
 		schemaReader:       cfg.SchemaReader,
 		authorizer:         cfg.Authorizer,
-		namespacesEnabled:  cfg.NamespacesEnabled,
+		qualifier:          cfg.Qualifier,
 		defaultLimit:       cfg.DefaultLimit,
 		maximumResults:     cfg.MaximumResults,
 		crossRefDepthLimit: cfg.CrossRefDepthLimit,
@@ -155,7 +155,7 @@ type buildParamsFunc func(class *models.Class, className string,
 func (h *Handler) resolveAuthorizedClass(ctx context.Context, principal *models.Principal,
 	collection, tenant string,
 ) (context.Context, *models.Class, string, classGetterFunc, *APIError) {
-	resolved, aliasUsed, err := namespacing.Resolve(principal, h.schemaReader, h.namespacesEnabled, collection)
+	resolved, aliasUsed, err := namespacing.Resolve(principal, h.schemaReader, h.qualifier, collection)
 	if err != nil {
 		return ctx, nil, "", nil, &APIError{Status: http.StatusBadRequest, Err: err}
 	}

@@ -75,7 +75,7 @@ type schemaHandlers struct {
 	reindexTaskLister   reindexInFlightChecker
 	reindexSubmitLocks  reindexSubmitLockProvider
 	logger              logrus.FieldLogger
-	namespacesEnabled   bool
+	qualifier           namespacing.Qualifier
 }
 
 func (s *schemaHandlers) addClass(params schema.SchemaObjectsCreateParams,
@@ -216,7 +216,7 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 
 	// Conflict check and submit lock key on the qualified class (the reindex-task
 	// key); the manager delete call qualifies internally, so it gets the raw name.
-	qualifiedClass, qErr := namespacing.QualifyClass(principal, s.namespacesEnabled, params.ClassName)
+	qualifiedClass, qErr := namespacing.QualifyClass(principal, s.qualifier, params.ClassName)
 	if qErr != nil {
 		s.metricRequestsTotal.logError(params.ClassName, qErr)
 		return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
@@ -663,7 +663,7 @@ func (s *schemaHandlers) tenantExists(params schema.TenantExistsParams, principa
 	return schema.NewTenantExistsOK()
 }
 
-func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, authorizer authorization.Authorizer, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider, namespacesEnabled bool) {
+func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager, authorizer authorization.Authorizer, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger, reindexTaskLister reindexInFlightChecker, reindexSubmitLocks reindexSubmitLockProvider, qualifier namespacing.Qualifier) {
 	h := &schemaHandlers{
 		manager:             manager,
 		authorizer:          authorizer,
@@ -671,7 +671,7 @@ func setupSchemaHandlers(api *operations.WeaviateAPI, manager *schemaUC.Manager,
 		reindexTaskLister:   reindexTaskLister,
 		reindexSubmitLocks:  reindexSubmitLocks,
 		logger:              logger,
-		namespacesEnabled:   namespacesEnabled,
+		qualifier:           qualifier,
 	}
 
 	api.SchemaSchemaObjectsCreateHandler = schema.

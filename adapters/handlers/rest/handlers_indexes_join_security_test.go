@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // TestUpsertIndex_AuthorizesBeforeTaskListRead pins that an unprivileged caller
@@ -48,6 +49,7 @@ func TestUpsertIndex_AuthorizesBeforeTaskListRead(t *testing.T) {
 		ReindexSubmitLocks: state.NewReindexSubmitLocks(),
 		Logger:             logger,
 		ServerConfig:       &config.WeaviateConfig{Config: config.Config{}},
+		NamespaceQualifier: namespacing.Disabled,
 	}}
 
 	resp := h.upsertIndex(schema.SchemaObjectsIndexUpsertParams{

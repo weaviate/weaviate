@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/types/known/structpb"
 )
@@ -471,7 +472,7 @@ func TestGRPCBatchRequest(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			out, origIndex, batchErrors := batch.BatchObjectsFromProto(&pb.BatchObjectsRequest{Objects: tt.req}, getClass, nil, false)
+			out, origIndex, batchErrors := batch.BatchObjectsFromProto(&pb.BatchObjectsRequest{Objects: tt.req}, getClass, nil, namespacing.Disabled)
 			if len(tt.outError) > 0 {
 				require.NotNil(t, batchErrors)
 				if len(tt.out) > 0 {
@@ -522,7 +523,7 @@ func TestGRPCBatchRequest_MultiTargetNamespace(t *testing.T) {
 
 	t.Run("namespaced principal short target writes short beacon", func(t *testing.T) {
 		principal := &models.Principal{Username: "u", Namespace: "customer1"}
-		out, _, errs := batch.BatchObjectsFromProto(makeReq("Animal"), getClass, principal, true)
+		out, _, errs := batch.BatchObjectsFromProto(makeReq("Animal"), getClass, principal, namespacing.NewPrefixing())
 		require.Len(t, errs, 0)
 		require.Len(t, out, 1)
 		refs := out[0].Properties.(map[string]interface{})["linkedTo"].([]interface{})
@@ -532,7 +533,7 @@ func TestGRPCBatchRequest_MultiTargetNamespace(t *testing.T) {
 
 	t.Run("admin own-namespace qualified target is stripped to short", func(t *testing.T) {
 		admin := &models.Principal{Username: "admin"}
-		out, _, errs := batch.BatchObjectsFromProto(makeReq("customer1:Animal"), getClass, admin, true)
+		out, _, errs := batch.BatchObjectsFromProto(makeReq("customer1:Animal"), getClass, admin, namespacing.NewPrefixing())
 		require.Len(t, errs, 0)
 		require.Len(t, out, 1)
 		refs := out[0].Properties.(map[string]interface{})["linkedTo"].([]interface{})
@@ -542,14 +543,14 @@ func TestGRPCBatchRequest_MultiTargetNamespace(t *testing.T) {
 
 	t.Run("admin foreign-namespace qualified target is rejected", func(t *testing.T) {
 		admin := &models.Principal{Username: "admin"}
-		_, _, errs := batch.BatchObjectsFromProto(makeReq("customer2:Animal"), getClass, admin, true)
+		_, _, errs := batch.BatchObjectsFromProto(makeReq("customer2:Animal"), getClass, admin, namespacing.NewPrefixing())
 		require.Len(t, errs, 1)
 		require.Contains(t, errs[0].Error(), "not a valid class name")
 	})
 
 	t.Run("namespaced principal cannot type any prefix", func(t *testing.T) {
 		principal := &models.Principal{Username: "u", Namespace: "customer1"}
-		_, _, errs := batch.BatchObjectsFromProto(makeReq("customer1:Animal"), getClass, principal, true)
+		_, _, errs := batch.BatchObjectsFromProto(makeReq("customer1:Animal"), getClass, principal, namespacing.NewPrefixing())
 		require.Len(t, errs, 1)
 		require.Contains(t, errs[0].Error(), "not a valid class name")
 	})
@@ -565,7 +566,7 @@ func TestGRPCBatchRequest_AutoSchemaQualifiesNamespace(t *testing.T) {
 	}
 	req := []*pb.BatchObject{{Collection: "Movies", Uuid: UUID4}}
 
-	out, _, batchErrors := batch.BatchObjectsFromProto(&pb.BatchObjectsRequest{Objects: req}, getClass, nil, false)
+	out, _, batchErrors := batch.BatchObjectsFromProto(&pb.BatchObjectsRequest{Objects: req}, getClass, nil, namespacing.Disabled)
 
 	require.Len(t, batchErrors, 0)
 	require.Len(t, out, 1)
@@ -600,7 +601,7 @@ func TestBatchObjectsFromProtoDoesNotMutateRequest(t *testing.T) {
 		},
 	}}}
 
-	out, _, errs := batch.BatchObjectsFromProto(req, getClass, &models.Principal{Username: "admin"}, true)
+	out, _, errs := batch.BatchObjectsFromProto(req, getClass, &models.Principal{Username: "admin"}, namespacing.NewPrefixing())
 
 	require.Len(t, errs, 0)
 	require.Len(t, out, 1)

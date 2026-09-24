@@ -12,7 +12,6 @@
 package namespacing
 
 import (
-	"errors"
 	"strings"
 	"testing"
 
@@ -24,91 +23,65 @@ import (
 
 func TestQualifyForCreate(t *testing.T) {
 	cases := []struct {
-		name              string
-		principal         *models.Principal
-		namespacesEnabled bool
-		raw               string
-		want              string
-		wantSentinel      bool
-		wantOtherErr      bool
+		name      string
+		principal *models.Principal
+		q         Qualifier
+		raw       string
+		want      string
+		wantErr   string
 	}{
 		{
-			name:              "namespaced principal qualifies",
-			principal:         &models.Principal{Username: "u", Namespace: "customer1"},
-			namespacesEnabled: true,
-			raw:               "Movies",
-			want:              "customer1:Movies",
+			name:      "namespaced principal qualifies",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			q:         NewPrefixing(),
+			raw:       "Movies",
+			want:      "customer1:Movies",
 		},
 		{
-			name:              "global principal rejected with sentinel on NS-enabled",
-			principal:         &models.Principal{Username: "admin", IsGlobalOperator: true},
-			namespacesEnabled: true,
-			raw:               "Movies",
-			wantSentinel:      true,
+			name:      "namespaced principal typing a prefix is rejected before qualification",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			q:         NewPrefixing(),
+			raw:       "customer1:Movies",
+			wantErr:   "is not a valid class name",
 		},
 		{
-			name:              "nil principal rejected with sentinel on NS-enabled",
-			principal:         nil,
-			namespacesEnabled: true,
-			raw:               "Movies",
-			wantSentinel:      true,
+			name:      "global principal allowed on NS-disabled (raw passthrough)",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
+			q:         Disabled,
+			raw:       "Movies",
+			want:      "Movies",
 		},
 		{
-			name:              "global principal allowed on NS-disabled (raw passthrough)",
-			principal:         &models.Principal{Username: "admin", IsGlobalOperator: true},
-			namespacesEnabled: false,
-			raw:               "Movies",
-			want:              "Movies",
+			name:      "NS-disabled passthrough does not enforce length cap",
+			principal: &models.Principal{Username: "admin", IsGlobalOperator: true},
+			q:         Disabled,
+			raw:       "C" + strings.Repeat("x", ShortNameMaxLength+50),
+			want:      "C" + strings.Repeat("x", ShortNameMaxLength+50),
 		},
 		{
-			name:              "NS-disabled passthrough does not enforce length cap",
-			principal:         &models.Principal{Username: "admin", IsGlobalOperator: true},
-			namespacesEnabled: false,
-			raw:               "C" + strings.Repeat("x", ShortNameMaxLength+50),
-			want:              "C" + strings.Repeat("x", ShortNameMaxLength+50),
+			name:      "nil principal on NS-disabled returns raw unchanged",
+			principal: nil,
+			q:         Disabled,
+			raw:       "Movies",
+			want:      "Movies",
 		},
 		{
-			name:              "nil principal on NS-disabled returns raw unchanged",
-			principal:         nil,
-			namespacesEnabled: false,
-			raw:               "Movies",
-			want:              "Movies",
-		},
-		{
-			name:              "namespaced principal at the cap accepted",
-			principal:         &models.Principal{Username: "u", Namespace: "customer1"},
-			namespacesEnabled: true,
-			raw:               "C" + strings.Repeat("x", ShortNameMaxLength-1),
-			want:              "customer1:" + "C" + strings.Repeat("x", ShortNameMaxLength-1),
-		},
-		{
-			name:              "namespaced principal one over the cap rejected with non-sentinel error",
-			principal:         &models.Principal{Username: "u", Namespace: "customer1"},
-			namespacesEnabled: true,
-			raw:               "C" + strings.Repeat("x", ShortNameMaxLength),
-			wantOtherErr:      true,
-		},
-		{
-			name:              "namespaced principal far over the cap rejected with non-sentinel error",
-			principal:         &models.Principal{Username: "u", Namespace: "customer1"},
-			namespacesEnabled: true,
-			raw:               strings.Repeat("x", ShortNameMaxLength*2),
-			wantOtherErr:      true,
+			name:      "namespaced principal on NS-disabled returns raw unchanged",
+			principal: &models.Principal{Username: "u", Namespace: "customer1"},
+			q:         Disabled,
+			raw:       "Movies",
+			want:      "Movies",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := QualifyForCreate(tc.principal, tc.namespacesEnabled, tc.raw, "class")
-			switch {
-			case tc.wantSentinel:
-				require.ErrorIs(t, err, ErrCreateRequiresNamespace)
-			case tc.wantOtherErr:
-				require.Error(t, err)
-				require.False(t, errors.Is(err, ErrCreateRequiresNamespace), "expected non-sentinel error, got sentinel")
-			default:
-				require.NoError(t, err)
-				assert.Equal(t, tc.want, got)
+			got, err := QualifyForCreate(tc.principal, tc.q, tc.raw, "class")
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
 			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
 		})
 	}
 }

@@ -151,7 +151,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	// silent no-op.
 	if beacon.Class != "" {
 		qualifiedTarget, _, err := namespacing.QualifyRefTarget(
-			principal, m.config.Config.Namespaces.Enabled, input.Class, beacon.Class)
+			principal, m.qualifier, input.Class, beacon.Class)
 		if err != nil {
 			return &Error{err.Error(), StatusUnprocessableEntity, err}
 		}

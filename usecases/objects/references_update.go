@@ -101,7 +101,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	}
 
 	validator := validation.New(m.vectorRepo.Exists, m.config, repl,
-		principal, m.config.Config.Namespaces.Enabled)
+		principal, m.qualifier)
 	parsedTargetRefs, err := input.validate(validator, class)
 	if err != nil {
 		if errors.As(err, &ErrMultiTenancy{}) {
@@ -134,7 +134,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 		if parsedTargetRefs[i].Class != "" {
 			// Qualified for authz/existence, short for the stored beacon.
 			qualifiedTarget, shortTarget, err := namespacing.QualifyRefTarget(
-				principal, m.config.Config.Namespaces.Enabled, input.Class, parsedTargetRefs[i].Class)
+				principal, m.qualifier, input.Class, parsedTargetRefs[i].Class)
 			if err != nil {
 				return &Error{err.Error(), StatusUnprocessableEntity, err}
 			}

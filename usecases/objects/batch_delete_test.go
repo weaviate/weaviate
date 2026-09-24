@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func Test_BatchDelete_RequestValidation(t *testing.T) {
@@ -73,7 +74,7 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 		authorizer := mocks.NewMockAuthorizer()
 		modulesProvider := getFakeModulesProvider()
 		manager = NewBatchManager(vectorRepo, modulesProvider, schemaManager, config, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, config, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, config, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 	}
 
 	reset := func() {
@@ -241,7 +242,7 @@ func Test_BatchDelete_NamespaceResolution(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		authorizer := mocks.NewMockAuthorizer()
 		manager := NewBatchManager(vectorRepo, getFakeModulesProvider(), schemaManager, cfg, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.NewPrefixing())
 		return manager, vectorRepo, authorizer
 	}
 
@@ -351,7 +352,7 @@ func Test_BatchDelete_ValidationErrorsAreUserInput(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		vectorRepo := &fakeObjectFinder{}
 		return NewBatchManager(vectorRepo, getFakeModulesProvider(), schemaManager, cfg, logger, mocks.NewMockAuthorizer(), nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), qualifierFor(nsEnabled))
 	}
 
 	t.Run("unknown property fails validation as user input", func(t *testing.T) {
@@ -418,7 +419,7 @@ func Test_BatchDelete_FromGRPC_Uses_SchemaVersion(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 			manager := NewBatchManager(vectorRepo, getFakeModulesProvider(), schemaManager, cfg, logger,
 				mocks.NewMockAuthorizer(), nil,
-				NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()))
+				NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
 
 			_, err := manager.DeleteObjectsFromGRPCAfterAuth(context.Background(), &models.Principal{},
 				BatchDeleteParams{ClassName: "Foo"}, nil, "")
