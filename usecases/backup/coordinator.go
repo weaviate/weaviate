@@ -52,6 +52,7 @@ const (
 	_TimeoutQueryStatus = 5 * time.Second
 	_TimeoutCanCommit   = 8 * time.Second
 	_NextRoundPeriod    = 10 * time.Second
+	_FirstRoundPeriod   = 100 * time.Millisecond
 	_MaxNumberConns     = 16
 )
 
@@ -651,7 +652,9 @@ func (c *coordinator) commit(ctx context.Context,
 	}
 
 	nFailures := c.commitAll(ctx, req, node2Host)
-	retryAfter := c.timeoutNextRound / 5 // 2s for first time
+	// Poll quickly at first so small operations finish fast, then back off
+	// to timeoutNextRound.
+	retryAfter := min(_FirstRoundPeriod, c.timeoutNextRound)
 	canContinue := len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
 	for canContinue {
 		// Check for external cancellation in polling loop
@@ -678,7 +681,7 @@ func (c *coordinator) commit(ctx context.Context,
 			c.descriptor.Error = "restore cancelled: context cancelled"
 			return
 		}
-		retryAfter = c.timeoutNextRound
+		retryAfter = min(2*retryAfter, c.timeoutNextRound)
 		nFailures += c.queryAll(ctx, req, node2Host)
 		canContinue = len(node2Host) > 0 && (toleratePartialFailure || nFailures == 0)
 	}

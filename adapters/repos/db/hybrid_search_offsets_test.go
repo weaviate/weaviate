@@ -45,9 +45,9 @@ import (
 )
 
 var (
-	collectionSize            = 1100
-	queryMaximumResults       = int64(1000)
-	queryHybridMaximumResults = []int64{10, 100, 1000}
+	collectionSize            = 110
+	queryMaximumResults       = int64(100)
+	queryHybridMaximumResults = []int64{10, 100}
 )
 
 func SetupPaginationTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) []string {

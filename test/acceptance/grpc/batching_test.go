@@ -96,13 +96,13 @@ func TestGRPC_Batching(t *testing.T) {
 		// Validate the number of articles created
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			listA, err := helper.ListObjects(t, clsA.Class)
-			require.NoError(t, err, "ListObjects should not return an error")
+			require.NoError(ct, err, "ListObjects should not return an error")
 			require.Len(ct, listA.Objects, 1, "Number of articles created should match the number sent")
 			require.NotNil(ct, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], "hasParagraphs should not be nil")
 			require.Len(ct, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], 2, "Article should have 2 paragraphs")
 
 			listP, err := helper.ListObjects(t, clsP.Class)
-			require.NoError(t, err, "ListObjects should not return an error")
+			require.NoError(ct, err, "ListObjects should not return an error")
 			require.Len(ct, listP.Objects, 2, "Number of paragraphs created should match the number sent")
 		}, 10*time.Second, 1*time.Second, "Objects not created within time")
 	})
@@ -263,14 +263,14 @@ func TestGRPC_Batching(t *testing.T) {
 				Collection:   clsA.Class,
 				ObjectsCount: true,
 			})
-			require.NoError(t, err, "Aggregate should not return an error")
+			require.NoError(ct, err, "Aggregate should not return an error")
 			require.Equal(ct, int64(numArticles), *resA.GetSingleResult().ObjectsCount, "Number of articles created should match the number sent")
 
 			resA, err = grpcClient.Aggregate(ctx, &pb.AggregateRequest{
 				Collection:   clsP.Class,
 				ObjectsCount: true,
 			})
-			require.NoError(t, err, "Aggregate should not return an error")
+			require.NoError(ct, err, "Aggregate should not return an error")
 			require.Equal(ct, int64(numArticles*numParasPerArticle), *resA.GetSingleResult().ObjectsCount, "Number of paragraphs created should match the number sent")
 
 			resS, err := grpcClient.Search(ctx, &pb.SearchRequest{
@@ -283,13 +283,13 @@ func TestGRPC_Batching(t *testing.T) {
 					}},
 				},
 			})
-			require.NoError(t, err, "Search should not return an error")
+			require.NoError(ct, err, "Search should not return an error")
 			require.Equal(ct, numArticles, len(resS.GetResults()), "Number of articles returned by search should match the number sent")
 			for _, res := range resS.GetResults() {
-				require.Len(t, res.Properties.RefProps, 1, "Each article should have hasParagraphs property")
-				require.Len(t, res.Properties.RefProps[0].Properties, numParasPerArticle, "Each article should have the correct number of paragraphs")
+				require.Len(ct, res.Properties.RefProps, 1, "Each article should have hasParagraphs property")
+				require.Len(ct, res.Properties.RefProps[0].Properties, numParasPerArticle, "Each article should have the correct number of paragraphs")
 			}
-		}, 300*time.Second, 5*time.Second, "Objects not created within time")
+		}, 300*time.Second, 500*time.Millisecond, "Objects not created within time")
 	})
 
 	t.Run("send 50000 objects then immediately restart the node to trigger shutdown and ensure all are present afterwards", func(t *testing.T) {
@@ -362,9 +362,9 @@ func TestGRPC_Batching(t *testing.T) {
 				Collection:   clsA.Class,
 				ObjectsCount: true,
 			})
-			require.NoError(t, err, "Aggregate should not return an error")
+			require.NoError(ct, err, "Aggregate should not return an error")
 			require.Equal(ct, int64(50000), *res.GetSingleResult().ObjectsCount, "Number of articles created should match the number sent")
-		}, 120*time.Second, 5*time.Second, "Objects not created within time")
+		}, 120*time.Second, 500*time.Millisecond, "Objects not created within time")
 	})
 }
 
@@ -528,41 +528,70 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 		var streamRestartLock sync.RWMutex
 		acked := make(chan struct{})
 
-		numObjs := 20000
-		batchSize := numObjs / 100
-		// start a goroutine that continuously sends objects
+		// Keep sending until the stream has moved to secondNode and a few more
+		// batches went through there, so the run always spans the shutdown.
+		const (
+			batchSize             = 100
+			maxObjs               = 20000
+			batchesAfterReconnect = 5
+		)
+		var reconnects atomic.Int32
+		numSent := 0
+		firstSent := make(chan struct{})
 		sendWg.Add(1)
 		go func() {
 			defer sendWg.Done()
-			batch := make([]*pb.BatchObject, 0, batchSize)
-			for i := 0; i < numObjs; i++ {
-				for shuttingDown.Load() {
+			sendBatch := func(batch []*pb.BatchObject) bool {
+				deadline := time.Now().Add(60 * time.Second)
+				for time.Now().Before(deadline) {
+					// The receiver swaps the stream and clears shuttingDown under the
+					// write lock, so the flag and the stream are consistent here.
 					streamRestartLock.RLock()
-					stream.CloseSend()
-					streamRestartLock.RUnlock()
-					t.Logf("%s Can't send, server is shutting down\n", time.Now().Format("15:04:05"))
-					time.Sleep(5 * time.Second)
-					continue
-				}
-				batch = append(batch, &pb.BatchObject{
-					Collection: clsA.Class,
-					Uuid:       helper.IntToUUID(uint64(i)).String(),
-					Vectors:    []*pb.Vectors{{Name: "default", VectorBytes: randomByteVector(128)}},
-				})
-				if len(batch) == batchSize {
-					t.Logf("%s Sending %vth batch of %v objects\n", time.Now().Format("15:04:05"), i/batchSize, batchSize)
-					streamRestartLock.RLock()
-					err := send(stream, batch, nil, acked)
-					streamRestartLock.RUnlock()
-					if errors.Is(err, io.EOF) {
-						// Server has closed due to shutdown, continue and loop back to either shuttingDown or shutdown
-						fmt.Printf("%s Server closed the stream\n", time.Now().Format("15:04:05"))
+					if shuttingDown.Load() {
+						stream.CloseSend()
+						streamRestartLock.RUnlock()
+						time.Sleep(100 * time.Millisecond)
 						continue
 					}
-					batch = make([]*pb.BatchObject, 0, batchSize)
+					err := send(stream, batch, nil, acked)
+					streamRestartLock.RUnlock()
+					if err == nil {
+						return true
+					}
+					if !errors.Is(err, io.EOF) {
+						t.Errorf("sending batch: %v", err)
+						return false
+					}
+					// Server closed the stream due to shutdown, resend once reconnected
+					time.Sleep(100 * time.Millisecond)
+				}
+				t.Errorf("batch not accepted within 60s after the stream closed")
+				return false
+			}
+			afterReconnect := 0
+			for numSent < maxObjs && afterReconnect < batchesAfterReconnect {
+				batch := make([]*pb.BatchObject, 0, batchSize)
+				for i := numSent; i < numSent+batchSize; i++ {
+					batch = append(batch, &pb.BatchObject{
+						Collection: clsA.Class,
+						Uuid:       helper.IntToUUID(uint64(i)).String(),
+						Vectors:    []*pb.Vectors{{Name: "default", VectorBytes: randomByteVector(128)}},
+					})
+				}
+				if !sendBatch(batch) {
+					return
+				}
+				if numSent == 0 {
+					close(firstSent)
+				}
+				numSent += batchSize
+				if reconnects.Load() > 0 {
+					afterReconnect++
 				}
 			}
-			fmt.Printf("%s Done sending objects\n", time.Now().Format("15:04:05"))
+			t.Logf("%s Done sending %d objects", time.Now().Format("15:04:05"), numSent)
+			streamRestartLock.RLock()
+			defer streamRestartLock.RUnlock()
 			stop(stream)
 			stream.CloseSend()
 		}()
@@ -581,8 +610,9 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 						grpcClient, _ = client(t, compose.GetWeaviateNode(secondNode).GrpcURI())
 						streamRestartLock.Lock()
 						stream = start(ctx, t, grpcClient, "")
-						streamRestartLock.Unlock()
 						shuttingDown.Store(false)
+						streamRestartLock.Unlock()
+						reconnects.Add(1)
 						continue
 					}
 					t.Logf("%s Stream closed by server\n", time.Now().Format("15:04:05"))
@@ -608,6 +638,12 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 			}
 		}()
 
+		select {
+		case <-firstSent:
+		case <-time.After(60 * time.Second):
+			t.Fatal("first batch was not acknowledged within 60s")
+		}
+
 		// Restart node-firstNode
 		t.Logf("Stopping node %v...", firstNode)
 		common.StopNodeAtWithTimeout(ctx, t, compose, firstNode-1, 300*time.Second)
@@ -621,6 +657,8 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 		recvWg.Wait()
 		t.Log("Recv goroutine finished")
 
+		require.Equal(t, int32(1), reconnects.Load(), "client should have reconnected to another node exactly once after the shutdown")
+
 		helper.SetupClient(compose.GetWeaviateNode(secondNode).URI())
 		grpcClient, _ = client(t, compose.GetWeaviateNode(secondNode).GrpcURI())
 
@@ -631,9 +669,9 @@ func TestGRPC_ClusterBatching(t *testing.T) {
 				Collection:   clsA.Class,
 				ObjectsCount: true,
 			})
-			require.NoError(t, err, "Aggregate should not return an error")
-			require.GreaterOrEqual(ct, *res.GetSingleResult().ObjectsCount, int64(numObjs), "Number of articles created should match the number sent")
-		}, 300*time.Second, 5*time.Second, "Objects not replicated within time")
+			require.NoError(ct, err, "Aggregate should not return an error")
+			require.Equal(ct, int64(numSent), *res.GetSingleResult().ObjectsCount, "Number of articles created should match the number sent")
+		}, 300*time.Second, 500*time.Millisecond, "Objects not replicated within time")
 	})
 
 	t.Run("verify that server still shuts down if client hangs up without closing its end of the stream", func(t *testing.T) {
@@ -744,13 +782,13 @@ func TestGRPC_AuthzBatching(t *testing.T) {
 		// Validate the number of articles created
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			listA, err := helper.ListObjectsAuth(t, clsA.Class, adminKey)
-			require.NoError(t, err, "ListObjects should not return an error")
+			require.NoError(ct, err, "ListObjects should not return an error")
 			require.Len(ct, listA.Objects, 1, "Number of articles created should match the number sent")
 			require.NotNil(ct, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], "hasParagraphs should not be nil")
 			require.Len(ct, listA.Objects[0].Properties.(map[string]any)["hasParagraphs"], 2, "Article should have 2 paragraphs")
 
 			listP, err := helper.ListObjectsAuth(t, clsP.Class, adminKey)
-			require.NoError(t, err, "ListObjects should not return an error")
+			require.NoError(ct, err, "ListObjects should not return an error")
 			require.Len(ct, listP.Objects, 2, "Number of paragraphs created should match the number sent")
 		}, 10*time.Second, 1*time.Second, "Objects not created within time")
 	})
