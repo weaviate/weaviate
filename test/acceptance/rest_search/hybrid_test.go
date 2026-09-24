@@ -17,7 +17,6 @@
 package rest_search
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"testing"
@@ -28,7 +27,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 )
 
@@ -42,20 +40,8 @@ func postHybrid(t *testing.T, collection string, body map[string]any) (int, map[
 }
 
 func TestRESTSearchHybrid(t *testing.T) {
-	ctx := context.Background()
-	compose, err := docker.New().
-		WithWeaviate().
-		// the endpoint is experimental and off by default; enable it
-		WithWeaviateEnv("EXPERIMENTAL_REST_SEARCH_ENABLED", "true").
-		WithText2VecContextionary().
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-
 	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
-	helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupClient(restSearchServerURI(t))
 
 	songClass := &models.Class{
 		Class:      "Song",
