@@ -477,8 +477,9 @@ var errDimensionsBucketLost = errors.New("dimensions bucket lost by a failed rec
 // leaveWithoutDimensionsBucket is for a switch that failed with no dimensions bucket
 // left loaded. A write would store its object and then fail on the missing bucket,
 // before it reaches the vector index, and a retry keeping the doc id would not
-// reach it either. So the shard is set read only, and refuses any other status,
-// until it is loaded again. Writes that passed the read only check already skip
+// reach it either. So the shard is set read only, and refuses any other status
+// but its own shutdown, as well as a halt for transfer, which would copy it
+// without its dimensions, until it is loaded again. Writes that passed the read only check already skip
 // the dimensions then, see [Shard.addToDimensionBucket], and dimensions read as
 // none, see [Shard.calcTargetVectorDimensions].
 //

@@ -956,11 +956,12 @@ func (m *Migrator) UpdateReplicationConfig(ctx context.Context, className string
 // has loaded, or loads lazily, from its objects, a few shards at a time. Shards
 // keep serving meanwhile, see [Shard.recalculateDimensions]. Shards of inactive
 // tenants are not touched. Shards that turn up while it runs, such as a tenant
-// activated, are gone through as well.
+// activated, are gone through as well, unless they are still loading when it ends.
 //
 // A shard that fails is logged and does not keep the remaining ones from their
 // turn, unless ctx has expired. The error returned sums up what was left undone,
-// failed shards, shards that went away before their turn, and inactive tenants,
+// failed shards, shards that went away before their turn, inactive tenants with
+// objects, and local shards the schema has active but the index has not loaded,
 // for the caller to report: nothing rebuilds them once the flag is removed.
 func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	// before that the indices are not all there, and none would not be an error
@@ -985,7 +986,7 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 			return run.incomplete(err)
 		}
 	}
-	if run.failed.Load() > 0 || run.skipped.Load() > 0 || run.inactive > 0 {
+	if run.failed.Load() > 0 || run.skipped.Load() > 0 || run.inactive > 0 || run.notLoaded > 0 {
 		return run.incomplete(nil)
 	}
 	logger.WithField("shards", run.shards.Load()).
@@ -1011,8 +1012,9 @@ type dimensionsRecalculationRun struct {
 	seen map[*Index]map[string]struct{}
 
 	shards, skipped, failed, objects atomic.Int64
-	// tenants of this node never taken on, as they are not active
-	inactive int
+	// local shards never taken on, as their tenant is not active, or as the index
+	// has not loaded them, while activating them or after that failed
+	inactive, notLoaded int
 
 	skippedNamesLock sync.Mutex
 	skippedNames     []string
@@ -1097,10 +1099,18 @@ func (r *dimensionsRecalculationRun) countInactive(index *Index) error {
 			return fmt.Errorf("reindex dimensions: no sharding state for class %s", className)
 		}
 		for name, physical := range state.Physical {
-			if _, ok := r.seen[index][name]; ok {
+			if _, ok := r.seen[index][name]; ok || !state.IsLocalShard(name) {
 				continue
 			}
-			if state.IsLocalShard(name) && physical.ActivityStatus() != models.TenantActivityStatusHOT {
+			switch physical.ActivityStatus() {
+			case models.TenantActivityStatusHOT:
+				r.notLoaded++
+			case models.TenantActivityStatusCOLD:
+				// nothing to rebuild; not so for a frozen tenant, its dir is gone
+				if !index.unloadedShardIsEmpty(name) {
+					r.inactive++
+				}
+			default:
 				r.inactive++
 			}
 		}
@@ -1128,7 +1138,14 @@ func (r *dimensionsRecalculationRun) incomplete(cause error) error {
 		msg.WriteString(")")
 	}
 	if r.inactive > 0 {
-		fmt.Fprintf(&msg, ", %d inactive tenants not reindexed, activate them to have them reindexed", r.inactive)
+		fmt.Fprintf(&msg, ", %d inactive tenants not reindexed", r.inactive)
+	}
+	if r.notLoaded > 0 {
+		fmt.Fprintf(&msg, ", %d active shards not reindexed as they are not loaded", r.notLoaded)
+	}
+	if r.inactive > 0 || r.notLoaded > 0 {
+		msg.WriteString(", these are reindexed only if active at a later startup with " +
+			"REINDEX_VECTOR_DIMENSIONS_AT_STARTUP set")
 	}
 	if cause != nil {
 		return fmt.Errorf("%s: %w", msg.String(), cause)
