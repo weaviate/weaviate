@@ -20,6 +20,8 @@ import (
 )
 
 type FSMUpdater interface {
+	leader.TenantWriter
+	local.UpdateWaiter
 	ReplicationAddReplicaToShard(ctx context.Context, collection string, shard string, nodeId string, opId uint64) (uint64, error)
 	DeleteReplicaFromShard(ctx context.Context, collection string, shard string, nodeId string) (uint64, error)
 	ReplicationUpdateReplicaOpStatus(ctx context.Context, id uint64, state api.ShardReplicationState) error
@@ -28,7 +30,5 @@ type FSMUpdater interface {
 	ReplicationCancellationComplete(ctx context.Context, id uint64) error
 	ReplicationGetReplicaOpStatus(ctx context.Context, id uint64) (api.ShardReplicationState, error)
 	ReplicationStoreSchemaVersion(ctx context.Context, id uint64, schemaVersion uint64) error
-	leader.TenantWriter
-	local.UpdateWaiter
 	ReplicationAllPeersAtLeast(opID uint64, target api.ShardReplicationState) (bool, error)
 }
