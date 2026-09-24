@@ -321,6 +321,9 @@ func (s *Shard) addToDimensionBucket(dimLength int, docID uint64, vecName string
 
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
+		if s.dimensionsBucketLost {
+			return nil
+		}
 		return errors.Errorf("add dimension bucket: no bucket dimensions")
 	}
 
