@@ -22,7 +22,7 @@ import (
 
 // Sentinel errors describing stable, non-retryable FSM rejections from
 // [Manager.RecordUnitCompletion], [Manager.UpdateUnitProgress] and similar
-// apply paths.
+// apply paths, and from Store.admitTaskOrMovement before a task is appended.
 //
 // Classifiers (e.g. reindex_provider.isPermanentRecorderRejection) should
 // use errors.Is against ErrPermanentRejection to decide whether to retry.
