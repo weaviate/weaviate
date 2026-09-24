@@ -15,6 +15,7 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -835,6 +836,15 @@ func TestShard_RecalculateDimensions_FailedSwitchLeavesNoBucket(t *testing.T) {
 			// as by an operator, or the end of a vector index config update
 			require.ErrorIs(t, shard.UpdateStatus(storagestate.StatusReady.String(), "test"), errDimensionsBucketLost)
 			require.ErrorContains(t, shard.isReadOnly(), "read-only", "READY must be refused until the shard is loaded again")
+			// SHUTDOWN is no read only status either
+			require.ErrorIs(t, idx.updateShardStatus(ctx, shard.Name(), storagestate.StatusShutdown.String()), errDimensionsBucketLost)
+			require.ErrorContains(t, shard.isReadOnly(), "read-only", "a manual SHUTDOWN must be refused")
+			require.Error(t, shard.PutObject(ctx, obj))
+			// a copy of the shard would come without its dimensions
+			for _, offloading := range []bool{false, true} {
+				require.ErrorIs(t, shard.HaltForTransfer(ctx, offloading, 0), errDimensionsBucketLost)
+				require.Zero(t, shard.haltForTransferCount.Load())
+			}
 
 			// the usage report of the node must not fail on the shard
 			repair()
@@ -864,6 +874,67 @@ func TestShard_RecalculateDimensions_FailedSwitchLeavesNoBucket(t *testing.T) {
 			assert.Equal(t, tracked, dimensionsBucketRows(t, reloaded.(*Shard)), "the bucket in place must be recovered")
 			require.NoError(t, reloaded.(*Shard).isReadOnly())
 		})
+	}
+}
+
+// A failed switch drops the dimensions bucket before it loads it again or marks it
+// lost. Readers in between must not fail, as that fails the usage report of the node.
+func TestShard_RecalculateDimensions_ReadersDuringFailedSwitchRecovery(t *testing.T) {
+	ctx := testCtx()
+	shard, idx, class := recalculationTestShard(t, ctx)
+	defer shard.Shutdown(ctx)
+	putRecalculationObjects(t, ctx, shard, class, 5)
+	bucketPath := filepath.Join(shard.pathLSM(), helpers.DimensionsBucketLSM)
+
+	// keeps the recovery in the shutdown of the bucket
+	pinned, unpin := shard.store.AcquireBucketForRead(helpers.DimensionsBucketLSM)
+	require.NotNil(t, pinned)
+	switchErr := errors.New("replace: failed renaming")
+	recovered := make(chan error, 1)
+	go func() {
+		shard.dimensionsLock.Lock()
+		defer shard.dimensionsLock.Unlock()
+		recovered <- shard.recoverFailedDimensionsSwitch(ctx, bucketPath, switchErr)
+	}()
+	require.Eventually(t, func() bool { return shard.store.Bucket(helpers.DimensionsBucketLSM) == nil },
+		10*time.Second, time.Millisecond)
+
+	readers := map[string]func() error{
+		"usage": func() error {
+			_, err := idx.calculateLoadedShardUsage(ctx, shard, true)
+			return err
+		},
+		"dimensions": func() error {
+			dims, err := shard.Dimensions(ctx, "")
+			if err == nil && dims != 15 {
+				return fmt.Errorf("dimensions %d", dims)
+			}
+			return err
+		},
+		"dimensions usage": func() error {
+			_, err := shard.DimensionsUsage(ctx, "", 0)
+			return err
+		},
+	}
+	results := make(chan error, len(readers))
+	for name, read := range readers {
+		go func() {
+			if err := read(); err != nil {
+				results <- fmt.Errorf("%s: %w", name, err)
+				return
+			}
+			results <- nil
+		}()
+	}
+	// time for the readers to find the bucket gone
+	time.Sleep(100 * time.Millisecond)
+	unpin()
+
+	// no replacement dir left, so the switch counts as gone through
+	require.NoError(t, <-recovered)
+	require.NotNil(t, shard.store.Bucket(helpers.DimensionsBucketLSM))
+	for range readers {
+		assert.NoError(t, <-results)
 	}
 }
 
@@ -1023,21 +1094,42 @@ func TestRecalculateVectorDimensions_ReportsOutcome(t *testing.T) {
 			name: "inactive tenant",
 			ctx:  testCtx,
 			prepare: func(t *testing.T, index *Index) {
-				// only active tenants are loaded, so the run never sees it
-				require.NoError(t, index.schemaReader.Read(index.Config.ClassName.String(), true,
-					func(_ *models.Class, state *sharding.State) error {
-						for _, physical := range state.Physical {
-							physical.Name = "cold"
-							physical.Status = models.TenantActivityStatusCOLD
-							state.Physical["cold"] = physical
-							break
-						}
-						require.True(t, state.IsLocalShard("cold"))
-						return nil
-					}))
+				addLocalPhysicalForTest(t, index, "cold", models.TenantActivityStatusCOLD)
+				writeIndexCountForTest(t, index, "cold", 3)
 			},
 			expectedErr: func(t *testing.T, err error) {
 				require.ErrorContains(t, err, "1 inactive tenants not reindexed")
+				require.ErrorContains(t, err, "only if active at a later startup with REINDEX_VECTOR_DIMENSIONS_AT_STARTUP set")
+			},
+		},
+		{
+			name: "inactive tenant never written to",
+			ctx:  testCtx,
+			prepare: func(t *testing.T, index *Index) {
+				addLocalPhysicalForTest(t, index, "cold", models.TenantActivityStatusCOLD)
+				writeIndexCountForTest(t, index, "cold", 0)
+			},
+		},
+		{
+			// its dir is removed at freeze, and reads as never written to
+			name: "frozen tenant",
+			ctx:  testCtx,
+			prepare: func(t *testing.T, index *Index) {
+				addLocalPhysicalForTest(t, index, "frozen", models.TenantActivityStatusFROZEN)
+			},
+			expectedErr: func(t *testing.T, err error) {
+				require.ErrorContains(t, err, "1 inactive tenants not reindexed")
+			},
+		},
+		{
+			// as while it is activated, or after loading it failed
+			name: "active shard not loaded",
+			ctx:  testCtx,
+			prepare: func(t *testing.T, index *Index) {
+				addLocalPhysicalForTest(t, index, "loading", models.TenantActivityStatusHOT)
+			},
+			expectedErr: func(t *testing.T, err error) {
+				require.ErrorContains(t, err, "1 active shards not reindexed as they are not loaded")
 			},
 		},
 		{
@@ -1082,6 +1174,28 @@ func TestRecalculateVectorDimensions_ReportsOutcome(t *testing.T) {
 			assert.EqualValues(t, 1, last.Data["objects"])
 		})
 	}
+}
+
+// addLocalPhysicalForTest adds a local shard to the schema only, as the index loads
+// only active tenants, and those once they are activated.
+func addLocalPhysicalForTest(t *testing.T, index *Index, name, status string) {
+	require.NoError(t, index.schemaReader.Read(index.Config.ClassName.String(), true,
+		func(_ *models.Class, state *sharding.State) error {
+			for _, physical := range state.Physical {
+				physical.Name = name
+				physical.Status = status
+				state.Physical[name] = physical
+				break
+			}
+			require.True(t, state.IsLocalShard(name))
+			return nil
+		}))
+}
+
+func writeIndexCountForTest(t *testing.T, index *Index, shardName string, count uint64) {
+	dir := shardPath(index.path(), shardName)
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "indexcount"), binary.LittleEndian.AppendUint64(nil, count), 0o600))
 }
 
 // A tenant activated while the run goes on is not in the list of shards the run
