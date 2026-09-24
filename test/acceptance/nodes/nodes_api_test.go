@@ -38,7 +38,7 @@ func Test_NodesAPI(t *testing.T) {
 		WithWeaviate().
 		WithText2VecModel2Vec().
 		WithWeaviateEnv("PERSISTENCE_MAX_REUSE_WAL_SIZE", "0").
-		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "2"). // flush fast enough so object counts are correct
+		WithWeaviateEnv("PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS", "1"). // verbose counts only see flushed segments
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -213,6 +213,16 @@ func Test_NodesAPI(t *testing.T) {
 			}), nil)
 		require.Nil(t, err)
 
+		minimalAssertions := func(t require.TestingT, nodeStatus *models.NodeStatus) {}
+		verboseAssertions := func(t require.TestingT, nodeStatus *models.NodeStatus) {
+			require.NotNil(t, nodeStatus.Stats)
+			assert.Equal(t, int64(1), nodeStatus.Stats.ObjectCount)
+		}
+
+		// The update must land in a later segment than the original, so wait
+		// until the first write has been flushed.
+		testStatusResponse(t, minimalAssertions, verboseAssertions, "")
+
 		// Note that this is the same ID as before, so this is an update!!
 		_, err = helper.BatchClient(t).BatchObjectsCreate(
 			batch.NewBatchObjectsCreateParams().WithBody(batch.BatchObjectsCreateBody{
@@ -229,13 +239,17 @@ func Test_NodesAPI(t *testing.T) {
 			}), nil)
 		require.Nil(t, err)
 
-		minimalAssertions := func(t require.TestingT, nodeStatus *models.NodeStatus) {}
-		verboseAssertions := func(t require.TestingT, nodeStatus *models.NodeStatus) {
-			require.NotNil(t, nodeStatus.Stats)
-			assert.Equal(t, int64(1), nodeStatus.Stats.ObjectCount)
-		}
-
-		testStatusResponse(t, minimalAssertions, verboseAssertions, "")
+		// Once the update is flushed into its own segment, counting both
+		// segments would report 2. A flush lands within the dirty threshold
+		// plus one flush tick (at most 5s).
+		verbose := verbosity.OutputVerbose
+		assert.Never(t, func() bool {
+			payload, err := getNodesStatus(t, verbose, "")
+			if err != nil || len(payload.Nodes) == 0 || payload.Nodes[0].Stats == nil {
+				return false
+			}
+			return payload.Nodes[0].Stats.ObjectCount != 1
+		}, 7*time.Second, 200*time.Millisecond, "an update must not be counted as a second object")
 	})
 }
 
@@ -444,7 +458,7 @@ func testStatusResponse(t *testing.T, minimalAssertions, verboseAssertions func(
 				commonTests(t, &nodes.NodesGetOK{Payload: payload})
 				// If commonTests pass, resp.Nodes[0] != nil
 				verboseAssertions(t, payload.Nodes[0])
-			}, 15*time.Second, 500*time.Millisecond)
+			}, 15*time.Second, 100*time.Millisecond)
 		})
 	}
 }

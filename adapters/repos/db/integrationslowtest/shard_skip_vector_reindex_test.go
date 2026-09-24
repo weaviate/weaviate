@@ -16,7 +16,6 @@ package integrationslowtest
 import (
 	"context"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
@@ -37,6 +36,8 @@ import (
 )
 
 func TestShard_SkipVectorReindex(t *testing.T) {
+	t.Setenv("QUEUE_SCHEDULER_INTERVAL", "100ms")
+
 	ctx := context.Background()
 
 	uuid_ := strfmt.UUID(uuid.NewString())
@@ -1316,12 +1317,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("async", func(t *testing.T) {
-			currentStaleTimeout := os.Getenv("ASYNC_INDEXING_STALE_TIMEOUT")
-			currentSchedulerInterval := os.Getenv("QUEUE_SCHEDULER_INTERVAL")
-			t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "1s")
-			defer t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", currentStaleTimeout)
-			defer t.Setenv("QUEUE_SCHEDULER_INTERVAL", currentSchedulerInterval)
-
+			t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "100ms")
 			runBatch(t, true)
 		})
 	})
