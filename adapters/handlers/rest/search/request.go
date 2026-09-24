@@ -332,6 +332,99 @@ func parseNearObject(class *models.Class, body *models.SearchNearObjectRequest, 
 	return params, nil
 }
 
+// buildNearVectorParams converts the near-vector request into the
+// dto.GetParams consumed by traverser.GetClass. Behavior must stay in sync
+// with the gRPC parser's near-vector handling
+// (adapters/handlers/grpc/v1/parse_search_request.go).
+func (h *Handler) buildNearVectorParams(class *models.Class, className string, body *models.SearchNearVectorRequest,
+	getClass classGetterFunc, principal *models.Principal,
+) (dto.GetParams, *APIError) {
+	common := &body.SearchCommon
+	out, apiErr := h.baseParams(className, common)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	targetVectors, apiErr := resolveTargetVectors(class, body.TargetVector)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	nearVector, apiErr := parseNearVector(class, body, targetVectors)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.NearVector = nearVector
+
+	if apiErr := h.fillCommonFields(&out, class, className, common, targetVectors, getClass, principal); apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	return out, nil
+}
+
+// parseNearVector builds the near-vector search params, mirroring the gRPC
+// parser: the caller brings the query vector, so no vectorizer module is
+// required. Whether it has the dimensionality of the vector searched is the
+// engine's to judge.
+func parseNearVector(class *models.Class, body *models.SearchNearVectorRequest, targetVectors []string) (*searchparams.NearVector, *APIError) {
+	vector, apiErr := parseVector(body.Vector)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+
+	if body.Certainty != nil && body.Distance != nil {
+		return nil, newAPIError(http.StatusBadRequest, "near_vector: cannot provide both distance and certainty")
+	}
+	if body.Certainty != nil && (*body.Certainty < 0 || *body.Certainty > 1) {
+		return nil, newAPIError(http.StatusBadRequest,
+			"certainty must be between 0 and 1, got %v", *body.Certainty)
+	}
+
+	params := &searchparams.NearVector{
+		Vectors:       []models.Vector{vector},
+		TargetVectors: targetVectors,
+	}
+	if body.Certainty != nil {
+		if err := configvalidation.CheckCertaintyCompatibility(class, targetVectors); err != nil {
+			return nil, &APIError{Status: http.StatusUnprocessableEntity, Err: err}
+		}
+		params.Certainty = *body.Certainty
+	}
+	if body.Distance != nil {
+		params.Distance = *body.Distance
+		params.WithDistance = true
+	}
+
+	return params, nil
+}
+
+const errVectorNotNumbers = "vector must be a non-empty array of numbers"
+
+// parseVector reads the query vector off the untyped `vector` field, where a
+// decoded body leaves a non-empty array of numbers. An array of arrays is the
+// multi-vector form, which the endpoint does not search yet.
+func parseVector(value any) ([]float32, *APIError) {
+	values, ok := value.([]any)
+	if !ok || len(values) == 0 {
+		return nil, newAPIError(http.StatusBadRequest, errVectorNotNumbers)
+	}
+
+	vector := make([]float32, len(values))
+	for i, entry := range values {
+		number, ok := entry.(float64)
+		if !ok {
+			if _, nested := entry.([]any); nested {
+				return nil, newAPIError(http.StatusUnprocessableEntity, "multi-vector search is not yet supported")
+			}
+			return nil, newAPIError(http.StatusBadRequest, errVectorNotNumbers)
+		}
+		vector[i] = float32(number)
+	}
+
+	return vector, nil
+}
+
 // buildHybridParams converts the hybrid request into the dto.GetParams
 // consumed by traverser.GetClass. Behavior must stay in sync with the gRPC
 // parser's hybrid handling (adapters/handlers/grpc/v1/parse_search_request.go).

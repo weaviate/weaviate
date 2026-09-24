@@ -294,6 +294,18 @@ func (h *Handler) NearObject(ctx context.Context, principal *models.Principal,
 	return h.execute(ctx, principal, "near-object", collection, body.Tenant, &body.SearchCommon, paramsBuilder)
 }
 
+// NearVector executes a similarity search over collection anchored at a
+// caller-supplied query vector, supplying execute with the near-vector params
+// builder. It returns the 200 payload or an APIError carrying the HTTP status.
+func (h *Handler) NearVector(ctx context.Context, principal *models.Principal,
+	collection string, body *models.SearchNearVectorRequest,
+) (*models.SearchResponse, *APIError) {
+	paramsBuilder := func(class *models.Class, className string, getClass classGetterFunc) (dto.GetParams, *APIError) {
+		return h.buildNearVectorParams(class, className, body, getClass, principal)
+	}
+	return h.execute(ctx, principal, "near-vector", collection, body.Tenant, &body.SearchCommon, paramsBuilder)
+}
+
 // Hybrid executes a hybrid (keyword + vector) search over collection,
 // supplying execute with the hybrid params builder. It returns the 200
 // payload or an APIError carrying the HTTP status.
