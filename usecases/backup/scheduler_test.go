@@ -1525,7 +1525,7 @@ func TestSchedulerList(t *testing.T) {
 		require.Len(t, *resp, 1)
 		assert.Empty(t, (*resp)[0].Classes)
 		calls := fs.auth.(*mocks.FakeAuthorizer).Calls()
-		require.Len(t, calls, 1)
+		require.Len(t, calls, 2)
 		assert.Equal(t, authorization.Backups(), calls[0].Resources)
 	})
 
