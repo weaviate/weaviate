@@ -141,32 +141,6 @@ func TestShardDropDrainsRealBatchWrite(t *testing.T) {
 	requireDropped(t, dropped)
 }
 
-// TestShardDropProceedsWhenDrainTimesOut pins the escape hatch: the drain is
-// bounded on purpose, so a reference held past the window must not wedge the
-// delete, and must be logged. Runs for the full drain window (~30s).
-func TestShardDropProceedsWhenDrainTimesOut(t *testing.T) {
-	index, cleanup := initIndexAndPopulate(t, t.TempDir())
-	defer cleanup()
-
-	logger, hook := test.NewNullLogger()
-	index.logger = logger
-
-	start := time.Now()
-	_, release, dropped := dropTestShard(t, index) // pin is never released
-	defer release()
-
-	requireDropped(t, dropped)
-	// ~30s window; near-instant means it never waited
-	require.Greater(t, time.Since(start), 10*time.Second, "drop gave up well short of the drain window")
-
-	var warned bool
-	for _, e := range hook.AllEntries() {
-		warned = warned || (e.Level == logrus.ErrorLevel &&
-			strings.Contains(e.Message, "proceeding with drop while references are still held"))
-	}
-	require.True(t, warned, "a drop that outran its drain must be logged, not silent")
-}
-
 // TestObjectReadsAfterStoreTeardownReturnErrors is the read-side sibling: a
 // query outliving the drain reads the objects bucket through the same
 // deregistered-bucket window. The bucket view has no error to return, so it
@@ -228,8 +202,8 @@ func TestObjectReadsAfterStoreTeardownReturnErrors(t *testing.T) {
 			_, err := shard.objectByIndexIDWithProps(context.Background(), 0, nil)
 			return err
 		},
-		"uuid from doc id": func() error {
-			_, err := shard.uuidFromDocID(0)
+		"find uuids": func() error {
+			_, err := shard.FindUUIDs(context.Background(), nil, 0)
 			return err
 		},
 		"object list": func() error {

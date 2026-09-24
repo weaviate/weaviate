@@ -12,6 +12,7 @@
 package acceptance_with_go_client
 
 import (
+	"acceptance_tests_with_client/fixtures"
 	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"fmt"
@@ -84,7 +85,7 @@ func TestSchemaClassNames(t *testing.T) {
 				VectorConfig: map[string]models.VectorConfig{
 					"description": {
 						Vectorizer: map[string]interface{}{
-							"text2vec-contextionary": map[string]interface{}{
+							fixtures.Text2VecModel2Vec: map[string]interface{}{
 								"properties":         []interface{}{"description"},
 								"vectorizeClassName": false,
 							},

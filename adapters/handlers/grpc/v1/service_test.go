@@ -14,14 +14,23 @@ package v1
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/semaphore"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
+	batchMocks "github.com/weaviate/weaviate/adapters/handlers/grpc/v1/batch/mocks"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	authMocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -52,7 +61,7 @@ func TestClassGetterWithAuthzFuncMemoization(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			reader := schema.NewMockSchemaReader(t)
 			reader.On("ReadOnlyClass", tt.class).Return(&models.Class{Class: tt.class})
-			authorizer := mocks.NewMockAuthorizer()
+			authorizer := authMocks.NewMockAuthorizer()
 			s := &Service{
 				schemaManager: &schema.Manager{SchemaReader: reader},
 				authorizer:    authorizer,
@@ -67,7 +76,7 @@ func TestClassGetterWithAuthzFuncMemoization(t *testing.T) {
 			}
 
 			// second call hits the memo, so the class is authorized exactly once
-			require.Equal(t, []mocks.AuthZReq{
+			require.Equal(t, []authMocks.AuthZReq{
 				{Principal: principal, Verb: authorization.READ, Resources: tt.expectedResources},
 			}, authorizer.Calls())
 		})
@@ -77,7 +86,7 @@ func TestClassGetterWithAuthzFuncMemoization(t *testing.T) {
 func TestClassGetterWithAuthzFuncDoesNotMemoizeDenied(t *testing.T) {
 	principal := &models.Principal{}
 	reader := schema.NewMockSchemaReader(t)
-	authorizer := mocks.NewMockAuthorizer()
+	authorizer := authMocks.NewMockAuthorizer()
 	authorizer.SetErr(errors.New("denied"))
 	s := &Service{
 		schemaManager: &schema.Manager{SchemaReader: reader},
@@ -98,7 +107,7 @@ func TestClassGetterWithAuthzFuncMemoizesMissingClass(t *testing.T) {
 	principal := &models.Principal{}
 	reader := schema.NewMockSchemaReader(t)
 	reader.On("ReadOnlyClass", "Foo").Return((*models.Class)(nil))
-	authorizer := mocks.NewMockAuthorizer()
+	authorizer := authMocks.NewMockAuthorizer()
 	s := &Service{
 		schemaManager: &schema.Manager{SchemaReader: reader},
 		authorizer:    authorizer,
@@ -114,7 +123,7 @@ func TestClassGetterWithAuthzFuncMemoizesMissingClass(t *testing.T) {
 		require.Nil(t, class)
 		require.Contains(t, err.Error(), "could not find class Foo")
 	}
-	require.Equal(t, []mocks.AuthZReq{
+	require.Equal(t, []authMocks.AuthZReq{
 		{Principal: principal, Verb: authorization.READ, Resources: authorization.CollectionsData("Foo")},
 	}, authorizer.Calls())
 }
@@ -125,7 +134,7 @@ func TestClassGetterWithAuthzFuncMemoizesPerClass(t *testing.T) {
 	reader.On("ReadOnlyClass", mock.Anything).Return(func(name string) *models.Class {
 		return &models.Class{Class: name}
 	})
-	authorizer := mocks.NewMockAuthorizer()
+	authorizer := authMocks.NewMockAuthorizer()
 	s := &Service{
 		schemaManager: &schema.Manager{SchemaReader: reader},
 		authorizer:    authorizer,
@@ -139,8 +148,75 @@ func TestClassGetterWithAuthzFuncMemoizesPerClass(t *testing.T) {
 	}
 
 	// each distinct class is authorized once; repeats hit the memo
-	require.Equal(t, []mocks.AuthZReq{
+	require.Equal(t, []authMocks.AuthZReq{
 		{Principal: principal, Verb: authorization.READ, Resources: authorization.CollectionsData("Foo")},
 		{Principal: principal, Verb: authorization.READ, Resources: authorization.CollectionsData("Bar")},
 	}, authorizer.Calls())
+}
+
+func TestBatchObjectsSemaphore(t *testing.T) {
+	mockBatcher := batchMocks.NewMockBatcher(t)
+	logger := logrus.New()
+
+	entered := make(chan struct{}, 3)
+	done := make(chan struct{})
+	release := sync.OnceFunc(func() { close(done) })
+	t.Cleanup(release)
+	mockBatcher.EXPECT().BatchObjects(mock.Anything, mock.Anything).RunAndReturn(func(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+		entered <- struct{}{}
+		select {
+		case <-done:
+			return &pb.BatchObjectsReply{}, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	})
+
+	s := &Service{
+		batchObjectsSem: semaphore.NewWeighted(2),
+		batchHandler:    mockBatcher,
+		logger:          logger,
+	}
+
+	waitFor := func(ch <-chan struct{}, what string) {
+		t.Helper()
+		select {
+		case <-ch:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("timed out waiting for %s", what)
+		}
+	}
+
+	wg := &sync.WaitGroup{}
+	errs := make(chan error, 2)
+	for range 2 {
+		wg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer wg.Done()
+			_, err := s.BatchObjects(context.Background(), &pb.BatchObjectsRequest{})
+			errs <- err
+		}, logger)
+	}
+	waitFor(entered, "the first call to enter the handler")
+	waitFor(entered, "the second call to enter the handler")
+	require.False(t, s.batchObjectsSem.TryAcquire(1), "both slots must be held while two calls are in the handler")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+	defer cancel()
+	var err error
+	returned := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		defer close(returned)
+		_, err = s.BatchObjects(ctx, &pb.BatchObjectsRequest{})
+	}, logger)
+	waitFor(returned, "the third call to give up on its deadline")
+
+	release()
+	wg.Wait()
+
+	mockBatcher.AssertNumberOfCalls(t, "BatchObjects", 2)
+	require.Equal(t, codes.DeadlineExceeded, status.Code(err), "third call must time out waiting for a slot: %v", err)
+	require.NoError(t, <-errs)
+	require.NoError(t, <-errs)
+	require.True(t, s.batchObjectsSem.TryAcquire(2), "both slots must be free once the calls return")
 }

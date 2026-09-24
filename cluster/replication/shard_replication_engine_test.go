@@ -1200,6 +1200,95 @@ func TestShardReplicationEngine(t *testing.T) {
 		mockProducer.AssertExpectations(t)
 		mockConsumer.AssertExpectations(t)
 	})
+
+	t.Run("stopping the engine never closes the ops channel under the producer", func(t *testing.T) {
+		op := replication.NewShardReplicationOpAndStatus(
+			replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "shard1", api.COPY),
+			replication.NewShardReplicationStatus(api.REGISTERED),
+		)
+
+		tests := []struct {
+			name    string
+			produce func(ctx context.Context, out chan<- replication.ShardReplicationOpAndStatus)
+		}{
+			{
+				name: "parked in the send",
+				produce: func(ctx context.Context, out chan<- replication.ShardReplicationOpAndStatus) {
+					select {
+					case <-ctx.Done():
+					case out <- op:
+					}
+				},
+			},
+			{
+				name: "re-enters the send after cancellation",
+				produce: func(ctx context.Context, out chan<- replication.ShardReplicationOpAndStatus) {
+					<-ctx.Done()
+					time.Sleep(time.Millisecond)
+					select {
+					case <-ctx.Done():
+					case out <- op:
+					}
+				},
+			},
+		}
+
+		for _, test := range tests {
+			t.Run(test.name, func(t *testing.T) {
+				for i := range 20 {
+					logger, hook := logrustest.NewNullLogger()
+
+					started := make(chan struct{})
+					mockProducer := replication.NewMockOpProducer(t)
+					mockProducer.EXPECT().
+						Produce(mock.Anything, mock.Anything).
+						Run(func(ctx context.Context, out chan<- replication.ShardReplicationOpAndStatus) {
+							close(started)
+							test.produce(ctx, out)
+						}).
+						Once().
+						Return(nil)
+
+					mockConsumer := replication.NewMockOpConsumer(t)
+					mockConsumer.EXPECT().
+						Consume(mock.Anything, mock.Anything).
+						Run(func(ctx context.Context, in <-chan replication.ShardReplicationOpAndStatus) {
+							<-ctx.Done()
+						}).
+						Once().
+						Return(nil)
+
+					engine := replication.NewShardReplicationEngine(
+						logger,
+						"node1",
+						mockProducer,
+						mockConsumer,
+						0,
+						1, 1*time.Minute,
+						metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
+					)
+
+					var wg sync.WaitGroup
+					wg.Add(1)
+					var startErr error
+					go func() {
+						defer wg.Done()
+						startErr = engine.Start(context.Background())
+					}()
+
+					<-started
+					engine.Stop()
+					wg.Wait()
+
+					require.NoErrorf(t, startErr, "engine start should not return an error on iteration %d", i)
+					for _, entry := range hook.AllEntries() {
+						require.NotContainsf(t, entry.Message, "Recovered from panic",
+							"the ops channel was closed under the producer on iteration %d", i)
+					}
+				}
+			})
+		}
+	})
 }
 
 func TestEngineWithCallbacks(t *testing.T) {

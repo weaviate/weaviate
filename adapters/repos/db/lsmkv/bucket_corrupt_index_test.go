@@ -714,8 +714,7 @@ func TestInvertedSegmentIndexIsBoundedByItsKeyRegion(t *testing.T) {
 
 	b := newBucket()
 	for i := 0; i < 16; i++ {
-		require.NoError(t, b.MapSet([]byte(fmt.Sprintf("term-%03d", i)),
-			NewMapPairFromDocIdAndTf(uint64(i), 1, 1, false)))
+		require.NoError(t, b.InvertedSet([]byte(fmt.Sprintf("term-%03d", i)), uint64(i), 1, 1))
 	}
 	require.NoError(t, b.FlushAndSwitch())
 	require.NoError(t, b.Shutdown(ctx))
@@ -768,8 +767,7 @@ func TestInvertedSegmentWithKeyRegionOutsideItsDataFailsToOpen(t *testing.T) {
 			b, err := newBucket()
 			require.NoError(t, err)
 			for i := 0; i < 16; i++ {
-				require.NoError(t, b.MapSet([]byte(fmt.Sprintf("term-%03d", i)),
-					NewMapPairFromDocIdAndTf(uint64(i), 1, 1, false)))
+				require.NoError(t, b.InvertedSet([]byte(fmt.Sprintf("term-%03d", i)), uint64(i), 1, 1))
 			}
 			require.NoError(t, b.FlushAndSwitch())
 			require.NoError(t, b.Shutdown(ctx))

@@ -70,7 +70,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	}
 
 	// The change is validated, we can apply it in RAFT
-	fut := st.raft.Apply(cmdBytes, st.applyTimeout)
+	fut := st.raft.Load().Apply(cmdBytes, st.applyTimeout)
 
 	// Always call Error first otherwise the response can't  be read from the future
 	if err := fut.Error(); err != nil {
@@ -303,8 +303,8 @@ func (st *Store) Apply(l *raft.Log) any {
 			st.metrics.applyFailures.Inc()
 			_, leaderID := st.LeaderWithID()
 			nodeState := ""
-			if st.raft != nil {
-				nodeState = st.raft.State().String()
+			if rn := st.raft.Load(); rn != nil {
+				nodeState = rn.State().String()
 			}
 			st.log.WithFields(logrus.Fields{
 				"log_type":        l.Type,
@@ -315,7 +315,8 @@ func (st *Store) Apply(l *raft.Log) any {
 				"cmd_class":       cmd.Class,
 				"raft_leader":     string(leaderID),
 				"raft_node_state": nodeState,
-			}).WithError(ret.Error).Error("apply command")
+			}).WithFields(enterrors.DocsLinkFields(ret.Error)).
+				WithError(ret.Error).Error("apply command")
 			return
 		}
 

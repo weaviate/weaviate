@@ -449,17 +449,7 @@ func (s *schemaHandlers) getShardsStatus(params schema.SchemaObjectsShardsGetPar
 	status, err := s.manager.ShardsStatus(ctx, principal, params.ClassName, tenant)
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
-		switch {
-		case errors.As(err, &authzerrors.Forbidden{}):
-			return schema.NewSchemaObjectsShardsGetForbidden().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		case errors.Is(err, schemaUC.ErrNotFound):
-			return schema.NewSchemaObjectsShardsGetNotFound().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		default:
-			return schema.NewSchemaObjectsShardsGetInternalServerError().
-				WithPayload(errPayloadFromSingleErr(principal, err))
-		}
+		return shardsStorageStatusErrResponder(principal, err)
 	}
 
 	payload := status
@@ -497,11 +487,30 @@ func shardStatusErrResponder(principal *models.Principal, err error) middleware.
 	case errors.Is(err, schemaUC.ErrNotFound):
 		return schema.NewSchemaObjectsShardsUpdateNotFound().
 			WithPayload(errPayloadFromSingleErr(principal, err))
-	case cerrors.NamespaceErrRendersUnprocessable(err):
+	case errors.Is(err, schemaUC.ErrValidation), cerrors.NamespaceErrRendersUnprocessable(err):
 		return schema.NewSchemaObjectsShardsUpdateUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(principal, err))
 	default:
 		return schema.NewSchemaObjectsShardsUpdateInternalServerError().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	}
+}
+
+// shardsStorageStatusErrResponder maps a failed shard status read to its
+// response. An invalid class name answers 422.
+func shardsStorageStatusErrResponder(principal *models.Principal, err error) middleware.Responder {
+	switch {
+	case errors.As(err, &authzerrors.Forbidden{}):
+		return schema.NewSchemaObjectsShardsGetForbidden().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case errors.Is(err, schemaUC.ErrNotFound):
+		return schema.NewSchemaObjectsShardsGetNotFound().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	case errors.Is(err, schemaUC.ErrValidation):
+		return schema.NewSchemaObjectsShardsGetUnprocessableEntity().
+			WithPayload(errPayloadFromSingleErr(principal, err))
+	default:
+		return schema.NewSchemaObjectsShardsGetInternalServerError().
 			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 }

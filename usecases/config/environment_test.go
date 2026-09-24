@@ -12,11 +12,15 @@
 package config
 
 import (
+	"fmt"
 	"math"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -1179,67 +1183,121 @@ func TestEnvironmentDisableGraphQL(t *testing.T) {
 	}
 }
 
-func TestEnvironmentExperimentalRESTSearchEnabled(t *testing.T) {
-	factors := []struct {
-		name        string
-		value       []string
-		expected    bool
-		expectedErr bool
-	}{
-		{"Valid: true", []string{"true"}, true, false},
-		{"Valid: false", []string{"false"}, false, false},
-		{"Valid: 1", []string{"1"}, true, false},
-		{"Valid: 0", []string{"0"}, false, false},
-		{"Valid: on", []string{"on"}, true, false},
-		{"Valid: off", []string{"off"}, false, false},
-		// experimental feature: unset means disabled (opt-in)
-		{"not given", []string{}, false, false},
-	}
-	for _, tt := range factors {
-		t.Run(tt.name, func(t *testing.T) {
-			if len(tt.value) == 1 {
-				t.Setenv("EXPERIMENTAL_REST_SEARCH_ENABLED", tt.value[0])
-			}
-			conf := Config{}
-			err := FromEnv(&conf)
+func TestEnvironmentWeaviateLicense(t *testing.T) {
+	t.Run("well-formed key enables the license gate", func(t *testing.T) {
+		t.Setenv("LICENSE_KEY", wellFormedLicenseKey())
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
 
-			if tt.expectedErr {
-				require.NotNil(t, err)
-			} else {
-				require.Equal(t, tt.expected, conf.ExperimentalRESTSearchEnabled.Get())
-			}
-		})
-	}
+		require.True(t, conf.WeaviateLicense)
+	})
+
+	t.Run("malformed key disables the gate and logs a warning", func(t *testing.T) {
+		hook := logrustest.NewGlobal()
+		defer hook.Reset()
+
+		t.Setenv("LICENSE_KEY", "not-a-license-key")
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+
+		require.False(t, conf.WeaviateLicense)
+		entry := hook.LastEntry()
+		require.NotNil(t, entry)
+		require.Equal(t, logrus.WarnLevel, entry.Level)
+		require.Contains(t, entry.Message, "LICENSE_KEY")
+		require.NotContains(t, entry.Message, "not-a-license-key",
+			"the warning must never contain the key itself")
+	})
+
+	t.Run("unset key disables the gate without a warning", func(t *testing.T) {
+		hook := logrustest.NewGlobal()
+		defer hook.Reset()
+
+		// Explicitly empty so the test is hermetic even when the process
+		// environment has LICENSE_KEY set; os.Getenv sees the same branch.
+		t.Setenv("LICENSE_KEY", "")
+
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+
+		require.False(t, conf.WeaviateLicense)
+		for _, entry := range hook.AllEntries() {
+			require.NotContains(t, entry.Message, "LICENSE_KEY")
+		}
+	})
 }
 
-func TestEnvironmentWeaviateLicense(t *testing.T) {
-	factors := []struct {
-		name     string
-		value    []string
-		expected bool
-	}{
-		{"Valid: true", []string{"true"}, true},
-		{"Valid: on", []string{"on"}, true},
-		{"Valid: enabled", []string{"enabled"}, true},
-		{"Valid: 1", []string{"1"}, true},
-		{"Valid: false", []string{"false"}, false},
-		{"Valid: off", []string{"off"}, false},
-		{"Valid: 0", []string{"0"}, false},
-		{"Unrecognized value counts as off", []string{"yes"}, false},
-		{"Empty value counts as off", []string{""}, false},
-		{"not given", []string{}, false},
+func TestEnvironmentLicenseKeyFile(t *testing.T) {
+	writeKeyFile := func(t *testing.T, contents string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "license-key")
+		require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
+		return path
 	}
-	for _, tt := range factors {
-		t.Run(tt.name, func(t *testing.T) {
-			if len(tt.value) == 1 {
-				t.Setenv("WEAVIATE_LICENSE", tt.value[0])
-			}
-			conf := Config{}
-			require.NoError(t, FromEnv(&conf))
 
-			require.Equal(t, tt.expected, conf.WeaviateLicense.Get())
-		})
-	}
+	t.Run("file with well-formed key enables the gate", func(t *testing.T) {
+		t.Setenv("LICENSE_KEY", "")
+		t.Setenv("LICENSE_KEY_FILE", writeKeyFile(t, wellFormedLicenseKey()))
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+
+		require.True(t, conf.WeaviateLicense)
+	})
+
+	t.Run("trailing newline in the file is ignored", func(t *testing.T) {
+		t.Setenv("LICENSE_KEY", "")
+		t.Setenv("LICENSE_KEY_FILE", writeKeyFile(t, wellFormedLicenseKey()+"\n"))
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+
+		require.True(t, conf.WeaviateLicense)
+	})
+
+	t.Run("both LICENSE_KEY and LICENSE_KEY_FILE set is a startup error", func(t *testing.T) {
+		t.Setenv("LICENSE_KEY", wellFormedLicenseKey())
+		t.Setenv("LICENSE_KEY_FILE", writeKeyFile(t, wellFormedLicenseKey()))
+		conf := Config{}
+		require.ErrorContains(t, FromEnv(&conf), "mutually exclusive")
+	})
+
+	t.Run("unreadable file is a startup error", func(t *testing.T) {
+		t.Setenv("LICENSE_KEY", "")
+		t.Setenv("LICENSE_KEY_FILE", filepath.Join(t.TempDir(), "does-not-exist"))
+		conf := Config{}
+		require.ErrorContains(t, FromEnv(&conf), "LICENSE_KEY_FILE")
+	})
+
+	t.Run("file with malformed key disables the gate and logs a warning", func(t *testing.T) {
+		hook := logrustest.NewGlobal()
+		defer hook.Reset()
+
+		t.Setenv("LICENSE_KEY", "")
+		t.Setenv("LICENSE_KEY_FILE", writeKeyFile(t, "not-a-license-key"))
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+
+		require.False(t, conf.WeaviateLicense)
+		entry := hook.LastEntry()
+		require.NotNil(t, entry)
+		require.Equal(t, logrus.WarnLevel, entry.Level)
+		require.NotContains(t, entry.Message, "not-a-license-key",
+			"the warning must never contain the key itself")
+	})
+
+	t.Run("empty file disables the gate and logs a warning", func(t *testing.T) {
+		hook := logrustest.NewGlobal()
+		defer hook.Reset()
+
+		t.Setenv("LICENSE_KEY", "")
+		t.Setenv("LICENSE_KEY_FILE", writeKeyFile(t, ""))
+		conf := Config{}
+		require.NoError(t, FromEnv(&conf))
+
+		require.False(t, conf.WeaviateLicense)
+		entry := hook.LastEntry()
+		require.NotNil(t, entry)
+		require.Contains(t, entry.Message, "LICENSE_KEY_FILE")
+	})
 }
 
 func TestEnvironmentCORS_Headers(t *testing.T) {
@@ -1779,6 +1837,41 @@ func TestParseCollectionPropsTenants(t *testing.T) {
 			},
 		},
 
+		// every property
+		{
+			env: "Collection1:*",
+			expected: []CollectionPropsTenants{
+				{
+					Collection: "Collection1",
+					Props:      []string{AllProperties},
+				},
+			},
+		},
+		{
+			// no property can be named "*", so it never collides with one
+			env: "Collection1:prop1,*;Collection2:*,prop2",
+			expected: []CollectionPropsTenants{
+				{
+					Collection: "Collection1",
+					Props:      []string{"prop1", AllProperties},
+				},
+				{
+					Collection: "Collection2",
+					Props:      []string{AllProperties, "prop2"},
+				},
+			},
+		},
+		{
+			env: "Collection1:*:tenant1",
+			expected: []CollectionPropsTenants{
+				{
+					Collection: "Collection1",
+					Props:      []string{AllProperties},
+					Tenants:    []string{"tenant1"},
+				},
+			},
+		},
+
 		// unique / merged
 		{
 			env: "Collection1:prop1,prop2:tenant1,tenant2;Collection2:propX;Collection1:prop2,prop3;Collection3::tenantY;Collection1:prop4:tenant2,tenant3",
@@ -1801,6 +1894,19 @@ func TestParseCollectionPropsTenants(t *testing.T) {
 
 		// errors
 		{
+			// merging would drop the bare segment, leaving a value that asks
+			// for two different property sets reading as one of them. The
+			// partial result stands beside the error, as every error case here
+			env:            "Collection1:prop1;Collection1",
+			expected:       []CollectionPropsTenants{{Collection: "Collection1", Props: []string{"prop1"}}},
+			expectedErrMsg: "both with and without a property list",
+		},
+		{
+			env:            "Collection1;Collection1:prop1",
+			expected:       []CollectionPropsTenants{{Collection: "Collection1"}},
+			expectedErrMsg: "both with and without a property list",
+		},
+		{
 			env:            "lowerCaseCollectionName",
 			expectedErrMsg: "invalid collection name",
 		},
@@ -1815,6 +1921,15 @@ func TestParseCollectionPropsTenants(t *testing.T) {
 		{
 			env:            "Collection1::InvalidChars#",
 			expectedErrMsg: "invalid tenant/shard name",
+		},
+		{
+			// the tenant position is not widened
+			env:            "Collection1:prop1:*",
+			expectedErrMsg: "invalid tenant/shard name",
+		},
+		{
+			env:            "*:prop1",
+			expectedErrMsg: "invalid collection name",
 		},
 		{
 			env:            ":prop",
@@ -2500,6 +2615,133 @@ func TestNamespaceCleanupIntervalValidation(t *testing.T) {
 	})
 }
 
+func TestBatchStreamFromEnv(t *testing.T) {
+	names := []string{
+		"BATCH_STREAM_GATE_RATIO",
+		"BATCH_STREAM_ENGAGE_RATIO",
+		"BATCH_STREAM_MAX_ACK_DELAY",
+		"BATCH_STREAM_HOLD_SECONDS",
+	}
+	unsetAll := func(t *testing.T) {
+		for _, name := range names {
+			t.Setenv(name, "")
+		}
+	}
+
+	t.Run("config-file values survive unset variables", func(t *testing.T) {
+		unsetAll(t)
+
+		configFileName := "config.yaml"
+		configYaml := `batch_stream:
+  gate_ratio: 0.8
+  engage_ratio: 0.4
+  max_ack_delay: 1500ms
+  hold_seconds: 12
+`
+		filepath := fmt.Sprintf("%s/%s", t.TempDir(), configFileName)
+		require.NoError(t, os.WriteFile(filepath, []byte(configYaml), 0o600))
+
+		file, err := os.ReadFile(filepath)
+		require.NoError(t, err)
+		weaviateConfig := &WeaviateConfig{}
+		config, err := weaviateConfig.parseConfigFile(file, configFileName)
+		require.NoError(t, err)
+
+		expected := BatchStream{
+			gateRatio:   new(0.8),
+			engageRatio: new(0.4),
+			maxAckDelay: new(1500 * time.Millisecond),
+			holdSeconds: new(12),
+		}
+		require.Equal(t, expected, config.BatchStream)
+
+		// LoadConfig reads the file before the environment, so an unset variable
+		// has to leave the parsed value alone.
+		require.NoError(t, FromEnv(&config))
+		require.Equal(t, expected, config.BatchStream)
+	})
+
+	t.Run("a json config file loads the same fields", func(t *testing.T) {
+		configJSON := `{"batch_stream": {"gate_ratio": 0.8, "engage_ratio": 0.4, "max_ack_delay": 1500000000, "hold_seconds": 12}}`
+		weaviateConfig := &WeaviateConfig{}
+		config, err := weaviateConfig.parseConfigFile([]byte(configJSON), "config.json")
+		require.NoError(t, err)
+		require.Equal(t, BatchStream{
+			gateRatio:   new(0.8),
+			engageRatio: new(0.4),
+			maxAckDelay: new(1500 * time.Millisecond),
+			holdSeconds: new(12),
+		}, config.BatchStream)
+	})
+
+	t.Run("each variable overrides its field", func(t *testing.T) {
+		t.Setenv("BATCH_STREAM_GATE_RATIO", "0.6")
+		t.Setenv("BATCH_STREAM_ENGAGE_RATIO", "0.2")
+		t.Setenv("BATCH_STREAM_MAX_ACK_DELAY", "750ms")
+		t.Setenv("BATCH_STREAM_HOLD_SECONDS", "7")
+
+		config := Config{BatchStream: BatchStream{
+			gateRatio:   new(0.99),
+			engageRatio: new(0.98),
+			maxAckDelay: new(time.Minute),
+			holdSeconds: new(99),
+		}}
+		require.NoError(t, FromEnv(&config))
+		require.Equal(t, BatchStream{
+			gateRatio:   new(0.6),
+			engageRatio: new(0.2),
+			maxAckDelay: new(750 * time.Millisecond),
+			holdSeconds: new(7),
+		}, config.BatchStream)
+	})
+
+	t.Run("a ratio outside 0..1 is rejected", func(t *testing.T) {
+		for _, name := range []string{"BATCH_STREAM_GATE_RATIO", "BATCH_STREAM_ENGAGE_RATIO"} {
+			unsetAll(t)
+			t.Setenv(name, "1.5")
+			config := Config{}
+			require.ErrorContains(t, FromEnv(&config), name)
+		}
+	})
+
+	t.Run("a gate at or below the engage ratio is rejected", func(t *testing.T) {
+		for _, gate := range []string{"0.5", "0.4", "0"} {
+			unsetAll(t)
+			// engage stays at its 0.5 default
+			t.Setenv("BATCH_STREAM_GATE_RATIO", gate)
+			config := Config{}
+			require.ErrorContains(t, FromEnv(&config), "BATCH_STREAM_GATE_RATIO")
+		}
+	})
+
+	t.Run("an explicit zero is kept", func(t *testing.T) {
+		unsetAll(t)
+		t.Setenv("BATCH_STREAM_ENGAGE_RATIO", "0")
+		t.Setenv("BATCH_STREAM_MAX_ACK_DELAY", "0s")
+		t.Setenv("BATCH_STREAM_HOLD_SECONDS", "0")
+		config := Config{}
+		require.NoError(t, FromEnv(&config))
+		require.Equal(t, BatchStream{
+			engageRatio: new(0.0),
+			maxAckDelay: new(time.Duration(0)),
+			holdSeconds: new(0),
+		}, config.BatchStream)
+		require.Equal(t, DefaultBatchStreamGateRatio, config.BatchStream.GateRatio())
+	})
+
+	t.Run("a negative hold or delay is rejected", func(t *testing.T) {
+		for name, value := range map[string]string{
+			"BATCH_STREAM_HOLD_SECONDS":  "-1",
+			"BATCH_STREAM_MAX_ACK_DELAY": "-1s",
+		} {
+			unsetAll(t)
+			t.Setenv(name, value)
+			config := Config{}
+			require.ErrorContains(t, FromEnv(&config), name)
+		}
+	})
+}
+
 func TestEnvironmentQueryAdmissionBudget(t *testing.T) {
 	assertNonNegativeIntEnv(t, "QUERY_ADMISSION_BUDGET",
 		func(c *Config) int { return c.QueryAdmissionBudget })
@@ -2568,6 +2810,175 @@ func TestEnvironmentQueryAdmissionControlDisabled(t *testing.T) {
 			require.Nil(t, err)
 			require.NotNil(t, conf.QueryAdmissionControlDisabled)
 			require.Equal(t, tt.expected, conf.QueryAdmissionControlDisabled.Get())
+		})
+	}
+}
+
+// The index is resident for the life of the process, so the wide reading of a
+// value is the expensive one. "*" is written out, and a tenant is refused.
+func TestEnvironmentIndexRangeableInMemory(t *testing.T) {
+	tests := []struct {
+		name          string
+		env           string
+		expectedAll   bool
+		expectedProps map[string][]string
+		errMsg        string
+	}{
+		{
+			// the config file's value stands, which is why every other row
+			// starts from a pre-set true
+			name:        "unset leaves the config file's value alone",
+			expectedAll: true,
+		},
+		{
+			name:        "true covers every collection",
+			env:         "true",
+			expectedAll: true,
+		},
+		{
+			name:        "1 covers every collection",
+			env:         "1",
+			expectedAll: true,
+		},
+		{
+			name:        "on covers every collection",
+			env:         "on",
+			expectedAll: true,
+		},
+		{
+			// "True" matches ClassNameRegexCore, so a parse-first order would
+			// read it as a collection of that name
+			name:        "True covers every collection",
+			env:         "True",
+			expectedAll: true,
+		},
+		{
+			name: "false covers nothing",
+			env:  "false",
+		},
+		{
+			name: "off covers nothing",
+			env:  "off",
+		},
+		{
+			name:        "enabled covers every collection",
+			env:         "enabled",
+			expectedAll: true,
+		},
+		{
+			name: "0 covers nothing",
+			env:  "0",
+		},
+		{
+			// naming no collection, so it stays off rather than failing startup
+			name: "no covers nothing rather than failing",
+			env:  "no",
+		},
+		{
+			// a ConfigMap written as a "|" block scalar delivers this
+			name:        "a trailing newline is trimmed, not parsed",
+			env:         "true\n",
+			expectedAll: true,
+		},
+		{
+			name:          "surrounding spaces are trimmed, not parsed",
+			env:           "  Foo:prop1  ",
+			expectedProps: map[string][]string{"Foo": {"prop1"}},
+		},
+		{
+			name:          "one property",
+			env:           "Foo:prop1",
+			expectedProps: map[string][]string{"Foo": {"prop1"}},
+		},
+		{
+			name:          "several properties over several collections",
+			env:           "Foo:prop1,prop2;Bar:prop3",
+			expectedProps: map[string][]string{"Foo": {"prop1", "prop2"}, "Bar": {"prop3"}},
+		},
+		{
+			name:          "every property of a collection",
+			env:           "Foo:*",
+			expectedProps: map[string][]string{"Foo": {"*"}},
+		},
+		{
+			// the same string means no properties to REINDEX_INDEXES_AT_STARTUP,
+			// which shares this parser
+			name:   "a collection with no properties is refused",
+			env:    "Foo",
+			errMsg: "with no properties",
+		},
+		{
+			name:   "a collection with an empty property list is refused",
+			env:    "Foo:",
+			errMsg: "with no properties",
+		},
+		{
+			name:   "a bare collection beside a listed one is refused too",
+			env:    "Foo:prop1;Foo",
+			errMsg: "both with and without a property list",
+		},
+		{
+			name:   "a tenant is refused, not ignored",
+			env:    "Foo:prop1:tenantA",
+			errMsg: "takes no tenants",
+		},
+		{
+			name:   "a tenant is refused even without properties",
+			env:    "Foo::tenantA",
+			errMsg: "takes no tenants",
+		},
+		{
+			name:   "an unparseable value fails",
+			env:    "foo:prop1",
+			errMsg: "INDEX_RANGEABLE_IN_MEMORY",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// spelled out rather than taken from the constant, because this
+			// is what an operator types
+			t.Setenv("INDEX_RANGEABLE_IN_MEMORY", tt.env)
+
+			// pre-set the way a config file would, so a value that selects
+			// properties is seen to replace it rather than add to it
+			conf := Config{Persistence: Persistence{IndexRangeableInMemory: true}}
+			err := FromEnv(&conf)
+			if tt.errMsg != "" {
+				require.ErrorContains(t, err, tt.errMsg)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.expectedAll, conf.Persistence.IndexRangeableInMemory)
+			require.Equal(t, tt.expectedProps, conf.Persistence.IndexRangeableInMemoryProps)
+		})
+	}
+}
+
+// A reindex matches a property by name, so "*" would reindex nothing and say
+// so only at Debug level.
+func TestEnvironmentReindexIndexesAtStartupRejectsAllProperties(t *testing.T) {
+	tests := []struct {
+		name   string
+		env    string
+		errMsg string
+	}{
+		{name: "named properties are reindexed", env: "Foo:prop1,prop2"},
+		{name: "every property is refused", env: "Foo:*", errMsg: "takes no"},
+		{name: "every property is refused beside a named one", env: "Foo:prop1,*", errMsg: "takes no"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("REINDEX_INDEXES_AT_STARTUP", tt.env)
+
+			conf := Config{}
+			err := FromEnv(&conf)
+			if tt.errMsg != "" {
+				require.ErrorContains(t, err, tt.errMsg)
+				return
+			}
+			require.NoError(t, err)
 		})
 	}
 }

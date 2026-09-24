@@ -170,6 +170,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 			SeparateObjectsCompactions:     m.db.config.SeparateObjectsCompactions,
 			CycleManagerRoutinesFactor:     m.db.config.CycleManagerRoutinesFactor,
 			IndexRangeableInMemory:         m.db.config.IndexRangeableInMemory,
+			IndexRangeableInMemoryProps:    m.db.config.IndexRangeableInMemoryProps[class.Class],
 			ObjectsTTLBatchSize:            m.db.config.ObjectsTTLBatchSize,
 			ObjectsTTLPauseEveryNoBatches:  m.db.config.ObjectsTTLPauseEveryNoBatches,
 			ObjectsTTLPauseDuration:        m.db.config.ObjectsTTLPauseDuration,
@@ -307,6 +308,16 @@ func (m *Migrator) DropClass(ctx context.Context, className string, hasFrozen bo
 		return m.cloud.Delete(ctx, className, "", "")
 	}
 
+	return nil
+}
+
+func (m *Migrator) DropOrphanedClass(ctx context.Context, className string, hasFrozen bool) error {
+	if err := m.db.DropOrphanedClass(schema.ClassName(className)); err != nil {
+		return err
+	}
+	if m.cloud != nil && hasFrozen {
+		return m.cloud.Delete(ctx, className, "", "")
+	}
 	return nil
 }
 
@@ -591,11 +602,6 @@ func (m *Migrator) UpdateProperty(ctx context.Context, className string, propert
 }
 
 func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
-	indexID := indexID(schema.ClassName(className))
-
-	m.classLocks.Lock(indexID)
-	defer m.classLocks.Unlock(indexID)
-
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		// index not yet local (RAFT schema not applied on this node) or class does not exist
@@ -606,11 +612,6 @@ func (m *Migrator) GetShardsQueueSize(ctx context.Context, className, tenant str
 }
 
 func (m *Migrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
-	indexID := indexID(schema.ClassName(className))
-
-	m.classLocks.Lock(indexID)
-	defer m.classLocks.Unlock(indexID)
-
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		// index not yet local (RAFT schema not applied on this node) or class does not exist
@@ -621,11 +622,6 @@ func (m *Migrator) GetShardsStatus(ctx context.Context, className, tenant string
 }
 
 func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string, schemaVersion uint64) error {
-	indexID := indexID(schema.ClassName(className))
-
-	m.classLocks.Lock(indexID)
-	defer m.classLocks.Unlock(indexID)
-
 	idx := m.db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		// index not yet local (RAFT schema not applied on this node) or class does not exist
@@ -637,11 +633,6 @@ func (m *Migrator) UpdateShardStatus(ctx context.Context, className, shardName, 
 
 // NewTenants creates new partitions
 func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates []*schemaUC.CreateTenantPayload) error {
-	indexID := indexID(schema.ClassName(class.Class))
-
-	m.classLocks.Lock(indexID)
-	defer m.classLocks.Unlock(indexID)
-
 	idx := m.db.GetIndex(schema.ClassName(class.Class))
 	if idx == nil {
 		return fmt.Errorf("cannot find index for %q", class.Class)
@@ -680,11 +671,6 @@ func (m *Migrator) UpdateTenantsForProcess(ctx context.Context, class *models.Cl
 func (m *Migrator) updateTenants(ctx context.Context, class *models.Class, updates []*schemaUC.UpdateTenantPayload,
 	loadShard func(ctx context.Context, idx *Index, name string) error,
 ) error {
-	indexID := indexID(schema.ClassName(class.Class))
-
-	m.classLocks.Lock(indexID)
-	defer m.classLocks.Unlock(indexID)
-
 	idx := m.db.GetIndex(schema.ClassName(class.Class))
 	if idx == nil {
 		return fmt.Errorf("cannot find index for %q", class.Class)
@@ -741,7 +727,8 @@ func (m *Migrator) updateTenants(ctx context.Context, class *models.Class, updat
 					idx.logger.WithFields(logrus.Fields{
 						"action": "tenant_activation_lazy_load_shard",
 						"shard":  name,
-					}).Errorf("loading shard %q failed: %v", name, err)
+					}).WithFields(enterrors.DocsLinkFields(err)).
+						Errorf("loading shard %q failed: %v", name, err)
 				}
 				return nil
 			})
@@ -814,11 +801,6 @@ func tenantNames(tenants []*schemaUC.UpdateTenantPayload) []string {
 
 // DeleteTenants deletes tenant from the database and data from the disk, no matter the current status of the tenant
 func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error {
-	indexID := indexID(schema.ClassName(class))
-
-	m.classLocks.Lock(indexID)
-	defer m.classLocks.Unlock(indexID)
-
 	idx := m.db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return nil

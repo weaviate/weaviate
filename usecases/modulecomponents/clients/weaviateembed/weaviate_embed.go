@@ -20,6 +20,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"time"
 
 	"github.com/pkg/errors"
@@ -53,6 +54,8 @@ type embeddingsResponseError struct {
 type embeddingsResponse[T dto.Embedding] struct {
 	Embeddings []T      `json:"embeddings,omitempty"`
 	Metadata   metadata `json:"metadata,omitempty"`
+	// parsed from the response headers, nil when the service sent none
+	RateLimits *modulecomponents.RateLimits `json:"-"`
 }
 
 type metadata struct {
@@ -125,7 +128,26 @@ func (c *Client[T]) Vectorize(ctx context.Context, input []string, query bool, d
 		return nil, errors.Errorf("empty embeddings response")
 	}
 
+	resBody.RateLimits = c.rateLimitsFromHeaders(res.Header)
 	return &resBody, nil
+}
+
+func (c *Client[T]) rateLimitsFromHeaders(header http.Header) *modulecomponents.RateLimits {
+	limitTokens, limitErr := strconv.Atoi(header.Get("x-ratelimit-limit-tokens"))
+	remainingTokens, remainingErr := strconv.Atoi(header.Get("x-ratelimit-remaining-tokens"))
+	resetTokens, resetErr := time.ParseDuration(header.Get("x-ratelimit-reset-tokens"))
+	if limitErr != nil || remainingErr != nil || resetErr != nil {
+		return nil
+	}
+
+	return &modulecomponents.RateLimits{
+		LimitTokens:       limitTokens,
+		RemainingTokens:   remainingTokens,
+		ResetTokens:       time.Now().Add(resetTokens),
+		LimitRequests:     c.defaultRPM,
+		RemainingRequests: c.defaultRPM,
+		ResetRequests:     time.Now().Add(time.Minute),
+	}
 }
 
 func (c *Client[T]) getWeaviateEmbedURL(ctx context.Context, baseURL string) (string, error) {

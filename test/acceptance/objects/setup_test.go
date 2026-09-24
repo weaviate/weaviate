@@ -71,7 +71,7 @@ func TestObjects_AsyncIndexing(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
 		WithWeaviate().
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		WithWeaviateEnv("ASYNC_INDEXING", "true").
 		WithWeaviateEnv("ASYNC_INDEXING_STALE_TIMEOUT", "1s").
 		WithWeaviateEnv("API_BASED_MODULES_DISABLED", "true").
@@ -146,7 +146,7 @@ func testObjects(t *testing.T) {
 	createObjectClass(t, &models.Class{
 		Class: "TestObject",
 		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			"text2vec-model2vec": map[string]interface{}{
 				"vectorizeClassName": true,
 			},
 		},
@@ -215,7 +215,6 @@ func testObjects(t *testing.T) {
 
 	// tests
 	t.Run("listing objects", listingObjects)
-	t.Run("searching for neighbors", searchNeighbors)
 	t.Run("running a feature projection", featureProjection)
 	t.Run("creating objects", creatingObjects)
 

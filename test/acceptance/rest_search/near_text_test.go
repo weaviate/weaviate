@@ -191,7 +191,7 @@ func assertScoredHits(t *testing.T, out map[string]any, wantHits int, requirePos
 func movieClass() *models.Class {
 	return &models.Class{
 		Class:      "Movie",
-		Vectorizer: "text2vec-contextionary",
+		Vectorizer: "text2vec-model2vec",
 		Properties: []*models.Property{
 			{Name: "title", DataType: schema.DataTypeText.PropString()},
 			{Name: "year", DataType: schema.DataTypeInt.PropString()},
@@ -221,9 +221,7 @@ func TestRESTSearchNearText(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().
 		WithWeaviate().
-		// the endpoint is experimental and off by default; enable it
-		WithWeaviateEnv("EXPERIMENTAL_REST_SEARCH_ENABLED", "true").
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		Start(ctx)
 	require.NoError(t, err)
 	defer func() {
@@ -243,7 +241,7 @@ func TestRESTSearchNearText(t *testing.T) {
 	}
 	authorClass := &models.Class{
 		Class:      "Author",
-		Vectorizer: "text2vec-contextionary",
+		Vectorizer: "text2vec-model2vec",
 		Properties: []*models.Property{
 			{Name: "name", DataType: schema.DataTypeText.PropString()},
 			// second hop: Movie -> hasAuthor -> Author -> worksFor -> Studio
@@ -277,7 +275,7 @@ func TestRESTSearchNearText(t *testing.T) {
 	// non-cosine index: certainty cannot be computed
 	paintingClass := &models.Class{
 		Class:             "Painting",
-		Vectorizer:        "text2vec-contextionary",
+		Vectorizer:        "text2vec-model2vec",
 		VectorIndexConfig: map[string]any{"distance": "l2-squared"},
 		Properties: []*models.Property{
 			{Name: "title", DataType: schema.DataTypeText.PropString()},
@@ -285,7 +283,7 @@ func TestRESTSearchNearText(t *testing.T) {
 	}
 	journalClass := &models.Class{
 		Class:      "Journal",
-		Vectorizer: "text2vec-contextionary",
+		Vectorizer: "text2vec-model2vec",
 		Properties: []*models.Property{
 			{Name: "title", DataType: schema.DataTypeText.PropString()},
 		},
@@ -756,52 +754,4 @@ func TestRESTSearchNearText(t *testing.T) {
 		// bind-tier errors use the same ErrorResponse shape as handler errors
 		assert.Contains(t, out, "error", "bind errors must be ErrorResponse-shaped: %v", out)
 	})
-}
-
-// TestRESTSearchDisabled pins the opt-in default: with
-// EXPERIMENTAL_REST_SEARCH_ENABLED unset, every search answers 422 before
-// any schema access.
-func TestRESTSearchDisabled(t *testing.T) {
-	ctx := context.Background()
-	compose, err := docker.New().
-		// no EXPERIMENTAL_REST_SEARCH_ENABLED: the feature is off by default
-		WithWeaviate().
-		Start(ctx)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, compose.Terminate(ctx))
-	}()
-
-	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
-	helper.SetupClient(compose.GetWeaviate().URI())
-
-	status, out := postNearText(t, "Anything", map[string]any{
-		"query": []string{"anything"},
-	})
-	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
-	assert.Contains(t, errMessage(t, out), "not enabled")
-
-	// the gate covers every search endpoint
-	status, out = postBm25(t, "Anything", map[string]any{
-		"query": "anything",
-	})
-	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
-	assert.Contains(t, errMessage(t, out), "not enabled")
-
-	status, out = postHybrid(t, "Anything", map[string]any{
-		"query": "anything",
-	})
-	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
-	assert.Contains(t, errMessage(t, out), "not enabled")
-
-	status, out = postNearObject(t, "Anything", map[string]any{
-		"id": "dd44bbee-ca5f-4db7-a412-5fc6a2300001",
-	})
-	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
-	assert.Contains(t, errMessage(t, out), "not enabled")
-
-	// the gate also covers the sibling aggregate endpoint
-	status, out = postAggregate(t, "Anything", map[string]any{})
-	require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
-	assert.Contains(t, errMessage(t, out), "not enabled")
 }

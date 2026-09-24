@@ -357,7 +357,7 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 ) (uint64, error) {
 	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsMetadata(class, shard)...); err != nil {
@@ -372,7 +372,7 @@ func (h *Handler) ShardsStatus(ctx context.Context,
 ) (models.ShardStatusList, error) {
 	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsMetadata(class, shard)...); err != nil {
