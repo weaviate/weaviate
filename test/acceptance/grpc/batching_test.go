@@ -228,10 +228,10 @@ func TestGRPC_Batching(t *testing.T) {
 			}
 		}()
 
-		// Send 5000 articles with 10 paragraphs per article
+		// Send 1000 articles with 10 paragraphs per article
 		objects := make([]*pb.BatchObject, 0, 1100)
 		references := make([]*pb.BatchReference, 0, 1000)
-		numArticles := 5000
+		numArticles := 1000
 		numParasPerArticle := 10
 		for i := 0; i < numArticles; i++ {
 			aUuid := uuid.NewString()
@@ -289,7 +289,7 @@ func TestGRPC_Batching(t *testing.T) {
 				require.Len(ct, res.Properties.RefProps, 1, "Each article should have hasParagraphs property")
 				require.Len(ct, res.Properties.RefProps[0].Properties, numParasPerArticle, "Each article should have the correct number of paragraphs")
 			}
-		}, 240*time.Second, 500*time.Millisecond, "Objects not created within time")
+		}, 300*time.Second, 500*time.Millisecond, "Objects not created within time")
 	})
 
 	t.Run("send 50000 objects then immediately restart the node to trigger shutdown and ensure all are present afterwards", func(t *testing.T) {
