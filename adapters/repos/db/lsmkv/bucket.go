@@ -1828,6 +1828,8 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 	walTooLarge := uint64(commitLogSize) >= b.walThreshold
 	dirtyTooLong := b.active.DirtyDuration() >= b.flushDirtyAfter
 	shouldSwitch := memtableTooLarge || walTooLarge || dirtyTooLong
+	// read under the lock, a FlushAndSwitch from elsewhere replaces b.active
+	cycleLength := b.active.ActiveDuration()
 
 	// If true, the parent shard has indicated that it has
 	// entered an immutable state. During this time, the
@@ -1853,7 +1855,6 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 	b.flushLock.RUnlock()
 	if shouldSwitch {
 		b.haltedFlushTimer.Reset()
-		cycleLength := b.active.ActiveDuration()
 		if err := b.FlushAndSwitch(); err != nil {
 			b.logger.WithField("action", "lsm_memtable_flush").
 				WithField("path", b.GetDir()).
