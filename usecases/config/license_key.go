@@ -13,30 +13,35 @@ package config
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"strings"
 
 	"github.com/sirupsen/logrus"
 )
 
-// weaviateLicenseEnabled resolves the license key configured via LICENSE_KEY
-// or LICENSE_KEY_FILE and reports whether it is well-formed. All license key
-// handling lives in this one method; the caller just assigns the result.
-//
-// Setting both variables, or pointing LICENSE_KEY_FILE at an unreadable file,
-// is a startup error: those are clear misconfigurations that should fail fast
-// rather than silently fall back to free mode. An unset, empty or malformed
-// key is not an error — it simply runs in free mode with a warning. The key
-// itself is never logged.
+// weaviateLicenseEnabled reports whether the key in LICENSE_KEY or
+// LICENSE_KEY_FILE is well-formed, after trimming surrounding whitespace.
+// Setting both, even to whitespace, or an unreadable LICENSE_KEY_FILE fails
+// startup. An empty key file, a whitespace-only LICENSE_KEY or a malformed
+// key logs a warning that never contains the key. An unset key logs nothing.
 func weaviateLicenseEnabled() (bool, error) {
-	key, keyFile := os.Getenv("LICENSE_KEY"), os.Getenv("LICENSE_KEY_FILE")
-	if key != "" && keyFile != "" {
+	envKey, keyFile := os.Getenv("LICENSE_KEY"), os.Getenv("LICENSE_KEY_FILE")
+	if envKey != "" && keyFile != "" {
 		return false, fmt.Errorf("LICENSE_KEY and LICENSE_KEY_FILE are mutually exclusive; set only one")
 	}
+	key := strings.TrimSpace(envKey)
 	if keyFile != "" {
 		contents, err := os.ReadFile(keyFile)
 		if err != nil {
+			// The path is the key itself when the key was pasted into
+			// LICENSE_KEY_FILE, so keep it out of the startup error.
+			var pathErr *fs.PathError
+			if errors.As(err, &pathErr) {
+				err = pathErr.Err
+			}
 			return false, fmt.Errorf("cannot read LICENSE_KEY_FILE: %w", err)
 		}
 		key = strings.TrimSpace(string(contents))
@@ -45,6 +50,9 @@ func weaviateLicenseEnabled() (bool, error) {
 	switch {
 	case key == "" && keyFile != "":
 		logrus.Warn("LICENSE_KEY_FILE is set but the file contains no key; " +
+			"Weaviate-licensed functionality is disabled")
+	case key == "" && envKey != "":
+		logrus.Warn("LICENSE_KEY is set but contains no key; " +
 			"Weaviate-licensed functionality is disabled")
 	case key != "" && !licenseKeyWellFormed(key):
 		logrus.Warn("the license key configured via LICENSE_KEY or LICENSE_KEY_FILE is not a " +

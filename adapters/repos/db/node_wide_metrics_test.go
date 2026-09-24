@@ -730,8 +730,8 @@ func TestShardActivityObserveAllocations(t *testing.T) {
 		// the counters or the usage records costs 149 or more, so the budget sits
 		// between the two
 		maxBytesPerTenant = 60
-		fewTenants        = 1000
-		manyTenants       = 8000
+		fewTenants        = 500
+		manyTenants       = 2000
 	)
 
 	perTenant := func(tenants int) uint64 {

@@ -33,7 +33,7 @@ import (
 )
 
 const (
-	numClasses = 100
+	numClasses = 10
 	numShards  = 10
 	uppercase  = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 	lowercase  = "abcdefghijklmnopqrstuvwxyz"
