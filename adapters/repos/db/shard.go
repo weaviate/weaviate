@@ -496,11 +496,11 @@ type Shard struct {
 
 	// dimensionsLock is read-held by every write to the dimensions bucket, and
 	// write-held by a recalculation to start and to switch buckets, so that no
-	// write is caught halfway by either. It guards dimensionsRecalculation and
-	// dimensionsBucketLost, see [Shard.leaveWithoutDimensionsBucket].
+	// write is caught halfway by either. It guards dimensionsRecalculation.
 	dimensionsLock          sync.RWMutex
 	dimensionsRecalculation *dimensionsRecalculation
-	dimensionsBucketLost    bool
+	// see [Shard.leaveWithoutDimensionsBucket]
+	dimensionsBucketLost atomic.Bool
 
 	// shutdownRequested marks shard as requested for shutdown
 	shutdownRequested atomic.Bool

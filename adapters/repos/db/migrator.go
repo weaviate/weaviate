@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/router"
+	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -959,8 +960,8 @@ func (m *Migrator) UpdateReplicationConfig(ctx context.Context, className string
 //
 // A shard that fails is logged and does not keep the remaining ones from their
 // turn, unless ctx has expired. The error returned sums up what was left undone,
-// failed shards as well as shards that went away before their turn, for the
-// caller to report: nothing rebuilds them once the flag is removed.
+// failed shards, shards that went away before their turn, and inactive tenants,
+// for the caller to report: nothing rebuilds them once the flag is removed.
 func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	// before that the indices are not all there, and none would not be an error
 	if !m.db.StartupComplete() {
@@ -979,7 +980,12 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 			break
 		}
 	}
-	if run.failed.Load() > 0 || run.skipped.Load() > 0 {
+	for _, index := range m.db.snapshotIndices() {
+		if err := run.countInactive(index); err != nil {
+			return run.incomplete(err)
+		}
+	}
+	if run.failed.Load() > 0 || run.skipped.Load() > 0 || run.inactive > 0 {
 		return run.incomplete(nil)
 	}
 	logger.WithField("shards", run.shards.Load()).
@@ -1005,6 +1011,8 @@ type dimensionsRecalculationRun struct {
 	seen map[*Index]map[string]struct{}
 
 	shards, skipped, failed, objects atomic.Int64
+	// tenants of this node never taken on, as they are not active
+	inactive int
 
 	skippedNamesLock sync.Mutex
 	skippedNames     []string
@@ -1082,6 +1090,29 @@ func (r *dimensionsRecalculationRun) recalculate(ctx context.Context, index *Ind
 	}
 }
 
+func (r *dimensionsRecalculationRun) countInactive(index *Index) error {
+	className := index.Config.ClassName.String()
+	err := index.schemaReader.Read(className, false, func(_ *models.Class, state *sharding.State) error {
+		if state == nil {
+			return fmt.Errorf("reindex dimensions: no sharding state for class %s", className)
+		}
+		for name, physical := range state.Physical {
+			if _, ok := r.seen[index][name]; ok {
+				continue
+			}
+			if state.IsLocalShard(name) && physical.ActivityStatus() != models.TenantActivityStatusHOT {
+				r.inactive++
+			}
+		}
+		return nil
+	})
+	if errors.Is(err, clusterschema.ErrClassNotFound) {
+		// dropped meanwhile, nothing left to reindex
+		return nil
+	}
+	return err
+}
+
 // incomplete sums up a run that left shards as they were.
 func (r *dimensionsRecalculationRun) incomplete(cause error) error {
 	var msg strings.Builder
@@ -1095,6 +1126,9 @@ func (r *dimensionsRecalculationRun) incomplete(cause error) error {
 			fmt.Fprintf(&msg, ", and %d more", skipped-maxReportedErrors)
 		}
 		msg.WriteString(")")
+	}
+	if r.inactive > 0 {
+		fmt.Fprintf(&msg, ", %d inactive tenants not reindexed, activate them to have them reindexed", r.inactive)
 	}
 	if cause != nil {
 		return fmt.Errorf("%s: %w", msg.String(), cause)
