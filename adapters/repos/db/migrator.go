@@ -1037,7 +1037,15 @@ func (r *dimensionsRecalculationRun) pass(ctx context.Context, indices []*Index)
 			}
 			scheduled++
 			eg.Go(func() error {
+				// the group recovers a panic into an error, which is not counted otherwise
+				done := false
+				defer func() {
+					if !done {
+						r.failed.Add(1)
+					}
+				}()
 				r.recalculate(ctx, index, name)
+				done = true
 				return nil
 			}, name)
 		}
