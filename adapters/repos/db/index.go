@@ -4553,6 +4553,27 @@ func (i *Index) DebugResetVectorIndex(ctx context.Context, shardName, targetVect
 	return nil
 }
 
+// DebugResetGeoIndex is DebugResetVectorIndex for propName's geo index. It is
+// for debugging only, under the same assumptions.
+func (i *Index) DebugResetGeoIndex(ctx context.Context, shardName, propName string) error {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil {
+		return err
+	}
+	defer release()
+	if shard == nil {
+		return errors.New("shard not found")
+	}
+
+	// the shard refills it in the background
+	err = shard.DebugResetGeoIndex(ctx, propName)
+	if err != nil {
+		return errors.Wrap(err, "failed to reset geo index")
+	}
+
+	return nil
+}
+
 func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector string) error {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
