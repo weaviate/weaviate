@@ -13,15 +13,20 @@ package selfrecovery
 
 import (
 	"context"
+	"fmt"
+	"sort"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	batchclient "github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/nodes"
+	"github.com/weaviate/weaviate/client/replication"
 	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
@@ -276,6 +281,158 @@ func assertShardObjectCount(t *testing.T, class, node, shard string, wantCount i
 		require.True(ct, statuses[shard].Loaded, "node %s shard %s loaded", node, shard)
 		assert.Equal(ct, wantCount, statuses[shard].ObjectCount, "node %s shard %s object count", node, shard)
 	}, 3*time.Minute, 1*time.Second, "node %s shard %s never reported %d objects", node, shard, wantCount)
+}
+
+func srMultiShardClass(name string, shards int) *models.Class {
+	c := srParagraphClass(name)
+	c.ShardingConfig = map[string]interface{}{"desiredCount": shards}
+	return c
+}
+
+func classDirInContainer(class string) string {
+	return "/data/" + strings.ToLower(class)
+}
+
+func shardDirInContainer(class, shard string) string {
+	return classDirInContainer(class) + "/" + shard
+}
+
+// removePathsAndKill refuses a missing path, removes the rest, then SIGKILLs: a graceful stop would flush into them.
+func removePathsAndKill(ctx context.Context, t *testing.T, compose *docker.DockerCompose, idx int, paths ...string) {
+	t.Helper()
+	c, err := compose.ContainerAt(idx)
+	require.NoError(t, err, "removePathsAndKill: container at index %d", idx)
+	cmd := append([]string{"sh", "-c", `for p in "$@"; do test -d "$p" || exit 3; done; rm -rf "$@"`, "sh"}, paths...)
+	code, _, err := c.Container().Exec(ctx, cmd)
+	require.NoError(t, err, "removePathsAndKill: exec rm %v", paths)
+	require.Equal(t, 0, code, "removePathsAndKill: rm %v on node %d exited %d", paths, idx, code)
+	common.StopNodeAtWithTimeout(ctx, t, compose, idx, 0)
+}
+
+func removeShardDirsAndKill(ctx context.Context, t *testing.T, compose *docker.DockerCompose, idx int, class string, shards ...string) {
+	t.Helper()
+	paths := make([]string, len(shards))
+	for i, shard := range shards {
+		paths[i] = shardDirInContainer(class, shard)
+	}
+	removePathsAndKill(ctx, t, compose, idx, paths...)
+}
+
+func removeClassDirAndKill(ctx context.Context, t *testing.T, compose *docker.DockerCompose, idx int, class string) {
+	t.Helper()
+	removePathsAndKill(ctx, t, compose, idx, classDirInContainer(class))
+}
+
+// startNode starts node idx and re-points the client at node-0.
+func startNode(ctx context.Context, t *testing.T, compose *docker.DockerCompose, idx int) {
+	t.Helper()
+	common.StartNodeAt(ctx, t, compose, idx)
+	helper.SetupClient(compose.GetWeaviate().URI())
+}
+
+// selfRecoveryOpTargets maps op id to "collection/shard" for node's SELF_RECOVERY ops.
+func selfRecoveryOpTargets(t *testing.T, targetNode string) (map[string]string, error) {
+	t.Helper()
+	body, err := helper.Client(t).Replication.ListReplication(
+		replication.NewListReplicationParams().WithTargetNode(&targetNode), nil)
+	if err != nil {
+		return nil, err
+	}
+	targets := map[string]string{}
+	for _, op := range body.Payload {
+		if op.Type == nil || *op.Type != "SELF_RECOVERY" || op.ID == nil || op.Collection == nil || op.Shard == nil {
+			continue
+		}
+		targets[op.ID.String()] = *op.Collection + "/" + *op.Shard
+	}
+	return targets, nil
+}
+
+func mustSelfRecoveryOpTargets(t *testing.T, targetNode string) map[string]string {
+	t.Helper()
+	targets, err := selfRecoveryOpTargets(t, targetNode)
+	require.NoError(t, err)
+	return targets
+}
+
+// newSelfRecoveryTargets: sorted "collection/shard" of the ops registered since before.
+func newSelfRecoveryTargets(t *testing.T, targetNode string, before map[string]string) ([]string, error) {
+	t.Helper()
+	targets, err := selfRecoveryOpTargets(t, targetNode)
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for id, target := range targets {
+		if _, seen := before[id]; !seen {
+			out = append(out, target)
+		}
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+func mustNewSelfRecoveryTargets(t *testing.T, targetNode string, before map[string]string) []string {
+	t.Helper()
+	targets, err := newSelfRecoveryTargets(t, targetNode, before)
+	require.NoError(t, err)
+	return targets
+}
+
+func waitNewSelfRecoveryOp(t *testing.T, targetNode string, before map[string]string) {
+	t.Helper()
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		targets, err := newSelfRecoveryTargets(t, targetNode, before)
+		require.NoError(ct, err)
+		assert.NotEmpty(ct, targets, "expected a new SELF_RECOVERY op for %s", targetNode)
+	}, 5*time.Minute, 1*time.Second, "no new SELF_RECOVERY op observed for %s", targetNode)
+}
+
+// waitShardObjectCounts blocks until node's loaded shards of class total wantTotal objects; the verbose count lags ingest.
+func waitShardObjectCounts(t *testing.T, class, node string, wantTotal int64) map[string]int64 {
+	t.Helper()
+	counts := map[string]int64{}
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		statuses, err := shardStatusesOnNode(t, class, node)
+		require.NoError(ct, err)
+		require.NotEmpty(ct, statuses, "node %s lists no shards of %s", node, class)
+		next := map[string]int64{}
+		var total int64
+		for name, s := range statuses {
+			require.True(ct, s.Loaded, "node %s shard %s loaded", node, name)
+			next[name] = s.ObjectCount
+			total += s.ObjectCount
+		}
+		require.Equal(ct, wantTotal, total, "node %s object total for %s", node, class)
+		counts = next
+	}, 3*time.Minute, 1*time.Second, "node %s never reported %d objects for %s", node, wantTotal, class)
+	return counts
+}
+
+// assertShardObjectCounts blocks until node reports every shard in want loaded with that count.
+func assertShardObjectCounts(t *testing.T, class, node string, want map[string]int64) {
+	t.Helper()
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		statuses, err := shardStatusesOnNode(t, class, node)
+		require.NoError(ct, err)
+		for shard, count := range want {
+			require.Contains(ct, statuses, shard, "node %s shard %s", node, shard)
+			require.True(ct, statuses[shard].Loaded, "node %s shard %s loaded", node, shard)
+			assert.Equal(ct, count, statuses[shard].ObjectCount, "node %s shard %s object count", node, shard)
+		}
+	}, 3*time.Minute, 1*time.Second, "node %s never reported the wanted object counts for %s", node, class)
+}
+
+func readObjectsFromNode(t *testing.T, compose *docker.DockerCompose, class, idPrefix string, n int, node string) {
+	t.Helper()
+	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		for i := 0; i < n; i++ {
+			id := strfmt.UUID(fmt.Sprintf("%s-%012d", idPrefix, i+1))
+			obj, err := common.GetObjectFromNode(t, compose.GetWeaviate().URI(), class, id, node)
+			assert.NoError(ct, err)
+			assert.NotNil(ct, obj, "object %s missing on %s", id, node)
+		}
+	}, 30*time.Second, 1*time.Second, "objects of %s not readable on %s", class, node)
 }
 
 // assertNodeRecovered blocks until node reports wantShards loaded shards with wantCount objects each.
