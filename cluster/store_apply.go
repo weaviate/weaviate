@@ -148,8 +148,7 @@ func (st *Store) taskOrMovementCollection(req *api.ApplyRequest) (string, error)
 		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
 			return "", fmt.Errorf("unmarshal add-task subcommand: %w", err)
 		}
-		collection, _ := st.distributedTasksManager.CollectionOfTask(sub.Namespace, sub.Payload)
-		return collection, nil
+		return st.distributedTasksManager.CollectionOfTask(sub.Namespace, sub.Payload), nil
 
 	default:
 		return "", nil
