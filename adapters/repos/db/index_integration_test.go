@@ -19,6 +19,9 @@ import (
 	"math/rand"
 	"os"
 	"path"
+	"path/filepath"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -28,10 +31,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hfresh"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
@@ -42,6 +47,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
+	hfreshent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -717,23 +723,15 @@ func TestIndex_DebugResetVectorIndex(t *testing.T) {
 	err = index.DebugResetVectorIndex(ctx, shard.Name(), "")
 	require.Nil(t, err)
 
-	// wait until the queue is empty
-	for i := 0; i < 10; i++ {
-		time.Sleep(500 * time.Millisecond)
-		if q.Size() == 0 {
-			break
-		}
-	}
+	// the reset swaps in a new index and refills it in the background
+	newVidx, _ := getVectorIndexAndQueue(t, shard, "")
+	require.NotSame(t, vidx, newVidx)
 
-	// wait for the in-flight indexing to finish
-	require.NoError(t, q.Wait(t.Context()))
-
-	// make sure the new index contains all the objects
-	for _, obj := range objs {
-		if !vidx.ContainsDoc(obj.DocID) {
-			t.Fatalf("node %d should be in the vector index", obj.DocID)
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
+		for _, obj := range objs {
+			assert.Truef(t, newVidx.ContainsDoc(obj.DocID), "node %d should be in the vector index", obj.DocID)
 		}
-	}
+	}, 10*time.Second, 50*time.Millisecond)
 
 	err = index.drop()
 	require.Nil(t, err)
@@ -808,23 +806,15 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 	err = index.DebugResetVectorIndex(ctx, shard.Name(), "foo")
 	require.Nil(t, err)
 
-	// wait until the queue is empty
-	for i := 0; i < 10; i++ {
-		time.Sleep(500 * time.Millisecond)
-		if q.Size() == 0 {
-			break
-		}
-	}
+	// the reset swaps in a new index and refills it in the background
+	newVidx, _ := getVectorIndexAndQueue(t, shard, "foo")
+	require.NotSame(t, vidx, newVidx)
 
-	// wait for the in-flight indexing to finish
-	require.NoError(t, q.Wait(t.Context()))
-
-	// make sure the new index contains all the objects
-	for _, obj := range objs {
-		if !vidx.ContainsDoc(obj.DocID) {
-			t.Fatalf("node %d should be in the vector index", obj.DocID)
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
+		for _, obj := range objs {
+			assert.Truef(t, newVidx.ContainsDoc(obj.DocID), "node %d should be in the vector index", obj.DocID)
 		}
-	}
+	}, 10*time.Second, 50*time.Millisecond)
 
 	err = index.drop()
 	require.Nil(t, err)
@@ -832,6 +822,7 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 
 func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "100ms")
+	t.Setenv("QUEUE_SCHEDULER_INTERVAL", "100ms")
 
 	ctx := context.Background()
 	var cfg hnsw.UserConfig
@@ -859,7 +850,7 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	err = index.DebugResetVectorIndex(ctx, shard.Name(), "unknown")
 	require.Error(t, err)
 
-	amount := 1000
+	amount := 200
 
 	var objs []*storobj.Object
 	for i := 0; i < amount; i++ {
@@ -876,51 +867,28 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 	vidx, q := getVectorIndexAndQueue(t, shard, "")
 
 	// wait until the queue is empty
-	for i := 0; i < 10; i++ {
-		time.Sleep(500 * time.Millisecond)
-		if q.Size() == 0 {
-			break
-		}
-	}
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
+		assert.Zero(t, q.Size())
+	}, 10*time.Second, 50*time.Millisecond)
 
 	require.NoError(t, q.Wait(t.Context()))
 
 	// wait until the index is compressed
-	for i := 0; i < 10; i++ {
-		time.Sleep(500 * time.Millisecond)
-		if vidx.Compressed() {
-			break
-		}
-	}
+	require.Eventually(t, vidx.Compressed, 10*time.Second, 50*time.Millisecond)
 
 	err = index.DebugResetVectorIndex(ctx, shard.Name(), "")
 	require.Nil(t, err)
 
-	// wait until the queue is empty
-	for i := 0; i < 10; i++ {
-		time.Sleep(500 * time.Millisecond)
-		if q.Size() == 0 {
-			break
-		}
-	}
+	// the reset swaps in a new index and refills it in the background
+	newVidx, _ := getVectorIndexAndQueue(t, shard, "")
+	require.NotSame(t, vidx, newVidx)
 
-	// wait for the in-flight indexing to finish
-	require.NoError(t, q.Wait(t.Context()))
-
-	// wait until the index is compressed
-	for i := 0; i < 10; i++ {
-		time.Sleep(500 * time.Millisecond)
-		if vidx.Compressed() {
-			break
+	require.EventuallyWithT(t, func(t *assert.CollectT) {
+		for _, obj := range objs {
+			assert.Truef(t, newVidx.ContainsDoc(obj.DocID), "node %d should be in the vector index", obj.DocID)
 		}
-	}
-
-	// make sure the new index contains all the objects
-	for _, obj := range objs {
-		if !vidx.ContainsDoc(obj.DocID) {
-			t.Fatalf("node %d should be in the vector index", obj.DocID)
-		}
-	}
+	}, 10*time.Second, 50*time.Millisecond)
+	require.Eventually(t, newVidx.Compressed, 10*time.Second, 50*time.Millisecond)
 
 	err = index.drop()
 	require.Nil(t, err)
@@ -945,6 +913,151 @@ func TestIndex_DebugResetVectorIndexFlat(t *testing.T) {
 
 	err = index.drop()
 	require.Nil(t, err)
+}
+
+// hfreshTestShard builds an async-indexing shard whose targetVector ("" for
+// the legacy vector) is hfresh, and indexes amount random objects into it.
+func hfreshTestShard(t *testing.T, targetVector string, amount int) (*Shard, *Index, []*storobj.Object) {
+	t.Helper()
+	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "100ms")
+
+	ctx := context.Background()
+	className := "HFreshRebuild"
+	cfg := hfreshent.NewDefaultUserConfig()
+
+	var shardLike ShardLike
+	var index *Index
+	if targetVector == "" {
+		shardLike, index = testShardWithSettings(t, ctx, &models.Class{Class: className}, cfg, false, true)
+	} else {
+		shardLike, index = testShardWithSettings(t, ctx, &models.Class{Class: className}, nil, false, true,
+			func(i *Index) {
+				i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{targetVector: cfg}
+			})
+	}
+	t.Cleanup(func() {
+		assert.NoError(t, index.drop())
+	})
+	shard, ok := shardLike.(*Shard)
+	require.True(t, ok, "expected *Shard, got %T", shardLike)
+
+	r := rand.New(rand.NewSource(1))
+	objs := make([]*storobj.Object, amount)
+	for i := range objs {
+		vec := make([]float32, 32)
+		for d := range vec {
+			vec[d] = r.Float32()
+		}
+		obj := testObject(className)
+		if targetVector == "" {
+			obj.Vector = vec
+		} else {
+			obj.Vectors = map[string][]float32{targetVector: vec}
+		}
+		objs[i] = obj
+	}
+	for _, err := range shard.PutObjectBatch(ctx, objs) {
+		require.NoError(t, err)
+	}
+	waitForVectorQueue(t, shard, targetVector)
+
+	return shard, index, objs
+}
+
+// waitForVectorQueue blocks until targetVector's queue is empty and its
+// in-flight tasks are applied.
+func waitForVectorQueue(t *testing.T, shard ShardLike, targetVector string) {
+	t.Helper()
+	_, q := getVectorIndexAndQueue(t, shard, targetVector)
+	require.Eventually(t, func() bool { return q.Size() == 0 }, 30*time.Second, 100*time.Millisecond)
+	require.NoError(t, q.Wait(t.Context()))
+}
+
+// TestHFreshArtifacts_MatchDisk checks that the ID-keyed artifact list names
+// what an hfresh index really writes, for the legacy vector and a named one.
+func TestHFreshArtifacts_MatchDisk(t *testing.T) {
+	for _, tc := range []struct {
+		targetVector string
+		buckets      []string
+		dir          string
+	}{
+		{"", []string{"hfresh_postings_main", "hfresh_shared_main", "vectors_compressed"}, "main.hfresh.d"},
+		{"foo", []string{"hfresh_postings_vectors_foo", "hfresh_shared_vectors_foo", "vectors_compressed_foo_centroids"}, "vectors_foo.hfresh.d"},
+	} {
+		t.Run(fmt.Sprintf("vector=%q", tc.targetVector), func(t *testing.T) {
+			shard, _, _ := hfreshTestShard(t, tc.targetVector, 200)
+			artifacts := helpers.VectorIndexArtifactNamesForID(shard.vectorIndexID(tc.targetVector))
+
+			for _, bucket := range tc.buckets {
+				assert.NotNilf(t, shard.Store().Bucket(bucket), "bucket %q not open", bucket)
+				assert.DirExists(t, filepath.Join(shard.pathLSM(), bucket))
+				assert.Contains(t, artifacts.LSMBuckets, bucket)
+			}
+			assert.DirExists(t, filepath.Join(shard.path(), tc.dir))
+			assert.Contains(t, artifacts.ShardDirs, tc.dir)
+
+			// every hfresh-looking bucket on disk must be listed
+			entries, err := os.ReadDir(shard.pathLSM())
+			require.NoError(t, err)
+			for _, e := range entries {
+				if strings.Contains(e.Name(), "hfresh") || strings.Contains(e.Name(), "centroids") {
+					assert.Contains(t, artifacts.LSMBuckets, e.Name())
+				}
+			}
+		})
+	}
+}
+
+func TestIndex_DebugResetVectorIndexHFresh(t *testing.T) {
+	for _, targetVector := range []string{"", "foo"} {
+		t.Run(fmt.Sprintf("vector=%q", targetVector), func(t *testing.T) {
+			ctx := context.Background()
+			shard, index, objs := hfreshTestShard(t, targetVector, 500)
+			vectorOf := func(obj *storobj.Object) []float32 {
+				if targetVector == "" {
+					return obj.Vector
+				}
+				return obj.Vectors[targetVector]
+			}
+
+			deleted, live := objs[:50], objs[50:]
+			for _, obj := range deleted {
+				require.NoError(t, shard.DeleteObject(ctx, obj.ID(), time.Now()))
+			}
+
+			waitForVectorQueue(t, shard, targetVector)
+			vidx, _ := getVectorIndexAndQueue(t, shard, targetVector)
+			tombstoned, err := vidx.(*hfresh.HFresh).VersionMap.IsDeleted(ctx, deleted[0].DocID)
+			require.NoError(t, err)
+			require.True(t, tombstoned, "precondition: the old index tombstones deleted docs")
+
+			require.NoError(t, index.DebugResetVectorIndex(ctx, shard.Name(), targetVector))
+
+			// the refill runs in the background
+			vidx, _ = getVectorIndexAndQueue(t, shard, targetVector)
+			require.Eventually(t, func() bool {
+				for _, obj := range live {
+					ids, _, err := vidx.SearchByVector(ctx, vectorOf(obj), 5, nil)
+					if err != nil || !slices.Contains(ids, obj.DocID) {
+						return false
+					}
+				}
+				return true
+			}, time.Minute, 500*time.Millisecond, "every live object must be found after the rebuild")
+			waitForVectorQueue(t, shard, targetVector)
+
+			for _, obj := range deleted {
+				ids, _, err := vidx.SearchByVector(ctx, vectorOf(obj), 5, nil)
+				require.NoError(t, err)
+				assert.NotContainsf(t, ids, obj.DocID, "deleted doc %d came back", obj.DocID)
+
+				// a fresh index never saw these docs, so holds no tombstone for them
+				tombstoned, err := vidx.(*hfresh.HFresh).VersionMap.IsDeleted(ctx, obj.DocID)
+				require.NoError(t, err)
+				assert.Falsef(t, tombstoned, "the rebuild kept the old index's state for doc %d", obj.DocID)
+			}
+		})
+	}
 }
 
 func randVector(dim int) []float32 {

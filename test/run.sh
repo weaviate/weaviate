@@ -277,7 +277,7 @@ function main() {
       fi
     fi
 
-    if $run_acceptance_only_authz || $run_acceptance_only_python
+    if $run_acceptance_only_authz || $run_acceptance_only_python || $run_acceptance_only_fast_group_3
     then
       build_mockoidc_docker_image_for_tests
     fi
