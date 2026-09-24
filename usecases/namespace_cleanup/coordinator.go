@@ -70,9 +70,9 @@ type userLister interface {
 // raftExecutor is the subset of cluster.Raft used here. The RBAC writes
 // replicate through RAFT like the rest, so a follower's store is cleaned too.
 type raftExecutor interface {
-	DeleteUsersInNamespace(ctx context.Context, name string) error
 	leader.ClassWriter
 	leader.AliasWriter
+	DeleteUsersInNamespace(ctx context.Context, name string) error
 	RemoveNamespaceEntity(ctx context.Context, name string) (uint64, error)
 	DeleteRoles(names ...string) error
 	RevokeRolesForUser(user string, roles ...string) error
