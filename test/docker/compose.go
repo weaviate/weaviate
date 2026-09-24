@@ -149,6 +149,7 @@ type Compose struct {
 	weaviateAdminlistReadOnlyUsers []string
 	withWeaviateDbUsers            bool
 	withWeaviateNamespaces         bool
+	licenseKey                     string
 	withWeaviateRbac               bool
 	weaviateRbacRoots              []string
 	weaviateRbacRootGroups         []string
@@ -738,7 +739,9 @@ func (d *Compose) WithDbUsers() *Compose {
 // disables GraphQL, which Config.Validate requires whenever namespaces are on.
 // Config.Validate also requires RBAC on namespace-enabled clusters, so callers
 // that need a bootable NS cluster must pair this with WithRBAC()/WithRbacRoots().
-// This helper does not auto-enable RBAC.
+// This helper does not auto-enable RBAC. Each node gets the key in
+// WEAVIATE_LICENSE_KEY as LICENSE_KEY unless the test sets its own, and Start
+// fails if WEAVIATE_LICENSE_KEY is unset.
 func (d *Compose) WithNamespaces() *Compose {
 	d.withWeaviateNamespaces = true
 	return d
@@ -789,6 +792,15 @@ func (d *Compose) WithAutoschema() *Compose {
 }
 
 func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
+	// Read the license key before anything starts, so a missing key leaves no
+	// network behind.
+	if d.withWeaviateNamespaces {
+		key, err := LicenseKey()
+		if err != nil {
+			return nil, err
+		}
+		d.licenseKey = key
+	}
 	// Telemetry is off by default so nothing reaches the real endpoint. Setting
 	// TELEMETRY_URL opts in and redirects every payload to that sink. An explicit
 	// DISABLE_TELEMETRY (either value) always wins.
@@ -1191,6 +1203,13 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		// 404 that arrives once the leader has finished tearing down the
 		// namespace's classes, aliases, and users.
 		settings["NAMESPACE_CLEANUP_INTERVAL"] = "1s"
+		// A test's own key wins, and Weaviate refuses to start with both
+		// LICENSE_KEY and LICENSE_KEY_FILE set.
+		_, hasKey := settings["LICENSE_KEY"]
+		_, hasKeyFile := settings["LICENSE_KEY_FILE"]
+		if !hasKey && !hasKeyFile {
+			settings["LICENSE_KEY"] = d.licenseKey
+		}
 	}
 
 	if d.withAutoschema {
