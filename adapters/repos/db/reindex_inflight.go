@@ -160,6 +160,8 @@ func reindexGateUnavailableError(collection, shardName, reason string) error {
 	)
 }
 
+// reindexInFlightError formats the operator-facing rejection.
+//
 // This gate never sees the task's status, so it states the cancel remedy
 // with its condition attached rather than branching on it.
 func reindexInFlightError(collection, shardName string) error {
