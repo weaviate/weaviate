@@ -352,3 +352,46 @@ func TestHFreshReassignAllShardsRunsInBackground(t *testing.T) {
 	}
 	require.Equal(t, "b", <-started)
 }
+
+type fakeVectorIndexResetter struct{ err error }
+
+func (f fakeVectorIndexResetter) DebugResetVectorIndex(context.Context, string, string) error {
+	return f.err
+}
+
+func TestRebuildVectorIndexHandler(t *testing.T) {
+	tests := []struct {
+		name       string
+		query      string
+		async      bool
+		noIndex    bool
+		resetErr   error
+		wantStatus int
+		wantBody   string
+	}{
+		{name: "async indexing off", query: "collection=C&shard=s", wantStatus: http.StatusNotImplemented, wantBody: "async indexing is not enabled\n"},
+		{name: "missing shard", query: "collection=C", async: true, wantStatus: http.StatusBadRequest, wantBody: "collection and shard are required\n"},
+		{name: "unknown collection", query: "collection=C&shard=s", async: true, noIndex: true, wantStatus: http.StatusNotFound, wantBody: "collection not found\n"},
+		{name: "unknown shard", query: "collection=C&shard=s", async: true, resetErr: errors.New("shard not found"), wantStatus: http.StatusNotFound, wantBody: "shard or vector index not found\n"},
+		{name: "unknown vector", query: "collection=C&shard=s&vector=v", async: true, resetErr: errors.New("vector index not found"), wantStatus: http.StatusNotFound, wantBody: "shard or vector index not found\n"},
+		{name: "reset fails", query: "collection=C&shard=s", async: true, resetErr: errors.New("failed to reset vector index: drop vector index: boom"), wantStatus: http.StatusInternalServerError, wantBody: "failed to reset vector index\n"},
+		{name: "accepted", query: "collection=C&shard=s", async: true, wantStatus: http.StatusAccepted},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			handler := newRebuildVectorIndexHandler(logger, tc.async, func(schema.ClassName) debugVectorIndexResetter {
+				if tc.noIndex {
+					return nil
+				}
+				return fakeVectorIndexResetter{err: tc.resetErr}
+			})
+
+			rec := httptest.NewRecorder()
+			handler(rec, httptest.NewRequest(http.MethodPost, "/debug/index/rebuild/vector?"+tc.query, nil))
+
+			assert.Equal(t, tc.wantStatus, rec.Code)
+			assert.Equal(t, tc.wantBody, rec.Body.String())
+		})
+	}
+}
