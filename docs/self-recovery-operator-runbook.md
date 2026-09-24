@@ -25,8 +25,10 @@ Also confirm:
 
 - The affected collections have **replication factor ≥ 2** (a peer holds the data).
 - The cluster is **HEALTHY** and the surviving nodes keep **RAFT quorum** while this node is down.
-- The **whole** data dir will be missing — a fresh PV satisfies this. Recovering a single
-  deleted shard dir on an otherwise-intact node is **not** supported.
+- For this scenario the **whole** data dir will be missing — a fresh PV satisfies this. A node
+  that kept its RAFT state but lost one or more shard dirs recovers them through the same
+  startup hook (see `docs/self-recovery.md`); there an empty fallback counts under
+  `weaviate_self_recovery_no_data_empty_total` (alert), not the bootstrap bucket.
 
 ## Optional tuning to speed up the copy
 
