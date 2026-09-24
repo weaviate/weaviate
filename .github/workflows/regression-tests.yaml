@@ -1,0 +1,167 @@
+name: Regression tests
+
+# Runs the acceptance and module suites that PR CI skips on merges
+# (pull_requests.yaml) against one published build, identified by the Docker
+# tag ci/push_docker.sh pushed for it (<version>-<sha7>). weaviate-qa's
+# scheduled sweep starts this workflow with the same tag it gives the e2e
+# suites, so core and e2e results for one build share the version in the
+# test reporter.
+#
+# The tag's commit is checked out and run.sh builds the test image from it, as
+# in PR CI. The job list is read from that commit's own pull_requests.yaml, so
+# a stable-branch commit runs the suites and flags defined on that branch.
+
+on:
+  workflow_dispatch:
+    inputs:
+      weaviate_version:
+        description: Docker tag of the build to test (<version>-<sha7>), e.g. 1.41.0-dev-2eda1ed
+        required: true
+        type: string
+      report_tests:
+        description: Upload JUnit results to the test reporter
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: regression-tests-${{ inputs.weaviate_version }}
+  cancel-in-progress: false
+
+env:
+  # pull_requests.yaml job ids skipped on merges. Not included: the modules
+  # large/light/api jobs (paid API keys, opt-in via commit message) and
+  # Acceptance-Tests-github-4-cores (self-hosted runner).
+  REGRESSION_JOBS: >-
+    Acceptance-Tests
+    Acceptance-Tests-4-cores
+    Acceptance-Reindex-Tests
+    Acceptance-DropVectorIndex-Tests
+    Acceptance-Backup-Dedupe-Tests
+    Modules-Acceptance-Tests
+
+jobs:
+  resolve:
+    name: resolve build
+    runs-on: ubuntu-latest
+    outputs:
+      commit: ${{ steps.commit.outputs.commit }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      junit: ${{ steps.junit.outputs.supported }}
+    steps:
+      - name: Resolve the tag's commit
+        id: commit
+        env:
+          TAG: ${{ inputs.weaviate_version }}
+          REPORT: ${{ inputs.report_tests }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha7="${TAG##*-}"
+          if [[ ! "$sha7" =~ ^[0-9a-f]{7}$ ]]; then
+            echo "::error::'$TAG' does not end in a 7-character commit SHA (<version>-<sha7>)"
+            exit 1
+          fi
+          # The reporter rejects a version that is not SemVer (e.g. preview-* tags).
+          if [[ "$REPORT" == "true" && ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+            echo "::error::report_tests needs a <version>-<sha7> tag; got '$TAG'"
+            exit 1
+          fi
+          commit=$(gh api "repos/${GITHUB_REPOSITORY}/commits/${sha7}" --jq .sha)
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+          echo "Testing $TAG at commit $commit" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.commit.outputs.commit }}
+          sparse-checkout: |
+            .github/workflows/pull_requests.yaml
+            test/tools
+          sparse-checkout-cone-mode: false
+
+      - name: Build the job matrix from the commit's pull_requests.yaml
+        id: matrix
+        run: |
+          file=.github/workflows/pull_requests.yaml
+          include='[]'
+          for job in $REGRESSION_JOBS; do
+            if [[ "$(JOB="$job" yq 'has("jobs") and (.jobs | has(strenv(JOB)))' "$file")" != "true" ]]; then
+              echo "::notice::$job is not defined at this commit; skipped"
+              continue
+            fi
+            entries=$(JOB="$job" yq -o=json -I=0 '
+              .jobs[strenv(JOB)] as $j
+              | [$j.strategy.matrix.include[] | {
+                  "group": strenv(JOB),
+                  "runner": $j."runs-on",
+                  "name": .name,
+                  "test": .test,
+                  "grpc_replication": (.grpc_replication // "" | tostring),
+                  "job_name": ((strenv(JOB) | downcase) + "-" + .name)
+                }]' "$file")
+            include=$(jq -c --argjson e "$entries" '. + $e' <<<"$include")
+          done
+          if [[ "$(jq length <<<"$include")" == "0" ]]; then
+            echo "::error::no regression jobs found in $file"
+            exit 1
+          fi
+          echo "matrix={\"include\":$include}" >> "$GITHUB_OUTPUT"
+          jq -r '.[] | "- \(.job_name) (\(.runner)): ./test/run.sh \(.test)"' <<<"$include" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check JUnit support at this commit
+        id: junit
+        run: |
+          # test/tools/gotest_junit.sh (JUNIT_DIR) is not on every stable branch.
+          if [[ -f test/tools/gotest_junit.sh ]]; then
+            echo "supported=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "supported=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::this commit's run.sh has no JUNIT_DIR support; results will not be reported"
+          fi
+
+  tests:
+    name: ${{ matrix.job_name }}
+    needs: resolve
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.resolve.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.resolve.outputs.commit }}
+
+      - name: Set up Go
+        uses: ./.github/actions/setup-go
+
+      - name: Login to Docker Hub
+        uses: ./.github/actions/docker-login
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      # No retry wrapper, unlike PR CI: a test that passes only on retry is
+      # a flake the reporter should record.
+      - name: Run tests
+        env:
+          JUNIT_DIR: ${{ github.workspace }}/junit
+          REPLICATION_GRPC_ENABLED: ${{ matrix.grpc_replication }}
+          WCS_DUMMY_CI_PW: ${{ secrets.WCS_DUMMY_CI_PW }}
+          WCS_DUMMY_CI_PW_2: ${{ secrets.WCS_DUMMY_CI_PW_2 }}
+          TEST_ARGS: ${{ matrix.test }}
+        run: ./test/run.sh $TEST_ARGS
+
+      - name: Report test results
+        if: always() && inputs.report_tests && needs.resolve.outputs.junit == 'true'
+        # Pinned by SHA: weaviate/weaviate only allows SHA-pinned actions. Bump it
+        # when the reporter's v1 tag moves.
+        uses: weaviate/weaviate-test-reporter/action@97bbef9069ea5193ebb72e986b9975222253bb92 # v1
+        with:
+          weaviate_url: ${{ secrets.WCD_TEST_REPORT_URL }}
+          weaviate_api_key: ${{ secrets.WCD_TEST_REPORT_KEY }}
+          junit_path: ${{ github.workspace }}/junit/*.xml
+          job_name: ${{ matrix.job_name }}
+          version_under_test: ${{ inputs.weaviate_version }}
+          job_status: ${{ job.status }}
