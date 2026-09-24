@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/utils"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
+	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -341,6 +342,69 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.True(t, tryNTimesWithWait(10, time.Millisecond*200, srv.Ready))
 	schemaReader = srv.SchemaReader()
 	assert.Equal(t, info, schemaReader.ClassInfo("C"))
+}
+
+// TestRaftUpdateClass_NamespaceGate pins that Raft.UpdateClass puts its origin on
+// the command, by updating a class in a suspended namespace.
+func TestRaftUpdateClass_NamespaceGate(t *testing.T) {
+	ctx := context.Background()
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+	m.indexer.On("Open", mock.Anything).Return(nil)
+	m.indexer.On("Close", mock.Anything).Return(nil)
+	m.indexer.On("AddClass", mock.Anything).Return(nil)
+	m.indexer.On("UpdateClass", mock.Anything).Return(nil)
+	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	m.parser.On("ParseClass", mock.Anything).Return(nil)
+	m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(nil, nil)
+	m.replicationFSM.EXPECT().HasActiveReplicationForCollection(mock.Anything).Return(false).Maybe()
+
+	srv := NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
+	require.NoError(t, srv.Open(ctx, m.indexer))
+	defer srv.Close(ctx)
+	require.NoError(t, srv.store.Notify(m.cfg.NodeID, fmt.Sprintf("%s:%d", m.cfg.Host, m.cfg.RaftPort)))
+	require.True(t, tryNTimesWithWait(20, 200*time.Millisecond, srv.store.IsLeader))
+
+	_, _, err := srv.AddNamespace(ctx, command.Namespace{Name: "alpha", HomeNodes: []string{m.cfg.NodeID}})
+	require.NoError(t, err)
+	cls := &models.Class{Class: "alpha:C", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
+	_, err = srv.AddClass(ctx, cls, &sharding.State{PartitioningEnabled: true})
+	require.NoError(t, err)
+	_, err = srv.ChangeNamespaceState(ctx, "alpha", command.NamespaceStateSuspended)
+	require.NoError(t, err)
+
+	tests := []struct {
+		name    string
+		origin  command.ClassUpdateOrigin
+		wantErr error
+	}{
+		{
+			name:   "a BlockMax cutover is admitted",
+			origin: command.ClassUpdateOriginBlockmaxCutover,
+		},
+		{
+			name:    "a user update is refused",
+			origin:  command.ClassUpdateOriginUser,
+			wantErr: usecasesNamespaces.ErrNamespaceSuspended,
+		},
+		{
+			name:    "an update from a node predating the origin is refused",
+			origin:  command.ClassUpdateOriginUnspecified,
+			wantErr: usecasesNamespaces.ErrNamespaceSuspended,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			update := &models.Class{Class: cls.Class, Description: tt.name, MultiTenancyConfig: cls.MultiTenancyConfig}
+			_, err := srv.UpdateClass(ctx, update, nil, tt.origin)
+			if tt.wantErr != nil {
+				require.ErrorIs(t, err, tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.name, srv.SchemaReader().ReadOnlyClass(cls.Class).Description)
+		})
+	}
 }
 
 func TestRaftStoreInit(t *testing.T) {

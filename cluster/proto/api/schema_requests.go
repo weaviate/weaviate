@@ -23,7 +23,8 @@ type AddClassRequest struct {
 }
 
 // ClassUpdateOrigin names what an UPDATE_CLASS command is for. Nothing
-// verifies it, so pass the matching constant or add a new one.
+// verifies it, so pass the matching constant or add a new one. A namespace that
+// is not active admits only the origins admitCreateLike exempts.
 type ClassUpdateOrigin string
 
 const (
