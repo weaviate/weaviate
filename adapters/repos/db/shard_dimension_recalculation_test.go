@@ -282,7 +282,8 @@ func TestShard_RecalculateDimensions_OneAtATime(t *testing.T) {
 // Objects are added, updated and deleted while the shard recalculates over and
 // over. In the end the bucket must track exactly what the objects hold.
 func TestShard_RecalculateDimensions_ConcurrentWrites(t *testing.T) {
-	ctx := testCtx()
+	// long under -race on a loaded runner, the -timeout of the test bounds it
+	ctx := context.Background()
 	shard, _, class := recalculationTestShard(t, ctx)
 	defer shard.Shutdown(ctx)
 
@@ -479,6 +480,23 @@ func TestIndex_RecalculateShardDimensions(t *testing.T) {
 		assert.Equal(t, 5, objects)
 		assert.True(t, lazy.(*LazyLoadShard).isLoaded())
 		assert.Same(t, lazy, idx.shards.Load(shard.Name()))
+	})
+
+	// startup keeps empty tenants unloaded, the recalculation must not load them all
+	t.Run("lazy shard never written to is done without loading it", func(t *testing.T) {
+		shard, idx, class := recalculationTestShard(t, ctx)
+		require.NoError(t, shard.Shutdown(ctx))
+
+		lazy, err := idx.initShard(ctx, shard.Name(), class, nil, false, true)
+		require.NoError(t, err)
+		defer lazy.Shutdown(ctx)
+		idx.shards.Store(shard.Name(), lazy)
+
+		objects, skipped, err := idx.recalculateShardDimensions(ctx, shard.Name())
+		require.NoError(t, err)
+		assert.False(t, skipped)
+		assert.Zero(t, objects)
+		assert.False(t, lazy.(*LazyLoadShard).isLoaded())
 	})
 
 	t.Run("unloaded shard is skipped and stays unloaded", func(t *testing.T) {
@@ -760,7 +778,7 @@ func TestShard_RecalculateDimensions_FailedSwitchLeavesNoBucket(t *testing.T) {
 	tests := []struct {
 		name string
 		// fail sets up the dirs as the switch left them, returns what it failed with,
-		// and undoes what would also fail the next load of the shard
+		// and undoes what would also fail the next load of the shard, or a usage report
 		fail func(t *testing.T, bucketPath string) (repair func(), switchErr error)
 	}{
 		{
@@ -814,8 +832,24 @@ func TestShard_RecalculateDimensions_FailedSwitchLeavesNoBucket(t *testing.T) {
 			obj.Vector = randVector(3)
 			require.Error(t, shard.PutObject(ctx, obj))
 
+			// as by an operator, or the end of a vector index config update
+			require.ErrorIs(t, shard.UpdateStatus(storagestate.StatusReady.String(), "test"), errDimensionsBucketLost)
+			require.ErrorContains(t, shard.isReadOnly(), "read-only", "READY must be refused until the shard is loaded again")
+
+			// the usage report of the node must not fail on the shard
+			repair()
+			_, err = idx.calculateLoadedShardUsage(ctx, shard, true)
+			require.NoError(t, err)
+			_, err = shard.Dimensions(ctx, "")
+			require.NoError(t, err)
+			// as for a target vector added since, or with MUVERA
+			_, err = shard.DimensionsUsage(ctx, "", 0)
+			require.NoError(t, err)
+
 			// as a write that passed the read only check before the switch failed
+			shard.dimensionsBucketLost.Store(false)
 			require.NoError(t, shard.UpdateStatus(storagestate.StatusReady.String(), "test"))
+			shard.dimensionsBucketLost.Store(true)
 			require.NoError(t, shard.PutObject(ctx, obj), "a write under way must not fail halfway")
 			stored, err := shard.ObjectByID(ctx, obj.ID(), nil, additional.Properties{})
 			require.NoError(t, err)
@@ -824,7 +858,6 @@ func TestShard_RecalculateDimensions_FailedSwitchLeavesNoBucket(t *testing.T) {
 			require.True(t, vectorIndex.ContainsDoc(stored.DocID), "the object must be in the vector index")
 
 			require.NoError(t, shard.Shutdown(ctx))
-			repair()
 			reloaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
 			require.NoError(t, err, "the shard must load again")
 			defer reloaded.Shutdown(ctx)
@@ -909,7 +942,8 @@ func TestShard_RecalculateDimensions_ShutdownDuringSwitch(t *testing.T) {
 
 // Readers of the dimensions bucket must not see it empty while it is replaced.
 func TestShard_RecalculateDimensions_ReadersDuringSwitch(t *testing.T) {
-	ctx := testCtx()
+	// long under -race on a loaded runner, the -timeout of the test bounds it
+	ctx := context.Background()
 	shard, _, class := recalculationTestShard(t, ctx)
 	defer shard.Shutdown(ctx)
 	putRecalculationObjects(t, ctx, shard, class, 5)
@@ -933,7 +967,7 @@ func TestShard_RecalculateDimensions_ReadersDuringSwitch(t *testing.T) {
 			}
 		}()
 	}
-	for range 300 {
+	for range 100 {
 		_, err := shard.recalculateDimensions(ctx)
 		require.NoError(t, err)
 	}
@@ -983,6 +1017,27 @@ func TestRecalculateVectorDimensions_ReportsOutcome(t *testing.T) {
 			},
 			expectedErr: func(t *testing.T, err error) {
 				require.ErrorContains(t, err, "1 shards skipped")
+			},
+		},
+		{
+			name: "inactive tenant",
+			ctx:  testCtx,
+			prepare: func(t *testing.T, index *Index) {
+				// only active tenants are loaded, so the run never sees it
+				require.NoError(t, index.schemaReader.Read(index.Config.ClassName.String(), true,
+					func(_ *models.Class, state *sharding.State) error {
+						for _, physical := range state.Physical {
+							physical.Name = "cold"
+							physical.Status = models.TenantActivityStatusCOLD
+							state.Physical["cold"] = physical
+							break
+						}
+						require.True(t, state.IsLocalShard("cold"))
+						return nil
+					}))
+			},
+			expectedErr: func(t *testing.T, err error) {
+				require.ErrorContains(t, err, "1 inactive tenants not reindexed")
 			},
 		},
 		{

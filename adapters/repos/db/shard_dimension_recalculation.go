@@ -97,9 +97,12 @@ func (r *dimensionsRecalculation) applyTo(rows dimensionsRows) {
 // has loaded, or loads lazily. skipped reports a shard that is gone, or that went
 // away meanwhile: a tenant deactivated, a shard dropped, the index shut down.
 func (i *Index) recalculateShardDimensions(ctx context.Context, shardName string) (objects int, skipped bool, err error) {
-	shard, err := i.shardForDimensionsRecalculation(ctx, shardName)
+	shard, neverWritten, err := i.shardForDimensionsRecalculation(ctx, shardName)
 	if err != nil {
 		return 0, false, err
+	}
+	if neverWritten {
+		return 0, false, nil
 	}
 	if shard == nil {
 		return 0, true, nil
@@ -120,9 +123,13 @@ func (i *Index) recalculateShardDimensions(ctx context.Context, shardName string
 //
 // The shard is returned without a reference held, as a recalculation can take
 // long and must not keep the shard from shutting down. It ends by itself then.
-func (i *Index) shardForDimensionsRecalculation(ctx context.Context, shardName string) (*Shard, error) {
+//
+// A lazy shard not loaded yet that has never had an object is not loaded, as
+// startup keeps empty tenants unloaded on purpose: its bucket has nothing to fix,
+// and a write loading it later tracks its dimensions as it should.
+func (i *Index) shardForDimensionsRecalculation(ctx context.Context, shardName string) (shard *Shard, neverWritten bool, err error) {
 	if err := i.enterRead(); err != nil {
-		return nil, nil
+		return nil, false, nil
 	}
 	defer i.exitRead()
 
@@ -131,16 +138,19 @@ func (i *Index) shardForDimensionsRecalculation(ctx context.Context, shardName s
 
 	switch shard := i.shards.Load(shardName).(type) {
 	case nil:
-		return nil, nil
+		return nil, false, nil
 	case *Shard:
-		return shard, nil
+		return shard, false, nil
 	case *LazyLoadShard:
-		if err := shard.Load(ctx); err != nil {
-			return nil, err
+		if !shard.isLoaded() && i.unloadedShardIsEmpty(shardName) {
+			return nil, true, nil
 		}
-		return shard.shard, nil
+		if err := shard.Load(ctx); err != nil {
+			return nil, false, err
+		}
+		return shard.shard, false, nil
 	default:
-		return nil, fmt.Errorf("shard %q: unexpected type %T", shardName, shard)
+		return nil, false, fmt.Errorf("shard %q: unexpected type %T", shardName, shard)
 	}
 }
 
@@ -459,19 +469,26 @@ func (s *Shard) recoverFailedDimensionsSwitch(ctx context.Context, bucketPath st
 	return switchErr
 }
 
+// errDimensionsBucketLost names what brings the bucket back: loading the shard
+// again, which recovers it from the dirs.
+var errDimensionsBucketLost = errors.New("dimensions bucket lost by a failed recalculation, " +
+	"restart the node, or deactivate and activate the tenant")
+
 // leaveWithoutDimensionsBucket is for a switch that failed with no dimensions bucket
 // left loaded. A write would store its object and then fail on the missing bucket,
 // before it reaches the vector index, and a retry keeping the doc id would not
-// reach it either. So the shard is set read only, until it is loaded again and
-// recovers the bucket from the dirs. Writes that passed the read only check
-// already skip the dimensions then, see [Shard.addToDimensionBucket].
+// reach it either. So the shard is set read only, and refuses any other status,
+// until it is loaded again. Writes that passed the read only check already skip
+// the dimensions then, see [Shard.addToDimensionBucket], and dimensions read as
+// none, see [Shard.calcTargetVectorDimensions].
 //
 // It must run under dimensionsLock.
 func (s *Shard) leaveWithoutDimensionsBucket(logger logrus.FieldLogger, err error) error {
-	s.dimensionsBucketLost = true
-	if statusErr := s.SetStatusReadonly("dimensions bucket lost by a failed recalculation, load the shard again"); statusErr != nil {
+	// before the status, a status set in between would be kept otherwise
+	s.dimensionsBucketLost.Store(true)
+	if statusErr := s.SetStatusReadonly(errDimensionsBucketLost.Error()); statusErr != nil {
 		logger.Errorf("failed to set shard read only: %v", statusErr)
 	}
-	logger.Errorf("shard left without dimensions bucket and set read only, load it again: %v", err)
+	logger.Errorf("shard set read only, %v: %v", errDimensionsBucketLost, err)
 	return err
 }
