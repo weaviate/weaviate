@@ -125,7 +125,8 @@ func seedVectorIndexQueueShard(t *testing.T, tc vectorIndexQueueCase, amount int
 
 	require.EventuallyWithT(t, func(t *assert.CollectT) {
 		assert.Zero(t, q.Size())
-	}, 10*time.Second, 100*time.Millisecond)
+	}, 10*time.Second, 50*time.Millisecond)
+	require.NoError(t, q.Wait(ctx))
 
 	return shd, vidx, q
 }
@@ -143,12 +144,13 @@ func deleteFromVectorIndex(t *testing.T, tc vectorIndexQueueCase, vidx db.Vector
 
 func TestShard_RepairIndex(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "200ms")
+	t.Setenv("QUEUE_SCHEDULER_INTERVAL", "100ms")
 
 	for _, tc := range vectorIndexQueueCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 			const amount = 1000
-			shd, vidx, q := seedVectorIndexQueueShard(t, tc, amount)
+			shd, vidx, _ := seedVectorIndexQueueShard(t, tc, amount)
 
 			// Docs 400..599 are missing from the vector index only; the repair
 			// must put them back.
@@ -172,28 +174,26 @@ func TestShard_RepairIndex(t *testing.T) {
 			require.NoError(t, shd.RepairIndex(ctx, tc.targetVector))
 
 			require.EventuallyWithT(t, func(t *assert.CollectT) {
-				assert.Zero(t, q.Size())
-			}, 10*time.Second, 100*time.Millisecond)
-			time.Sleep(500 * time.Millisecond)
-
-			for i := 0; i < amount; i++ {
-				if i >= 100 && i < 300 {
-					require.Falsef(t, vidx.ContainsDoc(uint64(i)), "doc %d should not be in the vector index", i)
-					continue
+				for i := 0; i < amount; i++ {
+					if i >= 100 && i < 300 {
+						assert.Falsef(t, vidx.ContainsDoc(uint64(i)), "doc %d should not be in the vector index", i)
+						continue
+					}
+					assert.Truef(t, vidx.ContainsDoc(uint64(i)), "doc %d should be in the vector index", i)
 				}
-				require.Truef(t, vidx.ContainsDoc(uint64(i)), "doc %d should be in the vector index", i)
-			}
+			}, 10*time.Second, 50*time.Millisecond)
 		})
 	}
 }
 
 func TestShard_FillQueue(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "200ms")
+	t.Setenv("QUEUE_SCHEDULER_INTERVAL", "100ms")
 
 	for _, tc := range vectorIndexQueueCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			const amount = 1000
-			shd, vidx, q := seedVectorIndexQueueShard(t, tc, amount)
+			shd, vidx, _ := seedVectorIndexQueueShard(t, tc, amount)
 
 			deleteFromVectorIndex(t, tc, vidx, 100, amount)
 
@@ -204,17 +204,14 @@ func TestShard_FillQueue(t *testing.T) {
 			require.NoError(t, shd.FillQueue(tc.targetVector, 150))
 
 			require.EventuallyWithT(t, func(t *assert.CollectT) {
-				assert.Zero(t, q.Size())
-			}, 5*time.Second, 100*time.Millisecond)
-			time.Sleep(500 * time.Millisecond)
-
-			for i := 0; i < amount; i++ {
-				if 100 <= i && i < 150 {
-					require.Falsef(t, vidx.ContainsDoc(uint64(i)), "doc %d should not be in the vector index", i)
-					continue
+				for i := 0; i < amount; i++ {
+					if 100 <= i && i < 150 {
+						assert.Falsef(t, vidx.ContainsDoc(uint64(i)), "doc %d should not be in the vector index", i)
+						continue
+					}
+					assert.Truef(t, vidx.ContainsDoc(uint64(i)), "doc %d should be in the vector index", i)
 				}
-				require.Truef(t, vidx.ContainsDoc(uint64(i)), "doc %d should be in the vector index", i)
-			}
+			}, 10*time.Second, 50*time.Millisecond)
 		})
 	}
 }
