@@ -361,6 +361,7 @@ func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
 
 func TestShard_RepairIndex(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "200ms")
+	t.Setenv("QUEUE_SCHEDULER_INTERVAL", "100ms")
 
 	tests := []struct {
 		name                   string
@@ -461,12 +462,10 @@ func TestShard_RepairIndex(t *testing.T) {
 			vidx, q := test.getVectorIndexAndQueue(shd)
 
 			// wait for the queue to be empty
-			for i := 0; i < 20; i++ {
-				time.Sleep(500 * time.Millisecond)
-				if q.Size() == 0 {
-					break
-				}
-			}
+			require.EventuallyWithT(t, func(t *assert.CollectT) {
+				assert.Zero(t, q.Size())
+			}, 10*time.Second, 50*time.Millisecond)
+			require.NoError(t, q.Wait(ctx))
 
 			// remove some objects from the vector index
 			for i := 400; i < 600; i++ {
@@ -497,30 +496,16 @@ func TestShard_RepairIndex(t *testing.T) {
 			err := shd.RepairIndex(ctx, test.targetVector)
 			require.NoError(t, err)
 
-			// wait for the queue to be empty
-			for i := 0; i < 20; i++ {
-				time.Sleep(500 * time.Millisecond)
-				if q.Size() == 0 {
-					break
-				}
-			}
-
-			// wait for the worker to start the indexing
-			time.Sleep(500 * time.Millisecond)
-
 			// make sure all objects except >= 100 < 300 are back in the vector index
-			for i := 0; i < amount; i++ {
-				if i >= 100 && i < 300 {
-					if vidx.ContainsDoc(uint64(i)) {
-						t.Fatalf("doc %d should not be in the vector index", i)
+			require.EventuallyWithT(t, func(t *assert.CollectT) {
+				for i := 0; i < amount; i++ {
+					if i >= 100 && i < 300 {
+						assert.Falsef(t, vidx.ContainsDoc(uint64(i)), "doc %d should not be in the vector index", i)
+						continue
 					}
-					continue
+					assert.Truef(t, vidx.ContainsDoc(uint64(i)), "doc %d should be in the vector index", i)
 				}
-
-				if !vidx.ContainsDoc(uint64(i)) {
-					t.Fatalf("doc %d should be in the vector index", i)
-				}
-			}
+			}, 10*time.Second, 50*time.Millisecond)
 
 			require.Nil(t, idx.drop())
 			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
@@ -530,6 +515,7 @@ func TestShard_RepairIndex(t *testing.T) {
 
 func TestShard_FillQueue(t *testing.T) {
 	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "200ms")
+	t.Setenv("QUEUE_SCHEDULER_INTERVAL", "100ms")
 
 	tests := []struct {
 		name                   string
@@ -632,7 +618,8 @@ func TestShard_FillQueue(t *testing.T) {
 			// wait for the queue to be empty
 			require.EventuallyWithT(t, func(t *assert.CollectT) {
 				assert.Zero(t, q.Size())
-			}, 5*time.Second, 100*time.Millisecond)
+			}, 10*time.Second, 50*time.Millisecond)
+			require.NoError(t, q.Wait(ctx))
 
 			// remove most of the objects from the vector index
 			for i := 100; i < amount; i++ {
@@ -655,21 +642,16 @@ func TestShard_FillQueue(t *testing.T) {
 			err := shd.FillQueue(test.targetVector, 150)
 			require.NoError(t, err)
 
-			require.EventuallyWithT(t, func(t *assert.CollectT) {
-				assert.Zero(t, q.Size())
-			}, 5*time.Second, 100*time.Millisecond)
-
-			// wait for the worker to index
-			time.Sleep(500 * time.Millisecond)
-
 			// make sure all objects except >= 100 < 150 are back in the vector index
-			for i := 0; i < amount; i++ {
-				if 100 <= i && i < 150 {
-					require.Falsef(t, vidx.ContainsDoc(uint64(i)), "doc %d should not be in the vector index", i)
-					continue
+			require.EventuallyWithT(t, func(t *assert.CollectT) {
+				for i := 0; i < amount; i++ {
+					if 100 <= i && i < 150 {
+						assert.Falsef(t, vidx.ContainsDoc(uint64(i)), "doc %d should not be in the vector index", i)
+						continue
+					}
+					assert.Truef(t, vidx.ContainsDoc(uint64(i)), "doc %d should be in the vector index", i)
 				}
-				require.Truef(t, vidx.ContainsDoc(uint64(i)), "doc %d should be in the vector index", i)
-			}
+			}, 10*time.Second, 50*time.Millisecond)
 
 			require.Nil(t, idx.drop())
 			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
