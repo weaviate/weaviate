@@ -1,6 +1,10 @@
 #!/bin/bash
 set -eou pipefail
 
+# Optional JUnit XML output for CI result reporting; no-op unless JUNIT_DIR
+# is set (see test/tools/gotest_junit.sh).
+source "$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )/tools/gotest_junit.sh"
+
 function main() {
   # This script runs all non-benchmark tests if no CMD switch is given and the respective tests otherwise.
   run_all_tests=true
@@ -230,6 +234,13 @@ function main() {
   rm -rf data
   echo "Done!"
 
+  junit_init
+  if [[ -n "${JUNIT_DIR:-}" ]]; then
+    # A CI retry re-runs this whole script; start each attempt clean so the
+    # final attempt's results are the ones reported.
+    rm -f "$JUNIT_DIR"/go-*.xml "$JUNIT_DIR"/pytest-*.xml
+  fi
+
   if $run_unit_and_integration_tests || $run_unit_tests || $run_all_tests
   then
     echo_green "Run all unit tests..."
@@ -369,7 +380,7 @@ function main() {
     for pkg in $(go list ./test/modules/... | grep '/modules/'${mod}); do
       build_docker_image_for_tests
       echo_green "Weaviate image successfully built, run module tests for $mod..."
-      if ! go test -count 1 -race -timeout 15m -v "$pkg"; then
+      if ! go_test -count 1 -race -timeout 15m -v "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1
       fi
@@ -576,7 +587,13 @@ function run_unit_tests() {
     adapters)     packages=$(echo "$packages" | grep -E "/adapters/|$adapters_extra");;
     non-adapters) packages=$(echo "$packages" | grep -vE "/adapters/|$adapters_extra");;
   esac
-  go test -race -coverprofile=coverage-unit.txt -covermode=atomic -count 1 $packages | grep -v '\[no test files\]'
+  if [[ -n "${JUNIT_DIR:-}" && -n "$GOTESTSUM_BIN" ]]; then
+    # gotestsum's --format-hide-empty-pkg replaces the grep below; a pipe
+    # here would also mangle its terminal output.
+    go_test -race -coverprofile=coverage-unit.txt -covermode=atomic -count 1 $packages
+  else
+    go test -race -coverprofile=coverage-unit.txt -covermode=atomic -count 1 $packages | grep -v '\[no test files\]'
+  fi
 }
 
 function run_integration_tests() {
@@ -600,7 +617,7 @@ function run_acceptance_lsmkv() {
     echo "This test runs without the race detector because it asserts performance"
     cd 'test/acceptance_lsmkv'
     for pkg in $(go list ./...); do
-      if ! go test -timeout=15m -count 1 "$pkg"; then
+      if ! go_test -timeout=15m -count 1 "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1
       fi
@@ -777,12 +794,12 @@ function run_aof_group() {
 
       # Stress tests need different test configuration (no timeout, no race detector)
       if [[ "$pkg" == "test/acceptance/stress_tests" ]]; then
-        if ! go test -count 1 "${extra_flags[@]}" "$pkg"; then
+        if ! go_test -count 1 "${extra_flags[@]}" "$pkg"; then
           echo "Test for $pkg failed" >&2
           testFailed=1
         fi
       else
-        if ! go test -count 1 -timeout="$group_timeout" -race "${extra_flags[@]}" "$pkg"; then
+        if ! go_test -count 1 -timeout="$group_timeout" -race "${extra_flags[@]}" "$pkg"; then
           echo "Test for $pkg failed" >&2
           testFailed=1
         fi
@@ -1314,7 +1331,7 @@ function run_go_client_group() {
   for pattern in "${package_paths[@]}"; do
     for pkg in $(go list ./... | grep -v 'acceptance_tests_with_client/named_vectors_tests' | grep "${pattern}$"); do
       echo_green "Running $pkg"
-      if ! go test -count 1 -race "$pkg"; then
+      if ! go_test -count 1 -race "$pkg"; then
         echo "Test for $pkg failed" >&2
         testFailed=1
       fi
@@ -1370,7 +1387,7 @@ function run_acceptance_go_client_named_vectors_single_node() {
     # tests with go client are in a separate package with its own dependencies to isolate them
     cd 'test/acceptance_with_go_client'
     for pkg in $(go list ./... | grep 'acceptance_tests_with_client/named_vectors_tests/singlenode'); do
-      if ! go test -timeout=15m -count 1 -race "$pkg"; then
+      if ! go_test -timeout=15m -count 1 -race "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1
       fi
@@ -1383,7 +1400,7 @@ function run_acceptance_go_client_named_vectors_cluster() {
     # tests with go client are in a separate package with its own dependencies to isolate them
     cd 'test/acceptance_with_go_client'
     for pkg in $(go list ./... | grep 'acceptance_tests_with_client/named_vectors_tests/cluster'); do
-      if ! go test -timeout=15m -count 1 -race "$pkg"; then
+      if ! go_test -timeout=15m -count 1 -race "$pkg"; then
         echo "Test for $pkg failed" >&2
         return 1
       fi
@@ -1394,7 +1411,7 @@ function run_acceptance_go_client_named_vectors_cluster() {
 function run_acceptance_graphql_tests() {
   build_weaviate_test_image
   for pkg in $(go list ./... | grep 'test/acceptance/graphql_resolvers'); do
-    if ! go test -timeout=15m -count 1 -race "$pkg"; then
+    if ! go_test -timeout=15m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
@@ -1404,7 +1421,7 @@ function run_acceptance_graphql_tests() {
 function run_acceptance_only_authz() {
   build_weaviate_test_image
   for pkg in $(go list ./.../ | grep 'test/acceptance/authz'); do
-    if ! go test -timeout=15m -count 1 -race "$pkg"; then
+    if ! go_test -timeout=15m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
@@ -1414,7 +1431,7 @@ function run_acceptance_only_authz() {
 function run_acceptance_only_mcp() {
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
   for pkg in $(go list ./.../ | grep 'test/acceptance/mcp'); do
-    if ! go test -timeout=15m -count 1 -race "$pkg"; then
+    if ! go_test -timeout=15m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
@@ -1424,7 +1441,7 @@ function run_acceptance_only_mcp() {
 function run_acceptance_replica_replication_fast_tests() {
   build_weaviate_test_image
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/replica_replication/fast'); do
-    if ! go test -timeout=30m -count 1 -race "$pkg"; then
+    if ! go_test -timeout=30m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
@@ -1434,7 +1451,7 @@ function run_acceptance_replica_replication_fast_tests() {
 function run_acceptance_replica_replication_slow_tests() {
   build_weaviate_test_image
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/replica_replication/slow'); do
-    if ! go test -timeout=45m -count 1 -race "$pkg"; then
+    if ! go_test -timeout=45m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
@@ -1444,7 +1461,7 @@ function run_acceptance_replica_replication_slow_tests() {
 function run_acceptance_replication_tests() {
   build_weaviate_test_image
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/read_repair'); do
-    if ! go test -timeout=20m -count 1 -race "$pkg"; then
+    if ! go_test -timeout=20m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
@@ -1468,7 +1485,7 @@ function run_acceptance_async_replication_tests() {
   esac
   build_weaviate_test_image
   for pkg in $pkgs; do
-    if ! go test -timeout=20m -count 1 -race "$pkg"; then
+    if ! go_test -timeout=20m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
@@ -1477,7 +1494,7 @@ function run_acceptance_async_replication_tests() {
 
 function run_acceptance_objects() {
   for pkg in $(go list ./.../ | grep 'test/acceptance/objects'); do
-    if ! go test -count 1 -race -v "$pkg"; then
+    if ! go_test -count 1 -race -v "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
@@ -1488,7 +1505,7 @@ function run_acceptance_only_tests() {
   package=${only_acceptance_value//--only-acceptance-/}
   echo_green "Running acceptance tests for $package..."
   for pkg in $(go list ./.../ | grep 'test/acceptance/'${package}); do
-    if ! go test -v -count 1 -race "$pkg"; then
+    if ! go_test -v -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
@@ -1497,7 +1514,7 @@ function run_acceptance_only_tests() {
 
 function run_module_only_backup_tests() {
   for pkg in $(go list ./... | grep 'test/modules' | grep 'test/modules/backup'); do
-    if ! go test -count 1 -race -timeout 30m "$pkg"; then
+    if ! go_test -count 1 -race -timeout 30m "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
@@ -1506,7 +1523,7 @@ function run_module_only_backup_tests() {
 
 function run_module_only_offload_tests() {
   for pkg in $(go list ./... |grep 'test/modules/offload'); do
-    if ! go test -count 1 -race -timeout 30m -v "$pkg"; then
+    if ! go_test -count 1 -race -timeout 30m -v "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
@@ -1515,7 +1532,7 @@ function run_module_only_offload_tests() {
 
 function run_module_except_backup_tests() {
   for pkg in $(go list ./... | grep 'test/modules' | grep -v 'test/modules/backup'); do
-    if ! go test -count 1 -race "$pkg"; then
+    if ! go_test -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
@@ -1524,7 +1541,7 @@ function run_module_except_backup_tests() {
 
 function run_module_except_offload_tests() {
   for pkg in $(go list ./... | grep 'test/modules' | grep -v 'test/modules/offload'); do
-    if ! go test -count 1 -race "$pkg"; then
+    if ! go_test -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
