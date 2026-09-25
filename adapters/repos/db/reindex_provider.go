@@ -1935,8 +1935,7 @@ const reindexTerminalCleanupTimeout = 60 * time.Second
 const reindexTornStateProbeTimeout = 10 * time.Second
 
 // IsLiveReindexTaskStatus reports whether a task in the given DTM status
-// still owns the on-disk tracker dirs and sidecar buckets of its
-// migration.
+// still owns the on-disk sidecar buckets of its migration.
 //
 // A status this build never declared answers true. The other answer
 // deletes those dirs while a newer node is still migrating, which is the
@@ -2044,7 +2043,7 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 	}
 
 	// One walk for every unit this node owns: a per-name lookup walks the
-	// shard map again for each of them. The tracker dir sits at a path this
+	// shard map again for each of them. The record sits at a path this
 	// node can join, so nothing here loads a shard.
 	//
 	// Strict, not lenient: a lenient walk answers nil while the index is closing, reporting a pending swap as done.
@@ -2101,7 +2100,7 @@ func (p *ReindexProvider) LocalCallbacksDone(task *distributedtask.Task, localNo
 }
 
 // semanticMigrationIndexTypes returns the inverted-index discriminators
-// each semantic migration type writes per-property tracker dirs for.
+// each semantic migration type writes per-property sidecars for.
 // Format-only migrations don't appear here because LocalCallbacksDone
 // short-circuits on !IsSemanticMigration before calling this.
 func semanticMigrationIndexTypes(mt ReindexMigrationType) []string {

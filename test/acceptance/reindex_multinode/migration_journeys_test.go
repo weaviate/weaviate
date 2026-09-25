@@ -182,7 +182,7 @@ func TestMultiNode_BackToBackChangeTokenization_RoundTripCounts(t *testing.T) {
 
 // TestMultiNode_RepeatedParallelMigrationJourney_PerReplicaConsistency
 // asserts that repeated parallel migration journeys (multiple
-// generations of trackers + sidecar dirs on disk pre-restart, then
+// generations of records + sidecar dirs on disk pre-restart, then
 // rolling restart + re-apply) converge to per-replica consistent
 // counts — no in-memory bucket-pointer divergence on any replica.
 //
@@ -193,7 +193,7 @@ func TestMultiNode_BackToBackChangeTokenization_RoundTripCounts(t *testing.T) {
 //     reset" cycle 2 times PRE-restart. The above test does one
 //     forward + one restart + one re-apply, leaving the system in a
 //     simpler state pre-restart. The production flow leaves multiple
-//     generations of migration trackers + sidecar dirs on disk
+//     generations of migration records + sidecar dirs on disk
 //     before the restart.
 //  2. **Per-replica histogram** — runs the same query 30 times PER
 //     REPLICA directly (90 total queries hitting all 3 replicas

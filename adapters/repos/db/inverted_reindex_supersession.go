@@ -193,7 +193,7 @@ func (r *migrationReconciler) RetireSuperseded(ctx context.Context) {
 
 // An unflipped record may retire too, but only once every property is
 // superseded — otherwise a superseded-but-unflipped record wedges forever,
-// its tracker dragging cold tenants into hydration.
+// its record dragging cold tenants into hydration.
 func migrationRetirable(rec MigrationRecord, superseded []string) bool {
 	if rec.StagedDataComplete() {
 		return true

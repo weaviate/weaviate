@@ -61,7 +61,7 @@ func TestMultiNode_PostRestartMigration_NoStallPlateau(t *testing.T) {
 	importObjects(t, compose.GetWeaviateNode(1).URI(), className, testDocuments)
 
 	// Phase 1: a successful migration BEFORE the restart, so the
-	// shards have a non-empty .migrations/ history. Without this,
+	// shards have a prior migration's state on disk. Without this,
 	// the post-restart migration would start from gen=1 with no
 	// prior state to recover, which doesn't exercise the
 	// scheduler-stall code path the bug originally hit (the bug

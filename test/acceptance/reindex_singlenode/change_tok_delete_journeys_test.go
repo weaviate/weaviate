@@ -79,8 +79,8 @@ func testChangeTokDeleteJourneys(t *testing.T, restURI string) {
 // Pins that the partial migration state left behind by the previous
 // both-indexes retokenize does not interfere with a subsequent
 // filterable-only retokenize, after the searchable index has been
-// deleted. The hazard: change-tok-both writes two distinct .migrations
-// dirs (one per ShardReindexTaskGeneric returned by createReindexTasks).
+// deleted. The hazard: change-tok-both writes two distinct migration
+// records (one per ShardReindexTaskGeneric returned by createReindexTasks).
 // The DELETE wipes the searchable side's bucket. The filterable-only
 // retokenize should run against the still-present filterable bucket
 // with no contamination from the prior filterable retokenize's leftovers.

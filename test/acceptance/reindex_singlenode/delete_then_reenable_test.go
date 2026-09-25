@@ -73,7 +73,7 @@ func testDeleteThenReEnableSearchable(t *testing.T, restURI string) {
 
 	hits := bm25Hits(t, class, "fox")
 	require.GreaterOrEqual(t, hits, 3,
-		"post-DELETE-then-re-enable: bm25('fox') must return all 3 docs; got %d. If 0, the migration short-circuited on a stale .migrations sentinel and the bucket is empty — schema reports ready but customer queries are broken (Sev 1)", hits)
+		"post-DELETE-then-re-enable: bm25('fox') must return all 3 docs; got %d. If 0, the migration short-circuited on a stale migration record and the bucket is empty — schema reports ready but customer queries are broken (Sev 1)", hits)
 }
 
 func testDeleteThenReEnableFilterable(t *testing.T, restURI string) {
@@ -110,7 +110,7 @@ func testDeleteThenReEnableFilterable(t *testing.T, restURI string) {
 
 	hits := equalFilterHits(t, class, "name", "alpha")
 	require.Equal(t, 1, hits,
-		"post-DELETE-then-re-enable: filterable Equal('alpha') must return 1; got %d. If 0, the migration silently no-opped on a stale .migrations sentinel (Sev 1)", hits)
+		"post-DELETE-then-re-enable: filterable Equal('alpha') must return 1; got %d. If 0, the migration silently no-opped on a stale migration record (Sev 1)", hits)
 }
 
 func testDeleteThenReEnableRangeable(t *testing.T, restURI string) {
@@ -147,7 +147,7 @@ func testDeleteThenReEnableRangeable(t *testing.T, restURI string) {
 
 	hits := rangeFilterHits(t, class, "score", 30)
 	require.Equal(t, 2, hits,
-		"post-DELETE-then-re-enable: range LessThan(30) must return 2; got %d. If 0, migration silently no-opped on a stale .migrations sentinel (Sev 1)", hits)
+		"post-DELETE-then-re-enable: range LessThan(30) must return 2; got %d. If 0, migration silently no-opped on a stale migration record (Sev 1)", hits)
 }
 
 // deleteIndex calls DELETE /v1/schema/{class}/properties/{prop}/index/{indexName}.

@@ -546,7 +546,7 @@ func runBM25QueryOnNodeWithRetry(t *testing.T, restURI, className, query string)
 
 // restartCluster cycles every node serially — stop, start, wait for
 // ready, move on. Used by the restart-matrix tests to verify the
-// deferred-finalize design: every per-node migration tracker dir is
+// deferred-finalize design: every per-node migration record is
 // consumed by reconciliation at startup, and follow-up
 // migrations start from a clean state.
 //

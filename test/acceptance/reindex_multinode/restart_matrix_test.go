@@ -183,7 +183,7 @@ func testR1_RestartAfter1Migration(t *testing.T) {
 // testR1b_RestartAfter1MigrationThenMigrate: import → word→field →
 // restart → field→word → per-replica baseline equality. Pins that after
 // restart-finalize the next migration starts at gen=1 again (the
-// previous gen's tracker dir is gone) and produces consistent
+// previous gen's record is gone) and produces consistent
 // per-replica state.
 func testR1b_RestartAfter1MigrationThenMigrate(t *testing.T) {
 	ctx := context.Background()

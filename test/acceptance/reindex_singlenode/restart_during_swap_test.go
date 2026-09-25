@@ -223,7 +223,7 @@ func TestRestartDuringSwap(t *testing.T) {
 		return getTokenization(t, className, "description") == "field"
 	}, 15*time.Second, 50*time.Millisecond)
 	if !tokenizationFlipped {
-		// Diagnostic: dump the shard's lsm + .migrations dir so we can see
+		// Diagnostic: dump the shard's lsm + migration records so we can see
 		// the on-disk state when the swap fails to fire.
 		dumpShardState(ctx, t, container, className)
 		t.Errorf("tokenization should eventually flip to field post-restart but stayed %q",
@@ -310,7 +310,7 @@ func dumpShardState(ctx context.Context, t *testing.T, c testcontainers.Containe
 	for _, cmd := range [][]string{
 		{"sh", "-c", "ls -la " + lsmGlob},
 		{"sh", "-c", "find " + lsmGlob + " -maxdepth 6 -type d -printf '%p\\n' 2>/dev/null | head -50"},
-		{"sh", "-c", "find " + lsmGlob + " -maxdepth 6 -name '*.mig' -printf '%p\\n' 2>/dev/null"},
+		{"sh", "-c", "find " + lsmGlob + " -maxdepth 6 -path '*/.migrations/records/*' -printf '%p\\n' 2>/dev/null"},
 	} {
 		code, reader, err := c.Exec(ctx, cmd, tcexec.Multiplexed())
 		if err != nil {

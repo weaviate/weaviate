@@ -107,7 +107,7 @@ func migrationEffectConfirmsCommit(class *models.Class, subject MigrationSubject
 
 // Mirrors the conditions under which the schema writer sets these flags. Where
 // the writer narrows and this does not, reconcilePromotedSealed reads the
-// effect as pending and never removes the promoted record's tracker directory.
+// effect as pending and never removes the promoted record.
 func migrationPropertyEffectVisible(subject MigrationSubject, prop *models.Property) bool {
 	visible, _ := migrationEffectReader(subject.MigrationType)
 	return visible != nil && visible(subject, prop)

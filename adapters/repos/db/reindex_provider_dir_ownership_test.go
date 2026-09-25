@@ -101,10 +101,10 @@ func workingCopyDirs(tasks []*ShardReindexTaskGeneric) []string {
 }
 
 // The cancel cleanup removes a migration's bucket working copies before its
-// tracker directory and only logs a removal that fails, so a working copy can
-// outlive the tracker that named it. The next submission must not open its own
-// working copy on those surviving files.
-func TestRetryAvoidsWorkingCopiesThatOutlivedTheirTracker(t *testing.T) {
+// record and only logs a removal that fails, so a working copy can outlive the
+// record that named it. The next submission must not open its own working copy
+// on those surviving files.
+func TestRetryAvoidsWorkingCopiesThatOutlivedTheirRecord(t *testing.T) {
 	for _, tc := range dirOwnershipCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			p, _ := newTestProvider(t)
@@ -120,7 +120,7 @@ func TestRetryAvoidsWorkingCopiesThatOutlivedTheirTracker(t *testing.T) {
 				survivors[dir] = true
 			}
 			require.NoDirExists(t, filepath.Join(lsm, migrationsDir),
-				"the tracker is the part of the earlier attempt the cleanup did remove")
+				"the record is the part of the earlier attempt the cleanup did remove")
 
 			retry, err := p.createReindexTasks(taskDescAt(9), dirOwnershipUnit, tc.payload())
 			require.NoError(t, err)
@@ -149,7 +149,7 @@ func TestRehydrateRebuildsTheDirectoryNamesTheMigrationWrote(t *testing.T) {
 		wantSkip   bool
 		wantErrs   bool
 	}{
-		{name: "records, no tracker directory", recorded: true},
+		{name: "the migration's records", recorded: true},
 		{name: "no record: the migration already finalized here", wantSkip: true},
 		{
 			// Read as absent, it would report the unit finalized and flip the schema.

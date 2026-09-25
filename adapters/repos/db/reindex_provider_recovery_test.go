@@ -116,7 +116,7 @@ func TestSemanticMigrationIndexTypes(t *testing.T) {
 }
 
 // Pins that LocalCallbacksDone, firing at bootstrap with every tenant cold,
-// reads the tracker dir at a path it can join without loading the shard.
+// reads the record at a path it can join without loading the shard.
 func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 	const (
 		prop   = "title"
@@ -132,8 +132,7 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 		unreadableRecord bool
 		// hostedElsewhere maps the unit to a node that is not this one.
 		hostedElsewhere bool
-		// changeAlgorithm runs the migration whose tracker is class-level, so
-		// the probe has to look somewhere the per-property scope never does.
+		// changeAlgorithm runs the class-level migration.
 		changeAlgorithm bool
 		// absentFromShardMap leaves the shard out of this node's map while
 		// the payload still assigns its unit here.

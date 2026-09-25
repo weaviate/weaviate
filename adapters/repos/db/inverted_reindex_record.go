@@ -691,8 +691,7 @@ func validateMigrationHandles(e migrationRecordEnvelope) error {
 	return nil
 }
 
-// ".migrations"/"records" would let a teardown remove the tracker/record
-// store; "objects" is the shard's whole object store.
+// ".migrations"/"records" would let a teardown remove the record store; "objects" is the shard's whole object store.
 func migrationReservedDirName(h string) bool {
 	return h == migrationsDir || h == migrationRecordsDirName || h == helpers.ObjectsBucketLSM
 }

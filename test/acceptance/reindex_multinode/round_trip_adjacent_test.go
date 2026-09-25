@@ -49,8 +49,8 @@ import (
 //  2. DifferentTokenizations_*: is the bug specific to word↔field, or
 //     does it also bite word↔whitespace, word↔lowercase, etc.?
 //  3. MultipleProperties: do two simultaneous round-trips on different
-//     props collide via shared migration dirs (they shouldn't — per
-//     MigrationDirName they're per-prop — but if they do, that's a
+//     props collide via shared migration dirs (they shouldn't — the
+//     sidecar names are per-prop — but if they do, that's a
 //     separate Sev-1)?
 //  4. FilterableOnly_RoundTrip: same bug shape on filterable=true,
 //     searchable=false via the change-tokenization-filterable body
@@ -152,8 +152,8 @@ func TestMultiNode_ChangeTokenization_AJ_MultiProperty(t *testing.T) {
 
 	t.Run("MultipleProperties_simultaneous", func(t *testing.T) {
 		// Journey 3: two text properties, both word→field→word in
-		// sequence on the same collection. Per MigrationDirName the
-		// migration dirs are per-property, so collisions across props
+		// sequence on the same collection. The sidecar names are
+		// per-property, so collisions across props
 		// should not happen — if any of the per-property baselines goes
 		// to zero on any replica, that's a separate Sev-1.
 		testMultiPropertyRoundTrip(t, compose)
@@ -289,7 +289,7 @@ func TestMultiNode_ChangeTokenization_RestartThenRoundTrip(t *testing.T) {
 }
 
 // TestMultiNode_ChangeTokenization_MTRoundTrip pins journey 9: same
-// word→field→word, but on a multi-tenant class. Per-tenant tracker paths
+// word→field→word, but on a multi-tenant class. Per-tenant migration paths
 // might bypass the bug (different on-disk layout) — or they might hit
 // the same root cause and break per-tenant.
 func TestMultiNode_ChangeTokenization_MTRoundTrip(t *testing.T) {
@@ -357,7 +357,7 @@ func TestMultiNode_ChangeTokenization_MTRoundTrip(t *testing.T) {
 
 // TestMultiNode_ChangeTokenization_ConcurrentDifferentProps pins
 // journey 10: two distinct text properties getting change-tok migrations
-// concurrently. Per MigrationDirName the dirs are per-property, so
+// concurrently. The sidecar names are per-property, so
 // collisions shouldn't happen — but if the in-process scheduler
 // serializes through any shared per-shard state, this can expose it.
 func TestMultiNode_ChangeTokenization_ConcurrentDifferentProps(t *testing.T) {

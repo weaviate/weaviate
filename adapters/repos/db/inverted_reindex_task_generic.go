@@ -1390,9 +1390,8 @@ func (t *ShardReindexTaskGeneric) loadIngestBuckets(ctx context.Context,
 	strategy := t.strategy.TargetStrategy()
 	bucketOpts := t.bucketOptions(shard, strategy, keepLevelCompaction, keepTombstones, t.config.memtableOptFactor)
 
-	// Only the ingest bucket becomes the main bucket post-swap; reindex/backup
-	// buckets are torn down and never serve reads. The marker and its log line
-	// go only to the properties that get a rep.
+	// Only the ingest bucket is promoted to the canonical bucket, so only it
+	// defers loading the in-memory rangeable index until the migration finalizes.
 	if strategy == lsmkv.StrategyRoaringSetRange {
 		inMemory, onDisk := partitionByRangeableInMemory(shard.Index().Config, props)
 		if len(inMemory) > 0 {

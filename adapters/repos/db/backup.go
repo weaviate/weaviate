@@ -935,7 +935,7 @@ func listInactiveLSMFiles(lsmDir, rootPath string) ([]string, error) {
 				if err != nil || d == nil || d.IsDir() {
 					return nil
 				}
-				// A crash mid-rename leaves the tracker's scratch file behind,
+				// A crash mid-rename leaves a record's scratch file behind,
 				// and nothing under .migrations ever sweeps it. Copying it
 				// would carry it into every later backup and restore.
 				if filepath.Ext(d.Name()) == tmpExt {

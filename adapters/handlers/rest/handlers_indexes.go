@@ -1177,7 +1177,7 @@ func reindexCapExceededResponder(principal *models.Principal, collection string,
 }
 
 // countInFlightTasksForCollection counts in-flight reindex tasks for a
-// collection. PREPARING and SWAPPING count: they still hold tracker dirs.
+// collection. PREPARING and SWAPPING count: they still hold migration state on disk.
 func countInFlightTasksForCollection(collection string, tasks []*distributedtask.Task) int {
 	n := 0
 	for _, task := range tasks {
