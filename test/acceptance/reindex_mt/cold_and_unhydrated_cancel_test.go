@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
+	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	"github.com/weaviate/weaviate/entities/models"
 	reindexhelpers "github.com/weaviate/weaviate/test/acceptance/helpers/reindex"
 	"github.com/weaviate/weaviate/test/helper"
@@ -49,7 +50,7 @@ import (
 //     reactivated and a later submit sweeps it.
 //
 // The third case is the one that is easy to state backwards: a COLD tenant's
-// tracker surviving the sweep is correct, not a leak. The final step proves
+// stale sidecar surviving the sweep is correct, not a leak. The final step proves
 // it is only deferred by reactivating those tenants and showing the next
 // submit does drain them.
 const (
@@ -67,10 +68,10 @@ const (
 	// single HTTP round trip needs.
 	coldCancelCleanTenants = 14
 
-	// Tracker dir planted on tenants that must have something to sweep.
+	// Stale sidecar planted on tenants that must have something to sweep.
 	// Generation 9 is far above anything this collection's own migrations
 	// claim, so it can't be mistaken for the cancelled run's own.
-	coldCancelPlantedDir = "filterable_to_rangeable_" + coldCancelProp + "_9"
+	coldCancelPlantedDir = "property_" + coldCancelProp + "__enable_filterable_ingest_9"
 
 	// Prometheus port. The compose does not publish it, so every scrape runs
 	// inside the container.
@@ -82,19 +83,19 @@ type sweepTenant struct {
 	name string
 	// cold deactivates the tenant before the restart.
 	cold bool
-	// stale plants a tracker dir the sweep is expected to own.
+	// stale plants a sidecar the sweep is expected to own.
 	stale bool
-	// wantTrackerAfterSweep is the state of that tracker dir once the
+	// wantSidecarAfterSweep is the state of that sidecar once the
 	// post-restart submit has run its sweep.
-	wantTrackerAfterSweep bool
+	wantSidecarAfterSweep bool
 }
 
 func coldCancelTenants() []sweepTenant {
 	tenants := []sweepTenant{
 		{name: "hot_stale_a", stale: true},
 		{name: "hot_stale_b", stale: true},
-		{name: "cold_stale_a", cold: true, stale: true, wantTrackerAfterSweep: true},
-		{name: "cold_stale_b", cold: true, stale: true, wantTrackerAfterSweep: true},
+		{name: "cold_stale_a", cold: true, stale: true, wantSidecarAfterSweep: true},
+		{name: "cold_stale_b", cold: true, stale: true, wantSidecarAfterSweep: true},
 	}
 	for i := 0; i < coldCancelCleanTenants; i++ {
 		tenants = append(tenants, sweepTenant{name: fmt.Sprintf("hot_clean_%02d", i)})
@@ -164,7 +165,7 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 	// the populations this test separates must not depend on it.
 	for _, tn := range tenants {
 		if tn.stale {
-			plantStaleTracker(ctx, t, container, tn.name)
+			plantStaleSidecar(ctx, t, container, tn.name)
 		}
 	}
 
@@ -191,7 +192,7 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 	//
 	// A filterable rebuild, not enable-rangeable: the latter is semantic and
 	// cannot be tenant-scoped. The (score, filterable) cleanup still owns the
-	// planted filterable_to_rangeable tracker prefix.
+	// planted sidecar of the filterable bucket.
 	hotNames := tenantNames(tenants, func(tn sweepTenant) bool { return !tn.cold })
 	logMark := len(containerLogs(ctx, t, container))
 
@@ -255,18 +256,18 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 			"listing alone. Loaded: %v",
 		stayedUnloaded, stillUnloaded, hydrated)
 
-	// (a) + (c) Whose trackers survived.
+	// (a) + (c) Whose stale sidecars survived.
 	for _, tn := range tenants {
-		dirs := trackerDirs(ctx, t, container, tn.name)
+		dirs := sidecarDirs(ctx, t, container, tn.name)
 		has := containsDir(dirs, coldCancelPlantedDir)
-		if tn.wantTrackerAfterSweep {
+		if tn.wantSidecarAfterSweep {
 			assert.True(t, has,
-				"tenant %q is COLD, so the sweep cannot reach it; its tracker must survive untouched. dirs: %v",
+				"tenant %q is COLD, so the sweep cannot reach it; its stale sidecar must survive untouched. dirs: %v",
 				tn.name, dirs)
 			continue
 		}
 		assert.False(t, has,
-			"tenant %q had a stale tracker the sweep owns and it is still on disk; the next submit resumes "+
+			"tenant %q had a stale sidecar the sweep owns and it is still on disk; the next submit resumes "+
 				"against it and reports success on an index it never built. dirs: %v",
 			tn.name, dirs)
 	}
@@ -289,9 +290,9 @@ func testColdAndUnhydratedTenantCancel(t *testing.T) {
 	reindexhelpers.AwaitReindexFinished(t, restURI, drainTaskID)
 
 	for _, name := range coldNames {
-		dirs := trackerDirs(ctx, t, container, name)
+		dirs := sidecarDirs(ctx, t, container, name)
 		assert.False(t, containsDir(dirs, coldCancelPlantedDir),
-			"tenant %q is HOT again, so the sweep reaches it; its tracker must be gone. dirs: %v", name, dirs)
+			"tenant %q is HOT again, so the sweep reaches it; its stale sidecar must be gone. dirs: %v", name, dirs)
 		hits := bm25QueryTenant(t, coldCancelClass, "name", "corpus", name)
 		assert.NotEmpty(t, hits, "reactivated tenant %q must still serve its objects", name)
 	}
@@ -448,20 +449,16 @@ func tenantLSMPath(tenant string) string {
 	return fmt.Sprintf("/data/%s/%s/lsm", strings.ToLower(coldCancelClass), tenant)
 }
 
-// plantStaleTracker writes the on-disk shape a run that started and never
-// finished leaves behind: a tracker dir holding started.mig and nothing else.
-// No payload.mig, so the sweep resolves the dir from its own name.
-func plantStaleTracker(ctx context.Context, t *testing.T, c testcontainers.Container, tenant string) {
+func plantStaleSidecar(ctx context.Context, t *testing.T, c testcontainers.Container, tenant string) {
 	t.Helper()
-	dir := tenantLSMPath(tenant) + "/.migrations/" + coldCancelPlantedDir
-	execInContainer(ctx, t, c, fmt.Sprintf(
-		"mkdir -p %s && printf '%%s' 2026-01-01T00:00:00.000000000Z > %s/started.mig", dir, dir))
-	require.True(t, containsDir(trackerDirs(ctx, t, c, tenant), coldCancelPlantedDir),
-		"planted tracker for tenant %q must be on disk before the restart", tenant)
+	dir := tenantLSMPath(tenant) + "/" + coldCancelPlantedDir
+	execInContainer(ctx, t, c, fmt.Sprintf("mkdir -p %s", dir))
+	require.True(t, containsDir(sidecarDirs(ctx, t, c, tenant), coldCancelPlantedDir),
+		"planted sidecar for tenant %q must be on disk before the restart", tenant)
 }
 
 // clearReindexResidue makes each tenant's on-disk state look like no
-// migration ever ran on it: no tracker dirs, and no sidecar buckets of the
+// migration ever ran on it: no migration records, and no sidecar buckets of the
 // property under test. Both are what the sweep's gate answers "there is
 // something here" from.
 func clearReindexResidue(ctx context.Context, t *testing.T, c testcontainers.Container, tenants []string) {
@@ -474,14 +471,15 @@ func clearReindexResidue(ctx context.Context, t *testing.T, c testcontainers.Con
 	execInContainer(ctx, t, c, cmd.String())
 }
 
-func trackerDirs(ctx context.Context, t *testing.T, c testcontainers.Container, tenant string) []string {
+// sidecarDirs names the tenant's sidecar directories of the property under test.
+func sidecarDirs(ctx context.Context, t *testing.T, c testcontainers.Container, tenant string) []string {
 	t.Helper()
 	out := execInContainer(ctx, t, c,
-		fmt.Sprintf("ls -1 %s/.migrations 2>/dev/null || true", tenantLSMPath(tenant)))
+		fmt.Sprintf("cd %s 2>/dev/null && ls -1d property_%s__* 2>/dev/null || true", tenantLSMPath(tenant), coldCancelProp))
 	var dirs []string
 	for _, line := range strings.Split(out, "\n") {
-		if cleaned := cleanExecLine(line); cleaned != "" {
-			dirs = append(dirs, cleaned)
+		if name := strings.TrimSpace(line); name != "" {
+			dirs = append(dirs, name)
 		}
 	}
 	return dirs
@@ -496,30 +494,14 @@ func containsDir(dirs []string, want string) bool {
 	return false
 }
 
-// execOutputSentinel absorbs the docker stream framing bytes that prefix each
-// exec frame, so the lines the caller cares about arrive clean.
-const execOutputSentinel = "___EXEC_BEGIN___"
-
 func execInContainer(ctx context.Context, t *testing.T, c testcontainers.Container, cmd string) string {
 	t.Helper()
-	code, reader, err := c.Exec(ctx, []string{"sh", "-c", "echo " + execOutputSentinel + "; " + cmd})
+	code, reader, err := c.Exec(ctx, []string{"sh", "-c", cmd}, tcexec.Multiplexed())
 	require.NoError(t, err, "exec %q", cmd)
 	out, err := io.ReadAll(reader)
 	require.NoError(t, err)
 	require.Zero(t, code, "exec %q failed: %s", cmd, string(out))
-	if idx := strings.Index(string(out), execOutputSentinel); idx >= 0 {
-		return string(out)[idx+len(execOutputSentinel):]
-	}
 	return string(out)
-}
-
-func cleanExecLine(line string) string {
-	return strings.TrimSpace(strings.Map(func(r rune) rune {
-		if r < 0x20 {
-			return -1
-		}
-		return r
-	}, line))
 }
 
 func containerLogs(ctx context.Context, t *testing.T, c testcontainers.Container) string {
@@ -535,8 +517,8 @@ func containerLogs(ctx context.Context, t *testing.T, c testcontainers.Container
 // The metrics probe reports how many lines the metrics page had, so an
 // unreachable endpoint fails loudly instead of reading as "no shard is
 // loaded", and how many shards it found, so a truncated read cannot pass for
-// a small one. Shard names are delimited because docker's exec stream framing
-// prefixes each write with bytes that survive into the text.
+// a small one. Shard names are delimited because the probe joins them without
+// a separator.
 var (
 	metricsLineCountField  = regexp.MustCompile(`LINES=\s*(\d+)`)
 	metricsShardCountField = regexp.MustCompile(`COUNT=\s*(\d+)`)
@@ -553,9 +535,7 @@ func loadedShardsOfClass(ctx context.Context, t *testing.T, c testcontainers.Con
 ) map[string]bool {
 	t.Helper()
 	// Filtered and de-duplicated inside the container: the whole metrics page
-	// is far too large to carry over an exec stream intact. The result leaves
-	// in a single write, so the one frame header lands ahead of the payload
-	// instead of inside a shard name.
+	// is far too large to carry over an exec stream intact.
 	out := execInContainer(ctx, t, c, fmt.Sprintf(
 		"wget -qO- http://localhost:%d/metrics > /tmp/metrics.probe 2>/dev/null; "+
 			"names=$(grep -i 'class_name=\"%s\"' /tmp/metrics.probe | "+
@@ -563,7 +543,6 @@ func loadedShardsOfClass(ctx context.Context, t *testing.T, c testcontainers.Con
 			"printf 'LINES=%%s COUNT=%%s SHARDS=%%s' "+
 			"\"$(wc -l < /tmp/metrics.probe)\" \"$(printf '%%s' \"$names\" | tr -cd '<' | wc -c)\" \"$names\"",
 		coldCancelMetricsPort, className))
-	out = cleanExecLine(out)
 
 	lines := metricsLineCountField.FindStringSubmatch(out)
 	require.NotNil(t, lines, "metrics probe returned no line count: %q", out)
@@ -581,7 +560,7 @@ func loadedShardsOfClass(ctx context.Context, t *testing.T, c testcontainers.Con
 	loaded := map[string]bool{}
 	names := metricsShardName.FindAllStringSubmatch(out, -1)
 	require.Len(t, names, wantShards,
-		"the metrics probe reported %d shards but only %d survived the exec stream, so this reading "+
+		"the metrics probe reported %d shards but only %d were readable, so this reading "+
 			"undercounts loaded shards: %q", wantShards, len(names), out)
 	for _, name := range names {
 		// The collection's own index-level series carry this placeholder in

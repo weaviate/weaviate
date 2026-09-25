@@ -196,12 +196,10 @@ func (p *ReindexProvider) CheckConflict(newPayload []byte, existingTasks []*dist
 // UpdateProperty RAFT command whose MergeProps preserved the
 // still-false sibling flag (the other migration hasn't flipped its
 // flag yet). On apply, Migrator.UpdateProperty →
-// Shard.updatePropertyBuckets ran cleanStaleMigrationDirs for every
+// Shard.updatePropertyBuckets ran a stale-state sweep for every
 // index whose flag was now false, removing the in-flight migration's
-// .migrations/<dir>/ working directory and causing the next
-// markProgress to fail with "progress.mig.000000001: no such file or
-// directory" → task FAILED. https://github.com/weaviate/weaviate/issues/10675 frontend repro on
-// parallel enable-filterable + enable-rangeable hit this.
+// working directory → task FAILED.
+// https://github.com/weaviate/weaviate/issues/10675
 //
 // Closing the window at submit time is correct: reject any new task
 // whose property set overlaps an in-flight task's property set, so the
@@ -307,9 +305,9 @@ func MutationRemedy(status distributedtask.TaskStatus, whenCancellable string) s
 //
 // Motivating failure mode: a `change-tokenization` migration spawns
 // separate per-shard sub-tasks for the searchable and filterable
-// indexes. A DELETE `/index/searchable` arriving mid-flight applies
-// `cleanStaleMigrationDirs("<prop>", "searchable")`, which wipes the
-// searchable sub-task's working dir under the still-running
+// indexes. A DELETE `/index/searchable` arriving mid-flight sweeps the
+// property's stale searchable sidecars, which wipes the
+// searchable sub-task's working copy under the still-running
 // runtimeSwap → searchable sub-unit FAILs → sibling filterable
 // sub-unit commits its local swap → per-shard ack barrier sees mixed
 // acks → task FAILED → `flipSemanticMigrationSchema` skipped →

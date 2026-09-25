@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -34,9 +33,7 @@ import (
 // (see [dirNamesCache]).
 //
 // Caller MUST ensure no local reindex goroutine is touching the tuple —
-// otherwise the cleanup races the worker's writes to the __reindex/__ingest
-// buckets. The cancel handler enforces this via
-// [ReindexProvider.WaitForLocalTaskDrain].
+// otherwise the cleanup races the worker's writes to the staged buckets.
 type StalePartialReindexSweep func(ctx context.Context, collection, propName, indexType string) error
 
 // NewStalePartialReindexSweep returns the CANCEL→retry counterpart to the
@@ -179,10 +176,11 @@ func (i *Index) cleanStalePartialReindexState(
 		return fmt.Errorf("%w: unknown indexType %q", ErrCleanupSweepTruncated, indexType)
 	}
 	shardErrs := errorcompounder.New()
-	skippedShards, payloadReads := 0, 0
+	skippedShards := 0
 	// One cache serves every sweep of a request, so only the delta belongs to
 	// this one; its running total would re-report the first sweep's refusals.
 	refusedBefore := dirs.refusedListings()
+	unreadableBefore, _ := dirs.unreadableRecordSets()
 	// forEachShardStrict, not ForEachShard: a closing index must not read as a
 	// sweep that reached every shard.
 	walkErr := i.forEachShardStrict(func(name string, shardLike ShardLike) error {
@@ -198,14 +196,9 @@ func (i *Index) cleanStalePartialReindexState(
 					"shard %q: partial-reindex cleanup cannot sweep a %T", name, shardLike))
 				return nil
 			}
-			// Charged whichever way the gate answers: the reads are paid before
-			// it decides, so billing only the hydrating half reports zero exactly
-			// where a node full of cold tenants pays the most.
-			skip, gateReads := lazy.canSkipUnloadedSweep(propName, indexType, dirs, dirs.trackerProps())
-			payloadReads += gateReads
 			// Unloaded and nothing on disk to sweep or reclaim: skip rather
 			// than hydrate.
-			if skip {
+			if lazy.canSkipUnloadedSweep(propName, indexType, dirs) {
 				skippedShards++
 				return nil
 			}
@@ -221,11 +214,7 @@ func (i *Index) cleanStalePartialReindexState(
 			}
 			shard = unwrapped
 		}
-		// Charged whether or not the sweep then failed, for the same reason the
-		// gate's reads are: the reads are paid before the outcome is known.
-		shardReads, err := shard.CleanStalePartialReindexState(ctx, propName, indexType)
-		payloadReads += shardReads
-		if err != nil {
+		if err := shard.CleanStalePartialReindexState(ctx, propName, indexType); err != nil {
 			reported := fmt.Errorf("shard %q: %w", name, err)
 			if truncated := truncatedByCancellation(reported); truncated != nil {
 				return truncated
@@ -248,60 +237,26 @@ func (i *Index) cleanStalePartialReindexState(
 		// a bound the cache silently hit has no other signal.
 		level = min(level, logrus.WarnLevel)
 	}
-	i.logger.WithFields(map[string]any{
+	fields := map[string]any{
 		"property":          propName,
 		"index_type":        indexType,
 		"operation":         "CleanStalePartialReindexState",
 		"skipped_shards":    skippedShards,
-		"payload_reads":     payloadReads,
 		"uncached_listings": uncachedListings,
-	}).Log(level, msg)
+	}
+	if unreadable, reasons := dirs.unreadableRecordSets(); unreadable > unreadableBefore {
+		level = min(level, logrus.WarnLevel)
+		fields["unreadable_record_sets"] = unreadable
+		fields["unreadable_record_set_reasons"] = reasons
+	}
+	i.logger.WithFields(fields).Log(level, msg)
 	return sweepErr
 }
 
-// hasStalePartialReindexState reports whether the shard rooted at lsmPath
-// has on-disk state [Shard.CleanStalePartialReindexState] would remove,
-// without loading the shard.
-//
-// Fails open (returns true) on anything it can't read — an unmappable index
-// type, an unlistable directory, or an unparseable tracker payload — since a
-// false "clean" would leave a stale started.mig for the next task to resume
-// against.
-//
-// The unreadable payload only fails open while no properties.mig rebuilds
-// the dir's name. Where one does, [readTaskProps] answers from it, and a
-// tracker naming other properties leaves this reporting clean and skipping
-// the shard.
-//
-// Failing open costs only a hydration, except on an unlistable .migrations:
-// that hydration then finds no completed migration to preserve and removes
-// sidecars a deferred finalize still needs.
-//
-// A FROZEN (offload) transition removes the shard from the map before it
-// removes files, so a mid-transition read either finds an emptying
-// directory and skips it (which offload is about to make true anyway), or
-// races the other way into a spurious [ErrCleanupShardFailed] — never
-// corruption. A deactivated (COLD) tenant is absent from the map too, and
-// reactivating it changes nothing: the stale-sentinel check runs from the
-// task path, not from a shard load.
-//
-// The second return says the shard holds a completed migration's leftovers:
-// its data still under the ingest sidecar name, plus the backup copy of the
-// bucket it replaced. Only a shard load reclaims those, since
-// [FinalizeCompletedMigrations] runs before buckets open. It is only
-// meaningful where the first return is false — a shard already being
-// hydrated finalizes them on the way in either way.
-//
-// props memoizes the tracker payloads read on the way to that answer. Callers
-// running a grid of tuples over the same shards hand in one for the whole run
-// ([dirNamesCache.trackerProps]); a nil one is memoized for this call alone.
+// Fails open on anything unreadable: a false "clean" leaves a stale record behind.
 func hasStalePartialReindexState(
-	lsmPath, propName, indexType string, dirs *dirNamesCache, props *taskPropsCache,
+	lsmPath, propName, indexType string, dirs *dirNamesCache, logger logrus.FieldLogger,
 ) (stale, finalizable bool) {
-	if props == nil {
-		// No run-wide memo: keep the passes below sharing one of their own.
-		props = &taskPropsCache{}
-	}
 	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
 	if !ok {
 		return true, false
@@ -311,51 +266,23 @@ func hasStalePartialReindexState(
 	if err != nil {
 		return !os.IsNotExist(err), false
 	}
-	var sidecarSuffixes []string
-	for _, name := range names {
-		if isSidecarDirOf(name, mainBucketName) {
-			sidecarSuffixes = append(sidecarSuffixes, strings.TrimPrefix(name, mainBucketName))
-		}
+	committed := dirs.committedMigrations(lsmPath, logger)
+	switch {
+	case committed.recordSetUnreadable:
+		return true, false
+	case committed.withholdEverything:
+		return false, false
 	}
-	scope := migrationDirsOf(lsmPath, dirs, propName, indexType).cachingProps(props)
 	// Sidecar bucket dirs, minus the ones backing a completed-but-deferred
 	// migration — those are live state the sweep must preserve.
-	if len(sidecarSuffixes) > 0 {
-		preserveSidecars := completedMigrationSidecarSuffixes(scope.preserving(indexType))
-		for _, suffix := range sidecarSuffixes {
-			if !preserveSidecars[suffix] {
-				return true, false
-			}
-		}
-		// Every sidecar here backs a completed migration, so nothing but a
-		// load reclaims them.
-		finalizable = true
-	}
-
-	// Migration tracker dirs, minus the deferred-finalize generations.
-	names, err = dirs.list(filepath.Join(lsmPath, ".migrations"))
-	if err != nil {
-		return !os.IsNotExist(err), false
-	}
-	var preservedGens map[int]bool
 	for _, name := range names {
-		matched, unreadablePayload := scope.inScopeFailingOpen(name)
-		if unreadablePayload {
-			// A payload this gate can't read could name this property; only
-			// hydrating and re-reading can tell, so this is not "clean".
+		if !isSidecarDirOf(name, mainBucketName) {
+			continue
+		}
+		if !committed.preservesBucket(name) {
 			return true, false
 		}
-		if !matched {
-			continue
-		}
-		if preservedGens == nil {
-			preservedGens = completedMigrationGens(scope)
-		}
-		if _, gen, ok := parseMigrationDirName(name); ok && preservedGens[gen] {
-			finalizable = true
-			continue
-		}
-		return true, false
+		finalizable = finalizable || committed.bucketNeedsLoad(name)
 	}
 	return false, finalizable
 }
@@ -384,25 +311,48 @@ type dirNamesCache struct {
 	cost int
 	// refused counts the listings the bound kept out, which the sweep reports
 	// so a cache that stopped caching is visible.
-	refused int
-	// props is the tracker-payload memo of the same run; see
-	// [dirNamesCache.trackerProps].
-	props taskPropsCache
+	refused           int
+	committed         map[string]migrationPreservedState
+	unreadableRecords map[string]struct{}
+	unreadableErrs    errorcompounder.ErrorCompounder
 }
 
-// trackerProps is the payload memo sharing this cache's lifetime, so the two
-// can never drift apart: every tuple of one run asks the same unloaded shards,
-// and a payload costs orders of magnitude more to parse than a listing costs
-// to read.
-//
-// Safe across tuples in both directions: a skipped shard is unchanged, and a
-// hydrated one answers from [LazyLoadShard.loaded] before it consults the
-// memo again. A nil cache has no memo; its callers keep one per call instead.
-func (c *dirNamesCache) trackerProps() *taskPropsCache {
-	if c == nil {
-		return nil
+func (c *dirNamesCache) chargeUnreadableRecordSet(lsmPath string, err error) {
+	if err == nil {
+		return
 	}
-	return &c.props
+	if c.unreadableRecords == nil {
+		c.unreadableRecords = map[string]struct{}{}
+		c.unreadableErrs = errorcompounder.New()
+	}
+	c.unreadableRecords[lsmPath] = struct{}{}
+	c.unreadableErrs.AddWrapf(err, "%s", lsmPath)
+}
+
+func (c *dirNamesCache) unreadableRecordSets() (int, error) {
+	if c == nil || len(c.unreadableRecords) == 0 {
+		return 0, nil
+	}
+	return len(c.unreadableRecords), c.unreadableErrs.ToErrorLimited(maxReportedErrors)
+}
+
+func (c *dirNamesCache) committedMigrations(lsmPath string,
+	logger logrus.FieldLogger,
+) migrationPreservedState {
+	if c == nil {
+		state, _ := migrationPreservedStateAt(lsmPath, logger)
+		return state
+	}
+	if state, ok := c.committed[lsmPath]; ok {
+		return state
+	}
+	state, recordSetErr := migrationPreservedStateAt(lsmPath, logger)
+	c.chargeUnreadableRecordSet(lsmPath, recordSetErr)
+	if c.committed == nil {
+		c.committed = map[string]migrationPreservedState{}
+	}
+	c.committed[lsmPath] = state
+	return state
 }
 
 // refusedListings reports how many listings [maxCachedDirNames] kept out. A nil
@@ -414,9 +364,7 @@ func (c *dirNamesCache) refusedListings() int {
 	return c.refused
 }
 
-// dirNamesKey identifies one cached answer. filter is part of the key since a
-// full listing and a sidecar-filtered one of the same path are different
-// answers.
+// dirNamesKey identifies one cached answer.
 type dirNamesKey struct {
 	path   string
 	filter string
@@ -427,15 +375,9 @@ type dirNamesListing struct {
 	err   error
 }
 
-// list names every directory directly under path.
-func (c *dirNamesCache) list(path string) ([]string, error) {
-	return c.listMatching(dirNamesKey{path: path}, nil)
-}
-
 // listSidecarCandidates names the directories under a shard's LSM path that
 // could be a sidecar of some bucket ("<mainBucket>__<suffix>"). This filter
-// holds for every (property, index type) asked about the same path, which is
-// why it's cached separately from the unfiltered [dirNamesCache.list].
+// holds for every (property, index type) asked about the same path.
 func (c *dirNamesCache) listSidecarCandidates(lsmPath string) ([]string, error) {
 	return c.listMatching(dirNamesKey{path: lsmPath, filter: "sidecar"}, func(name string) bool {
 		return strings.Contains(name, "__")

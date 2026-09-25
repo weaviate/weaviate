@@ -20,7 +20,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -29,7 +28,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/testcontainers/testcontainers-go"
 	clientbackups "github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/entities/models"
@@ -95,27 +93,16 @@ func TestBackupVsReindexSuite(t *testing.T) {
 		testBackupSucceedsAfterMigrationFinishes(t, restURI)
 	})
 
-	t.Run("PostRestartOrphanAuditClearsTracker", func(t *testing.T) {
-		testPostRestartOrphanAuditClearsTracker(t, ctx, compose, restURI)
-	})
-
-	// The subtests below re-resolve URI each call because
-	// PostRestartOrphanAuditClearsTracker above does a Stop+Start that
-	// rebinds the container to a new dynamic port.
 	t.Run("CancelOnNoInFlightReturns202NoOp", func(t *testing.T) {
-		testCancelOnNoInFlightReturns202NoOp(t, compose.GetWeaviate().URI())
+		testCancelOnNoInFlightReturns202NoOp(t, restURI)
 	})
 
 	t.Run("AlgorithmVerbNoOpOnAlreadyBlockmaxRejectsWAND", func(t *testing.T) {
-		testAlgorithmVerb(t, compose.GetWeaviate().URI())
+		testAlgorithmVerb(t, restURI)
 	})
 
 	t.Run("MutationGuardBlocksDeleteClassDuringInFlight", func(t *testing.T) {
-		testMutationGuardBlocksDeleteClassDuringInFlight(t, compose.GetWeaviate().URI())
-	})
-
-	t.Run("CancelClearsTrackerDirsViaOnTaskCompleted", func(t *testing.T) {
-		testCancelClearsTrackerDirsViaOnTaskCompleted(t, ctx, compose, compose.GetWeaviate().URI())
+		testMutationGuardBlocksDeleteClassDuringInFlight(t, restURI)
 	})
 }
 
@@ -311,74 +298,6 @@ func submitChangeTokenization(t *testing.T, restURI, collection, property, targe
 		fmt.Sprintf(`{"tokenization":%q}`, target))
 }
 
-// testPostRestartOrphanAuditClearsTracker injects an orphan tracker
-// dir + sidecar bucket on disk (the shape a pre-fix backup-restore
-// would leave), restarts the container, and asserts the post-bootstrap
-// audit removes both while leaving the canonical bucket and data intact.
-func testPostRestartOrphanAuditClearsTracker(t *testing.T, ctx context.Context, compose *docker.DockerCompose, restURI string) {
-	const (
-		className   = "ReindexBackup_OrphanAudit"
-		shardLookup = "ReindexBackup_OrphanAudit"
-	)
-
-	helper.CreateClass(t, &models.Class{
-		Class: className,
-		Properties: []*models.Property{
-			{Name: "body", DataType: []string{"text"}, Tokenization: "word"},
-		},
-		Vectorizer: "none",
-	})
-	defer helper.DeleteClass(t, className)
-
-	importBodies(t, className, 500)
-	preCount := moduleshelper.GetClassCount(t, className, "")
-	require.EqualValues(t, 500, preCount)
-
-	shardName := reindexhelpers.GetFirstShardName(t, restURI, className)
-	require.NotEmpty(t, shardName, "could not resolve shard name for %s", className)
-
-	// Stop, stage orphan state, restart so the audit fires on it.
-	require.NoError(t, compose.StopAt(ctx, 0, nil))
-	require.NoError(t, compose.StartAt(ctx, 0))
-	helper.SetupClient(compose.GetWeaviate().URI())
-	container := compose.GetWeaviate().Container()
-
-	require.EqualValues(t, preCount, moduleshelper.GetClassCount(t, className, ""),
-		"baseline restart must not lose data")
-
-	lsmPath := fmt.Sprintf("/data/%s/%s/lsm", strings.ToLower(className), shardName)
-	orphanDir := "searchable_retokenize_body_999" // gen 999 is far outside any runtime-picked value
-	sidecarBucket := "property_body_searchable__retokenize_reindex_999"
-	injectOrphanTrackerOnDisk(t, ctx, container, lsmPath, orphanDir, sidecarBucket,
-		`{"taskID":"orphan-from-prefix-backup","taskVersion":1,"unitID":"u0","payload":{"collection":"`+className+`","migrationType":"change-tokenization","properties":["body"],"targetTokenization":"lowercase","bucketStrategy":"map_collection"}}`)
-
-	require.NoError(t, compose.StopAt(ctx, 0, nil))
-	require.NoError(t, compose.StartAt(ctx, 0))
-	helper.SetupClient(compose.GetWeaviate().URI())
-	container = compose.GetWeaviate().Container()
-
-	// The audit runs async after meta store ready + DTM bootstrap.
-	require.Eventually(t, func() bool {
-		code, _, _ := container.Exec(ctx, []string{
-			"test", "-d",
-			filepath.Join(lsmPath, ".migrations", orphanDir),
-		})
-		return code != 0
-	}, 60*time.Second, 50*time.Millisecond,
-		"orphan tracker dir was not cleaned up by the post-bootstrap audit")
-
-	// The sidecar dir is removed just after the tracker, so poll instead of
-	// asserting once.
-	require.Eventually(t, func() bool {
-		code, _, _ := container.Exec(ctx, []string{"test", "-d", filepath.Join(lsmPath, sidecarBucket)})
-		return code != 0
-	}, 60*time.Second, 50*time.Millisecond,
-		"orphan sidecar bucket dir was not cleaned up by the post-bootstrap audit")
-
-	assert.EqualValues(t, preCount, moduleshelper.GetClassCount(t, className, ""),
-		"canonical data must survive the audit")
-}
-
 // testCancelOnNoInFlightReturns202NoOp: cancel with no task targeting the
 // tuple is idempotent — 202 with Status: NO_OP and no TaskID. Matches the
 // singlenode copy in test/acceptance/reindex_singlenode/cancel_test.go.
@@ -557,149 +476,6 @@ func testMutationGuardBlocksDeleteClassDuringInFlight(t *testing.T, restURI stri
 	deletedByTest = true
 }
 
-// testCancelClearsTrackerDirsViaOnTaskCompleted asserts two contracts on
-// every run:
-//
-//  1. `.migrations/<prefix>_body_N/` drains from disk within a few
-//     scheduler ticks once the task is no longer running.
-//  2. DELETE class after the task reaches a terminal state succeeds and
-//     leaves no on-disk class dir behind.
-//
-// Whether the cancel is what ends the task is not one of them: the reindex
-// can't be held at a chosen phase from outside, so the cancel may land after
-// the task already finished on its own. The switch below asserts whatever
-// response the landed-in phase requires, and logs which one that was — only
-// the 202/CANCELLED path proves cancel-driven cleanup.
-func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Context, compose *docker.DockerCompose, restURI string) {
-	const (
-		className = "ReindexBackup_CancelCleanup"
-		propName  = "body"
-	)
-	helper.CreateClass(t, &models.Class{
-		Class: className,
-		Properties: []*models.Property{
-			{Name: propName, DataType: []string{"text"}, Tokenization: "word"},
-		},
-		Vectorizer: "none",
-	})
-	// The test drives the final DELETE itself; defer is just a bail-out
-	// cleanup for aborted runs.
-	deletedByTest := false
-	defer func() {
-		if !deletedByTest {
-			helper.DeleteClass(t, className)
-		}
-	}()
-
-	importBodies(t, className, 50_000)
-
-	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, propName, "searchable",
-		`{"tokenization":"lowercase"}`)
-	t.Logf("cancel-cleanup probe task submitted: %s", taskID)
-
-	awaitIndexingState(t, restURI, className, propName)
-
-	cancelResp := reindexhelpers.CancelIndexRaw(t, restURI, className, propName, "searchable")
-
-	// awaitIndexingState is best-effort, so the cancel lands at an
-	// unsynchronized moment and the task's phase decides the code: 202
-	// CANCELLED (still STARTED), 409 (every unit finished, cluster-wide swap
-	// under way), 202 NO_OP (terminal). Under 409 and NO_OP the drain below
-	// is completion-driven, not cancel-driven, so log which one we got.
-	//
-	// Each arm here checks something only that answer can satisfy. A
-	// regression to "the cancel is always refused" would still be green
-	// here; the per-status answer is pinned in
-	// TestCancelPreflight_WireResponsePerStatus.
-	switch cancelResp.StatusCode {
-	case http.StatusAccepted:
-		var result models.IndexUpdateResponse
-		require.NoErrorf(t, json.Unmarshal([]byte(cancelResp.Body), &result),
-			"cancel response should decode as IndexUpdateResponse: %s", cancelResp.Body)
-		switch result.Status {
-		case "CANCELLED":
-			require.Equalf(t, taskID, result.TaskID,
-				"cancel CANCELLED must name the cancelled task; body: %s", cancelResp.Body)
-		case "NO_OP":
-			t.Logf("cancel raced with task completion; task %s was already terminal", taskID)
-		default:
-			t.Fatalf("unexpected cancel Status %q (expected CANCELLED or NO_OP); body: %s",
-				result.Status, cancelResp.Body)
-		}
-	case http.StatusConflict:
-		require.Containsf(t, cancelResp.Body, taskID,
-			"cancel 409 must name the task it refuses to cancel; body: %s", cancelResp.Body)
-		t.Logf("cancel raced with task completion; task %s is past its units", taskID)
-	default:
-		t.Fatalf("unexpected cancel status %d (expected 202 or 409): %s", cancelResp.StatusCode, cancelResp.Body)
-	}
-
-	shardName := reindexhelpers.GetFirstShardName(t, restURI, className)
-	lsmPath := fmt.Sprintf("/data/%s/%s/lsm", strings.ToLower(className), shardName)
-	migsPath := lsmPath + "/.migrations"
-	container := compose.GetWeaviate().Container()
-	classPath := fmt.Sprintf("/data/%s", strings.ToLower(className))
-
-	// Poll .migrations/ until every body-related dir is gone (cleanup
-	// runs async on the scheduler tick). assert.Eventually drives the poll;
-	// on timeout we t.Fatalf with the last observed survivors so the
-	// diagnostic matches the original (the message args of require.Eventually
-	// are captured up-front, before any survivors are known).
-	var lastMatches string
-	drained := assert.Eventually(t, func() bool {
-		code, reader, execErr := container.Exec(ctx, []string{
-			"sh", "-c",
-			fmt.Sprintf(`ls -1 %s 2>/dev/null | grep -E '_%s($|_)' | head -10`, migsPath, propName),
-		})
-		require.NoError(t, execErr)
-		out := new(strings.Builder)
-		if reader != nil {
-			_, _ = io.Copy(out, reader)
-		}
-		lastMatches = strings.TrimSpace(out.String())
-		// grep exit 1 (no match) or empty stdout means cleanup is done.
-		return code != 0 || lastMatches == ""
-	}, 30*time.Second, 50*time.Millisecond)
-	if !drained {
-		t.Fatalf("cancel-cleanup did not remove %s/.migrations/*_%s_* within 30s; survivors:\n%s",
-			lsmPath, propName, lastMatches)
-	}
-
-	// MutationGuard's IsActive() gate (STARTED/PREPARING/SWAPPING only)
-	// means a terminal task does not block DELETE.
-	deleteURL := fmt.Sprintf("http://%s/v1/schema/%s", restURI, className)
-	delReq, err := http.NewRequest(http.MethodDelete, deleteURL, nil)
-	require.NoError(t, err)
-	delResp, err := http.DefaultClient.Do(delReq)
-	require.NoError(t, err)
-	delBody, _ := io.ReadAll(delResp.Body)
-	_ = delResp.Body.Close()
-	require.Equalf(t, http.StatusOK, delResp.StatusCode,
-		"DELETE class after CANCELLED task must succeed; got %d: %s",
-		delResp.StatusCode, string(delBody))
-	deletedByTest = true
-
-	// Class-dir removal is async and lags the DELETE 200 under load;
-	// poll instead of checking once.
-	removed := assert.Eventually(t, func() bool {
-		code, _, execErr := container.Exec(ctx, []string{"test", "-d", classPath})
-		require.NoError(t, execErr)
-		return code == 1 // test -d exit 1 == class dir gone
-	}, 30*time.Second, 50*time.Millisecond)
-	if !removed {
-		_, reader, execErr := container.Exec(ctx, []string{
-			"sh", "-c", fmt.Sprintf("ls -la %s 2>&1", classPath),
-		})
-		require.NoError(t, execErr)
-		out := new(strings.Builder)
-		if reader != nil {
-			_, _ = io.Copy(out, reader)
-		}
-		t.Fatalf("class dir %s must be removed by DELETE within 30s; still present:\n%s",
-			classPath, strings.TrimSpace(out.String()))
-	}
-}
-
 // backupAndRestoreRoundTrip creates a filesystem backup, deletes the
 // class, restores it, and asserts the post-restore count equals
 // preCount.
@@ -718,59 +494,6 @@ func backupAndRestoreRoundTrip(t *testing.T, className, backupID string, preCoun
 
 	postCount := moduleshelper.GetClassCount(t, className, "")
 	assert.Equal(t, preCount, postCount, msg)
-}
-
-// injectOrphanTrackerOnDisk crafts the on-disk shape that a pre-fix
-// backup-restore would leave on a restored shard:
-//
-//   - .migrations/<orphanDir>/started.mig
-//   - .migrations/<orphanDir>/reindexed.mig
-//   - .migrations/<orphanDir>/payload.mig (with the supplied JSON body)
-//   - .migrations/<orphanDir>/audit_quarantined.mig (mtime pre-aged
-//     well past `reindexAuditQuarantineWindow` so the audit's S2
-//     two-pass safeguard collapses to a single destructive sweep —
-//     otherwise the test would need to wait the full quarantine
-//     window for a second audit pass that doesn't fire post-bootstrap)
-//   - <sidecarBucket>/marker.flag
-func injectOrphanTrackerOnDisk(t *testing.T, ctx context.Context, container testcontainers.Container,
-	lsmPath, orphanDir, sidecarBucket, payloadJSON string,
-) {
-	t.Helper()
-	trackerDir := filepath.Join(lsmPath, ".migrations", orphanDir)
-	// Compute the pre-aged timestamp host-side in POSIX touch -t form
-	// (YYYYMMDDhhmm.ss) so the inject works on the alpine/busybox base
-	// of the testcontainer (busybox touch lacks GNU `-d` relative dates).
-	agedTs := time.Now().Add(-time.Hour).UTC().Format("200601021504.05")
-	for _, cmd := range [][]string{
-		{"mkdir", "-p", trackerDir},
-		{"touch", filepath.Join(trackerDir, "started.mig")},
-		{"touch", filepath.Join(trackerDir, "reindexed.mig")},
-		{"sh", "-c", fmt.Sprintf("cat > %s <<'EOF'\n%s\nEOF", filepath.Join(trackerDir, "payload.mig"), payloadJSON)},
-		// Pre-aged quarantine sentinel: mirror the unit-test
-		// `writePreAgedQuarantineSentinel` helper. Without this,
-		// PostRestartOrphanAuditClearsTracker would race the 5-minute
-		// quarantine window and time out (the test only waits 60s).
-		{"touch", "-t", agedTs, filepath.Join(trackerDir, "audit_quarantined.mig")},
-		{"mkdir", "-p", filepath.Join(lsmPath, sidecarBucket)},
-		{"touch", filepath.Join(lsmPath, sidecarBucket, "marker.flag")},
-	} {
-		execInContainer(t, ctx, container, cmd...)
-	}
-}
-
-// execInContainer runs a command inside the testcontainer and fails
-// the test on non-zero exit.
-func execInContainer(t *testing.T, ctx context.Context, c testcontainers.Container, cmd ...string) {
-	t.Helper()
-	code, reader, err := c.Exec(ctx, cmd)
-	require.NoError(t, err, "exec %v", cmd)
-	output := ""
-	if reader != nil {
-		buf := new(strings.Builder)
-		_, _ = io.Copy(buf, reader)
-		output = buf.String()
-	}
-	require.Equal(t, 0, code, "exec %v exited %d; output: %s", cmd, code, output)
 }
 
 // awaitIndexingState polls GET /v1/schema/<class>/indexes until at

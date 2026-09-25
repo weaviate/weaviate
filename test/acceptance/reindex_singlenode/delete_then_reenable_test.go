@@ -24,20 +24,6 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// testDeleteThenReEnable pins the journey: enable an index via the reindex
-// API (which creates the .migrations/<dir>/tidied sentinel on disk), DELETE
-// it via DELETE /properties/{prop}/index/{indexName}, then enable it again.
-// The second enable MUST actually re-build the bucket and the index MUST
-// serve queries afterwards.
-//
-// Failure mode this guards against: stale .migrations/<dir>/tidied sentinel
-// surviving the DELETE, causing the second enable to short-circuit on
-// rt.IsTidied()=true, call OnMigrationComplete on an empty bucket, re-flip
-// the schema flag to true, and report "ready" while leaving the customer
-// with an empty index — silent data loss.
-//
-// Three sub-tests, one per index type. Each uses its own collection so the
-// shared container doesn't tangle state.
 func testDeleteThenReEnable(t *testing.T, restURI string) {
 	t.Run("searchable", func(t *testing.T) {
 		testDeleteThenReEnableSearchable(t, restURI)
@@ -56,9 +42,6 @@ func testDeleteThenReEnableSearchable(t *testing.T, restURI string) {
 	helper.CreateClass(t, &models.Class{
 		Class: class,
 		Properties: []*models.Property{
-			// Start with searchable=false so the first enable goes through
-			// the reindex pipeline and lays down the .migrations sentinel
-			// whose stale survival across DELETE we are guarding against.
 			{Name: "body", DataType: []string{"text"}, IndexSearchable: &falseVal, Tokenization: "word"},
 		},
 		Vectorizer: "none",
@@ -73,8 +56,6 @@ func testDeleteThenReEnableSearchable(t *testing.T, restURI string) {
 		}), "object %d", i)
 	}
 
-	// Step 1: first enable via the reindex API — lays down the
-	// .migrations/enable_searchable_body/ tidied sentinel on disk.
 	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, class, "body", "searchable",
 		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
@@ -85,10 +66,6 @@ func testDeleteThenReEnableSearchable(t *testing.T, restURI string) {
 	// Step 2: DELETE the searchable index.
 	deleteIndex(t, restURI, class, "body", "searchable")
 
-	// Step 3: re-enable. The crux of this test. If the .migrations
-	// sentinel from step 1 survived the DELETE, OnAfterLsmInitAsync
-	// will short-circuit on rt.IsTidied()=true and re-flip the schema
-	// flag while the freshly-removed bucket stays empty.
 	taskID = reindexhelpers.SubmitIndexUpsert(t, restURI, class, "body", "searchable",
 		`{"tokenization":"word"}`)
 	reindexhelpers.AwaitReindexFinished(t, restURI, taskID)
@@ -96,7 +73,7 @@ func testDeleteThenReEnableSearchable(t *testing.T, restURI string) {
 
 	hits := bm25Hits(t, class, "fox")
 	require.GreaterOrEqual(t, hits, 3,
-		"post-DELETE-then-re-enable: bm25('fox') must return all 3 docs; got %d. If 0, the migration short-circuited on a stale .migrations sentinel and the bucket is empty — schema reports ready but customer queries are broken (Sev 1)", hits)
+		"post-DELETE-then-re-enable: bm25('fox') must return all 3 docs; got %d. If 0, the migration short-circuited on a stale migration record and the bucket is empty — schema reports ready but customer queries are broken (Sev 1)", hits)
 }
 
 func testDeleteThenReEnableFilterable(t *testing.T, restURI string) {
@@ -133,7 +110,7 @@ func testDeleteThenReEnableFilterable(t *testing.T, restURI string) {
 
 	hits := equalFilterHits(t, class, "name", "alpha")
 	require.Equal(t, 1, hits,
-		"post-DELETE-then-re-enable: filterable Equal('alpha') must return 1; got %d. If 0, the migration silently no-opped on a stale .migrations sentinel (Sev 1)", hits)
+		"post-DELETE-then-re-enable: filterable Equal('alpha') must return 1; got %d. If 0, the migration silently no-opped on a stale migration record (Sev 1)", hits)
 }
 
 func testDeleteThenReEnableRangeable(t *testing.T, restURI string) {
@@ -170,7 +147,7 @@ func testDeleteThenReEnableRangeable(t *testing.T, restURI string) {
 
 	hits := rangeFilterHits(t, class, "score", 30)
 	require.Equal(t, 2, hits,
-		"post-DELETE-then-re-enable: range LessThan(30) must return 2; got %d. If 0, migration silently no-opped on a stale .migrations sentinel (Sev 1)", hits)
+		"post-DELETE-then-re-enable: range LessThan(30) must return 2; got %d. If 0, migration silently no-opped on a stale migration record (Sev 1)", hits)
 }
 
 // deleteIndex calls DELETE /v1/schema/{class}/properties/{prop}/index/{indexName}.

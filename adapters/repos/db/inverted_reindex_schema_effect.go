@@ -11,7 +11,11 @@
 
 package db
 
-import "github.com/weaviate/weaviate/entities/models"
+import (
+	"fmt"
+
+	"github.com/weaviate/weaviate/entities/models"
+)
 
 type migrationEffect int
 
@@ -103,10 +107,46 @@ func migrationEffectConfirmsCommit(class *models.Class, subject MigrationSubject
 
 // Mirrors the conditions under which the schema writer sets these flags. Where
 // the writer narrows and this does not, reconcilePromotedSealed reads the
-// effect as pending and never removes the promoted record's tracker directory.
+// effect as pending and never removes the promoted record.
 func migrationPropertyEffectVisible(subject MigrationSubject, prop *models.Property) bool {
 	visible, _ := migrationEffectReader(subject.MigrationType)
 	return visible != nil && visible(subject, prop)
+}
+
+// No default arm: the exhaustive linter is what catches a new strategy code that names no flag here.
+func migrationCanonicalIndexFlag(code MigrationStrategyCode, prop *models.Property) (*bool, string) {
+	switch code {
+	case StrategyCodeSearchableMapToBlockmax, StrategyCodeEnableSearchable,
+		StrategyCodeRebuildSearchable, StrategyCodeSearchableRetokenize:
+		return prop.IndexSearchable, "indexSearchable"
+	case StrategyCodeFilterableToRangeable:
+		return prop.IndexRangeFilters, "indexRangeFilters"
+	case StrategyCodeFilterableRoaringsetRefresh, StrategyCodeFilterableRetokenize,
+		StrategyCodeEnableFilterable:
+		return prop.IndexFilterable, "indexFilterable"
+	}
+	return nil, ""
+}
+
+// Follows the load-time sweep's own rule, an explicit false: [migrationEffectStatus]
+// reads an unset flag as not-enabled and would defer every retokenize promotion.
+func migrationCanonicalSweptBySchema(class *models.Class, subject MigrationSubject,
+	prop string,
+) (swept bool, why string) {
+	if class == nil {
+		return true, fmt.Sprintf("property %q: the collection is not in the locally applied schema", prop)
+	}
+	for _, p := range class.Properties {
+		if p == nil || p.Name != prop {
+			continue
+		}
+		flag, field := migrationCanonicalIndexFlag(subject.Key.StrategyCode, p)
+		if propertyIndexRemoved(flag) {
+			return true, fmt.Sprintf("property %q: the collection sets %s to false", prop, field)
+		}
+		return false, ""
+	}
+	return false, ""
 }
 
 func propertyTokenizationAtTarget(prop *models.Property, target string) bool {

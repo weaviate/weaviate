@@ -14,8 +14,6 @@ package db
 import (
 	"context"
 	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -69,7 +67,7 @@ func seedRangeable(t *testing.T, className string) ([]*storobj.Object, *storobj.
 
 func enterSemanticSwapWindow(t *testing.T, ctx context.Context, class *models.Class, propName string,
 	corpus []*storobj.Object, migration ReindexMigrationType,
-	newTask func(*testing.T, *Index, string, string) *ShardReindexTaskGeneric,
+	newTask func(*testing.T, *Index, string, string, string) *ShardReindexTaskGeneric,
 	failAfterFlip bool,
 ) *Shard {
 	t.Helper()
@@ -83,16 +81,12 @@ func enterSemanticSwapWindow(t *testing.T, ctx context.Context, class *models.Cl
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
 
-	task := newTask(t, idx, class.Class, propName)
+	task := newTask(t, idx, class.Class, propName, shard.migrationUnit())
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 
 	if failAfterFlip {
-		// rename(2) refuses to replace a non-empty directory, and the swap
-		// renames onto this path only after flipping the bucket pointer.
-		occupied := filepath.Join(shard.pathLSM(), task.backupBucketName(propName))
-		require.NoError(t, os.MkdirAll(occupied, 0o755))
-		require.NoError(t, os.WriteFile(filepath.Join(occupied, "blocker"), nil, 0o644))
+		task.strategy = failingMigrationComplete{task.strategy}
 	}
 
 	logger, _ := logrustest.NewNullLogger()
@@ -109,6 +103,14 @@ func enterSemanticSwapWindow(t *testing.T, ctx context.Context, class *models.Cl
 	}
 
 	return shard
+}
+
+// failingMigrationComplete fails the swap's last step, which runs after the
+// bucket pointer flip.
+type failingMigrationComplete struct{ MigrationStrategy }
+
+func (failingMigrationComplete) OnMigrationComplete(context.Context, ShardLike) error {
+	return errors.New("injected failure after the bucket flip")
 }
 
 // noIndexAtAllClass leaves the property unindexed, so shard init creates no
@@ -128,18 +130,20 @@ func TestWriteDuringSemanticMigrationSwapWindow(t *testing.T) {
 		newClass      func(className, propName string) *models.Class
 		seed          func(*testing.T, string) ([]*storobj.Object, *storobj.Object)
 		migration     ReindexMigrationType
-		newTask       func(*testing.T, *Index, string, string) *ShardReindexTaskGeneric
+		newTask       func(*testing.T, *Index, string, string, string) *ShardReindexTaskGeneric
 		flip          func(prop *models.Property)
 		find          func(*testing.T, context.Context, *Shard, string, string) []*storobj.Object
 		failAfterFlip bool
 	}{
 		{
-			name:      "enable-filterable",
-			newClass:  newEnableFilterableTestClass,
+			name: "enable-filterable",
+			newClass: func(className, propName string) *models.Class {
+				return newEnableFilterableTestClass(className, propName)
+			},
 			seed:      seedText,
 			migration: ReindexTypeEnableFilterable,
-			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
-				task, _ := newEnableFilterableTask(t, idx, className, propName)
+			newTask: func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric {
+				task, _ := newEnableFilterableTask(t, idx, className, unitID, propName)
 				return task
 			},
 			flip: func(prop *models.Property) { prop.IndexFilterable = boolPtr(true) },
@@ -150,8 +154,8 @@ func TestWriteDuringSemanticMigrationSwapWindow(t *testing.T) {
 			newClass:  noIndexAtAllClass,
 			seed:      seedText,
 			migration: ReindexTypeEnableFilterable,
-			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
-				task, _ := newEnableFilterableTask(t, idx, className, propName)
+			newTask: func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric {
+				task, _ := newEnableFilterableTask(t, idx, className, unitID, propName)
 				return task
 			},
 			flip: func(prop *models.Property) { prop.IndexFilterable = boolPtr(true) },
@@ -164,9 +168,9 @@ func TestWriteDuringSemanticMigrationSwapWindow(t *testing.T) {
 			},
 			seed:      seedText,
 			migration: ReindexTypeEnableSearchable,
-			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+			newTask: func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric {
 				task, _ := newEnableSearchableTask(t, idx, className, propName,
-					models.PropertyTokenizationWord)
+					models.PropertyTokenizationWord, unitID)
 				return task
 			},
 			flip: func(prop *models.Property) { prop.IndexSearchable = boolPtr(true) },
@@ -179,9 +183,9 @@ func TestWriteDuringSemanticMigrationSwapWindow(t *testing.T) {
 			},
 			seed:      seedRangeable,
 			migration: ReindexTypeEnableRangeable,
-			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+			newTask: func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric {
 				// Its OnMigrationComplete is what makes the bucket queryable.
-				return newFilterableToRangeableTaskWithStrategy(t, idx, className, propName,
+				return newFilterableToRangeableTaskWithStrategy(t, idx, className, propName, unitID,
 					&FilterableToRangeableStrategy{propNames: []string{propName}, generation: 1})
 			},
 			flip: func(prop *models.Property) { prop.IndexRangeFilters = boolPtr(true) },
@@ -190,12 +194,14 @@ func TestWriteDuringSemanticMigrationSwapWindow(t *testing.T) {
 		{
 			// The pointer is already flipped when the swap gives up, so the
 			// overlay is all that routes writes to the new bucket.
-			name:      "enable-filterable where the swap fails after the bucket flip",
-			newClass:  newEnableFilterableTestClass,
+			name: "enable-filterable where the swap fails after the bucket flip",
+			newClass: func(className, propName string) *models.Class {
+				return newEnableFilterableTestClass(className, propName)
+			},
 			seed:      seedText,
 			migration: ReindexTypeEnableFilterable,
-			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
-				task, _ := newEnableFilterableTask(t, idx, className, propName)
+			newTask: func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric {
+				task, _ := newEnableFilterableTask(t, idx, className, unitID, propName)
 				return task
 			},
 			flip:          func(prop *models.Property) { prop.IndexFilterable = boolPtr(true) },
@@ -240,7 +246,7 @@ func TestWriteDuringSwapWindowSkipsAbsentLengthAndNullBuckets(t *testing.T) {
 		name      string
 		newClass  func(className, propName string) *models.Class
 		migration ReindexMigrationType
-		newTask   func(*testing.T, *Index, string, string) *ShardReindexTaskGeneric
+		newTask   func(*testing.T, *Index, string, string, string) *ShardReindexTaskGeneric
 		flip      func(prop *models.Property)
 		find      func(*testing.T, context.Context, *Shard, string, string) []*storobj.Object
 		absent    func(*testing.T, *Shard, string)
@@ -249,8 +255,8 @@ func TestWriteDuringSwapWindowSkipsAbsentLengthAndNullBuckets(t *testing.T) {
 			name:      "enable-filterable",
 			newClass:  noIndexAtAllClass,
 			migration: ReindexTypeEnableFilterable,
-			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
-				task, _ := newEnableFilterableTask(t, idx, className, propName)
+			newTask: func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric {
+				task, _ := newEnableFilterableTask(t, idx, className, unitID, propName)
 				return task
 			},
 			flip:   func(prop *models.Property) { prop.IndexFilterable = boolPtr(true) },
@@ -263,9 +269,9 @@ func TestWriteDuringSwapWindowSkipsAbsentLengthAndNullBuckets(t *testing.T) {
 				return newEnableSearchableTestClass(className, []string{propName})
 			},
 			migration: ReindexTypeEnableSearchable,
-			newTask: func(t *testing.T, idx *Index, className, propName string) *ShardReindexTaskGeneric {
+			newTask: func(t *testing.T, idx *Index, className, propName, unitID string) *ShardReindexTaskGeneric {
 				task, _ := newEnableSearchableTask(t, idx, className, propName,
-					models.PropertyTokenizationWord)
+					models.PropertyTokenizationWord, unitID)
 				return task
 			},
 			flip:   func(prop *models.Property) { prop.IndexSearchable = boolPtr(true) },
@@ -411,7 +417,7 @@ func TestSwapPhaseFailsWhenTheOverlayCannotBeWired(t *testing.T) {
 		require.NoError(t, shard.PutObject(ctx, obj))
 	}
 
-	task, _ := newEnableFilterableTask(t, idx, className, propName)
+	task, _ := newEnableFilterableTask(t, idx, className, shard.migrationUnit(), propName)
 	require.NoError(t, task.RunReindexOnlyOnShard(ctx, shard))
 	require.NoError(t, task.RunPrepareOnShard(ctx, shard))
 
@@ -476,8 +482,29 @@ func TestSwapPhaseRunsWhenThereIsNoOverlayToWire(t *testing.T) {
 		Collection:    className,
 		Properties:    []string{propName},
 	}, "unit-1", shard.Name(), lazy,
-		[]*ShardReindexTaskGeneric{newTestTask(idx.logger, &MapToBlockmaxStrategy{})}, logger)
+		[]*ShardReindexTaskGeneric{newTestTask(idx.logger, &MapToBlockmaxStrategy{}, shard.migrationUnit())}, logger)
 
 	require.NoError(t, res.OverlayUnwrapErr,
 		"a unit with no overlay to wire must not report a wiring failure")
+}
+
+func propEqualsFilter(className, propName, value string) *filters.LocalFilter {
+	return &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: filters.OperatorEqual,
+			On: &filters.Path{
+				Class:    schema.ClassName(className),
+				Property: schema.PropertyName(propName),
+			},
+			Value: &filters.Value{Value: value, Type: schema.DataTypeText},
+		},
+	}
+}
+
+func objectIDs(objects []*storobj.Object) []string {
+	ids := make([]string, len(objects))
+	for i, obj := range objects {
+		ids[i] = obj.ID().String()
+	}
+	return ids
 }

@@ -12,21 +12,27 @@
 package db
 
 import (
-	"encoding/json"
+	"context"
 	"math"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 	"testing"
+	"time"
 
+	"github.com/google/uuid"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // One property is the only shape a submission can carry: the upsert handler
 // builds every payload as []string{propertyName}.
-const dirOwnershipProp = "title"
+const (
+	dirOwnershipProp = "title"
+	dirOwnershipUnit = "shard-1__node-0"
+)
 
 type dirOwnershipCase struct {
 	name         string
@@ -47,11 +53,11 @@ func dirOwnershipCases() []dirOwnershipCase {
 		{name: "enable-searchable", migration: ReindexTypeEnableSearchable, tokenization: "word"},
 		{
 			name: "change-tokenization", migration: ReindexTypeChangeTokenization,
-			tokenization: "field", strategy: "MapCollection",
+			tokenization: "field", strategy: lsmkv.StrategyMapCollection,
 		},
 		{
 			name: "change-tokenization-filterable", migration: ReindexTypeChangeTokenizationFilterable,
-			tokenization: "field", strategy: "MapCollection",
+			tokenization: "field", strategy: lsmkv.StrategyMapCollection,
 		},
 	}
 }
@@ -89,22 +95,22 @@ func workingCopyDirs(tasks []*ShardReindexTaskGeneric) []string {
 	for _, task := range tasks {
 		s := task.strategy
 		bucket := s.SourceBucketName(dirOwnershipProp)
-		out = append(out, bucket+s.ReindexSuffix(), bucket+s.IngestSuffix(), bucket+s.BackupSuffix())
+		out = append(out, bucket+s.ReindexSuffix(), bucket+s.IngestSuffix())
 	}
 	return out
 }
 
 // The cancel cleanup removes a migration's bucket working copies before its
-// tracker directory and only logs a removal that fails, so a working copy can
-// outlive the tracker that named it. The next submission must not open its own
-// working copy on those surviving files.
-func TestRetryAvoidsWorkingCopiesThatOutlivedTheirTracker(t *testing.T) {
+// record and only logs a removal that fails, so a working copy can outlive the
+// record that named it. The next submission must not open its own working copy
+// on those surviving files.
+func TestRetryAvoidsWorkingCopiesThatOutlivedTheirRecord(t *testing.T) {
 	for _, tc := range dirOwnershipCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			p, _ := newTestProvider(t)
 			lsm := t.TempDir()
 
-			abandoned, err := p.createReindexTasks(taskDescAt(7), tc.payload(), lsm, false)
+			abandoned, err := p.createReindexTasks(taskDescAt(7), dirOwnershipUnit, tc.payload())
 			require.NoError(t, err)
 			require.NotEmpty(t, abandoned)
 
@@ -114,9 +120,9 @@ func TestRetryAvoidsWorkingCopiesThatOutlivedTheirTracker(t *testing.T) {
 				survivors[dir] = true
 			}
 			require.NoDirExists(t, filepath.Join(lsm, migrationsDir),
-				"the tracker is the part of the earlier attempt the cleanup did remove")
+				"the record is the part of the earlier attempt the cleanup did remove")
 
-			retry, err := p.createReindexTasks(taskDescAt(9), tc.payload(), lsm, false)
+			retry, err := p.createReindexTasks(taskDescAt(9), dirOwnershipUnit, tc.payload())
 			require.NoError(t, err)
 			require.NotEmpty(t, retry)
 
@@ -134,30 +140,70 @@ func taskDescAt(version uint64) distributedtask.TaskDescriptor {
 
 // Regression guard, not the proof above: the rehydrate path builds the strategy
 // a restart lost the instance of, so it has to land on the very directories the
-// first instance wrote.
+// first instance wrote. The records alone say which halves are still in flight.
 func TestRehydrateRebuildsTheDirectoryNamesTheMigrationWrote(t *testing.T) {
-	for _, tc := range dirOwnershipCases() {
-		t.Run(tc.name, func(t *testing.T) {
-			p, _ := newTestProvider(t)
-			lsm := t.TempDir()
-			desc := taskDescAt(11)
+	tests := []struct {
+		name       string
+		recorded   bool
+		unreadable bool
+		wantSkip   bool
+		wantErrs   bool
+	}{
+		{name: "the migration's records", recorded: true},
+		{name: "no record: the migration already finalized here", wantSkip: true},
+		{
+			// Read as absent, it would report the unit finalized and flip the schema.
+			name: "a record this build cannot read", recorded: true, unreadable: true, wantErrs: true,
+		},
+	}
 
-			started, err := p.createReindexTasks(desc, tc.payload(), lsm, false)
-			require.NoError(t, err)
-			require.NotEmpty(t, started)
+	for _, tt := range tests {
+		for _, tc := range dirOwnershipCases() {
+			t.Run(tt.name+"/"+tc.name, func(t *testing.T) {
+				ctx := testCtx()
+				className := "Rehydrate" + uuid.NewString()[:8]
+				shd, idx := testShardWithSettings(t, ctx, newTestClassWithProps(className, []string{dirOwnershipProp}),
+					enthnsw.UserConfig{Skip: true}, false, false, false)
+				shard := shd.(*Shard)
+				defer shard.Shutdown(context.Background())
+				registerIndex(idx, className)
+				logger, _ := logrustest.NewNullLogger()
+				p := NewReindexProvider(idx.db, nil, nil, logger, "node1", nil, ctx)
 
-			gone, err := p.createReindexTasks(desc, tc.payload(), lsm, true)
-			require.NoError(t, err)
-			require.Empty(t, gone, "no tracker directory on disk means nothing to resume")
+				unitID := shard.migrationUnit()
+				payload := tc.payload()
+				payload.UnitToShard = map[string]string{unitID: shard.Name()}
+				desc := taskDescAt(11)
 
-			for _, task := range started {
-				require.NoError(t, os.MkdirAll(task.migrationPath(lsm), 0o777))
-			}
-			resumed, err := p.createReindexTasks(desc, tc.payload(), lsm, true)
-			require.NoError(t, err)
-			require.NotEmpty(t, resumed, "the tracker on disk is the one the rehydrate looks for")
-			require.Equal(t, workingCopyDirs(started), workingCopyDirs(resumed))
-		})
+				started, err := p.createReindexTasks(desc, unitID, payload)
+				require.NoError(t, err)
+				store := shard.migrationRecordStore()
+				if tt.recorded {
+					for _, task := range started {
+						subject := task.migrationSubject(shard, []string{dirOwnershipProp}, time.Now())
+						require.NoError(t, store.Put(NewMigrationRecordIterated(subject)))
+					}
+				}
+				if tt.unreadable {
+					plantUnreadableRecord(t, store.Dir())
+					require.NoError(t, store.Load())
+				}
+
+				got := p.resolveUnitForPhase(ctx, &distributedtask.Task{TaskDescriptor: desc},
+					payload, unitID, idx, logger)
+
+				switch {
+				case tt.wantErrs:
+					require.NotEmpty(t, got.Errs)
+					require.False(t, got.Skip)
+				case tt.wantSkip:
+					require.True(t, got.Skip)
+				default:
+					require.Empty(t, got.Errs)
+					require.Equal(t, workingCopyDirs(started), workingCopyDirs(got.UnitTasks))
+				}
+			})
+		}
 	}
 }
 
@@ -172,138 +218,27 @@ func TestCreateReindexTasksRejectsUnusableGeneration(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		name    string
-		version uint64
-		wantDir string
+		name       string
+		version    uint64
+		wantIngest string
 	}{
 		{name: "zero names the canonical bucket", version: 0},
 		{name: "past what an int holds", version: math.MaxUint64},
-		{name: "lowest live generation", version: 1, wantDir: MigrationDirFilterableRoaringsetRefresh + "_1"},
+		{name: "lowest live generation", version: 1, wantIngest: "__roaringset_ingest_1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p, _ := newTestProvider(t)
 
-			tasks, err := p.createReindexTasks(taskDescAt(tc.version), payload, t.TempDir(), false)
+			tasks, err := p.createReindexTasks(taskDescAt(tc.version), dirOwnershipUnit, payload)
 
-			if tc.wantDir == "" {
+			if tc.wantIngest == "" {
 				require.Error(t, err)
 				require.Empty(t, tasks)
 				return
 			}
 			require.NoError(t, err)
 			require.Len(t, tasks, 1)
-			require.Equal(t, tc.wantDir, tasks[0].strategy.MigrationDirName())
-		})
-	}
-}
-
-// seedInFlightMigration lays out an in-flight migration's on-disk state at
-// dirGen and returns the tracker dirs it wrote. recordedVersion, kept
-// separate from dirGen, simulates a node that numbered dirs per-node
-// before this branch switched to task-version generations.
-func seedInFlightMigration(t *testing.T, p *ReindexProvider, lsmPath string,
-	c dirOwnershipCase, dirGen, recordedVersion uint64,
-) []string {
-	t.Helper()
-	tasks, err := p.createReindexTasks(taskDescAt(dirGen), c.payload(), lsmPath, false)
-	require.NoError(t, err)
-	require.NotEmpty(t, tasks)
-
-	encoded, err := json.Marshal(reindexRecoveryRecord{
-		TaskID:      taskDescAt(recordedVersion).ID,
-		TaskVersion: recordedVersion,
-		UnitID:      "unit-1",
-		Payload:     *c.payload(),
-	})
-	require.NoError(t, err)
-
-	var dirs []string
-	for _, task := range tasks {
-		dir := task.migrationPath(lsmPath)
-		require.NoError(t, os.MkdirAll(dir, 0o777))
-		require.NoError(t, os.WriteFile(filepath.Join(dir, reindexRecoveryPayloadFile), encoded, 0o666))
-		// started and reindexed without tidied is the window recovery exists
-		// for: the iteration is over, the swap has not run.
-		for _, sentinel := range []string{"started.mig", "reindexed.mig"} {
-			require.NoError(t, os.WriteFile(filepath.Join(dir, sentinel), nil, 0o666))
-		}
-		dirs = append(dirs, task.strategy.MigrationDirName())
-	}
-	sort.Strings(dirs)
-	return dirs
-}
-
-// recoveredMigrationDirs is every tracker directory the recovered strategy
-// instances name, deduplicated: a semantic migration rebuilds both of its
-// tasks from each of its directories.
-func recoveredMigrationDirs(recovered []RecoveredReindex) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, r := range recovered {
-		for _, task := range r.Tasks {
-			name := task.strategy.MigrationDirName()
-			if seen[name] {
-				continue
-			}
-			seen[name] = true
-			out = append(out, name)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-// Recovery must read the generation from the directory name, like every
-// other reader — payload.mig is copied into every tracker dir for a task
-// and can't tell them apart.
-func TestRecoveryNamesTheDirectoriesItRecoveredFrom(t *testing.T) {
-	for _, tc := range recoverableDirOwnershipCases() {
-		t.Run(tc.name, func(t *testing.T) {
-			p, _ := newTestProvider(t)
-			root := t.TempDir()
-			lsm := filepath.Join(root, "books", "shard-1", "lsm")
-			require.NoError(t, os.MkdirAll(lsm, 0o777))
-
-			onDisk := seedInFlightMigration(t, p, lsm, tc, 3, 41)
-
-			recovered, err := DiscoverInFlightReindexTasks(root, p.logger, nil)
-			require.NoError(t, err)
-			require.NotEmpty(t, recovered, "an unswapped migration is in flight on this shard")
-
-			require.Equal(t, onDisk, recoveredMigrationDirs(recovered),
-				"recovery must rebuild the strategies that name the directories on disk")
-
-			for _, r := range recovered {
-				require.Equal(t, uint64(41), r.Descriptor.Version,
-					"the descriptor still carries the version the cluster knows the task by")
-			}
-		})
-	}
-}
-
-// A tracker dir with no generation suffix must be skipped, not given an
-// invented one — that would name sidecar buckets that don't exist and
-// leave the dir reported in-flight forever.
-func TestRecoverySkipsATrackerDirectoryThatNamesNoGeneration(t *testing.T) {
-	for _, tc := range recoverableDirOwnershipCases() {
-		t.Run(tc.name, func(t *testing.T) {
-			p, _ := newTestProvider(t)
-			root := t.TempDir()
-			lsm := filepath.Join(root, "books", "shard-1", "lsm")
-			require.NoError(t, os.MkdirAll(lsm, 0o777))
-
-			for _, dir := range seedInFlightMigration(t, p, lsm, tc, 3, 41) {
-				base := strings.TrimSuffix(dir, genSuffix(3))
-				require.NotEqual(t, dir, base)
-				require.NoError(t, os.Rename(
-					filepath.Join(lsm, migrationsDir, dir),
-					filepath.Join(lsm, migrationsDir, base)))
-			}
-
-			recovered, err := DiscoverInFlightReindexTasks(root, p.logger, nil)
-			require.NoError(t, err)
-			require.Empty(t, recoveredMigrationDirs(recovered),
-				"a directory name with no generation gives recovery nothing to rebuild from")
+			require.Equal(t, tc.wantIngest, tasks[0].strategy.IngestSuffix())
 		})
 	}
 }

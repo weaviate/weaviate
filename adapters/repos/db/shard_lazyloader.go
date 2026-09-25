@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"io"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/entities/loadlimiter"
@@ -598,12 +597,12 @@ func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.E
 }
 
 func (l *LazyLoadShard) updatePropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
-	property *models.Property, payloadReads *atomic.Int64,
+	property *models.Property, counts *migrationSweepCounts,
 ) {
 	if l.isLoaded() {
-		l.shard.updatePropertyBuckets(ctx, eg, property, payloadReads)
+		l.shard.updatePropertyBuckets(ctx, eg, property, counts)
 	} else {
-		// The unloaded path removes bucket dirs by name and reads no payloads.
+		// The unloaded path removes bucket dirs by name and reads no records.
 		l.updateUnloadedPropertyBuckets(ctx, eg, property)
 	}
 }
@@ -1134,14 +1133,7 @@ func (l *LazyLoadShard) blockLoading() func() {
 // load. The loading mutex covers the disk read and is released before
 // returning — the hydration that follows takes it itself.
 //
-// A completed migration's leftovers are the second reason not to skip: a
-// load is what runs [FinalizeCompletedMigrations], so a shard that keeps its
-// data under the ingest sidecar name plus a full backup copy of the bucket it
-// replaced reclaims neither until something hydrates it. One load per tenant
-// per completed migration settles that — finalize removes the tracker dir it
-// answers from, so the next sweep skips the tenant again. A tenant with no
-// migration leftovers at all, which is the population this gate is for, is
-// never loaded.
+// Completed-migration leftovers also block a skip: only a load reclaims them.
 //
 // Skipping holds only while reindex state arrives through a load. Shutdown does
 // not remove the shard from the index map — [Index.Shutdown] shuts its shards
@@ -1149,27 +1141,14 @@ func (l *LazyLoadShard) blockLoading() func() {
 // mutex: [LazyLoadShard.Shutdown] takes the one held across this disk read. A
 // sweep racing an index shutdown then comes back truncated from
 // [Index.forEachShardStrict] rather than as a walk that reached every shard.
-//
-// The second return is how many tracker payloads this call had to read, for
-// the caller's log; a loaded shard reads none, and so does a shard a previous
-// tuple of the same run already answered from props.
-func (l *LazyLoadShard) canSkipUnloadedSweep(
-	propName, indexType string, dirs *dirNamesCache, props *taskPropsCache,
-) (bool, int) {
+func (l *LazyLoadShard) canSkipUnloadedSweep(propName, indexType string, dirs *dirNamesCache) bool {
 	release := l.blockLoading()
 	defer release()
 
 	if l.loaded {
-		return false, 0
+		return false
 	}
-	if props == nil {
-		// No run-wide memo. Substituted here rather than left to the probe, so
-		// the count below is taken off the cache the probe actually used.
-		props = &taskPropsCache{}
-	}
-	// props is a running total over the whole run, so the caller gets the delta.
-	before := props.count()
 	stale, finalizable := hasStalePartialReindexState(
-		l.pathLSM(), propName, indexType, dirs, props)
-	return !stale && !finalizable, props.count() - before
+		l.pathLSM(), propName, indexType, dirs, l.Index().logger)
+	return !stale && !finalizable
 }

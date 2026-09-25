@@ -29,8 +29,8 @@ type RoaringSetRefreshStrategy struct {
 	generation int // see genSuffix godoc
 }
 
-func (s *RoaringSetRefreshStrategy) MigrationDirName() string {
-	return MigrationDirFilterableRoaringsetRefresh + genSuffix(s.generation)
+func (s *RoaringSetRefreshStrategy) StrategyCode() MigrationStrategyCode {
+	return StrategyCodeFilterableRoaringsetRefresh
 }
 
 func (s *RoaringSetRefreshStrategy) SourceBucketName(propName string) string {
@@ -45,10 +45,6 @@ func (s *RoaringSetRefreshStrategy) IngestSuffix() string {
 	return "__roaringset_ingest" + genSuffix(s.generation)
 }
 
-func (s *RoaringSetRefreshStrategy) BackupSuffix() string {
-	return "__roaringset_backup" + genSuffix(s.generation)
-}
-
 func (s *RoaringSetRefreshStrategy) SourceStrategy() string {
 	return lsmkv.StrategyRoaringSet
 }
@@ -58,10 +54,6 @@ func (s *RoaringSetRefreshStrategy) SourceIndexType() PropertyIndexType {
 }
 
 func (s *RoaringSetRefreshStrategy) TargetStrategy() string {
-	return lsmkv.StrategyRoaringSet
-}
-
-func (s *RoaringSetRefreshStrategy) BackupStrategy() string {
 	return lsmkv.StrategyRoaringSet
 }
 
@@ -77,14 +69,14 @@ func (s *RoaringSetRefreshStrategy) WriteToReindexBucket(shard ShardLike, bucket
 }
 
 func (s *RoaringSetRefreshStrategy) MakeAddCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
+	armed armedMirror,
 ) onAddToPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasFilterableIndex {
 			return nil
 		}
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+			armed, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}
@@ -98,14 +90,14 @@ func (s *RoaringSetRefreshStrategy) MakeAddCallback(bucketNamer func(string) str
 }
 
 func (s *RoaringSetRefreshStrategy) MakeDeleteCallback(bucketNamer func(string) string,
-	propsByName map[string]struct{}, forTargetStrategy bool,
+	armed armedMirror,
 ) onDeleteFromPropertyValueIndex {
 	return func(shard *Shard, docID uint64, property *inverted.Property) error {
 		if !property.HasFilterableIndex {
 			return nil
 		}
 		bucket, bucketName, skip := resolveScopedDoubleWriteBucket(shard, property,
-			propsByName, bucketNamer, s.SourceBucketName, forTargetStrategy)
+			armed, bucketNamer, s.SourceBucketName)
 		if skip {
 			return nil
 		}

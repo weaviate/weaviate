@@ -13,11 +13,8 @@ package db
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -158,14 +155,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, fmt.Errorf("init shard's %q store: %w", s.ID(), err)
 	}
 
-	s.settleMigrationDirectories(ctx, class)
+	// Ahead of initNonVector because reconciliation renames directories: a bucket
+	// opened at a name it is about to move would serve the wrong data.
+	s.reconcileMigrationRecords(ctx, class)
 
-	// Pessimistically mark any in-flight enable-rangeable / repair-rangeable
-	// migration's target property "not locally ready": repair-rangeable runs
-	// with the schema flag already true, so nothing else would stop a shard
-	// whose recovery has not finished the swap from serving range queries off
-	// an empty PreReindexHook'd bucket. Props not in this scan default to
-	// ready. Full rationale on [Shard.rangeableLocalReady].
 	markInFlightRangeableMigrationsNotReady(s)
 
 	if err := s.initNonVector(ctx, class); err != nil {
@@ -240,128 +233,34 @@ func (s *Shard) NotifyReady() {
 		Debugf("shard=%s is ready", s.name)
 }
 
-// markInFlightRangeableMigrationsNotReady scans this shard's
-// .migrations/ directory for rangeable-related tracker dirs whose
-// `tidied.mig` sentinel is not present, and flips the corresponding
-// per-prop entry in Shard.rangeableLocalReady to false. See
-// [Shard.rangeableLocalReady] for rationale. Idempotent and safe to
-// call on shards with no rangeable migrations on disk.
-//
-// Property names are read from the on-disk recovery payload (payload.mig
-// inside each tracker dir). Parsing them out of the dir name would be
-// fragile for props whose names themselves contain `_` (e.g.
-// `price_cents`), because [migrationDirWithProps] joins multiple props
-// with `_` — the dir-name decoder can't tell `price_cents` (one prop)
-// from `[price, cents]` (two props).
-//
-// Tracker dirs whose payload.mig is unreadable or missing are skipped
-// — they are either stale (operator surgery, partial-init crash) or
-// from an old build before payload persistence. We accept the
-// default-true policy in [Shard.IsRangeableLocallyReady] for those
-// edge cases; the bucket-existence fallback inside
-// IsRangeableLocallyReady still protects queries when the
-// PreReindexHook hasn't fired yet on this replica.
-//
-// Properties that don't have a tracker dir, or whose dir has
-// `tidied.mig` (a completed migration, whose finalization
-// FinalizeCompletedMigrations owns), are left untouched — the
-// default-true policy in [Shard.IsRangeableLocallyReady] applies to them.
 func markInFlightRangeableMigrationsNotReady(s *Shard) {
-	migrationsDir := filepath.Join(s.pathLSM(), ".migrations")
-	entries, err := os.ReadDir(migrationsDir)
-	if err != nil {
-		// No .migrations dir is the common case: nothing to do.
+	if s.migrationRecords == nil {
 		return
 	}
-	const prefix = MigrationDirPrefixFilterableToRangeable + "_"
-	for _, entry := range entries {
-		if !entry.IsDir() {
+	if migrationFaultCouldHideARangeableRecord(s.migrationRecords.Unreadable()) {
+		s.rangeableUndecidable.Store(true)
+	}
+	for _, rec := range s.migrationRecords.Records() {
+		if rec.Subject().Key.StrategyCode != StrategyCodeFilterableToRangeable ||
+			rec.State() == MigrationStatePromoted {
 			continue
 		}
-		name := entry.Name()
-		base, _, ok := parseMigrationDirName(name)
-		if !ok {
-			continue
-		}
-		if !strings.HasPrefix(base, prefix) {
-			continue
-		}
-		// tidied.mig present means FinalizeCompletedMigrations either
-		// promoted the migration or will at the next call site; the
-		// query-side fallback isn't needed for these.
-		dirPath := filepath.Join(migrationsDir, name)
-		if fileExistsInDir(dirPath, "tidied.mig") {
-			continue
-		}
-		// Unbounded on purpose, unlike the cleanup probes: refusing here would
-		// leave the property on the default-true readiness policy for the whole
-		// of a large migration, which is a query-side answer rather than an
-		// extra directory walk.
-		propNames, err := readRecoveryPropertyNames(dirPath, unboundedRecoveryPayload)
-		if err != nil {
-			continue
-		}
-		for _, propName := range propNames {
+		for _, propName := range rec.Subject().Properties() {
 			s.setRangeableLocallyReady(propName, false)
 		}
 	}
 }
 
-// maxRecoveryPayloadBytes bounds what [readTaskProps] parses. A payload names
-// every targeted tenant, so a large multi-tenant migration reaches megabytes,
-// and the cleanup probes that want one field from it run inside the RAFT
-// apply of a property DELETE, holding the FSM loop cluster-wide.
-//
-// A payload over the bound is refused, not parsed, and reads as
-// [errRecoveryPayloadTooLarge] — see [readTaskProps] for what callers conclude.
-const maxRecoveryPayloadBytes = 1 << 20 // 1 MiB
-
-// unboundedRecoveryPayload parses a payload of any size.
-const unboundedRecoveryPayload = 0
-
-// errRecoveryPayloadTooLarge marks a payload.mig [maxRecoveryPayloadBytes]
-// refused. Distinguishable from a payload that was opened and could not be
-// parsed, so a refusal is not counted as a read: it cost a stat.
-var errRecoveryPayloadTooLarge = errors.New("recovery payload exceeds the parse bound")
-
-func refuseOversizedRecoveryPayload(path string, bound int64) error {
-	if bound <= unboundedRecoveryPayload {
-		return nil
+// A store-scope fault read no file; an unparseable name could be any strategy.
+func migrationFaultCouldHideARangeableRecord(faults []MigrationRecordUnreadable) bool {
+	for _, fault := range faults {
+		if fault.Scope != MigrationRecordFaultFile {
+			return true
+		}
+		code, known := migrationStrategyCodeOfRecordFile(fault.FileName)
+		if !known || code == StrategyCodeFilterableToRangeable {
+			return true
+		}
 	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	if info.Size() > bound {
-		return fmt.Errorf("%w: %s holds %d bytes, bound is %d",
-			errRecoveryPayloadTooLarge, reindexRecoveryPayloadFile, info.Size(), bound)
-	}
-	return nil
-}
-
-// readRecoveryPropertyNames reads the property list a task saved in its
-// payload.mig. A missing payload (os.IsNotExist) must stay distinguishable
-// from an unreadable one: readTaskProps reads only the former as "the task
-// recorded nothing", and fails the unloaded-shard gate open on the latter.
-func readRecoveryPropertyNames(migDir string, maxBytes int64) ([]string, error) {
-	path := filepath.Join(migDir, reindexRecoveryPayloadFile)
-	if err := refuseOversizedRecoveryPayload(path, maxBytes); err != nil {
-		return nil, err
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	// Anonymous shape: only the field we need. Avoids depending on
-	// ReindexTaskPayload here (no import cycle risk, but keeping shard
-	// init lean).
-	var rec struct {
-		Payload struct {
-			Properties []string `json:"properties"`
-		} `json:"payload"`
-	}
-	if err := json.Unmarshal(data, &rec); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", reindexRecoveryPayloadFile, err)
-	}
-	return rec.Payload.Properties, nil
+	return false
 }
