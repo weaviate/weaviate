@@ -215,6 +215,12 @@ func (r *sweptTTLRepo) GetIndexForIncomingSharding(class schema.ClassName) shard
 	return noopTTLIndex{}
 }
 
+func (r *sweptTTLRepo) sweptCollections() []string {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	return append([]string(nil), r.asked...)
+}
+
 // noopTTLIndex embeds the interface so only the one method the sweep calls is
 // implemented. It dispatches nothing, so the sweep's own flow is what a test sees.
 type noopTTLIndex struct {
@@ -282,6 +288,67 @@ func postTTLDelete(t *testing.T, server *httptest.Server, collections int) {
 	require.NoError(t, err)
 	require.NoError(t, resp.Body.Close())
 	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+}
+
+// An abort that cannot reach the schema wait leaves the sweep sitting out one
+// schema deadline per collection in the body, holding the slot for all of them.
+func TestIncomingDeleteAbortReachesTheSchemaWait(t *testing.T) {
+	const (
+		collections = 10
+		schemaWait  = 500 * time.Millisecond
+	)
+
+	ttlSchema := &waitingTTLSchema{waitTimeout: schemaWait, entered: make(chan struct{})}
+	server, _, status, sweepOutcome := ttlTestServer(t, ttlSchema)
+
+	sweepReturned := func() bool { _, returned := sweepOutcome(); return returned }
+
+	// the sweep is detached from the request, so let it drain before the test
+	// returns even when an assertion below failed. The slot is released last, so
+	// the log line this test reads elsewhere would let it through still running.
+	t.Cleanup(func() {
+		deadline := time.Now().Add(collections*schemaWait + time.Second)
+		for status.IsRunning() && time.Now().Before(deadline) {
+			time.Sleep(10 * time.Millisecond)
+		}
+	})
+
+	postTTLDelete(t, server, collections)
+
+	select {
+	case <-ttlSchema.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the sweep never reached the schema wait")
+	}
+
+	require.True(t, status.Abort(), "the sweep is running, so there is one to abort")
+
+	require.Eventually(t, sweepReturned, 2*time.Second, 10*time.Millisecond,
+		"an aborted sweep must return without sitting out a schema deadline per collection")
+
+	failed, _ := sweepOutcome()
+	require.ErrorIs(t, failed, objectttl.ErrAborted,
+		"and report the abort, not the version the schema wait never reached")
+}
+
+// The context the schema wait runs under is the live one a sweep was started
+// with, so an unaborted sweep still reaches every collection's index.
+func TestIncomingDeleteSweepsEveryCollection(t *testing.T) {
+	const collections = 3
+
+	ttlSchema := &waitingTTLSchema{entered: make(chan struct{})}
+	server, repo, status, sweepOutcome := ttlTestServer(t, ttlSchema)
+
+	postTTLDelete(t, server, collections)
+
+	// the slot is released by the outermost defer, so waiting on it means every
+	// earlier one has run, including the one that logs the outcome read below
+	require.Eventually(t, func() bool { return !status.IsRunning() },
+		5*time.Second, 10*time.Millisecond,
+		"the sweep must run to completion and hand the slot back")
+	failed, _ := sweepOutcome()
+	require.NoError(t, failed)
+	require.Equal(t, []string{"Collection0", "Collection1", "Collection2"}, repo.sweptCollections())
 }
 
 // A malformed body has to hand back the slot the handler took to read it, or
