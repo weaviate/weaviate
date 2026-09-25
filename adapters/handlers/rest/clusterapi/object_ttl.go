@@ -120,15 +120,14 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 
 		var body []objectttl.ObjectsExpiredPayload
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			d.localStatus.ResetRunning("bad request")
+			d.localStatus.Finish()
 			http.Error(w, "Error parsing JSON body", http.StatusBadRequest)
 			return
 		}
 
 		// run the deletion in a separate goroutine to free up the HTTP handler immediately
 		enterrors.GoWrapper(func() {
-			// make sure to unlock the requestRunning flag when all deletions are done
-			defer d.localStatus.ResetRunning("finished")
+			defer d.localStatus.Finish()
 
 			started := time.Now()
 
@@ -203,7 +202,7 @@ func (d *ObjectTTL) incomingAbort() http.Handler {
 		defer r.Body.Close()
 
 		response := objectttl.ObjectsExpiredAbortResponse{
-			Aborted: d.localStatus.ResetRunning("aborted"),
+			Aborted: d.localStatus.Abort(),
 		}
 
 		d.logger.WithFields(logrus.Fields{
