@@ -19,6 +19,7 @@ import (
 	"github.com/go-openapi/runtime"
 	middleware "github.com/go-openapi/runtime/middleware"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -50,4 +51,12 @@ func tooManyRequestsResponder(principal *models.Principal, err error) middleware
 			panic(perr) // let the recovery middleware deal with this
 		}
 	})
+}
+
+// memoryShedResponder renders a memwatch rejection as HTTP 429, or returns nil to fall through
+func memoryShedResponder(principal *models.Principal, err error) middleware.Responder {
+	if !enterrors.IsMemoryPressure(err) {
+		return nil
+	}
+	return tooManyRequestsResponder(principal, err)
 }

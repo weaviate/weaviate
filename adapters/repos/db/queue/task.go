@@ -14,6 +14,7 @@ package queue
 import (
 	"context"
 	"sync"
+	"time"
 )
 
 // A Task represents a unit of work to be processed by the workers.
@@ -31,6 +32,7 @@ type Task interface {
 	// If a task returns a transient error from Execute (e.g. canceled context, not enough memory, etc.),
 	// it will be retried using an exponential backoff strategy.
 	// Otherwise, the error will be considered permanent and the task will not be retried.
+	// Memory-pressure retries are bounded: past maxMemoryPressureAttempts the batch is parked, never discarded.
 	Execute(ctx context.Context) error
 }
 
@@ -50,23 +52,40 @@ type Batch struct {
 	Ctx        context.Context
 	OnDone     func()
 	OnCanceled func()
-	once       sync.Once
+	// OnRequeue must hand the same batch back to a worker after the given delay.
+	OnRequeue func(after time.Duration)
+	// once settles the batch: Done or Cancel, never both
+	once sync.Once
 }
 
 // Called by the worker when all tasks in the batch have been processed.
-// It will execute the OnDone callback if it is set.
+// It will execute the OnDone callback if it is set. A batch settles once: Done and Cancel exclude each other.
 func (b *Batch) Done() {
-	if b.OnDone != nil {
-		b.once.Do(b.OnDone)
-	}
+	b.once.Do(func() {
+		if b.OnDone != nil {
+			b.OnDone()
+		}
+	})
 }
 
 // Called by the worker if the batch processing was canceled.
 // It will execute the OnCanceled callback if it is set.
 func (b *Batch) Cancel() {
-	if b.OnCanceled != nil {
-		b.OnCanceled()
+	b.once.Do(func() {
+		if b.OnCanceled != nil {
+			b.OnCanceled()
+		}
+	})
+}
+
+// Requeue parks the batch without completing it. Only Done deletes the backing chunk.
+func (b *Batch) Requeue(after time.Duration) {
+	if b.OnRequeue != nil {
+		b.OnRequeue(after)
+		return
 	}
+
+	b.Cancel()
 }
 
 // MergeBatches merges multiple batches into a single batch.

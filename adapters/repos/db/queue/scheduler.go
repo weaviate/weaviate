@@ -46,6 +46,13 @@ type Scheduler struct {
 	chans     []chan *Batch
 	triggerCh chan chan struct{}
 
+	// batches parked under memory pressure, re-dispatched once their pause elapsed
+	parked struct {
+		sync.Mutex
+
+		list []parkedBatch
+	}
+
 	// closeOnce: OnClose fires exactly once, started or not (owners count it in a shutdown WaitGroup).
 	closeOnce sync.Once
 	// closeLock serialises concurrent Close calls (double close of chans panics and would skip OnClose).
@@ -151,6 +158,8 @@ func (s *Scheduler) UnregisterQueue(ctx context.Context, id string) {
 
 	q.cancelFn()
 
+	s.releaseParked(q)
+
 	// wait for the workers to finish processing the queue's tasks
 	_ = s.Wait(ctx, id)
 
@@ -218,6 +227,8 @@ func (s *Scheduler) Close(ctx context.Context) error {
 	// stop scheduling
 	s.cancelFn()
 
+	s.releaseParked(nil)
+
 	// wait for the workers to finish processing tasks
 	_ = s.activeTasks.Wait(ctx)
 
@@ -256,6 +267,8 @@ func (s *Scheduler) PauseQueue(id string) {
 	q.m.Lock()
 	q.paused = true
 	q.m.Unlock()
+
+	s.releaseParked(q)
 
 	s.updatePausedMetric()
 
@@ -372,8 +385,10 @@ func (s *Scheduler) runScheduler() {
 			t.Stop()
 			return
 		case <-t.C:
+			s.dispatchParked()
 			s.schedule()
 		case ch := <-s.triggerCh:
+			s.dispatchParked()
 			s.scheduleQueues()
 			close(ch)
 		}
@@ -484,6 +499,12 @@ func (s *Scheduler) scheduleQueues() (nothingScheduled bool) {
 }
 
 func (s *Scheduler) dispatchQueue(q *queueState) (taskCount int64, err error) {
+	var (
+		batch *Batch
+		// set once the partitions own the batch's settlement
+		handedOff bool
+	)
+
 	// a panic here (e.g. while dequeuing or decoding a corrupt chunk) would
 	// kill the scheduler goroutine, which is shared by every queue and never
 	// restarted. Contain it so the scheduler moves on to the other queues.
@@ -492,6 +513,10 @@ func (s *Scheduler) dispatchQueue(q *queueState) (taskCount int64, err error) {
 			entsentry.Recover(r)
 			enterrors.PrintStack(s.Logger.WithField("queue_id", q.q.ID()))
 			err = errors.Errorf("recovered from panic while dispatching queue: %v", r)
+			// hand the chunk back instead of stranding it
+			if batch != nil && !handedOff {
+				batch.Cancel()
+			}
 		}
 	}()
 
@@ -499,11 +524,15 @@ func (s *Scheduler) dispatchQueue(q *queueState) (taskCount int64, err error) {
 		return 0, nil
 	}
 
-	batch, err := q.q.DequeueBatch()
+	batch, err = q.q.DequeueBatch()
 	if err != nil {
 		return 0, errors.Wrap(err, "failed to dequeue batch")
 	}
-	if batch == nil || len(batch.Tasks) == 0 {
+	if batch == nil {
+		return 0, nil
+	}
+	if len(batch.Tasks) == 0 {
+		batch.Done()
 		return 0, nil
 	}
 
@@ -519,18 +548,47 @@ func (s *Scheduler) dispatchQueue(q *queueState) (taskCount int64, err error) {
 	// compress the tasks before sending them to the workers
 	// i.e. group consecutive tasks with the same operation as a single task
 	// e.g. multiple index.Add into a single index.AddBatch
+	var active int32
 	for i := range partitions {
 		partitions[i] = s.compressTasks(partitions[i])
+		if len(partitions[i]) > 0 {
+			active++
+		}
 	}
 
-	// keep track of the number of active tasks
-	// for this chunk to remove it when all tasks are done
-	var counter atomic.Int32
+	// counted upfront, so an early partition cannot settle the batch before later ones are sent
+	var (
+		unsettled atomic.Int32
+		canceled  atomic.Bool
+	)
+	unsettled.Store(active)
+	settle := func(ok bool) {
+		if !ok {
+			canceled.Store(true)
+		}
+		if unsettled.Add(-1) != 0 {
+			return
+		}
+
+		if canceled.Load() {
+			// only Done deletes the chunk, so a canceled batch's tasks stay queued
+			batch.Cancel()
+			return
+		}
+
+		batch.Done()
+		s.Logger.
+			WithField("queue_id", q.q.ID()).
+			WithField("queue_size", q.q.Size()).
+			WithField("count", taskCount).
+			Debug("tasks processed")
+	}
+	handedOff = true
+
 	for i, partition := range partitions {
 		if len(partition) == 0 {
 			continue
 		}
-		counter.Add(1)
 
 		// increment the global active tasks counter
 		s.activeTasks.Incr()
@@ -540,23 +598,11 @@ func (s *Scheduler) dispatchQueue(q *queueState) (taskCount int64, err error) {
 		start := time.Now()
 
 		// prepare the batch for the worker
-		wb := Batch{
+		wb := &Batch{
 			Tasks: partitions[i],
 			Ctx:   q.ctx,
 			OnDone: func() {
-				c := counter.Add(-1)
-
-				// once all tasks are done, notify the queue
-				// so that it can clean up its state and get ready
-				// for next scheduling.
-				if c == 0 {
-					batch.Done()
-					s.Logger.
-						WithField("queue_id", q.q.ID()).
-						WithField("queue_size", q.q.Size()).
-						WithField("count", taskCount).
-						Debug("tasks processed")
-				}
+				settle(true)
 
 				// decrement the global and queue active tasks counters
 				qTaskCount := q.activeTasks.Decr()
@@ -569,15 +615,27 @@ func (s *Scheduler) dispatchQueue(q *queueState) (taskCount int64, err error) {
 				}
 			},
 			OnCanceled: func() {
+				settle(false)
+
 				q.activeTasks.Decr()
 				s.activeTasks.Decr()
 			},
 		}
 
-		err = s.sendToAvailableWorker(q, &wb)
+		// a parked batch is not settled yet and keeps its gauges, so the queue is not rescheduled under memory pressure
+		wb.OnRequeue = func(after time.Duration) {
+			s.parkBatch(q, wb, after)
+		}
+
+		err = s.sendToAvailableWorker(q, wb)
 		if err != nil {
-			s.activeTasks.Decr()
-			q.activeTasks.Decr()
+			wb.Cancel()
+			// the partitions never sent settle as canceled too
+			for _, rest := range partitions[i+1:] {
+				if len(rest) > 0 {
+					settle(false)
+				}
+			}
 			return taskCount, errors.Wrap(err, "failed to send batch to worker")
 		}
 	}
@@ -585,6 +643,104 @@ func (s *Scheduler) dispatchQueue(q *queueState) (taskCount int64, err error) {
 	s.logQueueStats(q.q, taskCount)
 
 	return taskCount, nil
+}
+
+// isDispatching reports whether the queue is registered, running and not paused.
+func (s *Scheduler) isDispatching(id string) bool {
+	if s == nil || s.ctx == nil || s.ctx.Err() != nil {
+		return false
+	}
+
+	q := s.getQueue(id)
+	if q == nil {
+		return false
+	}
+
+	return q.ctx.Err() == nil && !q.Paused()
+}
+
+// parkedBatch is a batch handed back under memory pressure, with its due time.
+type parkedBatch struct {
+	q     *queueState
+	batch *Batch
+	dueAt time.Time
+}
+
+// parkBatch is the Batch.OnRequeue hook; re-dispatch happens only on the scheduler goroutine
+func (s *Scheduler) parkBatch(q *queueState, b *Batch, after time.Duration) {
+	s.parked.Lock()
+	s.parked.list = append(s.parked.list, parkedBatch{
+		q:     q,
+		batch: b,
+		dueAt: time.Now().Add(after),
+	})
+	parked := len(s.parked.list)
+	s.parked.Unlock()
+
+	s.Logger.
+		WithField("queue_id", q.q.ID()).
+		WithField("tasks", len(b.Tasks)).
+		WithField("resume_in", after).
+		WithField("parked_batches", parked).
+		Warnf("queue is under sustained memory pressure; its batch is parked and will be retried in %s, no task is discarded", after)
+}
+
+// dispatchParked re-dispatches parked batches whose pause elapsed; shutting-down ones are canceled
+func (s *Scheduler) dispatchParked() {
+	s.parked.Lock()
+	if len(s.parked.list) == 0 {
+		s.parked.Unlock()
+		return
+	}
+
+	now := time.Now()
+	keep := s.parked.list[:0:0]
+	due := make([]parkedBatch, 0, len(s.parked.list))
+
+	for _, p := range s.parked.list {
+		if now.Before(p.dueAt) && p.q.ctx.Err() == nil && s.ctx.Err() == nil && !p.q.Paused() {
+			keep = append(keep, p)
+			continue
+		}
+		due = append(due, p)
+	}
+	s.parked.list = keep
+	s.parked.Unlock()
+
+	for _, p := range due {
+		// catches a queue paused between parkBatch and PauseQueue's own sweep
+		if s.ctx.Err() != nil || p.q.ctx.Err() != nil || p.q.Paused() {
+			p.batch.Cancel()
+			continue
+		}
+
+		if err := s.sendToAvailableWorker(p.q, p.batch); err != nil {
+			p.batch.Cancel()
+			s.Logger.
+				WithField("queue_id", p.q.q.ID()).
+				Errorf("failed to hand a parked batch back to a worker: %v", err)
+		}
+	}
+}
+
+// releaseParked drops q's parked batches (all when q is nil) so pausing never waits them out
+func (s *Scheduler) releaseParked(q *queueState) {
+	s.parked.Lock()
+	keep := s.parked.list[:0:0]
+	release := make([]parkedBatch, 0, len(s.parked.list))
+	for _, p := range s.parked.list {
+		if q != nil && p.q != q {
+			keep = append(keep, p)
+			continue
+		}
+		release = append(release, p)
+	}
+	s.parked.list = keep
+	s.parked.Unlock()
+
+	for _, p := range release {
+		p.batch.Cancel()
+	}
 }
 
 // sendToAvailableWorker tries to send the batch to an available worker channel.

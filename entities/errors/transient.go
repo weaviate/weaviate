@@ -19,12 +19,13 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
-func IsTransient(err error) bool {
-	if errors.Is(err, ErrNotEnoughMemory) {
-		return true
-	}
+// IsMemoryPressure reports whether err is a deliberate memory load-shed rather than a fault
+func IsMemoryPressure(err error) bool {
+	return errors.Is(err, ErrNotEnoughMemory) || errors.Is(err, ErrNotEnoughMappings)
+}
 
-	if errors.Is(err, ErrNotEnoughMappings) {
+func IsTransient(err error) bool {
+	if IsMemoryPressure(err) {
 		return true
 	}
 

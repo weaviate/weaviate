@@ -1104,6 +1104,7 @@ type fakeManager struct {
 	getObjectErr    error
 
 	addObjectReturn    *models.Object
+	addObjectErr       error
 	queryResult        []*models.Object
 	queryErr           *uco.Error
 	updateObjectReturn *models.Object
@@ -1126,7 +1127,7 @@ func (f *fakeManager) HeadObject(context.Context, *models.Principal,
 func (f *fakeManager) AddObject(_ context.Context, _ *models.Principal,
 	object *models.Object, _ *additional.ReplicationProperties,
 ) (*models.Object, error) {
-	return object, nil
+	return object, f.addObjectErr
 }
 
 func (f *fakeManager) ValidateObject(_ context.Context, _ *models.Principal,
