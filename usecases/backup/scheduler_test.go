@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
@@ -152,6 +153,74 @@ func TestSchedulerValidateCreateBackup(t *testing.T) {
 			Include: []string{},
 		})
 		assert.NotNil(t, err)
+	})
+
+	t.Run("EmptyIncludeSelectsFromPermittedClasses", func(t *testing.T) {
+		tests := []struct {
+			name          string
+			permitted     []string
+			authErr       error
+			exclude       []string
+			backupableErr error
+			wantErr       string
+			wantForbidden bool
+		}{
+			{name: "no permitted class", exclude: []string{"*"}, wantErr: "forbidden", wantForbidden: true},
+			{name: "every permitted class excluded", permitted: []string{"Allowed"}, exclude: []string{"Allowed"}, wantErr: "please choose from : [Allowed]"},
+			{name: "permitted class not backupable", permitted: []string{"Allowed"}, backupableErr: ErrAny, wantErr: ErrAny.Error()},
+			{name: "authorizer fails", authErr: ErrAny, wantErr: ErrAny.Error()},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				fs := newFakeScheduler(nil)
+				fs.auth = permitBackupsOf(t, tc.permitted...)
+				if tc.authErr != nil {
+					failing := mocks.NewMockAuthorizer()
+					failing.SetErr(tc.authErr)
+					fs.auth = failing
+				}
+				fs.selector.On("ListClasses", ctx).Return([]string{"Allowed", "Hidden"})
+				fs.selector.On("Backupable", ctx, []string{"Allowed"}).Return(tc.backupableErr).Maybe()
+				_, err := fs.scheduler().Backup(ctx, nil, &BackupRequest{
+					Backend: backendName,
+					ID:      "1234",
+					Exclude: tc.exclude,
+				})
+				require.ErrorContains(t, err, tc.wantErr)
+				assert.NotContains(t, err.Error(), "Hidden")
+				if tc.wantForbidden {
+					assert.ErrorAs(t, err, &authzerrors.Forbidden{})
+				} else {
+					assert.IsType(t, backup.ErrUnprocessable{}, err)
+				}
+			})
+		}
+	})
+
+	t.Run("IncludeWildcardMatchesNoClass", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		fs.selector.On("ListClasses", ctx).Return([]string{cls})
+		_, err := fs.scheduler().Backup(ctx, nil, &BackupRequest{
+			Backend: backendName,
+			ID:      "1234",
+			Include: []string{"Zzz*"},
+		})
+		require.ErrorContains(t, err, "matches no class")
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+	})
+
+	t.Run("IncludeWildcardExpandsOnlyToPermittedClasses", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		// The authorizer grants the pattern itself but not every class it matches.
+		fs.auth = permitBackupsOf(t, "Article?*", "Article")
+		fs.selector.On("ListClasses", ctx).Return([]string{"Article", "ArticleSecret"})
+		_, err := fs.scheduler().Backup(ctx, nil, &BackupRequest{
+			Backend: backendName,
+			ID:      "1234",
+			Include: []string{"Article?*"},
+		})
+		require.ErrorContains(t, err, "matches no class")
+		assert.NotContains(t, err.Error(), "ArticleSecret")
 	})
 
 	t.Run("GetMetadataFails", func(t *testing.T) {
@@ -1042,6 +1111,80 @@ func TestSchedulerRestoreRequestValidation(t *testing.T) {
 		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{ID: id, Include: []string{"unknown"}}, false)
 		assert.NotNil(t, err)
 		assert.Contains(t, err.Error(), "unknown")
+		// The caller is authorized for the classes it named, not the backup's others.
+		assert.NotContains(t, err.Error(), cls)
+	})
+
+	t.Run("IncludeWildcardMatchesNoClass", func(t *testing.T) {
+		fs := newFakeScheduler(nil)
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(meta), nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{ID: id, Include: []string{"Zzz*"}}, false)
+		require.ErrorContains(t, err, "matches no class in the backup")
+		assert.IsType(t, backup.ErrUnprocessable{}, err)
+	})
+
+	t.Run("IncludeWildcardExpandsOnlyToPermittedClasses", func(t *testing.T) {
+		twoClasses := meta
+		twoClasses.Nodes = map[string]*backup.NodeDescriptor{nodeName: {Classes: []string{"Article", "ArticleSecret"}}}
+		fs := newFakeScheduler(nil)
+		// The authorizer grants the pattern itself but not every class it matches.
+		fs.auth = permitBackupsOf(t, "Article?*", "Article")
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(twoClasses), nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{ID: id, Include: []string{"Article?*"}}, false)
+		require.ErrorContains(t, err, "matches no class in the backup")
+		assert.NotContains(t, err.Error(), "ArticleSecret")
+	})
+
+	t.Run("EmptyIncludeDeniedBeforeBackupStatusIsChecked", func(t *testing.T) {
+		failed := meta
+		failed.Status = backup.Failed
+		fs := newFakeScheduler(nil)
+		fs.auth = permitBackupsOf(t)
+		fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(failed), nil)
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+		_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{ID: id}, false)
+		require.ErrorAs(t, err, &authzerrors.Forbidden{})
+		assert.NotContains(t, err.Error(), string(backup.Failed))
+	})
+
+	t.Run("EmptyIncludeSelectsFromPermittedClasses", func(t *testing.T) {
+		twoClasses := meta
+		twoClasses.Nodes = map[string]*backup.NodeDescriptor{nodeName: {Classes: []string{"Allowed", "Hidden"}}}
+		tests := []struct {
+			name          string
+			permitted     []string
+			authErr       error
+			exclude       []string
+			wantErr       string
+			wantForbidden bool
+		}{
+			{name: "no permitted class", exclude: []string{"*"}, wantErr: "forbidden", wantForbidden: true},
+			{name: "every permitted class excluded", permitted: []string{"Allowed"}, exclude: []string{"Allowed"}, wantErr: "please choose from : [Allowed]"},
+			{name: "authorizer fails", authErr: ErrAny, wantErr: ErrAny.Error()},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				fs := newFakeScheduler(nil)
+				fs.auth = permitBackupsOf(t, tc.permitted...)
+				if tc.authErr != nil {
+					failing := mocks.NewMockAuthorizer()
+					failing.SetErr(tc.authErr)
+					fs.auth = failing
+				}
+				fs.backend.On("GetObject", ctx, id, GlobalBackupFile).Return(marshalCoordinatorMeta(twoClasses), nil)
+				fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return(path)
+				_, err := fs.scheduler().Restore(ctx, nil, &BackupRequest{ID: id, Exclude: tc.exclude}, false)
+				require.ErrorContains(t, err, tc.wantErr)
+				assert.NotContains(t, err.Error(), "Hidden")
+				if tc.wantForbidden {
+					assert.ErrorAs(t, err, &authzerrors.Forbidden{})
+				} else {
+					assert.IsType(t, backup.ErrUnprocessable{}, err)
+				}
+			})
+		}
 	})
 
 	t.Run("EmptyResultClassList", func(t *testing.T) { //  backup was successful but class list is empty
