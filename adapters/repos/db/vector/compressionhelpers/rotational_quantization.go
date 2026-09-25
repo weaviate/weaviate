@@ -363,8 +363,8 @@ func (rq *RotationalQuantizer) NewQuantizerDistancer(vec []float32) quantizerDis
 
 func (rq *RotationalQuantizer) ReturnQuantizerDistancer(distancer quantizerDistancer[byte]) {}
 
-func (rq *RotationalQuantizer) PersistCompression(logger CommitLogger) {
-	logger.AddRQCompression(compression.RQData{
+func (rq *RotationalQuantizer) PersistCompression(logger CommitLogger) error {
+	return logger.AddRQCompression(compression.RQData{
 		InputDim: rq.inputDim,
 		Bits:     rq.bits,
 		Rotation: *rq.rotation,

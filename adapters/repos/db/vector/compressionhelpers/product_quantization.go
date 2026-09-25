@@ -301,8 +301,8 @@ func PutCode8(code byte, buffer []byte, index int) {
 	buffer[index] = code
 }
 
-func (pq *ProductQuantizer) PersistCompression(logger CommitLogger) {
-	logger.AddPQCompression(ent.PQData{
+func (pq *ProductQuantizer) PersistCompression(logger CommitLogger) error {
+	data := ent.PQData{
 		Dimensions:          uint16(pq.dimensions),
 		EncoderType:         pq.encoderType,
 		Ks:                  uint16(pq.ks),
@@ -310,7 +310,12 @@ func (pq *ProductQuantizer) PersistCompression(logger CommitLogger) {
 		EncoderDistribution: byte(pq.encoderDistribution),
 		Encoders:            pq.kms,
 		TrainingLimit:       pq.trainingLimit,
-	})
+	}
+	// Never persist an incomplete codebook.
+	if err := data.Valid(); err != nil {
+		return fmt.Errorf("refusing to persist incomplete PQ codebook: %w", err)
+	}
+	return logger.AddPQCompression(data)
 }
 
 func (pq *ProductQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float32, error) {
