@@ -122,6 +122,38 @@ func TestQuery(t *testing.T) {
 			wantUsageTracking: true,
 		},
 		{
+			// the module may compute its prop from the vector, which objects of
+			// remote shards only carry if it is requested
+			name:  "module additional prop loads the vector without returning it",
+			class: cls,
+			param: QueryParams{
+				Class:      cls,
+				Limit:      ptInt64(10),
+				Additional: additional.Properties{ModuleParams: map[string]interface{}{"featureProjection": true}},
+			},
+			mockedDBResponse: []search.Result{
+				{
+					ClassName: cls,
+					Schema:    map[string]interface{}{"foo": "bar"},
+					Vector:    []float32{1, 2, 3},
+					Dims:      3,
+				},
+			},
+			wantResponse: []*models.Object{{
+				Class:         cls,
+				VectorWeights: map[string]string(nil),
+				Properties:    map[string]interface{}{"foo": "bar"},
+			}},
+			wantQueryInput: QueryInput{
+				Class: cls,
+				Limit: 10,
+				Additional: additional.Properties{
+					Vector:       true,
+					ModuleParams: map[string]interface{}{"featureProjection": true},
+				},
+			},
+		},
+		{
 			name:           "bad request",
 			class:          cls,
 			param:          QueryParams{Class: cls, Offset: ptInt64(1), Limit: &m.config.Config.QueryMaximumResults},
@@ -139,6 +171,7 @@ func TestQuery(t *testing.T) {
 				m.metrics.On("AddUsageDimensions", cls, "get_rest", "list_include_vector",
 					tc.mockedDBResponse[0].Dims)
 			}
+			m.projector.multi = tc.mockedDBResponse
 			res, err := m.Manager.Query(context.Background(), &models.Principal{
 				Username: "testuser",
 			}, &tc.param)
