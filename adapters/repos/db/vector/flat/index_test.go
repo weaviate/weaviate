@@ -605,6 +605,34 @@ func Test_NoRace_Flat_ValidateCount(t *testing.T) {
 	require.Equal(t, count, newCount)
 }
 
+func TestFlatAlreadyIndexedTracksLiveVectors(t *testing.T) {
+	ctx := t.Context()
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
+
+	config := flatent.UserConfig{}
+	config.SetDefaults()
+
+	index, err := New(Config{
+		ID:                "live-count",
+		RootPath:          t.TempDir(),
+		DistanceProvider:  distancer.NewCosineDistanceProvider(),
+		MakeBucketOptions: lsmkv.MakeRegularBucketOptions,
+	}, config, store)
+	require.NoError(t, err)
+
+	require.NoError(t, index.Add(ctx, 7, []float32{1, 0}))
+	require.NoError(t, index.Add(ctx, 7, []float32{2, 0}))
+	require.NoError(t, index.Add(ctx, 7, []float32{3, 0}))
+	require.Equal(t, uint64(1), index.AlreadyIndexed())
+
+	require.NoError(t, index.Delete(7))
+	require.Equal(t, uint64(0), index.AlreadyIndexed())
+
+	require.NoError(t, index.Add(ctx, 7, []float32{4, 0}))
+	require.Equal(t, uint64(1), index.AlreadyIndexed())
+}
+
 func Test_NoRace_Flat_RQPersistence(t *testing.T) {
 	ctx := context.Background()
 	dirName := t.TempDir()
