@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/license"
 )
 
 // deepCopyJSON returns a fully independent clone via JSON round-trip, so
@@ -421,16 +422,26 @@ func TestResolve(t *testing.T) {
 func TestResolve_RejectsInvalidNamespacePrefix(t *testing.T) {
 	sm := &fakeSchemaManager{aliases: map[string]string{}}
 	principal := &models.Principal{Username: "admin", IsGlobalOperator: true}
-	cases := []string{
-		"Customer1:Movies",
-		"FOO:bar",
-		"-bad:Movies",
-		":Movies",
+	unlicensed := Refusing(license.Required("namespaces"))
+	cases := []struct {
+		name      string
+		principal *models.Principal
+		q         Qualifier
+		input     string
+		wantErr   string
+	}{
+		{name: "Customer1:Movies", principal: principal, q: NewPrefixing(), input: "Customer1:Movies", wantErr: "invalid namespace prefix"},
+		{name: "FOO:bar", principal: principal, q: NewPrefixing(), input: "FOO:bar", wantErr: "invalid namespace prefix"},
+		{name: "-bad:Movies", principal: principal, q: NewPrefixing(), input: "-bad:Movies", wantErr: "invalid namespace prefix"},
+		{name: ":Movies", principal: principal, q: NewPrefixing(), input: ":Movies", wantErr: "invalid namespace prefix"},
+		{name: "unlicensed operator's malformed prefix", principal: principal, q: unlicensed, input: "Bad_NS:Foo", wantErr: "invalid namespace prefix"},
+		{name: "unlicensed namespaced principal's prefix", principal: namespacedPrincipal, q: unlicensed, input: "ns1:Foo", wantErr: "is not a valid class name"},
 	}
-	for _, input := range cases {
-		t.Run(input, func(t *testing.T) {
-			_, _, err := Resolve(principal, sm, NewPrefixing(), input)
-			require.Error(t, err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := Resolve(tc.principal, sm, tc.q, tc.input)
+			require.ErrorContains(t, err, tc.wantErr)
+			require.NotErrorIs(t, err, license.ErrRequired)
 		})
 	}
 }

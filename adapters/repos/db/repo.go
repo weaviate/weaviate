@@ -529,8 +529,9 @@ type Config struct {
 
 	DisableDimensionMetrics *configRuntime.DynamicValue[bool]
 
-	// Plumbed through for future callers under the "wl" directory; nothing in
-	// the DB layer reads it yet.
+	// WeaviateLicense reports whether this node holds a well-formed license key.
+	// No code reads it. A reader outside wl/ must pass it with its feature's
+	// flag to license.ModeFor and call into wl/ only on FeatureLicensed.
 	WeaviateLicense bool
 }
 
