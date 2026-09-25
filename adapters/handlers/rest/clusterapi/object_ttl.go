@@ -178,9 +178,15 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 				countDeleted := objsDeletedCounters.CounterFor(className)
 
 				// TODO aliszka:ttl handle graceful index close / drop
-				idx, err := d.remoteIndex.IndexForIncomingWrite(context.Background(), className, classPayload.ClassVersion)
+				idx, err := d.remoteIndex.IndexForIncomingWrite(ttlCtx, className, classPayload.ClassVersion)
 				if err != nil {
-					ec.AddGroups(fmt.Errorf("get index: %w", err), className)
+					// the schema wait reports a cancelled sweep as a version it
+					// never reached, which reads as a broken node rather than an abort
+					if cause := context.Cause(ttlCtx); cause != nil {
+						ec.AddGroups(cause, className)
+					} else {
+						ec.AddGroups(fmt.Errorf("get index: %w", err), className)
+					}
 					continue
 				}
 
