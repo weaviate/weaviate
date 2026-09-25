@@ -24,11 +24,15 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
@@ -135,7 +139,8 @@ func TestCoordinatorStartSkipsClassesWithoutActiveNamespace(t *testing.T) {
 
 			// A nil db is safe because two nodes always route the sweep to the remote
 			// node; the local branch would use it.
-			c := NewCoordinator(reader, getter, controller, nil, logger, server.Client(),
+			c := NewCoordinator(reader, getter, controller, nil,
+				configRuntime.NewDynamicValue[float64](1), logger, server.Client(),
 				fixedNodeResolver(strings.TrimPrefix(server.URL, "http://")), NewLocalStatus())
 
 			now := time.Now()
@@ -428,4 +433,122 @@ func TestLocalState(t *testing.T) {
 			assert.False(t, s.IsRunning())
 		}
 	})
+}
+
+// ttlProbeTimeout bounds every wait in the probe, so a window that never opens
+// fails the test instead of hanging the package.
+const ttlProbeTimeout = 10 * time.Second
+
+// ttlCounterProbe keeps the first collection's delete goroutine calling
+// countDeleted across the loop's next write to the counter map, unordered.
+// Only counted is atomic, because Start runs that loop on the test's goroutine.
+type ttlCounterProbe struct {
+	dispatched int
+	firstClass string
+	reading    chan struct{}
+	stop       chan struct{}
+	overlapped bool
+	counted    atomic.Int32
+	timedOut   atomic.Bool
+}
+
+func newTTLCounterProbe() *ttlCounterProbe {
+	return &ttlCounterProbe{reading: make(chan struct{}), stop: make(chan struct{})}
+}
+
+func (p *ttlCounterProbe) DeleteExpiredObjects(_ context.Context, eg *enterrors.ErrorGroupWrapper,
+	_ errorcompounder.ErrorCompounder, className, _ string, _, _ time.Time,
+	countDeleted func(int32), _ uint64,
+) {
+	p.dispatched++
+	switch p.dispatched {
+	case 1:
+		p.firstClass = className
+		eg.Go(func() error {
+			deadline := time.After(ttlProbeTimeout)
+			close(p.reading)
+			var count int32
+			for {
+				countDeleted(1)
+				count++
+				select {
+				case <-p.stop:
+					p.counted.Store(count)
+					return nil
+				case <-deadline:
+					p.counted.Store(count)
+					p.timedOut.Store(true)
+					return errors.New("the dispatch loop never reached the next collection")
+				default:
+				}
+			}
+		})
+		// hold the loop here until the reader is running, so the write that
+		// follows lands inside the reader's window
+		select {
+		case <-p.reading:
+			p.overlapped = true
+		case <-time.After(ttlProbeTimeout):
+		}
+	case 2:
+		// the second collection's entry is written, so the overlap under test has happened
+		close(p.stop)
+	}
+}
+
+// A delete goroutine must not read the counter map the dispatch loop writes to.
+// The access is fatal rather than recoverable, and -race is what reports it.
+func TestLocalSweepKeepsTheCounterMapOffTheDeleteGoroutines(t *testing.T) {
+	// two collections are enough. The loop writes the second entry while the
+	// first collection's deletes are still running
+	classes := []string{"Collection0", "Collection1"}
+
+	logger, hook := logrustest.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+
+	reader := schemaUC.NewMockSchemaReader(t)
+	reader.EXPECT().ReadSchema(mock.Anything).RunAndReturn(func(read func(models.Class, uint64)) error {
+		for _, class := range classes {
+			read(models.Class{
+				Class:           class,
+				ObjectTTLConfig: &models.ObjectTTLConfig{Enabled: true, DeleteOn: "_creationTimeUnix"},
+			}, 1)
+		}
+		return nil
+	})
+
+	// one node, so the sweep runs on the local path rather than being handed
+	// to a remote node
+	getter := schemaUC.NewMockSchemaGetter(t)
+	getter.EXPECT().NodeName().Return("node1")
+	getter.EXPECT().Nodes().Return([]string{"node1"})
+
+	probe := newTTLCounterProbe()
+	c := NewCoordinator(reader, getter, namespaces.NewController(logger), probe,
+		configRuntime.NewDynamicValue[float64](1), logger, nil, nil, NewLocalStatus())
+
+	now := time.Now()
+	require.NoError(t, c.Start(context.Background(), false, now, now))
+
+	require.Equal(t, len(classes), probe.dispatched,
+		"the loop must reach every collection, or nothing wrote while the reader ran")
+	require.True(t, probe.overlapped,
+		"the reader must be running before the loop writes the next entry")
+	require.False(t, probe.timedOut.Load(),
+		"the reader hit its deadline, so the loop never reached the next collection")
+
+	report := localSweepReport(hook)
+	require.NotNil(t, report, "the sweep must report what it deleted")
+	assert.Equal(t, probe.counted.Load(), report.Data["c_"+probe.firstClass],
+		"the collection is credited with what its own closure counted")
+	assert.Equal(t, probe.counted.Load(), report.Data["total_deleted"])
+}
+
+func localSweepReport(hook *logrustest.Hook) *logrus.Entry {
+	for _, entry := range hook.AllEntries() {
+		if entry.Message == "ttl deletion on local node finished" {
+			return entry
+		}
+	}
+	return nil
 }

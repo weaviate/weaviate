@@ -25,12 +25,12 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -42,8 +42,17 @@ type objectTTLAndVersion struct {
 	ttlConfig *models.ObjectTTLConfig
 }
 
+// expiredObjectsDeleter dispatches a collection's deletions. The sweep reads the
+// counters as soon as eg.Wait returns, so countDeleted must not be called later.
+type expiredObjectsDeleter interface {
+	DeleteExpiredObjects(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
+		className, deleteOnPropName string, ttlThreshold, deletionTime time.Time, countDeleted func(int32),
+		schemaVersion uint64)
+}
+
 func NewCoordinator(schemaReader schemaUC.SchemaReader, schemaGetter schemaUC.SchemaGetter,
-	namespacesExister namespaces.Exister, db *db.DB, logger logrus.FieldLogger,
+	namespacesExister namespaces.Exister, db expiredObjectsDeleter,
+	concurrencyFactor *configRuntime.DynamicValue[float64], logger logrus.FieldLogger,
 	clusterClient *http.Client, nodeResolver nodeResolver, localStatus *LocalStatus,
 ) *Coordinator {
 	return &Coordinator{
@@ -54,6 +63,7 @@ func NewCoordinator(schemaReader schemaUC.SchemaReader, schemaGetter schemaUC.Sc
 		clusterClient:     clusterClient,
 		nodeResolver:      nodeResolver,
 		db:                db,
+		concurrencyFactor: concurrencyFactor,
 		objectTTLOngoing:  atomic.Bool{},
 		remoteObjectTTL:   newRemoteObjectTTL(clusterClient, nodeResolver),
 		localStatus:       localStatus,
@@ -64,7 +74,8 @@ type Coordinator struct {
 	schemaReader      schemaUC.SchemaReader
 	schemaGetter      schemaUC.SchemaGetter
 	namespacesExister namespaces.Exister
-	db                *db.DB
+	db                expiredObjectsDeleter
+	concurrencyFactor *configRuntime.DynamicValue[float64]
 	objectTTLOngoing  atomic.Bool
 	logger            logrus.FieldLogger
 	objectTTLLastNode string
@@ -175,7 +186,7 @@ func (c *Coordinator) Abort(ctx context.Context, targetOwnNode bool) (bool, erro
 	// abort also on all remote nodes
 	ec := errorcompounder.NewSafe()
 	eg := enterrors.NewErrorGroupWrapper(c.logger)
-	eg.SetLimit(concurrency.TimesFloatGOMAXPROCS(c.db.GetConfig().ObjectsTTLConcurrencyFactor.Get()))
+	eg.SetLimit(concurrency.TimesFloatGOMAXPROCS(c.concurrencyFactor.Get()))
 
 	abortedNodes := make(map[string]bool, len(remoteNodes)+1)
 	abortedNodes[localNode] = localAborted
@@ -263,14 +274,13 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 
 	ec := errorcompounder.NewSafe()
 	eg := enterrors.NewErrorGroupWrapper(c.logger)
-	eg.SetLimit(concurrency.TimesFloatGOMAXPROCS(c.db.GetConfig().ObjectsTTLConcurrencyFactor.Get()))
+	eg.SetLimit(concurrency.TimesFloatGOMAXPROCS(c.concurrencyFactor.Get()))
 
 	for name, collection := range classesWithTTL {
 		if err := ctx.Err(); err != nil {
 			break
 		}
-		objsDeletedCounters[name] = &atomic.Int32{}
-		countDeleted := func(count int32) { objsDeletedCounters[name].Add(count) }
+		countDeleted := objsDeletedCounters.CounterFor(name)
 		deleteOnPropName, ttlThreshold := c.extractTtlDataFromCollection(collection.ttlConfig, ttlTime)
 		c.db.DeleteExpiredObjects(ttlCtx, eg, ec, name, deleteOnPropName, ttlThreshold, deletionTime, countDeleted, collection.version)
 	}
@@ -475,6 +485,15 @@ func (c *remoteObjectTTL) AbortRemoteDelete(ctx context.Context, nodeName string
 }
 
 type DeletedCounters map[string]*atomic.Int32
+
+// CounterFor registers a counter for name and returns the callback that adds to
+// it. The callback closes over the counter rather than over name, because a
+// delete goroutine indexing the map would race the next registration's write.
+func (dc DeletedCounters) CounterFor(name string) func(int32) {
+	counter := &atomic.Int32{}
+	dc[name] = counter
+	return func(count int32) { counter.Add(count) }
+}
 
 func (dc DeletedCounters) ToLogFields(maxCollectionNameLen int) (fields logrus.Fields, total int32) {
 	prefixLen := maxCollectionNameLen / 2
