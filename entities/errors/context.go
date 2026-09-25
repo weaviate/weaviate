@@ -16,20 +16,24 @@ import (
 	"fmt"
 )
 
-func NewCanceledCause(cause string) error {
-	return &CanceledCause{
-		err: fmt.Sprintf("%s: %s", context.Canceled, cause),
+// NewCanceledCause pairs context.Canceled with reason, so a caller can tell one
+// cancellation from another. A nil reason gives back plain context.Canceled,
+// because CanceledCause.Error would render it as "%!s(<nil>)".
+func NewCanceledCause(reason error) error {
+	if reason == nil {
+		return context.Canceled
 	}
+	return &CanceledCause{reason: reason}
 }
 
 type CanceledCause struct {
-	err string
+	reason error
 }
 
 func (c *CanceledCause) Error() string {
-	return c.err
+	return fmt.Sprintf("%s: %s", context.Canceled, c.reason)
 }
 
-func (c *CanceledCause) Unwrap() error {
-	return context.Canceled
+func (c *CanceledCause) Unwrap() []error {
+	return []error{context.Canceled, c.reason}
 }

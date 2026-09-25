@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -171,7 +172,7 @@ func (c *Coordinator) Abort(ctx context.Context, targetOwnNode bool) (bool, erro
 		}
 	}
 
-	localAborted := c.localStatus.ResetRunning("aborted")
+	localAborted := c.localStatus.Abort()
 
 	// abort just on local node
 	if targetOwnNode || len(remoteNodes) == 0 {
@@ -229,7 +230,7 @@ func (c *Coordinator) triggerDeletionObjectsExpiredLocalNode(ctx context.Context
 	if !ok {
 		return fmt.Errorf("another request is still being processed")
 	}
-	defer c.localStatus.ResetRunning("finished")
+	defer c.localStatus.Finish()
 
 	started := time.Now()
 
@@ -519,6 +520,13 @@ func (dc DeletedCounters) ToLogFields(maxCollectionNameLen int) (fields logrus.F
 
 // ----------------------------------------------------------------------------
 
+// A TTL deletion's context is cancelled with one of these, so a caller can match
+// on it with errors.Is instead of reading the message.
+var (
+	ErrAborted  = errors.New("aborted")
+	ErrFinished = errors.New("finished")
+)
+
 // LocalStatus keeps status of ongoing TTL deletion on local node.
 // isRunning is set to true when TTL deletion start and reset when finishes.
 // Status is global per node. Only one deletion can run at a time, following requests
@@ -561,7 +569,10 @@ func (s *LocalStatus) SetRunning() (success bool, ctx context.Context) {
 	return true, s.runningCtx
 }
 
-func (s *LocalStatus) ResetRunning(cause string) (success bool) {
+// Abort cancels the running deletion and reports whether there was one. The slot
+// stays reserved until that deletion finishes, because it observes the
+// cancellation only between batches.
+func (s *LocalStatus) Abort() (aborted bool) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -569,9 +580,23 @@ func (s *LocalStatus) ResetRunning(cause string) (success bool) {
 		return false
 	}
 
-	s.runningCancel(enterrors.NewCanceledCause(cause))
+	s.runningCancel(enterrors.NewCanceledCause(ErrAborted))
+	return true
+}
+
+// Finish releases the slot, cancelling so that nothing still reading the
+// context keeps going. A deletion already aborted keeps the cause it was
+// cancelled with.
+func (s *LocalStatus) Finish() {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	if !s.isRunning {
+		return
+	}
+
+	s.runningCancel(enterrors.NewCanceledCause(ErrFinished))
 
 	s.isRunning = false
 	s.runningCtx, s.runningCancel = nil, nil
-	return true
 }
