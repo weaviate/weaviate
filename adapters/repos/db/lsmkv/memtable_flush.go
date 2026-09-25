@@ -49,23 +49,7 @@ func (m *Memtable) flushWAL() error {
 	return nil
 }
 
-func (m *Memtable) flush() (segmentPath string, rerr error) {
-	start := time.Now()
-	m.metrics.incFlushingCount(m.strategy)
-	m.metrics.incFlushingInProgress(m.strategy)
-
-	defer func() {
-		m.metrics.decFlushingInProgress(m.strategy)
-
-		if rerr != nil {
-			m.metrics.incFlushingFailureCount(m.strategy)
-			return
-		}
-
-		m.metrics.observeFlushMemtableSize(m.strategy, m.Size())
-		m.metrics.observeFlushingDuration(m.strategy, time.Since(start))
-	}()
-
+func (m *Memtable) flush() (string, error) {
 	// close the commit log first, this also forces it to be fsynced. If
 	// something fails there, don't proceed with flushing. The commit log will
 	// only be deleted at the very end, if the flush was successful
@@ -85,12 +69,44 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 		}
 		return "", nil
 	}
+
+	segmentPath, err := m.writeSegment(m.path)
+	if err != nil {
+		return "", err
+	}
+
+	// only now that the file has been flushed is it safe to delete the commit log
+	// TODO: there might be an interest in keeping the commit logs around for
+	// longer as they might come in handy for replication
+	return segmentPath, m.commitlog.delete()
+}
+
+// writeSegment leaves the commit log to flush, which owns closing and deleting it.
+// A chunked WAL replay writes several segments and keeps its WAL until it has
+// consumed all of it.
+func (m *Memtable) writeSegment(path string) (segmentPath string, rerr error) {
+	start := time.Now()
+	m.metrics.incFlushingCount(m.strategy)
+	m.metrics.incFlushingInProgress(m.strategy)
+
+	defer func() {
+		m.metrics.decFlushingInProgress(m.strategy)
+
+		if rerr != nil {
+			m.metrics.incFlushingFailureCount(m.strategy)
+			return
+		}
+
+		m.metrics.observeFlushMemtableSize(m.strategy, m.Size())
+		m.metrics.observeFlushingDuration(m.strategy, time.Since(start))
+	}()
+
 	var tmpSegmentPath string
 	if m.writeSegmentInfoIntoFileName {
 		// new segments are always level 0
-		tmpSegmentPath = m.path + segmentExtraInfo(0, SegmentStrategyFromString(m.strategy)) + ".db.tmp"
+		tmpSegmentPath = path + segmentExtraInfo(0, SegmentStrategyFromString(m.strategy)) + ".db.tmp"
 	} else {
-		tmpSegmentPath = m.path + ".db.tmp"
+		tmpSegmentPath = path + ".db.tmp"
 	}
 
 	f, err := os.OpenFile(tmpSegmentPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
@@ -181,15 +197,12 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 	}
 
 	// fsync parent directory
-	err = diskio.Fsync(filepath.Dir(m.path))
+	err = diskio.Fsync(filepath.Dir(path))
 	if err != nil {
 		return "", err
 	}
 
-	// only now that the file has been flushed is it safe to delete the commit log
-	// TODO: there might be an interest in keeping the commit logs around for
-	// longer as they might come in handy for replication
-	return segmentPath, m.commitlog.delete()
+	return segmentPath, nil
 }
 
 func (m *Memtable) flushDataReplace(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {

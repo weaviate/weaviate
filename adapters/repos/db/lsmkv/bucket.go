@@ -1566,7 +1566,16 @@ func (b *Bucket) createNewActiveMemtable() (memtable, error) {
 		return nil, errors.Wrap(err, "init commit logger")
 	}
 
-	mt, err := newMemtable(cl, b.metrics, b.logger, b.allocChecker, memtableConfig{
+	mt, err := b.newMemtableAt(cl, path)
+	if err != nil {
+		return nil, err
+	}
+
+	return mt, nil
+}
+
+func (b *Bucket) newMemtableAt(cl memtableCommitLogger, path string) (*Memtable, error) {
+	return newMemtable(cl, b.metrics, b.logger, b.allocChecker, memtableConfig{
 		path:                         path,
 		strategy:                     b.strategy,
 		secondaryIndices:             b.secondaryIndices,
@@ -1576,11 +1585,6 @@ func (b *Bucket) createNewActiveMemtable() (memtable, error) {
 		skipSecondaryKeyCheck:        b.skipSecondaryKeyCheck,
 		bm25config:                   b.bm25Config,
 	})
-	if err != nil {
-		return nil, err
-	}
-
-	return mt, nil
 }
 
 func (b *Bucket) Count(ctx context.Context) (int, error) {

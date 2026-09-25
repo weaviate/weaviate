@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -355,6 +356,10 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 		delete(files, entry)
 	}
 
+	if err := removeSegmentsOfSurvivingWALs(sg.dir, files, logger); err != nil {
+		return nil, err
+	}
+
 	// segments need to be initialised in order of their timestamp to ensure that various computations are correct (CNA etc)
 	fileList := make([]string, 0, len(files))
 	for entry := range files {
@@ -379,28 +384,6 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 
 		if filepath.Ext(entry) != ".db" {
 			// skip, this could be commit log, etc.
-			continue
-		}
-
-		// before we can mount this file, we need to check if a WAL exists for it.
-		// If yes, we must assume that the flush never finished, as otherwise the
-		// WAL would have been deleted. Thus we must remove it.
-		walFileName, _, _ := strings.Cut(entry, ".")
-		walFileName += ".wal"
-		_, ok := files[walFileName]
-		if ok {
-			// the segment will be recovered from the WAL
-			err := os.Remove(filepath.Join(sg.dir, entry))
-			if err != nil {
-				return nil, fmt.Errorf("delete partially written segment %s: %w", entry, err)
-			}
-
-			logger.WithField("action", "lsm_segment_init").
-				WithField("path", filepath.Join(sg.dir, entry)).
-				WithField("wal_path", walFileName).
-				Info("discarded (partially written) LSM segment, because an active WAL for " +
-					"the same segment was found. A recovery from the WAL will follow.")
-
 			continue
 		}
 
@@ -566,6 +549,75 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 	sg.compactionCallbackCtrl = compactionCallbacks.Register(id, sg.compactOrCleanup)
 
 	return sg, nil
+}
+
+// removeSegmentsOfSurvivingWALs removes every segment a write-ahead-log has
+// already been written out to. Unlinking the WAL is a replay's single commit
+// point, so while segment-<T>.wal is there, segment-<T> and the chunks after it
+// are provisional. They are renamed into place in ascending order, so the first
+// missing id ends the walk.
+func removeSegmentsOfSurvivingWALs(dir string, files map[string]int64,
+	logger logrus.FieldLogger,
+) error {
+	walNames := make([]string, 0, len(files))
+	for entry := range files {
+		if filepath.Ext(entry) == ".wal" {
+			walNames = append(walNames, entry)
+		}
+	}
+	slices.Sort(walNames)
+
+	for _, walName := range walNames {
+		// matching on the id as written covers a WAL whose name carries no number
+		if _, err := removeSegmentsWithID(dir, files, segmentID(walName), walName, logger); err != nil {
+			return err
+		}
+
+		walTimestamp, err := parseSegmentTimestamp(walName)
+		if err != nil {
+			// chunk names are derived from the WAL's id, so a WAL that carries no id
+			// produced none
+			continue
+		}
+
+		for chunk := int64(1); ; chunk++ {
+			removed, err := removeSegmentsWithID(dir, files,
+				strconv.FormatInt(walTimestamp+chunk, 10), walName, logger)
+			if err != nil {
+				return err
+			}
+			if !removed {
+				break
+			}
+		}
+	}
+
+	return nil
+}
+
+func removeSegmentsWithID(dir string, files map[string]int64, id, walName string,
+	logger logrus.FieldLogger,
+) (bool, error) {
+	removed := false
+
+	for {
+		found, segName := segmentExistsWithID(id, files)
+		if !found {
+			return removed, nil
+		}
+
+		if err := os.Remove(filepath.Join(dir, segName)); err != nil {
+			return removed, fmt.Errorf("delete partially written segment %q: %w", segName, err)
+		}
+		delete(files, segName)
+		removed = true
+
+		logger.WithField("action", "lsm_segment_init").
+			WithField("path", filepath.Join(dir, segName)).
+			WithField("wal_path", walName).
+			Info("discarded (partially written) LSM segment, because an active WAL it " +
+				"was written from was found. A recovery from the WAL will follow.")
+	}
 }
 
 func (sg *SegmentGroup) pauseCompaction(ctx context.Context) error {

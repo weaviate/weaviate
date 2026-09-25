@@ -23,16 +23,20 @@ import (
 
 func (p *commitloggerParser) doRoaringSet() error {
 	prs := &commitlogParserRoaringSet{
-		parser:  p,
-		consume: p.memtable.roaringSetAddRemoveSlices,
+		parser: p,
+		consume: func(mt *Memtable, key []byte, additions, deletions []uint64) error {
+			return mt.roaringSetAddRemoveSlices(key, additions, deletions)
+		},
 	}
 
 	return prs.parse()
 }
 
 type commitlogParserRoaringSet struct {
-	parser  *commitloggerParser
-	consume func(key []byte, additions, deletions []uint64) error
+	parser *commitloggerParser
+	// consume takes the memtable per entry because a chunk boundary replaces it.
+	// Binding a method value here would keep feeding the one already written out.
+	consume func(mt *Memtable, key []byte, additions, deletions []uint64) error
 }
 
 func (prs *commitlogParserRoaringSet) parse() error {
@@ -41,6 +45,10 @@ func (prs *commitlogParserRoaringSet) parse() error {
 			return err
 		} else if !ok {
 			break
+		}
+
+		if err := prs.parser.chunkIfFull(); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -123,7 +131,8 @@ func (prs *commitlogParserRoaringSet) parseNode(reader io.Reader) error {
 	// slice it is given, so an uncopied key holds the whole record.
 	key := bytes.Clone(segment.PrimaryKey())
 
-	if err := prs.consume(key, segment.Additions().ToArray(), segment.Deletions().ToArray()); err != nil {
+	if err := prs.consume(prs.parser.memtable, key,
+		segment.Additions().ToArray(), segment.Deletions().ToArray()); err != nil {
 		return fmt.Errorf("consume segment additions/deletions: %w", err)
 	}
 
@@ -145,7 +154,8 @@ func (prs *commitlogParserRoaringSet) parseNodeList(reader io.Reader) error {
 
 	segment := roaringset.NewSegmentNodeListFromBuffer(segBuf)
 	key := bytes.Clone(segment.PrimaryKey()) // copied for the reason parseNode gives
-	if err := prs.consume(key, segment.Additions(), segment.Deletions()); err != nil {
+	if err := prs.consume(prs.parser.memtable, key,
+		segment.Additions(), segment.Deletions()); err != nil {
 		return errors.Wrap(err, "add/remove bitmaps")
 	}
 
