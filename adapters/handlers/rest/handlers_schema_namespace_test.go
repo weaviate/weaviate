@@ -151,6 +151,71 @@ func TestShardsStorageStatusErrResponder(t *testing.T) {
 	}
 }
 
+// A vector index drop refused by the namespace is the caller's problem too. The
+// gate runs ahead of the no-op check for a vector already dropped, so a re-issued
+// drop on a suspended namespace lands here as well as a first one.
+func TestVectorIndexDeleteErrResponder(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want middleware.Responder
+	}{
+		{
+			name: "suspended namespace is unprocessable",
+			err:  namespaces.ErrNamespaceSuspended,
+			want: schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity(),
+		},
+		{
+			name: "suspended collection is unprocessable",
+			err:  fmt.Errorf("propose: %w", namespaces.ErrCollectionSuspended),
+			want: schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity(),
+		},
+		{
+			name: "deleting namespace is unprocessable",
+			err:  namespaces.ErrNamespaceDeleting,
+			want: schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity(),
+		},
+		{
+			name: "missing namespace is unprocessable",
+			err:  namespaces.ErrNamespaceGone,
+			want: schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity(),
+		},
+		// Resuming asks for 503, which this operation has no responder for, so it
+		// keeps the fallback rather than being mislabelled a client error.
+		{
+			name: "resuming namespace falls through",
+			err:  namespaces.ErrNamespaceResuming,
+			want: schema.NewSchemaObjectsVectorsDeleteInternalServerError(),
+		},
+		{
+			name: "a forbidden error still maps to forbidden",
+			err:  authzerrors.Forbidden{},
+			want: schema.NewSchemaObjectsVectorsDeleteForbidden(),
+		},
+		{
+			name: "an unknown vector still maps to unprocessable",
+			err:  fmt.Errorf("vector: %w", schemaUC.ErrNotFound),
+			want: schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity(),
+		},
+		{
+			name: "a validation error still maps to unprocessable",
+			err:  fmt.Errorf("drop: %w", schemaUC.ErrValidation),
+			want: schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity(),
+		},
+		{
+			name: "anything else stays a server error",
+			err:  errors.New("boom"),
+			want: schema.NewSchemaObjectsVectorsDeleteInternalServerError(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.IsType(t, tt.want, vectorIndexDeleteErrResponder(nil, tt.err))
+		})
+	}
+}
+
 // TestDeleteClassPropertyIndex_NamespaceConflictPreflight: reindex tasks are keyed by
 // the qualified class, so a namespaced caller deleting by short name must still match an
 // in-flight task on customer1:Movies and get a 422 — i.e. the handler qualifies first.
