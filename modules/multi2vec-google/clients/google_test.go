@@ -29,6 +29,57 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
 )
 
+func TestBuildURL(t *testing.T) {
+	t.Run("Vertex gemini-embedding-2 uses global embedContent endpoint", func(t *testing.T) {
+		url := buildURL("", "us-central1", "my-project", "gemini-embedding-2")
+		assert.Equal(t,
+			"https://aiplatform.googleapis.com/v1/projects/my-project/locations/global/publishers/google/models/gemini-embedding-2:embedContent",
+			url)
+	})
+
+	t.Run("Vertex multimodal model uses regional predict endpoint", func(t *testing.T) {
+		url := buildURL("", "us-central1", "my-project", "multimodalembedding@001")
+		assert.Equal(t,
+			"https://us-central1-aiplatform.googleapis.com/v1/projects/my-project/locations/us-central1/publishers/google/models/multimodalembedding@001:predict",
+			url)
+	})
+
+	t.Run("Vertex global location uses global host for predict models", func(t *testing.T) {
+		url := buildURL("", "global", "my-project", "multimodalembedding@001")
+		assert.Equal(t,
+			"https://aiplatform.googleapis.com/v1/projects/my-project/locations/global/publishers/google/models/multimodalembedding@001:predict",
+			url)
+	})
+}
+
+func TestVertexGeminiEmbedding2Client(t *testing.T) {
+	t.Run("vectorizes text via Vertex embedContent", func(t *testing.T) {
+		server := httptest.NewServer(&fakeVertexGeminiEmbedHandler{t: t})
+		defer server.Close()
+		c := &google{
+			apiKey:       "apiKey",
+			httpClient:   &http.Client{},
+			googleApiKey: apikey.NewGoogleApiKey(),
+			urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
+				return server.URL
+			},
+			logger: nullLogger(),
+		}
+		expected := &ent.VectorizationResult{
+			TextVectors: [][]float32{{0.1, 0.2, 0.3}},
+		}
+		res, err := c.Vectorize(context.Background(), []string{"hello"}, nil, nil, nil,
+			ent.VectorizationConfig{
+				Location:  "us-central1",
+				ProjectID: "my-project",
+				Model:     "gemini-embedding-2",
+			})
+
+		require.Nil(t, err)
+		assert.Equal(t, expected, res)
+	})
+}
+
 func TestVectorizeRejectsForeignEndpoint(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -582,4 +633,28 @@ func (f *fakeGeminiHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func nullLogger() logrus.FieldLogger {
 	l, _ := test.NewNullLogger()
 	return l
+}
+
+type fakeVertexGeminiEmbedHandler struct {
+	t *testing.T
+}
+
+func (f *fakeVertexGeminiEmbedHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	assert.Equal(f.t, http.MethodPost, r.Method)
+
+	bodyBytes, err := io.ReadAll(r.Body)
+	require.Nil(f.t, err)
+	defer r.Body.Close()
+
+	var req vertexEmbedContentRequest
+	require.Nil(f.t, json.Unmarshal(bodyBytes, &req))
+	require.Len(f.t, req.Content.Parts, 1)
+	require.NotNil(f.t, req.Content.Parts[0].Text)
+
+	resp := vertexEmbedContentResponse{
+		Embedding: &embedContentEmbedding{Values: []float32{0.1, 0.2, 0.3}},
+	}
+	outBytes, err := json.Marshal(resp)
+	require.Nil(f.t, err)
+	w.Write(outBytes)
 }
