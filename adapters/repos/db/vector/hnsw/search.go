@@ -1345,12 +1345,17 @@ func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, erro
 	var docVecs [][]float32
 	if h.compressed.Load() {
 		slice := h.pools.tempVectors.Get(int(h.dims.Load()))
+		// Put returns the container to the pool. It used to run right after
+		// the thunk returned. The tokens in docVecs are now sub-slices of the
+		// container's buffer, so the container must stay out of the pool
+		// until they have been scored below; defer runs Put when this
+		// function returns, on the error paths too.
+		defer h.pools.tempVectors.Put(slice)
 		var err error
 		docVecs, err = h.TempMultiVectorForIDThunk(context.Background(), docID, slice)
 		if err != nil {
 			return 0.0, errors.Wrap(err, "get vector for docID")
 		}
-		h.pools.tempVectors.Put(slice)
 	} else {
 		if !h.muvera.Load() {
 			var errs []error
