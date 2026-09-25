@@ -340,10 +340,14 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	return data, nil
 }
 
-// filterBackupableClasses returns the subset of classes the caller may act on
-// with verb, narrowing the empty-Include operation instead of failing it whole.
-// An empty result is Forbidden; any other authorizer error is Unprocessable.
+// filterBackupableClasses returns the classes authorized for the requested action.
+// Empty input requires no authorization. If no supplied class is authorized, it
+// returns Forbidden. Other authorization errors become Unprocessable.
 func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Principal, verb string, classes []string) ([]string, error) {
+	if len(classes) == 0 {
+		return classes, nil
+	}
+
 	allowed := make([]string, 0, len(classes))
 	for _, c := range classes {
 		if err := s.authorizer.Authorize(ctx, pr, verb, authorization.Backups(c)...); err != nil {
@@ -802,30 +806,22 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 
 	// Get all available classes first for wildcard expansion
 	allClasses := s.backupper.selector.ListClasses(ctx)
-	if len(allClasses) == 0 {
-		return selections, fmt.Errorf("no available classes to backup, there's nothing to do here")
-	}
 
 	// Expand wildcards in Include list
 	include := expandWildcards(req.Include, allClasses)
-	// An include list that expands to nothing must not fall through to every class.
-	if len(req.Include) > 0 && len(include) == 0 {
-		return selections, fmt.Errorf("class list 'include' %v matches no class", req.Include)
-	}
 
 	// Expand wildcards in Exclude list
 	exclude := expandWildcards(req.Exclude, allClasses)
 
 	classes := include
-	if len(classes) == 0 {
+	if len(req.Include) == 0 {
 		classes = allClasses
 	}
-	if classes = filterClasses(classes, exclude); len(classes) == 0 {
-		return selections, fmt.Errorf("empty class list: please choose from : %v", allClasses)
-	}
-
-	if err := s.backupper.selector.Backupable(ctx, classes); err != nil {
-		return selections, err
+	classes = filterClasses(classes, exclude)
+	if len(classes) > 0 {
+		if err := s.backupper.selector.Backupable(ctx, classes); err != nil {
+			return selections, err
+		}
 	}
 
 	users, err := s.resolveUsers(req.IncludeUsers)
@@ -839,6 +835,13 @@ func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore,
 		return selections, err
 	}
 	selections.skipRoles = len(req.IncludeRoles) > 0 && len(roles) == 0
+
+	if len(classes) == 0 && len(users) == 0 && len(roles) == 0 {
+		if len(req.Include) > 0 && len(include) == 0 {
+			return selections, fmt.Errorf("backup selects no collections, users, or roles: class list 'include' %v matches no class", req.Include)
+		}
+		return selections, fmt.Errorf("backup selects no collections, users, or roles: available collections: %v", allClasses)
+	}
 
 	if err = s.checkIfBackupExists(ctx, store, req); err != nil {
 		return selections, err
@@ -1020,6 +1023,22 @@ func (s *Scheduler) validateRestoreRequest(ctx context.Context, store coordStore
 	}
 
 	cs := meta.Classes()
+	if len(cs) == 0 {
+		if len(req.Include) > 0 {
+			return nil, fmt.Errorf("class-less backup cannot be restored with 'include': %v", req.Include)
+		}
+		if len(req.Exclude) > 0 {
+			return nil, fmt.Errorf("class-less backup cannot be restored with 'exclude': %v", req.Exclude)
+		}
+		if req.UserRestoreOption == models.RestoreConfigUsersOptionsNoRestore &&
+			req.RbacRestoreOption == models.RestoreConfigRolesOptionsNoRestore {
+			return nil, errors.New("nothing to restore: backup has no collections and both users and roles restore options are 'noRestore'")
+		}
+		if len(req.NodeMapping) > 0 {
+			meta.NodeMapping = req.NodeMapping
+		}
+		return meta, nil
+	}
 
 	// Expand wildcards in Include list against backup's classes
 	include := expandWildcards(req.Include, cs)
