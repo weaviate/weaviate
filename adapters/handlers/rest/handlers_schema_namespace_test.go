@@ -151,6 +151,33 @@ func TestShardsStorageStatusErrResponder(t *testing.T) {
 	}
 }
 
+// A vector index drop refused by the namespace is the caller's problem too. One
+// state stands for the rest, which TestNamespaceErrRendersUnprocessable walks.
+func TestVectorIndexDeleteErrResponder(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want middleware.Responder
+	}{
+		{
+			name: "suspended namespace is unprocessable",
+			err:  namespaces.ErrNamespaceSuspended,
+			want: schema.NewSchemaObjectsVectorsDeleteUnprocessableEntity(),
+		},
+		{
+			name: "anything else stays a server error",
+			err:  errors.New("boom"),
+			want: schema.NewSchemaObjectsVectorsDeleteInternalServerError(),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.IsType(t, tt.want, vectorIndexDeleteErrResponder(nil, tt.err))
+		})
+	}
+}
+
 // TestDeleteClassPropertyIndex_NamespaceConflictPreflight: reindex tasks are keyed by
 // the qualified class, so a namespaced caller deleting by short name must still match an
 // in-flight task on customer1:Movies and get a 422 — i.e. the handler qualifies first.
