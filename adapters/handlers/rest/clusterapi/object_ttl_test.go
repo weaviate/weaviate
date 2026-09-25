@@ -16,8 +16,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -26,7 +29,6 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -170,4 +172,160 @@ func ttlSweepReport(hook *logrustest.Hook) *logrus.Entry {
 		}
 	}
 	return nil
+}
+
+// waitingTTLSchema stands in for the versioned schema read, which waits for the
+// node to catch up and gives up on its own deadline. waitTimeout stands in for
+// that deadline, and a zero one is a node already caught up.
+type waitingTTLSchema struct {
+	waitTimeout time.Duration
+	entered     chan struct{}
+	once        sync.Once
+}
+
+func (s *waitingTTLSchema) ReadOnlyClassWithVersion(ctx context.Context, class string, _ uint64) (*models.Class, error) {
+	s.once.Do(func() { close(s.entered) })
+
+	if s.waitTimeout == 0 && ctx.Err() == nil {
+		return &models.Class{Class: class}, nil
+	}
+	if s.waitTimeout > 0 {
+		timer := time.NewTimer(s.waitTimeout)
+		defer timer.Stop()
+		select {
+		case <-ctx.Done():
+		case <-timer.C:
+		}
+	}
+	// the real wait reports the version it never reached, carrying neither the
+	// context's error nor its cause, whether it gave up or was cancelled
+	return nil, fmt.Errorf("class %q: schema version not reached", class)
+}
+
+// sweptTTLRepo records the collections the sweep asked it for.
+type sweptTTLRepo struct {
+	lock  sync.Mutex
+	asked []string
+}
+
+func (r *sweptTTLRepo) GetIndexForIncomingSharding(class schema.ClassName) sharding.RemoteIndexIncomingRepo {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+	r.asked = append(r.asked, string(class))
+	return noopTTLIndex{}
+}
+
+// noopTTLIndex embeds the interface so only the one method the sweep calls is
+// implemented. It dispatches nothing, so the sweep's own flow is what a test sees.
+type noopTTLIndex struct {
+	sharding.RemoteIndexIncomingRepo
+}
+
+func (noopTTLIndex) IncomingDeleteObjectsExpired(context.Context, *enterrors.ErrorGroupWrapper,
+	errorcompounder.ErrorCompounder, string, time.Time, time.Time, func(int32), uint64,
+) {
+}
+
+// ttlTestServer serves the object_ttl endpoints over ttlSchema. The returned
+// outcome reads the handler's log, because the deletion outlives the request.
+func ttlTestServer(t *testing.T, ttlSchema sharding.RemoteIncomingSchema) (
+	server *httptest.Server, repo *sweptTTLRepo, status *objectttl.LocalStatus,
+	sweepOutcome func() (failed error, returned bool),
+) {
+	t.Helper()
+
+	logger, hook := logrustest.NewNullLogger()
+	logger.SetLevel(logrus.DebugLevel)
+
+	repo = &sweptTTLRepo{}
+	status = objectttl.NewLocalStatus()
+	d := clusterapi.NewObjectTTL(sharding.NewRemoteIndexIncoming(repo, ttlSchema, nil),
+		clusterapi.NewNoopAuthHandler(), logger,
+		config.Config{ObjectsTTLConcurrencyFactor: configRuntime.NewDynamicValue[float64](1)},
+		status)
+
+	mux := http.NewServeMux()
+	mux.Handle("/cluster/object_ttl/", d.Expired())
+	server = httptest.NewServer(mux)
+	t.Cleanup(server.Close)
+
+	return server, repo, status, func() (error, bool) {
+		for _, e := range hook.AllEntries() {
+			if !strings.HasPrefix(e.Message, "incoming ttl deletion on remote node f") {
+				continue
+			}
+			failed, _ := e.Data[logrus.ErrorKey].(error)
+			return failed, true
+		}
+		return nil, false
+	}
+}
+
+func postTTLDelete(t *testing.T, server *httptest.Server, collections int) {
+	t.Helper()
+
+	payload := make([]objectttl.ObjectsExpiredPayload, collections)
+	for i := range payload {
+		payload[i] = objectttl.ObjectsExpiredPayload{
+			Class:        fmt.Sprintf("Collection%d", i),
+			ClassVersion: 1,
+			Prop:         "expiresAt",
+			TtlMilli:     time.Now().UnixMilli(),
+			DelMilli:     time.Now().UnixMilli(),
+		}
+	}
+	body, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	resp, err := http.Post(server.URL+"/cluster/object_ttl/delete_expired",
+		"application/json", bytes.NewReader(body))
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+	require.Equal(t, http.StatusAccepted, resp.StatusCode)
+}
+
+// A malformed body has to hand back the slot the handler took to read it, or
+// every later sweep on the node is refused.
+func TestIncomingDeleteHandsBackTheSlotOnABadBody(t *testing.T) {
+	server, _, status, _ := ttlTestServer(t, &waitingTTLSchema{entered: make(chan struct{})})
+
+	resp, err := http.Post(server.URL+"/cluster/object_ttl/delete_expired",
+		"application/json", strings.NewReader("not json"))
+	require.NoError(t, err)
+	require.NoError(t, resp.Body.Close())
+
+	require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+	require.False(t, status.IsRunning())
+
+	postTTLDelete(t, server, 1)
+}
+
+// The abort endpoint reports the running deletion without releasing its slot,
+// which only the deletion itself does once it has drained.
+func TestIncomingAbortKeepsTheSlotReserved(t *testing.T) {
+	server, _, status, _ := ttlTestServer(t, &waitingTTLSchema{entered: make(chan struct{})})
+
+	postAbort := func() bool {
+		t.Helper()
+		resp, err := http.Post(server.URL+"/cluster/object_ttl/abort", "application/json", nil)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+
+		var body objectttl.ObjectsExpiredAbortResponse
+		require.NoError(t, json.NewDecoder(resp.Body).Decode(&body))
+		return body.Aborted
+	}
+
+	require.False(t, postAbort(), "nothing is running, so nothing was cancelled")
+
+	ok, ttlCtx := status.SetRunning()
+	require.True(t, ok)
+
+	require.True(t, postAbort(), "the abort cancels the running deletion")
+	require.ErrorIs(t, ttlCtx.Err(), context.Canceled)
+	require.True(t, status.IsRunning(), "the slot stays reserved while that deletion drains")
+
+	status.Finish()
+	require.False(t, postAbort(), "and is free once the deletion returned")
 }
