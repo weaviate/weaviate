@@ -13,12 +13,14 @@ package rest
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
@@ -113,5 +116,101 @@ func TestNoopOrJoinResponder(t *testing.T) {
 			assert.Equal(t, tc.wantStatus, body.Status)
 			assert.Equal(t, tc.wantTaskID, body.TaskID)
 		})
+	}
+}
+
+// TestIndexMutationRefusals pins that upsert, rebuild and cancel answer every
+// qualifyAndAuthorize refusal with the operation's generated responder for
+// the status the spec declares.
+func TestIndexMutationRefusals(t *testing.T) {
+	principal := &models.Principal{Username: "u"}
+	req := httptest.NewRequest(http.MethodPost, "/", nil)
+	forbidden := authzerrors.NewForbidden(principal, authorization.UPDATE, "Movies")
+	other := errors.New("x")
+
+	ops := []struct {
+		name string
+		call func(h *indexesHandlers) middleware.Responder
+		// want is the generated responder expected for each refusal status.
+		want map[int]middleware.Responder
+	}{
+		{
+			name: "upsert",
+			call: func(h *indexesHandlers) middleware.Responder {
+				return h.upsertIndex(schema.SchemaObjectsIndexUpsertParams{
+					HTTPRequest: req, ClassName: "Movies", PropertyName: "title", IndexName: "searchable",
+				}, principal)
+			},
+			want: map[int]middleware.Responder{
+				http.StatusForbidden:           &schema.SchemaObjectsIndexUpsertForbidden{},
+				http.StatusNotFound:            &schema.SchemaObjectsIndexUpsertNotFound{},
+				http.StatusInternalServerError: &schema.SchemaObjectsIndexUpsertInternalServerError{},
+			},
+		},
+		{
+			name: "rebuild",
+			call: func(h *indexesHandlers) middleware.Responder {
+				return h.rebuildIndex(schema.SchemaObjectsIndexRebuildParams{
+					HTTPRequest: req, ClassName: "Movies", PropertyName: "title", IndexName: "searchable",
+				}, principal)
+			},
+			want: map[int]middleware.Responder{
+				http.StatusForbidden:           &schema.SchemaObjectsIndexRebuildForbidden{},
+				http.StatusNotFound:            &schema.SchemaObjectsIndexRebuildNotFound{},
+				http.StatusInternalServerError: &schema.SchemaObjectsIndexRebuildInternalServerError{},
+			},
+		},
+		{
+			name: "cancel",
+			call: func(h *indexesHandlers) middleware.Responder {
+				return h.cancelIndex(schema.SchemaObjectsIndexCancelParams{
+					HTTPRequest: req, ClassName: "Movies", PropertyName: "title", IndexName: "searchable",
+				}, principal)
+			},
+			want: map[int]middleware.Responder{
+				http.StatusForbidden:           &schema.SchemaObjectsIndexCancelForbidden{},
+				http.StatusNotFound:            &schema.SchemaObjectsIndexCancelNotFound{},
+				http.StatusInternalServerError: &schema.SchemaObjectsIndexCancelInternalServerError{},
+			},
+		},
+	}
+
+	refusals := []struct {
+		name       string
+		qualifyErr error
+		authzErr   error
+		wantCode   int
+	}{
+		{name: "qualify Forbidden", qualifyErr: forbidden, wantCode: http.StatusForbidden},
+		{name: "qualify other error", qualifyErr: other, wantCode: http.StatusNotFound},
+		{name: "authorize Forbidden", authzErr: forbidden, wantCode: http.StatusForbidden},
+		{name: "authorize other error", authzErr: other, wantCode: http.StatusInternalServerError},
+	}
+
+	for _, op := range ops {
+		for _, r := range refusals {
+			t.Run(op.name+"/"+r.name, func(t *testing.T) {
+				qualifier := namespacing.Disabled
+				if r.qualifyErr != nil {
+					qualifier = namespacing.Refusing(r.qualifyErr)
+				}
+				authz := mocks.NewMockAuthorizer()
+				authz.SetErr(r.authzErr)
+				// SchemaManager and ClusterService stay nil, so the test fails
+				// if the handler reads the class or the task list before it
+				// answers a refusal.
+				h := &indexesHandlers{appState: &state.State{
+					Authorizer:         authz,
+					NamespaceQualifier: qualifier,
+					ReindexSubmitLocks: state.NewReindexSubmitLocks(),
+					ServerConfig:       &config.WeaviateConfig{Config: config.Config{RuntimeReindexEnabled: true}},
+				}}
+
+				resp := op.call(h)
+				require.IsType(t, op.want[r.wantCode], resp)
+				code, _ := statusOf(t, resp)
+				require.Equal(t, r.wantCode, code)
+			})
+		}
 	}
 }

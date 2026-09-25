@@ -219,6 +219,10 @@ func (s *schemaHandlers) deleteClassPropertyIndex(params schema.SchemaObjectsPro
 	qualifiedClass, qErr := namespacing.QualifyClass(principal, s.qualifier, params.ClassName)
 	if qErr != nil {
 		s.metricRequestsTotal.logError(params.ClassName, qErr)
+		if errors.As(qErr, &authzerrors.Forbidden{}) {
+			return schema.NewSchemaObjectsPropertiesDeleteForbidden().
+				WithPayload(errPayloadFromSingleErr(principal, qErr))
+		}
 		return schema.NewSchemaObjectsPropertiesDeleteUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(principal, qErr))
 	}

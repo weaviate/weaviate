@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/versioned"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"google.golang.org/protobuf/proto"
@@ -1332,11 +1333,12 @@ func TestStreamHandlerReportsSchemaResolutionFailures(t *testing.T) {
 	logger := logrus.New()
 
 	cases := []struct {
-		name        string
-		qualifier   namespacing.Qualifier
-		principal   *models.Principal
-		collection  string
-		getClassErr error
+		name          string
+		qualifier     namespacing.Qualifier
+		principal     *models.Principal
+		collection    string
+		getClassErr   error
+		wantForbidden bool
 	}{
 		{
 			name:       "namespace resolution failure",
@@ -1352,6 +1354,14 @@ func TestStreamHandlerReportsSchemaResolutionFailures(t *testing.T) {
 			principal:   &models.Principal{Namespace: "customer1"},
 			collection:  "TestClass",
 			getClassErr: fmt.Errorf("class %q not found", "customer1:TestClass"),
+		},
+		{
+			// gRPC's translateTypedError answers a Forbidden with PermissionDenied
+			name:          "qualifier refusal",
+			qualifier:     namespacing.Refusing(authzerrors.NewForbidden(nil, "read", "collections/TestClass")),
+			principal:     &models.Principal{Namespace: "customer1"},
+			collection:    "TestClass",
+			wantForbidden: true,
 		},
 	}
 
@@ -1418,6 +1428,9 @@ func TestStreamHandlerReportsSchemaResolutionFailures(t *testing.T) {
 			handler, _ := batch.Start(mockAuthenticator, nil, mockBatcher, mockSchemaManager, nil, 1, logger, tc.qualifier)
 			err := handler.Handle(mockStream)
 			require.Error(t, err, "the stream still ends with the rejection error")
+			if tc.wantForbidden {
+				require.ErrorAs(t, err, &authzerrors.Forbidden{})
+			}
 
 			sentMu.Lock()
 			defer sentMu.Unlock()

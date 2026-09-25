@@ -61,15 +61,6 @@ func jsonResponder(status int, payload interface{}) middleware.Responder {
 	})
 }
 
-// authzResponder maps an authz error to 403 (forbidden) or 500, shared by
-// the three reindex mutation handlers.
-func authzResponder(principal *models.Principal, err error) middleware.Responder {
-	if errors.As(err, &authzerrors.Forbidden{}) {
-		return jsonResponder(http.StatusForbidden, errPayloadFromSingleErr(principal, err))
-	}
-	return jsonResponder(http.StatusInternalServerError, errPayloadFromSingleErr(principal, err))
-}
-
 // normalizeIndexTypeParam maps the {indexType} path value to its internal
 // token, folding both API spellings `rangeFilters` and `rangeable` to the
 // internal token `rangeable`. Returns ok=false for values outside the enum
@@ -179,6 +170,9 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 	collection, _, rErr := namespacing.Resolve(principal, h.appState.SchemaManager,
 		h.appState.NamespaceQualifier, params.ClassName)
 	if rErr != nil {
+		if errors.As(rErr, &authzerrors.Forbidden{}) {
+			return schema.NewSchemaObjectsIndexesGetForbidden().WithPayload(errPayloadFromSingleErr(principal, rErr))
+		}
 		return schema.NewSchemaObjectsIndexesGetUnprocessableEntity().WithPayload(errPayloadFromSingleErr(principal, rErr))
 	}
 

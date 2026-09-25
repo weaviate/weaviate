@@ -157,7 +157,11 @@ func (h *Handler) resolveAuthorizedClass(ctx context.Context, principal *models.
 ) (context.Context, *models.Class, string, classGetterFunc, *APIError) {
 	resolved, aliasUsed, err := namespacing.Resolve(principal, h.schemaReader, h.qualifier, collection)
 	if err != nil {
-		return ctx, nil, "", nil, &APIError{Status: http.StatusBadRequest, Err: err}
+		status := http.StatusBadRequest
+		if errors.As(err, &autherrs.Forbidden{}) {
+			status = http.StatusForbidden
+		}
+		return ctx, nil, "", nil, &APIError{Status: status, Err: err}
 	}
 
 	ctx = restCtx.AddPrincipalToContext(ctx, principal)

@@ -71,7 +71,10 @@ func (n *nodesHandlers) getNodesStatusByClass(params nodes.NodesGetClassParams, 
 
 	className, _, err := namespacing.Resolve(principal, n.schemaManager, n.qualifier, params.ClassName)
 	if err != nil {
-		return nodes.NewNodesGetUnprocessableEntity().WithPayload(errPayloadFromSingleErr(principal, err))
+		if errors.As(err, &autherrs.Forbidden{}) {
+			return nodes.NewNodesGetClassForbidden().WithPayload(errPayloadFromSingleErr(principal, err))
+		}
+		return nodes.NewNodesGetClassUnprocessableEntity().WithPayload(errPayloadFromSingleErr(principal, err))
 	}
 
 	nodeStatuses, err := n.manager.GetNodeStatus(params.HTTPRequest.Context(), principal, className, shardName, output)

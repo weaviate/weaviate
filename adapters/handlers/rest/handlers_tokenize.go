@@ -163,6 +163,10 @@ func propertyTokenize(params schemaops.SchemaObjectsPropertiesTokenizeParams,
 	// for permissions and error UX.
 	className, _, err := namespacing.Resolve(principal, schemaManager, qualifier, params.ClassName)
 	if err != nil {
+		if errors.As(err, &authzerrors.Forbidden{}) {
+			return schemaops.NewSchemaObjectsPropertiesTokenizeForbidden().
+				WithPayload(errPayloadFromSingleErr(principal, err))
+		}
 		return schemaops.NewSchemaObjectsPropertiesTokenizeUnprocessableEntity().
 			WithPayload(errPayloadFromSingleErr(principal, err))
 	}

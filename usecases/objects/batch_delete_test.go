@@ -27,6 +27,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -381,6 +383,72 @@ func Test_BatchDelete_ValidationErrorsAreUserInput(t *testing.T) {
 			"foreign-NS inner class must be ErrInvalidUserInput, got %T: %v", err, err)
 		assert.Contains(t, err.Error(), "is not a valid class name")
 	})
+}
+
+// Test_BatchDelete_ValidationKeepsDenials pins that validateBatchDelete returns
+// a denied class lookup or filter class read as a Forbidden, so REST answers
+// 403. Any other lookup failure is ErrInvalidUserInput.
+func Test_BatchDelete_ValidationKeepsDenials(t *testing.T) {
+	principal := &models.Principal{Username: "u"}
+	denied := authzerrs.NewForbidden(principal, authorization.READ, "Foo")
+
+	cases := []struct {
+		name          string
+		schemaErr     error
+		denyFilter    bool
+		wantForbidden bool
+		wantMsg       string
+	}{
+		{
+			name: "class lookup denied", schemaErr: denied, wantForbidden: true,
+			wantMsg: "validate: failed to get class: Foo: " + denied.Error(),
+		},
+		{
+			name: "class lookup failed", schemaErr: errors.New("schema unavailable"),
+			wantMsg: "validate: failed to get class: Foo: schema unavailable",
+		},
+		{
+			name: "filter class read denied", denyFilter: true, wantForbidden: true,
+			wantMsg: "validate: invalid where filter: ",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sch := schema.Schema{Objects: &models.Schema{Classes: []*models.Class{{
+				Class: "Foo",
+				Properties: []*models.Property{{
+					Name:         "name",
+					DataType:     schema.DataTypeText.PropString(),
+					Tokenization: models.PropertyTokenizationWhitespace,
+				}},
+				VectorIndexConfig: hnsw.UserConfig{},
+				Vectorizer:        config.VectorizerModuleNone,
+			}}}}
+			cfg := &config.WeaviateConfig{Config: config.Config{
+				AutoSchema: config.AutoSchema{Enabled: runtime.NewDynamicValue(false)},
+			}}
+			schemaManager := &fakeSchemaManager{GetSchemaResponse: sch, GetschemaErr: tc.schemaErr}
+			authorizer := mocks.NewMockAuthorizer()
+			if tc.denyFilter {
+				// The first call is DeleteObjects' own DELETE check.
+				authorizer.SetErrAfter(1, denied)
+			}
+			logger, _ := test.NewNullLogger()
+			vectorRepo := &fakeObjectFinder{}
+			manager := NewBatchManager(vectorRepo, getFakeModulesProvider(), schemaManager, cfg, logger, authorizer, nil,
+				NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.Disabled)
+
+			match := &models.BatchDeleteMatch{
+				Class: "Foo",
+				Where: &models.WhereFilter{Path: []string{"name"}, Operator: "Equal", ValueText: ptString("v")},
+			}
+			_, err := manager.DeleteObjects(context.Background(), principal, match, nil, ptBool(true),
+				ptString(verbosity.OutputMinimal), nil, "")
+			require.ErrorContains(t, err, tc.wantMsg)
+			require.Equal(t, tc.wantForbidden, errors.As(err, &authzerrs.Forbidden{}))
+			require.Equal(t, !tc.wantForbidden, errors.As(err, &ErrInvalidUserInput{}))
+		})
+	}
 }
 
 // The gRPC entry point is called with pre-validated params, so it resolves the

@@ -51,7 +51,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	if input.Class != "" {
 		class, _, err := m.resolveNS(principal, input.Class)
 		if err != nil {
-			return &Error{err.Error(), StatusUnprocessableEntity, err}
+			return resolverError(err)
 		}
 		input.Class = class
 	}
@@ -153,7 +153,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 		qualifiedTarget, _, err := namespacing.QualifyRefTarget(
 			principal, m.qualifier, input.Class, beacon.Class)
 		if err != nil {
-			return &Error{err.Error(), StatusUnprocessableEntity, err}
+			return resolverError(err)
 		}
 		beacon.Class = qualifiedTarget
 	}

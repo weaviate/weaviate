@@ -54,7 +54,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 	if input.Class != "" {
 		class, _, err := m.resolveNS(principal, input.Class)
 		if err != nil {
-			return &Error{err.Error(), StatusUnprocessableEntity, err}
+			return resolverError(err)
 		}
 		input.Class = class
 	}
@@ -136,7 +136,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 			qualifiedTarget, shortTarget, err := namespacing.QualifyRefTarget(
 				principal, m.qualifier, input.Class, parsedTargetRefs[i].Class)
 			if err != nil {
-				return &Error{err.Error(), StatusUnprocessableEntity, err}
+				return resolverError(err)
 			}
 			parsedTargetRefs[i].Class = qualifiedTarget
 			input.Refs[i].Class = strfmt.URI(shortTarget)

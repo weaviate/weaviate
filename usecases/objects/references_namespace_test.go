@@ -374,6 +374,19 @@ func Test_References_NamespaceResolution_Add(t *testing.T) {
 		repo.AssertExpectations(t)
 	})
 
+	t.Run("NS: a Forbidden from QualifyRefTarget answers 403", func(t *testing.T) {
+		m, _, _, _, _ := newNSManagers(t, zooAnimalNSSchema(true), true)
+		m.qualifier = refTargetRefusing{namespacing.NewPrefixing(), autherrs.NewForbidden(nil, "read", "collections/Animal")}
+		input := &AddReferenceInput{
+			Class: "Zoo", ID: id, Property: "hasAnimals",
+			Ref: models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/Animal/" + string(refID))},
+		}
+		err := m.AddObjectReference(context.Background(),
+			&models.Principal{Username: "u", Namespace: "customer1"}, input, nil, "")
+		require.ErrorAs(t, errOf(err), &autherrs.Forbidden{})
+		assert.Equal(t, StatusForbidden, err.Code)
+	})
+
 	t.Run("NS: admin short target qualifies into source namespace (Matrix A row 4)", func(t *testing.T) {
 		// Item 4 lock-in: the happy-path branch most other tests skip.
 		// Admin submits an unqualified target ("Animal") against a
@@ -532,6 +545,22 @@ func Test_References_NamespaceResolution_Update(t *testing.T) {
 		repo.AssertExpectations(t)
 	})
 
+	t.Run("NS: a Forbidden from QualifyRefTarget answers 403", func(t *testing.T) {
+		m, _, repo, _, _ := newNSManagers(t, zooAnimalNSSchema(true), true)
+		m.qualifier = refTargetRefusing{namespacing.NewPrefixing(), autherrs.NewForbidden(nil, "read", "collections/Animal")}
+		repo.On("Object", "customer1:Zoo", id, mock.Anything, mock.Anything, mock.Anything).
+			Return(&search.Result{ClassName: "customer1:Zoo"}, nil).Once()
+		input := &PutReferenceInput{
+			Class: "Zoo", ID: id, Property: "hasAnimals",
+			Refs: models.MultipleRef{{Beacon: strfmt.URI("weaviate://localhost/Animal/" + string(refID))}},
+		}
+		err := m.UpdateObjectReferences(context.Background(),
+			&models.Principal{Username: "u", Namespace: "customer1"}, input, nil, "")
+		require.ErrorAs(t, errOf(err), &autherrs.Forbidden{})
+		assert.Equal(t, StatusForbidden, err.Code)
+		repo.AssertExpectations(t)
+	})
+
 	t.Run("NS: admin short target qualifies into source namespace (Matrix A row 4)", func(t *testing.T) {
 		// Item 4 lock-in (PUT side): admin happy path with short target.
 		// QRT must qualify in-memory; stored beacon stays short.
@@ -617,6 +646,22 @@ func Test_References_NamespaceResolution_Delete(t *testing.T) {
 		err := m.DeleteObjectReference(context.Background(), principal, input, nil, "")
 		require.NotNil(t, err)
 		assert.Equal(t, StatusUnprocessableEntity, err.Code)
+	})
+
+	t.Run("NS: a Forbidden from QualifyRefTarget answers 403", func(t *testing.T) {
+		m, _, repo, _, _ := newNSManagers(t, zooAnimalNSSchema(true), true)
+		m.qualifier = refTargetRefusing{namespacing.NewPrefixing(), autherrs.NewForbidden(nil, "read", "collections/Animal")}
+		repo.On("Object", "customer1:Zoo", id, mock.Anything, mock.Anything, mock.Anything).
+			Return(&search.Result{ClassName: "customer1:Zoo"}, nil).Once()
+		input := &DeleteReferenceInput{
+			Class: "Zoo", ID: id, Property: "hasAnimals",
+			Reference: models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/Animal/" + string(refID))},
+		}
+		err := m.DeleteObjectReference(context.Background(),
+			&models.Principal{Username: "u", Namespace: "customer1"}, input, nil, "")
+		require.ErrorAs(t, errOf(err), &autherrs.Forbidden{})
+		assert.Equal(t, StatusForbidden, err.Code)
+		repo.AssertExpectations(t)
 	})
 
 	t.Run("NS: classless beacon on multi-target property is rejected with 400", func(t *testing.T) {

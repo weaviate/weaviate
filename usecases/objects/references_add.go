@@ -44,7 +44,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 	if input.Class != "" {
 		class, _, err := m.resolveNS(principal, input.Class)
 		if err != nil {
-			return &Error{err.Error(), StatusUnprocessableEntity, err}
+			return resolverError(err)
 		}
 		input.Class = class
 	}
@@ -130,7 +130,7 @@ func (m *Manager) AddObjectReference(ctx context.Context, principal *models.Prin
 		qualifiedTarget, shortTarget, err := namespacing.QualifyRefTarget(
 			principal, m.qualifier, input.Class, targetRef.Class)
 		if err != nil {
-			return &Error{err.Error(), StatusUnprocessableEntity, err}
+			return resolverError(err)
 		}
 		targetRef.Class = qualifiedTarget
 		input.Ref.Class = strfmt.URI(shortTarget)
