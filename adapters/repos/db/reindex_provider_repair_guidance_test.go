@@ -282,6 +282,7 @@ func mkMigrationRecordFor(t *testing.T, lsmPath, trackerDir, taskID string, task
 		},
 		TaskID:        taskID,
 		MigrationType: mt,
+		Collection:    "Books",
 		TrackerDir:    trackerDir,
 		Props:         map[string]MigrationPropertyDirs{},
 	}

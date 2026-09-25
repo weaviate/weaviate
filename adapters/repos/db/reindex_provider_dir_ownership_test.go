@@ -238,6 +238,7 @@ func seedInFlightMigration(t *testing.T, p *ReindexProvider, lsmPath string,
 			},
 			TaskID:          taskDescAt(recordedVersion).ID,
 			MigrationType:   c.migration,
+			Collection:      "Books",
 			IterationCutoff: time.Date(2026, 8, 21, 9, 0, 0, 0, time.UTC),
 			TrackerDir:      task.strategy.MigrationDirName(),
 			Props: map[string]MigrationPropertyDirs{

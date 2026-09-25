@@ -120,7 +120,7 @@ func newTestTaskWithGuard(logger logrus.FieldLogger, strategy MigrationStrategy,
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-reindex-task", Version: 1},
 		unitID,
-		&ReindexTaskPayload{MigrationType: ReindexTypeChangeAlgorithm},
+		&ReindexTaskPayload{MigrationType: ReindexTypeChangeAlgorithm, Collection: "Books"},
 	)
 	return task
 }
@@ -450,4 +450,25 @@ func TestRuntimeSwap_Phase2a_AtomicTightLoop(t *testing.T) {
 		assert.NotEmpty(t, displaced)
 	}
 	require.NoError(t, shard.Shutdown(ctx))
+}
+
+func TestBothChangeTokenizationHalvesRecordTheBucketStrategy(t *testing.T) {
+	p, _ := newTestProvider(t)
+	payload := &ReindexTaskPayload{
+		MigrationType:      ReindexTypeChangeTokenization,
+		Collection:         "Books",
+		Properties:         []string{"title"},
+		TargetTokenization: models.PropertyTokenizationField,
+		BucketStrategy:     lsmkv.StrategyMapCollection,
+	}
+	desc, unitID := testTaskIdentity()
+
+	tasks, err := p.createReindexTasks(desc, unitID, payload, t.TempDir(), false)
+	require.NoError(t, err)
+	require.Len(t, tasks, 2)
+
+	for _, task := range tasks {
+		subject := task.migrationSubject(nil, payload.Properties, time.Time{})
+		require.Equal(t, lsmkv.StrategyMapCollection, subject.BucketStrategy, subject.Key.StrategyCode)
+	}
 }

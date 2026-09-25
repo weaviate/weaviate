@@ -103,6 +103,7 @@ func newSearchableRetokenizeTaskAtGeneration(t *testing.T, idx *Index, className
 		distributedtask.TaskDescriptor{ID: "test-searchable-retokenize", Version: uint64(generation)},
 		unitID,
 		&ReindexTaskPayload{
+			Collection:         "Books",
 			MigrationType:      ReindexTypeChangeTokenization,
 			TargetTokenization: targetTokenization,
 		},

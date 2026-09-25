@@ -108,6 +108,7 @@ func newEnableSearchableTask(
 		distributedtask.TaskDescriptor{ID: "test-enable-searchable", Version: 1},
 		unitID,
 		&ReindexTaskPayload{
+			Collection:         "Books",
 			MigrationType:      ReindexTypeEnableSearchable,
 			TargetTokenization: tokenization,
 		},

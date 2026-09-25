@@ -53,7 +53,7 @@ func newRoaringSetRefreshTask(t *testing.T, idx *Index, unitID string) (*ShardRe
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-roaringset-refresh", Version: 1},
 		unitID,
-		&ReindexTaskPayload{MigrationType: ReindexTypeRepairFilterable},
+		&ReindexTaskPayload{MigrationType: ReindexTypeRepairFilterable, Collection: "Books"},
 	)
 	return task, wrapped
 }

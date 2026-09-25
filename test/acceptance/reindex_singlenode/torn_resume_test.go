@@ -226,6 +226,7 @@ func plantTornMigrationAcrossRestart(
 		},
 		TaskID:          "torn-resume-crashed-run",
 		MigrationType:   db.ReindexMigrationType(migrationType),
+		Collection:      class,
 		IterationCutoff: time.Now().UTC(),
 		TrackerDir:      migDir,
 		Props:           make(map[string]db.MigrationPropertyDirs, len(props)),

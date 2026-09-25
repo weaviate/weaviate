@@ -46,6 +46,7 @@ func mkMigrationRecord(t *testing.T, lsmPath, trackerName string,
 		},
 		TaskID:        "fixture:" + trackerName,
 		MigrationType: migrationType,
+		Collection:    "Books",
 		TrackerDir:    trackerName,
 		Props:         map[string]MigrationPropertyDirs{},
 	}

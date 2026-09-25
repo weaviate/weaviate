@@ -90,6 +90,7 @@ func newFilterableRetokenizeTask(t *testing.T, idx *Index, className, propName, 
 		distributedtask.TaskDescriptor{ID: "test-filterable-retokenize", Version: 1},
 		unitID,
 		&ReindexTaskPayload{
+			Collection:         "Books",
 			MigrationType:      ReindexTypeChangeTokenizationFilterable,
 			TargetTokenization: targetTokenization,
 		},

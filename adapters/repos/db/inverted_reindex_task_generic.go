@@ -54,6 +54,8 @@ type ShardReindexTaskGeneric struct {
 	migrationType        ReindexMigrationType
 	targetTokenization   string
 	originalTokenization string
+	collection           string
+	bucketStrategy       string
 
 	keyParser            indexKeyParser
 	objectsIteratorAsync objectsIteratorAsync
@@ -1331,6 +1333,8 @@ func (t *ShardReindexTaskGeneric) setMigrationIdentity(desc distributedtask.Task
 	t.migrationType = payload.MigrationType
 	t.targetTokenization = payload.TargetTokenization
 	t.originalTokenization = payload.OriginalTokenization
+	t.collection = payload.Collection
+	t.bucketStrategy = payload.BucketStrategy
 }
 
 func (t *ShardReindexTaskGeneric) migrationRecordKey() MigrationRecordKey {
@@ -1414,6 +1418,8 @@ func (t *ShardReindexTaskGeneric) migrationSubject(shard ShardLike, props []stri
 		MigrationType:        t.migrationType,
 		TargetTokenization:   t.targetTokenization,
 		OriginalTokenization: t.originalTokenization,
+		Collection:           t.collection,
+		BucketStrategy:       t.bucketStrategy,
 		IterationCutoff:      cutoff,
 		TrackerDir:           t.strategy.MigrationDirName(),
 		Props:                make(map[string]MigrationPropertyDirs, len(props)),

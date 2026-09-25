@@ -199,7 +199,7 @@ func newFilterableToRangeableTaskWithStrategy(t *testing.T, idx *Index, classNam
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-filterable-to-rangeable", Version: 1},
 		unitID,
-		&ReindexTaskPayload{MigrationType: ReindexTypeEnableRangeable},
+		&ReindexTaskPayload{MigrationType: ReindexTypeEnableRangeable, Collection: "Books"},
 	)
 	return task
 }

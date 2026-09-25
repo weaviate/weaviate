@@ -128,6 +128,7 @@ func opaqueMigrationSubject(t *testing.T, staged, shardName string) db.Migration
 		},
 		TaskID:          "opaque-promotion",
 		MigrationType:   db.ReindexTypeRepairFilterable,
+		Collection:      "OpaquePromotion",
 		IterationCutoff: time.Now().UTC(),
 		TrackerDir:      "opaque_promotion_tracker",
 		Props: map[string]db.MigrationPropertyDirs{"score": {

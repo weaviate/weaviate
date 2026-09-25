@@ -91,6 +91,7 @@ func TestHandlesAreAcceptedByTheRecordWriter(t *testing.T) {
 						},
 						TaskID:          "handles-are-accepted",
 						MigrationType:   db.ReindexTypeRepairFilterable,
+						Collection:      "Books",
 						IterationCutoff: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 						TrackerDir:      TrackerDir(t, strategy.StrategyCode(), []string{prop}, generation),
 						Props: map[string]db.MigrationPropertyDirs{prop: {

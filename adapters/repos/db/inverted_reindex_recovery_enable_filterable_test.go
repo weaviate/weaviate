@@ -74,7 +74,7 @@ func newEnableFilterableTaskAtGeneration(t *testing.T, idx *Index, className str
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-enable-filterable", Version: uint64(generation)},
 		unitID,
-		&ReindexTaskPayload{MigrationType: ReindexTypeEnableFilterable},
+		&ReindexTaskPayload{MigrationType: ReindexTypeEnableFilterable, Collection: "Books"},
 	)
 	return task, wrapped
 }

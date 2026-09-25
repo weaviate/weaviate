@@ -101,7 +101,7 @@ func newRebuildSearchableTask(t *testing.T, idx *Index, className, propName, uni
 	task.setMigrationIdentity(
 		distributedtask.TaskDescriptor{ID: "test-rebuild-searchable", Version: 1},
 		unitID,
-		&ReindexTaskPayload{MigrationType: ReindexTypeRebuildSearchable},
+		&ReindexTaskPayload{MigrationType: ReindexTypeRebuildSearchable, Collection: "Books"},
 	)
 	return task, wrapped
 }
