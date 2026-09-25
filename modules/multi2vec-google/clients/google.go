@@ -272,7 +272,7 @@ func (v *google) getVertexGeminiEmbedContentPayload(kind, content string, config
 		Content: embedContent{Parts: parts},
 	}
 	if config.Dimensions != nil {
-		req.EmbedContentConfig = &vertexEmbedContentConfig{OutputDimensionality: config.Dimensions}
+		req.OutputDimensionality = config.Dimensions
 	}
 	return req
 }
@@ -539,12 +539,8 @@ type embedContentEmbedding struct {
 }
 
 type vertexEmbedContentRequest struct {
-	Content            embedContent              `json:"content"`
-	EmbedContentConfig *vertexEmbedContentConfig `json:"embedContentConfig,omitempty"`
-}
-
-type vertexEmbedContentConfig struct {
-	OutputDimensionality *int64 `json:"outputDimensionality,omitempty"`
+	Content              embedContent `json:"content"`
+	OutputDimensionality *int64       `json:"outputDimensionality,omitempty"`
 }
 
 type vertexEmbedContentResponse struct {

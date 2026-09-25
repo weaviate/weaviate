@@ -52,6 +52,22 @@ func TestBuildURL(t *testing.T) {
 	})
 }
 
+func TestGetVertexGeminiEmbedContentPayload_OutputDimensionality(t *testing.T) {
+	dim := int64(768)
+	c := &google{}
+	payload := c.getVertexGeminiEmbedContentPayload("text", "hello", ent.VectorizationConfig{
+		Dimensions: &dim,
+	})
+
+	body, err := json.Marshal(payload)
+	require.NoError(t, err)
+
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(body, &raw))
+	assert.Equal(t, float64(768), raw["outputDimensionality"])
+	assert.NotContains(t, raw, "embedContentConfig")
+}
+
 func TestVertexGeminiEmbedding2Client(t *testing.T) {
 	t.Run("vectorizes text via Vertex embedContent", func(t *testing.T) {
 		server := httptest.NewServer(&fakeVertexGeminiEmbedHandler{t: t})
@@ -77,6 +93,30 @@ func TestVertexGeminiEmbedding2Client(t *testing.T) {
 
 		require.Nil(t, err)
 		assert.Equal(t, expected, res)
+	})
+
+	t.Run("sends outputDimensionality at request top level", func(t *testing.T) {
+		dim := int64(512)
+		server := httptest.NewServer(&fakeVertexGeminiEmbedHandler{t: t, wantDimensionality: &dim})
+		defer server.Close()
+		c := &google{
+			apiKey:       "apiKey",
+			httpClient:   &http.Client{},
+			googleApiKey: apikey.NewGoogleApiKey(),
+			urlBuilderFn: func(apiEndpoint, location, projectID, model string) string {
+				return server.URL
+			},
+			logger: nullLogger(),
+		}
+		_, err := c.Vectorize(context.Background(), []string{"hello"}, nil, nil, nil,
+			ent.VectorizationConfig{
+				Location:   "us-central1",
+				ProjectID:  "my-project",
+				Model:      "gemini-embedding-2",
+				Dimensions: &dim,
+			})
+
+		require.Nil(t, err)
 	})
 }
 
@@ -636,7 +676,8 @@ func nullLogger() logrus.FieldLogger {
 }
 
 type fakeVertexGeminiEmbedHandler struct {
-	t *testing.T
+	t                  *testing.T
+	wantDimensionality *int64
 }
 
 func (f *fakeVertexGeminiEmbedHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -650,6 +691,10 @@ func (f *fakeVertexGeminiEmbedHandler) ServeHTTP(w http.ResponseWriter, r *http.
 	require.Nil(f.t, json.Unmarshal(bodyBytes, &req))
 	require.Len(f.t, req.Content.Parts, 1)
 	require.NotNil(f.t, req.Content.Parts[0].Text)
+	if f.wantDimensionality != nil {
+		require.NotNil(f.t, req.OutputDimensionality)
+		assert.Equal(f.t, *f.wantDimensionality, *req.OutputDimensionality)
+	}
 
 	resp := vertexEmbedContentResponse{
 		Embedding: &embedContentEmbedding{Values: []float32{0.1, 0.2, 0.3}},
