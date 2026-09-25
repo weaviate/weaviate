@@ -65,7 +65,7 @@ func (p *TokenProvider) findTokens(ctx context.Context,
 			// for each text property result, call the NER function and add to additional result
 			for property, value := range textProperties {
 
-				if limit != nil && len(tokensList) > *limit {
+				if limit != nil && len(tokensList) >= *limit {
 					break
 				}
 
