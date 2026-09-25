@@ -250,6 +250,14 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 			return errors.Errorf("insert called with nil-vector")
 		}
 
+		// Reject wrong-dimension vectors before addOne persists the node to
+		// the commit log and h.nodes. Without this check the dimension
+		// mismatch is only caught later in the neighbor search, leaving a
+		// visible ghost node behind (see #12986).
+		if err := h.ValidateBeforeInsert(vector); err != nil {
+			return err
+		}
+
 		h.metrics.InsertVector()
 
 		vector, release := h.normalizeVecForInsert(vector)
