@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -38,8 +39,9 @@ import (
 
 // interruptingIndex wraps the copy-target HNSW during an upgrade and runs a hook
 // before each AddBatch, so a test can interrupt the flat→HNSW copy at a
-// deterministic point — panic (mid-copy crash), return an error (ordinary abort),
-// or mutate the dynamic index (delete mid-copy). It embeds VectorIndex so every
+// deterministic point — end the goroutine (mid-copy crash, via runtime.Goexit),
+// return an error (ordinary abort), or mutate the dynamic index (delete
+// mid-copy). It embeds VectorIndex so every
 // other method passes straight through to the real index. Tests inject it via
 // upgradeFn → upgradeUsing; there is no production seam.
 type interruptingIndex struct {
@@ -69,8 +71,9 @@ func (i *interruptingIndex) AddBatch(ctx context.Context, ids []uint64, vectors 
 // batch, in that shared bucket. The "upgraded" verdict is committed only AFTER
 // the whole copy.
 //
-// If the process is interrupted mid-copy (simulated by panicking between copy
-// batches, which skips doUpgrade's cleanup exactly as a crash would), the shared
+// If the process is interrupted mid-copy (simulated by ending the upgrade
+// goroutine between copy batches, which skips doUpgrade's cleanup exactly as a
+// crash would), the shared
 // compressed bucket is left as a mix of the two code formats — of different byte
 // lengths — with no upgrade verdict recorded. On restart the dynamic index rolls
 // back to the flat stage and, on the buggy code, reads that mixed bucket: its
@@ -148,6 +151,11 @@ func TestUpgrade_InterruptedQuantizedUpgradeCorruptsCompressedBucket(t *testing.
 
 func runInterruptedQuantizedUpgrade(t *testing.T, targetVector string, flatUC flatent.UserConfig, hnswUC hnswent.UserConfig) {
 	t.Helper()
+	// Pin the crash simulation to the integration environment (recovery disabled):
+	// with runtime.Goexit this is a no-op, but if the interrupt is ever changed
+	// back to a panic, GoWrapper will not recover it here and this test crashes —
+	// locally, not only in the integration CI.
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "true")
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
 
@@ -222,15 +230,17 @@ func runInterruptedQuantizedUpgrade(t *testing.T, targetVector string, flatUC fl
 		baseline[i] = ids
 	}
 
-	// Interrupt the upgrade mid-copy: panic before the second copy batch, after the
-	// first has already written HNSW codes over the flat codes for ids
-	// 0..batchSize-1. GoWrapper recovers the panic, so doUpgrade's cleanup never
-	// runs — exactly the on-disk residue a hard crash leaves.
+	// Interrupt the upgrade mid-copy, before the second copy batch, after the first
+	// has already written HNSW codes over the flat codes for ids 0..batchSize-1.
+	// runtime.Goexit ends the upgrade goroutine without a panic — none of
+	// doUpgrade's error/cleanup paths run, leaving exactly the on-disk residue a
+	// hard crash leaves. (A panic would depend on GoWrapper's recover, which is
+	// off under DISABLE_RECOVERY_ON_PANIC in integration runs; Goexit does not.)
 	idx.upgradeFn = func() error {
 		return idx.upgradeUsing(func(target VectorIndex) VectorIndex {
 			return &interruptingIndex{VectorIndex: target, onAddBatch: func(call int, ids []uint64) error {
 				if call >= 2 {
-					panic("simulated crash during quantized dynamic upgrade")
+					runtime.Goexit()
 				}
 				return nil
 			}}
