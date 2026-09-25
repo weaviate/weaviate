@@ -49,6 +49,8 @@ type ClientService interface {
 
 	SearchNearText(params *SearchNearTextParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SearchNearTextOK, error)
 
+	SearchNearVector(params *SearchNearVectorParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SearchNearVectorOK, error)
+
 	SetTransport(transport runtime.ClientTransport)
 }
 
@@ -213,6 +215,47 @@ func (a *Client) SearchNearText(params *SearchNearTextParams, authInfo runtime.C
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for search.nearText: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+SearchNearVector searches a collection with near vector
+
+Performs a similarity search over the objects of a collection, anchored at a vector supplied by the caller: the query `vector` is searched against the vector index and the closest objects are returned, each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`. No query is vectorized, so collections without a vectorizer module are fully searchable. The query vector must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector; a vector of the wrong dimensionality is not reliably rejected, and on some vector index configurations it yields an empty result set rather than an error.
+*/
+func (a *Client) SearchNearVector(params *SearchNearVectorParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SearchNearVectorOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewSearchNearVectorParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "search.nearVector",
+		Method:             "POST",
+		PathPattern:        "/search/{collection}/near-vector",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &SearchNearVectorReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*SearchNearVectorOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for search.nearVector: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

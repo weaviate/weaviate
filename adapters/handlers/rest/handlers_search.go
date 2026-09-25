@@ -28,9 +28,9 @@ import (
 )
 
 // setupSearchHandlers wires the REST search API (operations search.nearText,
-// search.bm25, search.hybrid and search.nearObject, POST
-// /v1/search/{collection}/{near-text,bm25,hybrid,near-object}) and its
-// sibling aggregate API (operation aggregate, POST
+// search.bm25, search.hybrid, search.nearObject and search.nearVector, POST
+// /v1/search/{collection}/{near-text,bm25,hybrid,near-object,near-vector}) and
+// its sibling aggregate API (operation aggregate, POST
 // /v1/aggregate/{collection}). The handler logic lives in
 // adapters/handlers/rest/search.
 func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
@@ -93,6 +93,15 @@ func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 				return searchNearObjectErrResponder(apiErr)
 			}
 			return searchops.NewSearchNearObjectOK().WithPayload(payload)
+		})
+
+	api.SearchSearchNearVectorHandler = searchops.SearchNearVectorHandlerFunc(
+		func(params searchops.SearchNearVectorParams, principal *models.Principal) middleware.Responder {
+			payload, apiErr := h.NearVector(params.HTTPRequest.Context(), principal, params.Collection, params.Body)
+			if apiErr != nil {
+				return searchNearVectorErrResponder(apiErr)
+			}
+			return searchops.NewSearchNearVectorOK().WithPayload(payload)
 		})
 
 	api.AggregateAggregateHandler = aggregateops.AggregateHandlerFunc(
@@ -183,6 +192,31 @@ func searchNearObjectErrResponder(apiErr *restsearch.APIError) middleware.Respon
 		return searchops.NewSearchNearObjectTooManyRequests().WithPayload(payload)
 	case http.StatusInternalServerError:
 		return searchops.NewSearchNearObjectInternalServerError().WithPayload(payload)
+	default:
+		// statuses the handler never produces itself; the declared 401/503
+		// are answered above it (security layer, op-mode middleware)
+		return middleware.Error(apiErr.Status, payload)
+	}
+}
+
+// searchNearVectorErrResponder translates a search APIError into the
+// generated responder for its status, keeping the standard REST error shape.
+func searchNearVectorErrResponder(apiErr *restsearch.APIError) middleware.Responder {
+	payload := searchErrPayload(apiErr)
+
+	switch apiErr.Status {
+	case http.StatusBadRequest:
+		return searchops.NewSearchNearVectorBadRequest().WithPayload(payload)
+	case http.StatusForbidden:
+		return searchops.NewSearchNearVectorForbidden().WithPayload(payload)
+	case http.StatusNotFound:
+		return searchops.NewSearchNearVectorNotFound().WithPayload(payload)
+	case http.StatusUnprocessableEntity:
+		return searchops.NewSearchNearVectorUnprocessableEntity().WithPayload(payload)
+	case http.StatusTooManyRequests:
+		return searchops.NewSearchNearVectorTooManyRequests().WithPayload(payload)
+	case http.StatusInternalServerError:
+		return searchops.NewSearchNearVectorInternalServerError().WithPayload(payload)
 	default:
 		// statuses the handler never produces itself; the declared 401/503
 		// are answered above it (security layer, op-mode middleware)

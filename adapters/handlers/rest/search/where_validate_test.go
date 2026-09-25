@@ -149,6 +149,10 @@ func TestWhereUnknownRefClassOnEveryEndpoint(t *testing.T) {
 			_, e := doNearObject(t, d, nil, "Movie", `{"id":"11111111-2222-3333-4444-555555555555",`+where+`}`)
 			return e
 		},
+		"near-vector": func(d *testDeps) *APIError {
+			_, e := doNearVector(t, d, nil, "Movie", `{"vector":[0.1,0.2],`+where+`}`)
+			return e
+		},
 		"aggregate": func(d *testDeps) *APIError {
 			_, e := doAggregate(t, d, nil, "Movie", `{`+where+`}`)
 			return e

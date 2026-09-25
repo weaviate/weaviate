@@ -418,6 +418,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SearchSearchNearTextHandler: search.SearchNearTextHandlerFunc(func(params search.SearchNearTextParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation search.SearchNearText has not yet been implemented")
 		}),
+		SearchSearchNearVectorHandler: search.SearchNearVectorHandlerFunc(func(params search.SearchNearVectorParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation search.SearchNearVector has not yet been implemented")
+		}),
 		NamespacesSuspendNamespaceHandler: namespaces.SuspendNamespaceHandlerFunc(func(params namespaces.SuspendNamespaceParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation namespaces.SuspendNamespace has not yet been implemented")
 		}),
@@ -733,6 +736,8 @@ type WeaviateAPI struct {
 	SearchSearchNearObjectHandler search.SearchNearObjectHandler
 	// SearchSearchNearTextHandler sets the operation handler for the search near text operation
 	SearchSearchNearTextHandler search.SearchNearTextHandler
+	// SearchSearchNearVectorHandler sets the operation handler for the search near vector operation
+	SearchSearchNearVectorHandler search.SearchNearVectorHandler
 	// NamespacesSuspendNamespaceHandler sets the operation handler for the suspend namespace operation
 	NamespacesSuspendNamespaceHandler namespaces.SuspendNamespaceHandler
 	// SchemaTenantExistsHandler sets the operation handler for the tenant exists operation
@@ -1180,6 +1185,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.SearchSearchNearTextHandler == nil {
 		unregistered = append(unregistered, "search.SearchNearTextHandler")
 	}
+	if o.SearchSearchNearVectorHandler == nil {
+		unregistered = append(unregistered, "search.SearchNearVectorHandler")
+	}
 	if o.NamespacesSuspendNamespaceHandler == nil {
 		unregistered = append(unregistered, "namespaces.SuspendNamespaceHandler")
 	}
@@ -1238,7 +1246,6 @@ func (o *WeaviateAPI) AuthenticatorsFor(schemes map[string]spec.SecurityScheme) 
 			result[name] = o.BearerAuthenticator(name, func(token string, scopes []string) (interface{}, error) {
 				return o.OidcAuth(token, scopes)
 			})
-
 		}
 	}
 	return result
@@ -1766,6 +1773,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/search/{collection}/near-text"] = search.NewSearchNearText(o.context, o.SearchSearchNearTextHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/search/{collection}/near-vector"] = search.NewSearchNearVector(o.context, o.SearchSearchNearVectorHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
