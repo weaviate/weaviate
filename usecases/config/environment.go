@@ -491,6 +491,46 @@ func FromEnv(config *Config) error {
 		config.Persistence.LazySegmentsDisabled = true
 	}
 
+	// opt-in (0 = disabled); see lsmkv.WithSegmentIndexPin
+	if v := os.Getenv("PERSISTENCE_LSM_SEGMENT_INDEX_PIN_THRESHOLD"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse PERSISTENCE_LSM_SEGMENT_INDEX_PIN_THRESHOLD: %w", err)
+		}
+		// a per-segment cap of "unlimited" (or anything past the node-wide
+		// default budget) is almost certainly operator error
+		if parsed > MaxPersistenceLSMSegmentIndexPinThreshold {
+			return fmt.Errorf("parse PERSISTENCE_LSM_SEGMENT_INDEX_PIN_THRESHOLD: %d exceeds max of %d bytes",
+				parsed, MaxPersistenceLSMSegmentIndexPinThreshold)
+		}
+		config.Persistence.LSMSegmentIndexPinThreshold = parsed
+	}
+
+	if v := os.Getenv("PERSISTENCE_LSM_SEGMENT_INDEX_PIN_TOTAL_LIMIT"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse PERSISTENCE_LSM_SEGMENT_INDEX_PIN_TOTAL_LIMIT: %w", err)
+		}
+		// an unlimited node-wide budget defeats its purpose; require a finite size
+		if parsed == math.MaxInt64 {
+			return fmt.Errorf("parse PERSISTENCE_LSM_SEGMENT_INDEX_PIN_TOTAL_LIMIT: %q not supported, provide a finite size (e.g. \"4GiB\")", v)
+		}
+		config.Persistence.LSMSegmentIndexPinTotalLimit = parsed
+	} else {
+		config.Persistence.LSMSegmentIndexPinTotalLimit = DefaultPersistenceLSMSegmentIndexPinTotalLimit
+	}
+
+	if v := os.Getenv("PERSISTENCE_LSM_SEGMENT_INDEX_PIN_SCOPE"); v != "" {
+		// values mirror the lsmkv.SegmentIndexPinScope* constants, which this
+		// package cannot import (adapters depend on usecases, not vice versa)
+		if v != "objects" && v != "all" {
+			return fmt.Errorf("parse PERSISTENCE_LSM_SEGMENT_INDEX_PIN_SCOPE: expected \"objects\" or \"all\", got %q", v)
+		}
+		config.Persistence.LSMSegmentIndexPinScope = v
+	} else {
+		config.Persistence.LSMSegmentIndexPinScope = DefaultPersistenceLSMSegmentIndexPinScope
+	}
+
 	if entcfg.Enabled(os.Getenv("PERSISTENCE_SEGMENT_INFO_FROM_FILE_DISABLED")) {
 		config.Persistence.SegmentInfoIntoFileNameEnabled = false
 	} else {

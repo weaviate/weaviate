@@ -346,17 +346,20 @@ func (sg *SegmentGroup) initPrependedSegments(dbFiles []string) ([]Segment, erro
 		seg, err := newSegment(path, sg.logger, sg.metrics,
 			nil, // existsLower: not applicable for RoaringSet strategy
 			segmentConfig{
-				mmapContents:             sg.mmapContents,
-				useBloomFilter:           sg.useBloomFilter,
-				calcCountNetAdditions:    sg.calcCountNetAdditions,
-				overwriteDerived:         false, // auxiliary files were already copied
-				enableChecksumValidation: sg.enableChecksumValidation,
-				sequentialAccess:         sg.sequentialAccess,
-				MinMMapSize:              sg.MinMMapSize,
-				allocChecker:             sg.allocChecker,
-				writeMetadata:            sg.writeMetadata,
-				deleteMarkerCounter:      sg.deleteMarkerCounter.Add(1),
-				lazyPropertyLengths:      sg.lazyPropertyLengths,
+				mmapContents:              sg.mmapContents,
+				useBloomFilter:            sg.useBloomFilter,
+				calcCountNetAdditions:     sg.calcCountNetAdditions,
+				overwriteDerived:          false, // auxiliary files were already copied
+				enableChecksumValidation:  sg.enableChecksumValidation,
+				sequentialAccess:          sg.sequentialAccess,
+				MinMMapSize:               sg.MinMMapSize,
+				segmentIndexPinThreshold:  sg.segmentIndexPinThreshold,
+				segmentIndexPinTotalLimit: sg.segmentIndexPinTotalLimit,
+				pinBucketLabel:            sg.pinBucketLabel,
+				allocChecker:              sg.allocChecker,
+				writeMetadata:             sg.writeMetadata,
+				deleteMarkerCounter:       sg.deleteMarkerCounter.Add(1),
+				lazyPropertyLengths:       sg.lazyPropertyLengths,
 			})
 		if err != nil {
 			// Close any segments already initialized.

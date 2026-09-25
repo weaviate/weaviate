@@ -87,6 +87,10 @@ type Metrics struct {
 	segmentTotalByStrategy *prometheus.GaugeVec
 	segmentSizeByStrategy  *prometheus.HistogramVec
 
+	// heap-pinned segment index metrics, see segmentConfig.segmentIndexPinThreshold
+	segmentIndexPinnedTotal *prometheus.GaugeVec
+	segmentIndexPinnedBytes *prometheus.GaugeVec
+
 	// wal recovery metrics
 	walRecoveryCount        *prometheus.CounterVec
 	walRecoveryInProgress   *prometheus.GaugeVec
@@ -461,6 +465,32 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		return nil, fmt.Errorf("register lsm_bucket_segment_size_bytes: %w", err)
 	}
 
+	segmentIndexPinnedTotal, _, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_segment_index_pinned_total",
+				Help:      "Number of LSM segments whose index region is heap-pinned, labeled by segment strategy and bucket kind (objects/other)",
+			},
+			[]string{"strategy", "bucket"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_segment_index_pinned_total: %w", err)
+	}
+
+	segmentIndexPinnedBytes, _, err := monitoring.EnsureRegisteredMetric(register,
+		prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace: "weaviate",
+				Name:      "lsm_bucket_segment_index_pinned_bytes",
+				Help:      "Total bytes of heap-pinned LSM segment index regions, labeled by segment strategy and bucket kind (objects/other)",
+			},
+			[]string{"strategy", "bucket"},
+		))
+	if err != nil {
+		return nil, fmt.Errorf("register lsm_bucket_segment_index_pinned_bytes: %w", err)
+	}
+
 	// wal recovery metrics
 	walRecoveryCount, alreadyRegistered, err := monitoring.EnsureRegisteredMetric(register,
 		prometheus.NewCounterVec(
@@ -658,8 +688,10 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		bucketWriteOpDuration:     bucketWriteOpDuration,
 
 		// segment metrics
-		segmentTotalByStrategy: segmentTotalByStrategy,
-		segmentSizeByStrategy:  segmentSizeByStrategy,
+		segmentTotalByStrategy:  segmentTotalByStrategy,
+		segmentSizeByStrategy:   segmentSizeByStrategy,
+		segmentIndexPinnedTotal: segmentIndexPinnedTotal,
+		segmentIndexPinnedBytes: segmentIndexPinnedBytes,
 
 		// wal recovery metrics
 		walRecoveryCount:        walRecoveryCount,
@@ -926,6 +958,22 @@ func (m *Metrics) ObserveSegmentSize(strategy string, sizeBytes int64) {
 		return
 	}
 	m.segmentSizeByStrategy.WithLabelValues(strategy).Observe(float64(sizeBytes))
+}
+
+func (m *Metrics) IncSegmentIndexPinned(strategy, bucket string, sizeBytes int64) {
+	if m == nil {
+		return
+	}
+	m.segmentIndexPinnedTotal.WithLabelValues(strategy, bucket).Inc()
+	m.segmentIndexPinnedBytes.WithLabelValues(strategy, bucket).Add(float64(sizeBytes))
+}
+
+func (m *Metrics) DecSegmentIndexPinned(strategy, bucket string, sizeBytes int64) {
+	if m == nil {
+		return
+	}
+	m.segmentIndexPinnedTotal.WithLabelValues(strategy, bucket).Dec()
+	m.segmentIndexPinnedBytes.WithLabelValues(strategy, bucket).Sub(float64(sizeBytes))
 }
 
 // wal recovery metrics
