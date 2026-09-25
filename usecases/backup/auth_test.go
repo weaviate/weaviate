@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -43,7 +44,9 @@ func Test_Authorization(t *testing.T) {
 		classes          []string
 		expectedVerb     string
 		expectedResource string
-		ignoreAuthZ      bool
+		// filtered marks that the first call goes to FilterAuthorizedResources, not Authorize.
+		filtered    bool
+		ignoreAuthZ bool
 	}
 
 	// The expected verb/resource below is the *first* authz call made by the
@@ -51,12 +54,13 @@ func Test_Authorization(t *testing.T) {
 	// to the catch-all registered in the test body.
 	tests := []testCase{
 		{
-			// req has an empty Include, so the first authz call is the
-			// per-class filter over the resolved class list.
+			// req has an empty Include, so the first authz call filters the
+			// resolved class list.
 			methodName:       "Backup",
 			additionalArgs:   []interface{}{req},
 			expectedVerb:     authorization.CREATE,
 			expectedResource: authorization.Backups("ABC")[0],
+			filtered:         true,
 			classes:          []string{"ABC"},
 		},
 		{
@@ -69,12 +73,13 @@ func Test_Authorization(t *testing.T) {
 			classes:          []string{"ABC"},
 		},
 		{
-			// req has an empty Include, so the first authz call is the
-			// per-class filter over the backup's meta classes.
+			// req has an empty Include, so the first authz call filters the
+			// backup's meta classes.
 			methodName:       "Restore",
 			additionalArgs:   []interface{}{req, false},
 			expectedVerb:     authorization.CREATE,
 			expectedResource: authorization.Backups("ABC")[0],
+			filtered:         true,
 			classes:          []string{"ABC"},
 		},
 		{
@@ -103,14 +108,14 @@ func Test_Authorization(t *testing.T) {
 			classes:          []string{"ABC"},
 		},
 		{
-			// List authorizes per-backup READ against its resolved classes
-			// ("backups/collections/ABC") and filters the response to what
-			// the caller is permitted to see. Args: backend, sortingOrder,
-			// includeBaseBackupID.
+			// List filters READ over every backup's classes and lists a backup
+			// only if the caller may read all of them. The args are backend,
+			// sortingOrder and includeBaseBackupID.
 			methodName:       "List",
 			additionalArgs:   []interface{}{"filesystem", func(s string) *string { return &s }("desc"), false},
 			expectedVerb:     authorization.READ,
 			expectedResource: authorization.Backups("ABC")[0],
+			filtered:         true,
 			classes:          []string{"ABC"},
 		},
 	}
@@ -138,7 +143,12 @@ func Test_Authorization(t *testing.T) {
 				s := newAuthzTestScheduler(t, test.methodName, test.classes, authorizer)
 
 				if !test.ignoreAuthZ {
-					authorizer.On("Authorize", mock.Anything, mock.Anything, test.expectedVerb, test.expectedResource).Return(nil).Once()
+					if test.filtered {
+						authorizer.On("FilterAuthorizedResources", mock.Anything, mock.Anything, test.expectedVerb, test.expectedResource).
+							Return([]string{test.expectedResource}, nil).Once()
+					} else {
+						authorizer.On("Authorize", mock.Anything, mock.Anything, test.expectedVerb, test.expectedResource).Return(nil).Once()
+					}
 					// Subsequent fine-grained authz calls (e.g. Backup/Restore
 					// re-authorizing on resolved classes, Cancel re-authorizing
 					// on meta classes) are allowed but not required.
@@ -160,7 +170,7 @@ func Test_Authorization(t *testing.T) {
 					name += "/anonymous"
 				}
 				t.Run(name, func(t *testing.T) {
-					s := newAuthzTestScheduler(t, test.methodName, test.classes, permitBackupsOf(t))
+					s := newAuthzTestScheduler(t, test.methodName, test.classes, permitBackupsOf())
 
 					args := append([]interface{}{context.Background(), pr}, test.additionalArgs...)
 					out, _ := callFuncByName(s, test.methodName, args...)
@@ -182,7 +192,7 @@ func Test_Authorization(t *testing.T) {
 	t.Run("an authorizer failure is not reported as a denial", func(t *testing.T) {
 		for _, test := range tests {
 			switch test.methodName {
-			case "BackupStatus", "RestorationStatus", "Cancel", "CancelRestore":
+			case "BackupStatus", "RestorationStatus", "Cancel", "CancelRestore", "List":
 			default:
 				continue
 			}
@@ -268,22 +278,39 @@ func newAuthzTestScheduler(t *testing.T, methodName string, classes []string, au
 
 // permitBackupsOf returns an authorizer that permits backups of the permitted
 // classes and denies any other resource, wrapping Forbidden as RBAC does.
-func permitBackupsOf(t *testing.T, permitted ...string) *authorization.MockAuthorizer {
-	allowed := make(map[string]bool, len(permitted))
+func permitBackupsOf(permitted ...string) backupsAuthorizer {
+	allowed := make(backupsAuthorizer, len(permitted))
 	for _, c := range permitted {
 		allowed[authorization.Backups(c)[0]] = true
 	}
-	a := authorization.NewMockAuthorizer(t)
-	a.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, pr *models.Principal, verb string, resources ...string) error {
-			for _, r := range resources {
-				if !allowed[r] {
-					return fmt.Errorf("rbac: %w", authzerrors.NewForbidden(pr, verb, r))
-				}
-			}
-			return nil
-		}).Maybe()
-	return a
+	return allowed
+}
+
+// backupsAuthorizer holds the resources it permits.
+type backupsAuthorizer map[string]bool
+
+func (a backupsAuthorizer) Authorize(_ context.Context, pr *models.Principal, verb string, resources ...string) error {
+	for _, r := range resources {
+		if !a[r] {
+			return fmt.Errorf("rbac: %w", authzerrors.NewForbidden(pr, verb, r))
+		}
+	}
+	return nil
+}
+
+func (a backupsAuthorizer) AuthorizeSilent(ctx context.Context, pr *models.Principal, verb string, resources ...string) error {
+	return a.Authorize(ctx, pr, verb, resources...)
+}
+
+func (a backupsAuthorizer) FilterAuthorizedResources(_ context.Context, _ *models.Principal, _ string, resources ...string) ([]string, error) {
+	return slices.DeleteFunc(slices.Clone(resources), func(r string) bool { return !a[r] }), nil
+}
+
+// wildcardAuthFails permits no resource, and its Authorize fails with ErrAny.
+type wildcardAuthFails struct{ backupsAuthorizer }
+
+func (wildcardAuthFails) Authorize(context.Context, *models.Principal, string, ...string) error {
+	return ErrAny
 }
 
 // inspired by https://stackoverflow.com/a/33008200

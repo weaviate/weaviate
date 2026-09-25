@@ -316,20 +316,46 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 // with verb, narrowing an empty or wildcard Include instead of failing it whole.
 // An empty result is backupsForbidden. Any other authorizer error is Unprocessable.
 func (s *Scheduler) filterBackupableClasses(ctx context.Context, pr *models.Principal, verb string, classes []string) ([]string, error) {
+	resources := make([]string, len(classes))
+	for i, c := range classes {
+		resources[i] = authorization.Backups(c)[0]
+	}
+	permitted, err := s.permittedBackupResources(ctx, pr, verb, resources)
+	if err != nil {
+		return nil, backup.NewErrUnprocessable(err)
+	}
 	allowed := make([]string, 0, len(classes))
-	for _, c := range classes {
-		if err := s.authorizer.Authorize(ctx, pr, verb, authorization.Backups(c)...); err != nil {
-			if errors.As(err, &authzerrors.Forbidden{}) {
-				continue
-			}
-			return nil, backup.NewErrUnprocessable(err)
+	for i, c := range classes {
+		if permitted[resources[i]] {
+			allowed = append(allowed, c)
 		}
-		allowed = append(allowed, c)
 	}
 	if len(allowed) == 0 {
+		// Authorize writes one audit denial, for the wildcard resource the error names.
+		if err := s.authorizer.Authorize(ctx, pr, verb, authorization.Backups()...); err != nil && !errors.As(err, &authzerrors.Forbidden{}) {
+			return nil, backup.NewErrUnprocessable(err)
+		}
 		return nil, backupsForbidden(pr, verb)
 	}
 	return allowed, nil
+}
+
+// permittedBackupResources returns which of resources pr may act on with verb,
+// through FilterAuthorizedResources, which writes no denial to the audit log.
+// adminlist refuses the whole list with Forbidden, which permits none of it.
+func (s *Scheduler) permittedBackupResources(ctx context.Context, pr *models.Principal, verb string, resources []string) (map[string]bool, error) {
+	permitted := make(map[string]bool, len(resources))
+	if len(resources) == 0 {
+		return permitted, nil
+	}
+	allowed, err := s.authorizer.FilterAuthorizedResources(ctx, pr, verb, resources...)
+	if err != nil && !errors.As(err, &authzerrors.Forbidden{}) {
+		return nil, err
+	}
+	for _, r := range allowed {
+		permitted[r] = true
+	}
+	return permitted, nil
 }
 
 // authorizeBackupClasses authorizes verb on classes read from a backup
@@ -637,18 +663,28 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 
 	slices.SortFunc(backups, sortBackups(AllBackupsOrder(*sortingOrder)))
 
+	classes := make([][]string, len(backups))
+	resources := make([][]string, len(backups))
+	var allResources []string
+	for i, b := range backups {
+		classes[i] = b.Classes()
+		resources[i] = authorization.Backups(classes[i]...)
+		allResources = append(allResources, resources[i]...)
+	}
+	permitted, err := s.permittedBackupResources(ctx, principal, authorization.READ, allResources)
+	if err != nil {
+		return nil, err
+	}
+
 	response := make(models.BackupListResponse, 0, len(backups))
-	for _, b := range backups {
-		classes := b.Classes()
-		if err := s.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Backups(classes...)...); err != nil {
-			if errors.As(err, &authzerrors.Forbidden{}) {
-				continue
-			}
-			return nil, err
+	for i, b := range backups {
+		// A backup is listed only if the caller may read every class in it.
+		if slices.ContainsFunc(resources[i], func(r string) bool { return !permitted[r] }) {
+			continue
 		}
 		item := &models.BackupListResponseItems0{
 			ID:          b.ID,
-			Classes:     classes,
+			Classes:     classes[i],
 			Status:      string(b.Status),
 			StartedAt:   strfmt.DateTime(b.StartedAt.UTC()),
 			CompletedAt: strfmt.DateTime(b.CompletedAt.UTC()),
