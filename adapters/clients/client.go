@@ -124,6 +124,8 @@ type retryer struct {
 	minBackOff  time.Duration
 	maxBackOff  time.Duration
 	timeoutUnit time.Duration
+	// maxShedAttempts caps the attempts answered with 429; zero means unlimited
+	maxShedAttempts int
 }
 
 func newRetryer() *retryer {
@@ -144,13 +146,25 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 	exp.MaxInterval = r.maxBackOff
 	exp.MaxElapsedTime = time.Duration(n) * r.maxBackOff
 
+	shedAttempts := 0
 	return backoff.Retry(func() error {
 		keepTrying, err := work(ctx)
 		if !keepTrying || err == nil {
 			return backoff.Permanent(err)
 		}
+		if r.maxShedAttempts > 0 && isShedError(err) {
+			if shedAttempts++; shedAttempts >= r.maxShedAttempts {
+				return backoff.Permanent(err)
+			}
+		}
 		return err
 	}, backoff.WithContext(backoff.WithMaxRetries(exp, uint64(n)), ctx))
+}
+
+// isShedError reports whether err is a 429: the peer is over capacity, not faulty.
+func isShedError(err error) bool {
+	httpErr, ok := AsHTTPError(err)
+	return ok && httpErr.Code == http.StatusTooManyRequests
 }
 
 func successCode(code int) bool {

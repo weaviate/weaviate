@@ -95,15 +95,20 @@ func NewReplicator(className string,
 	}, nil
 }
 
+// newTrackedWriteCoordinator registers the write as in flight until no request of it is in flight to any replica, not when Push returns
+func newTrackedWriteCoordinator[T, R any](r *Replicator, shard string, op opID) *coordinator[T, R] {
+	coord := NewWriteCoordinator[T, R](r.client, r.router, r.metrics, r.class, shard, r.requestID(op), r.log)
+	coord.onSettled = r.inflight.register(shard)
+	return coord
+}
+
 func (r *Replicator) PutObject(ctx context.Context,
 	shard string,
 	obj *storobj.Object,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) error {
-	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opPutObject), r.log)
-	release := r.inflight.register(shard)
-	defer release()
+	coord := newTrackedWriteCoordinator[SimpleResponse, error](r, shard, opPutObject)
 	isReady := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObject(ctx, host, r.class, shard, requestID, obj, schemaVersion)
 		if err == nil {
@@ -134,9 +139,7 @@ func (r *Replicator) MergeObject(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) error {
-	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opMergeObject), r.log)
-	release := r.inflight.register(shard)
-	defer release()
+	coord := newTrackedWriteCoordinator[SimpleResponse, error](r, shard, opMergeObject)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.MergeObject(ctx, host, r.class, shard, requestID, doc, schemaVersion)
 		if err == nil {
@@ -172,9 +175,7 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) error {
-	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opDeleteObject), r.log)
-	release := r.inflight.register(shard)
-	defer release()
+	coord := newTrackedWriteCoordinator[SimpleResponse, error](r, shard, opDeleteObject)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.DeleteObject(ctx, host, r.class, shard, requestID, id, deletionTime, schemaVersion)
 		if err == nil {
@@ -205,9 +206,7 @@ func (r *Replicator) PutObjects(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) []error {
-	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opPutObjects), r.log)
-	release := r.inflight.register(shard)
-	defer release()
+	coord := newTrackedWriteCoordinator[SimpleResponse, error](r, shard, opPutObjects)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObjects(ctx, host, r.class, shard, requestID, objs, schemaVersion)
 		if err == nil {
@@ -244,9 +243,7 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) []objects.BatchSimpleObject {
-	coord := NewWriteCoordinator[DeleteBatchResponse, objects.BatchSimpleObject](r.client, r.router, r.metrics, r.class, shard, r.requestID(opDeleteObjects), r.log)
-	release := r.inflight.register(shard)
-	defer release()
+	coord := newTrackedWriteCoordinator[DeleteBatchResponse, objects.BatchSimpleObject](r, shard, opDeleteObjects)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.DeleteObjects(ctx, host, r.class, shard, requestID, uuids, deletionTime, dryRun, schemaVersion)
 		if err == nil {
@@ -292,9 +289,7 @@ func (r *Replicator) AddReferences(ctx context.Context,
 	l types.ConsistencyLevel,
 	schemaVersion uint64,
 ) []error {
-	coord := NewWriteCoordinator[SimpleResponse, error](r.client, r.router, r.metrics, r.class, shard, r.requestID(opAddReferences), r.log)
-	release := r.inflight.register(shard)
-	defer release()
+	coord := newTrackedWriteCoordinator[SimpleResponse, error](r, shard, opAddReferences)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.AddReferences(ctx, host, r.class, shard, requestID, refs, schemaVersion)
 		if err == nil {

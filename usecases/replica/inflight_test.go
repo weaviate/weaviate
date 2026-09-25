@@ -19,6 +19,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// phase timeouts exposed to the external test package
+const (
+	DefaultPrepareTimeout = defaultPrepareTimeout
+	DefaultCommitTimeout  = defaultCommitTimeout
+)
+
 func TestInflightWrites_WaitForDrain_Empty(t *testing.T) {
 	w := newInflightWrites()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)

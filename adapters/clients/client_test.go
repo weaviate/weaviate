@@ -14,6 +14,7 @@ package clients
 import (
 	"context"
 	"errors"
+	"net/http"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -120,4 +121,64 @@ func TestRetry_ContextCancellation(t *testing.T) {
 	err := r.retry(ctx, 10, work)
 	require.Error(t, err)
 	require.ErrorIs(t, err, context.Canceled)
+}
+
+// The attempt budget is part of the contract: n retries mean n+1 attempts, whatever drives them.
+func TestRetry_AttemptBudget(t *testing.T) {
+	tests := []struct {
+		name string
+		n    int
+		want int32
+	}{
+		{name: "NO_RETRIES is a single attempt", n: NO_RETRIES, want: 1},
+		{name: "MAX_RETRIES", n: MAX_RETRIES, want: MAX_RETRIES + 1},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			r := newRetryer()
+			r.minBackOff = time.Microsecond
+			r.maxBackOff = time.Second // keeps the elapsed cap far away from the attempt cap
+
+			var calls int32
+			lastErr := errors.New("transient")
+			err := r.retry(context.Background(), test.n, func(context.Context) (bool, error) {
+				atomic.AddInt32(&calls, 1)
+				return true, lastErr
+			})
+			require.ErrorIs(t, err, lastErr)
+			require.Equal(t, test.want, atomic.LoadInt32(&calls))
+		})
+	}
+}
+
+// A shedding peer is capped well below the retry budget, and only when the client asks for it.
+func TestRetry_ShedCap(t *testing.T) {
+	shed := &HTTPError{Code: http.StatusTooManyRequests}
+
+	tests := []struct {
+		name    string
+		shedCap int
+		want    int32
+	}{
+		{name: "capped", shedCap: SHED_ATTEMPTS, want: SHED_ATTEMPTS},
+		{name: "uncapped clients keep the full budget", shedCap: 0, want: MAX_RETRIES + 1},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			r := newRetryer()
+			r.minBackOff = time.Microsecond
+			r.maxBackOff = time.Second
+			r.maxShedAttempts = test.shedCap
+
+			var calls int32
+			err := r.retry(context.Background(), MAX_RETRIES, func(context.Context) (bool, error) {
+				atomic.AddInt32(&calls, 1)
+				return true, shed
+			})
+			require.ErrorIs(t, err, shed)
+			require.Equal(t, test.want, atomic.LoadInt32(&calls))
+		})
+	}
 }
