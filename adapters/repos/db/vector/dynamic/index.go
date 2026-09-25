@@ -50,6 +50,38 @@ const (
 	// loaded shard holds it, and [UpgradedOnDisk] reads unloaded ones, so waiting
 	// is a sign the caller raced a load rather than something to sit out.
 	stateDBOpenTimeout = time.Second
+
+	// upgradingMarkerKey is the base key, in its OWN namespace disjoint from the
+	// verdict key ("upgraded"), recording an in-progress flat→HNSW upgrade. It is
+	// written durably before the upgrade touches any bucket and cleared only after
+	// a durable repair or a committed upgrade; its presence on load means the
+	// upgrade was interrupted, so the flat stage rebuilds the shared compressed
+	// bucket a quantized upgrade may have polluted with HNSW-format codes.
+	//
+	// It must NOT be derived by suffixing the verdict key: "upgraded_<tv>" +
+	// "_upgrading" would collide with the verdict key of a target vector literally
+	// named "<tv>_upgrading". Keying off a distinct prefix ("upgrading_<tv>" vs
+	// "upgraded_<tv>") keeps the two keyspaces disjoint for every target-vector
+	// name, since "upgraded…" and "upgrading…" diverge before any suffix.
+	//
+	// A separate key rather than a third verdict value is also deliberate: the
+	// verdict keeps its original two states and old semantics, so an OLD binary
+	// that ignores this key reads verdict {0} and boots the flat stage against the
+	// polluted bucket — failing loud with "vector lengths don't match" (the
+	// original bug, no worse) rather than silently booting a half-populated HNSW.
+	// See https://github.com/weaviate/0-weaviate-issues/issues/451.
+	upgradingMarkerKey = "upgrading"
+)
+
+// Verdict bytes stored under the dynamic index's state key. The stage a shard
+// boots into is decided by this byte (see init/UpgradedOnDisk). An in-progress
+// upgrade is tracked out of band, under upgradingMarkerKey's own namespace.
+//
+//   - verdictFlat: the index is (still) the flat stage.
+//   - verdictUpgraded: the flat→HNSW upgrade committed; boot HNSW.
+const (
+	verdictFlat     byte = 0
+	verdictUpgraded byte = 1
 )
 
 var dynamicBucket = []byte("dynamic")
@@ -234,7 +266,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	}
 	index.upgradeFn = index.doUpgrade
 
-	upgraded, err := index.init(&cfg)
+	upgraded, interrupted, err := index.init(&cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -275,9 +307,141 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 			return nil, err
 		}
 		index.index = flat
+
+		if interrupted {
+			if err := index.recoverInterruptedUpgrade(); err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	return index, nil
+}
+
+// recoverInterruptedUpgrade restores a consistent flat stage after an
+// interrupted flat→HNSW upgrade (the in-progress-upgrade marker present on load,
+// or an ordinary abort in doUpgrade). The in-progress HNSW shares the flat
+// stage's on-disk compressed bucket, so a quantized upgrade that died mid-copy
+// left it a mix of flat- and HNSW-format codes of different byte lengths, and
+// later flat searches fail with "vector lengths don't match". The raw vectors
+// bucket is untouched and complete, so every flat compressed code is re-derived
+// from it, overwriting any pollution.
+//
+// The marker is cleared ONLY after a fully successful, durable rebuild: any
+// failure returns without clearing it, so the next restart retries rather than
+// leaving corruption behind a "flat, all good" state.
+func (dynamic *dynamic) recoverInterruptedUpgrade() error {
+	// Only a compressed flat stage reads the shared compressed bucket; an
+	// uncompressed one serves from the raw bucket and ignores whatever an
+	// aborted upgrade left behind.
+	if dynamic.index.Compressed() {
+		if err := dynamic.rebuildCompressedFromRaw(); err != nil {
+			// keep the marker: a partial rebuild must be retried, not sealed
+			return errors.Wrap(err, "rebuild flat compressed bucket after interrupted upgrade")
+		}
+		// Make the rebuilt codes durable BEFORE clearing the marker. The marker
+		// lives in the shard metadata DB (fsync'd on write), while the codes go
+		// to the compressed bucket's write-ahead log, which is bufio-buffered with
+		// no per-Put fsync. Without this flush a crash could persist "flat, all
+		// good" while losing rebuilt codes still sitting in the WAL buffer,
+		// resurfacing the corruption. The rebuild is idempotent, so a crash after
+		// the flush but before the marker clear just re-runs the identical repair.
+		if err := dynamic.flushCompressedBucket(); err != nil {
+			return errors.Wrap(err, "flush rebuilt compressed bucket after interrupted upgrade")
+		}
+	}
+
+	if err := dynamic.clearUpgradingMarker(); err != nil {
+		return errors.Wrap(err, "clear dynamic upgrading marker")
+	}
+	return nil
+}
+
+// flushCompressedBucket flushes the flat stage's shared compressed bucket to a
+// durable on-disk segment. The interrupted-upgrade recovery uses it to persist
+// the rebuilt codes before it clears the upgrade marker, so the ordering between
+// the (fsync'd) marker and the (WAL-buffered) codes cannot invert across a crash.
+func (dynamic *dynamic) flushCompressedBucket() error {
+	bucket, release := dynamic.store.AcquireBucketForRead(dynamic.getCompressedBucketName())
+	if bucket == nil {
+		// no compressed bucket: nothing was rebuilt, nothing to flush
+		return nil
+	}
+	defer release()
+	return bucket.FlushMemtable()
+}
+
+// rebuildCompressedFromRaw re-encodes every raw vector back into the flat
+// stage's compressed bucket, overwriting any foreign-format codes an aborted
+// upgrade wrote there. Preload uses the flat quantizer and the raw bucket holds
+// the already-normalized vectors flat.Add persisted, so the rewritten codes are
+// byte-identical to the ones the flat stage produced originally.
+// fallibleReindexer is the flat stage's error-returning re-encode path. Recovery
+// uses it instead of Preload (which only logs) so a failed re-encode aborts the
+// rebuild and keeps the upgrading marker for a retry.
+type fallibleReindexer interface {
+	PreloadWithErr(id uint64, vector []float32) error
+}
+
+func (dynamic *dynamic) rebuildCompressedFromRaw() error {
+	reindexer, ok := dynamic.index.(fallibleReindexer)
+	if !ok {
+		return fmt.Errorf("expected flat index during dynamic rebuild, got %T", dynamic.index)
+	}
+
+	rawBucket, releaseRaw := dynamic.store.AcquireBucketForRead(dynamic.getBucketName())
+	if rawBucket == nil {
+		// no raw vectors bucket: nothing was indexed, nothing to rebuild
+		return nil
+	}
+	defer releaseRaw()
+
+	// Pass 1: re-encode every raw vector, overwriting any foreign-format code an
+	// aborted upgrade wrote for an id that still exists.
+	rawCursor := rawBucket.Cursor()
+	for k, v := rawCursor.First(); k != nil; k, v = rawCursor.Next() {
+		id := binary.BigEndian.Uint64(k)
+		vec := make([]float32, len(v)/4)
+		float32SliceFromByteSlice(v, vec)
+		if err := reindexer.PreloadWithErr(id, vec); err != nil {
+			rawCursor.Close()
+			return errors.Wrapf(err, "re-encode vector %d", id)
+		}
+	}
+	rawCursor.Close()
+
+	// Pass 2: drop orphaned compressed codes — keys the aborted copy wrote for ids
+	// no longer in the (delete-authoritative) raw bucket, e.g. an id deleted after
+	// the copy's batch snapshot but before its AddBatch. Without this a scan of the
+	// compressed bucket would resurrect the deleted id (or trip on a wrong-length
+	// code). Reconcile BEFORE the durable flush and marker clear.
+	compressed, releaseCompressed := dynamic.store.AcquireBucketForRead(dynamic.getCompressedBucketName())
+	if compressed == nil {
+		return nil
+	}
+	defer releaseCompressed()
+
+	var orphans [][]byte
+	compCursor := compressed.Cursor()
+	for k, _ := compCursor.First(); k != nil; k, _ = compCursor.Next() {
+		raw, err := rawBucket.Get(k)
+		if err != nil {
+			compCursor.Close()
+			return errors.Wrapf(err, "read raw vector %d during reconcile", binary.BigEndian.Uint64(k))
+		}
+		if len(raw) == 0 {
+			// copy the key: cursor keys are only valid until the next move
+			orphans = append(orphans, append([]byte(nil), k...))
+		}
+	}
+	compCursor.Close()
+
+	for _, k := range orphans {
+		if err := compressed.Delete(k); err != nil {
+			return errors.Wrapf(err, "delete orphaned compressed code %d", binary.BigEndian.Uint64(k))
+		}
+	}
+	return nil
 }
 
 func (dynamic *dynamic) Type() common.IndexType {
@@ -298,6 +462,64 @@ func dbKey(targetVector string) []byte {
 	key = append(key, '_')
 	key = append(key, targetVector...)
 	return key
+}
+
+// upgradingKey names the in-progress-upgrade sibling of the verdict key. dbKey
+// returns a freshly allocated slice with no spare capacity, so appending the
+// suffix cannot alias the verdict key.
+// upgradingKey builds the in-progress-upgrade marker key in its own namespace
+// ("upgrading" / "upgrading_<tv>"), mirroring dbKey's shape but off a distinct
+// prefix so it can never collide with any target vector's verdict key.
+func upgradingKey(targetVector string) []byte {
+	if targetVector == "" {
+		return []byte(upgradingMarkerKey)
+	}
+
+	key := make([]byte, 0, len(upgradingMarkerKey)+len(targetVector)+1)
+	key = append(key, upgradingMarkerKey...)
+	key = append(key, '_')
+	key = append(key, targetVector...)
+	return key
+}
+
+func (dynamic *dynamic) upgradingKey() []byte {
+	return upgradingKey(dynamic.targetVector)
+}
+
+// markUpgrading durably records that a flat→HNSW upgrade has started, before it
+// touches any bucket. clearUpgradingMarker removes it after a committed upgrade
+// or a durable repair. upgradingMarkerPresent reports whether one is recorded.
+func (dynamic *dynamic) markUpgrading() error {
+	return dynamic.db.Update(func(tx *bbolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists(dynamicBucket)
+		if err != nil {
+			return err
+		}
+		return b.Put(dynamic.upgradingKey(), []byte{1})
+	})
+}
+
+func (dynamic *dynamic) clearUpgradingMarker() error {
+	return dynamic.db.Update(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(dynamicBucket)
+		if b == nil {
+			return nil
+		}
+		return b.Delete(dynamic.upgradingKey())
+	})
+}
+
+func (dynamic *dynamic) upgradingMarkerPresent() (bool, error) {
+	present := false
+	err := dynamic.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(dynamicBucket)
+		if b == nil {
+			return nil
+		}
+		present = len(b.Get(dynamic.upgradingKey())) > 0
+		return nil
+	})
+	return present, err
 }
 
 // UpgradedOnDisk reports whether the dynamic index of an unloaded shard already
@@ -333,8 +555,21 @@ func UpgradedOnDisk(rootPath, id, targetVector string) (bool, error) {
 		if b == nil {
 			return nil
 		}
-		if v := b.Get(dbKey(targetVector)); len(v) > 0 {
-			upgraded = v[0] != 0
+		// Verdict precedence mirrors init(): a committed verdict {1} wins over a
+		// stale in-progress marker (a crash between the verdict write and the
+		// marker clear). Otherwise a present marker means interrupted → not
+		// upgraded, overriding even the named-vector dir fallback.
+		v := b.Get(dbKey(targetVector))
+		if len(v) > 0 && v[0] == verdictUpgraded {
+			upgraded = true
+			return nil
+		}
+		if len(b.Get(upgradingKey(targetVector))) > 0 {
+			upgraded = false
+			return nil
+		}
+		if len(v) > 0 {
+			upgraded = v[0] == verdictUpgraded
 		}
 		return nil
 	}); err != nil {
@@ -351,64 +586,63 @@ func (dynamic *dynamic) getBucketName() string {
 	return helpers.VectorsBucketLSM
 }
 
-func (dynamic *dynamic) init(cfg *Config) (bool, error) {
-	upgraded := false
-
+func (dynamic *dynamic) init(cfg *Config) (upgraded, interrupted bool, err error) {
 	hnswDirExists := false
-	_, err := os.Stat(hnswCommitLogDirectory(cfg.RootPath, cfg.ID))
-	if err == nil {
+	_, statErr := os.Stat(hnswCommitLogDirectory(cfg.RootPath, cfg.ID))
+	if statErr == nil {
 		hnswDirExists = true
 	}
 
 	dbKey := dynamic.dbKey()
+	upgradingKey := dynamic.upgradingKey()
+	upgradingPresent := false
 	err = cfg.SharedDB.Update(func(tx *bbolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists(dynamicBucket)
 		if err != nil {
 			return err
 		}
 
-		if cfg.TargetVector == "" {
-			// a stored empty value reads back non-nil, so length is what says
-			// whether a state was recorded
-			v := b.Get(dbKey)
-			if len(v) == 0 {
-				return nil
-			}
+		// An in-progress-upgrade marker means the last upgrade never committed.
+		upgradingPresent = len(b.Get(upgradingKey)) > 0
 
-			upgraded = v[0] != 0
-			return nil
-		}
-
-		// a bug in earlier versions caused target vectors to all use the same key.
-		// this is a mitigation to preserve existing upgraded state and migrate to
-		// target-vector-specific keys going forward.
-
-		// first, check if there's an entry for this specific target vector
+		// a stored empty value reads back non-nil, so length is what says whether
+		// a state was recorded.
 		v := b.Get(dbKey)
-		if len(v) > 0 {
-			upgraded = v[0] != 0
-			return nil
+		switch {
+		case len(v) > 0:
+			upgraded = v[0] == verdictUpgraded
+		case !upgradingPresent && cfg.TargetVector != "":
+			// a bug in earlier versions caused target vectors to all use the same
+			// key. this migrates to per-vector keys, inferring the verdict from the
+			// HNSW dir. Skipped while an upgrade is in flight — its own marker, not
+			// the half-written commit-log dir, is authoritative.
+			verdict := []byte{verdictFlat}
+			if hnswDirExists {
+				verdict = []byte{verdictUpgraded}
+			}
+			if err := b.Put(dbKey, verdict); err != nil {
+				return errors.Wrap(err, "migrate dynamic state for target vector")
+			}
+			upgraded = hnswDirExists
 		}
 
-		// if not, let's create one by default
-		// and infer the upgraded state from the existence of the HNSW dir
-		if hnswDirExists {
-			err = b.Put(dbKey, []byte{1})
-		} else {
-			err = b.Put(dbKey, []byte{0})
+		if upgraded && upgradingPresent {
+			// the upgrade committed (verdict wins) but crashed between writing the
+			// verdict and clearing its start marker; drop the now-stale marker.
+			if err := b.Delete(upgradingKey); err != nil {
+				return errors.Wrap(err, "clear stale dynamic upgrading marker")
+			}
 		}
-		if err != nil {
-			return errors.Wrap(err, "migrate dynamic state for target vector")
-		}
-
-		// if the HNSW dir exists, we assume it was upgraded
-		upgraded = hnswDirExists
-
 		return nil
 	})
 	if err != nil {
-		return false, errors.Wrap(err, "get dynamic state")
+		return false, false, errors.Wrap(err, "get dynamic state")
 	}
+
+	// an upgrade started but never committed → roll back to the flat stage and
+	// repair the shared compressed bucket the quantized upgrade may have polluted
+	// (handled by New via recoverInterruptedUpgrade).
+	interrupted = upgradingPresent && !upgraded
 
 	// If not yet upgraded, remove any stale HNSW commit log left by an
 	// upgrade that was aborted or crashed before completing. hnsw.New()
@@ -418,11 +652,11 @@ func (dynamic *dynamic) init(cfg *Config) (bool, error) {
 	if !upgraded {
 		commitLogDir := hnswCommitLogDirectory(cfg.RootPath, cfg.ID)
 		if err := os.RemoveAll(commitLogDir); err != nil {
-			return false, errors.Wrap(err, "clean up stale hnsw commit log")
+			return false, false, errors.Wrap(err, "clean up stale hnsw commit log")
 		}
 	}
 
-	return upgraded, nil
+	return upgraded, interrupted, nil
 }
 
 func (dynamic *dynamic) getCompressedBucketName() string {
@@ -705,7 +939,28 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 	return nil
 }
 
+// doUpgrade is the production upgrade entry (wired into upgradeFn by New). Tests
+// override upgradeFn to call upgradeUsing with a wrapper that interrupts the copy.
 func (dynamic *dynamic) doUpgrade() error {
+	return dynamic.upgradeUsing(nil)
+}
+
+// upgradeUsing performs the flat→HNSW upgrade. wrapCopyTarget, when non-nil,
+// wraps the freshly built HNSW before the copy so a test can intercept AddBatch
+// (panic, error, or a concurrent delete); production passes nil. The wrapper is
+// only the copy destination — the real HNSW is what gets started and swapped in.
+func (dynamic *dynamic) upgradeUsing(wrapCopyTarget func(VectorIndex) VectorIndex) error {
+	// Persist the in-progress-upgrade marker BEFORE building the HNSW or touching
+	// any bucket. From here on the new HNSW writes its (possibly different-length)
+	// quantized codes into the compressed bucket the flat stage shares, so an
+	// interruption before the commit below must be recoverable: the marker's
+	// presence on the next load (or on an ordinary abort here) drives the flat
+	// stage to rebuild that bucket from the raw vectors.
+	// See https://github.com/weaviate/0-weaviate-issues/issues/451.
+	if err := dynamic.markUpgrading(); err != nil {
+		return errors.Wrap(err, "mark dynamic upgrade in progress")
+	}
+
 	// The read lock keeps the current index alive (not dropped/closed) while
 	// the new one is built; searches continue throughout. Closure so the
 	// unlock is deferred and panic-safe.
@@ -741,7 +996,13 @@ func (dynamic *dynamic) doUpgrade() error {
 			return nil, err
 		}
 
-		if err := dynamic.copyToVectorIndex(index); err != nil {
+		// The copy destination may be wrapped (tests only) to interrupt AddBatch;
+		// the real index is still what PostStartup + the swap below use.
+		var copyTarget VectorIndex = index
+		if wrapCopyTarget != nil {
+			copyTarget = wrapCopyTarget(index)
+		}
+		if err := dynamic.copyToVectorIndex(copyTarget); err != nil {
 			dynamic.cleanupAbortedUpgrade(index)
 			return nil, err
 		}
@@ -753,6 +1014,29 @@ func (dynamic *dynamic) doUpgrade() error {
 		return index, nil
 	}()
 	if err != nil {
+		// Ordinary (non-crash) upgrade failure: hnsw.New or the copy errored and
+		// the flat stage stays live. Any copied batch may have written
+		// HNSW-format codes into the shared compressed bucket, so recover it in
+		// place — rebuild from raw, durable flush, clear the marker — before the
+		// flat index resumes serving. Skip while shutting down (ctx cancelled):
+		// the store is tearing down and the next start recovers from the marker.
+		// Best-effort: on failure the marker survives, so a restart retries.
+		//
+		// Under the EXCLUSIVE lock: the rebuild mutates the shared compressed
+		// bucket, so concurrent Add/Delete/Search (which hold RLock) must be
+		// serialized against it — otherwise a search could read a half-rewritten
+		// bucket. Safe against the upgrade path's own locking: the build closure
+		// above already released its RLock, and the commit below is not reached on
+		// this error path, so no dynamic lock is held here.
+		if dynamic.ctx.Err() == nil {
+			dynamic.Lock()
+			rerr := dynamic.recoverInterruptedUpgrade()
+			dynamic.Unlock()
+			if rerr != nil {
+				dynamic.logger.WithField("action", "dynamic_upgrade_abort").
+					Errorf("recover flat stage after aborted upgrade: %v", rerr)
+			}
+		}
 		return err
 	}
 
@@ -767,15 +1051,26 @@ func (dynamic *dynamic) doUpgrade() error {
 		return errors.Wrap(err, "index was closed while upgrading")
 	}
 
+	// commit the verdict; the in-progress marker is cleared right after. Order
+	// matters: verdict first, so a crash between the two leaves verdict {1} + a
+	// stale marker, which init reads as a committed upgrade (marker dropped as
+	// stale) rather than an interrupted one.
 	err = dynamic.db.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
-		return b.Put(dynamic.dbKey(), []byte{1})
+		return b.Put(dynamic.dbKey(), []byte{verdictUpgraded})
 	})
 	if err != nil {
 		// the new index is never installed, so tear it down like any other
-		// aborted upgrade
+		// aborted upgrade. The in-progress marker stays put, so a restart rolls
+		// back to a consistent flat stage.
 		dynamic.cleanupAbortedUpgrade(index)
 		return errors.Wrap(err, "update dynamic")
+	}
+	if err := dynamic.clearUpgradingMarker(); err != nil {
+		// non-fatal: verdict {1} already committed the upgrade; a lingering
+		// marker is dropped as stale on the next load.
+		dynamic.logger.WithField("action", "dynamic_upgrade_commit").
+			Errorf("clear dynamic upgrading marker after commit: %v", err)
 	}
 
 	dynamic.index.Drop(dynamic.ctx, false)

@@ -966,6 +966,14 @@ func (index *flat) Preload(id uint64, vector []float32) {
 	}
 }
 
+// PreloadWithErr is Preload but surfaces the encode/store error instead of only
+// logging it, so a caller that must not proceed on a partial re-encode — e.g.
+// the dynamic index's interrupted-upgrade recovery, which keeps its retry marker
+// until the whole rebuild succeeds — can react to the failure.
+func (index *flat) PreloadWithErr(id uint64, vector []float32) error {
+	return index.preload(id, vector)
+}
+
 func (index *flat) preload(id uint64, vector []float32) error {
 	if !index.Compressed() {
 		return nil
