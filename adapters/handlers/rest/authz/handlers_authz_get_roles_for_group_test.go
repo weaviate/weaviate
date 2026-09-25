@@ -111,7 +111,7 @@ func TestGetRolesForGroupSuccess(t *testing.T) {
 			assert.True(t, ok)
 			assert.NotNil(t, parsed)
 
-			permissions, err := conv.PoliciesToPermission(policies...)
+			permissions, err := conv.PoliciesToPermission(logger, policies...)
 			assert.Nil(t, err)
 
 			roles := []*models.Role{
