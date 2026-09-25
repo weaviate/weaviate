@@ -95,5 +95,4 @@ func TestACancelledApplyBuildsNoSweepState(t *testing.T) {
 	require.Error(t, eg.Wait())
 
 	require.Equal(t, int64(0), counts.recordSetReads.Load())
-	require.Equal(t, int64(0), counts.payloadReads.Load())
 }

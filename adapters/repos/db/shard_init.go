@@ -13,10 +13,8 @@ package db
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -265,63 +263,4 @@ func migrationFaultCouldHideARangeableRecord(faults []MigrationRecordUnreadable)
 		}
 	}
 	return false
-}
-
-const maxRecoveryPayloadBytes = 1 << 20 // 1 MiB
-
-const maxRecoveryWalkPayloadBytes = 256 << 20
-
-// errRecoveryPayloadTooLarge marks a payload.mig [maxRecoveryPayloadBytes]
-// refused. Distinguishable from a payload that was opened and could not be
-// parsed, so a refusal is not counted as a read: it cost a stat.
-var errRecoveryPayloadTooLarge = errors.New("recovery payload exceeds the parse bound")
-
-func refuseOversizedRecoveryPayload(path string, bound int64) error {
-	info, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	if info.Size() > bound {
-		return fmt.Errorf("%w: %s holds %d bytes, bound is %d",
-			errRecoveryPayloadTooLarge, reindexRecoveryPayloadFile, info.Size(), bound)
-	}
-	return nil
-}
-
-type recoveryPayloadFacts struct {
-	properties    []string
-	migrationType ReindexMigrationType
-	taskID        string
-	taskVersion   uint64
-	unitID        string
-}
-
-func readRecoveryPayloadFacts(migDir string) (recoveryPayloadFacts, error) {
-	path := filepath.Join(migDir, reindexRecoveryPayloadFile)
-	if err := refuseOversizedRecoveryPayload(path, maxRecoveryPayloadBytes); err != nil {
-		return recoveryPayloadFacts{}, err
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return recoveryPayloadFacts{}, err
-	}
-	var rec struct {
-		TaskID      string `json:"taskID"`
-		TaskVersion uint64 `json:"taskVersion"`
-		UnitID      string `json:"unitID"`
-		Payload     struct {
-			Properties    []string             `json:"properties"`
-			MigrationType ReindexMigrationType `json:"migrationType"`
-		} `json:"payload"`
-	}
-	if err := json.Unmarshal(data, &rec); err != nil {
-		return recoveryPayloadFacts{}, fmt.Errorf("parse %s: %w", reindexRecoveryPayloadFile, err)
-	}
-	return recoveryPayloadFacts{
-		properties:    rec.Payload.Properties,
-		migrationType: rec.Payload.MigrationType,
-		taskID:        rec.TaskID,
-		taskVersion:   rec.TaskVersion,
-		unitID:        rec.UnitID,
-	}, nil
 }

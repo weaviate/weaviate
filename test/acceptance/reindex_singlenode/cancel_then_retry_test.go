@@ -41,7 +41,7 @@ import (
 //     DELETE emptied — silent data loss.
 //
 //   - CANCEL→retry: aborts the iteration loop, leaves the cancelled run's
-//     record and payload.mig on disk plus the partial __reindex / __ingest
+//     record on disk plus the partial __reindex / __ingest
 //     sidecar bucket dirs. Without cleanup,
 //     the second submit creates a *new* DTM task (so checkReindexConflict
 //     does not catch it) but the OnAfterLsmInit path attempts to load buckets

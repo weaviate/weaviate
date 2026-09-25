@@ -339,26 +339,16 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 		indexType string
 		trackers  []string
 		committed []committedTracker
-		// payloads is the property list a tracker's task recorded, distinguishing
-		// a two-property task from a property whose name contains the join char.
-		payloads map[string][]string
 		// sidecars are dirs at the LSM root.
 		sidecars []string
 		// unreadable is a dir the gate is denied access to, relative to the
 		// shard's LSM path ("." is the LSM path itself). Empty denies nothing.
 		recordSetUnreadable     string
 		unlistableMigrationsDir bool
-		// unreadablePayloadTracker names a tracker whose payload.mig is a
-		// directory instead of a file — unreadable for any user, root
-		// included, unlike unreadable's chmod.
-		unreadablePayloadTracker string
-		// corruptPayload names a tracker whose payload.mig is written as
-		// garbage bytes instead of a recovery record.
-		corruptPayload   string
-		unreadableRecord bool
-		wantSweepFails   bool
-		wantStale        bool
-		wantFinalizable  bool
+		unreadableRecord        bool
+		wantSweepFails          bool
+		wantStale               bool
+		wantFinalizable         bool
 	}{
 		{
 			name:      "a shard with no reindex state at all",
@@ -585,23 +575,10 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			sidecars:  []string{"property_category__enable_filterable_ingest_1"},
 			wantStale: true,
 		},
-		// A two-property task writes one tracker for both properties.
-		{
-			name:      "a two-property task this property is part of",
-			indexType: "filterable",
-			trackers:  []string{"enable_filterable_category_other_1"},
-			payloads: map[string][]string{
-				"enable_filterable_category_other_1": {"category", "other"},
-			},
-			wantStale: true,
-		},
 		{
 			name:      "a two-property task this property is not part of",
 			indexType: "filterable",
 			trackers:  []string{"enable_filterable_other_third_1"},
-			payloads: map[string][]string{
-				"enable_filterable_other_third_1": {"other", "third"},
-			},
 		},
 		// An unreadable dir fails open, not "nothing to clean".
 		{
@@ -642,32 +619,6 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			wantStale:           true,
 			wantSweepFails:      true,
 		},
-		// A payload this sweep can't read could name this property; answering
-		// from the name alone would report a shard this sweep owns as clean.
-		{
-			name:                     "a tracker payload the gate cannot read",
-			indexType:                "filterable",
-			unreadablePayloadTracker: "enable_filterable_category_other_1",
-			trackers:                 []string{"enable_filterable_category_other_1"},
-			wantStale:                true,
-		},
-		{
-			name:           "a tracker payload the gate cannot parse",
-			indexType:      "filterable",
-			trackers:       []string{"enable_filterable_category_other_1"},
-			corruptPayload: "enable_filterable_category_other_1",
-			wantStale:      true,
-		},
-		// Name and payload are the same sorted property list, and the name is
-		// written first, so a name omitting this property is the older witness
-		// that no payload can overrule.
-		{
-			name:           "a corrupt payload on a dir whose name omits this property",
-			indexType:      "filterable",
-			trackers:       []string{"enable_filterable_other_1"},
-			corruptPayload: "enable_filterable_other_1",
-			wantStale:      false,
-		},
 	}
 
 	for _, tc := range tests {
@@ -690,9 +641,6 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 
 			for _, name := range tc.trackers {
 				mkTrackerDir(t, lsm, name)
-				if props, ok := tc.payloads[name]; ok {
-					mkRecoveryPayload(t, lsm, name, props...)
-				}
 			}
 			for _, c := range tc.committed {
 				mkTrackerDir(t, lsm, c.dir)
@@ -710,11 +658,6 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 			if tc.unreadableRecord {
 				plantUnreadableRecord(t, recordStoreDirOf(t, lsm))
 			}
-			if tc.corruptPayload != "" {
-				require.NoError(t, os.WriteFile(
-					filepath.Join(lsm, ".migrations", tc.corruptPayload, reindexRecoveryPayloadFile),
-					[]byte("not a recovery record"), 0o644))
-			}
 			if tc.recordSetUnreadable != "" {
 				denied := filepath.Join(lsm, tc.recordSetUnreadable)
 				// Restored before the shard shuts down, which needs the dir
@@ -728,15 +671,9 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 				defer func() { require.NoError(t, os.Chmod(migrations, 0o755)) }()
 				require.NoError(t, os.Chmod(migrations, 0o111))
 			}
-			if tc.unreadablePayloadTracker != "" {
-				// See unreadablePayloadTracker above for why a dir, not chmod.
-				require.NoError(t, os.MkdirAll(filepath.Join(
-					lsm, ".migrations", tc.unreadablePayloadTracker, reindexRecoveryPayloadFile),
-					0o755))
-			}
 
 			logger, _ := test.NewNullLogger()
-			stale, finalizable := hasStalePartialReindexState(lsm, propName, tc.indexType, nil, nil, logger)
+			stale, finalizable := hasStalePartialReindexState(lsm, propName, tc.indexType, nil, logger)
 			require.Equal(t, tc.wantStale, stale)
 			if !tc.wantStale {
 				require.Equal(t, tc.wantFinalizable, finalizable)
@@ -748,7 +685,7 @@ func TestHasStalePartialReindexStateNotStaleMeansTheSweepFindsNothing(t *testing
 				return
 			}
 			if tc.wantSweepFails {
-				_, err := shard.CleanStalePartialReindexState(ctx, propName, tc.indexType)
+				err := shard.CleanStalePartialReindexState(ctx, propName, tc.indexType)
 				require.Error(t, err,
 					"a sweep that removed nothing because it could not read the shard "+
 						"must not be summarized as one that finished")
@@ -805,25 +742,16 @@ func TestShardCleanStalePartialReindexStateSweepsAMultiPropertyTracker(t *testin
 	)
 
 	tests := []struct {
-		name     string
-		propName string
-		// noPayload leaves payload.mig unwritten: a dir from before the file
-		// existed, or a crash between persistRecoveryRecord's MkdirAll and
-		// its WriteFile.
-		noPayload   bool
+		name        string
+		propName    string
 		wantTracker bool
 		wantStale   bool
 	}{
-		{name: "swept by its first property", propName: "a", wantStale: true},
-		{name: "swept by its second property", propName: "b", wantStale: true},
-		{name: "left alone by a property it does not name", propName: "c", wantTracker: true},
-		// With no payload the name alone can't prove the tracker is this
-		// sweep's, so it survives while its sidecar — whose deletion is not
-		// payload-gated — goes. See [migrationDirScope].
-		{
-			name:     "a payload-less tracker survives while its sidecar goes",
-			propName: "a", noPayload: true, wantTracker: true, wantStale: true,
-		},
+		// With no record the name alone can't prove the tracker is this sweep's,
+		// so it survives while its sidecar goes. See [migrationDirScope].
+		{name: "its first property takes the sidecar", propName: "a", wantTracker: true, wantStale: true},
+		{name: "its second property", propName: "b", wantTracker: true},
+		{name: "a property it does not name", propName: "c", wantTracker: true},
 	}
 
 	for _, tc := range tests {
@@ -838,13 +766,10 @@ func TestShardCleanStalePartialReindexStateSweepsAMultiPropertyTracker(t *testin
 			lsm := shard.pathLSM()
 
 			mkTrackerDir(t, lsm, tracker)
-			if !tc.noPayload {
-				mkRecoveryPayload(t, lsm, tracker, "a", "b")
-			}
 			mkSidecarDir(t, lsm, sidecar)
 
 			logger, _ := test.NewNullLogger()
-			stale, finalizable := hasStalePartialReindexState(lsm, tc.propName, "filterable", nil, nil, logger)
+			stale, finalizable := hasStalePartialReindexState(lsm, tc.propName, "filterable", nil, logger)
 			require.Equal(t, tc.wantStale, stale,
 				"the gate has to load the shard for exactly the sweeps that would clean it")
 			require.False(t, finalizable, "the skip is !stale && !finalizable, so a row claiming a skip owes both")
@@ -928,7 +853,7 @@ func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyTrack
 			mkSidecarDir(t, lsm, sidecar)
 
 			logger, _ := test.NewNullLogger()
-			gateHold, finalizable := hasStalePartialReindexState(lsm, "a", "filterable", nil, nil, logger)
+			gateHold, finalizable := hasStalePartialReindexState(lsm, "a", "filterable", nil, logger)
 			require.Equal(t, tc.wantGateHold, gateHold,
 				"the gate has to load the shard for exactly the sweeps that would clean it")
 			require.Equal(t, tc.wantFinalizable, finalizable,
@@ -990,7 +915,7 @@ func TestCleanStalePartialReindexStateRemovesAReplacedBucketDir(t *testing.T) {
 			}
 
 			logger, _ := test.NewNullLogger()
-			stale, _ := hasStalePartialReindexState(lsm, propName, tc.indexType, nil, nil, logger)
+			stale, _ := hasStalePartialReindexState(lsm, propName, tc.indexType, nil, logger)
 			require.True(t, stale,
 				"a shard holding the leftover has state to sweep, so the gate must hydrate it")
 
@@ -1040,7 +965,7 @@ func TestIndexCleanStalePartialReindexStateSweepsALoadedShardUnconditionally(t *
 	mkTrackerDir(t, lsm, tracker)
 	logger, _ := test.NewNullLogger()
 	staleAfterArrival, finalizableAfterArrival := hasStalePartialReindexState(
-		lsm, propName, indexType, dirs, dirs.trackerProps(), logger)
+		lsm, propName, indexType, dirs, logger)
 	require.False(t, staleAfterArrival,
 		"the stale listing is the point: the gate cannot see what arrived after it")
 	require.False(t, finalizableAfterArrival,
@@ -1190,7 +1115,7 @@ func TestLazyLoadShardCanSkipUnloadedSweep(t *testing.T) {
 				require.NoError(t, lazy.Load(ctx))
 			}
 
-			gotSkip, _ := lazy.canSkipUnloadedSweep(propName, indexType, nil, nil)
+			gotSkip := lazy.canSkipUnloadedSweep(propName, indexType, nil)
 			assert.Equal(t, tc.wantSkip, gotSkip)
 
 			require.True(t, lazy.mutex.TryLock(),
@@ -1533,8 +1458,6 @@ func TestIndexCleanStalePartialReindexStateLogsGateSkippedShards(t *testing.T) {
 		}
 		require.Equal(t, propName, entry.Data["property"])
 		require.Equal(t, indexType, entry.Data["index_type"])
-		_, ok := entry.Data["payload_reads"].(int)
-		require.True(t, ok, "the gate-skip line carries an int payload_reads")
 		count, ok := entry.Data["skipped_shards"].(int)
 		require.True(t, ok, "the gate-skip line carries an int skipped_shards")
 		counts = append(counts, count)

@@ -162,7 +162,6 @@ func createsGeoIndex(prop *models.Property) bool {
 }
 
 type migrationSweepCounts struct {
-	payloadReads   atomic.Int64
 	recordSetReads atomic.Int64
 }
 
@@ -180,7 +179,6 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			return sweep
 		}
 		defer func() {
-			counts.payloadReads.Add(int64(sweep.reads()))
 			counts.recordSetReads.Add(int64(sweep.recordSetReads()))
 		}()
 		for _, indexType := range disabledIndexTypes(prop) {
@@ -223,7 +221,6 @@ func disabledIndexTypes(prop *models.Property) []string {
 
 type migrationSweepState struct {
 	committed migrationPreservedState
-	props     *taskPropsCache
 	// One per state: the total should come to one per sweep, not per index type.
 	recordReads int
 }
@@ -242,7 +239,6 @@ func migrationSweepStateFor(lsmPath string, logger logrus.FieldLogger) *migratio
 	return &migrationSweepState{
 		recordReads: 1,
 		committed:   committed,
-		props:       &taskPropsCache{},
 	}
 }
 
@@ -257,7 +253,6 @@ func (s *Shard) migrationSweepState() *migrationSweepState {
 		recordReads: 1,
 		committed: migrationPreservedStateFromRecords(store.Records(),
 			len(unreadable) > 0, migrationRecordSetUnreadable(unreadable)),
-		props: &taskPropsCache{},
 	}
 }
 
@@ -268,13 +263,6 @@ func migrationRecordSetUnreadable(faults []MigrationRecordUnreadable) bool {
 		}
 	}
 	return false
-}
-
-func (s *migrationSweepState) reads() int {
-	if s == nil {
-		return 0
-	}
-	return s.props.count()
 }
 
 func (s *Shard) cleanStaleMigrationDirs(ctx context.Context, propName, indexType string, sweep *migrationSweepState) {
@@ -297,8 +285,7 @@ func cleanStaleMigrationDirsAt(ctx context.Context, lsmPath, propName, indexType
 	if sweep == nil {
 		sweep = migrationSweepStateFor(lsmPath, logger)
 	}
-	scope := migrationDirsOf(lsmPath, propName, indexType).
-		cachingProps(sweep.props).knownFrom(sweep.committed)
+	scope := migrationDirsOf(lsmPath, propName, indexType).knownFrom(sweep.committed)
 	if err := cleanStaleMigrationDirsIn(ctx, scope, sweep.committed, logger); err != nil && ctx.Err() == nil {
 		logger.WithField("path", shardBucketDirs(lsmPath).Trackers().root).
 			Errorf("stale-state cleanup after index DELETE: %v", err)
@@ -306,7 +293,7 @@ func cleanStaleMigrationDirsAt(ctx context.Context, lsmPath, propName, indexType
 }
 
 // cleanStaleMigrationDirsIn is [cleanStaleMigrationDirsAt] on a caller-built
-// scope, so a sweep can share one payload memo with its preserve pass.
+// scope.
 //
 // A listing it cannot read is returned, not logged: this helper removed
 // nothing, so a caller that reports its own outcome would otherwise call a
@@ -325,9 +312,6 @@ func cleanStaleMigrationDirsIn(ctx context.Context, scope migrationDirScope,
 		}
 		return fmt.Errorf("read migrations dir for stale-state cleanup: %w", err)
 	}
-	// Asked before the preserve pass rather than only inside the loop: that
-	// pass opens a tracker payload per dir whose name leaves the property
-	// open, and nothing interrupts it once it starts.
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("stale-state cleanup stopped before reading %s: %w", trackers.root, err)
 	}
@@ -347,9 +331,7 @@ func cleanStaleMigrationDirsIn(ctx context.Context, scope migrationDirScope,
 			// RAFT apply loop (updatePropertyBuckets → cleanStaleMigrationDirs),
 			// so on a multi-tenant collection the line count follows tenant
 			// count. Preserving a dir is the expected outcome of a deferred
-			// finalize, not something to tell an operator once per tenant. The
-			// aggregate line on that call path counts payload reads, not
-			// preserved dirs, so it does not report this on their behalf.
+			// finalize, not something to tell an operator once per tenant.
 			logger.WithField("dir", name).
 				Debug("partial-reindex cleanup: preserving a tracker dir nothing on this shard proved stale")
 			continue
@@ -371,13 +353,10 @@ func cleanStaleMigrationDirsIn(ctx context.Context, scope migrationDirScope,
 //
 // Crash safety: sidecar buckets shut down before their dirs go (open lsmkv
 // handles); the .migrations/records/ record stays, still naming the run's dirs.
-//
-// The first return is how many tracker payloads this sweep read, for the
-// caller's summary line. A refused input reads none.
-func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, indexType string) (int, error) {
+func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, indexType string) error {
 	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
 	if !ok {
-		return 0, fmt.Errorf("clean stale partial reindex state: unknown indexType %q", indexType)
+		return fmt.Errorf("clean stale partial reindex state: unknown indexType %q", indexType)
 	}
 
 	logger := s.index.logger.WithFields(map[string]any{
@@ -390,8 +369,7 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 
 	sweep := migrationSweepStateFor(s.pathLSM(), s.index.logger)
 	committed := sweep.committed
-	scope := migrationDirsOf(s.pathLSM(), propName, indexType).
-		cachingProps(sweep.props).knownFrom(committed)
+	scope := migrationDirsOf(s.pathLSM(), propName, indexType).knownFrom(committed)
 
 	loaded := s.store.GetBucketsByName()
 	var shutDown []string
@@ -413,7 +391,7 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 				// — bucket gone — is satisfied; keep going.
 				continue
 			}
-			return sweep.reads(), fmt.Errorf(
+			return fmt.Errorf(
 				"shutting down stale sidecar bucket %q before partial-reindex cleanup: %w",
 				bucketName, err)
 		}
@@ -425,12 +403,11 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 
 	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, committed)
 	if err := cleanStaleMigrationDirsIn(ctx, scope, committed, s.index.logger); err != nil {
-		return sweep.reads(), err
+		return err
 	}
-	logger.WithField("payload_reads", sweep.reads()).
-		Info("partial-reindex cleanup: sidecar dirs + migration dir cleaned")
+	logger.Info("partial-reindex cleanup: sidecar dirs + migration dir cleaned")
 
-	return sweep.reads(), nil
+	return nil
 }
 
 // mainBucketForPropertyIndex returns the canonical main bucket name on

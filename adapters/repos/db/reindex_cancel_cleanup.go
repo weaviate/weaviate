@@ -177,7 +177,7 @@ func (i *Index) cleanStalePartialReindexState(
 		return fmt.Errorf("%w: unknown indexType %q", ErrCleanupSweepTruncated, indexType)
 	}
 	shardErrs := errorcompounder.New()
-	skippedShards, payloadReads := 0, 0
+	skippedShards := 0
 	// One cache serves every sweep of a request, so only the delta belongs to
 	// this one; its running total would re-report the first sweep's refusals.
 	refusedBefore := dirs.refusedListings()
@@ -197,14 +197,9 @@ func (i *Index) cleanStalePartialReindexState(
 					"shard %q: partial-reindex cleanup cannot sweep a %T", name, shardLike))
 				return nil
 			}
-			// Charged whichever way the gate answers: the reads are paid before
-			// it decides, so billing only the hydrating half reports zero exactly
-			// where a node full of cold tenants pays the most.
-			skip, gateReads := lazy.canSkipUnloadedSweep(propName, indexType, dirs, dirs.trackerProps())
-			payloadReads += gateReads
 			// Unloaded and nothing on disk to sweep or reclaim: skip rather
 			// than hydrate.
-			if skip {
+			if lazy.canSkipUnloadedSweep(propName, indexType, dirs) {
 				skippedShards++
 				return nil
 			}
@@ -220,11 +215,7 @@ func (i *Index) cleanStalePartialReindexState(
 			}
 			shard = unwrapped
 		}
-		// Charged whether or not the sweep then failed, for the same reason the
-		// gate's reads are: the reads are paid before the outcome is known.
-		shardReads, err := shard.CleanStalePartialReindexState(ctx, propName, indexType)
-		payloadReads += shardReads
-		if err != nil {
+		if err := shard.CleanStalePartialReindexState(ctx, propName, indexType); err != nil {
 			reported := fmt.Errorf("shard %q: %w", name, err)
 			if truncated := truncatedByCancellation(reported); truncated != nil {
 				return truncated
@@ -252,7 +243,6 @@ func (i *Index) cleanStalePartialReindexState(
 		"index_type":        indexType,
 		"operation":         "CleanStalePartialReindexState",
 		"skipped_shards":    skippedShards,
-		"payload_reads":     payloadReads,
 		"uncached_listings": uncachedListings,
 	}
 	if unreadable, reasons := dirs.unreadableRecordSets(); unreadable > unreadableBefore {
@@ -266,13 +256,8 @@ func (i *Index) cleanStalePartialReindexState(
 
 // Fails open on anything unreadable: a false "clean" leaves a stale record behind.
 func hasStalePartialReindexState(
-	lsmPath, propName, indexType string, dirs *dirNamesCache, props *taskPropsCache,
-	logger logrus.FieldLogger,
+	lsmPath, propName, indexType string, dirs *dirNamesCache, logger logrus.FieldLogger,
 ) (stale, finalizable bool) {
-	if props == nil {
-		// No run-wide memo: keep the passes below sharing one of their own.
-		props = &taskPropsCache{}
-	}
 	mainBucketName, ok := mainBucketForPropertyIndex(propName, indexType)
 	if !ok {
 		return true, false
@@ -289,7 +274,7 @@ func hasStalePartialReindexState(
 	case committed.withholdEverything:
 		return false, false
 	}
-	scope := migrationDirsOf(lsmPath, propName, indexType).cachingProps(props).knownFrom(committed)
+	scope := migrationDirsOf(lsmPath, propName, indexType).knownFrom(committed)
 	// Sidecar bucket dirs, minus the ones backing a completed-but-deferred
 	// migration — those are live state the sweep must preserve.
 	for _, name := range names {
@@ -348,10 +333,7 @@ type dirNamesCache struct {
 	cost int
 	// refused counts the listings the bound kept out, which the sweep reports
 	// so a cache that stopped caching is visible.
-	refused int
-	// props is the tracker-payload memo of the same run; see
-	// [dirNamesCache.trackerProps].
-	props             taskPropsCache
+	refused           int
 	committed         map[string]migrationPreservedState
 	unreadableRecords map[string]struct{}
 	unreadableErrs    errorcompounder.ErrorCompounder
@@ -393,21 +375,6 @@ func (c *dirNamesCache) committedMigrations(lsmPath string,
 	}
 	c.committed[lsmPath] = state
 	return state
-}
-
-// trackerProps is the payload memo sharing this cache's lifetime, so the two
-// can never drift apart: every tuple of one run asks the same unloaded shards,
-// and a payload costs orders of magnitude more to parse than a listing costs
-// to read.
-//
-// Safe across tuples in both directions: a skipped shard is unchanged, and a
-// hydrated one answers from [LazyLoadShard.loaded] before it consults the
-// memo again. A nil cache has no memo; its callers keep one per call instead.
-func (c *dirNamesCache) trackerProps() *taskPropsCache {
-	if c == nil {
-		return nil
-	}
-	return &c.props
 }
 
 // refusedListings reports how many listings [maxCachedDirNames] kept out. A nil

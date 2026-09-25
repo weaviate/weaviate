@@ -17,7 +17,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -231,9 +230,7 @@ func plantTornMigrationAcrossRestart(
 		TrackerDir:      migDir,
 		Props:           make(map[string]db.MigrationPropertyDirs, len(props)),
 	}
-	quoted := make([]string, len(props))
-	for i, prop := range props {
-		quoted[i] = strconv.Quote(prop)
+	for _, prop := range props {
 		handles := reindexrecords.HandlesFor(t, strategyCode, prop, tornResumeGeneration)
 		subject.Props[prop] = db.MigrationPropertyDirs{
 			Staged:    handles.Staged,
@@ -244,25 +241,16 @@ func plantTornMigrationAcrossRestart(
 	recordName, record := reindexrecords.Encode(t,
 		db.NewMigrationRecordIterating(subject, db.MigrationCheckpoint{}))
 
-	payload := fmt.Sprintf(
-		`{"taskID":"torn-resume-crashed-run","taskVersion":1,"unitID":"u0",`+
-			`"payload":{"collection":%q,"migrationType":%q,"properties":[%s]}}`,
-		class, migrationType, strings.Join(quoted, ","))
-
 	stagedRecordsDir := filepath.Join(stagedDotMigrations, "records")
 	require.NoError(t, os.MkdirAll(stagedRecordsDir, 0o755))
-	for path, content := range map[string]string{
-		filepath.Join(stagedMigDir, "payload.mig"):  payload,
-		filepath.Join(stagedRecordsDir, recordName): record,
-	} {
-		require.NoError(t, os.WriteFile(path, []byte(content), 0o666),
-			"plantTornMigrationAcrossRestart: staging %s on host must succeed", path)
-	}
+	recordPath := filepath.Join(stagedRecordsDir, recordName)
+	require.NoError(t, os.WriteFile(recordPath, []byte(record), 0o666),
+		"plantTornMigrationAcrossRestart: staging %s on host must succeed", recordPath)
 
 	// containerParentPath = <lsm>/.migrations → extracts at <lsm>/ (testcontainers
 	// extracts into filepath.Dir of the target). Mode 0o755 applies to every
 	// tar entry; directories need the execute bit so the server can stat
-	// payload files on next start.
+	// the record files on next start.
 	require.NoError(t,
 		container.CopyDirToContainer(ctx, stagedDotMigrations,
 			fmt.Sprintf("%s/.migrations", lsmPath), 0o755),

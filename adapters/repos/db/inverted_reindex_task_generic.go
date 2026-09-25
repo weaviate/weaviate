@@ -166,28 +166,6 @@ func (t *ShardReindexTaskGeneric) SetProgressCallback(fn func(float32)) {
 	t.progressCallback = fn
 }
 
-// migrationPath returns the absolute path to the migration directory for
-// this task on the given shard LSM path.
-func (t *ShardReindexTaskGeneric) migrationPath(lsmPath string) string {
-	return filepath.Join(lsmPath, ".migrations", t.strategy.MigrationDirName())
-}
-
-const reindexRecoveryPayloadFile = "payload.mig"
-
-func (t *ShardReindexTaskGeneric) SaveRecoveryPayload(lsmPath string, payload []byte) error {
-	migDir := t.migrationPath(lsmPath)
-	if err := os.MkdirAll(migDir, 0o777); err != nil {
-		return fmt.Errorf("mkdir migration dir %q: %w", migDir, err)
-	}
-	target := filepath.Join(migDir, reindexRecoveryPayloadFile)
-	if err := refuseOversizedRecoveryPayload(target, maxRecoveryPayloadBytes); err == nil {
-		if existing, err := os.ReadFile(target); err == nil && bytes.Equal(existing, payload) {
-			return nil
-		}
-	}
-	return os.WriteFile(target, payload, 0o600)
-}
-
 func (t *ShardReindexTaskGeneric) RunOnShard(ctx context.Context, shard ShardLike) error {
 	shouldRunPrepareAndSwap, err := t.runReindexOnlyOnShard(ctx, shard)
 	if err != nil {

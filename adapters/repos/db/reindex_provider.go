@@ -515,10 +515,8 @@ func (p *ReindexProvider) processOneUnit(
 		return
 	}
 
-	// Unwrap up front: createReindexTasks needs the lsmPath, and
-	// persistRecoveryRecord below needs the concrete shard.
-	concreteShard, unwrapErr := unwrapShard(ctx, shard)
-	if unwrapErr != nil {
+	// Load up front, so a shard that cannot load fails the unit before it is claimed.
+	if _, unwrapErr := unwrapShard(ctx, shard); unwrapErr != nil {
 		p.failUnit(ctx, task, unitID, recorder,
 			fmt.Sprintf("unwrap shard: %v", unwrapErr))
 		return
@@ -649,31 +647,6 @@ func (p *ReindexProvider) processOneUnit(
 	// fresh-tasks path.
 	if semantic && !cached {
 		p.cacheReindexTasks(task.TaskDescriptor, unitID, tasks)
-	}
-
-	// Persist a recovery record so that a restart mid-flight can rebuild
-	// these same task instances during shard init. Without this, writes
-	// arriving between shard init and OnGroupCompleted's swap go only to
-	// the old main bucket (no ingest double-write) and are lost on swap.
-	// See [ReindexProvider.persistRecoveryRecord] for the on-disk shape.
-	//
-	// Guarded: SaveRecoveryPayload's MkdirAll could otherwise re-create a class dir a concurrent DELETE just renamed away.
-	if err := concreteShard.Index().withCloseRLockGuard(func() error {
-		return p.persistRecoveryRecord(task, payload, unitID, concreteShard, tasks)
-	}); err != nil {
-		if errors.Is(err, context.Canceled) {
-			// Index is closing: cascade-cancel ends the task; don't fail the unit.
-			p.logger.WithField("unit", unitID).
-				Debug("index closing during recovery-record persist; stopping unit")
-			return
-		}
-		// A failure to persist the recovery record means a restart in the
-		// next few seconds would lose the in-flight reindex's double-write
-		// callbacks. That is bad enough to fail the unit explicitly rather
-		// than silently degrade.
-		p.failUnit(ctx, task, unitID, recorder,
-			fmt.Sprintf("persist reindex recovery record: %v", err))
-		return
 	}
 
 	for _, reindexTask := range tasks {
@@ -1037,61 +1010,6 @@ func isPermanentRecorderRejection(logger logrus.FieldLogger, err error) bool {
 		}
 	}
 	return false
-}
-
-// reindexRecoveryRecord is the on-disk payload describing an in-flight
-// reindex task. It lives in <shard>/lsm/.migrations/<dir>/payload.mig and
-// is written by [ReindexProvider.persistRecoveryRecord] before the
-// reindex iteration starts. At startup, [DiscoverInFlightReindexTasks]
-// scans every shard's .migrations/ directory and decodes these records
-// to reconstruct ShardReindexTaskGeneric instances that have the right
-// strategy + tokenization + bucket-strategy, so [OnAfterLsmInit] can
-// fire during shard load and re-register the double-write callbacks
-// BEFORE any post-restart write reaches the shard.
-//
-// TaskID + TaskVersion are kept so OnGroupCompleted's cache
-// (keyed by [distributedtask.TaskDescriptor]) can be pre-populated with
-// the recovered instances, avoiding a second OnAfterLsmInit pass via the
-// rehydrate path.
-type reindexRecoveryRecord struct {
-	TaskID      string             `json:"taskID"`
-	TaskVersion uint64             `json:"taskVersion"`
-	UnitID      string             `json:"unitID"`
-	Payload     ReindexTaskPayload `json:"payload"`
-}
-
-// persistRecoveryRecord writes one recovery record per generated task
-// into each task's migration directory. For semantic migrations
-// (change-tokenization) there are two tasks per unit (searchable +
-// filterable) and therefore two migration directories per shard; the
-// same record is written into each.
-func (p *ReindexProvider) persistRecoveryRecord(
-	task *distributedtask.Task,
-	payload *ReindexTaskPayload,
-	unitID string,
-	shard ShardLike,
-	tasks []*ShardReindexTaskGeneric,
-) error {
-	lsmPath := shard.pathLSM()
-	if lsmPath == "" {
-		return fmt.Errorf("empty lsm path")
-	}
-	rec := reindexRecoveryRecord{
-		TaskID:      task.ID,
-		TaskVersion: task.Version,
-		UnitID:      unitID,
-		Payload:     *payload,
-	}
-	encoded, err := json.Marshal(rec)
-	if err != nil {
-		return fmt.Errorf("marshal recovery record: %w", err)
-	}
-	for _, t := range tasks {
-		if err := t.SaveRecoveryPayload(lsmPath, encoded); err != nil {
-			return fmt.Errorf("save recovery payload for task %q: %w", t.Name(), err)
-		}
-	}
-	return nil
 }
 
 // resolveUnitForPhase prepares the per-unit (shard, unitTasks) every phase

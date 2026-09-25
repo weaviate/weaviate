@@ -12,9 +12,6 @@
 package db
 
 import (
-	"errors"
-	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strconv"
@@ -162,24 +159,14 @@ func migrationDirPrefixesForIndexType(indexType string) []string {
 //
 // A dir name alone can be ambiguous (e.g. "enable_filterable_a_b_1" is both
 // a two-property tracker for "a"+"b" and a one-property tracker for "a_b"),
-// so an ambiguous name falls back to the task's recorded property list
-// ([readTaskProps]). Guessing wider than that list could delete another property's tracker.
+// so an ambiguous name falls back to the property list its record holds.
+// Guessing wider than that list could delete another property's tracker.
 type migrationDirScope struct {
 	lsmPath  string
 	propName string
 	// prefixes are the per-property strategy prefixes this cleanup deletes.
 	prefixes []string
-	// props memoizes payloads across the passes of one sweep; nil reads every
-	// time. Set by [migrationDirScope.cachingProps].
-	props   *taskPropsCache
-	records []MigrationRecord
-}
-
-// cachingProps scopes a payload memo to this scope and every scope derived from
-// it. See [taskPropsCache] for why it must not outlive one sweep.
-func (s migrationDirScope) cachingProps(c *taskPropsCache) migrationDirScope {
-	s.props = c
-	return s
+	records  []MigrationRecord
 }
 
 func (s migrationDirScope) knownFrom(state migrationPreservedState) migrationDirScope {
@@ -382,91 +369,11 @@ func (s migrationDirScope) hasStrategyPrefix(base string) bool {
 	return false
 }
 
-// taskProperties returns the property list the task recorded in its
-// tracker dir. ok=false, unreadable=false means the task recorded nothing
-// (no payload file, or one naming no property); unreadable=true means a
-// payload exists but couldn't be read, so "recorded nothing" isn't a safe
-// conclusion.
+// taskProperties returns the property list the record naming this tracker
+// dir holds. ok=false means no record names it.
 func (s migrationDirScope) taskProperties(name string) (props []string, ok, unreadable bool) {
 	if rec, found := migrationRecordForTracker(s.records, name); found {
 		return rec.Subject().Properties(), len(rec.Subject().Properties()) > 0, false
 	}
-	migDir := filepath.Join(s.lsmPath, ".migrations", name)
-	answer := s.props.lookup(migDir)
-	return answer.props, answer.ok, answer.unreadable
-}
-
-// taskPropsCache memoizes parsed tracker payloads; a nil cache reads every
-// time. Not safe for concurrent use.
-//
-// Lives no longer than one cleanup pass, or one gate run over a tuple grid
-// ([dirNamesCache.trackerProps]): a hydrated shard stops consulting the memo,
-// so it never drives a sweep decision off a stale snapshot
-// ([DB.NewStalePartialReindexSweep]).
-type taskPropsCache struct {
-	byDir map[string]taskProps
-	reads int
-}
-
-type taskProps struct {
-	props         []string
-	migrationType ReindexMigrationType
-	ok            bool
-	unreadable    bool
-	taskID        string
-	taskVersion   uint64
-	unitID        string
-}
-
-func (c *taskPropsCache) lookup(migDir string) taskProps {
-	if c == nil {
-		answer, _ := readTaskProps(migDir)
-		return answer
-	}
-	if answer, hit := c.byDir[migDir]; hit {
-		return answer
-	}
-	answer, readPayload := readTaskProps(migDir)
-	if c.byDir == nil {
-		c.byDir = map[string]taskProps{}
-	}
-	c.byDir[migDir] = answer
-	if readPayload {
-		c.reads++
-	}
-	return answer
-}
-
-func (c *taskPropsCache) count() int {
-	if c == nil {
-		return 0
-	}
-	return c.reads
-}
-
-func readTaskProps(migDir string) (answer taskProps, readPayload bool) {
-	facts, err := readRecoveryPayloadFacts(migDir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return taskProps{}, false
-		}
-		return taskProps{unreadable: true}, !errors.Is(err, errRecoveryPayloadTooLarge)
-	}
-	answer = taskProps{
-		migrationType: facts.migrationType,
-		taskID:        facts.taskID,
-		taskVersion:   facts.taskVersion,
-		unitID:        facts.unitID,
-	}
-	for _, prop := range facts.properties {
-		if !migrationHandleIsOneElement(prop) {
-			return taskProps{unreadable: true}, true
-		}
-	}
-	if len(facts.properties) == 0 {
-		return answer, true
-	}
-	answer.props = facts.properties
-	answer.ok = true
-	return answer, true
+	return nil, false, false
 }

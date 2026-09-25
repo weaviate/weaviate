@@ -161,8 +161,8 @@ func TestOverlayConflictReportsManyPropertiesInOneLine(t *testing.T) {
 		"the capped names plus the one entry that says how many are unaccounted for")
 }
 
-// The apply's sweep summary must print on the common path, where no payload is
-// read at all: record_set_reads is where a once-per-shard regression shows up.
+// The apply's sweep summary must print: record_set_reads is where a
+// once-per-shard regression shows up.
 func TestUpdatePropertySummaryPrintsWithoutPayloadReads(t *testing.T) {
 	ctx := testCtx()
 	className := "SweepSummaryNoPayloads_" + uuid.NewString()[:8]
@@ -173,9 +173,6 @@ func TestUpdatePropertySummaryPrintsWithoutPayloadReads(t *testing.T) {
 		false, false, false, func(i *Index) { i.logger = logger })
 	shard := shd.(*Shard)
 	defer shard.Shutdown(context.Background())
-
-	// No tracker dir, so the sweep reads no payload but still reads the record set.
-	require.NoDirExists(t, filepath.Join(shard.pathLSM(), ".migrations"))
 
 	prop := class.Properties[0]
 	off := false
@@ -188,8 +185,6 @@ func TestUpdatePropertySummaryPrintsWithoutPayloadReads(t *testing.T) {
 
 	about := entriesAbout(hook, "partial-reindex cleanup: migration dirs swept for disabled index types")
 	require.Len(t, about, 1, "one summary line for the apply: %v", linesOf(about))
-	require.Equal(t, int64(0), about[0].Data["payload_reads"],
-		"fixture: no tracker on disk means no payload was read, which is the gate under test")
 	require.GreaterOrEqual(t, about[0].Data["record_set_reads"], int64(1),
 		"the summary reports the record-set read the sweep still paid")
 }

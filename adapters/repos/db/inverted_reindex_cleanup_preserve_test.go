@@ -122,17 +122,6 @@ func TestCleanStaleMigrationDirsAt_PreservesCompletedGens(t *testing.T) {
 	}
 }
 
-func sweepSurvivors(names []string, committed migrationPreservedState, inScope func(string) bool) []string {
-	survivors := []string{}
-	for _, name := range names {
-		if !inScope(name) || committed.preservesTracker(name) {
-			survivors = append(survivors, name)
-		}
-	}
-	sort.Strings(survivors)
-	return survivors
-}
-
 func survivingTrackerDirs(t *testing.T, lsm string) []string {
 	t.Helper()
 	entries, err := os.ReadDir(filepath.Join(lsm, ".migrations"))

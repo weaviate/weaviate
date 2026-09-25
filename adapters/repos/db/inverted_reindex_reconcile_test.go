@@ -183,7 +183,10 @@ func (f *reconcileFixture) blockRemoval(name string) {
 
 func (f *reconcileFixture) blockTrackerRemoval(subject MigrationSubject) {
 	f.t.Helper()
-	denyDirectoryWrites(f.t, filepath.Join(f.lsmPath, migrationsDir, subject.TrackerDir))
+	dir := filepath.Join(f.lsmPath, migrationsDir, subject.TrackerDir)
+	// An empty directory is removable from a writable parent.
+	require.NoError(f.t, os.WriteFile(filepath.Join(dir, "segment-1.db"), nil, 0o600))
+	denyDirectoryWrites(f.t, dir)
 }
 
 func (f *reconcileFixture) blockRecordWrites() {
@@ -220,7 +223,6 @@ func (f *reconcileFixture) put(rec MigrationRecord) {
 	f.planted = append(f.planted, subject)
 	path := filepath.Join(f.lsmPath, migrationsDir, subject.TrackerDir)
 	require.NoError(f.t, os.MkdirAll(path, 0o777))
-	require.NoError(f.t, os.WriteFile(filepath.Join(path, "payload.mig"), []byte(subject.TaskID), 0o600))
 }
 
 func (f *reconcileFixture) trackerDirExists(subject MigrationSubject) bool {

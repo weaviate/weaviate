@@ -176,7 +176,7 @@ func TestLazyLoadShardCanSkipUnloadedSweepIsOneStep(t *testing.T) {
 				}()
 
 				<-spinning
-				skip, _ := lazy.canSkipUnloadedSweep(propName, indexType, nil, nil)
+				skip := lazy.canSkipUnloadedSweep(propName, indexType, nil)
 				gateReturned.Store(true)
 				close(stop)
 				<-done
@@ -196,7 +196,7 @@ func TestLazyLoadShardCanSkipUnloadedSweepIsOneStep(t *testing.T) {
 			// The gate reports the very state the prober plants, so the rounds
 			// above are a claim about when it landed, not about what it is.
 			mkTrackerDir(t, lsm, tracker)
-			skip, _ := lazy.canSkipUnloadedSweep(propName, indexType, nil, nil)
+			skip := lazy.canSkipUnloadedSweep(propName, indexType, nil)
 			require.False(t, skip)
 			require.NoError(t, os.RemoveAll(trackerDir))
 		})

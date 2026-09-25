@@ -1149,13 +1149,10 @@ func (i *Index) updateProperty(ctx context.Context, property *models.Property) e
 	})
 
 	err := eg.Wait()
-	// Either count prints: a name-match removal reads the record set but no payload.
-	payloadReads, recordSetReads := counts.payloadReads.Load(), counts.recordSetReads.Load()
-	if payloadReads > 0 || recordSetReads > 0 {
+	if recordSetReads := counts.recordSetReads.Load(); recordSetReads > 0 {
 		i.logger.WithFields(map[string]any{
 			"property":         property.Name,
 			"index_types":      disabledIndexTypes(property),
-			"payload_reads":    payloadReads,
 			"record_set_reads": recordSetReads,
 		}).Info("partial-reindex cleanup: migration dirs swept for disabled index types")
 	}

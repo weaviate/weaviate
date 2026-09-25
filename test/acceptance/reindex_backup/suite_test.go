@@ -28,7 +28,6 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	tcexec "github.com/testcontainers/testcontainers-go/exec"
 	clientbackups "github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/entities/models"
@@ -104,10 +103,6 @@ func TestBackupVsReindexSuite(t *testing.T) {
 
 	t.Run("MutationGuardBlocksDeleteClassDuringInFlight", func(t *testing.T) {
 		testMutationGuardBlocksDeleteClassDuringInFlight(t, restURI)
-	})
-
-	t.Run("CancelClearsTrackerDirsViaOnTaskCompleted", func(t *testing.T) {
-		testCancelClearsTrackerDirsViaOnTaskCompleted(t, ctx, compose, restURI)
 	})
 }
 
@@ -479,149 +474,6 @@ func testMutationGuardBlocksDeleteClassDuringInFlight(t *testing.T, restURI stri
 	require.Equal(t, http.StatusOK, resp.StatusCode,
 		"post-tidied DELETE must succeed; got %d", resp.StatusCode)
 	deletedByTest = true
-}
-
-// testCancelClearsTrackerDirsViaOnTaskCompleted asserts two contracts on
-// every run:
-//
-//  1. `.migrations/<prefix>_body_N/` drains from disk within a few
-//     scheduler ticks once the task is no longer running.
-//  2. DELETE class after the task reaches a terminal state succeeds and
-//     leaves no on-disk class dir behind.
-//
-// Whether the cancel is what ends the task is not one of them: the reindex
-// can't be held at a chosen phase from outside, so the cancel may land after
-// the task already finished on its own. The switch below asserts whatever
-// response the landed-in phase requires, and logs which one that was — only
-// the 202/CANCELLED path proves cancel-driven cleanup.
-func testCancelClearsTrackerDirsViaOnTaskCompleted(t *testing.T, ctx context.Context, compose *docker.DockerCompose, restURI string) {
-	const (
-		className = "ReindexBackup_CancelCleanup"
-		propName  = "body"
-	)
-	helper.CreateClass(t, &models.Class{
-		Class: className,
-		Properties: []*models.Property{
-			{Name: propName, DataType: []string{"text"}, Tokenization: "word"},
-		},
-		Vectorizer: "none",
-	})
-	// The test drives the final DELETE itself; defer is just a bail-out
-	// cleanup for aborted runs.
-	deletedByTest := false
-	defer func() {
-		if !deletedByTest {
-			helper.DeleteClass(t, className)
-		}
-	}()
-
-	importBodies(t, className, 50_000)
-
-	taskID := reindexhelpers.SubmitIndexUpsert(t, restURI, className, propName, "searchable",
-		`{"tokenization":"lowercase"}`)
-	t.Logf("cancel-cleanup probe task submitted: %s", taskID)
-
-	awaitIndexingState(t, restURI, className, propName)
-
-	cancelResp := reindexhelpers.CancelIndexRaw(t, restURI, className, propName, "searchable")
-
-	// awaitIndexingState is best-effort, so the cancel lands at an
-	// unsynchronized moment and the task's phase decides the code: 202
-	// CANCELLED (still STARTED), 409 (every unit finished, cluster-wide swap
-	// under way), 202 NO_OP (terminal). Under 409 and NO_OP the drain below
-	// is completion-driven, not cancel-driven, so log which one we got.
-	//
-	// Each arm here checks something only that answer can satisfy. A
-	// regression to "the cancel is always refused" would still be green
-	// here; the per-status answer is pinned in
-	// TestCancelPreflight_WireResponsePerStatus.
-	switch cancelResp.StatusCode {
-	case http.StatusAccepted:
-		var result models.IndexUpdateResponse
-		require.NoErrorf(t, json.Unmarshal([]byte(cancelResp.Body), &result),
-			"cancel response should decode as IndexUpdateResponse: %s", cancelResp.Body)
-		switch result.Status {
-		case "CANCELLED":
-			require.Equalf(t, taskID, result.TaskID,
-				"cancel CANCELLED must name the cancelled task; body: %s", cancelResp.Body)
-		case "NO_OP":
-			t.Logf("cancel raced with task completion; task %s was already terminal", taskID)
-		default:
-			t.Fatalf("unexpected cancel Status %q (expected CANCELLED or NO_OP); body: %s",
-				result.Status, cancelResp.Body)
-		}
-	case http.StatusConflict:
-		require.Containsf(t, cancelResp.Body, taskID,
-			"cancel 409 must name the task it refuses to cancel; body: %s", cancelResp.Body)
-		t.Logf("cancel raced with task completion; task %s is past its units", taskID)
-	default:
-		t.Fatalf("unexpected cancel status %d (expected 202 or 409): %s", cancelResp.StatusCode, cancelResp.Body)
-	}
-
-	shardName := reindexhelpers.GetFirstShardName(t, restURI, className)
-	lsmPath := fmt.Sprintf("/data/%s/%s/lsm", strings.ToLower(className), shardName)
-	migsPath := lsmPath + "/.migrations"
-	container := compose.GetWeaviate().Container()
-	classPath := fmt.Sprintf("/data/%s", strings.ToLower(className))
-
-	// Poll .migrations/ until every body-related dir is gone (cleanup
-	// runs async on the scheduler tick). assert.Eventually drives the poll;
-	// on timeout we t.Fatalf with the last observed survivors so the
-	// diagnostic matches the original (the message args of require.Eventually
-	// are captured up-front, before any survivors are known).
-	var lastMatches string
-	drained := assert.Eventually(t, func() bool {
-		code, reader, execErr := container.Exec(ctx, []string{
-			"sh", "-c",
-			fmt.Sprintf(`ls -1 %s 2>/dev/null | grep -E '_%s($|_)' | head -10`, migsPath, propName),
-		}, tcexec.Multiplexed())
-		require.NoError(t, execErr)
-		out := new(strings.Builder)
-		if reader != nil {
-			_, _ = io.Copy(out, reader)
-		}
-		lastMatches = strings.TrimSpace(out.String())
-		// grep exit 1 (no match) or empty stdout means cleanup is done.
-		return code != 0 || lastMatches == ""
-	}, 30*time.Second, 50*time.Millisecond)
-	if !drained {
-		t.Fatalf("cancel-cleanup did not remove %s/.migrations/*_%s_* within 30s; survivors:\n%s",
-			lsmPath, propName, lastMatches)
-	}
-
-	// MutationGuard's IsActive() gate (STARTED/PREPARING/SWAPPING only)
-	// means a terminal task does not block DELETE.
-	deleteURL := fmt.Sprintf("http://%s/v1/schema/%s", restURI, className)
-	delReq, err := http.NewRequest(http.MethodDelete, deleteURL, nil)
-	require.NoError(t, err)
-	delResp, err := http.DefaultClient.Do(delReq)
-	require.NoError(t, err)
-	delBody, _ := io.ReadAll(delResp.Body)
-	_ = delResp.Body.Close()
-	require.Equalf(t, http.StatusOK, delResp.StatusCode,
-		"DELETE class after CANCELLED task must succeed; got %d: %s",
-		delResp.StatusCode, string(delBody))
-	deletedByTest = true
-
-	// Class-dir removal is async and lags the DELETE 200 under load;
-	// poll instead of checking once.
-	removed := assert.Eventually(t, func() bool {
-		code, _, execErr := container.Exec(ctx, []string{"test", "-d", classPath})
-		require.NoError(t, execErr)
-		return code == 1 // test -d exit 1 == class dir gone
-	}, 30*time.Second, 50*time.Millisecond)
-	if !removed {
-		_, reader, execErr := container.Exec(ctx, []string{
-			"sh", "-c", fmt.Sprintf("ls -la %s 2>&1", classPath),
-		}, tcexec.Multiplexed())
-		require.NoError(t, execErr)
-		out := new(strings.Builder)
-		if reader != nil {
-			_, _ = io.Copy(out, reader)
-		}
-		t.Fatalf("class dir %s must be removed by DELETE within 30s; still present:\n%s",
-			classPath, strings.TrimSpace(out.String()))
-	}
 }
 
 // backupAndRestoreRoundTrip creates a filesystem backup, deletes the

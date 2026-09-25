@@ -788,31 +788,6 @@ func TestIndexCleanStalePartialReindexStateLogsOneSummaryPerSweep(t *testing.T) 
 	}
 }
 
-// The sweep's own line has to carry what the gate paid, whichever way the gate
-// then answered. Counting only the shards it skipped reports zero reads on the
-// node doing the most reading: thousands of cold tenants each holding one
-// tracker dir only a payload can attribute.
-func TestIndexCleanStalePartialReindexStateReportsGatePayloadReads(t *testing.T) {
-	logger, hook := test.NewNullLogger()
-	idx, _, closeIndex := newSweepTestIndex(t, logger)
-	defer closeIndex()
-
-	// ["cat","dog"] sorts to exactly this name, so only the payload can say
-	// whether the dir belongs to the swept property.
-	lsm := shardPathLSM(idx.path(), "tenant-a")
-	mkTrackerDir(t, lsm, "enable_filterable_cat_dog_1")
-	mkRecoveryPayload(t, lsm, "enable_filterable_cat_dog_1", "cat", "dog")
-	storeUnloadableTenant(idx, "tenant-a")
-
-	err := idx.cleanStalePartialReindexState(context.Background(), "cat", "filterable", nil)
-
-	require.ErrorIs(t, err, ErrCleanupShardFailed,
-		"the gate must have answered stale, or the read this pins was never paid")
-	summary := onlySweepSummary(t, hook)
-	require.Equal(t, 1, summary.Data["payload_reads"])
-	require.Equal(t, 0, summary.Data["skipped_shards"])
-}
-
 // A ShardLike that is neither implementation is a shard the sweep reached and
 // could not sweep. Reporting it as a clean walk would tell the operator every
 // shard was swept while one was not touched at all.

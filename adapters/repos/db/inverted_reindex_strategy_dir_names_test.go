@@ -12,7 +12,6 @@
 package db
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -113,14 +112,6 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 	tests := []struct {
 		name string
 		dir  string
-		// props is what the task recorded in payload.mig. Empty writes no
-		// payload, which is what a tracker from before payload.mig looks like.
-		props []string
-		// emptyPayload writes a payload.mig that parses but names no property,
-		// which a truncated recovery record looks like.
-		emptyPayload bool
-		// corruptPayload writes a payload.mig that does not parse at all.
-		corruptPayload bool
 		// propName is the property being swept; "cat" unless set.
 		propName  string
 		indexType string
@@ -128,12 +119,12 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 	}{
 		{
 			name: "this property's tracker",
-			dir:  "enable_filterable_cat_1", props: []string{"cat"},
+			dir:  "enable_filterable_cat_1",
 			want: true,
 		},
 		{
 			name: "a later generation of this property's tracker",
-			dir:  "enable_filterable_cat_12", props: []string{"cat"},
+			dir:  "enable_filterable_cat_12",
 			want: true,
 		},
 		{
@@ -149,40 +140,9 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "a two-property task, swept by its first property",
-			dir:  "enable_filterable_a_b_1", props: []string{"a", "b"},
-			propName: "a", want: true,
-		},
-		{
-			name: "a two-property task, swept by its second property",
-			dir:  "enable_filterable_a_b_1", props: []string{"a", "b"},
-			propName: "b", want: true,
-		},
-		{
-			name: "a two-property task that does not name this property",
-			dir:  "enable_filterable_a_b_1", props: []string{"a", "b"},
+			name:     "a two-property task that does not name this property",
+			dir:      "enable_filterable_a_b_1",
 			propName: "c", want: false,
-		},
-		// The same name shape read the other way: one property called "a_b".
-		// Only the payload tells the two apart.
-		{
-			name: "a single property whose name contains the join character",
-			dir:  "enable_filterable_a_b_1", props: []string{"a_b"},
-			propName: "a", want: false,
-		},
-		// The payload names this property, but the dir name does not rebuild
-		// from that payload's list. Only a writer that skipped
-		// [migrationDirWithProps], which sorts, leaves this shape; a dir this
-		// cleanup cannot account for could be another property's tracker.
-		{
-			name: "a payload naming this property, in a dir name it does not rebuild",
-			dir:  "enable_filterable_b_a_1", props: []string{"a", "b"},
-			propName: "a", want: false,
-		},
-		{
-			name: "a property whose name extends this one",
-			dir:  "enable_filterable_cat_x_1", props: []string{"cat_x"},
-			want: false,
 		},
 		// Without a payload the name is all there is, and it is ambiguous. Not
 		// matching is the end that cannot delete another property's state.
@@ -217,39 +177,18 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			propName: "b", want: false,
 		},
 		{
-			name: "the middle property of a three-property task, with its payload",
-			dir:  "enable_filterable_a_b_c_1", props: []string{"a", "b", "c"},
-			propName: "b", want: true,
-		},
-		// An empty payload decides nothing, so falls back to the name like a
-		// missing payload does.
-		{
-			name:         "a payload that names no property at all",
-			dir:          "enable_filterable_cat_1",
-			emptyPayload: true, want: true,
-		},
-		// An unparseable payload keeps the narrow fallback for deletion —
-		// deleting on a guess could remove another property's tracker. The
-		// unloaded-shard gate fails open on it instead; see
-		// [migrationDirScope.inScopeFailingOpen].
-		{
-			name:           "a two-property shape with an unparseable payload",
-			dir:            "enable_filterable_a_b_1",
-			corruptPayload: true, propName: "a", want: false,
-		},
-		{
 			name: "a property whose name this one extends",
-			dir:  "enable_filterable_ca_1", props: []string{"ca"},
+			dir:  "enable_filterable_ca_1",
 			want: false,
 		},
 		{
 			name: "a tracker of the same property under another strategy",
-			dir:  "filterable_retokenize_cat_1", props: []string{"cat"},
+			dir:  "filterable_retokenize_cat_1",
 			want: true,
 		},
 		{
 			name: "another index type's tracker for this property",
-			dir:  "enable_searchable_cat_1", props: []string{"cat"},
+			dir:  "enable_searchable_cat_1",
 			want: false,
 		},
 		{
@@ -258,8 +197,8 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "an index type with no strategies",
-			dir:  "enable_filterable_cat_1", props: []string{"cat"},
+			name:      "an index type with no strategies",
+			dir:       "enable_filterable_cat_1",
 			indexType: "an-index-type-this-build-does-not-know", want: false,
 		},
 	}
@@ -277,19 +216,6 @@ func TestMigrationDirScopeMatches(t *testing.T) {
 			lsm := t.TempDir()
 			dir := filepath.Join(lsm, ".migrations", tc.dir)
 			require.NoError(t, os.MkdirAll(dir, 0o755))
-			if len(tc.props) > 0 || tc.emptyPayload {
-				payload, err := json.Marshal(map[string]any{
-					"payload": map[string]any{"properties": tc.props},
-				})
-				require.NoError(t, err)
-				require.NoError(t, os.WriteFile(
-					filepath.Join(dir, reindexRecoveryPayloadFile), payload, 0o644))
-			}
-			if tc.corruptPayload {
-				require.NoError(t, os.WriteFile(
-					filepath.Join(dir, reindexRecoveryPayloadFile),
-					[]byte("not a recovery record"), 0o644))
-			}
 
 			require.Equal(t, tc.want,
 				migrationDirsOf(lsm, propName, indexType).inScope(tc.dir))

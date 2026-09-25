@@ -595,7 +595,7 @@ func (l *LazyLoadShard) updatePropertyBuckets(ctx context.Context, eg *enterrors
 	if l.isLoaded() {
 		l.shard.updatePropertyBuckets(ctx, eg, property, counts)
 	} else {
-		// The unloaded path removes bucket dirs by name and reads no payloads.
+		// The unloaded path removes bucket dirs by name and reads no records.
 		l.updateUnloadedPropertyBuckets(ctx, eg, property)
 	}
 }
@@ -1134,27 +1134,14 @@ func (l *LazyLoadShard) blockLoading() func() {
 // mutex: [LazyLoadShard.Shutdown] takes the one held across this disk read. A
 // sweep racing an index shutdown then comes back truncated from
 // [Index.forEachShardStrict] rather than as a walk that reached every shard.
-//
-// The second return is how many tracker payloads this call had to read, for
-// the caller's log; a loaded shard reads none, and so does a shard a previous
-// tuple of the same run already answered from props.
-func (l *LazyLoadShard) canSkipUnloadedSweep(
-	propName, indexType string, dirs *dirNamesCache, props *taskPropsCache,
-) (bool, int) {
+func (l *LazyLoadShard) canSkipUnloadedSweep(propName, indexType string, dirs *dirNamesCache) bool {
 	release := l.blockLoading()
 	defer release()
 
 	if l.loaded {
-		return false, 0
+		return false
 	}
-	if props == nil {
-		// No run-wide memo. Substituted here rather than left to the probe, so
-		// the count below is taken off the cache the probe actually used.
-		props = &taskPropsCache{}
-	}
-	// props is a running total over the whole run, so the caller gets the delta.
-	before := props.count()
 	stale, finalizable := hasStalePartialReindexState(
-		l.pathLSM(), propName, indexType, dirs, props, l.Index().logger)
-	return !stale && !finalizable, props.count() - before
+		l.pathLSM(), propName, indexType, dirs, l.Index().logger)
+	return !stale && !finalizable
 }

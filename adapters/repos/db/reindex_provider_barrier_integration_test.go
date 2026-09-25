@@ -15,7 +15,6 @@ package db
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,7 +27,6 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -41,9 +39,7 @@ import (
 //
 // T1: PREP boundary — Iterated to Merged via runShardPrepPhase.
 // T2: SWAP boundary — Merged to Swapped via runShardSwapPhase.
-// T3: Crash before the first record write — discover must skip the dir;
-//     payload.mig survives intact for retry.
-// T4: Record durability at Iterated — the record survives process death
+// T3: Record durability at Iterated — the record survives process death
 //     without the test fsyncing.
 
 // barrierIntegrationProvider builds the minimal ReindexProvider these
@@ -200,102 +196,6 @@ func TestReindexProviderBarrierIntegration_OnSwapRequestedSwap(t *testing.T) {
 	require.NotNil(t, postBucket, "post-SWAP: searchable bucket must still exist")
 	assert.Equal(t, lsmkv.StrategyInverted, postBucket.Strategy(),
 		"post-SWAP: searchable bucket strategy must be Inverted")
-}
-
-// TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord
-// pins the contract that a crash between persistRecoveryRecord and the
-// migration's first durable record leaves the system in a state where
-// recovery discovery (DiscoverInFlightReindexTasks) safely skips the
-// half-initialized migration directory — i.e. the worst case is "no
-// recovery work to do", not "load corrupt recovery state".
-//
-// Why this matters: persistRecoveryRecord is what allows post-restart
-// recovery to rebuild the right ShardReindexTaskGeneric strategy +
-// generation. If we wrote payload.mig and then crashed before the
-// iteration could even begin (no record ever appears), the DTM
-// scheduler will retry the task; processOneUnit will call
-// persistRecoveryRecord AGAIN (it's idempotent on identical content) and
-// run the iteration. The on-disk state must be benign across this
-// retry window. The acceptance test for this is multi-hour and
-// chaos-driven; the integration version pins the on-disk invariant
-// deterministically.
-func TestReindexProviderBarrierIntegration_CrashAfterPersistRecoveryRecord(t *testing.T) {
-	ctx := testCtx()
-	className := "BarrierIntegCrashRecord"
-	class := newTestClass(className)
-
-	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
-	shard := shd.(*Shard)
-	defer shard.Shutdown(ctx)
-
-	barrierIntegrationSeedObjects(t, ctx, shard, className, 10)
-
-	// Construct a task instance (matches what processOneUnit's
-	// createReindexTasks would produce for ChangeAlgorithm/MapToBlockmax).
-	strategy := &testMigrationStrategy{MapToBlockmaxStrategy: MapToBlockmaxStrategy{generation: 1}}
-	task := newTestTask(idx.logger, strategy, shard.migrationUnit())
-
-	// Build a synthetic task + payload that processOneUnit would have
-	// constructed before calling persistRecoveryRecord.
-	taskID := "test-crash-after-persist-" + uuid.NewString()[:8]
-	dtmTask := &distributedtask.Task{
-		Namespace: ReindexNamespace,
-		TaskDescriptor: distributedtask.TaskDescriptor{
-			ID:      taskID,
-			Version: 1,
-		},
-	}
-	payload := &ReindexTaskPayload{
-		MigrationType: ReindexTypeChangeAlgorithm,
-		Collection:    className,
-		Properties:    []string{"title"},
-		UnitToShard:   map[string]string{"unit-1": shard.Name()},
-		UnitToNode:    map[string]string{"unit-1": "node1"},
-	}
-
-	// Call persistRecoveryRecord ALONE — simulating a crash immediately
-	// after this write but before the migration record or any iteration.
-	p, _ := barrierIntegrationProvider(t)
-	require.NoError(t, p.persistRecoveryRecord(dtmTask, payload, "unit-1",
-		shard, []*ShardReindexTaskGeneric{task}))
-
-	// Sanity: payload.mig is on disk in the migration dir.
-	migDir := task.migrationPath(shard.pathLSM())
-	payloadPath := filepath.Join(migDir, reindexRecoveryPayloadFile)
-	rawPayload, err := os.ReadFile(payloadPath)
-	require.NoError(t, err, "payload.mig must exist after persistRecoveryRecord")
-	require.NotEmpty(t, rawPayload, "payload.mig must not be empty")
-	var decoded reindexRecoveryRecord
-	require.NoError(t, json.Unmarshal(rawPayload, &decoded),
-		"payload.mig must round-trip as valid JSON — recovery's json.Unmarshal would fail otherwise")
-	require.Equal(t, taskID, decoded.TaskID, "recovery record must preserve taskID")
-	require.Equal(t, "unit-1", decoded.UnitID, "recovery record must preserve unitID")
-
-	records, someRecordsUnreadable, _ := migrationRecordsAt(shard.pathLSM(), idx.logger)
-	require.False(t, someRecordsUnreadable)
-	require.Empty(t, records, "no record may exist — iteration never ran")
-
-	rootPath := idx.Config.RootPath
-	recovered, err := DiscoverInFlightReindexTasks(rootPath, idx.logger, nil)
-	require.NoError(t, err, "discover must not error on a recordless dir")
-	for _, r := range recovered {
-		assert.NotEqualf(t, taskID, r.Descriptor.ID,
-			"discover MUST skip a migration with no record (load-bearing for the crash between persisting the payload and the first durable state)")
-	}
-
-	// Confirm payload.mig is still intact: a retry of processOneUnit
-	// could call persistRecoveryRecord again with the same content
-	// (idempotent — same TaskID + UnitID + Payload → bytes.Equal short
-	// circuit at SaveRecoveryPayload line 279). Re-call to verify
-	// idempotency.
-	require.NoError(t, p.persistRecoveryRecord(dtmTask, payload, "unit-1",
-		shard, []*ShardReindexTaskGeneric{task}),
-		"persistRecoveryRecord must be idempotent against an existing identical record")
-	rawPayload2, err := os.ReadFile(payloadPath)
-	require.NoError(t, err)
-	assert.Equal(t, rawPayload, rawPayload2,
-		"idempotent persist must leave the file bit-identical (no rewrite)")
 }
 
 func TestReindexProviderBarrierIntegration_IteratedRecordDurabilityBarrier(t *testing.T) {
