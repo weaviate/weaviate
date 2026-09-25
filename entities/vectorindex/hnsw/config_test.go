@@ -20,7 +20,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
+	"github.com/weaviate/weaviate/entities/vectorindex/common/testhelpers"
 )
 
 func Test_UserConfig(t *testing.T) {
@@ -275,7 +277,7 @@ func Test_UserConfig(t *testing.T) {
 				"dynamicEfMax":           json.Number("18"),
 				"dynamicEfFactor":        json.Number("19"),
 				"skip":                   true,
-				"distance":               "hamming",
+				"distance":               common.DistanceHamming,
 				"filterStrategy":         "sweeping",
 			},
 			expected: UserConfig{
@@ -289,7 +291,7 @@ func Test_UserConfig(t *testing.T) {
 				DynamicEFMax:           18,
 				DynamicEFFactor:        19,
 				Skip:                   true,
-				Distance:               "hamming",
+				Distance:               common.DistanceHamming,
 				PQ: PQConfig{
 					Enabled:        DefaultPQEnabled,
 					BitCompression: DefaultPQBitCompression,
@@ -804,6 +806,18 @@ func Test_UserConfig(t *testing.T) {
 			expectErrMsg: "invalid hnsw config: more than a single compression methods enabled",
 		},
 		{
+			// https://github.com/weaviate/weaviate/issues/12035
+			name: "bq enabled with hamming distance is rejected",
+			input: map[string]interface{}{
+				"distance": common.DistanceHamming,
+				"bq": map[string]interface{}{
+					"enabled": true,
+				},
+			},
+			expectErr:    true,
+			expectErrMsg: "binary quantization (bq) is not compatible with the \"hamming\" distance metric",
+		},
+		{
 			name: "with invalid filter strategy",
 			input: map[string]interface{}{
 				"filterStrategy": "chestnut",
@@ -1214,41 +1228,32 @@ func Test_UserConfig(t *testing.T) {
 }
 
 func Test_ParseDefaultQuantization(t *testing.T) {
-	tests := []struct {
-		name        string
-		compression string
-		expectErr   bool
-		expectPQ    bool
-		expectSQ    bool
-		expectBQ    bool
-		expectRQ    bool
-	}{
-		{name: "empty string is no-op", compression: "", expectErr: false},
-		{name: "none is no-op", compression: "none", expectErr: false},
-		{name: "pq enables PQ", compression: "pq", expectPQ: true},
-		{name: "sq enables SQ", compression: "sq", expectSQ: true},
-		{name: "bq enables BQ", compression: "bq", expectBQ: true},
-		{name: "rq-1 enables RQ", compression: "rq-1", expectRQ: true},
-		{name: "rq-8 enables RQ", compression: "rq-8", expectRQ: true},
-		{name: "invalid compression", compression: "invalid", expectErr: true},
-	}
+	cases := append(testhelpers.DefaultQuantizationCases(),
+		// HNSW also supports server-level PQ and SQ default quantization, and 4-bit RQ.
+		testhelpers.DefaultQuantizationCase{Name: "pq enables PQ", Compression: "pq", Expected: testhelpers.QuantizationState{PQ: true}},
+		testhelpers.DefaultQuantizationCase{Name: "sq enables SQ", Compression: "sq", Expected: testhelpers.QuantizationState{SQ: true}},
+		testhelpers.DefaultQuantizationCase{Name: "rq-4 enables RQ", Compression: "rq-4", Expected: testhelpers.QuantizationState{RQ: true}},
+	)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
+	testhelpers.RunDefaultQuantizationTests(t, cases,
+		func(distance string) schemaConfig.VectorIndexConfig {
 			uc := NewDefaultUserConfig()
-			result, err := ParseDefaultQuantization(uc, tt.compression)
-			if tt.expectErr {
-				require.Error(t, err)
-				return
+			if distance != "" {
+				uc.Distance = distance
 			}
-			require.NoError(t, err)
-			cfg := result.(UserConfig)
-			assert.Equal(t, tt.expectPQ, cfg.PQ.Enabled, "PQ.Enabled")
-			assert.Equal(t, tt.expectSQ, cfg.SQ.Enabled, "SQ.Enabled")
-			assert.Equal(t, tt.expectBQ, cfg.BQ.Enabled, "BQ.Enabled")
-			assert.Equal(t, tt.expectRQ, cfg.RQ.Enabled, "RQ.Enabled")
-		})
-	}
+			return uc
+		},
+		ParseDefaultQuantization,
+		func(cfg schemaConfig.VectorIndexConfig) testhelpers.QuantizationState {
+			c := cfg.(UserConfig)
+			return testhelpers.QuantizationState{
+				PQ: c.PQ.Enabled,
+				SQ: c.SQ.Enabled,
+				BQ: c.BQ.Enabled,
+				RQ: c.RQ.Enabled,
+			}
+		},
+	)
 }
 
 func Test_UserConfigFilterStrategy(t *testing.T) {

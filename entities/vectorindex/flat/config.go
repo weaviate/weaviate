@@ -126,6 +126,10 @@ func ParseAndValidateConfig(input interface{}) (schemaConfig.VectorIndexConfig, 
 		return uc, err
 	}
 
+	if err := vectorindexcommon.ValidateBQCompatibility(uc.Distance, uc.BQ.Enabled); err != nil {
+		return uc, err
+	}
+
 	return uc, nil
 }
 
@@ -289,9 +293,13 @@ func ParseDefaultQuantization(vectorIndexConfig schemaConfig.VectorIndexConfig, 
 		flatConfig.RQ.RescoreLimit = DefaultCompressionRescore
 		flatConfig.RQ.Cache = DefaultVectorCache
 	case "bq":
-		flatConfig.BQ.Enabled = true
-		flatConfig.BQ.RescoreLimit = DefaultCompressionRescore
-		flatConfig.BQ.Cache = DefaultVectorCache
+		if err := vectorindexcommon.EnableDefaultBQ(flatConfig.Distance, func() {
+			flatConfig.BQ.Enabled = true
+			flatConfig.BQ.RescoreLimit = DefaultCompressionRescore
+			flatConfig.BQ.Cache = DefaultVectorCache
+		}); err != nil {
+			return flatConfig, err
+		}
 	default:
 		return flatConfig, errors.New("invalid default quantization for flat index: " + compression)
 	}

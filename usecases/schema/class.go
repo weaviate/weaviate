@@ -254,7 +254,9 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	}
 
 	defaultQuantization := h.config.DefaultQuantization
-	h.enableQuantization(cls, defaultQuantization)
+	if err := h.enableQuantization(cls, defaultQuantization); err != nil {
+		return nil, 0, errors.Wrap(err, "enable default quantization")
+	}
 
 	version, err := h.schemaManager.AddClass(ctx, cls, shardState)
 	if err != nil {
@@ -308,11 +310,11 @@ func (h *Handler) namespaceCandidates(qualifiedClass string) ([]string, error) {
 	return []string{homeNode}, nil
 }
 
-func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *configRuntime.DynamicValue[string]) {
+func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *configRuntime.DynamicValue[string]) error {
 	compression := defaultQuantization.Get()
 
 	if compression == "" {
-		return
+		return nil
 	}
 
 	var err error
@@ -322,7 +324,7 @@ func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *c
 	if cfg, ok := class.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
 		class.VectorIndexConfig, err = setDefaultQuantization(class.VectorIndexType, cfg, compression)
 		if err != nil {
-			h.logger.Errorf("error while setting default quantization: %v", err)
+			return err
 		}
 	}
 
@@ -332,11 +334,13 @@ func (h *Handler) enableQuantization(class *models.Class, defaultQuantization *c
 			continue
 		}
 		vectorConfig.VectorIndexConfig, err = setDefaultQuantization(vectorConfig.VectorIndexType, cfg, compression)
-		class.VectorConfig[k] = vectorConfig
 		if err != nil {
-			h.logger.Errorf("error while setting default quantization: %v", err)
+			return err
 		}
+		class.VectorConfig[k] = vectorConfig
 	}
+
+	return nil
 }
 
 func setDefaultQuantization(vectorIndexType string, vectorIndexConfig schemaConfig.VectorIndexConfig, compression string) (schemaConfig.VectorIndexConfig, error) {
