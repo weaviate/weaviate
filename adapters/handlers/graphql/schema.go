@@ -19,6 +19,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/tailor-platform/graphql"
+	"github.com/tailor-platform/graphql/gqlerrors"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/get"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -70,6 +71,13 @@ func Build(schema *schema.SchemaWithAliases, traverser Traverser,
 
 // Resolve at query time
 func (g *graphQL) Resolve(context context.Context, query string, operationName string, variables map[string]interface{}) *graphql.Result {
+	if d := queryNestingDepth(query); d > maxQueryNestingDepth {
+		return &graphql.Result{
+			Errors: []gqlerrors.FormattedError{gqlerrors.NewFormattedError(
+				fmt.Sprintf("query nesting depth %d exceeds the maximum allowed depth of %d",
+					d, maxQueryNestingDepth))},
+		}
+	}
 	return graphql.Do(graphql.Params{
 		Schema: g.schema,
 		RootObject: map[string]interface{}{
