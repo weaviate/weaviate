@@ -20,15 +20,18 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/geo"
+	hnswindex "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -668,4 +671,135 @@ func TestInitPropertyBucketsGeoBatchContinuesAfterError(t *testing.T) {
 
 	require.NotContains(t, s.propertyIndices, "alpha", "the failed prop must not stay registered")
 	require.Contains(t, s.propertyIndices, "beta", "a later prop must still be initialized")
+}
+
+// testAsyncGeoPropShard is testGeoPropShard with async indexing on, so geo
+// writes go through the prop's queue.
+func testAsyncGeoPropShard(t *testing.T, ctx context.Context) (*Shard, *Index) {
+	t.Helper()
+	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "100ms")
+
+	class := &models.Class{
+		Class: geoPropClass,
+		Properties: []*models.Property{
+			{
+				Name:         "name",
+				DataType:     schema.DataTypeText.PropString(),
+				Tokenization: models.PropertyTokenizationWhitespace,
+			},
+			{Name: "location", DataType: []string{string(schema.DataTypeGeoCoordinates)}},
+		},
+	}
+
+	shard, index := testShardWithSettings(t, ctx, class,
+		hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, true, true)
+	return concreteShard(t, shard), index
+}
+
+// waitForGeoQueue blocks until propName's queue is empty and its in-flight
+// tasks are applied.
+func waitForGeoQueue(t *testing.T, s *Shard, propName string) {
+	t.Helper()
+	_, q := geoIndexAndQueue(t, s, propName)
+	require.Eventually(t, func() bool { return q.Size() == 0 }, 30*time.Second, 100*time.Millisecond)
+	require.NoError(t, q.Wait(t.Context()))
+}
+
+func TestIndex_DebugResetGeoIndex(t *testing.T) {
+	ctx := context.Background()
+	s, index := testAsyncGeoPropShard(t, ctx)
+
+	near := func(c *models.GeoCoordinates, i int) *models.GeoCoordinates {
+		return &models.GeoCoordinates{
+			Latitude:  ptFloat32(*c.Latitude + float32(i)*0.001),
+			Longitude: ptFloat32(*c.Longitude),
+		}
+	}
+	put := func(coords *models.GeoCoordinates) *storobj.Object {
+		obj := &storobj.Object{
+			MarshallerVersion: 1,
+			Object: models.Object{
+				ID:         strfmt.UUID(uuid.NewString()),
+				Class:      geoPropClass,
+				Properties: map[string]interface{}{"location": coords},
+			},
+			Vector: []float32{1, 2, 3},
+		}
+		require.NoError(t, s.PutObject(ctx, obj))
+		return obj
+	}
+
+	var munich, stuttgart []*storobj.Object
+	for i := 0; i < 20; i++ {
+		munich = append(munich, put(near(munichCoordinates(), i)))
+		stuttgart = append(stuttgart, put(near(stuttgartCoordinates(), i)))
+	}
+	// objects without the prop must not trip the refill
+	putGeoPropObject(t, ctx, s, map[string]interface{}{"name": "nowhere"})
+
+	deleted, live := munich[:5], munich[5:]
+	for _, obj := range deleted {
+		require.NoError(t, s.DeleteObject(ctx, obj.ID(), time.Now()))
+	}
+	waitForGeoQueue(t, s, "location")
+
+	// the old graph tombstones the deleted docs; one built from scratch has none
+	tombstones := func(idx *geo.Index) int {
+		stats, err := idx.UnderlyingVectorIndex().(interface {
+			Stats() (*hnswindex.HnswStats, error)
+		}).Stats()
+		require.NoError(t, err)
+		return stats.NumTombstones
+	}
+	oldIdx, _ := geoIndexAndQueue(t, s, "location")
+	require.GreaterOrEqual(t, tombstones(oldIdx), len(deleted), "precondition: the old graph holds tombstones")
+
+	require.NoError(t, index.DebugResetGeoIndex(ctx, s.Name(), "location"))
+
+	docIDs := func(objs []*storobj.Object) []uint64 {
+		ids := make([]uint64, len(objs))
+		for i, obj := range objs {
+			ids[i] = obj.DocID
+		}
+		return ids
+	}
+	within := func(idx *geo.Index, c *models.GeoCoordinates) []uint64 {
+		ids, err := idx.WithinRange(ctx, filters.GeoRange{GeoCoordinates: c, Distance: 10_000})
+		require.NoError(t, err)
+		return ids
+	}
+
+	// the refill runs in the background
+	newIdx, _ := geoIndexAndQueue(t, s, "location")
+	require.NotSame(t, oldIdx, newIdx)
+	require.Eventually(t, func() bool {
+		return len(within(newIdx, stuttgartCoordinates())) == len(stuttgart) &&
+			len(within(newIdx, munichCoordinates())) == len(live)
+	}, 30*time.Second, 100*time.Millisecond, "the refill must bring back every live object")
+	waitForGeoQueue(t, s, "location")
+
+	assert.ElementsMatch(t, docIDs(live), within(newIdx, munichCoordinates()))
+	assert.ElementsMatch(t, docIDs(stuttgart), within(newIdx, stuttgartCoordinates()))
+	assert.Zero(t, tombstones(newIdx), "the rebuild kept the old graph")
+	newGraph := newIdx.UnderlyingVectorIndex().(VectorIndex)
+	for _, obj := range deleted {
+		assert.Falsef(t, newGraph.ContainsDoc(obj.DocID), "deleted doc %d came back", obj.DocID)
+	}
+}
+
+func TestIndex_DebugResetGeoIndexNotFound(t *testing.T) {
+	ctx := context.Background()
+	s, index := testAsyncGeoPropShard(t, ctx)
+
+	for name, tc := range map[string]struct{ shard, prop string }{
+		"unknown shard":    {"unknown", "location"},
+		"unknown prop":     {s.Name(), "unknown"},
+		"prop without geo": {s.Name(), "name"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := index.DebugResetGeoIndex(ctx, tc.shard, tc.prop)
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "not found")
+		})
+	}
 }

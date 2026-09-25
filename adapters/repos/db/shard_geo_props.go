@@ -49,25 +49,9 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 	s.index.cycleCallbacks.geoPropsCommitLoggerCycle.Start()
 	s.index.cycleCallbacks.geoPropsTombstoneCleanupCycle.Start()
 
-	idx, err := geo.NewIndex(geo.Config{
-		ID:                    geoPropID(prop.Name),
-		RootPath:              s.path(),
-		CoordinatesForID:      s.makeCoordinatesForID(prop.Name),
-		Store:                 s.store,
-		CoordinatesFromObject: s.makeCoordinatesFromObject(prop.Name),
-		WaitForCachePrefill:   s.index.Config.HNSWWaitForCachePrefill,
-		DisablePersistence:    false,
-		Logger:                s.index.logger,
-		ClassName:             s.index.Config.ClassName.String(),
-		ShardName:             s.name,
-		HNSWEF:                s.index.Config.HNSWGeoIndexEF,
-		AllocChecker:          s.index.allocChecker,
-	},
-		s.cycleCallbacks.geoPropsCommitLoggerCallbacks,
-		s.cycleCallbacks.geoPropsTombstoneCleanupCallbacks,
-	)
+	idx, err := s.newGeoIndex(prop.Name)
 	if err != nil {
-		return errors.Wrapf(err, "create geo index for prop %q", prop.Name)
+		return err
 	}
 
 	s.propertyIndicesLock.Lock()
@@ -101,6 +85,31 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 	}
 
 	return nil
+}
+
+// newGeoIndex builds propName's geo index without registering it.
+func (s *Shard) newGeoIndex(propName string) (*geo.Index, error) {
+	idx, err := geo.NewIndex(geo.Config{
+		ID:                    geoPropID(propName),
+		RootPath:              s.path(),
+		CoordinatesForID:      s.makeCoordinatesForID(propName),
+		Store:                 s.store,
+		CoordinatesFromObject: s.makeCoordinatesFromObject(propName),
+		WaitForCachePrefill:   s.index.Config.HNSWWaitForCachePrefill,
+		DisablePersistence:    false,
+		Logger:                s.index.logger,
+		ClassName:             s.index.Config.ClassName.String(),
+		ShardName:             s.name,
+		HNSWEF:                s.index.Config.HNSWGeoIndexEF,
+		AllocChecker:          s.index.allocChecker,
+	},
+		s.cycleCallbacks.geoPropsCommitLoggerCallbacks,
+		s.cycleCallbacks.geoPropsTombstoneCleanupCallbacks,
+	)
+	if err != nil {
+		return nil, errors.Wrapf(err, "create geo index for prop %q", propName)
+	}
+	return idx, nil
 }
 
 func (s *Shard) makeCoordinatesForID(propName string) geo.CoordinatesForID {
