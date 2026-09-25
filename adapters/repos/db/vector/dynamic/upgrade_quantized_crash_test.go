@@ -17,7 +17,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sync"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -36,6 +35,28 @@ import (
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
+
+// interruptingIndex wraps the copy-target HNSW during an upgrade and runs a hook
+// before each AddBatch, so a test can interrupt the flat→HNSW copy at a
+// deterministic point — panic (mid-copy crash), return an error (ordinary abort),
+// or mutate the dynamic index (delete mid-copy). It embeds VectorIndex so every
+// other method passes straight through to the real index. Tests inject it via
+// upgradeFn → upgradeUsing; there is no production seam.
+type interruptingIndex struct {
+	VectorIndex
+	calls      int
+	onAddBatch func(call int, ids []uint64) error
+}
+
+func (i *interruptingIndex) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
+	i.calls++
+	if i.onAddBatch != nil {
+		if err := i.onAddBatch(i.calls, ids); err != nil {
+			return err
+		}
+	}
+	return i.VectorIndex.AddBatch(ctx, ids, vectors)
+}
 
 // TestUpgrade_InterruptedQuantizedUpgradeCorruptsCompressedBucket reproduces
 // https://github.com/weaviate/0-weaviate-issues/issues/451.
@@ -201,14 +222,19 @@ func runInterruptedQuantizedUpgrade(t *testing.T, targetVector string, flatUC fl
 		baseline[i] = ids
 	}
 
-	// Interrupt the upgrade mid-copy: panic between copy batches, after the
-	// first batch has already written HNSW codes over the flat codes for
-	// ids 0..batchSize-1. GoWrapper recovers the panic, so doUpgrade's cleanup
-	// never runs — exactly the on-disk residue a hard crash leaves.
-	var once sync.Once
-	idx.betweenCopyBatchesHook = func() error {
-		once.Do(func() { panic("simulated crash during quantized dynamic upgrade") })
-		return nil
+	// Interrupt the upgrade mid-copy: panic before the second copy batch, after the
+	// first has already written HNSW codes over the flat codes for ids
+	// 0..batchSize-1. GoWrapper recovers the panic, so doUpgrade's cleanup never
+	// runs — exactly the on-disk residue a hard crash leaves.
+	idx.upgradeFn = func() error {
+		return idx.upgradeUsing(func(target VectorIndex) VectorIndex {
+			return &interruptingIndex{VectorIndex: target, onAddBatch: func(call int, ids []uint64) error {
+				if call >= 2 {
+					panic("simulated crash during quantized dynamic upgrade")
+				}
+				return nil
+			}}
+		})
 	}
 
 	done := make(chan struct{})
@@ -417,7 +443,7 @@ func readVerdict(t *testing.T, db *bbolt.DB, targetVector string) byte {
 	return v
 }
 
-// markUpgradingInDB sets the in-progress-upgrade sibling key directly, as
+// markUpgradingInDB sets the in-progress-upgrade marker key directly, as
 // doUpgrade's start marker would.
 func markUpgradingInDB(t *testing.T, db *bbolt.DB, targetVector string) {
 	t.Helper()
@@ -428,6 +454,50 @@ func markUpgradingInDB(t *testing.T, db *bbolt.DB, targetVector string) {
 		}
 		return b.Put(upgradingKey(targetVector), []byte{1})
 	}))
+}
+
+// writeVerdict sets a target vector's verdict byte directly.
+func writeVerdict(t *testing.T, db *bbolt.DB, targetVector string, verdict byte) {
+	t.Helper()
+	require.NoError(t, db.Update(func(tx *bbolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists(dynamicBucket)
+		if err != nil {
+			return err
+		}
+		return b.Put(dbKey(targetVector), []byte{verdict})
+	}))
+}
+
+// TestUpgrade_MarkerKeyDisjointFromVerdictKey pins that the in-progress marker
+// lives in a namespace disjoint from any verdict key. Deriving it by suffixing
+// the verdict key ("upgraded_foo" + "_upgrading") would collide with the verdict
+// key of a target vector literally named "foo_upgrading", so upgrading "foo"
+// would read, write, and delete "foo_upgrading"'s verdict.
+func TestUpgrade_MarkerKeyDisjointFromVerdictKey(t *testing.T) {
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+
+	// "foo_upgrading" is a committed (upgraded) vector.
+	writeVerdict(t, db, "foo_upgrading", verdictUpgraded)
+
+	// these three methods are all that markUpgrading/clear/present touch.
+	foo := &dynamic{db: db, targetVector: "foo"}
+
+	require.NoError(t, foo.markUpgrading())
+	present, err := foo.upgradingMarkerPresent()
+	require.NoError(t, err)
+	assert.True(t, present, "foo's own marker must be set")
+	assert.Equal(t, verdictUpgraded, readVerdict(t, db, "foo_upgrading"),
+		"marking foo upgrading must not touch foo_upgrading's verdict")
+
+	require.NoError(t, foo.clearUpgradingMarker())
+	assert.Equal(t, verdictUpgraded, readVerdict(t, db, "foo_upgrading"),
+		"clearing foo's marker must not delete foo_upgrading's verdict")
+
+	present, err = foo.upgradingMarkerPresent()
+	require.NoError(t, err)
+	assert.False(t, present, "foo's marker must be cleared")
 }
 
 // TestUpgrade_OrdinaryUpgradeFailureRecoversInline covers an upgrade that fails
@@ -493,13 +563,17 @@ func TestUpgrade_OrdinaryUpgradeFailureRecoversInline(t *testing.T) {
 		baseline[i] = ids
 	}
 
-	// abort the copy with an ordinary error after the first batch (ids
+	// abort the copy with an ordinary error before the second batch (ids
 	// 0..batchSize-1 have BQ codes in the shared bucket by now)
-	var once sync.Once
-	idx.betweenCopyBatchesHook = func() error {
-		var e error
-		once.Do(func() { e = assert.AnError })
-		return e
+	idx.upgradeFn = func() error {
+		return idx.upgradeUsing(func(target VectorIndex) VectorIndex {
+			return &interruptingIndex{VectorIndex: target, onAddBatch: func(call int, ids []uint64) error {
+				if call >= 2 {
+					return assert.AnError
+				}
+				return nil
+			}}
+		})
 	}
 
 	done := make(chan struct{})
@@ -531,12 +605,17 @@ func TestUpgradedOnDisk_InProgressMarkerReadsNotUpgraded(t *testing.T) {
 	const unnamedTV = "" // no dir fallback
 	const namedTV = "namedtarget"
 	const namedID = "vectors_namedtarget"
+	const committedTV = "committed"
+	const committedID = "vectors_committed"
 
 	markUpgradingInDB(t, db, unnamedTV)
 	markUpgradingInDB(t, db, namedTV)
 	// give the named vector an HNSW commit-log dir, the exact state that without
 	// the sibling-key override would be inferred as upgraded
 	require.NoError(t, os.MkdirAll(hnswCommitLogDirectory(rootPath, namedID), 0o777))
+	// a committed upgrade whose start marker was never cleared: both keys present.
+	writeVerdict(t, db, committedTV, verdictUpgraded)
+	markUpgradingInDB(t, db, committedTV)
 	require.NoError(t, db.Close()) // UpgradedOnDisk opens the file read-only itself
 
 	up, err := UpgradedOnDisk(rootPath, "main", unnamedTV)
@@ -546,6 +625,10 @@ func TestUpgradedOnDisk_InProgressMarkerReadsNotUpgraded(t *testing.T) {
 	up, err = UpgradedOnDisk(rootPath, namedID, namedTV)
 	require.NoError(t, err)
 	assert.False(t, up, "named vector with in-progress marker must read as not upgraded despite the HNSW dir")
+
+	up, err = UpgradedOnDisk(rootPath, committedID, committedTV)
+	require.NoError(t, err)
+	assert.True(t, up, "committed verdict must win over a stale in-progress marker, matching init()")
 }
 
 // TestUpgrade_FailedRebuildKeepsMarker pins that a partial rebuild does not clear
@@ -610,6 +693,102 @@ func TestUpgrade_FailedRebuildKeepsMarker(t *testing.T) {
 	present, perr := idx.upgradingMarkerPresent()
 	require.NoError(t, perr)
 	assert.True(t, present, "a failed rebuild must keep the in-progress marker for a retry")
+}
+
+// TestUpgrade_OrphanedCompressedCodeReconciledOnRecovery covers an id deleted
+// mid-copy: the copy snapshots the id into a batch, the id is then deleted (raw +
+// compressed gone), and the batch's AddBatch re-writes a compressed code for it —
+// an orphan (present in compressed, absent from raw). Recovery must reconcile it
+// away, or a scan of the compressed bucket resurrects the deleted id (and trips
+// on its wrong-length code).
+func TestUpgrade_OrphanedCompressedCodeReconciledOnRecovery(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+
+	dimensions := 32
+	vectorsSize := 2 * batchSize
+	queriesSize := 20
+	k := 10
+
+	vectors, queries := testinghelpers.RandomVecs(vectorsSize, queriesSize, dimensions)
+	dist := distancer.NewL2SquaredProvider()
+
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { db.Close() })
+
+	fuc := flatent.UserConfig{}
+	fuc.SetDefaults()
+	fuc.RQ.Enabled = true
+	fuc.RQ.Bits = 8
+	hnswuc := hnswent.UserConfig{MaxConnections: 30, EFConstruction: 64, EF: 32, VectorCacheMaxObjects: 1_000_000}
+	hnswuc.SetDefaults()
+	hnswuc.BQ.Enabled = true
+
+	config := Config{
+		AllocChecker:                 memwatch.NewDummyMonitor(),
+		RootPath:                     t.TempDir(),
+		ID:                           "orphan-reconcile",
+		Logger:                       logger,
+		DistanceProvider:             dist,
+		MakeCommitLoggerThunk:        hnsw.MakeNoopCommitLogger,
+		VectorForIDThunk:             func(ctx context.Context, id uint64) ([]float32, error) { return vectors[int(id)], nil },
+		GetViewThunk:                 GetViewThunk,
+		TempVectorForIDWithViewThunk: TempVectorForIDWithViewThunk(vectors),
+		TombstoneCallbacks:           cyclemanager.NewCallbackGroupNoop(),
+		SharedDB:                     db,
+		MakeBucketOptions:            lsmkv.MakeNoopBucketOptions,
+		AsyncIndexingEnabled:         true,
+	}
+	uc := ent.UserConfig{Threshold: uint64(vectorsSize), Distance: dist.Type(), HnswUC: hnswuc, FlatUC: fuc}
+
+	idx, err := New(config, uc, testinghelpers.NewDummyStore(t))
+	require.NoError(t, err)
+	idx.PostStartup(ctx)
+	t.Cleanup(func() { idx.Shutdown(context.Background()) })
+	for i := 0; i < vectorsSize; i++ {
+		require.NoError(t, idx.Add(ctx, uint64(i), vectors[i]))
+	}
+	require.True(t, idx.Compressed())
+
+	// delete the first id of batch 1 during that batch (it was already snapshotted
+	// into the batch), so the batch's AddBatch re-writes its compressed code as an
+	// orphan; then abort before batch 2. Delete via the underlying flat index to
+	// avoid re-entering the dynamic read lock held by the copy.
+	var victim uint64
+	var deleted bool
+	idx.upgradeFn = func() error {
+		return idx.upgradeUsing(func(target VectorIndex) VectorIndex {
+			return &interruptingIndex{VectorIndex: target, onAddBatch: func(call int, ids []uint64) error {
+				if call == 1 {
+					victim = ids[0]
+					require.NoError(t, idx.index.Delete(victim))
+					deleted = true
+				}
+				if call >= 2 {
+					return assert.AnError
+				}
+				return nil
+			}}
+		})
+	}
+
+	done := make(chan struct{})
+	require.NoError(t, idx.Upgrade(func() { close(done) }))
+	<-done
+	require.True(t, deleted, "the mid-copy delete must have run")
+	require.False(t, idx.IsUpgraded(), "the upgrade failed, so it must not be marked upgraded")
+
+	// inline recovery reconciled the orphan: no length-mismatch on scan, and the
+	// deleted id is gone.
+	require.False(t, idx.ContainsDoc(victim), "the deleted id must not survive as an orphan")
+	for i := range queries {
+		ids, _, err := idx.SearchByVector(ctx, queries[i], k, nil)
+		require.NoErrorf(t, err, "scan must not trip on an orphaned compressed code (query %d)", i)
+		for _, id := range ids {
+			assert.NotEqualf(t, victim, id, "deleted id %d resurrected in query %d results", victim, i)
+		}
+	}
 }
 
 // snapshotTree recursively copies src into dst, capturing exactly what is on disk —
