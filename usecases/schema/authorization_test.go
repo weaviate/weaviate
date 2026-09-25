@@ -36,6 +36,8 @@ func Test_Schema_Authorization(t *testing.T) {
 		additionalArgs    []any
 		expectedVerb      string
 		expectedResources []string
+		expectedMethod    mocks.AuthZMethod
+		expectedClass     string
 	}
 
 	tests := []testCase{
@@ -95,6 +97,8 @@ func Test_Schema_Authorization(t *testing.T) {
 			additionalArgs:    []any{"classname", "someprop", "someindex"},
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.Collections("classname"),
+			expectedMethod:    mocks.MethodAuthorizeAndRequireActiveNamespace,
+			expectedClass:     "Classname",
 		},
 		{
 			// Collections (data+metadata), matching DeleteClassPropertyIndex:
@@ -103,6 +107,8 @@ func Test_Schema_Authorization(t *testing.T) {
 			additionalArgs:    []any{"classname", "somevector"},
 			expectedVerb:      authorization.UPDATE,
 			expectedResources: authorization.Collections("classname"),
+			expectedMethod:    mocks.MethodAuthorizeAndRequireActiveNamespace,
+			expectedClass:     "Classname",
 		},
 		{
 			methodName:        "UpdateShardStatus",
@@ -222,10 +228,17 @@ func Test_Schema_Authorization(t *testing.T) {
 				}
 				out, _ := callFuncByName(handler, test.methodName, args...)
 
+				method := test.expectedMethod
+				if method == "" {
+					method = mocks.MethodAuthorize
+				}
 				require.Len(t, authorizer.Calls(), 1, "Authorizer must be called")
 				assert.Equal(t, errors.New("just a test fake"), out[len(out)-1].Interface(),
 					"execution must abort with Authorizer error")
-				assert.Equal(t, mocks.AuthZReq{Principal: principal, Verb: test.expectedVerb, Resources: test.expectedResources, Method: mocks.MethodAuthorize},
+				assert.Equal(t, mocks.AuthZReq{
+					Principal: principal, Verb: test.expectedVerb, Resources: test.expectedResources,
+					Method: method, Class: test.expectedClass,
+				},
 					authorizer.Calls()[0], "correct parameters must have been used on Authorizer")
 			})
 		}
