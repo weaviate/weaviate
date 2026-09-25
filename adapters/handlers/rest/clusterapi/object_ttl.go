@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -177,8 +176,7 @@ func (d *ObjectTTL) incomingDelete() http.Handler {
 
 			for _, classPayload := range body {
 				className := classPayload.Class
-				objsDeletedCounters[className] = &atomic.Int32{}
-				countDeleted := func(count int32) { objsDeletedCounters[className].Add(count) }
+				countDeleted := objsDeletedCounters.CounterFor(className)
 
 				// TODO aliszka:ttl handle graceful index close / drop
 				idx, err := d.remoteIndex.IndexForIncomingWrite(context.Background(), className, classPayload.ClassVersion)
