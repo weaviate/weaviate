@@ -53,12 +53,19 @@ func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec e
 					ec.Add(err)
 					return err
 				}
+				idx.dropColdObjectCount(name)
 				return nil
 			}
 
 			if err := shard.drop(false); err != nil {
 				ec.Add(err)
+				// Skip the cache drop: on partial-failure shard.drop may have
+				// removed some files but the local count is now unknowable.
+				// The stale cache entry over-counts by at most one tenant
+				// until next reactivation — acceptable.
+				return nil
 			}
+			idx.dropColdObjectCount(name)
 			return nil
 		})
 	}
@@ -257,6 +264,7 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 					Op: command.TenantsProcess_OP_ABORT,
 				}
 			} else {
+				idx.cacheColdCountFromDisk(name)
 				cmd.TenantsProcesses[uidx] = &command.TenantsProcess{
 					Tenant: &command.Tenant{
 						Name: name,
