@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -274,7 +273,6 @@ func hasStalePartialReindexState(
 	case committed.withholdEverything:
 		return false, false
 	}
-	scope := migrationDirsOf(lsmPath, propName, indexType).knownFrom(committed)
 	// Sidecar bucket dirs, minus the ones backing a completed-but-deferred
 	// migration — those are live state the sweep must preserve.
 	for _, name := range names {
@@ -285,26 +283,6 @@ func hasStalePartialReindexState(
 			return true, false
 		}
 		finalizable = finalizable || committed.bucketNeedsLoad(name)
-	}
-
-	// Migration tracker dirs, minus the deferred-finalize generations.
-	names, err = dirs.list(filepath.Join(lsmPath, ".migrations"))
-	if err != nil {
-		return !os.IsNotExist(err), false
-	}
-	for _, name := range names {
-		matched, unreadablePayload := scope.inScopeFailingOpen(name)
-		if unreadablePayload {
-			return true, false
-		}
-		if !matched {
-			continue
-		}
-		if committed.preservesTracker(name) {
-			finalizable = finalizable || committed.trackerNeedsLoad(name)
-			continue
-		}
-		return true, false
 	}
 	return false, finalizable
 }
@@ -386,9 +364,7 @@ func (c *dirNamesCache) refusedListings() int {
 	return c.refused
 }
 
-// dirNamesKey identifies one cached answer. filter is part of the key since a
-// full listing and a sidecar-filtered one of the same path are different
-// answers.
+// dirNamesKey identifies one cached answer.
 type dirNamesKey struct {
 	path   string
 	filter string
@@ -399,15 +375,9 @@ type dirNamesListing struct {
 	err   error
 }
 
-// list names every directory directly under path.
-func (c *dirNamesCache) list(path string) ([]string, error) {
-	return c.listMatching(dirNamesKey{path: path}, nil)
-}
-
 // listSidecarCandidates names the directories under a shard's LSM path that
 // could be a sidecar of some bucket ("<mainBucket>__<suffix>"). This filter
-// holds for every (property, index type) asked about the same path, which is
-// why it's cached separately from the unfiltered [dirNamesCache.list].
+// holds for every (property, index type) asked about the same path.
 func (c *dirNamesCache) listSidecarCandidates(lsmPath string) ([]string, error) {
 	return c.listMatching(dirNamesKey{path: lsmPath, filter: "sidecar"}, func(name string) bool {
 		return strings.Contains(name, "__")

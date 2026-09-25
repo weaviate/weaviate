@@ -213,13 +213,10 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 			defer hot.Shutdown(context.Background())
 
 			migrationType := ReindexTypeChangeTokenization
-			trackerDir := postMergeTrackerDir(t, prop)
-			laterTrackerDir := migrationDirWithProps(
-				migrationDirPrefixesForIndexType("searchable")[0], []string{prop}) + "_2"
+			code := StrategyCodeSearchableRetokenize
 			if tc.changeAlgorithm {
 				migrationType = ReindexTypeChangeAlgorithm
-				trackerDir = MigrationDirSearchableMapToBlockmax + "_1"
-				laterTrackerDir = MigrationDirSearchableMapToBlockmax + "_2"
+				code = StrategyCodeSearchableMapToBlockmax
 			}
 			tenantLSM := shardPathLSM(idx.path(), tenant)
 			recordProp := prop
@@ -227,11 +224,11 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 				recordProp = "other"
 			}
 			if tc.state != "" {
-				mkMigrationRecordFor(t, tenantLSM, trackerDir, "T_bootstrap", 1, "u1__n1",
+				mkMigrationRecordFor(t, tenantLSM, code, "T_bootstrap", 1, "u1__n1",
 					migrationType, tc.state, recordProp)
 			}
 			if tc.laterState != "" {
-				mkMigrationRecordFor(t, tenantLSM, laterTrackerDir, "T_next", 2, "u1__n1",
+				mkMigrationRecordFor(t, tenantLSM, code, "T_next", 2, "u1__n1",
 					migrationType, tc.laterState, recordProp)
 			}
 			if tc.unreadableRecord {

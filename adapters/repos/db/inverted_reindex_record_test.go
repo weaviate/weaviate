@@ -88,7 +88,6 @@ func testMigrationSubject(version uint64, code MigrationStrategyCode, props ...s
 		OriginalTokenization: models.PropertyTokenizationWord,
 		Collection:           "Books",
 		BucketStrategy:       lsmkv.StrategyInverted,
-		TrackerDir:           fmt.Sprintf("m_%d_tracker", version),
 		IterationCutoff:      time.Date(2026, 8, 21, 9, 0, 0, 0, time.UTC),
 	}
 	if len(props) == 0 {
@@ -222,7 +221,7 @@ func TestTheRecordsWireNamesAreTheCompatibilityContract(t *testing.T) {
 		keysOf(t, swapped))
 	require.Equal(t, []string{
 		"bucketStrategy", "collection", "iterationCutoff", "key", "migrationType",
-		"originalTokenization", "props", "targetTokenization", "taskID", "trackerDir",
+		"originalTokenization", "props", "targetTokenization", "taskID",
 	}, keysOf(t, swapped, "subject"))
 	require.Equal(t, []string{"canonical", "sidecar", "staged"},
 		keysOf(t, swapped, "subject", "props", "title"))
@@ -530,16 +529,6 @@ func TestMigrationRecordNotUnderstood(t *testing.T) {
 			wantErr: `names directory "property_shared__g41_ingest" as both the displaced directory of property "body" and the displaced directory of property "title"`,
 		},
 		{
-			// Every other role is covered by
-			// [TestNoStoreTheShardServesFromCanBeNamedInAnyDirectoryRole]; the
-			// tracker directory is the one that does not sit at the shard root.
-			name: "a tracker directory that is the record store",
-			data: valid(func(env map[string]any) {
-				env["subject"].(map[string]any)["trackerDir"] = migrationRecordsDirName
-			}),
-			wantErr: `names tracker directory "records", which is a directory no migration may own`,
-		},
-		{
 			name: "a unit the record file name could not carry",
 			data: valid(func(env map[string]any) {
 				env["subject"].(map[string]any)["key"].(map[string]any)["unitID"] = "../shard-2__node-0"
@@ -628,7 +617,6 @@ func TestMigrationRecordStore(t *testing.T) {
 	// tells their directories apart by the strategy word the name carries.
 	merged := func(version uint64, code MigrationStrategyCode) MigrationRecord {
 		subject := testMigrationSubject(version, code, "title")
-		subject.TrackerDir = fmt.Sprintf("%s_%d_tracker", code, version)
 		setMigrationDir(&subject, "title", func(d *MigrationPropertyDirs) {
 			d.Staged = fmt.Sprintf("property_title__%s_%d_ingest", code, version)
 			d.Sidecar = fmt.Sprintf("property_title__%s_%d_reindex", code, version)
@@ -687,7 +675,6 @@ func TestMigrationRecordStore(t *testing.T) {
 				committed, err := migrationPreservedStateAt(filepath.Dir(filepath.Dir(s.Dir())), logger)
 				require.NoError(t, err)
 				require.True(t, committed.preservesBucket("a directory no readable record names"))
-				require.True(t, committed.preservesTracker("a directory no readable record names"))
 			},
 		},
 		{
@@ -972,11 +959,6 @@ func TestDecodeMigrationRecordRejectsEscapingHandles(t *testing.T) {
 		wantField string
 	}{
 		{
-			name:   "tracker directory",
-			place:  func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) { s.TrackerDir = h },
-			handle: "../../../../etc", wantErr: true,
-		},
-		{
 			name: "staged directory",
 			place: func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) {
 				s.Props = map[string]MigrationPropertyDirs{"title": {Staged: h}}
@@ -1019,8 +1001,10 @@ func TestDecodeMigrationRecordRejectsEscapingHandles(t *testing.T) {
 			handle: "property_tracker__g42_ingest/searchable/title", wantErr: true,
 		},
 		{
-			name:   "an empty handle is the ordinary names-none",
-			place:  func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) { s.TrackerDir = h },
+			name: "an empty handle is the ordinary names-none",
+			place: func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) {
+				s.Props = map[string]MigrationPropertyDirs{"title": {Staged: h}}
+			},
 			handle: "",
 		},
 		{
@@ -1031,8 +1015,10 @@ func TestDecodeMigrationRecordRejectsEscapingHandles(t *testing.T) {
 			handle: ".", wantErr: true,
 		},
 		{
-			name:   "a descent and an ascent that cancel",
-			place:  func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) { s.TrackerDir = h },
+			name: "a descent and an ascent that cancel",
+			place: func(s *MigrationSubject, _ *migrationFlipEnvelope, h string) {
+				s.Props = map[string]MigrationPropertyDirs{"title": {Sidecar: h}}
+			},
 			handle: "x/..", wantErr: true,
 		},
 		{
@@ -1082,7 +1068,6 @@ func TestDecodeMigrationRecordRejectsEscapingHandles(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			subject := testMigrationSubject(42, StrategyCodeEnableFilterable, "title")
-			subject.TrackerDir = ""
 			subject.Props = map[string]MigrationPropertyDirs{"title": {}}
 			flip := migrationFlipEnvelope{Flipped: []string{"title"}}
 			tt.place(&subject, &flip, tt.handle)
@@ -1125,12 +1110,6 @@ func TestTheWriterRefusesWhatTheLoaderWouldReject(t *testing.T) {
 		because string
 		wantErr string
 	}{
-		{
-			name:    "a tracker directory that leaves the shard root",
-			mangle:  func(s *MigrationSubject) { s.TrackerDir = "../../../etc" },
-			because: "the tracker directory is joined onto the shard and handed to a recursive delete",
-			wantErr: "names tracker directory \"../../../etc\"",
-		},
 		{
 			name: "a staged directory that is a live bucket of another property",
 			mangle: func(s *MigrationSubject) {
@@ -1197,7 +1176,6 @@ func TestTheLargestRecordTheWriterCanBuildFitsTheLoadersBound(t *testing.T) {
 	}
 
 	subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize)
-	subject.TrackerDir = longest("tracker", 0)
 	subject.Props = make(map[string]MigrationPropertyDirs, maxReindexPropertiesPerTask)
 	displaced := map[string]string{}
 	for i := 0; i < maxReindexPropertiesPerTask; i++ {
@@ -1433,7 +1411,7 @@ func migrationShardRootDirectoryRoles(t *testing.T) []migrationHandleGroup {
 	t.Helper()
 	var out []migrationHandleGroup
 	for _, group := range migrationHandleGroups {
-		if !group.namesDirectory || group.underMigrationsDir {
+		if !group.namesDirectory {
 			continue
 		}
 		require.Containsf(t, migrationDirectoryRolePlacers, group.field,
@@ -1470,7 +1448,7 @@ func TestEveryWriterEmittedSidecarNameIsAccepted(t *testing.T) {
 			&RebuildSearchableStrategy{propNames: []string{prop}, generation: generation},
 		}
 	}
-	require.Len(t, strategiesFor("title", 1), len(strategiesByMigrationDir(1)))
+	require.Len(t, strategiesFor("title", 1), len(strategiesByCode(1)))
 
 	for _, generation := range []int{1, 2, 11} {
 		for _, prop := range props {
@@ -1526,7 +1504,7 @@ func TestEveryStrategyReadsTheMainBucketThisNames(t *testing.T) {
 		StrategyCodeEnableSearchable:            &EnableSearchableStrategy{propNames: []string{prop}},
 		StrategyCodeRebuildSearchable:           &RebuildSearchableStrategy{propNames: []string{prop}},
 	}
-	require.Len(t, byCode, len(strategiesByMigrationDir(1)), "every strategy carries a record code")
+	require.Len(t, byCode, len(strategiesByCode(1)), "every strategy carries a record code")
 
 	for code, strategy := range byCode {
 		t.Run(string(code), func(t *testing.T) {

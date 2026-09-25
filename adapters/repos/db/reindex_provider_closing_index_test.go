@@ -91,7 +91,7 @@ func TestLocalCallbacksDoneRefusesToAnswerForAClosingIndex(t *testing.T) {
 			if tc.committed {
 				state = MigrationStateMerged
 			}
-			mkMigrationRecordFor(t, shardPathLSM(idx.path(), tenant), postMergeTrackerDir(t, prop),
+			mkMigrationRecordFor(t, shardPathLSM(idx.path(), tenant), StrategyCodeSearchableRetokenize,
 				"T_bootstrap", 1, "u1", ReindexTypeChangeTokenization, state, prop)
 
 			if tc.closeRequested {

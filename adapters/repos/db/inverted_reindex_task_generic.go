@@ -1181,10 +1181,6 @@ func (t *ShardReindexTaskGeneric) trimOlderGenerationsLocked(
 	for _, name := range t.obsoleteSidecarDirs(logger, dirs, props, preserve) {
 		t.discardSafe(logger, dirs, name, "an obsolete sidecar directory")
 	}
-	trackers := dirs.Trackers()
-	for _, name := range t.obsoleteTrackerDirs(logger, trackers, preserve) {
-		t.discardSafe(logger, trackers, name, "an obsolete tracker directory")
-	}
 }
 
 type migrationTrimPreserve struct {
@@ -1201,15 +1197,6 @@ func trimPreserveSetOf(shard *Shard) (migrationTrimPreserve, bool) {
 func (p migrationTrimPreserve) bucketDir(dir string) bool {
 	for _, rec := range p.records {
 		if rec.OwnsBucket(dir) {
-			return true
-		}
-	}
-	return false
-}
-
-func (p migrationTrimPreserve) trackerDir(dir string) bool {
-	for _, rec := range p.records {
-		if rec.Subject().TrackerDir == dir {
 			return true
 		}
 	}
@@ -1255,35 +1242,6 @@ func (t *ShardReindexTaskGeneric) obsoleteSidecarDirs(logger logrus.FieldLogger,
 				}
 			}
 		}
-	}
-	return out
-}
-
-func (t *ShardReindexTaskGeneric) obsoleteTrackerDirs(logger logrus.FieldLogger,
-	trackers bucketDirs, preserve migrationTrimPreserve,
-) []string {
-	entries, err := os.ReadDir(trackers.root)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			logger.Warnf("runtime swap: trim: failed to read .migrations dir; skipping cleanup: %v", err)
-		}
-		return nil
-	}
-	currentMigBase, currentGenN, _ := parseMigrationDirName(t.strategy.MigrationDirName())
-
-	var out []string
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
-		}
-		base, gen, ok := parseMigrationDirName(entry.Name())
-		if !ok || preserve.trackerDir(entry.Name()) {
-			continue
-		}
-		if base != currentMigBase || gen >= currentGenN {
-			continue
-		}
-		out = append(out, entry.Name())
 	}
 	return out
 }
@@ -1398,7 +1356,6 @@ func (t *ShardReindexTaskGeneric) migrationSubject(shard ShardLike, props []stri
 		Collection:           t.collection,
 		BucketStrategy:       t.bucketStrategy,
 		IterationCutoff:      cutoff,
-		TrackerDir:           t.strategy.MigrationDirName(),
 		Props:                make(map[string]MigrationPropertyDirs, len(props)),
 	}
 	for _, propName := range props {

@@ -324,20 +324,6 @@ func TestAFailedRemovalKeepsTheRecordThatNamesTheDirectory(t *testing.T) {
 			},
 		},
 		{
-			name: "a superseded record whose tracker directory cannot be removed",
-			arrange: func(f *reconcileFixture) MigrationRecordKey {
-				f.mkdirs("property_title__g10_ingest", "property_title__s10_reindex",
-					"property_title__g20_ingest", "property_title_searchable")
-				f.put(swappedOn(10, "title"))
-				f.put(swappedOn(20, "title"))
-				f.blockTrackerRemoval(f.planted[0])
-				return f.planted[0].Key
-			},
-			assert: func(t *testing.T, f *reconcileFixture) {
-				require.True(t, f.trackerDirExists(f.planted[0]), "the directory is still there to attribute")
-			},
-		},
-		{
 			name: "a superseded record whose own record file cannot be removed",
 			arrange: func(f *reconcileFixture) MigrationRecordKey {
 				f.mkdirs("property_title__g10_ingest", "property_title__s10_reindex",
@@ -355,20 +341,6 @@ func TestAFailedRemovalKeepsTheRecordThatNamesTheDirectory(t *testing.T) {
 				f.reconcile()
 				_, present := f.state(MigrationRecordKey{TaskVersion: 10, StrategyCode: StrategyCodeSearchableRetokenize, UnitID: "shard-1__node-0"})
 				require.False(t, present, "the next pass finishes the removal the blocked one could not")
-			},
-		},
-		{
-			name: "a promoted record whose tracker directory cannot be removed",
-			arrange: func(f *reconcileFixture) MigrationRecordKey {
-				subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
-				f.class = testClassWithTokenization(models.PropertyTokenizationLowercase, "title")
-				f.mkdirs("property_title_searchable")
-				f.put(NewMigrationRecordPromoted(subject, []string{"title"}, map[string]string{"title": "property_title_searchable"}))
-				f.blockTrackerRemoval(subject)
-				return subject.Key
-			},
-			assert: func(t *testing.T, f *reconcileFixture) {
-				require.True(t, f.trackerDirExists(f.planted[0]), "the directory is still there to attribute")
 			},
 		},
 	}
@@ -587,8 +559,6 @@ func TestARecordRemovedEarlierInThePassStopsSupersedingAnything(t *testing.T) {
 	_, present = f.state(newer.Key)
 	require.False(t, present,
 		"the record it was the sole supersessor of is gone, so this one has nothing left to hold it back")
-	require.False(t, f.trackerDirExists(newer),
-		"and its tracker directory goes with it, instead of hydrating this tenant on every load")
 }
 
 // One line per record, not per property: an unretired property keeps the record

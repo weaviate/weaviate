@@ -12,9 +12,7 @@
 package reindexrecords
 
 import (
-	"slices"
 	"strconv"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -43,65 +41,35 @@ func HandlesFor(t *testing.T, code db.MigrationStrategyCode, propName string, ge
 	}
 }
 
-// TrackerDir ignores propNames for a class-level strategy.
-func TrackerDir(t *testing.T, code db.MigrationStrategyCode, propNames []string, generation int) string {
-	t.Helper()
-
-	recipe, ok := handleRecipes[code]
-	require.Truef(t, ok, "no directory recipe for migration strategy %q", code)
-
-	name := string(code)
-	switch recipe.tracker {
-	case trackerNamesOneProperty:
-		require.Lenf(t, propNames, 1, "%q tracks exactly one property", code)
-		name += "_" + propNames[0]
-	case trackerNamesPropertyList:
-		if len(propNames) > 0 {
-			name += "_" + strings.Join(slices.Sorted(slices.Values(propNames)), "_")
-		}
-	case trackerNamesNoProperty:
-	}
-	return name + "_" + strconv.Itoa(generation)
-}
-
-type trackerNaming int
-
-const (
-	trackerNamesPropertyList trackerNaming = iota
-	trackerNamesNoProperty
-	trackerNamesOneProperty
-)
-
 type handleRecipe struct {
 	bucket        func(propName string) string
 	ingestSuffix  string
 	reindexSuffix string
-	tracker       trackerNaming
 }
 
 var handleRecipes = map[db.MigrationStrategyCode]handleRecipe{
 	db.StrategyCodeSearchableMapToBlockmax: {
-		helpers.BucketSearchableFromPropNameLSM, "__blockmax_ingest", "__blockmax_reindex", trackerNamesNoProperty,
+		helpers.BucketSearchableFromPropNameLSM, "__blockmax_ingest", "__blockmax_reindex",
 	},
 	db.StrategyCodeFilterableRoaringsetRefresh: {
-		helpers.BucketFromPropNameLSM, "__roaringset_ingest", "__roaringset_reindex", trackerNamesNoProperty,
+		helpers.BucketFromPropNameLSM, "__roaringset_ingest", "__roaringset_reindex",
 	},
 	db.StrategyCodeFilterableToRangeable: {
-		helpers.BucketRangeableFromPropNameLSM, "__rangeable_ingest", "__rangeable_reindex", trackerNamesPropertyList,
+		helpers.BucketRangeableFromPropNameLSM, "__rangeable_ingest", "__rangeable_reindex",
 	},
 	db.StrategyCodeSearchableRetokenize: {
-		helpers.BucketSearchableFromPropNameLSM, "__retokenize_ingest", "__retokenize_reindex", trackerNamesOneProperty,
+		helpers.BucketSearchableFromPropNameLSM, "__retokenize_ingest", "__retokenize_reindex",
 	},
 	db.StrategyCodeFilterableRetokenize: {
-		helpers.BucketFromPropNameLSM, "__filt_retokenize_ingest", "__filt_retokenize_reindex", trackerNamesOneProperty,
+		helpers.BucketFromPropNameLSM, "__filt_retokenize_ingest", "__filt_retokenize_reindex",
 	},
 	db.StrategyCodeEnableFilterable: {
-		helpers.BucketFromPropNameLSM, "__enable_filterable_ingest", "__enable_filterable_reindex", trackerNamesPropertyList,
+		helpers.BucketFromPropNameLSM, "__enable_filterable_ingest", "__enable_filterable_reindex",
 	},
 	db.StrategyCodeEnableSearchable: {
-		helpers.BucketSearchableFromPropNameLSM, "__enable_searchable_ingest", "__enable_searchable_reindex", trackerNamesPropertyList,
+		helpers.BucketSearchableFromPropNameLSM, "__enable_searchable_ingest", "__enable_searchable_reindex",
 	},
 	db.StrategyCodeRebuildSearchable: {
-		helpers.BucketSearchableFromPropNameLSM, "__rebuild_searchable_ingest", "__rebuild_searchable_reindex", trackerNamesPropertyList,
+		helpers.BucketSearchableFromPropNameLSM, "__rebuild_searchable_ingest", "__rebuild_searchable_reindex",
 	},
 }

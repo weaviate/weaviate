@@ -33,10 +33,6 @@ type EnableSearchableStrategy struct {
 	generation   int // see genSuffix godoc
 }
 
-func (s *EnableSearchableStrategy) MigrationDirName() string {
-	return migrationDirWithProps(MigrationDirPrefixEnableSearchable, s.propNames) + genSuffix(s.generation)
-}
-
 func (s *EnableSearchableStrategy) StrategyCode() MigrationStrategyCode {
 	return StrategyCodeEnableSearchable
 }

@@ -40,14 +40,14 @@ const (
 type MigrationStrategyCode string
 
 const (
-	StrategyCodeSearchableMapToBlockmax     MigrationStrategyCode = MigrationDirSearchableMapToBlockmax
-	StrategyCodeFilterableRoaringsetRefresh MigrationStrategyCode = MigrationDirFilterableRoaringsetRefresh
-	StrategyCodeFilterableToRangeable       MigrationStrategyCode = MigrationDirPrefixFilterableToRangeable
-	StrategyCodeSearchableRetokenize        MigrationStrategyCode = MigrationDirPrefixSearchableRetokenize
-	StrategyCodeFilterableRetokenize        MigrationStrategyCode = MigrationDirPrefixFilterableRetokenize
-	StrategyCodeEnableFilterable            MigrationStrategyCode = MigrationDirPrefixEnableFilterable
-	StrategyCodeEnableSearchable            MigrationStrategyCode = MigrationDirPrefixEnableSearchable
-	StrategyCodeRebuildSearchable           MigrationStrategyCode = MigrationDirPrefixRebuildSearchable
+	StrategyCodeSearchableMapToBlockmax     MigrationStrategyCode = "searchable_map_to_blockmax"
+	StrategyCodeFilterableRoaringsetRefresh MigrationStrategyCode = "filterable_roaringset_refresh"
+	StrategyCodeFilterableToRangeable       MigrationStrategyCode = "filterable_to_rangeable"
+	StrategyCodeSearchableRetokenize        MigrationStrategyCode = "searchable_retokenize"
+	StrategyCodeFilterableRetokenize        MigrationStrategyCode = "filterable_retokenize"
+	StrategyCodeEnableFilterable            MigrationStrategyCode = "enable_filterable"
+	StrategyCodeEnableSearchable            MigrationStrategyCode = "enable_searchable"
+	StrategyCodeRebuildSearchable           MigrationStrategyCode = "rebuild_searchable"
 )
 
 // A valid code missing from this list reads out of a record file name as no code at all.
@@ -135,8 +135,6 @@ type MigrationSubject struct {
 
 	// Fixed at first write, never re-derived from a moved clock.
 	IterationCutoff time.Time `json:"iterationCutoff"`
-
-	TrackerDir string `json:"trackerDir,omitempty"`
 
 	// Writes in the unmirrored window reached the canonical bucket only, so the staged copy must never rename over it.
 	Unmirrored bool `json:"unmirrored,omitempty"`
@@ -588,8 +586,6 @@ type migrationHandleGroup struct {
 	// reserved set.
 	namesDirectory bool
 
-	underMigrationsDir bool
-
 	shape migrationHandleShape
 }
 
@@ -606,11 +602,6 @@ func (g migrationHandleGroup) handles(e migrationRecordEnvelope) []string {
 }
 
 var migrationHandleGroups = []migrationHandleGroup{
-	{
-		field:          "tracker directory",
-		namesDirectory: true, underMigrationsDir: true,
-		envelopeHandles: func(e migrationRecordEnvelope) []string { return []string{e.Subject.TrackerDir} },
-	},
 	{
 		field:          string(migrationRoleStaged),
 		dirs:           func(e migrationRecordEnvelope) map[string]string { return e.Subject.dirsInRole(migrationStagedOf) },

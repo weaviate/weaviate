@@ -37,8 +37,6 @@ import (
 const (
 	promoteRenamedProp = "title"
 	promoteBlockedProp = "body"
-
-	promoteTracker = "rebuild_searchable_pair_1"
 )
 
 func promoteStagedDir(prop string) string {
@@ -252,8 +250,8 @@ func TestPromoteDecidesFromTheRecordNotFromTheDirectory(t *testing.T) {
 				staged[prop] = promoteStagedDir(prop)
 				canonical[prop] = helpers.BucketSearchableFromPropNameLSM(prop)
 			}
-			mkTrackerDir(t, lsmPath, promoteTracker)
-			mkMigrationRecordAt(t, lsmPath, shard.migrationUnit(), promoteTracker, staged, canonical, MigrationStateSwapped)
+			mkMigrationRecordAt(t, lsmPath, shard.migrationUnit(), StrategyCodeRebuildSearchable, 1,
+				staged, canonical, MigrationStateSwapped)
 			require.Equal(t, MigrationStateSwapped, soleMigrationRecordState(t, lsmPath), "fixture")
 
 			if tc.deleteAfterLoad == deleteBeforeAnyLoad {
@@ -315,8 +313,6 @@ func TestPromoteDecidesFromTheRecordNotFromTheDirectory(t *testing.T) {
 
 			if tc.wantRecordSwept {
 				assert.Empty(t, migrationRecordStates(t, lsmPath), tc.reason)
-				assert.NoDirExists(t, filepath.Join(lsmPath, migrationsDir, promoteTracker),
-					"a record that closes takes its tracker directory with it")
 			} else {
 				assert.Equal(t, tc.wantState, soleMigrationRecordState(t, lsmPath), tc.reason)
 			}

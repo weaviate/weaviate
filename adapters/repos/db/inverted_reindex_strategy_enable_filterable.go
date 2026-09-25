@@ -35,10 +35,6 @@ type EnableFilterableStrategy struct {
 	generation int // see genSuffix godoc
 }
 
-func (s *EnableFilterableStrategy) MigrationDirName() string {
-	return migrationDirWithProps(MigrationDirPrefixEnableFilterable, s.propNames) + genSuffix(s.generation)
-}
-
 func (s *EnableFilterableStrategy) StrategyCode() MigrationStrategyCode {
 	return StrategyCodeEnableFilterable
 }

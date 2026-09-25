@@ -298,17 +298,6 @@ func refuseRecordsOfSeveralUnits(records map[MigrationRecordKey]MigrationRecord)
 	}}
 }
 
-// A tracker directory sits under .migrations and every other claim at the shard
-// root, so the two are kept apart here or one name shared across them reads as a
-// collision over a directory that does not exist.
-func migrationExclusiveClaims(subject MigrationSubject) []string {
-	claims := migrationOwnedDirs(subject)
-	if subject.TrackerDir != "" {
-		claims = append(claims, filepath.Join(migrationsDir, subject.TrackerDir))
-	}
-	return claims
-}
-
 // Both claimants leave the live set: nothing here can tell which one the data
 // belongs to, and either answer would delete the other's only copy.
 func refuseRecordsOfDuplicateClaims(records map[MigrationRecordKey]MigrationRecord) []MigrationRecordUnreadable {
@@ -323,7 +312,7 @@ func refuseRecordsOfDuplicateClaims(records map[MigrationRecordKey]MigrationReco
 	shared := map[MigrationRecordKey]string{}
 	against := map[MigrationRecordKey]MigrationRecordKey{}
 	for _, key := range keys {
-		for _, dir := range migrationExclusiveClaims(records[key].Subject()) {
+		for _, dir := range migrationOwnedDirs(records[key].Subject()) {
 			claim := claimedBy{key.UnitID, dir}
 			first, taken := held[claim]
 			if !taken {

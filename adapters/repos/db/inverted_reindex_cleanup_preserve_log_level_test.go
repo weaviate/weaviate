@@ -27,52 +27,8 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
-// TestCleanStaleMigrationDirsAt_PreservedGensLogAtDebug pins that preserving a
-// deferred-finalize tracker dir logs at Debug: this runs inside the RAFT
-// apply loop, and Info would serialize ~10k lines per property DELETE on a
-// 10k-tenant class awaiting restart-finalize.
-func TestCleanStaleMigrationDirsAt_PreservedGensLogAtDebug(t *testing.T) {
-	lsm := t.TempDir()
-	propName := "category"
-	indexType := "filterable"
-
-	const preservedGens = 3
-	for gen := 1; gen <= preservedGens; gen++ {
-		dir := migrationDirWithProps(MigrationDirPrefixEnableFilterable, []string{propName}) + genSuffix(gen)
-		mkTrackerDir(t, lsm, dir)
-		mkMigrationRecord(t, lsm, dir, MigrationStateSwapped, map[string]string{
-			propName: "property_" + propName + "__enable_filterable_ingest" + genSuffix(gen),
-		})
-	}
-
-	hookLogger, hook := test.NewNullLogger()
-	hookLogger.SetLevel(logrus.DebugLevel)
-
-	cleanStaleMigrationDirsAt(t.Context(), lsm, propName, indexType, hookLogger, nil)
-
-	var infoCount, preservedCount int
-	for _, e := range hook.AllEntries() {
-		if e.Level == logrus.InfoLevel {
-			infoCount++
-		}
-		if e.Level == logrus.DebugLevel && strings.Contains(e.Message, "preserving a tracker dir") {
-			preservedCount++
-		}
-	}
-	require.Equal(t, 0, infoCount,
-		"preserving a deferred-finalize tracker dir must not log at Info inside the RAFT apply loop")
-	require.Equal(t, preservedGens, preservedCount, "one Debug line per preserved generation")
-
-	// This read runs once per shard inside the apply, whose aggregate is the one
-	// line allowed.
-	for _, e := range hook.AllEntries() {
-		require.NotContains(t, e.Message, "read migration records",
-			"the record-set read is accounted for by the caller's aggregate, not per read")
-	}
-}
-
-// Sidecar half of the same rule: this runs inside the RAFT apply loop, so an
-// Info line here costs one per tenant.
+// This runs inside the RAFT apply loop, so an Info line here costs one per
+// tenant.
 func TestCleanStaleSidecarDirsPreservedLogAtDebug(t *testing.T) {
 	root := t.TempDir()
 	hookLogger, hook := test.NewNullLogger()

@@ -209,10 +209,9 @@ type ConflictDetector interface {
 //
 // Motivating failure mode: a `change-tokenization` reindex spawns
 // separate per-shard sub-tasks for the searchable and filterable
-// indexes. A DELETE `/index/searchable` arriving mid-flight applies
-// `cleanStaleMigrationDirs("<prop>", "searchable")`, which wipes the
-// `searchable_retokenize_<prop>_<gen>/` working dir under the still-
-// running sub-task. That sub-unit FAILs; the sibling filterable
+// indexes. A DELETE `/index/searchable` arriving mid-flight sweeps the
+// property's stale searchable sidecars, which wipes the sub-task's working
+// copy under the still-running sub-task. That sub-unit FAILs; the sibling filterable
 // sub-unit keeps going and commits its local bucket swap; the
 // per-shard ack barrier sees mixed acks → task FAILED →
 // `flipSemanticMigrationSchema` skipped → schema stays at OLD

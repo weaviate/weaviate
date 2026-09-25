@@ -198,14 +198,12 @@ func plantTornMigrationAcrossRestart(
 	t.Helper()
 	ctx := context.Background()
 
-	migDir := reindexrecords.TrackerDir(t, strategyCode, props, tornResumeGeneration)
-
 	container := compose.GetWeaviate().Container()
 
 	// Locate the shard while the server is up — path is stable across restart.
 	shardPath := findShardPathInContainer(t, container, class)
-	containerMigDir := fmt.Sprintf("%s/lsm/.migrations/%s", shardPath, migDir)
 	lsmPath := fmt.Sprintf("%s/lsm", shardPath)
+	containerRecordsDir := lsmPath + "/.migrations/records"
 
 	require.NoError(t, compose.StopAt(ctx, 0, nil),
 		"plantTornMigrationAcrossRestart: graceful stop before planting must succeed")
@@ -214,8 +212,6 @@ func plantTornMigrationAcrossRestart(
 	// API; docker exec does not.
 	stagingRoot := t.TempDir()
 	stagedDotMigrations := filepath.Join(stagingRoot, ".migrations")
-	stagedMigDir := filepath.Join(stagedDotMigrations, migDir)
-	require.NoError(t, os.MkdirAll(stagedMigDir, 0o755))
 
 	subject := db.MigrationSubject{
 		Key: db.MigrationRecordKey{
@@ -227,7 +223,6 @@ func plantTornMigrationAcrossRestart(
 		MigrationType:   db.ReindexMigrationType(migrationType),
 		Collection:      class,
 		IterationCutoff: time.Now().UTC(),
-		TrackerDir:      migDir,
 		Props:           make(map[string]db.MigrationPropertyDirs, len(props)),
 	}
 	for _, prop := range props {
@@ -262,9 +257,9 @@ func plantTornMigrationAcrossRestart(
 	helper.SetupClient(newRestURI)
 
 	// Diagnostic only: may already be cleaned by shard init.
-	if _, lsReader, lsErr := container.Exec(ctx, []string{"ls", "-la", containerMigDir}, tcexec.Multiplexed()); lsErr == nil && lsReader != nil {
+	if _, lsReader, lsErr := container.Exec(ctx, []string{"ls", "-la", containerRecordsDir}, tcexec.Multiplexed()); lsErr == nil && lsReader != nil {
 		out, _ := io.ReadAll(lsReader)
-		t.Logf("plantTornMigrationAcrossRestart: %s post-restart contents:\n%s", containerMigDir, string(out))
+		t.Logf("plantTornMigrationAcrossRestart: %s post-restart contents:\n%s", containerRecordsDir, string(out))
 	}
 
 	return newRestURI

@@ -68,11 +68,11 @@ func (c loadProbeAllocChecker) CheckMappingAndReserve(int64, int) error {
 // never a false failure.
 func TestLazyLoadShardCanSkipUnloadedSweepIsOneStep(t *testing.T) {
 	const (
-		propName  = "category"
-		indexType = "filterable"
-		tracker   = "enable_filterable_category_1"
-		gateShard = "gate-tenant"
-		rounds    = 50
+		propName     = "category"
+		indexType    = "filterable"
+		staleSidecar = "property_category__enable_filterable_ingest_1"
+		gateShard    = "gate-tenant"
+		rounds       = 50
 		// fillerDirs widens the gate's first directory read well past the time a
 		// plant needs to land, so a gate that let one in gets caught by it.
 		fillerDirs = 2000
@@ -89,11 +89,11 @@ func TestLazyLoadShardCanSkipUnloadedSweepIsOneStep(t *testing.T) {
 	defer shd.Shutdown(context.Background())
 
 	lsm := shardPathLSM(idx.path(), gateShard)
-	require.NoError(t, os.MkdirAll(filepath.Join(lsm, ".migrations"), 0o755))
+	require.NoError(t, os.MkdirAll(lsm, 0o755))
 	for i := range fillerDirs {
 		require.NoError(t, os.Mkdir(filepath.Join(lsm, fmt.Sprintf("bucket-%05d", i)), 0o755))
 	}
-	trackerDir := filepath.Join(lsm, ".migrations", tracker)
+	staleDir := filepath.Join(lsm, staleSidecar)
 
 	var gateReturned atomic.Bool
 	// Written by the prober under the loading mutex, read once it has been joined.
@@ -103,7 +103,7 @@ func TestLazyLoadShardCanSkipUnloadedSweepIsOneStep(t *testing.T) {
 	)
 	// probe runs with the loading mutex held, however the prober took it.
 	probe := func() {
-		if err := os.Mkdir(trackerDir, 0o755); err != nil {
+		if err := os.Mkdir(staleDir, 0o755); err != nil {
 			plantErr = err
 			return
 		}
@@ -150,7 +150,7 @@ func TestLazyLoadShardCanSkipUnloadedSweepIsOneStep(t *testing.T) {
 			for range rounds {
 				// Each round starts from a shard with nothing to sweep, whatever
 				// the round before it planted.
-				require.NoError(t, os.RemoveAll(trackerDir))
+				require.NoError(t, os.RemoveAll(staleDir))
 				plantErr, decidesRound = nil, false
 				gateReturned.Store(false)
 
@@ -184,7 +184,7 @@ func TestLazyLoadShardCanSkipUnloadedSweepIsOneStep(t *testing.T) {
 				require.NoError(t, plantErr)
 				if decidesRound {
 					decided++
-					require.DirExists(t, trackerDir)
+					require.DirExists(t, staleDir)
 					require.True(t, skip,
 						"the gate reported state that only reached the shard after it had answered")
 				}
@@ -195,10 +195,10 @@ func TestLazyLoadShardCanSkipUnloadedSweepIsOneStep(t *testing.T) {
 
 			// The gate reports the very state the prober plants, so the rounds
 			// above are a claim about when it landed, not about what it is.
-			mkTrackerDir(t, lsm, tracker)
+			require.NoError(t, os.MkdirAll(staleDir, 0o755))
 			skip := lazy.canSkipUnloadedSweep(propName, indexType, nil)
 			require.False(t, skip)
-			require.NoError(t, os.RemoveAll(trackerDir))
+			require.NoError(t, os.RemoveAll(staleDir))
 		})
 	}
 }

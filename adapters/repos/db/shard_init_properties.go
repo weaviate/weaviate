@@ -183,8 +183,8 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 		}()
 		for _, indexType := range disabledIndexTypes(prop) {
 			// The whole loop runs inside the RAFT apply, once per shard. Every
-			// shard still queued for it drops out here rather than walking its
-			// own .migrations for an apply that is already failing.
+			// shard still queued for it drops out here rather than sweeping its
+			// own directories for an apply that is already failing.
 			if err := ctx.Err(); err != nil {
 				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
 			}
@@ -196,7 +196,6 @@ func (s *Shard) updatePropertyBuckets(ctx context.Context,
 			if err := s.removeBucket(ctx, mainBucket); err != nil {
 				return fmt.Errorf("cannot remove %s index for %s property: %w", indexType, prop.Name, err)
 			}
-			s.cleanStaleMigrationDirs(ctx, prop.Name, indexType, sweepState())
 			s.cleanStaleSidecarDirs(ctx, mainBucket, sweepState().committed)
 		}
 		return nil
@@ -265,87 +264,6 @@ func migrationRecordSetUnreadable(faults []MigrationRecordUnreadable) bool {
 	return false
 }
 
-func (s *Shard) cleanStaleMigrationDirs(ctx context.Context, propName, indexType string, sweep *migrationSweepState) {
-	cleanStaleMigrationDirsAt(ctx, s.pathLSM(), propName, indexType, s.index.logger, sweep)
-}
-
-// cleanStaleMigrationDirsAt is the pure-function form of
-// [Shard.cleanStaleMigrationDirs]: takes an explicit lsmPath + logger so the
-// preservation logic can be unit-tested without standing up a Shard.
-//
-// Tracker dirs a committed migration owns are PRESERVED — they are
-// live deferred-finalize state for a successfully completed migration,
-// NOT stale partial state. Wiping them out from under the in-memory
-// bucket pointer is what produces the #10675-shape silent data loss on
-// back-to-back submits without a restart (R2/R2b on the controller
-// node).
-func cleanStaleMigrationDirsAt(ctx context.Context, lsmPath, propName, indexType string,
-	logger logrus.FieldLogger, sweep *migrationSweepState,
-) {
-	if sweep == nil {
-		sweep = migrationSweepStateFor(lsmPath, logger)
-	}
-	scope := migrationDirsOf(lsmPath, propName, indexType).knownFrom(sweep.committed)
-	if err := cleanStaleMigrationDirsIn(ctx, scope, sweep.committed, logger); err != nil && ctx.Err() == nil {
-		logger.WithField("path", shardBucketDirs(lsmPath).Trackers().root).
-			Errorf("stale-state cleanup after index DELETE: %v", err)
-	}
-}
-
-// cleanStaleMigrationDirsIn is [cleanStaleMigrationDirsAt] on a caller-built
-// scope.
-//
-// A listing it cannot read is returned, not logged: this helper removed
-// nothing, so a caller that reports its own outcome would otherwise call a
-// sweep finished on a directory it never read. Removal failures stay logged,
-// since those leave the rest of the sweep done. A cancelled ctx is returned
-// too, for the same reason and so the sweep path can report it as a run that
-// stopped rather than a shard that failed ([truncatedByCancellation]).
-func cleanStaleMigrationDirsIn(ctx context.Context, scope migrationDirScope,
-	committed migrationPreservedState, logger logrus.FieldLogger,
-) error {
-	trackers := shardBucketDirs(scope.lsmPath).Trackers()
-	entries, err := os.ReadDir(trackers.root)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("read migrations dir for stale-state cleanup: %w", err)
-	}
-	if err := ctx.Err(); err != nil {
-		return fmt.Errorf("stale-state cleanup stopped before reading %s: %w", trackers.root, err)
-	}
-	for _, entry := range entries {
-		if err := ctx.Err(); err != nil {
-			return fmt.Errorf("stale-state cleanup stopped partway through %s: %w", trackers.root, err)
-		}
-		if !entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if !scope.inScope(name) {
-			continue
-		}
-		if committed.preservesTracker(name) {
-			// Debug, not Info: this runs once per preserved generation inside the
-			// RAFT apply loop (updatePropertyBuckets → cleanStaleMigrationDirs),
-			// so on a multi-tenant collection the line count follows tenant
-			// count. Preserving a dir is the expected outcome of a deferred
-			// finalize, not something to tell an operator once per tenant.
-			logger.WithField("dir", name).
-				Debug("partial-reindex cleanup: preserving a tracker dir nothing on this shard proved stale")
-			continue
-		}
-		if err := trackers.Discard(name, "a stale migration tracker directory"); err != nil {
-			logger.WithField("dir", name).
-				Errorf("failed to clean up stale migration directory after index DELETE: %v; "+
-					"subsequent re-enable will fail loudly on the migration record until "+
-					"this directory is removed manually", err)
-		}
-	}
-	return nil
-}
-
 // CleanStalePartialReindexState removes the on-disk state of a previously
 // cancelled (or otherwise abandoned) runtime-reindex for the named
 // (propName, indexType), so a retry cannot resume against a partial bucket and
@@ -367,9 +285,12 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 		"operation":   "CleanStalePartialReindexState",
 	})
 
-	sweep := migrationSweepStateFor(s.pathLSM(), s.index.logger)
-	committed := sweep.committed
-	scope := migrationDirsOf(s.pathLSM(), propName, indexType).knownFrom(committed)
+	// A shard whose records cannot be read withholds every sidecar, so the sweep
+	// has removed nothing and must not report success.
+	committed, err := migrationPreservedStateAt(s.pathLSM(), s.index.logger)
+	if err != nil {
+		return fmt.Errorf("partial-reindex cleanup: %w", err)
+	}
 
 	loaded := s.store.GetBucketsByName()
 	var shutDown []string
@@ -402,10 +323,7 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 		Info("partial-reindex cleanup: sidecar buckets shut down")
 
 	s.cleanStaleSidecarDirsWithPreserved(mainBucketName, committed)
-	if err := cleanStaleMigrationDirsIn(ctx, scope, committed, s.index.logger); err != nil {
-		return err
-	}
-	logger.Info("partial-reindex cleanup: sidecar dirs + migration dir cleaned")
+	logger.Info("partial-reindex cleanup: sidecar dirs cleaned")
 
 	return nil
 }

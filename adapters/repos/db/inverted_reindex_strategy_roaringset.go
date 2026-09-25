@@ -29,10 +29,6 @@ type RoaringSetRefreshStrategy struct {
 	generation int // see genSuffix godoc
 }
 
-func (s *RoaringSetRefreshStrategy) MigrationDirName() string {
-	return MigrationDirFilterableRoaringsetRefresh + genSuffix(s.generation)
-}
-
 func (s *RoaringSetRefreshStrategy) StrategyCode() MigrationStrategyCode {
 	return StrategyCodeFilterableRoaringsetRefresh
 }

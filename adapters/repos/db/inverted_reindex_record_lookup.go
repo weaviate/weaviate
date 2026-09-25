@@ -36,7 +36,6 @@ func migrationRecordStoreAt(lsmPath string, logger logrus.FieldLogger) (store *M
 type migrationPreservedState struct {
 	records             []MigrationRecord
 	buckets             map[string]bool
-	trackers            map[string]bool
 	withholdEverything  bool
 	recordSetUnreadable bool
 }
@@ -50,7 +49,6 @@ func migrationPreservedStateFromRecords(records []MigrationRecord, someRecordsUn
 	state := migrationPreservedState{
 		records:             records,
 		buckets:             map[string]bool{},
-		trackers:            map[string]bool{},
 		withholdEverything:  someRecordsUnreadable,
 		recordSetUnreadable: recordSetUnreadable,
 	}
@@ -59,19 +57,14 @@ func migrationPreservedStateFromRecords(records []MigrationRecord, someRecordsUn
 			continue
 		}
 		subject := rec.Subject()
-		anyCanAct := false
 		for _, prop := range subject.Properties() {
 			canAct := migrationPropertyLoadCanStillAct(rec, prop)
-			anyCanAct = anyCanAct || canAct
 			if dir := subject.Props[prop].Staged; dir != "" {
 				state.buckets[dir] = canAct
 			}
 			if dir := subject.Props[prop].Sidecar; dir != "" {
 				state.buckets[dir] = canAct
 			}
-		}
-		if subject.TrackerDir != "" {
-			state.trackers[subject.TrackerDir] = rec.State() != MigrationStatePromoted && anyCanAct
 		}
 	}
 	return state
@@ -101,18 +94,6 @@ func (s migrationPreservedState) preservesBucket(dir string) bool {
 	return ok
 }
 
-func (s migrationPreservedState) preservesTracker(dir string) bool {
-	if s.withholdEverything {
-		return true
-	}
-	_, ok := s.trackers[dir]
-	return ok
-}
-
-func (s migrationPreservedState) trackerNeedsLoad(dir string) bool {
-	return s.trackers[dir]
-}
-
 func (s migrationPreservedState) bucketNeedsLoad(dir string) bool {
 	return s.buckets[dir]
 }
@@ -134,15 +115,6 @@ func (s migrationPreservedState) bucketsOf(mainBucketName string) []string {
 	}
 	slices.Sort(out)
 	return out
-}
-
-func migrationRecordForTracker(records []MigrationRecord, trackerDir string) (MigrationRecord, bool) {
-	for _, rec := range records {
-		if rec.Subject().TrackerDir == trackerDir {
-			return rec, true
-		}
-	}
-	return nil, false
 }
 
 func migrationRecordStagingIncomplete(rec MigrationRecord) bool { return !rec.StagedDataComplete() }

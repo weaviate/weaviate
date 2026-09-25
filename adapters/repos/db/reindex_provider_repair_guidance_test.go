@@ -14,6 +14,8 @@ package db
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -260,34 +262,23 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceOnlyWhenASwapRan(t *testing.
 	}
 }
 
-// postMergeTrackerDir is the tracker dir name a searchable migration of
-// propName leaves behind, generation suffix included.
-func postMergeTrackerDir(t *testing.T, propName string) string {
-	t.Helper()
-	prefixes := migrationDirPrefixesForIndexType("searchable")
-	require.NotEmpty(t, prefixes)
-	return migrationDirWithProps(prefixes[0], []string{propName}) + "_1"
-}
-
-func mkMigrationRecordFor(t *testing.T, lsmPath, trackerDir, taskID string, taskVersion uint64,
+func mkMigrationRecordFor(t *testing.T, lsmPath string, code MigrationStrategyCode, taskID string, taskVersion uint64,
 	unitID string, mt ReindexMigrationType, state MigrationState, props ...string,
-) string {
+) MigrationSubject {
 	t.Helper()
-	mkTrackerDir(t, lsmPath, trackerDir)
 	subject := MigrationSubject{
 		Key: MigrationRecordKey{
 			TaskVersion:  taskVersion,
-			StrategyCode: StrategyCodeSearchableRetokenize,
+			StrategyCode: code,
 			UnitID:       unitID,
 		},
 		TaskID:        taskID,
 		MigrationType: mt,
 		Collection:    "Books",
-		TrackerDir:    trackerDir,
 		Props:         map[string]MigrationPropertyDirs{},
 	}
 	for _, prop := range props {
-		staged := "property_" + prop + "__" + trackerDir + "_ingest"
+		staged := fmt.Sprintf("property_%s__%s_%d_ingest", prop, code, taskVersion)
 		subject.Props[prop] = MigrationPropertyDirs{
 			Staged:    staged,
 			Canonical: "property_" + prop + "_searchable",
@@ -297,8 +288,9 @@ func mkMigrationRecordFor(t *testing.T, lsmPath, trackerDir, taskID string, task
 
 	rec := newMigrationRecordAt(t, subject, state)
 	logger, _ := logrustest.NewNullLogger()
+	require.NoError(t, os.MkdirAll(lsmPath, 0o777))
 	require.NoError(t, NewMigrationRecordStore(lsmPath, logger).Put(rec))
-	return filepath.Join(lsmPath, ".migrations", trackerDir)
+	return subject
 }
 
 func TestHasLocalPostMergeStateReadsEachShardsRecordsOnce(t *testing.T) {
@@ -307,7 +299,7 @@ func TestHasLocalPostMergeStateReadsEachShardsRecordsOnce(t *testing.T) {
 	concrete, err := unwrapShard(ctx, shard)
 	require.NoError(t, err)
 
-	mkMigrationRecordFor(t, concrete.pathLSM(), postMergeTrackerDir(t, "title"),
+	mkMigrationRecordFor(t, concrete.pathLSM(), StrategyCodeSearchableRetokenize,
 		"T_cancel", 1, "u1__n1", ReindexTypeChangeTokenization, MigrationStateIterating, "title")
 
 	logger, hook := logrustest.NewNullLogger()
@@ -349,8 +341,10 @@ func postMergeEvidenceFixture(t *testing.T, ctx context.Context) (*ReindexProvid
 	concrete, err := unwrapShard(ctx, shard)
 	require.NoError(t, err)
 
-	trackerDir := mkMigrationRecordFor(t, concrete.pathLSM(), postMergeTrackerDir(t, "title"),
+	subject := mkMigrationRecordFor(t, concrete.pathLSM(), StrategyCodeSearchableRetokenize,
 		"T_cancel", 1, "u1__n1", ReindexTypeChangeTokenization, MigrationStateMerged, "title")
+	staged := filepath.Join(concrete.pathLSM(), subject.Props["title"].Staged)
+	require.NoError(t, os.MkdirAll(staged, 0o777))
 
 	payload := &ReindexTaskPayload{
 		MigrationType: ReindexTypeChangeTokenization,
@@ -361,7 +355,7 @@ func postMergeEvidenceFixture(t *testing.T, ctx context.Context) (*ReindexProvid
 	p := NewReindexProvider(
 		&DB{indices: map[string]*Index{indexID(entschema.ClassName("C")): idx}},
 		nil, nil, logrus.New(), "n1", nil, ctx)
-	return p, payload, trackerDir
+	return p, payload, staged
 }
 
 // Pins that the evidence probe answers to a context. It reads a
@@ -383,7 +377,7 @@ func TestHasLocalPostMergeState_GivesUpOnAFinishedContext(t *testing.T) {
 
 func TestAutoCleanupAfterTerminal_PreservesTheEvidenceTheProbeReads(t *testing.T) {
 	ctx := context.Background()
-	p, payload, trackerDir := postMergeEvidenceFixture(t, ctx)
+	p, payload, staged := postMergeEvidenceFixture(t, ctx)
 
 	p.autoCleanupAfterTerminal(&distributedtask.Task{
 		Namespace:      ReindexNamespace,
@@ -392,7 +386,7 @@ func TestAutoCleanupAfterTerminal_PreservesTheEvidenceTheProbeReads(t *testing.T
 		Payload:        []byte("{}"),
 	}, payload, logrus.New())
 
-	require.DirExists(t, trackerDir,
+	require.DirExists(t, staged,
 		"a committed migration is live deferred-finalize state, not stale partial state")
 	require.True(t, p.hasLocalPostMergeState(ctx, payload),
 		"the guidance would go silent for every cancel that ran the cleanup first")
@@ -406,7 +400,7 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceFromDiskEvidence(t *testing.
 	shard, idx := testShard(t, ctx, "C")
 	concrete, err := unwrapShard(ctx, shard)
 	require.NoError(t, err)
-	mkMigrationRecordFor(t, concrete.pathLSM(), postMergeTrackerDir(t, "title"),
+	mkMigrationRecordFor(t, concrete.pathLSM(), StrategyCodeSearchableRetokenize,
 		"T_cancel_disk", 1, "u1__n1", ReindexTypeChangeTokenization, MigrationStateMerged, "title")
 
 	payload, err := json.Marshal(ReindexTaskPayload{
@@ -442,7 +436,7 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceWhenTheDrainTimesOut(t *test
 	shard, idx := testShard(t, testCtx(), className)
 	concrete, err := unwrapShard(testCtx(), shard)
 	require.NoError(t, err)
-	mkMigrationRecordFor(t, concrete.pathLSM(), postMergeTrackerDir(t, "title"),
+	mkMigrationRecordFor(t, concrete.pathLSM(), StrategyCodeSearchableRetokenize,
 		"T_cancel_drain", 1, "u1__n1", ReindexTypeChangeTokenization, MigrationStateMerged, "title")
 
 	payload, err := json.Marshal(ReindexTaskPayload{
@@ -577,11 +571,11 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 				if recordType == "" {
 					recordType = tc.migrationType
 				}
-				trackerDir := postMergeTrackerDir(t, prop)
+				code := StrategyCodeSearchableRetokenize
 				if tc.classLevel {
-					trackerDir = MigrationDirSearchableMapToBlockmax + "_1"
+					code = StrategyCodeSearchableMapToBlockmax
 				}
-				mkMigrationRecordFor(t, shardPathLSM(idx.path(), tenant), trackerDir,
+				mkMigrationRecordFor(t, shardPathLSM(idx.path(), tenant), code,
 					"T_probe", 1, "u1__n1", recordType, tc.state, prop)
 			}
 			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,

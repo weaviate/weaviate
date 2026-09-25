@@ -124,9 +124,7 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 
 			older, _ := newEnableFilterableTaskAtGeneration(t, idx, className, 1, shard.migrationUnit(), propName)
 			staged := older.ingestBucketName(propName)
-			tracker := older.strategy.MigrationDirName()
 			require.NoError(t, os.MkdirAll(filepath.Join(shard.pathLSM(), staged), 0o777))
-			require.NoError(t, os.MkdirAll(filepath.Join(shard.pathLSM(), migrationsDir, tracker), 0o777))
 
 			if tt.keepRecord {
 				subject := older.migrationSubject(shard, []string{propName}, time.Now())
@@ -143,8 +141,6 @@ func TestTrimOlderGenerationsLeavesRecordOwnedDirsAlone(t *testing.T) {
 
 			require.Equal(t, tt.wantDir, dirExists(t, filepath.Join(shard.pathLSM(), staged)),
 				"staged directory of the older migration")
-			require.Equal(t, tt.wantDir, dirExists(t, filepath.Join(shard.pathLSM(), migrationsDir, tracker)),
-				"tracker directory of the older migration")
 		})
 	}
 }

@@ -53,11 +53,10 @@ func TestSwapPhaseLoadsTheShardBeforeClaimingItsUnit(t *testing.T) {
 	defer hot.Shutdown(context.Background())
 
 	tenantLSM := shardPathLSM(idx.path(), tenant)
-	trackerDir := migrationDirWithProps(MigrationDirPrefixSearchableRetokenize, []string{prop}) + "_1"
-	mkMigrationRecordFor(t, tenantLSM, trackerDir, "T_swap", 1, unitID,
+	subject := mkMigrationRecordFor(t, tenantLSM, StrategyCodeSearchableRetokenize, "T_swap", 1, unitID,
 		ReindexTypeChangeTokenization, MigrationStateSwapped, prop)
 
-	staged := "property_" + prop + "__" + trackerDir + "_ingest"
+	staged := subject.Props[prop].Staged
 	canonical := "property_" + prop + "_searchable"
 	require.NoError(t, os.MkdirAll(filepath.Join(tenantLSM, staged), 0o777))
 	require.NoError(t, os.WriteFile(filepath.Join(tenantLSM, staged, "promoted.marker"), []byte(staged), 0o600))

@@ -35,12 +35,6 @@ type SearchableRetokenizeStrategy struct {
 	generation         int    // see genSuffix godoc for the per-migration generation contract
 }
 
-func (s *SearchableRetokenizeStrategy) MigrationDirName() string {
-	// Include property name + per-migration generation so back-to-back
-	// migrations on the same property don't collide on tracker state.
-	return MigrationDirPrefixSearchableRetokenize + "_" + s.propName + genSuffix(s.generation)
-}
-
 func (s *SearchableRetokenizeStrategy) StrategyCode() MigrationStrategyCode {
 	return StrategyCodeSearchableRetokenize
 }

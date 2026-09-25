@@ -218,27 +218,27 @@ func TestCreateReindexTasksRejectsUnusableGeneration(t *testing.T) {
 	}
 
 	for _, tc := range []struct {
-		name    string
-		version uint64
-		wantDir string
+		name       string
+		version    uint64
+		wantIngest string
 	}{
 		{name: "zero names the canonical bucket", version: 0},
 		{name: "past what an int holds", version: math.MaxUint64},
-		{name: "lowest live generation", version: 1, wantDir: MigrationDirFilterableRoaringsetRefresh + "_1"},
+		{name: "lowest live generation", version: 1, wantIngest: "__roaringset_ingest_1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p, _ := newTestProvider(t)
 
 			tasks, err := p.createReindexTasks(taskDescAt(tc.version), dirOwnershipUnit, payload)
 
-			if tc.wantDir == "" {
+			if tc.wantIngest == "" {
 				require.Error(t, err)
 				require.Empty(t, tasks)
 				return
 			}
 			require.NoError(t, err)
 			require.Len(t, tasks, 1)
-			require.Equal(t, tc.wantDir, tasks[0].strategy.MigrationDirName())
+			require.Equal(t, tc.wantIngest, tasks[0].strategy.IngestSuffix())
 		})
 	}
 }

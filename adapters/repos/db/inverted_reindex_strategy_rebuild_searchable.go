@@ -28,10 +28,6 @@ type RebuildSearchableStrategy struct {
 	generation int
 }
 
-func (s *RebuildSearchableStrategy) MigrationDirName() string {
-	return migrationDirWithProps(MigrationDirPrefixRebuildSearchable, s.propNames) + genSuffix(s.generation)
-}
-
 func (s *RebuildSearchableStrategy) StrategyCode() MigrationStrategyCode {
 	return StrategyCodeRebuildSearchable
 }

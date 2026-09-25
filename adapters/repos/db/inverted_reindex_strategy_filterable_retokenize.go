@@ -32,10 +32,6 @@ type FilterableRetokenizeStrategy struct {
 	generation         int // see genSuffix godoc
 }
 
-func (s *FilterableRetokenizeStrategy) MigrationDirName() string {
-	return MigrationDirPrefixFilterableRetokenize + "_" + s.propName + genSuffix(s.generation)
-}
-
 func (s *FilterableRetokenizeStrategy) StrategyCode() MigrationStrategyCode {
 	return StrategyCodeFilterableRetokenize
 }

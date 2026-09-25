@@ -102,7 +102,6 @@ func plantSwappedRecordAcrossRestart(t *testing.T, compose *docker.DockerCompose
 	stagedRoot := t.TempDir()
 	dotMigrations := filepath.Join(stagedRoot, ".migrations")
 	require.NoError(t, os.MkdirAll(filepath.Join(dotMigrations, "records"), 0o755))
-	require.NoError(t, os.MkdirAll(filepath.Join(dotMigrations, "opaque_promotion_tracker"), 0o755))
 	require.NoError(t, os.WriteFile(
 		filepath.Join(dotMigrations, "records", recordName), []byte(record), 0o666))
 
@@ -130,7 +129,6 @@ func opaqueMigrationSubject(t *testing.T, staged, shardName string) db.Migration
 		MigrationType:   db.ReindexTypeRepairFilterable,
 		Collection:      "OpaquePromotion",
 		IterationCutoff: time.Now().UTC(),
-		TrackerDir:      "opaque_promotion_tracker",
 		Props: map[string]db.MigrationPropertyDirs{"score": {
 			Staged:    staged,
 			Canonical: handles.Canonical,

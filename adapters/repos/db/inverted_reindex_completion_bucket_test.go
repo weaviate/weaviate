@@ -179,7 +179,7 @@ func TestTheCompletionGateOnlyTouchesAClosedBucket(t *testing.T) {
 			canonical: helpers.BucketSearchableFromPropNameLSM,
 		},
 	}
-	require.Len(t, tests, len(strategiesByMigrationDir(1)),
+	require.Len(t, tests, len(strategiesByCode(1)),
 		"a strategy missing from this table would never have its gate behavior checked")
 
 	for _, tt := range tests {

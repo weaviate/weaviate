@@ -36,10 +36,6 @@ import (
 type MigrationStrategy interface {
 	StrategyCode() MigrationStrategyCode
 
-	// MigrationDirName returns the subdirectory name under .migrations/
-	// e.g. "searchable_map_to_blockmax"
-	MigrationDirName() string
-
 	// SourceBucketName returns the original bucket name for the given property.
 	// e.g. helpers.BucketSearchableFromPropNameLSM(propName)
 	SourceBucketName(propName string) string

@@ -21,7 +21,6 @@ import (
 
 type namingStrategy interface {
 	StrategyCode() db.MigrationStrategyCode
-	MigrationDirName() string
 	SourceBucketName(propName string) string
 	IngestSuffix() string
 	ReindexSuffix() string
@@ -61,20 +60,6 @@ func TestHandlesMatchTheStrategies(t *testing.T) {
 	}
 }
 
-func TestTrackerDirsMatchTheStrategies(t *testing.T) {
-	for _, strategy := range strategiesUnderTest() {
-		t.Run(string(strategy.StrategyCode()), func(t *testing.T) {
-			var props []string
-			if handleRecipes[strategy.StrategyCode()].tracker == trackerNamesOneProperty {
-				props = []string{""}
-			}
-			require.Equalf(t, strategy.MigrationDirName(),
-				TrackerDir(t, strategy.StrategyCode(), props, 0),
-				"%T tracks under a different directory than its recipe", strategy)
-		})
-	}
-}
-
 func TestHandlesAreAcceptedByTheRecordWriter(t *testing.T) {
 	props := []string{"body", "a__b", "x_ingest"}
 
@@ -93,7 +78,6 @@ func TestHandlesAreAcceptedByTheRecordWriter(t *testing.T) {
 						MigrationType:   db.ReindexTypeRepairFilterable,
 						Collection:      "Books",
 						IterationCutoff: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
-						TrackerDir:      TrackerDir(t, strategy.StrategyCode(), []string{prop}, generation),
 						Props: map[string]db.MigrationPropertyDirs{prop: {
 							Staged:    handles.Staged,
 							Canonical: handles.Canonical,

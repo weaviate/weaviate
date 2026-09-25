@@ -725,9 +725,6 @@ func (r *migrationReconciler) reconcilePromotedSealed(ctx context.Context, rec M
 				"the directory this one's data lives in. The next pass retires that record first", older)
 		return nil
 	}
-	if err := r.removeTrackerDir(subject); err != nil {
-		return err
-	}
 	return r.store.Remove(subject.Key)
 }
 
@@ -937,9 +934,6 @@ func (r *migrationReconciler) reclaimRecordAndDirs(ctx context.Context, subject 
 	if remaining := r.reclaimOwnedDirs(ctx, subject); len(remaining) > 0 {
 		return fmt.Errorf("%d owned directory/directories survived", len(remaining))
 	}
-	if err := r.removeTrackerDir(subject); err != nil {
-		return err
-	}
 	return r.store.Remove(subject.Key)
 }
 
@@ -950,16 +944,6 @@ func (r *migrationReconciler) closeStagedBuckets(ctx context.Context, dirs ...st
 	if err := r.deps.Buckets.ShutdownStagedBucketsAt(ctx, dirs); err != nil {
 		return fmt.Errorf("shut down the staged buckets at %s: %w",
 			strings.Join(migrationReportedNames(dirs), ", "), err)
-	}
-	return nil
-}
-
-// Reports a failed removal, which leaves a directory nothing else attributes:
-// the caller must keep its record so the next load retries.
-func (r *migrationReconciler) removeTrackerDir(subject MigrationSubject) error {
-	if err := r.dirs.Trackers().Discard(subject.TrackerDir, "the migration's tracker directory"); err != nil {
-		r.logger.WithField("dir", subject.TrackerDir).Errorf("%v", err)
-		return err
 	}
 	return nil
 }

@@ -29,7 +29,6 @@ const retokenizeCanonicalDir = "property_title_searchable"
 func retokenizeSubjectAtGeneration(generation int) MigrationSubject {
 	gen := strconv.Itoa(generation)
 	subject := testMigrationSubject(uint64(40+generation), StrategyCodeSearchableRetokenize, "title")
-	subject.TrackerDir = "searchable_retokenize_title_" + gen
 	subject.Props = map[string]MigrationPropertyDirs{"title": {
 		Staged:    "property_title_searchable__retokenize_ingest_" + gen,
 		Sidecar:   "property_title_searchable__retokenize_reindex_" + gen,

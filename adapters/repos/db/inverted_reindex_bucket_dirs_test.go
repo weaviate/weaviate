@@ -174,20 +174,3 @@ func TestDirExistsSeparatesAbsentFromUnreadable(t *testing.T) {
 		})
 	}
 }
-
-func TestTrackerDirsRootOneLevelDownAndTakeTheSameGuard(t *testing.T) {
-	f := newBucketDirsFixture(t)
-	f.mkdirs("property_title_searchable")
-	trackers := f.dirs.Trackers()
-	require.NoError(t, os.MkdirAll(filepath.Join(trackers.root, "searchable_retokenize_1"), 0o777))
-
-	require.Equal(t, filepath.Join(f.lsmPath, migrationsDir), trackers.root)
-
-	there, err := trackers.Exists("searchable_retokenize_1")
-	require.NoError(t, err)
-	require.True(t, there)
-
-	require.Error(t, trackers.Discard("..", "a tracker directory"),
-		"the parent of the tracker root is the shard's LSM directory")
-	require.True(t, f.exists("property_title_searchable"))
-}

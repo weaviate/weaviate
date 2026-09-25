@@ -26,10 +26,6 @@ type bucketDirs struct {
 
 func shardBucketDirs(lsmPath string) bucketDirs { return bucketDirs{root: lsmPath} }
 
-func (b bucketDirs) Trackers() bucketDirs {
-	return bucketDirs{root: filepath.Join(b.root, migrationsDir)}
-}
-
 func (b bucketDirs) Path(dir, what string) (string, error) {
 	if !migrationHandleIsOneElement(dir) {
 		return "", fmt.Errorf("refusing to act on %s %q: it does not name a single directory under %q",

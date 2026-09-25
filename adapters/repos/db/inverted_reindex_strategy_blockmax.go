@@ -29,10 +29,6 @@ type MapToBlockmaxStrategy struct {
 	generation    int // see genSuffix godoc
 }
 
-func (s *MapToBlockmaxStrategy) MigrationDirName() string {
-	return MigrationDirSearchableMapToBlockmax + genSuffix(s.generation)
-}
-
 func (s *MapToBlockmaxStrategy) StrategyCode() MigrationStrategyCode {
 	return StrategyCodeSearchableMapToBlockmax
 }

@@ -181,14 +181,6 @@ func (f *reconcileFixture) blockRemoval(name string) {
 	denyDirectoryWrites(f.t, filepath.Join(f.lsmPath, name))
 }
 
-func (f *reconcileFixture) blockTrackerRemoval(subject MigrationSubject) {
-	f.t.Helper()
-	dir := filepath.Join(f.lsmPath, migrationsDir, subject.TrackerDir)
-	// An empty directory is removable from a writable parent.
-	require.NoError(f.t, os.WriteFile(filepath.Join(dir, "segment-1.db"), nil, 0o600))
-	denyDirectoryWrites(f.t, dir)
-}
-
 func (f *reconcileFixture) blockRecordWrites() {
 	f.t.Helper()
 	denyDirectoryWrites(f.t, f.store.Dir())
@@ -221,39 +213,19 @@ func (f *reconcileFixture) put(rec MigrationRecord) {
 	subject := rec.Subject()
 	require.NoError(f.t, f.store.Put(rec))
 	f.planted = append(f.planted, subject)
-	path := filepath.Join(f.lsmPath, migrationsDir, subject.TrackerDir)
-	require.NoError(f.t, os.MkdirAll(path, 0o777))
 }
 
-func (f *reconcileFixture) trackerDirExists(subject MigrationSubject) bool {
-	info, err := os.Stat(filepath.Join(f.lsmPath, migrationsDir, subject.TrackerDir))
-	return err == nil && info.IsDir()
-}
-
-// A tracker directory implies a live record: the finalize path acts on
-// trackers by name, so an orphaned one hands another subsystem a stale
-// instruction. The reverse isn't required — removal order is directories,
-// then tracker, then record, so a record may briefly outlive its tracker.
+// A directory no record owns or claims is one nothing will ever remove.
 func (f *reconcileFixture) requireMigrationDirsTrackRecords() {
 	f.t.Helper()
 	surviving := f.store.Records()
 	for _, subject := range f.planted {
-		_, hasRecord := f.store.Get(subject.Key)
-		trackerThere := f.trackerDirExists(subject)
-		if trackerThere {
-			require.True(f.t, hasRecord, "tracker directory of %s survives with no record", subject.Key)
-		}
-
 		for _, dir := range migrationOwnedDirs(subject) {
 			if !f.exists(dir) {
 				continue
 			}
 			require.True(f.t, attributedToSomeRecord(surviving, dir),
 				"directory %q survives with no record owning or claiming it", dir)
-			require.True(f.t, trackerThere || !hasRecord ||
-				migrationDirClaimedAsDisplaced(surviving, subject, dir),
-				"record %s outlived its tracker directory while %q is still its own to remove",
-				subject.Key, dir)
 		}
 	}
 }
@@ -1504,10 +1476,6 @@ func TestAPoisonedRecordCannotSweepTheMigrationTree(t *testing.T) {
 			},
 		},
 		{
-			name:   "a tracker directory naming the record store",
-			poison: func(s *MigrationSubject) { s.TrackerDir = migrationRecordsDirName },
-		},
-		{
 			name: "a staged directory naming the object store",
 			poison: func(s *MigrationSubject) {
 				setMigrationDir(s, "title", func(d *MigrationPropertyDirs) { d.Staged = "objects" })
@@ -1552,7 +1520,6 @@ func TestAPoisonedRecordCannotSweepTheMigrationTree(t *testing.T) {
 				"the shard's migration tree must survive the record that named it")
 			_, present := f.state(bystander.Key)
 			require.True(t, present, "and so must every other record on the shard")
-			require.True(t, f.trackerDirExists(bystander))
 			if tt.serving != "" {
 				require.Equal(t, sidecarDataFor(tt.serving), readSidecarData(t, f.lsmPath, tt.serving),
 					"the store this record named must still hold its data")

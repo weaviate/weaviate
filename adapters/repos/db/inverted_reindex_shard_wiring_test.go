@@ -333,8 +333,6 @@ func TestAShardLoadLeavesAnUndecidedRecordExactlyAsItFoundIt(t *testing.T) {
 	for _, dir := range named {
 		require.NoError(t, os.MkdirAll(filepath.Join(shard.pathLSM(), dir), 0o777))
 	}
-	tracker := filepath.Join(shard.pathLSM(), migrationsDir, subject.TrackerDir)
-	require.NoError(t, os.MkdirAll(tracker, 0o777))
 
 	shard.reconcileMigrationRecords(ctx, class)
 
@@ -346,7 +344,6 @@ func TestAShardLoadLeavesAnUndecidedRecordExactlyAsItFoundIt(t *testing.T) {
 		require.DirExists(t, filepath.Join(shard.pathLSM(), dir),
 			"every directory the record names survives a load that decided nothing")
 	}
-	require.DirExists(t, tracker, "and so does its tracker directory")
 }
 
 // The counters answer two different operator questions, and the call site is
