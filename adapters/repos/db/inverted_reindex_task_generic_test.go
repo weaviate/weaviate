@@ -463,7 +463,7 @@ func TestBothChangeTokenizationHalvesRecordTheBucketStrategy(t *testing.T) {
 	}
 	desc, unitID := testTaskIdentity()
 
-	tasks, err := p.createReindexTasks(desc, unitID, payload, t.TempDir(), false)
+	tasks, err := p.createReindexTasks(desc, unitID, payload)
 	require.NoError(t, err)
 	require.Len(t, tasks, 2)
 

@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -282,91 +283,29 @@ func TestLocalCallbacksDoneLeavesUnloadedShardsAlone(t *testing.T) {
 }
 
 func TestBuildRecoveryTasksStampsTheIdentity(t *testing.T) {
-	type recoveryCase struct {
-		createReindexTasksEnumerationCase
-		name          string
-		trackerPrefix string
-	}
-	recoverable := []createReindexTasksEnumerationCase{
-		{mt: ReindexTypeChangeAlgorithm, payload: &ReindexTaskPayload{Collection: "MyClass", Properties: []string{"title"}}, wantNTasks: 1},
-		{mt: ReindexTypeRepairFilterable, payload: &ReindexTaskPayload{Collection: "MyClass", Properties: []string{"tag"}}, wantNTasks: 1},
-		{mt: ReindexTypeEnableRangeable, payload: &ReindexTaskPayload{Collection: "MyClass", Properties: []string{"age"}}, wantNTasks: 1},
-		{mt: ReindexTypeRepairRangeable, payload: &ReindexTaskPayload{Collection: "MyClass", Properties: []string{"age"}}, wantNTasks: 1},
-		{mt: ReindexTypeEnableFilterable, payload: &ReindexTaskPayload{Collection: "MyClass", Properties: []string{"tag"}}, wantNTasks: 1},
-		{
-			mt: ReindexTypeEnableSearchable,
-			payload: &ReindexTaskPayload{
-				Collection: "MyClass", Properties: []string{"title"}, TargetTokenization: "word",
-			},
-			wantNTasks: 1,
-		},
-		{
-			mt: ReindexTypeChangeTokenization,
-			payload: &ReindexTaskPayload{
-				Collection: "MyClass", Properties: []string{"title"},
-				TargetTokenization: "field", BucketStrategy: "MapCollection",
-			},
-			wantNTasks: 2,
-		},
-		{
-			mt: ReindexTypeChangeTokenizationFilterable,
-			payload: &ReindexTaskPayload{
-				Collection: "MyClass", Properties: []string{"title"}, TargetTokenization: "field",
-			},
-			wantNTasks: 1,
-		},
-	}
-	require.Len(t, allKnownMigrationTypes(), len(recoverable)+1,
+	require.Len(t, allKnownMigrationTypes(), len(recoverableDirOwnershipCases())+1,
 		"a new migration type has to be classified here: either the recovery switch "+
 			"dispatches it and it belongs in this table, or it joins the one type that has no arm")
 
-	cases := make([]recoveryCase, 0, len(recoverable)+1)
-	for _, c := range recoverable {
-		prefix := ""
-		if c.mt == ReindexTypeChangeTokenization {
-			c.wantNTasks = 1
-			cases = append(cases, recoveryCase{
-				createReindexTasksEnumerationCase: c,
-				name:                              string(c.mt) + "/filterable half",
-				trackerPrefix:                     MigrationDirPrefixFilterableRetokenize + "_title",
-			})
-			prefix = MigrationDirPrefixSearchableRetokenize + "_title"
-			cases = append(cases, recoveryCase{
-				createReindexTasksEnumerationCase: c,
-				name:                              string(c.mt) + "/searchable half",
-				trackerPrefix:                     prefix,
-			})
-			continue
-		}
-		cases = append(cases, recoveryCase{
-			createReindexTasksEnumerationCase: c, name: string(c.mt), trackerPrefix: prefix,
-		})
-	}
-
+	p, _ := newTestProvider(t)
 	logger, _ := logrustest.NewNullLogger()
-	desc, unitID := testTaskIdentity()
+	desc := taskDescAt(11)
 
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			payload := *c.payload
-			payload.MigrationType = c.mt
-			rec := reindexRecoveryRecord{
-				TaskID: desc.ID, TaskVersion: desc.Version, UnitID: unitID, Payload: payload,
-			}
+	for _, tc := range recoverableDirOwnershipCases() {
+		minted, err := p.createReindexTasks(desc, dirOwnershipUnit, tc.payload())
+		require.NoError(t, err)
+		for _, original := range minted {
+			subject := original.migrationSubject(nil, []string{dirOwnershipProp}, time.Time{})
+			t.Run(tc.name+"/"+string(subject.Key.StrategyCode), func(t *testing.T) {
+				tasks, err := buildRecoveryTasks(subject, "shard-1", logger, nil)
+				require.NoError(t, err)
+				require.Len(t, tasks, 1)
 
-			tasks, err := buildRecoveryTasks(rec, "shard-1", c.trackerPrefix, 1, logger, nil)
-			require.NoError(t, err)
-			require.Len(t, tasks, c.wantNTasks)
-
-			for i, task := range tasks {
-				require.NotNil(t, task)
-				require.Truef(t, task.migrationRecordKey().valid(),
-					"recovered task %d of %q has an unusable record key %s",
-					i, c.mt, task.migrationRecordKey())
-				require.Equal(t, desc.Version, task.migrationRecordKey().TaskVersion)
-				require.Equal(t, unitID, task.migrationRecordKey().UnitID)
-			}
-		})
+				require.Equal(t, subject.Key, tasks[0].migrationRecordKey())
+				handles := subject.Props[dirOwnershipProp]
+				require.Equal(t, []string{handles.Sidecar, handles.Staged}, workingCopyDirs(tasks))
+			})
+		}
 	}
 }
 

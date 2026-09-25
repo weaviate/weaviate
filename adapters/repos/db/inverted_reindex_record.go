@@ -159,6 +159,17 @@ func (s MigrationSubject) dirsInRole(read func(MigrationPropertyDirs) string) ma
 	return out
 }
 
+func (s MigrationSubject) reindexPayload() ReindexTaskPayload {
+	return ReindexTaskPayload{
+		MigrationType:        s.MigrationType,
+		Collection:           s.Collection,
+		Properties:           s.Properties(),
+		TargetTokenization:   s.TargetTokenization,
+		OriginalTokenization: s.OriginalTokenization,
+		BucketStrategy:       s.BucketStrategy,
+	}
+}
+
 var migrationHorizonEverything = time.Date(9999, time.January, 1, 0, 0, 0, 0, time.UTC)
 
 // A record is a value: whoever holds one must not mutate it or anything

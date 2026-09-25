@@ -86,9 +86,11 @@ func TestSwapPhaseLoadsTheShardBeforeClaimingItsUnit(t *testing.T) {
 	}
 	desc := distributedtask.TaskDescriptor{ID: "T_swap", Version: 1}
 
-	seeded, err := p.createReindexTasks(desc, unitID, payload, tenantLSM, true)
+	tasks, err := p.createReindexTasks(desc, unitID, payload)
 	require.NoError(t, err)
-	require.NotEmpty(t, seeded)
+	seeded := tasks[:1]
+	require.Equal(t, StrategyCodeSearchableRetokenize, seeded[0].strategy.StrategyCode(),
+		"only the searchable half has a record")
 	p.SeedReindexTaskCache(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric{
 		desc: {unitID: seeded},
 	})
@@ -127,9 +129,7 @@ func TestAPhaseHoldsItsUnitWhileItRuns(t *testing.T) {
 	}
 	desc := distributedtask.TaskDescriptor{ID: "T_hold", Version: 1}
 
-	concrete, err := unwrapShard(ctx, hot)
-	require.NoError(t, err)
-	tasks, err := p.createReindexTasks(desc, "u1", payload, concrete.pathLSM(), false)
+	tasks, err := p.createReindexTasks(desc, "u1", payload)
 	require.NoError(t, err)
 	require.NotEmpty(t, tasks)
 	p.SeedReindexTaskCache(map[distributedtask.TaskDescriptor]map[string][]*ShardReindexTaskGeneric{

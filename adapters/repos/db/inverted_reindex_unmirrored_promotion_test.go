@@ -102,39 +102,25 @@ func TestPromotionSaysWhyItWithheldAfterAnUnmirroredBoot(t *testing.T) {
 // Nothing else arms the mirror for a migration awaiting its flip, so the stamp
 // is the only thing carrying that across the restart to the promotion.
 func TestRecoveryWalkStampsAMigrationItCouldNotArm(t *testing.T) {
-	const trackerDir = "filterable_roaringset_refresh_title_1"
-
-	payload := `{"taskID":"Books:repair-filterable:title:ab12","taskVersion":42,` +
-		`"unitID":"shard-1__node-0","payload":{"migrationType":"repair-filterable",` +
-		`"collection":"Books","properties":["title"]}}`
+	// The writer accepts this record; recovery cannot build a task from it.
+	noTokenization := func(s MigrationSubject) MigrationSubject {
+		s.MigrationType = ReindexTypeEnableSearchable
+		s.TargetTokenization = ""
+		return s
+	}
 
 	tests := []struct {
 		name           string
 		rec            func(MigrationSubject) MigrationRecord
-		payload        string
 		wantUnmirrored bool
 	}{
 		{
-			name:    "merged, payload readable: the walk arms the mirror itself",
-			rec:     func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
-			payload: payload,
+			name: "merged, record builds a task: the walk arms the mirror itself",
+			rec:  func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
 		},
 		{
-			name:           "merged, payload truncated: no task, so no mirror",
-			rec:            func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
-			payload:        "{",
-			wantUnmirrored: true,
-		},
-		{
-			name:           "merged, no payload at all",
-			rec:            func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
-			wantUnmirrored: true,
-		},
-		{
-			name: "swapped but not promoted, no payload",
-			rec: func(s MigrationSubject) MigrationRecord {
-				return NewMigrationRecordSwapped(s, s.Properties(), map[string]string{"title": s.Props["title"].Canonical})
-			},
+			name:           "merged, record builds no task, so no mirror",
+			rec:            func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(noTokenization(s)) },
 			wantUnmirrored: true,
 		},
 		{
@@ -144,9 +130,8 @@ func TestRecoveryWalkStampsAMigrationItCouldNotArm(t *testing.T) {
 			},
 		},
 		{
-			name:    "iterating: the scheduler restarts the unit and arms the mirror itself",
-			rec:     func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterating(s, MigrationCheckpoint{}) },
-			payload: payload,
+			name: "iterating: the scheduler restarts the unit and arms the mirror itself",
+			rec:  func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterating(s, MigrationCheckpoint{}) },
 		},
 	}
 
@@ -154,16 +139,10 @@ func TestRecoveryWalkStampsAMigrationItCouldNotArm(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			root := t.TempDir()
 			lsm := filepath.Join(root, "books_abc", "shard-1", "lsm")
-			migDir := filepath.Join(lsm, ".migrations", trackerDir)
-			require.NoError(t, os.MkdirAll(migDir, 0o777))
-			if tt.payload != "" {
-				require.NoError(t, os.WriteFile(
-					filepath.Join(migDir, reindexRecoveryPayloadFile), []byte(tt.payload), 0o600))
-			}
+			require.NoError(t, os.MkdirAll(lsm, 0o777))
 
 			logger, _ := test.NewNullLogger()
 			subject := testMigrationSubject(42, StrategyCodeFilterableRoaringsetRefresh, "title")
-			subject.TrackerDir = trackerDir
 			subject.MigrationType = ReindexTypeRepairFilterable
 
 			store := NewMigrationRecordStore(lsm, logger)

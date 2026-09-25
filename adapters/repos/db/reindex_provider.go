@@ -587,29 +587,35 @@ func (p *ReindexProvider) processOneUnit(
 		cached = len(tasks) > 0
 	}
 	if cached {
-		if missing := migrationHalvesMissingFromCache(
-			concreteShard.pathLSM(), task.TaskDescriptor, unitID, tasks); len(missing) > 0 {
-			rebuilt, rebuildErr := rebuildNeverStartedHalves(concreteShard.pathLSM(), concreteShard.Name(),
-				task.TaskDescriptor, unitID, missing, p.logger, p.schemaManager)
-			if rebuildErr != nil {
-				p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf(
-					"recovery rebuilt %d of this unit's migrations and %d more never started (%s), "+
-						"and their payloads could not rebuild them (%v); refusing the unit rather "+
-						"than reporting it finished with those unbuilt. "+
-						"Re-run the migration once this node is up",
-					len(tasks), len(missing), strings.Join(migrationReportedNames(missing), ", "), rebuildErr))
-				return
+		// Recovery seeds only the halves that carry a record, so a restart between
+		// a unit's halves leaves the other one to build here.
+		fresh, createErr := p.createReindexTasks(task.TaskDescriptor, unitID, payload)
+		if createErr != nil {
+			p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("creating reindex tasks: %v", createErr))
+			return
+		}
+		seeded := make(map[MigrationRecordKey]struct{}, len(tasks))
+		for _, t := range tasks {
+			seeded[t.migrationRecordKey()] = struct{}{}
+		}
+		var added []string
+		for _, t := range fresh {
+			if _, ok := seeded[t.migrationRecordKey()]; ok {
+				continue
 			}
+			tasks = append(tasks, t)
+			added = append(added, string(t.strategy.StrategyCode()))
+		}
+		if len(added) > 0 {
 			logger.Infof("reindex provider: recovery seeded %d of this unit's migrations; "+
-				"rebuilt the %d never-started one(s) (%s) from their payloads",
-				len(tasks), len(rebuilt), strings.Join(migrationReportedNames(missing), ", "))
-			tasks = append(tasks, rebuilt...)
+				"built the %d never-started one(s) (%s) from the task payload",
+				len(tasks)-len(added), len(added), strings.Join(added, ", "))
 			p.cacheReindexTasks(task.TaskDescriptor, unitID, tasks)
 		}
 	}
 	if !cached {
 		var createErr error
-		tasks, createErr = p.createReindexTasks(task.TaskDescriptor, unitID, payload, concreteShard.pathLSM(), false)
+		tasks, createErr = p.createReindexTasks(task.TaskDescriptor, unitID, payload)
 		if createErr != nil {
 			p.failUnit(ctx, task, unitID, recorder, fmt.Sprintf("creating reindex tasks: %v", createErr))
 			return
@@ -711,9 +717,9 @@ const maxReindexPropertiesPerTask = 1024
 // createReindexTasks constructs the strategy/task instances for a payload.
 // See `docs/runtime-reindex.md` for the deferred-finalize design rationale.
 func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor, unitID string,
-	payload *ReindexTaskPayload, lsmPath string, rehydrate bool,
+	payload *ReindexTaskPayload,
 ) ([]*ShardReindexTaskGeneric, error) {
-	tasks, err := p.buildReindexTasks(desc, payload, lsmPath, rehydrate)
+	tasks, err := p.buildReindexTasks(desc, payload)
 	if err != nil {
 		return nil, err
 	}
@@ -724,7 +730,7 @@ func (p *ReindexProvider) createReindexTasks(desc distributedtask.TaskDescriptor
 }
 
 func (p *ReindexProvider) buildReindexTasks(desc distributedtask.TaskDescriptor,
-	payload *ReindexTaskPayload, lsmPath string, rehydrate bool,
+	payload *ReindexTaskPayload,
 ) ([]*ShardReindexTaskGeneric, error) {
 	// Every migration type requires at least one property — repair-* / enable-*
 	// because they're per-property migrations, change-tokenization because it
@@ -744,37 +750,19 @@ func (p *ReindexProvider) buildReindexTasks(desc distributedtask.TaskDescriptor,
 	}
 
 	gen := int(desc.Version)
-	genFor := func(prefix, propSuffix string) (int, bool) {
-		if rehydrate && migrationTrackerDirAbsent(lsmPath, prefix+propSuffix+genSuffix(gen)) {
-			return 0, false
-		}
-		return gen, true
-	}
 
 	switch payload.MigrationType {
 	case ReindexTypeChangeAlgorithm:
-		gen, ok := genFor(MigrationDirSearchableMapToBlockmax, "")
-		if !ok {
-			return nil, nil
-		}
 		return []*ShardReindexTaskGeneric{
 			NewRuntimeMapToBlockmaxTask(p.logger, p.schemaManager, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeRebuildSearchable:
-		gen, ok := genFor(MigrationDirPrefixRebuildSearchable, propsSuffix(payload.Properties))
-		if !ok {
-			return nil, nil
-		}
 		return []*ShardReindexTaskGeneric{
 			NewRuntimeRebuildSearchableTask(p.logger, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeRepairFilterable:
-		gen, ok := genFor(MigrationDirFilterableRoaringsetRefresh, "")
-		if !ok {
-			return nil, nil
-		}
 		return []*ShardReindexTaskGeneric{
 			NewRuntimeRoaringSetRefreshTask(p.logger, payload.Properties, payload.Collection, gen),
 		}, nil
@@ -784,19 +772,11 @@ func (p *ReindexProvider) buildReindexTasks(desc distributedtask.TaskDescriptor,
 		// rangeable is rebuilt from the existing filterable bucket either
 		// way. The validator at submit time gates which one is allowed
 		// based on the property's current IndexRangeFilters state.
-		gen, ok := genFor(MigrationDirPrefixFilterableToRangeable, propsSuffix(payload.Properties))
-		if !ok {
-			return nil, nil
-		}
 		return []*ShardReindexTaskGeneric{
 			NewRuntimeFilterableToRangeableTask(p.logger, payload.Properties, payload.Collection, gen),
 		}, nil
 
 	case ReindexTypeEnableFilterable:
-		gen, ok := genFor(MigrationDirPrefixEnableFilterable, propsSuffix(payload.Properties))
-		if !ok {
-			return nil, nil
-		}
 		return []*ShardReindexTaskGeneric{
 			NewRuntimeEnableFilterableTask(p.logger, payload.Properties, payload.Collection, gen),
 		}, nil
@@ -804,10 +784,6 @@ func (p *ReindexProvider) buildReindexTasks(desc distributedtask.TaskDescriptor,
 	case ReindexTypeEnableSearchable:
 		if payload.TargetTokenization == "" {
 			return nil, fmt.Errorf("enable-searchable requires targetTokenization")
-		}
-		gen, ok := genFor(MigrationDirPrefixEnableSearchable, propsSuffix(payload.Properties))
-		if !ok {
-			return nil, nil
 		}
 		return []*ShardReindexTaskGeneric{
 			NewRuntimeEnableSearchableTask(p.logger, payload.Properties, payload.Collection, payload.TargetTokenization, gen),
@@ -834,23 +810,18 @@ func (p *ReindexProvider) buildReindexTasks(desc distributedtask.TaskDescriptor,
 		// case, so the defense lives here: only dispatch the filterable
 		// retokenize sub-task when the property actually has a filterable
 		// index.
-		var tasks []*ShardReindexTaskGeneric
-		if searchableGen, ok := genFor(MigrationDirPrefixSearchableRetokenize, "_"+propName); ok {
-			tasks = append(tasks, NewRuntimeSearchableRetokenizeTask(
-				p.logger, propName, payload.TargetTokenization,
-				payload.Collection, payload.BucketStrategy, payload.Collection,
-				searchableGen,
-			))
-		}
+		tasks := []*ShardReindexTaskGeneric{NewRuntimeSearchableRetokenizeTask(
+			p.logger, propName, payload.TargetTokenization,
+			payload.Collection, payload.BucketStrategy, payload.Collection,
+			gen,
+		)}
 		if p.propertyHasFilterableBucket(payload.Collection, propName) {
-			if filterableGen, ok := genFor(MigrationDirPrefixFilterableRetokenize, "_"+propName); ok {
-				tasks = append(tasks, NewRuntimeFilterableRetokenizeTask(
-					p.logger,
-					propName, payload.TargetTokenization,
-					payload.Collection, payload.Collection,
-					filterableGen,
-				))
-			}
+			tasks = append(tasks, NewRuntimeFilterableRetokenizeTask(
+				p.logger,
+				propName, payload.TargetTokenization,
+				payload.Collection, payload.Collection,
+				gen,
+			))
 		}
 		return tasks, nil
 
@@ -862,38 +833,17 @@ func (p *ReindexProvider) buildReindexTasks(desc distributedtask.TaskDescriptor,
 		if payload.TargetTokenization == "" {
 			return nil, fmt.Errorf("change-tokenization-filterable requires targetTokenization")
 		}
-		filterableGen, ok := genFor(MigrationDirPrefixFilterableRetokenize, "_"+propName)
-		if !ok {
-			return nil, nil
-		}
 		filterableTask := NewRuntimeFilterableRetokenizeTask(
 			p.logger,
 			propName, payload.TargetTokenization,
 			payload.Collection, payload.Collection,
-			filterableGen,
+			gen,
 		)
 		return []*ShardReindexTaskGeneric{filterableTask}, nil
 
 	default:
 		return nil, fmt.Errorf("unknown migration type %q", payload.MigrationType)
 	}
-}
-
-// propsSuffix returns the "_p1_p2..." prop-names suffix that
-// migrationDirWithProps appends after a strategy prefix. Returns "" for
-// empty prop slices. Kept in sync with [migrationDirWithProps] — must
-// produce the same suffix string the strategy's MigrationDirName() will
-// emit, or the rehydrate stat looks at a name no strategy ever wrote.
-func propsSuffix(propNames []string) string {
-	if len(propNames) == 0 {
-		return ""
-	}
-	// migrationDirWithProps sorts the names; replicate that here so the
-	// resulting suffix matches.
-	sorted := make([]string, len(propNames))
-	copy(sorted, propNames)
-	sort.Strings(sorted)
-	return "_" + strings.Join(sorted, "_")
 }
 
 // propertyHasFilterableBucket reports whether the named property carries
@@ -1184,13 +1134,35 @@ func (p *ReindexProvider) resolveUnitForPhase(
 	if cached := p.cachedReindexTasks(task.TaskDescriptor, unitID); len(cached) > 0 {
 		return phaseUnitResolution{Shard: resolvedShard, UnitTasks: cached}
 	}
-	fresh, err := p.createReindexTasks(task.TaskDescriptor, unitID, payload, concreteShard.pathLSM(), true)
+	store := concreteShard.migrationRecordStore()
+	if store == nil {
+		return phaseUnitResolution{
+			Errs: []string{fmt.Sprintf("unit %s: shard %q holds no migration record store", unitID, concreteShard.Name())},
+		}
+	}
+	// Get reads only decoded records, so an unreadable one would read as a
+	// migration already finalized, and the schema would flip over an unrebuilt bucket.
+	if unreadable := store.Unreadable(); len(unreadable) > 0 {
+		logger.WithField("unit", unitID).WithField("file", unreadable[0].FileName).
+			Errorf("reindex provider: resolveUnitForPhase: a migration record could not be read: %s", unreadable[0].Reason)
+		return phaseUnitResolution{
+			Errs: []string{fmt.Sprintf("unit %s: migration record %q could not be read, so whether this unit "+
+				"is still in flight is unknown: %s", unitID, unreadable[0].FileName, unreadable[0].Reason)},
+		}
+	}
+	built, err := p.createReindexTasks(task.TaskDescriptor, unitID, payload)
 	if err != nil {
 		logger.WithField("unit", unitID).
 			Errorf("reindex provider: resolveUnitForPhase: creating reindex tasks: %v", err)
 		return phaseUnitResolution{
 			Errs:      []string{fmt.Sprintf("unit %s create tasks: %v", unitID, err)},
 			Transient: errors.Is(err, context.Canceled),
+		}
+	}
+	var fresh []*ShardReindexTaskGeneric
+	for _, t := range built {
+		if _, ok := store.Get(t.migrationRecordKey()); ok {
+			fresh = append(fresh, t)
 		}
 	}
 	if len(fresh) == 0 {

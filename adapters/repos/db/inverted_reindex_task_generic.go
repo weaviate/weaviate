@@ -1247,8 +1247,7 @@ func (t *ShardReindexTaskGeneric) obsoleteSidecarDirs(logger logrus.FieldLogger,
 		return nil
 	}
 	currentReindexBase, _, _ := parseMigrationDirName(t.strategy.ReindexSuffix())
-	currentIngestBase, _, _ := parseMigrationDirName(t.strategy.IngestSuffix())
-	_, currentGenN, _ := parseMigrationDirName(t.strategy.MigrationDirName())
+	currentIngestBase, currentGenN, _ := parseMigrationDirName(t.strategy.IngestSuffix())
 
 	var out []string
 	for _, propName := range props {

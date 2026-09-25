@@ -12,7 +12,6 @@
 package db
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -22,7 +21,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
@@ -31,24 +29,17 @@ import (
 )
 
 func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
-	const trackerDir = "searchable_retokenize_title_1"
-
 	tests := []struct {
-		name             string
-		rec              func(MigrationSubject) MigrationRecord
-		oversizedPayload bool
-		pastWalkBound    bool
-		noPayload        bool
-		rawPayload       string
-		wantIn           bool
-		wantFault        recoveryPayloadFault
-		because          string
+		name       string
+		rec        func(MigrationSubject) MigrationRecord
+		unreadable bool
+		wantIn     bool
+		because    string
 	}{
 		{
-			name:      "iterating",
-			rec:       func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterating(s, MigrationCheckpoint{}) },
-			wantFault: recoveryPayloadNotApplicable,
-			because:   "the scheduler restarts the unit and arms the mirror itself",
+			name:    "iterating",
+			rec:     func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterating(s, MigrationCheckpoint{}) },
+			because: "the scheduler restarts the unit and arms the mirror itself",
 		},
 		{
 			name:   "iterated",
@@ -72,80 +63,41 @@ func TestRecoveryWindowSpansAnUnpromotedFlip(t *testing.T) {
 			rec: func(s MigrationSubject) MigrationRecord {
 				return NewMigrationRecordPromoted(s, s.Properties(), map[string]string{"title": s.Props["title"].Canonical})
 			},
-			wantFault: recoveryPayloadNotApplicable,
-			because:   "the staged copy is the canonical one, so there is nothing left to mirror into",
+			because: "the staged copy is the canonical one, so there is nothing left to mirror into",
 		},
 		{
-			name:             "merged, with a payload past the apply-path parse bound",
-			rec:              func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
-			oversizedPayload: true,
-			wantIn:           true,
-			because:          "an ordinary large multi-tenant migration still has to recover its mirror",
-		},
-		{
-			name:          "merged, with a payload past the walk's own memory bound",
-			rec:           func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
-			pastWalkBound: true,
-			wantFault:     recoveryPayloadOversized,
-			because:       "a payload no migration can write is not one to read into memory at boot",
-		},
-		{
-			name:      "merged, with no payload.mig at all",
-			rec:       func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
-			noPayload: true,
-			wantFault: recoveryPayloadUnreadable,
-			because:   "a payload that is not there is missing, not too large to read",
-		},
-		{
-			name:       "merged, with a property name that escapes the shard",
+			name:       "merged, beside a record this build cannot read",
 			rec:        func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
-			rawPayload: `{"taskID":"t","taskVersion":42,"unitID":"shard-1__node-0","payload":{"collection":"Books","properties":["../../../etc"]}}`,
-			wantFault:  recoveryPayloadMalformed,
-			because:    "a property name that is not one directory inside the shard is not a property list",
-		},
-		{
-			name:       "merged, with a property name carrying a separator",
-			rec:        func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
-			rawPayload: `{"taskID":"t","taskVersion":42,"unitID":"shard-1__node-0","payload":{"collection":"Books","properties":["a/b"]}}`,
-			wantFault:  recoveryPayloadMalformed,
-			because:    "a separator makes the name address a directory the shard does not own",
-		},
-		{
-			name:       "merged, with an empty property name",
-			rec:        func(s MigrationSubject) MigrationRecord { return NewMigrationRecordMerged(s) },
-			rawPayload: `{"taskID":"t","taskVersion":42,"unitID":"shard-1__node-0","payload":{"collection":"Books","properties":[""]}}`,
-			wantFault:  recoveryPayloadMalformed,
-			because:    "an empty name composes into another property's sidecar",
+			unreadable: true,
+			wantIn:     true,
+			because:    "one unreadable record must not cost the readable ones their mirror",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			migDir := filepath.Join(t.TempDir(), trackerDir)
-			require.NoError(t, os.MkdirAll(migDir, 0o777))
-			payload := []byte(`{"taskID":"t","taskVersion":42,"unitID":"shard-1__node-0","payload":{"collection":"Books","properties":["title"]}}`)
-			if tt.rawPayload != "" {
-				payload = []byte(tt.rawPayload)
-			}
-			if tt.oversizedPayload {
-				payload = append(payload, bytes.Repeat([]byte(" "), maxRecoveryPayloadBytes)...)
-			}
-			payloadPath := filepath.Join(migDir, reindexRecoveryPayloadFile)
-			if !tt.noPayload {
-				require.NoError(t, os.WriteFile(payloadPath, payload, 0o600))
-			}
-			if tt.pastWalkBound {
-				require.NoError(t, os.Truncate(payloadPath, maxRecoveryWalkPayloadBytes+1))
-			}
-
+			root := t.TempDir()
+			lsm := filepath.Join(root, "books_abc", "shard-1", "lsm")
+			require.NoError(t, os.MkdirAll(lsm, 0o777))
+			logger, _ := test.NewNullLogger()
 			subject := testMigrationSubject(42, StrategyCodeSearchableRetokenize, "title")
-			subject.TrackerDir = trackerDir
-
-			_, fault, _ := loadReindexRecoveryRecord(migDir, []MigrationRecord{tt.rec(subject)})
-			require.Equal(t, tt.wantIn, fault == recoveryPayloadOK, tt.because)
-			if !tt.wantIn {
-				require.Equal(t, tt.wantFault, fault, tt.because)
+			store := NewMigrationRecordStore(lsm, logger)
+			require.NoError(t, store.Load())
+			require.NoError(t, store.Put(tt.rec(subject)))
+			if tt.unreadable {
+				plantUnreadableRecord(t, store.Dir())
 			}
+
+			recovered, err := DiscoverInFlightReindexTasks(root, logger, nil)
+			require.NoError(t, err)
+
+			if !tt.wantIn {
+				require.Empty(t, recovered, tt.because)
+				return
+			}
+			require.Len(t, recovered, 1, tt.because)
+			require.Len(t, recovered[0].Tasks, 1)
+			require.Equal(t, subject.Key, recovered[0].Tasks[0].migrationRecordKey())
 		})
 	}
 }
@@ -332,33 +284,4 @@ func TestRecoveryWalkAggregatesUnreadableShardsIntoOneLine(t *testing.T) {
 	require.Len(t, about, 1, "one line for the whole walk, not one per shard: %v", about)
 	require.Contains(t, about[0], fmt.Sprintf("%d shard(s)", shards),
 		"the one line carries the count the per-shard lines used to carry")
-}
-
-// One record-set read per shard: each shard carries several tracker dirs, so a
-// per-tracker read multiplies boot disk cost by the tenant count.
-func TestRecoveryWalkReadsEachShardsRecordsOnce(t *testing.T) {
-	const (
-		shards   = 6
-		trackers = 2
-	)
-	root := t.TempDir()
-	indexPath := filepath.Join(root, "books_abc")
-
-	for i := 0; i < shards; i++ {
-		migs := filepath.Join(indexPath, fmt.Sprintf("tenant-%02d", i), "lsm", ".migrations")
-		for gen := 1; gen <= trackers; gen++ {
-			require.NoError(t, os.MkdirAll(
-				filepath.Join(migs, fmt.Sprintf("searchable_retokenize_title_%d", gen)), 0o777))
-		}
-	}
-
-	logger, hook := test.NewNullLogger()
-	logger.SetLevel(logrus.DebugLevel)
-
-	recovered, err := DiscoverInFlightReindexTasks(root, logger, nil)
-	require.NoError(t, err)
-	require.Empty(t, recovered, "no record names any of these trackers, so nothing recovers")
-
-	require.Equal(t, shards, recordSetReadsReported(hook),
-		"one read per shard, whatever the tracker count on it")
 }

@@ -123,12 +123,6 @@ func parseMigrationDirName(name string) (prefix string, generation int, ok bool)
 	return name[:idx], gen, true
 }
 
-// A stat error must not read as absence: a pending migration would be marked complete, unrebuilt.
-func migrationTrackerDirAbsent(lsmPath, dirName string) bool {
-	there, err := shardBucketDirs(lsmPath).Trackers().Exists(dirName)
-	return err == nil && !there
-}
-
 // migrationDirPrefixesForIndexType returns the per-property migration
 // strategy prefixes for a "filterable"/"searchable"/"rangeable" indexType,
 // whose tracker dirs would lie (report "previous run completed") after the

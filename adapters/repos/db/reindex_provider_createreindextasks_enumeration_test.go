@@ -202,7 +202,6 @@ func TestCreateReindexTasks_EnumerationExhaustive(t *testing.T) {
 // enumerationCase would fail with the unknown-type error string.
 func TestCreateReindexTasks_AllKnownTypesDispatched(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	tmpLsmPath := t.TempDir()
 
 	// Build a minimal provider literal. createReindexTasks references
 	// p.logger and p.schemaManager only; nil schemaManager is OK
@@ -228,7 +227,7 @@ func TestCreateReindexTasks_AllKnownTypesDispatched(t *testing.T) {
 			payload := *c.payload
 			payload.MigrationType = c.mt
 			desc, unitID := testTaskIdentity()
-			tasks, err := p.createReindexTasks(desc, unitID, &payload, tmpLsmPath, false)
+			tasks, err := p.createReindexTasks(desc, unitID, &payload)
 
 			if c.wantErrSubst != "" {
 				require.Errorf(t, err,
@@ -268,7 +267,6 @@ func TestCreateReindexTasks_AllKnownTypesDispatched(t *testing.T) {
 // "complete" with no work done.
 func TestCreateReindexTasks_UnknownTypeRejected(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	tmpLsmPath := t.TempDir()
 	p := &ReindexProvider{logger: logger}
 
 	desc, unitID := testTaskIdentity()
@@ -276,7 +274,7 @@ func TestCreateReindexTasks_UnknownTypeRejected(t *testing.T) {
 		MigrationType: ReindexMigrationType("definitely-not-a-real-type"),
 		Collection:    "MyClass",
 		Properties:    []string{"title"},
-	}, tmpLsmPath, false)
+	})
 
 	require.Error(t, err, "unknown migration type must error")
 	assert.Contains(t, err.Error(), "unknown migration type",
@@ -290,7 +288,6 @@ func TestCreateReindexTasks_UnknownTypeRejected(t *testing.T) {
 // zero tasks.
 func TestCreateReindexTasks_EmptyPropertiesRejected(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	tmpLsmPath := t.TempDir()
 	p := &ReindexProvider{logger: logger}
 
 	for _, mt := range allKnownMigrationTypes() {
@@ -300,7 +297,7 @@ func TestCreateReindexTasks_EmptyPropertiesRejected(t *testing.T) {
 				MigrationType: mt,
 				Collection:    "MyClass",
 				// Properties: nil — the gate is in createReindexTasks itself.
-			}, tmpLsmPath, false)
+			})
 			require.Errorf(t, err, "%q with empty properties should error", mt)
 			assert.Containsf(t, err.Error(), "requires at least one property",
 				"%q empty-properties error should mention 'requires at least one property'; got %q",
@@ -317,7 +314,6 @@ func TestCreateReindexTasks_EmptyPropertiesRejected(t *testing.T) {
 // front instead of OOM'ing the per-strategy loop.
 func TestCreateReindexTasks_TooManyPropertiesRejected(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	tmpLsmPath := t.TempDir()
 	p := &ReindexProvider{logger: logger}
 
 	tooMany := make([]string, maxReindexPropertiesPerTask+1)
@@ -330,7 +326,7 @@ func TestCreateReindexTasks_TooManyPropertiesRejected(t *testing.T) {
 		MigrationType: ReindexTypeRepairFilterable, // arbitrary; the gate is migration-agnostic
 		Collection:    "MyClass",
 		Properties:    tooMany,
-	}, tmpLsmPath, false)
+	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "max is")
 	assert.Empty(t, tasks)
