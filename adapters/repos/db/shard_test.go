@@ -984,3 +984,62 @@ func getVectorIndexAndQueue(t *testing.T, shard ShardLike, targetVector string) 
 	require.True(t, vok && qok)
 	return idx, q
 }
+
+func TestShard_TombstoneCleanupInterval_NamedVector(t *testing.T) {
+	ctx := testCtx()
+	className := "TestClass"
+	shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className},
+		hnsw.UserConfig{}, false, false, false,
+		func(i *Index) {
+			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{
+				"foo": hnsw.UserConfig{
+					CleanupIntervalSeconds: 1,
+					MaxConnections:         16,
+					EFConstruction:         64,
+					VectorCacheMaxObjects:  100000,
+				},
+			}
+			// the helper installs noop cycle callbacks; the real ticker is under test
+			i.initCycleCallbacks()
+		},
+	)
+	defer func() {
+		require.NoError(t, idx.drop())
+		require.NoError(t, os.RemoveAll(idx.Config.RootPath))
+	}()
+
+	amount := 100
+	objs := make([]*storobj.Object, 0, amount)
+	for i := 0; i < amount; i++ {
+		obj := testObject(className)
+		obj.Vectors = map[string][]float32{
+			"foo": {float32(i), float32(i % 7), float32(i % 3)},
+		}
+		objs = append(objs, obj)
+	}
+	for _, err := range shd.PutObjectBatch(ctx, objs) {
+		require.NoError(t, err)
+	}
+
+	deleted := 20
+	for _, obj := range objs[:deleted] {
+		require.NoError(t, shd.DeleteObject(ctx, obj.ID(), time.Now()))
+	}
+
+	vi, ok := shd.GetVectorIndex("foo")
+	require.True(t, ok)
+	hnswIdx, ok := vi.(*hnswindex.HNSW)
+	require.True(t, ok)
+
+	numTombstones := func() int {
+		stats, err := hnswIdx.Stats()
+		require.NoError(t, err)
+		return stats.NumTombstones
+	}
+
+	// Cleanup runs every second, so the tombstones must drain well before the
+	// 300s default would have fired.
+	require.Eventually(t, func() bool { return numTombstones() == 0 },
+		20*time.Second, 200*time.Millisecond,
+		"tombstones did not drain: %d remaining", numTombstones())
+}

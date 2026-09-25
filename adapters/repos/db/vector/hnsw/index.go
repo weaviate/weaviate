@@ -459,7 +459,8 @@ func New(cfg Config, uc ent.UserConfig,
 		"hnsw", "tombstone_cleanup",
 		index.className, index.shardName, index.id,
 	}, "/")
-	index.tombstoneCleanupCallbackCtrl = tombstoneCallbacks.Register(id, index.tombstoneCleanup)
+	index.tombstoneCleanupCallbackCtrl = tombstoneCallbacks.Register(id, index.tombstoneCleanup,
+		cyclemanager.WithIntervals(cyclemanager.NewFixedIntervals(time.Duration(uc.CleanupIntervalSeconds)*time.Second)))
 	index.insertMetrics = newInsertMetrics(index.metrics)
 
 	return index, nil
@@ -1119,12 +1120,18 @@ func (h *hnsw) Stats() (*HnswStats, error) {
 		}()
 	}
 
+	// tombstones is guarded by tombstoneLock, not the index lock: the cleanup
+	// cycle mutates it concurrently with Stats calls from the debug endpoint.
+	h.tombstoneLock.RLock()
+	numTombstones := len(h.tombstones)
+	h.tombstoneLock.RUnlock()
+
 	stats := HnswStats{
 		Dimensions:         h.dims.Load(),
 		EntryPointID:       h.entryPointID,
 		DistributionLayers: distributionLayers,
 		UnreachablePoints:  h.calculateUnreachablePoints(),
-		NumTombstones:      len(h.tombstones),
+		NumTombstones:      numTombstones,
 		Compressed:         h.compressed.Load(),
 	}
 
