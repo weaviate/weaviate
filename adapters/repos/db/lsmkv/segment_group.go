@@ -554,6 +554,8 @@ func newSegmentGroup(ctx context.Context, logger logrus.FieldLogger, metrics *Me
 					return nil, fmt.Errorf("build segment-in-memory of strategy '%s': %w", sg.strategy, err)
 				}
 			}
+			sg.roaringSetRangeSegmentInMemory.Shrink()
+
 			logger.WithFields(logrus.Fields{
 				"took":    time.Since(t).String(),
 				"bucket":  filepath.Base(cfg.dir),
@@ -666,6 +668,7 @@ func (sg *SegmentGroup) installRoaringSetRangeRep(rep *roaringsetrange.SegmentIn
 			return fmt.Errorf("catch-up merge segment into rangeable rep: %w", err)
 		}
 	}
+	rep.Shrink()
 
 	sg.maintenanceLock.Lock()
 	sg.roaringSetRangeSegmentInMemory = rep
