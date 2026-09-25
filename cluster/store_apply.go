@@ -21,7 +21,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -39,6 +41,16 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	if req.Type == api.ApplyRequest_TYPE_ADD_TENANT && st.schemaManager.TenantLimitEnforced() {
 		st.tenantAddLocks.Lock(req.Class)
 		defer st.tenantAddLocks.Unlock(req.Class)
+	}
+
+	// taskMovementLocks is held until the apply returns, so a second submit on the same collection is checked only after the first has applied. Like tenantAddLocks it is taken before waitLeaderFSMCaughtUp, and the two never nest.
+	collection, err := st.taskOrMovementCollection(req)
+	if err != nil {
+		return 0, err
+	}
+	if collection != "" {
+		st.taskMovementLocks.Lock(collection)
+		defer st.taskMovementLocks.Unlock(collection)
 	}
 
 	// PreApplyFilter below judges against in-memory FSM state, so a leader that
@@ -60,7 +72,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	// Namespace admission runs before the schema-shape filter so a suspended
 	// namespace answers with its own state rather than a complaint about the
 	// entity the caller named.
-	if err := st.admitPropose(req); err != nil {
+	if err := st.admitPropose(req, collection); err != nil {
 		return 0, err
 	}
 
@@ -108,14 +120,60 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // apply whose schema half has committed. An Apply-side check would not close
 // that window either: the DB half runs after the schema half commits, so a flip
 // landing in between produces the same state.
-func (st *Store) admitPropose(req *api.ApplyRequest) error {
+// admitPropose also refuses a replicate while a task is active on its collection, and a task while a movement is. collection is "" unless the command is a replicate or a task whose namespace registered a collection extractor.
+func (st *Store) admitPropose(req *api.ApplyRequest, collection string) error {
 	if err := st.admitDestructive(req); err != nil {
 		return err
 	}
 	if err := st.admitCreateLike(req); err != nil {
 		return err
 	}
-	return st.admitShardStatus(req)
+	if err := st.admitShardStatus(req); err != nil {
+		return err
+	}
+	return st.admitTaskOrMovement(req.Type, collection)
+}
+
+func (st *Store) taskOrMovementCollection(req *api.ApplyRequest) (string, error) {
+	switch req.Type {
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
+		sub := &api.ReplicationReplicateShardRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return "", fmt.Errorf("unmarshal replicate subcommand: %w", err)
+		}
+		return sub.SourceCollection, nil
+
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
+		sub := &api.AddDistributedTaskRequest{}
+		if err := json.Unmarshal(req.SubCommand, sub); err != nil {
+			return "", fmt.Errorf("unmarshal add-task subcommand: %w", err)
+		}
+		return st.distributedTasksManager.CollectionOfTask(sub.Namespace, sub.Payload), nil
+
+	default:
+		return "", nil
+	}
+}
+
+// admitTaskOrMovement keeps a task and a movement from running on the same collection at once, since a reindex rewrites the files a movement copies.
+func (st *Store) admitTaskOrMovement(cmdType api.ApplyRequest_Type, collection string) error {
+	switch cmdType {
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
+		if !st.distributedTasksManager.HasActiveTaskForCollection(collection) {
+			return nil
+		}
+		return fmt.Errorf("%w: collection %q has a running background task; retry after it completes",
+			replicationTypes.ErrMovementBlockedByTask, collection)
+
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
+		if !st.replicationManager.GetReplicationFSM().HasActiveReplicationForCollection(collection) {
+			return nil
+		}
+		return distributedtask.NewBlockedByReplicaMovementError(collection)
+
+	default:
+		return nil
+	}
 }
 
 // admitShardStatus refuses a manual shard status change outside the active

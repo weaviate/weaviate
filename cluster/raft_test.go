@@ -27,7 +27,9 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/cluster/utils"
@@ -457,7 +459,11 @@ func readShardingState(schemaReader schema.SchemaReader, className string) (*sha
 func TestApplyReplicationScalePlan(t *testing.T) {
 	ctx := context.Background()
 
-	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort())
+	m := NewMockStore(t, "Node-1", utils.MustGetFreeTCPPort(), func(c *Config) {
+		c.DistributedTaskCollectionExtractors = map[string]distributedtask.CollectionExtractor{
+			exclusionNamespace: func([]byte) (string, bool) { return "TestCollection", true },
+		}
+	})
 	m.parser.On("ParseClass", mock.Anything).Return(nil)
 	m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
 
@@ -489,6 +495,7 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 
 	class := "TestCollection"
 	shard := "ShardA"
+	otherShard := "ShardB"
 	sourceNode := "Node-1"
 	destNode := "Node-2"
 	removeNode := "Node-3"
@@ -497,7 +504,8 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 	shardingState := &sharding.State{
 		PartitioningEnabled: true,
 		Physical: map[string]sharding.Physical{
-			shard: {Name: shard, BelongsToNodes: []string{sourceNode, removeNode}},
+			shard:      {Name: shard, BelongsToNodes: []string{sourceNode, removeNode}},
+			otherShard: {Name: otherShard, BelongsToNodes: []string{sourceNode}},
 		},
 	}
 	_, err := r.AddClass(ctx, cls, shardingState)
@@ -559,6 +567,72 @@ func TestApplyReplicationScalePlan(t *testing.T) {
 		}
 		_, err := r.ApplyReplicationScalePlan(ctx, plan)
 		require.ErrorContains(t, err, "invalid scale plan: source node")
+	})
+
+	t.Run("While a reindex runs a copy is refused before any step, removals and empty additions still apply", func(t *testing.T) {
+		seedExclusionTask(t, r.store)
+		before, err := readShardingState(r.SchemaReader(), class)
+		require.NoError(t, err)
+
+		plan := command.ReplicationScalePlan{
+			Collection: class,
+			ShardReplicationScaleActions: map[string]command.ShardReplicationScaleActions{
+				shard: {
+					AddNodes:    map[string]string{destNode: sourceNode},
+					RemoveNodes: map[string]struct{}{removeNode: {}},
+				},
+				otherShard: {AddNodes: map[string]string{destNode: ""}},
+			},
+		}
+		// Go ranges a two-key map from its first-inserted key 7 times in 8, so all 128 calls visit the copying shard first only once in 26 million runs.
+		for range 128 {
+			_, err = r.ApplyReplicationScalePlan(ctx, plan)
+			require.ErrorIs(t, err, replicationTypes.ErrMovementBlockedByTask)
+		}
+		caseTwin := plan
+		caseTwin.Collection = strings.ToUpper(class)
+		_, err = r.ApplyReplicationScalePlan(ctx, caseTwin)
+		require.ErrorIs(t, err, replicationTypes.ErrNotFound)
+		removalOnly := command.ReplicationScalePlan{
+			Collection: strings.ToUpper(class),
+			ShardReplicationScaleActions: map[string]command.ShardReplicationScaleActions{
+				shard: {RemoveNodes: map[string]struct{}{removeNode: {}}},
+			},
+		}
+		_, err = r.ApplyReplicationScalePlan(ctx, removalOnly)
+		require.ErrorIs(t, err, replicationTypes.ErrNotFound)
+
+		after, err := readShardingState(r.SchemaReader(), class)
+		require.NoError(t, err)
+		require.Equal(t, before.Physical[shard].BelongsToNodes, after.Physical[shard].BelongsToNodes)
+		require.Equal(t, before.Physical[otherShard].BelongsToNodes, after.Physical[otherShard].BelongsToNodes)
+		require.Contains(t, after.Physical[shard].BelongsToNodes, removeNode)
+
+		plan = command.ReplicationScalePlan{
+			Collection: class,
+			ShardReplicationScaleActions: map[string]command.ShardReplicationScaleActions{
+				shard: {RemoveNodes: map[string]struct{}{removeNode: {}}},
+			},
+		}
+		_, err = r.ApplyReplicationScalePlan(ctx, plan)
+		require.NoError(t, err)
+
+		after, err = readShardingState(r.SchemaReader(), class)
+		require.NoError(t, err)
+		require.NotContains(t, after.Physical[shard].BelongsToNodes, removeNode)
+
+		plan = command.ReplicationScalePlan{
+			Collection: class,
+			ShardReplicationScaleActions: map[string]command.ShardReplicationScaleActions{
+				shard: {AddNodes: map[string]string{"Node-7": ""}},
+			},
+		}
+		_, err = r.ApplyReplicationScalePlan(ctx, plan)
+		require.NoError(t, err)
+
+		after, err = readShardingState(r.SchemaReader(), class)
+		require.NoError(t, err)
+		require.Contains(t, after.Physical[shard].BelongsToNodes, "Node-7")
 	})
 }
 

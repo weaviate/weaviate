@@ -184,6 +184,51 @@ func (o *ReplicateForbidden) WriteResponse(rw http.ResponseWriter, producer runt
 	}
 }
 
+// ReplicateConflictCode is the HTTP code returned for type ReplicateConflict
+const ReplicateConflictCode int = 409
+
+/*
+ReplicateConflict The collection has a reindex or vector-index-drop task that has not reached a terminal state, and the two cannot run at the same time. GET /tasks reports the task and its status.
+
+swagger:response replicateConflict
+*/
+type ReplicateConflict struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewReplicateConflict creates ReplicateConflict with default headers values
+func NewReplicateConflict() *ReplicateConflict {
+
+	return &ReplicateConflict{}
+}
+
+// WithPayload adds the payload to the replicate conflict response
+func (o *ReplicateConflict) WithPayload(payload *models.ErrorResponse) *ReplicateConflict {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the replicate conflict response
+func (o *ReplicateConflict) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ReplicateConflict) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(409)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // ReplicateUnprocessableEntityCode is the HTTP code returned for type ReplicateUnprocessableEntity
 const ReplicateUnprocessableEntityCode int = 422
 

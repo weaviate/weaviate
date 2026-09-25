@@ -299,6 +299,8 @@ type Store struct {
 	// pre-commit tenant-cap check cannot race the apply that increments the count.
 	tenantAddLocks *entsync.KeyLocker
 
+	taskMovementLocks *entsync.KeyLocker
+
 	// authZController is the authz controller for the store
 	authZController authorization.Controller
 
@@ -430,6 +432,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		}),
 		schemaManager:           schemaManager,
 		tenantAddLocks:          entsync.NewKeyLocker(),
+		taskMovementLocks:       entsync.NewKeyLocker(),
 		authZController:         authZController,
 		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger),
 		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
