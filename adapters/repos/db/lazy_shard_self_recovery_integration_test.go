@@ -203,6 +203,53 @@ func TestLazyShardSelfRecoveryPromotePolicy(t *testing.T) {
 	}
 }
 
+func TestLazyShardSelfRecoveryEmptyFallbackPromoteFollowsCountZeroRule(t *testing.T) {
+	const tenant = "t"
+	cases := []struct {
+		name        string
+		singleShard bool
+		minObjects  int64
+		restore     bool
+		wantLoaded  bool
+		wantOutcome monitoring.WarmupOutcome
+	}{
+		{name: "single tenant empty fallback stays cold", singleShard: true, minObjects: 100, wantOutcome: monitoring.WarmupSkippedBelowThreshold},
+		{name: "single tenant empty fallback with threshold zero loads", singleShard: true, minObjects: 0, wantLoaded: true},
+		{name: "multi tenant empty fallback stays cold", minObjects: 100, wantOutcome: monitoring.WarmupSkippedEmpty},
+		{name: "single tenant recovered copy loads", singleShard: true, minObjects: 3, restore: true, wantLoaded: true},
+		{name: "single tenant small recovered copy stays cold", singleShard: true, minObjects: 100, restore: true, wantOutcome: monitoring.WarmupSkippedBelowThreshold},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newRecoveringWarmupFixture(t, tenant, 5, tc.minObjects, false)
+			if tc.singleShard {
+				f.index.partitioningEnabled = false
+			}
+			shardDir := warmupShardPath(f.dirName, tenant)
+			if tc.restore {
+				f.restore()
+			} else {
+				require.NoError(t, os.MkdirAll(shardDir, os.ModePerm))
+			}
+
+			require.NoError(t, f.index.PromoteRecoveringLocalShard(context.Background(), tenant))
+
+			lazy, ok := f.index.shards.Load(tenant).(*LazyLoadShard)
+			require.True(t, ok)
+			require.Equal(t, tc.wantLoaded, lazy.isLoaded())
+			if tc.wantLoaded {
+				return
+			}
+			shouldWarm, outcome := f.index.warmupCandidate(tenant)
+			require.False(t, shouldWarm)
+			require.Equal(t, tc.wantOutcome, outcome)
+			if !tc.restore {
+				require.NoDirExists(t, filepath.Join(shardDir, "lsm"))
+			}
+		})
+	}
+}
+
 func TestLazyShardSelfRecoveryPromotedColdShardLoadsOnDemand(t *testing.T) {
 	const tenant = "t"
 	ctx := context.Background()

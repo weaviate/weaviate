@@ -3711,6 +3711,7 @@ func (i *Index) loadOrPromoteShard(ctx context.Context, shard ShardLike, shardNa
 	if mustLoad || !i.Config.EnableLazyLoadShards {
 		return l.Load(ctx)
 	}
+	i.seedEmptyFallbackCount(shard, shardName)
 	outcome := monitoring.WarmupOutcome("warmup_disabled")
 	if i.Config.backgroundWarmupEnabled() {
 		var shouldWarm bool
@@ -3725,6 +3726,22 @@ func (i *Index) loadOrPromoteShard(ctx context.Context, shard ShardLike, shardNa
 		"outcome": string(outcome),
 	}).Info("promoted shard stays cold; it loads on first access")
 	return nil
+}
+
+// seedEmptyFallbackCount makes an empty promoted folder warm up like a plain restart of an empty shard.
+func (i *Index) seedEmptyFallbackCount(shard ShardLike, shardName string) {
+	lazyShard, ok := asLazyLoadShard(shard)
+	if !ok {
+		return
+	}
+	entries, err := os.ReadDir(shardPath(i.path(), shardName))
+	if err != nil {
+		i.logger.WithField("shard", shardName).Warnf("failed to list promoted shard folder, applying the warmup rules unseeded: %v", err)
+		return
+	}
+	if len(entries) == 0 {
+		lazyShard.markUnloadedEmpty()
+	}
 }
 
 // PromoteRecoveringLocalShard never creates a shard — a missing entry means deleted/unloaded mid-recovery.

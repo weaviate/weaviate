@@ -151,7 +151,9 @@ multi-tenant shard that never held objects, a shard at or below
 `LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS`, or any shard while background warmup
 is disabled stays cold and loads on first access; anything else loads.
 Tenant activation and replica movement always load. A wiped node thus
-ends up with the loaded set a plain restart would have given it.
+ends up with the loaded set a plain restart would have given it. An empty
+fallback promotes like a plain restart of an empty shard: its object count
+reads 0, so it stays cold unless the warmup threshold is 0.
 
 ### Peer probe
 
