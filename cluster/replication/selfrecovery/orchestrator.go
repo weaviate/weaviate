@@ -735,9 +735,12 @@ func (o *Orchestrator) handleEmptyFallback(ctx context.Context, ref ShardRef, de
 		}
 	}
 	if o.metrics != nil {
-		if startedWithoutRaftState {
+		switch {
+		case startedWithoutRaftState:
 			o.metrics.NoDataDuringBootstrapTotal.Inc()
-		} else {
+		case decision.confirmedEmpty:
+			o.metrics.NoDataConfirmedEmptyTotal.Inc()
+		default:
 			o.metrics.NoDataEmptyTotal.Inc()
 		}
 	}
@@ -759,6 +762,10 @@ func (o *Orchestrator) handleEmptyFallback(ctx context.Context, ref ShardRef, de
 	case startedWithoutRaftState:
 		logger.WithFields(fallbackFields).
 			Info("no peer has data for shard and this node started without RAFT state; treating as created while it was away")
+	case decision.confirmedEmpty:
+		fallbackFields["reason"] = "peers confirm the shard holds no objects"
+		logger.WithFields(fallbackFields).
+			Info("no peer has data for shard; created empty shard")
 	default:
 		fallbackFields["recoverable"] = false
 		fallbackFields["operator_note"] = "if data is recoverable from backup, restore now"
@@ -811,6 +818,8 @@ type probeDecision struct {
 	action      recoveryAction
 	sourceNode  string
 	probedPeers []string
+	// confirmedEmpty: a peer hosting a usable copy answered that it holds no objects.
+	confirmedEmpty bool
 }
 
 func (o *Orchestrator) probeAndDecide(ctx context.Context, ref ShardRef) (probeDecision, error) {
@@ -836,6 +845,7 @@ func (o *Orchestrator) probeAndDecide(ctx context.Context, ref ShardRef) (probeD
 	type probeResult struct {
 		peer       string
 		hasData    bool
+		hosted     bool
 		definitive bool
 		err        error
 	}
@@ -845,8 +855,8 @@ func (o *Orchestrator) probeAndDecide(ctx context.Context, ref ShardRef) (probeD
 		wg.Add(1)
 		enterrors.GoWrapper(func() {
 			defer wg.Done()
-			h, d, e := o.probePeer(ctx, peer, ref)
-			results[i] = probeResult{peer: peer, hasData: h, definitive: d, err: e}
+			h, ho, d, e := o.probePeer(ctx, peer, ref)
+			results[i] = probeResult{peer: peer, hasData: h, hosted: ho, definitive: d, err: e}
 		}, o.logger)
 	}
 	wg.Wait()
@@ -854,6 +864,7 @@ func (o *Orchestrator) probeAndDecide(ctx context.Context, ref ShardRef) (probeD
 	var (
 		probedPeers        = make([]string, 0, len(results))
 		anyDefinitiveEmpty bool
+		confirmedEmpty     bool
 		anyUnreachable     bool
 		firstSource        string
 	)
@@ -878,6 +889,7 @@ func (o *Orchestrator) probeAndDecide(ctx context.Context, ref ShardRef) (probeD
 		}
 		if r.definitive && !r.hasData {
 			anyDefinitiveEmpty = true
+			confirmedEmpty = confirmedEmpty || r.hosted
 		}
 	}
 
@@ -893,20 +905,20 @@ func (o *Orchestrator) probeAndDecide(ctx context.Context, ref ShardRef) (probeD
 		return probeDecision{action: actionRetry, probedPeers: probedPeers}, nil
 	}
 	if anyDefinitiveEmpty {
-		return probeDecision{action: actionEmptyFallback, probedPeers: probedPeers}, nil
+		return probeDecision{action: actionEmptyFallback, probedPeers: probedPeers, confirmedEmpty: confirmedEmpty}, nil
 	}
 	return probeDecision{action: actionRetry, probedPeers: probedPeers}, nil
 }
 
-// probePeer: definitive=true means the peer answered; err means transport/timeout (retry).
-func (o *Orchestrator) probePeer(ctx context.Context, peer string, ref ShardRef) (hasData bool, definitive bool, err error) {
+// probePeer: definitive=true means the peer answered; hosted means it holds a usable copy; err means transport/timeout (retry).
+func (o *Orchestrator) probePeer(ctx context.Context, peer string, ref ShardRef) (hasData, hosted, definitive bool, err error) {
 	addr := o.nodeSelector.NodeAddress(peer)
 	if addr == "" {
-		return false, false, fmt.Errorf("no address for peer %q", peer)
+		return false, false, false, fmt.Errorf("no address for peer %q", peer)
 	}
 	port, err := o.nodeSelector.NodeGRPCPort(peer)
 	if err != nil {
-		return false, false, fmt.Errorf("get gRPC port for peer %q: %w", peer, err)
+		return false, false, false, fmt.Errorf("get gRPC port for peer %q: %w", peer, err)
 	}
 
 	probeCtx, cancel := context.WithTimeout(ctx, o.probeTimeout)
@@ -914,7 +926,7 @@ func (o *Orchestrator) probePeer(ctx context.Context, peer string, ref ShardRef)
 
 	client, err := o.clientFactory(probeCtx, net.JoinHostPort(addr, fmt.Sprintf("%d", port)))
 	if err != nil {
-		return false, false, fmt.Errorf("connect to peer %q: %w", peer, err)
+		return false, false, false, fmt.Errorf("connect to peer %q: %w", peer, err)
 	}
 
 	resp, err := client.ProbeShardData(probeCtx, &protocol.ProbeShardDataRequest{
@@ -926,30 +938,30 @@ func (o *Orchestrator) probePeer(ctx context.Context, peer string, ref ShardRef)
 		if st, ok := status.FromError(err); ok {
 			switch st.Code() {
 			case codes.NotFound:
-				return false, true, nil
+				return false, false, true, nil
 			case codes.Unavailable:
 				// A recovering peer is definitive-empty so an all-fresh formation breaks the deadlock.
 				if isPeerRecoveringErr(err) {
-					return false, true, nil
+					return false, false, true, nil
 				}
-				return false, false, fmt.Errorf("peer %q unavailable: %w", peer, err)
+				return false, false, false, fmt.Errorf("peer %q unavailable: %w", peer, err)
 			case codes.Unimplemented:
 				// distinct from generic unreachable so a mixed-version rollout is diagnosable
 				o.logger.WithFields(logrus.Fields{
 					"event": "self_recovery.peer_probe", "peer": peer,
 					"collection": ref.Collection, "shard": ref.Shard,
 				}).Warnf("peer %q does not implement the self-recovery probe; upgrade it or recovery keeps retrying: %v", peer, err)
-				return false, false, fmt.Errorf("peer %q lacks self-recovery support (older version?): %w", peer, err)
+				return false, false, false, fmt.Errorf("peer %q lacks self-recovery support (older version?): %w", peer, err)
 			default:
 			}
 		}
 		// rolling-upgrade fallback for peers without typed codes
 		if isShardAbsentErr(err) {
-			return false, true, nil
+			return false, false, true, nil
 		}
-		return false, false, fmt.Errorf("probe shard data on peer %q: %w", peer, err)
+		return false, false, false, fmt.Errorf("probe shard data on peer %q: %w", peer, err)
 	}
-	return resp.GetHasData(), true, nil
+	return resp.GetHasData(), resp.GetHosted(), true, nil
 }
 
 // isPeerRecoveringErr: the peer is itself recovering the shard (no data to copy).

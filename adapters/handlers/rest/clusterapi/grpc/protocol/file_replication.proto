@@ -83,6 +83,8 @@ message ProbeShardDataRequest {
 
 message ProbeShardDataResponse {
   bool has_data = 1;
+  // hosted: the peer holds a usable, non-recovering copy of the shard.
+  bool hosted = 2;
 }
 
 message StartChangeCaptureRequest {

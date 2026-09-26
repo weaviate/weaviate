@@ -608,8 +608,10 @@ func (x *ProbeShardDataRequest) GetShardName() string {
 }
 
 type ProbeShardDataResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	HasData       bool                   `protobuf:"varint,1,opt,name=has_data,json=hasData,proto3" json:"has_data,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	HasData bool                   `protobuf:"varint,1,opt,name=has_data,json=hasData,proto3" json:"has_data,omitempty"`
+	// hosted: the peer holds a usable, non-recovering copy of the shard.
+	Hosted        bool `protobuf:"varint,2,opt,name=hosted,proto3" json:"hosted,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -647,6 +649,13 @@ func (*ProbeShardDataResponse) Descriptor() ([]byte, []int) {
 func (x *ProbeShardDataResponse) GetHasData() bool {
 	if x != nil {
 		return x.HasData
+	}
+	return false
+}
+
+func (x *ProbeShardDataResponse) GetHosted() bool {
+	if x != nil {
+		return x.Hosted
 	}
 	return false
 }
@@ -1357,9 +1366,10 @@ const file_protocol_file_replication_proto_rawDesc = "" +
 	"\n" +
 	"index_name\x18\x01 \x01(\tR\tindexName\x12\x1d\n" +
 	"\n" +
-	"shard_name\x18\x02 \x01(\tR\tshardName\"3\n" +
+	"shard_name\x18\x02 \x01(\tR\tshardName\"K\n" +
 	"\x16ProbeShardDataResponse\x12\x19\n" +
-	"\bhas_data\x18\x01 \x01(\bR\ahasData\"\x95\x01\n" +
+	"\bhas_data\x18\x01 \x01(\bR\ahasData\x12\x16\n" +
+	"\x06hosted\x18\x02 \x01(\bR\x06hosted\"\x95\x01\n" +
 	"\x19StartChangeCaptureRequest\x12\x1d\n" +
 	"\n" +
 	"index_name\x18\x01 \x01(\tR\tindexName\x12\x1d\n" +

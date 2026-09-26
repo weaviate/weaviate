@@ -114,7 +114,7 @@ func (fps *FileReplicationService) ProbeShardData(ctx context.Context, req *pb.P
 		return nil, status.Errorf(codes.Unavailable, "local index %q not loaded yet", indexName)
 	}
 
-	hasData, err := index.IncomingProbeShardData(ctx, shardName)
+	hasData, hosted, err := index.IncomingProbeShardData(ctx, shardName)
 	if err != nil {
 		switch {
 		case errors.Is(err, enterrors.ErrShardRecovering):
@@ -125,7 +125,7 @@ func (fps *FileReplicationService) ProbeShardData(ctx context.Context, req *pb.P
 		return nil, status.Errorf(codes.Internal, "failed to probe shard data for index %q, shard %q: %v", indexName, shardName, err)
 	}
 
-	return &pb.ProbeShardDataResponse{HasData: hasData}, nil
+	return &pb.ProbeShardDataResponse{HasData: hasData, Hosted: hosted}, nil
 }
 
 // isShardAbsent matches IncomingProbeShardData's shard-not-present phrasings for the NotFound mapping.

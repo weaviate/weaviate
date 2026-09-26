@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,40 +41,47 @@ type replicaSnapshotState struct {
 	isSnapshot bool
 }
 
-// IncomingProbeShardData reports whether this node holds shard data; ErrShardRecovering means "not usable now".
-func (i *Index) IncomingProbeShardData(ctx context.Context, shardName string) (bool, error) {
+// IncomingProbeShardData reports whether this node holds shard data; hosted means a usable copy answered. ErrShardRecovering means "not usable now".
+func (i *Index) IncomingProbeShardData(ctx context.Context, shardName string) (hasData, hosted bool, err error) {
 	if s := i.shards.Load(shardName); s != nil {
 		if rec, ok := s.(*RecoveringShard); ok && rec.IsRecovering() {
-			return false, fmt.Errorf("incoming probe shard data for shard %s: %w", shardName, enterrors.ErrShardRecovering)
+			return false, false, fmt.Errorf("incoming probe shard data for shard %s: %w", shardName, enterrors.ErrShardRecovering)
 		}
 		if lazy, ok := asLazyLoadShard(s); ok && !lazy.isLoaded() {
+			// A cold shard without its folder lost its copy; it must not confirm the shard as empty.
+			if _, err := os.Stat(shardPath(i.path(), shardName)); err != nil {
+				if errors.Is(err, fs.ErrNotExist) {
+					return false, false, nil
+				}
+				return false, false, fmt.Errorf("incoming probe shard data stat %s: %w", shardName, err)
+			}
 			count, err := indexcounter.Read(shardPath(i.path(), shardName)) // a load here would plant a dir
 			if err != nil {
-				return false, fmt.Errorf("incoming probe shard data read counter %s: %w", shardName, err)
+				return false, false, fmt.Errorf("incoming probe shard data read counter %s: %w", shardName, err)
 			}
-			return count > 0, nil
+			return count > 0, true, nil
 		}
 	} else if _, err := os.Stat(shardPath(i.path(), shardName)); err == nil {
 		// Deactivated (or mid-activation) tenant: not in the map, but its data is on disk; "not found" would read as "no data".
 		count, err := indexcounter.Read(shardPath(i.path(), shardName))
 		if err != nil {
-			return false, fmt.Errorf("incoming probe shard data read counter %s: %w", shardName, err)
+			return false, false, fmt.Errorf("incoming probe shard data read counter %s: %w", shardName, err)
 		}
-		return count > 0, nil
+		return count > 0, true, nil
 	}
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return false, fmt.Errorf("incoming probe shard data get shard %s: %w", shardName, err)
+		return false, false, fmt.Errorf("incoming probe shard data get shard %s: %w", shardName, err)
 	}
 	defer release()
 	if shard == nil {
-		return false, fmt.Errorf("incoming probe shard data get shard is nil: %s", shardName)
+		return false, false, fmt.Errorf("incoming probe shard data get shard is nil: %s", shardName)
 	}
 	count, err := shard.ObjectCount(ctx)
 	if err != nil {
-		return false, fmt.Errorf("incoming probe shard data object count %s: %w", shardName, err)
+		return false, false, fmt.Errorf("incoming probe shard data object count %s: %w", shardName, err)
 	}
-	return count > 0, nil
+	return count > 0, true, nil
 }
 
 func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, opID string) ([]string, error) {
