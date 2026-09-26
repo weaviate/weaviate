@@ -419,9 +419,7 @@ func batchDeleteMatchAllParams(dryRun bool) objects.BatchDeleteParams {
 	return batchDeleteParams(batchDeleteMatchAllClause(), dryRun)
 }
 
-// batchDeleteAndRootParams matches every object through an And of two leaf clauses. A
-// compound root is resolved with the limit dropped (inverted/prop_value_pairs.go:142),
-// so the allow list it produces is complete and was never truncated by the bound.
+// batchDeleteAndRootParams matches every object through an And of two leaf clauses.
 func batchDeleteAndRootParams(dryRun bool) objects.BatchDeleteParams {
 	return batchDeleteParams(&filters.Clause{
 		Operator: filters.OperatorAnd,
@@ -507,11 +505,7 @@ func newBatchDeleteRepoAt(t *testing.T, rootDir string, class *models.Class,
 	}, class)
 }
 
-// TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot pins that a doc id whose object row is
-// gone while the inverted postings still name it costs a read and not one of the caller's
-// limit slots. Were the filter resolved capped at the limit, a dead id inside that window
-// would leave the reply at exactly limit, which the published contract reads as "exact,
-// everything handled".
+// TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot pins that a doc id with no object row costs a read, not a limit slot.
 func TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -540,8 +534,8 @@ func TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot(t *testing.T) {
 			wantHandled: int(batchDeleteLimit),
 		},
 		{
-			// A deny list resolves against the doc id universe, which still holds the
-			// dead id until a walk prunes it.
+			// A deny list resolves against the doc id universe, which keeps the dead id:
+			// with no restart the prune watermark is 0.
 			name:        "deny-list filter",
 			params:      batchDeleteDenyListParams,
 			objectCount: 30,
@@ -579,8 +573,8 @@ func TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot(t *testing.T) {
 			require.NoError(t, err)
 			require.GreaterOrEqual(t, len(before.Objects), tt.dropRows)
 
-			// The UUIDs a dry run lists are the lowest doc ids the filter resolved, which
-			// is the window a truncated allow list holds.
+			// A dry run lists the lowest doc ids the filter resolved, so the dropped rows
+			// sit in front of the walk.
 			for i := 0; i < tt.dropRows; i++ {
 				dropObjectRow(t, repo, batchDeleteClassName, before.Objects[i].UUID)
 			}
@@ -594,9 +588,7 @@ func TestBatchDeleteObjects_DeadDocIDDoesNotBurnASlot(t *testing.T) {
 	}
 }
 
-// TestBatchDeleteObjects_UnreadableRowDoesNotBurnASlot is the dead doc id case for a row
-// that is there but carries no readable id. The walk skips it like a missing row and reads
-// on to the next match, so the reply still reaches limit + 1, and the skip is reported once.
+// TestBatchDeleteObjects_UnreadableRowDoesNotBurnASlot pins that a row with no readable id takes no limit slot.
 func TestBatchDeleteObjects_UnreadableRowDoesNotBurnASlot(t *testing.T) {
 	ctx := context.Background()
 	const objectCount = 30
@@ -607,13 +599,18 @@ func TestBatchDeleteObjects_UnreadableRowDoesNotBurnASlot(t *testing.T) {
 	before, err := repo.BatchDeleteObjects(ctx, batchDeleteMatchAllParams(true), time.Now(), nil, "", 0)
 	require.NoError(t, err)
 	require.NotEmpty(t, before.Objects)
-	corruptObjectRow(t, repo, batchDeleteClassName, before.Objects[0].UUID)
+	corrupted := before.Objects[0].UUID
+	corruptObjectRow(t, repo, batchDeleteClassName, corrupted)
 
 	hook := batchDeleteLogs(t, repo)
 	after, err := repo.BatchDeleteObjects(ctx, batchDeleteMatchAllParams(true), time.Now(), nil, "", 0)
 	require.NoError(t, err)
 	require.Equal(t, batchDeleteLimit+1, after.Matches, "%d readable objects still match", objectCount-1)
 	require.Len(t, after.Objects, int(batchDeleteLimit))
+	for i, obj := range after.Objects {
+		require.NotEmpty(t, obj.UUID, "object %d: a slot went to the row with no readable id", i)
+		require.NotEqual(t, corrupted, obj.UUID, "object %d is the unreadable row", i)
+	}
 
 	warns := 0
 	for _, entry := range hook.AllEntries() {
@@ -624,11 +621,7 @@ func TestBatchDeleteObjects_UnreadableRowDoesNotBurnASlot(t *testing.T) {
 	require.Equal(t, 1, warns, "the skip is reported once per call, not once per doc id")
 }
 
-// TestFindUUIDs_ResolvesTheFilterOnce pins that a call runs the inverted resolve once,
-// counted through the per-leaf entries the searcher appends to the slow query details.
-// Dead doc ids inside the first limit matches are the shape that could tempt a second,
-// uncapped resolve; a positive filter's postings keep naming them, since pruning only
-// touches the deny-list universe, so a second resolve would be paid on every call.
+// TestFindUUIDs_ResolvesTheFilterOnce pins one inverted resolve per call, with or without dead doc ids.
 func TestFindUUIDs_ResolvesTheFilterOnce(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -743,20 +736,7 @@ func TestBatchDeleteObjects_PrunesOnlyBelowTheDocIDWatermark(t *testing.T) {
 		"a doc id at or above the watermark is kept: its object row may still be on its way")
 }
 
-// TestBatchDeleteObjects_WalksWhileObjectsAreInserted runs the walk against a shard that is
-// being written to. The walk is not read-only: it subtracts the doc ids it found no object
-// row for from the doc id universe, under the same BitmapFactory lock an insert's universe
-// read takes, so this is the one case that exercises the two against each other. No object
-// an insert completed may be missing from a resolve that follows it.
-//
-// What this does NOT pin is the watermark, and the reason is worth writing down so the next
-// reader does not assume it does. The hazard the watermark exists for is an id an insert
-// has taken (shard_write_put.go:319) whose row has not landed yet (:342) being read by a
-// walk. A walk reads the universe in ascending doc id order, so the newest id is the last
-// one it reads, by which point the write is long done: instrumenting this test at 500 to
-// 1000 overlapping walks per run measured zero ids read without a row. The watermark's pin
-// is TestBatchDeleteObjects_PrunesOnlyBelowTheDocIDWatermark, which puts an id on each side
-// of it directly.
+// TestBatchDeleteObjects_WalksWhileObjectsAreInserted pins that a resolve run concurrently with inserts never misses an object whose insert has already completed.
 func TestBatchDeleteObjects_WalksWhileObjectsAreInserted(t *testing.T) {
 	ctx := context.Background()
 	const (
@@ -840,69 +820,84 @@ func TestBatchDeleteObjects_WalksWhileObjectsAreInserted(t *testing.T) {
 	}
 }
 
-// TestObjectsTTLSweepResolvesPastADeadDocID pins Shard.FindUUIDs' other caller. The objects
-// TTL sweep runs the same bounded resolve and inherits the same walk, so a doc id whose
-// object row is gone while its postings still name it must cost the sweep a read and not an
-// expired object left behind, and must leave the doc id universe like any other.
-func TestObjectsTTLSweepResolvesPastADeadDocID(t *testing.T) {
-	ctx := context.Background()
+// TestObjectsTTLSweepResolvesPastDeadDocIDs pins that the TTL sweep deletes past dead doc ids.
+func TestObjectsTTLSweepResolvesPastDeadDocIDs(t *testing.T) {
 	const (
 		expiredCount = 12
 		aliveCount   = 3
 		sweepBatch   = 5
 	)
 
-	rootDir := t.TempDir()
-	shardState := singleShardState()
-	class := batchDeleteTTLClass()
-	newTTLRepo := func() *DB {
-		return setupTestDBWithShardState(t, rootDir, shardState, func(cfg *Config) {
-			cfg.ObjectsTTLBatchSize = configRuntime.NewDynamicValue(sweepBatch)
-		}, class)
+	tests := []struct {
+		name string
+		// deadCount is how many of the oldest expired objects lose their row, postings kept.
+		deadCount int
+	}{
+		{name: "one dead doc id", deadCount: 1},
+		// A resolve capped at the batch size would read only the dead ids, and a batch
+		// that yields no UUID ends the sweep.
+		{name: "a dead prefix one batch long", deadCount: sweepBatch},
 	}
 
-	repo := newTTLRepo()
-	insertTTLObjects(t, repo, expiredCount, aliveCount)
-	// The first object is expired and loses its row, postings kept, which is the state
-	// every delete passes through.
-	deadDocID := dropObjectRow(t, repo, batchDeleteTTLClassName, batchDeleteObjectID(0))
-	require.NoError(t, repo.Shutdown(ctx))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			rootDir := t.TempDir()
+			shardState := singleShardState()
+			class := batchDeleteTTLClass()
+			newTTLRepo := func() *DB {
+				return setupTestDBWithShardState(t, rootDir, shardState, func(cfg *Config) {
+					cfg.ObjectsTTLBatchSize = configRuntime.NewDynamicValue(sweepBatch)
+				}, class)
+			}
 
-	// The reopen rebuilds the universe from the doc id counter, so the dead id is back in
-	// it and sits below the watermark.
-	repo = newTTLRepo()
-	t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
+			repo := newTTLRepo()
+			insertTTLObjects(t, repo, expiredCount, aliveCount)
+			deadDocIDs := make([]uint64, tt.deadCount)
+			for i := range deadDocIDs {
+				deadDocIDs[i] = dropObjectRow(t, repo, batchDeleteTTLClassName, batchDeleteObjectID(i))
+			}
+			require.NoError(t, repo.Shutdown(ctx))
 
-	index := repo.GetIndex(schema.ClassName(batchDeleteTTLClassName))
-	require.NotNil(t, index)
-	logger, ok := repo.logger.(*logrus.Logger)
-	require.True(t, ok, "the test DB logs through a *logrus.Logger")
+			// The reopen rebuilds the universe from the doc id counter, so the dead ids are
+			// back in it and sit below the watermark.
+			repo = newTTLRepo()
+			t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
 
-	var deleted atomic.Int32
-	eg := enterrors.NewErrorGroupWrapper(logger)
-	ec := errorcompounder.New()
-	index.incomingDeleteObjectsExpired(ctx, eg, ec, batchDeleteTTLProp, time.Now(), time.Now(),
-		func(n int32) { deleted.Add(n) }, 0)
-	eg.Wait()
-	require.NoError(t, ec.ToError())
+			index := repo.GetIndex(schema.ClassName(batchDeleteTTLClassName))
+			require.NotNil(t, index)
+			logger, ok := repo.logger.(*logrus.Logger)
+			require.True(t, ok, "the test DB logs through a *logrus.Logger")
 
-	require.Equal(t, int32(expiredCount-1), deleted.Load(),
-		"every expired object that still has a row goes; the one whose row is gone has none to delete")
+			var deleted atomic.Int32
+			eg := enterrors.NewErrorGroupWrapper(logger)
+			ec := errorcompounder.New()
+			index.incomingDeleteObjectsExpired(ctx, eg, ec, batchDeleteTTLProp, time.Now(), time.Now(),
+				func(n int32) { deleted.Add(n) }, 0)
+			eg.Wait()
+			require.NoError(t, ec.ToError())
 
-	shard := loadedShard(t, repo, batchDeleteTTLClassName)
-	bucket := shard.store.Bucket(helpers.ObjectsBucketLSM)
-	require.NotNil(t, bucket)
-	for i := 1; i < expiredCount; i++ {
-		require.Nil(t, ttlObjectRow(t, bucket, i), "expired object %d must be gone", i)
+			require.Equal(t, int32(expiredCount-tt.deadCount), deleted.Load(),
+				"every expired object that still has a row goes")
+
+			shard := loadedShard(t, repo, batchDeleteTTLClassName)
+			bucket := shard.store.Bucket(helpers.ObjectsBucketLSM)
+			require.NotNil(t, bucket)
+			for i := tt.deadCount; i < expiredCount; i++ {
+				require.Nil(t, ttlObjectRow(t, bucket, i), "expired object %d must be gone", i)
+			}
+			for i := expiredCount; i < expiredCount+aliveCount; i++ {
+				require.NotNil(t, ttlObjectRow(t, bucket, i), "object %d has not expired", i)
+			}
+
+			universe, release := shard.bitmapFactory.GetBitmap()
+			defer release()
+			for _, docID := range deadDocIDs {
+				require.False(t, universe.Contains(docID),
+					"the sweep drops dead doc id %d from the universe like the batch delete path does", docID)
+			}
+		})
 	}
-	for i := expiredCount; i < expiredCount+aliveCount; i++ {
-		require.NotNil(t, ttlObjectRow(t, bucket, i), "object %d has not expired", i)
-	}
-
-	universe, release := shard.bitmapFactory.GetBitmap()
-	defer release()
-	require.False(t, universe.Contains(deadDocID),
-		"the sweep drops a dead doc id from the universe like the batch delete path does")
 }
 
 // TestBatchDeleteObjects_PrunesMoreDeadDocIDsThanOneBatch pins the prune of a dead prefix
@@ -966,7 +961,8 @@ func batchDeleteTTLClass() *models.Class {
 }
 
 // insertTTLObjects writes expired objects first, then objects that have not expired, so
-// the expired ones hold the lowest doc ids.
+// the expired ones hold the lowest doc ids. Each expired object expires a second after the
+// one before it, so the date index holds one key per object.
 func insertTTLObjects(t *testing.T, repo *DB, expiredCount, aliveCount int) {
 	t.Helper()
 
@@ -975,7 +971,7 @@ func insertTTLObjects(t *testing.T, repo *DB, expiredCount, aliveCount int) {
 
 	batch := make(objects.BatchObjects, expiredCount+aliveCount)
 	for i := range batch {
-		expiresAt := past
+		expiresAt := past.Add(time.Duration(i) * time.Second)
 		if i >= expiredCount {
 			expiresAt = future
 		}
@@ -1048,8 +1044,8 @@ func insertBatchDeleteObjects(t *testing.T, repo *DB, from, count int) {
 }
 
 // dropObjectRow removes an object's row from the objects bucket and leaves its inverted
-// postings alone, which is the state every delete passes through between
-// shard_write_delete.go:90 and :112. It returns the doc id the postings still name.
+// postings alone, which is the state every delete passes through between the objects
+// bucket delete and cleanupInvertedIndexOnDelete. It returns the doc id the postings still name.
 func dropObjectRow(t *testing.T, repo *DB, className string, id strfmt.UUID) uint64 {
 	t.Helper()
 
