@@ -260,7 +260,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				HNSWConfig: &hnsw.Config{
 					Logger:                            s.index.logger,
 					RootPath:                          rootPath,
-					ID:                                hfreshConfigID + "_centroids",
+					ID:                                helpers.CentroidsID(hfreshConfigID),
 					ShardName:                         s.name,
 					ClassName:                         s.index.Config.ClassName.String(),
 					PrometheusMetrics:                 s.promMetrics,
@@ -276,7 +276,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 							// consistent with previous logic where the individual limit is 1/5 of the combined limit
 							hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize / 5),
 						}, opts...)
-						return hnsw.NewCommitLogger(rootPath, hfreshConfigID+"_centroids",
+						return hnsw.NewCommitLogger(rootPath, helpers.CentroidsID(hfreshConfigID),
 							s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
 							allOpts...,
 						)

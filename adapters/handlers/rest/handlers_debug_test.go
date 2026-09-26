@@ -352,3 +352,64 @@ func TestHFreshReassignAllShardsRunsInBackground(t *testing.T) {
 	}
 	require.Equal(t, "b", <-started)
 }
+
+type fakeVectorIndexResetter struct {
+	err    error
+	called *string
+}
+
+func (f fakeVectorIndexResetter) DebugResetVectorIndex(_ context.Context, _, targetVector string) error {
+	*f.called = "vector=" + targetVector
+	return f.err
+}
+
+func (f fakeVectorIndexResetter) DebugResetGeoIndex(_ context.Context, _, propName string) error {
+	*f.called = "geo=" + propName
+	return f.err
+}
+
+func TestRebuildVectorIndexHandler(t *testing.T) {
+	tests := []struct {
+		name       string
+		query      string
+		async      bool
+		noIndex    bool
+		resetErr   error
+		wantStatus int
+		wantBody   string
+		wantCalled string
+	}{
+		{name: "async indexing off", query: "collection=C&shard=s", wantStatus: http.StatusNotImplemented, wantBody: "async indexing is not enabled\n"},
+		{name: "missing shard", query: "collection=C", async: true, wantStatus: http.StatusBadRequest, wantBody: "collection and shard are required\n"},
+		{name: "unknown collection", query: "collection=C&shard=s", async: true, noIndex: true, wantStatus: http.StatusNotFound, wantBody: "collection not found\n"},
+		{name: "unknown shard", query: "collection=C&shard=s", async: true, resetErr: errors.New("shard not found"), wantStatus: http.StatusNotFound, wantBody: "shard or vector index not found\n"},
+		{name: "unknown vector", query: "collection=C&shard=s&vector=v", async: true, resetErr: errors.New("vector index not found"), wantStatus: http.StatusNotFound, wantBody: "shard or vector index not found\n"},
+		{name: "reset fails", query: "collection=C&shard=s", async: true, resetErr: errors.New("failed to reset vector index: drop vector index: boom"), wantStatus: http.StatusInternalServerError, wantBody: "failed to reset vector index\n"},
+		{name: "accepted", query: "collection=C&shard=s", async: true, wantStatus: http.StatusAccepted, wantCalled: "vector="},
+		{name: "named vector accepted", query: "collection=C&shard=s&vector=v", async: true, wantStatus: http.StatusAccepted, wantCalled: "vector=v"},
+		{name: "geo accepted", query: "collection=C&shard=s&geo=location", async: true, wantStatus: http.StatusAccepted, wantCalled: "geo=location"},
+		{name: "unknown geo prop", query: "collection=C&shard=s&geo=location", async: true, resetErr: errors.New(`geo index "location" not found`), wantStatus: http.StatusNotFound, wantBody: "shard or geo index not found\n"},
+		{name: "vector and geo", query: "collection=C&shard=s&vector=v&geo=location", async: true, wantStatus: http.StatusBadRequest, wantBody: "vector and geo cannot both be set\n"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			var called string
+			handler := newRebuildVectorIndexHandler(logger, tc.async, func(schema.ClassName) debugVectorIndexResetter {
+				if tc.noIndex {
+					return nil
+				}
+				return fakeVectorIndexResetter{err: tc.resetErr, called: &called}
+			})
+
+			rec := httptest.NewRecorder()
+			handler(rec, httptest.NewRequest(http.MethodPost, "/debug/index/rebuild/vector?"+tc.query, nil))
+
+			assert.Equal(t, tc.wantStatus, rec.Code)
+			assert.Equal(t, tc.wantBody, rec.Body.String())
+			if tc.wantCalled != "" {
+				assert.Equal(t, tc.wantCalled, called)
+			}
+		})
+	}
+}

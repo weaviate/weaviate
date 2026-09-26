@@ -900,6 +900,53 @@ func (_c *MockShardLike_DebugGetDocIdLockStatus_Call) RunAndReturn(run func() (b
 	return _c
 }
 
+// DebugResetGeoIndex provides a mock function with given fields: ctx, propName
+func (_m *MockShardLike) DebugResetGeoIndex(ctx context.Context, propName string) error {
+	ret := _m.Called(ctx, propName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DebugResetGeoIndex")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, propName)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockShardLike_DebugResetGeoIndex_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DebugResetGeoIndex'
+type MockShardLike_DebugResetGeoIndex_Call struct {
+	*mock.Call
+}
+
+// DebugResetGeoIndex is a helper method to define mock.On call
+//   - ctx context.Context
+//   - propName string
+func (_e *MockShardLike_Expecter) DebugResetGeoIndex(ctx interface{}, propName interface{}) *MockShardLike_DebugResetGeoIndex_Call {
+	return &MockShardLike_DebugResetGeoIndex_Call{Call: _e.mock.On("DebugResetGeoIndex", ctx, propName)}
+}
+
+func (_c *MockShardLike_DebugResetGeoIndex_Call) Run(run func(ctx context.Context, propName string)) *MockShardLike_DebugResetGeoIndex_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_DebugResetGeoIndex_Call) Return(_a0 error) *MockShardLike_DebugResetGeoIndex_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_DebugResetGeoIndex_Call) RunAndReturn(run func(context.Context, string) error) *MockShardLike_DebugResetGeoIndex_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // DebugResetVectorIndex provides a mock function with given fields: ctx, targetVector
 func (_m *MockShardLike) DebugResetVectorIndex(ctx context.Context, targetVector string) error {
 	ret := _m.Called(ctx, targetVector)
