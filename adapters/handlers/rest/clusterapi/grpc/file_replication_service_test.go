@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
@@ -71,6 +72,9 @@ type fakeIndex struct {
 	finalizeLSN        uint64
 	finalizeErr        error
 	stopErr            error
+	probeHasData       bool
+	probeHosted        bool
+	probeErr           error
 
 	startCalls    []startCall
 	snapshotCalls []opCall
@@ -110,6 +114,10 @@ func (f *fakeIndex) IncomingGetReplicaSnapshotFile(_ context.Context, _, _ strin
 		return nil, f.fileErr
 	}
 	return io.NopCloser(strings.NewReader(f.fileContent)), nil
+}
+
+func (f *fakeIndex) IncomingProbeShardData(_ context.Context, _ string) (bool, bool, error) {
+	return f.probeHasData, f.probeHosted, f.probeErr
 }
 
 func (f *fakeIndex) IncomingSnapshotChangeLogLSN(_ context.Context, shardName, opID string) (uint64, error) {
@@ -186,7 +194,7 @@ func newService(t *testing.T, indices map[string]*fakeIndex) *FileReplicationSer
 
 func newServiceWithSchema(t *testing.T, indices map[string]*fakeIndex, sc sharding.RemoteIncomingSchema) *FileReplicationService {
 	t.Helper()
-	return NewFileReplicationService(&fakeRepo{indices: indices}, sc, 64*1024)
+	return NewFileReplicationService(&fakeRepo{indices: indices}, sc, 64*1024, 0)
 }
 
 func TestStartChangeCapture_HappyPath(t *testing.T) {
@@ -581,4 +589,65 @@ func TestGetReplicaSnapshotFile_CompressionUnsupported(t *testing.T) {
 	}, &noopStreamServer[pb.FileChunk]{ctx: context.Background()})
 	require.Error(t, err)
 	require.Equal(t, codes.Unimplemented, status.Code(err))
+}
+
+func TestAcquireTransferSlotBounds(t *testing.T) {
+	fps := NewFileReplicationService(nil, nil, 1024, 2)
+
+	rel1, err := fps.acquireTransferSlot(context.Background())
+	require.NoError(t, err)
+	rel2, err := fps.acquireTransferSlot(context.Background())
+	require.NoError(t, err)
+
+	blockedCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	_, err = fps.acquireTransferSlot(blockedCtx)
+	require.Error(t, err, "third acquire must block until a slot frees")
+
+	rel1()
+	rel3, err := fps.acquireTransferSlot(context.Background())
+	require.NoError(t, err)
+	rel3()
+	rel2()
+}
+
+func TestAcquireTransferSlotUnbounded(t *testing.T) {
+	fps := NewFileReplicationService(nil, nil, 1024, 0)
+	for i := 0; i < 100; i++ {
+		_, err := fps.acquireTransferSlot(context.Background())
+		require.NoError(t, err)
+	}
+}
+
+func TestProbeShardData_PropagatesHosted(t *testing.T) {
+	cases := []struct {
+		name       string
+		hasData    bool
+		hosted     bool
+		err        error
+		wantCode   codes.Code
+		wantData   bool
+		wantHosted bool
+	}{
+		{name: "hosted empty", hosted: true, wantCode: codes.OK, wantHosted: true},
+		{name: "hosted with data", hasData: true, hosted: true, wantCode: codes.OK, wantData: true, wantHosted: true},
+		{name: "not hosted", wantCode: codes.OK},
+		{name: "recovering", err: fmt.Errorf("probe: %w", enterrors.ErrShardRecovering), wantCode: codes.Unavailable},
+		{name: "absent", err: errors.New("incoming probe shard data get shard is nil: S"), wantCode: codes.NotFound},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fi := &fakeIndex{probeHasData: tc.hasData, probeHosted: tc.hosted, probeErr: tc.err}
+			svc := newService(t, map[string]*fakeIndex{"MyClass": fi})
+
+			resp, err := svc.ProbeShardData(context.Background(), &pb.ProbeShardDataRequest{IndexName: "MyClass", ShardName: "S"})
+			require.Equal(t, tc.wantCode, status.Code(err))
+			if tc.wantCode != codes.OK {
+				require.Nil(t, resp)
+				return
+			}
+			require.Equal(t, tc.wantData, resp.GetHasData())
+			require.Equal(t, tc.wantHosted, resp.GetHosted())
+		})
+	}
 }

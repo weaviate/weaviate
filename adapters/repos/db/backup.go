@@ -434,7 +434,7 @@ func (i *Index) backupShardWithHardlinks(ctx context.Context, name string, class
 	// read files from disk without the LSM store being opened underneath us.
 	// Read paths don't use backupLock.RLock, so backupLock.Lock alone is not
 	// sufficient to prevent concurrent lazy loading.
-	if lazyShard, ok := shard.(*LazyLoadShard); ok {
+	if lazyShard, ok := asLazyLoadShard(shard); ok {
 		releaseBlock := lazyShard.blockLoading()
 		if !lazyShard.loaded {
 			// Shard is in the map but not loaded; read from disk.
@@ -611,7 +611,7 @@ func (i *Index) backupShardWithoutHardlinks(ctx context.Context, name string, cl
 
 		// For unloaded LazyLoadShards, block concurrent loading so we can safely
 		// read files from disk. See backupShardWithHardlinks for details.
-		if lazyShard, ok := shard.(*LazyLoadShard); ok {
+		if lazyShard, ok := asLazyLoadShard(shard); ok {
 			releaseBlock := lazyShard.blockLoading()
 			defer releaseBlock()
 			if !lazyShard.loaded {
@@ -872,10 +872,15 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 	sd.Name = shardName
 	sd.Node = i.getSchema.NodeName()
 
+	if dirEntries, err := os.ReadDir(shardDir); err != nil {
+		return nil, fmt.Errorf("read shard dir: %w", err)
+	} else if len(dirEntries) == 0 {
+		return nil, errShardNoLocalData // registered lazily, never loaded
+	}
+
 	// Read metadata files (same data as readBackupMetadata in shard_backup.go).
-	// These files are guaranteed to exist: INACTIVE shards were always ACTIVE
-	// first (required to ingest data), and Shard.Shutdown writes indexcount,
-	// proplengths, and version during the flush/close sequence.
+	// A non-empty folder was initialized once, and Shard.Shutdown writes
+	// indexcount, proplengths, and version during the flush/close sequence.
 	counterPath := filepath.Join(shardDir, "indexcount")
 	data, err := diskio.ReadFileExact(counterPath)
 	if err != nil {
