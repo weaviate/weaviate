@@ -57,6 +57,36 @@ func (s *mvDeletableStore) multiVectorForID(ctx context.Context, docID uint64) (
 	return nil, storobj.NewErrNotFoundf(docID, "doc deleted from store")
 }
 
+// newMultivectorTestIndex builds a multivector HNSW index whose vectors are served by
+// store, with commit logging and buckets mocked out.
+func newMultivectorTestIndex(t *testing.T, store *mvDeletableStore, id string, mvCfg ent.MultivectorConfig) *hnsw {
+	t.Helper()
+	idx, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    id,
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      distancer.NewDotProductProvider(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			return nil, errors.New("multivector index must not use VectorForIDThunk")
+		},
+		MultiVectorForIDThunk: store.multiVectorForID,
+		TempMultiVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([][]float32, error) {
+			return store.multiVectorForID(ctx, id)
+		},
+		MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
+		GetViewThunk:      func() common.BucketView { return &noopBucketView{} },
+		AllocChecker:      memwatch.NewDummyMonitor(),
+	}, ent.UserConfig{
+		VectorCacheMaxObjects: 100000,
+		MaxConnections:        8,
+		EFConstruction:        64,
+		EF:                    64,
+		Multivector:           mvCfg,
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	require.NoError(t, err)
+	return idx
+}
+
 // TestMultivectorEntrypointRepair covers entrypoint repair for multivector
 // (non-muvera) indexes, where HNSW node ids are vec ids but the store errors
 // by docID. docIDs are chosen so each equals a vec id of a different doc:
@@ -74,29 +104,7 @@ func TestMultivectorEntrypointRepair(t *testing.T) {
 	query := [][]float32{{0.5, 0.5, 0.5, 0.5}, {0.4, 0.6, 0.4, 0.6}}
 
 	newIndex := func(t *testing.T, store *mvDeletableStore) *hnsw {
-		idx, err := New(Config{
-			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
-			ID:                    "multivector-entrypoint-repair",
-			MakeCommitLoggerThunk: MakeNoopCommitLogger,
-			DistanceProvider:      distancer.NewDotProductProvider(),
-			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-				return nil, errors.New("multivector index must not use VectorForIDThunk")
-			},
-			MultiVectorForIDThunk: store.multiVectorForID,
-			TempMultiVectorForIDWithViewThunk: func(ctx context.Context, id uint64, container *common.VectorSlice, view common.BucketView) ([][]float32, error) {
-				return store.multiVectorForID(ctx, id)
-			},
-			MakeBucketOptions: lsmkv.MakeNoopBucketOptions,
-			GetViewThunk:      func() common.BucketView { return &noopBucketView{} },
-			AllocChecker:      memwatch.NewDummyMonitor(),
-		}, ent.UserConfig{
-			VectorCacheMaxObjects: 100000,
-			MaxConnections:        8,
-			EFConstruction:        64,
-			EF:                    64,
-			Multivector:           ent.MultivectorConfig{Enabled: true},
-		}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
-		require.NoError(t, err)
+		idx := newMultivectorTestIndex(t, store, "multivector-entrypoint-repair", ent.MultivectorConfig{Enabled: true})
 
 		for i, docID := range docIDs {
 			store.put(docID, docVecs[i])
