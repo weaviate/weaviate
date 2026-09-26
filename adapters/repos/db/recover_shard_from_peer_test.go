@@ -550,13 +550,12 @@ func TestPromoteRecoveringLocalShardFollowsLazyPolicy(t *testing.T) {
 			wantLoad:  true,
 		},
 		{
-			name: "lazy single-shard empty dir warms anyway",
+			name: "lazy single-shard empty dir stays cold",
 			configure: func(i *Index) {
 				i.Config.EnableLazyLoadShards = true
 				i.Config.LazyLoadShardWarmupMinObjects = 5
 			},
-			prepare:  mkdir,
-			wantLoad: true,
+			prepare: mkdir,
 		},
 		{
 			name: "eager multi-tenant empty dir loads",

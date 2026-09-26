@@ -323,6 +323,18 @@ func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
+// markUnloadedEmpty caches a zero object count for a cold shard whose folder is known to be empty.
+func (l *LazyLoadShard) markUnloadedEmpty() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if l.loaded {
+		return
+	}
+	var zero int64
+	l.unloadedCount = &zero
+}
+
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
 	l.mustLoad()
 	return l.shard.GetPropertyLengthTracker()
