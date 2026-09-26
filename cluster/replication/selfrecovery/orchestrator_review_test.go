@@ -236,9 +236,10 @@ func TestProbePeer_UnimplementedIsDiagnosable(t *testing.T) {
 	o := newOrchestratorForTest(t, &stubRaft{},
 		stubSchema{replicas: []string{"self", "peer1"}}, ns, clientFactory, stubPathResolver{root: t.TempDir()})
 
-	hasData, definitive, err := o.probePeer(context.Background(), "peer1", ShardRef{Collection: "C", Shard: "S"})
+	hasData, hosted, definitive, err := o.probePeer(context.Background(), "peer1", ShardRef{Collection: "C", Shard: "S"})
 
 	require.False(t, hasData)
+	require.False(t, hosted)
 	require.False(t, definitive)
 	require.ErrorContains(t, err, "lacks self-recovery support")
 }

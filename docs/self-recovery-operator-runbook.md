@@ -28,7 +28,9 @@ Also confirm:
 - For this scenario the **whole** data dir will be missing — a fresh PV satisfies this. A node
   that kept its RAFT state but lost one or more shard dirs recovers them through the same
   startup hook (see `docs/self-recovery.md`); there an empty fallback counts under
-  `weaviate_self_recovery_no_data_empty_total` (alert), not the bootstrap bucket.
+  `weaviate_self_recovery_no_data_empty_total` (alert), not the bootstrap bucket, unless a
+  healthy peer confirms the shard holds no objects (never written or all deleted): that lands in
+  `weaviate_self_recovery_no_data_confirmed_empty_total` (informational).
 
 ## Optional tuning to speed up the copy
 

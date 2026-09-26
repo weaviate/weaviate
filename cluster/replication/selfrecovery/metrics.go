@@ -26,6 +26,7 @@ type Metrics struct {
 	DurationSeconds            *prometheus.HistogramVec
 	NoDataEmptyTotal           prometheus.Counter
 	NoDataDuringBootstrapTotal prometheus.Counter
+	NoDataConfirmedEmptyTotal  prometheus.Counter
 	UnreachablePeerTotal       *prometheus.CounterVec
 	GiveupTotal                prometheus.Counter
 	AcceptEmptyTotal           prometheus.Counter
@@ -59,11 +60,15 @@ func GlobalMetrics() *Metrics {
 			}, []string{"result"}),
 			NoDataEmptyTotal: promauto.NewCounter(prometheus.CounterOpts{
 				Name: "weaviate_self_recovery_no_data_empty_total",
-				Help: "Empty-fallbacks on a node that started with RAFT state: a shard folder vanished from an otherwise intact node and no peer has data. Alert on this.",
+				Help: "Empty-fallbacks on a node that started with RAFT state: a shard folder vanished from an otherwise intact node, no peer has data and no healthy peer confirmed the shard. Alert on this.",
 			}),
 			NoDataDuringBootstrapTotal: promauto.NewCounter(prometheus.CounterOpts{
 				Name: "weaviate_self_recovery_no_data_during_bootstrap_total",
 				Help: "Empty-fallbacks on a node that started without RAFT state (wiped or fresh); likely a class or tenant created while it was away, not data loss.",
+			}),
+			NoDataConfirmedEmptyTotal: promauto.NewCounter(prometheus.CounterOpts{
+				Name: "weaviate_self_recovery_no_data_confirmed_empty_total",
+				Help: "Empty-fallbacks where a healthy peer confirmed the shard exists and holds no objects (never written or all deleted); informational.",
 			}),
 			UnreachablePeerTotal: promauto.NewCounterVec(prometheus.CounterOpts{
 				Name: "weaviate_self_recovery_unreachable_peer_total",

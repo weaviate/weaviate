@@ -41,7 +41,8 @@ transfer type and reject it). Same caveat as `REPLICA_MOVEMENT_ENABLED`.
 | `weaviate_self_recovery_started_total` | counter | `source_node` | how many were kicked off, by source peer? |
 | `weaviate_self_recovery_completed_total` | counter | `result` (success\|failure\|empty_fallback\|cancelled) | terminal outcomes — `empty_fallback` is its own bucket so the benign fresh-node case does not inflate failures |
 | `weaviate_self_recovery_duration_seconds` | histogram | `result` (same label set as `completed_total`) | end-to-end recovery time |
-| `weaviate_self_recovery_no_data_empty_total` | counter | — | empty-fallback on a node that started **with** RAFT state: a shard folder vanished from an otherwise intact node and no peer has data (alert on this) |
+| `weaviate_self_recovery_no_data_empty_total` | counter | — | empty-fallback on a node that started **with** RAFT state: a shard folder vanished from an otherwise intact node, no peer has data and no healthy peer confirmed the shard (alert on this) |
+| `weaviate_self_recovery_no_data_confirmed_empty_total` | counter | — | empty-fallback on a node that started **with** RAFT state where a healthy peer confirmed it hosts the shard and holds no objects (never written or all deleted); informational |
 | `weaviate_self_recovery_no_data_during_bootstrap_total` | counter | — | empty-fallback on a node that started **without** RAFT state (wiped or fresh), or that is still draining such a start's recovery round after a restart (marker `<data>/.self_recovery_wiped`), or on a tenant activation — likely a class or tenant created while it was away; informational (name kept for continuity) |
 | `weaviate_self_recovery_unreachable_peer_total` | counter | `peer` | peer reachability problems |
 | `weaviate_self_recovery_giveup_total` | counter | — | retries exhausted |
@@ -110,14 +111,23 @@ on the next restart (their live dir is still missing).
 ## Runbook: `no_data_empty_total > 0` after a restart of a node that kept its RAFT state
 
 This counter increments when **all probed peers definitively reported no
-data** for a shard the orchestrator was trying to recover on a node that
-started with RAFT state (a wiped or fresh node counts under
+data** and **no healthy peer confirmed it hosts the shard** (the shard has
+a single replica, or every peer lacks it or is itself recovering it) on a
+node that started with RAFT state (a wiped or fresh node counts under
 `no_data_during_bootstrap_total` instead). Either:
 
 1. **Catastrophic full-cluster wipe** (every replica of the shard lost data).
 2. **Genuinely-new shard added while the node was offline** (e.g. an
    empty-source `AddReplicaToShard` applied during the node's catchup).
    Benign.
+
+A shard that was never written, or had every object deleted, lands in
+`no_data_confirmed_empty_total` instead: a peer hosting a usable copy
+answered that it holds no objects, so nothing was lost. Trade-off: a peer
+that itself empty-fallbacked earlier also answers "hosted, empty", so when
+several replicas lose the same shard only the first node to recover it
+ticks `no_data_empty_total`; the critical alert still fires once. Peers on
+a version without the `hosted` probe field always count as unconfirmed.
 
 To distinguish, find the structured log line:
 
@@ -161,7 +171,9 @@ A peer asked whether it holds data for a shard answers for a cold lazy
 shard from the persisted object counter, without loading it or creating
 its folder; a loaded shard answers with its exact count; a shard the peer
 is itself recovering answers "not usable now" (retried); a shard the peer
-does not host answers "no data". Only the peer chosen as the copy source
+does not host answers "no data". Every answer from a usable copy also sets
+`hosted`, which lets an empty fallback confirmed by a peer count as
+informational. Only the peer chosen as the copy source
 loads its shard.
 
 ### Wiped-node log-replay rejoin (no operator-forced snapshot)

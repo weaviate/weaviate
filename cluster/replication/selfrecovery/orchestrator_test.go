@@ -650,3 +650,110 @@ func TestCancelInflightSelfRecoveryOps_NoMetricDoubleCount(t *testing.T) {
 	require.Equal(t, before, after,
 		"cancelInflightSelfRecoveryOps must not increment CompletedTotal{cancelled} — runOne owns that metric")
 }
+
+type probeAnswer func() (*protocol.ProbeShardDataResponse, error)
+
+var (
+	answerHostedEmpty probeAnswer = func() (*protocol.ProbeShardDataResponse, error) {
+		return &protocol.ProbeShardDataResponse{Hosted: true}, nil
+	}
+	answerHostedData probeAnswer = func() (*protocol.ProbeShardDataResponse, error) {
+		return &protocol.ProbeShardDataResponse{HasData: true, Hosted: true}, nil
+	}
+	answerLegacyEmpty probeAnswer = func() (*protocol.ProbeShardDataResponse, error) { return &protocol.ProbeShardDataResponse{}, nil }
+	answerNotFound    probeAnswer = func() (*protocol.ProbeShardDataResponse, error) {
+		return nil, status.Error(codes.NotFound, "shard not found")
+	}
+	answerRecovering probeAnswer = func() (*protocol.ProbeShardDataResponse, error) {
+		return nil, status.Error(codes.Unavailable, "shard \"S\" on index \"C\" is recovering")
+	}
+	answerUnreachable probeAnswer = func() (*protocol.ProbeShardDataResponse, error) {
+		return nil, status.Error(codes.Unavailable, "connection refused")
+	}
+)
+
+func TestRunOne_EmptyFallbackBucketByPeerAnswers(t *testing.T) {
+	type bucket int
+	const (
+		bucketNone bucket = iota
+		bucketCritical
+		bucketConfirmedEmpty
+		bucketBootstrap
+	)
+	cases := []struct {
+		name       string
+		answers    map[string]probeAnswer
+		wantAction recoveryAction
+		wantBucket bucket
+	}{
+		{name: "hosted empty", answers: map[string]probeAnswer{"peer1": answerHostedEmpty}, wantAction: actionEmptyFallback, wantBucket: bucketConfirmedEmpty},
+		{name: "hosted empty and not found", answers: map[string]probeAnswer{"peer1": answerHostedEmpty, "peer2": answerNotFound}, wantAction: actionEmptyFallback, wantBucket: bucketConfirmedEmpty},
+		{name: "hosted empty and recovering", answers: map[string]probeAnswer{"peer1": answerHostedEmpty, "peer2": answerRecovering}, wantAction: actionEmptyFallback, wantBucket: bucketConfirmedEmpty},
+		{name: "not found only", answers: map[string]probeAnswer{"peer1": answerNotFound, "peer2": answerNotFound}, wantAction: actionEmptyFallback, wantBucket: bucketCritical},
+		{name: "recovering only", answers: map[string]probeAnswer{"peer1": answerRecovering}, wantAction: actionEmptyFallback, wantBucket: bucketCritical},
+		{name: "no peers", answers: map[string]probeAnswer{}, wantAction: actionEmptyFallback, wantBucket: bucketCritical},
+		{name: "answer without hosted field", answers: map[string]probeAnswer{"peer1": answerLegacyEmpty}, wantAction: actionEmptyFallback, wantBucket: bucketCritical},
+		{name: "hosted with data", answers: map[string]probeAnswer{"peer1": answerHostedData, "peer2": answerHostedEmpty}, wantAction: actionRegisterOp},
+		{name: "hosted empty and unreachable", answers: map[string]probeAnswer{"peer1": answerHostedEmpty, "peer2": answerUnreachable}, wantAction: actionRetry},
+	}
+	for _, tc := range cases {
+		for _, wiped := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/started_without_raft_state=%v", tc.name, wiped), func(t *testing.T) {
+				ns := &stubNodeSelector{addrs: map[string]string{}, ports: map[string]int{}}
+				replicas := []string{"self"}
+				byAddr := map[string]probeAnswer{}
+				port := 50051
+				for peer, answer := range tc.answers {
+					addr := "10.0.0." + peer[len(peer)-1:]
+					ns.addrs[peer] = addr
+					ns.ports[peer] = port
+					replicas = append(replicas, peer)
+					byAddr[fmt.Sprintf("%s:%d", addr, port)] = answer
+				}
+				clientFactory := func(_ context.Context, addr string) (copier.FileReplicationServiceClient, error) {
+					answer := byAddr[addr]
+					return &stubFileReplicationClient{
+						probeShardData: func(context.Context, *protocol.ProbeShardDataRequest) (*protocol.ProbeShardDataResponse, error) {
+							return answer()
+						},
+					}, nil
+				}
+				o := newOrchestratorForTest(t, &stubRaft{}, stubSchema{replicas: replicas}, ns, clientFactory, stubPathResolver{root: t.TempDir()})
+				o.enabled = true
+				ref := ShardRef{Collection: "C", Shard: "S"}
+
+				decision, err := o.probeAndDecide(context.Background(), ref)
+				require.NoError(t, err)
+				require.Equal(t, tc.wantAction, decision.action)
+				if tc.wantAction != actionEmptyFallback {
+					return
+				}
+
+				before := map[bucket]float64{
+					bucketCritical:       testutil.ToFloat64(o.metrics.NoDataEmptyTotal),
+					bucketConfirmedEmpty: testutil.ToFloat64(o.metrics.NoDataConfirmedEmptyTotal),
+					bucketBootstrap:      testutil.ToFloat64(o.metrics.NoDataDuringBootstrapTotal),
+				}
+				want := tc.wantBucket
+				if wiped {
+					want = bucketBootstrap
+				}
+
+				o.runOne(context.Background(), ref, wiped)
+
+				after := map[bucket]float64{
+					bucketCritical:       testutil.ToFloat64(o.metrics.NoDataEmptyTotal),
+					bucketConfirmedEmpty: testutil.ToFloat64(o.metrics.NoDataConfirmedEmptyTotal),
+					bucketBootstrap:      testutil.ToFloat64(o.metrics.NoDataDuringBootstrapTotal),
+				}
+				for b, v := range before {
+					delta := 0.0
+					if b == want {
+						delta = 1
+					}
+					require.InDelta(t, v+delta, after[b], 0.001, "bucket %d", b)
+				}
+			})
+		}
+	}
+}

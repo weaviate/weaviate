@@ -26,11 +26,12 @@ import (
 
 func TestIncomingProbeShardDataColdShard(t *testing.T) {
 	cases := []struct {
-		name     string
-		class    string
-		prepare  func(t *testing.T, f *addPropertyLazyFixture, shard *LazyLoadShard)
-		wantData bool
-		wantDir  bool
+		name       string
+		class      string
+		prepare    func(t *testing.T, f *addPropertyLazyFixture, shard *LazyLoadShard)
+		wantData   bool
+		wantHosted bool
+		wantDir    bool
 	}{
 		{
 			name:  "no folder",
@@ -40,10 +41,11 @@ func TestIncomingProbeShardDataColdShard(t *testing.T) {
 			},
 		},
 		{
-			name:    "folder without counter",
-			class:   "ProbeColdEmpty",
-			prepare: func(*testing.T, *addPropertyLazyFixture, *LazyLoadShard) {},
-			wantDir: true,
+			name:       "folder without counter",
+			class:      "ProbeColdEmpty",
+			prepare:    func(*testing.T, *addPropertyLazyFixture, *LazyLoadShard) {},
+			wantHosted: true,
+			wantDir:    true,
 		},
 		{
 			name:  "counter above zero",
@@ -51,8 +53,9 @@ func TestIncomingProbeShardDataColdShard(t *testing.T) {
 			prepare: func(t *testing.T, f *addPropertyLazyFixture, shard *LazyLoadShard) {
 				writeCountedObjects(t, shard, "ProbeColdData", 3)
 			},
-			wantData: true,
-			wantDir:  true,
+			wantData:   true,
+			wantHosted: true,
+			wantDir:    true,
 		},
 	}
 	for _, tc := range cases {
@@ -61,9 +64,10 @@ func TestIncomingProbeShardDataColdShard(t *testing.T) {
 			for name, shard := range f.coldShards(t) {
 				tc.prepare(t, f, shard)
 
-				hasData, err := f.index.IncomingProbeShardData(context.Background(), name)
+				hasData, hosted, err := f.index.IncomingProbeShardData(context.Background(), name)
 				require.NoError(t, err)
 				require.Equal(t, tc.wantData, hasData)
+				require.Equal(t, tc.wantHosted, hosted)
 				require.False(t, shard.isLoaded())
 				if tc.wantDir {
 					require.DirExists(t, shardPath(f.index.path(), name))
@@ -94,9 +98,10 @@ func TestIncomingProbeShardDataLoadedShard(t *testing.T) {
 				}
 				require.NoError(t, shard.Load(context.Background()))
 
-				hasData, err := f.index.IncomingProbeShardData(context.Background(), name)
+				hasData, hosted, err := f.index.IncomingProbeShardData(context.Background(), name)
 				require.NoError(t, err)
 				require.Equal(t, tc.wantData, hasData)
+				require.True(t, hosted)
 			}
 		})
 	}
@@ -105,8 +110,10 @@ func TestIncomingProbeShardDataLoadedShard(t *testing.T) {
 func TestIncomingProbeShardDataRecoveringShard(t *testing.T) {
 	idx := newRecoveringIndex(t)
 
-	_, err := idx.IncomingProbeShardData(context.Background(), "S")
+	hasData, hosted, err := idx.IncomingProbeShardData(context.Background(), "S")
 	require.ErrorIs(t, err, enterrors.ErrShardRecovering)
+	require.False(t, hasData)
+	require.False(t, hosted)
 	require.NoDirExists(t, shardPath(idx.path(), "S"))
 }
 
@@ -115,8 +122,10 @@ func TestIncomingProbeShardDataAbsentShard(t *testing.T) {
 	idx.closingCtx = context.Background()
 	idx.shardCreateLocks = esync.NewKeyRWLocker()
 
-	_, err := idx.IncomingProbeShardData(context.Background(), "S")
+	hasData, hosted, err := idx.IncomingProbeShardData(context.Background(), "S")
 	require.ErrorContains(t, err, "shard is nil")
+	require.False(t, hasData)
+	require.False(t, hosted)
 }
 
 func TestIncomingProbeShardDataDeactivatedTenantOnDisk(t *testing.T) {
@@ -143,9 +152,10 @@ func TestIncomingProbeShardDataDeactivatedTenantOnDisk(t *testing.T) {
 				require.NoError(t, os.WriteFile(filepath.Join(dir, "indexcount"), buf, 0o644))
 			}
 
-			hasData, err := idx.IncomingProbeShardData(context.Background(), "S")
+			hasData, hosted, err := idx.IncomingProbeShardData(context.Background(), "S")
 			require.NoError(t, err)
 			require.Equal(t, tc.wantData, hasData)
+			require.True(t, hosted)
 			require.Nil(t, idx.shards.Load("S"))
 		})
 	}
