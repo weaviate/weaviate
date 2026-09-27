@@ -2353,6 +2353,42 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 			assert.ElementsMatch(t, allExpectedToDel, delta.ToDelete)
 		})
 	})
+
+	// Length is not derived from Items, so a same-order Items match with a
+	// changed Length must still delta.
+	t.Run("Length change alone still deltas", func(t *testing.T) {
+		prev := Property{
+			Name: "punctuation",
+			Items: []Countable{
+				{Data: []byte("alpha"), TermFrequency: 1},
+			},
+			Length:             5,
+			HasSearchableIndex: true,
+		}
+		next := prev
+		next.Length = 6
+
+		delta := DeltaSkipSearchable([]Property{prev}, []Property{next}, []string{prev.Name})
+
+		assert.ElementsMatch(t, []Property{next}, delta.ToAdd, "a punctuation-only edit must not be skipped")
+		assert.ElementsMatch(t, []Property{prev}, delta.ToDelete, "a punctuation-only edit must not be skipped")
+	})
+
+	t.Run("null-state change alone still deltas", func(t *testing.T) {
+		prev := Property{
+			Name:               "optional",
+			Items:              []Countable{},
+			Length:             0,
+			HasSearchableIndex: true,
+		}
+		next := prev
+		next.Length = 1
+
+		delta := DeltaSkipSearchable([]Property{prev}, []Property{next}, []string{prev.Name})
+
+		assert.ElementsMatch(t, []Property{next}, delta.ToAdd, "empty-to-whitespace must not be skipped")
+		assert.ElementsMatch(t, []Property{prev}, delta.ToDelete, "empty-to-whitespace must not be skipped")
+	})
 }
 
 func TestDeltaAnalyzer_Arrays(t *testing.T) {

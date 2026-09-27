@@ -72,10 +72,11 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 		}
 		delete(previousByProp, nextProp.Name)
 
+		// Length is not derived from Items and can change while Items stays the same.
 		// there is a chance they're identical, such a check is pretty cheap and
 		// it could prevent us from running an expensive merge, so let's try our
 		// luck
-		if listsIdentical(prevProp.Items, nextProp.Items) {
+		if prevProp.Length == nextProp.Length && listsIdentical(prevProp.Items, nextProp.Items) {
 			// then we don't need to do anything about this prop
 			continue
 		}
