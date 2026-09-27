@@ -1439,22 +1439,15 @@ func TestFilterPropertyLengthError(t *testing.T) {
 	require.NotNil(t, err)
 }
 
-// Test_PatchNoOpSkipsSearchableBucketRewrite checks that a PATCH to another
-// property writes nothing to an unchanged searchable bucket, and that a
-// token-preserving edit still updates len().
-func Test_PatchNoOpSkipsSearchableBucketRewrite(t *testing.T) {
-	ctx := context.Background()
-	className := "UnchangedSearchableSkip"
-	textID := strfmt.UUID("6f7f2b0e-df32-4f9d-9f8f-9e6c9f6d0a01")
-	lengthID := strfmt.UUID("6f7f2b0e-df32-4f9d-9f8f-9e6c9f6d0a02")
-
-	migrator, repo, schemaGetter := createRepo(t)
-	defer repo.Shutdown(ctx)
+// createDescriptionCounterClass registers a class with a searchable
+// "description" text property and a filterable "counter" int property.
+func createDescriptionCounterClass(t *testing.T, ctx context.Context, migrator *Migrator, schemaGetter *fakeSchemaGetter, className string, invertedIndexConfig *models.InvertedIndexConfig) {
+	t.Helper()
 
 	class := &models.Class{
 		Class:               className,
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: invertedConfig(),
+		InvertedIndexConfig: invertedIndexConfig,
 		Properties: []*models.Property{
 			{
 				Name:            "description",
@@ -1471,6 +1464,21 @@ func Test_PatchNoOpSkipsSearchableBucketRewrite(t *testing.T) {
 	}
 	require.Nil(t, migrator.AddClass(ctx, class))
 	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+}
+
+// Test_PatchNoOpSkipsSearchableBucketRewrite checks that a PATCH to another
+// property writes nothing to an unchanged searchable bucket, and that a
+// token-preserving edit still updates len().
+func Test_PatchNoOpSkipsSearchableBucketRewrite(t *testing.T) {
+	ctx := context.Background()
+	className := "UnchangedSearchableSkip"
+	textID := strfmt.UUID("6f7f2b0e-df32-4f9d-9f8f-9e6c9f6d0a01")
+	lengthID := strfmt.UUID("6f7f2b0e-df32-4f9d-9f8f-9e6c9f6d0a02")
+
+	migrator, repo, schemaGetter := createRepo(t)
+	defer repo.Shutdown(ctx)
+
+	createDescriptionCounterClass(t, ctx, migrator, schemaGetter, className, invertedConfig())
 
 	require.Nil(t, repo.PutObject(ctx, &models.Object{
 		ID:    textID,
@@ -1586,26 +1594,7 @@ func Test_PatchUnrelatedPropertyKeepsAveragePropertyLength(t *testing.T) {
 
 	cfg := invertedConfig()
 	cfg.UsingBlockMaxWAND = true
-	class := &models.Class{
-		Class:               className,
-		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-		InvertedIndexConfig: cfg,
-		Properties: []*models.Property{
-			{
-				Name:            "description",
-				DataType:        schema.DataTypeText.PropString(),
-				Tokenization:    models.PropertyTokenizationWord,
-				IndexSearchable: boolPtr(true),
-			},
-			{
-				Name:            "counter",
-				DataType:        schema.DataTypeInt.PropString(),
-				IndexFilterable: boolPtr(true),
-			},
-		},
-	}
-	require.Nil(t, migrator.AddClass(ctx, class))
-	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+	createDescriptionCounterClass(t, ctx, migrator, schemaGetter, className, cfg)
 
 	longDescription := ""
 	for i := 0; i < 20; i++ {
