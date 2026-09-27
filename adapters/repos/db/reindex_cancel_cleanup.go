@@ -321,7 +321,12 @@ func hasStalePartialReindexState(
 	// Sidecar bucket dirs, minus the ones backing a completed-but-deferred
 	// migration — those are live state the sweep must preserve.
 	if len(sidecarSuffixes) > 0 {
-		preserveSidecars := completedMigrationSidecarSuffixes(scope.preserving(indexType))
+		preserveSidecars, err := completedMigrationSidecarSuffixes(scope.preserving(indexType))
+		if err != nil {
+			// Same disposition as an unlistable .migrations below: a sidecar
+			// this pass can't classify could be either, so this is not "clean".
+			return true, false
+		}
 		for _, suffix := range sidecarSuffixes {
 			if !preserveSidecars[suffix] {
 				return true, false
@@ -349,7 +354,11 @@ func hasStalePartialReindexState(
 			continue
 		}
 		if preservedGens == nil {
-			preservedGens = completedMigrationGens(scope)
+			var err error
+			preservedGens, err = completedMigrationGens(scope)
+			if err != nil {
+				return true, false
+			}
 		}
 		if _, gen, ok := parseMigrationDirName(name); ok && preservedGens[gen] {
 			finalizable = true

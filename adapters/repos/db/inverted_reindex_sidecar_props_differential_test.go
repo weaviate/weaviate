@@ -322,8 +322,8 @@ func TestSidecarPropsPreservePassMatchesItsPayloadOnlyReader(t *testing.T) {
 
 				for _, propName := range sidecarPropNames {
 					for _, scope := range scopesUnderTest(lsm, propName, indexType) {
-						want := completedMigrationGens(headScoped(scope, fixtures))
-						got := completedMigrationGens(scope.cachingProps(&taskPropsCache{}))
+						want := mustCompletedGens(t, headScoped(scope, fixtures))
+						got := mustCompletedGens(t, scope.cachingProps(&taskPropsCache{}))
 						if payloadIsUnusable(payloadMode) {
 							// Repaired cells are pinned against an intact
 							// payload instead; see the intact-payload test.

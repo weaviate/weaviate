@@ -295,7 +295,10 @@ func cleanStaleMigrationDirsIn(ctx context.Context, scope migrationDirScope, log
 	if err := ctx.Err(); err != nil {
 		return fmt.Errorf("stale-state cleanup stopped before reading %s: %w", migrationsRoot, err)
 	}
-	preserved := completedMigrationGens(scope)
+	preserved, err := completedMigrationGens(scope)
+	if err != nil {
+		return fmt.Errorf("read completed migrations before stale-state cleanup: %w", err)
+	}
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("stale-state cleanup stopped partway through %s: %w", migrationsRoot, err)
@@ -361,10 +364,13 @@ func cleanStaleMigrationDirsIn(ctx context.Context, scope migrationDirScope, log
 // (stale-tidied-sentinel check) will still fail loudly rather than silently
 // report success if a partial directory survives. Step 1 errors ARE propagated
 // because they indicate a bucket can't be cleanly disconnected from the LSM
-// layer — proceeding to remove its files would corrupt the store. So is a
-// .migrations that cannot be listed at all: the preserve pass reads that same
-// directory, so step 2 has by then removed sidecars it could not tell were
-// live, and the caller's summary would otherwise report a finished sweep.
+// layer — proceeding to remove its files would corrupt the store.
+//
+// A .migrations whose listing or sentinels cannot be read refuses the sweep
+// before step 1, since the preserve set comes from there: without it, steps 1
+// and 2 cannot tell a live sidecar from a stale one and would delete both. The
+// refusal is a preflight, not a lock — a fault that first appears once step 2 is
+// under way is still reported, after that step has done what it could.
 //
 // The first return is how many tracker payloads this sweep read, for the
 // caller's summary line. A refused input reads none.
@@ -390,7 +396,11 @@ func (s *Shard) CleanStalePartialReindexState(ctx context.Context, propName, ind
 	// Preserve sidecars of completed-but-deferred migrations: they back the
 	// live in-memory bucket pointer; wiping them is #10675-shape data loss.
 	scope := migrationDirsOf(s.pathLSM(), nil, propName, indexType).cachingProps(props)
-	preserveSidecars := completedMigrationSidecarSuffixes(scope.preserving(indexType))
+	preserveSidecars, err := completedMigrationSidecarSuffixes(scope.preserving(indexType))
+	if err != nil {
+		return props.count(), fmt.Errorf(
+			"reading completed-migration sidecars before partial-reindex cleanup: %w", err)
+	}
 
 	loaded := s.store.GetBucketsByName()
 	var shutDown []string
