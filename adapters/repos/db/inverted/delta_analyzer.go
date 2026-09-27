@@ -11,7 +11,11 @@
 
 package inverted
 
-import "bytes"
+import (
+	"bytes"
+	"cmp"
+	"slices"
+)
 
 type DeltaResults struct {
 	ToDelete []Property
@@ -226,24 +230,30 @@ func countableDelta(prev, next []Countable) ([]Countable, []Countable, bool) {
 	return add, del, cleaned
 }
 
-func listsIdentical(a []Countable, b []Countable) bool {
+// listsIdentical reports whether a and b hold the same (Data, TermFrequency)
+// pairs in any order; Analyzer.TextArray emits terms in map order.
+func listsIdentical(a, b []Countable) bool {
 	if len(a) != len(b) {
-		// can't possibly be identical if they have different lengths, exit early
+		return false
+	}
+	if slices.CompareFunc(a, b, compareCountables) == 0 {
+		return true
+	}
+	if len(a) < 2 {
 		return false
 	}
 
-	for i := range a {
-		if !bytes.Equal(a[i].Data, b[i].Data) ||
-			a[i].TermFrequency != b[i].TermFrequency {
-			// return as soon as an item didn't match
-			return false
-		}
-	}
+	as, bs := slices.Clone(a), slices.Clone(b)
+	slices.SortFunc(as, compareCountables)
+	slices.SortFunc(bs, compareCountables)
+	return slices.CompareFunc(as, bs, compareCountables) == 0
+}
 
-	// we have proven in O(n) time that both lists are identical
-	// while O(n) is the worst case for this check it prevents us from running a
-	// considerably more expensive merge
-	return true
+func compareCountables(x, y Countable) int {
+	if c := bytes.Compare(x.Data, y.Data); c != 0 {
+		return c
+	}
+	return cmp.Compare(x.TermFrequency, y.TermFrequency)
 }
 
 type DeltaNilResults struct {

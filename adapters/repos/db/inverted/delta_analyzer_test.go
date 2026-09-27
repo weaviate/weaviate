@@ -13,9 +13,11 @@ package inverted
 
 import (
 	"testing"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	ent "github.com/weaviate/weaviate/entities/inverted"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 func TestDeltaAnalyzer(t *testing.T) {
@@ -120,6 +122,34 @@ func TestDeltaAnalyzer(t *testing.T) {
 
 		assert.Len(t, res.ToDelete, 0)
 		assert.Len(t, res.ToAdd, 0)
+	})
+
+	t.Run("with previous indexing - reordered but unchanged Length is a no-op", func(t *testing.T) {
+		previous := []Property{{
+			Name: "tags",
+			Items: []Countable{
+				{Data: []byte("a"), TermFrequency: 0},
+				{Data: []byte("b"), TermFrequency: 0},
+				{Data: []byte("c"), TermFrequency: 0},
+			},
+			Length:             3,
+			HasFilterableIndex: true,
+		}}
+		next := []Property{{
+			Name: "tags",
+			Items: []Countable{
+				{Data: []byte("c"), TermFrequency: 0},
+				{Data: []byte("a"), TermFrequency: 0},
+				{Data: []byte("b"), TermFrequency: 0},
+			},
+			Length:             3,
+			HasFilterableIndex: true,
+		}}
+
+		res := Delta(previous, next)
+
+		assert.Empty(t, res.ToAdd)
+		assert.Empty(t, res.ToDelete)
 	})
 
 	t.Run("with previous indexing - only additions", func(t *testing.T) {
@@ -2389,6 +2419,104 @@ func TestDeltaAnalyzer_SkipSearchable(t *testing.T) {
 		assert.ElementsMatch(t, []Property{next}, delta.ToAdd, "empty-to-whitespace must not be skipped")
 		assert.ElementsMatch(t, []Property{prev}, delta.ToDelete, "empty-to-whitespace must not be skipped")
 	})
+
+	t.Run("reordered but unchanged searchable prop is a no-op", func(t *testing.T) {
+		prev := Property{
+			Name: "description",
+			Items: []Countable{
+				{Data: []byte("term_a"), TermFrequency: 1},
+				{Data: []byte("term_b"), TermFrequency: 1},
+				{Data: []byte("term_c"), TermFrequency: 1},
+				{Data: []byte("term_d"), TermFrequency: 1},
+			},
+			Length:             4,
+			HasSearchableIndex: true,
+		}
+		next := prev
+		next.Items = []Countable{
+			{Data: []byte("term_c"), TermFrequency: 1},
+			{Data: []byte("term_a"), TermFrequency: 1},
+			{Data: []byte("term_d"), TermFrequency: 1},
+			{Data: []byte("term_b"), TermFrequency: 1},
+		}
+
+		delta := DeltaSkipSearchable([]Property{prev}, []Property{next}, []string{prev.Name})
+
+		assert.Empty(t, delta.ToAdd, "reordered-but-unchanged searchable prop must not be re-added")
+		assert.Empty(t, delta.ToDelete, "reordered-but-unchanged searchable prop must not be tombstoned")
+	})
+
+	t.Run("reordered but unchanged prop with both searchable and filterable indexes is a no-op", func(t *testing.T) {
+		prev := Property{
+			Name: "description",
+			Items: []Countable{
+				{Data: []byte("term_a"), TermFrequency: 1},
+				{Data: []byte("term_b"), TermFrequency: 1},
+			},
+			Length:             4,
+			HasSearchableIndex: true,
+			HasFilterableIndex: true,
+		}
+		next := prev
+		next.Items = []Countable{
+			{Data: []byte("term_b"), TermFrequency: 1},
+			{Data: []byte("term_a"), TermFrequency: 1},
+		}
+
+		delta := DeltaSkipSearchable([]Property{prev}, []Property{next}, []string{prev.Name})
+
+		assert.Empty(t, delta.ToAdd)
+		assert.Empty(t, delta.ToDelete)
+	})
+
+	// The no-op skip requires both Items and Length to match, so a reorder that
+	// also changes Length is not absorbed by the order-insensitive compare.
+	t.Run("reordered and changed Length still deltas", func(t *testing.T) {
+		prev := Property{
+			Name: "description",
+			Items: []Countable{
+				{Data: []byte("term_a"), TermFrequency: 1},
+				{Data: []byte("term_b"), TermFrequency: 1},
+			},
+			Length:             10,
+			HasSearchableIndex: true,
+		}
+		next := prev
+		next.Items = []Countable{
+			{Data: []byte("term_b"), TermFrequency: 1},
+			{Data: []byte("term_a"), TermFrequency: 1},
+		}
+		next.Length = 11
+
+		delta := DeltaSkipSearchable([]Property{prev}, []Property{next}, []string{prev.Name})
+
+		assert.NotEmpty(t, delta.ToAdd, "a Length change must not be absorbed by the order-insensitive skip")
+		assert.NotEmpty(t, delta.ToDelete, "a Length change must not be absorbed by the order-insensitive skip")
+	})
+
+	t.Run("two independent analyses of unchanged text are a no-op", func(t *testing.T) {
+		a := NewAnalyzer(nil, "")
+		text := "the quick brown fox jumps over the lazy dog and then some more words"
+		length := utf8.RuneCountInString(text)
+
+		prev := Property{
+			Name:               "description",
+			Items:              a.TextArray(models.PropertyTokenizationWord, []string{text}, "description", nil),
+			Length:             length,
+			HasSearchableIndex: true,
+		}
+		next := Property{
+			Name:               "description",
+			Items:              a.TextArray(models.PropertyTokenizationWord, []string{text}, "description", nil),
+			Length:             length,
+			HasSearchableIndex: true,
+		}
+
+		delta := DeltaSkipSearchable([]Property{prev}, []Property{next}, []string{prev.Name})
+
+		assert.Empty(t, delta.ToAdd, "two analyses of unchanged text must not re-add terms")
+		assert.Empty(t, delta.ToDelete, "two analyses of unchanged text must not tombstone terms")
+	})
 }
 
 func TestDeltaAnalyzer_Arrays(t *testing.T) {
@@ -2617,6 +2745,34 @@ func TestDeltaAnalyzer_Arrays(t *testing.T) {
 		assert.ElementsMatch(t, expectedAdd, delta.ToAdd)
 		assert.ElementsMatch(t, expectedDelete, delta.ToDelete)
 	})
+
+	t.Run("reordered ints with unchanged Length is a no-op", func(t *testing.T) {
+		previous := []Property{{
+			Name: "ints",
+			Items: []Countable{
+				{Data: lexInt64(1)},
+				{Data: lexInt64(2)},
+				{Data: lexInt64(3)},
+			},
+			Length:             3,
+			HasFilterableIndex: true,
+		}}
+		next := []Property{{
+			Name: "ints",
+			Items: []Countable{
+				{Data: lexInt64(3)},
+				{Data: lexInt64(2)},
+				{Data: lexInt64(1)},
+			},
+			Length:             3,
+			HasFilterableIndex: true,
+		}}
+
+		delta := DeltaSkipSearchable(previous, next, nil)
+
+		assert.Empty(t, delta.ToAdd)
+		assert.Empty(t, delta.ToDelete)
+	})
 }
 
 func TestDeltaNilAnalyzer(t *testing.T) {
@@ -2673,4 +2829,122 @@ func TestDeltaNilAnalyzer(t *testing.T) {
 	deltaNil := DeltaNil(previous, next)
 	assert.Equal(t, expectedAdd, deltaNil.ToAdd)
 	assert.Equal(t, expectedDelete, deltaNil.ToDelete)
+}
+
+func TestListsIdentical_OrderInsensitive(t *testing.T) {
+	tests := []struct {
+		name string
+		a    []Countable
+		b    []Countable
+		want bool
+	}{
+		{
+			name: "same order, same content",
+			a: []Countable{
+				{Data: []byte("alpha"), TermFrequency: 1},
+				{Data: []byte("bravo"), TermFrequency: 2},
+			},
+			b: []Countable{
+				{Data: []byte("alpha"), TermFrequency: 1},
+				{Data: []byte("bravo"), TermFrequency: 2},
+			},
+			want: true,
+		},
+		{
+			name: "shuffled order, same content",
+			a: []Countable{
+				{Data: []byte("alpha"), TermFrequency: 1},
+				{Data: []byte("bravo"), TermFrequency: 2},
+				{Data: []byte("charlie"), TermFrequency: 3},
+				{Data: []byte("delta"), TermFrequency: 4},
+				{Data: []byte("echo"), TermFrequency: 5},
+			},
+			b: []Countable{
+				{Data: []byte("echo"), TermFrequency: 5},
+				{Data: []byte("charlie"), TermFrequency: 3},
+				{Data: []byte("alpha"), TermFrequency: 1},
+				{Data: []byte("delta"), TermFrequency: 4},
+				{Data: []byte("bravo"), TermFrequency: 2},
+			},
+			want: true,
+		},
+		{
+			name: "reordered but one term frequency changed",
+			a: []Countable{
+				{Data: []byte("alpha"), TermFrequency: 1},
+				{Data: []byte("bravo"), TermFrequency: 2},
+			},
+			b: []Countable{
+				{Data: []byte("bravo"), TermFrequency: 2},
+				{Data: []byte("alpha"), TermFrequency: 9},
+			},
+			want: false,
+		},
+		{
+			name: "reordered but one term swapped for another of the same count",
+			a: []Countable{
+				{Data: []byte("alpha"), TermFrequency: 1},
+				{Data: []byte("bravo"), TermFrequency: 2},
+			},
+			b: []Countable{
+				{Data: []byte("bravo"), TermFrequency: 2},
+				{Data: []byte("charlie"), TermFrequency: 1},
+			},
+			want: false,
+		},
+		{
+			name: "different lengths",
+			a: []Countable{
+				{Data: []byte("alpha"), TermFrequency: 1},
+			},
+			b: []Countable{
+				{Data: []byte("alpha"), TermFrequency: 1},
+				{Data: []byte("bravo"), TermFrequency: 2},
+			},
+			want: false,
+		},
+		{
+			name: "both empty",
+			a:    []Countable{},
+			b:    []Countable{},
+			want: true,
+		},
+		{
+			name: "nil vs empty",
+			a:    nil,
+			b:    []Countable{},
+			want: true,
+		},
+		{
+			name: "duplicate data, same multiset in a different order",
+			a: []Countable{
+				{Data: []byte("alpha"), TermFrequency: 1},
+				{Data: []byte("alpha"), TermFrequency: 2},
+			},
+			b: []Countable{
+				{Data: []byte("alpha"), TermFrequency: 2},
+				{Data: []byte("alpha"), TermFrequency: 1},
+			},
+			want: true,
+		},
+		{
+			name: "duplicate data, different multiset",
+			a: []Countable{
+				{Data: []byte("alpha"), TermFrequency: 1},
+				{Data: []byte("alpha"), TermFrequency: 1},
+			},
+			b: []Countable{
+				{Data: []byte("alpha"), TermFrequency: 1},
+				{Data: []byte("alpha"), TermFrequency: 2},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, listsIdentical(tt.a, tt.b))
+			assert.Equal(t, tt.want, listsIdentical(tt.b, tt.a), "listsIdentical must be symmetric")
+		})
+	}
 }
