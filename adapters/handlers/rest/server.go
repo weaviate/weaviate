@@ -447,14 +447,12 @@ func (s *Server) handleShutdown(wg *sync.WaitGroup, serversPtr *[]*http.Server) 
 		}()
 	}
 
-	// Wait until all listeners have successfully shut down before calling ServerShutdown
-	success := true
+	// Wait for every listener's Shutdown to return. ServerShutdown runs even when
+	// a drain timed out, since it leaves the cluster and closes the database.
 	for range servers {
-		success = success && <-shutdownChan
+		<-shutdownChan
 	}
-	if success {
-		s.api.ServerShutdown()
-	}
+	s.api.ServerShutdown()
 }
 
 // GetHandler returns a handler useful for testing
