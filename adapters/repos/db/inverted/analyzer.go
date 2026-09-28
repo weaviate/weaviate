@@ -32,9 +32,10 @@ type Property struct {
 	Name      string
 	Items     []Countable
 	RawValues []string // Original text values before tokenization (text/text[] only)
-	// Length is the rune count for text, the element count for arrays/refs, and
-	// -1 where length is not indexed. It comes from the raw value, not from
-	// Items, and feeds the property-length and null-state indexes.
+	// Length is the rune count for text, the element count for arrays/refs,
+	// and -1 for every other type, which has no length. It comes from the
+	// raw value, not from Items, and feeds the property-length and
+	// null-state indexes.
 	Length             int
 	HasFilterableIndex bool // roaring set index
 	HasSearchableIndex bool // map index (with frequencies)
