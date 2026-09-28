@@ -219,6 +219,88 @@ func TestNamespaces_References(t *testing.T) {
 			"expected a batch-level error for cross-namespace target, got none")
 	})
 
+	t.Run("global admin batch references from a qualified source class", func(t *testing.T) {
+		tests := []struct {
+			name      string
+			animalKey string
+			toClass   string
+			wantErr   string
+		}{
+			{name: "target in the source's namespace", animalKey: user1Key, toClass: ns1 + ":Animal"},
+			{
+				name: "target in another namespace", animalKey: user2Key, toClass: ns2 + ":Animal",
+				wantErr: "'" + ns2 + ":Animal' is not a valid class name",
+			},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				zooID, animalID := newID(), newID()
+				createIn(t, user1Key, "Zoo", zooID, map[string]any{"name": "z"})
+				createIn(t, tc.animalKey, "Animal", animalID, map[string]any{"name": "a"})
+
+				refs := []*models.BatchReference{{
+					From: strfmt.URI("weaviate://localhost/" + ns1 + ":Zoo/" + string(zooID) + "/hasAnimals"),
+					To:   strfmt.URI("weaviate://localhost/" + tc.toClass + "/" + string(animalID)),
+				}}
+				resp, err := helper.Client(t).Batch.BatchReferencesCreate(
+					batch.NewBatchReferencesCreateParams().WithBody(refs),
+					helper.CreateAuth(adminKey),
+				)
+				require.NoError(t, err)
+				require.Len(t, resp.Payload, 1)
+
+				if tc.wantErr != "" {
+					require.NotNil(t, resp.Payload[0].Result.Errors)
+					require.NotEmpty(t, resp.Payload[0].Result.Errors.Error)
+					assert.Contains(t, resp.Payload[0].Result.Errors.Error[0].Message, tc.wantErr)
+					return
+				}
+				require.Nil(t, resp.Payload[0].Result.Errors,
+					"expected no batch errors, got %+v", resp.Payload[0].Result.Errors)
+
+				got, err := helper.GetObjectAuth(t, ns1+":Zoo", zooID, adminKey)
+				require.NoError(t, err)
+				stored, ok := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
+				require.True(t, ok, "hasAnimals should be a list, got %T", got.Properties.(map[string]any)["hasAnimals"])
+				require.Len(t, stored, 1)
+				beaconStr, _ := stored[0].(map[string]any)["beacon"].(string)
+				assert.Equal(t, "weaviate://localhost/Animal/"+string(animalID), beaconStr,
+					"stored beacon must carry the short class name")
+			})
+		}
+	})
+
+	t.Run("gRPC BatchReferences from a global admin's qualified source class", func(t *testing.T) {
+		zooID, animalID, foreignID := newID(), newID(), newID()
+		createIn(t, user1Key, "Zoo", zooID, map[string]any{"name": "z"})
+		createIn(t, user1Key, "Animal", animalID, map[string]any{"name": "a"})
+		createIn(t, user2Key, "Animal", foreignID, map[string]any{"name": "a2"})
+
+		sameNS, otherNS := ns1+":Animal", ns2+":Animal"
+		grpcClient, conn := newGrpcClient(t)
+		defer conn.Close()
+
+		resp, err := grpcClient.BatchReferences(authCtx(adminKey), &pb.BatchReferencesRequest{
+			References: []*pb.BatchReference{
+				{Name: "hasAnimals", FromCollection: ns1 + ":Zoo", FromUuid: zooID.String(), ToCollection: &sameNS, ToUuid: animalID.String()},
+				{Name: "hasAnimals", FromCollection: ns1 + ":Zoo", FromUuid: zooID.String(), ToCollection: &otherNS, ToUuid: foreignID.String()},
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, resp.Errors, 1, "only the reference to another namespace must fail; got %+v", resp.Errors)
+		assert.Equal(t, int32(1), resp.Errors[0].Index)
+		assert.Contains(t, resp.Errors[0].Error, "'"+otherNS+"' is not a valid class name")
+
+		got, err := helper.GetObjectAuth(t, ns1+":Zoo", zooID, adminKey)
+		require.NoError(t, err)
+		stored, ok := got.Properties.(map[string]any)["hasAnimals"].([]interface{})
+		require.True(t, ok, "hasAnimals should be a list, got %T", got.Properties.(map[string]any)["hasAnimals"])
+		require.Len(t, stored, 1)
+		beaconStr, _ := stored[0].(map[string]any)["beacon"].(string)
+		assert.Equal(t, "weaviate://localhost/Animal/"+string(animalID), beaconStr,
+			"stored beacon must carry the short class name")
+	})
+
 	t.Run("update and delete reference resolve through caller namespace", func(t *testing.T) {
 		zooID, animalAID, animalBID := newID(), newID(), newID()
 		createIn(t, user1Key, "Zoo", zooID, map[string]any{"name": "z"})
