@@ -58,6 +58,21 @@ func TestValidateReplicationReplicateShard(t *testing.T) {
 		require.True(t, errors.Is(err, ErrAlreadyExists), "expected ErrAlreadyExists, got %v", err)
 	})
 
+	t.Run("move_rejects_existing_target", func(t *testing.T) {
+		err := ValidateReplicationReplicateShard(stubSchemaReader{
+			classExists: true,
+			replicas:    []string{src, tgt},
+		}, &api.ReplicationReplicateShardRequest{
+			Uuid:             "00000000-0000-0000-0000-000000000009",
+			SourceNode:       src,
+			TargetNode:       tgt,
+			SourceCollection: coll,
+			SourceShard:      sh,
+			TransferType:     api.MOVE.String(),
+		})
+		require.ErrorIs(t, err, ErrAlreadyExists)
+	})
+
 	t.Run("self_recovery_accepts_existing_target", func(t *testing.T) {
 		err := ValidateReplicationReplicateShard(stubSchemaReader{
 			classExists: true,

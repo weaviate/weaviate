@@ -400,7 +400,7 @@ func TestRestart_NoInflightOpsAndNoRecoveryDir(t *testing.T) {
 
 func TestAcceptEmpty_RemovesRecoveryDir(t *testing.T) {
 	tmp := t.TempDir()
-	o := newOrchestratorForTest(t, &stubRaft{}, stubSchema{}, &stubNodeSelector{}, nil, stubPathResolver{root: tmp})
+	o := newOrchestratorForTest(t, &stubRaft{}, stubSchema{replicas: []string{"self", "peer1"}}, &stubNodeSelector{}, nil, stubPathResolver{root: tmp})
 
 	livePath := tmp + "/C/S"
 	recoveryPath := livePath + ".recovering"
@@ -596,7 +596,7 @@ func TestAcceptEmpty_PromotesInMemoryWrapper(t *testing.T) {
 	)
 	o := New(Config{
 		Raft:         &stubRaft{},
-		Schema:       stubSchema{},
+		Schema:       stubSchema{replicas: []string{"self", "peer1"}},
 		PathResolver: stubPathResolver{root: tmp},
 		NodeSelector: &stubNodeSelector{},
 		NodeName:     "self",

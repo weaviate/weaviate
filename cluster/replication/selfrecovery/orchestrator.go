@@ -23,6 +23,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -54,7 +55,7 @@ var ErrSelfRecoveryShardNotInSchema = errors.New("shard not in local schema")
 var ErrSelfRecoveryShardAlreadyLive = errors.New("shard already has a live local directory; /restart is only valid while the shard is RECOVERING")
 
 // ErrSelfRecoveryOpInFlight maps to 409 in the REST handler: accept-empty would race the op's own promote.
-var ErrSelfRecoveryOpInFlight = errors.New("a SELF_RECOVERY op for this shard is still in flight")
+var ErrSelfRecoveryOpInFlight = errors.New("a replication op targeting this replica is still in flight")
 
 // RaftEntryPoint is the subset of *cluster.Raft used by the orchestrator.
 type RaftEntryPoint interface {
@@ -400,11 +401,12 @@ func (o *Orchestrator) cancelInflightSelfRecoveryOps(ctx context.Context, ref Sh
 	return cancelled, nil
 }
 
-// requireNoInflightSelfRecoveryOp fails closed unless every SELF_RECOVERY op
-// targeting this node's replica is READY or CANCELLED. A live op would stage
-// "<shard>.recovering/" next to the empty live dir and, past FINALIZING, retry
-// that promote forever; an operator cancels it first while that is still allowed.
-func (o *Orchestrator) requireNoInflightSelfRecoveryOp(ctx context.Context, ref ShardRef) error {
+// requireNoInflightTargetOp fails closed unless every op targeting this
+// node's replica is READY or CANCELLED. A live SELF_RECOVERY op would stage
+// "<shard>.recovering/" next to an empty live dir and, past FINALIZING, retry
+// that promote forever; a live COPY/MOVE target would seal and route the
+// empty dir. An operator cancels such an op first while that is still allowed.
+func (o *Orchestrator) requireNoInflightTargetOp(ctx context.Context, ref ShardRef) error {
 	if o.raft == nil {
 		return nil
 	}
@@ -416,7 +418,7 @@ func (o *Orchestrator) requireNoInflightSelfRecoveryOp(ctx context.Context, ref 
 		return fmt.Errorf("list replication ops: %w", err)
 	}
 	for _, op := range ops {
-		if op.TransferType != api.SELF_RECOVERY.String() || op.TargetNodeId != o.nodeName {
+		if op.TargetNodeId != o.nodeName {
 			continue
 		}
 		state := api.ShardReplicationState(op.Status.State)
@@ -514,15 +516,21 @@ func (o *Orchestrator) AcceptEmpty(ctx context.Context, ref ShardRef) (string, e
 	}
 	// refuse unknown shards so the endpoint can't create arbitrary paths
 	if o.schema != nil {
-		if _, err := o.schema.ShardReplicas(ref.Collection, ref.Shard); err != nil {
+		replicas, err := o.schema.ShardReplicas(ref.Collection, ref.Shard)
+		if err != nil {
 			return "", fmt.Errorf("accept-empty: shard %s/%s: %w",
 				ref.Collection, ref.Shard,
 				errors.Join(ErrSelfRecoveryShardNotInSchema, err))
 		}
+		// Only a replica of this node can be RECOVERING; anywhere else the dir would be an orphan or a copy target's.
+		if !slices.Contains(replicas, o.nodeName) {
+			return "", fmt.Errorf("accept-empty: shard %s/%s has no replica on %s: %w",
+				ref.Collection, ref.Shard, o.nodeName, ErrSelfRecoveryShardNotInSchema)
+		}
 	}
 	unlock := o.lockShard(ref)
 	defer unlock()
-	if err := o.requireNoInflightSelfRecoveryOp(ctx, ref); err != nil {
+	if err := o.requireNoInflightTargetOp(ctx, ref); err != nil {
 		return "", fmt.Errorf("accept-empty: %w", err)
 	}
 	livePath := o.pathResolver.ShardPath(ref.Collection, ref.Shard)
@@ -636,7 +644,7 @@ func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, startedWithoutR
 		}
 		// A live op owns "<shard>.recovering/"; an empty fallback beside it would wedge that op's promote.
 		if !opChecked {
-			if err := o.requireNoInflightSelfRecoveryOp(ctx, ref); err != nil {
+			if err := o.requireNoInflightTargetOp(ctx, ref); err != nil {
 				if errors.Is(err, ErrSelfRecoveryOpInFlight) {
 					logger.Infof("self-recovery skipped: %v", err)
 					o.recordOutcome("skipped", startedAt)
