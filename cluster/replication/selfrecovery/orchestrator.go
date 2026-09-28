@@ -53,6 +53,9 @@ var ErrSelfRecoveryShardNotInSchema = errors.New("shard not in local schema")
 // ErrSelfRecoveryShardAlreadyLive maps to 409 in the REST handler.
 var ErrSelfRecoveryShardAlreadyLive = errors.New("shard already has a live local directory; /restart is only valid while the shard is RECOVERING")
 
+// ErrSelfRecoveryOpInFlight maps to 409 in the REST handler: accept-empty would race the op's own promote.
+var ErrSelfRecoveryOpInFlight = errors.New("a SELF_RECOVERY op for this shard is still in flight")
+
 // RaftEntryPoint is the subset of *cluster.Raft used by the orchestrator.
 type RaftEntryPoint interface {
 	RegisterSelfRecovery(ctx context.Context, sourceNode, collection, shard, targetNode string) (strfmt.UUID, error)
@@ -397,6 +400,37 @@ func (o *Orchestrator) cancelInflightSelfRecoveryOps(ctx context.Context, ref Sh
 	return cancelled, nil
 }
 
+// requireNoInflightSelfRecoveryOp fails closed unless every SELF_RECOVERY op
+// targeting this node's replica is READY or CANCELLED. A live op would stage
+// "<shard>.recovering/" next to the empty live dir and, past FINALIZING, retry
+// that promote forever; an operator cancels it first while that is still allowed.
+func (o *Orchestrator) requireNoInflightSelfRecoveryOp(ctx context.Context, ref ShardRef) error {
+	if o.raft == nil {
+		return nil
+	}
+	ops, err := o.raft.GetReplicationDetailsByCollectionAndShard(ctx, ref.Collection, ref.Shard)
+	if err != nil {
+		if errors.Is(err, replicationtypes.ErrReplicationOperationNotFound) {
+			return nil
+		}
+		return fmt.Errorf("list replication ops: %w", err)
+	}
+	for _, op := range ops {
+		if op.TransferType != api.SELF_RECOVERY.String() || op.TargetNodeId != o.nodeName {
+			continue
+		}
+		state := api.ShardReplicationState(op.Status.State)
+		if state == api.READY || state == api.CANCELLED {
+			continue
+		}
+		if op.Uncancelable {
+			return fmt.Errorf("op %s is %s and can no longer be cancelled; it resumes on its own: %w", op.Uuid, state, ErrSelfRecoveryOpInFlight)
+		}
+		return fmt.Errorf("op %s is %s; cancel it via POST /replication/replicate/%s/cancel and retry once it is CANCELLED: %w", op.Uuid, state, op.Uuid, ErrSelfRecoveryOpInFlight)
+	}
+	return nil
+}
+
 // waitForOpTerminal polls until READY/CANCELLED; a vanished op is terminal after a grace sleep for the consumer to observe the cancel.
 func (o *Orchestrator) waitForOpTerminal(ctx context.Context, uuid strfmt.UUID) error {
 	if o.raft == nil {
@@ -473,7 +507,7 @@ func (o *Orchestrator) CleanupOrphanRecoveryDirs(rootDataPath string) ([]string,
 	return removed, nil
 }
 
-// AcceptEmpty (operator escape hatch) erases the staging dir, creates an empty live dir, promotes; does NOT cancel in-flight RAFT ops.
+// AcceptEmpty (operator escape hatch) erases the staging dir, creates an empty live dir, promotes; refuses while a SELF_RECOVERY op targeting this node is non-terminal.
 func (o *Orchestrator) AcceptEmpty(ctx context.Context, ref ShardRef) (string, error) {
 	if o.pathResolver == nil {
 		return "", errors.New("accept-empty: no PathResolver configured")
@@ -488,6 +522,9 @@ func (o *Orchestrator) AcceptEmpty(ctx context.Context, ref ShardRef) (string, e
 	}
 	unlock := o.lockShard(ref)
 	defer unlock()
+	if err := o.requireNoInflightSelfRecoveryOp(ctx, ref); err != nil {
+		return "", fmt.Errorf("accept-empty: %w", err)
+	}
 	livePath := o.pathResolver.ShardPath(ref.Collection, ref.Shard)
 	recoveryPath := livePath + api.RecoveryFolderSuffix
 

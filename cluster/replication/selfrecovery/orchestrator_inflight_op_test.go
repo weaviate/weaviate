@@ -88,7 +88,7 @@ func newInflightOpRaft(tc inflightOpCase) *stubRaft {
 }
 
 func TestAcceptEmptyRefusesWhileSelfRecoveryOpInFlight(t *testing.T) {
-	refused := errors.New("refused")
+	refused := ErrSelfRecoveryOpInFlight
 	tests := []inflightOpCase{
 		{name: "no op", dirs: shardDirs{recovery: true}, wantDirs: shardDirs{live: true}},
 		{
@@ -136,9 +136,12 @@ func TestAcceptEmptyRefusesWhileSelfRecoveryOpInFlight(t *testing.T) {
 				&stubNodeSelector{}, nil, stubPathResolver{root: root})
 
 			_, err := o.AcceptEmpty(context.Background(), ShardRef{Collection: "c", Shard: "S"})
-			if tc.wantErr != nil {
-				require.Error(t, err)
-			} else {
+			switch {
+			case tc.listErr != nil:
+				require.ErrorIs(t, err, tc.listErr)
+			case tc.wantErr != nil:
+				require.ErrorIs(t, err, tc.wantErr)
+			default:
 				require.NoError(t, err)
 			}
 			requireShardDirs(t, live, recovery, tc.wantDirs)
@@ -154,6 +157,7 @@ func TestAcceptEmptyDuringHydratingOpLeavesPromotable(t *testing.T) {
 		&stubNodeSelector{}, nil, stubPathResolver{root: root})
 
 	_, acceptErr := o.AcceptEmpty(context.Background(), ShardRef{Collection: "c", Shard: "S"})
+	require.ErrorIs(t, acceptErr, ErrSelfRecoveryOpInFlight)
 	_, statErr := os.Stat(recovery)
 	if errors.Is(statErr, os.ErrNotExist) {
 		require.NoError(t, os.MkdirAll(recovery, 0o755))

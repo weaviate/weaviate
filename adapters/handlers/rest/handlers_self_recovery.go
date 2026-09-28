@@ -70,6 +70,10 @@ func setupSelfRecoveryHandlers(appState *state.State, orch *selfrecovery.Orchest
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
+			if errors.Is(err, selfrecovery.ErrSelfRecoveryOpInFlight) {
+				http.Error(w, err.Error(), http.StatusConflict)
+				return
+			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

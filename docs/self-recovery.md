@@ -96,7 +96,7 @@ like the other `/debug/*` handlers.
 |---|---|
 | `POST /replication/replicate/{id}/cancel` | abandon one in-flight op (any transfer type). A SELF_RECOVERY op refuses with `409 Conflict` once it entered FINALIZING, which promotes its copy over the live dir: cancelling past that point would serve a shard missing the copy-window writes. |
 | `POST /debug/self-recovery/restart?collection=X&shard=Y` | abandon current SELF_RECOVERY attempt for the shard, erase partial `.recovering/` state, start fresh (probe re-randomises source peer selection). **Valid only while the shard is `RECOVERING`** — if the live `<shard>/` directory already exists (recovery completed, or empty-fallback ran) it returns `409 Conflict`; cancel any in-flight op and remove the directory by hand if you really want to re-pull. Also `409 Conflict` while the shard's op is past FINALIZING and so cannot be cancelled. |
-| `POST /debug/self-recovery/accept-empty?collection=X&shard=Y` | declare "no recoverable data exists, accept empty shard". Confirm via metrics/logs that all peers report no data first. |
+| `POST /debug/self-recovery/accept-empty?collection=X&shard=Y` | declare "no recoverable data exists, accept empty shard". Confirm via metrics/logs that all peers report no data first. Returns `409 Conflict` while a SELF_RECOVERY op for the shard is in flight: cancel it first, or, once it is past FINALIZING and so uncancellable, let it finish. |
 
 If retries are exhausted (`weaviate_self_recovery_giveup_total` ticks),
 the shard is left in `RECOVERING`; use `restart` to try again from
