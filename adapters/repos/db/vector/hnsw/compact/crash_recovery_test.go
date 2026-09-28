@@ -1152,6 +1152,15 @@ func TestCrashRecovery_CorruptCompressionHeaderAllocationIsBounded(t *testing.T)
 		b = binary.LittleEndian.AppendUint32(b, outputDim)
 		return binary.LittleEndian.AppendUint32(b, rounds)
 	}
+	// The mean length must equal the input dimension, so both are garbage.
+	centeredRQMean := func(dim uint32) []byte {
+		b := []byte{byte(AddRQCentered), 0}
+		b = binary.LittleEndian.AppendUint32(b, dim) // inputDim
+		b = binary.LittleEndian.AppendUint32(b, 8)   // bits
+		b = binary.LittleEndian.AppendUint32(b, 2)   // outputDim
+		b = binary.LittleEndian.AppendUint32(b, 0)   // rounds
+		return binary.LittleEndian.AppendUint32(b, dim)
+	}
 	brqHeader := func(outputDim, rounds uint32) []byte {
 		b := []byte{byte(AddBRQ)}
 		b = binary.LittleEndian.AppendUint32(b, 4) // inputDim
@@ -1182,6 +1191,7 @@ func TestCrashRecovery_CorruptCompressionHeaderAllocationIsBounded(t *testing.T)
 		{name: "RQ rounds", tail: rqHeader(AddRQ, 2, huge)},
 		{name: "RQ zero-payload rounds", tail: rqHeader(AddRQ, 0, huge)},
 		{name: "centered RQ rounds", tail: rqHeader(AddRQCentered, 2, huge)},
+		{name: "centered RQ mean", tail: centeredRQMean(1 << 24)},
 		{name: "BRQ rounds", tail: brqHeader(2, huge)},
 		{name: "BRQ zero-payload rounds", tail: brqHeader(0, huge)},
 		{name: "muvera repetitions", tail: muveraHeader(1, 1, 1, huge)},
