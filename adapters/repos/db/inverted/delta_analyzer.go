@@ -11,7 +11,11 @@
 
 package inverted
 
-import "bytes"
+import (
+	"bytes"
+	"cmp"
+	"slices"
+)
 
 type DeltaResults struct {
 	ToDelete []Property
@@ -50,7 +54,7 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 	for _, nextProp := range next {
 		prevProp, ok := previousByProp[nextProp.Name]
 		if !ok {
-			if len(nextProp.Items) == 0 {
+			if len(nextProp.Items) == 0 && nextProp.Length == -1 {
 				// effectively nothing is added
 				continue
 			}
@@ -72,10 +76,11 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 		}
 		delete(previousByProp, nextProp.Name)
 
+		// Length is not derived from Items and can change while Items stays the same.
 		// there is a chance they're identical, such a check is pretty cheap and
 		// it could prevent us from running an expensive merge, so let's try our
 		// luck
-		if listsIdentical(prevProp.Items, nextProp.Items) {
+		if prevProp.Length == nextProp.Length && listsIdentical(prevProp.Items, nextProp.Items) {
 			// then we don't need to do anything about this prop
 			continue
 		}
@@ -165,7 +170,7 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 	// extend ToDelete with props from previous missing in next
 	for _, prevProp := range previous {
 		if _, ok := previousByProp[prevProp.Name]; ok {
-			if len(prevProp.Items) == 0 {
+			if len(prevProp.Items) == 0 && prevProp.Length == -1 {
 				// effectively nothing is removed
 				continue
 			}
@@ -225,24 +230,30 @@ func countableDelta(prev, next []Countable) ([]Countable, []Countable, bool) {
 	return add, del, cleaned
 }
 
-func listsIdentical(a []Countable, b []Countable) bool {
+// listsIdentical reports whether a and b hold the same (Data, TermFrequency)
+// pairs in any order; Analyzer.TextArray emits terms in map order.
+func listsIdentical(a, b []Countable) bool {
 	if len(a) != len(b) {
-		// can't possibly be identical if they have different lengths, exit early
+		return false
+	}
+	if slices.CompareFunc(a, b, compareCountables) == 0 {
+		return true
+	}
+	if len(a) < 2 {
 		return false
 	}
 
-	for i := range a {
-		if !bytes.Equal(a[i].Data, b[i].Data) ||
-			a[i].TermFrequency != b[i].TermFrequency {
-			// return as soon as an item didn't match
-			return false
-		}
-	}
+	as, bs := slices.Clone(a), slices.Clone(b)
+	slices.SortFunc(as, compareCountables)
+	slices.SortFunc(bs, compareCountables)
+	return slices.CompareFunc(as, bs, compareCountables) == 0
+}
 
-	// we have proven in O(n) time that both lists are identical
-	// while O(n) is the worst case for this check it prevents us from running a
-	// considerably more expensive merge
-	return true
+func compareCountables(x, y Countable) int {
+	if c := bytes.Compare(x.Data, y.Data); c != 0 {
+		return c
+	}
+	return cmp.Compare(x.TermFrequency, y.TermFrequency)
 }
 
 type DeltaNilResults struct {
