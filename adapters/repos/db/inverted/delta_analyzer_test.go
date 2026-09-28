@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	ent "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -2697,6 +2698,14 @@ func TestDeltaAnalyzer_Arrays(t *testing.T) {
 				HasFilterableIndex: true,
 				HasSearchableIndex: false,
 			},
+			// present (Length=0, zero Items) -> absent still needs a delete entry.
+			{
+				Name:               "numbers",
+				Items:              []Countable{},
+				Length:             0,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
 		}
 		expectedDelete := []Property{
 			{
@@ -2705,6 +2714,13 @@ func TestDeltaAnalyzer_Arrays(t *testing.T) {
 					{Data: lexInt64(102)},
 				},
 				Length:             9,
+				HasFilterableIndex: true,
+				HasSearchableIndex: false,
+			},
+			{
+				Name:               "numbers",
+				Items:              []Countable{},
+				Length:             0,
 				HasFilterableIndex: true,
 				HasSearchableIndex: false,
 			},
@@ -2947,4 +2963,142 @@ func TestListsIdentical_OrderInsensitive(t *testing.T) {
 			assert.Equal(t, tt.want, listsIdentical(tt.b, tt.a), "listsIdentical must be symmetric")
 		})
 	}
+}
+
+// TestDeltaAnalyzer_AbsentZeroTokenTransitions asserts the exact ToAdd/ToDelete
+// Length when a zero-Items, real-Length property (whitespace-only or empty
+// text) transitions to/from absent.
+func TestDeltaAnalyzer_AbsentZeroTokenTransitions(t *testing.T) {
+	propByName := func(props []Property, name string) (Property, bool) {
+		for _, p := range props {
+			if p.Name == name {
+				return p, true
+			}
+		}
+		return Property{}, false
+	}
+
+	// keeps `previous` non-nil so Delta skips its "index everything" short-circuit.
+	unrelatedProp := Property{
+		Name:               "unrelated",
+		Items:              []Countable{{Data: []byte("x"), TermFrequency: 1}},
+		Length:             -1,
+		HasFilterableIndex: true,
+	}
+
+	t.Run("absent -> whitespace-only", func(t *testing.T) {
+		previous := []Property{unrelatedProp}
+		next := []Property{
+			unrelatedProp,
+			{
+				Name:               "description",
+				Items:              []Countable{},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+		}
+
+		delta := Delta(previous, next)
+
+		added, ok := propByName(delta.ToAdd, "description")
+		require.True(t, ok, "description must be added even with zero Items")
+		assert.Equal(t, 1, added.Length)
+		assert.Empty(t, added.Items)
+
+		deleted, ok := propByName(delta.ToDelete, "description")
+		require.True(t, ok, "the nil-length reset entry must be deleted")
+		assert.Equal(t, 0, deleted.Length)
+	})
+
+	t.Run("whitespace-only -> absent", func(t *testing.T) {
+		previous := []Property{
+			{
+				Name:               "description",
+				Items:              []Countable{},
+				Length:             1,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+		}
+		next := []Property(nil)
+
+		delta := DeltaSkipSearchable(previous, next, nil)
+
+		deleted, ok := propByName(delta.ToDelete, "description")
+		require.True(t, ok, "the stale length=1 entry must be deleted")
+		assert.Equal(t, 1, deleted.Length)
+
+		added, ok := propByName(delta.ToAdd, "description")
+		require.True(t, ok, "a length=0 reset entry must be added")
+		assert.Equal(t, 0, added.Length)
+	})
+
+	t.Run("absent -> empty string", func(t *testing.T) {
+		previous := []Property{unrelatedProp}
+		next := []Property{
+			unrelatedProp,
+			{
+				Name:               "description",
+				Items:              []Countable{},
+				Length:             0,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+		}
+
+		delta := Delta(previous, next)
+
+		added, ok := propByName(delta.ToAdd, "description")
+		require.True(t, ok, "description must be added even with zero Items and zero Length")
+		assert.Equal(t, 0, added.Length)
+		assert.Empty(t, added.Items)
+
+		deleted, ok := propByName(delta.ToDelete, "description")
+		require.True(t, ok, "the nil-length reset entry must still be deleted")
+		assert.Equal(t, 0, deleted.Length)
+	})
+
+	t.Run("empty string -> absent", func(t *testing.T) {
+		previous := []Property{
+			{
+				Name:               "description",
+				Items:              []Countable{},
+				Length:             0,
+				HasFilterableIndex: true,
+				HasSearchableIndex: true,
+			},
+		}
+		next := []Property(nil)
+
+		delta := DeltaSkipSearchable(previous, next, nil)
+
+		deleted, ok := propByName(delta.ToDelete, "description")
+		require.True(t, ok, "the length=0 entry must be deleted")
+		assert.Equal(t, 0, deleted.Length)
+
+		added, ok := propByName(delta.ToAdd, "description")
+		require.True(t, ok, "a length=0 reset entry must be added")
+		assert.Equal(t, 0, added.Length)
+	})
+
+	t.Run("Length -1 zero-Items prop is still skipped", func(t *testing.T) {
+		withProp := []Property{
+			unrelatedProp,
+			{Name: "flag", Items: []Countable{}, Length: -1, HasFilterableIndex: true},
+		}
+		without := []Property{unrelatedProp}
+
+		addDelta := Delta(without, withProp)
+		_, addedOk := propByName(addDelta.ToAdd, "flag")
+		_, addedDelOk := propByName(addDelta.ToDelete, "flag")
+		assert.False(t, addedOk)
+		assert.False(t, addedDelOk)
+
+		removeDelta := DeltaSkipSearchable(withProp, without, nil)
+		_, removedOk := propByName(removeDelta.ToDelete, "flag")
+		_, removedAddOk := propByName(removeDelta.ToAdd, "flag")
+		assert.False(t, removedOk)
+		assert.False(t, removedAddOk)
+	})
 }

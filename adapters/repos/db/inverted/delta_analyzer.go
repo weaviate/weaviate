@@ -54,7 +54,7 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 	for _, nextProp := range next {
 		prevProp, ok := previousByProp[nextProp.Name]
 		if !ok {
-			if len(nextProp.Items) == 0 {
+			if len(nextProp.Items) == 0 && nextProp.Length == -1 {
 				// effectively nothing is added
 				continue
 			}
@@ -170,7 +170,7 @@ func DeltaSkipSearchable(previous, next []Property, skipDeltaSearchableProps []s
 	// extend ToDelete with props from previous missing in next
 	for _, prevProp := range previous {
 		if _, ok := previousByProp[prevProp.Name]; ok {
-			if len(prevProp.Items) == 0 {
+			if len(prevProp.Items) == 0 && prevProp.Length == -1 {
 				// effectively nothing is removed
 				continue
 			}
