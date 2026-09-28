@@ -3073,7 +3073,7 @@ func init() {
     },
     "/namespaces": {
       "get": {
-        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list (never 403).",
+        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list rather than 403.",
         "tags": [
           "namespaces"
         ],
@@ -3088,6 +3088,12 @@ func init() {
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden: no well-formed Weaviate license key is configured on this node",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Not Found - The namespaces feature is not enabled on this cluster.",
@@ -3138,7 +3144,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3199,7 +3205,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3259,7 +3265,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3314,7 +3320,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3365,7 +3371,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3428,7 +3434,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12559,7 +12565,7 @@ func init() {
       "name": "mcp"
     },
     {
-      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action.",
+      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action and, on namespace-enabled clusters, a well-formed Weaviate license key on the serving node.",
       "name": "namespaces"
     }
   ],
@@ -15600,7 +15606,7 @@ func init() {
     },
     "/namespaces": {
       "get": {
-        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list (never 403).",
+        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list rather than 403.",
         "tags": [
           "namespaces"
         ],
@@ -15615,6 +15621,12 @@ func init() {
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden: no well-formed Weaviate license key is configured on this node",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Not Found - The namespaces feature is not enabled on this cluster.",
@@ -15665,7 +15677,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15726,7 +15738,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15786,7 +15798,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15841,7 +15853,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15892,7 +15904,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15955,7 +15967,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -25546,7 +25558,7 @@ func init() {
       "name": "mcp"
     },
     {
-      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action.",
+      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action and, on namespace-enabled clusters, a well-formed Weaviate license key on the serving node.",
       "name": "namespaces"
     }
   ],

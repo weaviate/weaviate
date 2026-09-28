@@ -29,6 +29,8 @@ const unlicensedNamespacesDetail = "Every REST, gRPC and MCP data request that n
 	"REST batch references, gRPC unary batch objects and batch references, and a batch stream message " +
 	"holding only references are refused per item. Backup, export, replica movement and the debug port " +
 	"are not refused, but restoring a namespaced backup needs its namespaces to exist and be active. " +
+	"Every namespace operation (create, update, get, list, delete, suspend and resume) is refused with 403, " +
+	"so this node cannot create or resume those namespaces. " +
 	"Users and roles can still be written, but grant no data access."
 
 // namespaceModeFor is the only code that pairs NAMESPACES_ENABLED with

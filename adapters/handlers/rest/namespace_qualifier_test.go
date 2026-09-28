@@ -132,6 +132,7 @@ func TestLogUnlicensedNamespaces(t *testing.T) {
 			require.Equal(t, namespacesFeature, entry.Data["feature"])
 			require.Contains(t, entry.Message, "data request")
 			require.Contains(t, entry.Message, "batch references")
+			require.Contains(t, entry.Message, "namespace operation")
 		})
 	}
 }

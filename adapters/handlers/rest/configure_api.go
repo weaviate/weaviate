@@ -60,7 +60,6 @@ import (
 	clusterapigrpc "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
-	rest_namespaces "github.com/weaviate/weaviate/adapters/handlers/rest/namespaces"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	replicationHandlers "github.com/weaviate/weaviate/adapters/handlers/rest/replication"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/restcompat"
@@ -183,6 +182,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
+	wlnshandlers "github.com/weaviate/weaviate/wl/namespaces/handlers"
 	"github.com/weaviate/weaviate/wl/selfrecovery"
 )
 
@@ -1498,7 +1498,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.APIKey.Dynamic, appState.AuthzController, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController, appState.Logger)
-	rest_namespaces.SetupHandlers(appState.ServerConfig.Config.Namespaces.Enabled, api, appState.ClusterService.Raft, appState.Authorizer)
+	setupNamespaceHandlers(api, namespaceModeFor(appState.ServerConfig.Config), func(api *operations.WeaviateAPI) {
+		wlnshandlers.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer)
+	})
 
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Authorizer, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks, appState.NamespaceQualifier)
 	setupIndexesHandlers(api, appState)
