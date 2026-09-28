@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/schema/leader"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -50,7 +51,7 @@ type Manager struct {
 	// For more context, refer to the handler's definition.
 	Handler
 
-	SchemaReader
+	local.SchemaReader
 }
 
 type VectorConfigParser func(in interface{}, vectorIndexType string, isMultiVector bool) (schemaConfig.VectorIndexConfig, error)
@@ -198,7 +199,7 @@ type clusterState interface {
 func NewManager(validator validator,
 	schemaManager leader.Schema,
 	membership cluster.RaftMembership,
-	schemaReader SchemaReader,
+	schemaReader local.SchemaReader,
 	indexer clusterSchema.Indexer,
 	repo SchemaStore,
 	logger logrus.FieldLogger, authorizer authorization.Authorizer,

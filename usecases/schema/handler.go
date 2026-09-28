@@ -21,18 +21,17 @@ import (
 
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/schema/leader"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 var (
@@ -40,44 +39,6 @@ var (
 	ErrUnexpectedMultiple = errors.New("unexpected multiple results")
 	ErrValidation         = errors.New("validation")
 )
-
-// SchemaReader allows reading the local schema with or without using a schema version.
-type SchemaReader interface {
-	// WaitForUpdate ensures that the local schema has caught up to version.
-	WaitForUpdate(ctx context.Context, version uint64) error
-
-	// These schema reads function reads the metadata immediately present in the local schema and can be eventually
-	// consistent.
-	// For details about each endpoint see [github.com/weaviate/weaviate/cluster/schema.SchemaReader].
-	ClassEqual(name string) string
-	MultiTenancy(class string) models.MultiTenancyConfig
-	ClassInfo(class string) (ci clusterSchema.ClassInfo)
-	ReadOnlyClass(name string) *models.Class
-	ReadOnlyVersionedClass(name string) versioned.Class
-	ReadOnlySchema() models.Schema
-	Aliases() map[string]string
-	ShardReplicas(class, shard string) ([]string, error)
-	ShardFromUUID(class string, uuid []byte) string
-	ShardOwner(class, shard string) (string, error)
-	Read(class string, retryIfClassNotFound bool, reader func(*models.Class, *sharding.State) error) error
-	ReadSchema(reader func(models.Class, uint64)) error
-	Shards(class string) ([]string, error)
-	LocalShards(class string) ([]string, error)
-	LocalActiveShardsCount(class string) (int, error)
-	ResolveAlias(alias string) string
-	GetAliasesForClass(class string) []*models.Alias
-
-	// These schema reads function (...WithVersion) return the metadata once the local schema has caught up to the
-	// version parameter. If version is 0 is behaves exactly the same as eventual consistent reads.
-	// For details about each endpoint see [github.com/weaviate/weaviate/cluster/schema.VersionedSchemaReader].
-	ClassInfoWithVersion(ctx context.Context, class string, version uint64) (clusterSchema.ClassInfo, error)
-	MultiTenancyWithVersion(ctx context.Context, class string, version uint64) (models.MultiTenancyConfig, error)
-	ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (*models.Class, error)
-	ShardOwnerWithVersion(ctx context.Context, lass, shard string, version uint64) (string, error)
-	ShardFromUUIDWithVersion(ctx context.Context, class string, uuid []byte, version uint64) (string, error)
-	ShardReplicasWithVersion(ctx context.Context, class, shard string, version uint64) ([]string, error)
-	TenantsShardsStatusWithVersion(ctx context.Context, version uint64, class string, tenants ...string) (map[string]string, error)
-}
 
 type validator interface {
 	ValidateVectorIndexConfigUpdate(old, updated schemaConfig.VectorIndexConfig) error
@@ -95,7 +56,7 @@ type Handler struct {
 	schemaManager leader.Schema
 	// membership changes and reports the RAFT cluster membership.
 	membership   cluster.RaftMembership
-	schemaReader SchemaReader
+	schemaReader local.SchemaReader
 	// indexer answers ShardsStatus, which reports each local index's
 	// READY/READONLY/INDEXING state.
 	indexer clusterSchema.Indexer
@@ -196,7 +157,7 @@ func normalizeAllowList(in []string, isValid func(string) bool) []string {
 
 // NewHandler creates a new handler
 func NewHandler(
-	schemaReader SchemaReader,
+	schemaReader local.SchemaReader,
 	schemaManager leader.Schema,
 	membership cluster.RaftMembership,
 	indexer clusterSchema.Indexer,

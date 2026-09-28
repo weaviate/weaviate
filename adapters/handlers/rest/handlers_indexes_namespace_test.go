@@ -24,6 +24,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/schema"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -92,7 +93,7 @@ func TestUpsertIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) {
 func TestGetIndexes_InvalidClassNameIsUnprocessable(t *testing.T) {
 	h := &indexesHandlers{appState: &state.State{
 		Authorizer:    &authorization.DummyAuthorizer{},
-		SchemaManager: &schemaUC.Manager{SchemaReader: schemaUC.NewMockSchemaReader(t)},
+		SchemaManager: &schemaUC.Manager{SchemaReader: local.NewMockSchemaReader(t)},
 		ServerConfig:  &config.WeaviateConfig{},
 		Logger:        logrus.New(),
 	}}

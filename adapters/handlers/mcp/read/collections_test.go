@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -33,6 +34,8 @@ import (
 // stubSchemaManager satisfies namespacing.SchemaManager. ResolveAlias returns
 // whatever was placed in aliases, "" otherwise.
 type stubSchemaManager struct {
+	// Left unset: only the methods defined below are expected.
+	local.AliasReader
 	aliases map[string]string
 }
 

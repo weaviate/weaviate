@@ -28,13 +28,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/usecases/sharding"
-
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 func TestBackupMutex(t *testing.T) {
@@ -714,7 +713,7 @@ func newDescriptorTestIndex(t *testing.T, rootDir, className string, shardState 
 	logger, _ := tlog.NewNullLogger()
 
 	class := &models.Class{Class: className}
-	mockReader := schemaUC.NewMockSchemaReader(t)
+	mockReader := local.NewMockSchemaReader(t)
 	mockReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(_ string, _ bool, readFunc func(*models.Class, *sharding.State) error) error {
 			return readFunc(class, shardState)
@@ -1277,7 +1276,7 @@ func TestDB_ShardReplicas(t *testing.T) {
 	logger, _ := tlog.NewNullLogger()
 
 	newDB := func(t *testing.T, className string, state *sharding.State) *DB {
-		mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+		mockSchemaReader := local.NewMockSchemaReader(t)
 		mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
 			func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				return readFunc(&models.Class{Class: className}, state)

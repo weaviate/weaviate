@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -117,7 +118,7 @@ func TestCoordinatorStartSkipsClassesWithoutActiveNamespace(t *testing.T) {
 			}))
 			defer server.Close()
 
-			reader := schemaUC.NewMockSchemaReader(t)
+			reader := local.NewMockSchemaReader(t)
 			reader.EXPECT().ReadSchema(mock.Anything).RunAndReturn(func(read func(models.Class, uint64)) error {
 				for _, class := range test.classes {
 					read(models.Class{

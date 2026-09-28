@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
@@ -43,6 +44,8 @@ func deepCopyJSON[T any](t *testing.T, src *T) *T {
 
 // fakeSchemaManager implements SchemaManager for testing
 type fakeSchemaManager struct {
+	// Left unset: only the methods defined below are expected.
+	local.AliasReader
 	aliases map[string]string
 }
 
@@ -357,7 +360,7 @@ func TestResolve(t *testing.T) {
 	cases := []struct {
 		testName          string
 		principal         *models.Principal
-		sm                SchemaManager
+		sm                local.AliasReader
 		namespacesEnabled bool
 		input             string
 		wantClass         string

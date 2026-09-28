@@ -25,6 +25,7 @@ import (
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -42,7 +43,7 @@ type Builder struct {
 	partitioningEnabled  bool
 	nodeSelector         cluster.NodeSelector
 	schemaGetter         schema.SchemaGetter
-	schemaReader         schema.SchemaReader
+	schemaReader         local.SchemaReader
 	replicationFSMReader replicationTypes.ReplicationFSMReader
 }
 
@@ -63,7 +64,7 @@ func NewBuilder(
 	partitioningEnabled bool,
 	nodeSelector cluster.NodeSelector,
 	schemaGetter schema.SchemaGetter,
-	schemaReader schema.SchemaReader,
+	schemaReader local.SchemaReader,
 	replicationFSMReader replicationTypes.ReplicationFSMReader,
 ) *Builder {
 	return &Builder{
@@ -104,7 +105,7 @@ func (b *Builder) Build() types.Router {
 // or no partitioning key).
 type singleTenantRouter struct {
 	collection           string
-	schemaReader         schema.SchemaReader
+	schemaReader         local.SchemaReader
 	replicationFSMReader replicationTypes.ReplicationFSMReader
 	nodeSelector         cluster.NodeSelector
 }
@@ -115,7 +116,7 @@ type singleTenantRouter struct {
 type multiTenantRouter struct {
 	collection           string
 	schemaGetter         schema.SchemaGetter
-	schemaReader         schema.SchemaReader
+	schemaReader         local.SchemaReader
 	replicationFSMReader replicationTypes.ReplicationFSMReader
 	nodeSelector         cluster.NodeSelector
 }

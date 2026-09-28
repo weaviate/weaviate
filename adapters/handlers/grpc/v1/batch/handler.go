@@ -27,7 +27,6 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -36,11 +35,11 @@ type Handler struct {
 	authenticator     *auth.Handler
 	batchManager      *objects.BatchManager
 	logger            logrus.FieldLogger
-	schemaManager     *schema.Manager
+	schemaManager     objects.ClassResolver
 	namespacesEnabled bool
 }
 
-func NewHandler(authorizer authorization.Authorizer, batchManager *objects.BatchManager, logger logrus.FieldLogger, authenticator *auth.Handler, schemaManager *schema.Manager, namespacesEnabled bool) *Handler {
+func NewHandler(authorizer authorization.Authorizer, batchManager *objects.BatchManager, logger logrus.FieldLogger, authenticator *auth.Handler, schemaManager objects.ClassResolver, namespacesEnabled bool) *Handler {
 	return &Handler{
 		authorizer:        authorizer,
 		authenticator:     authenticator,

@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/nodes"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
@@ -34,7 +35,7 @@ import (
 
 type nodesHandlers struct {
 	manager             *nodesUC.Manager
-	schemaManager       namespacing.SchemaManager
+	schemaManager       local.AliasReader
 	namespacesEnabled   bool
 	metricRequestsTotal restApiRequestsTotal
 }

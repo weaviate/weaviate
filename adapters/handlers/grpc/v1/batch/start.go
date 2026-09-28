@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 type Drain func()
@@ -63,7 +64,7 @@ func Start(
 	authenticator authenticator,
 	authorizer authorization.Authorizer,
 	batchHandler Batcher,
-	schemaManager schemaManager,
+	schemaManager objects.ClassResolver,
 	reg prometheus.Registerer,
 	numWorkers int,
 	logger logrus.FieldLogger,
