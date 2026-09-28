@@ -3340,7 +3340,7 @@ func (i *Index) aggregateCount(ctx context.Context, shards []string) (*aggregati
 	for si := range shards {
 		shard := shards[si]
 		eg.Go(func() error {
-			count, err := i.replicator.CountObjects(ctx, shard, routerTypes.ConsistencyLevelAll)
+			count, err := i.replicator.CountObjects(ctx, shard)
 			if err != nil {
 				return err
 			}
