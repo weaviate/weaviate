@@ -169,6 +169,14 @@ func TestSelfRecoveryUncancellableAfterFinalizing(t *testing.T) {
 				wantRouted:   true,
 			},
 			row{
+				name:       fmt.Sprintf("MOVE HYDRATING from a recovering source allows %s", a),
+				transfer:   api.MOVE,
+				path:       []api.ShardReplicationState{api.HYDRATING},
+				action:     a,
+				wantCancel: true,
+				wantRouted: true,
+			},
+			row{
 				name:       fmt.Sprintf("COPY FINALIZING before the add allows %s", a),
 				transfer:   api.COPY,
 				path:       []api.ShardReplicationState{api.HYDRATING, api.FINALIZING},
