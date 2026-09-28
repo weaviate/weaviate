@@ -51,8 +51,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-// newUnstartedTestDB returns a db that has not loaded its indices, as it is while
-// the server waits for the meta store.
+// newUnstartedTestDB returns a db that has not loaded its indices yet.
 func newUnstartedTestDB(t *testing.T) *DB {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
@@ -98,8 +97,6 @@ func newUnstartedTestDB(t *testing.T) *DB {
 	return repo
 }
 
-// Before the db has loaded its indices there is none to go through, which must
-// not pass for a completed reindex.
 func TestRecalculateVectorDimensions_BeforeStartupCompleted(t *testing.T) {
 	repo := newUnstartedTestDB(t)
 	logger, _ := test.NewNullLogger()
@@ -108,7 +105,6 @@ func TestRecalculateVectorDimensions_BeforeStartupCompleted(t *testing.T) {
 	require.Error(t, err, "no index was loaded yet, so nothing was reindexed, and that must not pass for success")
 }
 
-// dimensionsBucketRows reads the dimensions bucket the shard has in use.
 func dimensionsBucketRows(t *testing.T, shard *Shard) map[string][]uint64 {
 	t.Helper()
 	b := shard.store.Bucket(helpers.DimensionsBucketLSM)
@@ -197,7 +193,6 @@ func TestShard_RecalculateDimensions(t *testing.T) {
 	}
 }
 
-// A recalculation replaces a map bucket by a roaring set one.
 func TestShard_RecalculateDimensions_MapBucket(t *testing.T) {
 	ctx := testCtx()
 	shard, _, _, _ := dimsMigrationShard(t, ctx, 10)
@@ -211,8 +206,7 @@ func TestShard_RecalculateDimensions_MapBucket(t *testing.T) {
 	assert.Len(t, rows["\x03\x00\x00\x00"], 10)
 }
 
-// A bucket of the replacement's name, left over by a run that failed, must not
-// end up in the recalculated bucket.
+// A replacement bucket left over by a failed run must not end up in the result.
 func TestShard_RecalculateDimensions_StaleReplacementBucket(t *testing.T) {
 	ctx := testCtx()
 	shard, idx, class := recalculationTestShard(t, ctx)
@@ -237,7 +231,6 @@ func TestShard_RecalculateDimensions_StaleReplacementBucket(t *testing.T) {
 	assert.Equal(t, tracked, dimensionsBucketRows(t, shard))
 }
 
-// A recalculation that does not finish must leave what the shard tracks alone.
 func TestShard_RecalculateDimensions_Interrupted(t *testing.T) {
 	ctx := testCtx()
 	shard, idx, class := recalculationTestShard(t, ctx)
@@ -280,15 +273,12 @@ func TestShard_RecalculateDimensions_OneAtATime(t *testing.T) {
 	require.ErrorContains(t, err, "already")
 }
 
-// Objects are added, updated and deleted while the shard recalculates over and
-// over. In the end the bucket must track exactly what the objects hold.
 func TestShard_RecalculateDimensions_ConcurrentWrites(t *testing.T) {
 	// long under -race on a loaded runner, the -timeout of the test bounds it
 	ctx := context.Background()
 	shard, _, class := recalculationTestShard(t, ctx)
 	defer shard.Shutdown(ctx)
 
-	// enough of them for every scan to take longer than a few writes
 	const updated, deleted = 100, 4900
 	var ids []strfmt.UUID
 	for range updated + deleted {
@@ -447,9 +437,7 @@ func putRecalculationObjects(t *testing.T, ctx context.Context, shard *Shard, cl
 	}
 }
 
-// The migrator goes through the shards by name, a few at a time. By the time a
-// shard gets its turn it can be gone, and must then neither fail nor be loaded
-// again behind the back of the index.
+// A shard gone by its turn must neither fail nor be loaded behind the index's back.
 func TestIndex_RecalculateShardDimensions(t *testing.T) {
 	ctx := testCtx()
 
@@ -528,8 +516,7 @@ func TestIndex_RecalculateShardDimensions(t *testing.T) {
 	})
 }
 
-// Shutting down the store waits for the scan to let go of the objects bucket, so
-// the scan has to end when the shard is told to shut down, not when it is done.
+// Store shutdown waits for the scan, so the scan must end on shutdown.
 func TestShard_RecalculateDimensions_EndsOnShutdown(t *testing.T) {
 	ctx := testCtx()
 	shard, _, class := recalculationTestShard(t, ctx)
@@ -570,8 +557,7 @@ func TestShard_RecalculateDimensions_ShutdownMeanwhile(t *testing.T) {
 	}
 }
 
-// A shard halted for a backup, a replica copy or an offload has its files listed
-// and copied. Replacing the bucket would remove files from under the copy.
+// Replacing the bucket while halted would remove files from under a copy.
 func TestShard_RecalculateDimensions_WaitsForTransfer(t *testing.T) {
 	ctx := testCtx()
 	shard, _, class := recalculationTestShard(t, ctx)
@@ -606,8 +592,7 @@ func dirListingForTest(t *testing.T, path string) []string {
 	return names
 }
 
-// A usage scan that takes the shard for unloaded recovers what looks like an
-// interrupted migration, and would remove the replacement while it is built.
+// A usage scan of the unloaded shard would take the replacement for a torn migration.
 func TestShard_RecalculateDimensions_KeepsUsageScanOut(t *testing.T) {
 	ctx := testCtx()
 	shard, idx, class := recalculationTestShard(t, ctx)
@@ -640,8 +625,7 @@ func TestShard_RecalculateDimensions_KeepsUsageScanOut(t *testing.T) {
 	}
 }
 
-// What a torn migration leaves behind, which the operator is told to repair by
-// recalculating: the bucket in use next to a replacement and a bucket moved aside.
+// A torn migration leaves a replacement and a moved-aside bucket next to the one in use.
 func TestShard_RecalculateDimensions_TornMigrationLeftovers(t *testing.T) {
 	ctx := testCtx()
 	shard, _, class := recalculationTestShard(t, ctx)
@@ -672,9 +656,8 @@ func TestShard_RecalculateDimensions_TornMigrationLeftovers(t *testing.T) {
 	assert.Equal(t, tracked, dimensionsBucketRows(t, reloaded.(*Shard)), "writes after the recalculation must survive a restart")
 }
 
-// ReplaceBuckets gives the replacement the name of the dimensions bucket before it
-// can fail. Whatever failed, the shard has to end up with a dimensions bucket it can
-// write to and load again, and not with one in a dir the next load removes.
+// ReplaceBuckets takes the name before it can fail; the shard must still end up with
+// a bucket it can write to and load again.
 func TestShard_RecalculateDimensions_FailedSwitch(t *testing.T) {
 	ctx := testCtx()
 	name := helpers.DimensionsBucketLSM + shardusage.DimensionsReplacementBucketSuffix
@@ -697,9 +680,7 @@ func TestShard_RecalculateDimensions_FailedSwitch(t *testing.T) {
 	}
 
 	tests := []struct {
-		name string
-		// switchBucket fails the switch in its own way and reports how many
-		// objects the shard tracks afterwards
+		name         string
 		switchBucket func(t *testing.T, shard *Shard, bucketPath string) (tracked int, err error)
 		expectErr    bool
 	}{
@@ -769,17 +750,14 @@ func TestShard_RecalculateDimensions_FailedSwitch(t *testing.T) {
 	}
 }
 
-// A failed switch that cannot load the dimensions bucket again, or that must not,
-// leaves the shard without one. A write would then store its object and fail before
-// it reaches the vector index, and a retry keeping the doc id would not reach it
-// either: the object would be found by filters and never by a vector search.
+// Without a bucket, a write would store its object and fail before the vector index,
+// leaving it found by filters but never by vector search.
 func TestShard_RecalculateDimensions_FailedSwitchLeavesNoBucket(t *testing.T) {
 	ctx := testCtx()
 
 	tests := []struct {
 		name string
-		// fail sets up the dirs as the switch left them, returns what it failed with,
-		// and undoes what would also fail the next load of the shard, or a usage report
+		// repair undoes what would also fail the next load or a usage report
 		fail func(t *testing.T, bucketPath string) (repair func(), switchErr error)
 	}{
 		{
@@ -878,8 +856,7 @@ func TestShard_RecalculateDimensions_FailedSwitchLeavesNoBucket(t *testing.T) {
 	}
 }
 
-// A failed switch drops the dimensions bucket before it loads it again or marks it
-// lost. Readers in between must not fail, as that fails the usage report of the node.
+// Readers during a failed-switch recovery must not fail the node usage report.
 func TestShard_RecalculateDimensions_ReadersDuringFailedSwitchRecovery(t *testing.T) {
 	ctx := testCtx()
 	shard, idx, class := recalculationTestShard(t, ctx)
@@ -939,10 +916,8 @@ func TestShard_RecalculateDimensions_ReadersDuringFailedSwitchRecovery(t *testin
 	}
 }
 
-// A failed switch that leaves the shard without a dimensions bucket sets it read
-// only. A status read waits for the vector indexes, a usage report holds them while
-// it waits for the recovery, and a vector index drop queued in between keeps the
-// status read waiting: the status must not be set before the recovery lets go.
+// status read → vectorIndexMu (drop queued) ← usage report → dimensionsLock (recovery):
+// the recovery must not set the status while holding dimensionsLock.
 func TestShard_RecalculateDimensions_LostBucketStatusDoesNotDeadlock(t *testing.T) {
 	ctx := testCtx()
 	shard, _, class := recalculationTestShard(t, ctx)
@@ -1027,8 +1002,7 @@ func TestShard_RecalculateDimensions_LostBucketStatusDoesNotDeadlock(t *testing.
 	shard.dimensionsBucketLost.Store(false)
 }
 
-// Set read only while the scan runs, as the disk-usage monitor does, the switch
-// must not write, flush and rename on the shard all the same.
+// Set read only during the scan, as by the disk-usage monitor.
 func TestShard_RecalculateDimensions_ReadOnlyMeanwhile(t *testing.T) {
 	ctx := testCtx()
 	shard, _, class := recalculationTestShard(t, ctx)
@@ -1066,9 +1040,7 @@ func TestShard_RecalculateDimensions_ReadOnlyMeanwhile(t *testing.T) {
 	assert.Equal(t, tracked, dimensionsBucketRows(t, shard))
 }
 
-// A shutdown requested while the switch holds the last reference to the shard runs
-// when that reference is released. It must not find the switch still holding a
-// lock the shutdown takes.
+// A shutdown run on releasing the switch's reference must not find its locks held.
 func TestShard_RecalculateDimensions_ShutdownDuringSwitch(t *testing.T) {
 	ctx := testCtx()
 	shard, _, class := recalculationTestShard(t, ctx)
@@ -1100,7 +1072,6 @@ func TestShard_RecalculateDimensions_ShutdownDuringSwitch(t *testing.T) {
 	require.Eventually(t, shard.shut.Load, 10*time.Second, 10*time.Millisecond, "the shard must shut down")
 }
 
-// Readers of the dimensions bucket must not see it empty while it is replaced.
 func TestShard_RecalculateDimensions_ReadersDuringSwitch(t *testing.T) {
 	// long under -race on a loaded runner, the -timeout of the test bounds it
 	ctx := context.Background()
@@ -1136,10 +1107,8 @@ func TestShard_RecalculateDimensions_ReadersDuringSwitch(t *testing.T) {
 	assert.Zero(t, wrong.Load(), "reads that did not see the tracked dimensions")
 }
 
-// The operator is told to remove the flag once the reindex is complete. After a
-// cancel, a failure, or a shard that went away before its turn that would leave
-// wrong dimensions in place for good, so then the caller gets an error to report,
-// and nothing is called complete.
+// Anything left undone must be reported, never logged as complete: the operator
+// removes the flag on complete.
 func TestRecalculateVectorDimensions_ReportsOutcome(t *testing.T) {
 	class := &models.Class{
 		Class:               "Test",
@@ -1285,8 +1254,7 @@ func TestRecalculateVectorDimensions_ReportsOutcome(t *testing.T) {
 	}
 }
 
-// addLocalPhysicalForTest adds a local shard to the schema only, as the index loads
-// only active tenants, and those once they are activated.
+// addLocalPhysicalForTest adds a local shard to the schema only.
 func addLocalPhysicalForTest(t *testing.T, index *Index, name, status string) {
 	require.NoError(t, index.schemaReader.Read(index.Config.ClassName.String(), true,
 		func(_ *models.Class, state *sharding.State) error {
@@ -1307,8 +1275,6 @@ func writeIndexCountForTest(t *testing.T, index *Index, shardName string, count 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "indexcount"), binary.LittleEndian.AppendUint64(nil, count), 0o600))
 }
 
-// A tenant activated while the run goes on is not in the list of shards the run
-// started from, and would keep the dimensions it had.
 func TestRecalculateVectorDimensions_ShardAddedMeanwhile(t *testing.T) {
 	ctx := testCtx()
 	class := &models.Class{
@@ -1358,8 +1324,6 @@ func TestRecalculateVectorDimensions_ShardAddedMeanwhile(t *testing.T) {
 	assert.NotContains(t, dimensionsBucketRows(t, added.(*Shard)), string(bogus))
 }
 
-// Changes made while the run is held at its first shard, as by a node serving
-// meanwhile.
 func TestRecalculateVectorDimensions_ChangesMeanwhile(t *testing.T) {
 	ctx := testCtx()
 	class := &models.Class{
@@ -1438,8 +1402,7 @@ func TestRecalculateVectorDimensions_ChangesMeanwhile(t *testing.T) {
 	}
 }
 
-// A shard owed and not taken on that the index has by the end was loaded after the
-// last pass, and is left to another one.
+// A shard owed and loaded after the last pass gets another pass.
 func TestDimensionsRecalculationRun_LoadedAfterLastPass(t *testing.T) {
 	class := &models.Class{
 		Class:               "Test",
