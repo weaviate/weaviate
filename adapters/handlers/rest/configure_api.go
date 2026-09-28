@@ -757,7 +757,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	}
 	// One-shot reclaim of *.recovering/ leftovers from a downgrade.
 	if removed, err := selfRecoveryOrch.CleanupOrphanRecoveryDirs(dataPath); err != nil {
-		appState.Logger.WithError(err).Warn("self-recovery orphan cleanup failed")
+		appState.Logger.Warnf("self-recovery orphan cleanup failed: %v", err)
 	} else if len(removed) > 0 {
 		appState.Logger.WithField("count", len(removed)).Info("self-recovery: removed orphan recovery dirs")
 	}

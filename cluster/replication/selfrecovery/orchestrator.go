@@ -486,7 +486,7 @@ func (o *Orchestrator) CleanupOrphanRecoveryDirs(rootDataPath string) ([]string,
 		collDir := filepath.Join(rootDataPath, c.Name())
 		shards, err := os.ReadDir(collDir)
 		if err != nil {
-			o.logger.WithError(err).WithField("dir", collDir).Warn("cleanup: cannot read collection dir")
+			o.logger.WithField("dir", collDir).Warnf("cleanup: cannot read collection dir: %v", err)
 			continue
 		}
 		for _, s := range shards {
@@ -499,7 +499,7 @@ func (o *Orchestrator) CleanupOrphanRecoveryDirs(rootDataPath string) ([]string,
 				continue // no sibling: in-flight recovery to resume
 			}
 			if err := os.RemoveAll(recoveryDir); err != nil {
-				o.logger.WithError(err).WithField("dir", recoveryDir).Warn("cleanup: failed to remove orphan recovery dir")
+				o.logger.WithField("dir", recoveryDir).Warnf("cleanup: failed to remove orphan recovery dir: %v", err)
 				continue
 			}
 			o.logger.WithField("dir", recoveryDir).Info("cleanup: removed orphan recovery dir")
@@ -723,18 +723,18 @@ func (o *Orchestrator) handleRegisterDecision(ctx context.Context, ref ShardRef,
 	// force-delete and operator cancel are terminal; retrying would re-register and negate them
 	switch {
 	case errors.Is(err, replicationtypes.ErrReplicationOperationNotFound):
-		logger.WithError(err).WithField("source_node", decision.sourceNode).
-			Info("self-recovery op was force-deleted; abandoning")
+		logger.WithField("source_node", decision.sourceNode).
+			Infof("self-recovery op was force-deleted; abandoning: %v", err)
 		o.recordOutcome("cancelled", startedAt)
 		return true, false
 	case errors.Is(err, ErrSelfRecoveryCancelled):
-		logger.WithError(err).WithField("source_node", decision.sourceNode).
-			Info("self-recovery op cancelled; abandoning")
+		logger.WithField("source_node", decision.sourceNode).
+			Infof("self-recovery op cancelled; abandoning: %v", err)
 		o.recordOutcome("cancelled", startedAt)
 		return true, false
 	default:
-		logger.WithError(err).WithField("source_node", decision.sourceNode).
-			Warn("self-recovery register/poll failed; will retry")
+		logger.WithField("source_node", decision.sourceNode).
+			Warnf("self-recovery register/poll failed; will retry: %v", err)
 		return false, true
 	}
 }
@@ -744,7 +744,7 @@ func (o *Orchestrator) handleEmptyFallback(ctx context.Context, ref ShardRef, de
 	startedAt time.Time, startedWithoutRaftState bool, logger logrus.FieldLogger,
 ) {
 	if err := o.emptyFallback(ref); err != nil {
-		logger.WithError(err).Error("self-recovery empty-fallback failed")
+		logger.Errorf("self-recovery empty-fallback failed: %v", err)
 		o.recordOutcome("failure", startedAt)
 		return
 	}
@@ -937,13 +937,13 @@ func (o *Orchestrator) probeAndDecide(ctx context.Context, ref ShardRef) (probeD
 			if o.metrics != nil {
 				o.metrics.UnreachablePeerTotal.WithLabelValues(r.peer).Inc()
 			}
-			o.logger.WithError(r.err).WithFields(logrus.Fields{
+			o.logger.WithFields(logrus.Fields{
 				"event":      "self_recovery.peer_probe",
 				"collection": ref.Collection,
 				"shard":      ref.Shard,
 				"peer":       r.peer,
 				"result":     "unreachable",
-			}).Debug("peer probe failed")
+			}).Debugf("peer probe failed: %v", r.err)
 			continue
 		}
 		if r.hasData && firstSource == "" {

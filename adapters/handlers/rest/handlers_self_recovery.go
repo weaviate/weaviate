@@ -63,8 +63,8 @@ func setupSelfRecoveryHandlers(appState *state.State, orch *selfrecovery.Orchest
 		// WithoutCancel: promotion (LoadLocalShard) can outlive the request.
 		path, err := orch.AcceptEmpty(context.WithoutCancel(r.Context()), selfrecovery.ShardRef{Collection: collection, Shard: shard})
 		if err != nil {
-			logger.WithError(err).WithField("collection", collection).WithField("shard", shard).
-				Error("self-recovery accept-empty failed")
+			logger.WithField("collection", collection).WithField("shard", shard).
+				Errorf("self-recovery accept-empty failed: %v", err)
 			// Unknown collection/shard is a client mistake, not a 500.
 			if errors.Is(err, selfrecovery.ErrSelfRecoveryShardNotInSchema) {
 				http.Error(w, err.Error(), http.StatusNotFound)
@@ -83,7 +83,7 @@ func setupSelfRecoveryHandlers(appState *state.State, orch *selfrecovery.Orchest
 			"status": "accepted",
 			"path":   path,
 		}); err != nil {
-			logger.WithError(err).Debug("self-recovery accept-empty: response write failed (client disconnect?)")
+			logger.Debugf("self-recovery accept-empty: response write failed (client disconnect?): %v", err)
 		}
 	}))
 
@@ -109,8 +109,8 @@ func setupSelfRecoveryHandlers(appState *state.State, orch *selfrecovery.Orchest
 		}
 		// WithoutCancel: the resubmit outlives the handler.
 		if err := orch.RestartRecovery(context.WithoutCancel(r.Context()), collection, shard); err != nil {
-			logger.WithError(err).WithField("collection", collection).WithField("shard", shard).
-				Error("self-recovery restart failed")
+			logger.WithField("collection", collection).WithField("shard", shard).
+				Errorf("self-recovery restart failed: %v", err)
 			// Unknown collection/shard is a client mistake, not a 500.
 			if errors.Is(err, selfrecovery.ErrSelfRecoveryShardNotInSchema) {
 				http.Error(w, err.Error(), http.StatusNotFound)
@@ -134,7 +134,7 @@ func setupSelfRecoveryHandlers(appState *state.State, orch *selfrecovery.Orchest
 		if err := json.NewEncoder(w).Encode(map[string]string{
 			"status": "restarted",
 		}); err != nil {
-			logger.WithError(err).Debug("self-recovery restart: response write failed (client disconnect?)")
+			logger.Debugf("self-recovery restart: response write failed (client disconnect?): %v", err)
 		}
 	}))
 }

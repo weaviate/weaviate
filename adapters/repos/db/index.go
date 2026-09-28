@@ -1024,8 +1024,8 @@ func (i *Index) shouldRecoverShardFromPeer(ctx context.Context, shardName string
 	if _, err := os.Stat(dir); err == nil {
 		return false // dir exists; normal init owns it
 	} else if !errors.Is(err, fs.ErrNotExist) {
-		i.logger.WithError(err).WithFields(logrus.Fields{"collection": i.Config.ClassName.String(), "shard": shardName}).
-			Warn("self-recovery: stat on shard dir failed; falling back to normal shard init")
+		i.logger.WithFields(logrus.Fields{"collection": i.Config.ClassName.String(), "shard": shardName}).
+			Warnf("self-recovery: stat on shard dir failed; falling back to normal shard init: %v", err)
 		return false
 	}
 	return true

@@ -753,7 +753,7 @@ func (st *Store) Close(ctx context.Context) error {
 		select {
 		case <-st.wipedJoinerDone:
 		case <-ctx.Done():
-			st.log.WithError(ctx.Err()).Warn("wiped-joiner watcher still running at shutdown deadline; proceeding")
+			st.log.Warnf("wiped-joiner watcher still running at shutdown deadline; proceeding: %v", ctx.Err())
 		}
 	}
 

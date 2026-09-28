@@ -33,14 +33,14 @@ func setupRaftDebugHandlers(appState *state.State, raft *cluster.Raft) {
 			return
 		}
 		if err := raft.ForceSnapshot(); err != nil {
-			logger.WithError(err).Error("force snapshot failed")
+			logger.Errorf("force snapshot failed: %v", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
 		if _, err := w.Write([]byte(`{"status":"snapshot_taken"}` + "\n")); err != nil {
-			logger.WithError(err).Debug("raft snapshot: response write failed (client disconnect?)")
+			logger.Debugf("raft snapshot: response write failed (client disconnect?): %v", err)
 		}
 	}))
 }
