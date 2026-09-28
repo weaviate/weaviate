@@ -979,10 +979,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	configureServer = makeConfigureServer(appState)
 
-	// Recalculate the tracked dimensions of all objects in the database, if requested by the
-	// user. In the background, as the inverted reindexing above: the db is ready for it only
-	// once the meta store is. After the inverted reindexing, which pauses the store of a
-	// shard and flushes all its buckets, while the recalculation replaces one of them.
+	// Runs after inverted reindexing, which flushes shard buckets that dimension
+	// recalculation replaces.
 	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup && repo.GetConfig().TrackVectorDimensions {
 		enterrors.GoWrapper(func() {
 			l := appState.Logger.WithField("action", "startup")
@@ -1003,8 +1001,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}, appState.Logger)
 	}
 
-	// Recount the properties of all the objects in the database, if requested by the user.
-	// In the background, as the db is ready for it only once the meta store is.
 	if appState.ServerConfig.Config.RecountPropertiesAtStartup {
 		enterrors.GoWrapper(func() {
 			l := appState.Logger.WithField("action", "startup")

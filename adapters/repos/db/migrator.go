@@ -952,21 +952,11 @@ func (m *Migrator) UpdateReplicationConfig(ctx context.Context, className string
 	return nil
 }
 
-// RecalculateVectorDimensions rebuilds the dimensions bucket of every shard the db
-// has loaded, or loads lazily, from its objects, a few shards at a time. Shards
-// keep serving meanwhile, see [Shard.recalculateDimensions]. Shards of inactive
-// tenants are not touched. Shards of this node the schema has when it starts are
-// owed; those loaded while it runs, such as a tenant activated, are gone through
-// as well. Shards created while it runs track their dimensions from the start.
-//
-// A shard that fails is logged and does not keep the remaining ones from their
-// turn, unless ctx has expired. The error returned sums up what was left undone,
-// failed shards, shards that went away before their turn, owed shards of inactive
-// tenants with objects or not loaded, and shards a replica movement copied before
-// they were done, for the caller to report: nothing rebuilds them once the flag is
-// removed.
+// RecalculateVectorDimensions rebuilds the dimensions bucket of every local shard,
+// a few at a time, while they serve. The error sums up what was left undone, as
+// nothing retries it once the flag is removed.
 func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
-	// before that the indices are not all there, and none would not be an error
+	// before startup completes, not all indices are registered yet, so a miss here isn't a real error
 	if !m.db.StartupComplete() {
 		return errors.New("recalculate vector dimensions: db has not completed startup")
 	}
@@ -1010,8 +1000,8 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 	return nil
 }
 
-// owedShards returns, by class, the names of the shards of this node in the schema,
-// including those of classes the db has no index for, as it failed to create one.
+// owedShards returns the local shards of the schema by class, also of classes the db
+// failed to create an index for.
 func (m *Migrator) owedShards() (map[string][]string, error) {
 	owed := map[string][]string{}
 	objects := m.db.schemaGetter.GetSchemaSkipAuth().Objects
@@ -1055,17 +1045,14 @@ type dimensionsRecalculationRun struct {
 	copiesSince uint64
 
 	shards, skipped, failed, copied, objects atomic.Int64
-	// owed shards never taken on, as their tenant is not active, or as they are not
-	// loaded, while activating them or after that failed
-	inactive, notLoaded int
+	inactive, notLoaded                      int
 
 	skippedNamesLock sync.Mutex
 	skippedNames     []string
 }
 
-// pass recalculates the shards no earlier pass has taken on, and returns how many
-// it took on. Only names are taken along: a shard waits for a free slot, and can be
-// unloaded or dropped by the time it gets one.
+// pass recalculates the shards no earlier pass has taken on. A shard can be gone by
+// the time it gets a slot.
 func (r *dimensionsRecalculationRun) pass(ctx context.Context, indices []*Index) (scheduled int, err error) {
 	eg := enterrors.NewErrorGroupWrapper(r.logger)
 	eg.SetLimit(max(1, _NUMCPU/2))
@@ -1118,7 +1105,6 @@ func (r *dimensionsRecalculationRun) recalculate(ctx context.Context, index *Ind
 	case err != nil && ctx.Err() != nil:
 		// cut short as all the others, which the returned error says once
 	case err != nil:
-		// one line per tenant otherwise
 		if r.failed.Add(1) <= maxReportedErrors {
 			r.logger.WithField("index", index.ID()).WithField("shard", name).
 				Errorf("could not reindex dimensions: %v", err)
@@ -1143,7 +1129,7 @@ func (r *dimensionsRecalculationRun) recalculate(ctx context.Context, index *Ind
 }
 
 // countNotReindexed counts the owed shards no pass has taken on. loadedMeanwhile
-// tells that there are some the index has now, for another pass to take on.
+// asks for another pass.
 func (r *dimensionsRecalculationRun) countNotReindexed(db *DB, owed map[string][]string) (loadedMeanwhile bool, err error) {
 	r.inactive, r.notLoaded = 0, 0
 	for className, names := range owed {
@@ -1198,7 +1184,6 @@ func (r *dimensionsRecalculationRun) countNotReindexed(db *DB, owed map[string][
 	return loadedMeanwhile, nil
 }
 
-// incomplete sums up a run that left shards as they were.
 func (r *dimensionsRecalculationRun) incomplete(cause error) error {
 	var msg strings.Builder
 	fmt.Fprintf(&msg, "reindex dimensions: %d shards reindexed, %d failed, %d shards skipped",
@@ -1234,7 +1219,7 @@ func (r *dimensionsRecalculationRun) incomplete(cause error) error {
 }
 
 func (m *Migrator) RecountProperties(ctx context.Context) error {
-	// before that the indices are not all there, and none would pass for recounted
+	// before startup completes, not all indices are registered yet
 	if !m.db.StartupComplete() {
 		return errors.New("recount properties: db has not completed startup")
 	}

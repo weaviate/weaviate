@@ -27,37 +27,32 @@ import (
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
-// The dimensions bucket is migrated next to itself. The roaring set bucket is
-// built under the build suffix and renamed to the ready suffix once it is
-// complete and durable. The switch then takes two renames:
+// The dimensions bucket is migrated next to itself: the roaring set copy is built
+// under the build suffix, renamed to the ready suffix once complete and durable,
+// then swapped in via two renames:
 //
 //	dimensions       -> dimensions___del   (the point of no return)
 //	dimensions…ready -> dimensions
 //
-// Up to the first rename the map bucket is untouched and whatever was built is
-// thrown away and rebuilt. Past it the ready bucket is the only complete copy,
-// so [RecoverDimensionsBucketMigration] finishes the switch, and it has to run
-// before anything opens the bucket, whether or not the migration is enabled.
+// Before the first rename, the map bucket is untouched and any partial build is
+// discarded and retried. Past it, the ready bucket is the only complete copy, so
+// [RecoverDimensionsBucketMigration] must finish the switch before anything opens
+// the bucket, migration enabled or not.
 const (
 	dimensionsMigrationBuildSuffix = "__to_roaringset_build"
 	dimensionsMigrationReadySuffix = DimensionsReplacementBucketSuffix
 	dimensionsMigrationDelSuffix   = DimensionsReplacedBucketSuffix
 )
 
-// DimensionsReplacedBucketSuffix names the dimensions bucket moved aside for its
-// replacement. lsmkv.Store.ReplaceBuckets, which a recalculation switches with,
-// uses the same.
+// DimensionsReplacedBucketSuffix is the one lsmkv.Store.ReplaceBuckets uses too.
 const DimensionsReplacedBucketSuffix = "___del"
 
-// DimensionsReplacementBucketSuffix names a complete roaring set bucket about to
-// replace the dimensions bucket. One found when a shard loads takes its place if
-// the dimensions bucket was moved aside already, and is removed otherwise.
+// DimensionsReplacementBucketSuffix names a complete bucket about to replace the
+// dimensions bucket.
 const DimensionsReplacementBucketSuffix = "__to_roaringset_ready"
 
-// LockUnloadedDimensionsBucket waits for exclusive use of the dimensions bucket
-// dir of a shard, against usage scans that open the bucket of an unloaded shard.
-// The shard takes it while it migrates and while it loads the bucket, as lsmkv
-// refuses to open one bucket dir twice.
+// LockUnloadedDimensionsBucket keeps usage scans of an unloaded shard off the
+// dimensions bucket dir, as lsmkv refuses to open one bucket dir twice.
 func LockUnloadedDimensionsBucket(ctx context.Context, indexPath, shardName string) (unlock func(), err error) {
 	bucketPath := shardPathDimensionsLSM(indexPath, shardName)
 	if err := unloadedDimensionsBucketLocks.LockWithContext(bucketPath, ctx); err != nil {
@@ -66,13 +61,9 @@ func LockUnloadedDimensionsBucket(ctx context.Context, indexPath, shardName stri
 	return func() { unloadedDimensionsBucketLocks.Unlock(bucketPath) }, nil
 }
 
-// PrepareDimensionsBucket has to run before a shard opens its dimensions bucket.
-// It recovers an interrupted migration, also with migrate turned off since, and
-// with migrate set migrates a bucket still using the map strategy.
-//
-// A migration that fails is logged and not returned: the map bucket keeps
-// working and the next load of the shard tries again. The caller must hold the
-// lock of [LockUnloadedDimensionsBucket].
+// PrepareDimensionsBucket must run, under [LockUnloadedDimensionsBucket], before a
+// shard opens its dimensions bucket. A failed migration is only logged: the map
+// bucket keeps working and the next load retries.
 func PrepareDimensionsBucket(ctx context.Context, logger logrus.FieldLogger,
 	indexPath, shardName string, migrate bool,
 ) error {
@@ -94,21 +85,15 @@ func PrepareDimensionsBucket(ctx context.Context, logger logrus.FieldLogger,
 	return nil
 }
 
-// RecoverDimensionsBucketMigration finishes or rolls back a migration that was
-// interrupted, so that the dimensions bucket dir holds a complete bucket again.
-// It is cheap when there is nothing to recover. The caller must hold the lock of
-// [LockUnloadedDimensionsBucket] and the bucket must not be open.
+// RecoverDimensionsBucketMigration finishes or rolls back an interrupted migration.
+// It needs [LockUnloadedDimensionsBucket] held and the bucket not open.
 func RecoverDimensionsBucketMigration(logger logrus.FieldLogger, indexPath, shardName string) error {
 	return recoverDimensionsBucketMigration(logger, shardPathDimensionsLSM(indexPath, shardName))
 }
 
-// MigrateDimensionsBucketToRoaringSet rewrites a dimensions bucket of the map
-// strategy into one of the roaring set strategy and reports whether it did. Any
-// other bucket, as well as a missing or empty one, is left alone. The doc ids
-// are copied from the map bucket, objects are not read.
-//
-// The caller must hold the lock of [LockUnloadedDimensionsBucket], must have run
-// [RecoverDimensionsBucketMigration], and the bucket must not be open.
+// MigrateDimensionsBucketToRoaringSet rewrites a map dimensions bucket as a roaring
+// set one and reports whether it did. It needs [LockUnloadedDimensionsBucket] held,
+// [RecoverDimensionsBucketMigration] run, and the bucket not open.
 func MigrateDimensionsBucketToRoaringSet(ctx context.Context, logger logrus.FieldLogger,
 	indexPath, shardName string,
 ) (bool, error) {
@@ -258,8 +243,7 @@ func openDimensionsBucket(ctx context.Context, logger logrus.FieldLogger,
 	)
 }
 
-// switchDimensionsBucket puts the ready bucket in place of the dimensions
-// bucket. It is safe to repeat from any point it was interrupted at.
+// switchDimensionsBucket is safe to repeat from any point it was interrupted at.
 func switchDimensionsBucket(logger logrus.FieldLogger, bucketPath, rootPath string) error {
 	readyPath := bucketPath + dimensionsMigrationReadySuffix
 	delPath := bucketPath + dimensionsMigrationDelSuffix
@@ -283,8 +267,7 @@ func switchDimensionsBucket(logger logrus.FieldLogger, bucketPath, rootPath stri
 	return nil
 }
 
-// removeReplacedDimensionsBucket is cleanup after a switch that went through. A
-// failure is logged only, the next recovery tries again.
+// removeReplacedDimensionsBucket only logs a failure, the next recovery retries.
 func removeReplacedDimensionsBucket(logger logrus.FieldLogger, delPath string) {
 	if err := os.RemoveAll(delPath); err != nil {
 		logger.WithField("action", "dimensions_bucket_migration").
@@ -367,11 +350,10 @@ func recoverDimensionsBucketMigration(logger logrus.FieldLogger, bucketPath stri
 	return switchDimensionsBucket(logger, bucketPath, rootPath)
 }
 
-// recoverDimensionsBucketMovedAside handles a bucket that was moved aside with no
-// replacement left to take its place. That is a switch that went through, and the
-// bucket in place is the one to keep, even when it holds nothing: the one moved
-// aside can be partly removed, and missing the segments that deleted doc ids.
-// Only with no bucket in place at all is the one moved aside put back.
+// recoverDimensionsBucketMovedAside handles a bucket moved aside with no
+// replacement to take its place: the switch went through, so the bucket in place
+// is kept even if empty, since the moved-aside one may be partly removed. Only if
+// no bucket is in place is the moved-aside one restored.
 func recoverDimensionsBucketMovedAside(logger logrus.FieldLogger, bucketPath, delPath, rootPath string) error {
 	bucketExists, err := dirExists(bucketPath)
 	if err != nil {
@@ -405,7 +387,6 @@ func dirExists(path string) (bool, error) {
 	return info.IsDir(), nil
 }
 
-// dirHasData reports whether any file in the dir is not empty.
 func dirHasData(path string) (bool, error) {
 	entries, err := os.ReadDir(path)
 	if err != nil {
