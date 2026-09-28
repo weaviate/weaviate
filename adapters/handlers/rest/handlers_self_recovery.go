@@ -20,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/cluster/replication/selfrecovery"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 )
 
 // validShardOrCollection rejects values that could escape the data root when joined into <root>/<class>/<shard>.
@@ -113,6 +114,11 @@ func setupSelfRecoveryHandlers(appState *state.State, orch *selfrecovery.Orchest
 			}
 			// Shard already has a live local dir — nothing to restart.
 			if errors.Is(err, selfrecovery.ErrSelfRecoveryShardAlreadyLive) {
+				http.Error(w, err.Error(), http.StatusConflict)
+				return
+			}
+			// An op past FINALIZING refuses the cancel and resumes on its own.
+			if errors.Is(err, replicationTypes.ErrCancellationImpossible) {
 				http.Error(w, err.Error(), http.StatusConflict)
 				return
 			}

@@ -153,6 +153,10 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Dec()
 	status.ChangeState(c.State)
+	// FINALIZING promotes a SELF_RECOVERY copy over the live dir; a cancel past it would route an undrained replica.
+	if op.TransferType == api.SELF_RECOVERY && c.State == api.FINALIZING && !status.ShouldCancel {
+		status.UnCancellable = true
+	}
 	s.statusById[op.ID] = status
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Inc()
 	return nil

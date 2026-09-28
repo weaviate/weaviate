@@ -94,8 +94,8 @@ like the other `/debug/*` handlers.
 
 | Endpoint | When to use |
 |---|---|
-| `POST /replication/replicate/{id}/cancel` | abandon one in-flight op (any transfer type) |
-| `POST /debug/self-recovery/restart?collection=X&shard=Y` | abandon current SELF_RECOVERY attempt for the shard, erase partial `.recovering/` state, start fresh (probe re-randomises source peer selection). **Valid only while the shard is `RECOVERING`** — if the live `<shard>/` directory already exists (recovery completed, or empty-fallback ran) it returns `409 Conflict`; cancel any in-flight op and remove the directory by hand if you really want to re-pull. |
+| `POST /replication/replicate/{id}/cancel` | abandon one in-flight op (any transfer type). A SELF_RECOVERY op refuses with `409 Conflict` once it entered FINALIZING, which promotes its copy over the live dir: cancelling past that point would serve a shard missing the copy-window writes. |
+| `POST /debug/self-recovery/restart?collection=X&shard=Y` | abandon current SELF_RECOVERY attempt for the shard, erase partial `.recovering/` state, start fresh (probe re-randomises source peer selection). **Valid only while the shard is `RECOVERING`** — if the live `<shard>/` directory already exists (recovery completed, or empty-fallback ran) it returns `409 Conflict`; cancel any in-flight op and remove the directory by hand if you really want to re-pull. Also `409 Conflict` while the shard's op is past FINALIZING and so cannot be cancelled. |
 | `POST /debug/self-recovery/accept-empty?collection=X&shard=Y` | declare "no recoverable data exists, accept empty shard". Confirm via metrics/logs that all peers report no data first. |
 
 If retries are exhausted (`weaviate_self_recovery_giveup_total` ticks),
@@ -277,7 +277,7 @@ recoveries — `Submit` declines the work, and a missing-dir shard
 discovered at startup falls back to the normal init path (empty dir +
 async-rep backfill) rather than being parked in `RECOVERING`.
 Already-running recoveries run to completion. To pause an in-flight one,
-cancel via the endpoint above.
+cancel via the endpoint above before it reaches FINALIZING.
 
 ## Downgrade safety
 

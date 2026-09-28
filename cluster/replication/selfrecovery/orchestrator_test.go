@@ -101,6 +101,7 @@ type stubRaft struct {
 
 	opsByCollShard map[string][]api.ReplicationDetailsResponse
 	cancelled      []strfmt.UUID
+	cancelErr      error
 }
 
 type registeredCall struct {
@@ -145,6 +146,9 @@ func (r *stubRaft) GetReplicationDetailsByCollectionAndShard(ctx context.Context
 func (r *stubRaft) CancelReplication(ctx context.Context, uuid strfmt.UUID) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.cancelErr != nil {
+		return r.cancelErr
+	}
 	r.cancelled = append(r.cancelled, uuid)
 	return nil
 }

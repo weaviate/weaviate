@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
+	replicationtypes "github.com/weaviate/weaviate/cluster/replication/types"
 	clusterschema "github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -511,6 +512,34 @@ func TestRestart_TimeoutLeavesRecoveryDir(t *testing.T) {
 	require.Equal(t, []strfmt.UUID{inflightUUID}, raft.cancelled)
 	_, statErr := os.Stat(recoveryPath)
 	require.NoError(t, statErr, "recovery dir must be left intact on timeout so the next attempt resumes")
+}
+
+func TestRestart_RefusedByUncancellableOpLeavesRecoveryDir(t *testing.T) {
+	tmp := t.TempDir()
+	recoveryPath := tmp + "/C/S.recovering"
+	require.NoError(t, os.MkdirAll(recoveryPath, 0o755))
+	require.NoError(t, os.WriteFile(recoveryPath+"/partial.bin", []byte("x"), 0o644))
+
+	raft := &stubRaft{
+		opsByCollShard: map[string][]api.ReplicationDetailsResponse{
+			"C/S": {{
+				Uuid:         strfmt.UUID("11111111-1111-1111-1111-111111111111"),
+				Collection:   "C",
+				ShardId:      "S",
+				TargetNodeId: "self",
+				TransferType: api.SELF_RECOVERY.String(),
+				Status:       api.ReplicationDetailsState{State: string(api.FINALIZING)},
+			}},
+		},
+		cancelErr: fmt.Errorf("execute cancel replication: %w", replicationtypes.ErrCancellationImpossible),
+	}
+	o := newOrchestratorForTest(t, raft, stubSchema{replicas: []string{"self", "peer1"}}, &stubNodeSelector{}, nil, stubPathResolver{root: tmp})
+
+	err := o.Restart(context.Background(), ShardRef{Collection: "C", Shard: "S"})
+	require.ErrorIs(t, err, replicationtypes.ErrCancellationImpossible)
+	require.Empty(t, raft.registeredCalls)
+	_, statErr := os.Stat(recoveryPath)
+	require.NoError(t, statErr)
 }
 
 // Pins the dequeue guard: a live dir appearing while queued means another flow owns the shard.
