@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/backups"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
@@ -107,6 +108,29 @@ func TestCompressionRestoreCfg(t *testing.T) {
 			assert.Equal(t, tc.expectedCPU, ccfg.CPUPercentage)
 		})
 	}
+}
+
+// TestCreateBackupRejectsDuplicateBaseBackupID verifies that a request whose
+// `id` matches its own `IncrementalBaseBackupID` is rejected as a client
+// error (422), not surfaced as a server fault (500) — this is a pure input
+// validation error, mirroring how `backup.ErrUnprocessable` is already
+// handled a few lines below in the same function.
+func TestCreateBackupRejectsDuplicateBaseBackupID(t *testing.T) {
+	h := &backupHandlers{}
+	baseID := "same-id"
+
+	params := backups.BackupsCreateParams{
+		Backend: "filesystem",
+		Body: &models.BackupCreateRequest{
+			ID:                      baseID,
+			IncrementalBaseBackupID: &baseID,
+		},
+	}
+
+	resp := h.createBackup(params, nil)
+
+	_, isUnprocessable := resp.(*backups.BackupsCreateUnprocessableEntity)
+	assert.True(t, isUnprocessable, "expected 422 Unprocessable Entity, got %T", resp)
 }
 
 // TestIsRequestFromRootUser verifies that the base backup ID gate passed to the
