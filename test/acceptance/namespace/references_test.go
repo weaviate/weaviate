@@ -820,6 +820,98 @@ func TestNamespaces_References(t *testing.T) {
 		}
 	})
 
+	t.Run("global admin's cross-ref DataType is confined to the class's namespace", func(t *testing.T) {
+		// A global admin declares ref targets on ns1's class. A short target
+		// takes the class's namespace and a target in ns2 is rejected, on both
+		// the add-property and the update-class path.
+		const host = "AdminRefHost"
+		qualifiedHost := ns1 + ":" + host
+		helper.CreateClassAuth(t, &models.Class{
+			Class: host,
+			Properties: []*models.Property{
+				{Name: "name", DataType: []string{"text"}},
+				{Name: "hasAnimals", DataType: []string{"Animal"}},
+			},
+		}, user1Key)
+		t.Cleanup(func() { helper.DeleteClassAuth(t, qualifiedHost, adminKey) })
+		foreignErr := "'" + ns2 + ":Animal' is not a valid class name"
+
+		t.Run("add property", func(t *testing.T) {
+			tests := []struct {
+				name, prop   string
+				dataType     []string
+				wantDataType []string
+				wantErr      string
+			}{
+				{
+					name: "short target gets the class's namespace", prop: "shortRef",
+					dataType: []string{"Animal"}, wantDataType: []string{ns1 + ":Animal"},
+				},
+				{
+					name: "target in the class's namespace kept", prop: "ownRef",
+					dataType: []string{ns1 + ":Animal"}, wantDataType: []string{ns1 + ":Animal"},
+				},
+				{
+					name: "target in another namespace rejected", prop: "foreignRef",
+					dataType: []string{ns2 + ":Animal"}, wantErr: foreignErr,
+				},
+				{
+					name: "one of several targets in another namespace rejected", prop: "mixedRef",
+					dataType: []string{ns1 + ":Animal", ns2 + ":Animal"}, wantErr: foreignErr,
+				},
+			}
+			for _, tc := range tests {
+				t.Run(tc.name, func(t *testing.T) {
+					_, err := addPropertyAuthWithReturn(t, qualifiedHost,
+						&models.Property{Name: tc.prop, DataType: tc.dataType}, adminKey)
+					got := helper.GetClassAuth(t, qualifiedHost, adminKey)
+					if tc.wantErr != "" {
+						var unproc *schemaCli.SchemaObjectsPropertiesAddUnprocessableEntity
+						require.True(t, errors.As(err, &unproc), "expected 422, got %T: %v", err, err)
+						require.NotEmpty(t, unproc.Payload.Error)
+						assert.Contains(t, unproc.Payload.Error[0].Message, tc.wantErr)
+						assert.Nil(t, findProp(got, tc.prop), "a rejected property must not be stored")
+						return
+					}
+					require.NoError(t, err)
+					require.NotNil(t, findProp(got, tc.prop))
+					assert.Equal(t, tc.wantDataType, findProp(got, tc.prop).DataType)
+				})
+			}
+		})
+
+		t.Run("update class", func(t *testing.T) {
+			tests := []struct {
+				name     string
+				dataType []string
+				wantErr  string
+			}{
+				{name: "short target matches the stored target", dataType: []string{"Animal"}},
+				{name: "target in another namespace rejected", dataType: []string{ns2 + ":Animal"}, wantErr: foreignErr},
+			}
+			for _, tc := range tests {
+				t.Run(tc.name, func(t *testing.T) {
+					body := helper.GetClassAuth(t, qualifiedHost, adminKey)
+					body.Description = tc.name
+					findProp(body, "hasAnimals").DataType = tc.dataType
+					_, err := helper.UpdateClassAuthWithReturn(t, qualifiedHost, body, adminKey)
+					got := helper.GetClassAuth(t, qualifiedHost, adminKey)
+					assert.Equal(t, []string{ns1 + ":Animal"}, findProp(got, "hasAnimals").DataType)
+					if tc.wantErr != "" {
+						var unproc *schemaCli.SchemaObjectsUpdateUnprocessableEntity
+						require.True(t, errors.As(err, &unproc), "expected 422, got %T: %v", err, err)
+						require.NotEmpty(t, unproc.Payload.Error)
+						assert.Contains(t, unproc.Payload.Error[0].Message, tc.wantErr)
+						assert.NotEqual(t, tc.name, got.Description, "a rejected update must not be stored")
+						return
+					}
+					require.NoError(t, err)
+					assert.Equal(t, tc.name, got.Description)
+				})
+			}
+		})
+	})
+
 	t.Run("self-referencing class on NS cluster (Zoo.relatedTo -> Zoo)", func(t *testing.T) {
 		// The RAFT cross-ref existence check has a self-ref special case:
 		// `qualifiedDT == req.Class.Class` short-circuits the existence
