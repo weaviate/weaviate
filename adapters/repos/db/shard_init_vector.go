@@ -80,12 +80,9 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 			return fmt.Errorf("shard %q: %w", s.ID(), err)
 		}
 	} else {
-		records = make(map[string]vectorIndexRecord, len(active))
-		for name, cfg := range active {
-			records[name] = vectorIndexRecordFor(name, cfg, vectorIndexStateCreating)
-		}
-		for _, c := range vectorIndexCollisions(vectorIndexOwners(records)) {
-			s.index.logger.WithField("shard", s.ID()).Warnf("vector index physical names collide, a drop of either may take the other's files: %s", c)
+		records, err = s.initializeVectorIndexMapping(active)
+		if err != nil {
+			return fmt.Errorf("shard %q: %w", s.ID(), err)
 		}
 	}
 
@@ -106,7 +103,7 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 		}
 	}
 
-	err = s.commitVectorIndexRecords(records, initialized)
+	err = s.commitVectorIndexRecords(records)
 	if err != nil {
 		return fmt.Errorf("shard %q: %w", s.ID(), err)
 	}

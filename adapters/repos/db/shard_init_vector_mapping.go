@@ -83,6 +83,11 @@ func (s *Shard) reconcileVectorIndexMapping(ctx context.Context, active map[stri
 				return nil, err
 			}
 			if rebuild {
+				// on disk before the build, so a crash mid-fill resumes as creating
+				err = s.markVectorIndexCreating(name, rec)
+				if err != nil {
+					return nil, err
+				}
 				rec.State = vectorIndexStateCreating
 			}
 		}
@@ -119,21 +124,43 @@ func (s *Shard) readyVectorIndexNeedsRebuild(name string, rec vectorIndexRecord)
 	return !exists, nil
 }
 
-// commitVectorIndexRecords makes the indexes just built durable in the
-// mapping. On the first load every record is written ready in one
-// transaction; later, only the records that were creating are flipped.
-func (s *Shard) commitVectorIndexRecords(records map[string]vectorIndexRecord, initialized bool) error {
-	for name, rec := range records {
-		if initialized && rec.State == vectorIndexStateReady {
-			continue
+// initializeVectorIndexMapping writes a shard's first mapping from the
+// schema, before any index is built: ready for a vector whose storage is on
+// disk, creating for one whose storage is missing, which the build fills
+// from the object store. On disk first, so a crash mid-fill resumes as
+// creating.
+func (s *Shard) initializeVectorIndexMapping(active map[string]schemaConfig.VectorIndexConfig) (map[string]vectorIndexRecord, error) {
+	records := make(map[string]vectorIndexRecord, len(active))
+	for name, cfg := range active {
+		rec := vectorIndexRecordFor(name, cfg, vectorIndexStateCreating)
+		rebuild, err := s.readyVectorIndexNeedsRebuild(name, rec)
+		if err != nil {
+			return nil, err
 		}
-		if !initialized {
-			err := s.syncVectorIndexRecordStorage(name, rec)
+		if !rebuild {
+			err = s.syncVectorIndexRecordStorage(name, rec)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			rec.State = vectorIndexStateReady
-			records[name] = rec
+		}
+		records[name] = rec
+	}
+	for _, c := range vectorIndexCollisions(vectorIndexOwners(records)) {
+		s.index.logger.WithField("shard", s.ID()).Warnf("vector index physical names collide, a drop of either may take the other's files: %s", c)
+	}
+	err := s.mapping.Initialize(records)
+	if err != nil {
+		return nil, err
+	}
+	return records, nil
+}
+
+// commitVectorIndexRecords marks the records that were creating ready, now
+// that their indexes are built and filled.
+func (s *Shard) commitVectorIndexRecords(records map[string]vectorIndexRecord) error {
+	for name, rec := range records {
+		if rec.State == vectorIndexStateReady {
 			continue
 		}
 		err := s.markVectorIndexReady(name, rec)
@@ -141,10 +168,7 @@ func (s *Shard) commitVectorIndexRecords(records map[string]vectorIndexRecord, i
 			return err
 		}
 	}
-	if initialized {
-		return nil
-	}
-	return s.mapping.Initialize(records)
+	return nil
 }
 
 // markVectorIndexCreating records that name's index is about to be built at

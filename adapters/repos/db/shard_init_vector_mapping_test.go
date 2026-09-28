@@ -790,3 +790,69 @@ func TestRemoveVectorIndexFiles_ReadsTheRecordOffline(t *testing.T) {
 	_, err = os.Stat(ghost)
 	assert.NoError(t, err, "nothing deleted on a refused record")
 }
+
+// putFooObjects stores n objects of class whose foo vector is {i, 1, 2}.
+func putFooObjects(t *testing.T, ctx context.Context, shard *Shard, class string, n int) []*storobj.Object {
+	t.Helper()
+	objs := make([]*storobj.Object, 0, n)
+	for i := 0; i < n; i++ {
+		obj := &storobj.Object{
+			MarshallerVersion: 1,
+			Object:            models.Object{ID: strfmt.UUID(uuid.NewString()), Class: class},
+			Vectors:           map[string][]float32{"foo": {float32(i), 1, 2}},
+		}
+		require.NoError(t, shard.PutObject(ctx, obj))
+		objs = append(objs, obj)
+	}
+	return objs
+}
+
+// assertAllFound checks foo is ready and finds every object by its own vector.
+func assertAllFound(t *testing.T, ctx context.Context, shard *Shard, objs []*storobj.Object) {
+	t.Helper()
+	rec, _, err := shard.mapping.Get("foo")
+	require.NoError(t, err)
+	require.Equal(t, "ready", rec.State)
+	if shard.index.AsyncIndexingEnabled {
+		waitForQueueToDrain(t, shard, "foo")
+	}
+	for _, obj := range objs {
+		ids := searchIDs(t, ctx, shard, "foo", obj.Vectors["foo"])
+		require.NotEmpty(t, ids, "object %s is indexed", obj.ID())
+		assert.Equal(t, obj.ID(), ids[0], "object %s is its own nearest neighbour", obj.ID())
+	}
+}
+
+// setIndexConfig replaces the schema config the shard reads for name.
+func setIndexConfig(shard *Shard, name string, cfg schemaConfig.VectorIndexConfig) {
+	shard.index.vectorIndexUserConfigLock.Lock()
+	defer shard.index.vectorIndexUserConfigLock.Unlock()
+	shard.index.vectorIndexUserConfigs[name] = cfg
+}
+
+// The mapping records a creating vector before its build, on a first load
+// too: a load interrupted by the build leaves a persisted creating record,
+// and the next load fills the index.
+func TestInitShardVectors_PersistsCreatingBeforeTheBuild(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	objs := putFooObjects(t, ctx, shard, dropVecClassName, 20)
+	fooDir := filepath.Join(shard.path(), helpers.GetHNSWCommitLogDirName("foo"))
+
+	broken := enthnsw.NewDefaultUserConfig()
+	broken.Distance = "bogus"
+	setIndexConfig(shard, "foo", broken)
+	wipeMapping(t, shard)
+	reloadExpectingError(t, ctx, shard, class, "unrecognized distance metric", func() {
+		require.NoError(t, os.RemoveAll(fooDir))
+	})
+	records, initialized, err := reopenMapping(t, shard.path())
+	require.NoError(t, err)
+	assert.True(t, initialized, "initialized before the build")
+	assert.Equal(t, "creating", records["foo"].State)
+	assert.Equal(t, "ready", records["mv"].State, "an index with storage is ready from the start")
+
+	setIndexConfig(shard, "foo", enthnsw.NewDefaultUserConfig())
+	shard = openShardFromDisk(t, ctx, shard.index, class, shard.Name())
+	assertAllFound(t, ctx, shard, objs)
+}
