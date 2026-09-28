@@ -546,7 +546,7 @@ func liveCreate(ctx context.Context, shard *Shard, targetVector string) error {
 		return fmt.Errorf("no mapping record for %q", targetVector)
 	}
 	cfg := shard.index.GetVectorIndexConfig(targetVector)
-	return shard.createVectorIndex(ctx, targetVector, rec.PhysicalID, cfg, false, false)
+	return shard.createVectorIndex(ctx, targetVector, rec.PhysicalID, cfg, false)
 }
 
 // searchIDs returns the IDs the index of targetVector finds for vector.
