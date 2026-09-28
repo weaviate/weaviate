@@ -2594,6 +2594,9 @@ func TestConsumerChangeCaptureLost(t *testing.T) {
 					if state == api.READY || state == api.DEHYDRATING || state == api.HYDRATING {
 						finish("")
 					}
+					if state == api.DEHYDRATING {
+						return stderrors.New("stop before dehydrating")
+					}
 					return nil
 				}).Maybe()
 			var registered atomic.Int32
