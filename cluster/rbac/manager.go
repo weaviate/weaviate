@@ -331,9 +331,12 @@ func (m *Manager) RestoreFromBackup(req *cmd.RestoreRolesAndUsersRequest) error 
 		return nil
 	}
 	if err := m.authZ.Restore(req.Roles, req.StripNamespaces); err != nil {
-		// The restore wipes the old roles before the part that can fail, so this
-		// node may now have no custom roles at all while every other node
-		// succeeded. Log a fixed word so this is easy to search for.
+		if errors.Is(err, rbac.ErrRestoreRefused) {
+			return err
+		}
+		// Restore wiped the old roles before this error, so this node may now
+		// have no custom roles at all while every other node succeeded. Log a
+		// fixed word so this is easy to search for.
 		m.logger.WithField("action", "restore_roles_from_backup").
 			Errorf("rbac_restore_torn: role store may be cleared on this node only: %v", err)
 		return err

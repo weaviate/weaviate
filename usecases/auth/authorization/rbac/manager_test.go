@@ -1063,7 +1063,7 @@ func TestRestoreStripCollisionLeavesTargetIntact(t *testing.T) {
 	require.NotEmpty(t, incumbentG)
 
 	err = dst.Restore(blob, true)
-	require.Error(t, err)
+	require.ErrorIs(t, err, ErrRestoreRefused)
 	for _, want := range []string{"role:ns1:editor", "role:ns2:editor", `"editor"`} {
 		assert.Contains(t, err.Error(), want, "the error must name the collision, not just the role")
 	}
@@ -1266,7 +1266,7 @@ func TestRestoreInvalidData(t *testing.T) {
 
 	// Test with invalid JSON
 	err = m.Restore([]byte("invalid json"), false)
-	require.Error(t, err)
+	require.ErrorIs(t, err, ErrRestoreRefused)
 	assert.Contains(t, err.Error(), "decode json")
 
 	// Test with empty data

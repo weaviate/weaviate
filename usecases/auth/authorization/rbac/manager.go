@@ -40,6 +40,10 @@ const (
 	SnapshotVersionLatest
 )
 
+// ErrRestoreRefused marks a [Manager.Restore] error returned before Restore
+// cleared the policy store, so the node still holds the roles it had.
+var ErrRestoreRefused = errors.New("restore snapshot refused")
+
 // NamespaceLister reports the namespaces this cluster currently has. Snapshot calls it
 // when it runs rather than at construction, so a snapshot taken later sees namespaces
 // created since boot.
@@ -703,7 +707,7 @@ func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 
 	snapshot := snapshot{}
 	if err := json.Unmarshal(b, &snapshot); err != nil {
-		return fmt.Errorf("restore snapshot: decode json: %w", err)
+		return fmt.Errorf("%w: decode json: %w", ErrRestoreRefused, err)
 	}
 
 	// Keep this above the write lock and ClearPolicy below. A colliding snapshot
@@ -712,9 +716,18 @@ func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 	if stripNamespaces {
 		stripped, err := stripRBACSnapshot(snapshot, StaticAPIKeyUsers(m.authNconf))
 		if err != nil {
-			return err
+			return fmt.Errorf("%w: %w", ErrRestoreRefused, err)
 		}
 		snapshot = stripped
+	}
+
+	// Like the strip above, refuse before ClearPolicy. Rows the policy file can't
+	// hold would fail the next load, or load as rows the snapshot never had.
+	if err := validateStorableRows("p", snapshot.Policy); err != nil {
+		return fmt.Errorf("%w: %w", ErrRestoreRefused, err)
+	}
+	if err := validateStorableRows("g", snapshot.GroupingPolicy); err != nil {
+		return fmt.Errorf("%w: %w", ErrRestoreRefused, err)
 	}
 
 	// Hold the write lock only for the casbin mutation and cache invalidation
@@ -764,6 +777,15 @@ func (m *Manager) Restore(b []byte, stripNamespaces bool) error {
 		return fmt.Errorf("restore snapshot: InvalidateCache: %w", err)
 	}
 
+	return nil
+}
+
+func validateStorableRows(ptype string, rows [][]string) error {
+	for _, row := range rows {
+		if err := conv.ValidateStorableRow(append([]string{ptype}, row...)...); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

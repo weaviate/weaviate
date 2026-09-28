@@ -12,6 +12,7 @@
 package rbac
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -139,6 +140,62 @@ func TestAddRolesForUserRejectsSubjectsPolicyFileCannotStore(t *testing.T) {
 			// would reach policy.csv here.
 			require.NoError(t, m.AddRolesForUser("db:later", []string{authorization.Viewer}))
 			requireRestartWithoutAdmin(t, dir)
+		})
+	}
+}
+
+func TestRestoreRejectsSnapshotPolicyFileCannotStore(t *testing.T) {
+	tests := []struct {
+		name     string
+		policy   [][]string
+		grouping [][]string
+	}{
+		{
+			name:   "policy row with comma",
+			policy: [][]string{{"role:evil", "namespaces/a,b", authorization.READ, authorization.NamespacesDomain}},
+		},
+		{
+			name:   "policy row injects an admin assignment",
+			policy: [][]string{{"role:evil", "namespaces/x, (C), namespaces\ng, db:attacker, role:admin\np, role:evil, y", authorization.READ, authorization.NamespacesDomain}},
+		},
+		{
+			name:     "grouping row with quote",
+			grouping: [][]string{{`group:"admins"`, "role:viewer"}},
+		},
+		{
+			name:     "grouping row injects an admin grant",
+			grouping: [][]string{{"db:attacker, role:admin", "role:viewer"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := freshPolicyDir(t)
+			m, err := newManagerAt(t, dir)
+			require.NoError(t, err)
+			require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
+				"incumbent": {{Resource: "namespaces/ok", Verb: authorization.READ, Domain: authorization.NamespacesDomain}},
+			}))
+
+			// A valid row comes first, so a check that stops at the first row misses
+			// the bad one.
+			blob, err := json.Marshal(snapshot{
+				Policy:         append([][]string{{"role:fine", "namespaces/fine", authorization.READ, authorization.NamespacesDomain}}, tt.policy...),
+				GroupingPolicy: append([][]string{{"db:fine", "role:fine"}}, tt.grouping...),
+				Version:        SnapshotVersionLatest,
+			})
+			require.NoError(t, err)
+			err = m.Restore(blob, false)
+			require.ErrorIs(t, err, ErrRestoreRefused)
+
+			roles, err := m.GetRoles()
+			require.NoError(t, err)
+			assert.Contains(t, roles, "incumbent", "a rejected restore must leave the running state untouched")
+			assert.NotContains(t, roles, "fine", "a rejected restore must leave the running state untouched")
+
+			restarted := requireRestartWithoutAdmin(t, dir)
+			roles, err = restarted.GetRoles()
+			require.NoError(t, err)
+			assert.Contains(t, roles, "incumbent", "a rejected restore must leave policy.csv untouched")
 		})
 	}
 }
