@@ -8236,7 +8236,7 @@ func init() {
           "$ref": "#/definitions/BackupConfig"
         },
         "exclude": {
-          "description": "List of collections to exclude from the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `include` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
+          "description": "List of collections to exclude from the backup creation process. If not set, all collections the caller may back up are included. Cannot be used together with ` + "`" + `include` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
           "type": "array",
           "items": {
             "type": "string"
@@ -8247,7 +8247,7 @@ func init() {
           "type": "string"
         },
         "include": {
-          "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. A list made only of wildcards that match no collection is rejected.",
+          "description": "List of collections to include in the backup creation process. If not set, all collections the caller may back up are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `, which match only collections the caller may back up. A list that matches no collection is rejected.",
           "type": "array",
           "items": {
             "type": "string"
@@ -8445,7 +8445,7 @@ func init() {
           }
         },
         "include": {
-          "description": "List of collections (classes) to include in the backup restoration process. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. A list made only of wildcards that match no collection in the backup is rejected.",
+          "description": "List of collections (classes) to include in the backup restoration process. If not set, all collections in the backup the caller may restore are included. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `, which match only collections the caller may restore. A list that matches no collection is rejected.",
           "type": "array",
           "items": {
             "type": "string"
@@ -20852,7 +20852,7 @@ func init() {
           "$ref": "#/definitions/BackupConfig"
         },
         "exclude": {
-          "description": "List of collections to exclude from the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `include` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
+          "description": "List of collections to exclude from the backup creation process. If not set, all collections the caller may back up are included. Cannot be used together with ` + "`" + `include` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `.",
           "type": "array",
           "items": {
             "type": "string"
@@ -20863,7 +20863,7 @@ func init() {
           "type": "string"
         },
         "include": {
-          "description": "List of collections to include in the backup creation process. If not set, all collections are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. A list made only of wildcards that match no collection is rejected.",
+          "description": "List of collections to include in the backup creation process. If not set, all collections the caller may back up are included. Cannot be used together with ` + "`" + `exclude` + "`" + `. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `, which match only collections the caller may back up. A list that matches no collection is rejected.",
           "type": "array",
           "items": {
             "type": "string"
@@ -21064,7 +21064,7 @@ func init() {
           }
         },
         "include": {
-          "description": "List of collections (classes) to include in the backup restoration process. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `. A list made only of wildcards that match no collection in the backup is rejected.",
+          "description": "List of collections (classes) to include in the backup restoration process. If not set, all collections in the backup the caller may restore are included. Permits wildcards, e.g. ` + "`" + `*` + "`" + ` or ` + "`" + `prefix*` + "`" + `, which match only collections the caller may restore. A list that matches no collection is rejected.",
           "type": "array",
           "items": {
             "type": "string"
