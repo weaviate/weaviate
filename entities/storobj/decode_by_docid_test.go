@@ -33,6 +33,8 @@ type fakeDocIDBatchBucket struct {
 	concurrent bool
 	calls      int
 	maxKeys    int
+	// cancel, when set, runs at the end of the first call.
+	cancel context.CancelFunc
 	// inCall is what tells a decode that ran on a bucket worker apart from one
 	// that ran on the calling goroutine after the call returned.
 	inCall atomic.Bool
@@ -45,6 +47,9 @@ func (f *fakeDocIDBatchBucket) GetBySecondaryBatch(_ context.Context, _ int, key
 	f.maxKeys = max(f.maxKeys, len(keys))
 	if f.err != nil {
 		return f.err
+	}
+	if f.cancel != nil && f.calls == 1 {
+		defer f.cancel()
 	}
 	f.inCall.Store(true)
 	defer f.inCall.Store(false)
@@ -113,6 +118,7 @@ func TestDecodeByDocID(t *testing.T) {
 		concurrent  bool
 		visitNil    []uint64
 		cancel      bool
+		cancelMid   bool
 		want        []uint64
 		wantMissing []uint64
 		wantErr     error
@@ -151,6 +157,10 @@ func TestDecodeByDocID(t *testing.T) {
 		{name: "bucket error propagates", ids: idRange(1, 3), limit: 10, bucketErr: bucketErr, wantErr: bucketErr, wantCalls: 1, wantMaxKeys: 3},
 		{name: "decode error propagates", ids: idRange(1, 3), limit: 10, decodeFails: true, wantErr: decodeErr, wantCalls: 1, wantMaxKeys: 3},
 		{name: "cancelled context", ids: idRange(1, 3), limit: 10, cancel: true, wantErr: context.Canceled},
+		{
+			name: "a context cancelled during a bucket call stops the read before the next call", ids: idRange(1, 1203), limit: 2000,
+			cancelMid: true, wantErr: context.Canceled, wantCalls: 1, wantMaxKeys: maxDocIDsPerBucketCall,
+		},
 	}
 
 	for _, tc := range cases {
@@ -180,6 +190,9 @@ func TestDecodeByDocID(t *testing.T) {
 			defer cancel()
 			if tc.cancel {
 				cancel()
+			}
+			if tc.cancelMid {
+				bucket.cancel = cancel
 			}
 
 			var gotMissing []uint64
