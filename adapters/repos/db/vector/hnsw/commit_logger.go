@@ -126,11 +126,6 @@ func (l *hnswCommitLogger) InitMaintenance() {
 	l.maintainLogsCallbackCtrl = l.maintenanceCallbacks.Register(id("maintain_logs"), l.startCommitLogsMaintenance)
 }
 
-func commitLogFileName(rootPath, indexName, fileName string) string {
-	// plain concatenation avoids fmt.Sprintf churn on this hot maintenance path
-	return commitLogDirectory(rootPath, indexName) + "/" + fileName
-}
-
 func commitLogDirectory(rootPath, name string) string {
 	return rootPath + "/" + name + ".hnsw.commitlog.d"
 }
@@ -162,11 +157,8 @@ func createNewCommitFile(rootPath, name string, fs common.FS, logger logrus.Fiel
 			Warn("failed to prune empty raw commit log files; continuing")
 	}
 
-	// Rotations can name logs ahead of the clock (see nextCommitLogFileName),
-	// so the previous process may have left files named after seconds still to
-	// come. Replay and compaction order logs by name: a log named at or below
-	// an existing one would replay before older commits, or fall inside the
-	// snapshot's range and be treated as already covered.
+	// Rotations name logs ahead of the clock, and replay and compaction order
+	// logs by name, so the new log must sort after every file already here.
 	newest, err := newestCommitLogTimestamp(dir, fs)
 	if err != nil {
 		return nil, "", errors.Wrap(err, "find newest commit log")
@@ -198,8 +190,7 @@ func newestCommitLogTimestamp(dir string, fs common.FS) (int64, error) {
 }
 
 // openNewCommitLog creates a raw commit log named after the first free second
-// from ts on. It never opens an existing file: that log may end in a torn
-// commit, and anything appended after it would be read misaligned.
+// from ts on. An existing log may end in a torn commit, so it is never appended to.
 func openNewCommitLog(dir string, ts int64, fs common.FS) (common.File, string, error) {
 	const maxAttempts = 1000
 	for range maxAttempts {
