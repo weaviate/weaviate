@@ -74,7 +74,7 @@ func newTestHandlerWithNamespaces(t *testing.T, enabled bool) (*Handler, *fakeSc
 	// Tests that exercise placement should set handler.namespacesExister
 	// directly to override this default.
 	handler, err := NewHandler(
-		schemaManager, schemaManager, &fakeDB{}, fakeValidator, logger, mocks.NewMockAuthorizer(),
+		schemaManager, schemaManager, schemaManager, &fakeDB{}, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil,
 		fakeNamespacesExister{defaultHomeNode: "node-1"}, nil)
@@ -767,7 +767,7 @@ func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 				},
 			}
 			sm.On("ReadOnlyClass", tt.storedClass).Return(stored).Maybe()
-			sm.On("QueryReadOnlyClasses", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
+			sm.On("ReadOnlyClassesFromLeader", mock.Anything).Return(map[string]versioned.Class{}, nil).Maybe()
 
 			var captured *models.Class
 			sm.On("UpdateClass", mock.MatchedBy(func(c *models.Class) bool {
@@ -805,7 +805,7 @@ func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 // MAXIMUM_ALLOWED_COLLECTIONS_COUNT cap is enforced per namespace when
 // namespaces are enabled, using principal.Namespace as the selector.
 //
-// The mock matcher on QueryCollectionsCount(<principalNS>) is what proves
+// The mock matcher on CollectionsCountFromLeader(<principalNS>) is what proves
 // the selector: a row only passes if AddClass requested the count for the
 // caller's namespace.
 func TestAddClass_NamespacedCollectionLimit(t *testing.T) {
@@ -846,7 +846,7 @@ func TestAddClass_NamespacedCollectionLimit(t *testing.T) {
 			handler, sm := newTestHandlerWithNamespaces(t, true)
 			handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(tt.limit)
 
-			sm.On("QueryCollectionsCount", tt.principalNS).Return(tt.existingCount, nil)
+			sm.On("CollectionsCountFromLeader", tt.principalNS).Return(tt.existingCount, nil)
 			if !tt.wantErr {
 				sm.On("AddClass", mock.MatchedBy(func(c *models.Class) bool {
 					return c.Class == tt.principalNS+":Movies"

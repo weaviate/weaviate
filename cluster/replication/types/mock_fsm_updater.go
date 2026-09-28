@@ -34,6 +34,64 @@ func (_m *MockFSMUpdater) EXPECT() *MockFSMUpdater_Expecter {
 	return &MockFSMUpdater_Expecter{mock: &_m.Mock}
 }
 
+// AddTenants provides a mock function with given fields: ctx, class, req
+func (_m *MockFSMUpdater) AddTenants(ctx context.Context, class string, req *api.AddTenantsRequest) (uint64, error) {
+	ret := _m.Called(ctx, class, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AddTenants")
+	}
+
+	var r0 uint64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, *api.AddTenantsRequest) (uint64, error)); ok {
+		return rf(ctx, class, req)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, *api.AddTenantsRequest) uint64); ok {
+		r0 = rf(ctx, class, req)
+	} else {
+		r0 = ret.Get(0).(uint64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, *api.AddTenantsRequest) error); ok {
+		r1 = rf(ctx, class, req)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockFSMUpdater_AddTenants_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AddTenants'
+type MockFSMUpdater_AddTenants_Call struct {
+	*mock.Call
+}
+
+// AddTenants is a helper method to define mock.On call
+//   - ctx context.Context
+//   - class string
+//   - req *api.AddTenantsRequest
+func (_e *MockFSMUpdater_Expecter) AddTenants(ctx interface{}, class interface{}, req interface{}) *MockFSMUpdater_AddTenants_Call {
+	return &MockFSMUpdater_AddTenants_Call{Call: _e.mock.On("AddTenants", ctx, class, req)}
+}
+
+func (_c *MockFSMUpdater_AddTenants_Call) Run(run func(ctx context.Context, class string, req *api.AddTenantsRequest)) *MockFSMUpdater_AddTenants_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(*api.AddTenantsRequest))
+	})
+	return _c
+}
+
+func (_c *MockFSMUpdater_AddTenants_Call) Return(_a0 uint64, _a1 error) *MockFSMUpdater_AddTenants_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockFSMUpdater_AddTenants_Call) RunAndReturn(run func(context.Context, string, *api.AddTenantsRequest) (uint64, error)) *MockFSMUpdater_AddTenants_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // DeleteReplicaFromShard provides a mock function with given fields: ctx, collection, shard, nodeId
 func (_m *MockFSMUpdater) DeleteReplicaFromShard(ctx context.Context, collection string, shard string, nodeId string) (uint64, error) {
 	ret := _m.Called(ctx, collection, shard, nodeId)
@@ -89,6 +147,64 @@ func (_c *MockFSMUpdater_DeleteReplicaFromShard_Call) Return(_a0 uint64, _a1 err
 }
 
 func (_c *MockFSMUpdater_DeleteReplicaFromShard_Call) RunAndReturn(run func(context.Context, string, string, string) (uint64, error)) *MockFSMUpdater_DeleteReplicaFromShard_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeleteTenants provides a mock function with given fields: ctx, class, req
+func (_m *MockFSMUpdater) DeleteTenants(ctx context.Context, class string, req *api.DeleteTenantsRequest) (uint64, error) {
+	ret := _m.Called(ctx, class, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteTenants")
+	}
+
+	var r0 uint64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, *api.DeleteTenantsRequest) (uint64, error)); ok {
+		return rf(ctx, class, req)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, *api.DeleteTenantsRequest) uint64); ok {
+		r0 = rf(ctx, class, req)
+	} else {
+		r0 = ret.Get(0).(uint64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, *api.DeleteTenantsRequest) error); ok {
+		r1 = rf(ctx, class, req)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockFSMUpdater_DeleteTenants_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteTenants'
+type MockFSMUpdater_DeleteTenants_Call struct {
+	*mock.Call
+}
+
+// DeleteTenants is a helper method to define mock.On call
+//   - ctx context.Context
+//   - class string
+//   - req *api.DeleteTenantsRequest
+func (_e *MockFSMUpdater_Expecter) DeleteTenants(ctx interface{}, class interface{}, req interface{}) *MockFSMUpdater_DeleteTenants_Call {
+	return &MockFSMUpdater_DeleteTenants_Call{Call: _e.mock.On("DeleteTenants", ctx, class, req)}
+}
+
+func (_c *MockFSMUpdater_DeleteTenants_Call) Run(run func(ctx context.Context, class string, req *api.DeleteTenantsRequest)) *MockFSMUpdater_DeleteTenants_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(*api.DeleteTenantsRequest))
+	})
+	return _c
+}
+
+func (_c *MockFSMUpdater_DeleteTenants_Call) Return(_a0 uint64, _a1 error) *MockFSMUpdater_DeleteTenants_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockFSMUpdater_DeleteTenants_Call) RunAndReturn(run func(context.Context, string, *api.DeleteTenantsRequest) (uint64, error)) *MockFSMUpdater_DeleteTenants_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -563,9 +679,9 @@ func (_c *MockFSMUpdater_UpdateTenants_Call) RunAndReturn(run func(context.Conte
 	return _c
 }
 
-// WaitForUpdate provides a mock function with given fields: ctx, schemaVersion
-func (_m *MockFSMUpdater) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
-	ret := _m.Called(ctx, schemaVersion)
+// WaitForUpdate provides a mock function with given fields: ctx, version
+func (_m *MockFSMUpdater) WaitForUpdate(ctx context.Context, version uint64) error {
+	ret := _m.Called(ctx, version)
 
 	if len(ret) == 0 {
 		panic("no return value specified for WaitForUpdate")
@@ -573,7 +689,7 @@ func (_m *MockFSMUpdater) WaitForUpdate(ctx context.Context, schemaVersion uint6
 
 	var r0 error
 	if rf, ok := ret.Get(0).(func(context.Context, uint64) error); ok {
-		r0 = rf(ctx, schemaVersion)
+		r0 = rf(ctx, version)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -588,12 +704,12 @@ type MockFSMUpdater_WaitForUpdate_Call struct {
 
 // WaitForUpdate is a helper method to define mock.On call
 //   - ctx context.Context
-//   - schemaVersion uint64
-func (_e *MockFSMUpdater_Expecter) WaitForUpdate(ctx interface{}, schemaVersion interface{}) *MockFSMUpdater_WaitForUpdate_Call {
-	return &MockFSMUpdater_WaitForUpdate_Call{Call: _e.mock.On("WaitForUpdate", ctx, schemaVersion)}
+//   - version uint64
+func (_e *MockFSMUpdater_Expecter) WaitForUpdate(ctx interface{}, version interface{}) *MockFSMUpdater_WaitForUpdate_Call {
+	return &MockFSMUpdater_WaitForUpdate_Call{Call: _e.mock.On("WaitForUpdate", ctx, version)}
 }
 
-func (_c *MockFSMUpdater_WaitForUpdate_Call) Run(run func(ctx context.Context, schemaVersion uint64)) *MockFSMUpdater_WaitForUpdate_Call {
+func (_c *MockFSMUpdater_WaitForUpdate_Call) Run(run func(ctx context.Context, version uint64)) *MockFSMUpdater_WaitForUpdate_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(uint64))
 	})
