@@ -599,6 +599,7 @@ func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, startedWithoutR
 	const maxAttempts = 10
 	attempts := 0
 	backoff := o.probeBackoffMin
+	opChecked := false
 
 	retryAfterBackoff := func() bool {
 		attempts++
@@ -632,6 +633,22 @@ func (o *Orchestrator) runOne(ctx context.Context, ref ShardRef, startedWithoutR
 			logger.Info("self-recovery abandoned: tenant is no longer active; its activation recovers it")
 			o.recordOutcome("cancelled", startedAt)
 			return
+		}
+		// A live op owns "<shard>.recovering/"; an empty fallback beside it would wedge that op's promote.
+		if !opChecked {
+			if err := o.requireNoInflightSelfRecoveryOp(ctx, ref); err != nil {
+				if errors.Is(err, ErrSelfRecoveryOpInFlight) {
+					logger.Infof("self-recovery skipped: %v", err)
+					o.recordOutcome("skipped", startedAt)
+					return
+				}
+				logger.Warnf("self-recovery in-flight op check failed; will retry: %v", err)
+				if !retryAfterBackoff() {
+					return
+				}
+				continue
+			}
+			opChecked = true
 		}
 		decision, err := o.probeAndDecide(ctx, ref)
 		if err != nil {
