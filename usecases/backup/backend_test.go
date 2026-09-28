@@ -1784,9 +1784,8 @@ func TestLabelErr(t *testing.T) {
 	}
 }
 
-// A skip flag means the coordinator's selector matched nothing. The uploader
-// must call neither snapshotter and leave both blobs absent, since restore
-// treats an absent blob as a no-op and a present one as a replacement.
+// A skip flag excludes the corresponding snapshot. Restore leaves a backend
+// untouched when its blob is absent and replaces its state when one is present.
 func TestUploaderSnapshotSkip(t *testing.T) {
 	const class = "Article"
 

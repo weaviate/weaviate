@@ -2256,28 +2256,28 @@
           "$ref": "#/definitions/BackupConfig"
         },
         "include": {
-          "description": "List of collections to include in the backup creation process. If not set, all available collections are included. Cannot be used together with `exclude`. Permits wildcards, e.g. `*` or `prefix*`. A list that matches no collection is allowed only when `includeUsers` or `includeRoles` selects at least one identity.",
+          "description": "List of collections to include in the backup creation process. If not set, all available collections are included. Cannot be used together with `exclude`. Permits wildcards, e.g. `*` or `prefix*`. A list that matches no collection is allowed when users or roles are selected, including through omitted identity selectors.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "exclude": {
-          "description": "List of collections to exclude from the backup creation process. If not set, all available collections are included. Cannot be used together with `include`. Permits wildcards, e.g. `*` or `prefix*`. Excluding every collection is allowed only when `includeUsers` or `includeRoles` selects at least one identity.",
+          "description": "List of collections to exclude from the backup creation process. If not set, all available collections are included. Cannot be used together with `include`. Permits wildcards, e.g. `*` or `prefix*`. Excluding every collection is allowed when users or roles are selected, including through omitted identity selectors.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "includeUsers": {
-          "description": "List of dynamic DB users to include in the backup. Permits `*` and `?` wildcards, e.g. `*` or `prefix*`. When omitted, the whole dynamic-user store is captured as part of the cluster snapshot and no per-user permission check is applied; omission does not count as selecting a user for a backup with zero collections. When set, only matching users are captured, and a match permits a backup with zero collections. An exact user name that does not exist is rejected; wildcards that match nothing back up no users.",
+          "description": "List of dynamic DB users to include in the backup. Permits `*` and `?` wildcards, e.g. `*` or `prefix*`. When omitted or null, the whole dynamic-user store is captured. An empty list or wildcards matching nothing omit the user snapshot; restoring it leaves existing users untouched. Otherwise, only matching users are captured. An exact user name that does not exist is rejected. Selected users, including those selected by omission, permit a backup with zero collections. No per-user permission check is applied.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "includeRoles": {
-          "description": "List of RBAC roles to include in the backup. Permits `*` and `?` wildcards, e.g. `*` or `prefix*`. When omitted, the whole RBAC state is captured as part of the cluster snapshot; omission does not count as selecting a role for a backup with zero collections. When set, the RBAC blob is filtered to the matching roles, and a match permits a backup with zero collections. An exact role name that does not exist is rejected; wildcards that match nothing back up no roles. Built-in roles are rejected and are never selected by wildcards (they are re-applied automatically on restore). No per-role permission check is applied.",
+          "description": "List of RBAC roles to include in the backup. Permits `*` and `?` wildcards, e.g. `*` or `prefix*`. When omitted or null, the whole RBAC state is captured, including built-in roles and assignments. An empty list or wildcards matching nothing omit the RBAC snapshot; restoring it leaves existing roles untouched. Otherwise, only matching roles are captured. An exact role name that does not exist is rejected. Explicit selectors cannot select built-in roles: exact names are rejected and wildcards exclude them. Selected roles, including built-in roles selected by omission, permit a backup with zero collections. No per-role permission check is applied.",
           "type": "array",
           "items": {
             "type": "string"

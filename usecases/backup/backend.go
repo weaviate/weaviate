@@ -228,7 +228,7 @@ type statusPublisher interface {
 
 // snapshotSelection is what the scheduler resolved from includeUsers and
 // includeRoles. Empty users/roles mean the whole-cluster snapshot; the skip
-// flags mean the selector matched nothing and no snapshot is uploaded.
+// flags exclude snapshots for empty lists or unmatched wildcards.
 type snapshotSelection struct {
 	users, roles         []string
 	skipUsers, skipRoles bool
@@ -439,7 +439,7 @@ Loop:
 	if err := ctx.Err(); err != nil {
 		return contextChecker(ctx)
 	} else if u.selection.skipRoles {
-		u.log.Info("includeRoles matched no role, skipping RBAC backup")
+		u.log.Info("includeRoles selects no roles, skipping RBAC backup")
 	} else if u.rbacSourcer != nil {
 		u.log.Info("start uploading RBAC backups")
 		descrp, err := u.rbacSourcer.Snapshot(u.selection.roles...)
@@ -454,7 +454,7 @@ Loop:
 	if err := ctx.Err(); err != nil {
 		return contextChecker(ctx)
 	} else if u.selection.skipUsers {
-		u.log.Info("includeUsers matched no user, skipping dynamic user backup")
+		u.log.Info("includeUsers selects no users, skipping dynamic user backup")
 	} else if u.dynUserSourcer != nil {
 		u.log.Info("start uploading dynamic user backups")
 		descrp, err := u.dynUserSourcer.Snapshot(u.selection.users...)

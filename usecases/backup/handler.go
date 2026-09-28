@@ -248,14 +248,14 @@ type BackupRequest struct {
 	// The same class cannot appear in both Include and Exclude in the same request
 	Exclude []string
 
-	// Non-empty switches the backup to a filtered dynamic-user snapshot.
-	// Empty keeps the whole-cluster snapshot. Same '*'/'?' wildcards as Include.
-	// An exact name must exist; wildcards matching nothing back up no users.
+	// Nil captures the full dynamic-user store. An empty list excludes it.
+	// Selectors support '*'/'?' wildcards; exact names must exist.
+	// Wildcards matching nothing exclude the user snapshot.
 	IncludeUsers []string
 
-	// Non-empty filters the RBAC snapshot to the matching roles. Empty keeps the
-	// whole-cluster snapshot. Same '*'/'?' wildcards as Include; built-ins rejected.
-	// An exact name must exist; wildcards matching nothing back up no roles.
+	// Nil captures the full RBAC state. An empty list excludes it.
+	// Selectors support '*'/'?' wildcards and exclude built-in roles.
+	// Exact names must exist; wildcards matching nothing exclude the RBAC snapshot.
 	IncludeRoles []string
 
 	// NodeMapping is a map of node name replacement where key is the old name and value is the new name
