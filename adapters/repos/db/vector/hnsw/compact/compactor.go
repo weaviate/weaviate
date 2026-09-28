@@ -342,8 +342,10 @@ func (c *Compactor) convertFileToSorted(f FileInfo) (bool, error) {
 	}
 	defer srcFile.Close()
 
-	// Read into memory using WALCommitReader + InMemoryReader
-	walReader := NewWALCommitReader(srcFile, c.logger)
+	// Read into memory using WALCommitReader + InMemoryReader. The layout
+	// check keeps a garbage ResetIndex in a .condensed file from discarding
+	// every older file below.
+	walReader := NewWALCommitReaderForFile(srcFile, f.Type, c.logger)
 	inMemReader := NewInMemoryReader(walReader, c.logger)
 	result, err := inMemReader.Do(nil, true) // keepLinkReplaceInformation = true
 	if err != nil {
