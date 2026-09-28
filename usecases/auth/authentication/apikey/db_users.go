@@ -795,6 +795,8 @@ func (c *DBUser) Restore(snapshot []byte, stripNamespaces bool) error {
 	}
 
 	c.data = restoreAllFields(snapshotRestore.Data)
+	// cached logins were verified against the replaced secure hashes
+	c.memoryOnlyData.weakKeyStorageById.Clear()
 
 	return nil
 }
