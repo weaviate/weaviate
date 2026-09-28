@@ -290,9 +290,9 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		assert.Equal(t, "weaviate://localhost/"+target+"/"+string(targetID), beaconStr)
 	})
 
-	t.Run("global admin auto-adds a cross-ref property confined to the class's namespace", func(t *testing.T) {
-		// The admin writes into ns1's class. Auto-schema types each new
-		// property from its beacon's class, which must end up in ns1.
+	t.Run("auto-added cross-ref property confined to the class's namespace", func(t *testing.T) {
+		// The admin and an ns1 caller write into ns1's class. Auto-schema types
+		// each new property from its beacon's class, which must end up in ns1.
 		const source, target = "AdminAutoRefSource", "AdminAutoRefTarget"
 		setupClassInNs1(t, ns1, source, user1Key)
 		setupClassInNs1(t, ns1, target, user1Key)
@@ -309,22 +309,31 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		require.NoError(t, err)
 
 		tests := []struct {
-			name, prop, beacon string
-			wantDataType       []string
-			wantErr            string
+			name, key, class, prop, beacon string
+			wantDataType                   []string
+			wantErr                        string
 		}{
 			{
-				name: "short target gets the class's namespace", prop: "shortRef",
+				name: "short target gets the class's namespace",
+				key:  adminKey, class: ns1 + ":" + source, prop: "shortRef",
 				beacon:       "weaviate://localhost/" + target + "/" + string(ownID),
 				wantDataType: []string{ns1 + ":" + target},
 			},
 			{
-				name: "target in the class's namespace kept", prop: "ownRef",
+				name: "target in the class's namespace kept",
+				key:  adminKey, class: ns1 + ":" + source, prop: "ownRef",
 				beacon:       "weaviate://localhost/" + ns1 + ":" + target + "/" + string(ownID),
 				wantDataType: []string{ns1 + ":" + target},
 			},
 			{
-				name: "target in another namespace rejected", prop: "foreignRef",
+				name: "target in another namespace rejected",
+				key:  adminKey, class: ns1 + ":" + source, prop: "foreignRef",
+				beacon:  "weaviate://localhost/" + ns2 + ":" + target + "/" + string(foreignID),
+				wantErr: "'" + ns2 + ":" + target + "' is not a valid class name",
+			},
+			{
+				name: "namespaced caller's target in another namespace rejected",
+				key:  user1Key, class: source, prop: "foreignRefByUser",
 				beacon:  "weaviate://localhost/" + ns2 + ":" + target + "/" + string(foreignID),
 				wantErr: "'" + ns2 + ":" + target + "' is not a valid class name",
 			},
@@ -332,9 +341,9 @@ func TestNamespaces_AutoSchema(t *testing.T) {
 		for _, tc := range tests {
 			t.Run(tc.name, func(t *testing.T) {
 				_, err := helper.CreateObjectWithResponseAuth(t, &models.Object{
-					Class:      ns1 + ":" + source,
+					Class:      tc.class,
 					Properties: map[string]any{tc.prop: []any{map[string]any{"beacon": tc.beacon}}},
-				}, adminKey)
+				}, tc.key)
 				got := findProp(helper.GetClassAuth(t, ns1+":"+source, adminKey), tc.prop)
 				if tc.wantErr != "" {
 					require.Error(t, err)
