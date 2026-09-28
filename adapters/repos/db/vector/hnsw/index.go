@@ -459,7 +459,8 @@ func New(cfg Config, uc ent.UserConfig,
 		"hnsw", "tombstone_cleanup",
 		index.className, index.shardName, index.id,
 	}, "/")
-	index.tombstoneCleanupCallbackCtrl = tombstoneCallbacks.Register(id, index.tombstoneCleanup)
+	index.tombstoneCleanupCallbackCtrl = tombstoneCallbacks.Register(id, index.tombstoneCleanup,
+		cyclemanager.WithIntervals(cyclemanager.NewFixedIntervals(time.Duration(uc.CleanupIntervalSeconds)*time.Second)))
 	index.insertMetrics = newInsertMetrics(index.metrics)
 
 	return index, nil
@@ -1096,9 +1097,10 @@ func (s *HnswStats) IndexType() common.IndexType {
 
 func (h *hnsw) Stats() (*HnswStats, error) {
 	h.RLock()
-	defer h.RUnlock()
 	distributionLayers := map[int]uint{}
 
+	// node slots are written under the sharded node locks, not the index lock
+	h.shardedNodeLocks.RLockAll()
 	for _, node := range h.nodes {
 		func() {
 			if node == nil {
@@ -1118,13 +1120,24 @@ func (h *hnsw) Stats() (*HnswStats, error) {
 			distributionLayers[l] = c + 1
 		}()
 	}
+	h.shardedNodeLocks.RUnlockAll()
+	entryPointID := h.entryPointID
+	// calculateUnreachablePoints takes the index lock itself; holding it here as
+	// well deadlocks once a writer queues between the two acquisitions.
+	h.RUnlock()
+
+	// tombstones is guarded by tombstoneLock, not the index lock: the cleanup
+	// cycle mutates it concurrently with Stats calls from the debug endpoint.
+	h.tombstoneLock.RLock()
+	numTombstones := len(h.tombstones)
+	h.tombstoneLock.RUnlock()
 
 	stats := HnswStats{
 		Dimensions:         h.dims.Load(),
-		EntryPointID:       h.entryPointID,
+		EntryPointID:       entryPointID,
 		DistributionLayers: distributionLayers,
 		UnreachablePoints:  h.calculateUnreachablePoints(),
-		NumTombstones:      len(h.tombstones),
+		NumTombstones:      numTombstones,
 		Compressed:         h.compressed.Load(),
 	}
 
