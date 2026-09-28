@@ -215,3 +215,62 @@ func TestRestartAcrossSelfRecoveryOpStates(t *testing.T) {
 		})
 	}
 }
+
+func opDetails(transfer api.ShardReplicationTransferType, state api.ShardReplicationState, target string) *api.ReplicationDetailsResponse {
+	d := srDetails(state, target, false, false)
+	d.TransferType = transfer.String()
+	return d
+}
+
+func TestAcceptEmptyOnlyForAnIdleReplicaOfThisNode(t *testing.T) {
+	tests := []struct {
+		name     string
+		replicas []string
+		op       *api.ReplicationDetailsResponse
+		dirs     shardDirs
+		wantErr  error
+		wantDirs shardDirs
+	}{
+		{
+			name: "node holds no replica", replicas: []string{"peer1", "peer2"},
+			wantErr: ErrSelfRecoveryShardNotInSchema,
+		},
+		{
+			name: "copy target before the add", replicas: []string{"peer1"}, op: opDetails(api.COPY, api.HYDRATING, "self"),
+			wantErr: ErrSelfRecoveryShardNotInSchema,
+		},
+		{
+			name: "copy target wiped after the add", replicas: []string{"peer1", "self"}, op: opDetails(api.COPY, api.INTEGRATING, "self"),
+			wantErr: ErrSelfRecoveryOpInFlight,
+		},
+		{
+			name: "move target wiped after the add", replicas: []string{"peer1", "self"}, op: opDetails(api.MOVE, api.DEHYDRATING, "self"),
+			wantErr: ErrSelfRecoveryOpInFlight,
+		},
+		{
+			name: "copy to another node", replicas: []string{"peer1", "self"}, op: opDetails(api.COPY, api.HYDRATING, "peer2"),
+			dirs: shardDirs{recovery: true}, wantDirs: shardDirs{live: true},
+		},
+		{
+			name: "settled copy to this node", replicas: []string{"peer1", "self"}, op: opDetails(api.COPY, api.READY, "self"),
+			dirs: shardDirs{recovery: true}, wantDirs: shardDirs{live: true},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			live, recovery := prepareShardDirs(t, root, tc.dirs)
+			o := newOrchestratorForTest(t, newInflightOpRaft(inflightOpCase{op: tc.op}), stubSchema{replicas: tc.replicas},
+				&stubNodeSelector{}, nil, stubPathResolver{root: root})
+
+			_, err := o.AcceptEmpty(context.Background(), ShardRef{Collection: "c", Shard: "S"})
+			if tc.wantErr != nil {
+				require.Error(t, err)
+				requireShardDirs(t, live, recovery, tc.dirs)
+				return
+			}
+			require.NoError(t, err)
+			requireShardDirs(t, live, recovery, tc.wantDirs)
+		})
+	}
+}
