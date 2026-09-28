@@ -31,7 +31,6 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-// dimensionsRows holds the doc ids of each row of a dimensions bucket, by row key.
 type dimensionsRows map[string]*sroar.Bitmap
 
 func (r dimensionsRows) set(key []byte, docID uint64) {
@@ -49,11 +48,8 @@ func (r dimensionsRows) remove(key []byte, docID uint64) {
 	}
 }
 
-// dimensionsRecalculation keeps the dimension writes that reach a shard while its
-// objects are scanned. The scan may have read an object before or after such a
-// write, so what it found is corrected by them at the end. A doc id can be removed
-// from a row and added to it again, by an update that keeps the doc id, therefore
-// the last write to a doc id of a row is the one that counts.
+// dimensionsRecalculation buffers dimension writes racing the scan, to correct its
+// result. Only the last write per doc id counts: an update removes and re-adds it.
 type dimensionsRecalculation struct {
 	mu      sync.Mutex
 	added   dimensionsRows
@@ -93,9 +89,7 @@ func (r *dimensionsRecalculation) applyTo(rows dimensionsRows) {
 	}
 }
 
-// recalculateShardDimensions recalculates the dimensions of a shard the index
-// has loaded, or loads lazily. skipped reports a shard that is gone, or that went
-// away meanwhile: a tenant deactivated, a shard dropped, the index shut down.
+// recalculateShardDimensions reports skipped for a shard gone before or during its turn.
 func (i *Index) recalculateShardDimensions(ctx context.Context, shardName string) (objects int, skipped bool, err error) {
 	shard, neverWritten, err := i.shardForDimensionsRecalculation(ctx, shardName)
 	if err != nil {
@@ -116,17 +110,8 @@ func (i *Index) recalculateShardDimensions(ctx context.Context, shardName string
 	return objects, false, err
 }
 
-// shardForDimensionsRecalculation returns the loaded shard itself, never its lazy
-// wrapper. Whatever unloads a shard takes shardCreateLocks for write, so holding
-// it over both the lookup and the load keeps the wrapper from loading a shard that
-// left i.shards in between, which nothing could shut down anymore.
-//
-// The shard is returned without a reference held, as a recalculation can take
-// long and must not keep the shard from shutting down. It ends by itself then.
-//
-// A lazy shard not loaded yet that has never had an object is not loaded, as
-// startup keeps empty tenants unloaded on purpose: its bucket has nothing to fix,
-// and a write loading it later tracks its dimensions as it should.
+// shardForDimensionsRecalculation holds no shard reference, a long run must not block
+// shutdown. An unloaded shard never written to is left unloaded: nothing to fix.
 func (i *Index) shardForDimensionsRecalculation(ctx context.Context, shardName string) (shard *Shard, neverWritten bool, err error) {
 	if err := i.enterRead(); err != nil {
 		return nil, false, nil
@@ -154,12 +139,8 @@ func (i *Index) shardForDimensionsRecalculation(ctx context.Context, shardName s
 	}
 }
 
-// recalculateDimensions rebuilds the dimensions bucket from the objects of the
-// shard, which keeps serving reads and writes meanwhile. The bucket in use is
-// replaced only once the new one is complete, so an interrupted recalculation
-// changes nothing. The new bucket is a roaring set one, whatever the old one was.
-//
-// It ends with an error when the shard is shut down or dropped.
+// recalculateDimensions rebuilds the dimensions bucket from the objects while the
+// shard serves. The bucket is replaced only once complete, so an interruption changes nothing.
 func (s *Shard) recalculateDimensions(ctx context.Context) (objects int, err error) {
 	if err := s.isReadOnly(); err != nil {
 		return 0, err
@@ -203,10 +184,8 @@ func (s *Shard) recalculateDimensions(ctx context.Context) (objects int, err err
 	return objects, nil
 }
 
-// switchToRecalculatedDimensions renames bucket dirs, which must not happen to a
-// shard whose files are being copied, to a store that is shutting down, or to a
-// bucket a usage scan has open or is recovering. It is short, and it keeps all of
-// them out until it is done, as well as the writes to the bucket.
+// switchToRecalculatedDimensions renames bucket dirs, so it keeps out replica copies,
+// shutdown, usage scans of the bucket and writes to it.
 func (s *Shard) switchToRecalculatedDimensions(ctx context.Context,
 	recalculation *dimensionsRecalculation, rows dimensionsRows,
 ) error {
@@ -240,17 +219,13 @@ func (s *Shard) switchToRecalculatedDimensions(ctx context.Context,
 		recalculation.applyTo(rows)
 		return s.replaceDimensionsBucket(ctx, name, rows)
 	}()
-	// Not under dimensionsLock: a status change waits for the vector indexes, and
-	// a usage report reading them can wait for dimensionsLock.
 	s.setReadOnlyIfDimensionsBucketLost()
 	return err
 }
 
-// lockNotHaltedForTransfer returns holding haltForTransferMux and a reference to
-// the shard, once the shard is not halted. A halt in turn waits for the mutex, so
-// none can start meanwhile. The reference is taken first, as performShutdown takes
-// its lock before the mutex. Both are let go while the shard is halted, so that it
-// can be shut down or dropped meanwhile.
+// lockNotHaltedForTransfer returns holding haltForTransferMux and a shard reference
+// once the shard is not halted. The reference is taken first, as performShutdown does,
+// and both are let go while halted so the shard can still be shut down.
 func (s *Shard) lockNotHaltedForTransfer(ctx context.Context) (release func(), err error) {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -332,10 +307,8 @@ func (s *Shard) scanObjectDimensions(ctx context.Context) (dimensionsRows, int, 
 	return rows, objects, nil
 }
 
-// createDimensionsReplacement creates the empty bucket to fill and to put in place
-// of the dimensions bucket. It must run under the locks of
-// [Shard.switchToRecalculatedDimensions], but for dimensionsLock: writes to the
-// dimensions bucket do not reach it.
+// createDimensionsReplacement runs under the locks of [Shard.switchToRecalculatedDimensions]
+// but dimensionsLock: writes do not reach the replacement.
 func (s *Shard) createDimensionsReplacement(ctx context.Context) (name string, err error) {
 	if s.store.Bucket(helpers.DimensionsBucketLSM) == nil {
 		return "", errors.New("no bucket dimensions")
@@ -373,9 +346,7 @@ func (s *Shard) createDimensionsReplacement(ctx context.Context) (name string, e
 	return name, nil
 }
 
-// replaceDimensionsBucket fills the replacement and puts it in place. It must run
-// under the locks of [Shard.switchToRecalculatedDimensions], and must not change
-// the status of the shard, see [Shard.leaveWithoutDimensionsBucket].
+// replaceDimensionsBucket runs under dimensionsLock, so it must not change the shard status.
 func (s *Shard) replaceDimensionsBucket(ctx context.Context, name string, rows dimensionsRows) error {
 	bucketPath := filepath.Join(s.pathLSM(), helpers.DimensionsBucketLSM)
 	if err := s.fillDimensionsBucket(name, rows); err != nil {
@@ -413,8 +384,6 @@ func (s *Shard) discardDimensionsReplacement(ctx context.Context, name, readyPat
 	}
 }
 
-// switchToDimensionsReplacement puts the filled replacement in place of the
-// dimensions bucket.
 func (s *Shard) switchToDimensionsReplacement(ctx context.Context, name, bucketPath string) error {
 	err := s.store.ReplaceBuckets(ctx, helpers.DimensionsBucketLSM, name)
 	if err == nil {
@@ -433,14 +402,9 @@ func (s *Shard) switchToDimensionsReplacement(ctx context.Context, name, bucketP
 	return s.recoverFailedDimensionsSwitch(ctx, bucketPath, err)
 }
 
-// recoverFailedDimensionsSwitch deals with ReplaceBuckets failing after it gave the
-// replacement the name of the dimensions bucket, which it does not take back. It
-// can have failed before, between or after its two renames, and the bucket now
-// going by the name may still be on a dir the next load removes, or have been
-// left halfway. So the dirs are put in order first, and the bucket in place is
-// loaded again. Where that is not safe or fails, the shard is left without one, see
-// [Shard.leaveWithoutDimensionsBucket]. switchErr is returned unless only the
-// cleanup after the switch failed.
+// recoverFailedDimensionsSwitch handles ReplaceBuckets failing after it took the name,
+// before, between or after its two renames: it puts the dirs in order and loads the
+// bucket again, or leaves the shard without one where that is unsafe or fails.
 func (s *Shard) recoverFailedDimensionsSwitch(ctx context.Context, bucketPath string, switchErr error) error {
 	readyPath := bucketPath + shardusage.DimensionsReplacementBucketSuffix
 	delPath := bucketPath + shardusage.DimensionsReplacedBucketSuffix
@@ -490,22 +454,12 @@ func (s *Shard) recoverFailedDimensionsSwitch(ctx context.Context, bucketPath st
 	return switchErr
 }
 
-// errDimensionsBucketLost names what brings the bucket back: loading the shard
-// again, which recovers it from the dirs.
 var errDimensionsBucketLost = errors.New("dimensions bucket lost by a failed recalculation, " +
 	"restart the node, or deactivate and activate the tenant")
 
-// leaveWithoutDimensionsBucket is for a switch that failed with no dimensions bucket
-// left loaded. A write would store its object and then fail on the missing bucket,
-// before it reaches the vector index, and a retry keeping the doc id would not
-// reach it either. So the shard is to be set read only, see
-// [Shard.setReadOnlyIfDimensionsBucketLost], and refuses any other status but its
-// own shutdown, as well as a halt for transfer, which would copy it without its
-// dimensions, until it is loaded again. Writes that passed the read only check
-// skip the dimensions, see [Shard.addToDimensionBucket], and dimensions read as
-// none, see [Shard.calcTargetVectorDimensions].
-//
-// It must run under dimensionsLock, and so must not set the status itself.
+// leaveWithoutDimensionsBucket is for a failed switch with no bucket left loaded: a
+// write would store its object and fail before the vector index. The caller sets the
+// shard read only, see [Shard.setReadOnlyIfDimensionsBucketLost], until it is reloaded.
 func (s *Shard) leaveWithoutDimensionsBucket(logger logrus.FieldLogger, err error) error {
 	s.dimensionsBucketLost.Store(true)
 	logger.Errorf("%v: %v", errDimensionsBucketLost, err)

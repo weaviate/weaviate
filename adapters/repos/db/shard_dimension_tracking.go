@@ -79,11 +79,9 @@ func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string, encode
 	return shardusage.ScanTargetVectorDimensions(ctx, b, targetVector, encodedDimensions)
 }
 
-// acquireDimensionsBucketForRead pins the dimensions bucket, as a recalculation
-// can replace it and shut it down meanwhile. A failed switch leaves the store
-// without the bucket until it has it back or marks it lost, all under
-// dimensionsLock, so a miss is looked at again under it. lost tells a bucket
-// lost from one never opened.
+// acquireDimensionsBucketForRead pins the bucket against a concurrent recalculation
+// switch. A miss is rechecked under dimensionsLock, since a failed switch clears the
+// bucket until recovery; lost distinguishes that from one never opened.
 func (s *Shard) acquireDimensionsBucketForRead() (b *lsmkv.Bucket, release func(), lost bool) {
 	if b, release = s.store.AcquireBucketForRead(helpers.DimensionsBucketLSM); b != nil {
 		return b, release, false
@@ -96,10 +94,9 @@ func (s *Shard) acquireDimensionsBucketForRead() (b *lsmkv.Bucket, release func(
 	return nil, release, s.dimensionsBucketLost.Load()
 }
 
-// logDimensionsBucketLost is for a read that reports no dimensions for a shard
-// that has lost its bucket. Failing it would fail the usage report of the node.
-// The files are not read instead: they may be moved around by the next load of
-// the shard, and a bucket left halfway may still write to them.
+// logDimensionsBucketLost reports zero dimensions rather than failing the node's
+// usage report; the files are not read as fallback since a recovering bucket may
+// still be writing to them.
 func (s *Shard) logDimensionsBucketLost(targetVector string) {
 	s.index.logger.WithField("action", "dimensions_usage").
 		WithField("shard", s.ID()).
