@@ -139,7 +139,8 @@ func (m *Manager) upsertRolesPermissions(roles map[string][]authorization.Policy
 	// permissions still exists: g, db:wv_internal_empty, role:roleName
 	anchorUser := conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb)
 
-	// Check every row before writing any, so a refused upsert stores nothing.
+	// Check every row before writing any, so a refused upsert stores nothing. The
+	// authz handlers check first, but an older leader may have committed such a row.
 	for roleName, policies := range roles {
 		if err := conv.ValidateStorableRow("g", anchorUser, conv.PrefixRoleName(roleName)); err != nil {
 			return err
@@ -389,7 +390,7 @@ func (m *Manager) AddRolesForUser(user string, roles []string) error {
 		return errors.New("user does not contain a prefix")
 	}
 
-	// Check every row before writing any; see upsertRolesPermissions.
+	// Check every row before writing any, so a refused call stores nothing.
 	for _, role := range roles {
 		if err := conv.ValidateStorableRow("g", user, conv.PrefixRoleName(role)); err != nil {
 			return err

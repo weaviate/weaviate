@@ -43,6 +43,7 @@ func TestValidateStorableValue(t *testing.T) {
 		{name: "C1 control", value: "a\u0085b", wantErr: `'\u0085'`},
 		{name: "DEL", value: "a\x7fb", wantErr: `'\x7f'`},
 		{name: "terminal escape", value: "\x1b[31mred", wantErr: `'\x1b'`},
+		{name: "invalid UTF-8", value: "a\xffb", wantErr: "valid UTF-8"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -54,4 +55,12 @@ func TestValidateStorableValue(t *testing.T) {
 			assert.ErrorContains(t, err, tt.wantErr)
 		})
 	}
+}
+
+// TestValidateStorableCharacters checks that the character check has no length
+// cap, which a permission's resource needs.
+func TestValidateStorableCharacters(t *testing.T) {
+	long := strings.Repeat("a", maxStorableValueLength+1)
+	assert.NoError(t, ValidateStorableCharacters(long))
+	assert.ErrorContains(t, ValidateStorableCharacters(long+","), `','`)
 }

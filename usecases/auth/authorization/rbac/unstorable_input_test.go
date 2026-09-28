@@ -31,7 +31,7 @@ import (
 )
 
 // newManagerAt opens a Manager on the policy file under dir. Calling it again
-// with the same dir is a restart: Init re-reads policy.csv from disk.
+// with the same dir acts as a restart, because Init re-reads policy.csv.
 func newManagerAt(t *testing.T, dir string) (*Manager, error) {
 	t.Helper()
 	logger, _ := test.NewNullLogger()
@@ -143,8 +143,8 @@ func TestAddRolesForUserRejectsSubjectsPolicyFileCannotStore(t *testing.T) {
 	}
 }
 
-// TestStorableInputSurvivesRestart is the control: characters the loader does
-// not treat specially round-trip.
+// TestStorableInputSurvivesRestart checks that characters the loader does not
+// treat specially round-trip.
 func TestStorableInputSurvivesRestart(t *testing.T) {
 	dir := freshPolicyDir(t)
 	m, err := newManagerAt(t, dir)
@@ -167,9 +167,8 @@ func TestStorableInputSurvivesRestart(t *testing.T) {
 	assert.Contains(t, users, subject)
 }
 
-// TestValidateStorableRowMatchesFileAdapter pins conv.ValidateStorableRow to what
-// casbin's file adapter really does: a row passes exactly when it survives a
-// save and a load unchanged.
+// TestValidateStorableRowMatchesFileAdapter checks that conv.ValidateStorableRow
+// passes a row if and only if casbin's file adapter saves and loads it unchanged.
 func TestValidateStorableRowMatchesFileAdapter(t *testing.T) {
 	const maxLine = 64*1024 - 1
 	p := func(resource string) []string { return []string{"p", "role:a", resource, "R", "namespaces"} }

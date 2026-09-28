@@ -565,7 +565,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The name of the group.",
+            "description": "The name of the group. Must not contain ',', '\"' or control characters, and must be at most 256 bytes.",
             "name": "id",
             "in": "path",
             "required": true
@@ -1411,7 +1411,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The name of the user.",
+            "description": "The name of the user. Must not contain ',', '\"' or control characters, and must be at most 256 bytes.",
             "name": "id",
             "in": "path",
             "required": true
@@ -9941,7 +9941,7 @@ func init() {
           "type": "object",
           "properties": {
             "alias": {
-              "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases.",
+              "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -10001,7 +10001,7 @@ func init() {
           "type": "object",
           "properties": {
             "group": {
-              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups.",
+              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -10015,7 +10015,7 @@ func init() {
           "type": "object",
           "properties": {
             "namespace": {
-              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces.",
+              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -10051,7 +10051,7 @@ func init() {
               "default": "*"
             },
             "shard": {
-              "description": "string or regex. if a specific shard name, if left empty it will be ALL or *",
+              "description": "string or regex. if a specific shard name, if left empty it will be ALL or *. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -10062,7 +10062,7 @@ func init() {
           "type": "object",
           "properties": {
             "role": {
-              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles.",
+              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -10098,7 +10098,7 @@ func init() {
           "type": "object",
           "properties": {
             "users": {
-              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
+              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -12853,7 +12853,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The name of the group.",
+            "description": "The name of the group. Must not contain ',', '\"' or control characters, and must be at most 256 bytes.",
             "name": "id",
             "in": "path",
             "required": true
@@ -13675,7 +13675,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The name of the user.",
+            "description": "The name of the user. Must not contain ',', '\"' or control characters, and must be at most 256 bytes.",
             "name": "id",
             "in": "path",
             "required": true
@@ -22491,7 +22491,7 @@ func init() {
           "type": "object",
           "properties": {
             "alias": {
-              "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases.",
+              "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -22551,7 +22551,7 @@ func init() {
           "type": "object",
           "properties": {
             "group": {
-              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups.",
+              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -22565,7 +22565,7 @@ func init() {
           "type": "object",
           "properties": {
             "namespace": {
-              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces.",
+              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -22601,7 +22601,7 @@ func init() {
               "default": "*"
             },
             "shard": {
-              "description": "string or regex. if a specific shard name, if left empty it will be ALL or *",
+              "description": "string or regex. if a specific shard name, if left empty it will be ALL or *. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -22612,7 +22612,7 @@ func init() {
           "type": "object",
           "properties": {
             "role": {
-              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles.",
+              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -22648,7 +22648,7 @@ func init() {
           "type": "object",
           "properties": {
             "users": {
-              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
+              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -22661,7 +22661,7 @@ func init() {
       "type": "object",
       "properties": {
         "alias": {
-          "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases.",
+          "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         },
@@ -22721,7 +22721,7 @@ func init() {
       "type": "object",
       "properties": {
         "group": {
-          "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups.",
+          "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         },
@@ -22735,7 +22735,7 @@ func init() {
       "type": "object",
       "properties": {
         "namespace": {
-          "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces.",
+          "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         }
@@ -22771,7 +22771,7 @@ func init() {
           "default": "*"
         },
         "shard": {
-          "description": "string or regex. if a specific shard name, if left empty it will be ALL or *",
+          "description": "string or regex. if a specific shard name, if left empty it will be ALL or *. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         }
@@ -22782,7 +22782,7 @@ func init() {
       "type": "object",
       "properties": {
         "role": {
-          "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles.",
+          "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         },
@@ -22818,7 +22818,7 @@ func init() {
       "type": "object",
       "properties": {
         "users": {
-          "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
+          "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         }
