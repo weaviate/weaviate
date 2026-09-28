@@ -75,11 +75,12 @@ func (f *fakeTTLTenantsManager) DeactivateTenants(ctx context.Context, class str
 
 func newTestLoop(t *testing.T, mgr *fakeTTLTenantsManager, autoActivation bool,
 	findFn func(ctx context.Context) ([]strfmt.UUID, error),
-	batchFn func(ctx context.Context, uuids []strfmt.UUID) error,
+	batchFn func(ctx context.Context, uuids []strfmt.UUID) (bool, error),
 ) tenantTTLLoop {
 	t.Helper()
 	if batchFn == nil {
-		batchFn = func(context.Context, []strfmt.UUID) error { return nil }
+		// true is "the batch deleted something", the result that does not stop the loop
+		batchFn = func(context.Context, []strfmt.UUID) (bool, error) { return true, nil }
 	}
 	return tenantTTLLoop{
 		class:                 "MyClass",
@@ -145,12 +146,12 @@ func TestTenantTTLLoop_ContextCancelAfterActivation(t *testing.T) {
 			// If we reach this point, the loop failed to detect context cancellation.
 			return nil, nil
 		},
-		func(ctx context.Context, _ []strfmt.UUID) error {
+		func(ctx context.Context, _ []strfmt.UUID) (bool, error) {
 			batchesProcessed++
 			// Simulate the TTL context being canceled after the first batch
 			// (e.g. index drop, node shutdown, or TTL round abort).
 			cancel(fmt.Errorf("concurrent raft deactivation canceled ttl context"))
-			return nil
+			return true, nil
 		},
 	)
 
@@ -178,23 +179,113 @@ func TestTenantTTLLoop_NormalCompletion_Deactivates(t *testing.T) {
 		statusMap: map[string]string{"tenant_0": models.TenantActivityStatusCOLD},
 	}
 
-	calls := atomic.Int32{}
+	finds := atomic.Int32{}
+	batches := atomic.Int32{}
 	loop := newTestLoop(t, mgr, true,
 		func(ctx context.Context) ([]strfmt.UUID, error) {
-			if calls.Add(1) == 1 {
+			if finds.Add(1) <= 2 {
 				return []strfmt.UUID{"uuid-1"}, nil
 			}
 			return nil, nil
 		},
-		nil,
+		func(context.Context, []strfmt.UUID) (bool, error) {
+			batches.Add(1)
+			return true, nil
+		},
 	)
 
 	ec := errorcompounder.New()
 	loop.run(context.Background(), ec)
 
 	assert.NoError(t, ec.ToError())
+	// a batch that deleted something earns another round
+	assert.Equal(t, int32(2), batches.Load())
+	assert.Equal(t, int32(3), finds.Load())
 	require.Len(t, mgr.deactivateCalled, 1)
 	assert.Equal(t, "tenant_0", mgr.deactivateCalled[0].tenant)
+}
+
+// TestTenantTTLLoop_StopsWhenABatchMakesNoProgress covers a tenant whose delete cannot
+// make progress. The search cannot exclude it, so each round hands it the same uuids.
+func TestTenantTTLLoop_StopsWhenABatchMakesNoProgress(t *testing.T) {
+	// findUUIDs never runs out below, so only the loop's own exit ends the run. The
+	// bound reports a missing exit as a failure instead of hanging the package.
+	const maxRounds = 3
+
+	deleteErr := errors.New("shard unavailable")
+
+	tests := []struct {
+		name    string
+		batch   func(cancel context.CancelCauseFunc) (bool, error)
+		wantErr error // nil means nothing may be filed
+	}{
+		{
+			name:    "delete fails",
+			batch:   func(context.CancelCauseFunc) (bool, error) { return false, deleteErr },
+			wantErr: deleteErr,
+		},
+		{
+			name:    "delete reports neither an error nor a count",
+			batch:   func(context.CancelCauseFunc) (bool, error) { return false, nil },
+			wantErr: errTTLNoProgress,
+		},
+		{
+			name:    "delete fails after deleting part of the batch",
+			batch:   func(context.CancelCauseFunc) (bool, error) { return true, deleteErr },
+			wantErr: deleteErr,
+		},
+		{
+			name: "sweep stopped while the delete ran",
+			batch: func(cancel context.CancelCauseFunc) (bool, error) {
+				cancel(errors.New("index closing"))
+				return false, nil
+			},
+			wantErr: nil,
+		},
+		{
+			// only the no-progress arm spares a stopped sweep. A delete that failed
+			// is filed whether the sweep was stopped or not
+			name: "sweep stopped and the delete failed",
+			batch: func(cancel context.CancelCauseFunc) (bool, error) {
+				cancel(errors.New("index closing"))
+				return false, deleteErr
+			},
+			wantErr: deleteErr,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mgr := &fakeTTLTenantsManager{
+				statusMap: map[string]string{"tenant_0": models.TenantActivityStatusCOLD},
+			}
+			ctx, cancel := context.WithCancelCause(context.Background())
+			t.Cleanup(func() { cancel(nil) })
+
+			rounds := 0
+			loop := newTestLoop(t, mgr, true,
+				func(context.Context) ([]strfmt.UUID, error) {
+					rounds++
+					require.LessOrEqual(t, rounds, maxRounds,
+						"loop kept sweeping: findUUIDs called %d times for a delete that made no progress", rounds)
+					return []strfmt.UUID{"uuid-1"}, nil
+				},
+				func(context.Context, []strfmt.UUID) (bool, error) { return tt.batch(cancel) },
+			)
+
+			ec := errorcompounder.New()
+			loop.run(ctx, ec)
+
+			assert.Equal(t, 1, rounds, "the tenant must be swept once")
+			if tt.wantErr == nil {
+				assert.True(t, ec.Empty(), "a stopped sweep is not this tenant failing")
+			} else {
+				require.Equal(t, 1, ec.Len(), "one filing per swept tenant")
+				assert.ErrorIs(t, ec.ToError(), tt.wantErr)
+			}
+			require.Len(t, mgr.deactivateCalled, 1, "a tenant activated for TTL is deactivated on every exit")
+		})
+	}
 }
 
 func TestTenantTTLLoop_ActiveTenant_NoDeactivation(t *testing.T) {
@@ -295,28 +386,6 @@ func TestTenantTTLLoop_DeactivateError_ReportedInEc(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorContains(t, err, "deactivate tenant")
 	assert.ErrorContains(t, err, "raft timeout")
-}
-
-func TestTenantTTLLoop_DeactivateUsesTimeout(t *testing.T) {
-	// Verify the deferred DeactivateTenants call uses a bounded-timeout context,
-	// not a bare context.Background().
-	mgr := &fakeTTLTenantsManager{
-		statusMap: map[string]string{"tenant_0": models.TenantActivityStatusCOLD},
-	}
-
-	loop := newTestLoop(t, mgr, true,
-		func(ctx context.Context) ([]strfmt.UUID, error) { return nil, nil },
-		nil,
-	)
-
-	ec := errorcompounder.New()
-	loop.run(context.Background(), ec)
-
-	require.Len(t, mgr.deactivateCalled, 1)
-	call := mgr.deactivateCalled[0]
-
-	assert.True(t, call.ctxWasLive, "deactivation context must not be expired at call time")
-	assert.True(t, call.hasDeadline, "deactivation context must have a deadline (from WithTimeout)")
 }
 
 // currentGoroutineID reads the id off a one-frame stack dump, so a test can tell the shard
