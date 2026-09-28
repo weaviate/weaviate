@@ -51,7 +51,7 @@ func (o *SearchNearVectorURL) SetBasePath(bp string) {
 func (o *SearchNearVectorURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/search/{collection}/near-vector"
+	var _path = "/search/{collection}/near-vector"
 
 	collection := o.Collection
 	if collection != "" {

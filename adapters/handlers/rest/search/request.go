@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -372,6 +373,9 @@ func parseNearVector(class *models.Class, body *models.SearchNearVectorRequest, 
 	if apiErr != nil {
 		return nil, apiErr
 	}
+	if apiErr := rejectMultiVectorTarget(class, targetVectors); apiErr != nil {
+		return nil, apiErr
+	}
 
 	if body.Certainty != nil && body.Distance != nil {
 		return nil, newAPIError(http.StatusBadRequest, "near_vector: cannot provide both distance and certainty")
@@ -397,6 +401,31 @@ func parseNearVector(class *models.Class, body *models.SearchNearVectorRequest, 
 	}
 
 	return params, nil
+}
+
+// rejectMultiVectorTarget rejects a flat query vector aimed at a multi-vector
+// index, the direction gRPC rejects with "provided vector is a regular vector
+// but vector index supports multi vectors". An unparsed index config is a
+// server-side invariant breach, not a request the caller can fix.
+func rejectMultiVectorTarget(class *models.Class, targetVectors []string) *APIError {
+	indexConfigs, err := schemaConfig.TypeAssertVectorIndex(class, targetVectors)
+	if err != nil {
+		return &APIError{Status: http.StatusInternalServerError, Err: err}
+	}
+
+	for i, indexConfig := range indexConfigs {
+		if !indexConfig.IsMultiVector() {
+			continue
+		}
+		target := ""
+		if i < len(targetVectors) {
+			target = targetVectors[i]
+		}
+		return newAPIError(http.StatusUnprocessableEntity,
+			"target vector %q is a multi-vector index; multi-vector search is not yet supported", target)
+	}
+
+	return nil
 }
 
 const errVectorNotNumbers = "vector must be a non-empty array of numbers"

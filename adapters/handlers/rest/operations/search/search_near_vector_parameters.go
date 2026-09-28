@@ -33,6 +33,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewSearchNearVectorParams() SearchNearVectorParams {
+
 	return SearchNearVectorParams{}
 }
 
@@ -41,6 +42,7 @@ func NewSearchNearVectorParams() SearchNearVectorParams {
 //
 // swagger:parameters search.nearVector
 type SearchNearVectorParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

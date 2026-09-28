@@ -48,6 +48,19 @@ func namedVectorsClass(vectors ...string) *models.Class {
 	return class
 }
 
+// multiVectorClass turns one of the class's named vectors into a multi-vector
+// index. Only named vectors can carry one: the schema parser rejects a
+// multi-vector config on the legacy class-level index.
+func multiVectorClass(class *models.Class, vector string) *models.Class {
+	vectorConfig := class.VectorConfig[vector]
+	vectorConfig.VectorIndexConfig = hnsw.UserConfig{
+		Distance:    "cosine",
+		Multivector: hnsw.MultivectorConfig{Enabled: true},
+	}
+	class.VectorConfig[vector] = vectorConfig
+	return class
+}
+
 // decodeModel unmarshals a JSON body into the typed request model, the way
 // the swagger JSON consumer does (unknown fields ignored, type mismatches
 // fail). A decode failure maps to the 400 the consumer returns live.
@@ -1418,6 +1431,42 @@ func TestNearVectorTargetVectors(t *testing.T) {
 			`{"vector":[0.1,0.2],"targetVector":"nope"}`)
 		require.NotNil(t, apiErr)
 		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
+	})
+
+	// a flat vector cannot search a multi-vector index; gRPC rejects the same
+	// direction, so the endpoint must not fall through to the engine
+	t.Run("multi-vector target is a 422", func(t *testing.T) {
+		tests := []struct {
+			name  string
+			class *models.Class
+			body  string
+		}{
+			{
+				name:  "sole named vector, selected implicitly",
+				class: multiVectorClass(namedVectorsClass("colbert_vec"), "colbert_vec"),
+				body:  `{"vector":[0.1,0.2]}`,
+			},
+			{
+				name:  "named explicitly beside a regular vector",
+				class: multiVectorClass(namedVectorsClass("title_vec", "colbert_vec"), "colbert_vec"),
+				body:  `{"vector":[0.1,0.2],"targetVector":"colbert_vec"}`,
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				_, apiErr := buildNearVector(t, tt.class, tt.body)
+				require.NotNil(t, apiErr)
+				assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
+				assert.Contains(t, apiErr.Error(), `target vector "colbert_vec" is a multi-vector index`)
+			})
+		}
+	})
+
+	t.Run("regular target beside a multi-vector one is searchable", func(t *testing.T) {
+		searcher, apiErr := buildNearVector(t, multiVectorClass(namedVectorsClass("title_vec", "colbert_vec"), "colbert_vec"),
+			`{"vector":[0.1,0.2],"targetVector":"title_vec"}`)
+		require.Nil(t, apiErr)
+		assert.Equal(t, []string{"title_vec"}, searcher.lastParams.NearVector.TargetVectors)
 	})
 }
 

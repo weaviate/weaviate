@@ -156,6 +156,7 @@ func (o *SearchNearVectorOK) GetPayload() *models.SearchResponse {
 }
 
 func (o *SearchNearVectorOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.SearchResponse)
 
 	// response payload
@@ -223,6 +224,7 @@ func (o *SearchNearVectorBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchNearVectorBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -290,6 +292,7 @@ func (o *SearchNearVectorUnauthorized) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchNearVectorUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -357,6 +360,7 @@ func (o *SearchNearVectorForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchNearVectorForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -424,6 +428,7 @@ func (o *SearchNearVectorNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchNearVectorNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -491,6 +496,7 @@ func (o *SearchNearVectorRequestEntityTooLarge) GetPayload() *models.ErrorRespon
 }
 
 func (o *SearchNearVectorRequestEntityTooLarge) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -558,6 +564,7 @@ func (o *SearchNearVectorUnprocessableEntity) GetPayload() *models.ErrorResponse
 }
 
 func (o *SearchNearVectorUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -625,6 +632,7 @@ func (o *SearchNearVectorTooManyRequests) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchNearVectorTooManyRequests) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -692,6 +700,7 @@ func (o *SearchNearVectorInternalServerError) GetPayload() *models.ErrorResponse
 }
 
 func (o *SearchNearVectorInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -759,6 +768,7 @@ func (o *SearchNearVectorServiceUnavailable) GetPayload() *models.ErrorResponse 
 }
 
 func (o *SearchNearVectorServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
