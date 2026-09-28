@@ -177,6 +177,47 @@ func (d *DockerCompose) StopAt(ctx context.Context, nodeIndex int, timeout *time
 	if err := stoppedNode.container.Stop(ctx, timeout); err != nil {
 		return err
 	}
+	return d.waitNodeDetectedDown(ctx, nodeIndex)
+}
+
+// KillNode SIGKILLs the weaviate node named weaviate-<n> (0-based name suffix)
+// so no shutdown path or deferred cleanup runs, then waits until a peer reports
+// it down. Restart it with StartNode.
+func (d *DockerCompose) KillNode(ctx context.Context, n int) error {
+	idx, err := d.weaviateNodeIndex(n)
+	if err != nil {
+		return err
+	}
+	c := d.containers[idx]
+	cli, err := testcontainers.NewDockerClientWithOpts(ctx)
+	if err != nil {
+		return fmt.Errorf("KillNode[%s]: docker client: %w", c.name, err)
+	}
+	killErr := cli.ContainerKill(ctx, c.container.GetContainerID(), "KILL")
+	if err := stderrors.Join(killErr, cli.Close()); err != nil {
+		return fmt.Errorf("KillNode[%s]: docker kill failed: %w", c.name, err)
+	}
+	pollCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	for {
+		state, err := c.container.State(pollCtx)
+		if err != nil {
+			return fmt.Errorf("KillNode[%s]: inspect state: %w", c.name, err)
+		}
+		if !state.Running {
+			break
+		}
+		select {
+		case <-pollCtx.Done():
+			return fmt.Errorf("KillNode[%s]: container still running after kill: %w", c.name, pollCtx.Err())
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+	return d.waitNodeDetectedDown(ctx, idx)
+}
+
+func (d *DockerCompose) waitNodeDetectedDown(ctx context.Context, nodeIndex int) error {
+	stoppedNode := d.containers[nodeIndex]
 
 	// Poll a surviving node's /v1/nodes endpoint until the stopped node is no
 	// longer reported as HEALTHY. This replaces a hardcoded 3s sleep and adapts
@@ -196,7 +237,7 @@ func (d *DockerCompose) StopAt(ctx context.Context, nodeIndex int, timeout *time
 		defer cancel()
 		for {
 			if pollCtx.Err() != nil {
-				return fmt.Errorf("StopAt[%s]: timed out after 30s waiting for node to be detected as down (polled via %s, ctx err: %w)",
+				return fmt.Errorf("node %s: timed out after 30s waiting for node to be detected as down (polled via %s, ctx err: %w)",
 					stoppedHostname, survivorURI, pollCtx.Err())
 			}
 			if !isNodeHealthy(survivorURI, stoppedHostname) {
