@@ -135,10 +135,24 @@ func (m *Manager) GetUsersOrGroupsWithRoles(isGroup bool, authType authenticatio
 }
 
 func (m *Manager) upsertRolesPermissions(roles map[string][]authorization.Policy) error {
+	// Every role is assigned to this internal user, so a role without
+	// permissions still exists: g, db:wv_internal_empty, role:roleName
+	anchorUser := conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb)
+
+	// Check every row before writing any, so a refused upsert stores nothing.
 	for roleName, policies := range roles {
-		// assign role to internal user to make sure to catch empty roles
-		// e.g. : g, user:wv_internal_empty, role:roleName
-		if _, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, authentication.AuthTypeDb), conv.PrefixRoleName(roleName)); err != nil {
+		if err := conv.ValidateStorableRow("g", anchorUser, conv.PrefixRoleName(roleName)); err != nil {
+			return err
+		}
+		for _, policy := range policies {
+			if err := conv.ValidateStorableRow("p", conv.PrefixRoleName(roleName), policy.Resource, policy.Verb, policy.Domain); err != nil {
+				return err
+			}
+		}
+	}
+
+	for roleName, policies := range roles {
+		if _, err := m.casbin.AddRoleForUser(anchorUser, conv.PrefixRoleName(roleName)); err != nil {
 			return fmt.Errorf("AddRoleForUser: %w", err)
 		}
 		for _, policy := range policies {
@@ -373,6 +387,13 @@ func (m *Manager) AddRolesForUser(user string, roles []string) error {
 
 	if !conv.NameHasPrefix(user) {
 		return errors.New("user does not contain a prefix")
+	}
+
+	// Check every row before writing any; see upsertRolesPermissions.
+	for _, role := range roles {
+		if err := conv.ValidateStorableRow("g", user, conv.PrefixRoleName(role)); err != nil {
+			return err
+		}
 	}
 
 	for _, role := range roles {
