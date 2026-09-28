@@ -18,6 +18,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"time"
 
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
@@ -46,6 +47,12 @@ const NotLeaderRPCCode = codes.ResourceExhausted
 // out of the Apply retry policy (serviceConfig) — the rejection is deterministic,
 // so retrying only wastes round-trips.
 const LimitExceededRPCCode = codes.OutOfRange
+
+// gracefulStopTimeout bounds how long Close waits for in-flight RPCs and for
+// peers to acknowledge the connection drain. An unreachable peer never
+// acknowledges it, and the server is closed after raft is shut down, so
+// in-flight RPCs fail fast and the remaining wait is on such peers.
+const gracefulStopTimeout = 2 * time.Second
 
 type raftPeers interface {
 	Join(id string, addr string, voter bool) error
@@ -191,10 +198,25 @@ func (s *Server) Open() error {
 	return nil
 }
 
-// Close closes the server and free any used ressources.
+// Close closes the server and free any used ressources. It stops the server
+// gracefully and cancels whatever is still running after gracefulStopTimeout.
 func (s *Server) Close() {
-	if s.grpcServer != nil {
+	if s.grpcServer == nil {
+		return
+	}
+	stopped := make(chan struct{})
+	enterrors.GoWrapper(func() {
 		s.grpcServer.GracefulStop()
+		close(stopped)
+	}, s.log)
+
+	timer := time.NewTimer(gracefulStopTimeout)
+	defer timer.Stop()
+	select {
+	case <-stopped:
+	case <-timer.C:
+		s.log.Warnf("rpc server graceful stop did not finish within %s, forcing stop", gracefulStopTimeout)
+		s.grpcServer.Stop()
 	}
 }
 

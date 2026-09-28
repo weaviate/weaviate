@@ -94,13 +94,17 @@ func (a *raft) NewTCPTransport(
 	timeout time.Duration,
 	logger *logrus.Logger,
 ) (*raftImpl.NetworkTransport, error) {
-	cfg := &raftImpl.NetworkTransportConfig{
+	stream, err := newTCPStreamLayer(bindAddr, advertise)
+	if err != nil {
+		return nil, err
+	}
+	return raftImpl.NewNetworkTransportWithConfig(&raftImpl.NetworkTransportConfig{
 		ServerAddressProvider: a,
+		Stream:                stream,
 		MaxPool:               maxPool,
 		Timeout:               timeout,
 		Logger:                log.NewHCLogrusLogger("raft-net", logger),
-	}
-	return raftImpl.NewTCPTransportWithConfig(bindAddr, advertise, cfg)
+	}), nil
 }
 
 func (a *raft) NotResolvedNodes() map[raftImpl.ServerID]struct{} {
