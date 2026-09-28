@@ -293,7 +293,7 @@ func (m *Manager) Restore(b []byte) error {
 	if m.authZ == nil {
 		return nil
 	}
-	if err := m.authZ.Restore(b, false); err != nil {
+	if err := m.authZ.RestoreRaftSnapshot(b); err != nil {
 		return err
 	}
 	m.logger.Info("successfully restored rbac from snapshot")

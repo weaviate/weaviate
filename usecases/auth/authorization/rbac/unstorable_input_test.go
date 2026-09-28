@@ -20,6 +20,7 @@ import (
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
 	fileadapter "github.com/casbin/casbin/v2/persist/file-adapter"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -144,47 +145,84 @@ func TestAddRolesForUserRejectsSubjectsPolicyFileCannotStore(t *testing.T) {
 	}
 }
 
+// unstorableSnapshotRows are snapshot rows the policy file cannot store.
+var unstorableSnapshotRows = []struct {
+	name     string
+	policy   [][]string
+	grouping [][]string
+}{
+	{
+		name:   "policy row with comma",
+		policy: [][]string{{"role:evil", "namespaces/a,b", authorization.READ, authorization.NamespacesDomain}},
+	},
+	{
+		name:   "policy row injects an admin assignment",
+		policy: [][]string{{"role:evil", "namespaces/x, (C), namespaces\ng, db:attacker, role:admin\np, role:evil, y", authorization.READ, authorization.NamespacesDomain}},
+	},
+	{
+		name:   "policy row longer than the loader reads",
+		policy: [][]string{{"role:evil", "namespaces/" + strings.Repeat("a", 70*1024), authorization.READ, authorization.NamespacesDomain}},
+	},
+	{
+		name:     "grouping row with quote",
+		grouping: [][]string{{`group:"admins"`, "role:viewer"}},
+	},
+	{
+		name:     "grouping row injects an admin grant",
+		grouping: [][]string{{"db:attacker, role:admin", "role:viewer"}},
+	},
+	{
+		name:     "OIDC user with comma",
+		grouping: [][]string{{"oidc:Doe, John", "role:fine"}},
+	},
+	// The loader trims Unicode spaces at both ends of a row and before each field,
+	// so each row below reads back as "g, db:attacker, role:admin".
+	{
+		name:     "grouping row whose subject starts with NBSP",
+		grouping: [][]string{{"\u00a0db:attacker", "role:admin"}},
+	},
+	{
+		name:     "grouping row whose role ends with NBSP",
+		grouping: [][]string{{"db:attacker", "role:admin\u00a0"}},
+	},
+	{
+		name:     "rows of both kinds",
+		policy:   [][]string{{"role:evil", "namespaces/a,b", authorization.READ, authorization.NamespacesDomain}},
+		grouping: [][]string{{`group:"admins"`, "role:viewer"}, {"db:attacker, role:admin", "role:viewer"}},
+	},
+}
+
+// newManagerWithIncumbent opens a Manager on dir holding the role "incumbent".
+func newManagerWithIncumbent(t *testing.T, dir string) *Manager {
+	t.Helper()
+	m, err := newManagerAt(t, dir)
+	require.NoError(t, err)
+	require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
+		"incumbent": {{Resource: "namespaces/ok", Verb: authorization.READ, Domain: authorization.NamespacesDomain}},
+	}))
+	return m
+}
+
+// snapshotWith returns a snapshot that assigns the role "fine" to db:fine ahead
+// of the given rows, so a check that stops at the first row misses them.
+func snapshotWith(t *testing.T, policy, grouping [][]string) []byte {
+	t.Helper()
+	blob, err := json.Marshal(snapshot{
+		Policy:         append([][]string{{"role:fine", "namespaces/fine", authorization.READ, authorization.NamespacesDomain}}, policy...),
+		GroupingPolicy: append([][]string{{"db:fine", "role:fine"}}, grouping...),
+		Version:        SnapshotVersionLatest,
+	})
+	require.NoError(t, err)
+	return blob
+}
+
 func TestRestoreRejectsSnapshotPolicyFileCannotStore(t *testing.T) {
-	tests := []struct {
-		name     string
-		policy   [][]string
-		grouping [][]string
-	}{
-		{
-			name:   "policy row with comma",
-			policy: [][]string{{"role:evil", "namespaces/a,b", authorization.READ, authorization.NamespacesDomain}},
-		},
-		{
-			name:   "policy row injects an admin assignment",
-			policy: [][]string{{"role:evil", "namespaces/x, (C), namespaces\ng, db:attacker, role:admin\np, role:evil, y", authorization.READ, authorization.NamespacesDomain}},
-		},
-		{
-			name:     "grouping row with quote",
-			grouping: [][]string{{`group:"admins"`, "role:viewer"}},
-		},
-		{
-			name:     "grouping row injects an admin grant",
-			grouping: [][]string{{"db:attacker, role:admin", "role:viewer"}},
-		},
-	}
-	for _, tt := range tests {
+	for _, tt := range unstorableSnapshotRows {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := freshPolicyDir(t)
-			m, err := newManagerAt(t, dir)
-			require.NoError(t, err)
-			require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
-				"incumbent": {{Resource: "namespaces/ok", Verb: authorization.READ, Domain: authorization.NamespacesDomain}},
-			}))
+			m := newManagerWithIncumbent(t, dir)
 
-			// A valid row comes first, so a check that stops at the first row misses
-			// the bad one.
-			blob, err := json.Marshal(snapshot{
-				Policy:         append([][]string{{"role:fine", "namespaces/fine", authorization.READ, authorization.NamespacesDomain}}, tt.policy...),
-				GroupingPolicy: append([][]string{{"db:fine", "role:fine"}}, tt.grouping...),
-				Version:        SnapshotVersionLatest,
-			})
-			require.NoError(t, err)
-			err = m.Restore(blob, false)
+			err := m.Restore(snapshotWith(t, tt.policy, tt.grouping), false)
 			require.ErrorIs(t, err, ErrRestoreRefused)
 
 			roles, err := m.GetRoles()
@@ -196,6 +234,49 @@ func TestRestoreRejectsSnapshotPolicyFileCannotStore(t *testing.T) {
 			roles, err = restarted.GetRoles()
 			require.NoError(t, err)
 			assert.Contains(t, roles, "incumbent", "a rejected restore must leave policy.csv untouched")
+		})
+	}
+}
+
+// TestRestoreRaftSnapshotDropsRowsPolicyFileCannotStore checks that a RAFT
+// snapshot restores without the rows the policy file cannot store, logs each
+// one, and leaves a policy file the node restarts from.
+func TestRestoreRaftSnapshotDropsRowsPolicyFileCannotStore(t *testing.T) {
+	for _, tt := range unstorableSnapshotRows {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := freshPolicyDir(t)
+			m := newManagerWithIncumbent(t, dir)
+			logger, hook := test.NewNullLogger()
+			m.logger = logger
+
+			require.NoError(t, m.RestoreRaftSnapshot(snapshotWith(t, tt.policy, tt.grouping)))
+
+			roles, err := m.GetRoles()
+			require.NoError(t, err)
+			assert.Contains(t, roles, "fine", "the snapshot must replace the running state")
+			assert.NotContains(t, roles, "incumbent", "the snapshot must replace the running state")
+			policies, err := m.casbin.GetPolicy()
+			require.NoError(t, err)
+			for _, row := range tt.policy {
+				assert.NotContains(t, policies, row, "a dropped row must not reach the running state")
+			}
+			groupings, err := m.casbin.GetGroupingPolicy()
+			require.NoError(t, err)
+			for _, row := range tt.grouping {
+				assert.NotContains(t, groupings, row, "a dropped row must not reach the running state")
+			}
+			dropped := 0
+			for _, e := range hook.AllEntries() {
+				if e.Level == logrus.ErrorLevel && strings.HasPrefix(e.Message, "rbac_restore_dropped_row") {
+					dropped++
+				}
+			}
+			assert.Equal(t, len(tt.policy)+len(tt.grouping), dropped, "each dropped row must log one error")
+
+			restarted := requireRestartWithoutAdmin(t, dir)
+			fineRoles, err := restarted.casbin.GetRolesForUser("db:fine")
+			require.NoError(t, err)
+			assert.Contains(t, fineRoles, conv.PrefixRoleName("fine"), "the storable rows must survive a restart")
 		})
 	}
 }
