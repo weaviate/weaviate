@@ -1466,6 +1466,26 @@ func createDescriptionCounterClass(t *testing.T, ctx context.Context, migrator *
 	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
 }
 
+// filterMatchesID runs a single-clause filter search against className and
+// reports whether id is present in the result.
+func filterMatchesID(t *testing.T, ctx context.Context, repo *DB, className string, id strfmt.UUID, clause *filters.Clause) bool {
+	t.Helper()
+	res, err := repo.Search(ctx, dto.GetParams{
+		ClassName:  className,
+		Pagination: &filters.Pagination{Limit: 5},
+		Filters: &filters.LocalFilter{
+			Root: clause,
+		},
+	})
+	require.Nil(t, err)
+	for _, obj := range res {
+		if obj.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
 // Test_PatchNoOpSkipsSearchableBucketRewrite checks that a PATCH to another
 // property writes nothing to an unchanged searchable bucket, and that a
 // token-preserving edit still updates len().
@@ -1540,24 +1560,11 @@ func Test_PatchNoOpSkipsSearchableBucketRewrite(t *testing.T) {
 		}, []float32{0.2}, nil, nil, nil, 0))
 
 		matches := func(n int) bool {
-			res, err := repo.Search(ctx, dto.GetParams{
-				ClassName:  className,
-				Pagination: &filters.Pagination{Limit: 5},
-				Filters: &filters.LocalFilter{
-					Root: &filters.Clause{
-						Operator: filters.OperatorEqual,
-						On:       &filters.Path{Class: schema.ClassName(className), Property: "len(description)"},
-						Value:    &filters.Value{Value: n, Type: dtInt},
-					},
-				},
+			return filterMatchesID(t, ctx, repo, className, lengthID, &filters.Clause{
+				Operator: filters.OperatorEqual,
+				On:       &filters.Path{Class: schema.ClassName(className), Property: "len(description)"},
+				Value:    &filters.Value{Value: n, Type: dtInt},
 			})
-			require.Nil(t, err)
-			for _, obj := range res {
-				if obj.ID == lengthID {
-					return true
-				}
-			}
-			return false
 		}
 
 		require.True(t, matches(5), "len(description) = 5 must match before the edit")
@@ -1610,46 +1617,20 @@ func Test_AbsentZeroTokenTransitionsKeepLenAndIsNullCurrent(t *testing.T) {
 
 	isNull := func(t *testing.T, id strfmt.UUID, want bool) bool {
 		t.Helper()
-		res, err := repo.Search(ctx, dto.GetParams{
-			ClassName:  className,
-			Pagination: &filters.Pagination{Limit: 5},
-			Filters: &filters.LocalFilter{
-				Root: &filters.Clause{
-					Operator: filters.OperatorIsNull,
-					On:       &filters.Path{Class: schema.ClassName(className), Property: "description"},
-					Value:    &filters.Value{Value: want, Type: schema.DataTypeBoolean},
-				},
-			},
+		return filterMatchesID(t, ctx, repo, className, id, &filters.Clause{
+			Operator: filters.OperatorIsNull,
+			On:       &filters.Path{Class: schema.ClassName(className), Property: "description"},
+			Value:    &filters.Value{Value: want, Type: schema.DataTypeBoolean},
 		})
-		require.Nil(t, err)
-		for _, obj := range res {
-			if obj.ID == id {
-				return true
-			}
-		}
-		return false
 	}
 
 	lenMatches := func(t *testing.T, id strfmt.UUID, n int) bool {
 		t.Helper()
-		res, err := repo.Search(ctx, dto.GetParams{
-			ClassName:  className,
-			Pagination: &filters.Pagination{Limit: 5},
-			Filters: &filters.LocalFilter{
-				Root: &filters.Clause{
-					Operator: filters.OperatorEqual,
-					On:       &filters.Path{Class: schema.ClassName(className), Property: "len(description)"},
-					Value:    &filters.Value{Value: n, Type: dtInt},
-				},
-			},
+		return filterMatchesID(t, ctx, repo, className, id, &filters.Clause{
+			Operator: filters.OperatorEqual,
+			On:       &filters.Path{Class: schema.ClassName(className), Property: "len(description)"},
+			Value:    &filters.Value{Value: n, Type: dtInt},
 		})
-		require.Nil(t, err)
-		for _, obj := range res {
-			if obj.ID == id {
-				return true
-			}
-		}
-		return false
 	}
 
 	t.Run("absent -> whitespace-only via PATCH", func(t *testing.T) {
