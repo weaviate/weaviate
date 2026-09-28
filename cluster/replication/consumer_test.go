@@ -2149,6 +2149,10 @@ func TestConsumerSelfRecoveryFinalizingPromotesUnderLoadPolicy(t *testing.T) {
 		WaitForUpdate(mock.Anything, mock.Anything).
 		Return(nil).
 		Maybe()
+	mockFSMUpdater.EXPECT().
+		ReplicationLocalOpCancelState(opId).
+		Return(types.OpCancelState{State: api.FINALIZING, UnCancellable: true}, nil).
+		Times(1)
 	mockReplicaCopier.EXPECT().
 		PromoteRecoveryFolder("TestCollection", "tenant1").
 		Return(nil).
