@@ -60,6 +60,45 @@ func (i *Index) shardIsLazyUnloaded(shardName string) bool {
 	return ok && !lazy.isLoaded()
 }
 
+// deleteFromShards calls deleteShard once per shard that has expired uuids, and waits for them
+// unless the sweep ends first, which it reports as stopped. The last shard, and one the group
+// has no slot for, run on the calling goroutine, which waits for the others anyway.
+func deleteFromShards(ctx context.Context, eg *enterrors.ErrorGroupWrapper, class string,
+	shards2uuids map[string][]strfmt.UUID, deleteShard func(shard string, uuids []strfmt.UUID),
+) (dispatched int, stopped bool) {
+	shards := make([]string, 0, len(shards2uuids))
+	for shard, uuids := range shards2uuids {
+		if len(uuids) > 0 {
+			shards = append(shards, shard)
+		}
+	}
+
+	wg := new(sync.WaitGroup)
+	for idx, shard := range shards {
+		uuids := shards2uuids[shard]
+		wg.Add(1)
+		run := func() error {
+			defer wg.Done()
+			deleteShard(shard, uuids)
+			return nil
+		}
+
+		// RunRecovered contains a panic to this shard rather than unwinding the sweep, and records
+		// it on the group for WaitAndCollect. The error it returns is that same panic, as run
+		// itself returns only nil.
+		if idx == len(shards)-1 || !eg.TryGo(run, class, shard) {
+			_ = eg.RunRecovered(run, class, shard)
+		}
+
+		if ctx.Err() != nil {
+			return idx + 1, true
+		}
+	}
+	wg.Wait()
+
+	return len(shards), false
+}
+
 func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
 	deleteOnPropName string, ttlThreshold, deletionTime time.Time, countDeleted func(int32), schemaVersion uint64,
 ) {
@@ -177,44 +216,15 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 				return nil
 			}
 
-			shardIdx := len(shards2uuids) - 1
-			anyUuidsFetched := false
-			wg := new(sync.WaitGroup)
-			f := func(shard string, uuids []strfmt.UUID) {
-				defer wg.Done()
+			deleteShard := func(shard string, uuids []strfmt.UUID) {
 				if err := i.incomingDeleteObjectsExpiredUuids(ctx, deletionTime, shard, "",
 					uuids, countDeleted, replProps, schemaVersion); err != nil {
 					ec.AddGroups(fmt.Errorf("batch delete: %w", err), class.Class, shard)
 				}
 			}
 
-			for shard, uuids := range shards2uuids {
-				shardIdx--
-
-				if len(uuids) == 0 {
-					continue
-				}
-
-				anyUuidsFetched = true
-				wg.Add(1)
-				isLastShard := shardIdx == 0
-				// if possible run in separate routine, if not run in current one
-				// always run last in current one (not to start other routine,
-				// while current one have to wait for the results anyway)
-				if isLastShard || !eg.TryGo(func() error {
-					f(shard, uuids)
-					return nil
-				}) {
-					f(shard, uuids)
-				}
-
-				if ctx.Err() != nil {
-					return nil
-				}
-			}
-			wg.Wait()
-
-			if !anyUuidsFetched {
+			dispatched, stopped := deleteFromShards(ctx, eg, class.Class, shards2uuids, deleteShard)
+			if stopped || dispatched == 0 {
 				return nil
 			}
 
@@ -235,7 +245,7 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 				processedBatches = 0
 			}
 		}
-	})
+	}, class.Class)
 }
 
 func (i *Index) incomingDeleteObjectsExpiredUuids(ctx context.Context,
