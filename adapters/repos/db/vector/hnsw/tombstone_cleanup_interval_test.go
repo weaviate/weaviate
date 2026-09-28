@@ -20,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -96,4 +97,44 @@ func numTombstones(t *testing.T, index *hnsw) int {
 	stats, err := index.Stats()
 	require.NoError(t, err)
 	return stats.NumTombstones
+}
+
+func TestStats_ConcurrentWithTombstoneCleanup(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	neverAbort := func() bool { return false }
+
+	callbacks := cyclemanager.NewCallbackGroup("tombstone_cleanup", logger, 1)
+	index, err := New(createVectorHnswIndexTestConfig(), ent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        60,
+		EF:                    36,
+		VectorCacheMaxObjects: 100000,
+	}, callbacks, testinghelpers.NewDummyStore(t))
+	require.NoError(t, err)
+	defer index.Shutdown(ctx)
+	index.PostStartup(ctx)
+
+	for i, vec := range testVectors {
+		require.NoError(t, index.Add(ctx, uint64(i), vec))
+	}
+
+	done := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		defer close(done)
+		for i := range testVectors {
+			require.NoError(t, index.Delete(uint64(i)))
+			callbacks.CycleCallback(neverAbort)
+		}
+	}, logger)
+
+	for {
+		select {
+		case <-done:
+			return
+		default:
+			_, err := index.Stats()
+			require.NoError(t, err)
+		}
+	}
 }
