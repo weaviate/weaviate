@@ -149,6 +149,7 @@ type Compose struct {
 	weaviateAdminlistReadOnlyUsers []string
 	withWeaviateDbUsers            bool
 	withWeaviateNamespaces         bool
+	withLicenseKeyFile             bool
 	licenseKey                     string
 	withWeaviateRbac               bool
 	weaviateRbacRoots              []string
@@ -747,6 +748,29 @@ func (d *Compose) WithNamespaces() *Compose {
 	return d
 }
 
+// WithLicenseKeyFile gives each node the key in WEAVIATE_LICENSE_KEY through
+// LICENSE_KEY_FILE instead of LICENSE_KEY. SetLicenseKeyFileAt replaces the key a node reads
+// when it next restarts.
+func (d *Compose) WithLicenseKeyFile() *Compose {
+	d.withLicenseKeyFile = true
+	d.weaviateEnvs["LICENSE_KEY_FILE"] = licenseKeyFilePath
+	return d
+}
+
+// containerFiles returns the files startWeaviate copies into a node. The
+// license key file gets a new reader per call, because testcontainers drains
+// a reader on the first copy and a retried or second node would get no key.
+func (d *Compose) containerFiles() []testcontainers.ContainerFile {
+	if !d.withLicenseKeyFile {
+		return d.weaviateFiles
+	}
+	return append(slices.Clone(d.weaviateFiles), testcontainers.ContainerFile{
+		Reader:            strings.NewReader(d.licenseKey),
+		ContainerFilePath: licenseKeyFilePath,
+		FileMode:          0o644,
+	})
+}
+
 func (d *Compose) WithRbacRoots(usernames ...string) *Compose {
 	if !d.withWeaviateRbac {
 		panic("RBAC is not enabled. Chain .WithRBAC() first")
@@ -794,7 +818,7 @@ func (d *Compose) WithAutoschema() *Compose {
 func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	// Read the license key before anything starts, so a missing key leaves no
 	// network behind.
-	if d.withWeaviateNamespaces {
+	if d.withWeaviateNamespaces || d.withLicenseKeyFile {
 		key, err := LicenseKey()
 		if err != nil {
 			return nil, err
@@ -1076,7 +1100,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, envSettings, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateTmpfsData, "/v1/.well-known/ready", d.weaviateFiles, d.weaviateHostGateway)
+		container, err := startWeaviate(ctx, d.enableModules, envSettings, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateTmpfsData, "/v1/.well-known/ready", d.containerFiles(), d.weaviateHostGateway)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
@@ -1264,7 +1288,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 			}
 			attemptCtx, cancel := context.WithTimeout(context.Background(), perAttemptTimeout)
 			c, err := startWeaviate(attemptCtx, d.enableModules,
-				cfg, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateTmpfsData, livenessEndpoint, d.weaviateFiles, d.weaviateHostGateway)
+				cfg, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateTmpfsData, livenessEndpoint, d.containerFiles(), d.weaviateHostGateway)
 			cancel()
 			if err == nil {
 				if attempt > 0 {

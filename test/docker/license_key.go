@@ -30,3 +30,7 @@ func LicenseKey() (string, error) {
 	}
 	return key, nil
 }
+
+// licenseKeyFilePath is where WithLicenseKeyFile and SetLicenseKeyFileAt put
+// the key inside a node's container.
+const licenseKeyFilePath = "/weaviate-license.key"
