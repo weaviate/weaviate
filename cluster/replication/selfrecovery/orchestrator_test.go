@@ -102,6 +102,7 @@ type stubRaft struct {
 	opsByCollShard map[string][]api.ReplicationDetailsResponse
 	cancelled      []strfmt.UUID
 	cancelErr      error
+	listErr        error
 }
 
 type registeredCall struct {
@@ -137,6 +138,9 @@ func (r *stubRaft) GetReplicationDetailsByReplicationId(ctx context.Context, uui
 func (r *stubRaft) GetReplicationDetailsByCollectionAndShard(ctx context.Context, collection, shard string) ([]api.ReplicationDetailsResponse, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
 	if r.opsByCollShard == nil {
 		return nil, fmt.Errorf("op for %s/%s: %w", collection, shard, replicationtypes.ErrReplicationOperationNotFound)
 	}
