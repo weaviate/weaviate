@@ -856,3 +856,95 @@ func TestInitShardVectors_PersistsCreatingBeforeTheBuild(t *testing.T) {
 	shard = openShardFromDisk(t, ctx, shard.index, class, shard.Name())
 	assertAllFound(t, ctx, shard, objs)
 }
+
+// An index the load builds rather than opens is filled from the object
+// store before it goes ready, for each way a record reaches the build.
+func TestInitShardVectors_BackfillsAnIndexBuiltAtLoad(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		prepare func(m *vectorIndexMapping)
+	}{
+		{name: "resumed creating record", prepare: func(m *vectorIndexMapping) {
+			require.NoError(t, m.Put("foo", vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "creating"}))
+		}},
+		{name: "schema vector without a record", prepare: func(m *vectorIndexMapping) { require.NoError(t, m.Delete("foo")) }},
+		{name: "ready record whose storage is gone", prepare: func(*vectorIndexMapping) {}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			shard, class := setupDropVectorShard(t, ctx)
+			objs := putFooObjects(t, ctx, shard, dropVecClassName, 20)
+			fooDir := filepath.Join(shard.path(), helpers.GetHNSWCommitLogDirName("foo"))
+			shard = reloadAfter(t, ctx, shard, class, func() {
+				require.NoError(t, os.RemoveAll(fooDir))
+				withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) { tc.prepare(m) })
+			})
+			assertAllFound(t, ctx, shard, objs)
+		})
+	}
+}
+
+// A creating record is what a load interrupted after the build leaves. Its
+// storage may hold nothing or everything, and a re-insert of a node the
+// index has breaks its graph: the fill skips what is indexed already.
+func TestInitShardVectors_ResumesAnInterruptedBackfill(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		storage func(t *testing.T, fooDir string)
+	}{
+		{name: "empty storage", storage: func(t *testing.T, fooDir string) {
+			require.NoError(t, os.RemoveAll(fooDir))
+			require.NoError(t, os.MkdirAll(fooDir, 0o755))
+		}},
+		{name: "filled storage", storage: func(*testing.T, string) {}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := testCtx()
+			shard, class := setupDropVectorShard(t, ctx)
+			objs := putFooObjects(t, ctx, shard, dropVecClassName, 20)
+			fooDir := filepath.Join(shard.path(), helpers.GetHNSWCommitLogDirName("foo"))
+			shard = reloadAfter(t, ctx, shard, class, func() {
+				tc.storage(t, fooDir)
+				withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+					require.NoError(t, m.Put("foo", vectorIndexRecord{PhysicalID: "vectors_foo", IndexType: "hnsw", State: "creating"}))
+				})
+			})
+			assertAllFound(t, ctx, shard, objs)
+		})
+	}
+}
+
+// In async mode every record the scan enqueued is in the queue's files
+// before the record goes ready. The files are copied while the queue is
+// open, as a process crash would leave them, and a shard opened over the
+// copy with a running scheduler indexes all of them.
+func TestInitShardVectors_BackfillIsFlushedBeforeReady(t *testing.T) {
+	ctx := testCtx()
+	shard, idx, class := newQueuedVectorShard(t, ctx, queuedVectorIndexCases()[2], false)
+	objs := putFooObjects(t, ctx, shard, queuedClassName, 20)
+	waitForQueueToDrain(t, shard, "foo")
+	rec, _, err := shard.mapping.Get("foo")
+	require.NoError(t, err)
+	fooDir := filepath.Join(shard.path(), helpers.HNSWCommitLogDirNameForID(rec.PhysicalID))
+	queueDir := filepath.Join(shard.path(), rec.PhysicalID+".queue.d")
+
+	// the load that backfills, with a scheduler that never runs so nothing
+	// leaves the queue; the ready record is written by the time it returns
+	logger, _ := test.NewNullLogger()
+	running := idx.scheduler
+	idx.scheduler = queue.NewScheduler(queue.SchedulerOptions{Logger: logger})
+	shard = reloadAfter(t, ctx, shard, class, func() { require.NoError(t, os.RemoveAll(fooDir)) })
+	rec, _, err = shard.mapping.Get("foo")
+	require.NoError(t, err)
+	require.Equal(t, "ready", rec.State)
+	snapshot := filepath.Join(t.TempDir(), "queue")
+	require.NoError(t, os.CopyFS(snapshot, os.DirFS(queueDir)))
+
+	// what the files held at that moment is all the next load gets
+	idx.scheduler = running
+	shard = reloadAfter(t, ctx, shard, class, func() {
+		require.NoError(t, os.RemoveAll(queueDir))
+		require.NoError(t, os.CopyFS(queueDir, os.DirFS(snapshot)))
+	})
+	assertAllFound(t, ctx, shard, objs)
+}

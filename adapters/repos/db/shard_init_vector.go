@@ -90,14 +90,15 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 
 	// legacy first, then names in order
 	for _, name := range slices.Sorted(maps.Keys(records)) {
-		err := s.createVectorIndex(ctx, name, records[name].PhysicalID, active[name], s.lazySegmentLoadingEnabled)
+		backfill := records[name].State == vectorIndexStateCreating
+		err := s.createVectorIndex(ctx, name, records[name].PhysicalID, active[name], s.lazySegmentLoadingEnabled, backfill)
 		if err != nil {
 			return err
 		}
 	}
 	// a skipped vector owns no files and no record, but callers need its slot
 	for name, cfg := range skipped {
-		err := s.createVectorIndex(ctx, name, s.vectorIndexID(name), cfg, s.lazySegmentLoadingEnabled)
+		err := s.createVectorIndex(ctx, name, s.vectorIndexID(name), cfg, s.lazySegmentLoadingEnabled, false)
 		if err != nil {
 			return err
 		}
@@ -368,7 +369,7 @@ func (s *Shard) migrateCompressedVectors(legacy schemaConfig.VectorIndexConfig, 
 // absent build it once; the second finds it in place and returns.
 func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
 	if !vectorIndexHasStorage(cfg) {
-		return s.createVectorIndex(ctx, targetVector, s.vectorIndexID(targetVector), cfg, lazyLoadSegments)
+		return s.createVectorIndex(ctx, targetVector, s.vectorIndexID(targetVector), cfg, lazyLoadSegments, false)
 	}
 	rec := vectorIndexRecordFor(targetVector, cfg, vectorIndexStateCreating)
 	_, err := s.vectors.Create(targetVector, func() (VectorIndex, *VectorIndexQueue, error) {
@@ -402,21 +403,49 @@ func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg s
 }
 
 // createVectorIndex builds and publishes targetVector's index and queue at
-// physicalID unless the slot exists.
-func (s *Shard) createVectorIndex(ctx context.Context, targetVector, physicalID string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments bool) error {
+// physicalID unless the slot exists. With backfill, the index is filled
+// from the object store before it is published.
+func (s *Shard) createVectorIndex(ctx context.Context, targetVector, physicalID string, cfg schemaConfig.VectorIndexConfig, lazyLoadSegments, backfill bool) error {
+	if backfill {
+		// every queued vector is also in the object store: the scan is the
+		// queue's only source, or a document is indexed twice
+		err := s.removeDirIfExists(s.path(), physicalID+".queue.d")
+		if err != nil {
+			return fmt.Errorf("reset queue for vector %q: %w", targetVector, err)
+		}
+	}
 	_, err := s.vectors.Create(targetVector, func() (VectorIndex, *VectorIndexQueue, error) {
-		return s.buildVectorIndexAndQueue(ctx, targetVector, physicalID, cfg, lazyLoadSegments)
+		index, queue, err := s.buildVectorIndexAndQueue(ctx, targetVector, physicalID, cfg, lazyLoadSegments)
+		if err != nil || !backfill {
+			return index, queue, err
+		}
+		err = s.fillVectorIndexFromStore(ctx, targetVector, index, queue)
+		if err != nil {
+			errs := []error{err}
+			closeErr := queue.Close(ctx)
+			if closeErr != nil {
+				errs = append(errs, fmt.Errorf("close the unfilled queue: %w", closeErr))
+			}
+			shutdownErr := index.Shutdown(s.shutCtx)
+			if shutdownErr != nil {
+				errs = append(errs, fmt.Errorf("shut the unfilled vector index down: %w", shutdownErr))
+			}
+			return nil, nil, stderrors.Join(errs...)
+		}
+		return index, queue, nil
 	})
 	return err
 }
 
-// fillVectorIndexFromStore fills an empty index from the object store and
-// flushes the result before the ready write that follows: the queue's chunk
-// in async mode, the commit log and write-ahead logs otherwise. A process
-// crash keeps flushed bytes; power loss is the same exposure every
-// synchronous write has.
+// fillVectorIndexFromStore fills an index from the object store, skipping
+// what it already holds: a load interrupted after the fill leaves them in
+// its files, and re-inserting a node breaks the graph. The result is
+// flushed before the ready write that follows: the queue's chunk in async
+// mode, the commit log and write-ahead logs otherwise. A process crash
+// keeps flushed bytes; power loss is the same exposure every synchronous
+// write has.
 func (s *Shard) fillVectorIndexFromStore(ctx context.Context, targetVector string, index VectorIndex, queue *VectorIndexQueue) error {
-	err := s.backfillVectorIndex(ctx, targetVector, index, queue, 0, false)
+	err := s.backfillVectorIndex(ctx, targetVector, index, queue, 0, true)
 	if err != nil {
 		return fmt.Errorf("backfill vector %q from the object store: %w", targetVector, err)
 	}
