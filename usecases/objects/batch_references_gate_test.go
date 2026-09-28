@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -108,18 +109,36 @@ func Test_BatchReferences_NamespaceGate(t *testing.T) {
 		}
 	})
 
-	t.Run("no source class survives resolution, so no gate call is made", func(t *testing.T) {
-		_, b, _, _, authz := newNSManagers(t, twoSourceNSSchema(), true)
-		unresolvable := []*models.BatchReference{
-			{From: strfmt.URI("not-a-beacon"), To: strfmt.URI("also-not-a-beacon")},
-		}
+	for _, tc := range []struct {
+		name    string
+		denied  string
+		wantErr error
+	}{
+		{
+			name:    "source",
+			denied:  "customer1:Zoo",
+			wantErr: authzerrs.NewForbidden(principal, authorization.UPDATE, authorization.ShardsData("customer1:Zoo", "t1")...),
+		},
+		{
+			name:    "target",
+			denied:  "customer1:Animal",
+			wantErr: authzerrs.NewForbidden(principal, authorization.READ, authorization.ShardsData("customer1:Animal", "t1")...),
+		},
+	} {
+		t.Run("a "+tc.name+" class denied on two tenants names tenant t1 on every run", func(t *testing.T) {
+			// Map order varies, so a single run could pass by luck.
+			for range 50 {
+				_, b, _, _, authz := newNSManagers(t, twoSourceNSSchema(), true)
+				authz.Deny(authorization.ShardsData(tc.denied, "t1", "t2")...)
+				refs := []*models.BatchReference{
+					{From: twoSourceRefs[0].From, To: twoSourceRefs[0].To, Tenant: "t2"},
+					{From: twoSourceRefs[0].From, To: twoSourceRefs[0].To, Tenant: "t1"},
+				}
 
-		res, err := b.AddReferences(context.Background(), principal, unresolvable, nil)
+				_, err := b.AddReferences(context.Background(), principal, refs, nil)
 
-		require.NoError(t, err, "per-reference errors are reported in the result, not as a failure")
-		require.Len(t, res, 1)
-		assert.Error(t, res[0].Err)
-		assert.Empty(t, authz.Calls(),
-			"an empty class set returns before the authorizer, which rejects empty resources")
-	})
+				require.Equal(t, tc.wantErr, err)
+			}
+		})
+	}
 }
