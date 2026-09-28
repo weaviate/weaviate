@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
@@ -72,6 +73,8 @@ type shardChangeLogger interface {
 	StopChangeCapture(ctx context.Context, opID string) error
 	// GetChangeLog returns the active log for opID, or (nil, false) if none.
 	GetChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, bool)
+	// changeLogMissErr explains a lookup miss: errChangeLogLost or errNoSuchChangeLog.
+	changeLogMissErr(opID string) error
 }
 
 // Makes a dropped change-log method a build failure rather than a runtime miss in withShardForChangeLog.
@@ -585,6 +588,9 @@ func (i *Index) IncomingGetChangeLog(ctx context.Context, shardName, opID string
 	loaded, err := i.withShardForChangeLog(ctx, shardName, false, func(shard shardChangeLogger) error {
 		log, ok := shard.GetChangeLog(ctx, opID)
 		if !ok {
+			if err := shard.changeLogMissErr(opID); !errors.Is(err, errNoSuchChangeLog) {
+				return fmt.Errorf("op %q on shard %q: %w", opID, shardName, err)
+			}
 			return fmt.Errorf("%s %q on shard %q", changelog.ErrMsgNoActiveLog, opID, shardName)
 		}
 		var err error
@@ -595,7 +601,7 @@ func (i *Index) IncomingGetChangeLog(ctx context.Context, shardName, opID string
 		return nil, fmt.Errorf("%s: %w", action, err)
 	}
 	if !loaded {
-		return nil, errShardNotLoaded(action, shardName)
+		return nil, i.unloadedChangeLogMissErr(action, shardName, opID)
 	}
 	return tailer, nil
 }
@@ -615,7 +621,7 @@ func (i *Index) IncomingSnapshotChangeLogLSN(ctx context.Context, shardName, opI
 		return 0, fmt.Errorf("%s: %w", action, err)
 	}
 	if !loaded {
-		return 0, errShardNotLoaded(action, shardName)
+		return 0, i.unloadedChangeLogMissErr(action, shardName, opID)
 	}
 	return lsn, nil
 }
@@ -638,15 +644,15 @@ func (i *Index) IncomingFinalizeChangeLog(ctx context.Context, shardName, opID s
 		return 0, fmt.Errorf("%s: %w", action, err)
 	}
 	if !loaded {
-		return 0, errShardNotLoaded(action, shardName)
+		return 0, i.unloadedChangeLogMissErr(action, shardName, opID)
 	}
 	return finalLSN, nil
 }
 
-// IncomingStopChangeCapture deactivates the log and removes its file. An
-// unloaded shard collects nothing, so stopping is already done — loading it to
-// serve a teardown would materialize a shard the caller never asked for. Its
-// log file is removed when the shard next loads.
+// IncomingStopChangeCapture deactivates the log and removes its file and lost
+// marker. An unloaded shard collects nothing and is not loaded to serve a
+// teardown: its files are removed on disk, or a later load would mark the log
+// lost for a movement that already stopped it.
 func (i *Index) IncomingStopChangeCapture(ctx context.Context, shardName, opID string) error {
 	const action = "incoming stop change capture"
 	loaded, err := i.withShardForChangeLog(ctx, shardName, false, func(shard shardChangeLogger) error {
@@ -659,14 +665,76 @@ func (i *Index) IncomingStopChangeCapture(ctx context.Context, shardName, opID s
 		return fmt.Errorf("%s: %w", action, err)
 	}
 	if !loaded {
+		if err := i.stopUnloadedChangeCapture(ctx, shardName, opID); err != nil {
+			return fmt.Errorf("%s: %w", action, err)
+		}
 		i.logger.WithFields(logrus.Fields{
 			"action":   "change_capture_log",
 			"op_id":    opID,
 			"shard":    shardName,
 			"resident": i.shards.Load(shardName) != nil,
-		}).Debug("no loaded shard to stop change capture on")
+		}).Debug("stopped change capture on an unloaded shard")
 	}
 	return nil
+}
+
+// unloadedChangeLogMissErr answers a lookup on a shard that is not loaded. A
+// log on disk was never swept, a marker was: both mean it was not drained. No
+// file keeps the old not-loaded refusal. The log is checked first, since a
+// concurrent load renames it to the marker.
+func (i *Index) unloadedChangeLogMissErr(action, shardName, opID string) error {
+	dir, ok := i.changelogDirForOp(shardName, opID)
+	if !ok {
+		return errShardNotLoaded(action, shardName)
+	}
+	logPath, lostPath := changelogPaths(dir, opID)
+	for _, p := range []string{logPath, lostPath} {
+		found, err := diskio.FileExists(p)
+		if err != nil {
+			return fmt.Errorf("%s: probe %q: %w", action, p, err)
+		}
+		if found {
+			return fmt.Errorf("%s: op %q on unloaded shard %q: %w", action, opID, shardName, errChangeLogLost)
+		}
+	}
+	return errShardNotLoaded(action, shardName)
+}
+
+// stopUnloadedChangeCapture removes opID's log and marker without loading the
+// shard. The write lock keeps a load, and the activation it serves, out; a
+// shard loaded since the first look is stopped the loaded way.
+func (i *Index) stopUnloadedChangeCapture(ctx context.Context, shardName, opID string) error {
+	dir, ok := i.changelogDirForOp(shardName, opID)
+	if !ok {
+		return nil
+	}
+	i.shardCreateLocks.Lock(shardName)
+	defer i.shardCreateLocks.Unlock(shardName)
+	if shard := i.shards.Loaded(shardName); shard != nil {
+		cl, ok := shard.(shardChangeLogger)
+		if !ok {
+			return fmt.Errorf("shard %q does not implement shardChangeLogger", shardName)
+		}
+		return cl.StopChangeCapture(ctx, opID)
+	}
+	logPath, lostPath := changelogPaths(dir, opID)
+	for _, p := range []string{logPath, lostPath} {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove %q: %w", p, err)
+		}
+	}
+	return nil
+}
+
+// changelogDirForOp refuses names that would leave the shard's directory: no
+// log was ever activated under them.
+func (i *Index) changelogDirForOp(shardName, opID string) (string, bool) {
+	for _, name := range []string{shardName, opID} {
+		if name == "" || name == "." || name == ".." || name != filepath.Base(name) {
+			return "", false
+		}
+	}
+	return changelogDirOf(shardPath(i.path(), shardName)), true
 }
 
 // IncomingAddAsyncReplicationTargetNode adds the given target node override for async replication.

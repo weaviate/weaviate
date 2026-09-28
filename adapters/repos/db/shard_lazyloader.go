@@ -513,6 +513,14 @@ func (l *LazyLoadShard) GetChangeLog(ctx context.Context, opID string) (*changel
 	return l.shard.GetChangeLog(ctx, opID)
 }
 
+// changeLogMissErr is only reached through a loaded shard, so it never loads one.
+func (l *LazyLoadShard) changeLogMissErr(opID string) error {
+	if !l.isLoaded() {
+		return fmt.Errorf("shard %q: changelog miss for op %q on an unloaded shard", l.shardOpts.name, opID)
+	}
+	return l.shard.changeLogMissErr(opID)
+}
+
 func (l *LazyLoadShard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
 	if err := l.Load(ctx); err != nil {
 		return duplicateErr(err, len(refs))

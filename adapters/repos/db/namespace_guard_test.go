@@ -1164,6 +1164,10 @@ func (s *changeLogShard) GetChangeLog(ctx context.Context, opID string) (*change
 	return log, args.Bool(1)
 }
 
+func (s *changeLogShard) changeLogMissErr(opID string) error {
+	return s.Called(opID).Error(0)
+}
+
 // A movement begins by touching its source shard, and both ways in take the
 // request-path check — neither is exempt. That is what keeps a movement
 // registered against a suspended namespace from starting, and it is the reason

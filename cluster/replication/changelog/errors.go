@@ -27,4 +27,6 @@ var (
 const (
 	ErrMsgNoActiveLog              = "no active log for op"
 	ErrMsgNoActiveChangeCaptureLog = "no active change-capture log"
+	// ErrMsgChangeLogLost marks a log the source discarded undrained (restart, append failure); it must not contain the two substrings above.
+	ErrMsgChangeLogLost = "change-capture log lost"
 )

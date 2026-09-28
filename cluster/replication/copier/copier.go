@@ -506,6 +506,17 @@ func dirExists(path string) (bool, error) {
 	return true, nil
 }
 
+// UnloadLocalShard shuts the local shard down and forgets it, keeping its
+// files for an incremental re-copy. Idempotent on an absent shard.
+func (c *Copier) UnloadLocalShard(ctx context.Context, collectionName, shardName string) error {
+	idx := c.dbWrapper.GetIndex(schema.ClassName(collectionName))
+	if idx == nil {
+		return fmt.Errorf("index for collection %s not found", collectionName)
+	}
+
+	return idx.UnloadLocalShard(ctx, shardName)
+}
+
 func (c *Copier) validateLocalFolder(collectionName, shardName string, fileNames []string) error {
 	fileNamesMap := make(map[string]struct{}, len(fileNames))
 	for _, fileName := range fileNames {

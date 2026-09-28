@@ -222,3 +222,41 @@ func TestManager_CloseCancelsDrainRetry(t *testing.T) {
 		// Correct: the drain was cancelled, so the report is withheld.
 	}
 }
+
+func TestManager_ReportsCarryTheOpRound(t *testing.T) {
+	tests := []struct {
+		name      string
+		states    []cmd.ShardReplicationState
+		wantRound uint64
+	}{
+		{name: "fresh op", wantRound: 1},
+		{name: "forward only", states: []cmd.ShardReplicationState{cmd.HYDRATING, cmd.FINALIZING}, wantRound: 1},
+		{name: "one rewind", states: []cmd.ShardReplicationState{cmd.HYDRATING, cmd.FINALIZING, cmd.HYDRATING}, wantRound: 2},
+		{
+			name:      "two rewinds",
+			states:    []cmd.ShardReplicationState{cmd.HYDRATING, cmd.FINALIZING, cmd.INTEGRATING, cmd.HYDRATING, cmd.FINALIZING, cmd.HYDRATING},
+			wantRound: 3,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			const opID = uint64(6)
+			m := newDrainTestManager(t, opID, "TestClass", "shard1")
+			for _, s := range tc.states {
+				require.NoError(t, m.GetReplicationFSM().UpdateReplicationOpStatus(&cmd.ReplicationUpdateOpStateRequest{Id: opID, State: s}))
+			}
+			submitted := make(chan uint64, 1)
+			m.SetNodeReachedStateSubmitter("node1", func(ctx context.Context, req *cmd.ReplicationNodeReachedStateRequest) error {
+				submitted <- req.Round
+				return nil
+			})
+			m.broadcastNodeReachedState(opID, cmd.HYDRATING)
+			select {
+			case round := <-submitted:
+				require.Equal(t, tc.wantRound, round)
+			case <-time.After(2 * time.Second):
+				t.Fatal("state was not reported")
+			}
+		})
+	}
+}

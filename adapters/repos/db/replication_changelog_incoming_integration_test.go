@@ -42,6 +42,7 @@ import (
 var incomingChangeLogEndpoints = []struct {
 	name                 string
 	errorsOnMissingShard bool
+	removesLog           bool
 	call                 func(ctx context.Context, idx *Index, shardName, opID string) error
 }{
 	{
@@ -72,7 +73,8 @@ var incomingChangeLogEndpoints = []struct {
 		},
 	},
 	{
-		name: "stop change capture",
+		name:       "stop change capture",
+		removesLog: true,
 		call: func(ctx context.Context, idx *Index, shardName, opID string) error {
 			return idx.IncomingStopChangeCapture(ctx, shardName, opID)
 		},
@@ -96,9 +98,8 @@ func replayTestObject(idStr string) *storobj.Object {
 }
 
 // Loading a shard sweeps its changelog dir, so a drain read that force-loads
-// deletes the very log it was asked for — and the op registration it would
-// need died with the unload anyway. Stop is in the table too, pinning the
-// other half of the split: a teardown an unloaded shard has already satisfied.
+// would mark the very log it was asked for lost. Stop is in the table too: it
+// removes the log on disk, or the next load would mark a stopped log lost.
 func TestIncomingChangeLog_UnloadedShardKeepsLogAndStaysUnloaded(t *testing.T) {
 	const opID = "op-drain-unloaded"
 
@@ -125,7 +126,11 @@ func TestIncomingChangeLog_UnloadedShardKeepsLogAndStaysUnloaded(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
-			require.FileExists(t, logPath, "serving the call must not delete the log")
+			if tc.removesLog {
+				require.NoFileExists(t, logPath)
+			} else {
+				require.FileExists(t, logPath, "serving the call must not delete the log")
+			}
 			require.Nil(t, idx.shards.Load(shardName), "serving the call must not load the shard")
 		})
 	}

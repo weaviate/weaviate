@@ -41,6 +41,13 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.tenantAddLocks.Unlock(req.Class)
 	}
 
+	// Before the barrier for the same reason as the tenant lock.
+	replicaOpID, unlockReplicaOp, err := st.lockReplicaOpPropose(req)
+	if err != nil {
+		return 0, err
+	}
+	defer unlockReplicaOp()
+
 	// PreApplyFilter below judges against in-memory FSM state, so a leader that
 	// has not drained what it inherited must not judge yet. After the tenant
 	// lock, not before: that lock is held across the apply, so a caller can wait
@@ -67,6 +74,15 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	// Call the filtering to avoid committing to the FSM unnecessary updates
 	if err := st.schemaManager.PreApplyFilter(req); err != nil {
 		return 0, err
+	}
+
+	if req.Type == api.ApplyRequest_TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD {
+		if err := st.admitReplicaAdd(replicaOpID); err != nil {
+			return 0, err
+		}
+		if st.replicaAddAdmittedHook != nil {
+			st.replicaAddAdmittedHook()
+		}
 	}
 
 	// The change is validated, we can apply it in RAFT

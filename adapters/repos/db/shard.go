@@ -281,6 +281,8 @@ type Shard struct {
 	// changeLogsActivateMu serializes ActivateChangeLog so concurrent
 	// activates can't sweep each other's freshly-opened .log file.
 	changeLogsActivateMu sync.Mutex
+	// lostChangeLogs (opID → struct{}) backs the on-disk lost marker when writing it fails.
+	lostChangeLogs sync.Map
 	// Async checkpoint, guarded by asyncReplicationRWMux. The hashtree is a
 	// frozen clone of s.hashtree taken at create time. All in-memory only
 	// (not persisted, not replicated via RAFT); a restart drops it and the

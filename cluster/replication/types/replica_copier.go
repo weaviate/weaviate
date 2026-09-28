@@ -39,6 +39,9 @@ type ReplicaCopier interface {
 	// DropLocalShard see cluster/replication/copier.Copier.DropLocalShard
 	DropLocalShard(ctx context.Context, collectionName, shardName string) error
 
+	// UnloadLocalShard see cluster/replication/copier.Copier.UnloadLocalShard
+	UnloadLocalShard(ctx context.Context, collectionName, shardName string) error
+
 	// InitAsyncReplicationLocally see cluster/replication/copier.Copier.InitAsyncReplicationLocally
 	InitAsyncReplicationLocally(ctx context.Context, collectionName, shardName string) error
 
