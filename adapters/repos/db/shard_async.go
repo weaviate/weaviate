@@ -41,10 +41,6 @@ func (s *Shard) fillQueue(targetVector string, from uint64, skipIndexed bool) er
 		return nil
 	}
 
-	start := time.Now()
-
-	var counter int
-
 	vectorIndex, releaseIndex, ok := s.AcquireVectorIndex(targetVector)
 	if !ok {
 		s.index.logger.WithField("targetVector", targetVector).Warn("preload queue: vector index not found")
@@ -63,7 +59,16 @@ func (s *Shard) fillQueue(targetVector string, from uint64, skipIndexed bool) er
 	}
 	defer releaseQueue()
 
-	ctx := context.Background()
+	return s.backfillVectorIndex(context.Background(), targetVector, vectorIndex, q, from, skipIndexed)
+}
+
+// backfillVectorIndex inserts the vectors of targetVector from the object
+// store into queue, from doc ID from on, skipping those vectorIndex already
+// holds when skipIndexed is set. The caller holds both handles.
+func (s *Shard) backfillVectorIndex(ctx context.Context, targetVector string, vectorIndex VectorIndex, q *VectorIndexQueue, from uint64, skipIndexed bool) error {
+	start := time.Now()
+
+	var counter int
 
 	maxDocID := s.Counter().Get()
 

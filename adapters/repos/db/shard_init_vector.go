@@ -413,6 +413,30 @@ func (s *Shard) createVectorIndex(ctx context.Context, targetVector, physicalID 
 	return err
 }
 
+// fillVectorIndexFromStore fills an empty index from the object store and
+// flushes the result before the ready write that follows: the queue's chunk
+// in async mode, the commit log and write-ahead logs otherwise. A process
+// crash keeps flushed bytes; power loss is the same exposure every
+// synchronous write has.
+func (s *Shard) fillVectorIndexFromStore(ctx context.Context, targetVector string, index VectorIndex, queue *VectorIndexQueue) error {
+	err := s.backfillVectorIndex(ctx, targetVector, index, queue, 0, false)
+	if err != nil {
+		return fmt.Errorf("backfill vector %q from the object store: %w", targetVector, err)
+	}
+	if s.index.AsyncIndexingEnabled {
+		err = queue.Flush()
+	} else {
+		err = index.Flush()
+		if err == nil {
+			err = s.store.WriteWALs()
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("flush the backfill of vector %q: %w", targetVector, err)
+	}
+	return nil
+}
+
 // buildVectorIndexAndQueue constructs a vector's index and its queue at
 // physicalID. A queue that fails to build takes the index down with it, so
 // nothing is left running unpublished.
