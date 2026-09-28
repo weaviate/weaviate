@@ -49,6 +49,10 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 
 		path := filepath.Join(b.dir, file)
 
+		if err := removeWALCountNet(path); err != nil {
+			return errors.Wrap(err, "remove wal count net additions")
+		}
+
 		if size == 0 {
 			err := os.Remove(path)
 			if err != nil {

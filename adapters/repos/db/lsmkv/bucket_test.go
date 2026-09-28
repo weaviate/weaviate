@@ -699,7 +699,7 @@ func TestNetCountComputationAtInit(t *testing.T) {
 	require.Equal(t, 0, fileTypes[".wal"])
 	require.Equal(t, 4, fileTypes[".cna"])
 
-	// Create a single segment with all deletions - shutdown so the cna files are not written right away, but at startup
+	// Create a single segment with all deletions
 	require.NoError(t, b.Delete([]byte("hello1")))
 	require.NoError(t, b.Delete([]byte("hello2")))
 	require.NoError(t, b.Delete([]byte("hello3")))
@@ -709,7 +709,14 @@ func TestNetCountComputationAtInit(t *testing.T) {
 	fileTypes = getFileTypeCount(t, dirName)
 	require.Equal(t, 5, fileTypes[".db"])
 	require.Equal(t, 0, fileTypes[".wal"])
-	require.Equal(t, 4, fileTypes[".cna"]) // cna file for new segment not yet computed
+	require.Equal(t, 5, fileTypes[".cna"])
+
+	// a segment flushed by an older version has no cna file, so it is
+	// computed at startup
+	cnaFiles, err := filepath.Glob(filepath.Join(dirName, "*.cna"))
+	require.NoError(t, err)
+	slices.Sort(cnaFiles)
+	require.NoError(t, os.Remove(cnaFiles[len(cnaFiles)-1]))
 
 	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithCalcCountNetAdditions(true), WithStrategy(StrategyReplace), WithMinWalThreshold(0),

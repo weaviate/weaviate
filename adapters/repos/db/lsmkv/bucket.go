@@ -1742,6 +1742,14 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		b.metrics.ObserveBucketShutdownDurationByStrategy(b.strategy, time.Since(start))
 	}()
 
+	netCount, countErr := b.takeShutdownNetCount(ctx)
+	if countErr != nil {
+		// without it an unloaded shard undercounts, which is no reason to fail
+		// the shutdown
+		b.logger.WithField("path", b.dir).
+			Warnf("count memtable net additions for shutdown: %v", countErr)
+	}
+
 	if err := b.disk.shutdown(ctx); err != nil {
 		return err
 	}
@@ -1782,18 +1790,33 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 		b.active.setAveragePropertyLength(avgPropLength, propLengthCount)
 	}
 
+	if !netCount.describes(b.active, b.flushing) || b.active.Size() == 0 {
+		netCount = nil
+	}
+
+	var countedPath string
 	if b.shouldReuseWAL() {
 		if err := b.active.flushWAL(); err != nil {
 			b.flushLock.Unlock()
 			return err
 		}
+		countedPath = b.active.commitlogWalPath()
 	} else {
-		if _, err := b.active.flush(); err != nil {
+		segmentPath, err := b.active.flush()
+		if err != nil {
 			b.flushLock.Unlock()
 			return err
 		}
+		countedPath = segmentPath
 	}
 	b.flushLock.Unlock()
+
+	if netCount != nil && countedPath != "" {
+		if err := netCount.store(countedPath); err != nil {
+			b.logger.WithField("path", countedPath).
+				Warnf("store memtable net additions at shutdown: %v", err)
+		}
+	}
 
 	if b.flushing == nil {
 		// active has flushing, no one else was currently flushing, it's safe to
