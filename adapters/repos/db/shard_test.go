@@ -246,6 +246,7 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 	var objs []*storobj.Object
 	for i := 0; i < amount; i++ {
 		obj := testObject(className)
+		obj.Vector = randVector(3)
 		objs = append(objs, obj)
 	}
 
@@ -266,21 +267,22 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 	err := shd.DebugResetVectorIndex(ctx, "")
 	require.Nil(t, err)
 
-	newIdx, q := getVectorIndexAndQueue(t, shd, "")
+	newIdx, _ := getVectorIndexAndQueue(t, shd, "")
 
 	// the new index should be different from the old one.
 	// pointer comparison is enough here
 	require.NotEqual(t, oldIdx, newIdx)
 
-	// queue should be empty after reset
-	require.EqualValues(t, 0, q.Size())
-
-	// make sure the new index does not contain any of the objects
-	for _, obj := range objs {
-		if newIdx.ContainsDoc(obj.DocID) {
-			t.Fatalf("node %d should not be in the vector index", obj.DocID)
+	// the reset refills the new index from the object store in the background
+	require.Eventually(t, func() bool {
+		for _, obj := range objs {
+			if !newIdx.ContainsDoc(obj.DocID) {
+				return false
+			}
 		}
-	}
+		return true
+	}, time.Minute, 100*time.Millisecond, "not every object made it into the rebuilt index")
+	waitForVectorQueue(t, shd, "")
 
 	// the reset rebuilt at the recorded ID: record ready, storage present
 	s := underlyingShard(t, shd)
@@ -414,21 +416,22 @@ func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
 	err := shd.DebugResetVectorIndex(ctx, "foo")
 	require.Nil(t, err)
 
-	newIdx, q := getVectorIndexAndQueue(t, shd, "foo")
+	newIdx, _ := getVectorIndexAndQueue(t, shd, "foo")
 
 	// the new index should be different from the old one.
 	// pointer comparison is enough here
 	require.NotEqual(t, oldIdx, newIdx)
 
-	// queue should be empty after reset
-	require.EqualValues(t, 0, q.Size())
-
-	// make sure the new index does not contain any of the objects
-	for _, obj := range objs {
-		if newIdx.ContainsDoc(obj.DocID) {
-			t.Fatalf("node %d should not be in the vector index", obj.DocID)
+	// the reset refills the new index from the object store in the background
+	require.Eventually(t, func() bool {
+		for _, obj := range objs {
+			if !newIdx.ContainsDoc(obj.DocID) {
+				return false
+			}
 		}
-	}
+		return true
+	}, time.Minute, 100*time.Millisecond, "not every object made it into the rebuilt index")
+	waitForVectorQueue(t, shd, "foo")
 
 	require.Nil(t, idx.drop())
 	require.Nil(t, os.RemoveAll(idx.Config.RootPath))
