@@ -129,44 +129,25 @@ func (s WriteReplicaSet) IsEmpty() bool {
 // validateReplicaSetConsistency validates that the consistency level can be satisfied
 // by grouping replicas by shard and validating each shard independently.
 func validateReplicaSetConsistency(replicas, unreachable []Replica, level ConsistencyLevel) (int, error) {
-	if len(replicas) == 0 && len(unreachable) == 0 {
-		return 0, nil
-	}
-
-	type shardCount struct {
-		reachable   int
-		unreachable []string
-	}
-	counts := make(map[string]*shardCount)
-	var order []string
-	get := func(shard string) *shardCount {
-		c, ok := counts[shard]
-		if !ok {
-			c = &shardCount{}
-			counts[shard] = c
-			order = append(order, shard)
-		}
-		return c
-	}
+	total := make(map[string]int)
+	reachable := make(map[string]int)
 	for _, replica := range replicas {
-		get(replica.ShardName).reachable++
+		total[replica.ShardName]++
+		reachable[replica.ShardName]++
 	}
 	for _, replica := range unreachable {
-		c := get(replica.ShardName)
-		c.unreachable = append(c.unreachable, replica.NodeName)
+		total[replica.ShardName]++
 	}
 
 	var expectedConsistencyLevel int
 	var firstShard string
 
-	for _, shardName := range order {
-		c := counts[shardName]
-		total := c.reachable + len(c.unreachable)
-		resolved := level.ToInt(total)
-		if resolved > c.reachable {
+	for shardName, n := range total {
+		resolved := level.ToInt(n)
+		if resolved > reachable[shardName] {
 			return 0, fmt.Errorf(
-				"shard %s: impossible to satisfy consistency level %s: requires %d of %d replicas, but %d unreachable %v",
-				shardName, level, resolved, total, len(c.unreachable), c.unreachable)
+				"shard %s: impossible to satisfy consistency level %s: requires %d of %d replicas, %d unreachable",
+				shardName, level, resolved, n, n-reachable[shardName])
 		}
 
 		if firstShard == "" {
