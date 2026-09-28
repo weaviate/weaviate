@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 func TestValidator_extractAndValidateProperty(t *testing.T) {
@@ -265,7 +266,7 @@ func TestProperties_MultiTargetClasslessBeacon_NSGate(t *testing.T) {
 	t.Run("NS-enabled: classless multi-target ref is rejected before existence check", func(t *testing.T) {
 		existsCalled := false
 		v := &Validator{
-			qualifier: namespacing.NewPrefixing(),
+			qualifier: wlnamespaces.NewPrefixing(),
 			exists: func(_ context.Context, _ string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error) {
 				existsCalled = true
 				return true, nil

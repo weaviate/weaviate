@@ -32,7 +32,7 @@ import (
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
-	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 type fakeReindexTaskLister struct {
@@ -164,7 +164,7 @@ func TestDeleteClassPropertyIndex_NamespaceConflictPreflight(t *testing.T) {
 	require.NoError(t, err)
 
 	h := &schemaHandlers{
-		qualifier:           namespacing.NewPrefixing(),
+		qualifier:           wlnamespaces.NewPrefixing(),
 		metricRequestsTotal: newSchemaRequestsTotal(nil, logrus.New()),
 		// allow-all authorizer: this test is about class qualification, not authz
 		authorizer: &authorization.DummyAuthorizer{},
@@ -204,7 +204,7 @@ func TestDeleteClassPropertyIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) 
 
 	rec := &recordingLockProvider{}
 	h := &schemaHandlers{
-		qualifier:           namespacing.NewPrefixing(),
+		qualifier:           wlnamespaces.NewPrefixing(),
 		metricRequestsTotal: newSchemaRequestsTotal(nil, logrus.New()),
 		// allow-all authorizer: this test is about the lock key, not authz
 		authorizer:         &authorization.DummyAuthorizer{},

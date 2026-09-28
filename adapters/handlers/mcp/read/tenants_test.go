@@ -23,7 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/mcp/auth"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // recordingAuthorizer captures the resources and verbs passed to Authorize.
@@ -103,7 +103,7 @@ func TestGetTenants_PassThrough(t *testing.T) {
 				authHandler,
 				reader,
 				stubSchemaManager{},
-				namespacing.NewPrefixing(),
+				wlnamespaces.NewPrefixing(),
 				stubObjectsManager{},
 				logger,
 			)

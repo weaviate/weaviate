@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // zooAnimalNSSchema returns a Zoo/Animal schema. When qualify is true both
@@ -160,7 +161,7 @@ func newNSManagers(t *testing.T, classes []*models.Class, nsEnabled bool,
 // qualifierFor returns the Qualifier a node with the given namespaces flag runs.
 func qualifierFor(namespacesEnabled bool) namespacing.Qualifier {
 	if namespacesEnabled {
-		return namespacing.NewPrefixing()
+		return wlnamespaces.NewPrefixing()
 	}
 	return namespacing.Disabled
 }
@@ -376,7 +377,7 @@ func Test_References_NamespaceResolution_Add(t *testing.T) {
 
 	t.Run("NS: a Forbidden from QualifyRefTarget answers 403", func(t *testing.T) {
 		m, _, _, _, _ := newNSManagers(t, zooAnimalNSSchema(true), true)
-		m.qualifier = refTargetRefusing{namespacing.NewPrefixing(), autherrs.NewForbidden(nil, "read", "collections/Animal")}
+		m.qualifier = refTargetRefusing{wlnamespaces.NewPrefixing(), autherrs.NewForbidden(nil, "read", "collections/Animal")}
 		input := &AddReferenceInput{
 			Class: "Zoo", ID: id, Property: "hasAnimals",
 			Ref: models.SingleRef{Beacon: strfmt.URI("weaviate://localhost/Animal/" + string(refID))},
@@ -547,7 +548,7 @@ func Test_References_NamespaceResolution_Update(t *testing.T) {
 
 	t.Run("NS: a Forbidden from QualifyRefTarget answers 403", func(t *testing.T) {
 		m, _, repo, _, _ := newNSManagers(t, zooAnimalNSSchema(true), true)
-		m.qualifier = refTargetRefusing{namespacing.NewPrefixing(), autherrs.NewForbidden(nil, "read", "collections/Animal")}
+		m.qualifier = refTargetRefusing{wlnamespaces.NewPrefixing(), autherrs.NewForbidden(nil, "read", "collections/Animal")}
 		repo.On("Object", "customer1:Zoo", id, mock.Anything, mock.Anything, mock.Anything).
 			Return(&search.Result{ClassName: "customer1:Zoo"}, nil).Once()
 		input := &PutReferenceInput{
@@ -650,7 +651,7 @@ func Test_References_NamespaceResolution_Delete(t *testing.T) {
 
 	t.Run("NS: a Forbidden from QualifyRefTarget answers 403", func(t *testing.T) {
 		m, _, repo, _, _ := newNSManagers(t, zooAnimalNSSchema(true), true)
-		m.qualifier = refTargetRefusing{namespacing.NewPrefixing(), autherrs.NewForbidden(nil, "read", "collections/Animal")}
+		m.qualifier = refTargetRefusing{wlnamespaces.NewPrefixing(), autherrs.NewForbidden(nil, "read", "collections/Animal")}
 		repo.On("Object", "customer1:Zoo", id, mock.Anything, mock.Anything, mock.Anything).
 			Return(&search.Result{ClassName: "customer1:Zoo"}, nil).Once()
 		input := &DeleteReferenceInput{

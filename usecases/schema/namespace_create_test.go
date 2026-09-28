@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingcfg "github.com/weaviate/weaviate/usecases/sharding/config"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // fakeNamespacesExister implements [namespaces.Exister] for tests that only
@@ -70,7 +71,7 @@ func newTestHandlerWithNamespaces(t *testing.T, enabled bool) (*Handler, *fakeSc
 	cfg.Namespaces.Enabled = enabled
 	qualifier := namespacing.Disabled
 	if enabled {
-		qualifier = namespacing.NewPrefixing()
+		qualifier = wlnamespaces.NewPrefixing()
 	}
 	fakeClusterState := fakes.NewFakeClusterState()
 	fakeValidator := &fakeValidator{}

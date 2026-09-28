@@ -27,7 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 func Test_ReferencesAddDeprecated(t *testing.T) {
@@ -107,7 +107,7 @@ func Test_ReferencesClasslessOnNSReturnsGone(t *testing.T) {
 	t.Run("AddObjectReference", func(t *testing.T) {
 		m := newFakeGetManager(zooAnimalSchemaForTest())
 		m.config.Config.Namespaces.Enabled = true
-		m.qualifier = namespacing.NewPrefixing()
+		m.qualifier = wlnamespaces.NewPrefixing()
 		err := m.AddObjectReference(context.Background(), nil, &AddReferenceInput{
 			ID: id, Property: "hasAnimals", Ref: models.SingleRef{Beacon: beacon},
 		}, nil, "")
@@ -120,7 +120,7 @@ func Test_ReferencesClasslessOnNSReturnsGone(t *testing.T) {
 	t.Run("UpdateObjectReferences", func(t *testing.T) {
 		m := newFakeGetManager(zooAnimalSchemaForTest())
 		m.config.Config.Namespaces.Enabled = true
-		m.qualifier = namespacing.NewPrefixing()
+		m.qualifier = wlnamespaces.NewPrefixing()
 		err := m.UpdateObjectReferences(context.Background(), nil, &PutReferenceInput{
 			ID: id, Property: "hasAnimals",
 			Refs: models.MultipleRef{&models.SingleRef{Beacon: beacon}},
@@ -133,7 +133,7 @@ func Test_ReferencesClasslessOnNSReturnsGone(t *testing.T) {
 	t.Run("DeleteObjectReference", func(t *testing.T) {
 		m := newFakeGetManager(zooAnimalSchemaForTest())
 		m.config.Config.Namespaces.Enabled = true
-		m.qualifier = namespacing.NewPrefixing()
+		m.qualifier = wlnamespaces.NewPrefixing()
 		err := m.DeleteObjectReference(context.Background(), nil, &DeleteReferenceInput{
 			ID: id, Property: "hasAnimals", Reference: models.SingleRef{Beacon: beacon},
 		}, nil, "")

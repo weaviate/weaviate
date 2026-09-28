@@ -23,6 +23,7 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 func TestBatchDeleteRequest(t *testing.T) {
@@ -201,7 +202,7 @@ func TestBatchDeleteRequest_NamespacesEnabledRejectsRefPath(t *testing.T) {
 		_, err := batchDeleteParamsFromProto(&pb.BatchDeleteRequest{
 			Collection: collection,
 			Filters:    refPathFilter,
-		}, getClass, namespacing.NewPrefixing(), nil)
+		}, getClass, wlnamespaces.NewPrefixing(), nil)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "reference-path filters")
 		require.Contains(t, err.Error(), "Filters.target")
@@ -211,7 +212,7 @@ func TestBatchDeleteRequest_NamespacesEnabledRejectsRefPath(t *testing.T) {
 		_, err := batchDeleteParamsFromProto(&pb.BatchDeleteRequest{
 			Collection: collection,
 			Filters:    directFilter,
-		}, getClass, namespacing.NewPrefixing(), nil)
+		}, getClass, wlnamespaces.NewPrefixing(), nil)
 		require.NoError(t, err)
 	})
 }

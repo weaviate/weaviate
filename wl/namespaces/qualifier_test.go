@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package namespacing
+package namespaces
 
 import (
 	"strings"
@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func TestPrefixing(t *testing.T) {
@@ -67,19 +68,19 @@ func TestPrefixing(t *testing.T) {
 			{
 				name:      "namespaced principal at the cap accepted",
 				principal: namespaced,
-				raw:       "C" + strings.Repeat("x", ShortNameMaxLength-1),
-				want:      "customer1:" + "C" + strings.Repeat("x", ShortNameMaxLength-1),
+				raw:       "C" + strings.Repeat("x", namespacing.ShortNameMaxLength-1),
+				want:      "customer1:" + "C" + strings.Repeat("x", namespacing.ShortNameMaxLength-1),
 			},
 			{
 				name:         "namespaced principal one over the cap rejected with non-sentinel error",
 				principal:    namespaced,
-				raw:          "C" + strings.Repeat("x", ShortNameMaxLength),
+				raw:          "C" + strings.Repeat("x", namespacing.ShortNameMaxLength),
 				wantOtherErr: true,
 			},
 			{
 				name:         "namespaced principal far over the cap rejected with non-sentinel error",
 				principal:    namespaced,
-				raw:          strings.Repeat("x", ShortNameMaxLength*2),
+				raw:          strings.Repeat("x", namespacing.ShortNameMaxLength*2),
 				wantOtherErr: true,
 			},
 		}
@@ -88,10 +89,10 @@ func TestPrefixing(t *testing.T) {
 				got, err := p.QualifyForCreate(tc.principal, tc.raw)
 				switch {
 				case tc.wantSentinel:
-					require.ErrorIs(t, err, ErrCreateRequiresNamespace)
+					require.ErrorIs(t, err, namespacing.ErrCreateRequiresNamespace)
 				case tc.wantOtherErr:
 					require.Error(t, err)
-					require.NotErrorIs(t, err, ErrCreateRequiresNamespace)
+					require.NotErrorIs(t, err, namespacing.ErrCreateRequiresNamespace)
 				default:
 					require.NoError(t, err)
 					assert.Equal(t, tc.want, got)

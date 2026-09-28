@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // resolverCallSite is a Manager or BatchManager method that resolves the
@@ -113,7 +114,7 @@ func errOf(e *Error) error {
 // refTargetRefusing qualifies names like Prefixing but refuses every ref
 // target, so a call gets past resolveNS and reaches QualifyRefTarget.
 type refTargetRefusing struct {
-	*namespacing.Prefixing
+	*wlnamespaces.Prefixing
 	err error
 }
 

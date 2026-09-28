@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // stubSchemaManager satisfies namespacing.SchemaManager. ResolveAlias returns
@@ -125,42 +126,42 @@ func TestGetCollectionConfig_NamespaceResolution(t *testing.T) {
 		{
 			name:      "namespaced principal, short name resolves and response is stripped",
 			principal: &models.Principal{Namespace: "customer1"},
-			qualifier: namespacing.NewPrefixing(),
+			qualifier: wlnamespaces.NewPrefixing(),
 			args:      GetCollectionConfigArgs{CollectionName: "Movies"},
 			want:      wantResp{classes: []string{"Movies"}},
 		},
 		{
 			name:      "namespaced principal, own-namespace qualified is rejected",
 			principal: &models.Principal{Namespace: "customer1"},
-			qualifier: namespacing.NewPrefixing(),
+			qualifier: wlnamespaces.NewPrefixing(),
 			args:      GetCollectionConfigArgs{CollectionName: "customer1:Movies"},
 			want:      wantResp{errSubstr: "is not a valid class name"},
 		},
 		{
 			name:      "namespaced principal, foreign-namespace qualified is rejected",
 			principal: &models.Principal{Namespace: "customer1"},
-			qualifier: namespacing.NewPrefixing(),
+			qualifier: wlnamespaces.NewPrefixing(),
 			args:      GetCollectionConfigArgs{CollectionName: "customer2:Movies"},
 			want:      wantResp{errSubstr: "is not a valid class name"},
 		},
 		{
 			name:      "global principal, qualified name passes through",
 			principal: &models.Principal{},
-			qualifier: namespacing.NewPrefixing(),
+			qualifier: wlnamespaces.NewPrefixing(),
 			args:      GetCollectionConfigArgs{CollectionName: "customer1:Movies"},
 			want:      wantResp{classes: []string{"customer1:Movies"}},
 		},
 		{
 			name:      "global principal, short name misses namespaced class",
 			principal: &models.Principal{},
-			qualifier: namespacing.NewPrefixing(),
+			qualifier: wlnamespaces.NewPrefixing(),
 			args:      GetCollectionConfigArgs{CollectionName: "Movies"},
 			want:      wantResp{errSubstr: "not found"},
 		},
 		{
 			name:      "namespaced principal, alias resolves to qualified target and response is stripped",
 			principal: &models.Principal{Namespace: "customer1"},
-			qualifier: namespacing.NewPrefixing(),
+			qualifier: wlnamespaces.NewPrefixing(),
 			args:      GetCollectionConfigArgs{CollectionName: "Films"},
 			want:      wantResp{classes: []string{"Movies"}},
 		},
@@ -170,7 +171,7 @@ func TestGetCollectionConfig_NamespaceResolution(t *testing.T) {
 			// foreign class still appears qualified).
 			name:      "list-all branch skips resolution and strips own namespace",
 			principal: &models.Principal{Namespace: "customer1"},
-			qualifier: namespacing.NewPrefixing(),
+			qualifier: wlnamespaces.NewPrefixing(),
 			args:      GetCollectionConfigArgs{},
 			want:      wantResp{classes: []string{"Movies", "customer2:Movies", "Global"}},
 		},

@@ -36,6 +36,7 @@ import (
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -1242,7 +1243,7 @@ func TestStreamHandlerCollectionResolution(t *testing.T) {
 	}{
 		{
 			name:          "namespaced principal qualifies short class",
-			qualifier:     namespacing.NewPrefixing(),
+			qualifier:     wlnamespaces.NewPrefixing(),
 			principal:     &models.Principal{Namespace: "customer1"},
 			rawCollection: "Movies",
 			resolvedAs:    "Movies",
@@ -1342,7 +1343,7 @@ func TestStreamHandlerReportsSchemaResolutionFailures(t *testing.T) {
 	}{
 		{
 			name:       "namespace resolution failure",
-			qualifier:  namespacing.NewPrefixing(),
+			qualifier:  wlnamespaces.NewPrefixing(),
 			principal:  &models.Principal{Namespace: "customer1"},
 			collection: "customer2:TestClass",
 		},
@@ -1350,7 +1351,7 @@ func TestStreamHandlerReportsSchemaResolutionFailures(t *testing.T) {
 			// the schema error names the namespace-qualified class, which a
 			// namespaced principal must never see
 			name:        "class fetch failure",
-			qualifier:   namespacing.NewPrefixing(),
+			qualifier:   wlnamespaces.NewPrefixing(),
 			principal:   &models.Principal{Namespace: "customer1"},
 			collection:  "TestClass",
 			getClassErr: fmt.Errorf("class %q not found", "customer1:TestClass"),
@@ -1606,7 +1607,7 @@ func TestStreamHandlerRecvGoroutineDoesNotLeakOnEarlyExit(t *testing.T) {
 			// namespace itself, so namespacing.Resolve rejects this before the schema
 			// manager is touched
 			name:       "schema resolve failure",
-			qualifier:  namespacing.NewPrefixing(),
+			qualifier:  wlnamespaces.NewPrefixing(),
 			principal:  &models.Principal{Namespace: "customer1"},
 			collection: "customer2:TestClass",
 		},

@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 func Test_BatchDelete_RequestValidation(t *testing.T) {
@@ -244,7 +245,7 @@ func Test_BatchDelete_NamespaceResolution(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		authorizer := mocks.NewMockAuthorizer()
 		manager := NewBatchManager(vectorRepo, getFakeModulesProvider(), schemaManager, cfg, logger, authorizer, nil,
-			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), namespacing.NewPrefixing())
+			NewAutoSchemaManager(schemaManager, vectorRepo, cfg, logger, prometheus.NewPedanticRegistry()), wlnamespaces.NewPrefixing())
 		return manager, vectorRepo, authorizer
 	}
 

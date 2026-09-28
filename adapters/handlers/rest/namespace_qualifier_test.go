@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 func TestNamespaceModeFor(t *testing.T) {
@@ -73,7 +74,7 @@ func TestNamespaceQualifier(t *testing.T) {
 		{
 			name:        "licensed prefixes the caller's namespace",
 			mode:        license.FeatureLicensed,
-			wantType:    &namespacing.Prefixing{},
+			wantType:    &wlnamespaces.Prefixing{},
 			wantEnabled: true,
 			wantName:    "customer1:Movies",
 		},

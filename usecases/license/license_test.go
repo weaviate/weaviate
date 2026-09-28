@@ -19,7 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
-	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 func TestRequired(t *testing.T) {
@@ -106,7 +106,9 @@ func TestDeclaredInWL(t *testing.T) {
 		v    any
 		want bool
 	}{
-		{name: "pointer to a type outside wl", v: namespacing.NewPrefixing(), want: false},
+		{name: "pointer to a type in wl", v: wlnamespaces.NewPrefixing(), want: true},
+		{name: "non-pointer in wl", v: wlnamespaces.Prefixing{}, want: true},
+		{name: "pointer to a type outside wl", v: new(Mode), want: false},
 		{name: "non-pointer outside wl", v: FeatureOff, want: false},
 		{name: "nil", v: nil, want: false},
 	}

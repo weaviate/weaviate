@@ -39,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // stubSchemaManager satisfies namespacing.SchemaManager. ResolveAlias returns
@@ -139,28 +140,28 @@ func TestHybrid_NamespaceResolution(t *testing.T) {
 		{
 			name:          "namespaced principal, short name resolves into traverser params",
 			principal:     &models.Principal{Namespace: "customer1"},
-			qualifier:     namespacing.NewPrefixing(),
+			qualifier:     wlnamespaces.NewPrefixing(),
 			args:          QueryHybridArgs{CollectionName: "Movies", Query: "x"},
 			wantClassName: "customer1:Movies",
 		},
 		{
 			name:          "namespaced principal, alias resolves to qualified target",
 			principal:     &models.Principal{Namespace: "customer1"},
-			qualifier:     namespacing.NewPrefixing(),
+			qualifier:     wlnamespaces.NewPrefixing(),
 			args:          QueryHybridArgs{CollectionName: "Films", Query: "x"},
 			wantClassName: "customer1:Movies",
 		},
 		{
 			name:          "namespaced principal, own-namespace qualified is rejected",
 			principal:     &models.Principal{Namespace: "customer1"},
-			qualifier:     namespacing.NewPrefixing(),
+			qualifier:     wlnamespaces.NewPrefixing(),
 			args:          QueryHybridArgs{CollectionName: "customer1:Movies", Query: "x"},
 			wantErrSubstr: "is not a valid class name",
 		},
 		{
 			name:          "global principal, qualified name passes through",
 			principal:     &models.Principal{},
-			qualifier:     namespacing.NewPrefixing(),
+			qualifier:     wlnamespaces.NewPrefixing(),
 			args:          QueryHybridArgs{CollectionName: "customer1:Movies", Query: "x"},
 			wantClassName: "customer1:Movies",
 		},
@@ -174,14 +175,14 @@ func TestHybrid_NamespaceResolution(t *testing.T) {
 		{
 			name:          "namespacesEnabled accepts reference-path filter (inner class qualified)",
 			principal:     &models.Principal{Namespace: "customer1"},
-			qualifier:     namespacing.NewPrefixing(),
+			qualifier:     wlnamespaces.NewPrefixing(),
 			args:          QueryHybridArgs{CollectionName: "Movies", Query: "x", Filters: refPathFilter},
 			wantClassName: "customer1:Movies",
 		},
 		{
 			name:          "namespacesEnabled accepts direct-property filter",
 			principal:     &models.Principal{Namespace: "customer1"},
-			qualifier:     namespacing.NewPrefixing(),
+			qualifier:     wlnamespaces.NewPrefixing(),
 			args:          QueryHybridArgs{CollectionName: "Movies", Query: "x", Filters: directFilter},
 			wantClassName: "customer1:Movies",
 		},
@@ -224,7 +225,7 @@ func newSearcherWithResults(t *testing.T, principal *models.Principal, results [
 	authHandler := auth.NewAuth(false, composer, &authorization.DummyAuthorizer{}, nil)
 	logger, _ := test.NewNullLogger()
 	return NewWeaviateSearcher(authHandler, &stubTraverser{results: results},
-		schemaReaderWith(t), stubSchemaManager{}, namespacing.NewPrefixing(), logger)
+		schemaReaderWith(t), stubSchemaManager{}, wlnamespaces.NewPrefixing(), logger)
 }
 
 // TestHybrid_NestedRefClassStripped pins the NS strip on nested

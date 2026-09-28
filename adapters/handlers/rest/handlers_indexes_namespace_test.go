@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // TestUpsertIndex_SubmitLockKeyedOnQualifiedClass pins that a namespaced
@@ -43,7 +44,7 @@ func TestUpsertIndex_SubmitLockKeyedOnQualifiedClass(t *testing.T) {
 		Authorizer:         &authorization.DummyAuthorizer{},
 		ReindexSubmitLocks: locks,
 		Logger:             logger,
-		NamespaceQualifier: namespacing.NewPrefixing(),
+		NamespaceQualifier: wlnamespaces.NewPrefixing(),
 		ServerConfig: &config.WeaviateConfig{Config: config.Config{
 			Namespaces:            config.Namespaces{Enabled: true},
 			RuntimeReindexEnabled: true,

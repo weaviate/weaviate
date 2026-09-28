@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // A held receiver blocks drain until its hold ends, so Start clamps a
@@ -87,7 +88,7 @@ func TestEnqueueReleasesReservation(t *testing.T) {
 	}
 
 	t.Run("a namespace resolution error releases the reservation", func(t *testing.T) {
-		h := newHandler(newSchemaManager(nil), NewProcessingQueue(), namespacing.NewPrefixing())
+		h := newHandler(newSchemaManager(nil), NewProcessingQueue(), wlnamespaces.NewPrefixing())
 
 		err := call(h, &models.Principal{Namespace: "customer1"}, "customer2:TestClass", &sync.WaitGroup{})
 

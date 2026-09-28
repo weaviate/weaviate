@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 func Test_ExtractFlatFilters(t *testing.T) {
@@ -587,7 +588,7 @@ func Test_Parse_NamespacesEnabledQualifiesRefPath(t *testing.T) {
 	admin := &models.Principal{Username: "admin"}
 
 	t.Run("namespaced caller short ref-path is qualified via parent NS", func(t *testing.T) {
-		out, err := Parse(refPath, "customer1:City", namespacing.NewPrefixing(), nsCaller)
+		out, err := Parse(refPath, "customer1:City", wlnamespaces.NewPrefixing(), nsCaller)
 		require.NoError(t, err)
 		require.NotNil(t, out)
 		require.NotNil(t, out.Root.On)
@@ -598,7 +599,7 @@ func Test_Parse_NamespacesEnabledQualifiesRefPath(t *testing.T) {
 	})
 
 	t.Run("multi-hop ref-path qualifies every level", func(t *testing.T) {
-		out, err := Parse(nestedRefPath, "customer1:City", namespacing.NewPrefixing(), nsCaller)
+		out, err := Parse(nestedRefPath, "customer1:City", wlnamespaces.NewPrefixing(), nsCaller)
 		require.NoError(t, err)
 		require.NotNil(t, out)
 		require.NotNil(t, out.Root.On)
@@ -615,7 +616,7 @@ func Test_Parse_NamespacesEnabledQualifiesRefPath(t *testing.T) {
 			Path:      []string{"inCountry", "customer1:Country", "name"},
 			ValueText: &value,
 		}
-		out, err := Parse(ownNS, "customer1:City", namespacing.NewPrefixing(), admin)
+		out, err := Parse(ownNS, "customer1:City", wlnamespaces.NewPrefixing(), admin)
 		require.NoError(t, err)
 		require.NotNil(t, out.Root.On.Child)
 		assert.Equal(t, "customer1:Country", out.Root.On.Child.Class.String(),
@@ -628,7 +629,7 @@ func Test_Parse_NamespacesEnabledQualifiesRefPath(t *testing.T) {
 			Path:      []string{"inCountry", "customer1:Country", "name"},
 			ValueText: &value,
 		}
-		_, err := Parse(withPrefix, "customer1:City", namespacing.NewPrefixing(), nsCaller)
+		_, err := Parse(withPrefix, "customer1:City", wlnamespaces.NewPrefixing(), nsCaller)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "is not a valid class name")
 	})
@@ -639,13 +640,13 @@ func Test_Parse_NamespacesEnabledQualifiesRefPath(t *testing.T) {
 			Path:      []string{"inCountry", "customer2:Country", "name"},
 			ValueText: &value,
 		}
-		_, err := Parse(foreign, "customer1:City", namespacing.NewPrefixing(), admin)
+		_, err := Parse(foreign, "customer1:City", wlnamespaces.NewPrefixing(), admin)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "is not a valid class name")
 	})
 
 	t.Run("compound AND threads qualification into nested operands", func(t *testing.T) {
-		out, err := Parse(nestedAndWithRefPath, "customer1:City", namespacing.NewPrefixing(), nsCaller)
+		out, err := Parse(nestedAndWithRefPath, "customer1:City", wlnamespaces.NewPrefixing(), nsCaller)
 		require.NoError(t, err)
 		require.NotNil(t, out)
 		// The compound has two operands: a direct-prop and a ref-path.
@@ -661,7 +662,7 @@ func Test_Parse_NamespacesEnabledQualifiesRefPath(t *testing.T) {
 	})
 
 	t.Run("namespacesEnabled accepts direct property filter", func(t *testing.T) {
-		out, err := Parse(directProp, "customer1:City", namespacing.NewPrefixing(), nsCaller)
+		out, err := Parse(directProp, "customer1:City", wlnamespaces.NewPrefixing(), nsCaller)
 		require.NoError(t, err)
 		assert.NotNil(t, out)
 	})

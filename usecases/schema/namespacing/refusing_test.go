@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package namespacing
+package namespacing_test
 
 import (
 	"testing"
@@ -19,10 +19,11 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/license"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 func TestRefusing(t *testing.T) {
-	q := Refusing(license.Required("namespaces"))
+	q := namespacing.Refusing(license.Required("namespaces"))
 	qualify := func(p *models.Principal) func() error {
 		return func() error { _, err := q.Qualify(p, "Movies"); return err }
 	}

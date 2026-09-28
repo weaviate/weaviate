@@ -50,6 +50,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 type fakeSearcher struct {
@@ -1203,7 +1204,7 @@ func TestHybridHandlerHappyPath(t *testing.T) {
 
 func TestHandlerStripsNamespaceFromErrors(t *testing.T) {
 	deps := newTestHandler(t)
-	deps.handler.qualifier = namespacing.NewPrefixing()
+	deps.handler.qualifier = wlnamespaces.NewPrefixing()
 	principal := &models.Principal{Username: "someone", Namespace: "ns1"}
 
 	// unknown collection: the internal error names the qualified collection

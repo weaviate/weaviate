@@ -17,6 +17,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // namespacesFeature names namespaces in the license refusal and the startup
@@ -44,7 +45,7 @@ func namespaceQualifier(mode license.Mode) namespacing.Qualifier {
 	case license.FeatureOff:
 		return namespacing.Disabled
 	case license.FeatureLicensed:
-		return namespacing.NewPrefixing()
+		return wlnamespaces.NewPrefixing()
 	case license.FeatureUnlicensed:
 	}
 	return namespacing.Refusing(license.Required(namespacesFeature))

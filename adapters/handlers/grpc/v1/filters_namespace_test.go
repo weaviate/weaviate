@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // TestExtractFilters_NamespaceStitching covers the new-style FilterTarget
@@ -82,7 +83,7 @@ func TestExtractFilters_NamespaceStitching(t *testing.T) {
 			},
 			TestValue: &pb.Filters_ValueText{ValueText: "lion"},
 		}
-		clause, err := ExtractFilters(filter, classGetter, "customer1:Zoo", "", namespacing.NewPrefixing(),
+		clause, err := ExtractFilters(filter, classGetter, "customer1:Zoo", "", wlnamespaces.NewPrefixing(),
 			&models.Principal{Username: "u", Namespace: "customer1"})
 		require.NoError(t, err)
 		require.NotNil(t, clause.On)
@@ -110,7 +111,7 @@ func TestExtractFilters_NamespaceStitching(t *testing.T) {
 			},
 			TestValue: &pb.Filters_ValueText{ValueText: "lion"},
 		}
-		_, err := ExtractFilters(filter, classGetter, "customer1:Zoo", "", namespacing.NewPrefixing(),
+		_, err := ExtractFilters(filter, classGetter, "customer1:Zoo", "", wlnamespaces.NewPrefixing(),
 			&models.Principal{Username: "u", Namespace: "customer1"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "is not a valid class name")
@@ -162,7 +163,7 @@ func TestExtractFilters_NamespaceStitching(t *testing.T) {
 			},
 			TestValue: &pb.Filters_ValueText{ValueText: "lion"},
 		}
-		clause, err := ExtractFilters(filter, classGetter, "customer1:Zoo", "", namespacing.NewPrefixing(),
+		clause, err := ExtractFilters(filter, classGetter, "customer1:Zoo", "", wlnamespaces.NewPrefixing(),
 			&models.Principal{Username: "admin"})
 		require.NoError(t, err)
 		require.NotNil(t, clause.On)
@@ -187,7 +188,7 @@ func TestExtractFilters_NamespaceStitching(t *testing.T) {
 			},
 			TestValue: &pb.Filters_ValueText{ValueText: "lion"},
 		}
-		clause, err := ExtractFilters(filter, classGetter, "customer1:Zoo", "", namespacing.NewPrefixing(),
+		clause, err := ExtractFilters(filter, classGetter, "customer1:Zoo", "", wlnamespaces.NewPrefixing(),
 			&models.Principal{Username: "admin"})
 		require.NoError(t, err)
 		require.NotNil(t, clause.On)
@@ -215,7 +216,7 @@ func TestExtractFilters_NamespaceStitching(t *testing.T) {
 			},
 			TestValue: &pb.Filters_ValueText{ValueText: "lion"},
 		}
-		_, err := ExtractFilters(filter, classGetter, "customer1:Zoo", "", namespacing.NewPrefixing(),
+		_, err := ExtractFilters(filter, classGetter, "customer1:Zoo", "", wlnamespaces.NewPrefixing(),
 			&models.Principal{Username: "admin"})
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "is not a valid class name")
@@ -245,7 +246,7 @@ func TestExtractFilters_NamespaceStitching(t *testing.T) {
 				},
 			},
 		}
-		_, err := ExtractFilters(filter, classGetter, "customer1:Zoo", "", namespacing.NewPrefixing(),
+		_, err := ExtractFilters(filter, classGetter, "customer1:Zoo", "", wlnamespaces.NewPrefixing(),
 			&models.Principal{Username: "u", Namespace: "customer1"})
 		require.Error(t, err)
 	})
