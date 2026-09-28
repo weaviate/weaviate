@@ -13,10 +13,12 @@ package compact
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 	"testing"
 
@@ -24,6 +26,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
+	"github.com/weaviate/weaviate/entities/vectorindex/compression"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func crashTestLogger() logrus.FieldLogger {
@@ -952,4 +957,423 @@ func appendToFile(t *testing.T, path string, b []byte) {
 	_, err = f.Write(b)
 	require.NoError(t, err)
 	require.NoError(t, f.Close())
+}
+
+// ---------------------------------------------------------------------------
+// Garbage appended to compacted segments (weaviate/0-weaviate-issues#666)
+// ---------------------------------------------------------------------------
+
+func corruptTailRQ(seed float32) *compression.RQData {
+	return &compression.RQData{
+		InputDim: 4,
+		Bits:     8,
+		Rotation: compression.FastRotation{
+			OutputDim: 4,
+			Rounds:    1,
+			Swaps:     [][]compression.Swap{{{I: 0, J: 1}, {I: 2, J: 3}}},
+			Signs:     [][]float32{{seed, -1, 1, -1}},
+		},
+	}
+}
+
+func corruptTailMuvera() *multivector.MuveraData {
+	return &multivector.MuveraData{
+		KSim: 1, NumClusters: 2, Dimensions: 2, DProjections: 1, Repetitions: 1,
+		Gaussians: [][][]float32{{{0.1, 0.2}}},
+		S:         [][][]float32{{{0.3, 0.4}}},
+	}
+}
+
+// writeCorruptTailFixture writes a valid compacted segment holding an RQ
+// compressor, an entrypoint, three linked nodes and a tombstone, in the record
+// layout the respective writer produces: SortedWriter for .sorted, the legacy
+// MemoryCondensor (nodes descending, entrypoint and tombstones last) for
+// .condensed.
+func writeCorruptTailFixture(t *testing.T, path string, fileType FileType, withMuvera bool) {
+	t.Helper()
+	createTestWALFile(t, path, func(w *WALWriter) {
+		require.NoError(t, w.WriteAddRQ(corruptTailRQ(1)))
+		if withMuvera {
+			require.NoError(t, w.WriteAddMuvera(corruptTailMuvera()))
+		}
+		switch fileType {
+		case FileTypeSorted:
+			require.NoError(t, w.WriteSetEntryPointMaxLevel(2, 1))
+			require.NoError(t, w.WriteAddLinksAtLevel(0, 0, []uint64{1, 2}))
+			require.NoError(t, w.WriteAddTombstone(1))
+			require.NoError(t, w.WriteAddLinksAtLevel(1, 0, []uint64{0, 2}))
+			require.NoError(t, w.WriteAddNode(2, 1))
+			require.NoError(t, w.WriteAddLinksAtLevel(2, 0, []uint64{0, 1}))
+			require.NoError(t, w.WriteAddLinksAtLevel(2, 1, []uint64{}))
+		case FileTypeCondensed:
+			require.NoError(t, w.WriteAddNode(2, 1))
+			require.NoError(t, w.WriteAddLinksAtLevel(2, 0, []uint64{0, 1}))
+			require.NoError(t, w.WriteAddLinksAtLevel(2, 1, []uint64{}))
+			require.NoError(t, w.WriteAddLinksAtLevel(1, 0, []uint64{0, 2}))
+			require.NoError(t, w.WriteAddLinksAtLevel(0, 0, []uint64{1, 2}))
+			require.NoError(t, w.WriteSetEntryPointMaxLevel(2, 1))
+			require.NoError(t, w.WriteAddTombstone(1))
+		default:
+			t.Fatalf("unexpected file type %s", fileType)
+		}
+	})
+}
+
+func walBytes(t *testing.T, fn func(w *WALWriter)) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	fn(NewWALWriter(&buf))
+	return buf.Bytes()
+}
+
+func fileSizeOf(t *testing.T, path string) int64 {
+	t.Helper()
+	st, err := os.Stat(path)
+	require.NoError(t, err)
+	return st.Size()
+}
+
+func assertMuveraEqual(t *testing.T, want, got *ent.DeserializationResult) {
+	t.Helper()
+	require.Equal(t, want.MuveraEnabled(), got.MuveraEnabled(), "muvera enabled")
+	require.Equal(t, want.EncoderMuvera(), got.EncoderMuvera(), "muvera encoder")
+}
+
+// assertCorruptTailRecovered loads the fixture with tail appended and checks
+// that both that load and the next one match the clean fixture exactly.
+func assertCorruptTailRecovered(t *testing.T, fileType FileType, withMuvera bool, tail []byte) {
+	t.Helper()
+	name := BuildMergedFilename(1000, 1000, fileType)
+
+	cleanDir := t.TempDir()
+	writeCorruptTailFixture(t, filepath.Join(cleanDir, name), fileType, withMuvera)
+	clean, err := NewLoader(LoaderConfig{Dir: cleanDir, Logger: quietLogger()}).Load()
+	require.NoError(t, err)
+	require.False(t, clean.RecoveredFromCrash)
+	cleanSize := fileSizeOf(t, filepath.Join(cleanDir, name))
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, name)
+	writeCorruptTailFixture(t, path, fileType, withMuvera)
+	appendToFile(t, path, tail)
+
+	first, err := NewLoader(LoaderConfig{Dir: dir, Logger: quietLogger()}).Load()
+	require.NoError(t, err)
+	assert.True(t, first.RecoveredFromCrash, "garbage tail must be detected as corruption")
+	assertGraphEqual(t, clean.State, first.State)
+	assertMuveraEqual(t, clean.State, first.State)
+	require.Equal(t, cleanSize, fileSizeOf(t, path), "file must be truncated to the end of the valid records")
+
+	second, err := NewLoader(LoaderConfig{Dir: dir, Logger: quietLogger()}).Load()
+	require.NoError(t, err)
+	assert.False(t, second.RecoveredFromCrash, "second load must be clean after truncation")
+	assertGraphEqual(t, clean.State, second.State)
+	assertMuveraEqual(t, clean.State, second.State)
+}
+
+// TestCrashRecovery_CompactedGarbageTailIsNeverApplied pins that records decoded
+// from garbage appended to a compacted segment are never applied to the graph
+// and never kept by the truncation. A ResetIndex byte used to wipe the whole
+// shard graph (and the truncation persisted it), and a compression record used
+// to install a bogus quantizer next to the real one.
+func TestCrashRecovery_CompactedGarbageTailIsNeverApplied(t *testing.T) {
+	sqRecord := []byte{byte(AddSQ)}
+	sqRecord = binary.LittleEndian.AppendUint32(sqRecord, 0xABABABAB)
+	sqRecord = binary.LittleEndian.AppendUint32(sqRecord, 0xABABABAB)
+	sqRecord = binary.LittleEndian.AppendUint16(sqRecord, 0xABAB)
+
+	// Tile-encoded PQ with one segment: 10-byte header + 51-byte encoder.
+	pqRecord := []byte{byte(AddPQ)}
+	pqRecord = binary.LittleEndian.AppendUint16(pqRecord, 4)      // dims
+	pqRecord = append(pqRecord, byte(compression.UseTileEncoder)) // encoder
+	pqRecord = binary.LittleEndian.AppendUint16(pqRecord, 256)    // ks
+	pqRecord = binary.LittleEndian.AppendUint16(pqRecord, 1)      // m
+	pqRecord = append(pqRecord, 0, 0)                             // distribution, bits encoding
+	pqRecord = append(pqRecord, bytes.Repeat([]byte{0x3F}, 6*8+2+1)...)
+
+	brqRecord := walBytes(t, func(w *WALWriter) {
+		require.NoError(t, w.WriteAddBRQ(&compression.BRQData{
+			InputDim: 4,
+			Rotation: compression.FastRotation{
+				OutputDim: 4, Rounds: 1,
+				Swaps: [][]compression.Swap{{{I: 0, J: 1}, {I: 2, J: 3}}},
+				Signs: [][]float32{{1, 1, 1, 1}},
+			},
+			Rounding: []float32{0, 0, 0, 0},
+		}))
+	})
+
+	tails := []struct {
+		name string
+		tail []byte
+		// sortedOnly marks tails that are only detectable in .sorted files: the
+		// legacy condensed layout writes the entrypoint after the node records.
+		sortedOnly bool
+	}{
+		{name: "reset then unknown type", tail: []byte{byte(ResetIndex), 0xFF}},
+		{name: "reset at end of file", tail: []byte{byte(ResetIndex)}},
+		{name: "reset in 512 garbage bytes", tail: append([]byte{byte(ResetIndex)}, bytes.Repeat([]byte{0xF7}, 511)...)},
+		{name: "SQ record", tail: sqRecord},
+		{name: "PQ record", tail: pqRecord},
+		{name: "second RQ record", tail: walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteAddRQ(corruptTailRQ(-1))) })},
+		{name: "BRQ record", tail: brqRecord},
+		{name: "muvera record", tail: walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteAddMuvera(corruptTailMuvera())) })},
+		{name: "entrypoint record", tail: walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteSetEntryPointMaxLevel(0, 0)) }), sortedOnly: true},
+	}
+
+	for _, fileType := range []FileType{FileTypeSorted, FileTypeCondensed} {
+		for _, withMuvera := range []bool{false, true} {
+			for _, tc := range tails {
+				if tc.sortedOnly && fileType != FileTypeSorted {
+					continue
+				}
+				t.Run(fmt.Sprintf("%s/muvera=%v/%s", fileType, withMuvera, tc.name), func(t *testing.T) {
+					assertCorruptTailRecovered(t, fileType, withMuvera, tc.tail)
+				})
+			}
+		}
+	}
+}
+
+// TestCrashRecovery_CorruptCompressionHeaderAllocationIsBounded pins that a
+// garbage compression record cannot make the decoder allocate memory out of
+// proportion to the bytes it actually read: slice sizes come from unchecked
+// uint32 header fields, so a 17-byte tail used to request up to ~100 GiB.
+func TestCrashRecovery_CorruptCompressionHeaderAllocationIsBounded(t *testing.T) {
+	const huge = 1 << 22
+
+	rqHeader := func(typ HnswCommitType, outputDim, rounds uint32) []byte {
+		b := []byte{byte(typ)}
+		if typ == AddRQCentered {
+			b = append(b, 0)
+		}
+		b = binary.LittleEndian.AppendUint32(b, 4) // inputDim
+		b = binary.LittleEndian.AppendUint32(b, 8) // bits
+		b = binary.LittleEndian.AppendUint32(b, outputDim)
+		return binary.LittleEndian.AppendUint32(b, rounds)
+	}
+	brqHeader := func(outputDim, rounds uint32) []byte {
+		b := []byte{byte(AddBRQ)}
+		b = binary.LittleEndian.AppendUint32(b, 4) // inputDim
+		b = binary.LittleEndian.AppendUint32(b, outputDim)
+		return binary.LittleEndian.AppendUint32(b, rounds)
+	}
+	muveraHeader := func(kSim, dims, dProjections, repetitions uint32) []byte {
+		b := []byte{byte(AddMuvera)}
+		b = binary.LittleEndian.AppendUint32(b, kSim)
+		b = binary.LittleEndian.AppendUint32(b, 1<<kSim) // numClusters
+		b = binary.LittleEndian.AppendUint32(b, dims)
+		b = binary.LittleEndian.AppendUint32(b, dProjections)
+		return binary.LittleEndian.AppendUint32(b, repetitions)
+	}
+	pqKMeansHeader := func(dims, ks, m uint16) []byte {
+		b := []byte{byte(AddPQ)}
+		b = binary.LittleEndian.AppendUint16(b, dims)
+		b = append(b, byte(compression.UseKMeansEncoder))
+		b = binary.LittleEndian.AppendUint16(b, ks)
+		b = binary.LittleEndian.AppendUint16(b, m)
+		return append(b, 0, 0)
+	}
+
+	tails := []struct {
+		name string
+		tail []byte
+	}{
+		{name: "RQ rounds", tail: rqHeader(AddRQ, 2, huge)},
+		{name: "RQ zero-payload rounds", tail: rqHeader(AddRQ, 0, huge)},
+		{name: "centered RQ rounds", tail: rqHeader(AddRQCentered, 2, huge)},
+		{name: "BRQ rounds", tail: brqHeader(2, huge)},
+		{name: "BRQ zero-payload rounds", tail: brqHeader(0, huge)},
+		{name: "muvera repetitions", tail: muveraHeader(1, 1, 1, huge)},
+		{name: "muvera zero-payload repetitions", tail: muveraHeader(0, 0, 0, huge)},
+		{name: "PQ k-means zero-width segments", tail: pqKMeansHeader(1, 2048, 2048)},
+	}
+
+	for _, tc := range tails {
+		t.Run(tc.name, func(t *testing.T) {
+			var before, after runtime.MemStats
+			runtime.GC()
+			runtime.ReadMemStats(&before)
+			assertCorruptTailRecovered(t, FileTypeSorted, false, tc.tail)
+			runtime.ReadMemStats(&after)
+
+			allocated := after.TotalAlloc - before.TotalAlloc
+			assert.Less(t, allocated, uint64(16<<20),
+				"a %d-byte garbage record allocated %d MiB", len(tc.tail), allocated>>20)
+		})
+	}
+}
+
+// TestCrashRecovery_ValidCompactedLayoutsAreNotTruncated guards the other side
+// of garbage detection: every record layout a compaction writer produces must
+// load without being treated as corrupt.
+func TestCrashRecovery_ValidCompactedLayoutsAreNotTruncated(t *testing.T) {
+	tests := []struct {
+		name     string
+		fileType FileType
+		write    func(w *WALWriter)
+	}{
+		{
+			name:     "sorted: compression, muvera, entrypoint, nodes",
+			fileType: FileTypeSorted,
+			write: func(w *WALWriter) {
+				require.NoError(t, w.WriteAddRQ(corruptTailRQ(1)))
+				require.NoError(t, w.WriteAddMuvera(corruptTailMuvera()))
+				require.NoError(t, w.WriteSetEntryPointMaxLevel(1, 0))
+				require.NoError(t, w.WriteAddTombstone(0))
+				require.NoError(t, w.WriteDeleteNode(0))
+				require.NoError(t, w.WriteAddLinksAtLevel(1, 0, []uint64{2}))
+				require.NoError(t, w.WriteRemoveTombstone(2))
+				require.NoError(t, w.WriteReplaceLinksAtLevel(2, 0, []uint64{1}))
+				require.NoError(t, w.WriteClearLinksAtLevel(3, 0))
+			},
+		},
+		{
+			// The n-way merger emits every compression type it saw, in this order.
+			name:     "sorted: merged globals from several compression types",
+			fileType: FileTypeSorted,
+			write: func(w *WALWriter) {
+				require.NoError(t, w.WriteAddSQ(&compression.SQData{A: 1, B: 2, Dimensions: 4}))
+				require.NoError(t, w.WriteAddRQ(corruptTailRQ(1)))
+				require.NoError(t, w.WriteSetEntryPointMaxLevel(0, 0))
+				require.NoError(t, w.WriteAddLinksAtLevel(0, 0, []uint64{}))
+			},
+		},
+		{
+			name:     "sorted: globals only",
+			fileType: FileTypeSorted,
+			write: func(w *WALWriter) {
+				require.NoError(t, w.WriteAddRQ(corruptTailRQ(1)))
+				require.NoError(t, w.WriteSetEntryPointMaxLevel(0, 0))
+			},
+		},
+		{
+			name:     "sorted: nodes only",
+			fileType: FileTypeSorted,
+			write: func(w *WALWriter) {
+				require.NoError(t, w.WriteAddLinksAtLevel(0, 0, []uint64{1}))
+				require.NoError(t, w.WriteAddLinksAtLevel(1, 0, []uint64{0}))
+			},
+		},
+		{
+			name:     "condensed: legacy layout with every record kind",
+			fileType: FileTypeCondensed,
+			write: func(w *WALWriter) {
+				require.NoError(t, w.WriteAddRQ(corruptTailRQ(1)))
+				require.NoError(t, w.WriteAddMuvera(corruptTailMuvera()))
+				require.NoError(t, w.WriteAddNode(3, 1))
+				require.NoError(t, w.WriteAddLinksAtLevel(3, 0, []uint64{1}))
+				require.NoError(t, w.WriteReplaceLinksAtLevel(1, 0, []uint64{3}))
+				require.NoError(t, w.WriteSetEntryPointMaxLevel(3, 1))
+				require.NoError(t, w.WriteAddTombstone(1))
+				require.NoError(t, w.WriteRemoveTombstone(2))
+				require.NoError(t, w.WriteDeleteNode(0))
+			},
+		},
+		{
+			name:     "condensed: written before compression existed",
+			fileType: FileTypeCondensed,
+			write: func(w *WALWriter) {
+				require.NoError(t, w.WriteAddLinksAtLevel(1, 0, []uint64{0}))
+				require.NoError(t, w.WriteAddLinksAtLevel(0, 0, []uint64{1}))
+				require.NoError(t, w.WriteSetEntryPointMaxLevel(1, 0))
+				require.NoError(t, w.WriteAddTombstone(0))
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, BuildMergedFilename(1000, 1000, tc.fileType))
+			createTestWALFile(t, path, tc.write)
+			size := fileSizeOf(t, path)
+
+			res, err := NewLoader(LoaderConfig{Dir: dir, Logger: quietLogger()}).Load()
+			require.NoError(t, err)
+			assert.False(t, res.RecoveredFromCrash, "valid layout must not be treated as corrupt")
+			assert.Equal(t, size, fileSizeOf(t, path), "valid file must not be truncated")
+		})
+	}
+}
+
+// TestCrashRecovery_CorruptCondensedResetKeepsOlderFiles pins the compaction
+// side of #666: converting a .condensed file whose garbage tail decodes as a
+// ResetIndex must not discard every older commit log as if a real reset had
+// happened.
+func TestCrashRecovery_CorruptCondensedResetKeepsOlderFiles(t *testing.T) {
+	dir := t.TempDir()
+	writeTestSortedFileWithData(t, dir, 1000, 1000, func(w *WALWriter) {
+		require.NoError(t, w.WriteSetEntryPointMaxLevel(1, 0))
+		require.NoError(t, w.WriteAddLinksAtLevel(1, 0, []uint64{2}))
+		require.NoError(t, w.WriteAddLinksAtLevel(2, 0, []uint64{1}))
+	})
+	condensedPath := filepath.Join(dir, BuildMergedFilename(2000, 2000, FileTypeCondensed))
+	createTestWALFile(t, condensedPath, func(w *WALWriter) {
+		require.NoError(t, w.WriteAddLinksAtLevel(3, 0, []uint64{1}))
+	})
+	appendToFile(t, condensedPath, []byte{byte(ResetIndex)})
+	createTestWALFile(t, filepath.Join(dir, "3000"), func(w *WALWriter) {
+		require.NoError(t, w.WriteAddLinksAtLevel(4, 0, []uint64{3}))
+	})
+
+	// The corruption can appear after the startup load, so compaction may be
+	// the first to read it. Its outcome may be an error, but never data loss.
+	_, _ = NewCompactor(DefaultCompactorConfig(dir), quietLogger()).RunCycle(nil)
+
+	assertNodes := func(label string) {
+		t.Helper()
+		state := loadGraph(t, dir)
+		for id := 1; id <= 4; id++ {
+			require.False(t, effectivelyAbsent(nodeAt(state, id)), "%s: node %d lost", label, id)
+		}
+	}
+	assertNodes("after compaction cycle")
+
+	compactToFixedPoint(t, dir)
+	assertNodes("after compacting to fixed point")
+}
+
+// TestCrashRecovery_RecordTornAtFieldBoundary pins that a record cut off
+// exactly between two of its fields is detected as torn. io.ReadFull reports a
+// zero-byte read as io.EOF, which used to pass for a clean end of file, so the
+// fragment was neither reported nor truncated.
+func TestCrashRecovery_RecordTornAtFieldBoundary(t *testing.T) {
+	tails := []struct {
+		name string
+		tail []byte
+	}{
+		{name: "type byte only", tail: []byte{byte(AddNode)}},
+		{name: "type byte and node id", tail: binary.LittleEndian.AppendUint64([]byte{byte(AddNode)}, 7)},
+		{name: "links header without targets", tail: binary.LittleEndian.AppendUint16(
+			binary.LittleEndian.AppendUint16(
+				binary.LittleEndian.AppendUint64([]byte{byte(AddLinksAtLevel)}, 1), 0), 2)},
+	}
+
+	for _, fileType := range []FileType{FileTypeRaw, FileTypeSorted, FileTypeCondensed} {
+		for _, tc := range tails {
+			t.Run(fmt.Sprintf("%s/%s", fileType, tc.name), func(t *testing.T) {
+				dir := t.TempDir()
+				name := "1000"
+				if fileType != FileTypeRaw {
+					name = BuildMergedFilename(1000, 1000, fileType)
+				}
+				path := filepath.Join(dir, name)
+				createTestWALFile(t, path, func(w *WALWriter) {
+					require.NoError(t, w.WriteSetEntryPointMaxLevel(0, 0))
+					require.NoError(t, w.WriteAddLinksAtLevel(0, 0, []uint64{1}))
+					require.NoError(t, w.WriteAddLinksAtLevel(1, 0, []uint64{0}))
+				})
+				validSize := fileSizeOf(t, path)
+				appendToFile(t, path, tc.tail)
+
+				res, err := NewLoader(LoaderConfig{Dir: dir, Logger: quietLogger()}).Load()
+				require.NoError(t, err)
+				assert.True(t, res.RecoveredFromCrash, "torn record must be reported")
+				assert.Equal(t, validSize, fileSizeOf(t, path), "torn record must be truncated")
+				require.NotNil(t, nodeAt(res.State, 0))
+				require.NotNil(t, nodeAt(res.State, 1))
+			})
+		}
+	}
 }
