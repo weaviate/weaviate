@@ -13,12 +13,13 @@ See also `docs/self-recovery.md` for the design, metrics, and limitations.
 
 ## Preconditions (one-time, cluster-wide)
 
-These two flags must already be set on **every** node. Mixed on/off causes RAFT FSM apply
+These settings must already be set on **every** node. Mixed on/off causes RAFT FSM apply
 divergence — roll them out everywhere first, *then* operate.
 
 | Env var | Value | Why |
 |---|---|---|
 | `SELF_RECOVERY_ENABLED` | `true` | Enables the startup hook that pulls a missing shard dir from a peer instead of creating it empty. |
+| `LICENSE_KEY` / `LICENSE_KEY_FILE` | your Weaviate license key (or a path to it) | **Required.** Self-recovery is Weaviate-licensed (`wl/selfrecovery`); without a well-formed key the node logs `no valid Weaviate license key` at startup, starts no recoveries and creates missing shard dirs empty. Read once at startup, not from the config file. |
 | `REPLICA_MOVEMENT_ENABLED` | `true` | **Required.** Starts the replication engine that processes the copy ops, and exposes the `/replication/*` observability API. (This is the "shard movement" enable.) |
 
 Also confirm:
@@ -53,6 +54,7 @@ A reasonable "go faster" block (a node with many/large shards on fast disk + net
 
 ```bash
 SELF_RECOVERY_ENABLED=true
+LICENSE_KEY=<your key>
 REPLICA_MOVEMENT_ENABLED=true
 SELF_RECOVERY_CONCURRENCY=16
 REPLICATION_ENGINE_MAX_WORKERS=16
@@ -66,8 +68,8 @@ and do **not** set `ASYNC_REPLICATION_DISABLED` — it heals the delta the file-
 
 ## Step-by-step
 
-1. **Pre-flight.** `GET /v1/nodes?output=verbose` → all nodes `HEALTHY`. Confirm the two
-   required flags are set on every node and the collections are RF ≥ 2.
+1. **Pre-flight.** `GET /v1/nodes?output=verbose` → all nodes `HEALTHY`. Confirm the
+   required settings are set on every node and the collections are RF ≥ 2.
 2. **Apply tuning** (optional): add the env block above to the StatefulSet / pod spec.
 3. **Take the node down**, preserving its **identity** — same `CLUSTER_HOSTNAME`, RAFT node
    id, and `RAFT_JOIN` peer list — so it rejoins as the *same* member (e.g. scale the
@@ -94,6 +96,8 @@ and do **not** set `ASYNC_REPLICATION_DISABLED` — it heals the delta the file-
 
 - Shard stuck `RECOVERING`: `POST /debug/self-recovery/restart?collection=X&shard=Y` —
   abandons the attempt and re-pulls from scratch (valid only while `RECOVERING`).
+- `restart` returns `403 Forbidden` on a node without a valid license key: set `LICENSE_KEY`
+  (or `LICENSE_KEY_FILE`) and restart the node; `accept-empty` is not license-gated.
 - No peer has the data (catastrophic loss): `POST /debug/self-recovery/accept-empty?collection=X&shard=Y`
   — accept an empty shard. Confirm via logs/metrics that all peers truly have no data first.
 - Alert on `weaviate_self_recovery_no_data_empty_total` (catastrophic) and

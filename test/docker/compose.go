@@ -109,6 +109,9 @@ const (
 	Ref2VecCentroid = "ref2vec-centroid"
 )
 
+// TestWeaviateLicenseKey is a well-formed test key; Weaviate only form-checks it.
+const TestWeaviateLicenseKey = "wv8.lic_01ARZ3NDEKTSV4RRFFQ69G5FAV.AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+
 type Compose struct {
 	netOctet                    int // second octet of this cluster's subnet, set in Start
 	enableModules               []string
@@ -602,6 +605,11 @@ func (d *Compose) WithMCPConfigFile(hostPath, containerPath string) *Compose {
 	})
 	d.WithWeaviateEnv("MCP_SERVER_CONFIG_PATH", containerPath)
 	return d
+}
+
+// WithWeaviateLicense sets LICENSE_KEY so Weaviate-licensed (wl/) features start.
+func (d *Compose) WithWeaviateLicense() *Compose {
+	return d.WithWeaviateEnv("LICENSE_KEY", TestWeaviateLicenseKey)
 }
 
 func (d *Compose) WithWeaviateWithDebugPort() *Compose {

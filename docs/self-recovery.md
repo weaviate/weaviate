@@ -14,10 +14,16 @@ Set on every node:
 
 ```
 SELF_RECOVERY_ENABLED=true
+LICENSE_KEY=<key>               # or LICENSE_KEY_FILE=<path>; required, see "Licensing"
 SELF_RECOVERY_CONCURRENCY=10    # default; per-node parallelism
 SELF_RECOVERY_BARRIER_TIMEOUT=3m  # default; wiped-joiner no-progress fallback window (see "How the trigger is scoped")
 REPLICA_MOVEMENT_ENABLED=true                  # required for /replication/* observability
 ```
+
+Self-recovery is Weaviate-licensed functionality (code under
+`wl/selfrecovery`, license in `wl/LICENSE-WEAVIATE`). Without a
+well-formed Weaviate license key the flag alone starts no recoveries; see
+"Licensing".
 
 **Rollout discipline.** Mixed-version clusters with the flag on cause
 RAFT FSM apply divergence (older nodes don't know the `SELF_RECOVERY`
@@ -90,7 +96,9 @@ groups:
 The `/debug/self-recovery/*` endpoints (and the test-only
 `POST /debug/raft/snapshot`) are registered **only when
 `SELF_RECOVERY_ENABLED=true`**. They live on the profiling/debug port,
-like the other `/debug/*` handlers.
+like the other `/debug/*` handlers. They stay registered on an unlicensed
+node, but `restart` answers `403 Forbidden` there (it would start a new
+recovery); `accept-empty` keeps working (see "Licensing").
 
 | Endpoint | When to use |
 |---|---|
@@ -290,6 +298,26 @@ discovered at startup falls back to the normal init path (empty dir +
 async-rep backfill) rather than being parked in `RECOVERING`.
 Already-running recoveries run to completion. To pause an in-flight one,
 cancel via the endpoint above before it reaches FINALIZING.
+
+## Licensing
+
+When `SELF_RECOVERY_ENABLED=true` but no well-formed Weaviate license key
+is configured (`LICENSE_KEY` or `LICENSE_KEY_FILE`, read once at startup),
+the orchestrator does not start new recoveries — `Submit` declines the
+work, and a missing-dir shard discovered at startup or on tenant
+activation falls back to the normal init path (empty dir + async-rep
+backfill) rather than being parked in `RECOVERING`; each such shard logs
+a `submission was not queued` warning. Already-registered SELF_RECOVERY
+ops (from an earlier licensed run) run to completion. The wiped-joiner
+barrier still applies, so a wiped node still waits at startup, bounded by
+`SELF_RECOVERY_BARRIER_TIMEOUT`, before it serves. The debug endpoints
+stay registered: `POST /debug/self-recovery/restart` answers
+`403 Forbidden`, while `POST /debug/self-recovery/accept-empty` behaves
+as on a licensed node. At startup the node logs once:
+
+```
+SELF_RECOVERY_ENABLED is set but no valid Weaviate license key is configured (LICENSE_KEY/LICENSE_KEY_FILE); no new shard self-recoveries will start; in-flight ops still complete
+```
 
 ## Downgrade safety
 

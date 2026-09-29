@@ -14,6 +14,7 @@ package selfrecovery
 import (
 	"context"
 	"fmt"
+	"io"
 	"sort"
 	"strconv"
 	"strings"
@@ -81,6 +82,7 @@ type srClusterCfg struct {
 	warmupMinObjects int
 	persistentData   bool // keep /data across a stop/start (tmpfs is lost on stop)
 	concurrency      int  // SELF_RECOVERY_CONCURRENCY; 0 keeps the suite default of 2
+	unlicensed       bool // omit LICENSE_KEY: the flag is on but no new recovery may start
 }
 
 // startSelfRecoveryCluster boots a 3-node cluster, registers teardown, points the client at node-0.
@@ -95,6 +97,9 @@ func startSelfRecoveryCluster(ctx context.Context, t *testing.T, cfg srClusterCf
 		WithWeaviateEnv("SELF_RECOVERY_ENABLED", "true").
 		WithWeaviateEnv("SELF_RECOVERY_CONCURRENCY", strconv.Itoa(concurrency)).
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true")
+	if !cfg.unlicensed {
+		b = b.WithWeaviateLicense()
+	}
 	if !cfg.persistentData {
 		b = b.WithWeaviateTmpfsData()
 	}
@@ -123,6 +128,23 @@ func startSelfRecoveryCluster(ctx context.Context, t *testing.T, cfg srClusterCf
 	})
 	helper.SetupClient(compose.GetWeaviate().URI())
 	return compose
+}
+
+// assertNodeLogContains blocks until node idx's full log contains needle.
+func assertNodeLogContains(ctx context.Context, t *testing.T, compose *docker.DockerCompose, idx int, needle string) {
+	t.Helper()
+	node, err := compose.ContainerAt(idx)
+	require.NoError(t, err, "node %d: container", idx)
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		logs, err := node.Container().Logs(ctx)
+		require.NoError(ct, err, "node %d: logs", idx)
+		buf, err := io.ReadAll(logs)
+		if cerr := logs.Close(); cerr != nil {
+			t.Logf("node %d: close logs: %v", idx, cerr)
+		}
+		require.NoError(ct, err, "node %d: read logs", idx)
+		require.Contains(ct, string(buf), needle, "node %d log", idx)
+	}, time.Minute, 2*time.Second, "node %d log never contained %q", idx, needle)
 }
 
 // waitClusterHealthy blocks until all 3 nodes report HEALTHY.
