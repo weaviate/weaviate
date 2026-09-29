@@ -59,7 +59,7 @@ type VectorConfigParser func(in interface{}, vectorIndexType string, isMultiVect
 type InvertedConfigValidator func(in *models.InvertedIndexConfig) error
 
 type SchemaGetter interface {
-	GetSchemaSkipAuth() schema.Schema
+	ReadOnlySchema() models.Schema
 	ReadOnlyClass(string) *models.Class
 	ResolveAlias(string) string
 	GetAliasesForClass(class string) []*models.Alias

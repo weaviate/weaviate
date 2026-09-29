@@ -923,7 +923,8 @@ func (e *Explorer) crossClassVectorFromModules(ctx context.Context,
 }
 
 func (e *Explorer) GetSchema() schema.Schema {
-	return e.schemaGetter.GetSchemaSkipAuth()
+	s := e.schemaGetter.ReadOnlySchema()
+	return schema.Schema{Objects: &s}
 }
 
 func (e *Explorer) replicationEnabled(params dto.GetParams) (bool, error) {
