@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/shardmeta"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/backup"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
@@ -789,4 +790,67 @@ func TestRemoveVectorIndexFiles_ReadsTheRecordOffline(t *testing.T) {
 	require.ErrorContains(t, err, "physical id")
 	_, err = os.Stat(ghost)
 	assert.NoError(t, err, "nothing deleted on a refused record")
+}
+
+// A drop that failed part-way leaves a dropping record and files, here an
+// upgraded dynamic index whose state key is gone and whose commit log
+// survives. When the schema has the name again, the load finishes the drop
+// first, so the re-created index starts clean instead of inferring its
+// upgrade from the surviving commit log and replaying it.
+func TestInitShardVectors_FinishesADroppingRecordBeforeRecreatingTheName(t *testing.T) {
+	ctx := testCtx()
+	const className = "RecreateDynamic"
+	duc := entdynamic.UserConfig{}
+	duc.SetDefaults()
+	duc.Threshold = 10
+	class := &models.Class{Class: className, VectorConfig: map[string]models.VectorConfig{
+		"dyn": {VectorIndexType: duc.IndexType(), VectorIndexConfig: duc},
+	}}
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, true, func(i *Index) {
+		i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"dyn": duc}
+	})
+	shard := underlyingShard(t, shd)
+	t.Cleanup(func() { _ = idx.drop() })
+
+	var objs []*storobj.Object
+	for i := 0; i < 20; i++ {
+		obj := &storobj.Object{
+			MarshallerVersion: 1,
+			Object:            models.Object{ID: strfmt.UUID(uuid.NewString()), Class: className},
+			Vectors:           map[string][]float32{"dyn": {float32(i), 1, 2, 3}},
+		}
+		require.NoError(t, shard.PutObject(ctx, obj))
+		objs = append(objs, obj)
+	}
+	commitLog := filepath.Join(shard.path(), helpers.GetHNSWCommitLogDirName("dyn"))
+	flatBucket := filepath.Join(shard.pathLSM(), helpers.VectorsBucketNameForID("vectors_dyn"))
+	exists := func(path string) bool { _, err := os.Stat(path); return err == nil }
+	require.Eventually(t, func() bool { return exists(commitLog) && !exists(flatBucket) }, 30*time.Second, 50*time.Millisecond,
+		"the queue upgrades past the threshold")
+
+	// the partial drop: state key gone, commit log left, record dropping;
+	// the schema still has the name, as after a finalize and a re-create
+	shard = reloadAfter(t, ctx, shard, class, func() {
+		require.NoError(t, dynamic.RemoveStateKeyForID(shard.path(), "vectors_dyn"))
+		withOfflineMapping(t, shard.path(), func(m *vectorIndexMapping, _ *shardmeta.Namespace) {
+			require.NoError(t, m.Put("dyn", vectorIndexRecord{PhysicalID: "vectors_dyn", IndexType: "dynamic", State: "dropping"}))
+		})
+	})
+
+	rec, ok, err := shard.mapping.Get("dyn")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, "ready", rec.State)
+	upgraded, err := dynamic.UpgradedInState(shard.metadataDB.Namespace(dynamic.StateNamespace), shard.path(), "vectors_dyn")
+	require.NoError(t, err)
+	assert.False(t, upgraded, "the re-created index starts flat")
+	assert.True(t, exists(flatBucket), "the flat stage is back")
+	found, err := shard.WithVectorIndex("dyn", func(index VectorIndex) error {
+		for _, obj := range objs {
+			assert.False(t, index.ContainsDoc(obj.DocID), "the surviving commit log was not replayed")
+		}
+		return nil
+	})
+	require.NoError(t, err)
+	require.True(t, found)
 }
