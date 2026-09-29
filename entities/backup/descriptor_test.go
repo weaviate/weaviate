@@ -519,6 +519,26 @@ func TestDistributedBackupDescriptor_UserList(t *testing.T) {
 	})
 }
 
+func TestDistributedBackupDescriptor_RoleList(t *testing.T) {
+	tests := []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{name: "nil", in: nil, want: []string{}},
+		{name: "many", in: []string{"editor", "ns1:reader"}, want: []string{"editor", "ns1:reader"}},
+		{name: "dedupes", in: []string{"editor", "editor", "reader"}, want: []string{"editor", "reader"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			d := DistributedBackupDescriptor{Roles: tc.in}
+			got := d.RoleList()
+			sort.Strings(got)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestShardDescriptorClear(t *testing.T) {
 	s := ShardDescriptor{
 		Name:                  "name",

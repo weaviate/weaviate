@@ -378,6 +378,43 @@ func TestValidatePermissions(t *testing.T) {
 			},
 		},
 		{
+			name:        "backups collection alone accepted",
+			permissions: []*models.Permission{{Backups: &models.PermissionBackups{Collection: String("Movies")}}},
+		},
+		{
+			name:        "backups user alone accepted, OIDC colon included",
+			permissions: []*models.Permission{{Backups: &models.PermissionBackups{User: String("urn:corp:alice")}}},
+		},
+		{
+			name:        "backups role alone accepted",
+			permissions: []*models.Permission{{Backups: &models.PermissionBackups{Role: String("editor")}}},
+		},
+		{
+			name:        "backups collection and user rejected",
+			permissions: []*models.Permission{{Backups: &models.PermissionBackups{Collection: String("*"), User: String("*")}}},
+			expectedErr: "at most one of collection, user and role",
+		},
+		{
+			name:        "backups collection and role rejected",
+			permissions: []*models.Permission{{Backups: &models.PermissionBackups{Collection: String("*"), Role: String("*")}}},
+			expectedErr: "at most one of collection, user and role",
+		},
+		{
+			name:        "backups user and role rejected",
+			permissions: []*models.Permission{{Backups: &models.PermissionBackups{User: String("*"), Role: String("*")}}},
+			expectedErr: "at most one of collection, user and role",
+		},
+		{
+			name:        "backups user target with a slash rejected",
+			permissions: []*models.Permission{{Backups: &models.PermissionBackups{User: String("a/b")}}},
+			expectedErr: "user 'a/b' must not contain '/'",
+		},
+		{
+			name:        "backups role target that does not compile rejected",
+			permissions: []*models.Permission{{Backups: &models.PermissionBackups{Role: String("(")}}},
+			expectedErr: "role '(' is not a valid pattern",
+		},
+		{
 			name: "valid group, shard and alias regex accepted",
 			permissions: []*models.Permission{
 				{

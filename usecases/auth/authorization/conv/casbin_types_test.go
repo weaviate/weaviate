@@ -1286,6 +1286,9 @@ func TestIsOpaqueIDResource(t *testing.T) {
 		{"data/collections/Movies/shards/T/objects/*", false},
 		{"roles/editor", false},
 		{"cluster/*", false},
+		{"backups/users/urn:foo", true},
+		{"backups/roles/ns1:editor", true},
+		{"backups/collections/ns1:Movies", false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.resource, func(t *testing.T) {

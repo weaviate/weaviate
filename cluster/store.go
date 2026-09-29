@@ -306,6 +306,10 @@ type Store struct {
 
 	// clusterID is the stable UUID committed once per cluster lifetime via raft.
 	clusterID atomic.Pointer[string]
+
+	forcedSnapshotSignal chan struct{}
+	stopForcedSnapshots  context.CancelFunc
+	forcedSnapshotsDone  chan struct{}
 }
 
 // storeMetrics exposes RAFT store related prometheus metrics
@@ -415,6 +419,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		rbacLister = cfg.RBAC
 	}
 
+	forceSnapshot := make(chan struct{}, 1)
 	return Store{
 		cfg:          cfg,
 		log:          cfg.Logger,
@@ -431,12 +436,13 @@ func NewFSM(cfg Config, authZController authorization.Controller, reg prometheus
 		schemaManager:           schemaManager,
 		tenantAddLocks:          entsync.NewKeyLocker(),
 		authZController:         authZController,
-		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger),
+		authZManager:            rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, cfg.Logger, forceSnapshot),
 		dynUserManager:          dynusers.NewManager(cfg.DynamicUserController, cfg.NamespacesController, cfg.NamespacesEnabled, cfg.Logger),
 		namespaceManager:        namespaces.NewManager(cfg.NamespacesController, NewSchemaNamespaceLister(schemaManager.NewSchemaReader()), dynusersLister, rbacLister, cfg.Logger),
 		replicationManager:      replicationManager,
 		distributedTasksManager: distributedTasksManager,
 		metrics:                 newStoreMetrics(cfg.NodeID, reg),
+		forcedSnapshotSignal:    forceSnapshot,
 	}
 }
 
@@ -537,6 +543,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 			return err
 		}
 	}
+	st.startForcedSnapshotter()
 
 	snapIndex := lastSnapshotIndex(st.snapshotStore)
 	if st.lastAppliedIndexToDB.Load() == 0 && snapIndex == 0 {
@@ -696,10 +703,18 @@ func (st *Store) Close(ctx context.Context) error {
 		st.log.WithError(err).Warn("failed to close raft transport")
 	}
 
+	if st.stopForcedSnapshots != nil {
+		st.stopForcedSnapshots()
+	}
+
 	// shutdown raft after transport is closed to ensure clean termination
 	st.log.Info("shutting down raft ...")
 	if err := st.raft.Load().Shutdown().Error(); err != nil {
 		st.log.WithError(err).Warn("raft shutdown failed")
+	}
+	if st.forcedSnapshotsDone != nil {
+		<-st.forcedSnapshotsDone
+		st.stopForcedSnapshots, st.forcedSnapshotsDone = nil, nil
 	}
 
 	st.open.Store(false)

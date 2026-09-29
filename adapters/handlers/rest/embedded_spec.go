@@ -10178,13 +10178,23 @@ func init() {
           }
         },
         "backups": {
-          "description": "Resources applicable for backup actions.",
+          "description": "Resources applicable for backup actions. At most one of ` + "`" + `collection` + "`" + `, ` + "`" + `user` + "`" + ` and ` + "`" + `role` + "`" + ` may be set; with none set, the permission applies to all collections.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections. Cannot be combined with ` + "`" + `user` + "`" + ` or ` + "`" + `role` + "`" + `.",
               "type": "string",
               "default": "*"
+            },
+            "role": {
+              "description": "A string that specifies which custom roles this permission allows to be backed up and restored. Can be an exact role name or a regex pattern; ` + "`" + `*` + "`" + ` applies the permission to all roles. Cannot be combined with ` + "`" + `collection` + "`" + ` or ` + "`" + `user` + "`" + `.",
+              "type": "string",
+              "x-nullable": true
+            },
+            "user": {
+              "description": "A string that specifies which dynamic users this permission allows to be backed up and restored. Can be an exact user ID or a regex pattern; ` + "`" + `*` + "`" + ` applies the permission to all users. Cannot be combined with ` + "`" + `collection` + "`" + ` or ` + "`" + `role` + "`" + `.",
+              "type": "string",
+              "x-nullable": true
             }
           }
         },
@@ -22958,13 +22968,23 @@ func init() {
           }
         },
         "backups": {
-          "description": "Resources applicable for backup actions.",
+          "description": "Resources applicable for backup actions. At most one of ` + "`" + `collection` + "`" + `, ` + "`" + `user` + "`" + ` and ` + "`" + `role` + "`" + ` may be set; with none set, the permission applies to all collections.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections. Cannot be combined with ` + "`" + `user` + "`" + ` or ` + "`" + `role` + "`" + `.",
               "type": "string",
               "default": "*"
+            },
+            "role": {
+              "description": "A string that specifies which custom roles this permission allows to be backed up and restored. Can be an exact role name or a regex pattern; ` + "`" + `*` + "`" + ` applies the permission to all roles. Cannot be combined with ` + "`" + `collection` + "`" + ` or ` + "`" + `user` + "`" + `.",
+              "type": "string",
+              "x-nullable": true
+            },
+            "user": {
+              "description": "A string that specifies which dynamic users this permission allows to be backed up and restored. Can be an exact user ID or a regex pattern; ` + "`" + `*` + "`" + ` applies the permission to all users. Cannot be combined with ` + "`" + `collection` + "`" + ` or ` + "`" + `role` + "`" + `.",
+              "type": "string",
+              "x-nullable": true
             }
           }
         },
@@ -23128,13 +23148,23 @@ func init() {
       }
     },
     "PermissionBackups": {
-      "description": "Resources applicable for backup actions.",
+      "description": "Resources applicable for backup actions. At most one of ` + "`" + `collection` + "`" + `, ` + "`" + `user` + "`" + ` and ` + "`" + `role` + "`" + ` may be set; with none set, the permission applies to all collections.",
       "type": "object",
       "properties": {
         "collection": {
-          "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
+          "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections. Cannot be combined with ` + "`" + `user` + "`" + ` or ` + "`" + `role` + "`" + `.",
           "type": "string",
           "default": "*"
+        },
+        "role": {
+          "description": "A string that specifies which custom roles this permission allows to be backed up and restored. Can be an exact role name or a regex pattern; ` + "`" + `*` + "`" + ` applies the permission to all roles. Cannot be combined with ` + "`" + `collection` + "`" + ` or ` + "`" + `user` + "`" + `.",
+          "type": "string",
+          "x-nullable": true
+        },
+        "user": {
+          "description": "A string that specifies which dynamic users this permission allows to be backed up and restored. Can be an exact user ID or a regex pattern; ` + "`" + `*` + "`" + ` applies the permission to all users. Cannot be combined with ` + "`" + `collection` + "`" + ` or ` + "`" + `role` + "`" + `.",
+          "type": "string",
+          "x-nullable": true
         }
       }
     },

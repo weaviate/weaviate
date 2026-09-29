@@ -13,6 +13,7 @@ package mocks
 
 import (
 	"context"
+	"fmt"
 
 	models "github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -70,8 +71,15 @@ func (a *FakeAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.
 	return a.record(principal, verb, true, resources)
 }
 
+// errNoResources is the rbac authorizer's answer to a call carrying no
+// resources, which it gives before looking at the principal, root included.
+var errNoResources = fmt.Errorf("at least 1 resource is required")
+
 func (a *FakeAuthorizer) record(principal *models.Principal, verb string, silent bool, resources []string) error {
 	a.requests = append(a.requests, AuthZReq{principal, verb, resources, silent})
+	if len(resources) == 0 {
+		return errNoResources
+	}
 	if a.err != nil && len(a.requests) > a.allowedCalls {
 		return a.err
 	}
@@ -85,6 +93,9 @@ func (a *FakeAuthorizer) record(principal *models.Principal, verb string, silent
 
 func (a *FakeAuthorizer) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
 	a.requests = append(a.requests, AuthZReq{principal, verb, resources, false})
+	if len(resources) == 0 {
+		return nil, errNoResources
+	}
 	if a.err != nil && len(a.requests) > a.allowedCalls {
 		return nil, a.err
 	}

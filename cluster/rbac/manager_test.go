@@ -37,7 +37,7 @@ func newTestManagerWithNamespaces(t *testing.T, namespaces rbac.NamespaceLister)
 	policyPath := filepath.Join(t.TempDir(), "policy.csv")
 	authZ, err := rbac.New(policyPath, rbacconf.Config{Enabled: true}, config.Authentication{}, true, namespaces, logrus.New())
 	require.NoError(t, err)
-	return NewManager(authZ, config.Authentication{}, logrus.New())
+	return NewManager(authZ, config.Authentication{}, logrus.New(), make(chan struct{}, 1))
 }
 
 func applyCreateRole(m *Manager, name string) error {

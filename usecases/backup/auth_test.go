@@ -199,20 +199,25 @@ func Test_Authorization(t *testing.T) {
 
 				if !test.ignoreAuthZ {
 					if test.filtersResources {
-						// Denying the blanket probe sends List on to the
-						// per-resource authorization asserted on here.
-						blanket := authorization.Backups()[0]
-						authorizer.On("AuthorizeSilent", mock.Anything, mock.Anything, test.expectedVerb, blanket).
-							Return(authzerrors.NewForbidden(&models.Principal{}, test.expectedVerb, blanket)).Once()
-						authorizer.On("FilterAuthorizedResources", mock.Anything, mock.Anything, test.expectedVerb, test.expectedResource).
-							Return([]string{test.expectedResource}, nil).Once()
+						// Denying the blanket probe makes List fall through to the
+						// per-resource authorization this test asserts on. The
+						// descriptor names no users or roles, so it needs both
+						// wildcards too.
+						blanket := []interface{}{authorization.Backups()[0], authorization.BackupUsers()[0], authorization.BackupRoles()[0]}
+						authorizer.On("AuthorizeSilent", append([]interface{}{mock.Anything, mock.Anything, test.expectedVerb}, blanket...)...).
+							Return(authzerrors.NewForbidden(&models.Principal{}, test.expectedVerb, authorization.Backups()...)).Once()
+						named := []string{test.expectedResource, authorization.BackupRoles()[0], authorization.BackupUsers()[0]}
+						authorizer.On("FilterAuthorizedResources", mock.Anything, mock.Anything, test.expectedVerb, named[0], named[1], named[2]).
+							Return(named, nil).Once()
 					} else {
 						authorizer.On("Authorize", mock.Anything, mock.Anything, test.expectedVerb, test.expectedResource).Return(nil).Once()
 					}
 					// Subsequent fine-grained authz calls (e.g. Backup/Restore
 					// re-authorizing on resolved classes, Cancel re-authorizing
-					// on meta classes) are allowed but not required.
+					// on meta classes, the users and roles checks) are allowed
+					// but not required.
 					authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+					authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 				}
 
 				args := append([]interface{}{context.Background(), &models.Principal{}}, test.additionalArgs...)

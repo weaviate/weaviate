@@ -75,7 +75,7 @@ func newRolesAndUsersStores(t *testing.T, ns usecasesNamespaces.Exister) *rolesA
 	require.NoError(t, err)
 
 	return &rolesAndUsersStores{
-		authZManager: clusterrbac.NewManager(authZ, config.Authentication{}, logger),
+		authZManager: clusterrbac.NewManager(authZ, config.Authentication{}, logger, make(chan struct{}, 1)),
 		dynManager:   clusterdynusers.NewManager(dynUser, ns, false, logger),
 		authZ:        authZ,
 		dynUser:      dynUser,

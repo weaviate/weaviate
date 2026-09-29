@@ -487,8 +487,9 @@ func TestSchedulerBackupStatus(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, backup.Success, got.Status)
 		calls := fs.auth.(*mocks.FakeAuthorizer).Calls()
-		require.Len(t, calls, 1)
+		require.Len(t, calls, 2)
 		assert.Equal(t, authorization.Backups(), calls[0].Resources)
+		assert.Equal(t, wholeStores, calls[1].Resources)
 	})
 
 	t.Run("RejectSingleNodeMetadata", func(t *testing.T) {
@@ -614,8 +615,9 @@ func TestSchedulerRestorationStatus(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, backup.Success, got.Status)
 		calls := fs.auth.(*mocks.FakeAuthorizer).Calls()
-		require.Len(t, calls, 1)
+		require.Len(t, calls, 2)
 		assert.Equal(t, authorization.Backups(), calls[0].Resources)
+		assert.Equal(t, wholeStores, calls[1].Resources)
 	})
 }
 
@@ -761,7 +763,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		assert.Equal(t, "", fs.backend.glMeta.Error)
 	})
 
-	t.Run("class-less create performs no authorization call", func(t *testing.T) {
+	t.Run("class-less create authorizes the named users and every role", func(t *testing.T) {
 		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
 		fs.userLister.users = []string{"alice"}
 		fs.selector.On("ListClasses", ctx).Return([]string(nil))
@@ -782,7 +784,10 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.Empty(t, resp.Classes)
-		assert.Empty(t, fs.auth.(*mocks.FakeAuthorizer).Calls())
+		assert.Equal(t, []mocks.AuthZReq{
+			{Principal: &models.Principal{Username: "test-user"}, Verb: authorization.CREATE, Resources: []string{"backups/users/alice"}},
+			{Principal: &models.Principal{Username: "test-user"}, Verb: authorization.CREATE, Resources: []string{"backups/roles/*"}},
+		}, fs.auth.(*mocks.FakeAuthorizer).Calls())
 		require.Eventually(t, func() bool { return s.backupper.lastOp.get().Status == "" },
 			10*time.Second, 10*time.Millisecond, "backup did not finish")
 		fs.client.AssertExpectations(t)
@@ -1526,7 +1531,7 @@ func TestSchedulerList(t *testing.T) {
 		assert.Empty(t, (*resp)[0].Classes)
 		calls := fs.auth.(*mocks.FakeAuthorizer).Calls()
 		require.Len(t, calls, 2)
-		assert.Equal(t, authorization.Backups(), calls[0].Resources)
+		assert.Equal(t, listWildcards, calls[0].Resources)
 	})
 
 	t.Run("EmptyList", func(t *testing.T) {
@@ -1568,7 +1573,7 @@ func TestSchedulerList(t *testing.T) {
 		require.Len(t, calls, 2, "blanket backup READ covers the listing, so no collection is authorized on its own")
 		for _, call := range calls {
 			assert.Equal(t, authorization.READ, call.Verb)
-			assert.Equal(t, authorization.Backups(), call.Resources)
+			assert.Equal(t, listWildcards, call.Resources)
 		}
 		assert.True(t, calls[0].Silent, "the probe must not log a denial for callers who hold no blanket READ")
 		assert.False(t, calls[1].Silent,
@@ -1600,9 +1605,9 @@ func TestSchedulerList(t *testing.T) {
 
 		calls := authorizer.Calls()
 		require.Len(t, calls, 2, "the blanket probe, then one call covering the collections both backups name")
-		assert.Equal(t, authorization.Backups(), calls[0].Resources)
+		assert.Equal(t, listWildcards, calls[0].Resources)
 		assert.Equal(t, authorization.READ, calls[1].Verb)
-		assert.ElementsMatch(t, authorization.Backups(cls1, cls2), calls[1].Resources)
+		assert.ElementsMatch(t, append(authorization.Backups(cls1, cls2), wholeStores...), calls[1].Resources)
 	})
 
 	t.Run("AuthorizesEachCollectionOnceForADeniedCaller", func(t *testing.T) {
@@ -1948,6 +1953,14 @@ func (f *fakeScheduler) scheduler() *Scheduler {
 	return c
 }
 
+var (
+	// wholeStores is what a descriptor that skips neither subsystem and names
+	// no IDs requires: its users and roles snapshots hold the whole stores.
+	wholeStores = []string{"backups/users/*", "backups/roles/*"}
+	// listWildcards is the blanket READ a listing probes for first.
+	listWildcards = []string{"backups/collections/*", "backups/users/*", "backups/roles/*"}
+)
+
 func marshalCoordinatorMeta(m backup.DistributedBackupDescriptor) []byte {
 	bytes, _ := json.MarshalIndent(m, "", "")
 	return bytes
@@ -2029,9 +2042,11 @@ func TestCancellingBackup(t *testing.T) {
 		assert.NoError(t, err)
 
 		calls := fakeScheduler.auth.(*mocks.FakeAuthorizer).Calls()
-		assert.Len(t, calls, 1)
+		assert.Len(t, calls, 2)
 		assert.Equal(t, authorization.DELETE, calls[0].Verb)
 		assert.Equal(t, authorization.Backups("Class1"), calls[0].Resources)
+		assert.Equal(t, authorization.DELETE, calls[1].Verb)
+		assert.Equal(t, wholeStores, calls[1].Resources)
 		fakeScheduler.backend.AssertExpectations(t)
 	})
 
@@ -2047,8 +2062,9 @@ func TestCancellingBackup(t *testing.T) {
 		err := fs.scheduler().Cancel(ctx, &models.Principal{Username: "test-user"}, backendName, backupID, "", "")
 		require.NoError(t, err)
 		calls := fs.auth.(*mocks.FakeAuthorizer).Calls()
-		require.Len(t, calls, 1)
+		require.Len(t, calls, 2)
 		assert.Equal(t, authorization.Backups(), calls[0].Resources)
+		assert.Equal(t, wholeStores, calls[1].Resources)
 	})
 }
 
@@ -2174,8 +2190,9 @@ func TestCancellingRestore(t *testing.T) {
 		err := fs.scheduler().CancelRestore(ctx, &models.Principal{Username: "test-user"}, backendName, backupID, "", "")
 		require.NoError(t, err)
 		calls := fs.auth.(*mocks.FakeAuthorizer).Calls()
-		require.Len(t, calls, 1)
+		require.Len(t, calls, 2)
 		assert.Equal(t, authorization.Backups(), calls[0].Resources)
+		assert.Equal(t, wholeStores, calls[1].Resources)
 	})
 
 	t.Run("CancellingFinalizing", func(t *testing.T) {
@@ -2317,9 +2334,11 @@ func TestCancellingRestore(t *testing.T) {
 		assert.NoError(t, err)
 
 		calls := fakeScheduler.auth.(*mocks.FakeAuthorizer).Calls()
-		assert.Len(t, calls, 1)
+		assert.Len(t, calls, 2)
 		assert.Equal(t, authorization.DELETE, calls[0].Verb)
 		assert.Equal(t, authorization.Backups("Class1"), calls[0].Resources)
+		assert.Equal(t, authorization.DELETE, calls[1].Verb)
+		assert.Equal(t, wholeStores, calls[1].Resources)
 		fakeScheduler.backend.AssertExpectations(t)
 	})
 }
@@ -3743,7 +3762,7 @@ func TestRestoreSelectsLeaderBlob(t *testing.T) {
 		assert.Empty(t, calls)
 	})
 
-	t.Run("class-less restore performs no authorization call", func(t *testing.T) {
+	t.Run("class-less restore authorizes both whole stores", func(t *testing.T) {
 		const (
 			backupID = "classless-blobs"
 			node     = "Node-A"
@@ -3779,7 +3798,9 @@ func TestRestoreSelectsLeaderBlob(t *testing.T) {
 			UserRestoreOption: "all", RbacRestoreOption: "all",
 		}, false)
 		require.NoError(t, err)
-		assert.Empty(t, fs.auth.(*mocks.FakeAuthorizer).Calls())
+		assert.Equal(t, []mocks.AuthZReq{
+			{Principal: &models.Principal{Username: "test-user"}, Verb: authorization.CREATE, Resources: wholeStores},
+		}, fs.auth.(*mocks.FakeAuthorizer).Calls())
 		require.Eventually(t, func() bool { return s.restorer.lastOp.get().Status == "" },
 			10*time.Second, 10*time.Millisecond, "restore did not finish")
 		calls := recorder.recorded()
