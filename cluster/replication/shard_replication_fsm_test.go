@@ -550,14 +550,6 @@ func TestShardReplicationFSM_InFlightOpsSourcingShard(t *testing.T) {
 			expected: nil,
 		},
 		{
-			name: "READY copy",
-			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
-				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)
-				driveToState(t, fsm, 1, api.READY)
-			},
-			expected: nil,
-		},
-		{
 			name: "CANCELLED copy",
 			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
 				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)

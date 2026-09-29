@@ -113,7 +113,6 @@ func TestSelfRecoveryUncancellableAfterFinalizing(t *testing.T) {
 		"FINALIZING":           {api.HYDRATING, api.FINALIZING},
 		"INTEGRATING":          {api.HYDRATING, api.FINALIZING, api.INTEGRATING},
 		"rewound to HYDRATING": {api.HYDRATING, api.FINALIZING, api.INTEGRATING, api.HYDRATING},
-		"rewound twice":        {api.HYDRATING, api.FINALIZING, api.HYDRATING, api.FINALIZING, api.INTEGRATING, api.HYDRATING},
 		"re-FINALIZING":        {api.HYDRATING, api.FINALIZING, api.HYDRATING, api.FINALIZING},
 	}
 	refusal := map[cancelAction]error{

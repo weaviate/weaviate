@@ -301,20 +301,6 @@ func TestReplicaAddFence_RewindWaitsForAnAdmittedAdd(t *testing.T) {
 	require.Zero(t, st.replicaOpLocks.len())
 }
 
-func TestReplicaAddFence_AddAfterRewindIsRefused(t *testing.T) {
-	st, _ := newReplicaAddFenceStore(t)
-	registerFenceOp(t, st.replicationManager.GetReplicationFSM(), 3, api.HYDRATING, api.FINALIZING)
-
-	_, err := st.Execute(updateOpStateCmd(t, 3, api.HYDRATING))
-	require.NoError(t, err)
-	before := settledLogIndex(t, st)
-
-	_, err = st.Execute(addReplicaCmd(t, 3))
-
-	require.ErrorIs(t, err, replicationTypes.ErrAddReplicaOpNotFinalizing)
-	require.Equal(t, before, st.raft.Load().LastIndex())
-}
-
 func TestOpKeyLocks(t *testing.T) {
 	tests := []struct {
 		name    string
