@@ -15,6 +15,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -533,4 +534,231 @@ func TestDropVectorIndex_DeletesAtTheRecordedID(t *testing.T) {
 	require.NoError(t, shard.DropVectorIndex(ctx, "foo"))
 	_, err = os.Stat(decoy)
 	assert.NoError(t, err, "a retry has nothing to derive an id from and deletes nothing")
+}
+
+// newColdLazyShard replaces a shut-down shard's map entry with the lazy
+// loader the index holds for a tenant before its first use.
+func newColdLazyShard(ctx context.Context, shard *Shard, class *models.Class) *LazyLoadShard {
+	idx := shard.index
+	lazy := NewLazyLoadShard(ctx, nil, shard.name, idx, class, idx.centralJobQueue,
+		idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer, false, idx.bitmapBufPool)
+	idx.shards.Store(shard.name, lazy)
+	return lazy
+}
+
+// A cold tenant is swept under its loader's mutex, so no load can start
+// while the offline cleanup runs. The cleanup is made to dwell: the mapping
+// file is held open as a loaded shard holds it, and the offline read waits
+// a second on the file lock. During that second the mutex must be held
+// without a gap; the cold check alone holds it for microseconds.
+func TestDropVectorIndex_CompletionSweepHoldsTheLoaderDuringOfflineCleanup(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	markDropped(class, "foo")
+	idx := shard.index
+	require.NoError(t, shard.Shutdown(ctx))
+	lazy := newColdLazyShard(ctx, shard, class)
+
+	held, err := shardmeta.Open(shard.path(), entlsmkv.BoltFlockTimeout)
+	require.NoError(t, err)
+	db := &DB{logger: idx.logger, indices: map[string]*Index{idx.ID(): idx}}
+	done := make(chan error, 1)
+	go func() {
+		done <- db.EnsureDroppedVectorFilesRemoved(class.Class, shard.name, []string{"foo"})
+	}()
+
+	// the mutex stays taken for 200 ms in a row while the sweep waits on the file
+	deadline := time.Now().Add(500 * time.Millisecond)
+	var heldSince time.Time
+	for time.Now().Before(deadline) {
+		if lazy.mutex.TryLock() {
+			lazy.mutex.Unlock()
+			heldSince = time.Time{}
+		} else if heldSince.IsZero() {
+			heldSince = time.Now()
+		} else if time.Since(heldSince) >= 200*time.Millisecond {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	assert.False(t, heldSince.IsZero() || time.Since(heldSince) < 200*time.Millisecond,
+		"the sweep released the loader's mutex during the offline cleanup")
+
+	// the read timed out on the file: the sweep skips, as for a load that slipped in
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the sweep did not return after the file lock timeout")
+	}
+	assert.False(t, lazy.isLoaded(), "the sweep loaded the tenant")
+	assert.NotEmpty(t, entriesNamed(t, shard, "foo"), "nothing removed under a held file")
+
+	// with the file free the same sweep removes foo offline and keeps the others
+	require.NoError(t, held.Close())
+	require.NoError(t, db.EnsureDroppedVectorFilesRemoved(class.Class, shard.name, []string{"foo"}))
+	records, initialized, err := reopenMapping(t, shard.path())
+	require.NoError(t, err)
+	assert.True(t, initialized)
+	_, hasFoo := records["foo"]
+	assert.False(t, hasFoo)
+	assert.Len(t, records, 2)
+	assert.Empty(t, entriesNamed(t, shard, "foo"))
+}
+
+// A loaded lazy tenant is swept through its shard's own drop, never offline.
+func TestDropVectorIndex_CompletionSweepRetriesThroughLoadedLazyShard(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	idx := shard.index
+	require.NoError(t, shard.Shutdown(ctx))
+	lazy := newColdLazyShard(ctx, shard, class)
+	loaded, _, err := lazy.loadIfCold(ctx)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = loaded.Shutdown(ctx) })
+
+	// what a drop that failed after its record write leaves behind
+	require.NoError(t, loaded.PutObject(ctx, dropVecObject(t, "one", true)))
+	markDropped(class, "foo")
+	rec, ok, err := loaded.mapping.Get("foo")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, loaded.markVectorIndexDropping("foo", rec))
+
+	db := &DB{logger: idx.logger, indices: map[string]*Index{idx.ID(): idx}}
+	require.NoError(t, db.EnsureDroppedVectorFilesRemoved(class.Class, shard.name, []string{"foo"}))
+	// the offline route would have skipped on the loaded shard's lock, leaving
+	// the record and the files; the shard's own drop finishes them
+	assert.Empty(t, entriesNamed(t, loaded, "foo"), "the sweep finished the drop")
+	_, ok, err = loaded.mapping.Get("foo")
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
+// liveCreate rebuilds the index of targetVector from its mapping record,
+// as an index that was unpublished without a teardown.
+func liveCreate(ctx context.Context, shard *Shard, targetVector string) error {
+	rec, ok, err := shard.mapping.Get(targetVector)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("no mapping record for %q", targetVector)
+	}
+	cfg := shard.index.GetVectorIndexConfig(targetVector)
+	return shard.createVectorIndex(ctx, targetVector, rec.PhysicalID, cfg, false)
+}
+
+// searchIDs returns the IDs the index of targetVector finds for vector.
+func searchIDs(t *testing.T, ctx context.Context, shard *Shard, targetVector string, vector []float32) []strfmt.UUID {
+	t.Helper()
+	objs, _, err := shard.ObjectVectorSearch(ctx, []models.Vector{vector}, []string{targetVector}, 0, 10, nil, nil, nil, additional.Properties{}, nil, nil)
+	require.NoError(t, err)
+	ids := make([]strfmt.UUID, 0, len(objs))
+	for _, obj := range objs {
+		ids = append(ids, obj.ID())
+	}
+	return ids
+}
+
+func noTeardown(VectorIndex, *VectorIndexQueue) error { return nil }
+
+// A write whose vector index is missing fails before anything is stored,
+// and an identical retry once the index exists is indexed: an object
+// stored and then failed would be skipped as unchanged on the retry.
+func TestPutObject_FailsOnAMissingVectorIndexBeforeStoring(t *testing.T) {
+	ctx := testCtx()
+	shard, _ := setupDropVectorShard(t, ctx)
+	require.NoError(t, shard.vectors.Remove(ctx, "foo", shard.index.logger, noTeardown))
+
+	obj := dropVecObject(t, "one", true)
+	err := shard.PutObject(ctx, obj)
+	require.ErrorContains(t, err, "vector index not found")
+	got, err := shard.ObjectByID(ctx, obj.ID(), nil, additional.Properties{})
+	require.NoError(t, err)
+	assert.Nil(t, got, "nothing stored without the index")
+
+	require.NoError(t, liveCreate(ctx, shard, "foo"))
+	require.NoError(t, shard.PutObject(ctx, obj))
+	assert.Equal(t, []strfmt.UUID{obj.ID()}, searchIDs(t, ctx, shard, "foo", obj.Vectors["foo"]))
+}
+
+// The legacy vector's index is required by the schema, not by its presence.
+func TestPutObject_LegacyIndexRequiredBySchema(t *testing.T) {
+	ctx := testCtx()
+	shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: "PutLegacy"}, hnsw.NewDefaultUserConfig(), false, false)
+	shard := underlyingShard(t, shd)
+	require.NoError(t, shard.vectors.Remove(ctx, "", shard.index.logger, noTeardown))
+
+	obj := &storobj.Object{
+		MarshallerVersion: 1,
+		Object:            models.Object{ID: strfmt.UUID(uuid.NewString()), Class: "PutLegacy"},
+		Vector:            []float32{1, 2, 3},
+	}
+	err := shard.PutObject(ctx, obj)
+	require.ErrorContains(t, err, `vector index not found for ""`)
+	got, err := shard.ObjectByID(ctx, obj.ID(), nil, additional.Properties{})
+	require.NoError(t, err)
+	assert.Nil(t, got)
+}
+
+// A batch fails the object whose index is missing, stores nothing for it,
+// and keeps the others. Both entry points share the store step.
+func TestPutObjectBatch_FailsOnAMissingVectorIndexBeforeStoring(t *testing.T) {
+	ctx := testCtx()
+	shard, _ := setupDropVectorShard(t, ctx)
+	require.NoError(t, shard.vectors.Remove(ctx, "foo", shard.index.logger, noTeardown))
+
+	withFoo := dropVecObject(t, "one", true)
+	withoutFoo := dropVecObject(t, "two", false)
+	withMV := dropVecMultiObject(t, "three")
+	errs := shard.PutObjectBatch(ctx, []*storobj.Object{withFoo, withoutFoo, withMV})
+	require.Len(t, errs, 3)
+	require.ErrorContains(t, errs[0], "vector index not found")
+	require.NoError(t, errs[1])
+	require.NoError(t, errs[2])
+	got, err := shard.ObjectByID(ctx, withFoo.ID(), nil, additional.Properties{})
+	require.NoError(t, err)
+	assert.Nil(t, got)
+	for _, stored := range []*storobj.Object{withoutFoo, withMV} {
+		got, err = shard.ObjectByID(ctx, stored.ID(), nil, additional.Properties{})
+		require.NoError(t, err)
+		assert.NotNil(t, got)
+	}
+}
+
+// A merge carries the stored version's vectors into the new version: when
+// one of their indexes is missing, the merge fails before it stores. A
+// vector whose index was dropped is stripped first, so a property-only
+// merge after a drop still succeeds.
+func TestMergeObject_FailsOnAMissingIndexOfACarriedOverVector(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	obj := dropVecObject(t, "one", true)
+	require.NoError(t, shard.PutObject(ctx, obj))
+	require.NoError(t, shard.vectors.Remove(ctx, "foo", shard.index.logger, noTeardown))
+
+	propertyOnly := func(label string) objects.MergeDocument {
+		return objects.MergeDocument{
+			ID: obj.ID(), Class: dropVecClassName, UpdateTime: time.Now().UnixMilli(),
+			PrimitiveSchema: map[string]interface{}{"label": label},
+		}
+	}
+	label := func() string {
+		got, err := shard.ObjectByID(ctx, obj.ID(), nil, additional.Properties{})
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		return got.Object.Properties.(map[string]interface{})["label"].(string)
+	}
+	err := shard.MergeObject(ctx, propertyOnly("renamed"))
+	require.ErrorContains(t, err, "vector index not found")
+	assert.Equal(t, "one", label(), "unchanged")
+
+	// the same merge after a drop: the carried-over vector is stripped
+	markDropped(class, "foo")
+	require.NoError(t, shard.MergeObject(ctx, propertyOnly("renamed")))
+	assert.Equal(t, "renamed", label())
+	got, err := shard.ObjectByID(ctx, obj.ID(), nil, additional.Properties{})
+	require.NoError(t, err)
+	assert.Empty(t, got.Vectors)
 }

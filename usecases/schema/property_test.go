@@ -14,6 +14,7 @@ package schema
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -25,6 +26,9 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/tokenizer"
 	"github.com/weaviate/weaviate/entities/versioned"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -952,9 +956,14 @@ func TestAddClassProperty_Namespacing(t *testing.T) {
 		enabled      bool
 		principal    *models.Principal
 		inputName    string
-		stored       string // class name present in storage, "" if absent
-		wantAuthName string // qualified name authorized + persisted
+		stored       string   // class name present in storage, "" if absent
+		wantAuthName string   // qualified name authorized + persisted
+		dataType     []string // property DataType sent, nil for text
+		wantDataType []string // DataType persisted, nil if the same as dataType
+		deniedTarget string   // ref target the principal may not read, "" for none
 		wantErrIs    error
+		wantErrMsg   string
+		wantDenied   bool
 	}{
 		{
 			name:         "namespaced: short input qualifies and authorizes against qualified",
@@ -988,12 +997,83 @@ func TestAddClassProperty_Namespacing(t *testing.T) {
 			stored:    "customer1:Movies",
 			wantErrIs: ErrNotFound,
 		},
+		{
+			name:         "namespaced: short ref target gets the class's namespace",
+			enabled:      true,
+			principal:    namespacedPrincipal("customer1"),
+			inputName:    "Movies",
+			stored:       "customer1:Movies",
+			wantAuthName: "customer1:Movies",
+			dataType:     []string{"Animal"},
+			wantDataType: []string{"customer1:Animal"},
+		},
+		{
+			name:         "global: ref target in the class's namespace kept",
+			enabled:      true,
+			principal:    globalPrincipal(),
+			inputName:    "customer1:Movies",
+			stored:       "customer1:Movies",
+			wantAuthName: "customer1:Movies",
+			dataType:     []string{"customer1:Animal"},
+		},
+		{
+			name:         "global: short ref target gets the class's namespace",
+			enabled:      true,
+			principal:    globalPrincipal(),
+			inputName:    "customer1:Movies",
+			stored:       "customer1:Movies",
+			wantAuthName: "customer1:Movies",
+			dataType:     []string{"Animal"},
+			wantDataType: []string{"customer1:Animal"},
+		},
+		{
+			name:       "global: ref target in another namespace rejected",
+			enabled:    true,
+			principal:  globalPrincipal(),
+			inputName:  "customer1:Movies",
+			stored:     "customer1:Movies",
+			dataType:   []string{"customer2:Animal"},
+			wantErrMsg: "'customer2:Animal' is not a valid class name",
+		},
+		{
+			name:       "global: one of several ref targets in another namespace rejected",
+			enabled:    true,
+			principal:  globalPrincipal(),
+			inputName:  "customer1:Movies",
+			stored:     "customer1:Movies",
+			dataType:   []string{"customer1:Animal", "customer2:Animal"},
+			wantErrMsg: "'customer2:Animal' is not a valid class name",
+		},
+		{
+			name:         "global: READ is checked on the qualified ref target",
+			enabled:      true,
+			principal:    globalPrincipal(),
+			inputName:    "customer1:Movies",
+			stored:       "customer1:Movies",
+			dataType:     []string{"Animal"},
+			deniedTarget: "customer1:Animal",
+			wantDenied:   true,
+		},
+		{
+			name:         "namespaces disabled: ref target passes through",
+			enabled:      false,
+			principal:    nil,
+			inputName:    "Movies",
+			stored:       "Movies",
+			wantAuthName: "Movies",
+			dataType:     []string{"Animal"},
+		},
 	}
 
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
+			if tt.deniedTarget != "" {
+				authorizer := mocks.NewMockAuthorizer()
+				authorizer.Deny(authorization.CollectionsMetadata(tt.deniedTarget)...)
+				handler.Authorizer = authorizer
+			}
 
 			lookup, err := namespacing.QualifyClass(tt.principal, tt.enabled, tt.inputName)
 			require.NoError(t, err)
@@ -1006,19 +1086,51 @@ func TestAddClassProperty_Namespacing(t *testing.T) {
 			} else {
 				sm.On("ReadOnlyClass", lookup).Return((*models.Class)(nil))
 			}
-			if tt.wantErrIs == nil {
-				sm.On("AddProperty", tt.wantAuthName, mock.Anything).Return(nil)
+			// Every ref target exists, so a rejection can only come from its namespace.
+			for _, target := range []string{"Animal", "customer1:Animal", "customer2:Animal"} {
+				sm.On("ReadOnlyClass", target).Return(&models.Class{
+					Class:             target,
+					Vectorizer:        "none",
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
+				}).Maybe()
 			}
 
-			prop := &models.Property{Name: "genre", DataType: schema.DataTypeText.PropString()}
+			dataType := tt.dataType
+			if dataType == nil {
+				dataType = schema.DataTypeText.PropString()
+			}
+			wantDataType := tt.wantDataType
+			if wantDataType == nil {
+				wantDataType = slices.Clone(dataType)
+			}
+			var persisted []*models.Property
+			sm.On("AddProperty", mock.Anything, mock.MatchedBy(func(props []*models.Property) bool {
+				persisted = props
+				return true
+			})).Return(nil).Maybe()
+
+			prop := &models.Property{Name: "genre", DataType: dataType}
 			_, _, err = handler.AddClassProperty(context.Background(), tt.principal,
 				tt.inputName, false, prop)
 			if tt.wantErrIs != nil {
 				require.ErrorIs(t, err, tt.wantErrIs)
 				return
 			}
+			if tt.wantErrMsg != "" {
+				require.ErrorContains(t, err, tt.wantErrMsg)
+				require.Nil(t, persisted, "SchemaManager.AddProperty must not be called on a rejected property")
+				return
+			}
+			if tt.wantDenied {
+				require.ErrorAs(t, err, &authzerrors.Forbidden{})
+				require.Nil(t, persisted, "SchemaManager.AddProperty must not be called on a denied property")
+				return
+			}
 			require.NoError(t, err)
 			sm.AssertExpectations(t)
+			sm.AssertCalled(t, "AddProperty", tt.wantAuthName, mock.Anything)
+			require.Len(t, persisted, 1)
+			assert.Equal(t, wantDataType, persisted[0].DataType)
 		})
 	}
 }
