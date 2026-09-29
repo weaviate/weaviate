@@ -34,18 +34,31 @@ import (
 
 // TestInMemoryReader_GarbageNodeIDBelowMax_NoHugeIndexAlloc pins
 // 0-weaviate-issues#649: a pod SIGKILLed mid async-indexing leaves a torn raw
-// commit log whose tail decodes as an AddNode with a garbage ID. IDs above
-// maxNodeID (1e11) are skipped by growIndexToAccommodateNode, but that guard
-// is far looser than anything that can be allocated: a garbage ID anywhere in
-// the ~1e9..1e11 range sails through and the reader sizes Graph.Nodes to
-// id+MinimumIndexGrowthDelta pointers, i.e. tens to hundreds of GB. In CI that
-// is a `fatal error: runtime: out of memory` (~631 GB); on a node where the
-// mmap succeeds lazily it is a hang, because the next GC mark phase walks the
-// whole pointer slice and faults every page in. Both stack traces end in
-// InMemoryReader.readNode -> growIndexToAccommodateNode, reached from
-// Compactor.convertFileToSorted (issue #649 and the TC-012 gate on 1.40.0-rc.1)
-// and equally reachable from Loader.Load at startup, which uses the same
-// reader on raw files.
+// commit log whose tail decodes as a commit carrying a garbage node ID. IDs
+// above maxNodeID (1e11) are skipped, but that guard is far looser than
+// anything that can be allocated: a garbage ID anywhere in the ~1e9..1e11
+// range sails through and the node index is sized to it, i.e. tens to
+// hundreds of GB of pointers. In CI that is a `fatal error: runtime: out of
+// memory` (~631 GB); on a node where the mmap succeeds lazily it is a hang,
+// because the next GC mark phase walks the whole pointer slice and faults
+// every page in.
+//
+// The issue shows two allocation sites, and the scenarios cover both:
+//
+//   - InMemoryReader.readNode -> growIndexToAccommodateNode, reached from
+//     Compactor.convertFileToSorted (the "reader" path here) and from
+//     Loader.Load replaying a raw file with no snapshot present (the "loader"
+//     path). growIndexToAccommodateNode has the same guard at every commit
+//     type that names a node, so a garbage AddLinksAtLevel source or target
+//     is covered next to AddNode.
+//   - Loader.maxNodeIDInWALs -> SnapshotReader.WithMinNodes ->
+//     SnapshotReader.readMetadata, reached at startup when a snapshot exists
+//     and the trailing raw file carries the garbage ID (the "loader-snapshot"
+//     path). The pre-scan applies the same `<= maxNodeID` filter and then
+//     pre-sizes the snapshot's node slice to walMaxID+1 before a single
+//     commit is applied, so a fix confined to growIndexToAccommodateNode
+//     leaves this crash-loop in place. This is the frame in the issue's
+//     startup stack (0x92f8000008 / 8 = walMaxID + 1).
 //
 // The reader and the loader must not size the node index to a garbage ID.
 // That is the only contract pinned here. How the corrupt commit is handled is
@@ -54,6 +67,13 @@ import (
 // corruption error are all acceptable, so the assertions accept an error and
 // require the nodes written before the corrupt commit only when a state is
 // returned. The control scenarios keep the strict expectations.
+//
+// Not covered on purpose: how the garbage ID got into the file. The issue's
+// leading theory is a reader that lost commit alignment (the ID decodes as a
+// real ID shifted by three zero bytes), possibly from two writers appending
+// to one same-second raw file. These scenarios write a well-formed commit
+// with a garbage ID, which is what any such corruption presents to the
+// reader; the misalignment and the file-name collision need their own tests.
 //
 // The scenarios run in a child process (this test binary re-executed with
 // garbageNodeIDChildEnv set) because on the unfixed code the allocation would
@@ -111,39 +131,106 @@ const (
 	// garbage commit; one more real node is written after it.
 	garbageNodeIDRealNodes = 10
 
+	// garbageNodeIDIssue649 is the ID decoded from the raw file in the CI
+	// reproduction of #649: 0x125F000000, i.e. node 0x125F (4703) with three
+	// zero bytes in front of it, the shape of a commit read from the wrong
+	// offset. 78.9e9 passes the maxNodeID guard and is ~588 GiB of pointers.
+	garbageNodeIDIssue649 = uint64(0x125F000000)
+
+	// garbageNodeIDPathReader is InMemoryReader.Do(nil, true) exactly as
+	// Compactor.convertFileToSorted calls it (the #649 compactor stack).
 	garbageNodeIDPathReader = "reader"
+	// garbageNodeIDPathLoader is Loader.Load over a directory holding the log
+	// as its only raw file and no snapshot: startup on a fresh shard.
 	garbageNodeIDPathLoader = "loader"
+	// garbageNodeIDPathLoaderSnapshot is Loader.Load over a directory holding
+	// a snapshot with the real nodes and the log as the trailing raw file:
+	// startup on a shard that has compacted at least once (the #649 startup
+	// stack, which crash-loops the node).
+	garbageNodeIDPathLoaderSnapshot = "loader-snapshot"
+
+	// garbageNodeIDCommitAddNode puts the garbage ID in an AddNode.
+	garbageNodeIDCommitAddNode = "add-node"
+	// garbageNodeIDCommitLinksSource puts the garbage ID in the source of an
+	// AddLinksAtLevel with real targets.
+	garbageNodeIDCommitLinksSource = "links-source"
+	// garbageNodeIDCommitLinksTarget puts the garbage ID in one target of an
+	// AddLinksAtLevel from a real source.
+	garbageNodeIDCommitLinksTarget = "links-target"
 )
 
 type garbageNodeIDScenario struct {
 	name string
-	// path selects the production entry point: "reader" is
-	// InMemoryReader.Do(nil, true) exactly as Compactor.convertFileToSorted
-	// calls it (the #649 stack); "loader" is Loader.Load over a directory
-	// holding the log as its live raw file (startup).
+	// path selects the production entry point, one of the garbageNodeIDPath*
+	// constants.
 	path string
-	// id is the ID of the AddNode commit under test.
+	// commit selects which commit carries the ID, one of the
+	// garbageNodeIDCommit* constants.
+	commit string
+	// id is the node ID under test.
 	id uint64
 	// control marks a legitimately sparse ID that the reader must materialize
 	// as a normal node. It passes on unfixed code and proves the child harness
-	// can pass at all, so a green garbage scenario is a real result.
+	// can pass at all on that path, so a green garbage scenario is a real
+	// result.
 	control bool
 }
 
-var garbageNodeIDScenarios = []garbageNodeIDScenario{
-	{name: "control/reader/sparse-real-id", path: garbageNodeIDPathReader, id: 50_000, control: true},
-	{name: "control/loader/sparse-real-id", path: garbageNodeIDPathLoader, id: 50_000, control: true},
+var garbageNodeIDPaths = []string{
+	garbageNodeIDPathReader,
+	garbageNodeIDPathLoader,
+	garbageNodeIDPathLoaderSnapshot,
+}
 
-	// Exactly at the guard boundary: growIndexToAccommodateNode only rejects
-	// id > maxNodeID, so maxNodeID itself is the largest ID that gets through
-	// (800 GB of pointers).
-	{name: "reader/id-at-maxNodeID", path: garbageNodeIDPathReader, id: maxNodeID},
-	{name: "loader/id-at-maxNodeID", path: garbageNodeIDPathLoader, id: maxNodeID},
+var garbageNodeIDCommits = []string{
+	garbageNodeIDCommitAddNode,
+	garbageNodeIDCommitLinksSource,
+	garbageNodeIDCommitLinksTarget,
+}
 
+var garbageNodeIDs = []struct {
+	name string
+	id   uint64
+}{
+	// Exactly at the guard boundary: the guards only reject id > maxNodeID, so
+	// maxNodeID itself is the largest ID that gets through (800 GB of
+	// pointers).
+	{name: "id-at-maxNodeID", id: maxNodeID},
 	// A single high bit set, the shape a torn record decodes to: 2^35 is
 	// ~34e9, well below maxNodeID and ~275 GB of pointers.
-	{name: "reader/id-single-high-bit", path: garbageNodeIDPathReader, id: 1 << 35},
-	{name: "loader/id-single-high-bit", path: garbageNodeIDPathLoader, id: 1 << 35},
+	{name: "id-single-high-bit", id: 1 << 35},
+	// The ID from the CI reproduction of the issue.
+	{name: "id-from-issue-649", id: garbageNodeIDIssue649},
+}
+
+// garbageNodeIDScenarios is one control per path plus the full cross product
+// of path x commit x id for the garbage cases.
+var garbageNodeIDScenarios = buildGarbageNodeIDScenarios()
+
+func buildGarbageNodeIDScenarios() []garbageNodeIDScenario {
+	var out []garbageNodeIDScenario
+	for _, path := range garbageNodeIDPaths {
+		out = append(out, garbageNodeIDScenario{
+			name:    "control/" + path + "/sparse-real-id",
+			path:    path,
+			commit:  garbageNodeIDCommitAddNode,
+			id:      50_000,
+			control: true,
+		})
+	}
+	for _, path := range garbageNodeIDPaths {
+		for _, commit := range garbageNodeIDCommits {
+			for _, id := range garbageNodeIDs {
+				out = append(out, garbageNodeIDScenario{
+					name:   path + "/" + commit + "/" + id.name,
+					path:   path,
+					commit: commit,
+					id:     id.id,
+				})
+			}
+		}
+	}
+	return out
 }
 
 func garbageNodeIDScenarioByName(name string) (garbageNodeIDScenario, bool) {
@@ -174,17 +261,52 @@ type garbageNodeIDReport struct {
 	ScenarioNodePresent bool `json:"scenario_node_present"`
 }
 
-// writeGarbageNodeIDLog writes real nodes, an entrypoint and links, then the
-// scenario AddNode, then one more real node that a skip-and-continue reader
-// must still apply.
-func writeGarbageNodeIDLog(t *testing.T, w *WALWriter, sc garbageNodeIDScenario) {
+// writeGarbageNodeIDPrefix writes the real graph that precedes the scenario
+// commit in a raw log: nodes 0..garbageNodeIDRealNodes-1, the entrypoint and
+// links from node 0.
+func writeGarbageNodeIDPrefix(t *testing.T, w *WALWriter) {
 	t.Helper()
 	for i := uint64(0); i < garbageNodeIDRealNodes; i++ {
 		require.NoError(t, w.WriteAddNode(i, 0))
 	}
 	require.NoError(t, w.WriteSetEntryPointMaxLevel(0, 0))
 	require.NoError(t, w.WriteAddLinksAtLevel(0, 0, []uint64{1, 2, 3}))
-	require.NoError(t, w.WriteAddNode(sc.id, 0))
+}
+
+// writeGarbageNodeIDSnapshot writes the same real graph as
+// writeGarbageNodeIDPrefix, but as a snapshot: the starting point Loader.Load
+// pre-sizes from the trailing raw files.
+func writeGarbageNodeIDSnapshot(t *testing.T, path string) {
+	t.Helper()
+	f, err := os.Create(path)
+	require.NoError(t, err)
+	sw := NewSnapshotWriter(f) // default block size, matches the loader's reader
+	sw.SetEntrypoint(0, 0)
+	for i := uint64(0); i < garbageNodeIDRealNodes; i++ {
+		conns := [][]uint64{{}}
+		if i == 0 {
+			conns = [][]uint64{{1, 2, 3}}
+		}
+		sw.AddNode(i, 0, conns, false)
+	}
+	require.NoError(t, sw.Flush())
+	require.NoError(t, f.Close())
+}
+
+// writeGarbageNodeIDTail writes the scenario commit, then one more real node
+// that a skip-and-continue reader must still apply.
+func writeGarbageNodeIDTail(t *testing.T, w *WALWriter, sc garbageNodeIDScenario) {
+	t.Helper()
+	switch sc.commit {
+	case garbageNodeIDCommitAddNode:
+		require.NoError(t, w.WriteAddNode(sc.id, 0))
+	case garbageNodeIDCommitLinksSource:
+		require.NoError(t, w.WriteAddLinksAtLevel(sc.id, 0, []uint64{1, 2}))
+	case garbageNodeIDCommitLinksTarget:
+		require.NoError(t, w.WriteAddLinksAtLevel(0, 0, []uint64{1, sc.id}))
+	default:
+		t.Fatalf("unknown scenario commit %q", sc.commit)
+	}
 	require.NoError(t, w.WriteAddNode(garbageNodeIDRealNodes, 0))
 }
 
@@ -209,7 +331,9 @@ func runGarbageNodeIDChild(t *testing.T, sc garbageNodeIDScenario) {
 	switch sc.path {
 	case garbageNodeIDPathReader:
 		var buf bytes.Buffer
-		writeGarbageNodeIDLog(t, NewWALWriter(&buf), sc)
+		w := NewWALWriter(&buf)
+		writeGarbageNodeIDPrefix(t, w)
+		writeGarbageNodeIDTail(t, w, sc)
 		reader := NewInMemoryReader(NewWALCommitReader(&buf, logger), logger)
 		// keepLinkReplaceInformation=true mirrors Compactor.convertFileToSorted.
 		state, err = reader.Do(nil, true)
@@ -217,7 +341,24 @@ func runGarbageNodeIDChild(t *testing.T, sc garbageNodeIDScenario) {
 		dir := t.TempDir()
 		f, createErr := os.Create(filepath.Join(dir, "1000"))
 		require.NoError(t, createErr)
-		writeGarbageNodeIDLog(t, NewWALWriter(f), sc)
+		w := NewWALWriter(f)
+		writeGarbageNodeIDPrefix(t, w)
+		writeGarbageNodeIDTail(t, w, sc)
+		require.NoError(t, f.Close())
+
+		var res *LoadResult
+		res, err = NewLoader(LoaderConfig{Dir: dir, Logger: logger}).Load()
+		if res != nil {
+			state = res.State
+		}
+	case garbageNodeIDPathLoaderSnapshot:
+		dir := t.TempDir()
+		writeGarbageNodeIDSnapshot(t, filepath.Join(dir, "1000.snapshot"))
+		// the raw file's timestamp is past the snapshot's, so it is in the
+		// replay set that maxNodeIDInWALs pre-scans
+		f, createErr := os.Create(filepath.Join(dir, "2000"))
+		require.NoError(t, createErr)
+		writeGarbageNodeIDTail(t, NewWALWriter(f), sc)
 		require.NoError(t, f.Close())
 
 		var res *LoadResult
@@ -255,6 +396,16 @@ func runGarbageNodeIDChild(t *testing.T, sc garbageNodeIDScenario) {
 	require.NoError(t, writeErr)
 }
 
+// buggySlots returns the node-slice length the unfixed code produces for the
+// scenario, for the failure messages: growIndexToAccommodateNode grows to
+// id+MinimumIndexGrowthDelta, the snapshot pre-size to walMaxID+1.
+func (sc garbageNodeIDScenario) buggySlots() uint64 {
+	if sc.path == garbageNodeIDPathLoaderSnapshot {
+		return sc.id + 1
+	}
+	return sc.id + cache.MinimumIndexGrowthDelta
+}
+
 func runGarbageNodeIDParent(t *testing.T, topLevelName string, sc garbageNodeIDScenario) {
 	exe, err := os.Executable()
 	require.NoError(t, err)
@@ -268,21 +419,21 @@ func runGarbageNodeIDParent(t *testing.T, topLevelName string, sc garbageNodeIDS
 	out, runErr := cmd.CombinedOutput()
 	tail := lastLines(string(out), 40)
 
-	buggySlots := sc.id + cache.MinimumIndexGrowthDelta
+	buggySlots := sc.buggySlots()
 	buggyGiB := float64(buggySlots) * 8 / (1 << 30)
 
 	if ctx.Err() != nil {
 		require.FailNowf(t, "child hung",
-			"the %s did not return within %s while replaying an AddNode with ID %d: "+
+			"the %s did not return within %s while replaying an %s with ID %d: "+
 				"the node index is being sized to the garbage ID (%d slots, %.0f GiB of pointers) "+
 				"and GC/page-faulting on it never finishes (0-weaviate-issues#649)\n--- child output tail ---\n%s",
-			sc.path, garbageNodeIDChildTimeout, sc.id, buggySlots, buggyGiB, tail)
+			sc.path, garbageNodeIDChildTimeout, sc.commit, sc.id, buggySlots, buggyGiB, tail)
 	}
 	require.NoError(t, runErr,
-		"child exited abnormally while replaying an AddNode with ID %d; an "+
-			"`out of memory` fatal here means the %s sized the node index to the garbage ID "+
+		"child exited abnormally while replaying an %s with ID %d; an "+
+			"`out of memory` fatal or a kill by the OS here means the %s sized the node index to the garbage ID "+
 			"(%d slots, %.0f GiB of pointers) (0-weaviate-issues#649)\n--- child output tail ---\n%s",
-		sc.id, sc.path, buggySlots, buggyGiB, tail)
+		sc.commit, sc.id, sc.path, buggySlots, buggyGiB, tail)
 
 	report, found := parseGarbageNodeIDReport(string(out))
 	require.True(t, found, "child produced no %q line\n--- child output tail ---\n%s",
@@ -302,18 +453,18 @@ func runGarbageNodeIDParent(t *testing.T, topLevelName string, sc garbageNodeIDS
 		}
 		if report.StateReturned {
 			assert.GreaterOrEqualf(t, report.RealNodesPresent, garbageNodeIDRealNodes,
-				"%s dropped nodes written before the corrupt AddNode with ID %d (%d of %d present)",
-				sc.path, sc.id, report.RealNodesPresent, garbageNodeIDRealNodes)
+				"%s dropped nodes written before the corrupt %s with ID %d (%d of %d present)",
+				sc.path, sc.commit, sc.id, report.RealNodesPresent, garbageNodeIDRealNodes)
 		}
 	}
 
 	assert.LessOrEqualf(t, report.NodesLen, garbageNodeIDMaxSaneNodes,
-		"%s sized Graph.Nodes to %d slots (%.1f GiB of pointers) for an AddNode with ID %d below maxNodeID; "+
-			"a raw log with %d real nodes must not grow the index to a garbage ID (0-weaviate-issues#649)",
-		sc.path, report.NodesLen, float64(report.NodesLen)*8/(1<<30), sc.id, garbageNodeIDRealNodes+1)
+		"%s sized Graph.Nodes to %d slots (%.1f GiB of pointers) for an %s with ID %d below maxNodeID; "+
+			"a log with %d real nodes must not grow the index to a garbage ID (0-weaviate-issues#649)",
+		sc.path, report.NodesLen, float64(report.NodesLen)*8/(1<<30), sc.commit, sc.id, garbageNodeIDRealNodes+1)
 	assert.LessOrEqualf(t, report.SysDeltaBytes, uint64(garbageNodeIDMaxSaneSysBytes),
-		"%s grew process memory by %.1f GiB replaying an AddNode with ID %d (0-weaviate-issues#649)",
-		sc.path, float64(report.SysDeltaBytes)/(1<<30), sc.id)
+		"%s grew process memory by %.1f GiB replaying an %s with ID %d (0-weaviate-issues#649)",
+		sc.path, float64(report.SysDeltaBytes)/(1<<30), sc.commit, sc.id)
 }
 
 func parseGarbageNodeIDReport(out string) (garbageNodeIDReport, bool) {
