@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -53,8 +54,9 @@ type tenantTTLLoop struct {
 	processBatch          func(ctx context.Context, uuids []strfmt.UUID) (deleted bool, err error)
 }
 
-// errTTLNoProgress reports a batch that deleted nothing without failing. The loop
-// stops on it, because the next round would find the same uuids.
+// errTTLNoProgress reports a batch that deleted nothing without failing. The tenant or
+// shard that produced it is not swept again for the rest of that sweep, because the next
+// round would find the same uuids.
 var errTTLNoProgress = errors.New("no object deleted and no error reported")
 
 // shardIsLazyUnloaded reports whether the named shard is a lazy shard not yet materialized.
@@ -64,16 +66,44 @@ func (i *Index) shardIsLazyUnloaded(shardName string) bool {
 	return ok && !lazy.isLoaded()
 }
 
-// deleteFromShards calls deleteShard once per shard that has expired uuids, and waits for them
-// unless the sweep ends first, which it reports as stopped. The last shard, and one the group
-// has no slot for, run on the calling goroutine, which waits for the others anyway.
-func deleteFromShards(ctx context.Context, eg *enterrors.ErrorGroupWrapper, class string,
-	shards2uuids map[string][]strfmt.UUID, deleteShard func(shard string, uuids []strfmt.UUID),
-) (dispatched int, stopped bool) {
+// deleteFromShards calls deleteShard once per shard that has expired uuids and was not dropped
+// earlier in the sweep. It waits for them unless the sweep ends first, which it reports as stopped.
+// The last shard, and one the group refuses, run on the calling goroutine, which waits for the
+// others anyway. A shard that failed or deleted nothing is dropped for the rest of the sweep.
+func deleteFromShards(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
+	ec errorcompounder.ErrorCompounder, class string, shards2uuids map[string][]strfmt.UUID,
+	dropped map[string]struct{}, deleteShard func(shard string, uuids []strfmt.UUID) (bool, error),
+) (deleted, stopped bool) {
 	shards := make([]string, 0, len(shards2uuids))
 	for shard, uuids := range shards2uuids {
-		if len(uuids) > 0 {
+		if _, skip := dropped[shard]; !skip && len(uuids) > 0 {
 			shards = append(shards, shard)
+		}
+	}
+
+	var (
+		anyDeleted  atomic.Bool
+		droppedLock sync.Mutex
+	)
+	// returned is false when the delete panicked: the group files that panic, so record only drops the shard
+	record := func(shard string, deleted bool, err error, returned bool) {
+		switch {
+		case !returned:
+		case err != nil:
+			ec.AddGroups(err, class, shard)
+		case !deleted && context.Cause(ctx) == nil:
+			// a stopped sweep also deletes nothing, which is not this shard failing
+			ec.AddGroups(errTTLNoProgress, class, shard)
+		}
+
+		if deleted {
+			anyDeleted.Store(true)
+		}
+		if !deleted || err != nil {
+			// the search cannot exclude its uuids, so a later round would hand it the same ones
+			droppedLock.Lock()
+			dropped[shard] = struct{}{}
+			droppedLock.Unlock()
 		}
 	}
 
@@ -83,7 +113,15 @@ func deleteFromShards(ctx context.Context, eg *enterrors.ErrorGroupWrapper, clas
 		wg.Add(1)
 		run := func() error {
 			defer wg.Done()
-			deleteShard(shard, uuids)
+			var (
+				deleted, returned bool
+				err               error
+			)
+			// from a defer, so a delete that panics drops its shard too rather than leaving
+			// the next round to dispatch it into the same panic
+			defer func() { record(shard, deleted, err, returned) }()
+			deleted, err = deleteShard(shard, uuids)
+			returned = true
 			return nil
 		}
 
@@ -95,12 +133,12 @@ func deleteFromShards(ctx context.Context, eg *enterrors.ErrorGroupWrapper, clas
 		}
 
 		if ctx.Err() != nil {
-			return idx + 1, true
+			return anyDeleted.Load(), true
 		}
 	}
 	wg.Wait()
 
-	return len(shards), false
+	return anyDeleted.Load(), false
 }
 
 func (i *Index) IncomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.ErrorGroupWrapper, ec errorcompounder.ErrorCompounder,
@@ -211,6 +249,20 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 
 	eg.Go(func() error {
 		processedBatches := 0
+		dropped := map[string]struct{}{}
+		deleteShard := func(shard string, uuids []strfmt.UUID) (bool, error) {
+			deleted := false
+			countShard := func(n int32) {
+				deleted = deleted || n > 0
+				countDeleted(n)
+			}
+			if err := i.incomingDeleteObjectsExpiredUuids(ctx, deletionTime, shard, "",
+				uuids, countShard, replProps, schemaVersion); err != nil {
+				return deleted, fmt.Errorf("batch delete: %w", err)
+			}
+			return deleted, nil
+		}
+
 		// find uuids up to limit -> delete -> find uuids up to limit -> delete -> ... until no uuids left
 		for {
 			if err := context.Cause(ctx); err != nil {
@@ -225,15 +277,8 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 				return nil
 			}
 
-			deleteShard := func(shard string, uuids []strfmt.UUID) {
-				if err := i.incomingDeleteObjectsExpiredUuids(ctx, deletionTime, shard, "",
-					uuids, countDeleted, replProps, schemaVersion); err != nil {
-					ec.AddGroups(fmt.Errorf("batch delete: %w", err), class.Class, shard)
-				}
-			}
-
-			dispatched, stopped := deleteFromShards(ctx, eg, class.Class, shards2uuids, deleteShard)
-			if stopped || dispatched == 0 {
+			deleted, stopped := deleteFromShards(ctx, eg, ec, class.Class, shards2uuids, dropped, deleteShard)
+			if stopped || !deleted {
 				return nil
 			}
 

@@ -15,7 +15,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -409,12 +411,12 @@ const shardDispatchGrace = 50 * time.Millisecond
 // shardDispatchRun records what one deleteFromShards call did. freeSlots counts the group slots
 // left when the first shard to run on the calling goroutine ran.
 type shardDispatchRun struct {
-	dispatched int
-	stopped    bool
-	ran        []string
-	inline     []string
-	got        map[string][]strfmt.UUID
-	freeSlots  int
+	deleted   bool
+	stopped   bool
+	ran       []string
+	inline    []string
+	got       map[string][]strfmt.UUID
+	freeSlots int
 	// set when deleteFromShards returned while the shards it gave the group were still blocked
 	returnedEarly bool
 }
@@ -442,7 +444,7 @@ func runShardDispatch(t *testing.T, shards2uuids map[string][]strfmt.UUID, limit
 	done := make(chan struct{})
 
 	run.got = map[string][]strfmt.UUID{}
-	deleteShard := func(shard string, uuids []strfmt.UUID) {
+	deleteShard := func(shard string, uuids []strfmt.UUID) (bool, error) {
 		inline := currentGoroutineID() == dispatcherID
 
 		mu.Lock()
@@ -456,10 +458,10 @@ func runShardDispatch(t *testing.T, shards2uuids map[string][]strfmt.UUID, limit
 
 		if !inline {
 			<-release
-			return
+			return true, nil
 		}
 		if !first {
-			return
+			return true, nil
 		}
 
 		free := 0
@@ -470,14 +472,16 @@ func runShardDispatch(t *testing.T, shards2uuids map[string][]strfmt.UUID, limit
 		run.freeSlots = free
 		mu.Unlock()
 		inlineRan <- struct{}{}
+		return true, nil
 	}
 
 	enterrors.GoWrapper(func() {
 		defer close(done)
 		dispatcherID = currentGoroutineID()
-		dispatched, stopped := deleteFromShards(context.Background(), eg, "MyClass", shards2uuids, deleteShard)
+		deleted, stopped := deleteFromShards(context.Background(), eg, errorcompounder.NewSafe(),
+			"MyClass", shards2uuids, map[string]struct{}{}, deleteShard)
 		mu.Lock()
-		run.dispatched, run.stopped = dispatched, stopped
+		run.deleted, run.stopped = deleted, stopped
 		mu.Unlock()
 	}, logger)
 
@@ -573,19 +577,19 @@ func TestDeleteFromShardsRunsTheLastShardInline(t *testing.T) {
 				assert.False(t, run.returnedEarly,
 					"deleteFromShards returns only once the shards it gave the group have finished")
 			}
-			assert.Equal(t, len(tt.wantRan), run.dispatched)
+			assert.True(t, run.deleted)
 			assert.False(t, run.stopped)
 		})
 	}
 }
 
 // TestDeleteFromShardsWithNothingExpired pins that a round with nothing to delete dispatches no
-// shard and reports none, which is how the sweep loop learns to stop.
+// shard and reports no deletion, which is how the sweep loop learns to stop.
 func TestDeleteFromShardsWithNothingExpired(t *testing.T) {
 	run := runShardDispatch(t, map[string][]strfmt.UUID{"s1": {}, "s2": nil}, 1)
 
 	assert.Empty(t, run.ran)
-	assert.Equal(t, 0, run.dispatched)
+	assert.False(t, run.deleted)
 	assert.False(t, run.stopped)
 }
 
@@ -600,20 +604,20 @@ func TestDeleteFromShardsStopsOnAStoppedSweep(t *testing.T) {
 
 	var mu sync.Mutex
 	ran := []string{}
-	dispatched, stopped := deleteFromShards(ctx, eg, "MyClass",
-		map[string][]strfmt.UUID{"s1": {"a"}, "s2": {"b"}, "s3": {"c"}},
-		func(shard string, _ []strfmt.UUID) {
+	_, stopped := deleteFromShards(ctx, eg, errorcompounder.NewSafe(), "MyClass",
+		map[string][]strfmt.UUID{"s1": {"a"}, "s2": {"b"}, "s3": {"c"}}, map[string]struct{}{},
+		func(shard string, _ []strfmt.UUID) (bool, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			ran = append(ran, shard)
+			return true, nil
 		})
 	require.NoError(t, eg.Wait())
 
-	assert.Equal(t, 1, dispatched, "the stop is observed after a shard is dispatched, not before")
 	assert.True(t, stopped)
 	mu.Lock()
 	defer mu.Unlock()
-	assert.Len(t, ran, 1, "the shards the stop never reached are not swept")
+	assert.Len(t, ran, 1, "the stop is observed after one shard is dispatched, and the shards it never reached are not swept")
 }
 
 // TestDeleteFromShardsContainsAPanicToItsShard pins that a panicking shard neither takes the
@@ -650,20 +654,22 @@ func TestDeleteFromShardsContainsAPanicToItsShard(t *testing.T) {
 				panicking[shard] = true
 			}
 			var (
-				mu         sync.Mutex
-				ran        []string
-				dispatched int
-				stopped    bool
+				mu      sync.Mutex
+				ran     []string
+				stopped bool
 			)
+			ec := errorcompounder.NewSafe()
+			dropped := map[string]struct{}{}
 			require.NotPanics(t, func() {
-				dispatched, stopped = deleteFromShards(context.Background(), eg, "MyClass", tt.shards2uuids,
-					func(shard string, _ []strfmt.UUID) {
+				_, stopped = deleteFromShards(context.Background(), eg, ec, "MyClass", tt.shards2uuids,
+					dropped, func(shard string, _ []strfmt.UUID) (bool, error) {
 						mu.Lock()
 						ran = append(ran, shard)
 						mu.Unlock()
 						if panicking[shard] {
 							panic("shard delete panicked: " + shard)
 						}
+						return true, nil
 					})
 			}, "a panicking shard must not unwind the sweep loop")
 
@@ -677,8 +683,10 @@ func TestDeleteFromShardsContainsAPanicToItsShard(t *testing.T) {
 			mu.Lock()
 			defer mu.Unlock()
 			assert.Len(t, ran, len(tt.shards2uuids), "every shard is still dispatched")
-			assert.Equal(t, len(tt.shards2uuids), dispatched)
 			assert.False(t, stopped)
+			assert.ElementsMatch(t, tt.panicking, slices.Collect(maps.Keys(dropped)),
+				"a delete that panicked deleted nothing, so its shard is dropped for the rest of the sweep")
+			assert.Zero(t, ec.Len(), "a panicking shard is filed once, by the group, not also as having made no progress")
 			require.Len(t, filed, len(tt.panicking), "one collected panic per panicking shard")
 			for _, entry := range filed {
 				assert.Contains(t, entry, "[MyClass s", "the panic is filed under its collection and shard")
@@ -686,4 +694,167 @@ func TestDeleteFromShardsContainsAPanicToItsShard(t *testing.T) {
 			}
 		})
 	}
+}
+
+// shardOutcome is what a test's fake delete reports for one shard.
+type shardOutcome struct {
+	deleted bool
+	err     error
+	// stopsSweep cancels the sweep from inside the delete, as an index closing under a
+	// running batch does
+	stopsSweep bool
+}
+
+// shardRound records what one deleteFromShards call did over a set of shard outcomes.
+type shardRound struct {
+	deleted bool
+	stopped bool
+	ran     []string
+	filed   error
+	filings int
+}
+
+// runShardRound calls deleteFromShards once, handing every shard one uuid and the outcome its
+// name maps to. dropped carries in the shards earlier rounds gave up on, and the call adds to it.
+func runShardRound(t *testing.T, outcomes map[string]shardOutcome, dropped map[string]struct{}) shardRound {
+	t.Helper()
+
+	logger, _ := logrustest.NewNullLogger()
+	eg := enterrors.NewErrorGroupWrapper(logger)
+	ec := errorcompounder.NewSafe()
+	ctx, cancel := context.WithCancelCause(context.Background())
+	t.Cleanup(func() { cancel(nil) })
+
+	shards2uuids := make(map[string][]strfmt.UUID, len(outcomes))
+	for shard := range outcomes {
+		shards2uuids[shard] = []strfmt.UUID{"uuid-1"}
+	}
+
+	var (
+		mu  sync.Mutex
+		ran []string
+	)
+	deleted, stopped := deleteFromShards(ctx, eg, ec, "MyClass", shards2uuids, dropped,
+		func(shard string, _ []strfmt.UUID) (bool, error) {
+			mu.Lock()
+			ran = append(ran, shard)
+			mu.Unlock()
+
+			outcome := outcomes[shard]
+			if outcome.stopsSweep {
+				cancel(errors.New("index closing"))
+			}
+			return outcome.deleted, outcome.err
+		})
+	require.NoError(t, eg.Wait())
+
+	mu.Lock()
+	defer mu.Unlock()
+	return shardRound{
+		deleted: deleted, stopped: stopped, ran: ran,
+		filed: ec.ToError(), filings: ec.Len(),
+	}
+}
+
+// TestDeleteFromShardsDropsAShardThatMadeNoProgress covers a shard whose delete cannot make
+// progress. The search cannot exclude it, so each round would hand it the same uuids.
+func TestDeleteFromShardsDropsAShardThatMadeNoProgress(t *testing.T) {
+	deleteErr := errors.New("shard unavailable")
+
+	tests := []struct {
+		name        string
+		outcomes    map[string]shardOutcome
+		wantDeleted bool
+		wantStopped bool
+		wantDropped []string
+		wantFiled   []string // one rendered fragment per filing; empty means nothing may be filed
+	}{
+		{
+			name:        "a delete that fails is filed",
+			outcomes:    map[string]shardOutcome{"s1": {err: deleteErr}},
+			wantDropped: []string{"s1"},
+			wantFiled:   []string{`"s1": {` + deleteErr.Error()},
+		},
+		{
+			name:        "a delete that reports neither an error nor a count is filed as no progress",
+			outcomes:    map[string]shardOutcome{"s1": {}},
+			wantDropped: []string{"s1"},
+			wantFiled:   []string{`"s1": {` + errTTLNoProgress.Error()},
+		},
+		{
+			name:        "a delete that failed after deleting part of its batch still made the round progress",
+			outcomes:    map[string]shardOutcome{"s1": {deleted: true, err: deleteErr}},
+			wantDeleted: true,
+			wantDropped: []string{"s1"},
+			wantFiled:   []string{`"s1": {` + deleteErr.Error()},
+		},
+		{
+			name:        "a round where one shard deleted and another did not drops only the other",
+			outcomes:    map[string]shardOutcome{"s1": {deleted: true}, "s2": {}},
+			wantDeleted: true,
+			wantDropped: []string{"s2"},
+			wantFiled:   []string{`"s2": {` + errTTLNoProgress.Error()},
+		},
+		{
+			name:        "a shard that deleted is neither filed nor dropped",
+			outcomes:    map[string]shardOutcome{"s1": {deleted: true}},
+			wantDeleted: true,
+		},
+		{
+			name:        "a sweep stopped while the delete ran is not filed as no progress",
+			outcomes:    map[string]shardOutcome{"s1": {stopsSweep: true}},
+			wantStopped: true,
+			wantDropped: []string{"s1"},
+		},
+		{
+			// only the no-progress arm spares a stopped sweep. A delete that failed
+			// is filed whether the sweep was stopped or not
+			name:        "a delete that failed on a stopped sweep is filed",
+			outcomes:    map[string]shardOutcome{"s1": {err: deleteErr, stopsSweep: true}},
+			wantStopped: true,
+			wantDropped: []string{"s1"},
+			wantFiled:   []string{`"s1": {` + deleteErr.Error()},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dropped := map[string]struct{}{}
+			run := runShardRound(t, tt.outcomes, dropped)
+
+			assert.ElementsMatch(t, slices.Collect(maps.Keys(tt.outcomes)), run.ran,
+				"every shard with uuids is swept")
+			assert.Equal(t, tt.wantDeleted, run.deleted,
+				"a round makes progress only where a shard deleted something")
+			assert.Equal(t, tt.wantStopped, run.stopped)
+			assert.ElementsMatch(t, tt.wantDropped, slices.Collect(maps.Keys(dropped)),
+				"only a shard that made no progress is dropped for the rest of the sweep")
+
+			require.Equal(t, len(tt.wantFiled), run.filings, "one filing per shard that could not delete")
+			for _, want := range tt.wantFiled {
+				assert.ErrorContains(t, run.filed, want)
+			}
+		})
+	}
+}
+
+// TestDeleteFromShardsSkipsAShardAnEarlierRoundDropped runs two rounds over one dropped set. The
+// shard the first round dropped is not swept again, which is what stops the sweep re-finding the
+// uuids no delete of that shard can remove.
+func TestDeleteFromShardsSkipsAShardAnEarlierRoundDropped(t *testing.T) {
+	outcomes := map[string]shardOutcome{"s1": {deleted: true}, "s2": {}}
+	dropped := map[string]struct{}{}
+
+	first := runShardRound(t, outcomes, dropped)
+	require.ElementsMatch(t, []string{"s1", "s2"}, first.ran)
+	require.Equal(t, []string{"s2"}, slices.Collect(maps.Keys(dropped)))
+
+	second := runShardRound(t, outcomes, dropped)
+	assert.Equal(t, []string{"s1"}, second.ran, "a shard an earlier round dropped is not swept again")
+	assert.True(t, second.deleted)
+	assert.NoError(t, second.filed, "a shard already dropped is not filed a second time")
+
+	third := runShardRound(t, outcomes, map[string]struct{}{"s1": {}, "s2": {}})
+	assert.Empty(t, third.ran, "a round whose every shard was dropped sweeps none")
+	assert.False(t, third.deleted, "which is how the sweep learns to stop")
 }
