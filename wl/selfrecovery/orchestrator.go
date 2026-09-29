@@ -59,7 +59,7 @@ var ErrSelfRecoveryShardAlreadyLive = errors.New("shard already has a live local
 var ErrSelfRecoveryOpInFlight = errors.New("a replication op targeting this replica is still in flight")
 
 // ErrSelfRecoveryUnlicensed maps to 403 in the REST handler.
-var ErrSelfRecoveryUnlicensed = errors.New("self-recovery requires a valid Weaviate license (LICENSE_KEY or LICENSE_KEY_FILE); no new recoveries start")
+var ErrSelfRecoveryUnlicensed = errors.New("self-recovery feature is part of the Weaviate Enterprise Edition and requires a license key, see https://docs.weaviate.io/deploy/enterprise")
 
 // RaftEntryPoint is the subset of *cluster.Raft used by the orchestrator.
 type RaftEntryPoint interface {
