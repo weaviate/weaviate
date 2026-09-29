@@ -100,13 +100,17 @@ func TestSelfRecoverySnapshotTailChangesRecover(t *testing.T) {
 		}
 	})
 
+	// RF=3 placement needs node-3 alive in memberlist, so tail schema changes precede the wipe.
+	mustRun(t, "commit tail schema changes after the snapshot", func(t *testing.T) {
+		ensureClass(t, srParagraphClass(tailClass))
+		ensureTenants(t, tenantedClass, []*models.Tenant{{Name: tailTenant}})
+	})
+
 	mustRun(t, "wipe and stop node-3", func(t *testing.T) {
 		common.WipeNodeDataAt(ctx, t, compose, wipedIdx)
 	})
 
-	mustRun(t, "commit tail schema changes and data while node-3 is down", func(t *testing.T) {
-		ensureClass(t, srParagraphClass(tailClass))
-		ensureTenants(t, tenantedClass, []*models.Tenant{{Name: tailTenant}})
+	mustRun(t, "commit tail data while node-3 is down", func(t *testing.T) {
 		submitBatch(t, srParagraphObjects(tailClass, "22222222-2222-2222-2222", tailCount, ""), types.ConsistencyLevelQuorum)
 		submitBatch(t, srParagraphObjects(tenantedClass, "33333333-3333-3333-3333", tailTenantCount, tailTenant), types.ConsistencyLevelQuorum)
 	})
