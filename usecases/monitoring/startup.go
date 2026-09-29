@@ -100,10 +100,6 @@ var prefillCombos = [][]string{
 	{string(VectorIndexTypeHFresh), string(PrefillModeAsync)},
 }
 
-// loadDurationBuckets span 50ms to about 7.3h: a tiny tenant loads in well
-// under a second while a large uncompressed HNSW prefill can take hours.
-var loadDurationBuckets = prometheus.ExponentialBuckets(0.05, 2, 20)
-
 // StartupMetrics reports how long a node takes to become ready and where that
 // time goes: the boot phases, each shard load, each vector index restore and
 // each vector cache prefill. Every series is node-level with a closed label
@@ -113,9 +109,12 @@ var loadDurationBuckets = prometheus.ExponentialBuckets(0.05, 2, 20)
 // Phases are gauges rather than histograms: they happen once per process, and
 // a gauge keeps the last boot's figure for the life of the process instead of
 // decaying out of a rate() window. Shard loads and prefills recur (lazy
-// shards, tenant activation), so they are histograms; because a node
-// observes them only as it loads, their cumulative _bucket/_sum/_count since
-// boot is the startup distribution and needs no rate().
+// shards, tenant activation), so they are summaries, deliberately without
+// quantiles: only _sum and _count are exposed, two series per label
+// combination, so the per-node cost stays at a few dozen series in hosted
+// setups with many nodes. That gives totals, counts and averages but no
+// percentiles. Because a node observes them only as it loads, the cumulative
+// _sum/_count since boot is the startup total and needs no rate().
 //
 // Nil-safe and concurrency-safe.
 type StartupMetrics struct {
@@ -125,10 +124,10 @@ type StartupMetrics struct {
 	startupDuration prometheus.Gauge
 	readyTimestamp  prometheus.Gauge
 
-	shardLoad          *prometheus.HistogramVec
-	vectorIndexRestore *prometheus.HistogramVec
+	shardLoad          *prometheus.SummaryVec
+	vectorIndexRestore *prometheus.SummaryVec
 
-	prefillDuration *prometheus.HistogramVec
+	prefillDuration *prometheus.SummaryVec
 	prefillActive   *prometheus.GaugeVec
 
 	processStart time.Time
@@ -167,20 +166,19 @@ func newStartupMetrics(reg prometheus.Registerer, processStart time.Time) *Start
 			Name: "weaviate_startup_ready_timestamp_seconds",
 			Help: "Unix time at which this node first reported ready. 0 until ready.",
 		}),
-		shardLoad: r.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "weaviate_shard_load_duration_seconds",
-			Help:    "Seconds to load an existing shard from disk: LSM buckets and WAL recovery, inverted indexes, vector index restore and any synchronous cache prefill. registration is eager for shards opened at startup and lazy for shards opened on first access. Creating a new shard and failed loads are not observed.",
-			Buckets: loadDurationBuckets,
+		// The three summaries below set no Objectives on purpose: that leaves
+		// only _sum and _count, no quantile series and no buckets.
+		shardLoad: r.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "weaviate_shard_load_duration_seconds",
+			Help: "Seconds to load an existing shard from disk: LSM buckets and WAL recovery, inverted indexes, vector index restore and any synchronous cache prefill. registration is eager for shards opened at startup and lazy for shards opened on first access. Creating a new shard and failed loads are not observed. Sum and count only.",
 		}, []string{"registration"}),
-		vectorIndexRestore: r.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "weaviate_vector_index_restore_duration_seconds",
-			Help:    "Seconds to rebuild a vector index from its on-disk state (snapshot, commit logs, compressed vectors). Only observed when there was state to restore.",
-			Buckets: loadDurationBuckets,
+		vectorIndexRestore: r.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "weaviate_vector_index_restore_duration_seconds",
+			Help: "Seconds to rebuild a vector index from its on-disk state (snapshot, commit logs, compressed vectors). Only observed when there was state to restore. Sum and count only.",
 		}, []string{"index_type"}),
-		prefillDuration: r.NewHistogramVec(prometheus.HistogramOpts{
-			Name:    "weaviate_vector_cache_prefill_duration_seconds",
-			Help:    "Seconds a vector cache prefill took to complete. mode is sync when it ran inside the shard load and delayed readiness, async when it ran in the background. Aborted and failed prefills are not observed.",
-			Buckets: loadDurationBuckets,
+		prefillDuration: r.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "weaviate_vector_cache_prefill_duration_seconds",
+			Help: "Seconds a vector cache prefill took to complete. mode is sync when it ran inside the shard load and delayed readiness, async when it ran in the background. Aborted and failed prefills are not observed. Sum and count only.",
 		}, []string{"index_type", "mode"}),
 		prefillActive: r.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "weaviate_vector_cache_prefill_active",

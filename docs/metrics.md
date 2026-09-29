@@ -96,16 +96,16 @@ Node-level with closed label sets: the cost does not grow with collections or te
 | `weaviate_startup_ready_timestamp_seconds` | Unix time the node first reported ready. 0 until ready. | `Gauge` | `-` | - Low (1 series) |
 | `weaviate_startup_phase_duration_seconds` | Wall-clock seconds the last run of a startup phase took. `phase` is `modules_init`, `cluster_open`, `raft_open`, `raft_bootstrap` or `db_reload`. 0 until the phase has completed once. | `Gauge` | `phase` | - Low (5 series) |
 | `weaviate_startup_phase_active` | 1 while a startup phase is running, 0 otherwise | `Gauge` | `phase` | - Low (5 series) |
-| `weaviate_shard_load_duration_seconds` | Seconds to open a shard that already has files on disk: LSM buckets and WAL recovery, inverted indexes, vector index restore and any synchronous cache prefill. `registration` is `eager` (opened at startup) or `lazy` (opened on first access). Creating a shard and failed loads are not observed. | `Histogram` | `registration` | - Low (2 series) |
-| `weaviate_vector_index_restore_duration_seconds` | Seconds to rebuild a vector index from its on-disk state (snapshot, commit logs, compressed vectors). Only observed when there was state to restore. `index_type` is `hnsw`; hfresh centroid graphs and geo-property indexes report as `hnsw`. | `Histogram` | `index_type` | - Low (1 series) |
-| `weaviate_vector_cache_prefill_duration_seconds` | Seconds a vector cache prefill took to complete. `mode` is `sync` when it ran inside the shard load and delayed readiness, `async` when it ran in the background. Aborted and failed prefills are not observed. | `Histogram` | `index_type, mode` | - Low (4 series) |
+| `weaviate_shard_load_duration_seconds` | Seconds to open a shard that already has files on disk: LSM buckets and WAL recovery, inverted indexes, vector index restore and any synchronous cache prefill. `registration` is `eager` (opened at startup) or `lazy` (opened on first access). Creating a shard and failed loads are not observed. `_sum` and `_count` only. | `Summary` | `registration` | - Low (4 series) |
+| `weaviate_vector_index_restore_duration_seconds` | Seconds to rebuild a vector index from its on-disk state (snapshot, commit logs, compressed vectors). Only observed when there was state to restore. `index_type` is `hnsw`; hfresh centroid graphs and geo-property indexes report as `hnsw`. `_sum` and `_count` only. | `Summary` | `index_type` | - Low (2 series) |
+| `weaviate_vector_cache_prefill_duration_seconds` | Seconds a vector cache prefill took to complete. `mode` is `sync` when it ran inside the shard load and delayed readiness, `async` when it ran in the background. Aborted and failed prefills are not observed. `_sum` and `_count` only. | `Summary` | `index_type, mode` | - Low (8 series) |
 | `weaviate_vector_cache_prefill_active` | Number of vector cache prefills currently running | `Gauge` | `index_type, mode` | - Low (4 series) |
 | `startup_diskio_throughput` | Disk I/O throughput in bytes per second (only `operation="lsm_recover_wal"` is emitted) | `Summary` | `class_name, operation, shard_name` | ❌ High 
 
 Notes:
 - Phases nest rather than add up: `db_reload` runs inside `raft_open` when the node restores from a raft snapshot, or inside `cluster_open` when the raft log catches up after a join. `db_reload` can run again if raft installs a newer snapshot; the gauge keeps the last run.
 - Phases are gauges because they happen once per process: a gauge keeps the last boot's figure for the life of the process, while a `rate()` over a histogram goes flat right after boot.
-- The shard load, restore and prefill histograms are only observed as shards load, so their cumulative `_bucket`/`_sum`/`_count` since boot is the startup distribution and needs no `rate()`.
+- The shard load, restore and prefill summaries expose only `_sum` and `_count`: no buckets and no quantiles, so the whole set costs about 30 series per node. That gives totals, counts and averages but no percentiles; per-shard outliers are in the `Completed loading shard ... in ...` log line. They are only observed as shards load, so their cumulative values since boot are the startup totals and need no `rate()`.
 - `weaviate_vector_cache_prefill_duration_seconds` reaches `(hnsw, sync)`, `(hnsw, async)`, `(flat, sync)` and `(hfresh, async)`: hnsw follows the wait-for-cache setting (async for lazily loaded collections), flat always preloads synchronously and hfresh warms its version map in the background.
 
 Useful queries (Grafana, Dash0 or any PromQL front end):
@@ -117,8 +117,10 @@ max by (pod) (weaviate_startup_duration_seconds)
 weaviate_startup_ready_timestamp_seconds - process_start_time_seconds
 # where the boot went
 weaviate_startup_phase_duration_seconds
-# p95 shard load since boot, eager vs lazy
-histogram_quantile(0.95, sum by (le, registration) (weaviate_shard_load_duration_seconds_bucket))
+# average shard load since boot, eager vs lazy
+sum by (registration) (weaviate_shard_load_duration_seconds_sum) / sum by (registration) (weaviate_shard_load_duration_seconds_count)
+# total seconds spent loading shards on the node
+sum(weaviate_shard_load_duration_seconds_sum)
 # total seconds spent prefilling caches, by index type and mode
 sum by (index_type, mode) (weaviate_vector_cache_prefill_duration_seconds_sum)
 # ready, but still warming caches in the background

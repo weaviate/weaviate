@@ -48,7 +48,7 @@ func TestWarmVersionMapReportsPrefill(t *testing.T) {
 		"mode":       string(monitoring.PrefillModeAsync),
 	}
 	count := func() uint64 {
-		n, err := monitoring.HistogramSampleCount(prometheus.DefaultGatherer,
+		n, err := monitoring.SampleCount(prometheus.DefaultGatherer,
 			"weaviate_vector_cache_prefill_duration_seconds", labels)
 		require.NoError(t, err)
 		return n

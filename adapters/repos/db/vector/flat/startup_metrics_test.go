@@ -30,7 +30,7 @@ import (
 // It is shared by every test in the binary, so callers compare deltas.
 func flatPrefillCount(t *testing.T) uint64 {
 	t.Helper()
-	n, err := monitoring.HistogramSampleCount(prometheus.DefaultGatherer,
+	n, err := monitoring.SampleCount(prometheus.DefaultGatherer,
 		"weaviate_vector_cache_prefill_duration_seconds",
 		prometheus.Labels{
 			"index_type": string(monitoring.VectorIndexTypeFlat),

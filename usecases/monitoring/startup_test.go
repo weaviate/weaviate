@@ -18,6 +18,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/require"
 )
 
@@ -107,17 +108,17 @@ func TestStartupMetrics_ObserveShardLoad(t *testing.T) {
 
 			m.ObserveShardLoad(tt.registration, 1500*time.Millisecond)
 
-			count, err := HistogramSampleCount(reg, "weaviate_shard_load_duration_seconds",
+			count, err := SampleCount(reg, "weaviate_shard_load_duration_seconds",
 				prometheus.Labels{"registration": string(tt.registration)})
 			require.NoError(t, err)
 			require.Equal(t, uint64(1), count)
 
-			sum, err := HistogramSampleSum(reg, "weaviate_shard_load_duration_seconds",
+			sum, err := SampleSum(reg, "weaviate_shard_load_duration_seconds",
 				prometheus.Labels{"registration": string(tt.registration)})
 			require.NoError(t, err)
 			require.InDelta(t, 1.5, sum, 1e-9, "observed in seconds")
 
-			count, err = HistogramSampleCount(reg, "weaviate_shard_load_duration_seconds",
+			count, err = SampleCount(reg, "weaviate_shard_load_duration_seconds",
 				prometheus.Labels{"registration": string(tt.other)})
 			require.NoError(t, err)
 			require.Equal(t, uint64(0), count, "the other registration is pre-registered but untouched")
@@ -130,11 +131,11 @@ func TestStartupMetrics_ObserveVectorIndexRestore(t *testing.T) {
 
 	m.ObserveVectorIndexRestore(VectorIndexTypeHNSW, 250*time.Millisecond)
 
-	count, err := HistogramSampleCount(reg, "weaviate_vector_index_restore_duration_seconds",
+	count, err := SampleCount(reg, "weaviate_vector_index_restore_duration_seconds",
 		prometheus.Labels{"index_type": "hnsw"})
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), count)
-	sum, err := HistogramSampleSum(reg, "weaviate_vector_index_restore_duration_seconds",
+	sum, err := SampleSum(reg, "weaviate_vector_index_restore_duration_seconds",
 		prometheus.Labels{"index_type": "hnsw"})
 	require.NoError(t, err)
 	require.InDelta(t, 0.25, sum, 1e-9)
@@ -168,7 +169,7 @@ func TestStartupMetrics_PrefillStarted(t *testing.T) {
 			require.Equal(t, float64(0), testutil.ToFloat64(m.prefillActive.With(labels)),
 				"active drops whatever the outcome")
 
-			count, err := HistogramSampleCount(reg, "weaviate_vector_cache_prefill_duration_seconds", labels)
+			count, err := SampleCount(reg, "weaviate_vector_cache_prefill_duration_seconds", labels)
 			require.NoError(t, err)
 			require.Equal(t, tt.wantCount, count)
 		})
@@ -228,18 +229,54 @@ func TestStartupMetrics_PreRegisteredSeries(t *testing.T) {
 	}
 }
 
+// The timing metrics deliberately expose only _sum and _count: a fixed cost of
+// two series per label combination on every node, instead of a bucket set
+// that multiplies by node count in hosted setups.
+func TestStartupMetrics_TimingMetricsExposeOnlySumAndCount(t *testing.T) {
+	m, reg, _ := newTestStartupMetrics(t)
+	m.ObserveShardLoad(ShardRegistrationEager, time.Second)
+	m.ObserveVectorIndexRestore(VectorIndexTypeHNSW, time.Second)
+	m.PrefillStarted(VectorIndexTypeHNSW, PrefillModeSync)(nil)
+
+	families, err := reg.Gather()
+	require.NoError(t, err)
+	byName := map[string]*dto.MetricFamily{}
+	for _, family := range families {
+		byName[family.GetName()] = family
+	}
+
+	for _, name := range []string{
+		"weaviate_shard_load_duration_seconds",
+		"weaviate_vector_index_restore_duration_seconds",
+		"weaviate_vector_cache_prefill_duration_seconds",
+	} {
+		t.Run(name, func(t *testing.T) {
+			family, ok := byName[name]
+			require.True(t, ok, "metric must be registered")
+			require.Equal(t, dto.MetricType_SUMMARY, family.GetType(), "sum/count only, no buckets")
+			for _, metric := range family.GetMetric() {
+				require.Empty(t, metric.GetSummary().GetQuantile(), "no quantile series either")
+			}
+		})
+	}
+}
+
 func TestStartupMetrics_Singleton(t *testing.T) {
 	require.NotNil(t, GetStartupMetrics())
 	require.Same(t, GetStartupMetrics(), GetStartupMetrics())
 }
 
-func TestHistogramSampleCount(t *testing.T) {
+func TestSampleCount(t *testing.T) {
 	reg := prometheus.NewPedanticRegistry()
-	vec := prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "test_hist_seconds", Help: "test"}, []string{"a"})
-	reg.MustRegister(vec)
-	vec.WithLabelValues("x").Observe(1)
-	vec.WithLabelValues("x").Observe(2)
-	vec.WithLabelValues("y").Observe(3)
+	hist := prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "test_hist_seconds", Help: "test"}, []string{"a"})
+	summary := prometheus.NewSummaryVec(prometheus.SummaryOpts{Name: "test_summary_seconds", Help: "test"}, []string{"a"})
+	gauge := prometheus.NewGauge(prometheus.GaugeOpts{Name: "test_plain_gauge", Help: "test"})
+	reg.MustRegister(hist, summary, gauge)
+	hist.WithLabelValues("x").Observe(1)
+	hist.WithLabelValues("x").Observe(2)
+	hist.WithLabelValues("y").Observe(3)
+	summary.WithLabelValues("x").Observe(5)
+	summary.WithLabelValues("x").Observe(7)
 
 	tests := []struct {
 		name      string
@@ -249,15 +286,17 @@ func TestHistogramSampleCount(t *testing.T) {
 		wantSum   float64
 		wantErr   bool
 	}{
-		{name: "matching series", metric: "test_hist_seconds", labels: prometheus.Labels{"a": "x"}, wantCount: 2, wantSum: 3},
-		{name: "other series", metric: "test_hist_seconds", labels: prometheus.Labels{"a": "y"}, wantCount: 1, wantSum: 3},
+		{name: "histogram series", metric: "test_hist_seconds", labels: prometheus.Labels{"a": "x"}, wantCount: 2, wantSum: 3},
+		{name: "other histogram series", metric: "test_hist_seconds", labels: prometheus.Labels{"a": "y"}, wantCount: 1, wantSum: 3},
+		{name: "summary series", metric: "test_summary_seconds", labels: prometheus.Labels{"a": "x"}, wantCount: 2, wantSum: 12},
 		{name: "unknown labels", metric: "test_hist_seconds", labels: prometheus.Labels{"a": "z"}, wantErr: true},
 		{name: "unknown metric", metric: "nope", labels: prometheus.Labels{"a": "x"}, wantErr: true},
+		{name: "neither summary nor histogram", metric: "test_plain_gauge", labels: nil, wantErr: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			count, err := HistogramSampleCount(reg, tt.metric, tt.labels)
-			sum, sumErr := HistogramSampleSum(reg, tt.metric, tt.labels)
+			count, err := SampleCount(reg, tt.metric, tt.labels)
+			sum, sumErr := SampleSum(reg, tt.metric, tt.labels)
 			if tt.wantErr {
 				require.Error(t, err)
 				require.Error(t, sumErr)
