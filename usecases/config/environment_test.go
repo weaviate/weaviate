@@ -1233,6 +1233,18 @@ func TestEnvironmentWeaviateLicense(t *testing.T) {
 	})
 }
 
+func TestEnvironmentSelfRecoveryEnabledWithoutLicense(t *testing.T) {
+	t.Setenv("SELF_RECOVERY_ENABLED", "true")
+	t.Setenv("REPLICA_MOVEMENT_ENABLED", "true")
+	t.Setenv("LICENSE_KEY", "")
+	t.Setenv("LICENSE_KEY_FILE", "")
+	conf := Config{}
+	require.NoError(t, FromEnv(&conf))
+
+	require.True(t, conf.Replication.SelfRecoveryEnabled)
+	require.False(t, conf.WeaviateLicense)
+}
+
 func TestEnvironmentLicenseKeyFile(t *testing.T) {
 	writeKeyFile := func(t *testing.T, contents string) string {
 		t.Helper()

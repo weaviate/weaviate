@@ -109,6 +109,9 @@ const (
 	Ref2VecCentroid = "ref2vec-centroid"
 )
 
+// TestWeaviateLicenseKey is a well-formed test key; Weaviate only form-checks it.
+const TestWeaviateLicenseKey = "wv8.lic_01ARZ3NDEKTSV4RRFFQ69G5FAV.AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8"
+
 type Compose struct {
 	netOctet                    int // second octet of this cluster's subnet, set in Start
 	enableModules               []string
@@ -131,6 +134,7 @@ type Compose struct {
 	withQnATransformers         bool
 	withWeaviateExposeGRPCPort  bool
 	withWeaviateExposeDebugPort bool
+	withWeaviateTmpfsData       bool
 	withSecondWeaviate          bool
 	withWeaviateCluster         bool
 	withWeaviateClusterSize     int
@@ -603,9 +607,23 @@ func (d *Compose) WithMCPConfigFile(hostPath, containerPath string) *Compose {
 	return d
 }
 
+// WithWeaviateLicense sets LICENSE_KEY so Weaviate-licensed (wl/) features start.
+func (d *Compose) WithWeaviateLicense() *Compose {
+	return d.WithWeaviateEnv("LICENSE_KEY", TestWeaviateLicenseKey)
+}
+
 func (d *Compose) WithWeaviateWithDebugPort() *Compose {
-	d.With1NodeCluster()
+	// Default to 1 node only if no size was set, else this clobbers WithWeaviateCluster(N).
+	if !d.withWeaviateCluster {
+		d.With1NodeCluster()
+	}
 	d.withWeaviateExposeDebugPort = true
+	return d
+}
+
+// WithWeaviateTmpfsData mounts /data as tmpfs (wiped on stop): rm-while-running races open-fd writes that recreate files before SIGKILL.
+func (d *Compose) WithWeaviateTmpfsData() *Compose {
+	d.withWeaviateTmpfsData = true
 	return d
 }
 
@@ -1046,7 +1064,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, envSettings, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready", d.weaviateFiles, d.weaviateHostGateway)
+		container, err := startWeaviate(ctx, d.enableModules, envSettings, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateTmpfsData, "/v1/.well-known/ready", d.weaviateFiles, d.weaviateHostGateway)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
@@ -1227,7 +1245,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 			}
 			attemptCtx, cancel := context.WithTimeout(context.Background(), perAttemptTimeout)
 			c, err := startWeaviate(attemptCtx, d.enableModules,
-				cfg, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, livenessEndpoint, d.weaviateFiles, d.weaviateHostGateway)
+				cfg, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, d.withWeaviateTmpfsData, livenessEndpoint, d.weaviateFiles, d.weaviateHostGateway)
 			cancel()
 			if err == nil {
 				if attempt > 0 {

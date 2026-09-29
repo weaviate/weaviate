@@ -29,4 +29,13 @@ type FSMUpdater interface {
 	UpdateTenants(ctx context.Context, class string, req *api.UpdateTenantsRequest) (uint64, error)
 	WaitForUpdate(ctx context.Context, schemaVersion uint64) error
 	ReplicationAllPeersAtLeast(opID uint64, target api.ShardReplicationState) (bool, error)
+	// ReplicationLocalOpCancelState reads the op from this node's FSM; ErrReplicationOperationNotFound once it is gone.
+	ReplicationLocalOpCancelState(opID uint64) (OpCancelState, error)
+}
+
+// OpCancelState is the op's state and cancel flags as this node's FSM last applied them.
+type OpCancelState struct {
+	State         api.ShardReplicationState
+	ShouldCancel  bool
+	UnCancellable bool
 }

@@ -67,6 +67,9 @@ type LazyLoadShard struct {
 	memMonitor       memwatch.AllocChecker
 	shardLoadLimiter *loadlimiter.LoadLimiter
 	lazyLoadSegments bool
+	// loadBlocked makes Load fail with loadBlockedErr; RecoveringShard uses it to prevent an empty shard pre-rename.
+	loadBlocked    bool
+	loadBlockedErr error
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -113,6 +116,11 @@ func (l *LazyLoadShard) mustLoad() {
 
 func (l *LazyLoadShard) mustLoadCtx(ctx context.Context) {
 	if err := l.Load(ctx); err != nil {
+		// mustLoad on a recovering shard is a routing bug; panic explicitly (docs/self-recovery.md).
+		if enterrors.IsShardRecovering(err) {
+			panic(fmt.Sprintf("shard %q is recovering from a peer; this code path must not touch a recovering shard: %v",
+				l.shardOpts.name, err))
+		}
 		panic(err.Error())
 	}
 }
@@ -131,6 +139,10 @@ func (l *LazyLoadShard) loadIfCold(ctx context.Context) (bool, error) {
 
 	if l.loaded {
 		return false, nil
+	}
+
+	if l.loadBlocked {
+		return false, l.loadBlockedErr
 	}
 
 	if err := l.memMonitor.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
@@ -174,6 +186,27 @@ func (l *LazyLoadShard) loadIfCold(ctx context.Context) (bool, error) {
 	l.loaded = true
 
 	return true, nil
+}
+
+func (l *LazyLoadShard) blockLoad(blockErr error) {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	l.loadBlocked = true
+	l.loadBlockedErr = blockErr
+}
+
+func (l *LazyLoadShard) clearLoadBlock() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	l.loadBlocked = false
+	l.loadBlockedErr = nil
+	l.unloadedCount = nil // stale once the copy is renamed in
+}
+
+func (l *LazyLoadShard) isLoadBlocked() bool {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+	return l.loadBlocked
 }
 
 func (l *LazyLoadShard) Index() *Index {
@@ -288,6 +321,18 @@ func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
 	l.unloadedCount = &count
 
 	return count, nil
+}
+
+// markUnloadedEmpty caches a zero object count for a cold shard whose folder is known to be empty.
+func (l *LazyLoadShard) markUnloadedEmpty() {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if l.loaded {
+		return
+	}
+	var zero int64
+	l.unloadedCount = &zero
 }
 
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {

@@ -183,6 +183,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
+	"github.com/weaviate/weaviate/wl/selfrecovery"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -648,6 +649,8 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		MetadataOnlyVoters:          appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
 		EnableOneNodeRecovery:       appState.ServerConfig.Config.Raft.EnableOneNodeRecovery,
 		ForceOneNodeRecovery:        appState.ServerConfig.Config.Raft.ForceOneNodeRecovery,
+		SelfRecoveryEnabled:         appState.ServerConfig.Config.Replication.SelfRecoveryEnabled,
+		WipedJoinerBarrierTimeout:   appState.ServerConfig.Config.Replication.SelfRecoveryBarrierTimeout,
 		DB:                          nil,
 		Parser:                      schemaParser,
 		NodeNameToPortMap:           server2port,
@@ -729,6 +732,35 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 				Info("reindex orphan audit skipped after class-dir restore; deferred for post-install replay")
 		}
 		return nil
+	}
+
+	// Wired after Cluster (Raft dep) and before WaitForStartup so schema-replay shard-init can hand off missing shards.
+	selfRecoveryOrch := selfrecovery.New(selfrecovery.Config{
+		Raft:                   appState.ClusterService.Raft,
+		Schema:                 selfRecoverySchemaReader{r: appState.ClusterService.SchemaReader()},
+		PathResolver:           selfRecoveryDBPathResolver{db: appState.DB, root: dataPath},
+		ClientFactory:          remoteClientFactory,
+		NodeSelector:           nodeSelector,
+		NodeName:               nodeName,
+		Enabled:                appState.ServerConfig.Config.Replication.SelfRecoveryEnabled,
+		Licensed:               appState.ServerConfig.Config.WeaviateLicense,
+		Concurrency:            appState.ServerConfig.Config.Replication.SelfRecoveryConcurrency,
+		MaintenanceModeEnabled: appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		OnRecoveryComplete:     appState.DB.LoadLocalShard,
+		RootDataPath:           dataPath,
+		Logger:                 appState.Logger,
+	})
+	appState.DB.SetSelfRecoveryOrchestrator(selfRecoveryOrch)
+	// Expose debug endpoints only when the feature is on.
+	if appState.ServerConfig.Config.Replication.SelfRecoveryEnabled {
+		setupSelfRecoveryHandlers(appState, selfRecoveryOrch)
+		setupRaftDebugHandlers(appState, appState.ClusterService.Raft)
+	}
+	// One-shot reclaim of *.recovering/ leftovers from a downgrade.
+	if removed, err := selfRecoveryOrch.CleanupOrphanRecoveryDirs(dataPath); err != nil {
+		appState.Logger.Warnf("self-recovery orphan cleanup failed: %v", err)
+	} else if len(removed) > 0 {
+		appState.Logger.WithField("count", len(removed)).Info("self-recovery: removed orphan recovery dirs")
 	}
 
 	executor := schema.NewExecutor(migrator,

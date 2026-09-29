@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -32,9 +33,12 @@ import (
 // the gauge to it can tell "published this total" from "published nothing".
 const gaugeUntouched = -1
 
+// Every initialized shard writes this file; an empty folder is a lazy registration that never loaded.
+const initializedShardMarker = "version"
+
 // newObjectCountTestIndex builds an index observeObjectCount can walk. It
-// creates each shard's tenant directory, because indexObjectCount skips a shard
-// whose directory is missing.
+// creates each shard's tenant directory with a marker file, because
+// indexObjectCount skips a shard whose directory is missing or empty.
 func newObjectCountTestIndex(t *testing.T, className string, shards map[string]ShardLike) *Index {
 	t.Helper()
 
@@ -46,7 +50,9 @@ func newObjectCountTestIndex(t *testing.T, className string, shards map[string]S
 	index.allShardsReady.Store(true)
 
 	for name, shard := range shards {
-		require.NoError(t, os.MkdirAll(shardPath(index.path(), name), 0o755))
+		dir := shardPath(index.path(), name)
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, initializedShardMarker), nil, 0o644))
 		index.shards.Store(name, shard)
 	}
 	return index
@@ -189,6 +195,18 @@ func TestObserveObjectCount(t *testing.T) {
 			want: 3,
 		},
 		{
+			name: "a shard whose directory is empty is skipped",
+			indices: func(t *testing.T) []*Index {
+				index := newObjectCountTestIndex(t, "Col1", map[string]ShardLike{
+					"tenant-0": countingShard(t, 3),
+					"tenant-1": untouchedShard(t),
+				})
+				require.NoError(t, os.Remove(filepath.Join(shardPath(index.path(), "tenant-1"), initializedShardMarker)))
+				return []*Index{index}
+			},
+			want: 3,
+		},
+		{
 			name: "a shard that fails to report its count contributes zero",
 			indices: func(t *testing.T) []*Index {
 				failing := NewMockShardLike(t)
@@ -241,7 +259,11 @@ func TestObserveObjectCountReleasesIndexLock(t *testing.T) {
 		o.observeObjectCount()
 	}()
 
-	<-counting
+	select {
+	case <-counting:
+	case <-observed:
+		t.Fatal("the walk finished without asking the shard for its count")
+	}
 	// The walk takes longer the more tenants the node has, because a cold shard
 	// reads its count off disk. Every index lookup takes indexLock for read and
 	// DeleteIndex takes it for write.

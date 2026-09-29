@@ -1237,7 +1237,7 @@ func (i *Index) FetchObject(ctx context.Context,
 ) (replica.Replica, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return replica.Replica{}, fmt.Errorf("shard %q does not exist locally", shardName)
+		return replica.Replica{}, fmt.Errorf("shard %q does not exist locally: %w", shardName, err)
 	}
 
 	defer release()
@@ -1285,7 +1285,7 @@ func (i *Index) FetchObjects(ctx context.Context,
 ) ([]replica.Replica, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
+		return nil, fmt.Errorf("shard %q does not exist locally: %w", shardName, err)
 	}
 	defer release()
 	if shard == nil {
