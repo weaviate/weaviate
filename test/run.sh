@@ -78,6 +78,7 @@ function main() {
   run_acceptance_self_recovery=false
   run_acceptance_self_recovery_lazy=false
   run_acceptance_self_recovery_intact=false
+  run_acceptance_self_recovery_crash=false
 
   while [[ "$#" -gt 0 ]]; do
       case $1 in
@@ -156,6 +157,7 @@ function main() {
           --acceptance-self-recovery|-asr) run_all_tests=false; run_acceptance_self_recovery=true;;
           --acceptance-self-recovery-lazy|-asrl) run_all_tests=false; run_acceptance_self_recovery_lazy=true;;
           --acceptance-self-recovery-intact|-asri) run_all_tests=false; run_acceptance_self_recovery_intact=true;;
+          --acceptance-self-recovery-crash|-asrc) run_all_tests=false; run_acceptance_self_recovery_crash=true;;
           --benchmark-only|-b) run_all_tests=false; run_benchmark=true;;
           --cleanup) run_all_tests=false; run_cleanup=true;;
           --help|-h) printf '%s\n' \
@@ -219,6 +221,7 @@ function main() {
               "--acceptance-self-recovery | -asr"\
               "--acceptance-self-recovery-lazy | -asrl"\
               "--acceptance-self-recovery-intact | -asri"\
+              "--acceptance-self-recovery-crash | -asrc"\
               "--only-acceptance-{packageName}"
               "--only-module-{moduleName}"
               "--benchmark-only | -b" \
@@ -559,6 +562,11 @@ function main() {
   if $run_acceptance_self_recovery_intact || $run_acceptance_tests || $run_all_tests; then
     echo "running self-recovery intact-node acceptance tests"
     run_acceptance_self_recovery_intact
+  fi
+
+  if $run_acceptance_self_recovery_crash || $run_acceptance_tests || $run_all_tests; then
+    echo "running self-recovery crash-resume acceptance tests"
+    run_acceptance_self_recovery_crash
   fi
   echo "Done!"
 }
@@ -1204,7 +1212,7 @@ function run_acceptance_reindex_backup() {
 }
 function run_acceptance_self_recovery() {
   build_weaviate_test_image
-  AOF_GROUP_SKIP='^TestSelfRecoveryLazy|^TestSelfRecoveryIntact' \
+  AOF_GROUP_SKIP='^TestSelfRecoveryLazy|^TestSelfRecoveryIntact|^TestSelfRecoveryCrash' \
     run_aof_group "self-recovery" test/acceptance/selfrecovery
 }
 
@@ -1218,6 +1226,12 @@ function run_acceptance_self_recovery_intact() {
   build_weaviate_test_image
   AOF_GROUP_RUN='^TestSelfRecoveryIntact' AOF_GROUP_TIMEOUT=30m \
     run_aof_group "self-recovery-intact" test/acceptance/selfrecovery
+}
+
+function run_acceptance_self_recovery_crash() {
+  build_weaviate_test_image
+  AOF_GROUP_RUN='^TestSelfRecoveryCrash' AOF_GROUP_TIMEOUT=40m \
+    run_aof_group "self-recovery-crash" test/acceptance/selfrecovery
 }
 
 
