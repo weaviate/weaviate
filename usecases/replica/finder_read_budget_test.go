@@ -30,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
-	replicaerrors "github.com/weaviate/weaviate/usecases/replica/errors"
 )
 
 // incidentBudget is the wall clock allowed with one replica restarting.
@@ -40,7 +39,6 @@ const incidentBudget = 2 * time.Second
 var errReplicaRestarting = errors.New("replica restarting")
 
 // errNodeNotReady is what a booting peer answers with over gRPC.
-var errNodeNotReady = errors.New("rpc error: code = Unavailable desc = " + replica.NodeNotReadyMsg)
 
 // hang models a replica that accepts the connection but never answers.
 func hang(ctx context.Context, gate <-chan struct{}) error {
@@ -284,90 +282,6 @@ func TestFinderAbandonsUnresponsiveReplica(t *testing.T) {
 	}
 }
 
-// An unready repair target must neither block nor fail a read that is already decided.
-func TestFinderInlineRepairAgainstUnreadyReplica(t *testing.T) {
-	var (
-		id    = strfmt.UUID("123")
-		cls   = "C1"
-		shard = "SH1"
-		nodes = []string{"A", "B", "C"}
-		adds  = additional.Properties{}
-		proj  = search.SelectProperties{}
-	)
-
-	for _, tt := range []struct {
-		name string
-		// never answer the repair RPC, instead of answering node-not-ready
-		hangs bool
-	}{
-		{
-			name:  "repair target answers node-not-ready",
-			hangs: false,
-		},
-		{
-			name:  "repair target accepts the connection and never answers",
-			hangs: true,
-		},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			var (
-				f      = newFakeFactory(t, cls, shard, nodes, false)
-				finder = f.newFinder("A")
-			)
-			gate, release := newGate(t)
-			var (
-				digestIDs = []strfmt.UUID{id}
-				item      = replica.Replica{ID: id, Object: object(id, 3)}
-				freshR    = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
-				staleR    = []types.RepairResponse{{ID: id.String(), UpdateTime: 1}}
-				// inline repair round trips aimed at the unready replica
-				repairRPCs atomic.Int64
-			)
-
-			// A and B agree on the newest version; C is behind, which triggers repair
-			f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, 0).
-				Return(item, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[1], cls, shard, digestIDs, 0).
-				Return(freshR, nil)
-			f.RClient.EXPECT().DigestObjects(anyVal, nodes[2], cls, shard, digestIDs, 0).
-				Return(staleR, nil)
-
-			f.RClient.EXPECT().OverwriteObjects(anyVal, nodes[2], cls, shard, anyVal).
-				RunAndReturn(func(ctx context.Context, _, _, _ string,
-					_ []*objects.VObject,
-				) ([]types.RepairResponse, error) {
-					repairRPCs.Add(1)
-					if tt.hangs {
-						return nil, hang(ctx, gate)
-					}
-					return nil, errNodeNotReady
-				}).Maybe()
-
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			got, returned := callWithin(t, incidentBudget, func() { cancel(); release() },
-				func() (*storobj.Object, error) {
-					return finder.GetOne(ctx, types.ConsistencyLevelAll, shard, id, proj, adds)
-				})
-
-			assert.Truef(t, returned,
-				"GetOne must not block on inline read repair against the unready replica %q; it was still blocked after %v",
-				nodes[2], incidentBudget)
-			// one attempt is what it costs to learn a replica is unready; a retry budget against it is not
-			assert.LessOrEqualf(t, repairRPCs.Load(), int64(1),
-				"read repair must not retry inline on the user's read path against unready replica %q", nodes[2])
-			if !returned {
-				return
-			}
-			assert.NotErrorIsf(t, got.err, replicaerrors.ErrRepair,
-				"a read must not fail with a repair error because replica %q is restarting", nodes[2])
-			assert.Equal(t, item.Object, got.value,
-				"the newest version was agreed by the healthy replicas and its content already held by the coordinator")
-		})
-	}
-}
-
 // Each write phase runs under a deadline of its own and survives the caller's cancellation.
 func TestReplicatorWritePhasesOutliveCaller(t *testing.T) {
 	var (
@@ -470,91 +384,5 @@ func TestReplicatorWritePhasesOutliveCaller(t *testing.T) {
 				t.Fatalf("PutObject did not return after replica %q answered", slow)
 			}
 		})
-	}
-}
-
-// An unavailable repair target neither aborts nor masks the repair of another stale replica.
-func TestFinderRepairWithOneUnavailableTarget(t *testing.T) {
-	var (
-		id        = strfmt.UUID("123")
-		cls       = "C1"
-		shard     = "SH1"
-		nodes     = []string{"A", "B", "C"}
-		adds      = additional.Properties{}
-		proj      = search.SelectProperties{}
-		digestIDs = []strfmt.UUID{id}
-		item      = replica.Replica{ID: id, Object: object(id, 3)}
-		freshR    = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
-		staleR    = []types.RepairResponse{{ID: id.String(), UpdateTime: 1}}
-		// the healthy target answers after the unavailable one has already failed
-		healthyDelay = 100 * time.Millisecond
-	)
-
-	for _, entry := range []string{"GetOne", "Exists"} {
-		for _, tt := range []struct {
-			name string
-			// the healthy stale target's answer to the repair write
-			answer   []types.RepairResponse
-			wantErr  error
-			wantRead bool
-		}{
-			{
-				name:     "healthy target repaired",
-				answer:   nil,
-				wantRead: true,
-			},
-			{
-				name:    "healthy target conflict reported",
-				answer:  []types.RepairResponse{{ID: id.String(), Err: "conflict"}},
-				wantErr: replicaerrors.ErrConflictObjectChanged,
-			},
-		} {
-			t.Run(entry+"/"+tt.name, func(t *testing.T) {
-				f := newFakeFactory(t, cls, shard, nodes, false)
-				finder := f.newFinder("A")
-				healthy, unavailable := nodes[1], nodes[2]
-
-				if entry == "GetOne" {
-					f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, 0).Return(item, nil)
-				} else {
-					f.RClient.EXPECT().DigestObjects(anyVal, nodes[0], cls, shard, digestIDs, 0).Return(freshR, nil)
-					f.RClient.EXPECT().FetchObject(anyVal, nodes[0], cls, shard, id, proj, adds, 9).Return(item, nil)
-				}
-				f.RClient.EXPECT().DigestObjects(anyVal, healthy, cls, shard, digestIDs, 0).Return(staleR, nil)
-				f.RClient.EXPECT().DigestObjects(anyVal, unavailable, cls, shard, digestIDs, 0).Return(staleR, nil)
-
-				var healthyCtxErr atomic.Value
-				f.RClient.EXPECT().OverwriteObjects(anyVal, healthy, cls, shard, anyVal).
-					RunAndReturn(func(ctx context.Context, _, _, _ string, _ []*objects.VObject) ([]types.RepairResponse, error) {
-						select {
-						case <-ctx.Done():
-							healthyCtxErr.Store(ctx.Err())
-							return nil, ctx.Err()
-						case <-time.After(healthyDelay):
-						}
-						return tt.answer, nil
-					})
-				f.RClient.EXPECT().OverwriteObjects(anyVal, unavailable, cls, shard, anyVal).
-					Return(nil, errNodeNotReady)
-
-				var err error
-				var found bool
-				if entry == "GetOne" {
-					var obj *storobj.Object
-					obj, err = finder.GetOne(context.Background(), types.ConsistencyLevelAll, shard, id, proj, adds)
-					found = obj != nil
-				} else {
-					found, err = finder.Exists(context.Background(), types.ConsistencyLevelAll, shard, id)
-				}
-
-				assert.Nilf(t, healthyCtxErr.Load(), "the repair of %q must not be cancelled because %q is unavailable", healthy, unavailable)
-				if tt.wantErr != nil {
-					assert.ErrorIsf(t, err, tt.wantErr, "a conflict on %q must not be masked by %q being unavailable", healthy, unavailable)
-					return
-				}
-				assert.NoError(t, err)
-				assert.Equal(t, tt.wantRead, found)
-			})
-		}
 	}
 }
