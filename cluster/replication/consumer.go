@@ -583,7 +583,11 @@ func (c *CopyOpConsumer) reportGivenUp(op ShardReplicationOpAndStatus) {
 		return
 	}
 	c.engineOpCallbacks.OnOpGivenUp(c.nodeId)
-	getLoggerForOpAndStatus(c.logger, op.Op, op.Status).Errorf("replication op gave up after %d errors; replica was not created: %s", len(errs), errs[len(errs)-1].Message)
+	outcome := "replica was not created"
+	if op.Op.TransferType == api.SELF_RECOVERY {
+		outcome = "shard stays RECOVERING"
+	}
+	getLoggerForOpAndStatus(c.logger, op.Op, op.Status).Errorf("replication op gave up after %d errors; %s: %s", len(errs), outcome, errs[len(errs)-1].Message)
 }
 
 // dropCancelledOpTargetShard removes the op's target shard (files included)

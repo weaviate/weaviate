@@ -2333,14 +2333,17 @@ func TestConsumerCancelReportsGivenUp(t *testing.T) {
 	)
 	tests := []struct {
 		name        string
+		transfer    api.ShardReplicationTransferType
 		errors      int
 		deleteOp    bool
-		wantGivenUp bool
+		wantGivenUp string
 	}{
-		{name: "error budget exhausted", errors: replication.MaxErrors, wantGivenUp: true},
-		{name: "user cancel with some errors", errors: 3},
-		{name: "user cancel without errors"},
-		{name: "delete with exhausted budget", errors: replication.MaxErrors, deleteOp: true},
+		{name: "copy error budget exhausted", transfer: api.COPY, errors: replication.MaxErrors, wantGivenUp: "replica was not created"},
+		{name: "move error budget exhausted", transfer: api.MOVE, errors: replication.MaxErrors, wantGivenUp: "replica was not created"},
+		{name: "self-recovery error budget exhausted", transfer: api.SELF_RECOVERY, errors: replication.MaxErrors, wantGivenUp: "shard stays RECOVERING"},
+		{name: "user cancel with some errors", transfer: api.COPY, errors: 3},
+		{name: "user cancel without errors", transfer: api.COPY},
+		{name: "delete with exhausted budget", transfer: api.COPY, errors: replication.MaxErrors, deleteOp: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -2390,7 +2393,7 @@ func TestConsumerCancelReportsGivenUp(t *testing.T) {
 			doneChan := make(chan error, 1)
 			enterrors.GoWrapper(func() { doneChan <- consumer.Consume(ctx, opsChan) }, logger)
 			opsChan <- replication.NewShardReplicationOpAndStatus(
-				replication.NewShardReplicationOp(opID, "node1", "node2", collection, shardName, api.COPY), status)
+				replication.NewShardReplicationOp(opID, "node1", "node2", collection, shardName, tc.transfer), status)
 
 			select {
 			case <-cancelled:
@@ -2406,7 +2409,7 @@ func TestConsumerCancelReportsGivenUp(t *testing.T) {
 					gaveUpLogs = append(gaveUpLogs, e)
 				}
 			}
-			if !tc.wantGivenUp {
+			if tc.wantGivenUp == "" {
 				require.Zero(t, givenUp.Load())
 				require.Empty(t, gaveUpLogs)
 				return
@@ -2414,8 +2417,8 @@ func TestConsumerCancelReportsGivenUp(t *testing.T) {
 			require.Equal(t, int32(1), givenUp.Load())
 			require.Len(t, gaveUpLogs, 1)
 			require.Equal(t, logrus.ErrorLevel, gaveUpLogs[0].Level)
-			require.Equal(t, fmt.Sprintf("replication op gave up after %d errors; replica was not created: start change capture: file exists %d",
-				replication.MaxErrors, replication.MaxErrors-1), gaveUpLogs[0].Message)
+			require.Equal(t, fmt.Sprintf("replication op gave up after %d errors; %s: start change capture: file exists %d",
+				replication.MaxErrors, tc.wantGivenUp, replication.MaxErrors-1), gaveUpLogs[0].Message)
 			require.Equal(t, opID, gaveUpLogs[0].Data["op_id"])
 			require.Equal(t, "node1", gaveUpLogs[0].Data["source_node"])
 			require.Equal(t, "node2", gaveUpLogs[0].Data["target_node"])
