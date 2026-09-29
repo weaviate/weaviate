@@ -955,3 +955,30 @@ func TestWipeMarker_IntactStartNeverWritesIt(t *testing.T) {
 	require.Eventually(t, func() bool { return testutil.ToFloat64(o.metrics.NoDataEmptyTotal) >= beforeEmpty+1 }, 10*time.Second, 20*time.Millisecond)
 	require.NoFileExists(t, o.wipeMarker)
 }
+
+func TestWipeMarker_StaleMarkerRemovedWhenSubmitImpossible(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		enabled, licensed bool
+	}{
+		{name: "flag off", enabled: false, licensed: true},
+		{name: "unlicensed", enabled: true, licensed: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			marker := filepath.Join(root, wipeMarkerName)
+			require.NoError(t, os.WriteFile(marker, nil, 0o644))
+
+			o := New(Config{
+				Raft: &stubRaft{}, Schema: stubSchema{replicas: []string{"self"}}, PathResolver: stubPathResolver{root: root},
+				NodeSelector: &stubNodeSelector{}, NodeName: "self", Enabled: tc.enabled, Licensed: tc.licensed, RootDataPath: root, Logger: quietLogger(),
+			})
+			t.Cleanup(func() { require.NoError(t, o.Close(context.Background())) })
+
+			require.NoFileExists(t, marker)
+			o.queueMu.Lock()
+			defer o.queueMu.Unlock()
+			require.False(t, o.wipeRoundOpen)
+		})
+	}
+}

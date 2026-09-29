@@ -185,8 +185,15 @@ func New(cfg Config) *Orchestrator {
 	if cfg.RootDataPath != "" {
 		wipeMarker = filepath.Join(cfg.RootDataPath, wipeMarkerName)
 		if _, err := os.Stat(wipeMarker); err == nil {
-			wipeRoundOpen = true
-			logger.WithField("component", "self_recovery").Info("self-recovery: resuming a wiped node's recovery round; empty fallbacks stay informational until it drains")
+			if cfg.Enabled && cfg.Licensed {
+				wipeRoundOpen = true
+				componentLogger.Info("self-recovery: resuming a wiped node's recovery round; empty fallbacks stay informational until it drains")
+			} else if err := os.Remove(wipeMarker); err != nil && !errors.Is(err, fs.ErrNotExist) {
+				componentLogger.Warnf("self-recovery: cannot remove the stale wipe-round marker %q: %v", wipeMarker, err)
+			} else {
+				// normal init materialises every missing dir on this start, so a later licensed start must not inherit the benign bucket
+				componentLogger.Info("self-recovery: removed a stale wipe-round marker; this start cannot submit recoveries (feature disabled or unlicensed) and normal init materialises the missing shards")
+			}
 		}
 	}
 	return &Orchestrator{
