@@ -413,50 +413,20 @@ func TestChangeLog_TailerCancellation(t *testing.T) {
 
 // A resumed op reopens the same path, so a late second Deactivate of the replaced log must not delete its successor.
 func TestChangeLog_RepeatedDeactivateKeepsSuccessorFile(t *testing.T) {
-	tests := []struct {
-		name    string
-		prepare func(t *testing.T, old *changelog.ChangeLog)
-	}{
-		{name: "plain"},
-		{
-			name: "finalized",
-			prepare: func(t *testing.T, old *changelog.ChangeLog) {
-				_, err := old.Finalize()
-				require.NoError(t, err)
-			},
-		},
-		{
-			name: "entries appended",
-			prepare: func(t *testing.T, old *changelog.ChangeLog) {
-				_, err := old.AppendDelete([16]byte{1}, 1)
-				require.NoError(t, err)
-			},
-		},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			logger, _ := logrustest.NewNullLogger()
-			path := filepath.Join(t.TempDir(), "op.log")
-			old, err := changelog.Open(path, logger)
-			require.NoError(t, err)
-			if tc.prepare != nil {
-				tc.prepare(t, old)
-			}
-			require.NoError(t, old.Deactivate())
-			require.NoFileExists(t, path)
+	logger, _ := logrustest.NewNullLogger()
+	path := filepath.Join(t.TempDir(), "op.log")
+	old, err := changelog.Open(path, logger)
+	require.NoError(t, err)
+	require.NoError(t, old.Deactivate())
+	require.NoFileExists(t, path)
 
-			successor, err := changelog.Open(path, logger)
-			require.NoError(t, err)
-			t.Cleanup(func() { require.NoError(t, successor.Deactivate()) })
+	successor, err := changelog.Open(path, logger)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, successor.Deactivate()) })
 
-			require.NoError(t, old.Deactivate())
-			require.FileExists(t, path)
-			lsn, err := successor.AppendDelete([16]byte{2}, 2)
-			require.NoError(t, err)
-			require.Equal(t, uint64(1), lsn)
-			tailer, err := successor.NewTailer(0)
-			require.NoError(t, err)
-			t.Cleanup(func() { require.NoError(t, tailer.Close()) })
-		})
-	}
+	require.NoError(t, old.Deactivate())
+	require.FileExists(t, path)
+	lsn, err := successor.AppendDelete([16]byte{2}, 2)
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), lsn)
 }

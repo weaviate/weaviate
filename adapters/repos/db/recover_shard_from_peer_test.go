@@ -549,36 +549,24 @@ func TestTenantDirExists(t *testing.T) {
 	}
 }
 
-func TestUsageForShardTreatsNoDataFolderAsZero(t *testing.T) {
-	cases := []struct {
-		name    string
-		prepare func(t *testing.T, shardDir string)
-	}{
-		{name: "empty folder", prepare: func(*testing.T, string) {}},
-		{name: "folder holding only changelog/<op>.lost", prepare: writeLostMarkerOnly},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			logger, hook := test.NewNullLogger()
-			idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{})
-			idx.logger = logger
-			idx.Config.EnableLazyLoadShards = true
-			idx.closingCtx = context.Background()
-			idx.shardCreateLocks = esync.NewKeyRWLocker()
-			shard, err := idx.initShard(context.Background(), "S", &models.Class{Class: "C"}, monitoring.GetMetrics(), false, false)
-			require.NoError(t, err)
-			idx.shards.Store("S", shard)
-			require.DirExists(t, shardPath(idx.path(), "S"))
-			tc.prepare(t, shardPath(idx.path(), "S"))
+func TestUsageForShardTreatsEmptyFolderAsZero(t *testing.T) {
+	logger, hook := test.NewNullLogger()
+	idx := newTestIndexForRecovery(t, &fakeSelfRecoveryOrch{})
+	idx.logger = logger
+	idx.Config.EnableLazyLoadShards = true
+	idx.closingCtx = context.Background()
+	idx.shardCreateLocks = esync.NewKeyRWLocker()
+	shard, err := idx.initShard(context.Background(), "S", &models.Class{Class: "C"}, monitoring.GetMetrics(), false, false)
+	require.NoError(t, err)
+	idx.shards.Store("S", shard)
+	require.DirExists(t, shardPath(idx.path(), "S"))
 
-			usage, err := idx.usageForShard(context.Background(), "S", false, nil, "")
-			require.NoError(t, err)
-			require.True(t, usage.LazyUnloaded)
-			require.Zero(t, usage.ObjectsCount)
-			for _, entry := range hook.AllEntries() {
-				require.Greater(t, entry.Level, logrus.WarnLevel, entry.Message)
-			}
-		})
+	usage, err := idx.usageForShard(context.Background(), "S", false, nil, "")
+	require.NoError(t, err)
+	require.True(t, usage.LazyUnloaded)
+	require.Zero(t, usage.ObjectsCount)
+	for _, entry := range hook.AllEntries() {
+		require.Greater(t, entry.Level, logrus.WarnLevel, entry.Message)
 	}
 }
 

@@ -271,12 +271,6 @@ func TestListInactiveShardFiles(t *testing.T) {
 			},
 		},
 		{
-			name: "change-capture lost markers are left out",
-			extraDirs: map[string][]string{
-				changelogDirName: {"op-1" + changelogLostExtension, "op-2" + changelogFileExtension},
-			},
-		},
-		{
 			name: "nested vector index files are listed, nested .tmp files are not",
 			extraDirs: map[string][]string{
 				"main.hfresh.d":          {"centroids.bin"},

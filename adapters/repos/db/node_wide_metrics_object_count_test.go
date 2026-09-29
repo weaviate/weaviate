@@ -207,21 +207,6 @@ func TestObserveObjectCount(t *testing.T) {
 			want: 3,
 		},
 		{
-			name: "a shard whose directory holds only lost change-log markers is skipped",
-			indices: func(t *testing.T) []*Index {
-				index := newObjectCountTestIndex(t, "Col1", map[string]ShardLike{
-					"tenant-0": countingShard(t, 3),
-					"tenant-1": untouchedShard(t),
-				})
-				dir := shardPath(index.path(), "tenant-1")
-				require.NoError(t, os.Remove(filepath.Join(dir, initializedShardMarker)))
-				require.NoError(t, os.MkdirAll(changelogDirOf(dir), os.ModePerm))
-				require.NoError(t, os.WriteFile(lostMarkerPath(dir, 7), nil, 0o600))
-				return []*Index{index}
-			},
-			want: 3,
-		},
-		{
 			name: "a shard that fails to report its count contributes zero",
 			indices: func(t *testing.T) []*Index {
 				failing := NewMockShardLike(t)

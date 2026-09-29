@@ -37,8 +37,8 @@ import (
 
 // incomingChangeLogEndpoints are the change-capture endpoints a movement's
 // target calls on the source. errorsOnMissingShard splits them: the three
-// drain reads must report a shard they cannot serve, while stop is a teardown
-// an unloaded shard has already satisfied.
+// drain reads must report a shard they cannot serve, while stop removes an
+// unloaded shard's log and marker on disk without loading it.
 var incomingChangeLogEndpoints = []struct {
 	name                 string
 	errorsOnMissingShard bool

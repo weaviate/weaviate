@@ -381,6 +381,8 @@ func TestLazyShardSelfRecoveryDemoteThenRepromote(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newRecoveringWarmupFixture(t, tenant, 2, tc.minObjects, tc.eager)
+			f.index.SetReplicationFSMReader(newSourcingFSM(t, warmupClassName,
+				opFrom(warmupNodeName, api.COPY, api.INTEGRATING)(tenant)))
 			live := warmupShardPath(f.dirName, tenant)
 			recovery := live + api.RecoveryFolderSuffix
 			f.restore()
@@ -390,6 +392,8 @@ func TestLazyShardSelfRecoveryDemoteThenRepromote(t *testing.T) {
 				lazy, ok := f.index.shards.Load(tenant).(*LazyLoadShard)
 				require.True(t, ok, "round %d: got %T", round, f.index.shards.Load(tenant))
 				require.Equal(t, tc.wantLoaded, lazy.isLoaded(), "round %d", round)
+				requireDrainReadsLost(t, f.index, tenant, recreatedOpID)
+				require.FileExists(t, lostMarkerPath(live, recreatedOpID), "round %d", round)
 
 				require.NoError(t, f.index.DemoteRecoveredLocalShard(ctx, tenant))
 				require.NoDirExists(t, live)
@@ -403,10 +407,12 @@ func TestLazyShardSelfRecoveryDemoteThenRepromote(t *testing.T) {
 				require.True(t, enterrors.IsShardRecovering(err), "round %d: %v", round, err)
 				require.NoDirExists(t, live)
 
+				require.NoError(t, os.RemoveAll(filepath.Join(recovery, changelogDirName)))
 				require.NoError(t, os.Rename(recovery, live))
 			}
 
 			require.NoError(t, f.index.PromoteRecoveringLocalShard(ctx, tenant))
+			requireDrainReadsLost(t, f.index, tenant, recreatedOpID)
 			require.NoError(t, f.index.LoadLocalShardForMovement(ctx, tenant))
 			count, err := indexcounter.Read(live)
 			require.NoError(t, err)
