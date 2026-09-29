@@ -23,8 +23,9 @@ import "github.com/pkg/errors"
 //     the entrypoint follows the node records.
 //
 // Neither ever contains a ResetIndex: it is consumed when a raw file is
-// converted. Garbage that happens to decode as in-place node records is not
-// caught here; a zeroed block decodes as AddNode(0) and is caught in .sorted.
+// converted. Garbage that decodes as a correctly placed record is not caught
+// here, including compression records at the head of an empty segment; that
+// needs a checksum. A zeroed block decodes as AddNode(0) and is caught in .sorted.
 type compactedLayout struct {
 	fileType        FileType
 	nodesStarted    bool
