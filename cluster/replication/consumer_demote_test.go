@@ -15,6 +15,7 @@ import (
 	"context"
 	stderrors "errors"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -32,6 +33,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
+	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/replication/metrics"
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
@@ -66,6 +68,8 @@ func TestConsumerHydratingDemotesListedTarget(t *testing.T) {
 		transfer     api.ShardReplicationTransferType
 		replicas     []string
 		deleteErr    error
+		removal      string
+		waitTimeout  time.Duration
 		wantCalls    []string
 		wantReplicas []string
 	}{
@@ -82,6 +86,23 @@ func TestConsumerHydratingDemotesListedTarget(t *testing.T) {
 			replicas:     []string{"node1", "node3", "node2"},
 			wantCalls:    []string{"delete", "wait", "unload", "stop", "start", "copy", "stop"},
 			wantReplicas: []string{"node1", "node3"},
+		},
+		{
+			name:         "removal visible only after a few polls",
+			transfer:     api.COPY,
+			replicas:     []string{"node1", "node2"},
+			removal:      "lagging",
+			wantCalls:    []string{"delete", "wait", "unload", "stop", "start", "copy", "stop"},
+			wantReplicas: []string{"node1"},
+		},
+		{
+			name:         "removal never visible times out before capture",
+			transfer:     api.COPY,
+			replicas:     []string{"node1", "node2"},
+			removal:      "never",
+			waitTimeout:  100 * time.Millisecond,
+			wantCalls:    []string{"delete", "wait"},
+			wantReplicas: []string{"node1", "node2"},
 		},
 		{
 			name:         "unlisted target left loaded by a pre-add rewind is unloaded",
@@ -129,6 +150,11 @@ func TestConsumerHydratingDemotesListedTarget(t *testing.T) {
 				defer mu.Unlock()
 				calls = append(calls, name)
 			}
+			removeNode2 := func() error {
+				return schemaManager.DeleteReplicaFromShard(buildApplyRequest(collection,
+					api.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD,
+					api.DeleteReplicaFromShard{Class: collection, Shard: shardName, TargetNode: "node2"}), true)
+			}
 			opIDStr := fmt.Sprint(opID)
 			fsm.EXPECT().DeleteReplicaFromShard(mock.Anything, collection, shardName, "node2").
 				RunAndReturn(func(context.Context, string, string, string) (uint64, error) {
@@ -136,12 +162,23 @@ func TestConsumerHydratingDemotesListedTarget(t *testing.T) {
 					if tc.deleteErr != nil {
 						return 0, tc.deleteErr
 					}
-					return 42, schemaManager.DeleteReplicaFromShard(buildApplyRequest(collection,
-						api.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD,
-						api.DeleteReplicaFromShard{Class: collection, Shard: shardName, TargetNode: "node2"}), true)
+					if tc.removal != "" {
+						return 42, nil
+					}
+					return 42, removeNode2()
 				}).Maybe()
 			fsm.EXPECT().WaitForUpdate(mock.Anything, uint64(42)).
-				RunAndReturn(func(context.Context, uint64) error { record("wait"); return nil }).Maybe()
+				RunAndReturn(func(context.Context, uint64) error {
+					record("wait")
+					if tc.removal == "lagging" {
+						time.AfterFunc(50*time.Millisecond, func() {
+							if err := removeNode2(); err != nil {
+								t.Errorf("delayed removal: %v", err)
+							}
+						})
+					}
+					return nil
+				}).Maybe()
 			copier.EXPECT().UnloadLocalShard(mock.Anything, collection, shardName).
 				RunAndReturn(func(context.Context, string, string) error { record("unload"); return nil }).Maybe()
 			copier.EXPECT().StopChangeCapture(mock.Anything, "node1", collection, shardName, opIDStr).
@@ -163,6 +200,11 @@ func TestConsumerHydratingDemotesListedTarget(t *testing.T) {
 				replication.NewOpsCache(), 10*time.Second, 1,
 				metrics.NewReplicationEngineOpsCallbacksBuilder().Build(),
 				schemaManager.NewSchemaReader())
+			waitTimeout := 5 * time.Second
+			if tc.waitTimeout > 0 {
+				waitTimeout = tc.waitTimeout
+			}
+			replication.SetDemoteWait(consumer, waitTimeout, 10*time.Millisecond)
 
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
@@ -284,6 +326,114 @@ func TestConsumerFinalizingAddRefusedOutsideFinalizing(t *testing.T) {
 			}
 			require.Zero(t, registered.Load())
 			require.Zero(t, updated.Load())
+		})
+	}
+}
+
+func TestConsumerRedispatchSkipsFailurePath(t *testing.T) {
+	const (
+		opID       = uint64(19)
+		collection = "TestCollection"
+		shardName  = "shard1"
+	)
+	lost := stderrors.New("snapshot change-log LSN: shard: " + changelog.ErrMsgChangeLogLost + " for that op-id")
+	refused := status.Error(codes.Internal, "op 19 is HYDRATING: "+types.ErrAddReplicaOpNotFinalizing.Error())
+	tests := []struct {
+		name    string
+		snapErr error
+		addErr  error
+	}{
+		{name: "lost change log rewinds to hydrating", snapErr: lost},
+		{name: "leader refuses the add of a rewound op", addErr: refused},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			fsm := types.NewMockFSMUpdater(t)
+			copier := types.NewMockReplicaCopier(t)
+			opIDStr := fmt.Sprint(opID)
+
+			var state atomic.Value
+			state.Store(api.FINALIZING)
+			firstPassDone := make(chan struct{})
+			rewind := func() {
+				state.Store(api.HYDRATING)
+				close(firstPassDone)
+			}
+			fsm.EXPECT().ReplicationGetReplicaOpStatus(mock.Anything, opID).
+				RunAndReturn(func(context.Context, uint64) (api.ShardReplicationState, error) {
+					return state.Load().(api.ShardReplicationState), nil
+				})
+			fsm.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
+			copier.EXPECT().LoadLocalShard(mock.Anything, collection, shardName).Return(nil)
+			copier.EXPECT().SnapshotChangeLogLSN(mock.Anything, "node1", collection, shardName, opIDStr).Return(uint64(3), tc.snapErr)
+			copier.EXPECT().TailAndApply(mock.Anything, "node1", collection, shardName, opIDStr, uint64(3)).Return(uint64(3), nil).Maybe()
+			fsm.EXPECT().ReplicationAddReplicaToShard(mock.Anything, collection, shardName, "node2", opID).
+				RunAndReturn(func(context.Context, string, string, string, uint64) (uint64, error) {
+					rewind()
+					return 0, tc.addErr
+				}).Maybe()
+			fsm.EXPECT().ReplicationUpdateReplicaOpStatus(mock.Anything, opID, api.HYDRATING).
+				RunAndReturn(func(context.Context, uint64, api.ShardReplicationState) error {
+					rewind()
+					return nil
+				}).Maybe()
+
+			var failed atomic.Int32
+			var failedAtRedispatch, failureLogsAtRedispatch int
+			redispatched := make(chan struct{})
+			copier.EXPECT().UnloadLocalShard(mock.Anything, collection, shardName).Return(nil).Maybe()
+			copier.EXPECT().StopChangeCapture(mock.Anything, "node1", collection, shardName, opIDStr).Return(nil).Maybe()
+			copier.EXPECT().StartChangeCapture(mock.Anything, "node1", collection, shardName, opIDStr, mock.Anything).
+				RunAndReturn(func(context.Context, string, string, string, string, uint64) error {
+					failedAtRedispatch = int(failed.Load())
+					for _, e := range hook.AllEntries() {
+						if e.Level == logrus.ErrorLevel && strings.Contains(e.Message, "replication operation failed") {
+							failureLogsAtRedispatch++
+						}
+					}
+					close(redispatched)
+					return context.Canceled
+				}).Once()
+
+			callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+				WithOpFailedCallback(func(string) { failed.Add(1) }).Build()
+			consumer := replication.NewCopyOpConsumer(logger, fsm, copier, "node2", &backoff.StopBackOff{},
+				replication.NewOpsCache(), 10*time.Second, 1, callbacks,
+				newShardSchemaReader(collection, shardName, "node1"))
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			opsChan := make(chan replication.ShardReplicationOpAndStatus, 256)
+			doneChan := make(chan error, 1)
+			enterrors.GoWrapper(func() { doneChan <- consumer.Consume(ctx, opsChan) }, logger)
+			op := replication.NewShardReplicationOp(opID, "node1", "node2", collection, shardName, api.COPY)
+			opsChan <- replication.NewShardReplicationOpAndStatus(op, replication.NewShardReplicationStatus(api.FINALIZING))
+
+			select {
+			case <-firstPassDone:
+			case <-time.After(10 * time.Second):
+				t.Fatal("first pass never rewound")
+			}
+			deadline := time.After(2 * time.Second)
+			ticker := time.NewTicker(20 * time.Millisecond)
+			defer ticker.Stop()
+		resend:
+			for {
+				select {
+				case <-redispatched:
+					break resend
+				case <-deadline:
+					t.Fatal("rewound op was not re-dispatched before the failure backoff")
+				case <-ticker.C:
+					opsChan <- replication.NewShardReplicationOpAndStatus(op, replication.NewShardReplicationStatus(api.HYDRATING))
+				}
+			}
+			close(opsChan)
+			require.NoError(t, <-doneChan)
+
+			require.Zero(t, failedAtRedispatch)
+			require.Zero(t, failureLogsAtRedispatch)
 		})
 	}
 }

@@ -113,7 +113,7 @@ func TestConsumerSelfRecoveryRewindRepromotesFreshCopy(t *testing.T) {
 					return stderrors.New("stop after finalizing")
 				}).Maybe()
 
-			var demoted atomic.Bool
+			var demoted, copied atomic.Bool
 			replicaCopier.EXPECT().DemoteRecoveredShard(mock.Anything, collection, shardName).
 				RunAndReturn(func(context.Context, string, string) error {
 					demoted.Store(true)
@@ -130,6 +130,7 @@ func TestConsumerSelfRecoveryRewindRepromotesFreshCopy(t *testing.T) {
 				}).Maybe()
 			replicaCopier.EXPECT().CopyReplicaFilesToLocalShard(mock.Anything, mock.Anything, "node1", collection, shardName, api.RecoveryFolderName(shardName), mock.Anything).
 				RunAndReturn(func(context.Context, strfmt.UUID, string, string, string, string, uint64) error {
+					copied.Store(true)
 					if err := os.MkdirAll(recovery, 0o755); err != nil {
 						return err
 					}
@@ -172,9 +173,8 @@ func TestConsumerSelfRecoveryRewindRepromotesFreshCopy(t *testing.T) {
 			require.Equal(t, tc.wantLive, readSegment(t, live))
 			require.Equal(t, tc.demoteErr == nil, integrating.Load())
 			require.Equal(t, tc.wantDemote, demoted.Load())
-			if tc.demoteErr == nil {
-				require.NoDirExists(t, recovery)
-			}
+			require.Equal(t, tc.demoteErr == nil, copied.Load())
+			require.NoDirExists(t, recovery)
 		})
 	}
 }

@@ -116,6 +116,9 @@ var errRedispatch = errors.New("op re-dispatched from its current state")
 // demoteWaitTimeout bounds the wait for a demoted target to leave the local sharding state.
 const demoteWaitTimeout = 30 * time.Second
 
+// demotePollInterval paces the re-reads of the local sharding state while waiting on a demotion.
+const demotePollInterval = 100 * time.Millisecond
+
 // waitForAllNodesAtLeast blocks until every node has reported PerNodeState[peer] >= target
 func (c *CopyOpConsumer) waitForAllNodesAtLeast(
 	ctx context.Context, opID uint64, target api.ShardReplicationState,
@@ -190,6 +193,10 @@ type CopyOpConsumer struct {
 	// engineOpCallbacks defines hooks invoked at various stages of a replication operation's lifecycle
 	// (e.g., pending, start, complete, failure) to support metrics or custom observability logic.
 	engineOpCallbacks *metrics.ReplicationEngineOpsCallbacks
+
+	// demoteWaitTimeout and demotePollInterval pace waitForReplicaRemoved.
+	demoteWaitTimeout  time.Duration
+	demotePollInterval time.Duration
 }
 
 // NewCopyOpConsumer creates a new CopyOpConsumer instance responsible for executing
@@ -221,6 +228,9 @@ func NewCopyOpConsumer(
 		engineOpCallbacks: engineOpCallbacks,
 		schemaReader:      schemaReader,
 		opsGateway:        NewOpsGateway(),
+
+		demoteWaitTimeout:  demoteWaitTimeout,
+		demotePollInterval: demotePollInterval,
 	}
 	return c
 }
@@ -936,12 +946,12 @@ func (c *CopyOpConsumer) demoteTarget(ctx context.Context, logger *logrus.Entry,
 // waitForReplicaRemoved blocks until the local node applied the removal
 // (schema and store) and no longer lists node as a replica.
 func (c *CopyOpConsumer) waitForReplicaRemoved(ctx context.Context, version uint64, coll, shard, node string) error {
-	ctx, cancel := context.WithTimeout(ctx, demoteWaitTimeout)
+	ctx, cancel := context.WithTimeout(ctx, c.demoteWaitTimeout)
 	defer cancel()
 	if err := c.leaderClient.WaitForUpdate(ctx, version); err != nil {
 		return fmt.Errorf("wait for replica removal to apply: %w", err)
 	}
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(c.demotePollInterval)
 	defer ticker.Stop()
 	for {
 		nodes, err := c.schemaReader.ShardReplicas(coll, shard)
