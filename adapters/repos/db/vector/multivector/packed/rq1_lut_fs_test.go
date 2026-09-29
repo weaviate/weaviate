@@ -199,7 +199,8 @@ func TestEncodeRQ1Block16(t *testing.T) {
 // The shapes are the kernel's, including ones no blob produces: no blocks at all,
 // every block count modulo four so a kernel taking blocks two or four at a
 // time meets each remainder with and without a full pass before it, the int16
-// accumulators' exact boundary (258 nibble groups at +-127 in every lane), a
+// accumulators' exact boundaries (258 nibble groups at +127 and at -127 in
+// every lane), a
 // single group, Steps of both signs and zero, and a zero scale. On a build
 // with no vector kernel the list is empty and the portable implementation
 // must be what is installed.
@@ -229,22 +230,23 @@ func TestRQ1ScanBlocksKernels(t *testing.T) {
 }
 
 // randomScanInputs draws the inputs of one kernel parity case: tables of
-// random entries, or of the largest entry when extreme is set so that every
-// lookup sits at the accumulator's limit and groups=129 lands exactly on
-// 258*127 = 32766; random codes; and steps that are zero, negative or
-// positive in turn.
+// random entries or of one fixed entry, random codes, and steps that are
+// zero, negative or positive in turn.
 //
 // Arguments:
 //   - rng: the source of the random entries.
 //   - tables: how many query tokens' tables to draw, back to back.
 //   - groups: code bytes per token.
 //   - blocks: how many 16-token blocks of codes and steps to draw.
-//   - extreme: fill the tables with rq1Int8Levels.
-func randomScanInputs(rng *rand.Rand, tables, groups, blocks int, extreme bool) (tbl []int8, codes []byte, steps []float32) {
+//   - fill: 0 draws random entries; any other value fills every entry with
+//     it, so every lookup is that value and a lane sums to groups*fill. At
+//     129 groups and +-127 that is +-32766, the accumulators' exact
+//     boundaries (258*127 = 32766, and int16 holds down to -32768).
+func randomScanInputs(rng *rand.Rand, tables, groups, blocks int, fill int8) (tbl []int8, codes []byte, steps []float32) {
 	tbl = make([]int8, tables*32*groups)
 	for i := range tbl {
-		if extreme {
-			tbl[i] = rq1Int8Levels
+		if fill != 0 {
+			tbl[i] = fill
 		} else {
 			tbl[i] = int8(rng.Intn(255) - 127)
 		}
@@ -274,11 +276,11 @@ func testRQ1ScanBlocksKernel(t *testing.T, kernel func(tbl []int8, codes []byte,
 	t.Helper()
 	for _, groups := range []int{1, 2, 8, 16, 17, 129} {
 		for _, blocks := range []int{0, 1, 2, 3, 4, 7, 9} {
-			for _, extreme := range []bool{false, true} {
-				name := fmt.Sprintf("g=%d/b=%d/extreme=%v", groups, blocks, extreme)
+			for _, fill := range []int8{0, rq1Int8Levels, -rq1Int8Levels} {
+				name := fmt.Sprintf("g=%d/b=%d/fill=%d", groups, blocks, fill)
 				t.Run(name, func(t *testing.T) {
 					rng := rand.New(rand.NewSource(int64(groups*100 + blocks)))
-					tbl, codes, steps := randomScanInputs(rng, 1, groups, blocks, extreme)
+					tbl, codes, steps := randomScanInputs(rng, 1, groups, blocks, fill)
 
 					for _, scale := range []float32{0, 1, 0.10546875, float32(rng.Float64())} {
 						want := make([]float32, blockTokens)
@@ -330,12 +332,12 @@ func TestRQ1ScanTileKernels(t *testing.T) {
 	width := rq1ScanTileWidth
 	for _, groups := range []int{1, 2, 8, 16, 17, 129} {
 		for _, blocks := range []int{1, 2, 9} {
-			for _, extreme := range []bool{false, true} {
-				name := fmt.Sprintf("g=%d/b=%d/extreme=%v", groups, blocks, extreme)
+			for _, fill := range []int8{0, rq1Int8Levels, -rq1Int8Levels} {
+				name := fmt.Sprintf("g=%d/b=%d/fill=%d", groups, blocks, fill)
 				t.Run(name, func(t *testing.T) {
 					rng := rand.New(rand.NewSource(int64(groups*100 + blocks)))
 					stride := 32 * groups
-					tbl, codes, steps := randomScanInputs(rng, width, groups, blocks, extreme)
+					tbl, codes, steps := randomScanInputs(rng, width, groups, blocks, fill)
 					// one scale per query token, all different and one of them
 					// zero: a kernel broadcasting one scale over the tile
 					// would pass with equal scales and fails here
@@ -579,6 +581,13 @@ func TestRQ1FastScanEdgeCases(t *testing.T) {
 		allNegative[i] = t
 	}
 
+	// token 3's Step is a binary16 subnormal (TestRQ1SubnormalStep)
+	subnormalStep := unitTokens(rng, 20, dims)
+	subnormalStep[3] = make([]float32, dims)
+	for j := range subnormalStep[3] {
+		subnormalStep[3][j] = 1e-5
+	}
+
 	cases := []struct {
 		name string
 		doc  [][]float32
@@ -592,6 +601,7 @@ func TestRQ1FastScanEdgeCases(t *testing.T) {
 		{"all zero tokens", allZero},
 		{"all negative", allNegative},
 		{"mixed zero tokens", unitTokens(rng, 24, dims)},
+		{"subnormal Step", subnormalStep},
 	}
 
 	for _, centered := range []bool{false, true} {

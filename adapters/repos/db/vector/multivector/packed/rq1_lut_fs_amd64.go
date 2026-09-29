@@ -16,36 +16,51 @@ package packed
 import "golang.org/x/sys/cpu"
 
 // init installs the widest x86 block kernel the machine supports: SSE, AVX2
-// (two blocks per pass) or AVX-512 (four blocks per pass).
-//
-// PSHUFB is SSSE3 and the sign-extending widenings are SSE4.1, so both are
-// checked, as compressionhelpers/distance_amd64.go does. The AVX2 kernel is
-// installed inside the SSE check because it hands an odd trailing block to the
-// SSE routine. AVX-512 needs the BW extension (byte and word instructions) as
-// well as F (the foundation): the shuffle, the widening and the int16 adds are
-// byte and word instructions the foundation subset lacks. Its routine scores
-// its own remainder.
+// (two blocks per pass) or AVX-512 (four blocks per pass). x86Kernels makes
+// the choice from the reported feature flags, so the tests can call it with
+// every combination of flags, whatever the test machine has.
 //
 // The wider kernels read the stored 16-token blocks two or four at a time, one
 // block per 128-bit lane, so no second layout is needed. There is no query
 // tile on x86: width 4 does not fit the register file, and width 2 gained
 // nothing.
 func init() {
-	if cpu.X86.HasSSSE3 && cpu.X86.HasSSE41 {
-		rq1ScanBlocksImpl = rq1ScanBlocksSSE
-		rq1ScanBlocksVariants = append(rq1ScanBlocksVariants,
-			rq1ScanBlocksVariant{name: "sse", fn: rq1ScanBlocksSSE})
-		if cpu.X86.HasAVX2 {
-			rq1ScanBlocksImpl = rq1ScanBlocksAVX2
-			rq1ScanBlocksVariants = append(rq1ScanBlocksVariants,
-				rq1ScanBlocksVariant{name: "avx2", fn: rq1ScanBlocksAVX2})
-		}
-		if cpu.X86.HasAVX512F && cpu.X86.HasAVX512BW {
-			rq1ScanBlocksImpl = rq1ScanBlocksAVX512
-			rq1ScanBlocksVariants = append(rq1ScanBlocksVariants,
-				rq1ScanBlocksVariant{name: "avx512", fn: rq1ScanBlocksAVX512})
-		}
+	rq1ScanBlocksVariants = x86Kernels(
+		cpu.X86.HasSSSE3 && cpu.X86.HasSSE41,
+		cpu.X86.HasAVX2,
+		cpu.X86.HasAVX512F && cpu.X86.HasAVX512BW)
+	if n := len(rq1ScanBlocksVariants); n > 0 {
+		rq1ScanBlocksImpl = rq1ScanBlocksVariants[n-1].fn
 	}
+}
+
+// x86Kernels lists the block kernels the reported instruction sets allow,
+// narrowest first; the last one is the one to install. Empty means the
+// portable kernel.
+//
+// Arguments:
+//   - sse: SSSE3 and SSE4.1. PSHUFB is SSSE3 and the sign-extending widenings
+//     are SSE4.1, so both are needed, as compressionhelpers/distance_amd64.go
+//     checks them.
+//   - avx2: AVX2. The AVX2 kernel also needs sse, because it hands an odd
+//     trailing block to the SSE routine.
+//   - avx512: AVX-512 F and BW. The foundation subset lacks the shuffle, the
+//     widening and the int16 adds, which are byte and word instructions. The
+//     AVX-512 kernel also needs AVX2: its remainder loop scores the one to
+//     three blocks a four-block pass cannot reach with VEX-encoded
+//     instructions on 128-bit and 256-bit registers, which are AVX2.
+func x86Kernels(sse, avx2, avx512 bool) []rq1ScanBlocksVariant {
+	if !sse {
+		return nil
+	}
+	variants := []rq1ScanBlocksVariant{{name: "sse", fn: rq1ScanBlocksSSE}}
+	if avx2 {
+		variants = append(variants, rq1ScanBlocksVariant{name: "avx2", fn: rq1ScanBlocksAVX2})
+	}
+	if avx2 && avx512 {
+		variants = append(variants, rq1ScanBlocksVariant{name: "avx512", fn: rq1ScanBlocksAVX512})
+	}
+	return variants
 }
 
 //go:noescape

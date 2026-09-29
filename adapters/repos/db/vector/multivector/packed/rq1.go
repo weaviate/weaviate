@@ -101,6 +101,19 @@ type RQ1Params struct {
 //     time. Uncentered parameters must use (0, 0), the header's "no trained
 //     parameters". Centered ones must use a non-zero id, because the mean is
 //     trained state the caller persists and the reference names.
+//
+// The seed is not in the header: two uncentered parameter sets with different
+// seeds both write the (0, 0) reference, and a blob from one scores silently
+// wrong under the other. The code that wires this package into the index must
+// use one constant seed for uncentered RQ1. For centered RQ1 the seed is part
+// of the state the id names, with the mean.
+//
+// Persisting: the rotation and the rounding are functions of dims and the
+// seed, so the state to store is dims, the seed, and for centered RQ1 the
+// mean with its id and version; this constructor rebuilds the rest. The house
+// quantizer's PersistCompression is not the way to store it: below 256
+// dimensions it records the clamped input dimension, 256, and a quantizer
+// restored from that record would be padded (see the Restore call below).
 func NewRQ1Params(dims int, seed uint64, mean []float32, id, version uint16) (*RQ1Params, error) {
 	if dims <= 0 || dims > math.MaxUint16 {
 		return nil, fmt.Errorf("packed: dimensions %d out of range [1, %d]", dims, math.MaxUint16)
@@ -130,9 +143,11 @@ func NewRQ1Params(dims int, seed uint64, mean []float32, id, version uint16) (*R
 	// minCodeBits, so that field says 256 while the rotation is 128 wide. That
 	// is harmless here: inputDim is read only by PersistCompression, and the
 	// unclamped originalDim only by Data and Decode, none of which this package
-	// calls. Encode, NewDistancer and BinaryRQDistancer.Distance take their
-	// width from the rotation itself. The parity tests and golden fixtures
-	// would catch this contract breaking upstream.
+	// calls. The wiring must not call PersistCompression either: at d<256 the
+	// record would say 256 and a quantizer restored from it would be padded.
+	// Encode, NewDistancer and BinaryRQDistancer.Distance take their width
+	// from the rotation itself. The parity tests and golden fixtures would
+	// catch this contract breaking upstream.
 	brq, err := compressionhelpers.RestoreBinaryRotationalQuantizer(
 		dims, int(rotation.OutputDim), rq1RotationRounds,
 		rotation.Swaps, rotation.Signs, rounding,
@@ -246,12 +261,16 @@ func rq1Codes(tokens [][]float32, p *RQ1Params) ([]byte, []float32, error) {
 		// The scalar section is binary16. A Step above its range would be
 		// stored as +Inf, and every scorer would then maximize Inf*dot over
 		// the document's tokens: the token wins every maximum, or contributes
-		// a NaN where its dot is exactly 0. Either way the score is wrong and
-		// nothing reports it, so the token is refused here. The check is the
-		// same narrowing build performs. Underflow needs no guard: a Step that
-		// rounds to zero estimates zero, as a zero token already does.
-		if math.IsInf(float64(f16.ToFloat32(f16.FromFloat32(scalars[i]))), 0) {
-			return nil, nil, fmt.Errorf("packed: token %d has Step %g, beyond the binary16 range the blob stores", i, scalars[i])
+		// a NaN where its dot is exactly 0. A NaN Step, from a token with a
+		// NaN or infinite coordinate, makes every maximum NaN and with it the
+		// document's score. Either way the score is wrong and nothing reports
+		// it, so the token is refused here. The check is on the narrowed
+		// value, as build stores it. Underflow needs no guard: a Step that
+		// rounds to zero estimates zero, as a zero token already does, and a
+		// subnormal Step is stored with fewer bits but read back as stored
+		// (TestRQ1SubnormalStep).
+		if stored := float64(f16.ToFloat32(f16.FromFloat32(scalars[i]))); math.IsInf(stored, 0) || math.IsNaN(stored) {
+			return nil, nil, fmt.Errorf("packed: token %d has Step %g, which the blob's binary16 scalar cannot store", i, scalars[i])
 		}
 	}
 	return codes, scalars, nil

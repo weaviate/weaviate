@@ -586,6 +586,12 @@ func TestRQ1LUTInt8EdgeCases(t *testing.T) {
 	for i := range allZero {
 		allZero[i] = make([]float32, dims)
 	}
+	// token 3's Step is a binary16 subnormal (TestRQ1SubnormalStep)
+	subnormalStep := unitTokens(rng, 20, dims)
+	subnormalStep[3] = make([]float32, dims)
+	for j := range subnormalStep[3] {
+		subnormalStep[3][j] = 1e-5
+	}
 
 	cases := []struct {
 		name string
@@ -597,6 +603,7 @@ func TestRQ1LUTInt8EdgeCases(t *testing.T) {
 		{"all identical", allIdentical},
 		{"all zero tokens", allZero},
 		{"mixed zero tokens", unitTokens(rng, 24, dims)},
+		{"subnormal Step", subnormalStep},
 	}
 
 	for _, centered := range []bool{false, true} {

@@ -393,16 +393,19 @@ func Parse(b []byte) (Blob, error) {
 		return Blob{}, err
 	}
 
-	codeBytes := int(h.Tokens) * perToken
-	scalarBytes := int(h.Tokens) * scalarSize
-	if want := headerLen + codeBytes + scalarBytes; want != len(b) {
+	// summed in uint64: on a 32-bit build int(h.Tokens)*perToken can wrap,
+	// and a wrapped total could match len(b). After the check codeBytes is at
+	// most len(b), which is an int, so converting it back to int is safe.
+	codeBytes := uint64(h.Tokens) * uint64(perToken)
+	scalarBytes := uint64(h.Tokens) * uint64(scalarSize)
+	if want := uint64(headerLen) + codeBytes + scalarBytes; want != uint64(len(b)) {
 		return Blob{}, fmt.Errorf("packed: blob is %d bytes, header describes %d", len(b), want)
 	}
 
 	return Blob{
 		Header:   h,
-		codes:    b[headerLen : headerLen+codeBytes],
-		scalars:  b[headerLen+codeBytes:],
+		codes:    b[headerLen : headerLen+int(codeBytes)],
+		scalars:  b[headerLen+int(codeBytes):],
 		perToken: perToken,
 	}, nil
 }

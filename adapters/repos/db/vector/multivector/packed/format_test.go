@@ -252,6 +252,18 @@ func TestParseRejects(t *testing.T) {
 			binary.LittleEndian.PutUint32(b[offTokens:], 4)
 			return b
 		}},
+		{
+			// 2^30+1 tokens of 4 bytes is 2^32+4 bytes, which wraps to 4 in a
+			// 32-bit int, so a 4-byte payload would pass a size check done in
+			// int. It cannot pass on a 64-bit build even without the uint64
+			// sum, so this case only fails on 32-bit builds.
+			name: "token count that wraps 32-bit size math",
+			corrupt: func(b []byte) []byte {
+				binary.LittleEndian.PutUint16(b[offDims:], 1)
+				binary.LittleEndian.PutUint32(b[offTokens:], 1<<30+1)
+				return b[:headerLenV1+4]
+			},
+		},
 		{name: "dims disagree with the payload", corrupt: func(b []byte) []byte {
 			binary.LittleEndian.PutUint16(b[offDims:], 8)
 			return b
@@ -392,31 +404,24 @@ func TestFixedOverhead(t *testing.T) {
 	}
 }
 
-// TestGolden checks the committed float32 blobs under testdata/ against what
-// this build writes, and parses them from disk. Compatibility with blobs
-// already stored cannot be tested inside one version, so the blobs are
-// committed and every later version must keep parsing them. Regenerate with:
-//
-//	go test ./adapters/repos/db/vector/multivector/packed/ -run TestGolden -update
-//
-// Regenerating is only legitimate when the format version is bumped; a
-// difference at the current version is a compatibility break.
-// goldenBlob checks one golden fixture: with -update it rewrites the file
-// first; then the file must equal what this build writes, and its bytes must
-// parse to the expected header. Parsing the bytes off disk, not the ones just
-// built, is the part that will still mean something at a later format
-// version.
+// goldenBlob checks one golden fixture. A fixture of the version this build
+// writes must equal what the build writes, and -update rewrites it first. A
+// fixture of an older version is never rewritten or compared with the writer:
+// it is only parsed, which is the read-compatibility check the fixtures exist
+// for. After a version bump the older entries stay in the table with their
+// expectations and the new version gets fixtures of its own.
 //
 // Arguments:
 //   - file: the fixture's name under testdata/.
-//   - blob: what this build writes for it.
-//   - header: the header the fixture must parse to.
+//   - blob: what this build writes for it; ignored for an older version.
+//   - header: the header the fixture must parse to, including its version.
 //
 // It returns the parsed fixture.
 func goldenBlob(t *testing.T, file string, blob []byte, header Header) Blob {
 	t.Helper()
 	path := filepath.Join("testdata", file)
-	if *update {
+	current := header.Version == Version
+	if *update && current {
 		if err := os.WriteFile(path, blob, 0o644); err != nil {
 			t.Fatalf("write %s: %v", path, err)
 		}
@@ -426,7 +431,7 @@ func goldenBlob(t *testing.T, file string, blob []byte, header Header) Blob {
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
 	}
-	if !bytes.Equal(onDisk, blob) {
+	if current && !bytes.Equal(onDisk, blob) {
 		t.Fatalf("%s differs from what this build writes; the format or the "+
 			"encoding changed without a version bump", path)
 	}
@@ -441,6 +446,18 @@ func goldenBlob(t *testing.T, file string, blob []byte, header Header) Blob {
 	return parsed
 }
 
+// TestGolden checks the committed float32 blobs under testdata/ against what
+// this build writes, and parses them from disk. Compatibility with blobs
+// already stored cannot be tested inside one version, so the blobs are
+// committed and every later version must keep parsing them. Regenerate with:
+//
+//	go test ./adapters/repos/db/vector/multivector/packed/ -run TestGolden -update
+//
+// Regenerating is only legitimate when the format version is bumped; a
+// difference at the current version is a compatibility break.
+// Regenerating rewrites only the fixtures of the version this build writes:
+// after a bump, the older versions' files stay as stored and are parsed only
+// (goldenBlob), and the new version gets entries of its own.
 func TestGolden(t *testing.T) {
 	goldenTokens := [][]float32{
 		{0, -0.5, 1.25, -2},

@@ -581,11 +581,60 @@ func TestEncodeRQ1RejectsBadShapes(t *testing.T) {
 	}
 }
 
-// TestEncodeRQ1RejectsStepOverflow pins that the encoder refuses a token whose
-// Step does not fit binary16, naming the token. Such a Step would be stored as
-// +Inf and score silently wrong (see rq1Codes). Underflow needs no case: a
-// Step that rounds to zero estimates zero, as a zero token already does.
-func TestEncodeRQ1RejectsStepOverflow(t *testing.T) {
+// TestRQ1SubnormalStep pins a Step below binary16's normal range, 2^-14: it
+// is stored as a binary16 subnormal, not flushed to zero, within half a
+// subnormal spacing (2^-25) of the encoder's float32 Step, and the widened
+// Steps the table scorers read hold the same value. A constant token of 1e-5
+// has a Step of about 1.2e-5 at these dimensions.
+func TestRQ1SubnormalStep(t *testing.T) {
+	const (
+		dims          = 128
+		minNormal16   = 1.0 / (1 << 14)
+		halfSpacing16 = 1.0 / (1 << 25)
+	)
+	rng := rand.New(rand.NewSource(5))
+	params, err := NewRQ1Params(dims, 42, nil, 0, 0)
+	if err != nil {
+		t.Fatalf("NewRQ1Params: %v", err)
+	}
+	tiny := make([]float32, dims)
+	for i := range tiny {
+		tiny[i] = 1e-5
+	}
+	step := compressionhelpers.RQOneBitCode(params.brq.Encode(tiny)).Step()
+	if step <= 0 || step >= minNormal16 {
+		t.Fatalf("Step %g is not below binary16's normal range", step)
+	}
+
+	doc := unitTokens(rng, 20, dims)
+	doc[3] = tiny
+	blob, err := EncodeRQ1(doc, params)
+	if err != nil {
+		t.Fatalf("EncodeRQ1: %v", err)
+	}
+	b, err := Parse(blob)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	got := b.Scalar(3)
+	if got == 0 {
+		t.Fatalf("Step %g was stored as zero", step)
+	}
+	if d := math.Abs(float64(got) - float64(step)); d > halfSpacing16 {
+		t.Fatalf("stored Step %g is %g from %g, more than half a subnormal spacing", got, d, step)
+	}
+	if w := widenRQ1Steps(b, nil)[3]; w != got {
+		t.Fatalf("widened Step %g, Scalar %g", w, got)
+	}
+}
+
+// TestEncodeRQ1RejectsUnstorableStep pins that the encoder refuses a token
+// whose Step binary16 cannot store, naming the token: above its range, where
+// the Step would be stored as +Inf, and NaN, from a NaN or infinite
+// coordinate. Either would score silently wrong (see rq1Codes). Underflow
+// needs no case: a Step that rounds to zero estimates zero, as a zero token
+// already does, and TestRQ1SubnormalStep covers the subnormal range.
+func TestEncodeRQ1RejectsUnstorableStep(t *testing.T) {
 	const dims = 128
 	// Step scales with the token's magnitude (about 1.21x it for a constant
 	// token at these dimensions), so 1e4 lands well inside binary16's largest
@@ -599,6 +648,11 @@ func TestEncodeRQ1RejectsStepOverflow(t *testing.T) {
 		for i := range tok {
 			tok[i] = v
 		}
+		return tok
+	}
+	withCoordinate := func(v float32) []float32 {
+		tok := constToken(1)
+		tok[dims/2] = v
 		return tok
 	}
 
@@ -648,6 +702,18 @@ func TestEncodeRQ1RejectsStepOverflow(t *testing.T) {
 			params: centered,
 			tokens: [][]float32{constToken(inRange - overflow)},
 		},
+		{
+			name:    "NaN coordinate",
+			params:  uncentered,
+			tokens:  [][]float32{withCoordinate(float32(math.NaN()))},
+			wantErr: "token 0",
+		},
+		{
+			name:    "infinite coordinate",
+			params:  uncentered,
+			tokens:  [][]float32{constToken(inRange), withCoordinate(float32(math.Inf(-1)))},
+			wantErr: "token 1",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -665,13 +731,13 @@ func TestEncodeRQ1RejectsStepOverflow(t *testing.T) {
 				t.Fatalf("EncodeRQ1: %v", err)
 			}
 			// the accepted case has to be a real one: a Step stored as +Inf
-			// would make the test pass without exercising anything
+			// or NaN would make the test pass without exercising anything
 			b, err := Parse(blob)
 			if err != nil {
 				t.Fatalf("Parse: %v", err)
 			}
 			for i := range tt.tokens {
-				if s := b.Scalar(i); math.IsInf(float64(s), 0) {
+				if s := float64(b.Scalar(i)); math.IsInf(s, 0) || math.IsNaN(s) {
 					t.Fatalf("token %d stores Step %v, want a finite one", i, s)
 				}
 			}
