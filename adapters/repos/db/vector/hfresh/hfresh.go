@@ -34,6 +34,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hfresh"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 const (
@@ -426,9 +427,11 @@ func (h *HFresh) PostStartup(ctx context.Context) {
 
 func (h *HFresh) warmVersionMap() {
 	before := time.Now()
+	prefillDone := monitoring.GetStartupMetrics().PrefillStarted(monitoring.VectorIndexTypeHFresh, monitoring.PrefillModeAsync)
 	count, err := h.VersionMap.Warmup(h.ctx)
 	if err != nil {
 		h.logger.Warnf("version map warmup interrupted after %d entries: %v", count, err)
+		prefillDone(err)
 		return
 	}
 
@@ -439,6 +442,7 @@ func (h *HFresh) warmVersionMap() {
 	for postingID, metadata := range h.PostingMap.Iter() {
 		if h.ctx.Err() != nil {
 			h.logger.Warnf("version map warmup interrupted after %d entries: %v", count+defaults, h.ctx.Err())
+			prefillDone(h.ctx.Err())
 			return
 		}
 
@@ -456,6 +460,7 @@ func (h *HFresh) warmVersionMap() {
 		}()
 	}
 
+	prefillDone(nil)
 	h.logger.WithFields(logrus.Fields{
 		"action":   "hfresh_version_map_warmup",
 		"count":    count,

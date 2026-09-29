@@ -1811,7 +1811,9 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 		WithField("action", "startup").
 		Debug("startup routine complete")
 
-	// Register enabled modules
+	// Register enabled modules. Init can block on module sidecars answering,
+	// so the phase is reported to make that wait visible.
+	modulesInitDone := monitoring.GetStartupMetrics().PhaseStarted(monitoring.StartupPhaseModulesInit)
 	if err := registerModules(appState); err != nil {
 		appState.Logger.
 			WithField("action", "startup").
@@ -1828,6 +1830,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 			WithField("action", "startup").
 			Fatalf("modules didn't initialize: %v", err)
 	}
+	modulesInitDone()
 	if err := appState.ServerConfig.Config.ValidateDefaultVectorDistanceMetric(); err != nil {
 		appState.Logger.
 			WithField("action", "startup").

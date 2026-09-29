@@ -51,6 +51,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	usecasesNamespaces "github.com/weaviate/weaviate/usecases/namespaces"
 )
 
@@ -1035,6 +1036,7 @@ func (st *Store) openDatabase(ctx context.Context) {
 func (st *Store) reloadDBFromSchema() {
 	if !st.cfg.MetadataOnlyVoters {
 		func() {
+			defer monitoring.GetStartupMetrics().PhaseStarted(monitoring.StartupPhaseDBReload)()
 			stop := st.trackDBLoadProgress()
 			defer stop()
 			st.schemaManager.ReloadDBFromSchema()

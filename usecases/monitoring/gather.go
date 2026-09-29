@@ -1,0 +1,100 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package monitoring
+
+import (
+	"fmt"
+
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
+)
+
+// HistogramSampleCount returns the _count of the histogram series with the
+// given name and exact label set, gathered from g. It exists for tests in
+// other packages that assert on histograms registered on the default
+// registry, which testutil.ToFloat64 cannot read. Compare deltas rather than
+// absolute values on the default registry: other tests in the same binary
+// observe into the same series.
+func HistogramSampleCount(g prometheus.Gatherer, name string, labels prometheus.Labels) (uint64, error) {
+	h, err := gatherHistogram(g, name, labels)
+	if err != nil {
+		return 0, err
+	}
+	return h.GetSampleCount(), nil
+}
+
+// HistogramSampleSum is the _sum counterpart of HistogramSampleCount.
+func HistogramSampleSum(g prometheus.Gatherer, name string, labels prometheus.Labels) (float64, error) {
+	h, err := gatherHistogram(g, name, labels)
+	if err != nil {
+		return 0, err
+	}
+	return h.GetSampleSum(), nil
+}
+
+// GaugeValue returns the value of the gauge series with the given name and
+// exact label set (nil for a scalar gauge), gathered from g. Like
+// HistogramSampleCount it exists for tests in other packages.
+func GaugeValue(g prometheus.Gatherer, name string, labels prometheus.Labels) (float64, error) {
+	metric, err := gatherMetric(g, name, labels)
+	if err != nil {
+		return 0, err
+	}
+	if metric.GetGauge() == nil {
+		return 0, fmt.Errorf("metric %q is not a gauge", name)
+	}
+	return metric.GetGauge().GetValue(), nil
+}
+
+func gatherHistogram(g prometheus.Gatherer, name string, labels prometheus.Labels) (*dto.Histogram, error) {
+	metric, err := gatherMetric(g, name, labels)
+	if err != nil {
+		return nil, err
+	}
+	if metric.GetHistogram() == nil {
+		return nil, fmt.Errorf("metric %q is not a histogram", name)
+	}
+	return metric.GetHistogram(), nil
+}
+
+func gatherMetric(g prometheus.Gatherer, name string, labels prometheus.Labels) (*dto.Metric, error) {
+	families, err := g.Gather()
+	if err != nil {
+		return nil, fmt.Errorf("gather metrics: %w", err)
+	}
+
+	for _, family := range families {
+		if family.GetName() != name {
+			continue
+		}
+		for _, metric := range family.GetMetric() {
+			if labelsMatch(metric.GetLabel(), labels) {
+				return metric, nil
+			}
+		}
+		return nil, fmt.Errorf("metric %q has no series with labels %v", name, labels)
+	}
+
+	return nil, fmt.Errorf("metric %q is not registered", name)
+}
+
+func labelsMatch(pairs []*dto.LabelPair, want prometheus.Labels) bool {
+	if len(pairs) != len(want) {
+		return false
+	}
+	for _, pair := range pairs {
+		if v, ok := want[pair.GetName()]; !ok || v != pair.GetValue() {
+			return false
+		}
+	}
+	return true
+}

@@ -104,6 +104,7 @@ type Service struct {
 	cancelReplicationEngine context.CancelFunc
 	engineDone              chan struct{}
 	cancelOpCleaner         context.CancelFunc
+	cancelReadyTracker      context.CancelFunc
 	closeBootstrapper       chan struct{}
 	closeOnFSMCaughtUp      chan struct{}
 	closeWaitForDB          chan struct{}
@@ -211,33 +212,19 @@ func (c *Service) onFSMCaughtUp(ctx context.Context) {
 	}
 }
 
-// Open internal RPC service to handle node communication,
-// bootstrap the Raft node, and restore the database state
-func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
-	c.logger.WithField("servers", c.config.NodeNameToPortMap).Info("open cluster service")
-	if err := c.rpcServer.Open(); err != nil {
-		return fmt.Errorf("start rpc service: %w", err)
-	}
+// joinOrBootstrap makes this node part of a raft cluster. With existing raft
+// state it re-joins the nodes in the raft join list so the configuration
+// carries its current address; without state it runs the bootstrap procedure,
+// joining a cluster or notifying peers that it is ready to form one. Both are
+// bounded by RAFT_BOOTSTRAP_TIMEOUT.
+func (c *Service) joinOrBootstrap(ctx context.Context, hasState bool) error {
+	defer monitoring.GetStartupMetrics().PhaseStarted(monitoring.StartupPhaseRaftBootstrap)()
 
-	if err := c.Raft.Open(ctx, db); err != nil {
-		return fmt.Errorf("open raft store: %w", err)
-	}
-
-	hasState, err := raft.HasExistingState(c.Raft.store.logCache, c.Raft.store.logStore, c.Raft.store.snapshotStore)
-	if err != nil {
-		return err
-	}
-	c.log.WithField("hasState", hasState).Info("raft init")
-
-	// If we have a state in raft, we only want to re-join the nodes in raft_join list to ensure that we update the
-	// configuration with our current ip.
-	// If we have no state, we want to do the bootstrap procedure where we will try to join a cluster or notify other
-	// peers that we are ready to form a new cluster.
 	bootstrapCtx, bCancel := context.WithTimeout(ctx, c.config.BootstrapTimeout)
 	defer bCancel()
 	if hasState {
 		joiner := bootstrap.NewJoiner(c.rpcClient, c.config.NodeID, c.raftAddr, c.config.Voter)
-		err = backoff.Retry(func() error {
+		err := backoff.Retry(func() error {
 			joinNodes := bootstrap.ResolveRemoteNodes(c.config.NodeSelector, c.config.NodeNameToPortMap)
 			_, err := joiner.Do(bootstrapCtx, c.logger, joinNodes)
 			return err
@@ -245,27 +232,97 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		if err != nil {
 			return fmt.Errorf("could not join raft join list: %w. Weaviate detected this node to have state stored. If the DB is still loading up we will hit this timeout. You can try increasing/setting RAFT_BOOTSTRAP_TIMEOUT env variable to a higher value", err)
 		}
-	} else {
-		bs := bootstrap.NewBootstrapper(
-			c.rpcClient,
-			c.config.NodeID,
-			c.raftAddr,
-			c.config.Voter,
-			c.config.NodeSelector,
-			c.Raft.Ready,
-		)
-		if err := bs.Do(
-			bootstrapCtx,
-			c.config.NodeNameToPortMap,
-			c.logger,
-			c.closeBootstrapper); err != nil {
-			return fmt.Errorf("bootstrap: %w", err)
+		return nil
+	}
+
+	bs := bootstrap.NewBootstrapper(
+		c.rpcClient,
+		c.config.NodeID,
+		c.raftAddr,
+		c.config.Voter,
+		c.config.NodeSelector,
+		c.Raft.Ready,
+	)
+	if err := bs.Do(
+		bootstrapCtx,
+		c.config.NodeNameToPortMap,
+		c.logger,
+		c.closeBootstrapper); err != nil {
+		return fmt.Errorf("bootstrap: %w", err)
+	}
+	return nil
+}
+
+// readyPollInterval is how often the readiness tracker asks the raft store
+// whether the node is ready. It only runs from the DB restore until the first
+// ready answer, so a short interval costs nothing in steady state.
+const readyPollInterval = 250 * time.Millisecond
+
+// waitUntilReady polls isReady every period until it answers true or ctx is
+// cancelled, and reports which happened. It bridges Store.Ready and the
+// startup readiness metric: outside the kubernetes probe nothing else calls
+// Ready, so a tracker has to.
+func waitUntilReady(ctx context.Context, isReady func() bool, period time.Duration) bool {
+	if isReady() {
+		return true
+	}
+
+	t := time.NewTicker(period)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-t.C:
+			if isReady() {
+				return true
+			}
 		}
+	}
+}
+
+// Open internal RPC service to handle node communication,
+// bootstrap the Raft node, and restore the database state
+func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
+	startupMetrics := monitoring.GetStartupMetrics()
+	defer startupMetrics.PhaseStarted(monitoring.StartupPhaseClusterOpen)()
+
+	c.logger.WithField("servers", c.config.NodeNameToPortMap).Info("open cluster service")
+	if err := c.rpcServer.Open(); err != nil {
+		return fmt.Errorf("start rpc service: %w", err)
+	}
+
+	raftOpenDone := startupMetrics.PhaseStarted(monitoring.StartupPhaseRaftOpen)
+	if err := c.Raft.Open(ctx, db); err != nil {
+		raftOpenDone()
+		return fmt.Errorf("open raft store: %w", err)
+	}
+	raftOpenDone()
+
+	hasState, err := raft.HasExistingState(c.Raft.store.logCache, c.Raft.store.logStore, c.Raft.store.snapshotStore)
+	if err != nil {
+		return err
+	}
+	c.log.WithField("hasState", hasState).Info("raft init")
+
+	if err := c.joinOrBootstrap(ctx, hasState); err != nil {
+		return err
 	}
 
 	if err := c.WaitUntilDBRestored(ctx, 1*time.Second, c.closeWaitForDB); err != nil {
 		return fmt.Errorf("restore database: %w", err)
 	}
+
+	// Ready needs a known leader on top of the restored DB, and on the
+	// has-state path the join can return before the election settles, so the
+	// readiness moment is polled rather than taken from here.
+	readyCtx, cancelReadyTracker := context.WithCancel(ctx)
+	c.cancelReadyTracker = cancelReadyTracker
+	enterrors.GoWrapper(func() {
+		if waitUntilReady(readyCtx, c.Raft.Ready, readyPollInterval) {
+			startupMetrics.SetReady()
+		}
+	}, c.logger)
 
 	engineCtx, engineCancel := context.WithCancel(ctx)
 	c.cancelReplicationEngine = engineCancel
@@ -304,6 +361,9 @@ func (c *Service) Close(ctx context.Context) error {
 
 	if c.cancelOpCleaner != nil {
 		c.cancelOpCleaner()
+	}
+	if c.cancelReadyTracker != nil {
+		c.cancelReadyTracker()
 	}
 	// Cancel any in-flight node-reached-state broadcast/drain retry loops.
 	if c.Raft != nil && c.Raft.store != nil && c.Raft.store.replicationManager != nil {

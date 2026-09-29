@@ -39,11 +39,16 @@ import (
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 const (
 	defaultCachePageSize = 32
 )
+
+// errPreloadAborted marks a startup preload the parallel iterator cut short,
+// so it is not reported as a completed prefill.
+var errPreloadAborted = errors.New("preload aborted")
 
 type flat struct {
 	id                string
@@ -1013,10 +1018,17 @@ func (index *flat) PostStartup(ctx context.Context) {
 	// much more efficient and only ever-so-slightly more memory-consuming (about
 	// one additional struct per vector while loading. Should be negligible)
 
+	// The flat preload always runs inside the shard load, so it reports as a
+	// synchronous prefill. Only a preload that ran to completion is timed.
+	prefillDone := monitoring.GetStartupMetrics().PrefillStarted(monitoring.VectorIndexTypeFlat, monitoring.PrefillModeSync)
+	var prefillErr error
+	defer func() { prefillDone(prefillErr) }()
+
 	before := time.Now()
 	bucket, release, err := index.getBucket(index.getCompressedBucketName())
 	if err != nil {
 		index.logger.Errorf("preload vectors of flat index %q: %v", index.id, err)
+		prefillErr = err
 		return
 	}
 	defer release()
@@ -1059,6 +1071,7 @@ func (index *flat) PostStartup(ctx context.Context) {
 				"count":  len(vecs),
 				"took":   time.Since(before),
 			}).Warn("preload vectors aborted")
+			prefillErr = errPreloadAborted
 			return
 		}
 
@@ -1099,6 +1112,7 @@ func (index *flat) PostStartup(ctx context.Context) {
 				"count":  len(vecs),
 				"took":   time.Since(before),
 			}).Warn("preload vectors aborted")
+			prefillErr = errPreloadAborted
 			return
 		}
 
@@ -1151,6 +1165,7 @@ func (index *flat) PostStartup(ctx context.Context) {
 				"count":  count,
 				"took":   time.Since(before),
 			}).Warn("preload vectors aborted")
+			prefillErr = errPreloadAborted
 			return
 		}
 	} else if index.quantizer.Type() == ByteQuantizer {
@@ -1173,6 +1188,7 @@ func (index *flat) PostStartup(ctx context.Context) {
 				"count":  count,
 				"took":   time.Since(before),
 			}).Warn("preload vectors aborted")
+			prefillErr = errPreloadAborted
 			return
 		}
 	}

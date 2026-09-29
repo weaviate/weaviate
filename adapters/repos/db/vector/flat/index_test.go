@@ -1831,7 +1831,10 @@ func Test_NoRace_Flat_SearchAfterRestartWithUnflushedData(t *testing.T) {
 	require.NotNil(t, bucket)
 	require.Empty(t, bucket.QuantileKeys(16), "expected no segments, data must live in the memtable only")
 
+	prefills := flatPrefillCount(t)
 	index.PostStartup(ctx)
+	require.Equal(t, prefills+1, flatPrefillCount(t),
+		"a cached flat index reports its startup preload as a synchronous prefill")
 
 	ids, _, err := index.SearchByVector(ctx, []float32{1, 0, 0}, len(vectors), nil)
 	require.NoError(t, err)
