@@ -92,6 +92,10 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		return fmt.Errorf("init shard %q: %w", s.ID(), err)
 	}
 
+	if err := s.reindexDimensionsOnLoad(ctx); err != nil {
+		return fmt.Errorf("init shard %q: %w", s.ID(), err)
+	}
+
 	if enabled, config := s.index.asyncReplicationStateForShard(s.name); enabled {
 		// Compute the effective config (needed for hashtreeHeight) before taking
 		// the write lock so we can load the cached hashtree from disk outside it.

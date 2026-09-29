@@ -67,41 +67,11 @@ func (c DimensionCategory) String() string {
 
 // DimensionsUsage scans the dimensions bucket for a given vector, see shardusage.ScanTargetVectorDimensions
 func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string, encodedDimensions int) (shardusage.DimensionsScan, error) {
-	b, release, lost := s.acquireDimensionsBucketForRead()
+	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
-		if lost {
-			s.logDimensionsBucketLost(targetVector)
-			return shardusage.DimensionsScan{}, nil
-		}
 		return shardusage.DimensionsScan{}, errors.Errorf("dimensionsUsage: no bucket dimensions")
 	}
-	defer release()
 	return shardusage.ScanTargetVectorDimensions(ctx, b, targetVector, encodedDimensions)
-}
-
-// acquireDimensionsBucketForRead pins the bucket against a concurrent recalculation
-// switch. A miss is rechecked under dimensionsLock, since a failed switch clears the
-// bucket until recovery; lost distinguishes that from one never opened.
-func (s *Shard) acquireDimensionsBucketForRead() (b *lsmkv.Bucket, release func(), lost bool) {
-	if b, release = s.store.AcquireBucketForRead(helpers.DimensionsBucketLSM); b != nil {
-		return b, release, false
-	}
-	s.dimensionsLock.RLock()
-	defer s.dimensionsLock.RUnlock()
-	if b, release = s.store.AcquireBucketForRead(helpers.DimensionsBucketLSM); b != nil {
-		return b, release, false
-	}
-	return nil, release, s.dimensionsBucketLost.Load()
-}
-
-// logDimensionsBucketLost reports zero dimensions rather than failing the node's
-// usage report; the files are not read as fallback since a recovering bucket may
-// still be writing to them.
-func (s *Shard) logDimensionsBucketLost(targetVector string) {
-	s.index.logger.WithField("action", "dimensions_usage").
-		WithField("shard", s.ID()).
-		WithField("targetVector", targetVector).
-		Errorf("reporting no dimensions: %v", errDimensionsBucketLost)
 }
 
 // Dimensions returns the total number of dimensions for a given vector
@@ -123,18 +93,12 @@ func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, se
 
 func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string,
 ) (types.Dimensionality, error) {
-	b, release, lost := s.acquireDimensionsBucketForRead()
-	if b != nil {
-		defer release()
+	if b := s.store.Bucket(helpers.DimensionsBucketLSM); b != nil {
 		scan, err := shardusage.ScanTargetVectorDimensions(ctx, b, targetVector, 0)
 		if err != nil {
 			return types.Dimensionality{}, err
 		}
 		return scan.Raw, nil
-	}
-	if lost {
-		s.logDimensionsBucketLost(targetVector)
-		return types.Dimensionality{}, nil
 	}
 	if s.index.Config.TrackVectorDimensions {
 		return types.Dimensionality{}, errors.Errorf("calcTargetVectorDimensions: no bucket dimensions")
@@ -348,14 +312,8 @@ func (s *Shard) removeDimensionsLSM(dimLength int, docID uint64, targetVector st
 }
 
 func (s *Shard) addToDimensionBucket(dimLength int, docID uint64, vecName string, tombstone bool) error {
-	s.dimensionsLock.RLock()
-	defer s.dimensionsLock.RUnlock()
-
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
-		if s.dimensionsBucketLost.Load() {
-			return nil
-		}
 		return errors.Errorf("add dimension bucket: no bucket dimensions")
 	}
 
@@ -380,9 +338,6 @@ func (s *Shard) addToDimensionBucket(dimLength int, docID uint64, vecName string
 		binary.LittleEndian.PutUint32(buf[8+nameLen:], dim)
 		copy(buf[8:], vecNameBytes)
 
-		if s.dimensionsRecalculation != nil {
-			s.dimensionsRecalculation.record(buf[8:], docID, tombstone)
-		}
 		return b.MapSet(buf[8:], lsmkv.MapPair{
 			Key:       buf[:8],
 			Value:     []byte{},
@@ -393,9 +348,6 @@ func (s *Shard) addToDimensionBucket(dimLength int, docID uint64, vecName string
 		copy(key[:nameLen], vecNameBytes)
 		binary.LittleEndian.PutUint32(key[nameLen:], dim)
 
-		if s.dimensionsRecalculation != nil {
-			s.dimensionsRecalculation.record(key, docID, tombstone)
-		}
 		if tombstone {
 			return b.RoaringSetRemoveOne(key, docID)
 		}

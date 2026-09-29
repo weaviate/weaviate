@@ -19,7 +19,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
 
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/file"
@@ -53,7 +52,6 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 	if shard == nil {
 		return nil, fmt.Errorf("incoming create replica snapshot: shard %q not found", shardName)
 	}
-	i.noteReplicaCopy(shardName)
 
 	// On retry the prior snapshot may be stale relative to current shard contents.
 	if rerr := i.releaseReplicaSnapshot(ctx, opID, shard); rerr != nil {
@@ -95,29 +93,6 @@ func (i *Index) IncomingCreateReplicaSnapshot(ctx context.Context, shardName, op
 		Debugf("created replica snapshot: %d files", len(files))
 	i.recordReplicaSnapshot(opID, replicaSnapshotState{shardName: shardName, isSnapshot: false})
 	return files, nil
-}
-
-// replicaCopySeq orders the starts of replica copies, see [Index.noteReplicaCopy].
-var replicaCopySeq atomic.Uint64
-
-// noteReplicaCopy is called before a replica copy halts the shard, so that a
-// dimensions reindex can tell that a copy may have taken the dimensions the shard
-// had before, see [Index.replicaCopiedSince].
-func (i *Index) noteReplicaCopy(shardName string) {
-	i.replicaCopiesMu.Lock()
-	defer i.replicaCopiesMu.Unlock()
-	if i.replicaCopies == nil {
-		i.replicaCopies = map[string]uint64{}
-	}
-	i.replicaCopies[shardName] = replicaCopySeq.Add(1)
-}
-
-// replicaCopiedSince tells whether a replica copy of the shard started after seq,
-// read from replicaCopySeq before.
-func (i *Index) replicaCopiedSince(shardName string, seq uint64) bool {
-	i.replicaCopiesMu.Lock()
-	defer i.replicaCopiesMu.Unlock()
-	return i.replicaCopies[shardName] > seq
 }
 
 func (i *Index) IncomingReleaseReplicaSnapshot(ctx context.Context, opID string) error {
