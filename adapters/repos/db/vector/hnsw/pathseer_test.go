@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw/packedconn"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -327,4 +328,227 @@ func allowListWithRange(n int) helpers.AllowList {
 		ids[i] = uint64(i)
 	}
 	return helpers.NewAllowList(ids...)
+}
+
+func TestPathseerStalled(t *testing.T) {
+	tests := []struct {
+		name                       string
+		distanced, matched, allowN int
+		total                      int64
+		want                       bool
+	}{
+		{name: "empty index", distanced: 1000, matched: 0, allowN: 100, total: 0, want: false},
+		{name: "too early to tell (expected 8)", distanced: 800, matched: 0, allowN: 10_000, total: 1_000_000, want: false},
+		{name: "expected 16, none found", distanced: 1600, matched: 0, allowN: 10_000, total: 1_000_000, want: true},
+		{name: "expected 16, a quarter found", distanced: 1600, matched: 4, allowN: 10_000, total: 1_000_000, want: true},
+		{name: "expected 16, more than a quarter found", distanced: 1600, matched: 5, allowN: 10_000, total: 1_000_000, want: false},
+		{name: "uniform 1%: count tracks density", distanced: 3000, matched: 28, allowN: 10_000, total: 1_000_000, want: false},
+		{name: "negative correlation: 4.5% filter, region empty", distanced: 400, matched: 0, allowN: 45_000, total: 1_000_000, want: true},
+		{name: "sparse filter never reaches the minimum", distanced: 100_000, matched: 0, allowN: 100, total: 1_000_000, want: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, pathseerStalled(tc.distanced, tc.matched, tc.allowN, tc.total))
+		})
+	}
+}
+
+// negativelyCorrelatedGraph: query at the origin; region A (nodes 0..nA-1 at
+// x=1+i) is a chain with node 0 fanning out to 1..fanOut; region B (nodes
+// nA.., x=10000+j) is a clique bridged to A only through nA-1 <-> nA. Members
+// in B are reachable without priming only by walking the whole chain.
+func negativelyCorrelatedGraph(t *testing.T, nA, nB, fanOut int) ([][]float32, map[uint64][]uint64) {
+	t.Helper()
+	vectors := make([][]float32, nA+nB)
+	conns := make(map[uint64][]uint64, nA+nB)
+	for i := 0; i < nA; i++ {
+		vectors[i] = []float32{float32(1 + i), 0}
+		var c []uint64
+		if i > 1 {
+			c = append(c, uint64(i-1))
+		}
+		c = append(c, uint64(i+1)) // nA-1 links to nA, the first B node
+		if i == 0 {
+			for j := 2; j <= fanOut; j++ {
+				c = append(c, uint64(j))
+			}
+		}
+		conns[uint64(i)] = c
+	}
+	for j := 0; j < nB; j++ {
+		id := nA + j
+		vectors[id] = []float32{float32(10000 + j), 0}
+		c := make([]uint64, 0, nB)
+		if j == 0 {
+			c = append(c, uint64(nA-1))
+		}
+		for k := 0; k < nB; k++ {
+			if k != j {
+				c = append(c, uint64(nA+k))
+			}
+		}
+		conns[uint64(id)] = c
+	}
+	return vectors, conns
+}
+
+// newCountingPathseerIndex counts distance computations in calls; ids in
+// deleted have no vector (lookup fails like a deleted object's).
+func newCountingPathseerIndex(t *testing.T, vectors [][]float32, ef int, calls *atomic.Int64,
+	deleted map[uint64]struct{},
+) *hnsw {
+	t.Helper()
+	index, err := New(Config{
+		RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+		ID:                    "pathseer-prime",
+		MakeCommitLoggerThunk: MakeNoopCommitLogger,
+		DistanceProvider:      &countingProvider{Provider: distancer.NewL2SquaredProvider(), calls: calls},
+		AllocChecker:          memwatch.NewDummyMonitor(),
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			if _, ok := deleted[id]; ok {
+				return nil, storobj.NewErrNotFoundf(id, "deleted")
+			}
+			return vectors[int(id)], nil
+		},
+		GetViewThunk: func() common.BucketView { return &noopBucketView{} },
+	}, ent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        128,
+		EF:                    ef,
+		VectorCacheMaxObjects: 100000,
+		FilterStrategy:        ent.FilterStrategyPathseer,
+		FlatSearchCutoff:      0,
+	}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+	require.Nil(t, err)
+	// the stall detector reads the index size from the vector cache
+	for id, vec := range vectors {
+		if _, ok := deleted[uint64(id)]; ok {
+			continue
+		}
+		index.cache.Preload(uint64(id), vec)
+	}
+	return index
+}
+
+// A negatively correlated filter must prime once and return the exact top-k
+// with no duplicates and fewer distance computations than region A has nodes
+// (sweeping needs at least nA). A sub-ef filter never trips and stays correct.
+func TestPathseerPrimesNegativelyCorrelatedFilter(t *testing.T) {
+	ctx := context.Background()
+	const nA, nB, fanOut, ef = 1000, 40, 32, 10
+	vectors, conns := negativelyCorrelatedGraph(t, nA, nB, fanOut)
+	members := make([]uint64, nB)
+	for j := range members {
+		members[j] = uint64(nA + j)
+	}
+	query := []float32{0, 0}
+
+	tests := []struct {
+		name    string
+		allow   helpers.AllowList
+		k       int
+		deleted map[uint64]struct{} // nil node slots without a vector
+		setup   func(t *testing.T, index *hnsw)
+		expect  []uint64
+		primes  int64
+	}{
+		{
+			name: "ef members far from the entry point", allow: helpers.NewAllowList(members...), k: ef,
+			expect: members[:ef], primes: 1,
+		},
+		{
+			name:  "sub-ef allow list is too sparse to trip the detector",
+			allow: helpers.NewAllowList(uint64(nA+5), uint64(nA+10), uint64(nA+15)), k: ef,
+			expect: []uint64{uint64(nA + 5), uint64(nA + 10), uint64(nA + 15)}, primes: 0,
+		},
+		{
+			// node 0 is the entry point, the first seed and a primed match
+			name: "entry point is itself a member", allow: helpers.NewAllowList(append([]uint64{0}, members...)...), k: ef,
+			expect: append([]uint64{0}, members[:ef-1]...), primes: 1,
+		},
+		{
+			// a nil vector-less slot and a tombstone, both early in bitmap
+			// order; an unskipped seed would enter the heap at distance 0
+			name: "seeds skip deleted and tombstoned members", allow: helpers.NewAllowList(members...), k: ef,
+			deleted: map[uint64]struct{}{uint64(nA + 1): {}},
+			setup: func(t *testing.T, index *hnsw) {
+				index.nodes[nA+1] = nil
+				require.Nil(t, index.addTombstone(uint64(nA+2)))
+			},
+			expect: append([]uint64{members[0]}, members[3:ef+2]...), primes: 1,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var distCalls atomic.Int64
+			index := newCountingPathseerIndex(t, vectors, ef, &distCalls, tc.deleted)
+			defer index.Shutdown(ctx)
+			buildManualLayer0(t, index, len(vectors), conns)
+			if tc.setup != nil {
+				tc.setup(t, index)
+			}
+
+			distCalls.Store(0)
+			res, _, err := index.SearchByVector(ctx, query, tc.k, tc.allow)
+			require.Nil(t, err)
+			assert.Equal(t, tc.expect, res)
+			assert.Len(t, uniqueIDs(res), len(res), "no duplicate ids")
+			assert.Equal(t, tc.primes, index.pathseerPrimes.Load(), "primed searches")
+			if tc.primes > 0 {
+				assert.Less(t, distCalls.Load(), int64(nA),
+					"a primed search must not sweep the excluded region around the entry point")
+			}
+
+			// sweeping reference: must walk the whole chain
+			require.Nil(t, index.UpdateUserConfig(ent.UserConfig{
+				MaxConnections:        30,
+				EFConstruction:        128,
+				EF:                    ef,
+				VectorCacheMaxObjects: 100000,
+				FilterStrategy:        ent.FilterStrategySweeping,
+				FlatSearchCutoff:      0,
+			}, func() {}))
+			distCalls.Store(0)
+			res, _, err = index.SearchByVector(ctx, query, tc.k, tc.allow)
+			require.Nil(t, err)
+			assert.Equal(t, tc.expect, res, "sweeping is the reference answer")
+			assert.GreaterOrEqual(t, distCalls.Load(), int64(nA),
+				"sweeping must walk the whole chain to reach the members")
+		})
+	}
+}
+
+// Members spread at the filter's global density never trip the detector.
+func TestPathseerDoesNotPrimeUniformFilter(t *testing.T) {
+	ctx := context.Background()
+	const nA, nB, fanOut, ef, every = 1000, 40, 32, 10, 25
+	vectors, conns := negativelyCorrelatedGraph(t, nA, nB, fanOut)
+
+	var distCalls atomic.Int64
+	index := newCountingPathseerIndex(t, vectors, ef, &distCalls, nil)
+	defer index.Shutdown(ctx)
+	buildManualLayer0(t, index, len(vectors), conns)
+
+	// every 25th chain node is a member; region B holds none
+	var ids []uint64
+	for i := every; i < nA; i += every {
+		ids = append(ids, uint64(i))
+	}
+	allow := helpers.NewAllowList(ids...)
+
+	res, dists, err := index.SearchByVector(ctx, []float32{0, 0}, ef, allow)
+	require.Nil(t, err)
+	assert.Equal(t, ids[:ef], res)
+	assert.Equal(t, int64(0), index.pathseerPrimes.Load(), "a filter at its global density must not prime")
+	for _, d := range dists {
+		assert.Less(t, d, float32(1e6), "no far-region node may enter the results")
+	}
+}
+
+func uniqueIDs(ids []uint64) map[uint64]struct{} {
+	m := make(map[uint64]struct{}, len(ids))
+	for _, id := range ids {
+		m[id] = struct{}{}
+	}
+	return m
 }

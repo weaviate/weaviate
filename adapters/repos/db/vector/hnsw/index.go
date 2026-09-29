@@ -183,7 +183,10 @@ type hnsw struct {
 	// concurrent search during a config update always observes either the
 	// old or the new strategy — never a torn combination of two booleans.
 	configuredFilterStrategy atomic.Int32
-	acornFilterRatio         float64
+
+	// pathseerPrimes counts searches primed by pathseerPrimeMidSearch (diagnostics).
+	pathseerPrimes   atomic.Int64
+	acornFilterRatio float64
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
