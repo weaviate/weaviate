@@ -276,11 +276,12 @@ type Shard struct {
 	asyncReplicationCancelFunc      context.CancelFunc
 
 	// Lock order, outermost → innermost:
-	//   Index.backupLock.RLock(shard) > asyncReplicationRWMux > docIdLock[poolId].
+	//   Index.backupLock.RLock(shard) > asyncReplicationRWMux > docIdLock[poolId] > changeLogsLifecycleMu.
 	changeLogs atomic.Pointer[changelog.Set]
-	// changeLogsActivateMu serializes ActivateChangeLog so concurrent
-	// activates can't sweep each other's freshly-opened .log file.
-	changeLogsActivateMu sync.Mutex
+	// changeLogsLifecycleMu serializes activation, stop and failure handling of change-capture logs.
+	changeLogsLifecycleMu sync.Mutex
+	// changeLogLifecycleCheckedHook is a test seam run by stop and failure handling right after their registration check.
+	changeLogLifecycleCheckedHook func()
 	// lostChangeLogs (opID → struct{}) backs the on-disk lost marker when writing it fails.
 	lostChangeLogs sync.Map
 	// Async checkpoint, guarded by asyncReplicationRWMux. The hashtree is a

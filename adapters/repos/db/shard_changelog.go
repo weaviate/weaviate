@@ -51,11 +51,11 @@ const (
 // prior failed movements on a long-lived shard.
 //
 // The keep-snapshot, sweep, O_EXCL Open, and Register run under
-// changeLogsActivateMu so two concurrent activates can't each snapshot a
+// changeLogsLifecycleMu so two concurrent activates can't each snapshot a
 // stale registered set and sweep the other's freshly-opened .log file.
 func (s *Shard) ActivateChangeLog(ctx context.Context, opID string) (*changelog.ChangeLog, error) {
-	s.changeLogsActivateMu.Lock()
-	defer s.changeLogsActivateMu.Unlock()
+	s.changeLogsLifecycleMu.Lock()
+	defer s.changeLogsLifecycleMu.Unlock()
 
 	dir := s.changelogDir()
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -183,7 +183,11 @@ func (s *Shard) SnapshotChangeLogLSN(ctx context.Context, opID string) (uint64, 
 // StopChangeCapture deactivates opID's log and removes its lost marker, so a
 // later lookup reads as stopped. Idempotent.
 func (s *Shard) StopChangeCapture(ctx context.Context, opID string) error {
+	s.changeLogsLifecycleMu.Lock()
+	defer s.changeLogsLifecycleMu.Unlock()
+
 	log := s.changeLogs.Load().Get(opID)
+	s.runChangeLogLifecycleCheckedHook()
 	if log == nil {
 		return s.clearChangeLogLost(opID)
 	}
@@ -324,8 +328,13 @@ func (s *Shard) dispatchAppendResult(opID string, log *changelog.ChangeLog, err 
 func (s *Shard) handleChangeLogFailure(opID string, log *changelog.ChangeLog, cause error) {
 	logger := s.index.logger.WithFields(logrus.Fields{"op_id": opID, "shard": s.ID()})
 	logger.Errorf("change-capture log entered terminal failure, deactivating: %v", cause)
+	// Unserialized, a concurrent stop leaves a stale marker and a resumed activation's new log gets marked lost.
+	s.changeLogsLifecycleMu.Lock()
+	defer s.changeLogsLifecycleMu.Unlock()
+	registered := s.changeLogs.Load().Get(opID)
+	s.runChangeLogLifecycleCheckedHook()
 	// A resumed op may have replaced this log; its successor lives under the same path.
-	if s.changeLogs.Load().Get(opID) != log {
+	if registered != log {
 		if err := log.Deactivate(); err != nil {
 			logger.Errorf("change-capture log deactivate after failure: %v", err)
 		}
@@ -338,6 +347,12 @@ func (s *Shard) handleChangeLogFailure(opID string, log *changelog.ChangeLog, ca
 	changelog.Unregister(&s.changeLogs, opID)
 	if err := log.Deactivate(); err != nil {
 		logger.Errorf("change-capture log deactivate after failure: %v", err)
+	}
+}
+
+func (s *Shard) runChangeLogLifecycleCheckedHook() {
+	if s.changeLogLifecycleCheckedHook != nil {
+		s.changeLogLifecycleCheckedHook()
 	}
 }
 
@@ -412,7 +427,7 @@ func (s *Shard) forEachChangelogFile(f func(opID, path string) error) error {
 
 // markChangeLogLost turns opID's log into its lost marker. The rename is atomic,
 // so a crash leaves the log (swept again on load) or the marker, never neither.
-// Without a log file, createIfMissing decides: a concurrent stop removed it.
+// Without a log file, createIfMissing decides whether the marker is created anyway.
 func (s *Shard) markChangeLogLost(opID string, createIfMissing bool) (bool, error) {
 	logPath, lostPath := changelogPaths(s.changelogDir(), opID)
 	if err := os.Rename(logPath, lostPath); err != nil {
