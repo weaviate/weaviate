@@ -28,12 +28,13 @@ import (
 
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/namespaces"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 )
 
 // noopStreamServer satisfies grpc.ServerStreamingServer[T], which every streaming
@@ -57,7 +58,7 @@ func (s *noopStreamServer[T]) RecvMsg(any) error            { return nil }
 // fakeIndex stubs the changelog methods; other interface methods panic
 // via the embedded nil interface so handlers can't touch them undetected.
 type fakeIndex struct {
-	sharding.RemoteIndexIncomingRepo
+	remote.IndexIncomingRepo
 
 	startErr           error
 	replicaSnapshotErr error
@@ -140,7 +141,7 @@ type fakeRepo struct {
 	indices map[string]*fakeIndex
 }
 
-func (r *fakeRepo) GetIndexForIncomingSharding(className schema.ClassName) sharding.RemoteIndexIncomingRepo {
+func (r *fakeRepo) GetIndexForIncomingSharding(className schema.ClassName) remote.IndexIncomingRepo {
 	idx, ok := r.indices[string(className)]
 	if !ok {
 		return nil
@@ -148,11 +149,13 @@ func (r *fakeRepo) GetIndexForIncomingSharding(className schema.ClassName) shard
 	return idx
 }
 
-// fakeSchema implements sharding.RemoteIncomingSchema. ReadOnlyClassWithVersion
+// fakeSchema stands in for local.VersionedReader. ReadOnlyClassWithVersion
 // records every requested version and errors when asked for a version higher
 // than `applied`, simulating a source node that has not yet applied that schema
 // command — which is exactly the wait the StartChangeCapture barrier relies on.
 type fakeSchema struct {
+	// Left unset: only the methods defined below are expected.
+	local.VersionedReader
 	mu        sync.Mutex
 	requested []uint64
 	applied   uint64 // highest applied schema version; requests above this fail
@@ -184,7 +187,7 @@ func newService(t *testing.T, indices map[string]*fakeIndex) *FileReplicationSer
 	return newServiceWithSchema(t, indices, &fakeSchema{applied: math.MaxUint64})
 }
 
-func newServiceWithSchema(t *testing.T, indices map[string]*fakeIndex, sc sharding.RemoteIncomingSchema) *FileReplicationService {
+func newServiceWithSchema(t *testing.T, indices map[string]*fakeIndex, sc local.VersionedReader) *FileReplicationService {
 	t.Helper()
 	return NewFileReplicationService(&fakeRepo{indices: indices}, sc, 64*1024)
 }

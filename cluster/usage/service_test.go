@@ -30,6 +30,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -81,7 +82,7 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	}
 	shardingState.SetLocalName(nodeName)
 
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
 		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
 			return fn(nil, shardingState)
@@ -205,13 +206,13 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	})
 	mockSchema.EXPECT().NodeName().Return(nodeName)
 	mockSchema.EXPECT().ReadOnlyClass(class.Class).Return(class).Maybe()
-	mockSchema.EXPECT().TenantsShards(mock.Anything, className, hotTenant).
+	mockSchema.EXPECT().TenantsShardsStatus(mock.Anything, className, hotTenant).
 		Return(map[string]string{hotTenant: models.TenantActivityStatusHOT}, nil).Maybe()
 	mockSchema.EXPECT().OptimisticTenantStatus(mock.Anything, className, hotTenant, mock.Anything).
 		Return(map[string]string{hotTenant: models.TenantActivityStatusHOT}, nil).Maybe()
 	mockSchema.EXPECT().ShardOwner(className, hotTenant).Return(nodeName, nil).Maybe()
 
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
 		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
 			return fn(nil, shardingState)
@@ -459,6 +460,52 @@ func TestService_Usage_WithBackups_3node_cluster(t *testing.T) {
 	mockBackupBackend.AssertExpectations(t)
 }
 
+func TestService_Usage_WithDedupedBackup(t *testing.T) {
+	ctx := context.Background()
+
+	nodeName := "test-node-2"
+	size1GB := int64(1073741824)
+
+	mockSchema := schemaUC.NewMockSchemaGetter(t)
+	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
+		Objects: &models.Schema{Classes: []*models.Class{}},
+	})
+	mockSchema.EXPECT().NodeName().Return(nodeName)
+
+	shardingState := &sharding.State{Physical: map[string]sharding.Physical{}}
+	shardingState.SetLocalName(nodeName)
+	repo := createTestDb(t, mockSchema, shardingState, nil, nodeName)
+
+	mockBackupBackend := modulecapabilities.NewMockBackupBackend(t)
+	backups := []*backup.DistributedBackupDescriptor{
+		{
+			ID:                      "deduped-1",
+			Status:                  backup.Success,
+			CompletedAt:             time.Date(2025, 1, 15, 10, 30, 0, 0, time.UTC),
+			DedupeReplicas:          true,
+			DedupeSkippedBytes:      size1GB,
+			PreCompressionSizeBytes: 2 * size1GB,
+			Nodes: map[string]*backup.NodeDescriptor{
+				"test-node-1": {Classes: []string{"Class1"}, PreCompressionSizeBytes: size1GB},
+				"test-node-2": {Classes: []string{"Class1"}, PreCompressionSizeBytes: size1GB},
+			},
+		},
+	}
+	mockBackupBackend.EXPECT().AllBackups(ctx).Return(backups, nil)
+
+	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
+	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{mockBackupBackend})
+
+	logger, _ := logrus.NewNullLogger()
+	service := NewService(mockSchema, repo, mockBackupProvider, logger)
+
+	result, err := service.Usage(ctx, false)
+
+	require.NoError(t, err)
+	require.Len(t, result.Backups, 1)
+	assert.Equal(t, 1.0, result.Backups[0].SizeInGib, "skipping replica must report its attributed logical size")
+}
+
 func TestService_Usage_EmptyCollections(t *testing.T) {
 	ctx := context.Background()
 
@@ -566,7 +613,7 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 	shardingState.SetLocalName(nodeName)
 	mockSchema.EXPECT().ReadOnlyClass(class.Class).Return(class)
 
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
 		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
 			return fn(nil, shardingState)
@@ -645,7 +692,7 @@ func TestService_Usage_MultipleCollectionsConcurrent(t *testing.T) {
 		entered      atomic.Int64
 		barrier      = make(chan struct{})
 	)
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(_ string, _ bool, fn func(*models.Class, *sharding.State) error) error {
 			if usageStarted.Load() {
@@ -743,7 +790,7 @@ func TestService_Usage_MultipleCollectionsError(t *testing.T) {
 	shardingState.SetLocalName(nodeName)
 
 	var usageStarted atomic.Bool
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 		func(className string, _ bool, fn func(*models.Class, *sharding.State) error) error {
 			if usageStarted.Load() && className == "ColB" {
@@ -798,7 +845,7 @@ func createTestDb(t *testing.T, sg schemaUC.SchemaGetter, shardingState *shardin
 	mockReplicationFSMReader.EXPECT().HasActiveReplicationForShard(mock.Anything, mock.Anything).Return(false).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{nodeName}).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{nodeName}).Maybe()
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardingState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
@@ -862,13 +909,4 @@ func putObjectAndFlush(t *testing.T, repo *db.DB, className, tenant string, vect
 		require.NoError(t, shard.Store().GetBucketsByName()["objects"].FlushMemtable())
 		return nil
 	})
-}
-
-type MockShardReader struct {
-	lst models.ShardStatusList
-	err error
-}
-
-func (m MockShardReader) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
-	return m.lst, m.err
 }

@@ -43,10 +43,10 @@ func TestPostingPassesFilterSlice_PassesIfAddsNewVector(t *testing.T) {
 	allowList := helpers.NewAllowList(0, 1)
 	hfAllowList := hf.wrapAllowList(ctx, allowList)
 
-	ok := hfAllowList.Contains(0) // pass, consumes vector 0
+	ok := hfAllowList.Contains(0) // pass: holds allowed vector 0
 	require.True(t, ok)
 
-	ok = hfAllowList.Contains(1) // pass, consumes vector 1 (new contribution)
+	ok = hfAllowList.Contains(1) // pass: holds allowed vector 1
 	require.True(t, ok)
 
 	hfAllowList.Close()
@@ -88,10 +88,11 @@ func TestPostingPassesFilterSlice_SkipsAlreadyUsedAndFindsLaterNewOne(t *testing
 	pm := NewPostingMap(bucket)
 	ctx := t.Context()
 
-	// posting 0 consumes vector 0
+	// posting 0 holds allowed vector 0
 	pm.FastAddVectorID(ctx, 0, 0)
 
-	// posting 1 has [0, 1], where 0 will be already used after checking posting 0
+	// posting 1 shares vector 0 and adds vector 1: membership is pure, so
+	// probing posting 0 first must not affect posting 1
 	pm.FastAddVectorID(ctx, 1, 0)
 	pm.FastAddVectorID(ctx, 1, 1)
 
@@ -103,10 +104,10 @@ func TestPostingPassesFilterSlice_SkipsAlreadyUsedAndFindsLaterNewOne(t *testing
 	allowList := helpers.NewAllowList(0, 1)
 	hfAllowList := hf.wrapAllowList(ctx, allowList)
 
-	ok := hfAllowList.Contains(0) // pass, consumes vector 0
+	ok := hfAllowList.Contains(0)
 	require.True(t, ok)
 
-	ok = hfAllowList.Contains(1) // should still pass, because it can contribute vector 1
+	ok = hfAllowList.Contains(1) // pure membership: unaffected by the earlier probe
 	require.True(t, ok)
 
 	hfAllowList.Close()
@@ -119,11 +120,11 @@ func TestPostingPassesFilterSlice_StopsOnFirstNewContribution(t *testing.T) {
 	pm := NewPostingMap(bucket)
 	ctx := t.Context()
 
-	// posting 0 has [0, 1]. It should consume ONLY 0 (first new allowed) and stop.
+	// posting 0 holds [0, 1], posting 1 holds only [1]: probing posting 0
+	// must not make posting 1 unreachable (the old claim machinery could)
 	pm.FastAddVectorID(ctx, 0, 0)
 	pm.FastAddVectorID(ctx, 0, 1)
 
-	// posting 1 has only [1]. If posting 0 incorrectly consumed both 0 and 1, this would fail.
 	pm.FastAddVectorID(ctx, 1, 1)
 
 	hf := &HFresh{
@@ -134,10 +135,10 @@ func TestPostingPassesFilterSlice_StopsOnFirstNewContribution(t *testing.T) {
 	allowList := helpers.NewAllowList(0, 1)
 	hfAllowList := hf.wrapAllowList(ctx, allowList)
 
-	ok := hfAllowList.Contains(0) // pass, should consume vector 0 only
+	ok := hfAllowList.Contains(0)
 	require.True(t, ok)
 
-	ok = hfAllowList.Contains(1) // must pass if 1 was NOT consumed earlier
+	ok = hfAllowList.Contains(1)
 	require.True(t, ok)
 
 	hfAllowList.Close()
@@ -164,7 +165,7 @@ func TestPostingPassesFilterSlice_CachesAcceptedPostingID(t *testing.T) {
 	ok := hfAllowList.Contains(0)
 	require.True(t, ok)
 
-	// Second call should return true regardless of "new contribution" because the posting ID is cached as visited.
+	// second call answers from the memoized allowed-posting set
 	ok = hfAllowList.Contains(0)
 	require.True(t, ok)
 

@@ -34,7 +34,7 @@ import (
 
 func Test_GetAction(t *testing.T) {
 	var (
-		vectorRepo    *fakeVectorRepo
+		vectorRepo    *fakeObjectFinder
 		manager       *Manager
 		extender      *fakeExtender
 		projectorFake *fakeProjector
@@ -52,7 +52,7 @@ func Test_GetAction(t *testing.T) {
 	}
 
 	reset := func() {
-		vectorRepo = &fakeVectorRepo{}
+		vectorRepo = &fakeObjectFinder{}
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
 		}
@@ -664,7 +664,7 @@ func Test_GetAction(t *testing.T) {
 
 func Test_GetThing(t *testing.T) {
 	var (
-		vectorRepo    *fakeVectorRepo
+		vectorRepo    *fakeObjectFinder
 		manager       *Manager
 		extender      *fakeExtender
 		projectorFake *fakeProjector
@@ -681,7 +681,7 @@ func Test_GetThing(t *testing.T) {
 	}
 
 	reset := func() {
-		vectorRepo = &fakeVectorRepo{}
+		vectorRepo = &fakeObjectFinder{}
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
 		}
@@ -1059,7 +1059,7 @@ func ptInt64(in int64) *int64 {
 
 type fakeGetManager struct {
 	*Manager
-	repo            *fakeVectorRepo
+	repo            *fakeObjectFinder
 	extender        *fakeExtender
 	projector       *fakeProjector
 	authorizer      *mocks.FakeAuthorizer
@@ -1069,7 +1069,7 @@ type fakeGetManager struct {
 
 func newFakeGetManager(schema schema.Schema, opts ...func(*fakeGetManager)) fakeGetManager {
 	r := fakeGetManager{
-		repo:            new(fakeVectorRepo),
+		repo:            new(fakeObjectFinder),
 		extender:        new(fakeExtender),
 		projector:       new(fakeProjector),
 		authorizer:      mocks.NewMockAuthorizer(),

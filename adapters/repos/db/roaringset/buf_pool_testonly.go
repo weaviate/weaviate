@@ -28,6 +28,7 @@ import (
 // Call Outstanding() in a t.Cleanup to assert all buffers were released.
 type BitmapBufPoolTrackingForTests struct {
 	outstanding atomic.Int64
+	peak        atomic.Int64
 }
 
 func NewBitmapBufPoolTrackingForTests() *BitmapBufPoolTrackingForTests {
@@ -35,7 +36,13 @@ func NewBitmapBufPoolTrackingForTests() *BitmapBufPoolTrackingForTests {
 }
 
 func (p *BitmapBufPoolTrackingForTests) Get(minCap int) (buf []byte, put func()) {
-	p.outstanding.Add(1)
+	now := p.outstanding.Add(1)
+	for {
+		peak := p.peak.Load()
+		if now <= peak || p.peak.CompareAndSwap(peak, now) {
+			break
+		}
+	}
 	buf = make([]byte, 0, max(minCap, 0))
 	var released atomic.Bool
 	return buf, func() {
@@ -71,4 +78,10 @@ func (p *BitmapBufPoolTrackingForTests) AccumulatorToBuf(acc *sroar.Accumulator)
 // yet released. A non-zero value at the end of a test indicates a leak.
 func (p *BitmapBufPoolTrackingForTests) Outstanding() int64 {
 	return p.outstanding.Load()
+}
+
+// PeakOutstanding is the most buffers held at once, for asserting what a caller holds
+// concurrently rather than only that it released everything.
+func (p *BitmapBufPoolTrackingForTests) PeakOutstanding() int64 {
+	return p.peak.Load()
 }

@@ -33,7 +33,7 @@ import (
 
 func Test_UpdateAction(t *testing.T) {
 	var (
-		db              *fakeVectorRepo
+		db              *fakeObjectFinder
 		modulesProvider *fakeModulesProvider
 		manager         *Manager
 		extender        *fakeExtender
@@ -59,7 +59,7 @@ func Test_UpdateAction(t *testing.T) {
 	}
 
 	reset := func() {
-		db = &fakeVectorRepo{}
+		db = &fakeObjectFinder{}
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
 		}

@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -592,6 +593,18 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}()
 
 	s.activityTrackerRead.Add(1)
+
+	// Admit filter/BM25 fan-out through the node budget. The grant is held
+	// for the whole method. Vector searches are gated in ObjectVectorSearch.
+	if filters != nil || keywordRanking != nil {
+		admittedCtx, release, err := s.index.Config.QueryAdmission.Admit(ctx, concurrency.TimesGOMAXPROCS(2))
+		if err != nil {
+			return nil, nil, err
+		}
+		defer release()
+		ctx = admittedCtx
+	}
+
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {
 			return nil, nil, errors.Errorf(
@@ -688,11 +701,6 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	startTime := time.Now()
 
 	defer func() {
-		// reduce lsm stats
-		helpers.ReplaceSlowQueryEntry(ctx, "lsm_get_by_secondary", func(old []lsmkv.BucketSlowLogEntry) lsmkv.BucketSlowLogEntryStats {
-			return lsmkv.BucketSlowLogEntries(old).Reduce()
-		})
-
 		s.slowQueryReporter.LogIfSlow(ctx, startTime, map[string]any{
 			"collection": s.index.Config.ClassName,
 			"shard":      s.ID(),
@@ -710,6 +718,19 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	}()
 
 	s.activityTrackerRead.Add(1)
+
+	// Hold the admission seat for the whole method, for two reasons. The
+	// vector index sizes its worker pools (compressed rescoring, HFresh
+	// posting reads) from the grant in ctx, so the grant must exist while the
+	// vector phase runs. And the object fetch below fans out at 2*GOMAXPROCS
+	// without reading the grant, so the seat is what bounds how many queries
+	// run that fan-out at once. Releasing after the vector phase would let
+	// every queued query start its fetch simultaneously.
+	ctx, release, err := s.index.Config.QueryAdmission.Admit(ctx, concurrency.TimesGOMAXPROCS(2))
+	if err != nil {
+		return nil, nil, err
+	}
+	defer release()
 
 	var allowList helpers.AllowList
 	if filters != nil {
@@ -820,7 +841,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		})
 	}
 
-	err := eg.Wait()
+	err = eg.Wait()
 	if allowList != nil {
 		allowList.Close()
 	}
@@ -1003,31 +1024,8 @@ func (s *Shard) buildAllowList(ctx context.Context, filters *filters.LocalFilter
 	return list, nil
 }
 
-func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
-	bucket, release, err := s.objectsBucket()
-	if err != nil {
-		return "", err
-	}
-	defer release()
-
-	docIDBytes := make([]byte, 8)
-	binary.LittleEndian.PutUint64(docIDBytes, docID)
-	res, err := bucket.GetBySecondary(context.TODO(), 0, docIDBytes) // TODO: context
-	if err != nil {
-		return "", fmt.Errorf("get object by doc id: %w", err)
-	}
-
-	prop, _, err := storobj.ParseAndExtractProperty(res, "id")
-	if err != nil {
-		return "", fmt.Errorf("parse and extract property: %w", err)
-	}
-
-	return strfmt.UUID(prop[0]), nil
-}
-
 func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
-	// Wait outside RLock: initAsyncReplication holds the write lock while
-	// initialising, so blocking under RLock here would deadlock.
+	// Wait outside the RLock; see shard_write_put.go.
 	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
 		return err
 	}

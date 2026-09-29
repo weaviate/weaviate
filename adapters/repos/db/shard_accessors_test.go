@@ -69,7 +69,7 @@ func TestShard_LeasedVectorIndexAccessors(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			s, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "test"}, hnsw.UserConfig{}, false, true, false, tt.setup)
+			s, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "test"}, hnsw.UserConfig{}, false, false, tt.setup)
 
 			for _, target := range []struct {
 				name string
@@ -118,7 +118,7 @@ func TestShard_LeasedVectorIndexAccessors(t *testing.T) {
 }
 
 func TestShard_WithVectorIndexReturnsTheCallbackError(t *testing.T) {
-	s, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "test"}, hnsw.UserConfig{}, false, true, false, func(idx *Index) {
+	s, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "test"}, hnsw.UserConfig{}, false, false, func(idx *Index) {
 		idx.vectorIndexUserConfig = hnsw.NewDefaultUserConfig()
 	})
 
@@ -168,7 +168,7 @@ func TestShard_ForEachVectorIndexAndQueue(t *testing.T) {
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			shard, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "TestClass"}, hnsw.NewDefaultUserConfig(), false, true, false, tt.setConfigs)
+			shard, _ := testShardWithSettings(t, testCtx(), &models.Class{Class: "TestClass"}, hnsw.NewDefaultUserConfig(), false, false, tt.setConfigs)
 
 			capturedIndexes := make(map[string]any)
 			err := shard.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {

@@ -32,6 +32,7 @@ func ArticlesClass() *models.Class {
 				DataType: []string{"Paragraph"},
 			},
 		},
+		Vectorizer: "none",
 	}
 }
 

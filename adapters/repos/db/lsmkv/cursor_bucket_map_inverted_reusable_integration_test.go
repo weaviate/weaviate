@@ -51,7 +51,7 @@ func TestCursorMapInvertedReusable_HoldAcrossIterations(t *testing.T) {
 		key := fmt.Sprintf("term%03d", term)
 		for d := 0; d < docsPer; d++ {
 			docID := uint64(term*docsPer + d)
-			require.NoError(t, bucket.MapSet([]byte(key), NewMapPairFromDocIdAndTf(docID, float32(d%10+1), 1, false)))
+			require.NoError(t, bucket.InvertedSet([]byte(key), docID, float32(d%10+1), 1))
 		}
 		wantFirstDoc[key] = uint64(term * docsPer) // smallest docID under the term
 	}

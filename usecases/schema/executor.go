@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
@@ -32,7 +33,7 @@ import (
 var _NUMCPU = runtime.GOMAXPROCS(0)
 
 type executor struct {
-	schemaReader SchemaReader
+	schemaReader local.SchemaReader
 	migrator     Migrator
 
 	callbacksLock sync.RWMutex
@@ -43,7 +44,7 @@ type executor struct {
 }
 
 // NewManager creates a new manager
-func NewExecutor(migrator Migrator, sr SchemaReader,
+func NewExecutor(migrator Migrator, sr local.SchemaReader,
 	logger logrus.FieldLogger, classBackupDir func(string) error,
 ) *executor {
 	return &executor{
@@ -56,6 +57,12 @@ func NewExecutor(migrator Migrator, sr SchemaReader,
 
 func (e *executor) Open(ctx context.Context) error {
 	return e.migrator.WaitForStartup(ctx)
+}
+
+// DropOrphanedClass returns its error, unlike DeleteClass, so the next reload
+// can retry a failed drop.
+func (e *executor) DropOrphanedClass(ctx context.Context, cls string, hasFrozen bool) error {
+	return e.migrator.DropOrphanedClass(ctx, cls, hasFrozen)
 }
 
 // ReloadLocalDB reloads the local database using the latest schema.
@@ -76,7 +83,9 @@ func (e *executor) ReloadLocalDB(ctx context.Context, all []api.UpdateClassReque
 			cs[i] = u.Class
 
 			if err := e.migrator.UpdateIndex(ctx, u.Class, u.State); err != nil {
-				e.logger.WithField("index", u.Class.Class).WithError(err).Error("failed to reload local index")
+				e.logger.WithField("index", u.Class.Class).
+					WithFields(enterrors.DocsLinkFields(err)).
+					Errorf("failed to reload local index: %v", err)
 				err := fmt.Errorf("failed to reload local index %d: %w", i, err)
 
 				errMutex.Lock()
@@ -328,7 +337,8 @@ func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest, pr
 		e.logger.WithFields(logrus.Fields{
 			"action": "update_tenants",
 			"class":  class,
-		}).WithError(err).Error("error updating tenants")
+		}).WithFields(enterrors.DocsLinkFields(err)).
+			WithError(err).Error("error updating tenants")
 		return err
 	}
 	return nil
@@ -361,7 +371,8 @@ func (e *executor) UpdateTenantsProcess(class string, req *api.TenantProcessRequ
 			"action":     "update_tenants_process",
 			"sub-action": "update_tenants",
 			"class":      class,
-		}).Errorf("error updating tenants: %v", err)
+		}).WithFields(enterrors.DocsLinkFields(err)).
+			Errorf("error updating tenants: %v", err)
 		return err
 	}
 	return nil
@@ -384,9 +395,8 @@ func (e *executor) UpdateShardStatus(req *api.UpdateShardStatusRequest) error {
 	return e.migrator.UpdateShardStatus(ctx, req.Class, req.Shard, req.Status, req.SchemaVersion)
 }
 
-func (e *executor) GetShardsStatus(class, tenant string) (models.ShardStatusList, error) {
-	ctx := context.Background()
-	shardsStatus, legacyStatus, err := e.migrator.GetShardsStatus(ctx, class, tenant)
+func (e *executor) GetShardsStorageStatus(ctx context.Context, class, tenant string) (models.ShardStatusList, error) {
+	shardsStatus, legacyStatus, err := e.migrator.GetShardsStorageStatus(ctx, class, tenant)
 	if err != nil {
 		return nil, err
 	}

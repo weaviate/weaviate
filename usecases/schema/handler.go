@@ -19,19 +19,19 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
-	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 var (
@@ -39,113 +39,6 @@ var (
 	ErrUnexpectedMultiple = errors.New("unexpected multiple results")
 	ErrValidation         = errors.New("validation")
 )
-
-// SchemaManager is responsible for consistent schema operations.
-// It allows reading and writing the schema while directly talking to the leader, no matter which node it is.
-// It also allows cluster related operations that can only be done on the leader (join/remove/stats/etc...)
-// For details about each endpoint see [github.com/weaviate/weaviate/cluster.Raft].
-// For local schema lookup where eventual consistency is acceptable, see [SchemaReader].
-type SchemaManager interface {
-	// Schema writes operation.
-	AddClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
-	RestoreClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
-	UpdateClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error)
-	DeleteClass(ctx context.Context, name string) (uint64, error)
-	AddProperty(ctx context.Context, class string, p ...*models.Property) (uint64, error)
-	// UpdateProperty merges `property` into the named class. When `fields`
-	// is non-empty, the RAFT FSM only merges the listed property fields
-	// (see api.PropertyField* constants); fields not listed keep their
-	// existing values. An empty `fields` preserves the legacy "replace
-	// every field" semantics, so existing public-API callers do not need
-	// to change.
-	UpdateProperty(ctx context.Context, class string, property *models.Property, fields ...string) (uint64, error)
-	// UpdatePropertyFromMigration is the internal variant of
-	// UpdateProperty used by the distributed-task scheduler's reindex
-	// completion path. It sets the
-	// [api.UpdatePropertyRequest.FromInFlightMigration] flag so the
-	// schema FSM's cross-FSM MutationGuard (which blocks property
-	// mutations while a reindex on the same property is STARTED or
-	// FINALIZING) bypasses the check for migration-driven schema
-	// flips.
-	//
-	// Public REST / gRPC handlers must not call this; they go through
-	// UpdateProperty above. The bypass is mechanically required
-	// because OnTaskCompleted (which calls
-	// flipSemanticMigrationSchema) fires while the task is still in
-	// FINALIZING, so without the bypass the migration's own flip
-	// would be rejected by the very guard it depends on.
-	UpdatePropertyFromMigration(ctx context.Context, class string, property *models.Property, fields ...string) (uint64, error)
-	UpdateShardStatus(ctx context.Context, class, shard, status string) (uint64, error)
-	AddTenants(ctx context.Context, class string, req *command.AddTenantsRequest) (uint64, error)
-	UpdateTenants(ctx context.Context, class string, req *command.UpdateTenantsRequest) (uint64, error)
-	DeleteTenants(ctx context.Context, class string, req *command.DeleteTenantsRequest) (uint64, error)
-
-	// Cluster related operations
-	Join(_ context.Context, nodeID, raftAddr string, voter bool) error
-	Remove(_ context.Context, nodeID string) error
-	Stats() map[string]any
-	StorageCandidates() []string
-
-	// Strongly consistent schema read. These endpoints will emit a query to the leader to ensure that the data is read
-	// from an up to date schema.
-	QueryReadOnlyClasses(names ...string) (map[string]versioned.Class, error)
-	QuerySchema() (models.Schema, error)
-	QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error)
-	// QueryCollectionsCount returns a leader-consistent count. Empty
-	// namespace returns the cluster-global total; a non-empty namespace
-	// restricts the count to classes in that namespace.
-	QueryCollectionsCount(namespace string) (int, error)
-	QueryShardOwner(class, shard string) (string, uint64, error)
-	QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error)
-	QueryShardingState(class string) (*sharding.State, uint64, error)
-	QueryClassVersions(names ...string) (map[string]uint64, error)
-
-	// Aliases
-	CreateAlias(ctx context.Context, alias string, class *models.Class) (uint64, error)
-	ReplaceAlias(ctx context.Context, alias *models.Alias, newClass *models.Class) (uint64, error)
-	DeleteAlias(ctx context.Context, alias string) (uint64, error)
-	GetAliases(ctx context.Context, alias string, class *models.Class) ([]*models.Alias, error)
-	GetAlias(ctx context.Context, alias string) (*models.Alias, error)
-}
-
-// SchemaReader allows reading the local schema with or without using a schema version.
-type SchemaReader interface {
-	// WaitForUpdate ensures that the local schema has caught up to version.
-	WaitForUpdate(ctx context.Context, version uint64) error
-
-	// These schema reads function reads the metadata immediately present in the local schema and can be eventually
-	// consistent.
-	// For details about each endpoint see [github.com/weaviate/weaviate/cluster/schema.SchemaReader].
-	ClassEqual(name string) string
-	MultiTenancy(class string) models.MultiTenancyConfig
-	ClassInfo(class string) (ci clusterSchema.ClassInfo)
-	ReadOnlyClass(name string) *models.Class
-	ReadOnlyVersionedClass(name string) versioned.Class
-	ReadOnlySchema() models.Schema
-	Aliases() map[string]string
-	ShardReplicas(class, shard string) ([]string, error)
-	ShardFromUUID(class string, uuid []byte) string
-	ShardOwner(class, shard string) (string, error)
-	Read(class string, retryIfClassNotFound bool, reader func(*models.Class, *sharding.State) error) error
-	ReadSchema(reader func(models.Class, uint64)) error
-	Shards(class string) ([]string, error)
-	LocalShards(class string) ([]string, error)
-	LocalActiveShardsCount(class string) (int, error)
-	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
-	ResolveAlias(alias string) string
-	GetAliasesForClass(class string) []*models.Alias
-
-	// These schema reads function (...WithVersion) return the metadata once the local schema has caught up to the
-	// version parameter. If version is 0 is behaves exactly the same as eventual consistent reads.
-	// For details about each endpoint see [github.com/weaviate/weaviate/cluster/schema.VersionedSchemaReader].
-	ClassInfoWithVersion(ctx context.Context, class string, version uint64) (clusterSchema.ClassInfo, error)
-	MultiTenancyWithVersion(ctx context.Context, class string, version uint64) (models.MultiTenancyConfig, error)
-	ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (*models.Class, error)
-	ShardOwnerWithVersion(ctx context.Context, lass, shard string, version uint64) (string, error)
-	ShardFromUUIDWithVersion(ctx context.Context, class string, uuid []byte, version uint64) (string, error)
-	ShardReplicasWithVersion(ctx context.Context, class, shard string, version uint64) ([]string, error)
-	TenantsShardsWithVersion(ctx context.Context, version uint64, class string, tenants ...string) (map[string]string, error)
-}
 
 type validator interface {
 	ValidateVectorIndexConfigUpdate(old, updated schemaConfig.VectorIndexConfig) error
@@ -159,8 +52,14 @@ type validator interface {
 // By delegating these clear responsibilities to the handler, it maintains
 // a clean separation from the manager, enhancing code modularity and maintainability.
 type Handler struct {
-	schemaManager SchemaManager
-	schemaReader  SchemaReader
+	// schemaManager reads the schema from, and writes it through, the RAFT leader.
+	schemaManager leader.Schema
+	// membership changes and reports the RAFT cluster membership.
+	membership   cluster.RaftMembership
+	schemaReader local.SchemaReader
+	// indexer answers ShardsStatus, which reports each local index's
+	// READY/READONLY/INDEXING state.
+	indexer clusterSchema.Indexer
 
 	// dropVectorEnqueuer submits the background cleanup task when a named vector is
 	// dropped. nil when the distributed-task machinery is not wired.
@@ -258,8 +157,10 @@ func normalizeAllowList(in []string, isValid func(string) bool) []string {
 
 // NewHandler creates a new handler
 func NewHandler(
-	schemaReader SchemaReader,
-	schemaManager SchemaManager,
+	schemaReader local.SchemaReader,
+	schemaManager leader.Schema,
+	membership cluster.RaftMembership,
+	indexer clusterSchema.Indexer,
 	validator validator,
 	logger logrus.FieldLogger, authorizer authorization.Authorizer, schemaConfig *config.SchemaHandlerConfig,
 	config config.Config,
@@ -276,6 +177,8 @@ func NewHandler(
 		schemaConfig:            schemaConfig,
 		schemaReader:            schemaReader,
 		schemaManager:           schemaManager,
+		membership:              membership,
+		indexer:                 indexer,
 		parser:                  parser,
 		validator:               validator,
 		logger:                  logger,
@@ -301,7 +204,7 @@ func (h *Handler) GetConsistentSchema(ctx context.Context, principal *models.Pri
 	if !consistency {
 		fullSchema = h.getSchema()
 	} else {
-		consistentSchema, err := h.schemaManager.QuerySchema()
+		consistentSchema, err := h.schemaManager.SchemaFromLeader()
 		if err != nil {
 			return schema.Schema{}, fmt.Errorf("could not read schema with strong consistency: %w", err)
 		}
@@ -357,7 +260,7 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 ) (uint64, error) {
 	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsMetadata(class, shard)...); err != nil {
@@ -372,14 +275,14 @@ func (h *Handler) ShardsStatus(ctx context.Context,
 ) (models.ShardStatusList, error) {
 	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
 
 	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsMetadata(class, shard)...); err != nil {
 		return nil, err
 	}
 
-	return h.schemaReader.GetShardsStatus(class, shard)
+	return h.indexer.GetShardsStorageStatus(ctx, class, shard)
 }
 
 // JoinNode adds the given node to the cluster.
@@ -398,7 +301,7 @@ func (h *Handler) JoinNode(ctx context.Context, node string, nodePort string, vo
 		nodePort = fmt.Sprintf("%d", config.DefaultRaftPort)
 	}
 
-	if err := h.schemaManager.Join(ctx, node, nodeAddr+":"+nodePort, voter); err != nil {
+	if err := h.membership.Join(ctx, node, nodeAddr+":"+nodePort, voter); err != nil {
 		return fmt.Errorf("node failed to join cluster: %w", err)
 	}
 	return nil
@@ -406,7 +309,7 @@ func (h *Handler) JoinNode(ctx context.Context, node string, nodePort string, vo
 
 // RemoveNode removes the given node from the cluster.
 func (h *Handler) RemoveNode(ctx context.Context, node string) error {
-	if err := h.schemaManager.Remove(ctx, node); err != nil {
+	if err := h.membership.Remove(ctx, node); err != nil {
 		return fmt.Errorf("node failed to leave cluster: %w", err)
 	}
 	return nil
@@ -414,7 +317,7 @@ func (h *Handler) RemoveNode(ctx context.Context, node string) error {
 
 // Statistics is used to return a map of various internal stats. This should only be used for informative purposes or debugging.
 func (h *Handler) Statistics() map[string]any {
-	return h.schemaManager.Stats()
+	return h.membership.Stats()
 }
 
 // DropVectorIndexEnqueuer submits the background cleanup distributed task for a

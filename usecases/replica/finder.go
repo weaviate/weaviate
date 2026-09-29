@@ -801,7 +801,7 @@ func (f *Finder) BroadcastCreateAsyncCheckpoint(ctx context.Context, shardNames 
 	for addr, shards := range addrShards {
 		addr, shards := addr, shards
 		eg.Go(func() error {
-			if err := f.client.cl.CreateAsyncCheckpoint(egCtx, addr, f.class, shards, cutoffMs, createdAt); err != nil {
+			if err := f.client.CreateAsyncCheckpoint(egCtx, addr, f.class, shards, cutoffMs, createdAt); err != nil {
 				failure.Add(1)
 				f.logger.WithFields(logrus.Fields{
 					"action": "async_checkpoint_broadcast",
@@ -835,7 +835,7 @@ func (f *Finder) BroadcastDeleteAsyncCheckpoint(ctx context.Context, shardNames 
 	for addr, shards := range addrShards {
 		addr, shards := addr, shards
 		eg.Go(func() error {
-			if err := f.client.cl.DeleteAsyncCheckpoint(egCtx, addr, f.class, shards); err != nil {
+			if err := f.client.DeleteAsyncCheckpoint(egCtx, addr, f.class, shards); err != nil {
 				failure.Add(1)
 				f.logger.WithFields(logrus.Fields{
 					"action": "async_checkpoint_broadcast",
@@ -874,7 +874,7 @@ func (f *Finder) BroadcastGetAsyncCheckpointStatus(ctx context.Context, shardNam
 		addr, shards := addr, shards
 		nodeName := addrToName[addr]
 		eg.Go(func() error {
-			remoteStatuses, err := f.client.cl.GetAsyncCheckpointStatus(egCtx, addr, f.class, shards)
+			remoteStatuses, err := f.client.GetAsyncCheckpointStatus(egCtx, addr, f.class, shards)
 			if err != nil {
 				failure.Add(1)
 				f.logger.WithFields(logrus.Fields{

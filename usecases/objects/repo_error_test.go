@@ -79,12 +79,12 @@ func TestRepoErrStaysClassifiable(t *testing.T) {
 
 	cases := []struct {
 		name    string
-		arrange func(repo *fakeVectorRepo, mods *fakeModulesProvider, repoErr error)
+		arrange func(repo *fakeObjectFinder, mods *fakeModulesProvider, repoErr error)
 		call    func(m *Manager, b *BatchManager) error
 	}{
 		{
 			name: "get object of a class",
-			arrange: func(repo *fakeVectorRepo, _ *fakeModulesProvider, repoErr error) {
+			arrange: func(repo *fakeObjectFinder, _ *fakeModulesProvider, repoErr error) {
 				repo.On("Object", class, id, mock.Anything, mock.Anything, "").
 					Return(nil, repoErr).Once()
 			},
@@ -96,7 +96,7 @@ func TestRepoErrStaysClassifiable(t *testing.T) {
 		},
 		{
 			name: "get object without a class",
-			arrange: func(repo *fakeVectorRepo, _ *fakeModulesProvider, repoErr error) {
+			arrange: func(repo *fakeObjectFinder, _ *fakeModulesProvider, repoErr error) {
 				repo.On("ObjectByID", id, mock.Anything, mock.Anything).
 					Return(nil, repoErr).Once()
 			},
@@ -108,7 +108,7 @@ func TestRepoErrStaysClassifiable(t *testing.T) {
 		},
 		{
 			name: "list objects",
-			arrange: func(repo *fakeVectorRepo, _ *fakeModulesProvider, repoErr error) {
+			arrange: func(repo *fakeObjectFinder, _ *fakeModulesProvider, repoErr error) {
 				repo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything,
 					mock.Anything, mock.Anything).Return([]search.Result{}, repoErr).Once()
 			},
@@ -120,7 +120,7 @@ func TestRepoErrStaysClassifiable(t *testing.T) {
 		},
 		{
 			name: "head object",
-			arrange: func(repo *fakeVectorRepo, _ *fakeModulesProvider, repoErr error) {
+			arrange: func(repo *fakeObjectFinder, _ *fakeModulesProvider, repoErr error) {
 				repo.On("Exists", class, id).Return(false, repoErr).Once()
 			},
 			call: func(m *Manager, _ *BatchManager) error {
@@ -130,7 +130,7 @@ func TestRepoErrStaysClassifiable(t *testing.T) {
 		},
 		{
 			name: "add object fails its existence check",
-			arrange: func(repo *fakeVectorRepo, _ *fakeModulesProvider, repoErr error) {
+			arrange: func(repo *fakeObjectFinder, _ *fakeModulesProvider, repoErr error) {
 				repo.On("Exists", class, id).Return(false, repoErr).Once()
 			},
 			call: func(m *Manager, _ *BatchManager) error {
@@ -141,7 +141,7 @@ func TestRepoErrStaysClassifiable(t *testing.T) {
 		},
 		{
 			name: "update object",
-			arrange: func(repo *fakeVectorRepo, _ *fakeModulesProvider, repoErr error) {
+			arrange: func(repo *fakeObjectFinder, _ *fakeModulesProvider, repoErr error) {
 				repo.On("Object", class, id, mock.Anything, mock.Anything, "").
 					Return(nil, repoErr).Once()
 			},
@@ -153,7 +153,7 @@ func TestRepoErrStaysClassifiable(t *testing.T) {
 		},
 		{
 			name: "merge object",
-			arrange: func(repo *fakeVectorRepo, _ *fakeModulesProvider, repoErr error) {
+			arrange: func(repo *fakeObjectFinder, _ *fakeModulesProvider, repoErr error) {
 				repo.On("Object", class, id, mock.Anything, mock.Anything, "").
 					Return(nil, repoErr).Once()
 			},
@@ -167,7 +167,7 @@ func TestRepoErrStaysClassifiable(t *testing.T) {
 		},
 		{
 			name: "delete object of a class",
-			arrange: func(repo *fakeVectorRepo, _ *fakeModulesProvider, repoErr error) {
+			arrange: func(repo *fakeObjectFinder, _ *fakeModulesProvider, repoErr error) {
 				repo.On("DeleteObject", class, id, mock.Anything).Return(repoErr).Once()
 			},
 			call: func(m *Manager, _ *BatchManager) error {
@@ -176,7 +176,7 @@ func TestRepoErrStaysClassifiable(t *testing.T) {
 		},
 		{
 			name: "delete object without a class",
-			arrange: func(repo *fakeVectorRepo, _ *fakeModulesProvider, repoErr error) {
+			arrange: func(repo *fakeObjectFinder, _ *fakeModulesProvider, repoErr error) {
 				repo.On("ObjectByID", id, mock.Anything, mock.Anything).
 					Return(&search.Result{ID: id, ClassName: class}, nil).Once()
 				repo.On("DeleteObject", class, id, mock.Anything).Return(repoErr).Once()
@@ -187,7 +187,7 @@ func TestRepoErrStaysClassifiable(t *testing.T) {
 		},
 		{
 			name: "batch add objects",
-			arrange: func(repo *fakeVectorRepo, mods *fakeModulesProvider, repoErr error) {
+			arrange: func(repo *fakeObjectFinder, mods *fakeModulesProvider, repoErr error) {
 				mods.On("BatchUpdateVector").Return(nil, nil)
 				repo.On("BatchPutObjects", mock.Anything).Return(repoErr).Once()
 			},
@@ -199,7 +199,7 @@ func TestRepoErrStaysClassifiable(t *testing.T) {
 		},
 		{
 			name: "batch add references",
-			arrange: func(repo *fakeVectorRepo, _ *fakeModulesProvider, repoErr error) {
+			arrange: func(repo *fakeObjectFinder, _ *fakeModulesProvider, repoErr error) {
 				repo.On("AddBatchReferences", mock.Anything).Return(repoErr).Once()
 			},
 			call: func(_ *Manager, b *BatchManager) error {
@@ -240,12 +240,12 @@ func TestRepoUserInputErrStaysClassifiable(t *testing.T) {
 
 	cases := []struct {
 		name    string
-		arrange func(repo *fakeVectorRepo, mods *fakeModulesProvider)
+		arrange func(repo *fakeObjectFinder, mods *fakeModulesProvider)
 		call    func(m *Manager) error
 	}{
 		{
 			name: "get object reads the repo",
-			arrange: func(repo *fakeVectorRepo, _ *fakeModulesProvider) {
+			arrange: func(repo *fakeObjectFinder, _ *fakeModulesProvider) {
 				repo.On("Object", class, id, mock.Anything, mock.Anything, "").
 					Return(nil, repoErr).Once()
 			},
@@ -257,7 +257,7 @@ func TestRepoUserInputErrStaysClassifiable(t *testing.T) {
 		},
 		{
 			name: "update object reads the repo",
-			arrange: func(repo *fakeVectorRepo, _ *fakeModulesProvider) {
+			arrange: func(repo *fakeObjectFinder, _ *fakeModulesProvider) {
 				repo.On("Object", class, id, mock.Anything, mock.Anything, "").
 					Return(nil, repoErr).Once()
 			},
@@ -269,7 +269,7 @@ func TestRepoUserInputErrStaysClassifiable(t *testing.T) {
 		},
 		{
 			name: "update object vectorizes",
-			arrange: func(repo *fakeVectorRepo, mods *fakeModulesProvider) {
+			arrange: func(repo *fakeObjectFinder, mods *fakeModulesProvider) {
 				repo.On("Object", class, id, mock.Anything, mock.Anything, "").
 					Return(found, nil).Once()
 				mods.On("UpdateVector", mock.Anything, mock.AnythingOfType(FindObjectFn)).
@@ -283,7 +283,7 @@ func TestRepoUserInputErrStaysClassifiable(t *testing.T) {
 		},
 		{
 			name: "list objects extends",
-			arrange: func(repo *fakeVectorRepo, mods *fakeModulesProvider) {
+			arrange: func(repo *fakeObjectFinder, mods *fakeModulesProvider) {
 				repo.On("ObjectSearch", mock.Anything, mock.Anything, mock.Anything,
 					mock.Anything, mock.Anything).Return([]search.Result{*found}, nil).Once()
 				mods.ExtendErr = repoErr

@@ -19,15 +19,18 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type fakeClassConfig struct {
@@ -111,6 +114,57 @@ func TestClient_Vectorize_ErrorBody(t *testing.T) {
 	assert.Contains(t, err.Error(), "status: 400")
 	assert.Contains(t, err.Error(), "req-123")
 	assert.Contains(t, err.Error(), "model not found")
+}
+
+func TestClient_Vectorize_ErrorMetricLabels(t *testing.T) {
+	var reqNum atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("x-request-id", fmt.Sprintf("req-%d", reqNum.Add(1)))
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = io.WriteString(w, `{"error": {"message": "model not found", "type": "not_found"}}`)
+	}))
+	t.Cleanup(server.Close)
+
+	c := New("test-key", 5*time.Second, logrus.New())
+	cfg := fakeClassConfig{cfg: map[string]any{
+		"model":   "bogus",
+		"baseURL": server.URL,
+	}}
+
+	vec := monitoring.GetMetrics().ModuleExternalError
+	series := vec.WithLabelValues("text2vec", moduleLabel, "DigitalOcean Serverless Inference API", "400")
+	before := testutil.ToFloat64(series)
+	seriesCount := testutil.CollectAndCount(vec)
+
+	for range 2 {
+		_, _, _, err := c.Vectorize(context.Background(), []string{"hello"}, cfg)
+		require.Error(t, err)
+	}
+
+	assert.Equal(t, before+2, testutil.ToFloat64(series))
+	assert.Equal(t, seriesCount, testutil.CollectAndCount(vec))
+}
+
+func TestClient_Vectorize_TransportErrorMetric(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	server.Close()
+
+	c := New("test-key", 5*time.Second, logrus.New())
+	cfg := fakeClassConfig{cfg: map[string]any{
+		"model":   "bogus",
+		"baseURL": server.URL,
+	}}
+
+	vec := monitoring.GetMetrics().ModuleCallError
+	series := vec.WithLabelValues(moduleLabel, server.URL+"/v1/embeddings", "transport_error")
+	before := testutil.ToFloat64(series)
+	seriesCount := testutil.CollectAndCount(vec)
+
+	_, _, _, err := c.Vectorize(context.Background(), []string{"hello"}, cfg)
+	require.Error(t, err)
+
+	assert.Equal(t, before+1, testutil.ToFloat64(series))
+	assert.Equal(t, seriesCount, testutil.CollectAndCount(vec))
 }
 
 func TestClient_Vectorize_MissingApiKey(t *testing.T) {

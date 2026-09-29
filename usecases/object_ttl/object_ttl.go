@@ -27,10 +27,12 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
@@ -42,9 +44,9 @@ type objectTTLAndVersion struct {
 	ttlConfig *models.ObjectTTLConfig
 }
 
-func NewCoordinator(schemaReader schemaUC.SchemaReader, schemaGetter schemaUC.SchemaGetter,
+func NewCoordinator(schemaReader local.ClassReader, schemaGetter schemaUC.SchemaGetter,
 	namespacesExister namespaces.Exister, db *db.DB, logger logrus.FieldLogger,
-	clusterClient *http.Client, nodeResolver nodeResolver, localStatus *LocalStatus,
+	clusterClient *http.Client, nodeResolver cluster.HostnameResolver, localStatus *LocalStatus,
 ) *Coordinator {
 	return &Coordinator{
 		schemaReader:      schemaReader,
@@ -61,7 +63,7 @@ func NewCoordinator(schemaReader schemaUC.SchemaReader, schemaGetter schemaUC.Sc
 }
 
 type Coordinator struct {
-	schemaReader      schemaUC.SchemaReader
+	schemaReader      local.ClassReader
 	schemaGetter      schemaUC.SchemaGetter
 	namespacesExister namespaces.Exister
 	db                *db.DB
@@ -69,7 +71,7 @@ type Coordinator struct {
 	logger            logrus.FieldLogger
 	objectTTLLastNode string
 	clusterClient     *http.Client
-	nodeResolver      nodeResolver
+	nodeResolver      cluster.HostnameResolver
 	remoteObjectTTL   *remoteObjectTTL
 	localStatus       *LocalStatus
 }
@@ -354,14 +356,10 @@ func (c *Coordinator) extractTtlDataFromCollection(ttlConfig *models.ObjectTTLCo
 
 type remoteObjectTTL struct {
 	client       *http.Client
-	nodeResolver nodeResolver
+	nodeResolver cluster.HostnameResolver
 }
 
-type nodeResolver interface {
-	NodeHostname(nodeName string) (string, bool)
-}
-
-func newRemoteObjectTTL(httpClient *http.Client, nodeResolver nodeResolver) *remoteObjectTTL {
+func newRemoteObjectTTL(httpClient *http.Client, nodeResolver cluster.HostnameResolver) *remoteObjectTTL {
 	return &remoteObjectTTL{client: httpClient, nodeResolver: nodeResolver}
 }
 

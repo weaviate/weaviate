@@ -13,6 +13,7 @@ package explore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/tailor-platform/graphql"
@@ -24,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
@@ -128,7 +130,13 @@ func (r *resolver) resolveExplore(p graphql.ResolveParams) (interface{}, error) 
 		params.WithCertaintyProp = true
 	}
 
-	return resources.resolver.Explore(p.Context, principal, params)
+	res, err := resources.resolver.Explore(p.Context, principal, params)
+	if err != nil && errors.Is(err, queryadmission.ErrOverloaded) {
+		// Explore runs a cross-class vector search, which is admitted per
+		// shard; mirror Get's 429 mapping.
+		return nil, enterrors.NewErrRateLimit()
+	}
+	return res, err
 }
 
 func containsCertaintyProperty(info graphql.ResolveInfo) bool {

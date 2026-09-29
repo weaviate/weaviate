@@ -47,20 +47,20 @@ func (d diskUse) String() string {
 		float64(d.avail)/float64(GB))
 }
 
+// resourceScanInterval is how often scanResourceUsage checks disk and memory use.
+const resourceScanInterval = 500 * time.Millisecond
+
 func (d *DB) scanResourceUsage() {
 	f := func() {
-		t := time.NewTicker(time.Millisecond * 500)
-		i := 0
+		t := time.NewTicker(resourceScanInterval)
 		defer t.Stop()
 		for {
 			select {
 			case <-d.shutdown:
 				return
-			case <-t.C:
-				updateMappings := i%(memwatch.MappingDelayInS*2) == 0
+			case now := <-t.C:
 				du := d.getDiskUse(d.config.RootPath)
-				d.scanResourceUsageOnce(d.memMonitor, du, updateMappings)
-				i += 1
+				d.scanResourceUsageOnce(d.memMonitor, du, now)
 			}
 		}
 	}
@@ -70,8 +70,11 @@ func (d *DB) scanResourceUsage() {
 // scanResourceUsageOnce runs a single scan pass. The monitor is refreshed here
 // because both branches read from it: without it, shards held read-only by
 // memory pressure would never see the usage drop back below the threshold.
-func (db *DB) scanResourceUsageOnce(mon *memwatch.Monitor, du diskUse, updateMappings bool) {
-	mon.Refresh(updateMappings)
+func (db *DB) scanResourceUsageOnce(mon *memwatch.Monitor, du diskUse, now time.Time) {
+	mon.Refresh(false)
+	if mon.MappingsReadDue(now) {
+		db.warnMappingsReadFailed(mon.ReadMappings(now))
+	}
 	if db.resourceScanState.isReadOnly.Load() {
 		db.resourceUseRecovery(mon, du)
 	} else {
@@ -81,8 +84,9 @@ func (db *DB) scanResourceUsageOnce(mon *memwatch.Monitor, du diskUse, updateMap
 }
 
 type resourceScanState struct {
-	diskWarning *interval.BackoffTimer
-	memWarning  *interval.BackoffTimer
+	diskWarning     *interval.BackoffTimer
+	memWarning      *interval.BackoffTimer
+	mappingsWarning *interval.BackoffTimer
 
 	// transition is held for write only while isReadOnly is flipped, never
 	// across a sweep - a sweep takes the indices' and the shards' own locks. A
@@ -115,9 +119,26 @@ func (db *DB) setReadOnlyFlag(readOnly bool) {
 
 func newResourceScanState() *resourceScanState {
 	return &resourceScanState{
-		diskWarning: interval.NewBackoffTimer(),
-		memWarning:  interval.NewBackoffTimer(),
+		diskWarning:     interval.NewBackoffTimer(),
+		memWarning:      interval.NewBackoffTimer(),
+		mappingsWarning: interval.NewBackoffTimer(),
 	}
+}
+
+// warnMappingsReadFailed logs err from Monitor.ReadMappings, with a backoff. A
+// successful read resets the backoff, so the next failure warns at once.
+func (db *DB) warnMappingsReadFailed(err error) {
+	warning := db.resourceScanState.mappingsWarning
+	if err == nil {
+		warning.Reset()
+		return
+	}
+	if !warning.IntervalElapsed() {
+		return
+	}
+	db.logger.WithField("action", "read_memory_mappings").
+		Warnf("cannot count memory mappings, shard loads are checked against the last count: %v", err)
+	warning.IncreaseInterval()
 }
 
 // logs a warning if user-set threshold is surpassed

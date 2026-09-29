@@ -204,7 +204,7 @@ func (v *Client) vectorize(ctx context.Context, input []string, model string, se
 		vrst.WithLabelValues("text2vec", endpoint, fmt.Sprintf("%v", res.StatusCode)).Inc()
 	}
 	if err != nil {
-		metrics.ModuleCallError.WithLabelValues("openai", endpoint, fmt.Sprintf("%v", err)).Inc()
+		metrics.ModuleCallError.WithLabelValues("openai", endpoint, "transport_error").Inc()
 		return nil, nil, 0, errors.Wrap(err, "send POST request")
 	}
 	defer res.Body.Close()
@@ -287,7 +287,7 @@ func (v *Client) getError(statusCode int, requestID string, resBodyError *openAI
 	if resBodyError != nil {
 		errorMsg = fmt.Sprintf("%s error: %v", errorMsg, resBodyError.Message)
 	}
-	monitoring.GetMetrics().ModuleExternalError.WithLabelValues("text2vec", endpoint, errorMsg, fmt.Sprintf("%v", statusCode)).Inc()
+	monitoring.GetMetrics().ModuleExternalError.WithLabelValues("text2vec", "openai", endpoint, fmt.Sprintf("%v", statusCode)).Inc()
 	return errors.New(errorMsg)
 }
 

@@ -14,6 +14,7 @@ package aggregate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -29,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 )
 
 // GroupedByFieldName is a special graphQL field that appears alongside the
@@ -181,6 +183,11 @@ func resolveAggregate(p graphql.ResolveParams, authorizer authorization.Authoriz
 
 	res, err := resolver.Aggregate(p.Context, principal, params)
 	if err != nil {
+		if errors.Is(err, queryadmission.ErrOverloaded) {
+			// Not admitted itself, but a cross-reference in the where filter
+			// runs a nested object search that is; mirror Get's 429 mapping.
+			return nil, enterrors.NewErrRateLimit()
+		}
 		return nil, err
 	}
 

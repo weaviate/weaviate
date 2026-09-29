@@ -30,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/swagger_middleware"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 )
@@ -66,28 +65,6 @@ func addHandleRoot(next http.Handler) http.Handler {
 	})
 }
 
-func makeAddModuleHandlers(modules *modules.Provider) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		mux := http.NewServeMux()
-
-		for _, mod := range modules.GetAllWithHTTPHandlers() {
-			prefix := fmt.Sprintf("/v1/modules/%s", mod.Name())
-			mux.Handle(fmt.Sprintf("%s/", prefix),
-				http.StripPrefix(prefix, mod.RootHandler()))
-		}
-
-		prefix := "/v1/modules"
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if url := r.URL.String(); len(url) > len(prefix) && url[:len(prefix)] == prefix {
-				mux.ServeHTTP(w, r)
-				return
-			}
-
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
 // The middleware configuration happens before anything, this middleware also applies to serving the swagger.json document.
 // So this is a good place to plug in a panic handling middleware, logging and metrics
 // Contains "x-api-key", "x-api-token" for legacy reasons, older interfaces might need these headers.
@@ -108,7 +85,6 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		handler = addPreflight(handler, appState.ServerConfig.Config.CORS)
 		handler = addLiveAndReadyness(appState, handler)
 		handler = addHandleRoot(handler)
-		handler = makeAddModuleHandlers(appState.Modules)(handler)
 		// Add client tracking middleware early in the chain to capture all requests
 		if telemeter != nil {
 			handler = telemetry.ClientTrackingMiddleware(telemeter.GetClientTracker(), telemeter.GetIntegrationTracker())(handler)
@@ -118,6 +94,7 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		handler = addSourceIpToContext(handler)
 		handler = addClientIdentifierToContext(handler)
 		handler = addOperationalMode(appState, handler)
+		handler = addSearchBodyLimit(handler)
 		// Add OpenTelemetry tracing middleware (only has an effect if tracing is enabled)
 		handler = monitoring.AddTracingToHTTPMiddleware(handler, appState.Logger)
 		if appState.ServerConfig.Config.Monitoring.Enabled {
@@ -261,20 +238,41 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 	})
 }
 
+// addSearchBodyLimit caps search and aggregate request bodies: an announced
+// oversize body is refused here, a streamed one is cut off by MaxBytesReader
+// and surfaces as a bind error that ServeError maps to 413.
+func addSearchBodyLimit(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if restsearch.IsSearchRoute(r.URL.Path) || restsearch.IsAggregateRoute(r.URL.Path) {
+			if r.ContentLength > restsearch.MaxBodyBytes {
+				resp := models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{
+					Message: fmt.Sprintf("request body exceeds the %d byte limit", restsearch.MaxBodyBytes),
+				}}}
+				data, _ := json.Marshal(resp)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusRequestEntityTooLarge)
+				w.Write(data)
+				return
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, restsearch.MaxBodyBytes)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
 func addOperationalMode(state *state.State, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// search and aggregate requests are POSTs (an HTTP write method) but
 		// are semantically reads
 		isSearch := restsearch.IsSearchRoute(r.URL.Path) || restsearch.IsAggregateRoute(r.URL.Path)
-		searchReadAllowed := isSearch && state.ServerConfig.Config.ExperimentalRESTSearchEnabled.Get()
 		switch state.ServerConfig.Config.OperationalMode.Get() {
 		case config.READ_ONLY:
-			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ReadOnlyWhitelist) && !searchReadAllowed {
+			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ReadOnlyWhitelist) && !isSearch {
 				writeOperationalModeErrorResponse(w, config.ErrReadOnlyModeEnabled)
 				return
 			}
 		case config.SCALE_OUT:
-			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ScaleOutWhitelist) && !searchReadAllowed {
+			if config.IsHTTPWrite(r.Method) && !whitelist(r.URL.Path, config.ScaleOutWhitelist) && !isSearch {
 				writeOperationalModeErrorResponse(w, config.ErrScaleOutModeEnabled)
 				return
 			}

@@ -152,3 +152,75 @@ func (n *Namespace) Delete(key []byte) error {
 	}
 	return nil
 }
+
+// ForEach calls fn for every key of the namespace in key order, inside one
+// read transaction, with copies the callback may keep. A namespace never
+// written iterates nothing. fn's error stops the walk and is returned.
+func (n *Namespace) ForEach(fn func(key, value []byte) error) error {
+	err := n.db.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(n.name)
+		if b == nil {
+			return nil
+		}
+		return b.ForEach(func(k, v []byte) error {
+			key := make([]byte, len(k))
+			copy(key, k)
+			value := make([]byte, len(v))
+			copy(value, v)
+			return fn(key, value)
+		})
+	})
+	if err != nil {
+		return fmt.Errorf("iterate shard metadata namespace %q: %w", n.name, err)
+	}
+	return nil
+}
+
+// Update runs fn inside one write transaction on the namespace, creating the
+// namespace on first use. Every Put and Delete fn makes lands together, or
+// none does when fn returns an error; that error is returned.
+func (n *Namespace) Update(fn func(b *Batch) error) error {
+	err := n.db.Update(func(tx *bbolt.Tx) error {
+		bucket, err := tx.CreateBucketIfNotExists(n.name)
+		if err != nil {
+			return err
+		}
+		return fn(&Batch{bucket: bucket})
+	})
+	if err != nil {
+		return fmt.Errorf("update shard metadata namespace %q: %w", n.name, err)
+	}
+	return nil
+}
+
+// Batch is the namespace inside one Update transaction. It is only valid
+// until the callback that received it returns.
+type Batch struct {
+	bucket *bbolt.Bucket
+}
+
+// Get returns a copy of key's value as this transaction sees it, including
+// the batch's own earlier writes, or nil when the key is absent. The error
+// is for symmetry with the other accessors; bolt's read cannot fail.
+func (b *Batch) Get(key []byte) ([]byte, error) {
+	v := b.bucket.Get(key)
+	if v == nil {
+		return nil, nil
+	}
+	out := make([]byte, len(v))
+	copy(out, v)
+	return out, nil
+}
+
+// Put stores value under key. The value is copied: bolt keeps what it is
+// handed until the transaction commits, and the callback runs on after Put
+// returns, so a caller may reuse its buffer.
+func (b *Batch) Put(key, value []byte) error {
+	stored := make([]byte, len(value))
+	copy(stored, value)
+	return b.bucket.Put(key, stored)
+}
+
+func (b *Batch) Delete(key []byte) error {
+	return b.bucket.Delete(key)
+}

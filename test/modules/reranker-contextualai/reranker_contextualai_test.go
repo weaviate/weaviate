@@ -24,7 +24,7 @@ import (
 func testRerankerContextualAI(host string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
-		booksClass := books.ClassContextionaryVectorizer()
+		booksClass := books.ClassModel2VecVectorizer()
 		booksClass.ModuleConfig.(map[string]any)["reranker-contextualai"] = map[string]any{}
 		helper.CreateClass(t, booksClass)
 		defer helper.DeleteClass(t, booksClass.Class)

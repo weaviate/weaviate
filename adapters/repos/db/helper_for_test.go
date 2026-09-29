@@ -19,6 +19,8 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strconv"
+	"syscall"
 	"testing"
 	"time"
 
@@ -29,12 +31,12 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -47,7 +49,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -263,12 +264,12 @@ func stubDBWithNoLiveReindex() *DB {
 
 func testShard(t testing.TB, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
 	return testShardWithSettings(t, ctx, &models.Class{Class: className}, enthnsw.UserConfig{Skip: true},
-		false, false, false, indexOpts...)
+		false, false, indexOpts...)
 }
 
 func testShardMultiTenant(t testing.TB, ctx context.Context, className string, indexOpts ...func(*Index)) (ShardLike, *Index) {
 	return testShardWithMultiTenantSettings(t, ctx, &models.Class{Class: className}, enthnsw.UserConfig{Skip: true},
-		false, false, false, indexOpts...)
+		false, false, indexOpts...)
 }
 
 func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMetrics, classes ...*models.Class) *DB {
@@ -279,7 +280,7 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 	metricsCopy.Registerer = monitoring.NoopRegisterer
 
 	shardState := singleShardState()
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Shards(mock.Anything).Return(shardState.AllPhysicalShards(), nil).Maybe()
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		for _, class := range classes {
@@ -355,13 +356,8 @@ func getSingleShardNameFromRepo(repo *DB, className string) string {
 }
 
 func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models.Class,
-	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, multiTenant, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
+	vic schemaConfig.VectorIndexConfig, withStopwords, multiTenant, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
-	// With async indexing on, NewShard reads the checkpoint store from a
-	// goroutine, so a missing one surfaces on an unrelated test.
-	require.False(t, withAsyncIndexingEnabled && !withCheckpoints,
-		"async indexing needs withCheckpoints")
-
 	tmpDir := t.TempDir()
 	logger, _ := test.NewNullLogger()
 	maxResults := int64(10_000)
@@ -378,7 +374,7 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 		shardState = singleShardState()
 	}
 
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		class := &models.Class{Class: className}
 		return readFunc(class, shardState)
@@ -430,11 +426,6 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 	var sd *stopwords.Detector
 	if withStopwords {
 		sd, err = stopwords.NewDetectorFromConfig(iic.Stopwords)
-		require.NoError(t, err)
-	}
-	var checkpts *indexcheckpoint.Checkpoints
-	if withCheckpoints {
-		checkpts, err = indexcheckpoint.New(tmpDir, logger)
 		require.NoError(t, err)
 	}
 
@@ -508,7 +499,6 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 		schemaReader:           mockSchemaReader,
 		centralJobQueue:        repo.jobQueueCh,
 		stopwords:              sd,
-		indexCheckpoints:       checkpts,
 		allocChecker:           memwatch.NewDummyMonitor(),
 		shardCreateLocks:       esync.NewKeyRWLocker(),
 		backupLock:             esync.NewKeyRWLocker(),
@@ -548,15 +538,45 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 
 // Simplified functions that delegate to the common helper
 func testShardWithMultiTenantSettings(t testing.TB, ctx context.Context, class *models.Class,
-	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
+	vic schemaConfig.VectorIndexConfig, withStopwords, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
-	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, true, withAsyncIndexingEnabled, indexOpts...)
+	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, true, withAsyncIndexingEnabled, indexOpts...)
 }
 
 func testShardWithSettings(t testing.TB, ctx context.Context, class *models.Class,
-	vic schemaConfig.VectorIndexConfig, withStopwords, withCheckpoints, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
+	vic schemaConfig.VectorIndexConfig, withStopwords, withAsyncIndexingEnabled bool, indexOpts ...func(*Index),
 ) (ShardLike, *Index) {
-	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, withCheckpoints, false, withAsyncIndexingEnabled, indexOpts...)
+	return setupTestShardWithSettings(t, ctx, class, vic, withStopwords, false, withAsyncIndexingEnabled, indexOpts...)
+}
+
+// openDescriptorCount returns how many of this process's file descriptors
+// refer to the file at filePath, matched by device and inode.
+func openDescriptorCount(t *testing.T, filePath string) int {
+	t.Helper()
+
+	info, err := os.Stat(filePath)
+	require.NoError(t, err)
+	want := info.Sys().(*syscall.Stat_t)
+
+	entries, err := os.ReadDir("/dev/fd")
+	require.NoError(t, err)
+
+	count := 0
+	for _, entry := range entries {
+		fd, err := strconv.Atoi(entry.Name())
+		if err != nil {
+			continue
+		}
+		var got syscall.Stat_t
+		// ReadDir closed the descriptor it listed /dev/fd through, so Fstat fails on it
+		if err := syscall.Fstat(fd, &got); err != nil {
+			continue
+		}
+		if got.Dev == want.Dev && got.Ino == want.Ino {
+			count++
+		}
+	}
+	return count
 }
 
 func testObject(className string) *storobj.Object {
@@ -630,7 +650,7 @@ func invertedConfig() *models.InvertedIndexConfig {
 // newTestIndex builds an index holding the given shards, ready to be scanned or
 // shut down. The live closingCtx keeps ForEachShard from short-circuiting.
 func newTestIndex(t *testing.T, logger logrus.FieldLogger, className string,
-	reader schemaUC.SchemaReader, shards map[string]ShardLike,
+	reader local.SchemaReader, shards map[string]ShardLike,
 ) *Index {
 	t.Helper()
 

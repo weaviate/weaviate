@@ -146,19 +146,20 @@ func TestPhysicalNamesForID(t *testing.T) {
 		raw        string
 		compressed string
 		flatMeta   string
+		hnswDir    string
 	}{
 		// legacy unnamed vector: ID "main", but raw bucket "vectors" —
 		// the historical asymmetry that must never change
-		{"main", "", "vectors", "vectors_compressed", "meta.db"},
-		{"vectors_title", "title", "vectors_title", "vectors_compressed_title", "meta_title.db"},
-		{"vectors_de_DE", "de_DE", "vectors_de_DE", "vectors_compressed_de_DE", "meta_de_DE.db"},
+		{"main", "", "vectors", "vectors_compressed", "meta.db", "main.hnsw.commitlog.d"},
+		{"vectors_title", "title", "vectors_title", "vectors_compressed_title", "meta_title.db", "vectors_title.hnsw.commitlog.d"},
+		{"vectors_de_DE", "de_DE", "vectors_de_DE", "vectors_compressed_de_DE", "meta_de_DE.db", "vectors_de_DE.hnsw.commitlog.d"},
 		// hfresh centroid hnsw for a named vector: suffix keeps the
 		// "_centroids" tail, exactly what the old strip-based derivation gave
-		{"vectors_title_centroids", "title_centroids", "vectors_title_centroids", "vectors_compressed_title_centroids", "meta_title_centroids.db"},
+		{"vectors_title_centroids", "title_centroids", "vectors_title_centroids", "vectors_compressed_title_centroids", "meta_title_centroids.db", "vectors_title_centroids.hnsw.commitlog.d"},
 		// IDs outside the vectors_/main scheme (geo."prop",
 		// "main_centroids"): suffix "" — mirrors the old CutPrefix fallback
-		{"geo.location", "", "vectors", "vectors_compressed", "meta.db"},
-		{"main_centroids", "", "vectors", "vectors_compressed", "meta.db"},
+		{"geo.location", "", "vectors", "vectors_compressed", "meta.db", "geo.location.hnsw.commitlog.d"},
+		{"main_centroids", "", "vectors", "vectors_compressed", "meta.db", "main_centroids.hnsw.commitlog.d"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.id, func(t *testing.T) {
@@ -166,8 +167,13 @@ func TestPhysicalNamesForID(t *testing.T) {
 			assert.Equal(t, tc.raw, VectorsBucketNameForID(tc.id))
 			assert.Equal(t, tc.compressed, CompressedBucketNameForID(tc.id))
 			assert.Equal(t, tc.flatMeta, FlatMetadataFileNameForID(tc.id))
+			assert.Equal(t, tc.hnswDir, HNSWCommitLogDirNameForID(tc.id))
 		})
 	}
+
+	// the ID-based name agrees with the logical-name helper
+	assert.Equal(t, GetHNSWCommitLogDirName(""), HNSWCommitLogDirNameForID("main"))
+	assert.Equal(t, GetHNSWCommitLogDirName("title"), HNSWCommitLogDirNameForID("vectors_title"))
 }
 
 // TestCentroidsID pins the hfresh centroid graph's ID for both shipped
@@ -199,4 +205,50 @@ func TestPhysicalNamesForIDMatchTargetVectorHelpers(t *testing.T) {
 	}
 	assert.Equal(t, "main", VectorIndexIDForTarget(""))
 	assert.Equal(t, "vectors_title", VectorIndexIDForTarget("title"))
+}
+
+// TestVectorIndexArtifactNamesForID pins the physical names an index owns,
+// derived from its ID: what the mapping's collision check compares.
+func TestVectorIndexArtifactNamesForID(t *testing.T) {
+	tests := []struct {
+		id      string
+		buckets []string
+		dirs    []string
+	}{
+		{
+			id: "main",
+			buckets: []string{
+				"vectors", "vectors_compressed", "main_muvera_vectors", "main_mv_mappings",
+				"hfresh_postings_main", "hfresh_shared_main", "vectors_compressed",
+			},
+			dirs: []string{"main.hnsw.commitlog.d", "main.hnsw.snapshot.d", "main.hfresh.d", "main.queue.d", "meta.db"},
+		},
+		{
+			id: "vectors_title",
+			buckets: []string{
+				"vectors_title", "vectors_compressed_title", "vectors_title_muvera_vectors", "vectors_title_mv_mappings",
+				"hfresh_postings_vectors_title", "hfresh_shared_vectors_title", "vectors_compressed_title_centroids",
+			},
+			dirs: []string{"vectors_title.hnsw.commitlog.d", "vectors_title.hnsw.snapshot.d", "vectors_title.hfresh.d", "vectors_title.queue.d", "meta_title.db"},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.id, func(t *testing.T) {
+			got := VectorIndexArtifactNamesForID(tc.id)
+			assert.Equal(t, tc.buckets, got.LSMBuckets)
+			assert.Equal(t, tc.dirs, got.ShardDirs)
+		})
+	}
+
+	// a named vector's list agrees with the name-based catalogue
+	assert.Equal(t, vectorIndexArtifactNames("title"), VectorIndexArtifactNamesForID("vectors_title"))
+}
+
+// An index whose raw bucket is another index's muvera bucket keeps it.
+func TestVectorIndexArtifactsForID(t *testing.T) {
+	got := VectorIndexArtifactsForID("vectors_title", []string{"vectors_title_muvera_vectors", "vectors_title"})
+	assert.NotContains(t, got.LSMBuckets, "vectors_title_muvera_vectors", "owned by the sibling")
+	assert.Contains(t, got.LSMBuckets, "vectors_title", "its own raw bucket, the sibling list naming itself changes nothing")
+	assert.Equal(t, VectorIndexArtifactNamesForID("vectors_title").ShardDirs, got.ShardDirs)
+	assert.Equal(t, VectorIndexArtifactNamesForID("vectors_title"), VectorIndexArtifactsForID("vectors_title", nil))
 }

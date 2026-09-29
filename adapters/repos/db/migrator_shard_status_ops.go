@@ -265,7 +265,20 @@ func (m *Migrator) unfreeze(ctx context.Context, idx *Index, class string, unfre
 			idx.shardCreateLocks.Lock(name)
 			defer idx.shardCreateLocks.Unlock(name)
 
-			if err := m.cloud.Download(ctx, class, name, nodeID); err != nil {
+			// An artifact's .ht would be trusted verbatim on load, so none may survive the download on either leg.
+			discardHashtree := func() {
+				if err := os.RemoveAll(idx.shardPathHashTree(name)); err != nil {
+					m.logger.WithFields(logrus.Fields{
+						"action": "download_tenant_from_cloud",
+						"name":   class,
+						"tenant": name,
+					}).Warnf("discard downloaded hashtree snapshot: %v", err)
+				}
+			}
+
+			err := m.cloud.Download(ctx, class, name, nodeID)
+			discardHashtree()
+			if err != nil {
 				m.logger.WithFields(logrus.Fields{
 					"action": "download_tenant_from_cloud",
 					"error":  err,

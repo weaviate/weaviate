@@ -45,12 +45,8 @@ var whereFilterOperators = []string{
 // `filters` argument of weaviate-query-hybrid. It mirrors the REST WhereFilter
 // (entities/models.WhereFilter) so an LLM client can emit valid filters.
 //
-// It is hand-authored rather than reflected from the Go type because mark3labs
-// builds tool input schemas with jsonschema.Reflector{DoNotReference: true}.
-// Under DoNotReference the reflector inlines every type and never emits $ref,
-// so the self-referential WhereFilter (Operands []*WhereFilter) would recurse
-// infinitely and overflow the stack while constructing the tool at startup.
-// Nested operands are therefore conveyed via description rather than a $ref.
+// It is hand-authored because the schema generator rejects recursive types and
+// WhereFilter refers to itself through Operands; nesting is described in text.
 func hybridFilterSchema() map[string]any {
 	enum := make([]any, len(whereFilterOperators))
 	for i, op := range whereFilterOperators {

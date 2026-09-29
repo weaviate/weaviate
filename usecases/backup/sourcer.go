@@ -36,6 +36,9 @@ type Sourcer interface { // implemented by the index
 	// release leaves that class marked in progress.
 	//
 	// BackupDescriptors acquires resources so that a call to ReleaseBackup() is mandatory to free acquired resources.
+	//
+	// shardDesignations (class -> shard -> archiving node) excludes shards designated elsewhere; nil backs up every local shard.
 	BackupDescriptors(_ context.Context, bakid string, classes []string, baseDescr []*backup.BackupDescriptor,
+		shardDesignations map[string]map[string]string,
 	) <-chan backup.ClassDescriptor
 }

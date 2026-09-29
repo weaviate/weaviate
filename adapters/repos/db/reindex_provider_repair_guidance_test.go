@@ -134,6 +134,14 @@ func TestRepairCommandsForFailedMigration_EnableAndAlgorithmUsePut(t *testing.T)
 			wantCommand: `PUT /v1/schema/Products/properties/name/index/filterable -d '{}'`,
 		},
 		{
+			name: "enable-rangeable -> PUT re-enable with empty body",
+			payload: &ReindexTaskPayload{
+				Collection: "Products", MigrationType: ReindexTypeEnableRangeable,
+				Properties: []string{"name"},
+			},
+			wantCommand: `PUT /v1/schema/Products/properties/name/index/rangeFilters -d '{}'`,
+		},
+		{
 			name: "change-algorithm -> PUT re-run with algorithm body",
 			payload: &ReindexTaskPayload{
 				Collection: "Products", MigrationType: ReindexTypeChangeAlgorithm,
@@ -528,7 +536,7 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 			className := "PostMergeProbe_" + uuid.NewString()[:8]
 			class := newTestClassWithProps(className, []string{prop})
 			hot, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-				false, false, false)
+				false, false)
 			defer hot.Shutdown(context.Background())
 
 			if tc.postMerge {
@@ -536,7 +544,7 @@ func TestHasLocalPostMergeStateLeavesUnloadedShardsAlone(t *testing.T) {
 					postMergeTrackerDir(t, prop), "merged.mig")
 			}
 			cold := NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
-				idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+				idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
 				false, idx.bitmapBufPool)
 			if !tc.absentFromShardMap {
 				idx.shards.Store(tenant, cold)

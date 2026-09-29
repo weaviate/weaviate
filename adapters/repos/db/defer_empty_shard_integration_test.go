@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -110,7 +111,7 @@ func TestDeferEmptyMultiTenantShardOnInit(t *testing.T) {
 
 			scheduler := queue.NewScheduler(queue.SchedulerOptions{Logger: logger, Workers: 1})
 
-			mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+			mockSchemaReader := local.NewMockSchemaReader(t)
 			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
 				func(_ string, _ bool, readerFunc func(*models.Class, *sharding.State) error) error {
 					return readerFunc(class, shardState)
@@ -121,7 +122,7 @@ func TestDeferEmptyMultiTenantShardOnInit(t *testing.T) {
 			mockSchema.EXPECT().GetSchemaSkipAuth().Maybe().Return(fakeSchema)
 			mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
 			mockSchema.EXPECT().NodeName().Maybe().Return(nodeName)
-			mockSchema.EXPECT().TenantsShards(ctx, className, tenant).Maybe().
+			mockSchema.EXPECT().TenantsShardsStatus(ctx, className, tenant).Maybe().
 				Return(map[string]string{tenant: models.TenantActivityStatusHOT}, nil)
 
 			mockRouter := types.NewMockRouter(t)
@@ -146,7 +147,7 @@ func TestDeferEmptyMultiTenantShardOnInit(t *testing.T) {
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				enthnsw.UserConfig{VectorCacheMaxObjects: 1000}, nil, mockRouter, shardResolver,
 				mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil,
-				class, nil, scheduler, nil, nil,
+				class, nil, scheduler, nil,
 				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
@@ -159,7 +160,8 @@ func TestDeferEmptyMultiTenantShardOnInit(t *testing.T) {
 				require.True(t, isLazy, "empty tenant should be a deferred lazy wrapper, got %T", stored)
 				require.False(t, lazy.isLoaded(), "empty tenant should be unloaded after init")
 
-				require.NoError(t, lazy.Load(ctx))
+				_, _, err := lazy.loadIfCold(ctx)
+				require.NoError(t, err)
 				require.True(t, lazy.isLoaded(), "deferred tenant should materialize on access")
 			} else {
 				// Loaded eagerly, so it is stored as the raw shard, not a wrapper.

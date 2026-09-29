@@ -40,7 +40,9 @@ type repairer struct {
 	logger              logrus.FieldLogger
 }
 
-// repairOne repairs a single object (used by Finder::GetOne)
+// repairOne repairs a single object (used by Finder::GetOne).
+// contentIdx is -1 when no reply carried the full object, which only the
+// content-fetching paths need.
 func (r *repairer) repairOne(ctx context.Context,
 	shard string,
 	id strfmt.UUID,
@@ -111,6 +113,13 @@ func (r *repairer) repairOne(ctx context.Context,
 
 	if deleted && deletionStrategy != models.ReplicationConfigDeletionStrategyTimeBasedResolution {
 		return nil, replicaerrors.ErrConflictExistOrDeleted
+	}
+
+	// Only the paths below need the caller's copy; the delete-only exits above
+	// repair from the digest votes alone, so the check belongs here and not at
+	// the top of the function.
+	if contentIdx < 0 || contentIdx >= len(votes) {
+		return nil, fmt.Errorf("no reply identified as the caller's copy among %d replies", len(votes))
 	}
 
 	// fetch most recent object
@@ -205,6 +214,10 @@ func (r *repairer) repairExist(ctx context.Context,
 		}
 		r.metrics.ObserveReadRepairDuration(time.Since(start))
 	}(time.Now())
+
+	if len(votes) == 0 {
+		return false, fmt.Errorf("no replies to repair from")
+	}
 
 	var (
 		deleted          bool

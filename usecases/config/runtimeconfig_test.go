@@ -244,6 +244,32 @@ func TestBackupMaxIndividualFilesRuntimeOverride(t *testing.T) {
 	})
 }
 
+func TestRuntimeConfigQueryAdmissionControlDisabled(t *testing.T) {
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+
+	// Default (server flag) is enabled, i.e. not disabled.
+	source := &WeaviateRuntimeConfig{
+		QueryAdmissionControlDisabled: runtime.NewDynamicValue(false),
+	}
+	require.False(t, source.QueryAdmissionControlDisabled.Get())
+
+	// A runtime override flips the kill switch on live.
+	parsed, err := ParseRuntimeConfig([]byte("query_admission_control_disabled: true"))
+	require.NoError(t, err)
+	require.NotNil(t, parsed.QueryAdmissionControlDisabled)
+	require.True(t, parsed.QueryAdmissionControlDisabled.Get())
+
+	require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+	require.True(t, source.QueryAdmissionControlDisabled.Get())
+
+	// Removing the override reverts to the default (enabled).
+	parsed, err = ParseRuntimeConfig([]byte(""))
+	require.NoError(t, err)
+	require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+	require.False(t, source.QueryAdmissionControlDisabled.Get())
+}
+
 func TestDisableDimensionMetricsRuntimeOverride(t *testing.T) {
 	// ParseRuntimeConfig ignores unknown keys, so only an explicit assertion catches a
 	// renamed or misspelled yaml tag.
@@ -1032,19 +1058,22 @@ func TestReplicaMovementCleanupRuntimeOverride(t *testing.T) {
 
 	t.Run("keys round-trip through parse and update, then revert on removal", func(t *testing.T) {
 		source := &WeaviateRuntimeConfig{
+			ReplicaMovementEnabled:                 runtime.NewDynamicValue(false),
 			ReplicaMovementCleanupEnabled:          runtime.NewDynamicValue(false),
 			ReplicaMovementCleanupMaxAge:           runtime.NewDynamicValue(168 * time.Hour),
 			ReplicaMovementCleanupInterval:         runtime.NewDynamicValue(time.Hour),
 			ReplicaMovementCleanupIncludeCancelled: runtime.NewDynamicValue(false),
 		}
 
-		parsed, err := ParseRuntimeConfig([]byte(`replica_movement_cleanup_enabled: true
+		parsed, err := ParseRuntimeConfig([]byte(`replica_movement_enabled: true
+replica_movement_cleanup_enabled: true
 replica_movement_cleanup_max_age: 24h
 replica_movement_cleanup_interval: 5m
 replica_movement_cleanup_include_cancelled: true
 `))
 		require.NoError(t, err)
 		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+		assert.Equal(t, true, source.ReplicaMovementEnabled.Get())
 		assert.Equal(t, true, source.ReplicaMovementCleanupEnabled.Get())
 		assert.Equal(t, 24*time.Hour, source.ReplicaMovementCleanupMaxAge.Get())
 		assert.Equal(t, 5*time.Minute, source.ReplicaMovementCleanupInterval.Get())
@@ -1053,6 +1082,7 @@ replica_movement_cleanup_include_cancelled: true
 		parsed, err = ParseRuntimeConfig([]byte(""))
 		require.NoError(t, err)
 		require.NoError(t, UpdateRuntimeConfig(log, source, parsed, nil, nil))
+		assert.Equal(t, false, source.ReplicaMovementEnabled.Get())
 		assert.Equal(t, false, source.ReplicaMovementCleanupEnabled.Get(), "the emergency brake must revert to the env default")
 		assert.Equal(t, 168*time.Hour, source.ReplicaMovementCleanupMaxAge.Get())
 		assert.Equal(t, time.Hour, source.ReplicaMovementCleanupInterval.Get())
@@ -1065,6 +1095,7 @@ replica_movement_cleanup_include_cancelled: true
 // other test still green.
 func TestBuildRegisteredRuntimeConfig_RegistersReplicaMovementCleanup(t *testing.T) {
 	cfg := &Config{}
+	cfg.Replication.ReplicaMovementEnabled = runtime.NewDynamicValue(true)
 	cfg.Replication.ReplicaMovementCleanupEnabled = runtime.NewDynamicValue(true)
 	cfg.Replication.ReplicaMovementCleanupMaxAge = runtime.NewDynamicValue(time.Hour)
 	cfg.Replication.ReplicaMovementCleanupInterval = runtime.NewDynamicValue(time.Minute)
@@ -1072,6 +1103,7 @@ func TestBuildRegisteredRuntimeConfig_RegistersReplicaMovementCleanup(t *testing
 
 	registered := BuildRegisteredRuntimeConfig(cfg)
 
+	require.Same(t, cfg.Replication.ReplicaMovementEnabled, registered.ReplicaMovementEnabled)
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupEnabled, registered.ReplicaMovementCleanupEnabled)
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupMaxAge, registered.ReplicaMovementCleanupMaxAge)
 	require.Same(t, cfg.Replication.ReplicaMovementCleanupInterval, registered.ReplicaMovementCleanupInterval)

@@ -309,9 +309,14 @@ func dbKeyForID(physicalID string) []byte {
 // loaded shard owns the key and deletes it through its own handle (both
 // baked into shardmeta.DeleteOffline).
 func RemoveStateKey(rootPath, targetVector string) error {
-	key := dbKeyForID(helpers.VectorIndexIDForTarget(targetVector))
-	if err := shardmeta.DeleteOffline(rootPath, StateNamespace, key); err != nil {
-		return fmt.Errorf("delete dynamic state for %q: %w", targetVector, err)
+	return RemoveStateKeyForID(rootPath, helpers.VectorIndexIDForTarget(targetVector))
+}
+
+// RemoveStateKeyForID is RemoveStateKey keyed by the physical ID a record
+// maps the vector to.
+func RemoveStateKeyForID(rootPath, id string) error {
+	if err := shardmeta.DeleteOffline(rootPath, StateNamespace, dbKeyForID(id)); err != nil {
+		return fmt.Errorf("delete dynamic state for %q: %w", id, err)
 	}
 	return nil
 }
@@ -325,24 +330,44 @@ func RemoveStateKey(rootPath, targetVector string) error {
 // State that could not be read returns false along with the error, so a
 // caller can tell that answer apart from a shard positively known to be flat.
 func UpgradedOnDisk(rootPath, id string) (bool, error) {
-	upgradedWithoutStateKey := false
-	if helpers.PhysicalIDSuffix(id) != "" {
-		_, err := os.Stat(hnswCommitLogDirectory(rootPath, id))
-		upgradedWithoutStateKey = err == nil
-	}
-
-	v, ok, err := shardmeta.GetOffline(rootPath, StateNamespace, dbKeyForID(id))
+	v, _, err := shardmeta.GetOffline(rootPath, StateNamespace, dbKeyForID(id))
 	if err != nil {
 		return false, fmt.Errorf("read dynamic state: %w", err)
 	}
-	if !ok {
-		// only a shard that never wrote state may fall back to the directory
-		return upgradedWithoutStateKey, nil
+	return upgradedFromVerdict(v, rootPath, id), nil
+}
+
+// UpgradedInState is UpgradedOnDisk through a loaded shard's own handle. It
+// only reads; the index's load is what migrates a missing named key.
+func UpgradedInState(state StateOps, rootPath, id string) (bool, error) {
+	v, err := state.Get(dbKeyForID(id))
+	if err != nil {
+		return false, fmt.Errorf("read dynamic state: %w", err)
 	}
+	return upgradedFromVerdict(v, rootPath, id), nil
+}
+
+// RemoveStateKeyIn is RemoveStateKey through a loaded shard's own handle.
+func RemoveStateKeyIn(state StateOps, id string) error {
+	err := state.Delete(dbKeyForID(id))
+	if err != nil {
+		return fmt.Errorf("delete dynamic state for %q: %w", id, err)
+	}
+	return nil
+}
+
+// upgradedFromVerdict decodes a verdict as the index's load does: a value
+// wins; none falls back to the commit log directory for a named vector only,
+// since an unnamed vector's load deletes that directory.
+func upgradedFromVerdict(v []byte, rootPath, id string) bool {
 	if len(v) > 0 {
-		return v[0] != 0, nil
+		return v[0] != 0
 	}
-	return upgradedWithoutStateKey, nil
+	if helpers.PhysicalIDSuffix(id) == "" {
+		return false
+	}
+	_, err := os.Stat(hnswCommitLogDirectory(rootPath, id))
+	return err == nil
 }
 
 func (dynamic *dynamic) getBucketName() string {

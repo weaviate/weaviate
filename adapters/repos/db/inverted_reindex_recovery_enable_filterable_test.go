@@ -100,7 +100,7 @@ func TestRecoveryConvergence_EnableFilterable_Baseline(t *testing.T) {
 	class := newEnableFilterableTestClass(className, propName)
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 

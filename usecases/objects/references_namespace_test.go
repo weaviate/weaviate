@@ -130,10 +130,10 @@ func withAutoSchema(err error) func(*config.WeaviateConfig, *fakeSchemaManager) 
 // batch-ref paths through the same world.
 func newNSManagers(t *testing.T, classes []*models.Class, nsEnabled bool,
 	opts ...func(*config.WeaviateConfig, *fakeSchemaManager),
-) (*Manager, *BatchManager, *fakeVectorRepo, *fakeModulesProvider, *mocks.FakeAuthorizer) {
+) (*Manager, *BatchManager, *fakeObjectFinder, *fakeModulesProvider, *mocks.FakeAuthorizer) {
 	t.Helper()
 	sch := schema.Schema{Objects: &models.Schema{Classes: classes}}
-	vectorRepo := &fakeVectorRepo{}
+	vectorRepo := &fakeObjectFinder{}
 	cfg := &config.WeaviateConfig{
 		Config: config.Config{
 			AutoSchema: config.AutoSchema{Enabled: runtime.NewDynamicValue(false)},

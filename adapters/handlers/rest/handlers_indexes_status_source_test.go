@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -45,6 +46,8 @@ type fsmStep struct {
 //	step 0 — task STARTED,  searchable flag off
 //	step 1 — task FINISHED, searchable flag on
 type advancingFSM struct {
+	// Left unset: only the methods defined below are expected.
+	local.ClassReader
 	step                int
 	advanceBetweenReads bool
 	steps               []fsmStep
@@ -168,7 +171,7 @@ func TestReadClassAndTasks_ComeFromOneNodeInOneOrder(t *testing.T) {
 				fsm.steps[1].class = nil
 			}
 
-			var lister localTaskLister
+			var lister distributedtask.LocalTaskLister
 			if !tt.noLister {
 				lister = fsm
 			}
@@ -193,13 +196,13 @@ func TestReadClassAndTasks_ComeFromOneNodeInOneOrder(t *testing.T) {
 	}
 }
 
-// A nil ClusterService must stay out of the localTaskLister interface: boxed,
+// A nil ClusterService must stay out of the distributedtask.LocalTaskLister interface: boxed,
 // its first call nil-derefs on the promoted method.
 func TestGetIndexes_NilClusterService_AnswersSchemaOnly(t *testing.T) {
 	require.Nil(t, resolveTaskSource(&state.State{}),
 		"a nil ClusterService must produce a nil interface, not a boxed nil")
 
-	reader := schemaUC.NewMockSchemaReader(t)
+	reader := local.NewMockSchemaReader(t)
 	reader.EXPECT().ResolveAlias("C").Return("")
 	reader.EXPECT().ClassInfo("C").Return(clusterSchema.ClassInfo{Exists: true})
 	reader.EXPECT().ReadOnlyClass("C").Return(&models.Class{
@@ -271,7 +274,7 @@ func TestGetIndexes_AForeignCollectionsTaskReachesNoEntry(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			flagOn := true
-			reader := schemaUC.NewMockSchemaReader(t)
+			reader := local.NewMockSchemaReader(t)
 			reader.EXPECT().ResolveAlias("C").Return("")
 			reader.EXPECT().ClassInfo("C").Return(clusterSchema.ClassInfo{Exists: true})
 			reader.EXPECT().ReadOnlyClass("C").Return(&models.Class{

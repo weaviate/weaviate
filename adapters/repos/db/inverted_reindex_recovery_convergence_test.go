@@ -142,7 +142,7 @@ func TestRecoveryConvergence_Baseline(t *testing.T) {
 	class := newTestClassWithProps(className, []string{propName})
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 
@@ -199,7 +199,7 @@ func computeBaselineFingerprint(t *testing.T, propName string, numObjects int) m
 	class := newTestClassWithProps(className, []string{propName})
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 
@@ -370,7 +370,7 @@ func (m recoveryConvergenceMatrix[K]) newFixture(
 ) (*Shard, *Index) {
 	t.Helper()
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	m.seedObjects(t, ctx, shard, className)
 	return shard, idx
@@ -477,7 +477,7 @@ func TestRunOnShardFinishesInFlightMigrationWhenStartedMarkerCannotBeRead(t *tes
 	class := newTestClassWithProps(className, []string{propName})
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	defer shard.Shutdown(ctx)
 

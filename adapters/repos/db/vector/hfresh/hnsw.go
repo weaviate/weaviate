@@ -14,6 +14,7 @@ package hfresh
 import (
 	"context"
 	"math"
+	"slices"
 	"sync/atomic"
 	"time"
 
@@ -150,6 +151,25 @@ func (i *HNSWIndex) Search(query []float32, k int, allowList helpers.AllowList) 
 	for i := range ids {
 		results[i] = Result{ID: ids[i], Distance: distances[i]}
 	}
+
+	// The HNSW heap breaks distance ties in arbitrary order (the centroid
+	// index's 8-bit RQ distances tie for ~0.1% of candidates on the 10M
+	// benchmark), which would make posting selection — and therefore
+	// filtered results — vary run to run. Order ties by ascending id so
+	// the ranked list is deterministic.
+	slices.SortStableFunc(results, func(a, b Result) int {
+		switch {
+		case a.Distance < b.Distance:
+			return -1
+		case a.Distance > b.Distance:
+			return 1
+		case a.ID < b.ID:
+			return -1
+		case a.ID > b.ID:
+			return 1
+		}
+		return 0
+	})
 
 	return &ResultSet{data: results}, nil
 }

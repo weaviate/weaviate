@@ -41,6 +41,15 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 		defer st.tenantAddLocks.Unlock(req.Class)
 	}
 
+	// PreApplyFilter below judges against in-memory FSM state, so a leader that
+	// has not drained what it inherited must not judge yet. After the tenant
+	// lock, not before: that lock is held across the apply, so a caller can wait
+	// on it long enough for leadership to turn over, and a term confirmed before
+	// the wait says nothing about the term it wakes up in.
+	if err := st.waitLeaderFSMCaughtUp(); err != nil {
+		return 0, err
+	}
+
 	// Parse the underlying command before pre execute filtering to avoid queryinf the schema is the underlying command
 	// is invalid
 	cmdBytes, err := proto.Marshal(req)
@@ -61,7 +70,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	}
 
 	// The change is validated, we can apply it in RAFT
-	fut := st.raft.Apply(cmdBytes, st.applyTimeout)
+	fut := st.raft.Load().Apply(cmdBytes, st.applyTimeout)
 
 	// Always call Error first otherwise the response can't  be read from the future
 	if err := fut.Error(); err != nil {
@@ -294,8 +303,8 @@ func (st *Store) Apply(l *raft.Log) any {
 			st.metrics.applyFailures.Inc()
 			_, leaderID := st.LeaderWithID()
 			nodeState := ""
-			if st.raft != nil {
-				nodeState = st.raft.State().String()
+			if rn := st.raft.Load(); rn != nil {
+				nodeState = rn.State().String()
 			}
 			st.log.WithFields(logrus.Fields{
 				"log_type":        l.Type,
@@ -306,7 +315,8 @@ func (st *Store) Apply(l *raft.Log) any {
 				"cmd_class":       cmd.Class,
 				"raft_leader":     string(leaderID),
 				"raft_node_state": nodeState,
-			}).WithError(ret.Error).Error("apply command")
+			}).WithFields(enterrors.DocsLinkFields(ret.Error)).
+				WithError(ret.Error).Error("apply command")
 			return
 		}
 
@@ -620,6 +630,10 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_CLUSTER_ID_SET:
 		f = func() {
 			ret.Error = st.applyClusterIDSet(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_FORCE_TERMINATE:
+		f = func() {
+			ret.Error = st.distributedTasksManager.ForceTerminateTask(&cmd)
 		}
 
 	default:

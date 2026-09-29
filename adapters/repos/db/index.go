@@ -33,20 +33,22 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/aggregator"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hfresh"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/executor"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
@@ -75,16 +77,19 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/multitenancy"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/replica"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
 )
 
@@ -218,6 +223,17 @@ func (m *shardMap) CompareAndSwap(name string, old, new ShardLike) bool {
 	return (*sync.Map)(m).CompareAndSwap(name, old, new)
 }
 
+// loaded returns the loaded *Shard named name, or nil. It never loads.
+func (m *shardMap) loaded(name string) *Shard {
+	switch s := m.Load(name).(type) {
+	case *Shard:
+		return s
+	case *LazyLoadShard:
+		return s.loadedShard()
+	}
+	return nil
+}
+
 // LoadAndDelete deletes the value for a key, returning the previous value if any.
 // The loaded result reports whether the key was present.
 func (m *shardMap) LoadAndDelete(name string) (ShardLike, bool) {
@@ -248,13 +264,13 @@ type Index struct {
 	globalreplicationConfig *replication.GlobalConfig
 
 	getSchema    schemaUC.SchemaGetter
-	schemaReader schemaUC.SchemaReader
+	schemaReader local.SchemaReader
 
 	// replicationFSMReader is wired post-construction (migrator/init) while
 	// shards may already run hashbeats — hence atomic, read via getReplicationFSMReader.
 	replicationFSMReader atomic.Pointer[replicationTypes.ReplicationFSMReader]
 	logger               logrus.FieldLogger
-	remote               *sharding.RemoteIndex
+	remote               *remote.Index
 	stopwords            *stopwords.Detector
 	// stopwordProvider bundles the collection-level stopword detector and the
 	// cached user-defined preset detectors. It is replaced atomically when
@@ -322,10 +338,9 @@ type Index struct {
 	// concurrent Release and tank throughput.
 	replicaSnapshotOpLocks *esync.KeyRWLocker
 
-	metrics          *Metrics
-	centralJobQueue  chan job
-	scheduler        *queue.Scheduler
-	indexCheckpoints *indexcheckpoint.Checkpoints
+	metrics         *Metrics
+	centralJobQueue chan job
+	scheduler       *queue.Scheduler
 
 	cycleCallbacks *indexCycleCallbacks
 
@@ -351,6 +366,8 @@ type Index struct {
 	// it between steps and aborts so a schema apply never waits on a full rebuild
 	asyncReplicationApplyWaiters atomic.Int32
 	asyncReplicationScheduler    *AsyncReplicationScheduler
+	// unloadedCheckpoints answers the async-checkpoint protocol for shards that are not loaded, from their persisted .ht root.
+	unloadedCheckpoints unloadedCheckpointRegistry
 
 	shardLoadLimiter  *loadlimiter.LoadLimiter
 	bucketLoadLimiter *loadlimiter.LoadLimiter
@@ -360,6 +377,10 @@ type Index struct {
 	// empty for an unqualified class name.
 	namespacesExister namespaces.Exister
 	namespace         string
+	// lastRefusal is the refusal namespaceState last logged, so it can log a repeat
+	// at Debug instead of Error. A successful read clears it. It is atomic because
+	// a search calls namespaceState for all its shards in parallel.
+	lastRefusal atomic.Pointer[error]
 
 	closed bool
 
@@ -399,14 +420,7 @@ func (i *Index) snapshotsPath() string {
 }
 
 func (i *Index) debugLoggingEnabled() bool {
-	switch logger := i.logger.(type) {
-	case *logrus.Logger:
-		return logger.IsLevelEnabled(logrus.DebugLevel)
-	case *logrus.Entry:
-		return logger.Logger.IsLevelEnabled(logrus.DebugLevel)
-	default:
-		return false
-	}
+	return logrusext.LevelEnabled(i.logger, logrus.DebugLevel)
 }
 
 // NewIndex creates an index with the specified amount of shards, using only
@@ -426,18 +440,17 @@ func NewIndex(
 	router routerTypes.Router,
 	shardResolver *resolver.ShardResolver,
 	sg schemaUC.SchemaGetter,
-	schemaReader schemaUC.SchemaReader,
+	schemaReader local.SchemaReader,
 	cs inverted.ClassSearcher,
 	logger logrus.FieldLogger,
 	nodeResolver cluster.NodeResolver,
-	remoteClient sharding.RemoteIndexClient,
+	remoteClient remote.IndexClient,
 	replicaClient replica.Client,
 	globalReplicationConfig *replication.GlobalConfig,
 	promMetrics *monitoring.PrometheusMetrics,
 	class *models.Class,
 	jobQueueCh chan job,
 	scheduler *queue.Scheduler,
-	indexCheckpoints *indexcheckpoint.Checkpoints,
 	allocChecker memwatch.AllocChecker,
 	shardReindexer ShardReindexerV3,
 	bitmapBufPool roaringset.BitmapBufPool,
@@ -486,12 +499,11 @@ func NewIndex(
 		stopwords:               sd,
 		partitioningEnabled:     multitenancy.IsMultiTenant(class.MultiTenancyConfig),
 		AsyncIndexingEnabled:    asyncIndexingEnabled,
-		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
+		remote:                  remote.NewIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
 		metrics:                 metrics,
 		centralJobQueue:         jobQueueCh,
 		backupLock:              esync.NewKeyRWLocker(),
 		scheduler:               scheduler,
-		indexCheckpoints:        indexCheckpoints,
 		allocChecker:            allocChecker,
 		shardCreateLocks:        esync.NewKeyRWLocker(),
 		replicaSnapshotOpLocks:  esync.NewKeyRWLocker(),
@@ -564,12 +576,7 @@ func NewIndex(
 func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 	promMetrics *monitoring.PrometheusMetrics,
 ) error {
-	type shardInfo struct {
-		name           string
-		activityStatus string
-	}
-
-	var localShards []shardInfo
+	var openLocalShards []string
 	className := i.Config.ClassName.String()
 
 	state, err := i.namespaceState()
@@ -579,6 +586,10 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return err
 	}
 	if !namespaces.ShardsShouldBeOpen(state) {
+		// This logs at Info because suspended and deleting close shards on purpose.
+		i.logger.WithFields(logrus.Fields{
+			"class": className, "namespace": i.namespace, "state": state,
+		}).Info("registering no shards: this namespace keeps none open")
 		// Nothing loads, and leaving the flag false suppresses the node-wide
 		// object count for every index on this node.
 		i.allShardsReady.Store(true)
@@ -590,14 +601,9 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 			return fmt.Errorf("unable to retrieve sharding state for class %s", className)
 		}
 
-		for shardName, physical := range shardingState.Physical {
-			if shardingState.IsLocalShard(shardName) {
-				localShards = append(localShards, shardInfo{
-					name:           shardName,
-					activityStatus: physical.ActivityStatus(),
-				})
-			}
-		}
+		shardingState.ForEachLocalOpenPhysical(func(name string) {
+			openLocalShards = append(openLocalShards, name)
+		})
 
 		return nil
 	})
@@ -612,21 +618,14 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		startupShards = &startupShardCounters{}
 	}
 
-	hotShardNames := make([]string, 0, len(localShards))
-
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU)
 
-	for _, shard := range localShards {
-		if shard.activityStatus != models.TenantActivityStatusHOT {
-			continue
-		}
-		hotShardNames = append(hotShardNames, shard.name)
-		shardName := shard.name
+	for _, shardName := range openLocalShards {
 		eg.Go(func() error {
 			switch {
 			case i.Config.EnableLazyLoadShards:
-				lazyShard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
+				lazyShard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue,
 					i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true, i.bitmapBufPool)
 				i.shards.Store(shardName, lazyShard)
 				startupShards.lazy.Add(1)
@@ -635,7 +634,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				// avoid footprint of empty shards
 				if i.partitioningEnabled && i.unloadedShardIsEmpty(shardName) {
 					i.shards.Store(shardName, NewLazyLoadShard(ctx, promMetrics, shardName, i, class,
-						i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter,
+						i.centralJobQueue, i.allocChecker, i.shardLoadLimiter,
 						i.shardReindexer, false, i.bitmapBufPool))
 					startupShards.lazy.Add(1)
 					return nil
@@ -647,7 +646,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				defer i.shardLoadLimiter.Release()
 
 				newShard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
-					i.indexCheckpoints, i.shardReindexer, false, i.bitmapBufPool,
+					i.shardReindexer, false, i.bitmapBufPool,
 					monitoring.ShardRegistrationEager)
 				if err != nil {
 					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
@@ -679,7 +678,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		i.logger.WithFields(logrus.Fields{
 			"action":     "skip_load_all_shards",
 			"class":      i.Config.ClassName.String(),
-			"hot_shards": len(hotShardNames),
+			"hot_shards": len(openLocalShards),
 		}).Debug("background warmup disabled; lazy shards will load on first access")
 		return nil
 	}
@@ -714,7 +713,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 			promMetrics.RecordWarmupOutcome(outcome)
 		}
 
-		for _, shardName := range hotShardNames {
+		for _, shardName := range openLocalShards {
 			if abortIfClosing() {
 				return
 			}
@@ -740,6 +739,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				i.logger.
 					WithField("action", "load_shard").
 					WithField("shard_name", shardName).
+					WithFields(enterrors.DocsLinkFields(err)).
 					Errorf("failed to load shard, loading the rest anyway: %v", err)
 				// A failure says nothing about the shards behind this one: memory
 				// pressure is node-wide and transient, anything else is specific
@@ -753,15 +753,16 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 
 		i.logger.
 			WithFields(logrus.Fields{
-				"action":                  "load_all_shards",
-				"class":                   i.Config.ClassName.String(),
-				"took":                    time.Since(now).String(),
-				"loaded":                  tally[monitoring.WarmupLoaded],
-				"failed":                  tally[monitoring.WarmupFailed],
-				"skipped_shard_gone":      tally[monitoring.WarmupSkippedShardGone],
-				"skipped_already_loaded":  tally[monitoring.WarmupSkippedAlreadyLoaded],
-				"skipped_empty":           tally[monitoring.WarmupSkippedEmpty],
-				"skipped_below_threshold": tally[monitoring.WarmupSkippedBelowThreshold],
+				"action":                    "load_all_shards",
+				"class":                     i.Config.ClassName.String(),
+				"took":                      time.Since(now).String(),
+				"loaded":                    tally[monitoring.WarmupLoaded],
+				"failed":                    tally[monitoring.WarmupFailed],
+				"skipped_shard_gone":        tally[monitoring.WarmupSkippedShardGone],
+				"skipped_already_loaded":    tally[monitoring.WarmupSkippedAlreadyLoaded],
+				"skipped_empty":             tally[monitoring.WarmupSkippedEmpty],
+				"skipped_below_threshold":   tally[monitoring.WarmupSkippedBelowThreshold],
+				"skipped_namespace_unknown": tally[monitoring.WarmupSkippedNamespaceUnknown],
 			}).
 			Debug("finished loading all shards")
 	}
@@ -838,8 +839,8 @@ func (i *Index) warmupCandidate(shardName string) (bool, monitoring.WarmupOutcom
 }
 
 // loadLocalShardIfActive loads a shard the startup sweep picked and reports the
-// outcome to record. An empty outcome means the index refused the load for a
-// reason that says nothing about this shard.
+// outcome to record. With a nil error, an empty outcome means the index is
+// closing or its namespace is in a state that keeps shards closed. Neither counts.
 func (i *Index) loadLocalShardIfActive(shardName string) (monitoring.WarmupOutcome, error) {
 	// Index.Shutdown skips a lazy shard that is not loaded yet, so a build racing
 	// its sweep leaves an open store nothing will ever close. The refcount holds
@@ -851,10 +852,14 @@ func (i *Index) loadLocalShardIfActive(shardName string) (monitoring.WarmupOutco
 	defer i.exitRead()
 
 	// The namespace state read at boot goes stale as initLazyShardsInBackground
-	// walks its shard list, so re-read it here. A refusal returns nil because an
-	// error would end that loop for every shard behind this one.
+	// walks its shard list, so re-read it here. A refusal returns nil because the
+	// loop would count an error as a failed load.
 	state, err := i.namespaceState()
-	if err != nil || !namespaces.ShardsShouldBeOpen(state) {
+	if err != nil {
+		// namespaceState already logged the refusal.
+		return monitoring.WarmupSkippedNamespaceUnknown, nil
+	}
+	if !namespaces.ShardsShouldBeOpen(state) {
 		return "", nil
 	}
 
@@ -883,7 +888,7 @@ func (i *Index) loadLocalShardIfActive(shardName string) (monitoring.WarmupOutco
 	ctx, done := i.cancelOnCloseRequested(context.Background())
 	defer done()
 
-	loaded, err := lazyShard.loadIfCold(ctx)
+	_, loaded, err := lazyShard.loadIfCold(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -910,7 +915,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 		defer i.shardLoadLimiter.Release()
 
 		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
-			i.indexCheckpoints, i.shardReindexer, false, i.bitmapBufPool,
+			i.shardReindexer, false, i.bitmapBufPool,
 			monitoring.ShardRegistrationEager)
 		if err != nil {
 			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
@@ -921,7 +926,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 		return shard, nil
 	}
 
-	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
+	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue,
 		i.allocChecker, i.shardLoadLimiter, i.shardReindexer, implicitShardLoading, i.bitmapBufPool)
 	return shard, nil
 }
@@ -1124,7 +1129,12 @@ func (i *Index) IterateShards(ctx context.Context, cb func(index *Index, shard S
 // pinLoadedShard takes a shutdown refcount so bucket work scheduled onto an
 // error group outlives the shard walk. A cold lazy shard has no store to
 // refcount; its file surgery holds shardCreateLocks in shard_lazyloader.go.
-func pinLoadedShard(shard ShardLike) (release func(), ok bool) {
+// The create lock spans the loaded check and the pin: a teardown between them
+// would have the pin rebuild the shard on a wrapper already out of the map.
+func (i *Index) pinLoadedShard(name string, shard ShardLike) (release func(), ok bool) {
+	i.shardCreateLocks.RLock(name)
+	defer i.shardCreateLocks.RUnlock(name)
+
 	if lazy, isLazy := shard.(*LazyLoadShard); isLazy && !lazy.isLoaded() {
 		return func() {}, true
 	}
@@ -1150,7 +1160,7 @@ func (i *Index) addProperty(ctx context.Context, props ...*models.Property) erro
 	// Skip cold shards: they'd only be force-loaded to create empty buckets,
 	// which they build from the refreshed class at their next load anyway.
 	i.ForEachLoadedShard(func(key string, shard ShardLike) error {
-		release, ok := pinLoadedShard(shard)
+		release, ok := i.pinLoadedShard(key, shard)
 		if !ok {
 			return nil
 		}
@@ -1178,7 +1188,7 @@ func (i *Index) updateProperty(ctx context.Context, property *models.Property) e
 
 	var payloadReads atomic.Int64
 	i.ForEachShard(func(key string, shard ShardLike) error {
-		release, ok := pinLoadedShard(shard)
+		release, ok := i.pinLoadedShard(key, shard)
 		if !ok {
 			return nil
 		}
@@ -1211,7 +1221,7 @@ func (i *Index) updateVectorIndexConfig(ctx context.Context,
 ) error {
 	// an updated is not specific to one shard, but rather all
 	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		release, ok := pinLoadedShard(shard)
+		release, ok := i.pinLoadedShard(name, shard)
 		if !ok {
 			return nil
 		}
@@ -1241,7 +1251,7 @@ func (i *Index) updateVectorIndexConfigs(ctx context.Context,
 	updated map[string]schemaConfig.VectorIndexConfig,
 ) error {
 	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		release, ok := pinLoadedShard(shard)
+		release, ok := i.pinLoadedShard(name, shard)
 		if !ok {
 			return nil
 		}
@@ -1276,7 +1286,7 @@ func (i *Index) dropVectorIndex(ctx context.Context, targetVector string) error 
 	}()
 
 	if err := i.ForEachShardConcurrently(func(name string, shard ShardLike) error {
-		release, ok := pinLoadedShard(shard)
+		release, ok := i.pinLoadedShard(name, shard)
 		if !ok {
 			return nil
 		}
@@ -1538,6 +1548,7 @@ type IndexConfig struct {
 	SeparateObjectsCompactions          bool
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
+	IndexRangeableInMemoryProps         []string
 	MaxSegmentSize                      int64
 	ReplicationFactor                   int64
 	DeletionStrategy                    string
@@ -1558,6 +1569,7 @@ type IndexConfig struct {
 	StartupShards                       *startupShardCounters
 	BucketLoadLimiter                   *loadlimiter.LoadLimiter
 	NamespacesExister                   namespaces.Exister
+	QueryAdmission                      *queryadmission.Limiter
 	ObjectsTTLBatchSize                 *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseEveryNoBatches       *configRuntime.DynamicValue[int]
 	ObjectsTTLPauseDuration             *configRuntime.DynamicValue[time.Duration]
@@ -1587,6 +1599,14 @@ type IndexConfig struct {
 // off. Which shards a non-negative value loads is warmupCandidate's call.
 func (c IndexConfig) backgroundWarmupEnabled() bool {
 	return c.EnableLazyLoadShards && c.LazyLoadShardWarmupMinObjects >= 0
+}
+
+// keepRangeableInMemory reports whether propName's rangeable bucket keeps its
+// segments in memory.
+func (c IndexConfig) keepRangeableInMemory(propName string) bool {
+	return c.IndexRangeableInMemory ||
+		slices.Contains(c.IndexRangeableInMemoryProps, config.AllProperties) ||
+		slices.Contains(c.IndexRangeableInMemoryProps, propName)
 }
 
 func indexID(class schema.ClassName) string {
@@ -2759,6 +2779,15 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	return outObjects, outScores, nil
 }
 
+// withSlowQueryDetails collects details only when LogIfSlow or AddShardQueryProfile
+// will read them, since every annotated LSM lookup appends an entry.
+func (i *Index) withSlowQueryDetails(ctx context.Context, queryProfile bool) context.Context {
+	if !queryProfile && !i.Config.QuerySlowLogEnabled.Get() {
+		return ctx
+	}
+	return helpers.InitSlowQueryDetails(ctx)
+}
+
 func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *filters.LocalFilter,
 	keywordRanking *searchparams.KeywordRanking, sort []filters.Sort, cursor *filters.Cursor,
 	addlProps additional.Properties, tenant string, readPlan routerTypes.ReadRoutingPlan, properties []string,
@@ -2799,7 +2828,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		// GetShard would not.
 		return i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
 			func(shard ShardLike) error {
-				localCtx := helpers.InitSlowQueryDetails(ctx)
+				localCtx := i.withSlowQueryDetails(ctx, addlProps.QueryProfile)
 				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 				var shardStart time.Time
 				if addlProps.QueryProfile {
@@ -2927,7 +2956,7 @@ func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVe
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 	shard ShardLike, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	ctx = helpers.InitSlowQueryDetails(ctx)
+	ctx = i.withSlowQueryDetails(ctx, additional.QueryProfile)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", true)
 	if err := i.ensureShardLocallyReady(shard); err != nil {
 		return nil, nil, err
@@ -2961,7 +2990,7 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard does not exist", shardName))
 	}
 
-	localCtx := helpers.InitSlowQueryDetails(ctx)
+	localCtx := i.withSlowQueryDetails(ctx, additionalProps.QueryProfile)
 	helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 	var shardStart time.Time
 	if additionalProps.QueryProfile {
@@ -3228,7 +3257,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 		return nil, nil, nil, err
 	}
 
-	ctx = helpers.InitSlowQueryDetails(ctx)
+	ctx = i.withSlowQueryDetails(ctx, additional.QueryProfile)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", false)
 
 	if additional.QueryProfile {
@@ -3389,29 +3418,24 @@ func (i *Index) LoadLocalShardForTenantProcess(ctx context.Context, shardName st
 }
 
 // loadLocalShardForReload opens a shard for the reload replaying committed
-// schema. A namespace that keeps no shards open opens none and returns nil: an
-// error here would skip the tenant drops and property adds the same reload
-// owes, and nothing re-runs a reload. The skip is silent, like
-// initAndStoreShards', since a suspended namespace reaches this once per
-// tenant. mustLoad preserves the eager load each call site did before.
+// schema. A namespace refusal opens none and returns nil, since ReloadLocalDB
+// would log it as the whole class failing to reload.
 func (i *Index) loadLocalShardForReload(ctx context.Context, shardName string, mustLoad bool) error {
 	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, false, callerReload)
-	if stderrors.Is(err, errShardNamespaceClosed) {
+	if namespaceRefusedShardLoad(err) {
 		return nil
 	}
 	return err
 }
 
 // loadLocalShardUnlessNamespaceClosed loads a shard for an apply whose schema half
-// has already committed. A namespace whose state refuses this caller loads none
-// and returns nil rather than erroring. The schema change stands either way, and
-// the shard is materialized by whatever next loads it. A state that cannot be read
-// still errors.
+// has already committed. A namespace refusal loads none and returns nil, and
+// whatever next loads the shard materializes it. A failed namespace lookup still errors.
 func (i *Index) loadLocalShardUnlessNamespaceClosed(ctx context.Context, shardName string,
 	mustLoad, implicitShardLoading bool, caller shardLoadCaller, change string,
 ) error {
 	err := i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, implicitShardLoading, caller)
-	if stderrors.Is(err, errShardNamespaceClosed) {
+	if namespaceRefusedShardLoad(err) {
 		i.logger.WithFields(logrus.Fields{
 			"class": i.Config.ClassName.String(), "namespace": i.namespace, "shard": shardName,
 		}).Infof("%s without loading the shard: %v", change, err)
@@ -3462,7 +3486,8 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 			if mustLoad {
 				lazyShard, ok := shard.(*LazyLoadShard)
 				if ok {
-					return lazyShard.Load(ctx)
+					_, _, err := lazyShard.loadIfCold(ctx)
+					return err
 				}
 			}
 			return nil
@@ -3491,9 +3516,13 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 // loaded, and it is not. Every returned error means the shard is still loaded:
 // errAlreadyShutdown once the index is closed, and errIndexShutdown or
 // errIndexDropped while its close is only requested.
-func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
+//
+// The outcome is unloaded if and only if the error is nil, and index_closing if
+// and only if the error wraps ErrIndexClosing.
+func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) (ShardUnloadOutcome, error) {
+	// enterRead refuses only after beginClose, so a refusal means the index is closing.
 	if err := i.enterRead(); err != nil {
-		return err
+		return ShardUnloadOutcomeIndexClosing, fmt.Errorf("%w: %w", ErrIndexClosing, err)
 	}
 	defer i.exitRead()
 
@@ -3502,7 +3531,7 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 
 	shardLike, ok := i.shards.LoadAndDelete(shardName)
 	if !ok {
-		return nil // shard was not found, nothing to unload
+		return ShardUnloadOutcomeUnloaded, nil // shard was not found, nothing to unload
 	}
 
 	// The shutdown retries for seconds while enterRead holds the index open. A
@@ -3510,25 +3539,33 @@ func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
 	shutdownCtx, done := i.cancelOnCloseRequested(ctx)
 	defer done()
 
-	if err := shutdownOrRestoreShard(shutdownCtx, i, shardName, shardLike); err != nil {
+	outcome, err := shutdownOrRestoreShard(shutdownCtx, i, shardName, shardLike)
+	if err != nil {
 		if errors.Is(err, errAlreadyShutdown) {
 			// The shard is shut, which is the outcome this call asked for. It
 			// is worth a line: reaching it means the shutdown burned its retry
 			// backoff holding shardCreateLocks.
 			i.logger.WithField("shard", shardName).
 				Debugf("shard was already shut or dropped: %v", err)
-			return nil
+			return ShardUnloadOutcomeUnloaded, nil
 		}
 		// backoff reports the aborted wait as a plain cancellation, so only
 		// context.Cause names the teardown. The two are joined because a shutdown
 		// that failed on its own also cancels, and that is what to act on.
-		if shutdownCtx.Err() != nil && ctx.Err() == nil && errors.Is(err, context.Canceled) {
+		closedByUs := shutdownCtx.Err() != nil && ctx.Err() == nil
+		switch {
+		case closedByUs && outcome == ShardUnloadOutcomeRefusedInUse:
+			// The last retry can run out just before the close, so a refusal
+			// here counts as index_closing too.
+			outcome = ShardUnloadOutcomeIndexClosing
+			err = fmt.Errorf("%w: %w: %w", ErrIndexClosing, context.Cause(shutdownCtx), err)
+		case closedByUs && errors.Is(err, context.Canceled):
 			err = fmt.Errorf("%w: %w", context.Cause(shutdownCtx), err)
 		}
-		return errors.Wrapf(err, "shutdown shard %q", shardName)
+		return outcome, errors.Wrapf(err, "shutdown shard %q", shardName)
 	}
 
-	return nil
+	return outcome, nil
 }
 
 func (i *Index) GetShard(ctx context.Context, shardName string) (
@@ -3628,69 +3665,87 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		return nil, func() {}, err
 	}
 
-	// make sure same shard is not inited in parallel. In case it is not loaded yet, switch to a RW lock and initialize
-	// the shard
-	func() {
-		i.shardCreateLocks.RLock(shardName)
-		defer i.shardCreateLocks.RUnlock(shardName)
-		shard = i.shards.Load(shardName)
-	}()
-
-	// A torn shard (deep teardown failure) is held in the map as the last
-	// reference to its leaked handles; surface the cause instead of a bare
-	// errAlreadyShutdown. Unavailable until restart.
-	if shard != nil && ensureInit {
-		if terr := shardTeardownError(shard); terr != nil {
-			return nil, func() {}, fmt.Errorf("shard %q: %w", shardName, terr)
-		}
+	// Lookup and pin share one read lock: a lazy shard's preventShutdown loads
+	// it, and a teardown landing between the two would rebuild it on a wrapper
+	// that already left the map — an orphan nothing can shut down, holding the
+	// directory's file locks. Same reasoning as getLoadedShard.
+	shard, release, err = i.pinResidentShard(shardName, ensureInit)
+	if err != nil || shard != nil {
+		return shard, release, err
+	}
+	if !ensureInit {
+		return nil, func() {}, nil
 	}
 
-	// A map hit on a shard that CLEANLY completed a shutdown (the deferred
-	// ref-drain one after a failed-but-restored close) must not pin the tenant
-	// on errAlreadyShutdown forever: the init path below re-creates it, same
-	// as the reactivation belt in initLocalShardWithForcedLoading. Read-only
-	// callers (ensureInit=false) keep surfacing the terminal error — the
-	// eventual-shutdown contract pins GetShard to errAlreadyShutdown.
-	if shard == nil || (ensureInit && shardKnownShut(shard)) {
-		if !ensureInit {
-			return nil, func() {}, nil
-		}
-
-		className := i.Config.ClassName.String()
-		class := i.getSchema.ReadOnlyClass(className)
-		if class == nil {
-			return nil, func() {}, fmt.Errorf("init local shard %q: class %s not found in schema", shardName, className)
-		}
-
-		i.shardCreateLocks.Lock(shardName)
-		defer i.shardCreateLocks.Unlock(shardName)
-
-		// double check if loaded in the meantime by concurrent call, if not load it
-		shard = i.shards.Load(shardName)
-		if shard != nil && shardKnownShut(shard) {
-			i.evictShutShard(shardName)
-			shard = nil
-		}
-		if shard == nil {
-			// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
-			if _, protected := i.backupProtectedShards.Load(shardName); protected {
-				return nil, func() {}, fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)
-			}
-			shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
-			if err != nil {
-				return nil, func() {}, fmt.Errorf("init local shard %q of index %s: %w", shardName, i.ID(), err)
-			}
-			i.publishShard(shardName, shard)
-		}
+	className := i.Config.ClassName.String()
+	class := i.getSchema.ReadOnlyClass(className)
+	if class == nil {
+		return nil, func() {}, fmt.Errorf("init local shard %q: class %s not found in schema", shardName, className)
 	}
 
-	// If ensureInit is true, ensure the shard is loaded. For lazy shards, preventShutdown()
-	// will call Load() internally
+	i.shardCreateLocks.Lock(shardName)
+	defer i.shardCreateLocks.Unlock(shardName)
+
+	// double check if loaded in the meantime by concurrent call, if not load it
+	shard = i.shards.Load(shardName)
+	if shard != nil && shardKnownShut(shard) {
+		i.evictShutShard(shardName)
+		shard = nil
+	}
+	if shard == nil {
+		// NO-HARDLINK-BACKUP: removed in v1.40; bugs here are not fixed.
+		if _, protected := i.backupProtectedShards.Load(shardName); protected {
+			return nil, func() {}, fmt.Errorf("shard %q is protected for backup, activation blocked", shardName)
+		}
+		shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
+		if err != nil {
+			return nil, func() {}, fmt.Errorf("init local shard %q of index %s: %w", shardName, i.ID(), err)
+		}
+		i.publishShard(shardName, shard)
+	}
+
+	// Still under the write lock, so a lazy shard's load inside the pin cannot race a teardown.
 	release, err = shard.preventShutdown()
 	if err != nil {
 		return nil, func() {}, fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)
 	}
 
+	return shard, release, nil
+}
+
+// pinResidentShard looks the shard up and pins it under one read lock. A nil
+// shard with a nil error means absent or, with ensureInit, cleanly shut: the
+// caller re-checks and initializes under the write lock. Read-only callers keep
+// surfacing errAlreadyShutdown from the pin — the eventual-shutdown contract
+// pins GetShard to it.
+func (i *Index) pinResidentShard(shardName string, ensureInit bool) (shard ShardLike, release func(), err error) {
+	i.shardCreateLocks.RLock(shardName)
+	defer i.shardCreateLocks.RUnlock(shardName)
+
+	shard = i.shards.Load(shardName)
+	if shard == nil {
+		return nil, func() {}, nil
+	}
+	if ensureInit {
+		// A torn shard (deep teardown failure) is held in the map as the last
+		// reference to its leaked handles; surface the cause instead of a bare
+		// errAlreadyShutdown. Unavailable until restart.
+		if terr := shardTeardownError(shard); terr != nil {
+			return nil, func() {}, fmt.Errorf("shard %q: %w", shardName, terr)
+		}
+		// A shard that CLEANLY completed a shutdown (the deferred ref-drain one
+		// after a failed-but-restored close) must not pin the tenant on
+		// errAlreadyShutdown forever: the caller re-creates it, same as the
+		// reactivation belt in initLocalShardWithForcedLoading.
+		if shardKnownShut(shard) {
+			return nil, func() {}, nil
+		}
+	}
+
+	release, err = shard.preventShutdown()
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("get/init local shard %q, no shutdown: %w", shardName, err)
+	}
 	return shard, release, nil
 }
 
@@ -3889,6 +3944,10 @@ func (i *Index) drop() error {
 	// otherwise leave the shard un-dropped without failing the call
 	ec.Add(eg.Wait())
 
+	// Covers the inactive tenants too: they were never in i.shards, but a cold
+	// usage scan creates a count for any shard it reads.
+	shardusage.ForgetComputedUsageGenerationsUnder(i.path())
+
 	// 1s target contract per weaviate/0-weaviate-issues#250; ctx errors
 	// are best-effort (flush doesn't honor ctx yet — separable follow-up).
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -3995,6 +4054,12 @@ func (i *Index) dropShards(names []string) error {
 				}
 			}
 
+			// After the drop, not before: a drop-vector clear holding a reference
+			// on this shard invalidates its usage record as it finishes, which
+			// re-creates the count, and the drop is what waits that reference out.
+			shardusage.ForgetComputedUsageGeneration(i.path(), name)
+			i.unloadedCheckpoints.delete(name)
+
 			return nil
 		})
 	}
@@ -4074,7 +4139,7 @@ func (i *Index) dropCloudShards(ctx context.Context, cloud modulecapabilities.Of
 }
 
 func (i *Index) Shutdown(ctx context.Context) error {
-	// a reader holding closeLock would hold up the whole DB shutdown
+	// a reader admitted by enterRead would hold up the whole DB shutdown
 	i.signalCloseRequested(errIndexShutdown)
 	if err := i.beginClose(); err != nil {
 		return err
@@ -4217,18 +4282,18 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 	return size, nil
 }
 
-// getShardsStatus returns the status of the collection's shards on each of its
+// getShardsStorageStatus returns the status of the collection's shards on each of its
 // replica nodes. Example:
 //
 //	map[string]map[string]string{
 //		"shard-0": { "node-0": "READY", "node-1": "READONLY" },
-//		"shard-1": { "node-1": "READY", "node-1": "READONLY" },
+//		"shard-1": { "node-1": "READY", "node-2": "READONLY" },
 //	}
 //
 // The second return value are shard statuses mirroring the legacy implementation,
 // where the status is returned based on the first replica to contain the shard,
 // preferably local.
-func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]map[string]string, map[string]string, error) {
+func (i *Index) getShardsStorageStatus(ctx context.Context, tenant string) (map[string]map[string]string, map[string]string, error) {
 	thisNode := i.getSchema.NodeName()
 	className := i.Config.ClassName.String()
 	shardNames, err := i.schemaReader.Shards(className)
@@ -4258,7 +4323,9 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 				oneNodeStatus atomic.Value
 				perNodeStatus = make(map[string]string, len(replicas))
 			)
+
 			for _, nodeName := range replicas {
+				perNodeStatus[nodeName] = storagestate.StatusUnavailable.String()
 				var err error
 				if nodeName == thisNode {
 					var (
@@ -4276,6 +4343,8 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 						status := shard.GetStatus().String()
 						oneNodeStatus.Store(status)
 						perNodeStatus[nodeName] = status
+					} else {
+						oneNodeStatus.Store(storagestate.StatusUnavailable.String())
 					}
 					release()
 				} else {
@@ -4283,6 +4352,8 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 					if status, err = i.remote.GetShardStatus(ctx, shardName, nodeName); err == nil {
 						oneNodeStatus.CompareAndSwap(nil, status)
 						perNodeStatus[nodeName] = status
+					} else {
+						oneNodeStatus.CompareAndSwap(nil, storagestate.StatusUnavailable.String())
 					}
 				}
 
@@ -4623,8 +4694,9 @@ func (i *Index) DebugResetVectorIndex(ctx context.Context, shardName, targetVect
 
 	// Get the vector index
 	found, err := shard.WithVectorIndex(targetVector, func(vidx VectorIndex) error {
-		if !hnsw.IsHNSWIndex(vidx) {
-			return errors.New("vector index is not hnsw")
+		_, isHFresh := vidx.(*hfresh.HFresh)
+		if !hnsw.IsHNSWIndex(vidx) && !isHFresh {
+			return errors.New("vector index is neither hnsw nor hfresh")
 		}
 		return nil
 	})
@@ -4635,20 +4707,11 @@ func (i *Index) DebugResetVectorIndex(ctx context.Context, shardName, targetVect
 		return err
 	}
 
-	// Reset the vector index
+	// Reset the vector index; the shard refills it in the background
 	err = shard.DebugResetVectorIndex(ctx, targetVector)
 	if err != nil {
 		return errors.Wrap(err, "failed to reset vector index")
 	}
-
-	// Reindex in the background
-	enterrors.GoWrapper(func() {
-		err = shard.FillQueue(targetVector, 0)
-		if err != nil {
-			i.logger.WithField("shard", shardName).WithError(err).Error("failed to reindex vector index")
-			return
-		}
-	}, i.logger)
 
 	return nil
 }

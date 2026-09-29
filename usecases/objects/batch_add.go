@@ -202,7 +202,10 @@ func (b *BatchManager) validateAndGetVector(ctx context.Context, principal *mode
 			// Generate UUID for the new object
 			uid, err := generateUUID()
 			obj.ID = uid
-			batchObjects[i].Err = err
+			// Do not overwrite the error autoSchema returned for this entry.
+			if err != nil {
+				batchObjects[i].Err = err
+			}
 		} else {
 			if _, err := uuid.Parse(obj.ID.String()); err != nil {
 				batchObjects[i].Err = err

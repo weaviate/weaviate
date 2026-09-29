@@ -14,11 +14,16 @@ package rbac
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication"
 
+	"github.com/casbin/casbin/v2/persist"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1295,6 +1300,177 @@ func TestRestoreEmptyData(t *testing.T) {
 	require.Len(t, policies, 5)
 }
 
+// TestGetRolesForUserOrGroupDuringRestore pins that a role lookup keeps making
+// progress while Restore runs. A second read acquisition inside the lookup parks
+// both goroutines once Restore is queued for the write lock.
+func TestGetRolesForUserOrGroupDuringRestore(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	m, err := setupTestManager(t, logger)
+	require.NoError(t, err)
+
+	require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{
+		"restore-role": {{Resource: authorization.Collections("Movies")[0], Verb: authorization.READ, Domain: authorization.SchemaDomain}},
+	}))
+	require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("restore-user", authentication.AuthTypeDb), []string{"restore-role"}))
+
+	// a user holding no role returns before the nested lookup and never nests
+	roles, err := m.GetRolesForUserOrGroup("restore-user", authentication.AuthTypeDb, false)
+	require.NoError(t, err)
+	require.Len(t, roles, 1)
+
+	blob, err := m.Snapshot()
+	require.NoError(t, err)
+
+	stop := make(chan struct{})
+	defer close(stop)
+	errs := make(chan error, 2)
+	var lookups, restores atomic.Int64
+
+	// listUsers makes one lookup per listed user
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if _, err := m.GetRolesForUserOrGroup("restore-user", authentication.AuthTypeDb, false); err != nil {
+				errs <- err
+				return
+			}
+			lookups.Add(1)
+		}
+	}()
+
+	// applyRestoreRolesAndUsers reaches Restore on the FSM apply goroutine
+	go func() {
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if err := m.Restore(blob, false); err != nil {
+				errs <- err
+				return
+			}
+			restores.Add(1)
+		}
+	}()
+
+	const (
+		runFor       = 5 * time.Second
+		poll         = 200 * time.Millisecond
+		stallsToFail = 10
+	)
+	deadline := time.Now().Add(runFor)
+	var last int64
+	stalls := 0
+	for time.Now().Before(deadline) {
+		time.Sleep(poll)
+		done := lookups.Load() + restores.Load()
+		if done == last {
+			stalls++
+		} else {
+			stalls = 0
+		}
+		require.Less(t, stalls, stallsToFail, "lookup and restore both stopped making progress")
+		last = done
+	}
+
+	select {
+	case err := <-errs:
+		require.NoError(t, err)
+	default:
+	}
+	require.Positive(t, lookups.Load())
+	require.Positive(t, restores.Load())
+}
+
+// TestWholeTableReadsDuringRemoval pins that a read of every p or g row does not
+// share memory with a concurrent RemovePermissions or RevokeRolesForUser, which
+// casbin applies in place. Only a -race run can fail it.
+func TestWholeTableReadsDuringRemoval(t *testing.T) {
+	tests := []struct {
+		name string
+		read func(*Manager) error
+	}{
+		{
+			name: "GetRoles",
+			read: func(m *Manager) error {
+				_, err := m.GetRoles()
+				return err
+			},
+		},
+		{
+			name: "ListGroupingSubjects",
+			read: func(m *Manager) error {
+				_, err := m.ListGroupingSubjects()
+				return err
+			},
+		},
+		{
+			name: "Snapshot",
+			read: func(m *Manager) error {
+				_, err := m.Snapshot()
+				return err
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			m, err := setupTestManager(t, logger)
+			require.NoError(t, err)
+
+			const n = 50
+			role := func(i int) string { return fmt.Sprintf("role-%d", i) }
+			user := func(i int) string {
+				return conv.UserNameWithTypeFromId(fmt.Sprintf("user-%d", i), authentication.AuthTypeDb)
+			}
+			policy := func(i int) authorization.Policy {
+				return authorization.Policy{Resource: authorization.Collections(fmt.Sprintf("C%d", i))[0], Verb: authorization.READ, Domain: authorization.SchemaDomain}
+			}
+			roles := make(map[string][]authorization.Policy, n)
+			for i := range n {
+				roles[role(i)] = []authorization.Policy{policy(i)}
+			}
+			require.NoError(t, m.CreateRolesPermissions(roles))
+			for i := range n {
+				require.NoError(t, m.AddRolesForUser(user(i), []string{role(i)}))
+			}
+
+			// casbin removes a row that is not its table's last by moving the last row
+			// into that row's slot.
+			removed := make(chan error, 1)
+			go func() {
+				for i := range n {
+					p := policy(i)
+					if err := m.RemovePermissions(role(i), []*authorization.Policy{&p}); err != nil {
+						removed <- err
+						return
+					}
+					if err := m.RevokeRolesForUser(user(i), role(i)); err != nil {
+						removed <- err
+						return
+					}
+				}
+				removed <- nil
+			}()
+
+			for {
+				require.NoError(t, tt.read(m))
+				select {
+				case err := <-removed:
+					require.NoError(t, err)
+					return
+				default:
+				}
+			}
+		})
+	}
+}
+
 // TestRestoreInvalidatesEnforceCache verifies that Restore() properly
 // invalidates the enforce cache so that concurrent Enforce() calls during
 // Restore() do not re-populate the cache with stale results that persist
@@ -1478,15 +1654,16 @@ func TestPrettyPermissionsResources_NamespaceStripping(t *testing.T) {
 	}
 
 	// Foreign-namespace prefix must remain intact so the embedded ":"
-	// stays in the audit trail.
+	// stays in the audit trail. Object is deprecated and ignored, so a set
+	// value must not show up in the audit line.
 	t.Run("ns_caller_foreign_namespace_kept", func(t *testing.T) {
 		perm := &models.Permission{Data: &models.PermissionData{
 			Collection: strPtr("customer2:Movies"),
 			Tenant:     strPtr("*"),
-			Object:     strPtr("*"),
+			Object:     strPtr("*"), //nolint:staticcheck // the deprecated field is exactly what this case pins
 		}}
 		require.Equal(t,
-			"[Domain: data, Collection: customer2:Movies, Tenant: *, Object: *]",
+			"[Domain: data, Collection: customer2:Movies, Tenant: *]",
 			prettyPermissionsResources(nsCaller, perm),
 		)
 	})
@@ -1654,6 +1831,108 @@ func TestDeleteRoles(t *testing.T) {
 			// would let deleted roles reappear here.
 			require.NoError(t, m.casbin.LoadPolicy())
 			assertRoles(t)
+		})
+	}
+}
+
+// recordingAdapter records the section each policy removal targets, in the order
+// casbin calls the adapter. The file adapter under it answers "not implemented",
+// which casbin ignores.
+type recordingAdapter struct {
+	persist.Adapter
+	removed []string
+}
+
+func (a *recordingAdapter) RemoveFilteredPolicy(sec string, ptype string, fieldIndex int, fieldValues ...string) error {
+	a.removed = append(a.removed, sec+" "+strings.Join(fieldValues, " "))
+	return a.Adapter.RemoveFilteredPolicy(sec, ptype, fieldIndex, fieldValues...)
+}
+
+// TestDeleteRolesRemovesAssignmentsFirst pins that DeleteRoles removes a role's g
+// rows before its p rows. The other order leaves the role readable with no
+// permissions, which callers who lack them are shown.
+func TestDeleteRolesRemovesAssignmentsFirst(t *testing.T) {
+	perm := authorization.Policy{Resource: authorization.CollectionsMetadata("Foo")[0], Verb: authorization.READ, Domain: authorization.SchemaDomain}
+	roles := []string{"role-a", "role-b"}
+
+	logger, _ := test.NewNullLogger()
+	m, err := setupTestManager(t, logger)
+	require.NoError(t, err)
+
+	for _, role := range roles {
+		require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{role: {perm}}))
+		require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId("user-of-"+role, authentication.AuthTypeDb), []string{role}))
+	}
+
+	// casbin hands every removal to the adapter, which is how the test sees the
+	// order without a seam in Manager.
+	adapter := &recordingAdapter{Adapter: m.casbin.GetAdapter()}
+	m.casbin.SetAdapter(adapter)
+
+	require.NoError(t, m.DeleteRoles(roles...))
+
+	var want []string
+	for _, role := range roles {
+		want = append(want, "g "+conv.PrefixRoleName(role), "p "+conv.PrefixRoleName(role))
+	}
+	assert.Equal(t, want, adapter.removed)
+}
+
+// TestReadRoleWithAssignmentsRemoved pins what a read returns between DeleteRoles'
+// two removals, with a role's g rows gone and its p rows still there. A role read
+// back with no permissions is shown to callers who lack them.
+func TestReadRoleWithAssignmentsRemoved(t *testing.T) {
+	perm := authorization.Policy{Resource: authorization.CollectionsMetadata("Foo")[0], Verb: authorization.READ, Domain: authorization.SchemaDomain}
+	role := "role-a"
+	user := "user-of-" + role
+
+	tests := []struct {
+		name     string
+		read     func(m *Manager) (map[string][]authorization.Policy, error)
+		wantRole bool
+	}{
+		{
+			// The assignment is what this path reads, so the role goes with it.
+			name: "roles of the user it was assigned to",
+			read: func(m *Manager) (map[string][]authorization.Policy, error) {
+				return m.GetRolesForUserOrGroup(user, authentication.AuthTypeDb, false)
+			},
+		},
+		{
+			name: "role by name",
+			read: func(m *Manager) (map[string][]authorization.Policy, error) {
+				return m.getRoles(role)
+			},
+			wantRole: true,
+		},
+		{
+			name: "every role",
+			read: func(m *Manager) (map[string][]authorization.Policy, error) {
+				return m.getRoles()
+			},
+			wantRole: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			m, err := setupTestManager(t, logger)
+			require.NoError(t, err)
+
+			require.NoError(t, m.CreateRolesPermissions(map[string][]authorization.Policy{role: {perm}}))
+			require.NoError(t, m.AddRolesForUser(conv.UserNameWithTypeFromId(user, authentication.AuthTypeDb), []string{role}))
+
+			_, err = m.casbin.RemoveFilteredGroupingPolicy(1, conv.PrefixRoleName(role))
+			require.NoError(t, err)
+
+			got, err := tt.read(m)
+			require.NoError(t, err)
+			if !tt.wantRole {
+				assert.NotContains(t, got, role)
+				return
+			}
+			assert.Equal(t, []authorization.Policy{perm}, got[role], "role %q read with its permissions half removed", role)
 		})
 	}
 }

@@ -108,6 +108,55 @@ func (ht *HashTree) Serialize(w io.Writer) (n int64, err error) {
 	return n, nil
 }
 
+func parseHashTreeHeader(hdr []byte) (height int, root Digest, err error) {
+	if len(hdr) < hashTreeHeaderLength {
+		return 0, Digest{}, fmt.Errorf("hashtree header too short: %d bytes", len(hdr))
+	}
+
+	hdrOff := 0
+
+	magicNumber := binary.BigEndian.Uint32(hdr[hdrOff:])
+	if magicNumber != hashTreeMagicNumber {
+		return 0, Digest{}, fmt.Errorf("hashtree magic number mismatch")
+	}
+	hdrOff += 4
+
+	if hdr[hdrOff] != hashTreeVersion {
+		return 0, Digest{}, fmt.Errorf("unsupported version %d, expected version %d", hdr[hdrOff], hashTreeVersion)
+	}
+	hdrOff++
+
+	height = int(binary.BigEndian.Uint32(hdr[hdrOff:]))
+	hdrOff += 4
+
+	if err := root.UnmarshalBinary(hdr[hdrOff : hdrOff+DigestLength]); err != nil {
+		return 0, Digest{}, fmt.Errorf("root digest: %w", err)
+	}
+	hdrOff += DigestLength
+
+	if !validHeaderChecksum(hdr[hdrOff:hdrOff+DigestLength], hdr[:hdrOff]) {
+		return 0, Digest{}, fmt.Errorf("header checksum mismatch")
+	}
+
+	if height > MaxHeight {
+		return 0, Digest{}, fmt.Errorf("%w: illegal height %d (max %d)", ErrIllegalArguments, height, MaxHeight)
+	}
+
+	return height, root, nil
+}
+
+// ReadHashTreeRoot reads only the header; the leaves are never touched.
+func ReadHashTreeRoot(r io.Reader) (root Digest, height int, err error) {
+	var hdr [hashTreeHeaderLength]byte
+
+	if _, err := io.ReadFull(r, hdr[:]); err != nil {
+		return Digest{}, 0, err
+	}
+
+	height, root, err = parseHashTreeHeader(hdr[:])
+	return root, height, err
+}
+
 func DeserializeHashTree(r io.Reader) (*HashTree, error) {
 	var hdr [hashTreeHeaderLength]byte
 
@@ -116,29 +165,9 @@ func DeserializeHashTree(r io.Reader) (*HashTree, error) {
 		return nil, err
 	}
 
-	hdrOff := 0
-
-	magicNumber := binary.BigEndian.Uint32(hdr[hdrOff:])
-	if magicNumber != hashTreeMagicNumber {
-		return nil, fmt.Errorf("hashtree magic number mismatch")
-	}
-	hdrOff += 4
-
-	if hdr[hdrOff] != hashTreeVersion {
-		return nil, fmt.Errorf("unsupported version %d, expected version %d", hdr[hdrOff], hashTreeVersion)
-	}
-	hdrOff++
-
-	height := int(binary.BigEndian.Uint32(hdr[hdrOff:]))
-	hdrOff += 4
-
-	var root Digest
-	root.UnmarshalBinary(hdr[hdrOff : hdrOff+DigestLength])
-	hdrOff += DigestLength
-
-	// The checksum catches bit-rot; NewHashTree's MaxHeight bound catches crafted heights — both before allocation.
-	if !validHeaderChecksum(hdr[hdrOff:hdrOff+DigestLength], hdr[:hdrOff]) {
-		return nil, fmt.Errorf("header checksum mismatch")
+	height, root, err := parseHashTreeHeader(hdr[:])
+	if err != nil {
+		return nil, err
 	}
 
 	ht, err := NewHashTree(height)

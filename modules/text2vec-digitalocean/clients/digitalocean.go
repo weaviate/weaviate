@@ -143,7 +143,7 @@ func (c *Client) vectorize(ctx context.Context, input []string, cfg moduletools.
 		metrics.ModuleExternalResponseStatus.WithLabelValues("text2vec", endpoint, strconv.Itoa(res.StatusCode)).Inc()
 	}
 	if err != nil {
-		metrics.ModuleCallError.WithLabelValues(moduleLabel, endpoint, err.Error()).Inc()
+		metrics.ModuleCallError.WithLabelValues(moduleLabel, endpoint, "transport_error").Inc()
 		return nil, nil, 0, errors.Wrap(err, "send POST request")
 	}
 	defer res.Body.Close()
@@ -226,7 +226,7 @@ func formatError(statusCode int, requestID string, body *digitalOceanError) erro
 	if body != nil && body.Message != "" {
 		msg = fmt.Sprintf("%s error: %s", msg, body.Message)
 	}
-	monitoring.GetMetrics().ModuleExternalError.WithLabelValues("text2vec", endpoint, msg, strconv.Itoa(statusCode)).Inc()
+	monitoring.GetMetrics().ModuleExternalError.WithLabelValues("text2vec", moduleLabel, endpoint, strconv.Itoa(statusCode)).Inc()
 	return errors.New(msg)
 }
 

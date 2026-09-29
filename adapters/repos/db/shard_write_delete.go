@@ -38,8 +38,7 @@ func (s *Shard) deleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return false, err
 	}
 
-	// Wait for hashtree initialization before acquiring the RLock.
-	// See shard_write_put.go for the deadlock explanation.
+	// Wait outside the RLock; see shard_write_put.go.
 	if err := s.waitForMinimalHashTreeInitialization(ctx); err != nil {
 		return false, err
 	}

@@ -312,8 +312,19 @@ func (p *Parser) ParseClassUpdate(class, update *models.Class) (*models.Class, e
 	}
 
 	if hasTargetVectors(update) {
-		if err := p.validator.ValidateVectorIndexConfigsUpdate(
-			asVectorIndexConfigs(class), asVectorIndexConfigs(update)); err != nil {
+		old, updated := asVectorIndexConfigs(class), asVectorIndexConfigs(update)
+		// the legacy vector owns files a named vector can collide with; the
+		// validator sees it under the empty name, as the shard names it
+		if legacy, ok := class.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+			if old == nil {
+				old = map[string]schemaConfig.VectorIndexConfig{}
+			}
+			if updated == nil {
+				updated = map[string]schemaConfig.VectorIndexConfig{}
+			}
+			old[""], updated[""] = legacy, legacy
+		}
+		if err := p.validator.ValidateVectorIndexConfigsUpdate(old, updated); err != nil {
 			return nil, err
 		}
 	}

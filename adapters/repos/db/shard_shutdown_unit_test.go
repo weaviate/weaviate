@@ -14,12 +14,19 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
+	"os"
+	"path"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // Unit pins for the shard shutdown/restore lifecycle (the integrationTest-
@@ -41,10 +48,10 @@ func TestShardStillAlive(t *testing.T) {
 	require.False(t, shardStillAlive(&LazyLoadShard{}),
 		"an unloaded lazy shard holds nothing to orphan")
 
-	loaded := &LazyLoadShard{loaded: true, shard: live}
+	loaded := newLoadedLazyShard(live)
 	require.True(t, shardStillAlive(loaded))
 
-	loadedShut := &LazyLoadShard{loaded: true, shard: shut}
+	loadedShut := newLoadedLazyShard(shut)
 	require.False(t, shardStillAlive(loadedShut))
 }
 
@@ -146,6 +153,75 @@ func TestPerformShutdown_TeardownErrorSticks(t *testing.T) {
 	require.NoError(t, clean.Shutdown(context.Background()))
 }
 
+// TestShardReleasesCounterAndVersionFiles pins that a shard holds its indexcount
+// file open only while it is loaded, and its version file not at all once it has
+// loaded. Each tenant a node loads and unloads would otherwise keep descriptors.
+func TestShardReleasesCounterAndVersionFiles(t *testing.T) {
+	ctx := context.Background()
+	className := "FileDescriptors"
+	shard, index := testShard(t, ctx, className)
+	s, ok := shard.(*Shard)
+	require.True(t, ok, "the counter and versioner live on the concrete shard")
+	require.NoError(t, s.PutObject(ctx, testObject(className)))
+
+	shardPath := s.path()
+	counterPath := path.Join(shardPath, "indexcount")
+	versionPath := path.Join(shardPath, "version")
+	loadShard := func() (*Shard, error) {
+		return NewShard(ctx, nil, s.Name(), index, &models.Class{Class: className},
+			index.centralJobQueue, index.scheduler,
+			index.shardReindexer, false, index.bitmapBufPool, monitoring.ShardRegistrationEager)
+	}
+
+	// Round 0 shuts down the shard testShard created, and every later round shuts down one loaded from disk.
+	for round := range 3 {
+		require.Equal(t, 1, openDescriptorCount(t, counterPath),
+			"round %d: a loaded shard keeps its counter file open to persist doc IDs", round)
+		require.Zero(t, openDescriptorCount(t, versionPath),
+			"round %d: a loaded shard has no use for its version file", round)
+
+		require.NoError(t, s.Shutdown(ctx))
+		require.Zero(t, openDescriptorCount(t, counterPath), "round %d: shutdown closes the counter file", round)
+		require.Zero(t, openDescriptorCount(t, versionPath), "round %d: shutdown leaves the version file closed", round)
+
+		var err error
+		s, err = loadShard()
+		require.NoError(t, err)
+	}
+	require.NoError(t, s.Shutdown(ctx))
+
+	// Each case leaves the shard broken on disk, so the case that fails later in the load runs first.
+	failedLoads := []struct {
+		name      string
+		breakDisk func(t *testing.T)
+	}{
+		{
+			name: "version file too short to read",
+			breakDisk: func(t *testing.T) {
+				require.NoError(t, os.WriteFile(versionPath, []byte{1}, 0o644))
+			},
+		},
+		{
+			name: "store fails before the counter opens",
+			breakDisk: func(t *testing.T) {
+				lsmPath := path.Join(shardPath, "lsm")
+				require.NoError(t, os.RemoveAll(lsmPath))
+				require.NoError(t, os.WriteFile(lsmPath, nil, 0o644))
+			},
+		},
+	}
+	for _, tc := range failedLoads {
+		t.Run(tc.name, func(t *testing.T) {
+			tc.breakDisk(t)
+
+			_, err := loadShard()
+			require.Error(t, err)
+			require.Zero(t, openDescriptorCount(t, counterPath), "a failed load closes the counter file")
+			require.Zero(t, openDescriptorCount(t, versionPath), "a failed load closes the version file")
+		})
+	}
+}
+
 // TestShardKnownShut pins the reactivation-eviction predicate: ONLY a shard
 // that completed a shutdown may be evicted from the map. An unloaded
 // LazyLoadShard is the normal steady state of a not-yet-loaded shard —
@@ -159,8 +235,8 @@ func TestShardKnownShut(t *testing.T) {
 	shut := &Shard{shutdownLock: new(sync.RWMutex)}
 	shut.shut.Store(true)
 	require.True(t, shardKnownShut(shut))
-	require.True(t, shardKnownShut(&LazyLoadShard{loaded: true, shard: shut}))
-	require.False(t, shardKnownShut(&LazyLoadShard{loaded: true, shard: &Shard{shutdownLock: new(sync.RWMutex)}}))
+	require.True(t, shardKnownShut(newLoadedLazyShard(shut)))
+	require.False(t, shardKnownShut(newLoadedLazyShard(&Shard{shutdownLock: new(sync.RWMutex)})))
 
 	// A deep-teardown failure (shut=true, sticky teardownErr) is NOT
 	// evictable: the map entry is the last reference to its possibly-leaked
@@ -179,4 +255,86 @@ func TestShardKnownShut(t *testing.T) {
 	require.True(t, restoreShardIfStillAlive(&m, "torn", torn),
 		"a torn shard is retained as the last reference to its leaked handles")
 	require.NotNil(t, m.Load("torn"))
+}
+
+// TestShutdownOrRestoreShardOutcome maps each Shutdown error to its outcome.
+func TestShutdownOrRestoreShardOutcome(t *testing.T) {
+	tests := []struct {
+		name        string
+		shutdownErr error
+		want        ShardUnloadOutcome
+	}{
+		{
+			name: "a clean shutdown",
+			want: ShardUnloadOutcomeUnloaded,
+		},
+		{
+			name:        "a shard that was already shut",
+			shutdownErr: errAlreadyShutdown,
+			want:        ShardUnloadOutcomeUnloaded,
+		},
+		{
+			// performShutdown wraps errShardStillInUse, so this row does too.
+			name:        "a shard still serving requests",
+			shutdownErr: fmt.Errorf("shard %q: %w", "s1", errShardStillInUse),
+			want:        ShardUnloadOutcomeRefusedInUse,
+		},
+		{
+			name:        "a backoff that ran out of time",
+			shutdownErr: context.DeadlineExceeded,
+			want:        ShardUnloadOutcomeRefusedInUse,
+		},
+		{
+			name:        "a backoff ended by a close request",
+			shutdownErr: context.Canceled,
+			want:        ShardUnloadOutcomeRefusedInUse,
+		},
+		{
+			// No other test in the package reaches failed.
+			name:        "a teardown that failed for its own reason",
+			shutdownErr: errors.New("bucket close failed"),
+			want:        ShardUnloadOutcomeFailed,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			shard := NewMockShardLike(t)
+			shard.On("Shutdown", mock.Anything).Return(tc.shutdownErr)
+			idx := indexForShutdownOutcomeTest(t)
+
+			got, err := shutdownOrRestoreShard(context.Background(), idx, "s1", shard)
+
+			require.Equal(t, tc.want, got)
+			if tc.shutdownErr == nil {
+				require.NoError(t, err)
+				return
+			}
+			require.ErrorIs(t, err, tc.shutdownErr)
+		})
+	}
+}
+
+// TestShutdownOrRestoreShardOutcomeTorn covers torn with a real *Shard.
+func TestShutdownOrRestoreShardOutcomeTorn(t *testing.T) {
+	torn := &Shard{shutdownLock: new(sync.RWMutex), teardownErr: errors.New("bucket close failed")}
+	torn.shut.Store(true)
+	idx := indexForShutdownOutcomeTest(t)
+
+	got, err := shutdownOrRestoreShard(context.Background(), idx, "s1", torn)
+
+	require.Equal(t, ShardUnloadOutcomeTorn, got)
+	require.ErrorIs(t, err, errTeardownFailed)
+	require.NotNil(t, idx.shards.Load("s1"), "a torn shard is retained in the map")
+}
+
+// indexForShutdownOutcomeTest builds only what shutdownOrRestoreShard reads.
+func indexForShutdownOutcomeTest(t *testing.T) *Index {
+	t.Helper()
+
+	logger, _ := test.NewNullLogger()
+	metrics, err := NewMetrics(logger, nil, "Abc", "n/a")
+	require.NoError(t, err)
+
+	return &Index{logger: logger, metrics: metrics, shards: shardMap{}}
 }

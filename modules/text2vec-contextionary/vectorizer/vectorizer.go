@@ -31,7 +31,7 @@ import (
 
 // Vectorizer turns objects into vectors
 type Vectorizer struct {
-	client           client
+	client           CorpiVectorizer
 	objectVectorizer *objectsvectorizer.ObjectVectorizer
 }
 
@@ -47,7 +47,7 @@ func NewErrNoUsableWordsf(pattern string, args ...interface{}) ErrNoUsableWords 
 	return ErrNoUsableWords{Err: fmt.Errorf(pattern, args...)}
 }
 
-type client interface {
+type CorpiVectorizer interface {
 	VectorForCorpi(ctx context.Context, corpi []string,
 		overrides map[string]string) ([]float32, []txt2vecmodels.InterpretationSource, error)
 }
@@ -60,7 +60,7 @@ type ClassIndexCheck interface {
 }
 
 // New from c11y client
-func New(client client) *Vectorizer {
+func New(client CorpiVectorizer) *Vectorizer {
 	return &Vectorizer{
 		client:           client,
 		objectVectorizer: objectsvectorizer.New(),

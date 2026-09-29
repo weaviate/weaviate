@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -143,7 +144,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 				Workers: 1,
 			})
 
-			mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+			mockSchemaReader := local.NewMockSchemaReader(t)
 			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 				return readerFunc(class, shardState)
 			}).Maybe()
@@ -173,7 +174,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				enthnsw.UserConfig{
 					VectorCacheMaxObjects: 1000,
-				}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil,
+				}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil,
 				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false, nil)
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
@@ -202,9 +203,6 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 					require.NoError(t, err)
 				}
 
-				// Wait for indexing to complete
-				time.Sleep(2 * time.Second)
-
 				// Test object storage size
 				shard, release, err := index.GetShard(ctx, tt.shardName)
 				require.NoError(t, err)
@@ -213,11 +211,12 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 
 				lazyShard, ok := shard.(*LazyLoadShard)
 				require.True(t, ok)
-				require.NoError(t, lazyShard.Load(ctx))
-
-				objectStorageSize, err := lazyShard.shard.ObjectStorageSize(ctx)
+				loaded, _, err := lazyShard.loadIfCold(ctx)
 				require.NoError(t, err)
-				objectCount, err := lazyShard.shard.ObjectCount(ctx)
+
+				objectStorageSize, err := loaded.ObjectStorageSize(ctx)
+				require.NoError(t, err)
+				objectCount, err := loaded.ObjectCount(ctx)
 				require.NoError(t, err)
 
 				// Verify object count
@@ -238,9 +237,10 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 
 				lazyShard, ok := shard.(*LazyLoadShard)
 				require.True(t, ok)
-				require.NoError(t, lazyShard.Load(ctx))
+				loaded, _, err := lazyShard.loadIfCold(ctx)
+				require.NoError(t, err)
 
-				objectStorageSize, err := lazyShard.shard.ObjectStorageSize(ctx)
+				objectStorageSize, err := loaded.ObjectStorageSize(ctx)
 				require.NoError(t, err)
 				objectCount, err := shard.ObjectCount(ctx)
 				require.NoError(t, err)
@@ -314,7 +314,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		Workers: 1,
 	})
 
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 		return readerFunc(class, shardState)
 	}).Maybe()
@@ -327,7 +327,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
 	mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 	mockSchema.EXPECT().ShardOwner(className, tenantNamePopulated).Maybe().Return("test-node", nil)
-	mockSchema.EXPECT().TenantsShards(ctx, className, tenantNamePopulated).Maybe().
+	mockSchema.EXPECT().TenantsShardsStatus(ctx, className, tenantNamePopulated).Maybe().
 		Return(map[string]string{tenantNamePopulated: models.TenantActivityStatusHOT}, nil)
 
 	mockRouter := types.NewMockRouter(t)
@@ -370,7 +370,6 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		class,                             // class
 		nil,                               // job queue
 		scheduler,                         // scheduler
-		nil,                               // checkpoints
 		nil,                               // alloc checker
 		NewShardReindexerV3Noop(),         // shard reindexer
 		roaringset.NewBitmapBufPoolNoop(), // bitmap buffer pool
@@ -472,7 +471,6 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		class,                             // class
 		nil,                               // job queue
 		scheduler,                         // scheduler
-		nil,                               // checkpoints
 		nil,                               // alloc checker
 		NewShardReindexerV3Noop(),         // shard reindexer
 		roaringset.NewBitmapBufPoolNoop(), // bitmap buffer pool

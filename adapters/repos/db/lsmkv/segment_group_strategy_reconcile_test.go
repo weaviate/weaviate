@@ -36,7 +36,7 @@ func TestSegmentGroupReconcileMapToInverted(t *testing.T) {
 	require.NoError(t, err)
 	inv.SetMemtableThreshold(1e9)
 	for id := uint64(1); id <= 25; id++ {
-		require.NoError(t, inv.MapSet(term, NewMapPairFromDocIdAndTf(id, float32(id), 1, false)))
+		require.NoError(t, inv.InvertedSet(term, id, float32(id), 1))
 	}
 	require.NoError(t, inv.FlushAndSwitch())
 

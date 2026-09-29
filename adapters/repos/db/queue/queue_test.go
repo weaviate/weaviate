@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -945,53 +946,61 @@ func TestDequeueBatchTornChunk(t *testing.T) {
 	}
 }
 
-func TestQueueAutoReleaseResources(t *testing.T) {
+// writeBufferHeld reports whether the queue currently holds a bufio.Writer.
+// It takes the queue lock because the scheduler may be promoting a chunk.
+func writeBufferHeld(q *DiskQueue) bool {
+	q.m.RLock()
+	defer q.m.RUnlock()
+	return q.w.w.w != nil
+}
+
+// recvWithin returns the next executed task key, failing the test instead of
+// hanging until the package timeout if the scheduler never dispatches.
+func recvWithin(t *testing.T, ch <-chan uint64, d time.Duration) uint64 {
+	t.Helper()
+	select {
+	case key := <-ch:
+		return key
+	case <-time.After(d):
+		t.Fatalf("no task executed within %s", d)
+		return 0
+	}
+}
+
+func TestQueueReleasesWriteBuffer(t *testing.T) {
 	t.Parallel()
 
-	t.Run("releases bufio writer after inactivity period", func(t *testing.T) {
+	t.Run("buffer is returned to the pool once the scheduler drains the queue", func(t *testing.T) {
 		t.Parallel()
 
 		s := makeScheduler(t)
 		s.Start()
 		defer s.Close(t.Context())
 
-		q := makeQueue(t, s, discardExecutor())
-		q.Pause(t.Context()) // prevent scheduler from processing the queue
-		q.inactivityPeriod = 400 * time.Millisecond
+		ch, e := streamExecutor()
+		q := makeQueue(t, s, e)
+
 		pushMany(t, q, 1, 100, 200, 300)
-		require.Equal(t, int64(3), q.Size())
-		q.staleTimeout = 0 // disable stale timeout for this test
+		require.True(t, writeBufferHeld(q))
 
-		batch, err := q.DequeueBatch()
-		require.NoError(t, err)
-		batch.Done()
+		// let the scheduler promote the stale partial chunk and run the tasks
+		for i := 0; i < 3; i++ {
+			recvWithin(t, ch, 5*time.Second)
+		}
+		require.Eventually(t, func() bool { return q.Size() == 0 }, 5*time.Second, 10*time.Millisecond)
 
-		// bufio writer should be in use
-		require.NotNil(t, q.w.w.w)
+		// an idle queue must not keep its 256 KiB buffer
+		require.Eventually(t, func() bool { return !writeBufferHeld(q) }, 5*time.Second, 10*time.Millisecond)
 
-		// wait for longer than the inactivity period
-		time.Sleep(700 * time.Millisecond)
-
-		// call DequeueBatch to trigger the inactivity check
-		_, err = q.DequeueBatch()
-		require.NoError(t, err)
-
-		// bufio writer should be released
-		require.Nil(t, q.w.w.w)
-
-		// push another record to ensure the queue still works
-		err = q.Push(makeRecord(1, 400))
-		require.NoError(t, err)
-		require.Equal(t, int64(1), q.Size())
-
-		_, err = q.DequeueBatch()
-		require.NoError(t, err)
-
-		// bufio writer should be in use again
-		require.NotNil(t, q.w.w.w)
+		// the queue keeps working after the release
+		pushMany(t, q, 1, 400)
+		require.True(t, writeBufferHeld(q))
+		require.Equal(t, uint64(400), recvWithin(t, ch, 5*time.Second))
+		require.Eventually(t, func() bool { return q.Size() == 0 }, 5*time.Second, 10*time.Millisecond)
+		require.Eventually(t, func() bool { return !writeBufferHeld(q) }, 5*time.Second, 10*time.Millisecond)
 	})
 
-	t.Run("doesn't release bufio writer after inactivity period if queue is not empty", func(t *testing.T) {
+	t.Run("buffer is returned to the pool on close", func(t *testing.T) {
 		t.Parallel()
 
 		s := makeScheduler(t)
@@ -999,25 +1008,12 @@ func TestQueueAutoReleaseResources(t *testing.T) {
 		defer s.Close(t.Context())
 
 		q := makeQueue(t, s, discardExecutor())
-		q.Pause(t.Context()) // prevent scheduler from processing the queue
-		q.inactivityPeriod = 400 * time.Millisecond
-		pushMany(t, q, 1, 100, 200, 300)
-		require.Equal(t, int64(3), q.Size())
-		q.staleTimeout = 0 // disable stale timeout for this test
+		q.Pause(t.Context()) // keep the scheduler away so the buffer stays allocated
+		pushMany(t, q, 1, 100)
+		require.True(t, writeBufferHeld(q))
 
-		// bufio writer should be in use
-		require.NotNil(t, q.w.w.w)
-
-		// wait for longer than the inactivity period
-		time.Sleep(700 * time.Millisecond)
-
-		// call DequeueBatch to trigger the inactivity check
-		batch, err := q.DequeueBatch()
-		require.NoError(t, err)
-		batch.Done()
-
-		// bufio writer should not be released
-		require.NotNil(t, q.w.w.w)
+		require.NoError(t, q.Close(t.Context()))
+		require.False(t, writeBufferHeld(q))
 	})
 }
 
@@ -1337,4 +1333,66 @@ func TestQueueForceSwitch(t *testing.T) {
 	files, err = q.ListFiles(ctx, tmpDir)
 	require.NoError(t, err)
 	require.Len(t, files, 9)
+}
+
+// TestChunkWriterCreateSameMicrosecond ensures that chunk files, which are
+// named after their creation time in microseconds, are created exclusively.
+// Without O_EXCL, a second Create in the same microsecond silently reopens the
+// existing chunk file and later header writes clobber it.
+func TestChunkWriterCreateSameMicrosecond(t *testing.T) {
+	stubChunkTime := func(t *testing.T, ts int64) {
+		t.Helper()
+		prev := chunkTimeNow
+		chunkTimeNow = func() int64 { return ts }
+		t.Cleanup(func() { chunkTimeNow = prev })
+	}
+
+	t.Run("two creates in the same microsecond get distinct files", func(t *testing.T) {
+		dir := t.TempDir()
+		stubChunkTime(t, 12345)
+
+		w1 := &chunkWriter{dir: dir, logger: newTestLogger(), maxSize: defaultChunkSize}
+		require.NoError(t, w1.Create())
+
+		w2 := &chunkWriter{dir: dir, logger: newTestLogger(), maxSize: defaultChunkSize}
+		require.NoError(t, w2.Create())
+
+		require.NotEqual(t, w1.f.Name(), w2.f.Name(),
+			"second Create reused the first writer's chunk file")
+
+		require.NoError(t, w1.Close())
+		require.NoError(t, w2.Close())
+
+		// both chunk files must coexist, each with an intact header
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		require.Len(t, entries, 2)
+
+		for _, e := range entries {
+			f, err := os.Open(filepath.Join(dir, e.Name()))
+			require.NoError(t, err)
+			_, err = readChunkHeader(f)
+			require.NoError(t, err, "chunk %s has a corrupt header", e.Name())
+			require.NoError(t, f.Close())
+		}
+	})
+
+	t.Run("existing file at the target name is never reused", func(t *testing.T) {
+		dir := t.TempDir()
+		stubChunkTime(t, 12345)
+
+		existing := filepath.Join(dir, fmt.Sprintf(chunkFileFmt, int64(12345)))
+		content := []byte("pre-existing chunk data that must not be clobbered")
+		require.NoError(t, os.WriteFile(existing, content, 0o644))
+
+		w := &chunkWriter{dir: dir, logger: newTestLogger(), maxSize: defaultChunkSize}
+		require.NoError(t, w.Create())
+		require.NotEqual(t, existing, w.f.Name(),
+			"Create reused an existing chunk file")
+		require.NoError(t, w.Close())
+
+		got, err := os.ReadFile(existing)
+		require.NoError(t, err)
+		require.Equal(t, content, got, "existing chunk file was clobbered")
+	})
 }

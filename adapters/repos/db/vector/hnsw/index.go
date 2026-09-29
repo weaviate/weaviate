@@ -176,10 +176,14 @@ type hnsw struct {
 	compressed atomic.Bool
 	// compressing spans Upgrade() through compressThenCallback completion;
 	// HaltForTransfer reads it via UpgradeInProgress() to defer a replica movement.
-	compressing      atomic.Bool
-	doNotRescore     bool
-	acornSearch      atomic.Bool
-	acornFilterRatio float64
+	compressing  atomic.Bool
+	doNotRescore bool
+	// configuredFilterStrategy holds the FilterStrategy enum value from the
+	// user config (SWEEPING, ACORN or PATHSEER) as one atomic word, so a
+	// concurrent search during a config update always observes either the
+	// old or the new strategy — never a torn combination of two booleans.
+	configuredFilterStrategy atomic.Int32
+	acornFilterRatio         float64
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
@@ -245,7 +249,7 @@ func GetCompressedVector[T byte | uint64](h *hnsw, id uint64) ([]T, error) {
 
 type CommitLogger interface {
 	ID() string
-	AddNode(node *vertex) error
+	AddNode(id uint64, level uint16) error
 	SetEntryPointWithMaxLayer(id uint64, level int) error
 	AddLinkAtLevel(nodeid uint64, level int, target uint64) error
 	ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error
@@ -292,6 +296,19 @@ type HNSW = hnsw
 // criterium for the index to see if it has to recover from disk or if its a
 // truly new index. So instead the index is initialized, with un-biased disk
 // checks first and only then is the commit logger created
+// filterStrategyFromConfig maps the user-config string to the traversal
+// enum; unknown values (validated upstream) fall back to sweeping.
+func filterStrategyFromConfig(s string) FilterStrategy {
+	switch s {
+	case ent.FilterStrategyAcorn:
+		return ACORN
+	case ent.FilterStrategyPathseer:
+		return PATHSEER
+	default:
+		return SWEEPING
+	}
+}
+
 func New(cfg Config, uc ent.UserConfig,
 	tombstoneCallbacks cyclemanager.CycleCallbackGroup, store *lsmkv.Store,
 ) (*HNSW, error) {
@@ -411,7 +428,7 @@ func New(cfg Config, uc ent.UserConfig,
 		makeBucketOptions: cfg.MakeBucketOptions,
 		fs:                common.NewOSFS(),
 	}
-	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
+	index.configuredFilterStrategy.Store(int32(filterStrategyFromConfig(uc.FilterStrategy)))
 
 	index.multivector.Store(uc.Multivector.Enabled)
 	index.muvera.Store(uc.Multivector.MuveraEnabled())
@@ -768,6 +785,28 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 	return h.nodes[id]
 }
 
+// nodeAbsent reports whether id has no live vertex (out of range or a nil
+// slot). It takes only the single node-shard read lock for id and holds no
+// other lock, so callers may safely acquire tombstoneLock afterwards without
+// inverting the delete/reset lock order.
+func (h *hnsw) nodeAbsent(id uint64) bool {
+	h.shardedNodeLocks.RLock(id)
+	defer h.shardedNodeLocks.RUnlock(id)
+
+	return id >= uint64(len(h.nodes)) || h.nodes[id] == nil
+}
+
+// docIDVectorExists reports whether a multivector docID maps to any vector.
+// It preserves the node-shard read-lock scope the ACORN seed loop used for
+// this map read while keeping that scope off the subsequent distToNode call.
+func (h *hnsw) docIDVectorExists(id uint64) bool {
+	h.shardedNodeLocks.RLock(id)
+	defer h.shardedNodeLocks.RUnlock(id)
+
+	_, exists := h.docIDVectors[id]
+	return exists
+}
+
 // Drop stops the index exactly as Shutdown does, then removes the commit log's
 // files. Dropping before stopping would leave the maintenance cycles and the
 // tombstone cleanup running against state being torn down underneath them.
@@ -852,11 +891,18 @@ func (h *hnsw) Iterate(fn func(docID uint64) bool) {
 func (h *hnsw) iterate(fn func(docID uint64) bool) {
 	var id uint64
 
+	// snapshot under resetLock: resetUnlocked swaps h.resetCtx and an
+	// unsynchronized read races that write. The snapshot still observes a
+	// reset, because the old context is cancelled before being replaced.
+	h.resetLock.RLock()
+	resetCtx := h.resetCtx
+	h.resetLock.RUnlock()
+
 	for {
 		if h.shutdownCtx.Err() != nil {
 			return
 		}
-		if h.resetCtx.Err() != nil {
+		if resetCtx.Err() != nil {
 			return
 		}
 
@@ -889,8 +935,13 @@ func (h *hnsw) iterateMulti(fn func(docID uint64) bool) {
 	}
 	h.RUnlock()
 
+	// snapshot under resetLock — see iterate for why
+	h.resetLock.RLock()
+	resetCtx := h.resetCtx
+	h.resetLock.RUnlock()
+
 	for _, docID := range indexedDocIDs {
-		if h.shutdownCtx.Err() != nil || h.resetCtx.Err() != nil {
+		if h.shutdownCtx.Err() != nil || resetCtx.Err() != nil {
 			return
 		}
 
@@ -1073,16 +1124,11 @@ func (h *hnsw) calculateUnreachablePoints() []uint64 {
 
 	unvisitedNodes := []uint64{}
 	for i := 0; i < len(h.nodes); i++ {
-		var id uint64
-		h.shardedNodeLocks.RLock(uint64(i))
-		if h.nodes[i] != nil {
-			id = h.nodes[i].id
-		}
-		h.shardedNodeLocks.RUnlock(uint64(i))
-		if id == 0 {
-			continue
-		}
-		if !visitedNodes[uint64(i)] {
+		id := uint64(i)
+		h.shardedNodeLocks.RLock(id)
+		present := h.nodes[i] != nil
+		h.shardedNodeLocks.RUnlock(id)
+		if present && !visitedNodes[id] {
 			unvisitedNodes = append(unvisitedNodes, id)
 		}
 
@@ -1118,7 +1164,7 @@ func (h *hnsw) Stats() (*HnswStats, error) {
 			}
 			node.Lock()
 			defer node.Unlock()
-			l := node.level
+			l := int(node.level)
 			if l == 0 && node.connections.Layers() == 0 {
 				return
 			}

@@ -19,11 +19,13 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 )
 
 const (
@@ -55,7 +57,7 @@ func newLockTestMigrator(t *testing.T, reachIndex bool) *Migrator {
 	}}
 	state.SetLocalName(lockTestNode)
 
-	reader := schemaUC.NewMockSchemaReader(t)
+	reader := local.NewMockSchemaReader(t)
 	reader.EXPECT().Shards(lockTestClass).Return(shards, nil).Maybe()
 	reader.EXPECT().Read(lockTestClass, true, mock.Anything).RunAndReturn(
 		func(_ string, _ bool, read func(*models.Class, *sharding.State) error) error {
@@ -76,7 +78,7 @@ func newLockTestMigrator(t *testing.T, reachIndex bool) *Migrator {
 	nodeResolver.EXPECT().
 		NodeHostname(mock.Anything).
 		RunAndReturn(func(s string) (string, bool) { return s, true }).Maybe()
-	idx.remote = sharding.NewRemoteIndex(
+	idx.remote = remote.NewIndex(
 		lockTestClass,
 		idx.getSchema,
 		nodeResolver,
@@ -105,8 +107,8 @@ func migratorOpsWithoutClassLock(reachIndex bool) map[string]func(*Migrator) err
 		"DeleteTenants": func(m *Migrator) error {
 			return m.DeleteTenants(ctx, lockTestClass, nil)
 		},
-		"GetShardsStatus": func(m *Migrator) error {
-			_, _, err := m.GetShardsStatus(ctx, lockTestClass, "")
+		"GetShardsStorageStatus": func(m *Migrator) error {
+			_, _, err := m.GetShardsStorageStatus(ctx, lockTestClass, "")
 			return err
 		},
 		"GetShardsQueueSize": func(m *Migrator) error {

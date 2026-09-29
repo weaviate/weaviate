@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -236,7 +237,7 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageInde
 		Workers: 1,
 	})
 
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readerFunc func(*models.Class, *sharding.State) error) error {
 		return readerFunc(class, shardState)
 	}).Maybe()
@@ -246,7 +247,7 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageInde
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
 	mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 	mockSchema.EXPECT().ShardOwner(className, tenantName).Maybe().Return("test-node", nil)
-	mockSchema.EXPECT().TenantsShards(ctx, className, tenantName).Maybe().
+	mockSchema.EXPECT().TenantsShardsStatus(ctx, className, tenantName).Maybe().
 		Return(map[string]string{tenantName: models.TenantActivityStatusHOT}, nil)
 
 	mockRouter := types.NewMockRouter(t)
@@ -285,7 +286,6 @@ func setupPopulatedLazyIndex(ctx context.Context, t *testing.T, params usageInde
 			class,
 			nil,
 			scheduler,
-			nil,
 			memwatch.NewDummyMonitor(),
 			NewShardReindexerV3Noop(),
 			roaringset.NewBitmapBufPoolNoop(),

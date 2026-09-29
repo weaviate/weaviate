@@ -24,7 +24,7 @@ import (
 // in the order they run: both must stay ahead of bucket loading, or a bucket
 // opens at a name one of them is about to move.
 func (s *Shard) settleMigrationDirectories(ctx context.Context, class *models.Class) {
-	FinalizeCompletedMigrations(s.pathLSM(), s.index.logger)
+	FinalizeCompletedMigrations(s.pathLSM(), class, s.index.logger)
 	s.reconcileMigrationRecords(ctx, class)
 }
 
@@ -103,8 +103,9 @@ func (l *LazyLoadShard) migrationRecordStore() *MigrationRecordStore {
 	l.mutex.Lock()
 	defer l.mutex.Unlock()
 
-	if !l.loaded {
+	shard := l.currentShard()
+	if shard == nil {
 		return nil
 	}
-	return l.shard.migrationRecordStore()
+	return shard.migrationRecordStore()
 }

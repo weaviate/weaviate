@@ -39,9 +39,9 @@ func buildInvertedNodes(count, base int) ([]MapPair, *propLengthsView) {
 
 func encodeInvertedNode(t *testing.T, count, base int) []byte {
 	t.Helper()
-	nodes := make([]MapPair, count)
+	nodes := make([]invertedPair, count)
 	for i := 0; i < count; i++ {
-		nodes[i] = NewMapPairFromDocIdAndTf(uint64(base+i*3+1), float32(i%7+1), 1, false)
+		nodes[i] = newInvertedPair(uint64(base+i*3+1), float32(i%7+1), 1, false)
 	}
 	data, _ := createAndEncodeBlocksWithLengths(nodes,
 		&varenc.VarIntDeltaEncoder{}, &varenc.VarIntEncoder{}, 1.2, 0.75, 1.0)

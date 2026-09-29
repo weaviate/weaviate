@@ -83,7 +83,7 @@ func (m *Module) Init(ctx context.Context,
 	params moduletools.ModuleInitParams,
 ) error {
 	m.logger = params.GetLogger()
-	m.dataPath = params.GetStorageProvider().DataPath()
+	m.dataPath = params.GetDataPath()
 
 	transport := params.GetConfig().BackupGCS
 	config := &clientConfig{

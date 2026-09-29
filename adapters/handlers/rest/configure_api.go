@@ -72,7 +72,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/editops"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/transformers"
-	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -164,6 +163,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/backup"
+	"github.com/weaviate/weaviate/usecases/banner"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/classification"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -179,6 +179,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -464,6 +465,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		MaxSegmentSize:                      appState.ServerConfig.Config.Persistence.LSMMaxSegmentSize,
 		CycleManagerRoutinesFactor:          appState.ServerConfig.Config.Persistence.LSMCycleManagerRoutinesFactor,
 		IndexRangeableInMemory:              appState.ServerConfig.Config.Persistence.IndexRangeableInMemory,
+		IndexRangeableInMemoryProps:         appState.ServerConfig.Config.Persistence.IndexRangeableInMemoryProps,
 		RootPath:                            appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                          appState.ServerConfig.Config.QueryDefaults.Limit,
 		QueryMaximumResults:                 appState.ServerConfig.Config.QueryMaximumResults,
@@ -515,26 +517,29 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			AsyncReplicationPropagationDelay:          appState.ServerConfig.Config.Replication.AsyncReplicationPropagationDelay,
 			AsyncReplicationRootPrefilterBatchSize:    appState.ServerConfig.Config.Replication.AsyncReplicationRootPrefilterBatchSize,
 		},
-		MaximumConcurrentShardLoads:  appState.ServerConfig.Config.MaximumConcurrentShardLoads,
-		MaximumConcurrentBucketLoads: appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
-		HNSWMaxLogSize:               appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
-		HNSWWaitForCachePrefill:      appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
-		HNSWFlatSearchConcurrency:    appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
-		HNSWAcornFilterRatio:         appState.ServerConfig.Config.HNSWAcornFilterRatio,
-		BM25FilterTombMergeGateRatio: appState.ServerConfig.Config.BM25FilterTombMergeGateRatio,
-		HNSWGeoIndexEF:               appState.ServerConfig.Config.HNSWGeoIndexEF,
-		VisitedListPoolMaxSize:       appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
-		TenantActivityReadLogLevel:   appState.ServerConfig.Config.TenantActivityReadLogLevel,
-		TenantActivityWriteLogLevel:  appState.ServerConfig.Config.TenantActivityWriteLogLevel,
-		QuerySlowLogEnabled:          appState.ServerConfig.Config.QuerySlowLogEnabled,
-		QuerySlowLogThreshold:        appState.ServerConfig.Config.QuerySlowLogThreshold,
-		InvertedSorterDisabled:       appState.ServerConfig.Config.InvertedSorterDisabled,
-		QueryBatchedContainsEnabled:  appState.ServerConfig.Config.QueryBatchedContainsEnabled,
-		LazyPropertyLengthsEnabled:   appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
-		MaintenanceModeEnabled:       appState.Cluster.MaintenanceModeEnabledForLocalhost,
-		AsyncIndexingEnabled:         appState.ServerConfig.Config.AsyncIndexingEnabled,
-		OperationalMode:              appState.ServerConfig.Config.OperationalMode,
-		DisableDimensionMetrics:      appState.ServerConfig.Config.DisableDimensionMetrics,
+		MaximumConcurrentShardLoads:   appState.ServerConfig.Config.MaximumConcurrentShardLoads,
+		MaximumConcurrentBucketLoads:  appState.ServerConfig.Config.MaximumConcurrentBucketLoads,
+		HNSWMaxLogSize:                appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
+		HNSWWaitForCachePrefill:       appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
+		HNSWFlatSearchConcurrency:     appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
+		HNSWAcornFilterRatio:          appState.ServerConfig.Config.HNSWAcornFilterRatio,
+		BM25FilterTombMergeGateRatio:  appState.ServerConfig.Config.BM25FilterTombMergeGateRatio,
+		QueryAdmissionBudget:          appState.ServerConfig.Config.QueryAdmissionBudget,
+		QueryAdmissionMaxQueue:        appState.ServerConfig.Config.QueryAdmissionMaxQueue,
+		QueryAdmissionControlDisabled: appState.ServerConfig.Config.QueryAdmissionControlDisabled,
+		HNSWGeoIndexEF:                appState.ServerConfig.Config.HNSWGeoIndexEF,
+		VisitedListPoolMaxSize:        appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
+		TenantActivityReadLogLevel:    appState.ServerConfig.Config.TenantActivityReadLogLevel,
+		TenantActivityWriteLogLevel:   appState.ServerConfig.Config.TenantActivityWriteLogLevel,
+		QuerySlowLogEnabled:           appState.ServerConfig.Config.QuerySlowLogEnabled,
+		QuerySlowLogThreshold:         appState.ServerConfig.Config.QuerySlowLogThreshold,
+		InvertedSorterDisabled:        appState.ServerConfig.Config.InvertedSorterDisabled,
+		QueryBatchedContainsEnabled:   appState.ServerConfig.Config.QueryBatchedContainsEnabled,
+		LazyPropertyLengthsEnabled:    appState.ServerConfig.Config.LazyPropertyLengthsEnabled,
+		MaintenanceModeEnabled:        appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		AsyncIndexingEnabled:          appState.ServerConfig.Config.AsyncIndexingEnabled,
+		OperationalMode:               appState.ServerConfig.Config.OperationalMode,
+		DisableDimensionMetrics:       appState.ServerConfig.Config.DisableDimensionMetrics,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch, nil, nil, nil, appState.NamespacesController) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -669,7 +674,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		DistributedTaskTargetVectorExtractors: map[string]distributedtask.TargetVectorExtractor{
 			db.DropVectorIndexNamespace: db.ExtractDropVectorIndexTaskTargets,
 		},
-		ReplicaMovementEnabled:                 appState.ServerConfig.Config.ReplicaMovementEnabled,
 		DrainSleep:                             appState.ServerConfig.Config.Raft.DrainSleep.Get(),
 		MaxTenantsPerCollection:                appState.ServerConfig.Config.UsageLimits.MaxTenantsPerCollection,
 		UsageLimitsErrorMessage:                appState.ServerConfig.Config.UsageLimits.ErrorMessage,
@@ -689,6 +693,13 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	appState.ClusterService = rCluster.New(rConfig, appState.AuthzController, appState.GRPCServerMetrics)
 	migrator.SetCluster(appState.ClusterService.Raft)
 	appState.ClusterService.SetInflightDrainer(repo.WaitForLocalInflightWrites)
+
+	// Docs links carry ?clusterid= only when telemetry is enabled. Installed
+	// before ClusterService.Open so links logged during restore-time shard
+	// loads already carry it.
+	if telemetryEnabled(appState) {
+		enterrors.SetClusterIDSource(appState.ClusterService.ClusterID)
+	}
 
 	// Wrap RestoreClassDir so each post-RAFT-apply class-dir move also
 	// fires the orphan-reindex audit on the restored on-disk state.
@@ -744,7 +755,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	schemaManager, err := schema.NewManager(migrator,
 		appState.ClusterService.Raft,
+		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
+		executor,
 		schemaRepo,
 		appState.Logger, appState.Authorizer, &appState.ServerConfig.Config.SchemaHandlerConfig, appState.ServerConfig.Config,
 		vectorIndex.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
@@ -783,7 +796,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// initialize needed services after all components are ready
 	postInitModules(appState)
 
-	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)
+	appState.RemoteIndexIncoming = remote.NewIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 
 	// Assign only when RBAC is on. A nil *rbac.Manager put into this interface
@@ -1175,6 +1188,7 @@ func initReindexAndDistributedTasks(
 		repo,
 		dropVectorFinalizer,
 		appState.ClusterService.Raft,
+		appState.ClusterService.Raft,
 		appState.Logger,
 		appState.Cluster.LocalName(),
 		serverShutdownCtx,
@@ -1209,6 +1223,7 @@ func initReindexAndDistributedTasks(
 		// after OnGroupCompleted, so a failed ack flips the task to FAILED
 		// before the cluster-wide schema flip can run.
 		AckRecorder:        appState.ClusterService.Raft,
+		ForceTerminator:    appState.ClusterService.Raft,
 		LocalTaskInspector: appState.ClusterService.Raft,
 		Providers:          providers,
 		Logger:             appState.Logger,
@@ -1447,10 +1462,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		appState.Logger)
 
-	replicationHandlers.SetupHandlers(appState.ServerConfig.Config.ReplicaMovementEnabled, api, appState.ClusterService.Raft, appState.Metrics, appState.Authorizer, appState.Logger)
+	replicationHandlers.SetupHandlers(appState.ServerConfig.Config.Replication.ReplicaMovementEnabled, api, appState.ClusterService.Raft, appState.Metrics, appState.Authorizer, appState.Logger)
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
-	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController, appState.Logger)
+	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.APIKey.Dynamic, appState.AuthzController, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.ServerConfig.Config.Namespaces.Enabled, appState.NamespacesController, appState.Logger)
 	rest_namespaces.SetupHandlers(appState.ServerConfig.Config.Namespaces.Enabled, api, appState.ClusterService.Raft, appState.Authorizer)
 
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Authorizer, appState.Metrics, appState.Logger, appState.ClusterService.Raft, appState.ReindexSubmitLocks, appState.ServerConfig.Config.Namespaces.Enabled)
@@ -1470,6 +1485,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Metrics, appState.Logger)
 	setupClassificationHandlers(api, classifier, appState.ServerConfig.Config.Namespaces.Enabled, appState.Metrics, appState.Logger)
 	backupScheduler := startBackupScheduler(appState)
+	// Lets a DELETE landing on a non-coordinator cancel the create via abort fan-out.
+	appState.BackupManager.SetCoordinatorCanceller(backupScheduler)
 	setupBackupHandlers(api, backupScheduler, appState.ServerConfig.Config.Authorization.Rbac, appState.Metrics, appState.Logger)
 	exportScheduler := startExportScheduler(appState)
 	setupExportHandlers(api, exportScheduler, appState.Metrics, appState.Logger)
@@ -1516,6 +1533,14 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}
 		}, appState.Logger)
 		setupTelemetryDebugHandlers(telemeter)
+
+		// The banner waits for the cluster id and fetches its art from
+		// weaviate.io, so it only runs when telemetry is enabled.
+		if !entconfig.Enabled(os.Getenv("DISABLE_STARTUP_BANNER")) {
+			repeater := banner.NewRepeater(appState.Logger, appState.ClusterService.ClusterID,
+				appState.ServerConfig.Config.BannerInterval, nil)
+			enterrors.GoWrapper(func() { repeater.Run(serverShutdownCtx) }, appState.Logger)
+		}
 	}
 	if entconfig.Enabled(os.Getenv("ENABLE_CLEANUP_UNFINISHED_BACKUPS")) {
 		enterrors.GoWrapper(
@@ -1669,7 +1694,7 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 	backupScheduler := backup.NewScheduler(
 		appState.Authorizer,
 		clients.NewClusterBackups(appState.ClusterHttpClient),
-		appState.DB, userLister, roleLister, appState.Modules,
+		appState.DB, appState.DB, userLister, roleLister, appState.Modules,
 		membership{appState.Cluster, appState.ClusterService},
 		appState.SchemaManager,
 		rbac.StaticAPIKeyUsers(appState.ServerConfig.Config.Authentication),
@@ -1740,13 +1765,6 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 	}
 
 	logger.WithFields(logrus.Fields{
-		"action":                    "startup",
-		"default_vectorizer_module": serverConfig.Config.DefaultVectorizerModule,
-	}).Infof("the default vectorizer modules is set to %q, as a result all new "+
-		"schema classes without an explicit vectorizer setting, will use this "+
-		"vectorizer", serverConfig.Config.DefaultVectorizerModule)
-
-	logger.WithFields(logrus.Fields{
 		"action":              "startup",
 		"auto_schema_enabled": serverConfig.Config.AutoSchema.Enabled,
 	}).Infof("auto schema enabled setting is set to \"%v\"", serverConfig.Config.AutoSchema.Enabled)
@@ -1810,9 +1828,7 @@ func startupRoutine(ctx, serverShutdownCtx context.Context, options *swag.Comman
 			WithField("action", "startup").
 			Fatalf("modules didn't initialize: %v", err)
 	}
-	// now that modules are loaded we can run the remaining config validation
-	// which is module dependent
-	if err := appState.ServerConfig.Config.ValidateModules(appState.Modules); err != nil {
+	if err := appState.ServerConfig.Config.ValidateDefaultVectorDistanceMetric(); err != nil {
 		appState.Logger.
 			WithField("action", "startup").
 			Fatalf("invalid config: %v", err)
@@ -2533,16 +2549,15 @@ func postInitModules(appState *state.State) {
 }
 
 func initModules(ctx context.Context, appState *state.State) error {
-	storageProvider, err := modulestorage.NewRepo(
-		appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
-	if err != nil {
-		return errors.Wrap(err, "init storage provider")
-	}
-
 	// TODO: gh-1481 don't pass entire appState in, but only what's needed. Probably only
 	// config?
-	moduleParams := moduletools.NewInitParams(storageProvider, appState,
-		&appState.ServerConfig.Config, appState.Logger, prometheus.DefaultRegisterer)
+	moduleParams := moduletools.NewInitParams(
+		appState.ServerConfig.Config.Persistence.DataPath,
+		appState,
+		&appState.ServerConfig.Config,
+		appState.Logger,
+		prometheus.DefaultRegisterer,
+	)
 
 	appState.Logger.
 		WithField("action", "startup").

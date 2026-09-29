@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -457,16 +456,11 @@ func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
-			checkpoints, err := indexcheckpoint.New(t.TempDir(), logger)
-			require.NoError(t, err)
-
 			db := &DB{
 				logger:                    logger,
 				shutdown:                  make(chan struct{}, 1),
 				bitmapBufPoolClose:        func() {},
-				AsyncIndexingEnabled:      true,
 				asyncReplicationScheduler: newSchedulerForUnitTest(t),
-				indexCheckpoints:          checkpoints,
 				indices:                   map[string]*Index{},
 			}
 
@@ -482,7 +476,7 @@ func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 				db.indices[spec.name] = idx
 			}
 
-			err = db.Shutdown(context.Background())
+			err := db.Shutdown(context.Background())
 
 			if len(tt.wantErrContains) == 0 {
 				require.NoError(t, err)
@@ -495,11 +489,6 @@ func TestDBShutdownRunsEveryIndexAndCleanup(t *testing.T) {
 			for _, want := range tt.wantErrIs {
 				require.ErrorIs(t, err, want)
 			}
-
-			// closing the checkpoint store is the last statement after the index
-			// loop, so a closed store proves the whole post-loop cleanup ran
-			_, _, err = checkpoints.Get("shard1", "")
-			require.Error(t, err)
 		})
 	}
 }
@@ -698,41 +687,70 @@ func TestCloseRequestAbortsBackgroundShardLoad(t *testing.T) {
 // seconds while the unload holds the index open, so an unload that kept
 // retrying would hold the teardown behind its own in-flight count.
 func TestCloseRequestAbortsShardUnload(t *testing.T) {
-	for _, tt := range closeRequests() {
-		t.Run(tt.name+" releases the unload", func(t *testing.T) {
-			idx := newShutdownTestIndex(t, nil)
-
-			var parked sync.Once
-			entered := make(chan struct{})
-			shard := NewMockShardLike(t)
-			shard.EXPECT().Name().Return("t1").Maybe()
-			// stands in for Shard.Shutdown's retry loop: a shard in use holds it
-			// until the retries run out or the given context is cancelled
-			shard.EXPECT().Shutdown(mock.Anything).RunAndReturn(func(ctx context.Context) error {
-				parked.Do(func() {
-					close(entered)
-					<-ctx.Done()
-				})
-				return ctx.Err()
-			})
-			idx.shards.Store("t1", shard)
-
-			unloadDone := make(chan error, 1)
-			go func() { unloadDone <- idx.UnloadLocalShard(context.Background(), "t1") }()
-			<-entered
-
-			closeDone := make(chan error, 1)
-			go func() { closeDone <- tt.request(idx) }()
-
-			select {
-			case err := <-unloadDone:
-				require.ErrorIs(t, err, tt.cause)
-			case <-time.After(5 * time.Second):
-				t.Fatal("the unload kept waiting on the shard shutdown through the close request")
-			}
-			require.NoError(t, <-closeDone)
-		})
+	// Shard.Shutdown returns either error once a close request ends its wait.
+	shutdownErrs := []struct {
+		name string
+		err  func(ctx context.Context) error
+	}{
+		{name: "cancelled wait", err: func(ctx context.Context) error { return ctx.Err() }},
+		{name: "retries ran out", err: func(context.Context) error { return errShardStillInUse }},
 	}
+
+	for _, tt := range closeRequests() {
+		for _, se := range shutdownErrs {
+			t.Run(tt.name+" releases the unload, "+se.name, func(t *testing.T) {
+				testCloseRequestAbortsShardUnload(t, tt, se.err)
+			})
+		}
+	}
+}
+
+func testCloseRequestAbortsShardUnload(t *testing.T, tt closeRequest, shutdownErr func(context.Context) error) {
+	idx := newShutdownTestIndex(t, nil)
+
+	var parked sync.Once
+	entered := make(chan struct{})
+	shard := NewMockShardLike(t)
+	shard.EXPECT().Name().Return("t1").Maybe()
+	// Like Shard.Shutdown on a shard in use, the first call waits for the close.
+	shard.EXPECT().Shutdown(mock.Anything).RunAndReturn(func(ctx context.Context) error {
+		var err error
+		parked.Do(func() {
+			close(entered)
+			<-ctx.Done()
+			err = shutdownErr(ctx)
+		})
+		// Later calls come from the index teardown, which the shard does not refuse.
+		if err != nil {
+			return err
+		}
+		return ctx.Err()
+	})
+	idx.shards.Store("t1", shard)
+
+	unloadDone := make(chan error, 1)
+	unloadOutcome := make(chan ShardUnloadOutcome, 1)
+	go func() {
+		outcome, err := idx.UnloadLocalShard(context.Background(), "t1")
+		unloadOutcome <- outcome
+		unloadDone <- err
+	}()
+	<-entered
+
+	closeDone := make(chan error, 1)
+	go func() { closeDone <- tt.request(idx) }()
+
+	select {
+	case err := <-unloadDone:
+		require.ErrorIs(t, err, tt.cause)
+		require.ErrorIs(t, err, ErrIndexClosing,
+			"the outcome and the error have to agree on which condition refused")
+		require.Equal(t, ShardUnloadOutcomeIndexClosing, <-unloadOutcome,
+			"our own close ended the wait, so no later attempt in this process helps")
+	case <-time.After(5 * time.Second):
+		t.Fatal("the unload kept waiting on the shard shutdown through the close request")
+	}
+	require.NoError(t, <-closeDone)
 }
 
 // startGatedBackgroundLoad parks a background shard load mid-build and returns

@@ -44,10 +44,6 @@ const (
 	// If no tasks are pushed to the queue for this duration, the partial chunk is scheduled.
 	defaultStaleTimeout = 100 * time.Millisecond
 
-	// defaultInactivityPeriod is the duration after which a queue is considered inactive and
-	// can release resources.
-	defaultInactivityPeriod = 1 * time.Minute
-
 	// chunkWriterBufferSize is the size of the buffer used by the chunk writer.
 	// It should be large enough to hold a few records, but not too large to avoid
 	// taking up too much memory when the number of queues is large.
@@ -99,7 +95,6 @@ type DiskQueue struct {
 	// Logger for the queue. Wrappers of this queue should use this logger.
 	Logger           logrus.FieldLogger
 	staleTimeout     time.Duration
-	inactivityPeriod time.Duration
 	taskDecoder      TaskDecoder
 	scheduler        *Scheduler
 	id               string
@@ -135,7 +130,6 @@ type DiskQueueOptions struct {
 	// Optional
 	Logger           logrus.FieldLogger
 	StaleTimeout     time.Duration
-	InactivityPeriod time.Duration
 	ChunkSize        uint64
 	OnBatchProcessed func()
 	Metrics          *Metrics
@@ -170,9 +164,6 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 	if opt.ChunkSize <= 0 {
 		opt.ChunkSize = defaultChunkSize
 	}
-	if opt.InactivityPeriod <= 0 {
-		opt.InactivityPeriod = defaultInactivityPeriod
-	}
 
 	q := DiskQueue{
 		id:               opt.ID,
@@ -180,7 +171,6 @@ func NewDiskQueue(opt DiskQueueOptions) (*DiskQueue, error) {
 		dir:              opt.Dir,
 		Logger:           opt.Logger,
 		staleTimeout:     opt.StaleTimeout,
-		inactivityPeriod: opt.InactivityPeriod,
 		taskDecoder:      opt.TaskDecoder,
 		metrics:          opt.Metrics,
 		onBatchProcessed: opt.OnBatchProcessed,
@@ -346,13 +336,6 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 	// check if the partial chunk is stale (e.g no tasks were pushed for a while)
 	if c == nil || c.f == nil {
 		c, err = q.checkIfStale()
-		if c == nil {
-			// no chunk to read, check if the queue hasn't been used for a while
-			if q.isInactive() {
-				// queue is inactive, release some resources
-				q.releaseResources()
-			}
-		}
 		if c == nil || err != nil || c.f == nil {
 			return nil, err
 		}
@@ -907,24 +890,6 @@ func (q *DiskQueue) readChunkRecordCount(path string) (uint64, error) {
 	return readChunkHeader(f)
 }
 
-func (q *DiskQueue) isInactive() bool {
-	if q.Size() > 0 {
-		return false
-	}
-	q.m.RLock()
-	defer q.m.RUnlock()
-
-	tm := time.Since(q.lastPushTime)
-	return tm > q.staleTimeout && tm > q.inactivityPeriod
-}
-
-func (q *DiskQueue) releaseResources() {
-	q.m.Lock()
-	defer q.m.Unlock()
-
-	q.w.Release()
-}
-
 var readerPool = sync.Pool{
 	New: func() any {
 		return bufio.NewReaderSize(nil, defaultChunkSize)
@@ -1131,10 +1096,6 @@ func (w *chunkWriter) Flush() error {
 	return w.w.Flush()
 }
 
-func (w *chunkWriter) Release() {
-	w.w.Release()
-}
-
 func (w *chunkWriter) Close() error {
 	var errs []error
 
@@ -1142,6 +1103,7 @@ func (w *chunkWriter) Close() error {
 	if err != nil {
 		errs = append(errs, errors.Wrap(err, "failed to flush buffer"))
 	}
+	w.w.Release()
 
 	if w.f != nil {
 		err = w.f.Sync()
@@ -1160,13 +1122,46 @@ func (w *chunkWriter) Close() error {
 	return stderrors.Join(errs...)
 }
 
+// chunkTimeNow returns the timestamp used to name new chunk files.
+// It is a variable so tests can force a timestamp collision.
+var chunkTimeNow = func() int64 { return time.Now().UnixMicro() }
+
+// createChunkMaxAttempts bounds the number of names Create tries before
+// giving up. In practice a single retry is already rare: it requires two
+// chunks created within the same microsecond.
+const createChunkMaxAttempts = 1000
+
 func (w *chunkWriter) Create() error {
 	var err error
 
-	path := filepath.Join(w.dir, fmt.Sprintf(chunkFileFmt, time.Now().UnixMicro()))
-	w.f, err = os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
-	if err != nil {
-		return errors.Wrap(err, "failed to create chunk file")
+	// Chunk files are named after their creation time in microseconds, so
+	// two chunks created within the same microsecond collide on the same
+	// name. Without O_EXCL the second create would silently reopen the
+	// existing chunk and later header writes would clobber it. Create
+	// exclusively and bump the timestamp until a free name is found.
+	//
+	// The bump preserves per-writer chunk ordering, which is load-bearing:
+	// the filename doubles as the replay ordering key (chunks are reloaded
+	// in name order). It only ever moves the name forward from the current
+	// clock, and a later Create in the same microsecond starts at the same
+	// timestamp and re-collides with every name taken so far, so it always
+	// lands after this one.
+	ts := chunkTimeNow()
+	for i := 0; ; i++ {
+		path := filepath.Join(w.dir, fmt.Sprintf(chunkFileFmt, ts))
+		w.f, err = os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o644)
+		if err == nil {
+			break
+		}
+		if !os.IsExist(err) {
+			return errors.Wrap(err, "failed to create chunk file")
+		}
+		// i+1 attempts have failed at this point, so this gives up after
+		// exactly createChunkMaxAttempts tries
+		if i+1 >= createChunkMaxAttempts {
+			return errors.Wrapf(err, "failed to create chunk file after %d attempts", createChunkMaxAttempts)
+		}
+		ts++
 	}
 
 	w.w.Reset(w.f)
@@ -1379,7 +1374,8 @@ func (w *chunkWriter) Promote() error {
 	w.f = nil
 	w.size = 0
 	w.recordCount = 0
-	w.w.Reset(nil)
+	// the buffer is empty here: give it back so idle queues hold no memory
+	w.w.Release()
 
 	return nil
 }
@@ -1539,8 +1535,8 @@ func (w *lazyBufferedWriter) WriteByte(c byte) error {
 	return w.w.WriteByte(c)
 }
 
-// Release returns the buffered writer to the pool.
-// It should be called when a queue is either closed or hasn't been used for a while.
+// Release returns the buffered writer to the pool. Callers must flush first:
+// the pool resets the writer and drops anything still buffered.
 // The lazyBufferedWriter can still be used after calling Release(),
 // but a new bufio.Writer will be allocated on the next Write.
 func (w *lazyBufferedWriter) Release() {

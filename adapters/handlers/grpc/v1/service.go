@@ -13,13 +13,19 @@ package v1
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"runtime"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"golang.org/x/sync/semaphore"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 
@@ -43,7 +49,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/traverser"
 )
 
-var NUMCPU = runtime.GOMAXPROCS(0)
+var (
+	NUMCPU                     = runtime.GOMAXPROCS(0)
+	MaxBatchObjectsConcurrency = int64(4 * NUMCPU)
+)
 
 type Service struct {
 	pb.UnimplementedWeaviateServer
@@ -57,14 +66,32 @@ type Service struct {
 	logger               logrus.FieldLogger
 
 	authenticator      *auth.Handler
-	batchHandler       *batch.Handler
+	batchHandler       batch.Batcher
 	batchStreamHandler *batch.StreamHandler
+	batchObjectsSem    *semaphore.Weighted
 }
 
 func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *state.State) (*Service, batch.Drain) {
 	authenticator := auth.NewHandler(allowAnonymous, authComposer)
-	batchHandler := batch.NewHandler(state.Authorizer, state.BatchManager, state.Logger, authenticator, state.SchemaManager, state.ServerConfig.Config.Namespaces.Enabled)
-	batchStreamHandler, batchDrain := batch.Start(authenticator, state.Authorizer, batchHandler, state.SchemaManager, prometheus.DefaultRegisterer, NUMCPU, state.Logger, state.ServerConfig.Config.Namespaces.Enabled)
+	batchHandler := batch.NewHandler(
+		state.Authorizer,
+		state.BatchManager,
+		state.Logger,
+		authenticator,
+		state.SchemaManager,
+		state.ServerConfig.Config.Namespaces.Enabled,
+	)
+	batchStreamHandler, batchDrain := batch.Start(
+		authenticator,
+		state.Authorizer,
+		batchHandler,
+		state.SchemaManager,
+		prometheus.DefaultRegisterer,
+		state.ServerConfig.Config.BatchStream.Workers(),
+		state.Logger,
+		state.ServerConfig.Config.Namespaces.Enabled,
+		batch.WithStreamConfig(state.ServerConfig.Config.BatchStream),
+	)
 	return &Service{
 		traverser:            state.Traverser,
 		authComposer:         authComposer,
@@ -77,6 +104,7 @@ func NewService(allowAnonymous bool, authComposer composer.TokenFunc, state *sta
 		authenticator:        authenticator,
 		batchHandler:         batchHandler,
 		batchStreamHandler:   batchStreamHandler,
+		batchObjectsSem:      semaphore.NewWeighted(MaxBatchObjectsConcurrency),
 	}, batchDrain
 }
 
@@ -88,6 +116,12 @@ func (s *Service) Aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 		result, errInner = s.aggregate(ctx, req)
 	}, s.logger); err != nil {
 		return nil, err
+	}
+
+	// Aggregations are not admitted themselves, but a cross-reference in the
+	// where filter runs a nested object search that is.
+	if grpcErr := admissionToGRPCError(errInner); grpcErr != nil {
+		return nil, grpcErr
 	}
 
 	return result, errInner
@@ -224,6 +258,11 @@ func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	var result *pb.BatchObjectsReply
 	var errInner error
 
+	if err := s.batchObjectsSem.Acquire(ctx, 1); err != nil {
+		return nil, status.FromContextError(err).Err()
+	}
+	defer s.batchObjectsSem.Release(1)
+
 	if err := enterrors.GoWrapperWithBlock(func() {
 		result, errInner = s.batchHandler.BatchObjects(ctx, req)
 	}, s.logger); err != nil {
@@ -280,7 +319,23 @@ func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 		return nil, err
 	}
 
+	if grpcErr := admissionToGRPCError(errInner); grpcErr != nil {
+		return nil, grpcErr
+	}
+
 	return result, errInner
+}
+
+// admissionToGRPCError maps an admission shed to gRPC ResourceExhausted. This
+// is the public API, so the error reaches the client directly; our clients do
+// not retry ResourceExhausted, so under sustained saturation the caller sees
+// it as an error. Cross-node sheds are retried on the internal cluster path
+// (adapters/clients), before reaching this handler.
+func admissionToGRPCError(err error) error {
+	if errors.Is(err, queryadmission.ErrOverloaded) {
+		return status.Error(codes.ResourceExhausted, err.Error())
+	}
+	return nil
 }
 
 func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (reply *pb.SearchReply, retErr error) {

@@ -430,7 +430,8 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 
 		t.Run("explore with nearText", func(t *testing.T) {
 			nearText := client.GraphQL().NearTextArgBuilder().
-				WithConcepts([]string{"Italian"})
+				WithConcepts([]string{"Italian"}).
+				WithTargetVectors(fixtures.DefaultVectorName)
 
 			resp, err := client.GraphQL().Explore().
 				WithNearText(nearText).
@@ -458,7 +459,7 @@ func TestGroupByMultiTenancy(t *testing.T) {
 		&models.Class{
 			Class:              "TextContent",
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
-			Vectorizer:         "text2vec-contextionary",
+			VectorConfig:       fixtures.DefaultVectorConfig(),
 			Properties: []*models.Property{
 				{
 					Name:     "text",
@@ -473,7 +474,7 @@ func TestGroupByMultiTenancy(t *testing.T) {
 		&models.Class{
 			Class:              "Document",
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
-			Vectorizer:         "text2vec-contextionary",
+			VectorConfig:       fixtures.DefaultVectorConfig(),
 			Properties: []*models.Property{
 				{
 					Name:     "textContents",

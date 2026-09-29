@@ -176,7 +176,8 @@ func (h *hnsw) cleanConnections() {
 		if h.nodes[i] == nil {
 			continue
 		}
-		h.nodes[i].connections, _ = packedconn.NewWithMaxLayer(1)
+		h.nodes[i].connections = packedconn.Connections{}
+		h.nodes[i].connections.GrowLayersTo(1)
 		h.nodes[i].level = 0
 	}
 }

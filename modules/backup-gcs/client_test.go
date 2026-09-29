@@ -126,17 +126,17 @@ func TestNewClientTransport(t *testing.T) {
 		{
 			name:      "http speaks the json api",
 			transport: ucfg.BackupGCS{UseGRPC: new(false)},
-			wantCalls: []string{"/storage/v1/b/my-bucket"},
+			wantCalls: []string{"/storage/v1/b/my-bucket/o"},
 		},
 		{
 			name:      "grpc speaks the storage grpc api",
 			transport: ucfg.BackupGCS{UseGRPC: new(true), GRPCConnPool: ucfg.DefaultBackupGCSGRPCConnPool},
-			wantCalls: []string{"/google.storage.v2.Storage/GetBucket"},
+			wantCalls: []string{"/google.storage.v2.Storage/ListObjects"},
 		},
 		{
 			name:      "an unset transport speaks the storage grpc api",
 			transport: ucfg.BackupGCS{GRPCConnPool: ucfg.DefaultBackupGCSGRPCConnPool},
-			wantCalls: []string{"/google.storage.v2.Storage/GetBucket"},
+			wantCalls: []string{"/google.storage.v2.Storage/ListObjects"},
 		},
 	}
 
@@ -144,23 +144,31 @@ func TestNewClientTransport(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Both fakes share one recorder, so the untaken transport is
 			// asserted to have received nothing.
-			calls := &callRecorder{}
-			t.Setenv("BACKUP_GCS_USE_AUTH", "false")
-			t.Setenv("BACKUP_GCS_AUTH_PROXY_ENDPOINT", "")
-			// The SDK reads a separate variable per transport.
-			t.Setenv("STORAGE_EMULATOR_HOST", startFakeGCSOverHTTP(t, calls))
-			t.Setenv("STORAGE_EMULATOR_HOST_GRPC", startFakeGCSOverGRPC(t, calls))
+			c, calls := newClientOnFakeGCS(t, tt.transport)
 
-			config := &clientConfig{Bucket: "my-bucket", Transport: tt.transport}
-			c, err := newClient(context.Background(), config, t.TempDir(), discardLogger())
-			require.NoError(t, err)
-			defer c.client.Close()
-
-			_, err = c.findBucket(context.Background(), "")
+			_, err := c.AllBackups(context.Background())
 			require.ErrorIs(t, err, storage.ErrBucketNotExist)
 			assert.Equal(t, tt.wantCalls, calls.recorded())
 		})
 	}
+}
+
+// newClientOnFakeGCS returns a client on transport whose bucket is missing from
+// both fakes it starts, and the recorder those fakes share.
+func newClientOnFakeGCS(t *testing.T, transport ucfg.BackupGCS) (*gcsClient, *callRecorder) {
+	t.Helper()
+	calls := &callRecorder{}
+	t.Setenv("BACKUP_GCS_USE_AUTH", "false")
+	t.Setenv("BACKUP_GCS_AUTH_PROXY_ENDPOINT", "")
+	// The SDK reads a separate variable per transport.
+	t.Setenv("STORAGE_EMULATOR_HOST", startFakeGCSOverHTTP(t, calls))
+	t.Setenv("STORAGE_EMULATOR_HOST_GRPC", startFakeGCSOverGRPC(t, calls))
+
+	config := &clientConfig{Bucket: "my-bucket", Transport: transport}
+	c, err := newClient(context.Background(), config, t.TempDir(), discardLogger())
+	require.NoError(t, err)
+	t.Cleanup(func() { c.client.Close() })
+	return c, calls
 }
 
 type callRecorder struct {
@@ -248,101 +256,132 @@ func TestInitialize_SkipAccessCheck(t *testing.T) {
 	}
 }
 
-func TestFindBucket_EmptyBucket(t *testing.T) {
-	// Note: cases where the resolved bucket is non-empty cannot be tested
-	// without a real GCS connection (client.Bucket panics on a nil client),
-	// so we only test the early-return guard here.
+func TestBucketHandle(t *testing.T) {
+	gcs, err := storage.NewClient(context.Background(), option.WithoutAuthentication())
+	require.NoError(t, err)
+	defer gcs.Close()
+
 	tests := []struct {
 		name         string
 		configBucket string
 		override     string
+		wantBucket   string
 		wantErr      string
 	}{
 		{
-			name:         "empty config bucket without override returns error",
-			configBucket: "",
-			override:     "",
-			wantErr:      "bucket must not be empty",
+			name:    "empty config bucket without override returns error",
+			wantErr: "bucket must not be empty",
 		},
 		{
-			name:         "non-empty config bucket without override passes guard",
+			name:         "config bucket without override",
 			configBucket: "my-bucket",
-			override:     "",
+			wantBucket:   "my-bucket",
 		},
 		{
-			name:         "empty config bucket with non-empty override passes guard",
-			configBucket: "",
+			name:         "override replaces config bucket",
+			configBucket: "my-bucket",
 			override:     "override-bucket",
+			wantBucket:   "override-bucket",
+		},
+		{
+			name:       "override without config bucket",
+			override:   "override-bucket",
+			wantBucket: "override-bucket",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			client := &gcsClient{config: clientConfig{Bucket: tt.configBucket}}
+			client := &gcsClient{client: gcs, config: clientConfig{Bucket: tt.configBucket}}
 
+			bucket, err := client.bucketHandle(tt.override)
 			if tt.wantErr != "" {
-				_, err := client.findBucket(context.Background(), tt.override)
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.wantErr)
-			} else {
-				// Verify the guard logic: resolve the bucket the same way
-				// findBucket does and confirm it is non-empty.
-				b := tt.configBucket
-				if tt.override != "" {
-					b = tt.override
-				}
-				assert.NotEmpty(t, b)
+				require.ErrorContains(t, err, tt.wantErr)
+				return
 			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantBucket, bucket.BucketName())
 		})
 	}
 }
 
-// A restore against a bucket that is gone must be reported as not-found, so the
-// backup coordinator can tell it apart from an internal failure.
-func TestMissingBucketReportsNotFound(t *testing.T) {
+// A bucket that is gone fails every call. Read and GetObject must report it as
+// not-found, so the backup coordinator can tell it apart from an internal failure.
+func TestMissingBucket(t *testing.T) {
 	tests := []struct {
-		name string
-		call func(*gcsClient, context.Context) error
+		name         string
+		call         func(*testing.T, *gcsClient, context.Context) error
+		wantNotFound bool
 	}{
 		{
 			name: "Read",
-			call: func(g *gcsClient, ctx context.Context) error {
+			call: func(_ *testing.T, g *gcsClient, ctx context.Context) error {
 				_, err := g.Read(ctx, "backup-1", "shard.db", "", "", discardWriteCloser{})
 				return err
 			},
+			wantNotFound: true,
 		},
 		{
 			name: "GetObject",
-			call: func(g *gcsClient, ctx context.Context) error {
+			call: func(_ *testing.T, g *gcsClient, ctx context.Context) error {
 				_, err := g.GetObject(ctx, "backup-1", "shard.db", "", "")
 				return err
+			},
+			wantNotFound: true,
+		},
+		{
+			name: "Write",
+			call: func(t *testing.T, g *gcsClient, ctx context.Context) error {
+				return writeAndSignal(t, g, ctx, []byte("payload"))
+			},
+		},
+		{
+			// The upload starts once the first 16 MiB chunk is buffered, so the
+			// failure arrives while the copy is still running.
+			name: "Write above the chunk size",
+			call: func(t *testing.T, g *gcsClient, ctx context.Context) error {
+				return writeAndSignal(t, g, ctx, bytes.Repeat([]byte("x"), 17*1024*1024))
+			},
+		},
+		{
+			name: "PutObject",
+			call: func(_ *testing.T, g *gcsClient, ctx context.Context) error {
+				return g.PutObject(ctx, "backup-1", "shard.db", "", "", []byte("payload"))
+			},
+		},
+		{
+			name: "Initialize",
+			call: func(_ *testing.T, g *gcsClient, ctx context.Context) error {
+				return g.Initialize(ctx, "backup-1", "", "")
 			},
 		},
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusNotFound)
-				fmt.Fprint(w, `{"error":{"code":404,"message":"no such bucket"}}`)
-			}))
-			defer srv.Close()
-
-			ctx := context.Background()
-			gcs, err := storage.NewClient(ctx, option.WithoutAuthentication(), option.WithEndpoint(srv.URL))
-			require.NoError(t, err)
-			defer gcs.Close()
-			gcs.SetRetry(storage.WithPolicy(storage.RetryNever))
-
-			g := &gcsClient{client: gcs, config: clientConfig{Bucket: "gone-bucket"}, logger: discardLogger()}
-
-			err = tt.call(g, ctx)
-			require.Error(t, err)
-			var notFound backup.ErrNotFound
-			assert.ErrorAs(t, err, &notFound)
-		})
+	transports := map[string]ucfg.BackupGCS{
+		"http": {UseGRPC: new(false)},
+		"grpc": {UseGRPC: new(true), GRPCConnPool: ucfg.DefaultBackupGCSGRPCConnPool},
 	}
+	for transportName, transport := range transports {
+		for _, tt := range tests {
+			t.Run(transportName+"/"+tt.name, func(t *testing.T) {
+				g, _ := newClientOnFakeGCS(t, transport)
+
+				err := tt.call(t, g, context.Background())
+				require.Error(t, err)
+				var notFound backup.ErrNotFound
+				assert.Equal(t, tt.wantNotFound, errors.As(err, &notFound), "error %v reports not-found", err)
+			})
+		}
+	}
+}
+
+// writeAndSignal writes payload and checks that Write closed the producer with
+// the error it returned.
+func writeAndSignal(t *testing.T, g *gcsClient, ctx context.Context, payload []byte) error {
+	r := &stubReader{payload: bytes.NewReader(payload)}
+	_, err := g.Write(ctx, "backup-1", "chunk-0", "", "", r)
+	require.ErrorIs(t, r.closedWith, err)
+	return err
 }
 
 type discardWriteCloser struct{}
@@ -432,17 +471,12 @@ func TestAllBackupsSkipsMissingDescriptors(t *testing.T) {
 	}
 }
 
-// newFakeGCSClient points a real storage.Client at mux, which must serve every
-// API call the test exercises apart from the bucket attrs fetch.
-func newFakeGCSClient(t *testing.T, bucketName string, mux *http.ServeMux) *gcsClient {
+// newFakeGCSClient points a real storage.Client at handler, which must serve
+// every API call the test exercises.
+func newFakeGCSClient(t *testing.T, bucketName string, handler http.Handler) *gcsClient {
 	t.Helper()
 
-	mux.HandleFunc("/b/"+bucketName, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprintf(w, `{"kind":"storage#bucket","name":%q}`, bucketName)
-	})
-
-	srv := httptest.NewServer(mux)
+	srv := httptest.NewServer(handler)
 	t.Cleanup(srv.Close)
 
 	gcs, err := storage.NewClient(context.Background(),
@@ -459,6 +493,104 @@ func newFakeGCSClient(t *testing.T, bucketName string, mux *http.ServeMux) *gcsC
 		client: gcs,
 		config: clientConfig{Bucket: bucketName},
 		logger: logrus.New(),
+	}
+}
+
+// Write and Read run once per backup chunk, so a bucket lookup before each
+// would double the requests a backup or restore sends.
+func TestCallsSkipBucketLookup(t *testing.T) {
+	const bucketName = "test-bucket"
+
+	tests := []struct {
+		name         string
+		call         func(*gcsClient, context.Context) error
+		wantRequests []string
+	}{
+		{
+			name: "Write",
+			call: func(g *gcsClient, ctx context.Context) error {
+				_, err := g.Write(ctx, "backup-1", "chunk-0", "", "", &stubReader{payload: bytes.NewReader([]byte("payload"))})
+				return err
+			},
+			wantRequests: []string{"POST /upload/storage/v1/b/test-bucket/o"},
+		},
+		{
+			name: "Read",
+			call: func(g *gcsClient, ctx context.Context) error {
+				_, err := g.Read(ctx, "backup-1", "chunk-0", "", "", discardWriteCloser{})
+				return err
+			},
+			wantRequests: []string{"GET /test-bucket/backup-1/chunk-0"},
+		},
+		{
+			name: "PutObject",
+			call: func(g *gcsClient, ctx context.Context) error {
+				return g.PutObject(ctx, "backup-1", "chunk-0", "", "", []byte("payload"))
+			},
+			wantRequests: []string{"POST /upload/storage/v1/b/test-bucket/o"},
+		},
+		{
+			name: "GetObject",
+			call: func(g *gcsClient, ctx context.Context) error {
+				_, err := g.GetObject(ctx, "backup-1", "chunk-0", "", "")
+				return err
+			},
+			wantRequests: []string{"GET /test-bucket/backup-1/chunk-0"},
+		},
+		{
+			name: "AllBackups",
+			call: func(g *gcsClient, ctx context.Context) error {
+				_, err := g.AllBackups(ctx)
+				return err
+			},
+			wantRequests: []string{"GET /b/test-bucket/o"},
+		},
+		{
+			name: "Initialize",
+			call: func(g *gcsClient, ctx context.Context) error {
+				return g.Initialize(ctx, "backup-1", "", "")
+			},
+			wantRequests: []string{
+				"POST /upload/storage/v1/b/test-bucket/o",
+				"DELETE /b/test-bucket/o/backup-1/access-check--1",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mux := http.NewServeMux()
+			// Serving the bucket makes a lookup show up in the recorded requests
+			// rather than as an error.
+			mux.HandleFunc("/b/"+bucketName, func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprintf(w, `{"kind":"storage#bucket","name":%q}`, bucketName)
+			})
+			mux.HandleFunc("/b/"+bucketName+"/o", func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprint(w, `{"kind":"storage#objects"}`)
+			})
+			mux.HandleFunc("/b/"+bucketName+"/o/", func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			})
+			mux.HandleFunc("/upload/storage/v1/b/"+bucketName+"/o", func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				fmt.Fprintf(w, `{"kind":"storage#object","bucket":%q,"name":"backup-1/chunk-0"}`, bucketName)
+			})
+			mux.HandleFunc("/"+bucketName+"/", func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/octet-stream")
+				fmt.Fprint(w, "payload")
+			})
+
+			calls := &callRecorder{}
+			g := newFakeGCSClient(t, bucketName, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.record(r.Method + " " + r.URL.Path)
+				mux.ServeHTTP(w, r)
+			}))
+
+			require.NoError(t, tt.call(g, context.Background()))
+			assert.Equal(t, tt.wantRequests, calls.recorded())
+		})
 	}
 }
 

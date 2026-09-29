@@ -20,10 +20,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/weaviate/weaviate/usecases/auth/authentication"
-
-	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
-
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 
@@ -31,6 +27,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authentication"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
@@ -192,7 +190,7 @@ func (h *authZHandlers) validateOperatorRoleAssignmentToUser(targetNamespace str
 func (h *authZHandlers) roleExists(name string) (bool, error) {
 	roles, err := h.controller.GetRoles(name)
 	if err != nil {
-		return false, err
+		return false, fmt.Errorf("GetRoles: %w", err)
 	}
 	return len(roles) > 0, nil
 }
@@ -253,8 +251,11 @@ func (h *authZHandlers) resolveRoleForRead(ctx context.Context, principal *model
 	if errors.Is(err, namespacing.ErrRoleNotFound) {
 		return "", nil, roleReadNotFound, nil
 	}
-	if err != nil {
+	if errors.Is(err, namespacing.ErrInvalidRoleName) {
 		return "", nil, roleReadBadRequest, err
+	}
+	if err != nil {
+		return "", nil, roleReadInternalErr, err
 	}
 	roles, err := h.controller.GetRoles(stored)
 	if err != nil {
@@ -445,8 +446,11 @@ func (h *authZHandlers) addPermissions(params authz.AddPermissionsParams, princi
 	if errors.Is(err, namespacing.ErrRoleNotFound) {
 		return authz.NewAddPermissionsNotFound()
 	}
-	if err != nil {
+	if errors.Is(err, namespacing.ErrInvalidRoleName) {
 		return authz.NewAddPermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+	if err != nil {
+		return authz.NewAddPermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	if err := h.validateLocalRoleModification(principal, roleName); err != nil {
@@ -522,8 +526,11 @@ func (h *authZHandlers) removePermissions(params authz.RemovePermissionsParams, 
 	if errors.Is(err, namespacing.ErrRoleNotFound) {
 		return authz.NewRemovePermissionsNotFound()
 	}
-	if err != nil {
+	if errors.Is(err, namespacing.ErrInvalidRoleName) {
 		return authz.NewRemovePermissionsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+	if err != nil {
+		return authz.NewRemovePermissionsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	if err := h.validateLocalRoleModification(principal, roleName); err != nil {
@@ -753,19 +760,16 @@ func (h *authZHandlers) deleteRole(params authz.DeleteRoleParams, principal *mod
 		// Idempotent delete: a role the caller cannot resolve is already gone.
 		return authz.NewDeleteRoleNoContent()
 	}
-	if err != nil {
+	if errors.Is(err, namespacing.ErrInvalidRoleName) {
 		return authz.NewDeleteRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+	if err != nil {
+		return authz.NewDeleteRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	roles, err := h.controller.GetRoles(roleName)
 	if err != nil {
-		h.logger.WithFields(logrus.Fields{
-			"action":    "delete_role",
-			"component": authorization.ComponentName,
-			"user":      principal.Username,
-			"roleName":  roleName,
-		}).Info("role was already deleted")
-		return authz.NewDeleteRoleNoContent()
+		return authz.NewDeleteRoleInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("GetRoles: %w", err)))
 	}
 
 	if err := h.authorizeRoleScopes(ctx, principal, authorization.DELETE, roles[roleName], roleName); err != nil {
@@ -820,8 +824,11 @@ func (h *authZHandlers) assignRoleToUser(params authz.AssignRoleToUserParams, pr
 	if notFound {
 		return authz.NewAssignRoleToUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("one or more of the roles requested doesn't exist")))
 	}
-	if err != nil {
+	if errors.Is(err, namespacing.ErrInvalidRoleName) {
 		return authz.NewAssignRoleToUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+	if err != nil {
+		return authz.NewAssignRoleToUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	if err := h.validateLocalRoleAssignment(principal, roleNames); err != nil {
@@ -1338,8 +1345,11 @@ func (h *authZHandlers) revokeRoleFromUser(params authz.RevokeRoleFromUserParams
 	if notFound {
 		return authz.NewRevokeRoleFromUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("one or more of the request roles doesn't exist")))
 	}
-	if err != nil {
+	if errors.Is(err, namespacing.ErrInvalidRoleName) {
 		return authz.NewRevokeRoleFromUserBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
+	}
+	if err != nil {
+		return authz.NewRevokeRoleFromUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, err))
 	}
 
 	if err := h.validateLocalRoleAssignment(principal, roleNames); err != nil {
@@ -1629,8 +1639,8 @@ func (h *authZHandlers) validateUserTypeForNamespaces(userType models.UserTypeIn
 
 // resolveAssignableRoles maps caller-supplied role names to their stored form
 // for assign/revoke. notFound reports that a namespaced caller named a role
-// resolving to neither a local nor a global role; err carries a malformed-name
-// rejection.
+// resolving to neither a local nor a global role. err wraps
+// namespacing.ErrInvalidRoleName for a malformed name, else a failed lookup.
 func (h *authZHandlers) resolveAssignableRoles(principal *models.Principal, roles []string) (names []string, notFound bool, err error) {
 	names = make([]string, 0, len(roles))
 	for _, role := range roles {
@@ -1726,7 +1736,7 @@ func validateUserTypeInput(userTypeInput string) (authentication.AuthType, error
 
 // 		// tenants filtration specific collection, specific tenant
 // 		if perm.Collection != nil && *perm.Collection != "" && *perm.Collection != "*" && perm.Tenant != nil && *perm.Tenant != "" && *perm.Tenant != "*" {
-// 			shardsStatus, err := h.schemaReader.TenantsShards(context.Background(), *perm.Collection, *perm.Tenant)
+// 			shardsStatus, err := h.schemaReader.TenantsShardsStatus(context.Background(), *perm.Collection, *perm.Tenant)
 // 			if err != nil {
 // 				return fmt.Errorf("err while fetching collection '%s', tenant '%s', %s", *perm.Collection, *perm.Tenant, err)
 // 			}

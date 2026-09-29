@@ -32,6 +32,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -45,7 +46,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/objects"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -279,10 +279,10 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 	})
 }
 
-func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger, *schemaUC.MockSchemaReader) {
+func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger, *local.MockSchemaReader) {
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
-	mockSchemaReader := schemaUC.NewMockSchemaReader(t)
+	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: nil}).Maybe()
@@ -306,7 +306,7 @@ func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger, *schemaUC.MockSchem
 	return repo, logger, mockSchemaReader
 }
 
-func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, mockSchemaReader *schemaUC.MockSchemaReader, fixedShardState bool, classes ...*models.Class) func(t *testing.T) {
+func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, mockSchemaReader *local.MockSchemaReader, fixedShardState bool, classes ...*models.Class) func(t *testing.T) {
 	return func(t *testing.T) {
 		var shardState *sharding.State
 		if fixedShardState {

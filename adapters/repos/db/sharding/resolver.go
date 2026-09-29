@@ -21,9 +21,10 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/multitenancy"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/schema"
 )
 
 // ShardTarget represents the computed shard destination for a single object.
@@ -87,32 +88,13 @@ func (t ShardTargets) Shards() []string {
 // Returns the number of target shards.
 func (t ShardTargets) Len() int { return len(t) }
 
-// schemaReader provides access to schema operations required by shard resolvers.
-// It abstracts the underlying schema storage to enable testing and provides a
-// minimal interface focused on shard resolution needs.
-type schemaReader interface {
-	// ShardFromUUID returns the target shard name for a class and UUID bytes
-	// using consistent hashing. This enables deterministic shard assignment
-	// based on object UUIDs.
-	ShardFromUUID(className string, uuidBytes []byte) string
-
-	// TenantsShards returns tenant status information keyed by the tenant name.
-	// The tenant names match shard names in multi-tenant configurations.
-	// This method supports bulk tenant lookups for performance optimization.
-	TenantsShards(ctx context.Context, className string, tenantNames ...string) (map[string]string, error)
-
-	// ReadOnlyClass returns the class metadata for the specified class name.
-	// Returns nil if the class does not exist in the schema.
-	ReadOnlyClass(className string) *models.Class
-}
-
 // byUUIDShardResolver implements shard resolution using consistent hashing of object UUIDs.
 // This strategy is used for single-tenant collections where objects are distributed
 // across shards based on their UUID to achieve balanced data distribution and
 // consistent routing for the same object across requests.
 type byUUIDShardResolver struct {
 	className       string
-	schemaReader    schemaReader
+	schemaReader    schema.SchemaGetter
 	tenantValidator *multitenancy.TenantValidator
 }
 
@@ -157,7 +139,7 @@ func (r *byUUIDShardResolver) ResolveShardByObjectID(ctx context.Context, object
 //   - schemaReader: provides access to schema operations for UUID-to-shard mapping
 //
 // Returns a configured byUUIDShardResolver.
-func newByUUIDShardResolver(className string, schemaReader schemaReader) *byUUIDShardResolver {
+func newByUUIDShardResolver(className string, schemaReader schema.SchemaGetter) *byUUIDShardResolver {
 	return &byUUIDShardResolver{
 		className:       className,
 		schemaReader:    schemaReader,
@@ -231,7 +213,7 @@ func (r *byUUIDShardResolver) ResolveShards(ctx context.Context, objects []*stor
 // isolated in its own shard, with the tenant name directly mapping to the shard name.
 type byTenantShardResolver struct {
 	className       string
-	schemaReader    schemaReader
+	schemaReader    schema.SchemaGetter
 	tenantValidator *multitenancy.TenantValidator
 }
 
@@ -268,7 +250,7 @@ func (r *byTenantShardResolver) ResolveShardByObjectID(ctx context.Context, _ st
 //   - schemaReader: provides access to schema operations for tenant validation
 //
 // Returns a configured byTenantShardResolver.
-func newByTenantShardResolver(className string, schemaReader schemaReader) *byTenantShardResolver {
+func newByTenantShardResolver(className string, schemaReader schema.SchemaGetter) *byTenantShardResolver {
 	return &byTenantShardResolver{
 		className:       className,
 		schemaReader:    schemaReader,
@@ -438,7 +420,7 @@ func (r *ShardResolver) ResolveShards(ctx context.Context, objects []*storobj.Ob
 //   - schemaReader: provides access to schema operations
 //
 // Returns a configured ShardResolver that uses the appropriate strategy.
-func NewShardResolver(className string, multiTenancyEnabled bool, schemaReader schemaReader) *ShardResolver {
+func NewShardResolver(className string, multiTenancyEnabled bool, schemaReader schema.SchemaGetter) *ShardResolver {
 	if multiTenancyEnabled {
 		resolver := newByTenantShardResolver(className, schemaReader)
 		return &ShardResolver{

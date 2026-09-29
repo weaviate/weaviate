@@ -21,8 +21,10 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -582,6 +584,53 @@ func TestGetErrorFormat(t *testing.T) {
 	assert.Contains(t, err.Error(), "403")
 	assert.Contains(t, err.Error(), "abc-123")
 	assert.Contains(t, err.Error(), "denied")
+}
+
+func TestGetErrorMetricLabels(t *testing.T) {
+	c := New("", "", "", 0, nullLogger())
+	vec := monitoring.GetMetrics().ModuleExternalError
+
+	tests := []struct {
+		name     string
+		isAzure  bool
+		endpoint string
+	}{
+		{"openai", false, "OpenAI API"},
+		{"azure", true, "Azure OpenAI API"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			series := vec.WithLabelValues("text2vec", "openai", tt.endpoint, "429")
+			before := testutil.ToFloat64(series)
+
+			err := c.getError(429, "req-1", &openAIApiError{Message: "rate limited org-abc"}, tt.isAzure)
+			require.ErrorContains(t, err, "req-1")
+			seriesCount := testutil.CollectAndCount(vec)
+
+			err = c.getError(429, "req-2", &openAIApiError{Message: "rate limited org-xyz"}, tt.isAzure)
+			require.ErrorContains(t, err, "req-2")
+
+			assert.Equal(t, seriesCount, testutil.CollectAndCount(vec))
+			assert.Equal(t, before+2, testutil.ToFloat64(series))
+		})
+	}
+}
+
+func TestVectorizeTransportErrorMetric(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	server.Close()
+
+	c := New("apiKey", "", "", 0, nullLogger())
+	vec := monitoring.GetMetrics().ModuleCallError
+	series := vec.WithLabelValues("openai", server.URL+"/v1/embeddings", "transport_error")
+	before := testutil.ToFloat64(series)
+	seriesCount := testutil.CollectAndCount(vec)
+
+	_, _, _, err := c.vectorize(context.Background(), []string{"x"}, "ada", Settings{BaseURL: server.URL})
+	require.Error(t, err)
+
+	assert.Equal(t, before+1, testutil.ToFloat64(series))
+	assert.Equal(t, seriesCount, testutil.CollectAndCount(vec))
 }
 
 func TestOpenAIApiErrorDecode(t *testing.T) {

@@ -100,6 +100,10 @@ func (p *commitloggerParser) parseCollectionNode(reader io.Reader) error {
 }
 
 func (p *commitloggerParser) parseMapNode(n segmentCollectionNode) error {
+	if p.memtable.strategy == StrategyInverted {
+		return p.parseInvertedNode(n)
+	}
+
 	for _, val := range n.values {
 		mp := MapPair{}
 		if err := mp.FromBytes(val.value, false); err != nil {
@@ -107,14 +111,28 @@ func (p *commitloggerParser) parseMapNode(n segmentCollectionNode) error {
 		}
 		mp.Tombstone = val.tombstone
 
-		if p.memtable.strategy == StrategyInverted && val.tombstone {
-			docID := binary.BigEndian.Uint64(mp.Key)
-			if err := p.memtable.SetTombstone(docID); err != nil {
+		if err := p.memtable.appendMapSorted(n.primaryKey, mp); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (p *commitloggerParser) parseInvertedNode(n segmentCollectionNode) error {
+	var ip invertedPair
+	for _, val := range n.values {
+		if err := ip.decodeCommitLog(val.value, val.tombstone); err != nil {
+			return err
+		}
+
+		if ip.tombstone {
+			if err := p.memtable.SetTombstone(ip.docID); err != nil {
 				return err
 			}
 		}
 
-		if err := p.memtable.appendMapSorted(n.primaryKey, mp); err != nil {
+		if err := p.memtable.appendInverted(n.primaryKey, ip); err != nil {
 			return err
 		}
 	}

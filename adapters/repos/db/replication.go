@@ -499,7 +499,7 @@ func (i *Index) IncomingReinitShard(ctx context.Context, shardName string) error
 
 		shard, ok := i.shards.LoadAndDelete(shardName)
 		if ok {
-			if err := shutdownOrRestoreShard(ctx, i, shardName, shard); err != nil &&
+			if _, err := shutdownOrRestoreShard(ctx, i, shardName, shard); err != nil &&
 				!errors.Is(err, errAlreadyShutdown) {
 				return err
 			}
@@ -1066,7 +1066,7 @@ func (i *Index) DigestObjects(ctx context.Context,
 ) (result []types.RepairResponse, err error) {
 	s, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return nil, fmt.Errorf("shard %q not found locally", shardName)
+		return nil, fmt.Errorf("%w: shard %q", err, shardName)
 	}
 	defer release()
 
@@ -1237,7 +1237,7 @@ func (i *Index) FetchObject(ctx context.Context,
 ) (replica.Replica, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return replica.Replica{}, fmt.Errorf("shard %q does not exist locally", shardName)
+		return replica.Replica{}, fmt.Errorf("%w: shard %q", err, shardName)
 	}
 
 	defer release()
@@ -1285,7 +1285,7 @@ func (i *Index) FetchObjects(ctx context.Context,
 ) ([]replica.Replica, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
-		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
+		return nil, fmt.Errorf("%w: shard %q", err, shardName)
 	}
 	defer release()
 	if shard == nil {

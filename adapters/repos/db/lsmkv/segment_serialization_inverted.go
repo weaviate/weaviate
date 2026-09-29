@@ -24,14 +24,13 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 )
 
-func extractTombstones(nodes []MapPair) (*sroar.Bitmap, []MapPair) {
+func extractTombstones(nodes []invertedPair) (*sroar.Bitmap, []invertedPair) {
 	out := sroar.NewBitmap()
-	values := make([]MapPair, 0, len(nodes))
+	values := make([]invertedPair, 0, len(nodes))
 
 	for _, n := range nodes {
-		if n.Tombstone {
-			id := binary.BigEndian.Uint64(n.Key)
-			out.Set(id)
+		if n.tombstone {
+			out.Set(n.docID)
 		} else {
 			values = append(values, n)
 		}
@@ -40,14 +39,13 @@ func extractTombstones(nodes []MapPair) (*sroar.Bitmap, []MapPair) {
 	return out, values
 }
 
-func encodeBlockParam(nodes []MapPair, deltaEnc, tfEnc varenc.VarEncEncoder[uint64]) *terms.BlockData {
+func encodeBlockParam(nodes []invertedPair, deltaEnc, tfEnc varenc.VarEncEncoder[uint64]) *terms.BlockData {
 	docIds := make([]uint64, len(nodes))
 	termFreqs := make([]uint64, len(nodes))
 
 	for i, n := range nodes {
-		docIds[i] = binary.BigEndian.Uint64(n.Key)
-		termFreqs[i] = uint64(math.Float32frombits(binary.LittleEndian.Uint32(n.Value[0:4])))
-		// propLengths[i] = uint64(math.Float32frombits(binary.LittleEndian.Uint32(n.Value[4:8])))
+		docIds[i] = n.docID
+		termFreqs[i] = uint64(math.Float32frombits(n.tfBits))
 	}
 
 	packed := blockenc.PackedEncode(docIds, termFreqs, deltaEnc, tfEnc)
@@ -59,7 +57,7 @@ func encodeBlockParam(nodes []MapPair, deltaEnc, tfEnc varenc.VarEncEncoder[uint
 // term's postings. Property lengths come from, in order: lookup (compaction
 // cursor, no map), a non-empty propLengths map, or the value bytes — backfilled
 // into propLengths for the flush path.
-func createBlocks(nodes []MapPair, propLengths map[uint64]uint32, lookup *propLengthsView, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]*terms.BlockEntry, []*terms.BlockData, *sroar.Bitmap, map[uint64]uint32) {
+func createBlocks(nodes []invertedPair, propLengths map[uint64]uint32, lookup *propLengthsView, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]*terms.BlockEntry, []*terms.BlockData, *sroar.Bitmap, map[uint64]uint32) {
 	tombstones, values := extractTombstones(nodes)
 	externalPropLengths := len(propLengths) != 0
 
@@ -81,9 +79,9 @@ func createBlocks(nodes []MapPair, propLengths map[uint64]uint32, lookup *propLe
 		MaxImpactPropLength := uint32(0)
 
 		for j := start; j < end; j++ {
-			tf := float64(math.Float32frombits(binary.LittleEndian.Uint32(values[j].Value[0:4])))
-			pl := float64(math.Float32frombits(binary.LittleEndian.Uint32(values[j].Value[4:8])))
-			docId := binary.BigEndian.Uint64(values[j].Key)
+			tf := float64(math.Float32frombits(values[j].tfBits))
+			pl := float64(math.Float32frombits(values[j].propLenBits))
+			docId := values[j].docID
 			switch {
 			case lookup != nil:
 				pl = float64(lookup.get(docId))
@@ -102,7 +100,7 @@ func createBlocks(nodes []MapPair, propLengths map[uint64]uint32, lookup *propLe
 			}
 		}
 
-		maxId := binary.BigEndian.Uint64(values[end-1].Key)
+		maxId := values[end-1].docID
 		blockDataEncoded[i] = encodeBlockParam(values[start:end], deltaEnc, tfEnc)
 
 		blockMetadata[i] = &terms.BlockEntry{
@@ -118,26 +116,27 @@ func createBlocks(nodes []MapPair, propLengths map[uint64]uint32, lookup *propLe
 	return blockMetadata, blockDataEncoded, tombstones, propLengths
 }
 
-func createAndEncodeSingleValue(mapPairs []MapPair, propLengths map[uint64]uint32) ([]byte, *sroar.Bitmap) {
+func createAndEncodeSingleValue(pairs []invertedPair, propLengths map[uint64]uint32) ([]byte, *sroar.Bitmap) {
 	tombstones := sroar.NewBitmap()
-	buffer := make([]byte, 8+12*len(mapPairs))
+	buffer := make([]byte, 8+12*len(pairs))
 	offset := 0
-	binary.LittleEndian.PutUint64(buffer, uint64(len(mapPairs)))
+	binary.LittleEndian.PutUint64(buffer, uint64(len(pairs)))
 	offset += 8
-	for i := 0; i < len(mapPairs); i++ {
-		if mapPairs[i].Tombstone {
-			id := binary.BigEndian.Uint64(mapPairs[i].Key)
-			tombstones.Set(id)
+	for i := 0; i < len(pairs); i++ {
+		if pairs[i].tombstone {
+			tombstones.Set(pairs[i].docID)
 		}
-		copy(buffer[offset:offset+8], mapPairs[i].Key)
-		copy(buffer[offset+8:offset+12], mapPairs[i].Value)
+		binary.BigEndian.PutUint64(buffer[offset:offset+8], pairs[i].docID)
+		// a single-value posting stores the term frequency only; the property
+		// length is read back from the segment's own map
+		binary.LittleEndian.PutUint32(buffer[offset+8:offset+12], pairs[i].tfBits)
 
 		offset += 12
 	}
 	return buffer[:offset], tombstones
 }
 
-func createAndEncodeBlocksTest(nodes []MapPair, propLengths map[uint64]uint32, lookup *propLengthsView, encodeSingleSeparate int, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]byte, *sroar.Bitmap) {
+func createAndEncodeBlocksTest(nodes []invertedPair, propLengths map[uint64]uint32, lookup *propLengthsView, encodeSingleSeparate int, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]byte, *sroar.Bitmap) {
 	if len(nodes) <= encodeSingleSeparate {
 		// single-value postings store tf inline and never consult propLengths
 		return createAndEncodeSingleValue(nodes, propLengths)
@@ -146,7 +145,7 @@ func createAndEncodeBlocksTest(nodes []MapPair, propLengths map[uint64]uint32, l
 	return blockenc.EncodeBlocks(blockEntries, blockDatas, uint64(len(nodes))), tombstones
 }
 
-func createAndEncodeBlocksWithLengths(nodes []MapPair, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]byte, *sroar.Bitmap) {
+func createAndEncodeBlocksWithLengths(nodes []invertedPair, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]byte, *sroar.Bitmap) {
 	propLengths := make(map[uint64]uint32)
 	return createAndEncodeBlocksTest(nodes, propLengths, nil, terms.ENCODE_AS_FULL_BYTES, deltaEnc, tfEnc, k1, b, avgPropLen)
 }
@@ -154,7 +153,19 @@ func createAndEncodeBlocksWithLengths(nodes []MapPair, deltaEnc, tfEnc varenc.Va
 // createAndEncodeBlocks is the compaction entry point: property lengths come
 // from the merged-segment cursor (lookup), not a map.
 func createAndEncodeBlocks(nodes []MapPair, lookup *propLengthsView, deltaEnc, tfEnc varenc.VarEncEncoder[uint64], k1, b, avgPropLen float64) ([]byte, *sroar.Bitmap) {
-	return createAndEncodeBlocksTest(nodes, nil, lookup, terms.ENCODE_AS_FULL_BYTES, deltaEnc, tfEnc, k1, b, avgPropLen)
+	pairs := make([]invertedPair, len(nodes))
+	for i, n := range nodes {
+		pairs[i] = invertedPair{
+			docID:     binary.BigEndian.Uint64(n.Key),
+			tombstone: n.Tombstone,
+		}
+		if !n.Tombstone {
+			pairs[i].tfBits = binary.LittleEndian.Uint32(n.Value[0:4])
+			pairs[i].propLenBits = binary.LittleEndian.Uint32(n.Value[4:8])
+		}
+	}
+
+	return createAndEncodeBlocksTest(pairs, nil, lookup, terms.ENCODE_AS_FULL_BYTES, deltaEnc, tfEnc, k1, b, avgPropLen)
 }
 
 func decodeAndConvertValuesFromBlocks(data []byte) ([]value, int) {

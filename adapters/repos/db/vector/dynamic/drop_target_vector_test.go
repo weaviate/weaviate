@@ -34,7 +34,7 @@ import (
 )
 
 // newDynamicForDrop builds one dynamic index over a SHARED metadata DB,
-// mirroring the shard: getOrInitMetadataDB opens index.db once and every
+// mirroring the shard: NewShard opens index.db once and every
 // dynamic vector on that shard is a key inside it.
 func newDynamicForDrop(t *testing.T, meta *shardmeta.DB, rootPath, targetVector string) *dynamic {
 	t.Helper()

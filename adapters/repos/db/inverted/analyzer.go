@@ -36,6 +36,10 @@ type Property struct {
 	HasFilterableIndex bool // roaring set index
 	HasSearchableIndex bool // map index (with frequencies)
 	HasRangeableIndex  bool // roaring set index for ranged queries
+	// OverlayForcedOnly: no property-length or null-state bucket exists yet.
+	OverlayForcedOnly bool
+	// OverlaySearchable means the overlay set the flag, so no tracker entry exists.
+	OverlaySearchable bool
 }
 
 type NilProperty struct {
@@ -94,10 +98,10 @@ func DedupItems(props []Property) []Property {
 }
 
 // PropertyOverlay describes inverted-index flags and (optionally) a
-// tokenization to apply to a single property *for the duration of a single
-// analyzer call*. It is used by runtime reindex migrations that build a new
-// inverted bucket before the corresponding schema flag has been flipped via
-// RAFT (see EnableFilterableStrategy / EnableSearchableStrategy).
+// tokenization to apply to a single property while it is analyzed. A runtime
+// reindex strategy may hand one to its backfill scan, and a shard keeps one
+// from its bucket swap on: writes apply what the live schema lacks, and
+// queries read its tokenization.
 //
 // The overlay is read by Analyzer.analyzeProps which, when an entry exists
 // for the property name, treats the property as if its IndexFilterable /
@@ -111,10 +115,26 @@ type PropertyOverlay struct {
 	ForceFilterable bool
 	ForceSearchable bool
 	ForceRangeable  bool
-	// Tokenization, when non-empty, overrides prop.Tokenization for the
-	// duration of analysis. Used by EnableSearchableStrategy to tokenize
-	// with the target tokenization before the RAFT update applies it.
+	// Tokenization, when non-empty, replaces prop.Tokenization during analysis:
+	// the tokenization the migrated bucket is built with.
 	Tokenization string
+}
+
+func (o PropertyOverlay) Empty() bool {
+	return o == PropertyOverlay{}
+}
+
+func (o PropertyOverlay) BeyondLiveSchema(live *models.Property) PropertyOverlay {
+	if live == nil {
+		return o
+	}
+	o.ForceFilterable = o.ForceFilterable && !HasFilterableIndex(live)
+	o.ForceSearchable = o.ForceSearchable && !HasSearchableIndex(live)
+	o.ForceRangeable = o.ForceRangeable && !HasRangeableIndex(live)
+	if o.Tokenization == live.Tokenization {
+		o.Tokenization = ""
+	}
+	return o
 }
 
 type analyzerCacheEntry struct {

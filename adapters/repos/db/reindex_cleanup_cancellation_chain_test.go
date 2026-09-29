@@ -82,7 +82,7 @@ func loadStoppedByACancelledContext(t *testing.T) error {
 		shardLoadLimiter: newSweepLoadLimiter(),
 	}
 
-	_, err := lazy.Unwrap(ctx)
+	_, _, err := lazy.loadIfCold(ctx)
 	return err
 }
 

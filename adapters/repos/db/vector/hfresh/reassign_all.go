@@ -37,6 +37,8 @@ type ReassignAllStats struct {
 // operation is proportional to how many vectors are actually misplaced, not
 // to the corpus size. Stale entries (version mismatch) and deleted vectors
 // are skipped so each reassignment is anchored to the vector's live copy.
+// Before enqueueing the first live vector, ensure a destination exists so an
+// index whose centroid graph was lost can recover its surviving postings.
 //
 // This exists to repair placement damage persisted by indexes built before
 // the reassignment-gate fixes: an idle index runs no maintenance that could
@@ -54,6 +56,7 @@ func (h *HFresh) EnqueueReassignAll(ctx context.Context) (ReassignAllStats, erro
 	if quantizer == nil {
 		return stats, errors.New("index is not initialized")
 	}
+	var destinationChecked bool
 
 	// The posting map enumerates the allocated posting IDs; the posting is
 	// still read from the store because only its entries carry the per-copy
@@ -88,6 +91,28 @@ func (h *HFresh) EnqueueReassignAll(ctx context.Context) (ReassignAllStats, erro
 			if version != v.Version() {
 				stats.SkippedStale++
 				continue
+			}
+
+			if !destinationChecked {
+				vector, err := h.config.VectorForIDThunk(ctx, v.ID())
+				if err != nil {
+					return stats, errors.Wrapf(err, "failed to read vector %d for initial posting", v.ID())
+				}
+				if err := h.ValidateBeforeInsert(vector); err != nil {
+					return stats, errors.Wrapf(err, "invalid vector %d for initial posting", v.ID())
+				}
+				if err := ctx.Err(); err != nil {
+					return stats, err
+				}
+				if err := h.ctx.Err(); err != nil {
+					return stats, err
+				}
+				vector = h.normalizeVec(vector)
+				compressed := quantizer.CompressedBytes(quantizer.Encode(vector))
+				if _, err := h.ensureInitialPosting(vector, compressed); err != nil {
+					return stats, errors.Wrap(err, "failed to ensure initial posting for reassignment")
+				}
+				destinationChecked = true
 			}
 
 			err = h.taskQueue.EnqueueReassign(postingID, v.ID())

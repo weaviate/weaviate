@@ -278,8 +278,6 @@ func containsFilterOn(op filters.Operator, prop string, dt schema.DataType, valu
 
 const benchCorpusSize = 300_000
 
-var benchSizes = []int{100, 1_000, 10_000, 100_000}
-
 // clusteredValues picks `size` values whose docIDs are consecutive, so the
 // whole result lands in one or two 64K containers — the Accumulator's
 // best-case staging shape. sampleValues (strided) is the opposite extreme:
@@ -294,18 +292,18 @@ func (f *containsFixture) clusteredValues(size int) []string {
 }
 
 // BenchmarkDocIDs_ContainsAnyAccumulatorGate sweeps the
-// containsAnyAccumulatorMinKeys crossover: the same DocIDs call at small key
+// containsAccumulatorMinKeysPerWorker crossover: the same DocIDs call at small key
 // counts with the gate forced to always-accumulator vs always-incremental,
-// over both result-spread extremes. Run:
+// over both result-spread extremes.
+//
+// The gate is read per worker, so the sweep pins one worker: an N in a leg name
+// is then both the batch and what the gate sees. Run:
 //
 //	go test -tags integrationTest -run '^$' -bench 'AccumulatorGate' \
 //	    -benchmem -count 6 ./adapters/repos/db/inverted/ | tee gate.txt
 func BenchmarkDocIDs_ContainsAnyAccumulatorGate(b *testing.B) {
 	f := newContainsFixture(b, benchCorpusSize)
 	ctx := context.Background()
-	oldGate := containsAnyAccumulatorMinKeys
-	defer func() { containsAnyAccumulatorMinKeys = oldGate }()
-
 	shapes := []struct {
 		name   string
 		values func(size int) []string
@@ -327,58 +325,12 @@ func BenchmarkDocIDs_ContainsAnyAccumulatorGate(b *testing.B) {
 			filter := containsFilter(filters.ContainsAny, values)
 			for _, mode := range modes {
 				b.Run(fmt.Sprintf("%s/N=%04d/%s", shape.name, size, mode.name), func(b *testing.B) {
-					containsAnyAccumulatorMinKeys = mode.gate
-					b.ReportAllocs()
-					for i := 0; i < b.N; i++ {
-						al, err := f.searcher.DocIDs(ctx, filter, additional.Properties{}, className)
-						if err != nil {
-							b.Fatal(err)
-						}
-						al.Close()
-					}
+					forceContainsAccumulatorGate(b, mode.gate)
+					forceContainsWorkers(b, 1)
+					benchDocIDs(b, f.searcher, ctx, filter)
 				})
 			}
 		}
-	}
-}
-
-func BenchmarkDocIDs_ContainsAny(b *testing.B) {
-	f := newContainsFixture(b, benchCorpusSize)
-	ctx := context.Background()
-	for _, size := range benchSizes {
-		values, _ := f.sampleValues(size)
-		filter := containsFilter(filters.ContainsAny, values)
-		b.Run(fmt.Sprintf("N=%d", size), func(b *testing.B) {
-			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				al, err := f.searcher.DocIDs(ctx, filter, additional.Properties{}, className)
-				if err != nil {
-					b.Fatal(err)
-				}
-				al.Close()
-			}
-		})
-	}
-}
-
-func BenchmarkDocIDs_ContainsAll(b *testing.B) {
-	f := newContainsFixture(b, benchCorpusSize)
-	ctx := context.Background()
-	for _, size := range benchSizes {
-		values, _ := f.sampleValues(size)
-		filter := containsFilter(filters.ContainsAll, values)
-		b.Run(fmt.Sprintf("N=%d", size), func(b *testing.B) {
-			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				al, err := f.searcher.DocIDs(ctx, filter, additional.Properties{}, className)
-				if err != nil {
-					b.Fatal(err)
-				}
-				al.Close()
-			}
-		})
 	}
 }
 
@@ -457,14 +409,22 @@ func TestDocIDs_BatchedMatchesDesugared(t *testing.T) {
 		{"empty and whitespace-only values", []string{"", "   ", benchValue(5)}},
 	}
 
-	for _, op := range []filters.Operator{filters.ContainsAny, filters.ContainsAll, filters.ContainsNone} {
-		for _, tc := range cases {
-			t.Run(op.Name()+"/"+tc.name, func(t *testing.T) {
-				batched := f.resolveDocIDs(t, ctx, containsFilter(op, tc.values))
-				desugared := f.resolveDocIDs(t, ctx, equalCompoundFilter(op, tc.values))
-				require.Equal(t, desugared, batched,
-					"batched Contains must resolve the same doc IDs as the desugared Equal compound")
-			})
+	// The worker count is pinned rather than left to the planner. Unpinned it
+	// comes out of min(budget, GOMAXPROCS, numKeys/32), so on a small runner
+	// every case plans one worker and the parallel folds, the cross-worker
+	// merge, the ContainsAll cross-share exit and OrAcc are never compared
+	// against the desugared path at all — while the test still passes.
+	for _, workers := range []int{1, 2, 5} {
+		for _, op := range []filters.Operator{filters.ContainsAny, filters.ContainsAll, filters.ContainsNone} {
+			for _, tc := range cases {
+				t.Run(fmt.Sprintf("%s/%s/workers=%d", op.Name(), tc.name, workers), func(t *testing.T) {
+					forceContainsWorkers(t, workers)
+					batched := f.resolveDocIDs(t, ctx, containsFilter(op, tc.values))
+					desugared := f.resolveDocIDs(t, ctx, equalCompoundFilter(op, tc.values))
+					require.Equal(t, desugared, batched,
+						"batched Contains must resolve the same doc IDs as the desugared Equal compound")
+				})
+			}
 		}
 	}
 
@@ -984,11 +944,13 @@ func TestDocIDs_ContainsCorrectness(t *testing.T) {
 
 // TestDocIDs_GoroutinePeak measures peak live goroutines during concurrent
 // DocIDs(100K) resolution — the structural signal for the fan-out fix. The
-// batched path spawns no per-value goroutines, only sroar's bounded merge
-// workers (at most the per-query budget per caller), so the peak is asserted
-// against a generous multiple of that structural bound; the old per-value
-// fan-out (one goroutine per value per caller) exceeds it by orders of
-// magnitude.
+// batched path spawns no per-value goroutines. It spawns two bounded families
+// instead: up to one fetch worker per share, capped by what the fold's memory
+// budget affords a window, and sroar's merge workers, which runWorkers divides
+// by the fetch worker count so their total stays inside the query budget. The
+// peak is asserted against a generous multiple of that structural bound; the
+// old per-value fan-out (one goroutine per value per caller) exceeds it by
+// orders of magnitude.
 func TestDocIDs_GoroutinePeak(t *testing.T) {
 	f := newContainsFixture(t, benchCorpusSize)
 	ctx := context.Background()
@@ -1033,10 +995,19 @@ func TestDocIDs_GoroutinePeak(t *testing.T) {
 
 	t.Logf("goroutine peak: baseline=%d peak=%d (delta=%d) during %d concurrent DocIDs(100K), GOMAXPROCS=%d",
 		baseline, peak, peak-int64(baseline), concurrentCallers, runtime.GOMAXPROCS(0))
-	// structural bound: each caller may run at most SROAR_MERGE merge workers
-	// at a time (plus its own goroutine); 4x headroom absorbs runtime and
-	// test-infra goroutines without ever admitting a per-value fan-out
-	bound := int64(baseline) + 4*concurrentCallers*int64(concurrency.SROAR_MERGE+1)
+	// Structural bound per caller: its own goroutine, one fetch worker per
+	// share up to what the memory budget affords a window, and sroar's merge
+	// workers, whose total runWorkers keeps inside the query budget by dividing
+	// the per-worker allowance by the fetch worker count.
+	//
+	// Derived from the constants rather than written out, so raising the fold's
+	// budget or widening its window has to move this bound with it. Each term is
+	// already a worst case sroar's own work-sizing rarely reaches — a measured
+	// run sits near 50 against a bound above 500 — so the headroom is 2x rather
+	// than the 4x this carried when the structural term omitted fetch workers.
+	maxWorkers := int64(containsFoldMemoryBudget / lsmkv.BatchReaderWindowBytes)
+	perCaller := 1 + maxWorkers + int64(concurrency.GOMAXPROCSx2)
+	bound := int64(baseline) + 2*concurrentCallers*perCaller
 	require.LessOrEqual(t, peak, bound,
 		"peak goroutines must stay within the bounded merge fan-out (per-value fan-out would exceed this by orders of magnitude)")
 }

@@ -378,7 +378,8 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 			entsInverted.ErrInternal, pv.operator.Name())
 	}
 	if pv.containsKeys.Len() == 0 {
-		return nil, fmt.Errorf("%w: contains filter on prop %q carries no keys",
+		return nil, fmt.Errorf(
+			"%w: contains filter on prop %q carries no keys, before the bucket was opened",
 			entsInverted.ErrInternal, pv.prop)
 	}
 
@@ -394,9 +395,18 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 	view := b.GetConsistentView()
 	defer view.ReleaseView()
 
-	// Nil until there is a reader, so a filter rejected while opening one is
-	// timed without inventing counts for work that never happened.
-	var reader *lsmkv.RoaringSetBatchReader
+	// Narrowed once, so every worker's reader sees the same memtables. Built
+	// before the annotation reads it, so the closure never sees nil.
+	source := &roaringSetBatchReaderSource{
+		view: view.WithoutEmptyActiveMemtable(),
+		// Sized at what the budget affords, since the plan is not made yet and
+		// the annotation below must not read a nil source. A test override can
+		// ask for more, which append handles.
+		readers: make([]*lsmkv.RoaringSetBatchReader, 0, maxContainsFoldWorkers),
+	}
+	// Zero until the fold has planned, so a filter rejected before then is timed
+	// without inventing a strategy it never chose.
+	var plan containsFoldPlan
 	// Deferred so a filter that fails partway is timed and reports what it did
 	// before it stopped.
 	defer func() {
@@ -414,10 +424,16 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 				// filter reports at most two regardless of value count.
 				"batched_keys": pv.containsKeys.Len(),
 			}
+			// A planned fold always takes at least one worker, so this reports
+			// the plan whenever there is one — a fold that failed to open a
+			// reader included.
+			if plan.workers > 0 {
+				fields["fold_workers"] = plan.workers
+				fields["fold_strategy"] = plan.strategy.String()
+			}
 			// What the batching itself did, so a slow batched filter can be told
 			// from a filter that was merely slow.
-			if reader != nil {
-				st := reader.Stats()
+			if st, ok := source.stats(); ok {
 				fields["window_fills"] = st.Fills
 				fields["window_narrowed_fills"] = st.NarrowedFills
 				fields["batch_keys_served"] = st.KeysServed
@@ -434,12 +450,7 @@ func (pv *propValuePair) fetchContainsBatch(ctx context.Context, s *Searcher) (_
 		})
 	}()
 
-	reader, err = lsmkv.NewRoaringSetBatchReader(view, pv.containsKeys)
-	if err != nil {
-		return nil, err
-	}
-
-	dbm, err = s.docBitmapContainsBatch(ctx, reader, pv)
+	dbm, plan, err = s.docBitmapContainsBatch(ctx, source, pv)
 	if err != nil {
 		return nil, err
 	}

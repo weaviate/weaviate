@@ -18,11 +18,14 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 )
 
 type fakeClassUpdater struct {
+	// Left unset: only the methods defined below are expected.
+	local.ClassReader
 	class       *models.Class
 	updateErr   error // returned by every UpdateClassInternal
 	updateCalls int

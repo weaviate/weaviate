@@ -95,8 +95,8 @@ func TestShardIsLazyUnloaded(t *testing.T) {
 		want  bool
 	}{
 		{name: "absent tenant", shard: nil, want: false},
-		{name: "lazy shard not loaded", shard: &LazyLoadShard{loaded: false}, want: true},
-		{name: "lazy shard loaded", shard: &LazyLoadShard{loaded: true}, want: false},
+		{name: "lazy shard not loaded", shard: &LazyLoadShard{}, want: true},
+		{name: "lazy shard loaded", shard: newLoadedLazyShard(&Shard{}), want: false},
 		{name: "non-lazy shard", shard: &Shard{}, want: false},
 	}
 

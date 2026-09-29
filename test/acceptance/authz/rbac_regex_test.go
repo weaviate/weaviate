@@ -68,7 +68,7 @@ func TestAuthZDataObjectRegexBreakout(t *testing.T) {
 		Name: &roleName,
 		Permissions: []*models.Permission{{
 			Action: String(authorization.ReadData),
-			Data:   &models.PermissionData{Collection: &publicClass, Object: &injectedObject},
+			Data:   &models.PermissionData{Collection: &publicClass, Object: &injectedObject}, //nolint:staticcheck // the deprecated field is exactly what this case pins
 		}},
 	}
 	helper.DeleteRole(t, adminKey, roleName)
@@ -114,7 +114,10 @@ func TestAuthZDataObjectRegexBreakout(t *testing.T) {
 // TestAuthZInvalidRegexPermissionRejected proves the enforcer-panic DoS is closed
 // at the API boundary: a permission target that would not compile as a casbin
 // pattern (or is over-long, or contains '/') is rejected at role create (422), so
-// it never reaches the matcher, and the node stays responsive.
+// it never reaches the matcher, and the node stays responsive. The payload rides
+// on the users target because that one is guarded by the regex check alone -- a
+// collection would trip the class-name charset and length rules first, and the
+// data object field is deprecated and no longer validated at all.
 func TestAuthZInvalidRegexPermissionRejected(t *testing.T) {
 	adminKey := "admin-key"
 
@@ -124,7 +127,7 @@ func TestAuthZInvalidRegexPermissionRejected(t *testing.T) {
 	roleName := "invalidRegexDoSRole"
 	payloads := []struct {
 		name   string
-		object string
+		target string
 	}{
 		{"unbalanced bracket", "["},
 		{"unicode class escape (survives a naive compile check)", `\p{L}`},
@@ -133,12 +136,12 @@ func TestAuthZInvalidRegexPermissionRejected(t *testing.T) {
 	}
 	for _, p := range payloads {
 		t.Run("rejected at create: "+p.name, func(t *testing.T) {
-			object := p.object
+			target := p.target
 			role := &models.Role{
 				Name: &roleName,
 				Permissions: []*models.Permission{{
-					Action: String(authorization.ReadData),
-					Data:   &models.PermissionData{Collection: String("*"), Object: &object},
+					Action: String(authorization.ReadUsers),
+					Users:  &models.PermissionUsers{Users: &target},
 				}},
 			}
 			helper.DeleteRole(t, adminKey, roleName)
@@ -149,6 +152,23 @@ func TestAuthZInvalidRegexPermissionRejected(t *testing.T) {
 			require.True(t, errors.As(err, &unprocessable), "expected 422, got %v", err)
 		})
 	}
+
+	// The deprecated data object field is ignored rather than validated, so a
+	// payload that is a 422 on a live target has to create cleanly here: an old
+	// client that still sends an object keeps working across the upgrade.
+	t.Run("deprecated data object is accepted, not validated", func(t *testing.T) {
+		object := "["
+		role := &models.Role{
+			Name: &roleName,
+			Permissions: []*models.Permission{{
+				Action: String(authorization.ReadData),
+				Data:   &models.PermissionData{Collection: String("*"), Object: &object}, //nolint:staticcheck // the deprecated field is exactly what this case pins
+			}},
+		}
+		helper.DeleteRole(t, adminKey, roleName)
+		helper.CreateRole(t, adminKey, role)
+		defer helper.DeleteRole(t, adminKey, roleName)
+	})
 
 	t.Run("server stays responsive after the rejected creates", func(t *testing.T) {
 		require.NotEmpty(t, helper.GetRoles(t, adminKey))

@@ -144,3 +144,37 @@ func TestReplicaSnapshotDefersOnEditOpsReadError(t *testing.T) {
 	require.Contains(t, err.Error(), "inspect edit-ops",
 		"the deferral must come from the edit-ops probe itself, not some unrelated failure")
 }
+
+// Both replica snapshot modes carry a copy of index.db, staged: the mapping
+// and the dynamic upgrade verdicts must travel with the files they describe.
+func TestReplicaSnapshotCarriesIndexDB(t *testing.T) {
+	for _, tc := range []struct {
+		name            string
+		forceNoHardlink bool
+	}{
+		{name: "hardlink mode"},
+		{name: "fallback halt-for-duration mode", forceNoHardlink: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.forceNoHardlink {
+				t.Setenv("WEAVIATE_TEST_FORCE_NO_HARDLINK", "true")
+			}
+			index, _ := newSharedHaltTestShard(t)
+			ctx := context.Background()
+			putSharedHaltObject(t, index, strfmt.UUID("40d3be3e-2ecc-49c8-b37c-d8983164848b"), 0)
+
+			const opID = "carries-index-db"
+			files, err := index.IncomingCreateReplicaSnapshot(ctx, "shard1", opID)
+			require.NoError(t, err)
+			defer func() { require.NoError(t, index.IncomingReleaseReplicaSnapshot(ctx, opID)) }()
+			require.Contains(t, files, "index.db")
+
+			staged := filepath.Join(replicaStagingDir(index.Config.RootPath, opID, "TestClass"), "index.db")
+			_, err = os.Stat(staged)
+			require.NoError(t, err, "a copy, not the live file")
+			r, err := index.IncomingGetReplicaSnapshotFile(ctx, opID, "index.db")
+			require.NoError(t, err)
+			require.NoError(t, r.Close())
+		})
+	}
+}

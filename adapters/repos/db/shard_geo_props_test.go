@@ -71,7 +71,7 @@ func testGeoPropShard(t *testing.T, ctx context.Context) *Shard {
 	}
 
 	shard, _ := testShardWithSettings(t, ctx, class,
-		hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false, false)
+		hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false)
 	return concreteShard(t, shard)
 }
 
@@ -489,7 +489,7 @@ func testShardWithNamedVector(t *testing.T, ctx context.Context, className strin
 	vic schemaConfig.VectorIndexConfig,
 ) (ShardLike, *Index) {
 	t.Helper()
-	return testShardWithSettings(t, ctx, &models.Class{Class: className}, nil, false, true, true,
+	return testShardWithSettings(t, ctx, &models.Class{Class: className}, nil, false, true,
 		func(i *Index) {
 			i.vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{"title": vic}
 		},
@@ -568,9 +568,10 @@ func TestVectorIndexLoggerCarriesIdentity(t *testing.T) {
 			}
 			q, release, ok := shd.AcquireVectorIndexQueue("title")
 			require.True(t, ok)
-			defer release()
-			require.True(t, ok)
 			require.Eventually(t, func() bool { return q.Size() == 0 }, 30*time.Second, 50*time.Millisecond)
+			// release the lease before the drop, or the drop waits out the full
+			// slot drain timeout on the lease this test holds
+			release()
 
 			// recreate the named vector's index and queue while the hook is
 			// attached, so their construction and preload lines are captured
@@ -614,7 +615,7 @@ func TestInitGeoPropQueueFailureIsRetryable(t *testing.T) {
 		Properties: []*models.Property{{Name: "name", DataType: schema.DataTypeText.PropString()}},
 	}
 	shardLike, _ := testShardWithSettings(t, ctx, class,
-		hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, true, true)
+		hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, true)
 	s := concreteShard(t, shardLike)
 
 	blockGeoQueueDir(t, s, "location")
@@ -764,7 +765,7 @@ func TestInitPropertyBucketsBatchesGeoProps(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			ctx := context.Background()
 			shardLike, _ := testShardWithSettings(t, ctx, &models.Class{Class: geoPropClass},
-				hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false, false)
+				hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, false)
 
 			require.Equal(t, test.wantJobs,
 				geoInitJobs(t, concreteShard(t, shardLike), test.props...))
@@ -778,7 +779,7 @@ func TestInitPropertyBucketsBatchesGeoProps(t *testing.T) {
 func TestInitPropertyBucketsGeoBatchContinuesAfterError(t *testing.T) {
 	ctx := context.Background()
 	shardLike, _ := testShardWithSettings(t, ctx, &models.Class{Class: geoPropClass},
-		hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, true, true)
+		hnsw.UserConfig{Distance: common.DefaultDistanceMetric}, false, true)
 	s := concreteShard(t, shardLike)
 
 	blockGeoQueueDir(t, s, "alpha")

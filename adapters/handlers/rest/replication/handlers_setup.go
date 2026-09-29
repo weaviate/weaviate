@@ -12,13 +12,12 @@
 package replication
 
 import (
-	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/replication"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -28,20 +27,17 @@ type replicationHandler struct {
 
 	logger  logrus.FieldLogger
 	metrics *monitoring.PrometheusMetrics
+	enabled *runtime.DynamicValue[bool]
 }
 
-func SetupHandlers(enabled bool, api *operations.WeaviateAPI, replicationManager replicationTypes.Manager, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
+func SetupHandlers(enabled *runtime.DynamicValue[bool], api *operations.WeaviateAPI, replicationManager replicationTypes.Manager, metrics *monitoring.PrometheusMetrics, authorizer authorization.Authorizer, logger logrus.FieldLogger,
 ) {
-	if !enabled {
-		setupUnimplementedHandlers(api)
-		return
-	}
-
 	h := &replicationHandler{
 		authorizer:         authorizer,
 		replicationManager: replicationManager,
 		logger:             logger,
 		metrics:            metrics,
+		enabled:            enabled,
 	}
 	api.ReplicationReplicateHandler = replication.ReplicateHandlerFunc(h.replicate)
 	api.ReplicationReplicationDetailsHandler = replication.ReplicationDetailsHandlerFunc(h.getReplicationDetailsByReplicationId)
@@ -57,34 +53,4 @@ func SetupHandlers(enabled bool, api *operations.WeaviateAPI, replicationManager
 
 	// Replication node details query handlers
 	api.ReplicationListReplicationHandler = replication.ListReplicationHandlerFunc(h.listReplication)
-}
-
-func setupUnimplementedHandlers(api *operations.WeaviateAPI) {
-	api.ReplicationReplicateHandler = replication.ReplicateHandlerFunc(func(replication.ReplicateParams, *models.Principal) middleware.Responder {
-		return replication.NewReplicationDetailsNotImplemented()
-	})
-	api.ReplicationReplicationDetailsHandler = replication.ReplicationDetailsHandlerFunc(func(replication.ReplicationDetailsParams, *models.Principal) middleware.Responder {
-		return replication.NewReplicationDetailsNotImplemented()
-	})
-	api.ReplicationCancelReplicationHandler = replication.CancelReplicationHandlerFunc(func(replication.CancelReplicationParams, *models.Principal) middleware.Responder {
-		return replication.NewCancelReplicationNotImplemented()
-	})
-	api.ReplicationDeleteReplicationHandler = replication.DeleteReplicationHandlerFunc(func(replication.DeleteReplicationParams, *models.Principal) middleware.Responder {
-		return replication.NewDeleteReplicationNotImplemented()
-	})
-	api.ReplicationDeleteAllReplicationsHandler = replication.DeleteAllReplicationsHandlerFunc(func(replication.DeleteAllReplicationsParams, *models.Principal) middleware.Responder {
-		return replication.NewDeleteAllReplicationsNotImplemented()
-	})
-	api.ReplicationGetCollectionShardingStateHandler = replication.GetCollectionShardingStateHandlerFunc(func(replication.GetCollectionShardingStateParams, *models.Principal) middleware.Responder {
-		return replication.NewGetCollectionShardingStateNotImplemented()
-	})
-	api.ReplicationGetReplicationScalePlanHandler = replication.GetReplicationScalePlanHandlerFunc(func(replication.GetReplicationScalePlanParams, *models.Principal) middleware.Responder {
-		return replication.NewGetReplicationScalePlanNotImplemented()
-	})
-	api.ReplicationApplyReplicationScalePlanHandler = replication.ApplyReplicationScalePlanHandlerFunc(func(replication.ApplyReplicationScalePlanParams, *models.Principal) middleware.Responder {
-		return replication.NewApplyReplicationScalePlanNotImplemented()
-	})
-	api.ReplicationListReplicationHandler = replication.ListReplicationHandlerFunc(func(replication.ListReplicationParams, *models.Principal) middleware.Responder {
-		return replication.NewListReplicationNotImplemented()
-	})
 }

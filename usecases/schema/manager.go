@@ -21,6 +21,9 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -48,7 +51,7 @@ type Manager struct {
 	// For more context, refer to the handler's definition.
 	Handler
 
-	SchemaReader
+	local.SchemaReader
 }
 
 type VectorConfigParser func(in interface{}, vectorIndexType string, isMultiVector bool) (schemaConfig.VectorIndexConfig, error)
@@ -67,7 +70,7 @@ type SchemaGetter interface {
 	Statistics() map[string]any
 
 	ShardOwner(class, shard string) (string, error)
-	TenantsShards(ctx context.Context, class string, tenants ...string) (map[string]string, error)
+	TenantsShardsStatus(ctx context.Context, class string, tenants ...string) (map[string]string, error)
 	// OptimisticTenantStatus tries to query the local state first
 	// allowImplicitActivation may only be set by callers acting for an external user request;
 	// because it lets the lookup activate a COLD tenant under auto tenant activation and leader lookup.
@@ -186,15 +189,7 @@ type ClassPayload struct {
 
 type clusterState interface {
 	cluster.NodeSelector
-	// Hostnames initializes a broadcast
-	Hostnames() []string
-
-	// AllNames initializes shard distribution across nodes
-	AllNames() []string
-	NodeCount() int
-
-	// ClusterHealthScore gets the whole cluster health, the lower number the better
-	ClusterHealthScore() int
+	cluster.MemberLister
 
 	SchemaSyncIgnored() bool
 	SkipSchemaRepair() bool
@@ -202,8 +197,10 @@ type clusterState interface {
 
 // NewManager creates a new manager
 func NewManager(validator validator,
-	schemaManager SchemaManager,
-	schemaReader SchemaReader,
+	schemaManager leader.Schema,
+	membership cluster.RaftMembership,
+	schemaReader local.SchemaReader,
+	indexer clusterSchema.Indexer,
 	repo SchemaStore,
 	logger logrus.FieldLogger, authorizer authorization.Authorizer,
 	schemaConfig *config.SchemaHandlerConfig,
@@ -220,6 +217,8 @@ func NewManager(validator validator,
 	handler, err := NewHandler(
 		schemaReader,
 		schemaManager,
+		membership,
+		indexer,
 		validator,
 		logger, authorizer,
 		schemaConfig,
@@ -271,17 +270,17 @@ func (m *Manager) ResolveParentNodes(class, shardName string) (map[string]string
 	return name2Addr, nil
 }
 
-func (m *Manager) TenantsShards(ctx context.Context, class string, tenants ...string) (map[string]string, error) {
-	status, _, err := m.TenantsShardsWithVersion(ctx, class, tenants...)
+func (m *Manager) TenantsShardsStatus(ctx context.Context, class string, tenants ...string) (map[string]string, error) {
+	status, _, err := m.TenantsShardsStatusWithVersion(ctx, class, tenants...)
 	return status, err
 }
 
-// TenantsShardsWithVersion returns tenant status and the schema version from any implicit activation.
+// TenantsShardsStatusWithVersion returns tenant status and the schema version from any implicit activation.
 // Callers performing writes should use the returned schemaVersion in WaitForUpdate before proceeding.
-func (m *Manager) TenantsShardsWithVersion(ctx context.Context, class string, tenants ...string) (map[string]string, uint64, error) {
+func (m *Manager) TenantsShardsStatusWithVersion(ctx context.Context, class string, tenants ...string) (map[string]string, uint64, error) {
 	slices.Sort(tenants)
 	tenants = slices.Compact(tenants)
-	status, version, err := m.schemaManager.QueryTenantsShards(class, tenants...)
+	status, version, err := m.schemaManager.TenantsShardsFromLeader(class, tenants...)
 	if !m.AllowImplicitTenantActivation(class) || err != nil {
 		return status, version, err
 	}
@@ -344,7 +343,7 @@ func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tena
 		return map[string]string{tenant: status}, nil
 	}
 
-	return m.TenantsShards(ctx, class, tenant)
+	return m.TenantsShardsStatus(ctx, class, tenant)
 }
 
 func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
@@ -352,7 +351,7 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 ) (map[string]string, uint64, error) {
 	req := &api.UpdateTenantsRequest{
 		Tenants:               make([]*api.Tenant, 0, len(status)),
-		ClusterNodes:          m.schemaManager.StorageCandidates(),
+		ClusterNodes:          m.membership.StorageCandidates(),
 		ImplicitUpdateRequest: true,
 	}
 	for tenant, s := range status {
@@ -395,7 +394,7 @@ func (m *Manager) AllowImplicitTenantActivation(class string) bool {
 }
 
 func (m *Manager) TenantsStatus(class string, tenants ...string) (map[string]string, error) {
-	tenantsMap, _, err := m.schemaManager.QueryTenantsShards(class, tenants...)
+	tenantsMap, _, err := m.schemaManager.TenantsShardsFromLeader(class, tenants...)
 	return tenantsMap, err
 }
 
@@ -420,7 +419,7 @@ func (m *Manager) changeTenantsActivityStatus(ctx context.Context, class string,
 
 	req := &api.UpdateTenantsRequest{
 		Tenants:               make([]*api.Tenant, len(tenants)),
-		ClusterNodes:          m.schemaManager.StorageCandidates(),
+		ClusterNodes:          m.membership.StorageCandidates(),
 		ImplicitUpdateRequest: true,
 	}
 	for i := range tenants {
@@ -436,12 +435,12 @@ func (m *Manager) changeTenantsActivityStatus(ctx context.Context, class string,
 // EnsureTenantActiveForWrite activates COLD tenants when AutoTenantActivation is enabled.
 // Returns the schema version from activation. callers must pass this to WaitForUpdate
 func (m *Manager) EnsureTenantActiveForWrite(ctx context.Context, class string, tenants ...string) (uint64, error) {
-	_, schemaVersion, err := m.TenantsShardsWithVersion(ctx, class, tenants...)
+	_, schemaVersion, err := m.TenantsShardsStatusWithVersion(ctx, class, tenants...)
 	return schemaVersion, err
 }
 
 func (m *Manager) ShardOwner(class, shard string) (string, error) {
-	owner, _, err := m.schemaManager.QueryShardOwner(class, shard)
+	owner, _, err := m.schemaManager.ShardOwnerFromLeader(class, shard)
 	if err != nil {
 		return "", err
 	}

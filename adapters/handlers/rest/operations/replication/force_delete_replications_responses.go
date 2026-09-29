@@ -273,3 +273,48 @@ func (o *ForceDeleteReplicationsInternalServerError) WriteResponse(rw http.Respo
 		}
 	}
 }
+
+// ForceDeleteReplicationsNotImplementedCode is the HTTP code returned for type ForceDeleteReplicationsNotImplemented
+const ForceDeleteReplicationsNotImplementedCode int = 501
+
+/*
+ForceDeleteReplicationsNotImplemented Replica movement operations are disabled.
+
+swagger:response forceDeleteReplicationsNotImplemented
+*/
+type ForceDeleteReplicationsNotImplemented struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewForceDeleteReplicationsNotImplemented creates ForceDeleteReplicationsNotImplemented with default headers values
+func NewForceDeleteReplicationsNotImplemented() *ForceDeleteReplicationsNotImplemented {
+
+	return &ForceDeleteReplicationsNotImplemented{}
+}
+
+// WithPayload adds the payload to the force delete replications not implemented response
+func (o *ForceDeleteReplicationsNotImplemented) WithPayload(payload *models.ErrorResponse) *ForceDeleteReplicationsNotImplemented {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the force delete replications not implemented response
+func (o *ForceDeleteReplicationsNotImplemented) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ForceDeleteReplicationsNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(501)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

@@ -46,7 +46,7 @@ func sweepStoppedInABucketShutdown(t *testing.T,
 
 	shd, idx := testShardWithSettings(t, testCtx(),
 		newTestClassWithProps(className, []string{"category"}),
-		enthnsw.UserConfig{Skip: true}, false, false, false,
+		enthnsw.UserConfig{Skip: true}, false, false,
 		func(i *Index) { i.logger = logger })
 	shard := shd.(*Shard)
 	t.Cleanup(func() { shard.Shutdown(testCtx()) })

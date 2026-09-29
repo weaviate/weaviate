@@ -145,7 +145,20 @@ func (s *Shard) collectShardRelativeFiles(ctx context.Context, stagingRoot strin
 	if err != nil {
 		return nil, err
 	}
-	return append(out, mutables...), nil
+	out = append(out, mutables...)
+
+	// index.db holds the vector index mapping and the dynamic upgrade
+	// verdicts; a target without it reads an upgraded legacy dynamic index
+	// as flat and deletes the hnsw it was sent. Copied, like the bookkeeping
+	// files: the live file is open and mutating.
+	if s.metadataDB != nil {
+		rel, err := s.metadataDB.Snapshot(s.path(), stagingRoot)
+		if err != nil {
+			return nil, fmt.Errorf("snapshot shard metadata for replica: %w", err)
+		}
+		out = append(out, rel)
+	}
+	return out, nil
 }
 
 // shardRelativePath converts a path returned by ListBackupFiles (relative to

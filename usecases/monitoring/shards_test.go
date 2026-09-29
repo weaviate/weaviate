@@ -243,6 +243,7 @@ func TestWarmupOutcomeCountsOnItsOwnSeries(t *testing.T) {
 		WarmupSkippedAlreadyLoaded,
 		WarmupSkippedEmpty,
 		WarmupSkippedBelowThreshold,
+		WarmupSkippedNamespaceUnknown,
 	}
 
 	readAll := func() map[WarmupOutcome]float64 {

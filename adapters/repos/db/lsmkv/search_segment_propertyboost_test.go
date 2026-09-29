@@ -64,8 +64,7 @@ func TestBlockMaxWandPropertyBoost(t *testing.T) {
 			for tid, dps := range postings {
 				key := keyFor(tid)
 				for _, dp := range dps {
-					require.NoError(t, bucket.MapSet([]byte(key),
-						NewMapPairFromDocIdAndTf(dp.Id, dp.Frequency, dp.PropLength, false)))
+					require.NoError(t, bucket.InvertedSet([]byte(key), dp.Id, dp.Frequency, dp.PropLength))
 				}
 			}
 			if flush {

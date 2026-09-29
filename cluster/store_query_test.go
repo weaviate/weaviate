@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/dbuser"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey/keys"
@@ -106,6 +107,14 @@ func TestQueryUserIdentifierExistsDispatch(t *testing.T) {
 	})
 }
 
+func TestQueryUnknownType(t *testing.T) {
+	ms := NewMockStore(t, "node-1", 0)
+
+	// This number sits far above every defined query type, so no new type will claim it.
+	_, err := ms.store.Query(&cmd.QueryRequest{Type: cmd.QueryRequest_Type(1 << 20)})
+	require.ErrorIs(t, err, types.ErrUnknownCommand)
+}
+
 // attachFollowerRaft gives store a real raft instance that is not the leader.
 // The node is never bootstrapped, so its configuration is empty, it can never
 // win an election and Barrier always reports raft.ErrNotLeader.
@@ -121,7 +130,7 @@ func attachFollowerRaft(t *testing.T, store *Store) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, r.Shutdown().Error()) })
 
-	store.raft = r
+	store.raft.Store(r)
 }
 
 func TestQueryExportUsersDispatch(t *testing.T) {

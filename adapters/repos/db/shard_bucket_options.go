@@ -49,6 +49,8 @@ func (s *Shard) makeDefaultBucketOptions(strategy string, customOptions ...lsmkv
 	case lsmkv.StrategyRoaringSetRange:
 		options = append(options,
 			lsmkv.WithBitmapBufPool(s.bitmapBufPool),
+			// Only a creator holds the property name this resolves against,
+			// so each appends its own value after this one, which wins.
 			lsmkv.WithKeepSegmentsInMemory(s.index.Config.IndexRangeableInMemory),
 			lsmkv.WithUseBloomFilter(false),
 		)

@@ -79,7 +79,7 @@ func TestSwitchCommitLogsBurst(t *testing.T) {
 
 	const switches = 5
 	for i := range switches {
-		require.NoError(t, cl.AddNode(&vertex{id: uint64(i), level: 0}))
+		require.NoError(t, cl.AddNode(uint64(i), 0))
 		require.NoError(t, cl.Flush())
 
 		switched, err := cl.switchCommitLogs(true)

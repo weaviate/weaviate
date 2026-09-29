@@ -370,10 +370,11 @@ func (i *Index) snapshotShard(
 		release := lazyShard.blockLoading()
 		defer release()
 
-		if !lazyShard.loaded {
+		loadedShard := lazyShard.currentShard()
+		if loadedShard == nil {
 			return i.snapshotFromDisk(shardName, snapshotsRoot, snapshotName)
 		}
-		shard = lazyShard.shard
+		shard = loadedShard
 	}
 
 	return i.snapshotFromLoadedShard(ctx, shard, shardName, snapshotsRoot, snapshotName)

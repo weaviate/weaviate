@@ -53,8 +53,7 @@ func TestBlockMaxWandLongQueryTerminates(t *testing.T) {
 			seen[zipf.Uint64()]++
 		}
 		for tid, tf := range seen {
-			require.NoError(t, bucket.MapSet([]byte(key(tid)),
-				NewMapPairFromDocIdAndTf(uint64(d), float32(tf), pl, false)))
+			require.NoError(t, bucket.InvertedSet([]byte(key(tid)), uint64(d), float32(tf), pl))
 		}
 	}
 	require.NoError(t, bucket.FlushAndSwitch())

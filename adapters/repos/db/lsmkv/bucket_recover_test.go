@@ -102,7 +102,7 @@ func TestBucketWalReload(t *testing.T) {
 			// will load wal and reuse memtable
 			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(strategy), WithSecondaryIndices(1),
+				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount),
 				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
 			require.NoError(t, err)
 

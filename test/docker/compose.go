@@ -14,14 +14,14 @@ package docker
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"os"
 	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	dockernetwork "github.com/docker/docker/api/types/network"
-	"github.com/docker/go-connections/nat"
+	dockernetwork "github.com/moby/moby/api/types/network"
 	"github.com/pkg/errors"
 	"github.com/testcontainers/testcontainers-go"
 	tescontainersnetwork "github.com/testcontainers/testcontainers-go/network"
@@ -112,7 +112,6 @@ const (
 type Compose struct {
 	netOctet                    int // second octet of this cluster's subnet, set in Start
 	enableModules               []string
-	defaultVectorizerModule     string
 	withMinIO                   bool
 	withGCS                     bool
 	withAzurite                 bool
@@ -189,7 +188,6 @@ func (d *Compose) WithAzurite() *Compose {
 func (d *Compose) WithText2VecTransformers() *Compose {
 	d.withTransformers = true
 	d.enableModules = append(d.enableModules, Text2VecTransformers)
-	d.defaultVectorizerModule = Text2VecTransformers
 	return d
 }
 
@@ -197,14 +195,12 @@ func (d *Compose) WithText2VecTransformersImage(image string) *Compose {
 	d.withTransformers = true
 	d.withTransformersImage = image
 	d.enableModules = append(d.enableModules, Text2VecTransformers)
-	d.defaultVectorizerModule = Text2VecTransformers
 	return d
 }
 
 func (d *Compose) WithText2VecContextionary() *Compose {
 	d.withContextionary = true
 	d.enableModules = append(d.enableModules, Text2VecContextionary)
-	d.defaultVectorizerModule = Text2VecContextionary
 	return d
 }
 
@@ -794,7 +790,10 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 			tescontainersnetwork.WithAttachable(),
 			tescontainersnetwork.WithIPAM(&dockernetwork.IPAM{
 				Config: []dockernetwork.IPAMConfig{
-					{Subnet: subnetForOctet(d.netOctet), Gateway: gatewayForOctet(d.netOctet)},
+					{
+						Subnet:  netip.MustParsePrefix(subnetForOctet(d.netOctet)),
+						Gateway: netip.MustParseAddr(gatewayForOctet(d.netOctet)),
+					},
 				},
 			}),
 		)
@@ -1050,7 +1049,7 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		delete(secondWeaviateSettings, "RAFT_PORT")
 		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
 		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready", d.weaviateFiles, d.weaviateHostGateway)
+		container, err := startWeaviate(ctx, d.enableModules, envSettings, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, "/v1/.well-known/ready", d.weaviateFiles, d.weaviateHostGateway)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", hostname)
 		}
@@ -1230,7 +1229,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 					hostname, attempt+1, ctx.Err())
 			}
 			attemptCtx, cancel := context.WithTimeout(context.Background(), perAttemptTimeout)
-			c, err := startWeaviate(attemptCtx, d.enableModules, d.defaultVectorizerModule,
+			c, err := startWeaviate(attemptCtx, d.enableModules,
 				cfg, networkName, d.netOctet, image, hostname, d.withWeaviateExposeGRPCPort, d.withWeaviateExposeDebugPort, livenessEndpoint, d.weaviateFiles, d.weaviateHostGateway)
 			cancel()
 			if err == nil {
@@ -1302,7 +1301,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 			defer cancel()
 			endpoint := readinessEndpointFunc(hostname)
 			if err := wait.ForHTTP(endpoint).
-				WithPort(nat.Port("8080/tcp")).
+				WithPort("8080/tcp").
 				WaitUntilReady(readyCtx, c.container); err != nil {
 				return fmt.Errorf("startCluster[%s]: readiness check failed (endpoint=%s, timeout=%s): %w",
 					hostname, endpoint, readinessTimeout, err)

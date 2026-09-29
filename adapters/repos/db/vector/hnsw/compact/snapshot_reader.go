@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	// snapshotConcurrency is the number of goroutines used for concurrent block reading.
+	// snapshotConcurrency is the maximum number of goroutines used for concurrent block reading.
 	snapshotConcurrency = 8
 )
 
@@ -59,7 +59,7 @@ type ReadSeekReaderAt interface {
 // to ensure format compatibility.
 //
 // Notes:
-//   - Uses concurrent block reading with 8 goroutines for performance
+//   - Uses concurrent block reading with up to 8 goroutines for performance
 //   - Supports PQ, SQ, RQ, BRQ compression
 //   - Supports Muvera encoder
 type SnapshotReader struct {
@@ -680,15 +680,19 @@ func (r *SnapshotReader) readBodyConcurrent(reader ReadSeekReaderAt, res *ent.De
 
 	// Setup concurrent block reading
 	var mu sync.Mutex
-	ranges := make([]snapshotBlockRange, 0, (bodySize+int(r.blockSize)-1)/int(r.blockSize))
+	blockCount := (bodySize + int(r.blockSize) - 1) / int(r.blockSize)
+	// Each worker allocates a blockSize buffer, so a snapshot with few blocks
+	// gets no more workers than it has blocks.
+	workers := min(snapshotConcurrency, blockCount)
+	ranges := make([]snapshotBlockRange, 0, blockCount)
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(r.logger, context.Background())
-	eg.SetLimit(snapshotConcurrency)
+	eg.SetLimit(workers)
 
 	// Channel for distributing block offsets to workers
-	ch := make(chan int, snapshotConcurrency)
+	ch := make(chan int, workers)
 
 	// Start worker goroutines
-	for i := 0; i < snapshotConcurrency; i++ {
+	for i := 0; i < workers; i++ {
 		eg.Go(func() error {
 			buf := make([]byte, r.blockSize)
 
@@ -836,6 +840,12 @@ func (r *SnapshotReader) readBlockConcurrent(buf []byte, res *ent.Deserializatio
 // mid-block cut fails the per-block checksum. So an interior gap is
 // unambiguously the old writer, not corruption.
 //
+// An empty block (start == end) covers no slots and is skipped. Older writers
+// emitted one ahead of a first node that exactly filled a block, with the same
+// start as the block holding that node. Blocks are gathered in whatever order
+// the workers finish, so the empty block could otherwise sort after its twin
+// and fail as an overlap.
+//
 // Overlap, a trailing shortfall (truncation), and a node count beyond the
 // metadata still fail closed.
 func validateSnapshotBlockRanges(ranges []snapshotBlockRange, nodeCount int, logger logrus.FieldLogger) error {
@@ -855,6 +865,9 @@ func validateSnapshotBlockRanges(ranges []snapshotBlockRange, nodeCount int, log
 	for _, blockRange := range ranges {
 		if blockRange.end < blockRange.start {
 			return fmt.Errorf("snapshot block range [%d,%d) is invalid", blockRange.start, blockRange.end)
+		}
+		if blockRange.start == blockRange.end {
+			continue
 		}
 		if blockRange.start < expected {
 			return fmt.Errorf("snapshot body has overlapping ranges: expected node %d, got range [%d,%d)",

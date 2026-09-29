@@ -81,13 +81,13 @@ func ClassUsesVectorisation(class *models.Class) bool {
 // in the vector-less state: the stored class has no legacy vectorizer and no
 // live named vectors (either every entry dropped — the flip moment when the
 // last drop finalizes — or already none), and the update carries no entries.
-// Vector-less classes keep their legacy fields genuinely EMPTY: the update
-// body arrives with server defaults filled in (setClassDefaults cannot know
-// better), and both the update validator and the RAFT-apply FSM use this
-// predicate to ignore those — immutability is relaxed for the comparison,
-// and the FSM never copies legacy fields, so nothing synthetic is ever
-// stored. Only named-vector classes can reach Vectorizer == "", so a legacy
-// class never matches.
+// A class reaches this state by being created without any vector or by
+// dropping its last named vector. Vector-less classes keep their legacy
+// fields genuinely EMPTY: the server defaults never fill them for such a
+// class, so a legacy field on the update body can only come from the caller,
+// and the update path rejects it rather than letting a class-level index
+// appear after creation. A legacy class always carries a vectorizer, so it
+// never matches.
 func IsVectorlessUpdate(prev, next *models.Class) bool {
 	if prev == nil || next == nil {
 		return false

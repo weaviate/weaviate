@@ -138,6 +138,76 @@ func TestSelectiveRBACBackupRestore(t *testing.T) {
 		assert.ElementsMatch(t, allRoleNames(), customRoleNames(t))
 		assert.ElementsMatch(t, allUserNames(), dynamicUserNames(t))
 	})
+
+	t.Run("WildcardMissBacksUpNothing", func(t *testing.T) {
+		backupID := "wildcard-miss"
+		seedRBAC(t)
+		defer cleanupRBAC(t)
+
+		helper.CreateClassAuth(t, par, adminKey)
+		defer helper.DeleteClassWithAuthz(t, par.Class, helper.CreateAuth(adminKey))
+
+		// Nothing is named "no-such-*". The backup must still succeed and carry no
+		// RBAC or user blob, so a restore with both options set changes nothing.
+		createSelectiveBackup(t, par.Class, backupID, []string{"no-such-*"}, []string{"no-such-*"})
+
+		// Deleting one pair before the restore separates the three outcomes: a
+		// whole-cluster blob would bring role 5 and user 5 back, an empty blob
+		// would wipe roles and users 1 to 4, and no blob leaves 1 to 4 alone.
+		helper.DeleteRole(t, adminKey, roleName(5))
+		helper.DeleteUser(t, userName(5), adminKey)
+		survivors := func(name func(int) string) []string {
+			return []string{name(1), name(2), name(3), name(4)}
+		}
+
+		helper.DeleteClassWithAuthz(t, par.Class, helper.CreateAuth(adminKey))
+		restoreAll(t, par.Class, backupID)
+
+		assert.ElementsMatch(t, survivors(roleName), customRoleNames(t))
+		assert.ElementsMatch(t, survivors(userName), dynamicUserNames(t))
+	})
+
+	t.Run("ExactMissIsRejected", func(t *testing.T) {
+		seedRBAC(t)
+		defer cleanupRBAC(t)
+
+		helper.CreateClassAuth(t, par, adminKey)
+		defer helper.DeleteClassWithAuthz(t, par.Class, helper.CreateAuth(adminKey))
+
+		tests := []struct {
+			name    string
+			include []string
+			roles   []string
+			users   []string
+			want    string
+		}{
+			{name: "user", users: []string{"no-such-user"}, want: `user "no-such-user" in 'includeUsers' does not exist`},
+			{name: "role", roles: []string{"no-such-role"}, want: `role "no-such-role" in 'includeRoles' does not exist`},
+			{name: "class-wildcard", include: []string{"NoSuch*"}, want: "matches no class"},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				include := []string{par.Class}
+				if tt.include != nil {
+					include = tt.include
+				}
+				params := backups.NewBackupsCreateParams().
+					WithBackend(backend).
+					WithBody(&models.BackupCreateRequest{
+						ID:           "exact-miss-" + tt.name,
+						Include:      include,
+						IncludeRoles: tt.roles,
+						IncludeUsers: tt.users,
+						Config:       helper.DefaultBackupConfig(),
+					})
+				_, err := helper.Client(t).Backups.BackupsCreate(params, auth())
+				var unproc *backups.BackupsCreateUnprocessableEntity
+				require.ErrorAs(t, err, &unproc)
+				require.NotEmpty(t, unproc.Payload.Error)
+				assert.Contains(t, unproc.Payload.Error[0].Message, tt.want)
+			})
+		}
+	})
 }
 
 func roleName(i int) string { return fmt.Sprintf("backup-role-%d", i) }

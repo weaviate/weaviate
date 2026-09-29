@@ -67,8 +67,9 @@ func (s *fakeSourcer) Backupable(ctx context.Context, classes []string) error {
 }
 
 func (s *fakeSourcer) BackupDescriptors(ctx context.Context, bakid string, classes []string, baseDescr []*backup.BackupDescriptor,
+	shardDesignations map[string]map[string]string,
 ) <-chan backup.ClassDescriptor {
-	args := s.Called(ctx, bakid, classes, baseDescr)
+	args := s.Called(ctx, bakid, classes, baseDescr, shardDesignations)
 	return args.Get(0).(<-chan backup.ClassDescriptor)
 }
 
@@ -80,6 +81,14 @@ type fakeBackend struct {
 	files    map[string][]byte
 	chunks   map[string][]byte
 	doneChan chan bool
+	// serveWrittenGlobalBackupMeta opts a test into reading GlobalBackupFile back as written, like GlobalRestoreFile already is.
+	serveWrittenGlobalBackupMeta bool
+}
+
+func (fb *fakeBackend) globalMetaStatus() backup.Status {
+	fb.RLock()
+	defer fb.RUnlock()
+	return fb.glMeta.Status
 }
 
 func (fb *fakeBackend) getMetaStatus() (backup.Status, string) {
@@ -92,6 +101,12 @@ func (fb *fakeBackend) getMetaBaseBackupID() string {
 	fb.RLock()
 	defer fb.RUnlock()
 	return fb.meta.BaseBackupID
+}
+
+func (fb *fakeBackend) getMetaStamp() (string, bool) {
+	fb.RLock()
+	defer fb.RUnlock()
+	return fb.meta.Version, fb.meta.DedupeReplicas
 }
 
 func newFakeBackend() *fakeBackend {
@@ -164,6 +179,10 @@ func (fb *fakeBackend) GetObject(ctx context.Context, backupID, key, overrideBuc
 			return nil, err
 		}
 		return bytes, nil
+	}
+
+	if key == GlobalBackupFile && fb.serveWrittenGlobalBackupMeta && fb.glMeta.ID != "" {
+		return json.Marshal(fb.glMeta)
 	}
 
 	args := fb.Called(ctx, backupID, key)

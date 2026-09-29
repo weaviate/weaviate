@@ -12,7 +12,9 @@
 package test
 
 import (
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -101,7 +103,8 @@ func testAliasesAPIBackup(t *testing.T) {
 			})
 
 			backend := "filesystem"
-			backupID := tt.option + "-backup-id"
+			// Backups outlive the shared server's classes, so the id must be unique per run
+			backupID := fmt.Sprintf("%s-backup-id-%d", tt.option, time.Now().UnixNano())
 
 			t.Run("backup with local filesystem backend", func(t *testing.T) {
 				backupResp, err := helper.CreateBackup(t, helper.DefaultBackupConfig(), books.DefaultClassName, backend, backupID)

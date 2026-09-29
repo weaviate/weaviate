@@ -19,8 +19,9 @@ import (
 	"github.com/pkg/errors"
 	pb "github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/grpc/generated/protocol"
 	"github.com/weaviate/weaviate/cluster/replication"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/remote"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -28,13 +29,13 @@ import (
 type FileReplicationService struct {
 	pb.UnimplementedFileReplicationServiceServer
 
-	repo   sharding.RemoteIncomingRepo
-	schema sharding.RemoteIncomingSchema
+	repo   remote.IncomingRepo
+	schema local.VersionedReader
 
 	fileChunkSize int
 }
 
-func NewFileReplicationService(repo sharding.RemoteIncomingRepo, schema sharding.RemoteIncomingSchema, fileChunkSize int) *FileReplicationService {
+func NewFileReplicationService(repo remote.IncomingRepo, schema local.VersionedReader, fileChunkSize int) *FileReplicationService {
 	return &FileReplicationService{
 		repo:          repo,
 		schema:        schema,
@@ -286,7 +287,7 @@ func (fps *FileReplicationService) StopChangeCapture(ctx context.Context, req *p
 
 func (fps *FileReplicationService) indexForIncomingWrite(ctx context.Context, indexName string,
 	schemaVersion uint64,
-) (sharding.RemoteIndexIncomingRepo, error) {
+) (remote.IndexIncomingRepo, error) {
 	// wait for schema and store to reach version >= schemaVersion
 	if _, err := fps.schema.ReadOnlyClassWithVersion(ctx, indexName, schemaVersion); err != nil {
 		return nil, fmt.Errorf("local index %q not found: %w", indexName, err)

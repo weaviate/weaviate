@@ -80,7 +80,7 @@ func (sc retokenizeScenario) run(t *testing.T) map[string][]uint64 {
 	}
 
 	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true},
-		false, false, false)
+		false, false)
 	shard := shd.(*Shard)
 	// Cleanup (not defer): the shard must outlive the caller's assertions.
 	t.Cleanup(func() { shard.Shutdown(ctx) })

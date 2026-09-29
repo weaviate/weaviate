@@ -4,12 +4,10 @@ import math
 
 
 from .conftest import CollectionFactory, NamedCollection
+from .test_named_vectors import single_target_distances
 
 GQL_RETURNS = "{_additional {distance id score}"
 GQL_TARGETS = 'targets: {targetVectors: ["title1", "title2", "title3"], combinationMethod: sum}'
-CAR_DISTANCE = 0.7892138957977295
-APPLE_DISTANCE = 0.5168729424476624
-KALE_DISTANCE = 0.5732871294021606
 
 
 def test_gql_near_text(named_collection: NamedCollection):
@@ -40,7 +38,7 @@ def test_gql_near_text(named_collection: NamedCollection):
 
     assert math.isclose(
         gql.get[collection.name][0]["_additional"]["distance"],
-        CAR_DISTANCE + APPLE_DISTANCE + KALE_DISTANCE,
+        sum(single_target_distances(collection, "fruit").values()),
         rel_tol=1e-5,
     )
 

@@ -97,7 +97,7 @@ func (suite *ScaleTestSuite) TestScalingSingleTenant() {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
 	require.NoError(t, err, "failed to start test containers: %+v", err)
@@ -118,7 +118,7 @@ func (suite *ScaleTestSuite) TestScalingSingleTenant() {
 		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
 			Factor: 1,
 		}
-		paragraphClass.Vectorizer = "text2vec-contextionary"
+		paragraphClass.Vectorizer = "text2vec-model2vec"
 		helper.CreateClass(t, paragraphClass)
 	})
 
@@ -299,7 +299,7 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(ctx)
 	require.NoError(t, err, "failed to start test containers: %+v", err)
@@ -322,7 +322,7 @@ func (suite *ScaleTestSuite) TestScalingMultiTenant() {
 			AutoTenantActivation: true,
 			AutoTenantCreation:   true,
 		}
-		paragraphClass.Vectorizer = "text2vec-contextionary"
+		paragraphClass.Vectorizer = "text2vec-model2vec"
 		helper.CreateClass(t, paragraphClass)
 	})
 

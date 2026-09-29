@@ -331,6 +331,8 @@ func fromRPCError(err error) error {
 			// the first arm; ErrLeadershipLost has its own wording.
 			return errors.Join(err, types.ErrNotLeader)
 		}
+	case codes.Unimplemented:
+		return errors.Join(err, types.ErrUnknownCommand)
 	case codes.NotFound:
 		switch {
 		case strings.Contains(msg, namespaces.ErrNamespaceGone.Error()):

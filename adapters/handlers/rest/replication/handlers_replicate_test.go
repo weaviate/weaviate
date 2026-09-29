@@ -15,14 +15,17 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
+	"reflect"
 	"testing"
 	"time"
 
+	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
@@ -43,6 +46,7 @@ func createReplicationHandlerWithMocks(t *testing.T, logger *logrus.Logger) (*re
 		authorizer:         mockAuthorizer,
 		replicationManager: mockReplicationManager,
 		logger:             logger,
+		enabled:            runtime.NewDynamicValue(true),
 	}
 
 	return handler, mockAuthorizer, mockReplicationManager
@@ -836,6 +840,62 @@ func TestForceDeleteReplicationsDryRun_NotFoundIsEmptyResult(t *testing.T) {
 			assert.True(t, payload.DryRun)
 			mockAuthorizer.AssertExpectations(t)
 			mockReplicationManager.AssertExpectations(t)
+		})
+	}
+}
+
+func TestReplicaMovementGate(t *testing.T) {
+	handler, mockAuthorizer, mockManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+	handler.enabled = runtime.NewDynamicValue(false)
+	// Past the gate every handler stops at validation, authz, or its first manager call.
+	mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(errors.New("denied")).Maybe()
+	mockManager.EXPECT().GetReplicationDetailsByReplicationId(mock.Anything, mock.Anything).Return(api.ReplicationDetailsResponse{}, errors.New("unavailable")).Maybe()
+
+	req := &http.Request{}
+	principal := &models.Principal{}
+	tests := []struct {
+		name     string
+		call     func() middleware.Responder
+		disabled middleware.Responder
+	}{
+		{"replicate", func() middleware.Responder {
+			return handler.replicate(replication.ReplicateParams{HTTPRequest: req, Body: &models.ReplicationReplicateReplicaRequest{}}, principal)
+		}, &replication.ReplicateNotImplemented{}},
+		{"details", func() middleware.Responder {
+			return handler.getReplicationDetailsByReplicationId(replication.ReplicationDetailsParams{HTTPRequest: req}, principal)
+		}, &replication.ReplicationDetailsNotImplemented{}},
+		{"delete", func() middleware.Responder {
+			return handler.deleteReplication(replication.DeleteReplicationParams{HTTPRequest: req}, principal)
+		}, &replication.DeleteReplicationNotImplemented{}},
+		{"delete all", func() middleware.Responder {
+			return handler.deleteAllReplications(replication.DeleteAllReplicationsParams{HTTPRequest: req}, principal)
+		}, &replication.DeleteAllReplicationsNotImplemented{}},
+		{"force delete", func() middleware.Responder {
+			return handler.forceDeleteReplications(replication.ForceDeleteReplicationsParams{HTTPRequest: req}, principal)
+		}, &replication.ForceDeleteReplicationsNotImplemented{}},
+		{"cancel", func() middleware.Responder {
+			return handler.cancelReplication(replication.CancelReplicationParams{HTTPRequest: req}, principal)
+		}, &replication.CancelReplicationNotImplemented{}},
+		{"list", func() middleware.Responder {
+			return handler.listReplication(replication.ListReplicationParams{HTTPRequest: req}, principal)
+		}, &replication.ListReplicationNotImplemented{}},
+		{"sharding state", func() middleware.Responder {
+			return handler.getCollectionShardingState(replication.GetCollectionShardingStateParams{HTTPRequest: req}, principal)
+		}, &replication.GetCollectionShardingStateNotImplemented{}},
+		{"scale plan", func() middleware.Responder {
+			return handler.getReplicationScalePlan(replication.GetReplicationScalePlanParams{HTTPRequest: req}, principal)
+		}, &replication.GetReplicationScalePlanNotImplemented{}},
+		{"apply scale plan", func() middleware.Responder {
+			return handler.applyReplicationScalePlan(replication.ApplyReplicationScalePlanParams{HTTPRequest: req}, principal)
+		}, &replication.ApplyReplicationScalePlanNotImplemented{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.NoError(t, handler.enabled.SetValue(false))
+			assert.IsType(t, tt.disabled, tt.call())
+
+			require.NoError(t, handler.enabled.SetValue(true))
+			assert.NotEqual(t, reflect.TypeOf(tt.disabled), reflect.TypeOf(tt.call()))
 		})
 	}
 }

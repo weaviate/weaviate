@@ -85,19 +85,20 @@ func TestUpdateReplicationConfig_SequentialWithLazyShard(t *testing.T) {
 	repo, index := newReplConfigDeadlockFixture(t, "ReplConfigSequential")
 	lazy := soleColdShard(t, index)
 
-	require.NoError(t, lazy.Load(ctx))
+	_, _, err := lazy.loadIfCold(ctx)
+	require.NoError(t, err)
 	require.NoError(t, index.updateReplicationConfig(ctx, &models.ReplicationConfig{
 		Factor: 1,
 	}))
 	require.NoError(t, repo.Shutdown(context.Background()))
 }
 
-// gateAllocChecker parks Load at CheckMappingAndReserve — inside Load's
-// critical section (shard mutex held, before its config read) — giving the
-// test a deterministic sync point.
+// gateAllocChecker parks loadIfCold at CheckMappingAndReserve — inside
+// loadIfCold's critical section (shard mutex held, before its config read) —
+// giving the test a deterministic sync point.
 type gateAllocChecker struct {
-	entered chan struct{} // closed when Load reaches the gate
-	release chan struct{} // closed by the test to let Load continue
+	entered chan struct{} // closed when loadIfCold reaches the gate
+	release chan struct{} // closed by the test to let loadIfCold continue
 }
 
 func (g gateAllocChecker) CheckAlloc(int64) error { return nil }
@@ -115,14 +116,17 @@ const (
 	deadlockTimeout     = 15 * time.Second
 )
 
-// startGatedLoad parks lazy's Load inside its critical section (shard mutex held, before its config reads) and returns the gate plus Load's done channel.
+// startGatedLoad parks lazy's loadIfCold inside its critical section (shard mutex held, before its config reads) and returns the gate plus loadIfCold's done channel.
 func startGatedLoad(t *testing.T, ctx context.Context, lazy *LazyLoadShard) (gateAllocChecker, chan error) {
 	t.Helper()
 	gate := gateAllocChecker{entered: make(chan struct{}), release: make(chan struct{})}
 	lazy.memMonitor = gate
 
 	loadDone := make(chan error, 1)
-	go func() { loadDone <- lazy.Load(ctx) }()
+	go func() {
+		_, _, err := lazy.loadIfCold(ctx)
+		loadDone <- err
+	}()
 
 	select {
 	case <-gate.entered:
@@ -157,12 +161,12 @@ func requireBothComplete(t *testing.T, what string, loadDone, opDone chan error)
 // Pins the ABBA deadlock that wedged the RAFT FSM in prod (the UpdateClass
 // apply never returns, so raft.Shutdown hangs on runFSM):
 //
-//	updateReplicationConfig: holds replicationConfigLock (W) -> wants LazyLoadShard.mutex (isLoaded)
-//	LazyLoadShard.Load:      holds LazyLoadShard.mutex      -> wants replicationConfigLock (R via initNonVector)
+//	updateReplicationConfig:  holds replicationConfigLock (W) -> wants LazyLoadShard.mutex (isLoaded)
+//	LazyLoadShard.loadIfCold: holds LazyLoadShard.mutex      -> wants replicationConfigLock (R via initNonVector)
 //
-// The interleaving is forced deterministically: Load is parked at the gate
+// The interleaving is forced deterministically: loadIfCold is parked at the gate
 // with the shard mutex held; a test-held read lock queues the updater's write
-// (observable — a pending writer fails TryRLock); releasing both lets Load's
+// (observable — a pending writer fails TryRLock); releasing both lets loadIfCold's
 // config read collide with the fan-out. Every sync point fails the test loudly
 // if it is not reached, so the test cannot pass without exercising the cycle.
 func TestUpdateReplicationConfig_DeadlocksAgainstLazyShardLoad(t *testing.T) {
@@ -174,7 +178,7 @@ func TestUpdateReplicationConfig_DeadlocksAgainstLazyShardLoad(t *testing.T) {
 	gate, loadDone := startGatedLoad(t, ctx, lazy)
 
 	// Queue the updater behind a test-held read lock so its write-lock request
-	// is observably pending before Load is released.
+	// is observably pending before loadIfCold is released.
 	index.replicationConfigLock.RLock()
 
 	updateDone := make(chan error, 1)
@@ -198,7 +202,7 @@ func TestUpdateReplicationConfig_DeadlocksAgainstLazyShardLoad(t *testing.T) {
 		t.Fatal("updateReplicationConfig never queued for the config write lock")
 	}
 	index.replicationConfigLock.RUnlock() // writer acquires the lock now
-	close(gate.release)                   // Load proceeds into its config read
+	close(gate.release)                   // loadIfCold proceeds into its config read
 
 	requireBothComplete(t, "updateReplicationConfig", loadDone, updateDone)
 	require.NoError(t, repo.Shutdown(context.Background()))
@@ -223,7 +227,7 @@ func TestReconcileAsyncReplication_NoDeadlockAgainstLazyShardLoad(t *testing.T) 
 	case <-time.After(200 * time.Millisecond):
 	}
 
-	close(gate.release) // Load proceeds into its config read
+	close(gate.release) // loadIfCold proceeds into its config read
 
 	requireBothComplete(t, "reconcileAsyncReplication", loadDone, reconcileDone)
 	require.NoError(t, repo.Shutdown(context.Background()))
@@ -359,7 +363,8 @@ func TestReconcileForShard_NoDeadlockAgainstLazyLoadAndConfigWriter(t *testing.T
 	require.NoError(t, index.shards.Range(func(name string, _ ShardLike) error { shardName = name; return nil }))
 
 	// Load fully so Loaded() passes, then swap the shard to mid-load underneath the parked reconcile.
-	require.NoError(t, lazy.Load(ctx))
+	_, _, err := lazy.loadIfCold(ctx)
+	require.NoError(t, err)
 
 	index.replicationConfigLock.Lock()
 

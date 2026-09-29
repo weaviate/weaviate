@@ -210,6 +210,9 @@ func TestAllLimits_SingleSharedContainer(t *testing.T) {
 // for "the count to reflect new objects" would dominate runtime.
 func aggressiveFlushEnv() map[string]string {
 	return map[string]string{
+		// A WAL below this size is reused instead of flushed, which would keep
+		// a handful of small test objects out of the count indefinitely.
+		"PERSISTENCE_MAX_REUSE_WAL_SIZE":                    "0",
 		"PERSISTENCE_MEMTABLES_FLUSH_DIRTY_AFTER_SECONDS":   "1",
 		"PERSISTENCE_MEMTABLES_FLUSH_IDLE_AFTER_SECONDS":    "1",
 		"PERSISTENCE_MEMTABLES_MIN_ACTIVE_DURATION_SECONDS": "1",

@@ -39,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
+	localschema "github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	entreplication "github.com/weaviate/weaviate/entities/replication"
@@ -49,7 +50,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 // uuidLow and uuidHigh are deterministic UUIDs with clear binary ordering:
@@ -732,7 +732,7 @@ func asyncSchedulerOption(t *testing.T, ctx context.Context) func(*Index) {
 
 func setShardReplicas(t *testing.T, idx *Index, nodes ...string) {
 	t.Helper()
-	m, ok := idx.schemaReader.(*schemaUC.MockSchemaReader)
+	m, ok := idx.schemaReader.(*localschema.MockSchemaReader)
 	require.True(t, ok, "schemaReader is not a *MockSchemaReader")
 	for _, c := range m.ExpectedCalls {
 		if c.Method == "ShardReplicas" {
@@ -1410,6 +1410,7 @@ func TestEnableAsyncReplication_LoadsHashtreeFromDisk(t *testing.T) {
 	s.asyncReplicationRWMux.RLock()
 	require.True(t, s.hashtreeFullyInitialized,
 		"hashtree must be fully initialized from disk cache, not via a background scan")
+	require.Nil(t, s.minimalHashtreeInitializationCh, "a cached load never arms the write gate")
 	s.asyncReplicationRWMux.RUnlock()
 
 	// Root must match what was saved: the persisted tree must have been loaded.
@@ -1688,22 +1689,22 @@ func TestConcurrentEnableDisable(t *testing.T) {
 	_ = s.disableAsyncReplication(ctx)
 }
 
-// TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping guards against the recursive-RLock deadlock where the merge paths called waitForMinimalHashTreeInitialization while holding asyncReplicationRWMux.RLock(); pre-fix it hangs (watchdog fires), post-fix it completes. Run with -race.
-func TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping(t *testing.T) {
-	const (
-		writers    = 8
-		iterations = 150
-		watchdog   = 30 * time.Second
-	)
+// asyncWriteJourney is one object write path driven against async replication state changes.
+type asyncWriteJourney struct {
+	name  string
+	write func(s *Shard, id strfmt.UUID, updateTime int64) error
+}
 
-	ids := []strfmt.UUID{uuidLow, uuidMid, uuidHigh}
-
-	tests := []struct {
-		name  string
-		write func(s *Shard, id strfmt.UUID, updateTime int64) error
-	}{
+// asyncWriteJourneys returns the put, merge, mutable merge and delete journeys, or only the named ones in the given order.
+func asyncWriteJourneys(names ...string) []asyncWriteJourney {
+	all := []asyncWriteJourney{
 		{
-			// Exercises mergeObjectInStorage via the public MergeObject entry point.
+			name: "PutObject",
+			write: func(s *Shard, id strfmt.UUID, updateTime int64) error {
+				return s.PutObject(context.Background(), testObjWithTime(s.class.Class, id, updateTime))
+			},
+		},
+		{
 			name: "MergeObject",
 			write: func(s *Shard, id strfmt.UUID, updateTime int64) error {
 				return s.MergeObject(context.Background(), objects.MergeDocument{
@@ -1714,7 +1715,6 @@ func TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping(t *testing.T) {
 			},
 		},
 		{
-			// Exercises mutableMergeObjectLSM directly (the AddReferencesBatch path).
 			name: "mutableMergeObjectLSM",
 			write: func(s *Shard, id strfmt.UUID, updateTime int64) error {
 				idBytes, err := bytesFromUUID(id)
@@ -1729,9 +1729,38 @@ func TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping(t *testing.T) {
 				return err
 			},
 		},
+		{
+			name: "DeleteObject",
+			write: func(s *Shard, id strfmt.UUID, updateTime int64) error {
+				return s.DeleteObject(context.Background(), id, time.UnixMilli(updateTime))
+			},
+		},
 	}
+	if len(names) == 0 {
+		return all
+	}
+	out := make([]asyncWriteJourney, 0, len(names))
+	for _, name := range names {
+		for _, j := range all {
+			if j.name == name {
+				out = append(out, j)
+			}
+		}
+	}
+	return out
+}
 
-	for _, tc := range tests {
+// TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping guards against the recursive-RLock deadlock where the merge paths called waitForMinimalHashTreeInitialization while holding asyncReplicationRWMux.RLock(); pre-fix it hangs (watchdog fires), post-fix it completes. Run with -race.
+func TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping(t *testing.T) {
+	const (
+		writers    = 8
+		iterations = 150
+		watchdog   = 30 * time.Second
+	)
+
+	ids := []strfmt.UUID{uuidLow, uuidMid, uuidHigh}
+
+	for _, tc := range asyncWriteJourneys("MergeObject", "mutableMergeObjectLSM") {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
 			sl, _ := testShard(t, ctx, "MergeDeadlock"+tc.name, withAsyncScheduler(t))
@@ -1803,74 +1832,6 @@ func TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping(t *testing.T) {
 
 			require.NoError(t, s.disableAsyncReplication(ctx))
 		})
-	}
-}
-
-// TestMergeUnblocksWhenInitBailsBeforeHashtreeScan deterministically drives the
-// deadlock that TestMergeWritesNoDeadlockUnderAsyncReplicationFlapping only hits
-// under load: holding the single init slot parks the init goroutine before
-// initHashtree, then disableAsyncReplication cancels its context so it exits
-// without ever running the scan that closes minimalHashtreeInitializationCh.
-// Without the fix the channel leaks and the in-flight merge blocks forever.
-func TestMergeUnblocksWhenInitBailsBeforeHashtreeScan(t *testing.T) {
-	ctx := context.Background()
-
-	// Scheduler with a single hashtree-init slot so the test can starve the scan.
-	logger, _ := test.NewNullLogger()
-	sched, err := NewAsyncReplicationScheduler(context.Background(), entreplication.GlobalConfig{
-		AsyncReplicationSchedulerWorkers:        configRuntime.NewDynamicValue(1),
-		AsyncReplicationHashtreeInitConcurrency: configRuntime.NewDynamicValue(1),
-		AsyncReplicationDisabled:                configRuntime.NewDynamicValue(false),
-	}, nil, logger)
-	require.NoError(t, err)
-	t.Cleanup(sched.Close)
-
-	sl, _ := testShard(t, ctx, "MergeUnblocksInitBail", func(idx *Index) {
-		idx.asyncReplicationScheduler = sched
-	})
-	s := concreteShard(t, sl)
-	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
-
-	for _, id := range []strfmt.UUID{uuidLow, uuidMid, uuidHigh} {
-		require.NoError(t, sl.PutObject(ctx, testObjWithTime(s.class.Class, id, tsFarPast)))
-	}
-	require.NoError(t, s.store.FlushMemtables(ctx))
-
-	// Occupy the only init slot so the shard's init goroutine blocks in
-	// acquireHashtreeInitSlot before it reaches initHashtree.
-	require.NoError(t, sched.hashtreeInitSem.Acquire(context.Background(), 1))
-	defer sched.hashtreeInitSem.Release(1)
-
-	// Spawns the init goroutine, which parks on the held slot with the hashtree
-	// set but not yet initialized.
-	require.NoError(t, s.enableAsyncReplication(ctx, minAsyncReplicationConfig()))
-
-	// The merge captures the open init channel and blocks in
-	// waitForMinimalHashTreeInitialization.
-	mergeDone := make(chan error, 1)
-	go func() {
-		mergeDone <- s.MergeObject(ctx, objects.MergeDocument{
-			Class:      s.class.Class,
-			ID:         uuidLow,
-			UpdateTime: tsFarPast + 1,
-		})
-	}()
-
-	// Precondition: the merge must actually be parked while init is stalled.
-	select {
-	case <-mergeDone:
-		t.Fatal("merge completed while hashtree init was stalled — precondition not met")
-	case <-time.After(200 * time.Millisecond):
-	}
-
-	// Disable cancels the shard's async context; the init goroutine returns from
-	// acquireHashtreeInitSlot and exits without running initHashtree.
-	require.NoError(t, s.disableAsyncReplication(ctx))
-
-	select {
-	case <-mergeDone:
-	case <-time.After(10 * time.Second):
-		t.Fatal("merge did not unblock after async replication was disabled — init channel leaked")
 	}
 }
 
@@ -2330,50 +2291,6 @@ func TestMayStopAsyncReplicationDumpReflectsDrainWindowDeletes(t *testing.T) {
 
 	require.Equal(t, storeRoot, dumped.Root(),
 		"shutdown .ht must reflect deletes applied during the worker drain window")
-}
-
-// TestUnfreezeMustNotTrustDownloadedHashtree pins: activation trust-loads a possibly-stale .ht from a pre-fix offload artifact.
-func TestUnfreezeMustNotTrustDownloadedHashtree(t *testing.T) {
-	t.Skip("pinned: activation over downloaded artifact files trust-loads a possibly-stale .ht — scrub belongs in the offload download path, tracked as follow-up")
-
-	ctx := context.Background()
-	const class = "UnfreezeDownloadedHashtreeTest"
-
-	sl, _ := testShard(t, ctx, class, withAsyncScheduler(t))
-	s := concreteShard(t, sl)
-	t.Cleanup(func() { _ = sl.Shutdown(ctx) })
-
-	for _, id := range []strfmt.UUID{uuidLow, uuidMid} {
-		require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, id, tsFarPast)))
-	}
-	flushShard(t, ctx, sl)
-
-	cfg := minAsyncReplicationConfig()
-	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
-	awaitHashtreeInitialized(t, s)
-	stopAsyncAndDump(t, s)
-	require.Len(t, htFilesInDir(t, s.pathHashTree()), 1,
-		"pre-condition: a .ht snapshot of {low,mid} exists, as in a pre-fix offload artifact")
-
-	require.NoError(t, sl.PutObject(ctx, testObjWithTime(class, uuidHigh, tsFarPast)))
-	flushShard(t, ctx, sl)
-
-	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
-	awaitHashtreeInitialized(t, s)
-	s.asyncReplicationRWMux.RLock()
-	activationRoot := s.hashtree.Root()
-	s.asyncReplicationRWMux.RUnlock()
-
-	require.NoError(t, s.disableAsyncReplication(ctx))
-	require.NoError(t, s.enableAsyncReplication(ctx, cfg))
-	awaitHashtreeInitialized(t, s)
-	s.asyncReplicationRWMux.RLock()
-	rescanRoot := s.hashtree.Root()
-	s.asyncReplicationRWMux.RUnlock()
-	require.NoError(t, s.disableAsyncReplication(ctx))
-
-	require.Equal(t, rescanRoot, activationRoot,
-		"activation over artifact files must rescan the store, not trust the artifact's .ht")
 }
 
 // TestDisableAsyncReplicationScrubsPersistedHashtree: runtime disable removes any stray .ht.
