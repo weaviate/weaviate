@@ -137,24 +137,27 @@ func roundTripFloat32(t *testing.T, tokens [][]float32, dims int) {
 	assertTokensEqual(t, decoded, tokens)
 }
 
+// badShapes are the token sets every validateTokens caller must refuse: a
+// dimensionality that cannot be written to the header and tokens that do
+// not all have that dimensionality.
+var badShapes = []struct {
+	name   string
+	tokens [][]float32
+	dims   int
+}{
+	{"zero dimensions", [][]float32{{}}, 0},
+	{"negative dimensions", [][]float32{{1}}, -1},
+	{"dimensions beyond uint16", [][]float32{}, math.MaxUint16 + 1},
+	{"token shorter than dims", [][]float32{{1, 2}}, 4},
+	{"token longer than dims", [][]float32{{1, 2, 3, 4, 5}}, 4},
+	{"ragged tokens", [][]float32{{1, 2, 3, 4}, {1, 2, 3}}, 4},
+}
+
 // TestEncodeFloat32RejectsBadShapes checks that the encoder refuses a
 // dimensionality that cannot be written to the header and a document whose
 // tokens do not all have that dimensionality.
 func TestEncodeFloat32RejectsBadShapes(t *testing.T) {
-	tests := []struct {
-		name   string
-		tokens [][]float32
-		dims   int
-	}{
-		{"zero dimensions", [][]float32{{}}, 0},
-		{"negative dimensions", [][]float32{{1}}, -1},
-		{"dimensions beyond uint16", [][]float32{}, math.MaxUint16 + 1},
-		{"token shorter than dims", [][]float32{{1, 2}}, 4},
-		{"token longer than dims", [][]float32{{1, 2, 3, 4, 5}}, 4},
-		{"ragged tokens", [][]float32{{1, 2, 3, 4}, {1, 2, 3}}, 4},
-	}
-
-	for _, tt := range tests {
+	for _, tt := range badShapes {
 		t.Run(tt.name, func(t *testing.T) {
 			if _, err := EncodeFloat32(tt.tokens, tt.dims); err == nil {
 				t.Fatal("expected an error, got none")

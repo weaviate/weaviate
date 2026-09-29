@@ -235,7 +235,7 @@ func TestRQ1Int8Table(t *testing.T) {
 				}
 				want := float64(rq1NibbleEntry(qs, byte(c)))
 				got := float64(e) * float64(scale)
-				if diff := math.Abs(got - want); diff > float64(scale)/2*(1+8*eps32) {
+				if math.Abs(got-want) > float64(scale)/2*(1+8*eps32) {
 					t.Fatalf("group %d pattern %d: %v, want %v (half unit is %v)",
 						n, c, got, want, float64(scale)/2)
 				}
@@ -538,6 +538,34 @@ func TestRQ1LUTInt8AgreesWithEstimator(t *testing.T) {
 	}
 }
 
+// edgeCaseParams builds the params the edge-case tests of both int8 table
+// scorers encode under: uncentered, or centered on the mean of 64 random
+// unit tokens.
+//
+// Arguments:
+//   - rng: the source of the mean's tokens.
+//   - dims: the dimensionality.
+//   - centered: whether to center.
+//
+// It returns the name of the variant for the subtest and the params.
+func edgeCaseParams(t *testing.T, rng *rand.Rand, dims int, centered bool) (string, *RQ1Params) {
+	t.Helper()
+	name := "uncentered"
+	var mean []float32
+	var id uint16
+	var version uint16
+	if centered {
+		name = "centered"
+		mean = tokenMean(unitTokens(rng, 64, dims), dims)
+		id, version = 9, 1
+	}
+	p, err := NewRQ1Params(dims, 0x5eed, mean, id, version)
+	if err != nil {
+		t.Fatalf("NewRQ1Params: %v", err)
+	}
+	return name, p
+}
+
 // TestRQ1LUTInt8EdgeCases covers the documents where the maximum is degenerate
 // or the estimate is exactly zero, and the zero query token, whose table is
 // zero and whose contribution must be exactly the correction. The answer is
@@ -572,19 +600,7 @@ func TestRQ1LUTInt8EdgeCases(t *testing.T) {
 	}
 
 	for _, centered := range []bool{false, true} {
-		name := "uncentered"
-		var mean []float32
-		var id uint16
-		var version uint16
-		if centered {
-			name = "centered"
-			mean = tokenMean(unitTokens(rng, 64, dims), dims)
-			id, version = 9, 1
-		}
-		p, err := NewRQ1Params(dims, 0x5eed, mean, id, version)
-		if err != nil {
-			t.Fatalf("NewRQ1Params: %v", err)
-		}
+		name, p := edgeCaseParams(t, rng, dims, centered)
 		s, err := NewRQ1LUTInt8Scorer(query, p)
 		if err != nil {
 			t.Fatalf("NewRQ1LUTInt8Scorer: %v", err)

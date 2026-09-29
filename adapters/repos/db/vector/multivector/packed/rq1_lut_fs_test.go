@@ -228,6 +228,45 @@ func TestRQ1ScanBlocksKernels(t *testing.T) {
 	}
 }
 
+// randomScanInputs draws the inputs of one kernel parity case: tables of
+// random entries, or of the largest entry when extreme is set so that every
+// lookup sits at the accumulator's limit and groups=129 lands exactly on
+// 258*127 = 32766; random codes; and steps that are zero, negative or
+// positive in turn.
+//
+// Arguments:
+//   - rng: the source of the random entries.
+//   - tables: how many query tokens' tables to draw, back to back.
+//   - groups: code bytes per token.
+//   - blocks: how many 16-token blocks of codes and steps to draw.
+//   - extreme: fill the tables with rq1Int8Levels.
+func randomScanInputs(rng *rand.Rand, tables, groups, blocks int, extreme bool) (tbl []int8, codes []byte, steps []float32) {
+	tbl = make([]int8, tables*32*groups)
+	for i := range tbl {
+		if extreme {
+			tbl[i] = rq1Int8Levels
+		} else {
+			tbl[i] = int8(rng.Intn(255) - 127)
+		}
+	}
+	codes = make([]byte, blocks*blockTokens*groups)
+	for i := range codes {
+		codes[i] = byte(rng.Intn(256))
+	}
+	steps = make([]float32, blocks*blockTokens)
+	for i := range steps {
+		switch i % 5 {
+		case 0:
+			steps[i] = 0
+		case 1:
+			steps[i] = float32(-rng.Float64())
+		default:
+			steps[i] = float32(rng.Float64())
+		}
+	}
+	return tbl, codes, steps
+}
+
 // testRQ1ScanBlocksKernel is TestRQ1ScanBlocksKernels's body for one kernel:
 // it runs kernel and rq1ScanBlocksGo over the same inputs and compares the
 // lane maxima with sameLane.
@@ -239,31 +278,7 @@ func testRQ1ScanBlocksKernel(t *testing.T, kernel func(tbl []int8, codes []byte,
 				name := fmt.Sprintf("g=%d/b=%d/extreme=%v", groups, blocks, extreme)
 				t.Run(name, func(t *testing.T) {
 					rng := rand.New(rand.NewSource(int64(groups*100 + blocks)))
-					tbl := make([]int8, 32*groups)
-					for i := range tbl {
-						if extreme {
-							// every lookup at the accumulator's limit, so
-							// groups=129 lands exactly on 258*127 = 32766
-							tbl[i] = rq1Int8Levels
-						} else {
-							tbl[i] = int8(rng.Intn(255) - 127)
-						}
-					}
-					codes := make([]byte, blocks*blockTokens*groups)
-					for i := range codes {
-						codes[i] = byte(rng.Intn(256))
-					}
-					steps := make([]float32, blocks*blockTokens)
-					for i := range steps {
-						switch i % 5 {
-						case 0:
-							steps[i] = 0
-						case 1:
-							steps[i] = float32(-rng.Float64())
-						default:
-							steps[i] = float32(rng.Float64())
-						}
-					}
+					tbl, codes, steps := randomScanInputs(rng, 1, groups, blocks, extreme)
 
 					for _, scale := range []float32{0, 1, 0.10546875, float32(rng.Float64())} {
 						want := make([]float32, blockTokens)
@@ -320,29 +335,7 @@ func TestRQ1ScanTileKernels(t *testing.T) {
 				t.Run(name, func(t *testing.T) {
 					rng := rand.New(rand.NewSource(int64(groups*100 + blocks)))
 					stride := 32 * groups
-					tbl := make([]int8, width*stride)
-					for i := range tbl {
-						if extreme {
-							tbl[i] = rq1Int8Levels
-						} else {
-							tbl[i] = int8(rng.Intn(255) - 127)
-						}
-					}
-					codes := make([]byte, blocks*blockTokens*groups)
-					for i := range codes {
-						codes[i] = byte(rng.Intn(256))
-					}
-					steps := make([]float32, blocks*blockTokens)
-					for i := range steps {
-						switch i % 5 {
-						case 0:
-							steps[i] = 0
-						case 1:
-							steps[i] = float32(-rng.Float64())
-						default:
-							steps[i] = float32(rng.Float64())
-						}
-					}
+					tbl, codes, steps := randomScanInputs(rng, width, groups, blocks, extreme)
 					// one scale per query token, all different and one of them
 					// zero: a kernel broadcasting one scale over the tile
 					// would pass with equal scales and fails here
@@ -602,19 +595,7 @@ func TestRQ1FastScanEdgeCases(t *testing.T) {
 	}
 
 	for _, centered := range []bool{false, true} {
-		name := "uncentered"
-		var mean []float32
-		var id uint16
-		var version uint16
-		if centered {
-			name = "centered"
-			mean = tokenMean(unitTokens(rng, 64, dims), dims)
-			id, version = 9, 1
-		}
-		p, err := NewRQ1Params(dims, 0x5eed, mean, id, version)
-		if err != nil {
-			t.Fatalf("NewRQ1Params: %v", err)
-		}
+		name, p := edgeCaseParams(t, rng, dims, centered)
 		for _, tc := range cases {
 			t.Run(fmt.Sprintf("%s/%s", name, tc.name), func(t *testing.T) {
 				assertRQ1FastScanParity(t, query, [][][]float32{tc.doc}, p, tc.name)

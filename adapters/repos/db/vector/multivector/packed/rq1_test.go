@@ -16,8 +16,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -149,22 +147,7 @@ func TestRQ1ParityWithBRQ(t *testing.T) {
 				if err != nil {
 					t.Fatalf("NewRQ1Params: %v", err)
 				}
-				blob, err := EncodeRQ1(doc, params)
-				if err != nil {
-					t.Fatalf("EncodeRQ1: %v", err)
-				}
-				parsed, err := Parse(blob)
-				if err != nil {
-					t.Fatalf("Parse: %v", err)
-				}
-				scorer, err := NewRQ1Scorer(query, params)
-				if err != nil {
-					t.Fatalf("NewRQ1Scorer: %v", err)
-				}
-				got, err := scorer.Distance(parsed)
-				if err != nil {
-					t.Fatalf("Distance: %v", err)
-				}
+				got := rq1Distance(t, doc, query, params)
 
 				// below 256 dimensions the from-seed constructor would pad
 				// to 256 bits, so the reference is the params' own restored
@@ -231,20 +214,15 @@ func tokenMean(tokens [][]float32, dims int) []float32 {
 	return mean
 }
 
-// TestRQ1ZeroQueryToken pins the query-side zero path against the same BRQ
-// reference: a zero query token quantizes to step 0 and contributes exactly 0
-// against every document token.
-func TestRQ1ZeroQueryToken(t *testing.T) {
-	const dims = 256
-	rng := rand.New(rand.NewSource(11))
-	doc := unitTokens(rng, 12, dims)
-	query := unitTokens(rng, 4, dims)
-	query[2] = make([]float32, dims)
-
-	params, err := NewRQ1Params(dims, 99, nil, 0, 0)
-	if err != nil {
-		t.Fatalf("NewRQ1Params: %v", err)
-	}
+// rq1Distance encodes doc under params and scores it against query with the
+// 5-bit scorer, failing the test on any error.
+//
+// Arguments:
+//   - doc: the document tokens.
+//   - query: the query tokens.
+//   - params: the parameters to encode and score under.
+func rq1Distance(t *testing.T, doc, query [][]float32, params *RQ1Params) float32 {
+	t.Helper()
 	blob, err := EncodeRQ1(doc, params)
 	if err != nil {
 		t.Fatalf("EncodeRQ1: %v", err)
@@ -261,6 +239,24 @@ func TestRQ1ZeroQueryToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Distance: %v", err)
 	}
+	return got
+}
+
+// TestRQ1ZeroQueryToken pins the query-side zero path against the same BRQ
+// reference: a zero query token quantizes to step 0 and contributes exactly 0
+// against every document token.
+func TestRQ1ZeroQueryToken(t *testing.T) {
+	const dims = 256
+	rng := rand.New(rand.NewSource(11))
+	doc := unitTokens(rng, 12, dims)
+	query := unitTokens(rng, 4, dims)
+	query[2] = make([]float32, dims)
+
+	params, err := NewRQ1Params(dims, 99, nil, 0, 0)
+	if err != nil {
+		t.Fatalf("NewRQ1Params: %v", err)
+	}
+	got := rq1Distance(t, doc, query, params)
 
 	brq, err := compressionhelpers.NewBinaryRotationalQuantizer(dims, 99, distancer.NewDotProductProvider())
 	if err != nil {
@@ -347,7 +343,7 @@ func TestRQ1ZeroTokensCentered(t *testing.T) {
 		t.Fatalf("Parse: %v", err)
 	}
 
-	if got := parsed.Scalar(0); got == 0 {
+	if parsed.Scalar(0) == 0 {
 		t.Fatal("centered zero token's Step is 0; it should encode -mu, a real vector")
 	}
 
@@ -363,7 +359,7 @@ func TestRQ1ZeroTokensCentered(t *testing.T) {
 	if got == 0 {
 		t.Fatal("centered distance to an all-zero document is exactly 0; expected quantization error around 0")
 	}
-	if abs := math.Abs(float64(got)); abs > 0.75 {
+	if math.Abs(float64(got)) > 0.75 {
 		t.Fatalf("centered distance to an all-zero document = %v; its magnitude should be within quantization error of 0", got)
 	}
 }
@@ -886,29 +882,7 @@ func TestGoldenRQ1(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.file, func(t *testing.T) {
-			path := filepath.Join("testdata", tt.file)
-			if *update {
-				if err := os.WriteFile(path, tt.blob, 0o644); err != nil {
-					t.Fatalf("write %s: %v", path, err)
-				}
-			}
-
-			onDisk, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatalf("read %s: %v", path, err)
-			}
-			if !bytes.Equal(onDisk, tt.blob) {
-				t.Fatalf("%s differs from what this build writes; either the format or the "+
-					"rotation changed without a version bump", path)
-			}
-
-			parsed, err := Parse(onDisk)
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
-			if parsed.Header != tt.header {
-				t.Fatalf("header = %+v, want %+v", parsed.Header, tt.header)
-			}
+			parsed := goldenBlob(t, tt.file, tt.blob, tt.header)
 
 			// the zero token's Step tells the variants apart: exactly 0
 			// uncentered, non-zero centered where the token encodes -mu
@@ -916,7 +890,7 @@ func TestGoldenRQ1(t *testing.T) {
 				if got := parsed.Scalar(1); got != 0 {
 					t.Fatalf("uncentered zero token's Step = %v, want exactly 0", got)
 				}
-			} else if got := parsed.Scalar(1); got == 0 {
+			} else if parsed.Scalar(1) == 0 {
 				t.Fatal("centered zero token's Step is 0, want the Step of -mu")
 			}
 		})

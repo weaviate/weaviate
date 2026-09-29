@@ -278,22 +278,9 @@ func TestFloat32ScorerTailOnly(t *testing.T) {
 // dimension count that cannot be written to the header and a query whose
 // tokens do not all have that many coordinates.
 func TestNewFloat32ScorerRejectsBadQueries(t *testing.T) {
-	tests := []struct {
-		name  string
-		query [][]float32
-		dims  int
-	}{
-		{"zero dimensions", [][]float32{{}}, 0},
-		{"negative dimensions", [][]float32{{1}}, -1},
-		{"dimensions beyond uint16", [][]float32{}, math.MaxUint16 + 1},
-		{"query token shorter than dims", [][]float32{{1, 2}}, 4},
-		{"query token longer than dims", [][]float32{{1, 2, 3, 4, 5}}, 4},
-		{"ragged query", [][]float32{{1, 2, 3, 4}, {1, 2, 3}}, 4},
-	}
-
-	for _, tt := range tests {
+	for _, tt := range badShapes {
 		t.Run(tt.name, func(t *testing.T) {
-			if _, err := NewFloat32Scorer(tt.query, tt.dims); err == nil {
+			if _, err := NewFloat32Scorer(tt.tokens, tt.dims); err == nil {
 				t.Fatal("expected an error, got none")
 			}
 		})

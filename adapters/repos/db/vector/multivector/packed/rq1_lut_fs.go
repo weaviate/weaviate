@@ -219,8 +219,6 @@ func NewRQ1LUTFastScanScorer(query [][]float32, p *RQ1Params) (*RQ1LUTFastScanSc
 		nibbles:  nibbles,
 		scan:     rq1ScanBlocksImpl,
 		tableLen: nibbles * 16,
-		scale:    make([]float32, len(query)),
-		corr:     make([]float32, len(query)),
 		lanes:    make([]float32, blockTokens),
 		scanTile: rq1ScanTileImpl,
 		tile:     rq1ScanTileWidth,
@@ -237,15 +235,7 @@ func NewRQ1LUTFastScanScorer(query [][]float32, p *RQ1Params) (*RQ1LUTFastScanSc
 		s.tileLanes = make([]float32, s.tile*blockTokens)
 		s.tileBest = make([]float32, s.tile)
 	}
-	s.tables = make([]int8, len(query)*s.tableLen)
-
-	for q, token := range query {
-		rx := p.rot.Rotate(token)
-		s.scale[q] = rq1Int8Table(rx, nibbles, s.tables[q*s.tableLen:(q+1)*s.tableLen])
-		for j, m := range p.mean {
-			s.corr[q] += token[j] * m
-		}
-	}
+	s.tables, s.scale, s.corr = rq1QueryTables(query, p, nibbles)
 	return s, nil
 }
 

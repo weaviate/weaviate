@@ -121,7 +121,7 @@ func rq1NibbleEntry(qs []float32, c byte) float32 {
 
 // rq1Int8Table fills the int8 table of one rotated query token and returns its
 // scale, the value of one table unit. It runs at scorer construction only, once
-// per query token, from NewRQ1LUTInt8Scorer and NewRQ1LUTFastScanScorer.
+// per query token, from rq1QueryTables.
 //
 // Arguments:
 //   - rx: the rotated query token, at least 4*nibbles coordinates.
@@ -266,19 +266,35 @@ func NewRQ1LUTInt8Scorer(query [][]float32, p *RQ1Params) (*RQ1LUTInt8Scorer, er
 		groups:   rq1Groups(p),
 		nibbles:  nibbles,
 		tableLen: nibbles * 16,
-		scale:    make([]float32, len(query)),
-		corr:     make([]float32, len(query)),
 	}
-	s.tables = make([]int8, len(query)*s.tableLen)
+	s.tables, s.scale, s.corr = rq1QueryTables(query, p, nibbles)
+	return s, nil
+}
 
+// rq1QueryTables builds the int8 tables of a whole query, one per query
+// token, with the scale of each table and the <q, mu> correction of each
+// token. Both int8 table scorers build their tables through it.
+//
+// Arguments:
+//   - query: one slice per query token, each exactly p.dims long.
+//   - p: the parameters the blobs were encoded under.
+//   - nibbles: number of 4-dimension groups, rq1Nibbles(p).
+//
+// It returns the tables, indexed [q*nibbles*16 + n*16 + c], the scale per
+// query token and the correction per query token.
+func rq1QueryTables(query [][]float32, p *RQ1Params, nibbles int) (tables []int8, scale, corr []float32) {
+	tableLen := nibbles * 16
+	tables = make([]int8, len(query)*tableLen)
+	scale = make([]float32, len(query))
+	corr = make([]float32, len(query))
 	for q, token := range query {
 		rx := p.rot.Rotate(token)
-		s.scale[q] = rq1Int8Table(rx, nibbles, s.tables[q*s.tableLen:(q+1)*s.tableLen])
+		scale[q] = rq1Int8Table(rx, nibbles, tables[q*tableLen:(q+1)*tableLen])
 		for j, m := range p.mean {
-			s.corr[q] += token[j] * m
+			corr[q] += token[j] * m
 		}
 	}
-	return s, nil
+	return tables, scale, corr
 }
 
 // Distance implements Scorer: the negated MaxSim estimate over int8 tables,

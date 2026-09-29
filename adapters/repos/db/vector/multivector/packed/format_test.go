@@ -401,6 +401,46 @@ func TestFixedOverhead(t *testing.T) {
 //
 // Regenerating is only legitimate when the format version is bumped; a
 // difference at the current version is a compatibility break.
+// goldenBlob checks one golden fixture: with -update it rewrites the file
+// first; then the file must equal what this build writes, and its bytes must
+// parse to the expected header. Parsing the bytes off disk, not the ones just
+// built, is the part that will still mean something at a later format
+// version.
+//
+// Arguments:
+//   - file: the fixture's name under testdata/.
+//   - blob: what this build writes for it.
+//   - header: the header the fixture must parse to.
+//
+// It returns the parsed fixture.
+func goldenBlob(t *testing.T, file string, blob []byte, header Header) Blob {
+	t.Helper()
+	path := filepath.Join("testdata", file)
+	if *update {
+		if err := os.WriteFile(path, blob, 0o644); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	onDisk, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	if !bytes.Equal(onDisk, blob) {
+		t.Fatalf("%s differs from what this build writes; the format or the "+
+			"encoding changed without a version bump", path)
+	}
+
+	parsed, err := Parse(onDisk)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if parsed.Header != header {
+		t.Fatalf("header = %+v, want %+v", parsed.Header, header)
+	}
+	return parsed
+}
+
 func TestGolden(t *testing.T) {
 	goldenTokens := [][]float32{
 		{0, -0.5, 1.25, -2},
@@ -464,31 +504,7 @@ func TestGolden(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.file, func(t *testing.T) {
-			path := filepath.Join("testdata", tt.file)
-			if *update {
-				if err := os.WriteFile(path, tt.blob, 0o644); err != nil {
-					t.Fatalf("write %s: %v", path, err)
-				}
-			}
-
-			onDisk, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatalf("read %s: %v", path, err)
-			}
-			if !bytes.Equal(onDisk, tt.blob) {
-				t.Fatalf("%s differs from what this build writes; the format changed "+
-					"without a version bump", path)
-			}
-
-			// parsing the bytes off disk, not the ones just built, is the
-			// part that will still mean something at a later format version
-			parsed, err := Parse(onDisk)
-			if err != nil {
-				t.Fatalf("Parse: %v", err)
-			}
-			if parsed.Header != tt.header {
-				t.Fatalf("header = %+v, want %+v", parsed.Header, tt.header)
-			}
+			parsed := goldenBlob(t, tt.file, tt.blob, tt.header)
 			for i, want := range tt.scalars {
 				if got := parsed.Scalar(i); got != want {
 					t.Fatalf("Scalar(%d) = %v, want %v", i, got, want)
