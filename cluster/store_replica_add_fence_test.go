@@ -22,23 +22,31 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 var errAddReachedApply = errors.New("add reached apply")
 
-func newReplicaAddFenceStore(t *testing.T) *Store {
+func newReplicaAddFenceStore(t *testing.T, commitOnce ...uint64) (*Store, *MockStore) {
 	t.Helper()
 	srv, m := newBarrierTestStore(t)
+	for _, id := range commitOnce {
+		m.replicationFSM.EXPECT().SetUnCancellable(id).Return(nil).Once()
+	}
 	m.replicationFSM.EXPECT().SetUnCancellable(mock.Anything).Return(errAddReachedApply).Maybe()
+	m.indexer.On("ReconcileAsyncReplicationForShard", mock.Anything, mock.Anything).Return(nil).Maybe()
 	require.NoError(t, srv.store.waitLeaderFSMCaughtUp())
-	return srv.store
+	return srv.store, m
 }
 
 func registerFenceOp(t *testing.T, fsm *replication.ShardReplicationFSM, id uint64, states ...api.ShardReplicationState) strfmt.UUID {
@@ -73,8 +81,38 @@ func updateOpStateCmd(t *testing.T, opID uint64, state api.ShardReplicationState
 	return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE, SubCommand: sub}
 }
 
+func addShardedClassCmd(t *testing.T, class, shard, node string) *api.ApplyRequest {
+	t.Helper()
+	sub, err := json.Marshal(&api.AddClassRequest{
+		Class: &models.Class{Class: class},
+		State: &sharding.State{Physical: map[string]sharding.Physical{shard: {Name: shard, BelongsToNodes: []string{node}}}},
+	})
+	require.NoError(t, err)
+	return &api.ApplyRequest{Type: api.ApplyRequest_TYPE_ADD_CLASS, Class: class, SubCommand: sub}
+}
+
+func receiveErr(t *testing.T, ch <-chan error) error {
+	t.Helper()
+	select {
+	case err := <-ch:
+		return err
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for Execute")
+		return nil
+	}
+}
+
+func opLockRefs(l *opKeyLocks, id uint64) int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if k, ok := l.locks[id]; ok {
+		return k.refs
+	}
+	return 0
+}
+
 func TestReplicaAddFence_ProposeAdmission(t *testing.T) {
-	st := newReplicaAddFenceStore(t)
+	st, _ := newReplicaAddFenceStore(t)
 	fsm := st.replicationManager.GetReplicationFSM()
 
 	tests := []struct {
@@ -146,23 +184,62 @@ func TestReplicaAddFence_ProposeAdmission(t *testing.T) {
 }
 
 func TestReplicaAddFence_FinalizingRetryAfterCommittedAddIsAdmitted(t *testing.T) {
-	st := newReplicaAddFenceStore(t)
+	st, _ := newReplicaAddFenceStore(t, 7)
 	registerFenceOp(t, st.replicationManager.GetReplicationFSM(), 7, api.HYDRATING, api.FINALIZING)
+	_, err := st.Execute(addShardedClassCmd(t, "Class7", "S1", "Node-1"))
+	require.NoError(t, err)
 
-	for i := 0; i < 2; i++ {
-		_, err := st.Execute(addReplicaCmd(t, 7))
-		require.ErrorIs(t, err, errAddReachedApply)
-	}
+	_, err = st.Execute(addReplicaCmd(t, 7))
+	require.NoError(t, err)
+	replicas, err := st.SchemaReader().ShardReplicas("Class7", "S1")
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"Node-1", "Node-2"}, replicas)
+
+	_, err = st.Execute(addReplicaCmd(t, 7))
+	require.ErrorIs(t, err, errAddReachedApply)
+}
+
+func TestReplicaAddFence_OpLockIsTakenBeforeTheBarrier(t *testing.T) {
+	st, m := newReplicaAddFenceStore(t)
+	registerFenceOp(t, st.replicationManager.GetReplicationFSM(), 9, api.HYDRATING, api.FINALIZING)
+	m.indexer.ExpectedCalls = nil
+	m.indexer.On("Open", mock.Anything).Return(nil)
+	m.indexer.On("Close", mock.Anything).Return(nil)
+	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	m.indexer.On("AddClass", mock.Anything).Run(func(mock.Arguments) { time.Sleep(300 * time.Millisecond) }).Return(nil)
+
+	st.replicaOpLocks.lock(9)
+	addErr := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		_, err := st.Execute(addReplicaCmd(t, 9))
+		addErr <- err
+	}, st.log)
+	require.Eventually(t, func() bool { return opLockRefs(st.replicaOpLocks, 9) == 2 }, 5*time.Second, 5*time.Millisecond)
+
+	slow, err := proto.Marshal(addClassCmd(t, "Slow9"))
+	require.NoError(t, err)
+	rewind, err := proto.Marshal(updateOpStateCmd(t, 9, api.HYDRATING))
+	require.NoError(t, err)
+	slowFut := st.raft.Load().Apply(slow, st.applyTimeout)
+	rewindFut := st.raft.Load().Apply(rewind, st.applyTimeout)
+	st.fsmCaughtUpTerm.Store(0)
+	st.replicaOpLocks.unlock(9)
+
+	require.ErrorIs(t, receiveErr(t, addErr), replicationTypes.ErrAddReplicaOpNotFinalizing)
+	require.NoError(t, slowFut.Error())
+	require.NoError(t, rewindFut.Error())
 }
 
 func TestReplicaAddFence_RewindWaitsForAnAdmittedAdd(t *testing.T) {
-	st := newReplicaAddFenceStore(t)
+	st, _ := newReplicaAddFenceStore(t)
 	fsm := st.replicationManager.GetReplicationFSM()
 	registerFenceOp(t, fsm, 1, api.HYDRATING, api.FINALIZING)
 	registerFenceOp(t, fsm, 2, api.HYDRATING)
 
 	admitted := make(chan struct{})
 	release := make(chan struct{})
+	releaseAdd := sync.OnceFunc(func() { close(release) })
+	t.Cleanup(releaseAdd)
 	st.replicaAddAdmittedHook = func() {
 		close(admitted)
 		<-release
@@ -183,7 +260,11 @@ func TestReplicaAddFence_RewindWaitsForAnAdmittedAdd(t *testing.T) {
 		record("add")
 		addErr <- err
 	}, st.log)
-	<-admitted
+	select {
+	case <-admitted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("add was never admitted")
+	}
 
 	enterrors.GoWrapper(func() {
 		_, err := st.Execute(updateOpStateCmd(t, 1, api.HYDRATING))
@@ -191,8 +272,12 @@ func TestReplicaAddFence_RewindWaitsForAnAdmittedAdd(t *testing.T) {
 		rewindErr <- err
 	}, st.log)
 
-	_, err := st.Execute(updateOpStateCmd(t, 2, api.FINALIZING))
-	require.NoError(t, err, "another op must not wait on this op's lock")
+	otherErr := make(chan error, 1)
+	enterrors.GoWrapper(func() {
+		_, err := st.Execute(updateOpStateCmd(t, 2, api.FINALIZING))
+		otherErr <- err
+	}, st.log)
+	require.NoError(t, receiveErr(t, otherErr), "another op must not wait on this op's lock")
 	op2, ok := fsm.GetOpById(2)
 	require.True(t, ok)
 	require.Equal(t, api.FINALIZING, op2.Status.GetCurrentState())
@@ -206,9 +291,9 @@ func TestReplicaAddFence_RewindWaitsForAnAdmittedAdd(t *testing.T) {
 	require.True(t, ok)
 	require.Equal(t, api.FINALIZING, op1.Status.GetCurrentState())
 
-	close(release)
-	require.ErrorIs(t, <-addErr, errAddReachedApply)
-	require.NoError(t, <-rewindErr)
+	releaseAdd()
+	require.ErrorIs(t, receiveErr(t, addErr), errAddReachedApply)
+	require.NoError(t, receiveErr(t, rewindErr))
 	require.Equal(t, []string{"add", "rewind"}, order)
 	op1, ok = fsm.GetOpById(1)
 	require.True(t, ok)
@@ -217,7 +302,7 @@ func TestReplicaAddFence_RewindWaitsForAnAdmittedAdd(t *testing.T) {
 }
 
 func TestReplicaAddFence_AddAfterRewindIsRefused(t *testing.T) {
-	st := newReplicaAddFenceStore(t)
+	st, _ := newReplicaAddFenceStore(t)
 	registerFenceOp(t, st.replicationManager.GetReplicationFSM(), 3, api.HYDRATING, api.FINALIZING)
 
 	_, err := st.Execute(updateOpStateCmd(t, 3, api.HYDRATING))
@@ -252,7 +337,7 @@ func TestOpKeyLocks(t *testing.T) {
 						defer wg.Done()
 						l.lock(uint64(id))
 						held[id]++
-						require.Equal(t, 1, held[id])
+						assert.Equal(t, 1, held[id])
 						held[id]--
 						l.unlock(uint64(id))
 					}, logger)
