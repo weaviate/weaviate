@@ -3023,7 +3023,7 @@ func DetermineUnloadedBucketStrategyAmong(bucketPath string, prioritizedStrategi
 				ec.Add(fmt.Errorf("%q:%w", entry.Name(), err))
 				continue
 			}
-			if info.Size() <= 0 {
+			if walTooShortForRecord(info.Size()) {
 				continue
 			}
 			walEntries = append(walEntries, entry)

@@ -596,6 +596,14 @@ func (l *LazyLoadShard) DebugResetVectorIndex(ctx context.Context, targetVector 
 	return shard.DebugResetVectorIndex(ctx, targetVector)
 }
 
+func (l *LazyLoadShard) DebugResetGeoIndex(ctx context.Context, propName string) error {
+	shard, _, err := l.loadIfCold(ctx)
+	if err != nil {
+		return err
+	}
+	return shard.DebugResetGeoIndex(ctx, propName)
+}
+
 func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
 	lazyLoadSegments bool, props ...*models.Property,
 ) {
