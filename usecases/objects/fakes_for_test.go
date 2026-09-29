@@ -56,6 +56,7 @@ type fakeSchemaManager struct {
 	AddTenantsSchemaVersion uint64
 	AutoSchemaVersion       uint64
 	ClassVersion            uint64
+	AddClassErr             error
 	AddClassPropertyErr     error
 	WaitForUpdateErr        error
 	// observed
@@ -152,6 +153,9 @@ func (f *fakeSchemaManager) ReadOnlyClass(name string) *models.Class {
 func (f *fakeSchemaManager) AddClass(ctx context.Context, principal *models.Principal,
 	class *models.Class,
 ) (*models.Class, uint64, error) {
+	if f.AddClassErr != nil {
+		return nil, 0, f.AddClassErr
+	}
 	if f.GetSchemaResponse.Objects == nil {
 		f.GetSchemaResponse.Objects = schema.Empty().Objects
 	}
