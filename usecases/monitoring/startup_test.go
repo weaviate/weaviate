@@ -1,0 +1,307 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2026 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
+package monitoring
+
+import (
+	"errors"
+	"testing"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/stretchr/testify/require"
+)
+
+func newTestStartupMetrics(t *testing.T) (*StartupMetrics, *prometheus.Registry, time.Time) {
+	t.Helper()
+	reg := prometheus.NewPedanticRegistry()
+	processStart := time.Now().Add(-time.Minute)
+	return newStartupMetrics(reg, processStart), reg, processStart
+}
+
+func TestStartupMetrics_PhaseStarted(t *testing.T) {
+	for _, phase := range AllStartupPhases() {
+		t.Run(string(phase), func(t *testing.T) {
+			m, _, _ := newTestStartupMetrics(t)
+
+			done := m.PhaseStarted(phase)
+			require.Equal(t, float64(1), testutil.ToFloat64(m.phaseActive.WithLabelValues(string(phase))),
+				"phase must be active while it runs")
+			require.Equal(t, float64(0), testutil.ToFloat64(m.phaseDuration.WithLabelValues(string(phase))),
+				"duration is only published once the phase ends")
+
+			time.Sleep(2 * time.Millisecond)
+			done()
+			require.Equal(t, float64(0), testutil.ToFloat64(m.phaseActive.WithLabelValues(string(phase))))
+			require.Greater(t, testutil.ToFloat64(m.phaseDuration.WithLabelValues(string(phase))), float64(0))
+
+			for _, other := range AllStartupPhases() {
+				if other == phase {
+					continue
+				}
+				require.Equal(t, float64(0), testutil.ToFloat64(m.phaseDuration.WithLabelValues(string(other))),
+					"other phases must not move")
+			}
+		})
+	}
+}
+
+func TestStartupMetrics_PhaseStartedRecordsLastRun(t *testing.T) {
+	m, _, _ := newTestStartupMetrics(t)
+
+	done := m.PhaseStarted(StartupPhaseDBReload)
+	time.Sleep(5 * time.Millisecond)
+	done()
+	first := testutil.ToFloat64(m.phaseDuration.WithLabelValues(string(StartupPhaseDBReload)))
+
+	m.PhaseStarted(StartupPhaseDBReload)()
+	second := testutil.ToFloat64(m.phaseDuration.WithLabelValues(string(StartupPhaseDBReload)))
+
+	require.Less(t, second, first, "a re-run replaces the previous duration rather than accumulating")
+}
+
+func TestStartupMetrics_SetReady(t *testing.T) {
+	m, _, processStart := newTestStartupMetrics(t)
+
+	require.Equal(t, float64(0), testutil.ToFloat64(m.startupDuration), "0 until ready")
+	require.Equal(t, float64(0), testutil.ToFloat64(m.readyTimestamp), "0 until ready")
+
+	before := time.Now()
+	m.SetReady()
+	after := time.Now()
+
+	ts := testutil.ToFloat64(m.readyTimestamp)
+	require.GreaterOrEqual(t, ts, float64(before.UnixNano())/float64(time.Second))
+	require.LessOrEqual(t, ts, float64(after.UnixNano())/float64(time.Second))
+
+	dur := testutil.ToFloat64(m.startupDuration)
+	require.InDelta(t, ts-float64(processStart.UnixNano())/float64(time.Second), dur, 0.01,
+		"startup duration is measured from process start")
+
+	time.Sleep(2 * time.Millisecond)
+	m.SetReady()
+	require.Equal(t, ts, testutil.ToFloat64(m.readyTimestamp), "only the first readiness counts")
+	require.Equal(t, dur, testutil.ToFloat64(m.startupDuration), "only the first readiness counts")
+}
+
+func TestStartupMetrics_ObserveShardLoad(t *testing.T) {
+	tests := []struct {
+		registration ShardRegistration
+		other        ShardRegistration
+	}{
+		{registration: ShardRegistrationEager, other: ShardRegistrationLazy},
+		{registration: ShardRegistrationLazy, other: ShardRegistrationEager},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.registration), func(t *testing.T) {
+			m, reg, _ := newTestStartupMetrics(t)
+
+			m.ObserveShardLoad(tt.registration, 1500*time.Millisecond)
+
+			count, err := HistogramSampleCount(reg, "weaviate_shard_load_duration_seconds",
+				prometheus.Labels{"registration": string(tt.registration)})
+			require.NoError(t, err)
+			require.Equal(t, uint64(1), count)
+
+			sum, err := HistogramSampleSum(reg, "weaviate_shard_load_duration_seconds",
+				prometheus.Labels{"registration": string(tt.registration)})
+			require.NoError(t, err)
+			require.InDelta(t, 1.5, sum, 1e-9, "observed in seconds")
+
+			count, err = HistogramSampleCount(reg, "weaviate_shard_load_duration_seconds",
+				prometheus.Labels{"registration": string(tt.other)})
+			require.NoError(t, err)
+			require.Equal(t, uint64(0), count, "the other registration is pre-registered but untouched")
+		})
+	}
+}
+
+func TestStartupMetrics_ObserveVectorIndexRestore(t *testing.T) {
+	m, reg, _ := newTestStartupMetrics(t)
+
+	m.ObserveVectorIndexRestore(VectorIndexTypeHNSW, 250*time.Millisecond)
+
+	count, err := HistogramSampleCount(reg, "weaviate_vector_index_restore_duration_seconds",
+		prometheus.Labels{"index_type": "hnsw"})
+	require.NoError(t, err)
+	require.Equal(t, uint64(1), count)
+	sum, err := HistogramSampleSum(reg, "weaviate_vector_index_restore_duration_seconds",
+		prometheus.Labels{"index_type": "hnsw"})
+	require.NoError(t, err)
+	require.InDelta(t, 0.25, sum, 1e-9)
+}
+
+func TestStartupMetrics_PrefillStarted(t *testing.T) {
+	tests := []struct {
+		name      string
+		indexType VectorIndexType
+		mode      PrefillMode
+		err       error
+		wantCount uint64
+	}{
+		{name: "hnsw sync completes", indexType: VectorIndexTypeHNSW, mode: PrefillModeSync, wantCount: 1},
+		{name: "hnsw async completes", indexType: VectorIndexTypeHNSW, mode: PrefillModeAsync, wantCount: 1},
+		{name: "flat sync completes", indexType: VectorIndexTypeFlat, mode: PrefillModeSync, wantCount: 1},
+		{name: "hfresh async completes", indexType: VectorIndexTypeHFresh, mode: PrefillModeAsync, wantCount: 1},
+		{name: "failed prefill is not observed", indexType: VectorIndexTypeHNSW, mode: PrefillModeSync, err: errors.New("boom"), wantCount: 0},
+		{name: "aborted prefill is not observed", indexType: VectorIndexTypeHNSW, mode: PrefillModeAsync, err: errors.New("context canceled"), wantCount: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			m, reg, _ := newTestStartupMetrics(t)
+			labels := prometheus.Labels{"index_type": string(tt.indexType), "mode": string(tt.mode)}
+
+			done := m.PrefillStarted(tt.indexType, tt.mode)
+			require.Equal(t, float64(1), testutil.ToFloat64(m.prefillActive.With(labels)),
+				"active while the prefill runs")
+
+			done(tt.err)
+			require.Equal(t, float64(0), testutil.ToFloat64(m.prefillActive.With(labels)),
+				"active drops whatever the outcome")
+
+			count, err := HistogramSampleCount(reg, "weaviate_vector_cache_prefill_duration_seconds", labels)
+			require.NoError(t, err)
+			require.Equal(t, tt.wantCount, count)
+		})
+	}
+}
+
+func TestStartupMetrics_PrefillActiveCountsConcurrentRuns(t *testing.T) {
+	m, _, _ := newTestStartupMetrics(t)
+	labels := prometheus.Labels{"index_type": "hnsw", "mode": "async"}
+
+	done1 := m.PrefillStarted(VectorIndexTypeHNSW, PrefillModeAsync)
+	done2 := m.PrefillStarted(VectorIndexTypeHNSW, PrefillModeAsync)
+	require.Equal(t, float64(2), testutil.ToFloat64(m.prefillActive.With(labels)))
+	done1(nil)
+	require.Equal(t, float64(1), testutil.ToFloat64(m.prefillActive.With(labels)))
+	done2(nil)
+	require.Equal(t, float64(0), testutil.ToFloat64(m.prefillActive.With(labels)))
+}
+
+func TestStartupMetrics_NilReceiverIsNoop(t *testing.T) {
+	var m *StartupMetrics
+
+	require.NotPanics(t, func() {
+		m.PhaseStarted(StartupPhaseDBReload)()
+		m.SetReady()
+		m.ObserveShardLoad(ShardRegistrationEager, time.Second)
+		m.ObserveVectorIndexRestore(VectorIndexTypeHNSW, time.Second)
+		m.PrefillStarted(VectorIndexTypeHNSW, PrefillModeSync)(nil)
+		m.PrefillStarted(VectorIndexTypeHNSW, PrefillModeSync)(errors.New("boom"))
+	})
+}
+
+// Every label combination is pre-registered so a fresh node scrapes zeros
+// rather than omitting series, and the set is fixed regardless of how many
+// collections or tenants the node holds.
+func TestStartupMetrics_PreRegisteredSeries(t *testing.T) {
+	m, _, _ := newTestStartupMetrics(t)
+
+	tests := []struct {
+		name      string
+		collector prometheus.Collector
+		want      int
+	}{
+		{name: "phase duration", collector: m.phaseDuration, want: len(AllStartupPhases())},
+		{name: "phase active", collector: m.phaseActive, want: len(AllStartupPhases())},
+		{name: "startup duration", collector: m.startupDuration, want: 1},
+		{name: "ready timestamp", collector: m.readyTimestamp, want: 1},
+		{name: "shard load", collector: m.shardLoad, want: 2},
+		{name: "vector index restore", collector: m.vectorIndexRestore, want: 1},
+		{name: "prefill duration", collector: m.prefillDuration, want: 4},
+		{name: "prefill active", collector: m.prefillActive, want: 4},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, testutil.CollectAndCount(tt.collector))
+		})
+	}
+}
+
+func TestStartupMetrics_Singleton(t *testing.T) {
+	require.NotNil(t, GetStartupMetrics())
+	require.Same(t, GetStartupMetrics(), GetStartupMetrics())
+}
+
+func TestHistogramSampleCount(t *testing.T) {
+	reg := prometheus.NewPedanticRegistry()
+	vec := prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "test_hist_seconds", Help: "test"}, []string{"a"})
+	reg.MustRegister(vec)
+	vec.WithLabelValues("x").Observe(1)
+	vec.WithLabelValues("x").Observe(2)
+	vec.WithLabelValues("y").Observe(3)
+
+	tests := []struct {
+		name      string
+		metric    string
+		labels    prometheus.Labels
+		wantCount uint64
+		wantSum   float64
+		wantErr   bool
+	}{
+		{name: "matching series", metric: "test_hist_seconds", labels: prometheus.Labels{"a": "x"}, wantCount: 2, wantSum: 3},
+		{name: "other series", metric: "test_hist_seconds", labels: prometheus.Labels{"a": "y"}, wantCount: 1, wantSum: 3},
+		{name: "unknown labels", metric: "test_hist_seconds", labels: prometheus.Labels{"a": "z"}, wantErr: true},
+		{name: "unknown metric", metric: "nope", labels: prometheus.Labels{"a": "x"}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			count, err := HistogramSampleCount(reg, tt.metric, tt.labels)
+			sum, sumErr := HistogramSampleSum(reg, tt.metric, tt.labels)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Error(t, sumErr)
+				return
+			}
+			require.NoError(t, err)
+			require.NoError(t, sumErr)
+			require.Equal(t, tt.wantCount, count)
+			require.InDelta(t, tt.wantSum, sum, 1e-9)
+		})
+	}
+}
+
+func TestGaugeValue(t *testing.T) {
+	reg := prometheus.NewPedanticRegistry()
+	vec := prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "test_gauge", Help: "test"}, []string{"a"})
+	scalar := prometheus.NewGauge(prometheus.GaugeOpts{Name: "test_scalar_gauge", Help: "test"})
+	hist := prometheus.NewHistogram(prometheus.HistogramOpts{Name: "test_not_a_gauge", Help: "test"})
+	reg.MustRegister(vec, scalar, hist)
+	vec.WithLabelValues("x").Set(7)
+	scalar.Set(3)
+
+	tests := []struct {
+		name    string
+		metric  string
+		labels  prometheus.Labels
+		want    float64
+		wantErr bool
+	}{
+		{name: "labelled gauge", metric: "test_gauge", labels: prometheus.Labels{"a": "x"}, want: 7},
+		{name: "scalar gauge", metric: "test_scalar_gauge", labels: nil, want: 3},
+		{name: "unknown labels", metric: "test_gauge", labels: prometheus.Labels{"a": "z"}, wantErr: true},
+		{name: "unknown metric", metric: "nope", labels: nil, wantErr: true},
+		{name: "not a gauge", metric: "test_not_a_gauge", labels: nil, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := GaugeValue(reg, tt.metric, tt.labels)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}

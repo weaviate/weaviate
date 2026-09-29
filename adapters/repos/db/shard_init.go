@@ -147,6 +147,15 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	_, err = os.Stat(s.path())
 	exists := err == nil
 
+	// Only opening a shard that already has files is a load. A shard being
+	// created is fast and frequent (every tenant creation), and would bury
+	// the load distribution in near-zero samples.
+	defer func() {
+		if err == nil && exists {
+			monitoring.GetStartupMetrics().ObserveShardLoad(registration, time.Since(start))
+		}
+	}()
+
 	if err := os.MkdirAll(s.path(), os.ModePerm); err != nil {
 		return nil, err
 	}
