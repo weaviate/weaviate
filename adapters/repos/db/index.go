@@ -1033,7 +1033,11 @@ func (i *Index) shouldRecoverShardFromPeer(ctx context.Context, shardName string
 
 // ensureShardDir: a missing folder at startup then always means a wipe.
 func (i *Index) ensureShardDir(shardName string) error {
-	return os.MkdirAll(shardPath(i.path(), shardName), os.ModePerm)
+	name := filepath.Base(shardName)
+	if name != shardName || name == "." || name == ".." {
+		return fmt.Errorf("invalid shard name %q", shardName)
+	}
+	return os.MkdirAll(filepath.Join(i.path(), name), os.ModePerm)
 }
 
 // used to init/create shard in different moments of index's lifecycle, therefore it needs to be called
