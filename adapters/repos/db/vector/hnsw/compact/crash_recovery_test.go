@@ -14,6 +14,7 @@ package compact
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -1414,5 +1415,86 @@ func TestCrashRecovery_RecordTornAtFieldBoundary(t *testing.T) {
 				require.NotNil(t, nodeAt(res.State, 1))
 			})
 		}
+	}
+}
+
+// TestCompactedLayout_ClassifiesEveryRecordType pins that the layout check and
+// the merge iterator agree on which records are global. The check treats any
+// record it does not list as a node record, so a global type it missed would
+// make it reject the valid records after it and truncate them.
+func TestCompactedLayout_ClassifiesEveryRecordType(t *testing.T) {
+	pqRecord := []byte{byte(AddPQ)}
+	pqRecord = binary.LittleEndian.AppendUint16(pqRecord, 4)
+	pqRecord = append(pqRecord, byte(compression.UseTileEncoder))
+	pqRecord = binary.LittleEndian.AppendUint16(pqRecord, 256)
+	pqRecord = binary.LittleEndian.AppendUint16(pqRecord, 1)
+	pqRecord = append(pqRecord, 0, 0)
+	pqRecord = append(pqRecord, bytes.Repeat([]byte{0x3F}, 6*8+2+1)...)
+
+	centered := corruptTailRQ(1)
+	centered.Mean = []float32{0, 0, 0, 0}
+
+	records := map[HnswCommitType][]byte{
+		AddNode:               walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteAddNode(1, 0)) }),
+		SetEntryPointMaxLevel: walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteSetEntryPointMaxLevel(1, 0)) }),
+		AddLinkAtLevel:        walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteAddLinkAtLevel(1, 0, 2)) }),
+		ReplaceLinksAtLevel:   walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteReplaceLinksAtLevel(1, 0, []uint64{2})) }),
+		AddTombstone:          walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteAddTombstone(1)) }),
+		RemoveTombstone:       walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteRemoveTombstone(1)) }),
+		ClearLinks:            walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteClearLinks(1)) }),
+		DeleteNode:            walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteDeleteNode(1)) }),
+		ResetIndex:            walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteResetIndex()) }),
+		ClearLinksAtLevel:     walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteClearLinksAtLevel(1, 0)) }),
+		AddLinksAtLevel:       walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteAddLinksAtLevel(1, 0, []uint64{2})) }),
+		AddPQ:                 pqRecord,
+		AddSQ:                 walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteAddSQ(&compression.SQData{A: 1, B: 2, Dimensions: 4})) }),
+		AddMuvera:             walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteAddMuvera(corruptTailMuvera())) }),
+		AddRQ:                 walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteAddRQ(corruptTailRQ(1))) }),
+		AddBRQ: walBytes(t, func(w *WALWriter) {
+			require.NoError(t, w.WriteAddBRQ(&compression.BRQData{
+				InputDim: 4,
+				Rotation: compression.FastRotation{
+					OutputDim: 4, Rounds: 1,
+					Swaps: [][]compression.Swap{{{I: 0, J: 1}, {I: 2, J: 3}}},
+					Signs: [][]float32{{1, 1, 1, 1}},
+				},
+				Rounding: []float32{0, 0, 0, 0},
+			}))
+		}),
+		AddRQCentered: walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteAddRQ(centered)) }),
+	}
+
+	// Every type byte the decoder recognizes must be covered above.
+	for b := 0; b < 256; b++ {
+		ct := HnswCommitType(b)
+		_, err := NewWALCommitReader(bytes.NewReader([]byte{byte(ct)}), quietLogger()).ReadNextCommit()
+		if err != nil && !errors.Is(err, io.ErrUnexpectedEOF) {
+			continue // unrecognized type
+		}
+		_, covered := records[ct]
+		require.True(t, covered, "record type %d (%s) is decodable but not covered", b, ct)
+	}
+
+	for ct, record := range records {
+		t.Run(ct.String(), func(t *testing.T) {
+			c, err := NewWALCommitReader(bytes.NewReader(record), quietLogger()).ReadNextCommit()
+			require.NoError(t, err)
+
+			global := isGlobalCommit(c)
+			_, hasNodeID := extractNodeID(c)
+			require.NotEqual(t, global, hasNodeID, "a record is either global or belongs to a node")
+
+			for _, fileType := range []FileType{FileTypeSorted, FileTypeCondensed} {
+				layout := compactedLayout{fileType: fileType}
+				err := layout.check(c)
+				if ct == ResetIndex {
+					require.Error(t, err, "compacted segments never contain a reset")
+					continue
+				}
+				require.NoError(t, err)
+				require.Equal(t, !global, layout.nodesStarted,
+					"%s: layout check and merge iterator disagree on whether the record is global", fileType)
+			}
+		})
 	}
 }
