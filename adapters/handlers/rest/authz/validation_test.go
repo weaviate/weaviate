@@ -70,6 +70,22 @@ func TestValidatePermissions(t *testing.T) {
 			},
 		},
 		{
+			// "ſ" and "ı" uppercase to ASCII "S" and "I", so the stored pattern
+			// would name a different class.
+			name: "collection starting with long s rejected",
+			permissions: []*models.Permission{
+				{Collections: &models.PermissionCollections{Collection: String("\u017fovies*")}},
+			},
+			expectedErr: "not a valid class name",
+		},
+		{
+			name: "collection starting with dotless i rejected",
+			permissions: []*models.Permission{
+				{Collections: &models.PermissionCollections{Collection: String("\u0131tems")}},
+			},
+			expectedErr: "not a valid class name",
+		},
+		{
 			name: "lowercase collection name in an alias permission is uppercased, not rejected",
 			permissions: []*models.Permission{
 				{
