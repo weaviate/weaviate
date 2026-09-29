@@ -19,8 +19,8 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
-	"github.com/weaviate/weaviate/cluster/replication/selfrecovery"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/wl/selfrecovery"
 )
 
 // validShardOrCollection rejects values that could escape the data root when joined into <root>/<class>/<shard>.

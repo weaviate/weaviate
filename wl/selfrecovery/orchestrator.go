@@ -10,6 +10,7 @@
 //
 
 // Package selfrecovery triggers SELF_RECOVERY ops for shards missing at startup; the copy and state machine live in the replication FSM + consumer.
+// It is Weaviate-licensed (wl/LICENSE-WEAVIATE), unlike the BSD-3-Clause code outside wl/.
 package selfrecovery
 
 import (
