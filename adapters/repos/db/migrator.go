@@ -1008,8 +1008,8 @@ func (db *DB) allShardsReady() bool {
 }
 
 // dimensionsNotReindexed counts the local shards of the class that have objects and
-// were not reindexed, as their tenant is inactive or they are not loaded. A class
-// the db failed to create an index for has none loaded.
+// were not reindexed, neither at startup nor when they loaded. A class the db failed
+// to create an index for has none.
 func (db *DB) dimensionsNotReindexed(className string) (notLoaded, inactive int, err error) {
 	db.indexLock.RLock()
 	index := db.indices[indexID(schema.ClassName(className))]
@@ -1044,12 +1044,21 @@ func (db *DB) dimensionsNotReindexed(className string) (notLoaded, inactive int,
 		return 0, 0, fmt.Errorf("report dimensions reindex: %w", err)
 	}
 
+	reindexed := func(name string) bool {
+		return db.dimensionsReindex.done(shardId(indexID(schema.ClassName(className)), name))
+	}
 	for _, name := range cold {
+		if reindexed(name) {
+			continue
+		}
 		if index == nil || !index.unloadedShardIsEmpty(name) {
 			inactive++
 		}
 	}
 	for _, name := range active {
+		if reindexed(name) {
+			continue
+		}
 		if index == nil {
 			notLoaded++
 			continue

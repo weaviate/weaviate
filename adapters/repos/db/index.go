@@ -597,6 +597,16 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		startupShards = &startupShardCounters{}
 	}
 
+	var withDirs []string
+	for _, shard := range localShards {
+		// a frozen tenant has no dir, it is prepared when it loads after unfreezing
+		if shard.activityStatus == models.TenantActivityStatusHOT ||
+			shard.activityStatus == models.TenantActivityStatusCOLD {
+			withDirs = append(withDirs, shard.name)
+		}
+	}
+	i.prepareDimensionsOfShards(ctx, class, withDirs)
+
 	hotShardNames := make([]string, 0, len(localShards))
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
