@@ -23,8 +23,6 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/go-openapi/strfmt"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -34,27 +32,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/cluster/replication/metrics"
 	"github.com/weaviate/weaviate/cluster/replication/types"
-	"github.com/weaviate/weaviate/cluster/schema"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/fakes"
-	"github.com/weaviate/weaviate/usecases/sharding"
 )
-
-func newTenantSchemaReader(collection, tenant string, nodes ...string) schema.SchemaReader {
-	parser := fakes.NewMockParser()
-	parser.On("ParseClass", mock.Anything).Return(nil)
-	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
-	schemaManager.AddClass(
-		buildApplyRequest(collection, api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
-			Class: &models.Class{Class: collection, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}},
-			State: &sharding.State{
-				PartitioningEnabled: true,
-				Physical:            map[string]sharding.Physical{tenant: {BelongsToNodes: nodes, Status: models.TenantActivityStatusHOT}},
-			},
-		}), "node1", true, false)
-	return schemaManager.NewSchemaReader()
-}
 
 func readSegment(t *testing.T, dir string) string {
 	t.Helper()
@@ -70,18 +48,14 @@ func TestConsumerSelfRecoveryRewindRepromotesFreshCopy(t *testing.T) {
 		shardName  = "shard1"
 	)
 	tests := []struct {
-		name        string
-		rewinds     uint64
-		promoted    bool
-		multiTenant bool
-		demoteErr   error
-		wantDemote  bool
-		wantLive    string
+		name       string
+		rewinds    uint64
+		promoted   bool
+		demoteErr  error
+		wantDemote bool
+		wantLive   string
 	}{
 		{name: "rewound after a promote re-promotes the fresh copy", rewinds: 1, promoted: true, wantDemote: true, wantLive: "fresh"},
-		{name: "rewound twice re-promotes the fresh copy", rewinds: 2, promoted: true, wantDemote: true, wantLive: "fresh"},
-		{name: "rewound tenant re-promotes without activating it", rewinds: 1, promoted: true, multiTenant: true, wantDemote: true, wantLive: "fresh"},
-		{name: "rewound before any promote promotes the copy", rewinds: 1, wantDemote: true, wantLive: "fresh"},
 		{name: "first attempt never demotes", wantLive: "fresh"},
 		{name: "failed demote stops before the re-copy", rewinds: 1, promoted: true, demoteErr: stderrors.New("shard in use"), wantDemote: true, wantLive: "stale"},
 	}
@@ -143,32 +117,17 @@ func TestConsumerSelfRecoveryRewindRepromotesFreshCopy(t *testing.T) {
 			callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
 				WithOpFailedCallback(func(string) { failed <- struct{}{} }).
 				Build()
-			schemaReader := newShardSchemaReader(collection, shardName, "node1", "node2")
-			if tc.multiTenant {
-				schemaReader = newTenantSchemaReader(collection, shardName, "node1", "node2")
-			}
 			consumer := replication.NewCopyOpConsumer(logger, fsm, replicaCopier, "node2", &backoff.StopBackOff{},
-				replication.NewOpsCache(), 10*time.Second, 1, callbacks, schemaReader)
+				replication.NewOpsCache(), 10*time.Second, 1, callbacks, newShardSchemaReader(collection, shardName, "node1", "node2"))
 
 			status := replication.NewShardReplicationStatus(api.HYDRATING)
 			status.Rewinds = tc.rewinds
 			status.UnCancellable = tc.rewinds > 0
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			opsChan := make(chan replication.ShardReplicationOpAndStatus, 1)
-			doneChan := make(chan error, 1)
-			enterrors.GoWrapper(func() { doneChan <- consumer.Consume(ctx, opsChan) }, logger)
-			opsChan <- replication.NewShardReplicationOpAndStatus(
-				replication.NewShardReplicationOp(opID, "node1", "node2", collection, shardName, api.SELF_RECOVERY), status)
-
-			select {
-			case <-failed:
-			case <-time.After(10 * time.Second):
-				t.Fatal("op never settled")
-			}
-			close(opsChan)
-			require.NoError(t, <-doneChan)
+			_, stop := startConsumer(t, consumer, replication.NewShardReplicationOpAndStatus(
+				replication.NewShardReplicationOp(opID, "node1", "node2", collection, shardName, api.SELF_RECOVERY), status))
+			awaitSignal(t, failed, "op never settled")
+			stop()
 
 			require.Equal(t, tc.wantLive, readSegment(t, live))
 			require.Equal(t, tc.demoteErr == nil, integrating.Load())

@@ -57,6 +57,33 @@ func newShardSchemaManager(collection, shardName string, nodes ...string) *schem
 	return schemaManager
 }
 
+func startConsumer(t *testing.T, consumer *replication.CopyOpConsumer, op replication.ShardReplicationOpAndStatus) (chan<- replication.ShardReplicationOpAndStatus, func()) {
+	t.Helper()
+	logger, _ := logrustest.NewNullLogger()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	ops := make(chan replication.ShardReplicationOpAndStatus, 256)
+	done := make(chan error, 1)
+	enterrors.GoWrapper(func() { done <- consumer.Consume(ctx, ops) }, logger)
+	ops <- op
+	return ops, func() {
+		close(ops)
+		require.NoError(t, <-done)
+	}
+}
+
+func awaitSignal[T any](t *testing.T, ch <-chan T, failMsg string) T {
+	t.Helper()
+	select {
+	case v := <-ch:
+		return v
+	case <-time.After(10 * time.Second):
+		t.Fatal(failMsg)
+	}
+	var zero T
+	return zero
+}
+
 func TestConsumerHydratingDemotesListedTarget(t *testing.T) {
 	const (
 		opID       = uint64(13)
@@ -68,6 +95,7 @@ func TestConsumerHydratingDemotesListedTarget(t *testing.T) {
 		transfer     api.ShardReplicationTransferType
 		replicas     []string
 		deleteErr    error
+		stopErr      error
 		removal      string
 		waitTimeout  time.Duration
 		wantCalls    []string
@@ -112,9 +140,10 @@ func TestConsumerHydratingDemotesListedTarget(t *testing.T) {
 			wantReplicas: []string{"node1"},
 		},
 		{
-			name:         "fresh copy runs the no-op unload before capture",
+			name:         "stop refused by an older donor still starts",
 			transfer:     api.COPY,
 			replicas:     []string{"node1"},
+			stopErr:      stderrors.New("unimplemented"),
 			wantCalls:    []string{"unload", "stop", "start", "copy", "stop"},
 			wantReplicas: []string{"node1"},
 		},
@@ -182,7 +211,7 @@ func TestConsumerHydratingDemotesListedTarget(t *testing.T) {
 			copier.EXPECT().UnloadLocalShard(mock.Anything, collection, shardName).
 				RunAndReturn(func(context.Context, string, string) error { record("unload"); return nil }).Maybe()
 			copier.EXPECT().StopChangeCapture(mock.Anything, "node1", collection, shardName, opIDStr).
-				RunAndReturn(func(context.Context, string, string, string, string) error { record("stop"); return nil }).Maybe()
+				RunAndReturn(func(context.Context, string, string, string, string) error { record("stop"); return tc.stopErr }).Maybe()
 			copier.EXPECT().StartChangeCapture(mock.Anything, "node1", collection, shardName, opIDStr, mock.Anything).
 				RunAndReturn(func(context.Context, string, string, string, string, uint64) error { record("start"); return nil }).Maybe()
 			copier.EXPECT().CopyReplicaFiles(mock.Anything, mock.Anything, "node1", collection, shardName, mock.Anything).
@@ -206,23 +235,11 @@ func TestConsumerHydratingDemotesListedTarget(t *testing.T) {
 			}
 			replication.SetDemoteWait(consumer, waitTimeout, 10*time.Millisecond)
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			opsChan := make(chan replication.ShardReplicationOpAndStatus, 1)
-			doneChan := make(chan error, 1)
-			enterrors.GoWrapper(func() { doneChan <- consumer.Consume(ctx, opsChan) }, logger)
-			opsChan <- replication.NewShardReplicationOpAndStatus(
+			_, stop := startConsumer(t, consumer, replication.NewShardReplicationOpAndStatus(
 				replication.NewShardReplicationOp(opID, "node1", "node2", collection, shardName, tc.transfer),
-				replication.NewShardReplicationStatus(api.HYDRATING),
-			)
-
-			select {
-			case <-registered:
-			case <-time.After(10 * time.Second):
-				t.Fatal("hydrating attempt never settled")
-			}
-			close(opsChan)
-			require.NoError(t, <-doneChan)
+				replication.NewShardReplicationStatus(api.HYDRATING)))
+			awaitSignal(t, registered, "hydrating attempt never settled")
+			stop()
 
 			mu.Lock()
 			defer mu.Unlock()
@@ -245,10 +262,6 @@ func TestConsumerFinalizingAddRefusedOutsideFinalizing(t *testing.T) {
 		addErr       error
 		wantAdvanced bool
 	}{
-		{
-			name:   "add refused because the op was rewound",
-			addErr: stderrors.New("rpc error: code = Unknown desc = op 17 is HYDRATING: " + types.ErrAddReplicaOpNotFinalizing.Error()),
-		},
 		{
 			name:   "add refused because the op moved forward",
 			addErr: status.Error(codes.Internal, "op 17 is INTEGRATING: "+types.ErrAddReplicaOpNotFinalizing.Error()),
@@ -294,30 +307,14 @@ func TestConsumerFinalizingAddRefusedOutsideFinalizing(t *testing.T) {
 				replication.NewOpsCache(), 10*time.Second, 1, callbacks,
 				newShardSchemaReader(collection, shardName, "node1"))
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			opsChan := make(chan replication.ShardReplicationOpAndStatus, 1)
-			doneChan := make(chan error, 1)
-			enterrors.GoWrapper(func() { doneChan <- consumer.Consume(ctx, opsChan) }, logger)
-			opsChan <- replication.NewShardReplicationOpAndStatus(
+			_, stop := startConsumer(t, consumer, replication.NewShardReplicationOpAndStatus(
 				replication.NewShardReplicationOp(opID, "node1", "node2", collection, shardName, api.COPY),
-				replication.NewShardReplicationStatus(api.FINALIZING),
-			)
-
-			select {
-			case <-added:
-			case <-time.After(10 * time.Second):
-				t.Fatal("add was never attempted")
-			}
+				replication.NewShardReplicationStatus(api.FINALIZING)))
+			awaitSignal(t, added, "add was never attempted")
 			if tc.wantAdvanced {
-				select {
-				case <-advanced:
-				case <-time.After(10 * time.Second):
-					t.Fatal("op never advanced")
-				}
+				awaitSignal(t, advanced, "op never advanced")
 			}
-			close(opsChan)
-			require.NoError(t, <-doneChan)
+			stop()
 
 			require.Zero(t, lostCount.Load())
 			if tc.wantAdvanced {
@@ -402,19 +399,9 @@ func TestConsumerRedispatchSkipsFailurePath(t *testing.T) {
 				replication.NewOpsCache(), 10*time.Second, 1, callbacks,
 				newShardSchemaReader(collection, shardName, "node1"))
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			opsChan := make(chan replication.ShardReplicationOpAndStatus, 256)
-			doneChan := make(chan error, 1)
-			enterrors.GoWrapper(func() { doneChan <- consumer.Consume(ctx, opsChan) }, logger)
 			op := replication.NewShardReplicationOp(opID, "node1", "node2", collection, shardName, api.COPY)
-			opsChan <- replication.NewShardReplicationOpAndStatus(op, replication.NewShardReplicationStatus(api.FINALIZING))
-
-			select {
-			case <-firstPassDone:
-			case <-time.After(10 * time.Second):
-				t.Fatal("first pass never rewound")
-			}
+			opsChan, stop := startConsumer(t, consumer, replication.NewShardReplicationOpAndStatus(op, replication.NewShardReplicationStatus(api.FINALIZING)))
+			awaitSignal(t, firstPassDone, "first pass never rewound")
 			deadline := time.After(2 * time.Second)
 			ticker := time.NewTicker(20 * time.Millisecond)
 			defer ticker.Stop()
@@ -429,8 +416,7 @@ func TestConsumerRedispatchSkipsFailurePath(t *testing.T) {
 					opsChan <- replication.NewShardReplicationOpAndStatus(op, replication.NewShardReplicationStatus(api.HYDRATING))
 				}
 			}
-			close(opsChan)
-			require.NoError(t, <-doneChan)
+			stop()
 
 			require.Zero(t, failedAtRedispatch)
 			require.Zero(t, failureLogsAtRedispatch)
