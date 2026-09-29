@@ -874,7 +874,7 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 
 	if dirEntries, err := os.ReadDir(shardDir); err != nil {
 		return nil, fmt.Errorf("read shard dir: %w", err)
-	} else if len(dirEntries) == 0 {
+	} else if shardDirHoldsNoData(dirEntries) {
 		return nil, errShardNoLocalData // registered lazily, never loaded
 	}
 

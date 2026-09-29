@@ -498,6 +498,129 @@ func TestShardReplicationFSM_HasActiveSelfRecoveryTargetingShard(t *testing.T) {
 	}
 }
 
+func TestShardReplicationFSM_InFlightOpsSourcingShard(t *testing.T) {
+	const (
+		coll  = "TestClass"
+		shard = "shard1"
+	)
+
+	cases := []struct {
+		name     string
+		seed     func(t *testing.T, fsm *replication.ShardReplicationFSM)
+		expected []uint64
+	}{
+		{name: "empty fsm", seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {}, expected: nil},
+		{
+			name: "REGISTERED has no log yet",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)
+			},
+			expected: nil,
+		},
+		{
+			name: "HYDRATING copy",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)
+				driveToState(t, fsm, 1, api.HYDRATING)
+			},
+			expected: []uint64{1},
+		},
+		{
+			name: "FINALIZING move",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.MOVE)
+				driveToState(t, fsm, 1, api.FINALIZING)
+			},
+			expected: []uint64{1},
+		},
+		{
+			name: "INTEGRATING self-recovery",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.SELF_RECOVERY)
+				driveToState(t, fsm, 1, api.INTEGRATING)
+			},
+			expected: []uint64{1},
+		},
+		{
+			name: "DEHYDRATING move is past its log",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.MOVE)
+				driveToState(t, fsm, 1, api.DEHYDRATING)
+			},
+			expected: nil,
+		},
+		{
+			name: "READY copy",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)
+				driveToState(t, fsm, 1, api.READY)
+			},
+			expected: nil,
+		},
+		{
+			name: "CANCELLED copy",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)
+				driveToState(t, fsm, 1, api.HYDRATING)
+				driveToCancelled(t, fsm, 1)
+			},
+			expected: nil,
+		},
+		{
+			name: "op targeting the replica",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node2", "node1", coll, shard, api.COPY)
+				driveToState(t, fsm, 1, api.INTEGRATING)
+			},
+			expected: nil,
+		},
+		{
+			name: "op sourcing from another node",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node3", "node2", coll, shard, api.COPY)
+				driveToState(t, fsm, 1, api.INTEGRATING)
+			},
+			expected: nil,
+		},
+		{
+			name: "op sourcing another shard",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, "shard2", api.COPY)
+				driveToState(t, fsm, 1, api.INTEGRATING)
+			},
+			expected: nil,
+		},
+		{
+			name: "op sourcing another collection",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", "OtherClass", shard, api.COPY)
+				driveToState(t, fsm, 1, api.INTEGRATING)
+			},
+			expected: nil,
+		},
+		{
+			name: "in-flight copies beside a terminal one",
+			seed: func(t *testing.T, fsm *replication.ShardReplicationFSM) {
+				seedOpFull(t, fsm, 1, "node1", "node2", coll, shard, api.COPY)
+				driveToState(t, fsm, 1, api.READY)
+				seedOpFull(t, fsm, 2, "node1", "node3", coll, shard, api.COPY)
+				driveToState(t, fsm, 2, api.HYDRATING)
+				seedOpFull(t, fsm, 3, "node1", "node4", coll, shard, api.COPY)
+				driveToState(t, fsm, 3, api.INTEGRATING)
+			},
+			expected: []uint64{2, 3},
+		},
+	}
+
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			fsm := replication.NewShardReplicationFSM(prometheus.NewPedanticRegistry())
+			tt.seed(t, fsm)
+			assert.ElementsMatch(t, tt.expected, fsm.InFlightOpsSourcingShard(coll, shard, "node1"))
+		})
+	}
+}
+
 func TestShardReplicationFSM_HasActiveTargetReplicationForShardDoesNotAllocate(t *testing.T) {
 	const (
 		coll   = "TestClass"

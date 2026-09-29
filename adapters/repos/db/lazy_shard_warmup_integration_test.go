@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
@@ -63,6 +64,7 @@ type warmupIndexOpts struct {
 	ctx   context.Context
 	orch  SelfRecoveryOrchestrator
 	eager bool
+	fsm   replicationTypes.ReplicationFSMReader
 }
 
 func newWarmupIndexWithOpts(t *testing.T, dirName string, minObjects int64,
@@ -137,6 +139,7 @@ func newWarmupIndexWithOpts(t *testing.T, dirName string, minObjects int64,
 		EnableLazyLoadShards:          !opts.eager,
 		LazyLoadShardWarmupMinObjects: minObjects,
 		SelfRecoveryOrchestrator:      opts.orch,
+		ReplicationFSM:                opts.fsm,
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{VectorCacheMaxObjects: 1000}, nil, mockRouter, shardResolver,
 		mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{},

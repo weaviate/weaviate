@@ -150,6 +150,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	if err := os.MkdirAll(s.path(), os.ModePerm); err != nil {
 		return nil, err
 	}
+	if err := index.markSourcedChangeLogsLost(s.path(), shardName, !exists); err != nil {
+		return nil, fmt.Errorf("shard %q: %w", s.ID(), err)
+	}
 
 	// Open for the shard's life: read at load, written by dynamic, and its
 	// file lock makes an offline operation that raced this load fail cleanly.

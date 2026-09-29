@@ -117,6 +117,16 @@ back to `<shard>.recovering/`, the shard is `RECOVERING` and unrouted
 again, and the next FINALIZING promotes the fresh copy (see
 "Limitations").
 
+The same holds when the recovering node is itself the donor of another
+in-flight op (COPY, MOVE or SELF_RECOVERY copying *from* it). A replica
+folder that is recreated or recovered (a wipe or deleted dir loaded
+fresh, a self-recovery promote, the empty fallback or `accept-empty`, or
+a load while a self-recovery op still targets it) writes a lost marker
+for the change log of every such op in HYDRATING, FINALIZING or
+INTEGRATING. Those ops rewind and re-copy instead of reading the missing
+log as sealed and completing without the writes it held. An op that had
+already sealed just before its donor was wiped re-copies once.
+
 The in-process submission queue is unbounded and never drops: a node
 missing thousands of shards queues them all, and `SELF_RECOVERY_CONCURRENCY`
 workers drain the queue. Shards still queued at shutdown are re-submitted

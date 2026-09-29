@@ -22,6 +22,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/replication/types"
 )
 
 type ShardReplicationOp struct {
@@ -312,6 +313,29 @@ func (s *ShardReplicationFSM) HasActiveSelfRecoveryTargetingShard(collection, sh
 		}
 	}
 	return false
+}
+
+var _ types.ReplicationFSMSourcedOpsReader = (*ShardReplicationFSM)(nil)
+
+// InFlightOpsSourcingShard lists ops copying from the replica whose change-capture log may be live
+// (HYDRATING, FINALIZING, INTEGRATING); local FSM read.
+func (s *ShardReplicationFSM) InFlightOpsSourcingShard(collection, shard, sourceNode string) []uint64 {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	var ids []uint64
+	for _, op := range s.opsBySourceFQDN[newShardFQDN(sourceNode, collection, shard)] {
+		status, ok := s.statusById[op.ID]
+		if !ok {
+			continue
+		}
+		switch status.GetCurrentState() {
+		case api.HYDRATING, api.FINALIZING, api.INTEGRATING:
+			ids = append(ids, op.ID)
+		default:
+		}
+	}
+	return ids
 }
 
 func (s *ShardReplicationFSM) getOpsWithStatus(ops []ShardReplicationOp) []ShardReplicationOpAndStatus {

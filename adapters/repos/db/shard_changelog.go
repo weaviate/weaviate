@@ -15,8 +15,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +27,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
@@ -458,6 +461,73 @@ func (s *Shard) changeLogMissErr(opID string) error {
 		return errChangeLogLost
 	}
 	return errNoSuchChangeLog
+}
+
+// markSourcedChangeLogsLost marks the logs of in-flight ops copying from a replica whose files came
+// back without them, or those ops would read the missing logs as sealed and complete without their writes.
+// A dir that was not recreated only counts while a SELF_RECOVERY op targets it: it is then the recovered copy.
+func (i *Index) markSourcedChangeLogsLost(shardPath, shardName string, recreated bool) error {
+	fsm := i.getReplicationFSMReader()
+	sourced, ok := fsm.(replicationTypes.ReplicationFSMSourcedOpsReader)
+	if !ok || i.getSchema == nil {
+		return nil
+	}
+	collection, node := i.Config.ClassName.String(), i.getSchema.NodeName()
+	opIDs := sourced.InFlightOpsSourcingShard(collection, shardName, node)
+	if len(opIDs) == 0 {
+		return nil
+	}
+	if !recreated && !fsm.HasActiveSelfRecoveryTargetingShard(collection, shardName, node) {
+		return nil
+	}
+	dir := changelogDirOf(shardPath)
+	var marked []string
+	for _, id := range opIDs {
+		opID := strconv.FormatUint(id, 10)
+		logPath, lostPath := changelogPaths(dir, opID)
+		present := false
+		for _, p := range []string{logPath, lostPath} {
+			found, err := diskio.FileExists(p)
+			if err != nil {
+				return fmt.Errorf("probe changelog %q: %w", p, err)
+			}
+			present = present || found
+		}
+		if present {
+			continue
+		}
+		// Mkdir, not MkdirAll: a shard dir removed meanwhile must not be resurrected.
+		if err := os.Mkdir(dir, 0o700); err != nil && !errors.Is(err, fs.ErrExist) {
+			return fmt.Errorf("create changelog dir %q: %w", dir, err)
+		}
+		f, err := os.OpenFile(lostPath, os.O_CREATE|os.O_WRONLY, 0o600)
+		if err != nil {
+			return fmt.Errorf("create changelog lost marker %q: %w", lostPath, err)
+		}
+		if err := f.Close(); err != nil {
+			return fmt.Errorf("close changelog lost marker %q: %w", lostPath, err)
+		}
+		marked = append(marked, opID)
+	}
+	if len(marked) == 0 {
+		return nil
+	}
+	for _, d := range []string{dir, shardPath, filepath.Dir(shardPath)} {
+		if err := diskio.Fsync(d); err != nil {
+			return fmt.Errorf("fsync %q: %w", d, err)
+		}
+	}
+	i.logger.WithFields(logrus.Fields{
+		"action": "change_capture_log",
+		"shard":  shardName,
+		"op_ids": marked,
+	}).Warn("replica files came back without the change-capture logs of in-flight ops copying from it, marked lost")
+	return nil
+}
+
+// shardDirHoldsNoData: an empty shard dir, or one holding only lost markers, never held local data.
+func shardDirHoldsNoData(entries []os.DirEntry) bool {
+	return len(entries) == 0 || (len(entries) == 1 && entries[0].IsDir() && entries[0].Name() == changelogDirName)
 }
 
 func (s *Shard) changelogDir() string {
