@@ -2514,6 +2514,45 @@ func TestConsumerChangeCaptureLost(t *testing.T) {
 			wantCalls:    []string{"snapshot", "tail", "tail", "finalize"},
 		},
 		{
+			name:         "self-recovery finalizing snapshot lost after the promote re-hydrates",
+			state:        api.FINALIZING,
+			transfer:     api.SELF_RECOVERY,
+			replicaAdded: true,
+			snapErr:      lost,
+			wantStates:   []api.ShardReplicationState{api.HYDRATING},
+			wantLost:     1,
+			wantCalls:    []string{"promote-folder", "promote", "snapshot"},
+		},
+		{
+			name:         "self-recovery finalizing drain lost after the promote re-hydrates",
+			state:        api.FINALIZING,
+			transfer:     api.SELF_RECOVERY,
+			replicaAdded: true,
+			tailErr:      lost,
+			wantStates:   []api.ShardReplicationState{api.HYDRATING},
+			wantLost:     1,
+			wantCalls:    []string{"promote-folder", "promote", "snapshot", "tail"},
+		},
+		{
+			name:         "self-recovery integrating seal lost re-hydrates",
+			state:        api.INTEGRATING,
+			transfer:     api.SELF_RECOVERY,
+			replicaAdded: true,
+			finalizeErr:  lost,
+			wantStates:   []api.ShardReplicationState{api.HYDRATING},
+			wantLost:     1,
+			wantCalls:    []string{"snapshot", "tail", "tail", "finalize"},
+		},
+		{
+			name:         "self-recovery integrating after a stop completes",
+			state:        api.INTEGRATING,
+			transfer:     api.SELF_RECOVERY,
+			replicaAdded: true,
+			snapErr:      gone,
+			wantStates:   []api.ShardReplicationState{api.READY},
+			wantCalls:    []string{"snapshot"},
+		},
+		{
 			name:         "integrating after a stop still completes a copy",
 			state:        api.INTEGRATING,
 			transfer:     api.COPY,
@@ -2560,6 +2599,12 @@ func TestConsumerChangeCaptureLost(t *testing.T) {
 				RunAndReturn(func(context.Context, string, string) error { record("load"); return nil }).Maybe()
 			copier.EXPECT().UnloadLocalShard(mock.Anything, collection, shardName).
 				RunAndReturn(func(context.Context, string, string) error { record("unload"); return nil }).Maybe()
+			copier.EXPECT().PromoteRecoveryFolder(collection, shardName).
+				RunAndReturn(func(string, string) error { record("promote-folder"); return nil }).Maybe()
+			copier.EXPECT().PromoteRecoveredShard(mock.Anything, collection, shardName).
+				RunAndReturn(func(context.Context, string, string) error { record("promote"); return nil }).Maybe()
+			fsm.EXPECT().ReplicationLocalOpCancelState(opID).
+				Return(types.OpCancelState{State: tc.state, UnCancellable: true}, nil).Maybe()
 			copier.EXPECT().SnapshotChangeLogLSN(mock.Anything, "node1", collection, shardName, fmt.Sprint(opID)).
 				RunAndReturn(func(context.Context, string, string, string, string) (uint64, error) {
 					record("snapshot")

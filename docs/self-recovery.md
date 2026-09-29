@@ -111,6 +111,12 @@ the shard is left in `RECOVERING`; use `restart` to try again from
 scratch, or `accept-empty` to accept the loss. (Recoveries are also
 retried automatically on the next node restart.)
 
+If the donor restarts mid-recovery its change log is lost, and the op
+rewinds to HYDRATING instead of sealing: the promoted `<shard>/` moves
+back to `<shard>.recovering/`, the shard is `RECOVERING` and unrouted
+again, and the next FINALIZING promotes the fresh copy (see
+"Limitations").
+
 The in-process submission queue is unbounded and never drops: a node
 missing thousands of shards queues them all, and `SELF_RECOVERY_CONCURRENCY`
 workers drain the queue. Shards still queued at shutdown are re-submitted
@@ -267,17 +273,17 @@ freshly-rejoined node is not yet in the read rotation for its shards;
 the window is the same order as the pre-existing "Ready during replay"
 behavior.
 
-**A donor restart after the promote leaves the op in FINALIZING
-indefinitely.** A restart sweeps the donor's change-capture log, so every
-FINALIZING retry fails at the change-log LSN snapshot with `no active
-change-capture log`. The op is uncancellable by then, so it never
-auto-cancels and never advances: the target stays unrouted (no stale reads),
-the orchestrator keeps polling (`weaviate_self_recovery_in_progress` stays
-up, nothing lands in `completed_total` or `giveup_total`), the op's
-`status.errors` fills up to 50 and each further error's RAFT apply fails
-with `cancellation impossible`. Cancel and delete answer `409`, `restart`
-answers `409` (live dir exists), `accept-empty` answers `409` (op in
-flight). There is no in-product way out yet.
+**A donor restart after the promote rewinds the op to HYDRATING.** A
+donor restart (or a donor change-log append failure) loses the op's
+change-capture log, so the FINALIZING or INTEGRATING drain cannot seal it.
+The op rewinds to HYDRATING: the promoted `<shard>/` is moved back to
+`<shard>.recovering/`, the shard is `RECOVERING` and unrouted again, the
+copy is redone incrementally and the next FINALIZING promotes it. The op
+stays uncancellable throughout. Remaining limitations: a donor that never
+comes back after the promote leaves the op retrying HYDRATING indefinitely
+(cancel, delete, `restart` and `accept-empty` answer `409`); a donor still
+running an older binary answers `no active change-capture log` instead, and
+the op holds in FINALIZING, unrouted, with no in-product way out.
 
 **A `RecoveringShard` panics if a non-routed code path touches it.**
 While a shard is `RECOVERING`, an in-memory `RecoveringShard` wrapper

@@ -249,6 +249,54 @@ func (_c *MockReplicaCopier_CopyReplicaFilesToLocalShard_Call) RunAndReturn(run 
 	return _c
 }
 
+// DemoteRecoveredShard provides a mock function with given fields: ctx, collectionName, shardName
+func (_m *MockReplicaCopier) DemoteRecoveredShard(ctx context.Context, collectionName string, shardName string) error {
+	ret := _m.Called(ctx, collectionName, shardName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DemoteRecoveredShard")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, collectionName, shardName)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockReplicaCopier_DemoteRecoveredShard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DemoteRecoveredShard'
+type MockReplicaCopier_DemoteRecoveredShard_Call struct {
+	*mock.Call
+}
+
+// DemoteRecoveredShard is a helper method to define mock.On call
+//   - ctx context.Context
+//   - collectionName string
+//   - shardName string
+func (_e *MockReplicaCopier_Expecter) DemoteRecoveredShard(ctx interface{}, collectionName interface{}, shardName interface{}) *MockReplicaCopier_DemoteRecoveredShard_Call {
+	return &MockReplicaCopier_DemoteRecoveredShard_Call{Call: _e.mock.On("DemoteRecoveredShard", ctx, collectionName, shardName)}
+}
+
+func (_c *MockReplicaCopier_DemoteRecoveredShard_Call) Run(run func(ctx context.Context, collectionName string, shardName string)) *MockReplicaCopier_DemoteRecoveredShard_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockReplicaCopier_DemoteRecoveredShard_Call) Return(_a0 error) *MockReplicaCopier_DemoteRecoveredShard_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockReplicaCopier_DemoteRecoveredShard_Call) RunAndReturn(run func(context.Context, string, string) error) *MockReplicaCopier_DemoteRecoveredShard_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // DropLocalShard provides a mock function with given fields: ctx, collectionName, shardName
 func (_m *MockReplicaCopier) DropLocalShard(ctx context.Context, collectionName string, shardName string) error {
 	ret := _m.Called(ctx, collectionName, shardName)
@@ -453,53 +501,6 @@ func (_c *MockReplicaCopier_LoadLocalShard_Call) RunAndReturn(run func(context.C
 	return _c
 }
 
-// PromoteRecoveryFolder provides a mock function with given fields: collectionName, shardName
-func (_m *MockReplicaCopier) PromoteRecoveryFolder(collectionName string, shardName string) error {
-	ret := _m.Called(collectionName, shardName)
-
-	if len(ret) == 0 {
-		panic("no return value specified for PromoteRecoveryFolder")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(string, string) error); ok {
-		r0 = rf(collectionName, shardName)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockReplicaCopier_PromoteRecoveryFolder_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PromoteRecoveryFolder'
-type MockReplicaCopier_PromoteRecoveryFolder_Call struct {
-	*mock.Call
-}
-
-// PromoteRecoveryFolder is a helper method to define mock.On call
-//   - collectionName string
-//   - shardName string
-func (_e *MockReplicaCopier_Expecter) PromoteRecoveryFolder(collectionName interface{}, shardName interface{}) *MockReplicaCopier_PromoteRecoveryFolder_Call {
-	return &MockReplicaCopier_PromoteRecoveryFolder_Call{Call: _e.mock.On("PromoteRecoveryFolder", collectionName, shardName)}
-}
-
-func (_c *MockReplicaCopier_PromoteRecoveryFolder_Call) Run(run func(collectionName string, shardName string)) *MockReplicaCopier_PromoteRecoveryFolder_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(string))
-	})
-	return _c
-}
-
-func (_c *MockReplicaCopier_PromoteRecoveryFolder_Call) Return(_a0 error) *MockReplicaCopier_PromoteRecoveryFolder_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockReplicaCopier_PromoteRecoveryFolder_Call) RunAndReturn(run func(string, string) error) *MockReplicaCopier_PromoteRecoveryFolder_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // PromoteRecoveredShard provides a mock function with given fields: ctx, collectionName, shardName
 func (_m *MockReplicaCopier) PromoteRecoveredShard(ctx context.Context, collectionName string, shardName string) error {
 	ret := _m.Called(ctx, collectionName, shardName)
@@ -544,6 +545,53 @@ func (_c *MockReplicaCopier_PromoteRecoveredShard_Call) Return(_a0 error) *MockR
 }
 
 func (_c *MockReplicaCopier_PromoteRecoveredShard_Call) RunAndReturn(run func(context.Context, string, string) error) *MockReplicaCopier_PromoteRecoveredShard_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// PromoteRecoveryFolder provides a mock function with given fields: collectionName, shardName
+func (_m *MockReplicaCopier) PromoteRecoveryFolder(collectionName string, shardName string) error {
+	ret := _m.Called(collectionName, shardName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PromoteRecoveryFolder")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, string) error); ok {
+		r0 = rf(collectionName, shardName)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockReplicaCopier_PromoteRecoveryFolder_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PromoteRecoveryFolder'
+type MockReplicaCopier_PromoteRecoveryFolder_Call struct {
+	*mock.Call
+}
+
+// PromoteRecoveryFolder is a helper method to define mock.On call
+//   - collectionName string
+//   - shardName string
+func (_e *MockReplicaCopier_Expecter) PromoteRecoveryFolder(collectionName interface{}, shardName interface{}) *MockReplicaCopier_PromoteRecoveryFolder_Call {
+	return &MockReplicaCopier_PromoteRecoveryFolder_Call{Call: _e.mock.On("PromoteRecoveryFolder", collectionName, shardName)}
+}
+
+func (_c *MockReplicaCopier_PromoteRecoveryFolder_Call) Run(run func(collectionName string, shardName string)) *MockReplicaCopier_PromoteRecoveryFolder_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockReplicaCopier_PromoteRecoveryFolder_Call) Return(_a0 error) *MockReplicaCopier_PromoteRecoveryFolder_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockReplicaCopier_PromoteRecoveryFolder_Call) RunAndReturn(run func(string, string) error) *MockReplicaCopier_PromoteRecoveryFolder_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -967,8 +1015,7 @@ func (_c *MockReplicaCopier_UnloadLocalShard_Call) RunAndReturn(run func(context
 func NewMockReplicaCopier(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockReplicaCopier {
+}) *MockReplicaCopier {
 	mock := &MockReplicaCopier{}
 	mock.Mock.Test(t)
 

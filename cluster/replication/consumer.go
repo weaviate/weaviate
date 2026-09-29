@@ -699,6 +699,13 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 			return api.ShardReplicationState(""), err
 		}
 	}
+	// A rewound SELF_RECOVERY re-stages under "<shard>.recovering/"; the node owns the shard, so never remove its replica.
+	if op.Op.TransferType == api.SELF_RECOVERY && op.Status.Rewinds > 0 {
+		if err := c.replicaCopier.DemoteRecoveredShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
+			logger.Errorf("failure while demoting the recovered shard before re-hydrating: %v", err)
+			return api.ShardReplicationState(""), err
+		}
+	}
 
 	opID := strconv.FormatUint(op.Op.ID, 10)
 	src := op.Op.SourceShard.NodeId

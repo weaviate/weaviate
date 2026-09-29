@@ -447,6 +447,17 @@ func (c *Copier) PromoteRecoveredShard(ctx context.Context, collectionName, shar
 	return idx.PromoteRecoveringLocalShard(ctx, shardName)
 }
 
+// DemoteRecoveredShard moves a promoted SELF_RECOVERY shard back to
+// "<shard>.recovering/" behind the load block, for a rewound re-copy.
+func (c *Copier) DemoteRecoveredShard(ctx context.Context, collectionName, shardName string) error {
+	idx := c.dbWrapper.GetIndex(schema.ClassName(collectionName))
+	if idx == nil {
+		return fmt.Errorf("index for collection %s not found", collectionName)
+	}
+
+	return idx.DemoteRecoveredLocalShard(ctx, shardName)
+}
+
 // DropLocalShard removes the local shard and its on-disk files. It is the
 // teardown counterpart to LoadLocalShard. Idempotent on an absent/unloaded shard.
 func (c *Copier) DropLocalShard(ctx context.Context, collectionName, shardName string) error {
