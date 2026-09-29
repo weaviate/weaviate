@@ -67,12 +67,13 @@ func (i *Index) shardIsLazyUnloaded(shardName string) bool {
 }
 
 // deleteFromShards calls deleteShard once per shard that has expired uuids and was not dropped
-// earlier in the sweep. It waits for them unless the sweep ends first, which it reports as stopped.
-// The last shard, and one the group refuses, run on the calling goroutine, which waits for the
-// others anyway. A shard that failed or deleted nothing is dropped for the rest of the sweep.
+// earlier in the sweep, and waits unless the sweep ends first, which it reports as stopped. The
+// last shard, and one the group refuses, run on the calling goroutine. A shard that deleted nothing
+// is dropped for the rest of the sweep. One that failed is filed once for it, not once a round.
 func deleteFromShards(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
 	ec errorcompounder.ErrorCompounder, class string, shards2uuids map[string][]strfmt.UUID,
-	dropped map[string]struct{}, deleteShard func(shard string, uuids []strfmt.UUID) (bool, error),
+	dropped, filed map[string]struct{},
+	deleteShard func(shard string, uuids []strfmt.UUID) (bool, error),
 ) (deleted, stopped bool) {
 	shards := make([]string, 0, len(shards2uuids))
 	for shard, uuids := range shards2uuids {
@@ -82,29 +83,32 @@ func deleteFromShards(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
 	}
 
 	var (
-		anyDeleted  atomic.Bool
-		droppedLock sync.Mutex
+		anyDeleted atomic.Bool
+		shardsLock sync.Mutex
 	)
 	// returned is false when the delete panicked: the group files that panic, so record only drops the shard
 	record := func(shard string, deleted bool, err error, returned bool) {
-		switch {
-		case !returned:
-		case err != nil:
-			ec.AddGroups(err, class, shard)
-		case !deleted && context.Cause(ctx) == nil:
+		reason := err
+		if reason == nil && returned && !deleted && context.Cause(ctx) == nil {
 			// a stopped sweep also deletes nothing, which is not this shard failing
-			ec.AddGroups(errTTLNoProgress, class, shard)
+			reason = errTTLNoProgress
+		}
+
+		shardsLock.Lock()
+		defer shardsLock.Unlock()
+
+		_, reported := filed[shard]
+		if reason != nil && !reported {
+			ec.AddGroups(reason, class, shard)
+			filed[shard] = struct{}{}
 		}
 
 		if deleted {
 			anyDeleted.Store(true)
+			return
 		}
-		if !deleted || err != nil {
-			// the search cannot exclude its uuids, so a later round would hand it the same ones
-			droppedLock.Lock()
-			dropped[shard] = struct{}{}
-			droppedLock.Unlock()
-		}
+		// the search cannot exclude its uuids, so a later round would hand it the same ones
+		dropped[shard] = struct{}{}
 	}
 
 	wg := new(sync.WaitGroup)
@@ -250,6 +254,7 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 	eg.Go(func() error {
 		processedBatches := 0
 		dropped := map[string]struct{}{}
+		filed := map[string]struct{}{}
 		deleteShard := func(shard string, uuids []strfmt.UUID) (bool, error) {
 			deleted := false
 			countShard := func(n int32) {
@@ -277,7 +282,8 @@ func (i *Index) incomingDeleteObjectsExpired(ctx context.Context, eg *enterrors.
 				return nil
 			}
 
-			deleted, stopped := deleteFromShards(ctx, eg, ec, class.Class, shards2uuids, dropped, deleteShard)
+			deleted, stopped := deleteFromShards(ctx, eg, ec, class.Class, shards2uuids,
+				dropped, filed, deleteShard)
 			if stopped || !deleted {
 				return nil
 			}
