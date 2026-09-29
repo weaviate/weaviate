@@ -1504,28 +1504,34 @@ func TestCompactedLayout_ClassifiesEveryRecordType(t *testing.T) {
 }
 
 // TestCrashRecovery_ImpossibleCompressionRecordInEmptySegment pins that a PQ
-// record with zero segments is rejected even where the layout allows a
+// record no quantizer writes is rejected even where the layout allows a
 // compression record: at the head of an empty .sorted segment, which forced
-// rotations leave behind. It carries no encoders and left startup without a
-// compressor.
+// rotations leave behind. Such records crash or fail startup, and a k-means
+// record with zero centroids or segments carries no payload at all.
 func TestCrashRecovery_ImpossibleCompressionRecordInEmptySegment(t *testing.T) {
-	pqHeader := func(dims, m uint16) []byte {
+	pqHeader := func(encoder compression.Encoder, dims, ks, m uint16) []byte {
 		b := []byte{byte(AddPQ)}
 		b = binary.LittleEndian.AppendUint16(b, dims)
-		b = append(b, byte(compression.UseTileEncoder))
-		b = binary.LittleEndian.AppendUint16(b, 256) // ks
+		b = append(b, byte(encoder))
+		b = binary.LittleEndian.AppendUint16(b, ks)
 		b = binary.LittleEndian.AppendUint16(b, m)
 		b = append(b, 0, 0)
-		// One tile encoder, read only when m > 0.
-		return append(b, bytes.Repeat([]byte{0x3F}, 6*8+2+1)...)
+		if encoder == compression.UseTileEncoder {
+			// One tile encoder per segment, at least one so the record is followed by bytes.
+			return append(b, bytes.Repeat([]byte{0x3F}, max(int(m), 1)*(6*8+2+1))...)
+		}
+		// A k-means record with zero centroids carries no payload.
+		return b
 	}
 
 	tails := []struct {
 		name string
 		tail []byte
 	}{
-		{name: "PQ with zero segments", tail: pqHeader(4, 0)},
-		{name: "PQ with zero segments at end of file", tail: pqHeader(4, 0)[:10]},
+		{name: "PQ with zero segments", tail: pqHeader(compression.UseTileEncoder, 4, 256, 0)},
+		{name: "PQ with zero segments at end of file", tail: pqHeader(compression.UseTileEncoder, 4, 256, 0)[:10]},
+		{name: "k-means PQ with zero centroids", tail: pqHeader(compression.UseKMeansEncoder, 4, 0, 1)},
+		{name: "PQ with segments not dividing dimensions", tail: pqHeader(compression.UseTileEncoder, 5, 256, 2)},
 	}
 
 	for _, tc := range tails {

@@ -665,10 +665,11 @@ func readPQData(r io.Reader) (*compression.PQData, error) {
 	if err != nil {
 		return nil, err
 	}
-	// A record without segments carries no encoders, and startup would be
-	// left without a compressor.
-	if m == 0 {
-		return nil, errors.New("pq with 0 segments")
+	// Writers only produce segments that divide the dimensions and a non-zero
+	// centroid count. A record without segments carries no encoders, and one
+	// without centroids restores encoders with no centers.
+	if m == 0 || ks == 0 || dims%m != 0 {
+		return nil, errors.Errorf("pq with %d dimensions, %d segments and %d centroids", dims, m, ks)
 	}
 
 	encoder := compression.Encoder(encByte)
@@ -689,7 +690,7 @@ func readPQData(r io.Reader) (*compression.PQData, error) {
 	case compression.UseKMeansEncoder:
 		// Zero-width segments hold no bytes, so m and ks would not be bounded
 		// by the bytes read. Real PQ segments divide the dimensions.
-		if ks > 0 && dims/m == 0 {
+		if dims/m == 0 {
 			return nil, errors.Errorf("pq with %d dimensions cannot have %d segments", dims, m)
 		}
 		encoderReader = readKMeansEncoder
