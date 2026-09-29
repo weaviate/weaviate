@@ -184,6 +184,8 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 				if err != nil {
 					return errors.Wrap(err, "Restoring compressed data.")
 				}
+			} else {
+				return errors.New("restoring compressed data: pq data has no encoders")
 			}
 		} else if sqData := state.CompressionSQData(); sqData != nil {
 			h.dims.Store(int32(sqData.Dimensions))
