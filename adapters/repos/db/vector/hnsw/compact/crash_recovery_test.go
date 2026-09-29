@@ -1502,3 +1502,55 @@ func TestCompactedLayout_ClassifiesEveryRecordType(t *testing.T) {
 		})
 	}
 }
+
+// TestCrashRecovery_ImpossibleCompressionRecordInEmptySegment pins that a PQ
+// record with zero segments is rejected even where the layout allows a
+// compression record: at the head of an empty .sorted segment, which forced
+// rotations leave behind. It carries no encoders and left startup without a
+// compressor.
+func TestCrashRecovery_ImpossibleCompressionRecordInEmptySegment(t *testing.T) {
+	pqHeader := func(dims, m uint16) []byte {
+		b := []byte{byte(AddPQ)}
+		b = binary.LittleEndian.AppendUint16(b, dims)
+		b = append(b, byte(compression.UseTileEncoder))
+		b = binary.LittleEndian.AppendUint16(b, 256) // ks
+		b = binary.LittleEndian.AppendUint16(b, m)
+		b = append(b, 0, 0)
+		// One tile encoder, read only when m > 0.
+		return append(b, bytes.Repeat([]byte{0x3F}, 6*8+2+1)...)
+	}
+
+	tails := []struct {
+		name string
+		tail []byte
+	}{
+		{name: "PQ with zero segments", tail: pqHeader(4, 0)},
+		{name: "PQ with zero segments at end of file", tail: pqHeader(4, 0)[:10]},
+	}
+
+	for _, tc := range tails {
+		t.Run(tc.name, func(t *testing.T) {
+			write := func(dir string) string {
+				writeCorruptTailFixture(t, filepath.Join(dir, BuildMergedFilename(1000, 1000, FileTypeSorted)), FileTypeSorted, false)
+				empty := filepath.Join(dir, BuildMergedFilename(2000, 2000, FileTypeSorted))
+				createTestWALFile(t, empty, func(w *WALWriter) {})
+				return empty
+			}
+
+			cleanDir := t.TempDir()
+			write(cleanDir)
+			clean, err := NewLoader(LoaderConfig{Dir: cleanDir, Logger: quietLogger()}).Load()
+			require.NoError(t, err)
+
+			dir := t.TempDir()
+			empty := write(dir)
+			appendToFile(t, empty, tc.tail)
+
+			res, err := NewLoader(LoaderConfig{Dir: dir, Logger: quietLogger()}).Load()
+			require.NoError(t, err)
+			assert.True(t, res.RecoveredFromCrash, "impossible record must be detected as corruption")
+			assertGraphEqual(t, clean.State, res.State)
+			assert.Equal(t, int64(0), fileSizeOf(t, empty), "segment must be truncated back to empty")
+		})
+	}
+}

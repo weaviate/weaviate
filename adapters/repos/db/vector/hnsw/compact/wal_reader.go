@@ -665,6 +665,11 @@ func readPQData(r io.Reader) (*compression.PQData, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A record without segments carries no encoders, and startup would be
+	// left without a compressor.
+	if m == 0 {
+		return nil, errors.New("pq with 0 segments")
+	}
 
 	encoder := compression.Encoder(encByte)
 	pqData := compression.PQData{
@@ -684,7 +689,7 @@ func readPQData(r io.Reader) (*compression.PQData, error) {
 	case compression.UseKMeansEncoder:
 		// Zero-width segments hold no bytes, so m and ks would not be bounded
 		// by the bytes read. Real PQ segments divide the dimensions.
-		if m > 0 && ks > 0 && dims/m == 0 {
+		if ks > 0 && dims/m == 0 {
 			return nil, errors.Errorf("pq with %d dimensions cannot have %d segments", dims, m)
 		}
 		encoderReader = readKMeansEncoder
