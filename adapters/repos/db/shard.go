@@ -494,15 +494,6 @@ type Shard struct {
 
 	usingBlockMaxWAND bool
 
-	// dimensionsLock: read-held by writes to the dimensions bucket, write-held by a
-	// recalculation starting or switching buckets, guarding dimensionsRecalculation.
-	// Readers hold vectorIndexMu while waiting on it, so status must not be read or
-	// set while holding this lock.
-	dimensionsLock          sync.RWMutex
-	dimensionsRecalculation *dimensionsRecalculation
-	// see [Shard.leaveWithoutDimensionsBucket]
-	dimensionsBucketLost atomic.Bool
-
 	// shutdownRequested marks shard as requested for shutdown
 	shutdownRequested atomic.Bool
 	// dropRequested marks shard as requested for drop.

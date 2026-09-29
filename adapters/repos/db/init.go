@@ -156,6 +156,7 @@ func (db *DB) init(ctx context.Context) error {
 				TrackVectorDimensions:          db.config.TrackVectorDimensions,
 				TrackVectorDimensionsInterval:  db.config.TrackVectorDimensionsInterval,
 				MigrateDimensionsToRoaringSet:  db.config.MigrateDimensionsToRoaringSet,
+				DimensionsReindex:              &db.dimensionsReindex,
 				UsageEnabled:                   db.config.UsageEnabled,
 				AvoidMMap:                      db.config.AvoidMMap,
 				EnableLazyLoadShards: func() bool {
