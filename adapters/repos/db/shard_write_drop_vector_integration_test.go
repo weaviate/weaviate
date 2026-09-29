@@ -535,6 +535,105 @@ func TestDropVectorIndex_DeletesAtTheRecordedID(t *testing.T) {
 	assert.NoError(t, err, "a retry has nothing to derive an id from and deletes nothing")
 }
 
+// newColdLazyShard replaces a shut-down shard's map entry with the lazy
+// loader the index holds for a tenant before its first use.
+func newColdLazyShard(ctx context.Context, shard *Shard, class *models.Class) *LazyLoadShard {
+	idx := shard.index
+	lazy := NewLazyLoadShard(ctx, nil, shard.name, idx, class, idx.centralJobQueue,
+		idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer, false, idx.bitmapBufPool)
+	idx.shards.Store(shard.name, lazy)
+	return lazy
+}
+
+// A cold tenant is swept under its loader's mutex, so no load can start
+// while the offline cleanup runs. The cleanup is made to dwell: the mapping
+// file is held open as a loaded shard holds it, and the offline read waits
+// a second on the file lock. During that second the mutex must be held
+// without a gap; the cold check alone holds it for microseconds.
+func TestDropVectorIndex_CompletionSweepHoldsTheLoaderDuringOfflineCleanup(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	markDropped(class, "foo")
+	idx := shard.index
+	require.NoError(t, shard.Shutdown(ctx))
+	lazy := newColdLazyShard(ctx, shard, class)
+
+	held, err := shardmeta.Open(shard.path(), entlsmkv.BoltFlockTimeout)
+	require.NoError(t, err)
+	db := &DB{logger: idx.logger, indices: map[string]*Index{idx.ID(): idx}}
+	done := make(chan error, 1)
+	go func() {
+		done <- db.EnsureDroppedVectorFilesRemoved(class.Class, shard.name, []string{"foo"})
+	}()
+
+	// the mutex stays taken for 200 ms in a row while the sweep waits on the file
+	deadline := time.Now().Add(500 * time.Millisecond)
+	var heldSince time.Time
+	for time.Now().Before(deadline) {
+		if lazy.mutex.TryLock() {
+			lazy.mutex.Unlock()
+			heldSince = time.Time{}
+		} else if heldSince.IsZero() {
+			heldSince = time.Now()
+		} else if time.Since(heldSince) >= 200*time.Millisecond {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	assert.False(t, heldSince.IsZero() || time.Since(heldSince) < 200*time.Millisecond,
+		"the sweep released the loader's mutex during the offline cleanup")
+
+	// the read timed out on the file: the sweep skips, as for a load that slipped in
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("the sweep did not return after the file lock timeout")
+	}
+	assert.False(t, lazy.isLoaded(), "the sweep loaded the tenant")
+	assert.NotEmpty(t, entriesNamed(t, shard, "foo"), "nothing removed under a held file")
+
+	// with the file free the same sweep removes foo offline and keeps the others
+	require.NoError(t, held.Close())
+	require.NoError(t, db.EnsureDroppedVectorFilesRemoved(class.Class, shard.name, []string{"foo"}))
+	records, initialized, err := reopenMapping(t, shard.path())
+	require.NoError(t, err)
+	assert.True(t, initialized)
+	_, hasFoo := records["foo"]
+	assert.False(t, hasFoo)
+	assert.Len(t, records, 2)
+	assert.Empty(t, entriesNamed(t, shard, "foo"))
+}
+
+// A loaded lazy tenant is swept through its shard's own drop, never offline.
+func TestDropVectorIndex_CompletionSweepRetriesThroughLoadedLazyShard(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	idx := shard.index
+	require.NoError(t, shard.Shutdown(ctx))
+	lazy := newColdLazyShard(ctx, shard, class)
+	require.NoError(t, lazy.Load(ctx))
+	loaded := lazy.shard
+	t.Cleanup(func() { _ = loaded.Shutdown(ctx) })
+
+	// what a drop that failed after its record write leaves behind
+	require.NoError(t, loaded.PutObject(ctx, dropVecObject(t, "one", true)))
+	markDropped(class, "foo")
+	rec, ok, err := loaded.mapping.Get("foo")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.NoError(t, loaded.markVectorIndexDropping("foo", rec))
+
+	db := &DB{logger: idx.logger, indices: map[string]*Index{idx.ID(): idx}}
+	require.NoError(t, db.EnsureDroppedVectorFilesRemoved(class.Class, shard.name, []string{"foo"}))
+	// the offline route would have skipped on the loaded shard's lock, leaving
+	// the record and the files; the shard's own drop finishes them
+	assert.Empty(t, entriesNamed(t, loaded, "foo"), "the sweep finished the drop")
+	_, ok, err = loaded.mapping.Get("foo")
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
 // liveCreate rebuilds the index of targetVector from its mapping record,
 // as an index that was unpublished without a teardown.
 func liveCreate(ctx context.Context, shard *Shard, targetVector string) error {
