@@ -636,6 +636,26 @@ func (l *LazyLoadShard) DropVectorIndex(ctx context.Context, targetVector string
 	return l.dropUnloadedVectorIndex(targetVector)
 }
 
+// sweepDroppedVectorIndexes finishes the drops of targets under the loading
+// mutex, so a load cannot start against the offline removal and the file
+// lock stays a backstop: the loaded shard retries its own drops, a cold one
+// is cleaned on disk.
+func (l *LazyLoadShard) sweepDroppedVectorIndexes(targets []string) error {
+	l.mutex.Lock()
+	defer l.mutex.Unlock()
+
+	if l.loaded && l.shard != nil && !l.shard.teardownFinished() {
+		return l.shard.retryDroppedVectorIndexes(targets)
+	}
+	for _, target := range targets {
+		err := l.dropUnloadedVectorIndex(target)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (l *LazyLoadShard) dropUnloadedVectorIndex(targetVector string) error {
 	// Shard is not loaded — remove files directly from disk. Delegate to the
 	// shared helper so file path logic is defined in one place.
