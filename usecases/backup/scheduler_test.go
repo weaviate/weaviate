@@ -166,7 +166,7 @@ func TestSchedulerValidateCreateBackup(t *testing.T) {
 			wantForbidden bool
 		}{
 			{name: "no permitted class", exclude: []string{"*"}, wantErr: "forbidden", wantForbidden: true},
-			{name: "every permitted class excluded", permitted: []string{"Allowed"}, exclude: []string{"Allowed"}, wantErr: "please choose from : [Allowed]"},
+			{name: "every permitted class excluded", permitted: []string{"Allowed"}, exclude: []string{"Allowed"}, wantErr: "no collections, users, or roles: available collections: [Allowed]"},
 			{name: "permitted class not backupable", permitted: []string{"Allowed"}, backupableErr: ErrAny, wantErr: ErrAny.Error()},
 			{name: "authorizer fails", authErr: ErrAny, wantErr: ErrAny.Error()},
 			// adminlist refuses a list it does not wholly permit.
@@ -295,6 +295,7 @@ func TestValidateBackupRequest(t *testing.T) {
 		noUsers      bool
 		noRoles      bool
 		roleErr      error
+		permitted    []string
 	}{
 		{
 			name:         "users only with no collections",
@@ -415,6 +416,29 @@ func TestValidateBackupRequest(t *testing.T) {
 			include:    []string{"missing*"},
 		},
 		{
+			name:         "excluded permitted collections leave selected users",
+			allClasses:   []string{"Allowed", "Hidden"},
+			permitted:    []string{"Allowed"},
+			exclude:      []string{"Allowed"},
+			includeUsers: []string{"alice"},
+			wantUsers:    []string{"alice"},
+		},
+		{
+			name:         "wildcard omits forbidden collections but keeps users",
+			allClasses:   []string{"Allowed", "AllowedSecret"},
+			permitted:    []string{"Allowed", "Allowed?*"},
+			include:      []string{"Allowed?*"},
+			includeUsers: []string{"alice"},
+			wantUsers:    []string{"alice"},
+		},
+		{
+			name:         "selected users do not bypass total collection denial",
+			allClasses:   []string{"Hidden"},
+			permitted:    []string{},
+			includeUsers: []string{"alice"},
+			wantErr:      "forbidden",
+		},
+		{
 			name:         "identity selectors that both miss select nothing",
 			includeUsers: []string{"missing*"},
 			includeRoles: []string{"missing*"},
@@ -457,6 +481,9 @@ func TestValidateBackupRequest(t *testing.T) {
 			}
 			fs.roleLister.err = tt.roleErr
 			scheduler := fs.scheduler()
+			if tt.permitted != nil {
+				scheduler.authorizer = permitBackupsOf(tt.permitted...)
+			}
 			if tt.noUsers {
 				scheduler.userLister = nil
 			}
@@ -475,7 +502,7 @@ func TestValidateBackupRequest(t *testing.T) {
 				fs.backend.On("GetObject", ctx, id, BackupFile).Return(nil, backup.ErrNotFound{})
 			}
 			store := coordStore{objectStore{backend: fs.backend, backupId: id}}
-			got, err := scheduler.validateBackupRequest(ctx, store, &BackupRequest{
+			got, err := scheduler.validateBackupRequest(ctx, store, nil, &BackupRequest{
 				ID: id, Include: tt.include, Exclude: tt.exclude,
 				IncludeUsers: tt.includeUsers, IncludeRoles: tt.includeRoles,
 			})
@@ -524,17 +551,17 @@ func TestFilterBackupableClasses(t *testing.T) {
 		got, err := fs.scheduler().filterBackupableClasses(ctx, principal, authorization.CREATE, []string{"Books"})
 		assert.Nil(t, got)
 		assert.ErrorAs(t, err, &authzerrors.Forbidden{})
-		assert.Len(t, auth.Calls(), 1)
+		assert.Len(t, auth.Calls(), 2)
 	})
 
 	t.Run("allowed collections are retained", func(t *testing.T) {
 		fs := newFakeScheduler(nil)
 		auth := fs.auth.(*mocks.FakeAuthorizer)
-		auth.SetErrAfter(1, authzerrors.NewForbidden(principal, authorization.CREATE, authorization.Backups("Movies")...))
+		auth.Deny(authorization.Backups("Movies")...)
 		got, err := fs.scheduler().filterBackupableClasses(ctx, principal, authorization.CREATE, []string{"Books", "Movies"})
 		require.NoError(t, err)
 		assert.Equal(t, []string{"Books"}, got)
-		assert.Len(t, auth.Calls(), 2)
+		assert.Len(t, auth.Calls(), 1)
 	})
 
 	t.Run("authorizer errors are unprocessable", func(t *testing.T) {
@@ -1634,7 +1661,7 @@ func TestValidateRestoreRequest(t *testing.T) {
 			fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("backups/" + id)
 			store := coordStore{objectStore{backend: fs.backend, backupId: id}}
 
-			got, err := fs.scheduler().validateRestoreRequest(ctx, store, &BackupRequest{
+			got, err := fs.scheduler().validateRestoreRequest(ctx, store, nil, &BackupRequest{
 				ID: id, Include: tt.include, Exclude: tt.exclude,
 				UserRestoreOption: tt.usersOption, RbacRestoreOption: tt.rolesOption,
 			})
