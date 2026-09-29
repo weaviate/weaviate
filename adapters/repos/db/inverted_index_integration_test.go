@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -1436,4 +1437,365 @@ func TestFilterPropertyLengthError(t *testing.T) {
 	}
 	_, err = repo.Search(context.Background(), params)
 	require.NotNil(t, err)
+}
+
+// createDescriptionCounterClass registers a class with a searchable
+// "description" text property and a filterable "counter" int property.
+func createDescriptionCounterClass(t *testing.T, ctx context.Context, migrator *Migrator, schemaGetter *fakeSchemaGetter, className string, invertedIndexConfig *models.InvertedIndexConfig) {
+	t.Helper()
+
+	class := &models.Class{
+		Class:               className,
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedIndexConfig,
+		Properties: []*models.Property{
+			{
+				Name:            "description",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexSearchable: boolPtr(true),
+			},
+			{
+				Name:            "counter",
+				DataType:        schema.DataTypeInt.PropString(),
+				IndexFilterable: boolPtr(true),
+			},
+		},
+	}
+	require.Nil(t, migrator.AddClass(ctx, class))
+	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+}
+
+// filterMatchesID runs a single-clause filter search against className and
+// reports whether id is present in the result.
+func filterMatchesID(t *testing.T, ctx context.Context, repo *DB, className string, id strfmt.UUID, clause *filters.Clause) bool {
+	t.Helper()
+	res, err := repo.Search(ctx, dto.GetParams{
+		ClassName:  className,
+		Pagination: &filters.Pagination{Limit: 5},
+		Filters: &filters.LocalFilter{
+			Root: clause,
+		},
+	})
+	require.Nil(t, err)
+	for _, obj := range res {
+		if obj.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// Test_PatchNoOpSkipsSearchableBucketRewrite checks that a PATCH to another
+// property writes nothing to an unchanged searchable bucket, and that a
+// token-preserving edit still updates len().
+func Test_PatchNoOpSkipsSearchableBucketRewrite(t *testing.T) {
+	ctx := context.Background()
+	className := "UnchangedSearchableSkip"
+	textID := strfmt.UUID("6f7f2b0e-df32-4f9d-9f8f-9e6c9f6d0a01")
+	lengthID := strfmt.UUID("6f7f2b0e-df32-4f9d-9f8f-9e6c9f6d0a02")
+
+	migrator, repo, schemaGetter := createRepo(t)
+	defer repo.Shutdown(ctx)
+
+	createDescriptionCounterClass(t, ctx, migrator, schemaGetter, className, invertedConfig())
+
+	require.Nil(t, repo.PutObject(ctx, &models.Object{
+		ID:    textID,
+		Class: className,
+		Properties: map[string]interface{}{
+			"description": "the quick brown fox jumps over a lazy dog while ravens watch silently",
+			"counter":     float64(1),
+		},
+	}, []float32{0.1}, nil, nil, nil, 0))
+
+	index := repo.GetIndex(schema.ClassName(className))
+	require.NoError(t, index.ForEachShard(func(_ string, shard ShardLike) error {
+		return shard.Store().PauseCompaction(ctx)
+	}))
+	defer func() {
+		_ = index.ForEachShard(func(_ string, shard ShardLike) error {
+			return shard.Store().ResumeCompaction(ctx)
+		})
+	}()
+
+	searchableFiles := func() []string {
+		var files []string
+		require.NoError(t, index.ForEachShard(func(_ string, shard ShardLike) error {
+			bucket := shard.Store().Bucket(helpers.BucketSearchableFromPropNameLSM("description"))
+			require.NotNil(t, bucket)
+			if err := bucket.FlushMemtable(); err != nil {
+				return err
+			}
+			f, err := bucket.ListFiles(ctx, index.Config.RootPath)
+			files = f
+			return err
+		}))
+		return files
+	}
+
+	filesBefore := searchableFiles()
+
+	t.Run("unrelated-property PATCH leaves the searchable bucket untouched", func(t *testing.T) {
+		require.Nil(t, repo.Merge(ctx, objects.MergeDocument{
+			Class: className,
+			ID:    textID,
+			PrimitiveSchema: map[string]interface{}{
+				"counter": float64(2),
+			},
+		}, nil, "", 0))
+
+		assert.ElementsMatch(t, filesBefore, searchableFiles(),
+			"an unrelated-property PATCH must not write a new segment to the unchanged searchable bucket")
+	})
+
+	t.Run("a token-preserving edit that changes Length still updates len()", func(t *testing.T) {
+		require.Nil(t, repo.PutObject(ctx, &models.Object{
+			ID:    lengthID,
+			Class: className,
+			Properties: map[string]interface{}{
+				"description": "alpha",
+				"counter":     float64(1),
+			},
+		}, []float32{0.2}, nil, nil, nil, 0))
+
+		matches := func(n int) bool {
+			return filterMatchesID(t, ctx, repo, className, lengthID, &filters.Clause{
+				Operator: filters.OperatorEqual,
+				On:       &filters.Path{Class: schema.ClassName(className), Property: "len(description)"},
+				Value:    &filters.Value{Value: n, Type: dtInt},
+			})
+		}
+
+		require.True(t, matches(5), "len(description) = 5 must match before the edit")
+		require.False(t, matches(6), "len(description) = 6 must not match before the edit")
+
+		// "alpha!" tokenizes to the same single "alpha" term as "alpha" under
+		// word tokenization (punctuation is a field separator, not a
+		// character), so Items stays identical and only Length (a rune count
+		// over the raw value, not derived from Items) changes.
+		require.Nil(t, repo.Merge(ctx, objects.MergeDocument{
+			Class: className,
+			ID:    lengthID,
+			PrimitiveSchema: map[string]interface{}{
+				"description": "alpha!",
+			},
+		}, nil, "", 0))
+
+		assert.True(t, matches(6), "len(description) = 6 must match after the token-preserving edit")
+		assert.False(t, matches(5), "len(description) = 5 must not match after the token-preserving edit")
+	})
+}
+
+// Test_AbsentZeroTokenTransitionsKeepLenAndIsNullCurrent checks that len()
+// and isNull reflect only the current state across absent<->whitespace/empty
+// transitions. Absent is only reachable via PUT; PATCH/merge cannot unset a
+// property.
+func Test_AbsentZeroTokenTransitionsKeepLenAndIsNullCurrent(t *testing.T) {
+	ctx := context.Background()
+	className := "AbsentZeroTokenTransitions"
+
+	migrator, repo, schemaGetter := createRepo(t)
+	defer repo.Shutdown(ctx)
+
+	class := &models.Class{
+		Class:               className,
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+		Properties: []*models.Property{
+			{
+				Name:            "description",
+				DataType:        schema.DataTypeText.PropString(),
+				Tokenization:    models.PropertyTokenizationWord,
+				IndexFilterable: boolPtr(true),
+				IndexSearchable: boolPtr(true),
+			},
+		},
+	}
+	require.Nil(t, migrator.AddClass(ctx, class))
+	schemaGetter.schema = schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}}
+
+	isNull := func(t *testing.T, id strfmt.UUID, want bool) bool {
+		t.Helper()
+		return filterMatchesID(t, ctx, repo, className, id, &filters.Clause{
+			Operator: filters.OperatorIsNull,
+			On:       &filters.Path{Class: schema.ClassName(className), Property: "description"},
+			Value:    &filters.Value{Value: want, Type: schema.DataTypeBoolean},
+		})
+	}
+
+	lenMatches := func(t *testing.T, id strfmt.UUID, n int) bool {
+		t.Helper()
+		return filterMatchesID(t, ctx, repo, className, id, &filters.Clause{
+			Operator: filters.OperatorEqual,
+			On:       &filters.Path{Class: schema.ClassName(className), Property: "len(description)"},
+			Value:    &filters.Value{Value: n, Type: dtInt},
+		})
+	}
+
+	t.Run("absent -> whitespace-only via PATCH", func(t *testing.T) {
+		id := strfmt.UUID("6f7f2b0e-df32-4f9d-9f8f-9e6c9f6d0c01")
+		require.Nil(t, repo.PutObject(ctx, &models.Object{
+			ID:         id,
+			Class:      className,
+			Properties: map[string]interface{}{},
+		}, []float32{0.1}, nil, nil, nil, 0))
+
+		require.True(t, isNull(t, id, true), "absent must read as null before the update")
+		require.False(t, isNull(t, id, false), "absent must not read as not-null before the update")
+		require.True(t, lenMatches(t, id, 0), "absent reads len()=0 before the update")
+
+		require.Nil(t, repo.Merge(ctx, objects.MergeDocument{
+			Class: className,
+			ID:    id,
+			PrimitiveSchema: map[string]interface{}{
+				"description": " ",
+			},
+		}, nil, "", 0))
+
+		assert.False(t, isNull(t, id, true), "whitespace-only value must not read as null after absent->' '")
+		assert.True(t, isNull(t, id, false), "whitespace-only value must read as not-null after absent->' '")
+		assert.True(t, lenMatches(t, id, 1), "len(description)=1 must match after absent->' '")
+		assert.False(t, lenMatches(t, id, 0), "len(description)=0 must not match after absent->' '")
+	})
+
+	t.Run("whitespace-only -> absent via PUT", func(t *testing.T) {
+		id := strfmt.UUID("6f7f2b0e-df32-4f9d-9f8f-9e6c9f6d0c02")
+		require.Nil(t, repo.PutObject(ctx, &models.Object{
+			ID:    id,
+			Class: className,
+			Properties: map[string]interface{}{
+				"description": " ",
+			},
+		}, []float32{0.2}, nil, nil, nil, 0))
+
+		require.True(t, lenMatches(t, id, 1), "len(description)=1 must match before the update")
+		require.False(t, lenMatches(t, id, 0), "len(description)=0 must not match before the update")
+		require.False(t, isNull(t, id, true), "' ' must not read as null before the update")
+		require.True(t, isNull(t, id, false), "' ' must read as not-null before the update")
+
+		require.Nil(t, repo.PutObject(ctx, &models.Object{
+			ID:         id,
+			Class:      className,
+			Properties: map[string]interface{}{},
+		}, []float32{0.2}, nil, nil, nil, 0))
+
+		assert.True(t, isNull(t, id, true), "absent must read as null after ' '->absent")
+		assert.False(t, isNull(t, id, false), "absent must not read as not-null after ' '->absent")
+		assert.True(t, lenMatches(t, id, 0), "len(description)=0 must match after ' '->absent")
+		assert.False(t, lenMatches(t, id, 1), "len(description)=1 must not still match after ' '->absent")
+	})
+
+	t.Run("absent -> empty string via PATCH", func(t *testing.T) {
+		id := strfmt.UUID("6f7f2b0e-df32-4f9d-9f8f-9e6c9f6d0c03")
+		require.Nil(t, repo.PutObject(ctx, &models.Object{
+			ID:         id,
+			Class:      className,
+			Properties: map[string]interface{}{},
+		}, []float32{0.3}, nil, nil, nil, 0))
+
+		require.True(t, isNull(t, id, true), "absent must read as null before the update")
+		require.True(t, lenMatches(t, id, 0), "absent reads len()=0 before the update")
+
+		require.Nil(t, repo.Merge(ctx, objects.MergeDocument{
+			Class: className,
+			ID:    id,
+			PrimitiveSchema: map[string]interface{}{
+				"description": "",
+			},
+		}, nil, "", 0))
+
+		assert.True(t, lenMatches(t, id, 0), "len(description)=0 must still match after absent->''")
+	})
+
+	t.Run("empty string -> absent via PUT", func(t *testing.T) {
+		id := strfmt.UUID("6f7f2b0e-df32-4f9d-9f8f-9e6c9f6d0c04")
+		require.Nil(t, repo.PutObject(ctx, &models.Object{
+			ID:    id,
+			Class: className,
+			Properties: map[string]interface{}{
+				"description": "",
+			},
+		}, []float32{0.4}, nil, nil, nil, 0))
+
+		require.True(t, lenMatches(t, id, 0), "len(description)=0 must match before the update")
+
+		require.Nil(t, repo.PutObject(ctx, &models.Object{
+			ID:         id,
+			Class:      className,
+			Properties: map[string]interface{}{},
+		}, []float32{0.4}, nil, nil, nil, 0))
+
+		assert.True(t, isNull(t, id, true), "absent must read as null after ''->absent")
+		assert.False(t, isNull(t, id, false), "absent must not read as not-null after ''->absent")
+		assert.True(t, lenMatches(t, id, 0), "len(description)=0 must match after ''->absent")
+	})
+}
+
+// Test_PatchUnrelatedPropertyKeepsAveragePropertyLength checks that PATCHing
+// an unrelated property does not change a BlockMax searchable bucket's
+// average property length.
+func Test_PatchUnrelatedPropertyKeepsAveragePropertyLength(t *testing.T) {
+	ctx := context.Background()
+	className := "AveragePropertyLengthUnchanged"
+	shortID := strfmt.UUID("6f7f2b0e-df32-4f9d-9f8f-9e6c9f6d0b01")
+	longID := strfmt.UUID("6f7f2b0e-df32-4f9d-9f8f-9e6c9f6d0b02")
+
+	migrator, repo, schemaGetter := createRepo(t)
+	defer repo.Shutdown(ctx)
+
+	cfg := invertedConfig()
+	cfg.UsingBlockMaxWAND = true
+	createDescriptionCounterClass(t, ctx, migrator, schemaGetter, className, cfg)
+
+	longDescription := ""
+	for i := 0; i < 20; i++ {
+		longDescription += fmt.Sprintf("word%02d ", i)
+	}
+
+	require.Nil(t, repo.PutObject(ctx, &models.Object{
+		ID:    shortID,
+		Class: className,
+		Properties: map[string]interface{}{
+			"description": "alpha bravo",
+			"counter":     float64(0),
+		},
+	}, []float32{0.1}, nil, nil, nil, 0))
+	require.Nil(t, repo.PutObject(ctx, &models.Object{
+		ID:    longID,
+		Class: className,
+		Properties: map[string]interface{}{
+			"description": longDescription,
+			"counter":     float64(0),
+		},
+	}, []float32{0.2}, nil, nil, nil, 0))
+
+	index := repo.GetIndex(schema.ClassName(className))
+	averagePropertyLength := func() float64 {
+		var avg float64
+		require.NoError(t, index.ForEachShard(func(_ string, shard ShardLike) error {
+			bucket := shard.Store().Bucket(helpers.BucketSearchableFromPropNameLSM("description"))
+			require.NotNil(t, bucket)
+			avg, _ = bucket.GetAveragePropertyLength()
+			return nil
+		}))
+		return avg
+	}
+
+	const wantAverage = 11.00 // (2-term + 20-term) / 2 objects
+	require.Equal(t, wantAverage, averagePropertyLength(),
+		"average property length before the PATCHes must be (2+20)/2")
+
+	for i := 1; i <= 10; i++ {
+		require.Nil(t, repo.Merge(ctx, objects.MergeDocument{
+			Class: className,
+			ID:    longID,
+			PrimitiveSchema: map[string]interface{}{
+				"counter": float64(i),
+			},
+		}, nil, "", 0))
+	}
+
+	assert.Equal(t, wantAverage, averagePropertyLength(),
+		"PATCHing an unrelated property must not change the average property length")
 }
