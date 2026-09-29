@@ -966,7 +966,7 @@ func (i *Index) recoverShardFromPeerIfNeeded(ctx context.Context, class *models.
 	if !orch.SubmitRecovery(context.Background(), collection, shardName, enterrors.IsStartedWithoutRaftState(ctx)) {
 		i.shards.LoadAndDelete(shardName)
 		i.logger.WithFields(logFields).
-			Warn("self-recovery: submission was not queued (feature disabled or shutting down); falling back to normal shard init")
+			Warn("self-recovery: submission was not queued (feature disabled, unlicensed, in maintenance mode or shutting down); falling back to normal shard init")
 		return false
 	}
 	i.logger.WithFields(logFields).
@@ -993,7 +993,7 @@ func (i *Index) recoverShardOnActivation(ctx context.Context, class *models.Clas
 	if !orch.SubmitActivationRecovery(context.Background(), collection, shardName) {
 		i.shards.LoadAndDelete(shardName)
 		i.logger.WithFields(logFields).
-			Warn("self-recovery: activation submission was not queued (shutting down); materialising the shard empty")
+			Warn("self-recovery: activation submission was not queued (unlicensed, in maintenance mode or shutting down); materialising the shard empty")
 		return false
 	}
 	i.logger.WithFields(logFields).
@@ -1014,6 +1014,7 @@ func (i *Index) installRecoveringShard(ctx context.Context, class *models.Class,
 // shouldRecoverShardFromPeer is the eligibility preamble; the caller classifies in-flight ops and installs.
 func (i *Index) shouldRecoverShardFromPeer(ctx context.Context, shardName string) bool {
 	orch := i.Config.SelfRecoveryOrchestrator
+	// Enabled deliberately ignores the license so the resume branch still runs for in-flight ops.
 	if orch == nil || !orch.Enabled() {
 		return false
 	}

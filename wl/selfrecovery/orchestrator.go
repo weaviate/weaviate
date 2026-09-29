@@ -10,7 +10,7 @@
 //
 
 // Package selfrecovery triggers SELF_RECOVERY ops for shards missing at startup; the copy and state machine live in the replication FSM + consumer.
-// It is Weaviate-licensed (wl/LICENSE-WEAVIATE), unlike the BSD-3-Clause code outside wl/.
+// It is Weaviate-licensed (wl/LICENSE-WEAVIATE), unlike the BSD-3-Clause code outside wl/, and only starts recoveries under Config.Licensed.
 package selfrecovery
 
 import (
@@ -58,6 +58,9 @@ var ErrSelfRecoveryShardAlreadyLive = errors.New("shard already has a live local
 // ErrSelfRecoveryOpInFlight maps to 409 in the REST handler: accept-empty would race the op's own promote.
 var ErrSelfRecoveryOpInFlight = errors.New("a replication op targeting this replica is still in flight")
 
+// ErrSelfRecoveryUnlicensed maps to 403 in the REST handler.
+var ErrSelfRecoveryUnlicensed = errors.New("self-recovery requires a valid Weaviate license (LICENSE_KEY or LICENSE_KEY_FILE); no new recoveries start")
+
 // RaftEntryPoint is the subset of *cluster.Raft used by the orchestrator.
 type RaftEntryPoint interface {
 	RegisterSelfRecovery(ctx context.Context, sourceNode, collection, shard, targetNode string) (strfmt.UUID, error)
@@ -98,6 +101,7 @@ type Orchestrator struct {
 	nodeSelector           cluster.NodeSelector
 	nodeName               string
 	enabled                bool
+	licensed               bool
 	concurrency            int
 	maintenanceModeEnabled func() bool // nil-safe; treated as off when nil
 	onRecoveryComplete     func(ctx context.Context, collection, shard string) error
@@ -144,7 +148,9 @@ type Config struct {
 	NodeSelector  cluster.NodeSelector
 	NodeName      string
 	Enabled       bool
-	Concurrency   int
+	// Licensed is Config.WeaviateLicense; false ⇒ Submit declines, in-flight ops still complete.
+	Licensed    bool
+	Concurrency int
 	// MaintenanceModeEnabled, when non-nil and true, makes Submit a no-op.
 	MaintenanceModeEnabled func() bool
 	// OnRecoveryComplete promotes after empty-fallback; must never create a shard, and only ErrIndexNotRegistered is retried.
@@ -169,6 +175,11 @@ func New(cfg Config) *Orchestrator {
 	if logger == nil {
 		logger = logrus.NewEntry(logrus.New())
 	}
+	componentLogger := logger.WithField("component", "self_recovery")
+	if cfg.Enabled && !cfg.Licensed {
+		componentLogger.WithField("event", "self_recovery.unlicensed").
+			Warn("SELF_RECOVERY_ENABLED is set but no valid Weaviate license key is configured (LICENSE_KEY/LICENSE_KEY_FILE); no new shard self-recoveries will start; in-flight ops still complete")
+	}
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
 	wipeMarker, wipeRoundOpen := "", false
 	if cfg.RootDataPath != "" {
@@ -188,10 +199,11 @@ func New(cfg Config) *Orchestrator {
 		nodeSelector:           cfg.NodeSelector,
 		nodeName:               cfg.NodeName,
 		enabled:                cfg.Enabled,
+		licensed:               cfg.Licensed,
 		concurrency:            cfg.Concurrency,
 		maintenanceModeEnabled: cfg.MaintenanceModeEnabled,
 		onRecoveryComplete:     cfg.OnRecoveryComplete,
-		logger:                 logger.WithField("component", "self_recovery"),
+		logger:                 componentLogger,
 		pollInterval:           pollInterval,
 		probeTimeout:           probeTimeout,
 		probeBackoffMin:        5 * time.Second,
@@ -219,6 +231,14 @@ func shufflePeers(peers []string) {
 // Submit queues recovery (never drops); false = won't run and the caller MUST fall back to normal init.
 func (o *Orchestrator) Submit(ctx context.Context, ref ShardRef, startedWithoutRaftState bool) bool {
 	if !o.enabled {
+		return false
+	}
+	if !o.licensed {
+		o.logger.WithFields(logrus.Fields{
+			"event":      "self_recovery.skipped_unlicensed",
+			"collection": ref.Collection,
+			"shard":      ref.Shard,
+		}).Debug("self-recovery skipped: no valid Weaviate license")
 		return false
 	}
 	if o.maintenanceModeEnabled != nil && o.maintenanceModeEnabled() {
@@ -274,7 +294,7 @@ func (o *Orchestrator) closeWipeRoundLocked() {
 	o.wipeRoundOpen = false
 }
 
-// Enabled reports whether the SELF_RECOVERY feature flag is on.
+// Enabled reports the SELF_RECOVERY flag only; licensing is enforced in Submit/Restart so a resuming op is still recognised.
 func (o *Orchestrator) Enabled() bool {
 	return o.enabled
 }
@@ -315,6 +335,9 @@ func (o *Orchestrator) Restart(parentCtx context.Context, ref ShardRef) error {
 				ref.Collection, ref.Shard,
 				errors.Join(ErrSelfRecoveryShardNotInSchema, err))
 		}
+	}
+	if !o.licensed {
+		return fmt.Errorf("restart recovery for %s/%s: %w", ref.Collection, ref.Shard, ErrSelfRecoveryUnlicensed)
 	}
 	unlock := o.lockShard(ref)
 	defer unlock()

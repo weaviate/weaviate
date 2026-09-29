@@ -743,6 +743,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		NodeSelector:           nodeSelector,
 		NodeName:               nodeName,
 		Enabled:                appState.ServerConfig.Config.Replication.SelfRecoveryEnabled,
+		Licensed:               appState.ServerConfig.Config.WeaviateLicense,
 		Concurrency:            appState.ServerConfig.Config.Replication.SelfRecoveryConcurrency,
 		MaintenanceModeEnabled: appState.Cluster.MaintenanceModeEnabledForLocalhost,
 		OnRecoveryComplete:     appState.DB.LoadLocalShard,

@@ -25,6 +25,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
+	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -45,25 +46,36 @@ func quietLogger() *logrus.Logger {
 }
 
 func TestSubmit_DeclinesWhenDisabledOrMaintenance(t *testing.T) {
-	mk := func(enabled bool, maint func() bool) *Orchestrator {
+	mk := func(enabled, licensed bool, maint func() bool) *Orchestrator {
 		o := newOrchestratorForTest(t, &stubRaft{},
 			stubSchema{replicas: []string{"self"}}, &stubNodeSelector{}, nil,
 			stubPathResolver{root: t.TempDir()})
 		o.enabled = enabled
+		o.licensed = licensed
 		o.maintenanceModeEnabled = maint
 		return o
 	}
 
 	t.Run("feature off", func(t *testing.T) {
-		o := mk(false, nil)
+		o := mk(false, true, nil)
 		require.False(t, o.Submit(context.Background(), ShardRef{Collection: "C", Shard: "S"}, false))
 	})
 	t.Run("maintenance mode", func(t *testing.T) {
-		o := mk(true, func() bool { return true })
+		o := mk(true, true, func() bool { return true })
 		require.False(t, o.Submit(context.Background(), ShardRef{Collection: "C", Shard: "S"}, false))
 	})
+	t.Run("unlicensed", func(t *testing.T) {
+		o := mk(true, false, nil)
+		root := o.pathResolver.(stubPathResolver).root
+		o.wipeMarker = filepath.Join(root, wipeMarkerName)
+		require.False(t, o.Submit(context.Background(), ShardRef{Collection: "C", Shard: "S"}, true))
+		entries, err := os.ReadDir(root)
+		require.NoError(t, err)
+		require.Empty(t, entries)
+		require.NoFileExists(t, o.wipeMarker)
+	})
 	t.Run("queued", func(t *testing.T) {
-		o := mk(true, nil)
+		o := mk(true, true, nil)
 		require.True(t, o.Submit(context.Background(), ShardRef{Collection: "C", Shard: "S"}, false))
 	})
 }
@@ -138,6 +150,7 @@ func TestClose_SurfacesDeadlineWhenWorkerStuck(t *testing.T) {
 		NodeSelector: ns,
 		NodeName:     "self",
 		Enabled:      true,
+		Licensed:     true,
 		ClientFactory: func(_ context.Context, _ string) (copier.FileReplicationServiceClient, error) {
 			select {
 			case probeCalled <- struct{}{}:
@@ -431,6 +444,91 @@ func TestRestart_SchemaErrorIsTypedSentinel(t *testing.T) {
 	require.Empty(t, raft.cancelled, "Restart must bail before cancelling when the shard is not in schema")
 	_, statErr := os.Stat(recoveryPath + "/marker")
 	require.NoError(t, statErr, "recovery dir must not be touched when the schema gate refuses the request")
+}
+
+func TestRestart_UnlicensedIsRejectedBeforeTouchingState(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		schema  SchemaReader
+		wantErr error
+	}{
+		{name: "known shard", schema: stubSchema{replicas: []string{"self", "peer1"}}, wantErr: ErrSelfRecoveryUnlicensed},
+		{name: "unknown shard", schema: stubSchema{err: errors.New("class \"C\" not found in schema")}, wantErr: ErrSelfRecoveryShardNotInSchema},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tmp := t.TempDir()
+			recoveryPath := tmp + "/C/S.recovering"
+			require.NoError(t, os.MkdirAll(recoveryPath, 0o755))
+			require.NoError(t, os.WriteFile(recoveryPath+"/partial.bin", []byte("partial"), 0o644))
+			raft := &stubRaft{opsByCollShard: map[string][]api.ReplicationDetailsResponse{
+				"C/S": {{
+					Uuid:         strfmt.UUID("11111111-1111-1111-1111-111111111111"),
+					Collection:   "C",
+					ShardId:      "S",
+					TargetNodeId: "self",
+					TransferType: api.SELF_RECOVERY.String(),
+					Status:       api.ReplicationDetailsState{State: string(api.HYDRATING)},
+				}},
+			}}
+			o := newOrchestratorForTest(t, raft, tc.schema, &stubNodeSelector{}, nil, stubPathResolver{root: tmp})
+			o.enabled = true
+			o.licensed = false
+
+			err := o.Restart(context.Background(), ShardRef{Collection: "C", Shard: "S"})
+
+			require.ErrorIs(t, err, tc.wantErr)
+			raft.mu.Lock()
+			defer raft.mu.Unlock()
+			require.Empty(t, raft.cancelled)
+			require.FileExists(t, recoveryPath+"/partial.bin")
+			require.NoDirExists(t, tmp+"/C/S")
+		})
+	}
+}
+
+func TestAcceptEmpty_WorksWhenUnlicensed(t *testing.T) {
+	tmp := t.TempDir()
+	o := newOrchestratorForTest(t, &stubRaft{}, stubSchema{replicas: []string{"self", "peer1"}}, &stubNodeSelector{}, nil, stubPathResolver{root: tmp})
+	o.enabled = true
+	o.licensed = false
+	require.NoError(t, os.MkdirAll(tmp+"/C/S.recovering", 0o755))
+
+	got, err := o.AcceptEmpty(context.Background(), ShardRef{Collection: "C", Shard: "S"})
+
+	require.NoError(t, err)
+	require.Equal(t, tmp+"/C/S", got)
+	require.DirExists(t, got)
+	require.NoDirExists(t, tmp+"/C/S.recovering")
+}
+
+func TestNew_WarnsOnceWhenEnabledButUnlicensed(t *testing.T) {
+	for _, tc := range []struct {
+		name              string
+		enabled, licensed bool
+		wantWarn          bool
+	}{
+		{name: "enabled unlicensed", enabled: true, licensed: false, wantWarn: true},
+		{name: "enabled licensed", enabled: true, licensed: true, wantWarn: false},
+		{name: "disabled unlicensed", enabled: false, licensed: false, wantWarn: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			logger, hook := logrustest.NewNullLogger()
+			o := New(Config{Enabled: tc.enabled, Licensed: tc.licensed, Schema: stubSchema{replicas: []string{"self"}}, Logger: logger})
+			t.Cleanup(func() { require.NoError(t, o.Close(context.Background())) })
+
+			warns := 0
+			for _, e := range hook.AllEntries() {
+				if e.Level == logrus.WarnLevel && e.Data["event"] == "self_recovery.unlicensed" {
+					warns++
+				}
+			}
+			if tc.wantWarn {
+				require.Equal(t, 1, warns)
+			} else {
+				require.Zero(t, warns)
+			}
+		})
+	}
 }
 
 func TestWaitForOpTerminal_VanishedGrace(t *testing.T) {
@@ -828,7 +926,7 @@ func TestWipeMarker_ResumedRoundKeepsTheBenignBucket(t *testing.T) {
 	logger.SetLevel(logrus.PanicLevel)
 	o := New(Config{
 		Raft: &stubRaft{}, Schema: stubSchema{replicas: []string{"self"}}, PathResolver: stubPathResolver{root: root},
-		NodeSelector: &stubNodeSelector{}, NodeName: "self", Enabled: true, RootDataPath: root, Logger: logger,
+		NodeSelector: &stubNodeSelector{}, NodeName: "self", Enabled: true, Licensed: true, RootDataPath: root, Logger: logger,
 	})
 	t.Cleanup(func() { require.NoError(t, o.Close(context.Background())) })
 	require.True(t, o.wipeRoundOpen)
