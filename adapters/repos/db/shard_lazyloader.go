@@ -725,11 +725,6 @@ func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector st
 	return l.shard.QuantizedDimensions(ctx, targetVector, segments)
 }
 
-func (l *LazyLoadShard) resetDimensionsLSM(ctx context.Context) error {
-	l.mustLoad()
-	return l.shard.resetDimensionsLSM(ctx)
-}
-
 func (l *LazyLoadShard) Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error) {
 	if err := l.Load(ctx); err != nil {
 		return nil, err
@@ -942,13 +937,6 @@ func (l *LazyLoadShard) filePutter(ctx context.Context, shardID string) (io.Writ
 		return nil, err
 	}
 	return l.shard.filePutter(ctx, shardID)
-}
-
-func (l *LazyLoadShard) extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error {
-	if err := l.Load(context.Background()); err != nil {
-		return err
-	}
-	return l.shard.extendDimensionTrackerLSM(dimLength, docID, targetVector)
 }
 
 func (l *LazyLoadShard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint64, key []byte) error {
