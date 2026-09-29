@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -95,6 +96,21 @@ func TestRecreatedSourceReplica_NewShardMarksInFlightLogsLost(t *testing.T) {
 			require.NoFileExists(t, lostMarkerPath(dir, recreatedOpID))
 		})
 	}
+}
+
+func TestRecreatedSourceReplica_DBWiredFSMMarksInFlightLogsLost(t *testing.T) {
+	ctx := testCtx()
+	repo, _, shardName, class := setupReplayShard(t)
+	repo.SetReplicationFSM(newSourcingFSM(t, class.Class, opFrom("node1", api.COPY, api.INTEGRATING)(shardName)))
+	migrator := NewMigrator(repo, repo.logger, "node1")
+	require.NoError(t, migrator.DropClass(ctx, class.Class, false))
+
+	require.NoError(t, migrator.AddClass(ctx, class))
+
+	idx := repo.GetIndex(schema.ClassName(class.Class))
+	require.NotNil(t, idx)
+	requireDrainReadsLost(t, idx, shardName, recreatedOpID)
+	require.FileExists(t, lostMarkerPath(shardPath(idx.path(), shardName), recreatedOpID))
 }
 
 func opFrom(src string, transfer api.ShardReplicationTransferType, state api.ShardReplicationState) func(shard string) sourcedOp {

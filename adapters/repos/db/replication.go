@@ -519,7 +519,7 @@ func (i *Index) IncomingReinitShard(ctx context.Context, shardName string) error
 
 func (i *Index) IncomingStartChangeCapture(ctx context.Context, shardName, opID string) error {
 	const action = "incoming start change capture"
-	loaded, err := i.withShardForChangeLog(ctx, shardName, true, func(shard shardChangeLogger) error {
+	loaded, err := i.withShardForChangeLog(ctx, shardName, opID, true, func(shard shardChangeLogger) error {
 		if _, err := shard.ActivateChangeLog(ctx, opID); err != nil {
 			return fmt.Errorf("activate op %q: %w", opID, err)
 		}
@@ -536,14 +536,18 @@ func (i *Index) IncomingStartChangeCapture(ctx context.Context, shardName, opID 
 
 // withShardForChangeLog runs f against the named shard's change-capture
 // surface, owning the pin lifetime, and reports whether the shard was there.
+// It refuses an opID that would leave the changelog dir.
 //
 // Only activation passes forceInit; it has to load the shard to record
 // anything. Drain reads must not: loading sweeps the changelog dir, so a read
 // that initialized would delete the log it came for, and a shard unloaded
 // since capture began captured nothing.
-func (i *Index) withShardForChangeLog(ctx context.Context, shardName string, forceInit bool,
+func (i *Index) withShardForChangeLog(ctx context.Context, shardName, opID string, forceInit bool,
 	f func(shard shardChangeLogger) error,
 ) (loaded bool, err error) {
+	if !validChangeLogName(opID) {
+		return false, fmt.Errorf("invalid op id %q", opID)
+	}
 	var (
 		shard   ShardLike
 		release func()
@@ -585,7 +589,7 @@ func errShardNotLoaded(action, shardName string) error {
 func (i *Index) IncomingGetChangeLog(ctx context.Context, shardName, opID string, untilLSN uint64) (*changelog.Tailer, error) {
 	const action = "incoming get change log"
 	var tailer *changelog.Tailer
-	loaded, err := i.withShardForChangeLog(ctx, shardName, false, func(shard shardChangeLogger) error {
+	loaded, err := i.withShardForChangeLog(ctx, shardName, opID, false, func(shard shardChangeLogger) error {
 		log, ok := shard.GetChangeLog(ctx, opID)
 		if !ok {
 			if err := shard.changeLogMissErr(opID); !errors.Is(err, errNoSuchChangeLog) {
@@ -610,7 +614,7 @@ func (i *Index) IncomingGetChangeLog(ctx context.Context, shardName, opID string
 func (i *Index) IncomingSnapshotChangeLogLSN(ctx context.Context, shardName, opID string) (uint64, error) {
 	const action = "incoming snapshot change-log LSN"
 	var lsn uint64
-	loaded, err := i.withShardForChangeLog(ctx, shardName, false, func(shard shardChangeLogger) error {
+	loaded, err := i.withShardForChangeLog(ctx, shardName, opID, false, func(shard shardChangeLogger) error {
 		var err error
 		if lsn, err = shard.SnapshotChangeLogLSN(ctx, opID); err != nil {
 			return fmt.Errorf("op %q: %w", opID, err)
@@ -633,7 +637,7 @@ func (i *Index) IncomingSnapshotChangeLogLSN(ctx context.Context, shardName, opI
 func (i *Index) IncomingFinalizeChangeLog(ctx context.Context, shardName, opID string) (uint64, error) {
 	const action = "incoming finalize change log"
 	var finalLSN uint64
-	loaded, err := i.withShardForChangeLog(ctx, shardName, false, func(shard shardChangeLogger) error {
+	loaded, err := i.withShardForChangeLog(ctx, shardName, opID, false, func(shard shardChangeLogger) error {
 		var err error
 		if finalLSN, err = shard.FinalizeChangeLog(ctx, opID); err != nil {
 			return fmt.Errorf("op %q: %w", opID, err)
@@ -655,7 +659,7 @@ func (i *Index) IncomingFinalizeChangeLog(ctx context.Context, shardName, opID s
 // lost for a movement that already stopped it.
 func (i *Index) IncomingStopChangeCapture(ctx context.Context, shardName, opID string) error {
 	const action = "incoming stop change capture"
-	loaded, err := i.withShardForChangeLog(ctx, shardName, false, func(shard shardChangeLogger) error {
+	loaded, err := i.withShardForChangeLog(ctx, shardName, opID, false, func(shard shardChangeLogger) error {
 		if err := shard.StopChangeCapture(ctx, opID); err != nil {
 			return fmt.Errorf("op %q: %w", opID, err)
 		}
@@ -683,7 +687,7 @@ func (i *Index) IncomingStopChangeCapture(ctx context.Context, shardName, opID s
 // file keeps the old not-loaded refusal. The log is checked first, since a
 // concurrent load renames it to the marker.
 func (i *Index) unloadedChangeLogMissErr(action, shardName, opID string) error {
-	dir, ok := i.changelogDirForOp(shardName, opID)
+	dir, ok := i.unloadedChangelogDir(shardName)
 	if !ok {
 		return errShardNotLoaded(action, shardName)
 	}
@@ -704,7 +708,7 @@ func (i *Index) unloadedChangeLogMissErr(action, shardName, opID string) error {
 // shard. The write lock keeps a load, and the activation it serves, out; a
 // shard loaded since the first look is stopped the loaded way.
 func (i *Index) stopUnloadedChangeCapture(ctx context.Context, shardName, opID string) error {
-	dir, ok := i.changelogDirForOp(shardName, opID)
+	dir, ok := i.unloadedChangelogDir(shardName)
 	if !ok {
 		return nil
 	}
@@ -726,15 +730,17 @@ func (i *Index) stopUnloadedChangeCapture(ctx context.Context, shardName, opID s
 	return nil
 }
 
-// changelogDirForOp refuses names that would leave the shard's directory: no
-// log was ever activated under them.
-func (i *Index) changelogDirForOp(shardName, opID string) (string, bool) {
-	for _, name := range []string{shardName, opID} {
-		if name == "" || name == "." || name == ".." || name != filepath.Base(name) {
-			return "", false
-		}
+// unloadedChangelogDir refuses a shard name that would leave the index directory: no log was ever activated under it.
+func (i *Index) unloadedChangelogDir(shardName string) (string, bool) {
+	if !validChangeLogName(shardName) {
+		return "", false
 	}
 	return changelogDirOf(shardPath(i.path(), shardName)), true
+}
+
+// validChangeLogName refuses a peer-supplied path element that would leave its directory.
+func validChangeLogName(name string) bool {
+	return name != "" && name != "." && name != ".." && name == filepath.Base(name)
 }
 
 // IncomingAddAsyncReplicationTargetNode adds the given target node override for async replication.
