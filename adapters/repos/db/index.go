@@ -975,7 +975,7 @@ func (i *Index) recoverShardFromPeerIfNeeded(ctx context.Context, class *models.
 	return true
 }
 
-// recoverShardOnActivation: missing folder + other replicas ⇒ RecoveringShard + activation recovery; caller holds the create lock.
+// recoverShardOnActivation: missing folder + other replicas ⇒ RecoveringShard for a resuming op or a new activation recovery; caller holds the create lock.
 func (i *Index) recoverShardOnActivation(ctx context.Context, class *models.Class, shardName string) bool {
 	orch := i.Config.SelfRecoveryOrchestrator
 	if orch == nil || !orch.Enabled() {
@@ -989,6 +989,22 @@ func (i *Index) recoverShardOnActivation(ctx context.Context, class *models.Clas
 	}
 	collection := i.Config.ClassName.String()
 	logFields := logrus.Fields{"collection": collection, "shard": shardName}
+
+	// Local FSM read only — this runs on the RAFT apply path, where a leader RPC would freeze the FSM.
+	fsm := i.getReplicationFSMReader()
+	nodeName := ""
+	if i.getSchema != nil {
+		nodeName = i.getSchema.NodeName()
+	}
+	// Resuming SELF_RECOVERY op: block normal init even when Submit would decline (e.g. unlicensed), else its promote wedges.
+	if fsm != nil && nodeName != "" && fsm.HasActiveSelfRecoveryTargetingShard(collection, shardName, nodeName) {
+		i.installRecoveringShard(ctx, class, shardName, i.metrics.baseMetrics)
+		i.logger.WithFields(logFields).
+			WithField("action", "self_recovery_resumed").
+			Info("in-flight self-recovery op targets this tenant shard at activation; blocking normal init for the resuming op")
+		return true
+	}
+
 	i.installRecoveringShard(ctx, class, shardName, i.metrics.baseMetrics)
 	if !orch.SubmitActivationRecovery(context.Background(), collection, shardName) {
 		i.shards.LoadAndDelete(shardName)

@@ -605,3 +605,55 @@ func TestLoadLocalShardForMovementLoadsPromotedShard(t *testing.T) {
 	require.True(t, ok)
 	require.False(t, lazy.isLoadBlocked())
 }
+
+func TestRecoverShardOnActivation(t *testing.T) {
+	class := &models.Class{Class: "C"}
+	cases := []struct {
+		name            string
+		enabled         bool
+		submitOK        bool
+		liveDir         bool
+		withFSM         bool
+		activeOp        bool
+		want            bool
+		wantInstalled   bool
+		wantActivations int
+	}{
+		{name: "feature off", enabled: false, submitOK: true},
+		{name: "live dir exists", enabled: true, submitOK: true, liveDir: true},
+		{name: "active self-recovery op resumes without submit", enabled: true, submitOK: false, withFSM: true, activeOp: true, want: true, wantInstalled: true},
+		{name: "submit declined reverts wrapper", enabled: true, submitOK: false, withFSM: true, wantActivations: 1},
+		{name: "submitted keeps wrapper", enabled: true, submitOK: true, withFSM: true, want: true, wantInstalled: true, wantActivations: 1},
+		{name: "nil FSM reader submits", enabled: true, submitOK: true, want: true, wantInstalled: true, wantActivations: 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			orch := &fakeSelfRecoveryOrch{enabled: tc.enabled, submitOK: tc.submitOK}
+			idx := newTestIndexForRecovery(t, orch)
+			idx.Config.ReplicationFactor = 2
+			idx.metrics = &Metrics{baseMetrics: monitoring.GetMetrics()}
+			idx.getSchema = &fakeSchemaGetter{}
+			if tc.withFSM {
+				fsm := replicationTypes.NewMockReplicationFSMReader(t)
+				fsm.EXPECT().HasActiveSelfRecoveryTargetingShard("C", "S", "node1").Return(tc.activeOp)
+				idx.SetReplicationFSMReader(fsm)
+			}
+			if tc.liveDir {
+				require.NoError(t, os.MkdirAll(shardPath(idx.path(), "S"), 0o755))
+			}
+
+			require.Equal(t, tc.want, idx.recoverShardOnActivation(context.Background(), class, "S"))
+			require.Equal(t, tc.wantActivations, orch.activationSubmitCalls)
+			require.Zero(t, orch.submitCalls)
+			if tc.wantInstalled {
+				_, isRecovering := idx.shards.Load("S").(*RecoveringShard)
+				require.True(t, isRecovering)
+			} else {
+				require.Nil(t, idx.shards.Load("S"))
+			}
+			if !tc.liveDir {
+				require.NoDirExists(t, shardPath(idx.path(), "S"))
+			}
+		})
+	}
+}
