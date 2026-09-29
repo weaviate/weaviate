@@ -307,30 +307,41 @@ func parseNearObject(class *models.Class, body *models.SearchNearObjectRequest, 
 		return nil, newAPIError(http.StatusBadRequest, "id must not be empty")
 	}
 
-	if body.Certainty != nil && body.Distance != nil {
-		return nil, newAPIError(http.StatusBadRequest, "near_object: cannot provide both distance and certainty")
-	}
-	if body.Certainty != nil && (*body.Certainty < 0 || *body.Certainty > 1) {
-		return nil, newAPIError(http.StatusBadRequest,
-			"certainty must be between 0 and 1, got %v", *body.Certainty)
+	certainty, distance, withDistance, apiErr := parseCertaintyDistance(class, targetVectors, "near_object", body.Certainty, body.Distance)
+	if apiErr != nil {
+		return nil, apiErr
 	}
 
-	params := &searchparams.NearObject{
+	return &searchparams.NearObject{
 		ID:            body.ID.String(),
 		TargetVectors: targetVectors,
-	}
-	if body.Certainty != nil {
-		if err := configvalidation.CheckCertaintyCompatibility(class, targetVectors); err != nil {
-			return nil, &APIError{Status: http.StatusUnprocessableEntity, Err: err}
-		}
-		params.Certainty = *body.Certainty
-	}
-	if body.Distance != nil {
-		params.Distance = *body.Distance
-		params.WithDistance = true
-	}
+		Certainty:     certainty,
+		Distance:      distance,
+		WithDistance:  withDistance,
+	}, nil
+}
 
-	return params, nil
+// parseCertaintyDistance validates the cutoff pair of the vector searches:
+// mutually exclusive, certainty within [0,1] and only on a cosine index.
+func parseCertaintyDistance(class *models.Class, targetVectors []string, searchKind string,
+	certainty, distance *float64,
+) (float64, float64, bool, *APIError) {
+	if certainty != nil && distance != nil {
+		return 0, 0, false, newAPIError(http.StatusBadRequest, "%s: cannot provide both distance and certainty", searchKind)
+	}
+	if certainty != nil {
+		if *certainty < 0 || *certainty > 1 {
+			return 0, 0, false, newAPIError(http.StatusBadRequest, "certainty must be between 0 and 1, got %v", *certainty)
+		}
+		if err := configvalidation.CheckCertaintyCompatibility(class, targetVectors); err != nil {
+			return 0, 0, false, &APIError{Status: http.StatusUnprocessableEntity, Err: err}
+		}
+		return *certainty, 0, false, nil
+	}
+	if distance != nil {
+		return 0, *distance, true, nil
+	}
+	return 0, 0, false, nil
 }
 
 // buildNearVectorParams converts the near-vector request into the
@@ -366,8 +377,7 @@ func (h *Handler) buildNearVectorParams(class *models.Class, className string, b
 
 // parseNearVector builds the near-vector search params, mirroring the gRPC
 // parser: the caller brings the query vector, so no vectorizer module is
-// required. Whether it has the dimensionality of the vector searched is the
-// engine's to judge.
+// required.
 func parseNearVector(class *models.Class, body *models.SearchNearVectorRequest, targetVectors []string) (*searchparams.NearVector, *APIError) {
 	vector, apiErr := parseVector(body.Vector)
 	if apiErr != nil {
@@ -377,54 +387,30 @@ func parseNearVector(class *models.Class, body *models.SearchNearVectorRequest, 
 		return nil, apiErr
 	}
 
-	if body.Certainty != nil && body.Distance != nil {
-		return nil, newAPIError(http.StatusBadRequest, "near_vector: cannot provide both distance and certainty")
-	}
-	if body.Certainty != nil && (*body.Certainty < 0 || *body.Certainty > 1) {
-		return nil, newAPIError(http.StatusBadRequest,
-			"certainty must be between 0 and 1, got %v", *body.Certainty)
+	certainty, distance, withDistance, apiErr := parseCertaintyDistance(class, targetVectors, "near_vector", body.Certainty, body.Distance)
+	if apiErr != nil {
+		return nil, apiErr
 	}
 
-	params := &searchparams.NearVector{
+	return &searchparams.NearVector{
 		Vectors:       []models.Vector{vector},
 		TargetVectors: targetVectors,
-	}
-	if body.Certainty != nil {
-		if err := configvalidation.CheckCertaintyCompatibility(class, targetVectors); err != nil {
-			return nil, &APIError{Status: http.StatusUnprocessableEntity, Err: err}
-		}
-		params.Certainty = *body.Certainty
-	}
-	if body.Distance != nil {
-		params.Distance = *body.Distance
-		params.WithDistance = true
-	}
-
-	return params, nil
+		Certainty:     certainty,
+		Distance:      distance,
+		WithDistance:  withDistance,
+	}, nil
 }
 
 // rejectMultiVectorTarget rejects a flat query vector aimed at a multi-vector
-// index, the direction gRPC rejects with "provided vector is a regular vector
-// but vector index supports multi vectors". An unparsed index config is a
-// server-side invariant breach, not a request the caller can fix.
+// index, as gRPC does. Only a named vector can be one.
 func rejectMultiVectorTarget(class *models.Class, targetVectors []string) *APIError {
-	indexConfigs, err := schemaConfig.TypeAssertVectorIndex(class, targetVectors)
-	if err != nil {
-		return &APIError{Status: http.StatusInternalServerError, Err: err}
-	}
-
-	for i, indexConfig := range indexConfigs {
-		if !indexConfig.IsMultiVector() {
-			continue
+	for _, target := range targetVectors {
+		indexConfig, ok := class.VectorConfig[target].VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+		if ok && indexConfig.IsMultiVector() {
+			return newAPIError(http.StatusUnprocessableEntity,
+				"target vector %q is a multi-vector index; multi-vector search is not yet supported", target)
 		}
-		target := ""
-		if i < len(targetVectors) {
-			target = targetVectors[i]
-		}
-		return newAPIError(http.StatusUnprocessableEntity,
-			"target vector %q is a multi-vector index; multi-vector search is not yet supported", target)
 	}
-
 	return nil
 }
 
@@ -449,6 +435,9 @@ func parseVector(value any) ([]float32, *APIError) {
 			return nil, newAPIError(http.StatusBadRequest, errVectorNotNumbers)
 		}
 		vector[i] = float32(number)
+		if math.IsInf(float64(vector[i]), 0) {
+			return nil, newAPIError(http.StatusBadRequest, "vector[%d] does not fit a 32-bit float", i)
+		}
 	}
 
 	return vector, nil

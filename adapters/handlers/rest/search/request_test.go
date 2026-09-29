@@ -1337,6 +1337,7 @@ func TestNearVectorShape(t *testing.T) {
 		{"boolean entry", `{"vector":[true]}`, http.StatusBadRequest, errVectorNotNumbers},
 		{"bare number", `{"vector":0.5}`, http.StatusBadRequest, errVectorNotNumbers},
 		{"object", `{"vector":{"title_vec":[0.1]}}`, http.StatusBadRequest, errVectorNotNumbers},
+		{"outside float32 range", `{"vector":[0.1,1e39]}`, http.StatusBadRequest, "vector[1] does not fit a 32-bit float"},
 		{"array of vectors", `{"vector":[[0.1,0.2],[0.3,0.4]]}`, http.StatusUnprocessableEntity, "multi-vector"},
 	}
 	for _, tt := range tests {
@@ -1349,9 +1350,9 @@ func TestNearVectorShape(t *testing.T) {
 	}
 }
 
-// TestNearVectorCertaintyAndDistance mirrors the near-object handling on the
-// near-vector body: mutual exclusion (gRPC parity), the certainty range
-// check, and the deterministic cosine-only 422.
+// TestNearVectorCertaintyAndDistance: the cutoffs reach the near-vector
+// params; their rules are pinned on near-object, through the shared
+// parseCertaintyDistance.
 func TestNearVectorCertaintyAndDistance(t *testing.T) {
 	body := func(fields string) string {
 		return fmt.Sprintf(`{"vector":[0.1,0.2]%s}`, fields)
@@ -1371,30 +1372,6 @@ func TestNearVectorCertaintyAndDistance(t *testing.T) {
 		nearVector := searcher.lastParams.NearVector
 		assert.Equal(t, 0.8, nearVector.Certainty)
 		assert.False(t, nearVector.WithDistance)
-	})
-
-	t.Run("both certainty and distance is a 400", func(t *testing.T) {
-		_, apiErr := buildNearVector(t, movieClass(), body(`,"certainty":0.8,"distance":0.4`))
-		require.NotNil(t, apiErr)
-		assert.Equal(t, http.StatusBadRequest, apiErr.Status)
-		assert.Contains(t, apiErr.Error(), "certainty")
-	})
-
-	t.Run("certainty outside [0,1] is a 400", func(t *testing.T) {
-		for _, fields := range []string{`,"certainty":-0.1`, `,"certainty":1.1`} {
-			_, apiErr := buildNearVector(t, movieClass(), body(fields))
-			require.NotNil(t, apiErr)
-			assert.Equal(t, http.StatusBadRequest, apiErr.Status)
-		}
-	})
-
-	t.Run("certainty on a non-cosine index is a 422", func(t *testing.T) {
-		class := movieClass()
-		class.VectorIndexConfig = hnsw.UserConfig{Distance: "l2-squared"}
-		_, apiErr := buildNearVector(t, class, body(`,"certainty":0.8`))
-		require.NotNil(t, apiErr)
-		assert.Equal(t, http.StatusUnprocessableEntity, apiErr.Status)
-		assert.Contains(t, apiErr.Error(), "certainty")
 	})
 }
 

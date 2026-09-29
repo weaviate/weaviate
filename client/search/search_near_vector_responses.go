@@ -156,7 +156,6 @@ func (o *SearchNearVectorOK) GetPayload() *models.SearchResponse {
 }
 
 func (o *SearchNearVectorOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.SearchResponse)
 
 	// response payload
@@ -175,7 +174,7 @@ func NewSearchNearVectorBadRequest() *SearchNearVectorBadRequest {
 /*
 SearchNearVectorBadRequest describes a response with status code 400, with default header values.
 
-An invalid parameter value (e.g. a vector that is empty or holds a non-number, negative paging, unknown property) or an unparseable request body.
+An invalid parameter value (e.g. a vector that is empty, holds a non-number or a number outside the 32-bit float range, negative paging, unknown property) or an unparseable request body.
 */
 type SearchNearVectorBadRequest struct {
 	Payload *models.ErrorResponse
@@ -224,7 +223,6 @@ func (o *SearchNearVectorBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchNearVectorBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -292,7 +290,6 @@ func (o *SearchNearVectorUnauthorized) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchNearVectorUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -360,7 +357,6 @@ func (o *SearchNearVectorForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchNearVectorForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -428,7 +424,6 @@ func (o *SearchNearVectorNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchNearVectorNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -496,7 +491,6 @@ func (o *SearchNearVectorRequestEntityTooLarge) GetPayload() *models.ErrorRespon
 }
 
 func (o *SearchNearVectorRequestEntityTooLarge) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -515,7 +509,7 @@ func NewSearchNearVectorUnprocessableEntity() *SearchNearVectorUnprocessableEnti
 /*
 SearchNearVectorUnprocessableEntity describes a response with status code 422, with default header values.
 
-Either a request-schema violation (a missing or null required `vector`, or an invalid enum value), or a well-formed request that cannot run: the vector is a multi-vector (an array of vectors), targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.
+Either a request-schema violation (a missing or null required `vector`, or an invalid enum value), or a well-formed request that cannot run: the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.
 */
 type SearchNearVectorUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -564,7 +558,6 @@ func (o *SearchNearVectorUnprocessableEntity) GetPayload() *models.ErrorResponse
 }
 
 func (o *SearchNearVectorUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -632,7 +625,6 @@ func (o *SearchNearVectorTooManyRequests) GetPayload() *models.ErrorResponse {
 }
 
 func (o *SearchNearVectorTooManyRequests) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -700,7 +692,6 @@ func (o *SearchNearVectorInternalServerError) GetPayload() *models.ErrorResponse
 }
 
 func (o *SearchNearVectorInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -768,7 +759,6 @@ func (o *SearchNearVectorServiceUnavailable) GetPayload() *models.ErrorResponse 
 }
 
 func (o *SearchNearVectorServiceUnavailable) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

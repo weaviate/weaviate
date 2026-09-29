@@ -33,7 +33,6 @@ SearchNearVectorOK Search performed successfully.
 swagger:response searchNearVectorOK
 */
 type SearchNearVectorOK struct {
-
 	/*
 	  In: Body
 	*/
@@ -42,7 +41,6 @@ type SearchNearVectorOK struct {
 
 // NewSearchNearVectorOK creates SearchNearVectorOK with default headers values
 func NewSearchNearVectorOK() *SearchNearVectorOK {
-
 	return &SearchNearVectorOK{}
 }
 
@@ -59,7 +57,6 @@ func (o *SearchNearVectorOK) SetPayload(payload *models.SearchResponse) {
 
 // WriteResponse to the client
 func (o *SearchNearVectorOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(200)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -73,12 +70,11 @@ func (o *SearchNearVectorOK) WriteResponse(rw http.ResponseWriter, producer runt
 const SearchNearVectorBadRequestCode int = 400
 
 /*
-SearchNearVectorBadRequest An invalid parameter value (e.g. a vector that is empty or holds a non-number, negative paging, unknown property) or an unparseable request body.
+SearchNearVectorBadRequest An invalid parameter value (e.g. a vector that is empty, holds a non-number or a number outside the 32-bit float range, negative paging, unknown property) or an unparseable request body.
 
 swagger:response searchNearVectorBadRequest
 */
 type SearchNearVectorBadRequest struct {
-
 	/*
 	  In: Body
 	*/
@@ -87,7 +83,6 @@ type SearchNearVectorBadRequest struct {
 
 // NewSearchNearVectorBadRequest creates SearchNearVectorBadRequest with default headers values
 func NewSearchNearVectorBadRequest() *SearchNearVectorBadRequest {
-
 	return &SearchNearVectorBadRequest{}
 }
 
@@ -104,7 +99,6 @@ func (o *SearchNearVectorBadRequest) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *SearchNearVectorBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -123,7 +117,6 @@ SearchNearVectorUnauthorized Unauthorized or invalid credentials.
 swagger:response searchNearVectorUnauthorized
 */
 type SearchNearVectorUnauthorized struct {
-
 	/*
 	  In: Body
 	*/
@@ -132,7 +125,6 @@ type SearchNearVectorUnauthorized struct {
 
 // NewSearchNearVectorUnauthorized creates SearchNearVectorUnauthorized with default headers values
 func NewSearchNearVectorUnauthorized() *SearchNearVectorUnauthorized {
-
 	return &SearchNearVectorUnauthorized{}
 }
 
@@ -149,7 +141,6 @@ func (o *SearchNearVectorUnauthorized) SetPayload(payload *models.ErrorResponse)
 
 // WriteResponse to the client
 func (o *SearchNearVectorUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(401)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -168,7 +159,6 @@ SearchNearVectorForbidden Forbidden
 swagger:response searchNearVectorForbidden
 */
 type SearchNearVectorForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -177,7 +167,6 @@ type SearchNearVectorForbidden struct {
 
 // NewSearchNearVectorForbidden creates SearchNearVectorForbidden with default headers values
 func NewSearchNearVectorForbidden() *SearchNearVectorForbidden {
-
 	return &SearchNearVectorForbidden{}
 }
 
@@ -194,7 +183,6 @@ func (o *SearchNearVectorForbidden) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *SearchNearVectorForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -213,7 +201,6 @@ SearchNearVectorNotFound Unknown collection or tenant.
 swagger:response searchNearVectorNotFound
 */
 type SearchNearVectorNotFound struct {
-
 	/*
 	  In: Body
 	*/
@@ -222,7 +209,6 @@ type SearchNearVectorNotFound struct {
 
 // NewSearchNearVectorNotFound creates SearchNearVectorNotFound with default headers values
 func NewSearchNearVectorNotFound() *SearchNearVectorNotFound {
-
 	return &SearchNearVectorNotFound{}
 }
 
@@ -239,7 +225,6 @@ func (o *SearchNearVectorNotFound) SetPayload(payload *models.ErrorResponse) {
 
 // WriteResponse to the client
 func (o *SearchNearVectorNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(404)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -258,7 +243,6 @@ SearchNearVectorRequestEntityTooLarge The request body exceeded the 4194304 byte
 swagger:response searchNearVectorRequestEntityTooLarge
 */
 type SearchNearVectorRequestEntityTooLarge struct {
-
 	/*
 	  In: Body
 	*/
@@ -267,7 +251,6 @@ type SearchNearVectorRequestEntityTooLarge struct {
 
 // NewSearchNearVectorRequestEntityTooLarge creates SearchNearVectorRequestEntityTooLarge with default headers values
 func NewSearchNearVectorRequestEntityTooLarge() *SearchNearVectorRequestEntityTooLarge {
-
 	return &SearchNearVectorRequestEntityTooLarge{}
 }
 
@@ -284,7 +267,6 @@ func (o *SearchNearVectorRequestEntityTooLarge) SetPayload(payload *models.Error
 
 // WriteResponse to the client
 func (o *SearchNearVectorRequestEntityTooLarge) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(413)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -298,12 +280,11 @@ func (o *SearchNearVectorRequestEntityTooLarge) WriteResponse(rw http.ResponseWr
 const SearchNearVectorUnprocessableEntityCode int = 422
 
 /*
-SearchNearVectorUnprocessableEntity Either a request-schema violation (a missing or null required `vector`, or an invalid enum value), or a well-formed request that cannot run: the vector is a multi-vector (an array of vectors), targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.
+SearchNearVectorUnprocessableEntity Either a request-schema violation (a missing or null required `vector`, or an invalid enum value), or a well-formed request that cannot run: the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.
 
 swagger:response searchNearVectorUnprocessableEntity
 */
 type SearchNearVectorUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -312,7 +293,6 @@ type SearchNearVectorUnprocessableEntity struct {
 
 // NewSearchNearVectorUnprocessableEntity creates SearchNearVectorUnprocessableEntity with default headers values
 func NewSearchNearVectorUnprocessableEntity() *SearchNearVectorUnprocessableEntity {
-
 	return &SearchNearVectorUnprocessableEntity{}
 }
 
@@ -329,7 +309,6 @@ func (o *SearchNearVectorUnprocessableEntity) SetPayload(payload *models.ErrorRe
 
 // WriteResponse to the client
 func (o *SearchNearVectorUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -348,7 +327,6 @@ SearchNearVectorTooManyRequests The server's query rate limit was reached; retry
 swagger:response searchNearVectorTooManyRequests
 */
 type SearchNearVectorTooManyRequests struct {
-
 	/*
 	  In: Body
 	*/
@@ -357,7 +335,6 @@ type SearchNearVectorTooManyRequests struct {
 
 // NewSearchNearVectorTooManyRequests creates SearchNearVectorTooManyRequests with default headers values
 func NewSearchNearVectorTooManyRequests() *SearchNearVectorTooManyRequests {
-
 	return &SearchNearVectorTooManyRequests{}
 }
 
@@ -374,7 +351,6 @@ func (o *SearchNearVectorTooManyRequests) SetPayload(payload *models.ErrorRespon
 
 // WriteResponse to the client
 func (o *SearchNearVectorTooManyRequests) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(429)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -393,7 +369,6 @@ SearchNearVectorInternalServerError An error has occurred while trying to fulfil
 swagger:response searchNearVectorInternalServerError
 */
 type SearchNearVectorInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -402,7 +377,6 @@ type SearchNearVectorInternalServerError struct {
 
 // NewSearchNearVectorInternalServerError creates SearchNearVectorInternalServerError with default headers values
 func NewSearchNearVectorInternalServerError() *SearchNearVectorInternalServerError {
-
 	return &SearchNearVectorInternalServerError{}
 }
 
@@ -419,7 +393,6 @@ func (o *SearchNearVectorInternalServerError) SetPayload(payload *models.ErrorRe
 
 // WriteResponse to the client
 func (o *SearchNearVectorInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -438,7 +411,6 @@ SearchNearVectorServiceUnavailable The server is in an operational mode that blo
 swagger:response searchNearVectorServiceUnavailable
 */
 type SearchNearVectorServiceUnavailable struct {
-
 	/*
 	  In: Body
 	*/
@@ -447,7 +419,6 @@ type SearchNearVectorServiceUnavailable struct {
 
 // NewSearchNearVectorServiceUnavailable creates SearchNearVectorServiceUnavailable with default headers values
 func NewSearchNearVectorServiceUnavailable() *SearchNearVectorServiceUnavailable {
-
 	return &SearchNearVectorServiceUnavailable{}
 }
 
@@ -464,7 +435,6 @@ func (o *SearchNearVectorServiceUnavailable) SetPayload(payload *models.ErrorRes
 
 // WriteResponse to the client
 func (o *SearchNearVectorServiceUnavailable) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(503)
 	if o.Payload != nil {
 		payload := o.Payload

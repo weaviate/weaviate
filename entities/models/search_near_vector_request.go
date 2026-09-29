@@ -39,7 +39,7 @@ type SearchNearVectorRequest struct {
 	// The named vector to search (the query vector is compared against the vectors stored under this name, and must match their dimensionality). Required when the collection has more than one named vector.
 	TargetVector string `json:"targetVector,omitempty"`
 
-	// The query vector, as a non-empty array of numbers, e.g. `[0.12, -0.3, 0.98]`. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. A vector of the wrong dimensionality is not reliably rejected: on some vector index configurations it yields an empty result set rather than an error.
+	// The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. `[0.12, -0.3, 0.98]`. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. A vector of the wrong dimensionality is rejected with 422 by uncompressed HNSW and flat indexes; a BQ- or RQ-compressed HNSW index does not detect it and yields an empty result set instead.
 	// Required: true
 	Vector interface{} `json:"vector"`
 }
@@ -133,7 +133,6 @@ func (m *SearchNearVectorRequest) Validate(formats strfmt.Registry) error {
 }
 
 func (m *SearchNearVectorRequest) validateVector(formats strfmt.Registry) error {
-
 	if m.Vector == nil {
 		return errors.Required("vector", "body", nil)
 	}

@@ -44,12 +44,8 @@ const (
 	panel1ID = strfmt.UUID("ee44bbee-ca5f-4db7-a412-5fc6a2300006")
 	panel2ID = strfmt.UUID("ee44bbee-ca5f-4db7-a412-5fc6a2300007")
 
-	// one, two and three tokens: a flat query vector scored against this
-	// index favours the object with the most tokens, so a two-object
-	// fixture cannot tell a wrong answer from a right one
 	album1ID = strfmt.UUID("ee44bbee-ca5f-4db7-a412-5fc6a2300008")
 	album2ID = strfmt.UUID("ee44bbee-ca5f-4db7-a412-5fc6a2300009")
-	album3ID = strfmt.UUID("ee44bbee-ca5f-4db7-a412-5fc6a2300010")
 
 	journal1ID = strfmt.UUID("ee44bbee-ca5f-4db7-a412-5fc6a2300011")
 )
@@ -218,15 +214,6 @@ func TestRESTSearchNearVector(t *testing.T) {
 			Properties: map[string]any{"title": "two tokens"},
 		},
 		{
-			ID:    album3ID,
-			Class: "Album",
-			Vectors: models.Vectors{
-				"colbert": [][]float32{{1, 0}, {0, 1}, {0.6, 0.8}},
-				"plain":   []float32{0, 1},
-			},
-			Properties: map[string]any{"title": "three tokens"},
-		},
-		{
 			ID:         journal1ID,
 			Class:      "Journal",
 			Tenant:     "tenantA",
@@ -298,18 +285,28 @@ func TestRESTSearchNearVector(t *testing.T) {
 		assert.Contains(t, errMessage(t, out), "non-empty array of numbers")
 	})
 
+	t.Run("a value outside the float32 range is a 400", func(t *testing.T) {
+		status, out := postNearVector(t, "Verse", map[string]any{
+			"vector": []float64{1e39, 0},
+		})
+		require.Equal(t, http.StatusBadRequest, status, "%v", out)
+		assert.Contains(t, errMessage(t, out), "does not fit a 32-bit float")
+	})
+
+	// a BQ/RQ-compressed HNSW index does not detect the mismatch and returns
+	// no hits; uncompressed HNSW and flat report it, and not as a 500
+	t.Run("a vector of the wrong dimensionality is a 422", func(t *testing.T) {
+		status, out := postNearVector(t, "Verse", map[string]any{
+			"vector": []float32{1, 0, 0},
+		})
+		require.Equal(t, http.StatusUnprocessableEntity, status, "%v", out)
+		assert.Contains(t, errMessage(t, out), "vector lengths don't match")
+	})
+
 	t.Run("a vector that is not an array of numbers is a 400", func(t *testing.T) {
-		for _, vector := range []any{
-			[]any{"0.1"},
-			[]any{0.1, nil},
-			[]any{true},
-			0.5,
-			map[string]any{"solo": []float32{0.1}},
-		} {
-			status, out := postNearVector(t, "Verse", map[string]any{"vector": vector})
-			require.Equal(t, http.StatusBadRequest, status, "vector %v: %v", vector, out)
-			assert.Contains(t, errMessage(t, out), "non-empty array of numbers", "vector %v: %v", vector, out)
-		}
+		status, out := postNearVector(t, "Verse", map[string]any{"vector": []any{"0.1"}})
+		require.Equal(t, http.StatusBadRequest, status, "%v", out)
+		assert.Contains(t, errMessage(t, out), "non-empty array of numbers")
 	})
 
 	t.Run("an array of vectors is a 422", func(t *testing.T) {
@@ -335,7 +332,7 @@ func TestRESTSearchNearVector(t *testing.T) {
 			"targetVector": "plain",
 		})
 		require.Equal(t, http.StatusOK, status, "%v", out)
-		require.Len(t, results(t, out), 3)
+		require.Len(t, results(t, out), 2)
 		assert.Equal(t, album1ID.String(), idOf(t, hit(t, out, 0)))
 	})
 

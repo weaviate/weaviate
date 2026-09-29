@@ -25,6 +25,7 @@ import (
 
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	dbinverted "github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -417,6 +418,10 @@ func statusFromError(err error) *APIError {
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.As(err, &missingIndex):
 		// filter on a property whose inverted index is disabled
+		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
+	case errors.Is(err, distancer.ErrVectorLength):
+		// the query vector (supplied or vectorized) does not have the
+		// dimensionality of the index searched
 		return &APIError{Status: http.StatusUnprocessableEntity, Err: err}
 	case errors.Is(err, dbinverted.ErrOnlyStopwords):
 		// a Like pattern or keyword query that tokenizes to nothing

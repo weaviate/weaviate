@@ -47,7 +47,7 @@ func NewSearchNearVector(ctx *middleware.Context, handler SearchNearVectorHandle
 
 # Search a collection with near-vector
 
-Performs a similarity search over the objects of a collection, anchored at a vector supplied by the caller: the query `vector` is searched against the vector index and the closest objects are returned, each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`. No query is vectorized, so collections without a vectorizer module are fully searchable. The query vector must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector; a vector of the wrong dimensionality is not reliably rejected, and on some vector index configurations it yields an empty result set rather than an error.
+Performs a similarity search over the objects of a collection, anchored at a vector supplied by the caller: the query `vector` is searched against the vector index and the closest objects are returned, each as an envelope of its `id`, the selected `properties`, the selected `references` and, when requested, its retrieval `metadata`. No query is vectorized, so collections without a vectorizer module are fully searchable. The query vector must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. A vector of the wrong dimensionality is rejected with 422 by uncompressed HNSW and flat indexes; a BQ- or RQ-compressed HNSW index does not detect it and yields an empty result set instead.
 */
 type SearchNearVector struct {
 	Context *middleware.Context
@@ -59,7 +59,7 @@ func (o *SearchNearVector) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewSearchNearVectorParams()
+	Params := NewSearchNearVectorParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -80,5 +80,4 @@ func (o *SearchNearVector) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
-
 }

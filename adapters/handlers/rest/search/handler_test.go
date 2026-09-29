@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	dbinverted "github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -823,6 +824,11 @@ func TestStatusFromErrorMessages(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
+			name:       "query vector of the wrong dimensionality is a 422",
+			err:        wrap(fmt.Errorf("knn search: distance between entrypoint and query node: 2 vs 3: %w", distancer.ErrVectorLength)),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
 			name:       "provider failure is a fixed 500 with the detail as cause",
 			err:        wrap(enterrors.NewErrQueryVectorization(errors.New("OpenAI API failed with status: 401, Incorrect API key provided: sk-bad"))),
 			wantStatus: http.StatusInternalServerError,
@@ -1089,9 +1095,9 @@ func doNearVector(t *testing.T, deps *testDeps, principal *models.Principal,
 
 // TestNearVectorHandlerHappyPath: the near-vector wrapper drives the same
 // execute() flow as the other search types, with NearVector params instead of
-// module, keyword or hybrid params. Deliberately the ONLY per-endpoint handler
-// test — the shared gates are pinned once in TestExecuteIsSearchTypeAgnostic,
-// the near-text handler tests and the acceptance suite.
+// module, keyword or hybrid params. The only near-vector handler test: the
+// shared gates are pinned once in TestExecuteIsSearchTypeAgnostic, the
+// near-text handler tests and the acceptance suite.
 func TestNearVectorHandlerHappyPath(t *testing.T) {
 	deps := newTestHandler(t)
 	deps.searcher.res = []any{
