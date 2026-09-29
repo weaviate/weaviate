@@ -369,8 +369,6 @@ func TestTTLSweepsShardsAcrossSeveralRounds(t *testing.T) {
 // the recovery inside deleteSingleBatchInLSM leaves as an untouched slot. A sweep reads its
 // progress off what a batch reports deleted, so an untouched slot has to report a failure.
 func TestTTLReportsABatchSlotNoDeleteWroteTo(t *testing.T) {
-	t.Skip("red until cad5228839 pre-fills every slot with errNotProcessed")
-
 	// the integration job disables recovery, under which the panic below kills the binary
 	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
 
