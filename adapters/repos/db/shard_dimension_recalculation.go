@@ -17,16 +17,22 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -79,6 +85,117 @@ func (r *dimensionsReindex) summary() (rebuilt, failed int, objects int64) {
 		}
 	}
 	return rebuilt, failed, r.objects
+}
+
+// prepareDimensionsOfShards runs before the index loads its shards, and startup waits
+// for it. For the local shards of active and inactive tenants alike, without loading
+// them, it migrates their dimensions buckets to RoaringSet, and with
+// REINDEX_VECTOR_DIMENSIONS_AT_STARTUP rebuilds them. A shard that fails is logged; its
+// load tries again, see [Shard.reindexDimensionsOnLoad].
+func (i *Index) prepareDimensionsOfShards(ctx context.Context, class *models.Class, shardNames []string) {
+	reindex := i.Config.DimensionsReindex
+	if !i.Config.TrackVectorDimensions || len(shardNames) == 0 ||
+		(!i.Config.MigrateDimensionsToRoaringSet && (reindex == nil || !reindex.enabled)) {
+		return
+	}
+
+	start := time.Now()
+	eg := enterrors.NewErrorGroupWrapper(i.logger)
+	eg.SetLimit(_NUMCPU)
+	for _, name := range shardNames {
+		eg.Go(func() error {
+			i.prepareShardDimensions(ctx, class, name)
+			return nil
+		}, name)
+	}
+	_ = eg.Wait()
+	i.logger.WithField("action", "prepare_dimensions").WithField("shards", len(shardNames)).
+		WithField("took", time.Since(start)).Info("dimensions buckets prepared")
+}
+
+func (i *Index) prepareShardDimensions(ctx context.Context, class *models.Class, name string) {
+	logger := i.logger.WithField("action", "prepare_dimensions").WithField("shard", name)
+	if _, err := os.Stat(shardPath(i.path(), name)); err != nil {
+		if !os.IsNotExist(err) {
+			logger.Errorf("could not prepare dimensions: %v", err)
+		}
+		return
+	}
+
+	shardID := shardId(i.ID(), name)
+	reindex := i.Config.DimensionsReindex
+	rebuild := reindex.pending(shardID)
+
+	unlock, err := shardusage.LockUnloadedDimensionsBucket(ctx, i.path(), name)
+	if err != nil {
+		logger.Errorf("could not prepare dimensions: %v", err)
+		return
+	}
+	// a rebuild writes a RoaringSet bucket anyway
+	err = shardusage.PrepareDimensionsBucket(ctx, i.logger, i.path(), name,
+		i.Config.MigrateDimensionsToRoaringSet && !rebuild)
+	unlock()
+	if err != nil {
+		logger.Errorf("could not prepare dimensions: %v", err)
+		return
+	}
+	if !rebuild {
+		return
+	}
+
+	start := time.Now()
+	objects, err := i.rebuildUnloadedShardDimensions(ctx, class, name)
+	reindex.record(shardID, objects, err == nil)
+	if err != nil {
+		logger.Errorf("could not reindex dimensions: %v", err)
+		return
+	}
+	logger.WithField("objects", objects).WithField("took", time.Since(start)).Info("dimensions reindexed")
+}
+
+// rebuildUnloadedShardDimensions rebuilds the dimensions bucket of a shard that is not
+// loaded, on a shard that has only its objects and dimensions buckets open, with the
+// options a load opens them with.
+func (i *Index) rebuildUnloadedShardDimensions(ctx context.Context, class *models.Class, name string) (objects int, err error) {
+	if i.unloadedShardIsEmpty(name) {
+		return 0, nil
+	}
+	s := &Shard{
+		index:         i,
+		class:         class,
+		name:          name,
+		status:        ShardStatus{Status: storagestate.StatusReady},
+		bitmapBufPool: i.bitmapBufPool,
+	}
+	// the options of a MapCollection bucket depend on the shard version
+	count, err := indexcounter.Read(s.path())
+	if err != nil {
+		return 0, fmt.Errorf("read index counter: %w", err)
+	}
+	if s.versioner, err = newShardVersioner(path.Join(s.path(), "version"), count > 0); err != nil {
+		return 0, fmt.Errorf("init shard versioner: %w", err)
+	}
+
+	noop := cyclemanager.NewCallbackGroupNoop()
+	store, err := lsmkv.New(s.pathLSM(), s.path(), i.logger.WithField("shard", name), nil,
+		i.bucketLoadLimiter, noop, noop, noop)
+	if err != nil {
+		return 0, fmt.Errorf("init store: %w", err)
+	}
+	s.store = store
+	defer func() {
+		if shutdownErr := store.Shutdown(context.WithoutCancel(ctx)); shutdownErr != nil && err == nil {
+			err = fmt.Errorf("shutdown store: %w", shutdownErr)
+		}
+	}()
+
+	if err := s.initObjectBucket(ctx); err != nil {
+		return 0, err
+	}
+	if err := s.loadDimensionsBucket(ctx, helpers.DimensionsBucketLSM); err != nil {
+		return 0, err
+	}
+	return s.recalculateDimensions(ctx)
 }
 
 type dimensionsRows map[string]*sroar.Bitmap
