@@ -52,6 +52,10 @@ type tenantTTLLoop struct {
 	mgr                   ttlTenantsManager
 	findUUIDs             func(ctx context.Context) ([]strfmt.UUID, error)
 	processBatch          func(ctx context.Context, uuids []strfmt.UUID) (deleted bool, err error)
+
+	// set once this tenant's failure is filed, so a tenant retried across rounds reports it
+	// once for the sweep rather than once a round
+	reported bool
 }
 
 // errTTLNoProgress reports a batch that deleted nothing without failing. The tenant or
@@ -454,9 +458,10 @@ func (l *tenantTTLLoop) checkActivity() (shouldDeactivate bool, err error) {
 	return tenants2status[l.tenant] == models.TenantActivityStatusCOLD, nil
 }
 
-// findAndDelete fetches the next batch of expired UUIDs and deletes them.
-// Returns true when the loop should stop (no more work, an error, or a batch
-// that deleted nothing).
+// findAndDelete fetches the next batch of expired UUIDs and deletes them. It returns true where
+// the loop should stop, which is no more work, a failed find, or a batch that deleted nothing. A
+// batch that deleted part of its uuids and failed on the rest made progress, so the loop goes on
+// and files the failure once for the sweep.
 func (l *tenantTTLLoop) findAndDelete(ctx context.Context, ec errorcompounder.ErrorCompounder, deactivate *bool) (done bool) {
 	uuids, err := l.findUUIDs(ctx)
 	if err != nil {
@@ -474,18 +479,16 @@ func (l *tenantTTLLoop) findAndDelete(ctx context.Context, ec errorcompounder.Er
 	}
 
 	deleted, err := l.processBatch(ctx, uuids)
-	if err != nil {
-		ec.AddGroups(err, l.class, l.tenant)
-		return true
-	}
-	if !deleted {
+	reason := err
+	if reason == nil && !deleted && context.Cause(ctx) == nil {
 		// a stopped sweep also deletes nothing, which is not this tenant failing
-		if context.Cause(ctx) == nil {
-			ec.AddGroups(errTTLNoProgress, l.class, l.tenant)
-		}
-		return true
+		reason = errTTLNoProgress
 	}
-	return false
+	if reason != nil && !l.reported {
+		ec.AddGroups(reason, l.class, l.tenant)
+		l.reported = true
+	}
+	return !deleted
 }
 
 // ensureDeactivation re-deactivates the tenant if it was auto-activated for TTL processing.

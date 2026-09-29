@@ -232,11 +232,6 @@ func TestTenantTTLLoop_StopsWhenABatchMakesNoProgress(t *testing.T) {
 			wantErr: errTTLNoProgress,
 		},
 		{
-			name:    "delete fails after deleting part of the batch",
-			batch:   func(context.CancelCauseFunc) (bool, error) { return true, deleteErr },
-			wantErr: deleteErr,
-		},
-		{
 			name: "sweep stopped while the delete ran",
 			batch: func(cancel context.CancelCauseFunc) (bool, error) {
 				cancel(errors.New("index closing"))
@@ -285,6 +280,65 @@ func TestTenantTTLLoop_StopsWhenABatchMakesNoProgress(t *testing.T) {
 				require.Equal(t, 1, ec.Len(), "one filing per swept tenant")
 				assert.ErrorIs(t, ec.ToError(), tt.wantErr)
 			}
+			require.Len(t, mgr.deactivateCalled, 1, "a tenant activated for TTL is deactivated on every exit")
+		})
+	}
+}
+
+// TestTenantTTLLoop_KeepsSweepingATenantThatDeletedPartOfItsBatch pins that the tenant is swept
+// again and its failure filed once for the sweep.
+func TestTenantTTLLoop_KeepsSweepingATenantThatDeletedPartOfItsBatch(t *testing.T) {
+	deleteErr := errors.New("one object failed")
+
+	tests := []struct {
+		name string
+		// what each round's delete reports alongside deleteErr, before the find runs dry
+		deleted    []bool
+		wantRounds int
+	}{
+		{
+			name:       "the tenant drains, then the find runs dry",
+			deleted:    []bool{true, true, true},
+			wantRounds: 4,
+		},
+		{
+			name:       "the last round deletes nothing, which stops the tenant",
+			deleted:    []bool{true, true, false},
+			wantRounds: 3,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			mgr := &fakeTTLTenantsManager{
+				statusMap: map[string]string{"tenant_0": models.TenantActivityStatusCOLD},
+			}
+
+			rounds := 0
+			loop := newTestLoop(t, mgr, true,
+				func(context.Context) ([]strfmt.UUID, error) {
+					rounds++
+					// reports a loop that will not stop as a failure instead of hanging the package
+					require.LessOrEqual(t, rounds, len(tt.deleted)+1,
+						"loop kept sweeping: findUUIDs called %d times", rounds)
+					if rounds > len(tt.deleted) {
+						return nil, nil
+					}
+					return []strfmt.UUID{"uuid-1"}, nil
+				},
+				func(context.Context, []strfmt.UUID) (bool, error) {
+					return tt.deleted[rounds-1], deleteErr
+				},
+			)
+
+			ec := errorcompounder.New()
+			loop.run(context.Background(), ec)
+
+			assert.Equal(t, tt.wantRounds, rounds,
+				"a tenant that deleted part of its batch drains in one sweep, not one batch per sweep")
+			require.Equal(t, 1, ec.Len(),
+				"a tenant retried across rounds reports its failure once for the sweep, not once a round")
+			assert.ErrorIs(t, ec.ToError(), deleteErr)
 			require.Len(t, mgr.deactivateCalled, 1, "a tenant activated for TTL is deactivated on every exit")
 		})
 	}
