@@ -75,123 +75,29 @@ func TestAuthnGetOwnInfoWithAdminlistAndOidc(t *testing.T) {
 	})
 }
 
-func TestAuthnGetOwnInfoWithOidc(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-
-	compose, err := docker.New().WithWeaviate().WithMockOIDC().Start(ctx)
-	require.Nil(t, err)
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-
-	// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
-	// description for details
-	token, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
-
-	defer func() {
-		helper.ResetClient()
-		require.NoError(t, compose.Terminate(ctx))
-		cancel()
-	}()
-
-	t.Run("Get own info", func(t *testing.T) {
-		info := helper.GetInfoForOwnUser(t, token)
-		require.Equal(t, "admin-user", *info.Username)
-		require.Len(t, info.Roles, 0)
-		require.Len(t, info.Groups, 0)
-	})
-
-	t.Run("Unauthenticated", func(t *testing.T) {
-		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth("non-existent"))
-		require.NotNil(t, err)
-		parsed, ok := err.(*users.GetOwnInfoUnauthorized) //nolint:errorlint
-		require.True(t, ok)
-		require.Equal(t, 401, parsed.Code())
-	})
-}
-
+// TestAuthnGetOwnInfoWithRBAC covers API-key and OIDC users on one cluster.
+// Each auth type uses its own user and role so the two flows don't interfere.
 func TestAuthnGetOwnInfoWithRBAC(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 
-	customUser := "custom-user"
-	customKey := "custom-key"
-
-	testingRole := "testingOwnRole"
-
-	adminKey := "admin-key"
 	adminUser := "admin-user"
+	adminKey := "admin-key"
+
+	apiKeyUser := "apikey-user"
+	apiKeyUserKey := "apikey-user-key"
+	apiKeyRole := "testingOwnRoleApiKey"
+
+	oidcUser := "custom-user"
+	oidcRole := "testingOwnRoleOidc"
 
 	compose, err := docker.New().
 		WithWeaviate().
 		WithRBAC().
 		WithApiKey().
-		WithUserApiKey(customUser, customKey).
+		WithUserApiKey(apiKeyUser, apiKeyUserKey).
 		WithUserApiKey(adminUser, adminKey).
 		WithRbacRoots(adminUser).
-		WithRbacViewers(customUser).
-		Start(ctx)
-	require.Nil(t, err)
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-
-	defer func() {
-		helper.DeleteRole(t, adminKey, testingRole)
-		helper.ResetClient()
-		require.NoError(t, compose.Terminate(ctx))
-		cancel()
-	}()
-
-	t.Run("Get own info - no roles", func(t *testing.T) {
-		info := helper.GetInfoForOwnUser(t, customKey)
-		require.Equal(t, customUser, *info.Username)
-		require.Len(t, info.Roles, 0)
-		require.Len(t, info.Groups, 0)
-	})
-
-	t.Run("Create and assign role", func(t *testing.T) {
-		helper.CreateRole(
-			t,
-			adminKey,
-			&models.Role{
-				Name: &testingRole,
-				Permissions: []*models.Permission{{
-					Action:      String(authorization.CreateCollections),
-					Collections: &models.PermissionCollections{Collection: String("*")},
-				}},
-			},
-		)
-		helper.AssignRoleToUser(t, adminKey, testingRole, customUser)
-	})
-
-	t.Run("Get own roles - existing roles", func(t *testing.T) {
-		info := helper.GetInfoForOwnUser(t, customKey)
-		require.Equal(t, customUser, *info.Username)
-		require.Len(t, info.Roles, 1)
-		require.Equal(t, testingRole, *info.Roles[0].Name)
-		require.Len(t, info.Groups, 0)
-	})
-
-	t.Run("Unauthenticated", func(t *testing.T) {
-		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth("non-existent"))
-		require.NotNil(t, err)
-		parsed, ok := err.(*users.GetOwnInfoUnauthorized) //nolint:errorlint
-		require.True(t, ok)
-		require.Equal(t, 401, parsed.Code())
-	})
-}
-
-func TestAuthnGetOwnInfoWithRBACAndOIDC(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-
-	customUser := "custom-user"
-	testingRole := "testingOwnRole"
-	adminUser := "admin-user"
-
-	compose, err := docker.New().
-		WithWeaviate().
-		WithRBAC().
-		WithApiKey().
-		WithRbacRoots(adminUser).
-		WithRbacViewers(customUser).
+		WithRbacViewers(apiKeyUser, oidcUser).
 		WithMockOIDC().
 		Start(ctx)
 	require.Nil(t, err)
@@ -204,39 +110,76 @@ func TestAuthnGetOwnInfoWithRBACAndOIDC(t *testing.T) {
 	tokenCustom, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
 
 	defer func() {
-		helper.DeleteRole(t, tokenAdmin, testingRole)
+		helper.DeleteRole(t, adminKey, apiKeyRole)
+		helper.DeleteRole(t, adminKey, oidcRole)
 		helper.ResetClient()
 		require.NoError(t, compose.Terminate(ctx))
 		cancel()
 	}()
 
-	t.Run("Get own info - no roles", func(t *testing.T) {
-		info := helper.GetInfoForOwnUser(t, tokenCustom)
-		require.Equal(t, customUser, *info.Username)
-		require.Len(t, info.Roles, 0)
-		require.Len(t, info.Groups, 1)
-	})
-
-	t.Run("Create and assign role", func(t *testing.T) {
+	createRole := func(t *testing.T, key, name string) {
 		helper.CreateRole(
 			t,
-			tokenAdmin,
+			key,
 			&models.Role{
-				Name: &testingRole,
+				Name: &name,
 				Permissions: []*models.Permission{{
 					Action:      String(authorization.CreateCollections),
 					Collections: &models.PermissionCollections{Collection: String("*")},
 				}},
 			},
 		)
-		helper.AssignRoleToUserOIDC(t, tokenAdmin, testingRole, customUser)
+	}
+
+	t.Run("api key", func(t *testing.T) {
+		t.Run("Get own info - no roles", func(t *testing.T) {
+			info := helper.GetInfoForOwnUser(t, apiKeyUserKey)
+			require.Equal(t, apiKeyUser, *info.Username)
+			require.Len(t, info.Roles, 0)
+			require.Len(t, info.Groups, 0)
+		})
+
+		t.Run("Create and assign role", func(t *testing.T) {
+			createRole(t, adminKey, apiKeyRole)
+			helper.AssignRoleToUser(t, adminKey, apiKeyRole, apiKeyUser)
+		})
+
+		t.Run("Get own roles - existing roles", func(t *testing.T) {
+			info := helper.GetInfoForOwnUser(t, apiKeyUserKey)
+			require.Equal(t, apiKeyUser, *info.Username)
+			require.Len(t, info.Roles, 1)
+			require.Equal(t, apiKeyRole, *info.Roles[0].Name)
+			require.Len(t, info.Groups, 0)
+		})
+
+		t.Run("Unauthenticated", func(t *testing.T) {
+			_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth("non-existent"))
+			require.NotNil(t, err)
+			parsed, ok := err.(*users.GetOwnInfoUnauthorized) //nolint:errorlint
+			require.True(t, ok)
+			require.Equal(t, 401, parsed.Code())
+		})
 	})
 
-	t.Run("Get own roles - existing roles", func(t *testing.T) {
-		info := helper.GetInfoForOwnUser(t, tokenCustom)
-		require.Equal(t, customUser, *info.Username)
-		require.Len(t, info.Roles, 1)
-		require.Equal(t, testingRole, *info.Roles[0].Name)
-		require.Len(t, info.Groups, 1)
+	t.Run("oidc", func(t *testing.T) {
+		t.Run("Get own info - no roles", func(t *testing.T) {
+			info := helper.GetInfoForOwnUser(t, tokenCustom)
+			require.Equal(t, oidcUser, *info.Username)
+			require.Len(t, info.Roles, 0)
+			require.Len(t, info.Groups, 1)
+		})
+
+		t.Run("Create and assign role", func(t *testing.T) {
+			createRole(t, tokenAdmin, oidcRole)
+			helper.AssignRoleToUserOIDC(t, tokenAdmin, oidcRole, oidcUser)
+		})
+
+		t.Run("Get own roles - existing roles", func(t *testing.T) {
+			info := helper.GetInfoForOwnUser(t, tokenCustom)
+			require.Equal(t, oidcUser, *info.Username)
+			require.Len(t, info.Roles, 1)
+			require.Equal(t, oidcRole, *info.Roles[0].Name)
+			require.Len(t, info.Groups, 1)
+		})
 	})
 }

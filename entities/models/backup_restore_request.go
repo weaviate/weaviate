@@ -35,7 +35,7 @@ type BackupRestoreRequest struct {
 	// List of collections (classes) to exclude from the backup restoration process. Any entry is rejected when the backup contains no collections.
 	Exclude []string `json:"exclude"`
 
-	// List of collections (classes) to include in the backup restoration process. Permits wildcards, e.g. `*` or `prefix*`. A list made only of wildcards that match no collection in the backup is rejected. Any entry is rejected when the backup contains no collections.
+	// List of collections (classes) to include in the backup restoration process. If not set, all collections in the backup the caller may restore are included. Permits wildcards, e.g. `*` or `prefix*`, which match only collections the caller may restore. A list that matches no collection is rejected. Any entry is rejected when the backup contains no collections.
 	Include []string `json:"include"`
 
 	// Allows overriding the node names stored in the backup with different ones. Useful when restoring backups to a different environment.

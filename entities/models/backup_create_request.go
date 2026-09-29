@@ -32,13 +32,13 @@ type BackupCreateRequest struct {
 	// Custom configuration for the backup creation process
 	Config *BackupConfig `json:"config,omitempty"`
 
-	// List of collections to exclude from the backup creation process. If not set, all available collections are included. Cannot be used together with `include`. Permits wildcards, e.g. `*` or `prefix*`. Excluding every collection is allowed when users or roles are selected, including through omitted identity selectors.
+	// List of collections to exclude from the backup creation process. If not set, all collections the caller may back up are included. Cannot be used together with `include`. Permits wildcards, e.g. `*` or `prefix*`. Excluding every collection is allowed when users or roles are selected, including through omitted identity selectors.
 	Exclude []string `json:"exclude"`
 
 	// The ID of the backup (required). Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.
 	ID string `json:"id,omitempty"`
 
-	// List of collections to include in the backup creation process. If not set, all available collections are included. Cannot be used together with `exclude`. Permits wildcards, e.g. `*` or `prefix*`. A list that matches no collection is allowed when users or roles are selected, including through omitted identity selectors.
+	// List of collections to include in the backup creation process. If not set, all collections the caller may back up are included. Cannot be used together with `exclude`. Permits wildcards, e.g. `*` or `prefix*`, which match only collections the caller may back up. A list that matches no collection is allowed when users or roles are selected, including through omitted identity selectors.
 	Include []string `json:"include"`
 
 	// List of RBAC roles to include in the backup. Permits `*` and `?` wildcards, e.g. `*` or `prefix*`. When omitted or null, the whole RBAC state is captured, including built-in roles and assignments. An empty list or wildcards matching nothing omit the RBAC snapshot; restoring it leaves existing roles untouched. Otherwise, only matching roles are captured. An exact role name that does not exist is rejected. Explicit selectors cannot select built-in roles: exact names are rejected and wildcards exclude them. Selected roles, including built-in roles selected by omission, permit a backup with zero collections. No per-role permission check is applied.
