@@ -27,6 +27,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -340,10 +341,11 @@ func TestDropVectorIndex_DimensionsClearFailsWhenShardIsNotLoaded(t *testing.T) 
 }
 
 // TestDropVectorIndex_StaleWriteDoesNotRecreateDimensionRows pins the write
-// that read the class before the drop. Its dropped-vector check passed against
-// that stale copy, so it reaches dimension tracking after the index is gone
-// and the rows are cleared. Recording them there would hand them to a
-// re-created vector of the same name.
+// that read the class before the drop. Its dropped-vector check passes
+// against that stale copy; the store step then refuses it for the missing
+// index, so nothing is stored and no dimensions are recorded. A write that
+// passed that check before the drop finished still reaches dimension
+// tracking, which records nothing for an index that is gone.
 func TestDropVectorIndex_StaleWriteDoesNotRecreateDimensionRows(t *testing.T) {
 	ctx := t.Context()
 	s, _ := setupDropDimsShard(t, ctx)
@@ -356,14 +358,20 @@ func TestDropVectorIndex_StaleWriteDoesNotRecreateDimensionRows(t *testing.T) {
 
 	// The class this shard reads still lists the dropped vector as live, which
 	// is exactly what a write that read it before the marker applied sees.
-	require.Error(t, s.PutObject(ctx, dropDimsObject(dropDimsCount)),
-		"precondition: the stale write gets past the class check and fails on the missing index")
+	stale := dropDimsObject(dropDimsCount)
+	require.ErrorContains(t, s.PutObject(ctx, stale), "vector index not found",
+		"the stale write gets past the class check and is refused before it stores")
+	got, err := s.ObjectByID(ctx, stale.ID(), nil, additional.Properties{})
+	require.NoError(t, err)
+	require.Nil(t, got, "nothing stored")
 
 	keep, err := s.Dimensions(ctx, dropDimsKeep)
 	require.NoError(t, err)
-	require.Equal(t, (dropDimsCount+1)*dropDimsDim, keep,
-		"precondition: the stale write has to reach dimension tracking, or the assertion below proves nothing")
+	require.Equal(t, dropDimsCount*dropDimsDim, keep, "the refused write recorded no dimensions")
 
+	// a write past its checks when the drop finished: tracking is reached
+	// with the index gone and records nothing
+	require.NoError(t, s.extendDimensionTrackerLSM(dropDimsDim, uint64(dropDimsCount), dropDimsDropped))
 	dropped, err := s.Dimensions(ctx, dropDimsDropped)
 	require.NoError(t, err)
 	require.Zero(t, dropped,

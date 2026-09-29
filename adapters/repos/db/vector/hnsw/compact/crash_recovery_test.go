@@ -12,6 +12,7 @@
 package compact
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -884,4 +885,71 @@ func writeTestSortedFileWithData(t *testing.T, dir string, startTS, endTS int64,
 	writeFn(w)
 
 	require.NoError(t, sfw.Commit())
+}
+
+// TestCrashRecovery_TruncatedWALFile_TornAtFieldBoundary covers a crash that
+// cuts the last commit exactly between two of its fields. The loader must treat
+// it like any other torn tail: truncate the fragment, so that commits appended
+// to the file later start on a commit boundary.
+func TestCrashRecovery_TruncatedWALFile_TornAtFieldBoundary(t *testing.T) {
+	cases := []struct {
+		name string
+		keep int // bytes of the torn AddLinkAtLevel(2, 0, 1) that reached disk
+	}{
+		{name: "after commit type", keep: 1},
+		{name: "after source", keep: 9},
+		{name: "after level", keep: 11},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			walPath := filepath.Join(dir, "1000")
+			createTestWALFile(t, walPath, func(w *WALWriter) {
+				require.NoError(t, w.WriteSetEntryPointMaxLevel(1, 0))
+				require.NoError(t, w.WriteAddNode(1, 0))
+				require.NoError(t, w.WriteAddNode(2, 0))
+			})
+			info, err := os.Stat(walPath)
+			require.NoError(t, err)
+			validSize := info.Size()
+
+			var torn bytes.Buffer
+			require.NoError(t, NewWALWriter(&torn).WriteAddLinkAtLevel(2, 0, 1))
+			appendToFile(t, walPath, torn.Bytes()[:tc.keep])
+
+			result, err := NewLoader(LoaderConfig{Dir: dir, Logger: crashTestLogger()}).Load()
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.True(t, result.RecoveredFromCrash)
+
+			info, err = os.Stat(walPath)
+			require.NoError(t, err)
+			require.Equal(t, validSize, info.Size(), "torn fragment must be truncated")
+
+			// a later writer appends to the repaired file; its commits must read back intact
+			var next bytes.Buffer
+			require.NoError(t, NewWALWriter(&next).WriteAddNode(4703, 0))
+			require.NoError(t, NewWALWriter(&next).WriteAddLinkAtLevel(4703, 0, 1))
+			appendToFile(t, walPath, next.Bytes())
+
+			result, err = NewLoader(LoaderConfig{Dir: dir, Logger: crashTestLogger()}).Load()
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			assert.False(t, result.RecoveredFromCrash)
+			nodes := result.State.Graph.Nodes
+			require.Less(t, len(nodes), 10_000, "a misaligned read decodes huge node IDs")
+			require.NotNil(t, nodes[4703])
+			assert.Equal(t, []uint64{1}, nodes[4703].Connections.GetLayer(0))
+		})
+	}
+}
+
+func appendToFile(t *testing.T, path string, b []byte) {
+	t.Helper()
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o666)
+	require.NoError(t, err)
+	_, err = f.Write(b)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
 }

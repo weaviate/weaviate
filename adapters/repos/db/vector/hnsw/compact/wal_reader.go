@@ -252,6 +252,16 @@ func (w *WALCommitReader) decodeNextCommit() (Commit, error) {
 		return nil, err
 	}
 
+	c, err := w.decodeCommitBody(ct)
+	if errors.Is(err, io.EOF) {
+		// A body field hit EOF with zero bytes left: the log ends between two
+		// fields of this commit, which is a torn tail, not a clean end.
+		return nil, errors.Wrapf(io.ErrUnexpectedEOF, "commit type %d: %v", ct, err)
+	}
+	return c, err
+}
+
+func (w *WALCommitReader) decodeCommitBody(ct HnswCommitType) (Commit, error) {
 	switch ct {
 	case AddNode:
 		return w.readAddNode()

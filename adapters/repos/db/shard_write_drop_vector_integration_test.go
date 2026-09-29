@@ -15,6 +15,7 @@ package db
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -631,4 +632,132 @@ func TestDropVectorIndex_CompletionSweepRetriesThroughLoadedLazyShard(t *testing
 	_, ok, err = loaded.mapping.Get("foo")
 	require.NoError(t, err)
 	assert.False(t, ok)
+}
+
+// liveCreate rebuilds the index of targetVector from its mapping record,
+// as an index that was unpublished without a teardown.
+func liveCreate(ctx context.Context, shard *Shard, targetVector string) error {
+	rec, ok, err := shard.mapping.Get(targetVector)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("no mapping record for %q", targetVector)
+	}
+	cfg := shard.index.GetVectorIndexConfig(targetVector)
+	return shard.createVectorIndex(ctx, targetVector, rec.PhysicalID, cfg, false)
+}
+
+// searchIDs returns the IDs the index of targetVector finds for vector.
+func searchIDs(t *testing.T, ctx context.Context, shard *Shard, targetVector string, vector []float32) []strfmt.UUID {
+	t.Helper()
+	objs, _, err := shard.ObjectVectorSearch(ctx, []models.Vector{vector}, []string{targetVector}, 0, 10, nil, nil, nil, additional.Properties{}, nil, nil)
+	require.NoError(t, err)
+	ids := make([]strfmt.UUID, 0, len(objs))
+	for _, obj := range objs {
+		ids = append(ids, obj.ID())
+	}
+	return ids
+}
+
+func noTeardown(VectorIndex, *VectorIndexQueue) error { return nil }
+
+// A write whose vector index is missing fails before anything is stored,
+// and an identical retry once the index exists is indexed: an object
+// stored and then failed would be skipped as unchanged on the retry.
+func TestPutObject_FailsOnAMissingVectorIndexBeforeStoring(t *testing.T) {
+	ctx := testCtx()
+	shard, _ := setupDropVectorShard(t, ctx)
+	require.NoError(t, shard.vectors.Remove(ctx, "foo", shard.index.logger, noTeardown))
+
+	obj := dropVecObject(t, "one", true)
+	err := shard.PutObject(ctx, obj)
+	require.ErrorContains(t, err, "vector index not found")
+	got, err := shard.ObjectByID(ctx, obj.ID(), nil, additional.Properties{})
+	require.NoError(t, err)
+	assert.Nil(t, got, "nothing stored without the index")
+
+	require.NoError(t, liveCreate(ctx, shard, "foo"))
+	require.NoError(t, shard.PutObject(ctx, obj))
+	assert.Equal(t, []strfmt.UUID{obj.ID()}, searchIDs(t, ctx, shard, "foo", obj.Vectors["foo"]))
+}
+
+// The legacy vector's index is required by the schema, not by its presence.
+func TestPutObject_LegacyIndexRequiredBySchema(t *testing.T) {
+	ctx := testCtx()
+	shd, _ := testShardWithSettings(t, ctx, &models.Class{Class: "PutLegacy"}, hnsw.NewDefaultUserConfig(), false, false)
+	shard := underlyingShard(t, shd)
+	require.NoError(t, shard.vectors.Remove(ctx, "", shard.index.logger, noTeardown))
+
+	obj := &storobj.Object{
+		MarshallerVersion: 1,
+		Object:            models.Object{ID: strfmt.UUID(uuid.NewString()), Class: "PutLegacy"},
+		Vector:            []float32{1, 2, 3},
+	}
+	err := shard.PutObject(ctx, obj)
+	require.ErrorContains(t, err, `vector index not found for ""`)
+	got, err := shard.ObjectByID(ctx, obj.ID(), nil, additional.Properties{})
+	require.NoError(t, err)
+	assert.Nil(t, got)
+}
+
+// A batch fails the object whose index is missing, stores nothing for it,
+// and keeps the others. Both entry points share the store step.
+func TestPutObjectBatch_FailsOnAMissingVectorIndexBeforeStoring(t *testing.T) {
+	ctx := testCtx()
+	shard, _ := setupDropVectorShard(t, ctx)
+	require.NoError(t, shard.vectors.Remove(ctx, "foo", shard.index.logger, noTeardown))
+
+	withFoo := dropVecObject(t, "one", true)
+	withoutFoo := dropVecObject(t, "two", false)
+	withMV := dropVecMultiObject(t, "three")
+	errs := shard.PutObjectBatch(ctx, []*storobj.Object{withFoo, withoutFoo, withMV})
+	require.Len(t, errs, 3)
+	require.ErrorContains(t, errs[0], "vector index not found")
+	require.NoError(t, errs[1])
+	require.NoError(t, errs[2])
+	got, err := shard.ObjectByID(ctx, withFoo.ID(), nil, additional.Properties{})
+	require.NoError(t, err)
+	assert.Nil(t, got)
+	for _, stored := range []*storobj.Object{withoutFoo, withMV} {
+		got, err = shard.ObjectByID(ctx, stored.ID(), nil, additional.Properties{})
+		require.NoError(t, err)
+		assert.NotNil(t, got)
+	}
+}
+
+// A merge carries the stored version's vectors into the new version: when
+// one of their indexes is missing, the merge fails before it stores. A
+// vector whose index was dropped is stripped first, so a property-only
+// merge after a drop still succeeds.
+func TestMergeObject_FailsOnAMissingIndexOfACarriedOverVector(t *testing.T) {
+	ctx := testCtx()
+	shard, class := setupDropVectorShard(t, ctx)
+	obj := dropVecObject(t, "one", true)
+	require.NoError(t, shard.PutObject(ctx, obj))
+	require.NoError(t, shard.vectors.Remove(ctx, "foo", shard.index.logger, noTeardown))
+
+	propertyOnly := func(label string) objects.MergeDocument {
+		return objects.MergeDocument{
+			ID: obj.ID(), Class: dropVecClassName, UpdateTime: time.Now().UnixMilli(),
+			PrimitiveSchema: map[string]interface{}{"label": label},
+		}
+	}
+	label := func() string {
+		got, err := shard.ObjectByID(ctx, obj.ID(), nil, additional.Properties{})
+		require.NoError(t, err)
+		require.NotNil(t, got)
+		return got.Object.Properties.(map[string]interface{})["label"].(string)
+	}
+	err := shard.MergeObject(ctx, propertyOnly("renamed"))
+	require.ErrorContains(t, err, "vector index not found")
+	assert.Equal(t, "one", label(), "unchanged")
+
+	// the same merge after a drop: the carried-over vector is stripped
+	markDropped(class, "foo")
+	require.NoError(t, shard.MergeObject(ctx, propertyOnly("renamed")))
+	assert.Equal(t, "renamed", label())
+	got, err := shard.ObjectByID(ctx, obj.ID(), nil, additional.Properties{})
+	require.NoError(t, err)
+	assert.Empty(t, got.Vectors)
 }
