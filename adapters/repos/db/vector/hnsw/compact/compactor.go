@@ -502,7 +502,7 @@ func (c *Compactor) mergeSorted(state *DirectoryState, shouldAbort func() bool) 
 		}
 		openedFiles = append(openedFiles, file)
 
-		walReader := NewWALCommitReader(file, c.logger)
+		walReader := NewWALCommitReaderForFile(file, f.Type, c.logger)
 		it, err := NewIterator(walReader, i, c.logger)
 		if err != nil {
 			return errors.Wrapf(err, "create iterator for %s", f.Path)
@@ -631,7 +631,7 @@ func (c *Compactor) createSnapshot(state *DirectoryState, shouldAbort func() boo
 			}
 			openedFiles = append(openedFiles, file)
 
-			walReader := NewWALCommitReader(file, c.logger)
+			walReader := NewWALCommitReaderForFile(file, f.Type, c.logger)
 			it, err = NewIterator(walReader, i, c.logger)
 		}
 

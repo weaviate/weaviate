@@ -257,40 +257,69 @@ func TestCrashRecovery_TruncatedCompactedWALFilesRecover(t *testing.T) {
 	}
 }
 
+// TestCrashRecovery_TruncatedSortedMergeFailsClosedAndKeepsSources pins that both
+// compaction paths reading .sorted inputs (merge and snapshot creation) fail
+// without output and keep every source when an input has a torn or garbage
+// tail, so the next load can repair it.
 func TestCrashRecovery_TruncatedSortedMergeFailsClosedAndKeepsSources(t *testing.T) {
-	dir := t.TempDir()
-	paths := make([]string, 0, 6)
-
-	for i := int64(0); i < 6; i++ {
-		ts := 1000 + i
-		writeTestSortedFileWithData(t, dir, ts, ts, func(w *WALWriter) {
-			require.NoError(t, w.WriteSetEntryPointMaxLevel(uint64(i), 0))
-			require.NoError(t, w.WriteAddNode(uint64(i), 0))
-		})
-		paths = append(paths, filepath.Join(dir, BuildMergedFilename(ts, ts, FileTypeSorted)))
+	paths := []struct {
+		name  string
+		files int64
+	}{
+		{name: "merge", files: 6},
+		{name: "snapshot", files: 2},
+	}
+	tails := []struct {
+		name  string
+		tail  []byte
+		errIs error
+	}{
+		{name: "torn record", tail: []byte{byte(AddNode), 0x01, 0x02, 0x03}, errIs: io.ErrUnexpectedEOF},
+		{name: "reset after nodes", tail: []byte{byte(ResetIndex)}},
+		{name: "compression after nodes", tail: walBytes(t, func(w *WALWriter) {
+			require.NoError(t, w.WriteAddSQ(&compression.SQData{A: 1, B: 2, Dimensions: 4}))
+		})},
 	}
 
-	f, err := os.OpenFile(paths[0], os.O_WRONLY|os.O_APPEND, 0o666)
-	require.NoError(t, err)
-	_, err = f.Write([]byte{byte(AddNode), 0x01, 0x02, 0x03})
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
+	for _, p := range paths {
+		for _, tc := range tails {
+			t.Run(p.name+"/"+tc.name, func(t *testing.T) {
+				dir := t.TempDir()
+				sources := make([]string, 0, p.files)
+				for i := int64(0); i < p.files; i++ {
+					ts := 1000 + i
+					writeTestSortedFileWithData(t, dir, ts, ts, func(w *WALWriter) {
+						require.NoError(t, w.WriteSetEntryPointMaxLevel(uint64(i), 0))
+						require.NoError(t, w.WriteAddNode(uint64(i), 0))
+					})
+					sources = append(sources, filepath.Join(dir, BuildMergedFilename(ts, ts, FileTypeSorted)))
+				}
+				appendToFile(t, sources[0], tc.tail)
 
-	compactor := NewCompactor(DefaultCompactorConfig(dir), crashTestLogger())
-	action, err := compactor.RunCycle(nil)
-	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
-	assert.Equal(t, ActionNone, action)
+				before, err := os.ReadDir(dir)
+				require.NoError(t, err)
 
-	for _, path := range paths[:5] {
-		_, statErr := os.Stat(path)
-		require.NoError(t, statErr, "source file %s should remain after failed merge", path)
+				action, err := NewCompactor(DefaultCompactorConfig(dir), crashTestLogger()).RunCycle(nil)
+				require.Error(t, err)
+				if tc.errIs != nil {
+					require.ErrorIs(t, err, tc.errIs)
+				}
+				assert.Equal(t, ActionNone, action)
+
+				// No source removed, no output or temp file left behind.
+				after, err := os.ReadDir(dir)
+				require.NoError(t, err)
+				names := func(entries []os.DirEntry) []string {
+					out := make([]string, 0, len(entries))
+					for _, e := range entries {
+						out = append(out, e.Name())
+					}
+					return out
+				}
+				assert.ElementsMatch(t, names(before), names(after))
+			})
+		}
 	}
-
-	mergedPath := filepath.Join(dir, BuildMergedFilename(1000, 1004, FileTypeSorted))
-	_, err = os.Stat(mergedPath)
-	assert.True(t, os.IsNotExist(err), "failed merge should not commit output")
-	_, err = os.Stat(mergedPath + tempFileSuffix)
-	assert.True(t, os.IsNotExist(err), "failed merge should clean up temp output")
 }
 
 // ---------------------------------------------------------------------------
