@@ -837,7 +837,7 @@ func TestShardLoadDurationObservedForExistingShards(t *testing.T) {
 			className := "TestShardLoadDuration" + string(tt.registration)
 			rootPath := t.TempDir()
 			count := func() uint64 {
-				n, err := monitoring.HistogramSampleCount(prometheus.DefaultGatherer,
+				n, err := monitoring.SampleCount(prometheus.DefaultGatherer,
 					"weaviate_shard_load_duration_seconds",
 					prometheus.Labels{"registration": string(tt.registration)})
 				require.NoError(t, err)

@@ -18,32 +18,44 @@ import (
 	dto "github.com/prometheus/client_model/go"
 )
 
-// HistogramSampleCount returns the _count of the histogram series with the
+// SampleCount returns the _count of the summary or histogram series with the
 // given name and exact label set, gathered from g. It exists for tests in
-// other packages that assert on histograms registered on the default
-// registry, which testutil.ToFloat64 cannot read. Compare deltas rather than
-// absolute values on the default registry: other tests in the same binary
-// observe into the same series.
-func HistogramSampleCount(g prometheus.Gatherer, name string, labels prometheus.Labels) (uint64, error) {
-	h, err := gatherHistogram(g, name, labels)
+// other packages that assert on metrics registered on the default registry,
+// which testutil.ToFloat64 cannot read. Compare deltas rather than absolute
+// values on the default registry: other tests in the same binary observe into
+// the same series.
+func SampleCount(g prometheus.Gatherer, name string, labels prometheus.Labels) (uint64, error) {
+	metric, err := gatherMetric(g, name, labels)
 	if err != nil {
 		return 0, err
 	}
-	return h.GetSampleCount(), nil
+	switch {
+	case metric.GetSummary() != nil:
+		return metric.GetSummary().GetSampleCount(), nil
+	case metric.GetHistogram() != nil:
+		return metric.GetHistogram().GetSampleCount(), nil
+	}
+	return 0, fmt.Errorf("metric %q is neither a summary nor a histogram", name)
 }
 
-// HistogramSampleSum is the _sum counterpart of HistogramSampleCount.
-func HistogramSampleSum(g prometheus.Gatherer, name string, labels prometheus.Labels) (float64, error) {
-	h, err := gatherHistogram(g, name, labels)
+// SampleSum is the _sum counterpart of SampleCount.
+func SampleSum(g prometheus.Gatherer, name string, labels prometheus.Labels) (float64, error) {
+	metric, err := gatherMetric(g, name, labels)
 	if err != nil {
 		return 0, err
 	}
-	return h.GetSampleSum(), nil
+	switch {
+	case metric.GetSummary() != nil:
+		return metric.GetSummary().GetSampleSum(), nil
+	case metric.GetHistogram() != nil:
+		return metric.GetHistogram().GetSampleSum(), nil
+	}
+	return 0, fmt.Errorf("metric %q is neither a summary nor a histogram", name)
 }
 
 // GaugeValue returns the value of the gauge series with the given name and
-// exact label set (nil for a scalar gauge), gathered from g. Like
-// HistogramSampleCount it exists for tests in other packages.
+// exact label set (nil for a scalar gauge), gathered from g. Like SampleCount
+// it exists for tests in other packages.
 func GaugeValue(g prometheus.Gatherer, name string, labels prometheus.Labels) (float64, error) {
 	metric, err := gatherMetric(g, name, labels)
 	if err != nil {
@@ -53,17 +65,6 @@ func GaugeValue(g prometheus.Gatherer, name string, labels prometheus.Labels) (f
 		return 0, fmt.Errorf("metric %q is not a gauge", name)
 	}
 	return metric.GetGauge().GetValue(), nil
-}
-
-func gatherHistogram(g prometheus.Gatherer, name string, labels prometheus.Labels) (*dto.Histogram, error) {
-	metric, err := gatherMetric(g, name, labels)
-	if err != nil {
-		return nil, err
-	}
-	if metric.GetHistogram() == nil {
-		return nil, fmt.Errorf("metric %q is not a histogram", name)
-	}
-	return metric.GetHistogram(), nil
 }
 
 func gatherMetric(g prometheus.Gatherer, name string, labels prometheus.Labels) (*dto.Metric, error) {

@@ -39,7 +39,7 @@ import (
 
 func hnswRestoreCount(t *testing.T) uint64 {
 	t.Helper()
-	n, err := monitoring.HistogramSampleCount(prometheus.DefaultGatherer,
+	n, err := monitoring.SampleCount(prometheus.DefaultGatherer,
 		"weaviate_vector_index_restore_duration_seconds",
 		prometheus.Labels{"index_type": string(monitoring.VectorIndexTypeHNSW)})
 	require.NoError(t, err)
@@ -52,7 +52,7 @@ func hnswPrefillLabels(mode monitoring.PrefillMode) prometheus.Labels {
 
 func hnswPrefillCount(t *testing.T, mode monitoring.PrefillMode) uint64 {
 	t.Helper()
-	n, err := monitoring.HistogramSampleCount(prometheus.DefaultGatherer,
+	n, err := monitoring.SampleCount(prometheus.DefaultGatherer,
 		"weaviate_vector_cache_prefill_duration_seconds", hnswPrefillLabels(mode))
 	require.NoError(t, err)
 	return n

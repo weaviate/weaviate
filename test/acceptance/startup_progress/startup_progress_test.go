@@ -156,10 +156,10 @@ func assertStartupMetrics(t *testing.T, ctx context.Context, compose *docker.Doc
 		require.True(t, ok, "missing %s%v", name, labels)
 		return m.GetGauge().GetValue()
 	}
-	histogramCount := func(name string, labels map[string]string) uint64 {
+	sampleCount := func(name string, labels map[string]string) uint64 {
 		m, ok := helper.FindMetric(families, name, labels)
 		require.True(t, ok, "missing %s%v", name, labels)
-		return m.GetHistogram().GetSampleCount()
+		return m.GetSummary().GetSampleCount()
 	}
 
 	assert.Greater(t, gauge("weaviate_startup_ready_timestamp_seconds", nil), float64(0))
@@ -169,13 +169,13 @@ func assertStartupMetrics(t *testing.T, ctx context.Context, compose *docker.Doc
 	}
 
 	want := uint64(shards)
-	assert.Equal(t, want, histogramCount("weaviate_shard_load_duration_seconds", map[string]string{"registration": "eager"}),
+	assert.Equal(t, want, sampleCount("weaviate_shard_load_duration_seconds", map[string]string{"registration": "eager"}),
 		"every shard is loaded eagerly on this restart")
-	assert.Zero(t, histogramCount("weaviate_shard_load_duration_seconds", map[string]string{"registration": "lazy"}))
-	assert.Equal(t, want, histogramCount("weaviate_vector_index_restore_duration_seconds", map[string]string{"index_type": "hnsw"}),
+	assert.Zero(t, sampleCount("weaviate_shard_load_duration_seconds", map[string]string{"registration": "lazy"}))
+	assert.Equal(t, want, sampleCount("weaviate_vector_index_restore_duration_seconds", map[string]string{"index_type": "hnsw"}),
 		"every shard's HNSW index had commit-log state to restore")
 	hnswSync := map[string]string{"index_type": "hnsw", "mode": "sync"}
-	assert.Equal(t, want, histogramCount("weaviate_vector_cache_prefill_duration_seconds", hnswSync),
+	assert.Equal(t, want, sampleCount("weaviate_vector_cache_prefill_duration_seconds", hnswSync),
 		"eager collections prefill their vector cache inside the shard load")
 	assert.Zero(t, gauge("weaviate_vector_cache_prefill_active", hnswSync))
 }

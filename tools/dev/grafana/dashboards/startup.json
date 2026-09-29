@@ -412,7 +412,7 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "Cumulative since boot: shards only load as the node loads them, so no rate() is needed.",
+      "description": "Cumulative since boot (sum / count): shards only load as the node loads them, so no rate() is needed. Per-shard outliers are in the 'Completed loading shard' log line.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -484,24 +484,13 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "histogram_quantile(0.5, sum by (le, registration) (weaviate_shard_load_duration_seconds_bucket))",
+          "expr": "sum by (registration) (weaviate_shard_load_duration_seconds_sum) / sum by (registration) (weaviate_shard_load_duration_seconds_count)",
           "interval": "",
-          "legendFormat": "p50 {{registration}}",
+          "legendFormat": "avg {{registration}}",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "exemplar": true,
-          "expr": "histogram_quantile(0.95, sum by (le, registration) (weaviate_shard_load_duration_seconds_bucket))",
-          "interval": "",
-          "legendFormat": "p95 {{registration}}",
-          "refId": "B"
         }
       ],
-      "title": "Shard load p50 / p95",
+      "title": "Average shard load",
       "type": "timeseries"
     },
     {
@@ -707,24 +696,13 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "histogram_quantile(0.5, sum by (le, index_type, mode) (weaviate_vector_cache_prefill_duration_seconds_bucket))",
+          "expr": "sum by (index_type, mode) (weaviate_vector_cache_prefill_duration_seconds_sum) / sum by (index_type, mode) (weaviate_vector_cache_prefill_duration_seconds_count)",
           "interval": "",
-          "legendFormat": "p50 {{index_type}} {{mode}}",
+          "legendFormat": "avg {{index_type}} {{mode}}",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "exemplar": true,
-          "expr": "histogram_quantile(0.95, sum by (le, index_type, mode) (weaviate_vector_cache_prefill_duration_seconds_bucket))",
-          "interval": "",
-          "legendFormat": "p95 {{index_type}} {{mode}}",
-          "refId": "B"
         }
       ],
-      "title": "Vector cache prefill p50 / p95",
+      "title": "Average vector cache prefill",
       "type": "timeseries"
     },
     {
@@ -930,24 +908,13 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "histogram_quantile(0.5, sum by (le, index_type) (weaviate_vector_index_restore_duration_seconds_bucket))",
+          "expr": "sum by (index_type) (weaviate_vector_index_restore_duration_seconds_sum) / sum by (index_type) (weaviate_vector_index_restore_duration_seconds_count)",
           "interval": "",
-          "legendFormat": "p50 {{index_type}}",
+          "legendFormat": "avg {{index_type}}",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "exemplar": true,
-          "expr": "histogram_quantile(0.95, sum by (le, index_type) (weaviate_vector_index_restore_duration_seconds_bucket))",
-          "interval": "",
-          "legendFormat": "p95 {{index_type}}",
-          "refId": "B"
         }
       ],
-      "title": "HNSW restore p50 / p95",
+      "title": "Average HNSW restore",
       "type": "timeseries"
     },
     {
@@ -1574,6 +1541,6 @@
   "timezone": "",
   "title": "Startup times",
   "uid": "oZZHUUC7k",
-  "version": 2,
+  "version": 3,
   "weekStart": ""
 }
