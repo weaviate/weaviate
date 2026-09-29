@@ -643,7 +643,7 @@ func (h *authZHandlers) getRoles(params authz.GetRolesParams, principal *models.
 			name = namespacing.StripOwnNamespace(principal, roleName)
 		}
 
-		perms, err := conv.PoliciesToPermission(policies...)
+		perms, err := conv.PoliciesToPermission(h.logger, policies...)
 		if err != nil {
 			return authz.NewGetRolesInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("PoliciesToPermission: %w", err)))
 		}
@@ -723,7 +723,7 @@ func (h *authZHandlers) getRole(params authz.GetRoleParams, principal *models.Pr
 		policies = roles[roleID]
 	}
 
-	perms, err := conv.PoliciesToPermission(policies...)
+	perms, err := conv.PoliciesToPermission(h.logger, policies...)
 	if err != nil {
 		return authz.NewGetRoleBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("PoliciesToPermission: %w", err)))
 	}
@@ -978,7 +978,7 @@ func (h *authZHandlers) getRolesForUserDeprecated(params authz.GetRolesForUserDe
 	var authErr error
 	for _, existing := range []map[string][]authorization.Policy{existingRolesDB, existingRolesOIDC} {
 		for roleName, policies := range existing {
-			perms, err := conv.PoliciesToPermission(policies...)
+			perms, err := conv.PoliciesToPermission(h.logger, policies...)
 			if err != nil {
 				return authz.NewGetRolesForUserDeprecatedInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("PoliciesToPermission: %w", err)))
 			}
@@ -1040,7 +1040,7 @@ func (h *authZHandlers) visibleRolesForSubject(ctx context.Context, principal *m
 			continue
 		}
 
-		perms, err := conv.PoliciesToPermission(policies...)
+		perms, err := conv.PoliciesToPermission(h.logger, policies...)
 		if err != nil {
 			return nil, nil, fmt.Errorf("PoliciesToPermission: %w", err)
 		}
