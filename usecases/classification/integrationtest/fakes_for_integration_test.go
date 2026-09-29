@@ -26,6 +26,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -47,6 +48,7 @@ import (
 )
 
 type fakeSchemaGetter struct {
+	local.ClassReader
 	schema     schema.Schema
 	shardState *sharding.State
 }
@@ -112,27 +114,6 @@ func (f *fakeSchemaGetter) OptimisticTenantStatus(_ context.Context, class strin
 func (f *fakeSchemaGetter) ShardFromUUID(class string, uuid []byte) string {
 	ss := f.shardState
 	return ss.Shard("", string(uuid))
-}
-
-func (f *fakeSchemaGetter) Nodes() []string {
-	return []string{"node1"}
-}
-
-func (m *fakeSchemaGetter) NodeName() string {
-	return "node1"
-}
-
-func (m *fakeSchemaGetter) ClusterHealthScore() int {
-	return 0
-}
-
-func (m *fakeSchemaGetter) Statistics() map[string]any {
-	return nil
-}
-
-func (m *fakeSchemaGetter) ResolveParentNodes(_ string, shard string,
-) (map[string]string, error) {
-	return nil, nil
 }
 
 func singleShardState() *sharding.State {
