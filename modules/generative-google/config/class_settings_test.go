@@ -55,11 +55,11 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "happy flow",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"projectId": "projectId",
+					"projectId": "project-id",
 				},
 			},
 			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
-			wantProjectID:   "projectId",
+			wantProjectID:   "project-id",
 			wantModelID:     "chat-bison",
 			wantErr:         nil,
 		},
@@ -104,6 +104,15 @@ func Test_classSettings_Validate(t *testing.T) {
 				},
 			},
 			wantErr: errors.Errorf("region must be a Google region name, got \"attacker.example.com/\""),
+		},
+		{
+			name: "projectId carrying a path",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"projectId": "my-project/locations/x",
+				},
+			},
+			wantErr: errors.Errorf("projectId must be a Google Cloud project ID or project number, got \"my-project/locations/x\""),
 		},
 		{
 			name: "wrong temperature",

@@ -78,6 +78,9 @@ func (v *google) vectorize(ctx context.Context,
 	if err := modulecomponents.ValidateGoogleLocation("location", config.Location); err != nil {
 		return nil, err
 	}
+	if err := modulecomponents.ValidateGoogleProjectID(config.ProjectID); err != nil {
+		return nil, err
+	}
 
 	var textEmbeddings [][]float32
 	var imageEmbeddings [][]float32

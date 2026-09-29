@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"reflect"
 	"slices"
@@ -586,6 +587,16 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 
 		if err := validateImmutableFields(initial, updated, h.parser.modules); err != nil {
 			return err
+		}
+
+		if err := h.parser.validateNoModuleUnderAnotherName(initial, updated); err != nil {
+			return err
+		}
+
+		for _, changed := range mutableVectorizerChanges(h.parser.modules, initial, updated) {
+			if err := h.moduleConfig.ValidateModuleConfig(ctx, updated, changed.module, changed.targetVector); err != nil {
+				return err
+			}
 		}
 	}
 	// A nil sharding state means that the sharding state will not be updated.
@@ -1744,12 +1755,17 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 		updated.VectorConfig[k] = v
 
 		if !deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+			if onlyMutableVectorizerSettingsChanged(modulesProvider, initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+				continue
+			}
+
 			// There might be module settings that need to be migrated to new names, for example
 			// if baseUrl property setting was renamed to baseURL then we need to adjust module settings
 			// and migrate baseUrl to baseURL
-			if modulesProvider.MigrateVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+			initialVectorizer := cloneSettings(initial.VectorConfig[k].Vectorizer)
+			if modulesProvider.MigrateVectorizerSettings(initialVectorizer, v.Vectorizer) {
 				// Module settings have been migrated, let's recheck vectorizer settings
-				if deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+				if deepEqualVectorizerSettings(initialVectorizer, v.Vectorizer) {
 					continue
 				}
 			}
@@ -1782,6 +1798,64 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 
 func deepEqualVectorizerSettings(initial, updated any) bool {
 	return reflect.DeepEqual(structToMap(initial), structToMap(updated))
+}
+
+func onlyMutableSettingsChanged(modulesProvider modulesProvider, module string, initial, updated any) bool {
+	initialSettings, updatedSettings := structToMap(initial), structToMap(updated)
+	if initialSettings == nil || updatedSettings == nil || reflect.DeepEqual(initialSettings, updatedSettings) {
+		return false
+	}
+	mutable := modulesProvider.MutableVectorizerSettings(module, initialSettings, updatedSettings)
+	if len(mutable) == 0 {
+		return false
+	}
+	for _, setting := range mutable {
+		delete(initialSettings, setting)
+		delete(updatedSettings, setting)
+	}
+	return reflect.DeepEqual(initialSettings, updatedSettings)
+}
+
+func vectorizerModuleSettings(vectorizer any) (string, any, bool) {
+	byModule := structToMap(vectorizer)
+	if len(byModule) != 1 {
+		return "", nil, false
+	}
+	module := slices.Collect(maps.Keys(byModule))[0]
+	return module, byModule[module], true
+}
+
+func onlyMutableVectorizerSettingsChanged(modulesProvider modulesProvider, initial, updated any) bool {
+	module, initialSettings, ok := vectorizerModuleSettings(initial)
+	updatedModule, updatedSettings, updatedOk := vectorizerModuleSettings(updated)
+	return ok && updatedOk && module == updatedModule &&
+		onlyMutableSettingsChanged(modulesProvider, module, initialSettings, updatedSettings)
+}
+
+type vectorizerConfigRef struct {
+	module       string
+	targetVector string // empty for the class-level config
+}
+
+func mutableVectorizerChanges(modulesProvider modulesProvider, initial, updated *models.Class) []vectorizerConfigRef {
+	var changes []vectorizerConfigRef
+	for name, vectorConfig := range updated.VectorConfig {
+		initialConfig, ok := initial.VectorConfig[name]
+		if !ok || !onlyMutableVectorizerSettingsChanged(modulesProvider, initialConfig.Vectorizer, vectorConfig.Vectorizer) {
+			continue
+		}
+		module, _, _ := vectorizerModuleSettings(vectorConfig.Vectorizer)
+		changes = append(changes, vectorizerConfigRef{module: module, targetVector: name})
+	}
+
+	initialModuleConfig := structToMap(initial.ModuleConfig)
+	for module, settings := range structToMap(updated.ModuleConfig) {
+		initialSettings, ok := initialModuleConfig[module]
+		if ok && onlyMutableSettingsChanged(modulesProvider, module, initialSettings, settings) {
+			changes = append(changes, vectorizerConfigRef{module: module})
+		}
+	}
+	return changes
 }
 
 func structToMap(obj any) (objMap map[string]any) {
@@ -1833,4 +1907,24 @@ func validateLegacyVectorIndexConfigImmutableFields(initial, updated *models.Cla
 			accessor: func(c *models.Class) string { return c.VectorIndexType },
 		},
 	}...)
+}
+
+// cloneSettings deep-copies module settings so migrating them never writes into the stored class.
+func cloneSettings(settings any) any {
+	switch settings := settings.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(settings))
+		for k, v := range settings {
+			out[k] = cloneSettings(v)
+		}
+		return out
+	case []any:
+		out := make([]any, len(settings))
+		for i, v := range settings {
+			out[i] = cloneSettings(v)
+		}
+		return out
+	default:
+		return settings
+	}
 }

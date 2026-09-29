@@ -18,6 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -308,6 +309,14 @@ func (m fakeModulesProvider) HasModule(name string) bool {
 
 func (m fakeModulesProvider) MigrateVectorizerSettings(any, any) bool {
 	return false
+}
+
+func (m fakeModulesProvider) MutableVectorizerSettings(string, map[string]any, map[string]any) []string {
+	return nil
+}
+
+func (m fakeModulesProvider) GetByName(string) modulecapabilities.Module {
+	return nil
 }
 
 func TestParserDefaultShardingCount(t *testing.T) {

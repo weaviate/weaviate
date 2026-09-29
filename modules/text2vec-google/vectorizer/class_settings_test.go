@@ -39,11 +39,11 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "happy flow",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"projectId": "projectId",
+					"projectId": "project-id",
 				},
 			},
 			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
-			wantProjectID:   "projectId",
+			wantProjectID:   "project-id",
 			wantModelID:     "gemini-embedding-001",
 			wantDimensions:  &DefaultDimensions,
 			wantErr:         nil,
@@ -53,13 +53,13 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"apiEndpoint":   "europe-west4-aiplatform.googleapis.com",
-					"projectId":     "projectId",
+					"projectId":     "project-id",
 					"titleProperty": "title",
 					"taskType":      "CODE_RETRIEVAL_QUERY",
 				},
 			},
 			wantApiEndpoint: "europe-west4-aiplatform.googleapis.com",
-			wantProjectID:   "projectId",
+			wantProjectID:   "project-id",
 			wantModelID:     "gemini-embedding-001",
 			wantTitle:       "title",
 			wantTaskType:    "CODE_RETRIEVAL_QUERY",
@@ -70,12 +70,12 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "custom location",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"projectId": "projectId",
+					"projectId": "project-id",
 					"location":  "europe-west1",
 				},
 			},
 			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
-			wantProjectID:   "projectId",
+			wantProjectID:   "project-id",
 			wantModelID:     "gemini-embedding-001",
 			wantLocation:    "europe-west1",
 			wantDimensions:  &DefaultDimensions,
@@ -131,12 +131,12 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "wrong properties",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"projectId": "projectId",
+					"projectId": "project-id",
 				},
 				properties: "wrong-properties",
 			},
 			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
-			wantProjectID:   "projectId",
+			wantProjectID:   "project-id",
 			wantModelID:     "textembedding-gecko@001",
 			wantTaskType:    DefaultTaskType,
 			wantDimensions:  nil,
@@ -147,7 +147,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"apiEndpoint": "attacker.example.com",
-					"projectId":   "projectId",
+					"projectId":   "project-id",
 				},
 			},
 			wantErr: errors.Errorf("apiEndpoint must be a Google API host ending in .googleapis.com, got \"attacker.example.com\""),
@@ -156,17 +156,26 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "location carrying a host",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"projectId": "projectId",
+					"projectId": "project-id",
 					"location":  "attacker.example.com/",
 				},
 			},
 			wantErr: errors.Errorf("location must be a Google region name, got \"attacker.example.com/\""),
 		},
 		{
+			name: "projectId carrying a path",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"projectId": "my-project/locations/x",
+				},
+			},
+			wantErr: errors.Errorf("projectId must be a Google Cloud project ID or project number, got \"my-project/locations/x\""),
+		},
+		{
 			name: "wrong taskType",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"projectId": "projectId",
+					"projectId": "project-id",
 					"taskType":  "wrong-task-type",
 				},
 			},
@@ -206,4 +215,78 @@ func wantOrDefault(value, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func TestMutableSettings(t *testing.T) {
+	endpointSettings := []string{"apiEndpoint", "projectId", "location"}
+	aiStudio := map[string]interface{}{"apiEndpoint": DefaultAIStudioEndpoint}
+	vertex := func(setting ...interface{}) map[string]interface{} {
+		settings := map[string]interface{}{"apiEndpoint": DefaultApiEndpoint, "projectId": "project"}
+		if len(setting) == 2 {
+			settings[setting[0].(string)] = setting[1]
+		}
+		return settings
+	}
+
+	tests := []struct {
+		name        string
+		current     map[string]interface{}
+		updated     map[string]interface{}
+		wantMutable []string
+	}{
+		{
+			name:        "gemini-embedding-001 on both sides",
+			current:     map[string]interface{}{"apiEndpoint": DefaultAIStudioEndpoint, "model": "gemini-embedding-001"},
+			updated:     vertex("model", "gemini-embedding-001"),
+			wantMutable: endpointSettings,
+		},
+		{name: "default model on both sides", current: aiStudio, updated: vertex(), wantMutable: endpointSettings},
+		{name: "default model on one side, gemini-embedding-001 on the other", current: aiStudio, updated: vertex("model", "gemini-embedding-001"), wantMutable: endpointSettings},
+		{
+			name:    "same other model on both sides",
+			current: map[string]interface{}{"apiEndpoint": DefaultAIStudioEndpoint, "model": "text-embedding-004"},
+			updated: vertex("model", "text-embedding-004"),
+		},
+		{name: "other model on the updated side", current: aiStudio, updated: vertex("model", "text-embedding-005")},
+		{name: "other model set through modelId", current: aiStudio, updated: vertex("modelId", "text-embedding-005")},
+		{
+			name:        "gemini-embedding-001 set through modelId on both sides",
+			current:     map[string]interface{}{"apiEndpoint": DefaultAIStudioEndpoint, "modelId": "gemini-embedding-001", "dimensions": 1536},
+			updated:     map[string]interface{}{"apiEndpoint": DefaultApiEndpoint, "projectId": "project", "location": "us-central1", "modelId": "gemini-embedding-001", "dimensions": 1536},
+			wantMutable: endpointSettings,
+		},
+		{
+			name:    "same other model set through modelId on both sides",
+			current: map[string]interface{}{"apiEndpoint": DefaultAIStudioEndpoint, "modelId": "text-embedding-004"},
+			updated: vertex("modelId", "text-embedding-004"),
+		},
+		{
+			name:        "same explicit dimensions on both sides",
+			current:     map[string]interface{}{"apiEndpoint": DefaultAIStudioEndpoint, "dimensions": 1536},
+			updated:     vertex("dimensions", 1536),
+			wantMutable: endpointSettings,
+		},
+		{
+			name:        "explicit dimensions equal to the default on one side",
+			current:     map[string]interface{}{"apiEndpoint": DefaultAIStudioEndpoint, "dimensions": 768},
+			updated:     vertex(),
+			wantMutable: endpointSettings,
+		},
+		{
+			name:    "explicit dimensions on one side, default on the other",
+			current: map[string]interface{}{"apiEndpoint": DefaultAIStudioEndpoint, "dimensions": 1536},
+			updated: vertex(),
+		},
+		{
+			name:    "different explicit dimensions",
+			current: map[string]interface{}{"apiEndpoint": DefaultAIStudioEndpoint, "dimensions": 1536},
+			updated: vertex("dimensions", 3072),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := MutableSettings(fakeClassConfig{classConfig: tt.current}, fakeClassConfig{classConfig: tt.updated})
+			assert.ElementsMatch(t, tt.wantMutable, got)
+		})
+	}
 }

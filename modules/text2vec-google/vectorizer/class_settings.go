@@ -54,6 +54,28 @@ var defaultModelDimensions = map[string]*int64{
 	"gemini-embedding-001": &DefaultDimensions,
 }
 
+// modelOnBothAPIs is the only model AI Studio and Vertex AI both serve with identical vectors.
+const modelOnBothAPIs = "gemini-embedding-001"
+
+// MutableSettings returns the settings that select the Google API and project.
+func MutableSettings(current, updated moduletools.ClassConfig) []string {
+	currentSettings, updatedSettings := NewClassSettings(current), NewClassSettings(updated)
+	if currentSettings.Model() != modelOnBothAPIs || updatedSettings.Model() != modelOnBothAPIs {
+		return nil
+	}
+	if !sameDimensions(currentSettings.Dimensions(), updatedSettings.Dimensions()) {
+		return nil
+	}
+	return []string{apiEndpointProperty, projectIDProperty, locationProperty}
+}
+
+func sameDimensions(current, updated *int64) bool {
+	if current == nil || updated == nil {
+		return current == updated
+	}
+	return *current == *updated
+}
+
 var availableTaskTypes = []string{
 	DefaultTaskType,
 	"QUESTION_ANSWERING",
@@ -87,6 +109,9 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		errorMessages = append(errorMessages, err.Error())
 	}
 	if err := modulecomponents.ValidateGoogleLocation(locationProperty, ic.Location()); err != nil {
+		errorMessages = append(errorMessages, err.Error())
+	}
+	if err := modulecomponents.ValidateGoogleProjectID(ic.ProjectID()); err != nil {
 		errorMessages = append(errorMessages, err.Error())
 	}
 	if apiEndpoint != DefaultAIStudioEndpoint {

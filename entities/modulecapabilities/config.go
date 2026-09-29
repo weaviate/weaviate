@@ -71,3 +71,9 @@ type MigrateProperty struct {
 type MigrateProperties interface {
 	MigrateProperties() []MigrateProperty
 }
+
+// MutableVectorizerSettings returns the settings that may change on an existing collection
+// without changing its vectors.
+type MutableVectorizerSettings interface {
+	MutableVectorizerSettings(current, updated moduletools.ClassConfig) []string
+}
