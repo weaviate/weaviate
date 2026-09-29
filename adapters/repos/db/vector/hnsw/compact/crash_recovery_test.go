@@ -1137,7 +1137,8 @@ func TestCrashRecovery_CompactedGarbageTailIsNeverApplied(t *testing.T) {
 		name string
 		tail []byte
 		// sortedOnly marks tails that are only detectable in .sorted files: the
-		// legacy condensed layout writes the entrypoint after the node records.
+		// legacy condensed layout writes nodes in descending order and the
+		// entrypoint after them.
 		sortedOnly bool
 	}{
 		{name: "reset then unknown type", tail: []byte{byte(ResetIndex), 0xFF}},
@@ -1149,6 +1150,9 @@ func TestCrashRecovery_CompactedGarbageTailIsNeverApplied(t *testing.T) {
 		{name: "BRQ record", tail: brqRecord},
 		{name: "muvera record", tail: walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteAddMuvera(corruptTailMuvera())) })},
 		{name: "entrypoint record", tail: walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteSetEntryPointMaxLevel(0, 0)) }), sortedOnly: true},
+		// Zeroed blocks decode as AddNode(0, 0) records.
+		{name: "zero-filled block", tail: make([]byte, 512), sortedOnly: true},
+		{name: "lower node ID record", tail: walBytes(t, func(w *WALWriter) { require.NoError(t, w.WriteAddNode(0, 3)) }), sortedOnly: true},
 	}
 
 	for _, fileType := range []FileType{FileTypeSorted, FileTypeCondensed} {

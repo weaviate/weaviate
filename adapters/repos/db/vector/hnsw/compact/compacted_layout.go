@@ -18,19 +18,20 @@ import "github.com/pkg/errors"
 // before it is applied (weaviate/0-weaviate-issues#666):
 //
 //   - .sorted (SortedWriter, n-way merge): compression records (PQ, SQ, RQ, BRQ
-//     order), muvera, entrypoint, then node records.
+//     order), muvera, entrypoint, then node records in ascending node ID.
 //   - .condensed (legacy MemoryCondensor): compression, muvera, node records;
 //     the entrypoint follows the node records.
 //
 // Neither ever contains a ResetIndex: it is consumed when a raw file is
 // converted. Garbage that happens to decode as in-place node records is not
-// caught here.
+// caught here; a zeroed block decodes as AddNode(0) and is caught in .sorted.
 type compactedLayout struct {
 	fileType        FileType
 	nodesStarted    bool
 	muveraSeen      bool
 	entrypointSeen  bool
 	lastCompression int
+	lastNodeID      uint64
 }
 
 func (l *compactedLayout) check(c Commit) error {
@@ -54,6 +55,13 @@ func (l *compactedLayout) check(c Commit) error {
 		}
 		l.entrypointSeen = true
 	default:
+		id, ok := extractNodeID(c)
+		if ok && l.fileType == FileTypeSorted {
+			if l.nodesStarted && id < l.lastNodeID {
+				return errors.Errorf("%s record for node %d after node %d in sorted segment", c.Type(), id, l.lastNodeID)
+			}
+			l.lastNodeID = id
+		}
 		l.nodesStarted = true
 	}
 	return nil
