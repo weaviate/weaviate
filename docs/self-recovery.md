@@ -29,7 +29,7 @@ transfer type and reject it). Same caveat as `REPLICA_MOVEMENT_ENABLED`.
 | Surface | Signal |
 |---|---|
 | `GET /nodes?output=verbose` | shard reports `status: "RECOVERING"`, `loaded: false` |
-| `GET /replication/replicate/list?targetNode=<self>` | in-flight `SELF_RECOVERY` op with state `REGISTERED`/`HYDRATING`/`FINALIZING`/`READY` |
+| `GET /replication/replicate/list?targetNode=<self>` | in-flight `SELF_RECOVERY` op with state `REGISTERED`/`HYDRATING`/`FINALIZING`/`INTEGRATING`/`READY`; `uncancelable: true` from FINALIZING on |
 | `/metrics` (Prometheus) | series listed below |
 | Structured logs | `event=self_recovery.{started\|peer_probe\|op_registered\|completed\|failed\|empty_fallback\|accept_empty\|restart}` |
 
@@ -258,6 +258,18 @@ built in one pass at the end of catch-up). Schema replay is fast and the
 freshly-rejoined node is not yet in the read rotation for its shards;
 the window is the same order as the pre-existing "Ready during replay"
 behavior.
+
+**A donor restart after the promote leaves the op in FINALIZING
+indefinitely.** A restart sweeps the donor's change-capture log, so every
+FINALIZING retry fails at the change-log LSN snapshot with `no active
+change-capture log`. The op is uncancellable by then, so it never
+auto-cancels and never advances: the target stays unrouted (no stale reads),
+the orchestrator keeps polling (`weaviate_self_recovery_in_progress` stays
+up, nothing lands in `completed_total` or `giveup_total`), the op's
+`status.errors` fills up to 50 and each further error's RAFT apply fails
+with `cancellation impossible`. Cancel and delete answer `409`, `restart`
+answers `409` (live dir exists), `accept-empty` answers `409` (op in
+flight). There is no in-product way out yet.
 
 **A `RecoveringShard` panics if a non-routed code path touches it.**
 While a shard is `RECOVERING`, an in-memory `RecoveringShard` wrapper
