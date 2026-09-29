@@ -69,6 +69,9 @@ const AsyncCheckpointMaxShardsPerRequest = 10_000
 const (
 	NodeNotReadyMsg       = "node not ready"
 	LocalIndexNotReadyMsg = "local index not ready"
+
+	// hostCircuitOpenMsg is what the client says instead of contacting a host whose breaker is open
+	hostCircuitOpenMsg = "circuit breaker"
 )
 
 // defaultRequestBudget bounds a replicated read, pull and repair, when the caller set no deadline
@@ -91,11 +94,11 @@ func replicaUnavailable(err error) bool {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return true
 	}
-	if errors.Is(err, ErrHostCircuitOpen) { // the client refused to contact it, so it never rejected anything
-		return true
-	}
 	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, NodeNotReadyMsg) || strings.Contains(msg, LocalIndexNotReadyMsg)
+	// the breaker refusal is matched by message like the readiness gates: its sentinel lives in
+	// adapters/clients, which imports this package
+	return strings.Contains(msg, NodeNotReadyMsg) || strings.Contains(msg, LocalIndexNotReadyMsg) ||
+		strings.Contains(msg, hostCircuitOpenMsg)
 }
 
 // AsyncReplicationSkipReason returns the skip-metric label for a retry-later error.

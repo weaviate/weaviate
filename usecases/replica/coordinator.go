@@ -416,11 +416,10 @@ func (c *coordinator[T, any]) Pull(ctx context.Context,
 	return replyCh, level, nil
 }
 
-// hostRetry is a replica, how many times it has failed in this read, and whether its breaker may still refuse it
+// hostRetry is a replica and how many times it has failed in this read
 type hostRetry struct {
-	host          string
-	attempt       int
-	ignoreBreaker bool
+	host    string
+	attempt int
 }
 
 // pullRetryDelay is the jittered exponential delay before a replica is read again after attempt failures
@@ -461,11 +460,7 @@ func (c *coordinator[T, any]) pullWorker(ctx context.Context,
 					return
 				}
 			}
-			attemptCtx := workerCtx
-			if hr.ignoreBreaker {
-				attemptCtx = WithoutHostBreaker(attemptCtx)
-			}
-			resp, err := op(attemptCtx, hr.host, fullRead)
+			resp, err := op(workerCtx, hr.host, fullRead)
 			select {
 			case attempts <- hostResult[T]{hr, resp, err}:
 			case <-workerCtx.Done():
@@ -509,10 +504,7 @@ func (c *coordinator[T, any]) pullWorker(ctx context.Context,
 			lastResp, lastErr = res.resp, res.err
 
 			startIdleReplica()
-			next := hostRetry{host: res.host, attempt: res.attempt + 1}
-			// an open breaker costs this read a replica, never the read itself: once no other one is left, ignore it
-			next.ignoreBreaker = errors.Is(res.err, ErrHostCircuitOpen) && len(retryQueue) == 0
-			start(next, pullRetryDelay(res.attempt))
+			start(hostRetry{host: res.host, attempt: res.attempt + 1}, pullRetryDelay(res.attempt))
 
 		case <-hedge.C:
 			startIdleReplica()
