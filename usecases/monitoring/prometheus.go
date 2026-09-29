@@ -63,6 +63,7 @@ type PrometheusMetrics struct {
 	ObjectCount                         *prometheus.GaugeVec
 	QueriesCount                        *prometheus.GaugeVec
 	RequestsTotal                       *prometheus.GaugeVec
+	ConsistencyLevelRequests            *prometheus.CounterVec
 	QueriesDurations                    *prometheus.HistogramVec
 	QueriesFilteredVectorDurations      *prometheus.SummaryVec
 	QueryDimensions                     *prometheus.CounterVec
@@ -507,6 +508,11 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "requests_total",
 			Help: "Number of all requests made",
 		}, []string{"status", "class_name", "api", "query_type"}),
+
+		ConsistencyLevelRequests: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "weaviate_consistency_level_requests_total",
+			Help: "Number of API requests by operation and requested consistency level (UNSET when none was given)",
+		}, []string{"operation", "consistency_level"}),
 
 		QueriesDurations: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "queries_durations_ms",
@@ -1045,6 +1051,20 @@ func (m *PrometheusMetrics) initObjectsTtl() error {
 	}
 
 	return nil
+}
+
+const (
+	ConsistencyLevelRead  = "read"
+	ConsistencyLevelWrite = "write"
+)
+
+// IncConsistencyLevelRequest counts one API request that accepts a consistency
+// level. An empty level is counted as UNSET.
+func (m *PrometheusMetrics) IncConsistencyLevelRequest(operation, level string) {
+	if level == "" {
+		level = "UNSET"
+	}
+	m.ConsistencyLevelRequests.WithLabelValues(operation, level).Inc()
 }
 
 func (m *PrometheusMetrics) IncRangeableInMemoryRebuildDegraded(className, shardName, propName string) {
