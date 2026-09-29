@@ -622,6 +622,7 @@ func TestQualifyPropertyDataTypes(t *testing.T) {
 		name              string
 		principal         *models.Principal
 		namespacesEnabled bool
+		className         string
 		in                []*models.Property
 		want              []*models.Property
 		wantErrSubstr     string
@@ -630,6 +631,7 @@ func TestQualifyPropertyDataTypes(t *testing.T) {
 			name:              "namespaced principal qualifies short cross-ref",
 			principal:         namespacedPrincipal,
 			namespacesEnabled: true,
+			className:         "customer1:Zoo",
 			in:                []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
 			want:              []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
 		},
@@ -637,6 +639,7 @@ func TestQualifyPropertyDataTypes(t *testing.T) {
 			name:              "multi-target refs all qualified",
 			principal:         namespacedPrincipal,
 			namespacesEnabled: true,
+			className:         "customer1:Zoo",
 			in:                []*models.Property{{Name: "related", DataType: []string{"Movies", "Books"}}},
 			want:              []*models.Property{{Name: "related", DataType: []string{"customer1:Movies", "customer1:Books"}}},
 		},
@@ -644,6 +647,7 @@ func TestQualifyPropertyDataTypes(t *testing.T) {
 			name:              "primitive DataType passes through",
 			principal:         namespacedPrincipal,
 			namespacesEnabled: true,
+			className:         "customer1:Zoo",
 			in:                []*models.Property{{Name: "title", DataType: []string{"text"}}},
 			want:              []*models.Property{{Name: "title", DataType: []string{"text"}}},
 		},
@@ -651,6 +655,7 @@ func TestQualifyPropertyDataTypes(t *testing.T) {
 			name:              "nested object DataType passes through",
 			principal:         namespacedPrincipal,
 			namespacesEnabled: true,
+			className:         "customer1:Zoo",
 			in: []*models.Property{
 				{Name: "meta", DataType: []string{"object"}},
 				{Name: "metas", DataType: []string{"object[]"}},
@@ -664,6 +669,7 @@ func TestQualifyPropertyDataTypes(t *testing.T) {
 			name:              "already-qualified own-namespace rejected",
 			principal:         namespacedPrincipal,
 			namespacesEnabled: true,
+			className:         "customer1:Zoo",
 			in:                []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
 			wantErrSubstr:     "not a valid class name",
 		},
@@ -671,27 +677,79 @@ func TestQualifyPropertyDataTypes(t *testing.T) {
 			name:              "already-qualified foreign-namespace rejected",
 			principal:         namespacedPrincipal,
 			namespacesEnabled: true,
+			className:         "customer1:Zoo",
 			in:                []*models.Property{{Name: "watched", DataType: []string{"customer2:Movies"}}},
 			wantErrSubstr:     "not a valid class name",
 		},
 		{
-			name:              "global principal passes through",
+			name:              "global principal keeps a target in the class's namespace",
 			principal:         globalPrincipal,
 			namespacesEnabled: true,
+			className:         "customer1:Zoo",
 			in:                []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
 			want:              []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
 		},
 		{
-			name:              "nil principal passes through",
-			principal:         nil,
+			name:              "global principal short target gets the class's namespace",
+			principal:         globalPrincipal,
 			namespacesEnabled: true,
+			className:         "customer1:Zoo",
+			in:                []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
+			want:              []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+		},
+		{
+			name:              "global principal target in another namespace rejected",
+			principal:         globalPrincipal,
+			namespacesEnabled: true,
+			className:         "customer1:Zoo",
+			in:                []*models.Property{{Name: "watched", DataType: []string{"customer2:Movies"}}},
+			wantErrSubstr:     "'customer2:Movies' is not a valid class name",
+		},
+		{
+			name:              "global principal one of several targets in another namespace rejected",
+			principal:         globalPrincipal,
+			namespacesEnabled: true,
+			className:         "customer1:Zoo",
+			in:                []*models.Property{{Name: "related", DataType: []string{"customer1:Movies", "customer2:Books"}}},
+			wantErrSubstr:     "'customer2:Books' is not a valid class name",
+		},
+		{
+			name:              "global principal malformed namespace prefix rejected",
+			principal:         globalPrincipal,
+			namespacesEnabled: true,
+			className:         "customer1:Zoo",
+			in:                []*models.Property{{Name: "watched", DataType: []string{"Customer1:Movies"}}},
+			wantErrSubstr:     "invalid namespace prefix",
+		},
+		{
+			name:              "global principal on an unnamespaced class keeps a short target",
+			principal:         globalPrincipal,
+			namespacesEnabled: true,
+			className:         "Zoo",
 			in:                []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
 			want:              []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
+		},
+		{
+			name:              "global principal on an unnamespaced class rejects a namespaced target",
+			principal:         globalPrincipal,
+			namespacesEnabled: true,
+			className:         "Zoo",
+			in:                []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
+			wantErrSubstr:     "'customer1:Movies' is not a valid class name",
+		},
+		{
+			name:              "nil principal short target gets the class's namespace",
+			principal:         nil,
+			namespacesEnabled: true,
+			className:         "customer1:Zoo",
+			in:                []*models.Property{{Name: "watched", DataType: []string{"Movies"}}},
+			want:              []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
 		},
 		{
 			name:              "NS disabled passes through",
 			principal:         namespacedPrincipal,
 			namespacesEnabled: false,
+			className:         "Zoo",
 			in:                []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
 			want:              []*models.Property{{Name: "watched", DataType: []string{"customer1:Movies"}}},
 		},
@@ -699,6 +757,7 @@ func TestQualifyPropertyDataTypes(t *testing.T) {
 			name:              "empty DataType slice and nil property no-op",
 			principal:         namespacedPrincipal,
 			namespacesEnabled: true,
+			className:         "customer1:Zoo",
 			in: []*models.Property{
 				nil,
 				{Name: "empty", DataType: []string{}},
@@ -714,6 +773,7 @@ func TestQualifyPropertyDataTypes(t *testing.T) {
 			name:              "mixed primitive and ref in same call",
 			principal:         namespacedPrincipal,
 			namespacesEnabled: true,
+			className:         "customer1:Zoo",
 			in: []*models.Property{
 				{Name: "title", DataType: []string{"text"}},
 				{Name: "watched", DataType: []string{"Movies"}},
@@ -726,7 +786,7 @@ func TestQualifyPropertyDataTypes(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			err := QualifyPropertyDataTypes(tc.principal, tc.namespacesEnabled, tc.in)
+			err := QualifyPropertyDataTypes(tc.principal, tc.namespacesEnabled, tc.className, tc.in)
 			if tc.wantErrSubstr != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.wantErrSubstr)

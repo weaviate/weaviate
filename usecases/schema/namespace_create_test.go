@@ -13,6 +13,7 @@ package schema
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -94,12 +95,14 @@ func globalPrincipal() *models.Principal {
 func TestAddClass(t *testing.T) {
 	t.Parallel()
 	casts := []struct {
-		name       string
-		enabled    bool
-		principal  *models.Principal
-		class      string
-		wantClass  string
-		wantErrMsg string
+		name         string
+		enabled      bool
+		principal    *models.Principal
+		class        string
+		dataType     []string // DataType of a single "ref" property, nil for no properties
+		wantClass    string
+		wantDataType []string
+		wantErrMsg   string
 	}{
 		{
 			name:      "namespaced principal qualifies and persists prefixed class",
@@ -107,6 +110,23 @@ func TestAddClass(t *testing.T) {
 			principal: namespacedPrincipal("customer1"),
 			class:     "Movies",
 			wantClass: "customer1:Movies",
+		},
+		{
+			name:         "namespaced principal's short ref target gets the class's namespace",
+			enabled:      true,
+			principal:    namespacedPrincipal("customer1"),
+			class:        "Movies",
+			dataType:     []string{"Animal"},
+			wantClass:    "customer1:Movies",
+			wantDataType: []string{"customer1:Animal"},
+		},
+		{
+			name:       "namespaced principal's prefixed ref target rejected",
+			enabled:    true,
+			principal:  namespacedPrincipal("customer1"),
+			class:      "Movies",
+			dataType:   []string{"customer2:Animal"},
+			wantErrMsg: "'customer2:Animal' is not a valid class name",
 		},
 		{
 			name:       "global principal rejected on namespaces enabled",
@@ -156,9 +176,18 @@ func TestAddClass(t *testing.T) {
 				VectorIndexConfig: map[string]interface{}{},
 				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 			}
+			if tt.dataType != nil {
+				class.Properties = []*models.Property{{Name: "ref", DataType: tt.dataType}}
+			}
+			for _, target := range []string{"customer1:Animal", "customer2:Animal"} {
+				sm.On("ReadOnlyClass", target).Return(&models.Class{Class: target}).Maybe()
+			}
 
 			if tt.wantClass != "" {
 				sm.On("AddClass", mock.MatchedBy(func(c *models.Class) bool {
+					if tt.wantDataType != nil && (len(c.Properties) != 1 || !slices.Equal(c.Properties[0].DataType, tt.wantDataType)) {
+						return false
+					}
 					return c.Class == tt.wantClass
 				}), mock.Anything).Return(nil)
 			}
@@ -689,9 +718,9 @@ func TestAddAlias(t *testing.T) {
 	}
 }
 
-// TestUpdateClass_QualifiesPropertyDataTypes pins the GET→PUT round-trip:
-// a namespaced caller's stripped cross-ref DataType is qualified before
-// reaching the SchemaManager; foreign-prefix entries are rejected.
+// TestUpdateClass_QualifiesPropertyDataTypes pins the GET→PUT round-trip.
+// A short cross-ref DataType gets the class's namespace before it reaches the
+// SchemaManager, and a target in another namespace is rejected for every caller.
 func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 	t.Parallel()
 
@@ -700,8 +729,10 @@ func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 		enabled       bool
 		principal     *models.Principal
 		storedClass   string
+		storedDT      []string // DataType the stored class holds, nil if wantStoredDT
 		bodyClass     string
 		bodyDataType  []string
+		nilBody       bool
 		wantStoredDT  []string
 		wantErrSubstr string
 	}{
@@ -742,6 +773,59 @@ func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 			wantStoredDT: []string{"text"},
 		},
 		{
+			name:         "global: short cross-ref DataType gets the class's namespace",
+			enabled:      true,
+			principal:    globalPrincipal(),
+			storedClass:  "customer1:Movies",
+			bodyClass:    "customer1:Movies",
+			bodyDataType: []string{"Other"},
+			wantStoredDT: []string{"customer1:Other"},
+		},
+		{
+			name:         "global: cross-ref DataType in the class's namespace kept",
+			enabled:      true,
+			principal:    globalPrincipal(),
+			storedClass:  "customer1:Movies",
+			bodyClass:    "customer1:Movies",
+			bodyDataType: []string{"customer1:Other"},
+			wantStoredDT: []string{"customer1:Other"},
+		},
+		{
+			name:          "global: foreign-namespace ref DataType rejected",
+			enabled:       true,
+			principal:     globalPrincipal(),
+			storedClass:   "customer1:Movies",
+			bodyClass:     "customer1:Movies",
+			bodyDataType:  []string{"customer2:Other"},
+			wantErrSubstr: "'customer2:Other' is not a valid class name",
+		},
+		{
+			name:          "global: stored foreign-namespace ref DataType sent back unchanged rejected",
+			enabled:       true,
+			principal:     globalPrincipal(),
+			storedClass:   "customer1:Movies",
+			storedDT:      []string{"customer2:Other"},
+			bodyClass:     "customer1:Movies",
+			bodyDataType:  []string{"customer2:Other"},
+			wantErrSubstr: "'customer2:Other' is not a valid class name",
+		},
+		{
+			name:        "global: nil body returns without reaching SchemaManager",
+			enabled:     true,
+			principal:   globalPrincipal(),
+			storedClass: "customer1:Movies",
+			bodyClass:   "customer1:Movies",
+			nilBody:     true,
+		},
+		{
+			name:        "namespaced: nil body returns without reaching SchemaManager",
+			enabled:     true,
+			principal:   namespacedPrincipal("customer1"),
+			storedClass: "customer1:Movies",
+			bodyClass:   "Movies",
+			nilBody:     true,
+		},
+		{
 			name:         "NS disabled: qualifier is a no-op, body passes through verbatim",
 			enabled:      false,
 			principal:    nil,
@@ -757,13 +841,17 @@ func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 			t.Parallel()
 			handler, sm := newTestHandlerWithNamespaces(t, tt.enabled)
 
+			storedDT := tt.storedDT
+			if storedDT == nil {
+				storedDT = tt.wantStoredDT
+			}
 			stored := &models.Class{
 				Class:             tt.storedClass,
 				Vectorizer:        "model1",
 				VectorIndexConfig: map[string]interface{}{},
 				ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				Properties: []*models.Property{
-					{Name: "watched", DataType: tt.wantStoredDT},
+					{Name: "watched", DataType: storedDT},
 				},
 			}
 			sm.On("ReadOnlyClass", tt.storedClass).Return(stored).Maybe()
@@ -784,10 +872,18 @@ func TestUpdateClass_QualifiesPropertyDataTypes(t *testing.T) {
 					{Name: "watched", DataType: tt.bodyDataType},
 				},
 			}
+			if tt.nilBody {
+				body = nil
+			}
 
 			err := handler.UpdateClass(context.Background(), tt.principal, tt.bodyClass, body)
+			if tt.nilBody {
+				require.NoError(t, err)
+				require.Nil(t, captured, "SchemaManager.UpdateClass must not be called without a body")
+				return
+			}
 			if tt.wantErrSubstr != "" {
-				require.Error(t, err)
+				require.ErrorIs(t, err, ErrValidation)
 				assert.Contains(t, err.Error(), tt.wantErrSubstr)
 				require.Nil(t, captured, "SchemaManager.UpdateClass must not be called on rejected body")
 				return

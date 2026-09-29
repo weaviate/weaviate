@@ -186,6 +186,13 @@ func (s *Shard) mergeObjectInStorage(ctx context.Context, merge objects.MergeDoc
 		// a dropped one must not be re-persisted into a new segment.
 		stripDroppedVectors(class, obj)
 
+		// the merged object carries the stored version's vectors: a missing
+		// index fails the merge here, before it is stored, as for a put
+		err = s.requireVectorIndexes(obj.Vectors, obj.MultiVectors, obj.Vector)
+		if err != nil {
+			return err
+		}
+
 		status, err = s.determineInsertStatus(prevObj, obj)
 		if err != nil {
 			return errors.Wrap(err, "check insert/update status")

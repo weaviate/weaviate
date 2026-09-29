@@ -165,7 +165,7 @@ func TestCompareHammingDistanceImplementations(t *testing.T) {
 				resControl := HammingDistanceGo(vec1s[i], vec2s[i])
 
 				if resControl != res {
-					t.Fatalf("run %d: match: %f != %f, %d\n", i, resControl, res, unsafe.Pointer(&vec1s[i][0]))
+					t.Fatalf("run %d: match: %f != %f, %p\n", i, resControl, res, unsafe.Pointer(&vec1s[i][0]))
 				}
 			}
 		})
