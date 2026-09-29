@@ -67,9 +67,10 @@ func newObjectCountObserver(indices ...*Index) (*nodeWideMetricsObserver, *DB, p
 		byName[index.ID()] = index
 	}
 	db := &DB{
-		logger:      logger,
-		indices:     byName,
-		promMetrics: &monitoring.PrometheusMetrics{ObjectCount: gaugeVec},
+		localNodeName: "node1",
+		logger:        logger,
+		indices:       byName,
+		promMetrics:   &monitoring.PrometheusMetrics{ObjectCount: gaugeVec},
 	}
 	return newNodeWideMetricsObserver(db), db, gauge
 }

@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	clustermocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
@@ -682,15 +683,13 @@ func newTestTelemeter(t *testing.T, opts ...telemetryOpt,
 ) {
 	sg := &fakeNodesStatusGetter{}
 	sm := schemaUC.NewMockSchemaGetter(t)
-	// Mirror the previous hand-written fake's default: a single node unless a
-	// test overrides it, so nodeCount assertions stay at 1 by default.
-	sm.EXPECT().Nodes().Return([]string{"node1"}).Maybe()
 	logger, _ := test.NewNullLogger()
 	// stubClusterID returns a fixed id so payloads carry clusterId in tests.
 	stubClusterID := func() string {
 		return "00000000-0000-7000-0000-000000000001"
 	}
-	tel := New(sg, sm, logger, "", 0, false, Config{ClusterID: stubClusterID})
+	// A single node by default, so nodeCount assertions stay at 1.
+	tel := New(sg, sm, clustermocks.NewMockNodeSelector("node1"), logger, "", 0, false, Config{ClusterID: stubClusterID})
 	for _, opt := range opts {
 		opt(tel)
 	}

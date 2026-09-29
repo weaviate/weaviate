@@ -35,51 +35,6 @@ func (_m *MockSchemaGetter) EXPECT() *MockSchemaGetter_Expecter {
 	return &MockSchemaGetter_Expecter{mock: &_m.Mock}
 }
 
-// ClusterHealthScore provides a mock function with no fields
-func (_m *MockSchemaGetter) ClusterHealthScore() int {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for ClusterHealthScore")
-	}
-
-	var r0 int
-	if rf, ok := ret.Get(0).(func() int); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(int)
-	}
-
-	return r0
-}
-
-// MockSchemaGetter_ClusterHealthScore_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ClusterHealthScore'
-type MockSchemaGetter_ClusterHealthScore_Call struct {
-	*mock.Call
-}
-
-// ClusterHealthScore is a helper method to define mock.On call
-func (_e *MockSchemaGetter_Expecter) ClusterHealthScore() *MockSchemaGetter_ClusterHealthScore_Call {
-	return &MockSchemaGetter_ClusterHealthScore_Call{Call: _e.mock.On("ClusterHealthScore")}
-}
-
-func (_c *MockSchemaGetter_ClusterHealthScore_Call) Run(run func()) *MockSchemaGetter_ClusterHealthScore_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockSchemaGetter_ClusterHealthScore_Call) Return(_a0 int) *MockSchemaGetter_ClusterHealthScore_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockSchemaGetter_ClusterHealthScore_Call) RunAndReturn(run func() int) *MockSchemaGetter_ClusterHealthScore_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // GetAliasesForClass provides a mock function with given fields: class
 func (_m *MockSchemaGetter) GetAliasesForClass(class string) []*models.Alias {
 	ret := _m.Called(class)
@@ -169,98 +124,6 @@ func (_c *MockSchemaGetter_GetSchemaSkipAuth_Call) Return(_a0 entitiesschema.Sch
 }
 
 func (_c *MockSchemaGetter_GetSchemaSkipAuth_Call) RunAndReturn(run func() entitiesschema.Schema) *MockSchemaGetter_GetSchemaSkipAuth_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// NodeName provides a mock function with no fields
-func (_m *MockSchemaGetter) NodeName() string {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for NodeName")
-	}
-
-	var r0 string
-	if rf, ok := ret.Get(0).(func() string); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Get(0).(string)
-	}
-
-	return r0
-}
-
-// MockSchemaGetter_NodeName_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'NodeName'
-type MockSchemaGetter_NodeName_Call struct {
-	*mock.Call
-}
-
-// NodeName is a helper method to define mock.On call
-func (_e *MockSchemaGetter_Expecter) NodeName() *MockSchemaGetter_NodeName_Call {
-	return &MockSchemaGetter_NodeName_Call{Call: _e.mock.On("NodeName")}
-}
-
-func (_c *MockSchemaGetter_NodeName_Call) Run(run func()) *MockSchemaGetter_NodeName_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockSchemaGetter_NodeName_Call) Return(_a0 string) *MockSchemaGetter_NodeName_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockSchemaGetter_NodeName_Call) RunAndReturn(run func() string) *MockSchemaGetter_NodeName_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// Nodes provides a mock function with no fields
-func (_m *MockSchemaGetter) Nodes() []string {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for Nodes")
-	}
-
-	var r0 []string
-	if rf, ok := ret.Get(0).(func() []string); ok {
-		r0 = rf()
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).([]string)
-		}
-	}
-
-	return r0
-}
-
-// MockSchemaGetter_Nodes_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Nodes'
-type MockSchemaGetter_Nodes_Call struct {
-	*mock.Call
-}
-
-// Nodes is a helper method to define mock.On call
-func (_e *MockSchemaGetter_Expecter) Nodes() *MockSchemaGetter_Nodes_Call {
-	return &MockSchemaGetter_Nodes_Call{Call: _e.mock.On("Nodes")}
-}
-
-func (_c *MockSchemaGetter_Nodes_Call) Run(run func()) *MockSchemaGetter_Nodes_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockSchemaGetter_Nodes_Call) Return(_a0 []string) *MockSchemaGetter_Nodes_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockSchemaGetter_Nodes_Call) RunAndReturn(run func() []string) *MockSchemaGetter_Nodes_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -416,65 +279,6 @@ func (_c *MockSchemaGetter_ResolveAlias_Call) Return(_a0 string) *MockSchemaGett
 }
 
 func (_c *MockSchemaGetter_ResolveAlias_Call) RunAndReturn(run func(string) string) *MockSchemaGetter_ResolveAlias_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ResolveParentNodes provides a mock function with given fields: _a0, _a1
-func (_m *MockSchemaGetter) ResolveParentNodes(_a0 string, _a1 string) (map[string]string, error) {
-	ret := _m.Called(_a0, _a1)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ResolveParentNodes")
-	}
-
-	var r0 map[string]string
-	var r1 error
-	if rf, ok := ret.Get(0).(func(string, string) (map[string]string, error)); ok {
-		return rf(_a0, _a1)
-	}
-	if rf, ok := ret.Get(0).(func(string, string) map[string]string); ok {
-		r0 = rf(_a0, _a1)
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(map[string]string)
-		}
-	}
-
-	if rf, ok := ret.Get(1).(func(string, string) error); ok {
-		r1 = rf(_a0, _a1)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockSchemaGetter_ResolveParentNodes_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ResolveParentNodes'
-type MockSchemaGetter_ResolveParentNodes_Call struct {
-	*mock.Call
-}
-
-// ResolveParentNodes is a helper method to define mock.On call
-//   - _a0 string
-//   - _a1 string
-func (_e *MockSchemaGetter_Expecter) ResolveParentNodes(_a0 interface{}, _a1 interface{}) *MockSchemaGetter_ResolveParentNodes_Call {
-	return &MockSchemaGetter_ResolveParentNodes_Call{Call: _e.mock.On("ResolveParentNodes", _a0, _a1)}
-}
-
-func (_c *MockSchemaGetter_ResolveParentNodes_Call) Run(run func(_a0 string, _a1 string)) *MockSchemaGetter_ResolveParentNodes_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(string))
-	})
-	return _c
-}
-
-func (_c *MockSchemaGetter_ResolveParentNodes_Call) Return(_a0 map[string]string, _a1 error) *MockSchemaGetter_ResolveParentNodes_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockSchemaGetter_ResolveParentNodes_Call) RunAndReturn(run func(string, string) (map[string]string, error)) *MockSchemaGetter_ResolveParentNodes_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -638,53 +442,6 @@ func (_c *MockSchemaGetter_ShardReplicas_Call) Return(_a0 []string, _a1 error) *
 }
 
 func (_c *MockSchemaGetter_ShardReplicas_Call) RunAndReturn(run func(string, string) ([]string, error)) *MockSchemaGetter_ShardReplicas_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// Statistics provides a mock function with no fields
-func (_m *MockSchemaGetter) Statistics() map[string]interface{} {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for Statistics")
-	}
-
-	var r0 map[string]interface{}
-	if rf, ok := ret.Get(0).(func() map[string]interface{}); ok {
-		r0 = rf()
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(map[string]interface{})
-		}
-	}
-
-	return r0
-}
-
-// MockSchemaGetter_Statistics_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Statistics'
-type MockSchemaGetter_Statistics_Call struct {
-	*mock.Call
-}
-
-// Statistics is a helper method to define mock.On call
-func (_e *MockSchemaGetter_Expecter) Statistics() *MockSchemaGetter_Statistics_Call {
-	return &MockSchemaGetter_Statistics_Call{Call: _e.mock.On("Statistics")}
-}
-
-func (_c *MockSchemaGetter_Statistics_Call) Run(run func()) *MockSchemaGetter_Statistics_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockSchemaGetter_Statistics_Call) Return(_a0 map[string]interface{}) *MockSchemaGetter_Statistics_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockSchemaGetter_Statistics_Call) RunAndReturn(run func() map[string]interface{}) *MockSchemaGetter_Statistics_Call {
 	_c.Call.Return(run)
 	return _c
 }

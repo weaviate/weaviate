@@ -49,9 +49,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rolevisibility"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/namespaces"
-	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -66,7 +66,7 @@ type dynUserHandler struct {
 	logger               logrus.FieldLogger
 	dbUserEnabled        bool
 	remoteUser           *clients.RemoteUser
-	nodesGetter          schema.SchemaGetter
+	nodesGetter          cluster.NodeLister
 	namespacesEnabled    bool
 	namespaces           namespaces.Exister
 }
@@ -87,7 +87,7 @@ var validateUserNameRegex = regexp.MustCompile(`^` + apikey.UserNameRegexCore + 
 
 func SetupHandlers(
 	api *operations.WeaviateAPI, dbUsers DbUserAndRolesGetter, localUsers LocalUsersGetter, localRoles authorization.Controller, authorizer authorization.Authorizer,
-	authNConfig config.Authentication, authZConfig config.Authorization, remoteUser *clients.RemoteUser, nodesGetter schema.SchemaGetter,
+	authNConfig config.Authentication, authZConfig config.Authorization, remoteUser *clients.RemoteUser, nodesGetter cluster.NodeLister,
 	namespacesEnabled bool, ns namespaces.Exister, logger logrus.FieldLogger,
 ) {
 	h := &dynUserHandler{
@@ -306,7 +306,7 @@ func (h *dynUserHandler) getLastUsed(users []apikey.UserView) map[string]time.Ti
 		usersWithTime[user.Id] = user.LastUsedAt
 	}
 
-	nodes := h.nodesGetter.Nodes()
+	nodes := h.nodesGetter.AllNames()
 	if len(nodes) == 1 {
 		return usersWithTime
 	}

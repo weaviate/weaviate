@@ -118,6 +118,7 @@ func (db *DB) init(ctx context.Context) error {
 			shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), db.schemaGetter)
 			var lazyLoadShardEnabled bool
 			idx, err := NewIndex(ctx, db, IndexConfig{
+				NodeName:                       db.localNodeName,
 				ClassName:                      schema.ClassName(class.Class),
 				RootPath:                       db.config.RootPath,
 				ResourceUsage:                  db.config.ResourceUsage,

@@ -242,14 +242,6 @@ func (h *Handler) getSchema() schema.Schema {
 	}
 }
 
-func (h *Handler) Nodes() []string {
-	return h.clusterState.AllNames()
-}
-
-func (h *Handler) NodeName() string {
-	return h.clusterState.LocalName()
-}
-
 // NamespacesEnabled reports whether this cluster runs with namespaces on.
 func (h *Handler) NamespacesEnabled() bool {
 	return h.config.Namespaces.Enabled
@@ -313,11 +305,6 @@ func (h *Handler) RemoveNode(ctx context.Context, node string) error {
 		return fmt.Errorf("node failed to leave cluster: %w", err)
 	}
 	return nil
-}
-
-// Statistics is used to return a map of various internal stats. This should only be used for informative purposes or debugging.
-func (h *Handler) Statistics() map[string]any {
-	return h.membership.Stats()
 }
 
 // DropVectorIndexEnqueuer submits the background cleanup distributed task for a

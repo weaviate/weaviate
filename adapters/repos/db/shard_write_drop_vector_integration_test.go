@@ -272,7 +272,7 @@ func TestDropVectorIndex_CompletionSweepRetriesThroughLoadedShard(t *testing.T) 
 	require.NoError(t, shard.markVectorIndexDropping("foo", rec))
 	require.NotEmpty(t, entriesNamed(t, shard, "foo"))
 
-	db := &DB{logger: shard.index.logger, indices: map[string]*Index{shard.index.ID(): shard.index}}
+	db := &DB{localNodeName: "node1", logger: shard.index.logger, indices: map[string]*Index{shard.index.ID(): shard.index}}
 	start := time.Now()
 	require.NoError(t, db.EnsureDroppedVectorFilesRemoved(class.Class, shard.name, []string{"foo"}))
 	// the offline route waits a second per target on this shard's lock
@@ -355,7 +355,7 @@ func TestDropVectorIndex_CompletionSweepRefusesAShardShuttingDown(t *testing.T) 
 	shard.shutdownRequested.Store(true)
 	defer shard.shutdownRequested.Store(false)
 
-	db := &DB{logger: shard.index.logger, indices: map[string]*Index{shard.index.ID(): shard.index}}
+	db := &DB{localNodeName: "node1", logger: shard.index.logger, indices: map[string]*Index{shard.index.ID(): shard.index}}
 	err := db.EnsureDroppedVectorFilesRemoved(class.Class, shard.name, []string{"foo"})
 	require.ErrorIs(t, err, errShutdownInProgress)
 
@@ -379,7 +379,7 @@ func TestDropVectorIndex_CompletionSweepWaitsForAnUnload(t *testing.T) {
 	_, ok := idx.shards.LoadAndDelete(shard.name)
 	require.True(t, ok)
 
-	db := &DB{logger: idx.logger, indices: map[string]*Index{idx.ID(): idx}}
+	db := &DB{localNodeName: "node1", logger: idx.logger, indices: map[string]*Index{idx.ID(): idx}}
 	done := make(chan error, 1)
 	go func() {
 		done <- db.EnsureDroppedVectorFilesRemoved(class.Class, shard.name, []string{"foo"})
