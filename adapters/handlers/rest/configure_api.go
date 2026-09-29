@@ -468,6 +468,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		TrackVectorDimensions:               appState.ServerConfig.Config.TrackVectorDimensions || appState.Modules.UsageEnabled(),
 		TrackVectorDimensionsInterval:       appState.ServerConfig.Config.TrackVectorDimensionsInterval,
 		MigrateDimensionsToRoaringSet:       appState.ServerConfig.Config.ReindexVectorDimensionsToRoaringsetAtStartup,
+		ReindexVectorDimensions:             appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup,
 		UsageEnabled:                        appState.Modules.UsageEnabled(),
 		ResourceUsage:                       appState.ServerConfig.Config.ResourceUsage,
 		AvoidMMap:                           appState.ServerConfig.Config.AvoidMmap,
@@ -863,8 +864,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 	// FIXME to avoid import cycles, tasks are passed as strings
 	reindexTaskNamesWithArgs := map[string]any{}
 	reindexFinished := make(chan error, 1)
-	// closed once the inverted reindexing below is done, or not requested
-	invertedReindexDone := make(chan struct{})
 
 	if appState.ServerConfig.Config.ReindexSetToRoaringsetAtStartup {
 		reindexTaskNamesWithArgs["ShardInvertedReindexTaskSetToRoaringSet"] = nil
@@ -880,7 +879,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		// start reindexing inverted indexes (if requested by user) in the background
 		// allowing db to complete api configuration and start handling requests
 		enterrors.GoWrapper(func() {
-			defer close(invertedReindexDone)
 			l := appState.Logger.WithField("action", "startup")
 			if err := metaStoreReady.waitForMetaStore(); err != nil {
 				l.Errorf("Reindexing inverted indexes skipped: %v", err)
@@ -889,8 +887,6 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 			l.Info("Reindexing inverted indexes")
 			reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNamesWithArgs)
 		}, appState.Logger)
-	} else {
-		close(invertedReindexDone)
 	}
 
 	appState.ObjectTTLCoordinator = objectttl.NewCoordinator(appState.ClusterService.SchemaReader(), appState.SchemaManager, appState.DB,
@@ -979,39 +975,24 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	configureServer = makeConfigureServer(appState)
 
-	// Runs after inverted reindexing, which flushes shard buckets that dimension
-	// recalculation replaces.
+	// Shards reindex their dimensions as they load, this only reports once all have.
 	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup && repo.GetConfig().TrackVectorDimensions {
 		enterrors.GoWrapper(func() {
 			l := appState.Logger.WithField("action", "startup")
 			if err := metaStoreReady.waitForMetaStore(); err != nil {
-				l.Errorf("Reindexing dimensions skipped: %v", err)
+				l.Errorf("Reindexing dimensions not reported: %v", err)
 				return
 			}
-			select {
-			case <-invertedReindexDone:
-			case <-reindexCtx.Done():
-				l.Errorf("Reindexing dimensions skipped: %v", context.Cause(reindexCtx))
-				return
-			}
-			if err := migrator.RecalculateVectorDimensions(reindexCtx); err != nil {
-				l.Errorf("Reindexing dimensions failed, keep environment variable "+
-					"REINDEX_VECTOR_DIMENSIONS_AT_STARTUP set to try again at next startup: %v", err)
+			if err := migrator.ReportVectorDimensionsReindex(reindexCtx); err != nil {
+				l.Errorf("Reindexing dimensions incomplete, keep environment variable "+
+					"REINDEX_VECTOR_DIMENSIONS_AT_STARTUP set: %v", err)
 			}
 		}, appState.Logger)
 	}
 
+	// Add recount properties of all the objects in the database, if requested by the user
 	if appState.ServerConfig.Config.RecountPropertiesAtStartup {
-		enterrors.GoWrapper(func() {
-			l := appState.Logger.WithField("action", "startup")
-			if err := metaStoreReady.waitForMetaStore(); err != nil {
-				l.Errorf("Recounting properties skipped: %v", err)
-				return
-			}
-			if err := migrator.RecountProperties(reindexCtx); err != nil {
-				l.Errorf("Recounting properties failed: %v", err)
-			}
-		}, appState.Logger)
+		migrator.RecountProperties(ctx)
 	}
 
 	providers := map[string]distributedtask.Provider{}
