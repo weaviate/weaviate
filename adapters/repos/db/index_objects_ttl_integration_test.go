@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
@@ -135,20 +136,40 @@ func ttlMultiTenantClass() *models.Class {
 	return class
 }
 
-func setupTTLTenantRepo(t *testing.T, batchSize, expiredCount, aliveCount int) *DB {
+// setupTTLRepo holds the given class over the given shards, with the sweep's batch size set and
+// its expired and alive objects written. tenant is empty for a collection swept by shard.
+func setupTTLRepo(t *testing.T, batchSize int, shardState *sharding.State, class *models.Class,
+	tenant string, expiredCount, aliveCount int,
+) *DB {
 	t.Helper()
 
-	shardState := batchDeleteTenantShardState(batchDeleteTenant)
 	repo := setupTestDBWithShardState(t, t.TempDir(), shardState, func(cfg *Config) {
 		cfg.ObjectsTTLBatchSize = configRuntime.NewDynamicValue(batchSize)
-	}, ttlMultiTenantClass())
+	}, class)
 	t.Cleanup(func() { require.NoError(t, repo.Shutdown(context.Background())) })
 
-	insertTTLObjects(t, repo, batchDeleteTenant, expiredCount, aliveCount)
+	insertTTLObjects(t, repo, tenant, expiredCount, aliveCount)
 	return repo
 }
 
-func ttlTenantIndex(t *testing.T, repo *DB) (*Index, *logrus.Logger) {
+func setupTTLTenantRepo(t *testing.T, batchSize, expiredCount, aliveCount int) *DB {
+	t.Helper()
+
+	return setupTTLRepo(t, batchSize, batchDeleteTenantShardState(batchDeleteTenant),
+		ttlMultiTenantClass(), batchDeleteTenant, expiredCount, aliveCount)
+}
+
+// setupTTLShardRepo holds the same objects without multi-tenancy, which is what puts a sweep of
+// them on the shard loop rather than the tenant loop.
+func setupTTLShardRepo(t *testing.T, batchSize int, shardState *sharding.State,
+	expiredCount, aliveCount int,
+) *DB {
+	t.Helper()
+
+	return setupTTLRepo(t, batchSize, shardState, batchDeleteTTLClass(), "", expiredCount, aliveCount)
+}
+
+func ttlIndex(t *testing.T, repo *DB) (*Index, *logrus.Logger) {
 	t.Helper()
 
 	index := repo.GetIndex(schema.ClassName(batchDeleteTTLClassName))
@@ -169,7 +190,7 @@ func TestTTLSweepsATenantAcrossSeveralBatches(t *testing.T) {
 	)
 
 	repo := setupTTLTenantRepo(t, sweepBatch, expiredCount, aliveCount)
-	index, logger := ttlTenantIndex(t, repo)
+	index, logger := ttlIndex(t, repo)
 
 	var deleted atomic.Int32
 	eg := enterrors.NewErrorGroupWrapper(logger)
@@ -183,22 +204,48 @@ func TestTTLSweepsATenantAcrossSeveralBatches(t *testing.T) {
 		"every expired object of the tenant goes, over more than one batch of %d", sweepBatch)
 }
 
-// ttlFailingSchemaReader fails every WaitForUpdate, which makes the batch delete fail
-// before any shard I/O while findUUIDs still resolves real uuids. It cancels the sweep
-// after maxCalls, so a loop that does not stop fails on the count instead of hanging.
-type ttlFailingSchemaReader struct {
+// ttlCountingSchemaReader counts the batch deletes a sweep runs. err, when set, fails every one
+// of them before any shard I/O while findUUIDs still resolves real uuids.
+type ttlCountingSchemaReader struct {
 	schemaUC.SchemaReader
-	calls    *atomic.Int32
-	maxCalls int32
-	cancel   context.CancelCauseFunc
-	err      error
+	calls *atomic.Int32
+	err   error
 }
 
-func (r ttlFailingSchemaReader) WaitForUpdate(context.Context, uint64) error {
-	if r.calls.Add(1) >= r.maxCalls {
-		r.cancel(errors.New("the sweep kept retrying a delete that cannot succeed"))
-	}
+func (r ttlCountingSchemaReader) WaitForUpdate(context.Context, uint64) error {
+	r.calls.Add(1)
 	return r.err
+}
+
+// ttlRoundCounter counts a sweep's rounds off the line each one logs as it searches. It cancels
+// the sweep past maxRounds, so a loop that does not stop fails on the count rather than hanging.
+type ttlRoundCounter struct {
+	rounds    atomic.Int32
+	maxRounds int32
+	cancel    context.CancelCauseFunc
+}
+
+func (c *ttlRoundCounter) Levels() []logrus.Level { return logrus.AllLevels }
+
+func (c *ttlRoundCounter) Fire(entry *logrus.Entry) error {
+	if entry.Message != "find uuids started" {
+		return nil
+	}
+	if c.rounds.Add(1) > c.maxRounds {
+		c.cancel(errors.New("the sweep kept searching after a round that deleted nothing"))
+	}
+	return nil
+}
+
+func boundTTLRounds(t *testing.T, logger *logrus.Logger, maxRounds int32,
+	cancel context.CancelCauseFunc,
+) *ttlRoundCounter {
+	t.Helper()
+
+	counter := &ttlRoundCounter{maxRounds: maxRounds, cancel: cancel}
+	logger.SetLevel(logrus.DebugLevel)
+	logger.AddHook(counter)
+	return counter
 }
 
 // TestTTLStopsSweepingATenantWhoseDeleteFails drives the real closure's error return. The
@@ -209,19 +256,19 @@ func TestTTLStopsSweepingATenantWhoseDeleteFails(t *testing.T) {
 		expiredCount = 12
 		aliveCount   = 3
 		sweepBatch   = 5
-		maxCalls     = int32(3)
+		maxRounds    = int32(3)
 	)
 	deleteErr := errors.New("schema never caught up")
 
 	repo := setupTTLTenantRepo(t, sweepBatch, expiredCount, aliveCount)
-	index, logger := ttlTenantIndex(t, repo)
+	index, logger := ttlIndex(t, repo)
 
 	ctx, cancel := context.WithCancelCause(context.Background())
 	t.Cleanup(func() { cancel(nil) })
+	rounds := boundTTLRounds(t, logger, maxRounds, cancel)
 	calls := &atomic.Int32{}
-	index.schemaReader = ttlFailingSchemaReader{
-		SchemaReader: index.schemaReader, calls: calls, maxCalls: maxCalls,
-		cancel: cancel, err: deleteErr,
+	index.schemaReader = ttlCountingSchemaReader{
+		SchemaReader: index.schemaReader, calls: calls, err: deleteErr,
 	}
 
 	var deleted atomic.Int32
@@ -231,10 +278,114 @@ func TestTTLStopsSweepingATenantWhoseDeleteFails(t *testing.T) {
 		time.Now(), time.Now(), func(n int32) { deleted.Add(n) }, 1)
 	eg.Wait()
 
+	require.Equal(t, int32(1), rounds.rounds.Load(), "the tenant must be swept once")
 	require.Equal(t, int32(1), calls.Load(), "the sweep must stop after one failed batch")
 	require.Equal(t, int32(0), deleted.Load())
 	require.Equal(t, 1, ec.Len(), "one filing per swept tenant")
 	err := ec.ToError()
 	require.ErrorContains(t, err, "batch delete")
 	require.ErrorIs(t, err, deleteErr)
+}
+
+// TestTTLStopsSweepingShardsWhoseDeleteFails drives the real single-tenant delete closure's error
+// return. The error must reach the round rather than only the compounder, which left the shard to
+// be dispatched again every round.
+func TestTTLStopsSweepingShardsWhoseDeleteFails(t *testing.T) {
+	const (
+		expiredCount = 12
+		aliveCount   = 3
+		sweepBatch   = 5
+		maxRounds    = int32(3)
+	)
+	deleteErr := errors.New("schema never caught up")
+
+	repo := setupTTLShardRepo(t, sweepBatch, singleShardState(), expiredCount, aliveCount)
+	index, logger := ttlIndex(t, repo)
+
+	ctx, cancel := context.WithCancelCause(context.Background())
+	t.Cleanup(func() { cancel(nil) })
+	rounds := boundTTLRounds(t, logger, maxRounds, cancel)
+	calls := &atomic.Int32{}
+	index.schemaReader = ttlCountingSchemaReader{
+		SchemaReader: index.schemaReader, calls: calls, err: deleteErr,
+	}
+
+	var deleted atomic.Int32
+	eg := enterrors.NewErrorGroupWrapper(logger)
+	ec := errorcompounder.NewSafe()
+	index.incomingDeleteObjectsExpired(ctx, eg, ec, batchDeleteTTLProp,
+		time.Now(), time.Now(), func(n int32) { deleted.Add(n) }, 1)
+	eg.Wait()
+
+	require.Equal(t, int32(1), rounds.rounds.Load(), "the sweep must stop after one failed round")
+	require.Equal(t, int32(1), calls.Load(), "one delete per shard the round swept")
+	require.Equal(t, int32(0), deleted.Load())
+	require.Equal(t, 1, ec.Len(), "one filing per swept shard")
+	err := ec.ToError()
+	require.ErrorContains(t, err, "batch delete")
+	require.ErrorIs(t, err, deleteErr)
+}
+
+// TestTTLSweepsShardsAcrossSeveralRounds drives the same closure over more expired objects than
+// one round can delete. A sweep that read its rounds as having deleted nothing would stop after
+// the first and leave the rest behind.
+func TestTTLSweepsShardsAcrossSeveralRounds(t *testing.T) {
+	const (
+		expiredCount = 12
+		aliveCount   = 3
+		sweepBatch   = 2
+		// far above the rounds these objects need, since the cap only has to bound a
+		// loop that will not stop on its own
+		maxRounds = int32(40)
+	)
+
+	repo := setupTTLShardRepo(t, sweepBatch, multiShardState(), expiredCount, aliveCount)
+	index, logger := ttlIndex(t, repo)
+
+	ctx, cancel := context.WithCancelCause(context.Background())
+	t.Cleanup(func() { cancel(nil) })
+	rounds := boundTTLRounds(t, logger, maxRounds, cancel)
+	calls := &atomic.Int32{}
+	index.schemaReader = ttlCountingSchemaReader{
+		SchemaReader: index.schemaReader, calls: calls,
+	}
+
+	var deleted atomic.Int32
+	eg := enterrors.NewErrorGroupWrapper(logger)
+	ec := errorcompounder.NewSafe()
+	index.incomingDeleteObjectsExpired(ctx, eg, ec, batchDeleteTTLProp,
+		time.Now(), time.Now(), func(n int32) { deleted.Add(n) }, 1)
+	eg.Wait()
+
+	require.NoError(t, ec.ToError())
+	require.Equal(t, int32(expiredCount), deleted.Load(),
+		"every expired object goes, over more than one round of %d per shard", sweepBatch)
+	require.GreaterOrEqual(t, calls.Load(), int32(expiredCount/sweepBatch),
+		"a round deletes at most %d per shard, so more than one ran", sweepBatch)
+	require.Greater(t, rounds.rounds.Load(), int32(1), "the sweep ran more than one round")
+}
+
+// TestTTLReportsABatchSlotNoDeleteWroteTo covers a batch whose per-object delete panicked, which
+// the recovery inside deleteSingleBatchInLSM leaves as an untouched slot. A sweep reads its
+// progress off what a batch reports deleted, so an untouched slot has to report a failure.
+func TestTTLReportsABatchSlotNoDeleteWroteTo(t *testing.T) {
+	t.Skip("red until cad5228839 pre-fills every slot with errNotProcessed")
+
+	// the integration job disables recovery, under which the panic below kills the binary
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
+	shardState := singleShardState()
+	repo := setupTTLShardRepo(t, 5, shardState, 1, 1)
+	index, _ := ttlIndex(t, repo)
+
+	var deleted atomic.Int32
+	// uuid.MustParse panics on this id inside the per-object goroutine, so nothing writes the
+	// slot that object was given
+	err := index.incomingDeleteObjectsExpiredUuids(context.Background(), time.Now(),
+		shardState.AllPhysicalShards()[0], "", []strfmt.UUID{"not-a-uuid"},
+		func(n int32) { deleted.Add(n) }, defaultConsistency(), 0)
+
+	require.Error(t, err, "a batch slot no delete wrote to must not read as a success")
+	require.Equal(t, int32(0), deleted.Load(),
+		"a batch whose object delete panicked deleted nothing, so its round made no progress")
 }
