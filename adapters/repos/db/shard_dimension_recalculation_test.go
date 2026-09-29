@@ -629,9 +629,12 @@ func TestReportVectorDimensionsReindex(t *testing.T) {
 			expectedErr: "1 active shards not loaded",
 		},
 		{
-			// as when creating it failed at startup
+			// as when creating it failed at startup, before its shards were reindexed
 			name: "class without index",
 			prepare: func(t *testing.T, db *DB, index *Index) {
+				db.dimensionsReindex.mu.Lock()
+				db.dimensionsReindex.outcomes = nil
+				db.dimensionsReindex.mu.Unlock()
 				db.indexLock.Lock()
 				delete(db.indices, index.ID())
 				db.indexLock.Unlock()
