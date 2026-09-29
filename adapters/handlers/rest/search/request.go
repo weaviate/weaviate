@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -64,6 +65,7 @@ func (h *Handler) baseParams(className string, common *models.SearchCommon) (dto
 	if apiErr != nil {
 		return dto.GetParams{}, apiErr
 	}
+	monitoring.GetMetrics().IncConsistencyLevelRequest(monitoring.ConsistencyLevelRead, strings.ToUpper(common.ConsistencyLevel))
 	out.ReplicationProperties = replProps
 
 	pagination, apiErr := h.parsePagination(common)
