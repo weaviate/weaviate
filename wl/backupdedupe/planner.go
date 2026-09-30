@@ -251,6 +251,7 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 		return plan
 	}
 	if len(candidates) == 0 {
+		monitoring.GetMetrics().BackupDedupeShards.WithLabelValues("fallback").Add(float64(plan.Fallback()))
 		return plan
 	}
 

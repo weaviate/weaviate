@@ -464,6 +464,18 @@ func TestPlanDesignatedShards(t *testing.T) {
 		assert.Equal(t, 1.0, dedupeShardOutcomeCount("fallback")-fallbackBefore, "outcome metric must match plan.Fallback()")
 	})
 
+	t.Run("every create failing still reports the fallback outcome", func(t *testing.T) {
+		f := newFakeCheckpointer()
+		f.shardReplicas["C1"] = map[string][]string{"s1": {"n1", "n2"}, "s2": {"n1", "n2"}}
+		f.createErr["C1"] = assert.AnError
+		c := newTestPlanner(f)
+
+		fallbackBefore := dedupeShardOutcomeCount("fallback")
+		plan := c.PlanDesignatedShards(ctx, []string{"C1"}, 0, parts("n1", "n2"), nil, nil)
+		assert.Equal(t, 2, plan.Fallback())
+		assert.Equal(t, 2.0, dedupeShardOutcomeCount("fallback")-fallbackBefore, "outcome metric must match plan.Fallback()")
+	})
+
 	t.Run("silent create failure early-drops without burning budget", func(t *testing.T) {
 		f := newFakeCheckpointer()
 		f.shardReplicas["C1"] = map[string][]string{"s1": {"n1", "n2"}}
