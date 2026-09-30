@@ -40,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/namespaces"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -1989,6 +1990,8 @@ type fakeScheduler struct {
 	nilListers    bool
 	rolesAndUsers rolesAndUsersRestorer
 	namespaces    namespaces.Exister
+	dedupeMode    license.Mode
+	dedupePlanner DedupePlanner
 }
 
 // fakeUserLister is a static UserLister for scheduler tests.
@@ -2028,7 +2031,7 @@ func (f *fakeScheduler) scheduler() *Scheduler {
 	if !f.nilListers {
 		userLister, roleLister = &f.userLister, &f.roleLister
 	}
-	c := NewScheduler(f.auth, &f.client, &f.selector, nil, userLister, roleLister, provider,
+	c := NewScheduler(f.auth, &f.client, &f.selector, f.dedupeMode, f.dedupePlanner, userLister, roleLister, provider,
 		f.nodeResolver, &f.schema, f.staticAPIKeyUsers, f.rolesAndUsers, f.namespaces, f.log)
 	c.backupper.timeoutNextRound = time.Millisecond * 200
 	c.restorer.timeoutNextRound = time.Millisecond * 200
@@ -3861,28 +3864,122 @@ func TestRestoreIgnoresNodeMappingForUnknownNode(t *testing.T) {
 	}
 }
 
-func TestSchedulerBackupDedupeOptIn(t *testing.T) {
-	t.Run("RejectedByDefault", func(t *testing.T) {
-		t.Setenv("BACKUP_DEDUPE_ENABLED", "")
-		fs := newFakeScheduler(nil)
-		_, err := fs.scheduler().Backup(context.Background(), nil, &BackupRequest{ID: "opt-in", Backend: "s3", DedupeReplicas: true})
-		require.ErrorContains(t, err, "BACKUP_DEDUPE_ENABLED")
-		assert.IsType(t, backup.ErrUnprocessable{}, err)
-	})
-	t.Run("EnabledPassesGate", func(t *testing.T) {
-		t.Setenv("BACKUP_DEDUPE_ENABLED", "true")
-		fs := newFakeScheduler(nil)
-		fs.selector.On("ListClasses", mock.Anything).Return([]string{})
-		_, err := fs.scheduler().Backup(context.Background(), nil, &BackupRequest{ID: "opt-in", Backend: "s3", DedupeReplicas: true})
-		require.ErrorContains(t, err, "no available classes")
-		assert.NotContains(t, err.Error(), "BACKUP_DEDUPE_ENABLED")
-	})
+// newDedupeGateScheduler wires a one-node scheduler whose create request can run to a successful commit.
+func newDedupeGateScheduler(t *testing.T, id string, mode license.Mode, planner DedupePlanner) (*Scheduler, *fakeScheduler) {
+	t.Helper()
+	const cls, node = "Class-A", "N1"
+	any := mock.Anything
+	fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+	fs.dedupeMode = mode
+	fs.dedupePlanner = planner
+	fs.selector.On("ListClasses", any).Return([]string{cls})
+	fs.selector.On("Backupable", any, []string{cls}).Return(nil)
+	fs.selector.On("Shards", any, cls).Return([]string{node}, nil)
+	fs.backend.On("HomeDir", any, any, any).Return("home/" + id)
+	fs.backend.On("GetObject", any, id, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+	fs.backend.On("GetObject", any, id, BackupFile).Return(nil, backup.ErrNotFound{})
+	fs.backend.On("GetObject", any, id+"/"+node, any).Return(marshalMeta(backup.BackupDescriptor{Status: backup.Success}), nil)
+	fs.backend.On("Initialize", any, any).Return(nil)
+	fs.backend.On("PutObject", any, id, GlobalBackupFile, any).Return(nil)
+	fs.client.On("CanCommit", any, node, any).Return(&CanCommitResponse{Method: OpCreate, ID: id, Timeout: maxBooking(false), DedupeHonored: true}, nil)
+	fs.client.On("Commit", any, node, any).Return(nil)
+	fs.client.On("Status", any, node, any).Return(&StatusResponse{Status: backup.Success, ID: id, Method: OpCreate}, nil)
+	fs.client.On("Abort", any, node, any).Return(nil)
+	return fs.scheduler(), fs
+}
+
+func TestSchedulerBackupDedupeGate(t *testing.T) {
+	const id = "gate"
+	type outcome int
+	const (
+		proceeds outcome = iota
+		flagOff
+		unlicensed
+		plannerMissing
+	)
+	cases := []struct {
+		name        string
+		mode        license.Mode
+		withPlanner bool
+		option      bool
+		want        outcome
+		wantPlanned bool
+	}{
+		{name: "off refuses the option with a planner", mode: license.FeatureOff, withPlanner: true, option: true, want: flagOff},
+		{name: "off refuses the option without a planner", mode: license.FeatureOff, option: true, want: flagOff},
+		{name: "unlicensed refuses the option", mode: license.FeatureUnlicensed, option: true, want: unlicensed},
+		{name: "licensed plans the option", mode: license.FeatureLicensed, withPlanner: true, option: true, want: proceeds, wantPlanned: true},
+		{name: "licensed without a planner refuses the option", mode: license.FeatureLicensed, option: true, want: plannerMissing},
+		{name: "out-of-range mode refuses the option", mode: license.Mode(99), withPlanner: true, option: true, want: unlicensed},
+		{name: "off without the option backs up", mode: license.FeatureOff, want: proceeds},
+		{name: "unlicensed without the option backs up", mode: license.FeatureUnlicensed, want: proceeds},
+		{name: "licensed without the option backs up", mode: license.FeatureLicensed, withPlanner: true, want: proceeds},
+		{name: "out-of-range mode without the option backs up", mode: license.Mode(99), want: proceeds},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeDedupePlanner{plan: &DedupePlan{}}
+			var planner DedupePlanner
+			if tc.withPlanner {
+				planner = fake
+			}
+			s, fs := newDedupeGateScheduler(t, id, tc.mode, planner)
+
+			resp, err := s.Backup(context.Background(), nil, &BackupRequest{ID: id, Backend: "s3", Include: []string{"Class-A"}, DedupeReplicas: tc.option})
+
+			if tc.want == proceeds {
+				require.NoError(t, err)
+				require.NotNil(t, resp)
+				require.Eventually(t, func() bool { return s.backupper.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+				assert.Equal(t, backup.Success, fs.backend.globalMetaStatus())
+				if tc.wantPlanned {
+					assert.Len(t, fake.recordedCalls(), 1)
+				} else {
+					assert.Empty(t, fake.recordedCalls())
+				}
+				return
+			}
+			require.Error(t, err)
+			assert.Nil(t, resp)
+			assert.Empty(t, fake.recordedCalls())
+			fs.backend.AssertNotCalled(t, "Initialize", mock.Anything, mock.Anything)
+			fs.backend.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+			fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
+			switch tc.want {
+			case flagOff:
+				assert.ErrorContains(t, err, "BACKUP_DEDUPE_ENABLED")
+				assert.IsType(t, backup.ErrUnprocessable{}, err)
+				assert.NotErrorIs(t, err, license.ErrRequired)
+			case unlicensed:
+				assert.ErrorIs(t, err, license.ErrRequired)
+				assert.ErrorAs(t, err, &authzerrors.Forbidden{})
+				assert.False(t, errors.As(err, &backup.ErrUnprocessable{}))
+				assert.NotContains(t, err.Error(), ":")
+			case plannerMissing:
+				assert.ErrorIs(t, err, errDedupePlannerMissing)
+				assert.NotErrorIs(t, err, license.ErrRequired)
+				assert.False(t, errors.As(err, &backup.ErrUnprocessable{}))
+			case proceeds:
+			}
+		})
+	}
+}
+
+func TestDedupeEnabled(t *testing.T) {
+	for _, tc := range []struct {
+		env  string
+		want bool
+	}{{"", false}, {"false", false}, {"true", true}, {"on", true}} {
+		t.Run(tc.env, func(t *testing.T) {
+			t.Setenv("BACKUP_DEDUPE_ENABLED", tc.env)
+			assert.Equal(t, tc.want, DedupeEnabled())
+		})
+	}
 }
 
 // startPlanningBackup drives a dedupe create into its convergence wait and returns its result channel.
 func startPlanningBackup(t *testing.T, id string) (*Scheduler, *fakeScheduler, *fakeDedupePlanner, chan error) {
 	t.Helper()
-	t.Setenv("BACKUP_DEDUPE_ENABLED", "true")
 	const cls = "Class1"
 	fs := newFakeScheduler(&fakeNodeResolver{hosts: map[string]string{"N1": "h1", "N2": "h2"}, leader: "N1"})
 	fs.selector.On("Backupable", mock.Anything, []string{cls}).Return(nil)
@@ -3895,8 +3992,9 @@ func startPlanningBackup(t *testing.T, id string) (*Scheduler, *fakeScheduler, *
 	fs.backend.On("PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	fs.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	planner := &fakeDedupePlanner{plan: &DedupePlan{}, blockUntilCancelled: true}
+	fs.dedupeMode = license.FeatureLicensed
+	fs.dedupePlanner = planner
 	s := fs.scheduler()
-	s.backupper.dedupePlanner = planner
 
 	errCh := make(chan error, 1)
 	go func() {

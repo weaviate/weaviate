@@ -391,6 +391,45 @@ func TestCoordinatedBackupDedupe(t *testing.T) {
 		assert.Equal(t, 4, countGetObjectCalls(t, fc, c), "one failed commit read, its legacy-detect probe, one commit read, one verify fallback re-read")
 	})
 
+	t.Run("no planner backs up in the legacy format", func(t *testing.T) {
+		t.Parallel()
+		fc := newFakeCoordinator(nodeResolver)
+		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
+		match := mock.MatchedBy(func(r *Request) bool {
+			return r.Method == OpCreate && r.ID == backupID && !r.DedupeEffective && len(r.ShardDesignations) == 0
+		})
+		ack := &CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: maxBooking(false), DedupeHonored: true}
+		fc.client.On("CanCommit", any, nodes[0], match).Return(ack, nil)
+		fc.client.On("CanCommit", any, nodes[1], match).Return(ack, nil)
+		fc.client.On("Commit", any, nodes[0], matchStatusReq(sReq)).Return(nil)
+		fc.client.On("Commit", any, nodes[1], matchStatusReq(sReq)).Return(nil)
+		fc.client.On("Status", any, nodes[0], matchStatusReq(sReq)).Return(sresp, nil)
+		fc.client.On("Status", any, nodes[1], matchStatusReq(sReq)).Return(sresp, nil)
+		fc.backend.On("HomeDir", any, any, backupID).Return("bucket/" + backupID)
+		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
+		fc.backend.On("GetObject", any, any, any, any, any).Return(marshalMeta(backup.BackupDescriptor{Status: backup.Success}), nil)
+
+		coordinator := *fc.coordinator()
+		require.Nil(t, coordinator.dedupePlanner)
+		mockBackendProvider := NewMockBackupBackendProvider(t)
+		coordinator.backends = mockBackendProvider
+		mockBackendProvider.EXPECT().BackupBackend(backendName, mock.Anything).Return(fc.backend, nil).Maybe()
+		req := newDedupeReq()
+		store := coordStore{objectStore{fc.backend, req.ID, "", "", ""}}
+		require.NoError(t, coordinator.Backup(ctx, store, &req))
+		<-fc.backend.doneChan
+
+		require.Eventually(t, func() bool { return coordinator.lastOp.get().ID == "" }, 5*time.Second, 10*time.Millisecond)
+		got := fc.backend.glMeta
+		assert.Equal(t, backup.Success, got.Status)
+		assert.Equal(t, Version, got.Version)
+		assert.False(t, got.DedupeReplicas)
+		assert.Zero(t, got.DedupeDesignatedShards)
+		assert.Zero(t, got.DedupeFallbackShards)
+		assert.Nil(t, got.DedupeDesignations)
+		assert.Nil(t, got.DedupeCutoffsMs)
+	})
+
 	t.Run("flag off keeps wire payload legacy", func(t *testing.T) {
 		t.Parallel()
 		raw, err := json.Marshal(&Request{Method: OpCreate, ID: backupID, Classes: classes})
