@@ -155,6 +155,15 @@ func (l *ChangeLog) Finalize() (uint64, error) {
 // hold their own *os.File handle may continue to read on POSIX systems until
 // they call Close themselves.
 func (l *ChangeLog) Deactivate() error {
+	return l.deactivate(true)
+}
+
+// DeactivateKeepingFile is Deactivate without removing the file, so a shard load still marks the log lost.
+func (l *ChangeLog) DeactivateKeepingFile() error {
+	return l.deactivate(false)
+}
+
+func (l *ChangeLog) deactivate(removeFile bool) error {
 	first := false
 	if err := func() error {
 		l.mu.Lock()
@@ -178,7 +187,7 @@ func (l *ChangeLog) Deactivate() error {
 	}(); err != nil {
 		return err
 	}
-	if !first {
+	if !first || !removeFile {
 		return nil
 	}
 	if err := os.Remove(l.path); err != nil && !os.IsNotExist(err) {

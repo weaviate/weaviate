@@ -82,12 +82,20 @@ func (s *Shard) ActivateChangeLog(ctx context.Context, opID string) (*changelog.
 	}
 
 	keep := s.registeredOpIDs()
+	// A lost log kept because its marker could not be written is marked by the next load sweep.
+	s.lostChangeLogs.Range(func(k, _ any) bool {
+		keep[k.(string)] = struct{}{}
+		return true
+	})
 	keep[opID] = struct{}{} // don't sweep the file we're about to Open(O_EXCL)
 	if err := s.sweepChangelogDirExcept(keep); err != nil {
 		return nil, fmt.Errorf("shard %q: sweep orphans before activate: %w", s.ID(), err)
 	}
 
 	path, _ := changelogPaths(dir, opID)
+	if err := s.removeKeptLostChangeLog(opID); err != nil {
+		return nil, fmt.Errorf("shard %q: activate changelog for op %q: %w", s.ID(), opID, err)
+	}
 	log, err := changelog.Open(path, s.index.logger)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q: open changelog for op %q: %w", s.ID(), opID, err)
@@ -189,6 +197,11 @@ func (s *Shard) StopChangeCapture(ctx context.Context, opID string) error {
 	log := s.changeLogs.Load().Get(opID)
 	s.runChangeLogLifecycleCheckedHook()
 	if log == nil {
+		logPath, _ := changelogPaths(s.changelogDir(), opID)
+		// A lost log kept on disk would be marked lost again by the next load sweep.
+		if err := os.Remove(logPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove changelog %q: %w", logPath, err)
+		}
 		return s.clearChangeLogLost(opID)
 	}
 	changelog.Unregister(&s.changeLogs, opID)
@@ -341,13 +354,30 @@ func (s *Shard) handleChangeLogFailure(opID string, log *changelog.ChangeLog, ca
 		return
 	}
 	s.lostChangeLogs.Store(opID, struct{}{})
+	deactivate := log.Deactivate
 	if _, err := s.markChangeLogLost(opID, true); err != nil {
-		logger.Errorf("change-capture log lost marker not persisted, a restart reads it as stopped: %v", err)
+		logger.Errorf("change-capture log lost marker not persisted, keeping the log for the load sweep to mark: %v", err)
+		deactivate = log.DeactivateKeepingFile
 	}
 	changelog.Unregister(&s.changeLogs, opID)
-	if err := log.Deactivate(); err != nil {
+	if err := deactivate(); err != nil {
 		logger.Errorf("change-capture log deactivate after failure: %v", err)
 	}
+}
+
+// removeKeptLostChangeLog clears a failure's kept log before the O_EXCL Open, retrying its marker first.
+func (s *Shard) removeKeptLostChangeLog(opID string) error {
+	if _, lost := s.lostChangeLogs.Load(opID); lost {
+		if _, err := s.markChangeLogLost(opID, false); err != nil {
+			s.index.logger.WithFields(logrus.Fields{"op_id": opID, "shard": s.ID()}).
+				Warnf("change-capture log lost marker still not persisted before resume: %v", err)
+		}
+	}
+	logPath, _ := changelogPaths(s.changelogDir(), opID)
+	if err := os.Remove(logPath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("remove kept changelog %q: %w", logPath, err)
+	}
+	return nil
 }
 
 func (s *Shard) runChangeLogLifecycleCheckedHook() {

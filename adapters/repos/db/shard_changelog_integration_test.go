@@ -1035,6 +1035,115 @@ func TestShard_ChangeLog_UnwritableLostMarkerStaysLostInMemory(t *testing.T) {
 	assertChangeLogMiss(t, ctx, shard.index, shard.name, opID, missLost)
 }
 
+// A failure whose lost marker can't be written keeps its log on disk, so the loss survives a restart.
+func TestIndex_ChangeLog_UnwritableLostMarkerSurvivesLifecycle(t *testing.T) {
+	const (
+		opID  = "op-unmarkable"
+		other = "op-other"
+	)
+	tests := []struct {
+		name      string
+		journey   func(t *testing.T, ctx context.Context, shard *Shard)
+		want      changeLogMiss
+		live      bool
+		wantFiles []string
+		unloaded  bool
+	}{
+		{
+			name:      "no restart",
+			journey:   func(t *testing.T, ctx context.Context, shard *Shard) {},
+			want:      missLost,
+			wantFiles: []string{opID + changelogFileExtension},
+		},
+		{
+			name: "restart",
+			journey: func(t *testing.T, ctx context.Context, shard *Shard) {
+				restartChangelogTestShard(t, ctx, shard.index, shard.name)
+			},
+			want:      missLost,
+			wantFiles: []string{opID + changelogLostExtension},
+		},
+		{
+			name: "resumed",
+			journey: func(t *testing.T, ctx context.Context, shard *Shard) {
+				require.NoError(t, shard.index.IncomingStartChangeCapture(ctx, shard.name, opID))
+				_, lostInMemory := shard.lostChangeLogs.Load(opID)
+				require.False(t, lostInMemory)
+				_, ok := shard.GetChangeLog(ctx, opID)
+				require.True(t, ok)
+			},
+			live:      true,
+			wantFiles: []string{opID + changelogFileExtension},
+		},
+		{
+			name: "another op activated, then a restart",
+			journey: func(t *testing.T, ctx context.Context, shard *Shard) {
+				require.NoError(t, shard.index.IncomingStartChangeCapture(ctx, shard.name, other))
+				restartChangelogTestShard(t, ctx, shard.index, shard.name)
+				assertChangeLogMiss(t, ctx, shard.index, shard.name, other, missLost)
+			},
+			want:      missLost,
+			wantFiles: []string{opID + changelogLostExtension, other + changelogLostExtension},
+		},
+		{
+			name: "stopped, then a restart",
+			journey: func(t *testing.T, ctx context.Context, shard *Shard) {
+				require.NoError(t, shard.index.IncomingStopChangeCapture(ctx, shard.name, opID))
+				require.Empty(t, changelogDirEntries(t, shard.index, shard.name))
+				restartChangelogTestShard(t, ctx, shard.index, shard.name)
+			},
+			want: missGone,
+		},
+		{
+			name: "unloaded",
+			journey: func(t *testing.T, ctx context.Context, shard *Shard) {
+				unloadChangelogTestShard(t, ctx, shard.index, shard.name)
+			},
+			want:      missLost,
+			wantFiles: []string{opID + changelogFileExtension},
+			unloaded:  true,
+		},
+		{
+			name: "unloaded, then stopped",
+			journey: func(t *testing.T, ctx context.Context, shard *Shard) {
+				unloadChangelogTestShard(t, ctx, shard.index, shard.name)
+				require.NoError(t, shard.index.IncomingStopChangeCapture(ctx, shard.name, opID))
+			},
+			want:     missNotLoaded,
+			unloaded: true,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			shard := setupChangelogTestShard(t, ctx)
+			idx := shard.index
+			require.NoError(t, idx.IncomingStartChangeCapture(ctx, shard.name, opID))
+			require.NoError(t, shard.PutObject(ctx, changelogTestObject(uuid.NewString(), "captured", 1)))
+			log, ok := shard.GetChangeLog(ctx, opID)
+			require.True(t, ok)
+			_, lostPath := changelogPaths(shard.changelogDir(), opID)
+			require.NoError(t, os.MkdirAll(filepath.Join(lostPath, "obstruction"), 0o700))
+
+			shard.handleChangeLogFailure(opID, log, errors.New("disk full"))
+			require.NoError(t, os.RemoveAll(lostPath))
+			tc.journey(t, ctx, shard)
+
+			if tc.live {
+				lsn, err := idx.IncomingSnapshotChangeLogLSN(ctx, shard.name, opID)
+				require.NoError(t, err)
+				require.Equal(t, uint64(0), lsn)
+			} else {
+				assertChangeLogMiss(t, ctx, idx, shard.name, opID, tc.want)
+			}
+			require.ElementsMatch(t, tc.wantFiles, changelogDirEntries(t, idx, shard.name))
+			if tc.unloaded {
+				require.Nil(t, idx.shards.Loaded(shard.name))
+			}
+		})
+	}
+}
+
 func TestShard_ChangeLog_LifecycleSerializedWithFailureHandling(t *testing.T) {
 	const opID = "op-raced"
 	type result struct {
