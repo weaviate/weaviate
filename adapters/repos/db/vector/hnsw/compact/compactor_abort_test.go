@@ -213,8 +213,8 @@ func TestCompactor_AbortMidMergeSorted_RestartLoadsCleanly(t *testing.T) {
 	for i := 0; i < numSorted; i++ {
 		ts := int64(1000000000 + i)
 		writeTestSortedFileWithData(t, dir, ts, ts, func(w *WALWriter) {
-			require.NoError(t, w.WriteAddNode(uint64(i), 0))
 			require.NoError(t, w.WriteSetEntryPointMaxLevel(uint64(i), 0))
+			require.NoError(t, w.WriteAddNode(uint64(i), 0))
 		})
 	}
 	createTestWALFile(t, filepath.Join(dir, "9999999999"), func(w *WALWriter) {})

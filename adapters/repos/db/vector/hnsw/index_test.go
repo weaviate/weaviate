@@ -531,3 +531,19 @@ func TestCalculateUnreachablePoints_NodeZero(t *testing.T) {
 
 	assert.Equal(t, []uint64{0}, index.calculateUnreachablePoints())
 }
+
+// TestApplyLoadedState_PQWithoutEncodersFailsInsteadOfPanicking pins that
+// loaded PQ data with no encoders fails startup with an error: no compressor
+// can be restored from it, and GrowCache on the missing one panicked.
+func TestApplyLoadedState_PQWithoutEncodersFailsInsteadOfPanicking(t *testing.T) {
+	index := createEmptyHnswIndexForTests(t, testVectorForID)
+
+	state := ent.NewDeserializationResult(cache.InitialSize)
+	state.SetCompressionPQData(&ent.PQData{Dimensions: 4, Ks: 256, M: 0})
+	state.SetCompressed(true)
+
+	require.NotPanics(t, func() {
+		err := index.applyLoadedState(state)
+		require.ErrorContains(t, err, "no encoders")
+	})
+}

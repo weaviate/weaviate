@@ -30,6 +30,7 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -185,6 +186,7 @@ func (h *StreamHandler) Handle(stream pb.Weaviate_BatchStreamServer) (retErr err
 	if startReq == nil {
 		return fmt.Errorf("first message must be a start message")
 	}
+	CountConsistencyLevel(monitoring.ConsistencyLevelWrite, startReq.ConsistencyLevel)
 
 	h.setup(streamId)
 	defer h.teardown(streamId)

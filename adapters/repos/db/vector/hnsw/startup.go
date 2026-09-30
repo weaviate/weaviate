@@ -98,13 +98,12 @@ func (h *hnsw) restoreFromDisk() error {
 		return nil
 	}
 
-	// A corrupt WAL was detected during load: either a raw file's torn tail
-	// was truncated, or an unreadable compacted segment was dropped in favour
-	// of the snapshot + clean segments. Log for diagnostic visibility. The
-	// commit logger will start a fresh raw file regardless, so no further
-	// action is needed here.
+	// A corrupt WAL was detected during load: a raw file's torn tail or a
+	// compacted segment's corrupt tail was truncated. Log for diagnostic
+	// visibility. The commit logger will start a fresh raw file regardless, so
+	// no further action is needed here.
 	if loadResult.RecoveredFromCrash {
-		h.logger.Info("recovered from crash during restore - corrupt WAL tail truncated or compacted segment dropped")
+		h.logger.Info("recovered from crash during restore - corrupt commit log tail truncated")
 	}
 
 	// Apply loaded state to index
@@ -185,6 +184,8 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 				if err != nil {
 					return errors.Wrap(err, "Restoring compressed data.")
 				}
+			} else {
+				return errors.New("restoring compressed data: pq data has no encoders")
 			}
 		} else if sqData := state.CompressionSQData(); sqData != nil {
 			h.dims.Store(int32(sqData.Dimensions))
