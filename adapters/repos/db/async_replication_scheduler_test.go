@@ -3739,6 +3739,42 @@ func TestSchedulerExpiresCheckpointsWhileGloballyDisabled(t *testing.T) {
 	assert.Equal(t, before.expired+1, readCheckpointCounters(abandoned.metrics).expired)
 }
 
+func TestExpiredCheckpointsLogOneSummary(t *testing.T) {
+	ctx := context.Background()
+	for _, n := range []int{1, 500} {
+		t.Run(fmt.Sprint(n), func(t *testing.T) {
+			sched := newBareScheduler(512, 1)
+			logger, hook := test.NewNullLogger()
+			sched.logger = logger
+			metrics := checkpointTestMetrics(t)
+			for i := range n {
+				ht, err := hashtree.NewHashTree(4)
+				require.NoError(t, err)
+				s := &Shard{
+					index:                    &Index{Config: IndexConfig{ClassName: "C"}},
+					class:                    &models.Class{Class: "C"},
+					name:                     fmt.Sprintf("s%d", i),
+					hashtree:                 ht,
+					hashtreeFullyInitialized: true,
+					metrics:                  metrics,
+				}
+				require.NoError(t, s.CreateAsyncCheckpoint(ctx, time.Now().Add(time.Hour).UnixMilli(), time.Now().UTC()))
+				backdateAsyncCheckpoint(s, replica.AsyncCheckpointMaxLifetime+time.Minute)
+				sched.expireAsyncCheckpoint(s, time.Now())
+			}
+			require.Empty(t, hook.AllEntries())
+
+			sched.reportExpiredCheckpoints()
+			sched.reportExpiredCheckpoints()
+
+			entries := hook.AllEntries()
+			require.Len(t, entries, 1)
+			assert.Equal(t, logrus.WarnLevel, entries[0].Level)
+			assert.Equal(t, int64(n), entries[0].Data["expired"])
+		})
+	}
+}
+
 // TestRunEntrySkipsUnreadyHashtree pins that a cycle dispatched for a registered-but-unready tree is skipped before the height check can arm a rebuild.
 func TestRunEntrySkipsUnreadyHashtree(t *testing.T) {
 	tests := []struct {
