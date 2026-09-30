@@ -12,6 +12,7 @@
 package monitoring
 
 import (
+	"context"
 	"sync"
 	"time"
 
@@ -156,15 +157,15 @@ func newStartupMetrics(reg prometheus.Registerer, processStart time.Time) *Start
 		}, []string{"phase"}),
 		phaseActive: r.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "weaviate_startup_phase_active",
-			Help: "1 while a startup phase is running on this node, 0 otherwise",
+			Help: "1 while a startup phase is running on this node, 0 otherwise. modules_init runs before the metrics endpoint listens, so it is never scraped as active; its duration still is.",
 		}, []string{"phase"}),
 		startupDuration: r.NewGauge(prometheus.GaugeOpts{
 			Name: "weaviate_startup_duration_seconds",
-			Help: "Seconds from process start until this node first reported ready (store open, local DB loaded, raft leader known). 0 until ready.",
+			Help: "Seconds from process start until this node first satisfied the readiness probe's predicate (the same check as /v1/.well-known/ready), polled once the API server is configured. 0 until ready.",
 		}),
 		readyTimestamp: r.NewGauge(prometheus.GaugeOpts{
 			Name: "weaviate_startup_ready_timestamp_seconds",
-			Help: "Unix time at which this node first reported ready. 0 until ready.",
+			Help: "Unix time at which this node first satisfied the readiness probe's predicate. 0 until ready.",
 		}),
 		// The three summaries below set no Objectives on purpose: that leaves
 		// only _sum and _count, no quantile series and no buckets.
@@ -233,6 +234,31 @@ func (m *StartupMetrics) SetReady() {
 		m.readyTimestamp.Set(float64(now.UnixNano()) / float64(time.Second))
 		m.startupDuration.Set(now.Sub(m.processStart).Seconds())
 	})
+}
+
+// TrackReady polls isReady every period until it answers true or ctx is
+// cancelled, records the first true answer with SetReady, and reports whether
+// it did. Nothing polls the readiness predicate outside the kubernetes probe,
+// so a tracker has to; it returns after the first true answer, so steady state
+// costs nothing.
+func (m *StartupMetrics) TrackReady(ctx context.Context, isReady func() bool, period time.Duration) bool {
+	if m == nil {
+		return false
+	}
+
+	t := time.NewTicker(period)
+	defer t.Stop()
+	for {
+		if isReady() {
+			m.SetReady()
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-t.C:
+		}
+	}
 }
 
 // ObserveShardLoad records one successful load of an existing shard. Callers

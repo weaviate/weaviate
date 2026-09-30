@@ -46,7 +46,7 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "Seconds from process start until the node first reported ready. 0 while still starting.",
+      "description": "Seconds from process start until the node first satisfied the readiness probe. Empty while still starting.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -62,7 +62,8 @@
               }
             ]
           },
-          "unit": "s"
+          "unit": "s",
+          "noValue": "starting"
         },
         "overrides": []
       },
@@ -95,10 +96,12 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "max(weaviate_startup_duration_seconds)",
+          "expr": "max(weaviate_startup_duration_seconds > 0)",
           "interval": "",
           "legendFormat": "",
-          "refId": "A"
+          "refId": "A",
+          "instant": true,
+          "range": false
         }
       ],
       "title": "Time to ready",
@@ -109,7 +112,7 @@
         "type": "prometheus",
         "uid": "Prometheus"
       },
-      "description": "Unix time the node first reported ready.",
+      "description": "Unix time the node first satisfied the readiness probe. Empty while still starting.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -125,7 +128,8 @@
               }
             ]
           },
-          "unit": "dateTimeAsIso"
+          "unit": "dateTimeAsIso",
+          "noValue": "not ready yet"
         },
         "overrides": []
       },
@@ -158,10 +162,12 @@
             "uid": "Prometheus"
           },
           "exemplar": true,
-          "expr": "max(weaviate_startup_ready_timestamp_seconds) * 1000",
+          "expr": "max(weaviate_startup_ready_timestamp_seconds > 0) * 1000",
           "interval": "",
           "legendFormat": "",
-          "refId": "A"
+          "refId": "A",
+          "instant": true,
+          "range": false
         }
       ],
       "title": "Ready at",
@@ -1541,6 +1547,6 @@
   "timezone": "",
   "title": "Startup times",
   "uid": "oZZHUUC7k",
-  "version": 3,
+  "version": 4,
   "weekStart": ""
 }

@@ -12,7 +12,9 @@
 package monitoring
 
 import (
+	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,6 +22,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/stretchr/testify/require"
+
+	"github.com/weaviate/weaviate/usecases/monitoring/metricstest"
 )
 
 func newTestStartupMetrics(t *testing.T) (*StartupMetrics, *prometheus.Registry, time.Time) {
@@ -108,17 +112,17 @@ func TestStartupMetrics_ObserveShardLoad(t *testing.T) {
 
 			m.ObserveShardLoad(tt.registration, 1500*time.Millisecond)
 
-			count, err := SampleCount(reg, "weaviate_shard_load_duration_seconds",
+			count, err := metricstest.SampleCount(reg, "weaviate_shard_load_duration_seconds",
 				prometheus.Labels{"registration": string(tt.registration)})
 			require.NoError(t, err)
 			require.Equal(t, uint64(1), count)
 
-			sum, err := SampleSum(reg, "weaviate_shard_load_duration_seconds",
+			sum, err := metricstest.SampleSum(reg, "weaviate_shard_load_duration_seconds",
 				prometheus.Labels{"registration": string(tt.registration)})
 			require.NoError(t, err)
 			require.InDelta(t, 1.5, sum, 1e-9, "observed in seconds")
 
-			count, err = SampleCount(reg, "weaviate_shard_load_duration_seconds",
+			count, err = metricstest.SampleCount(reg, "weaviate_shard_load_duration_seconds",
 				prometheus.Labels{"registration": string(tt.other)})
 			require.NoError(t, err)
 			require.Equal(t, uint64(0), count, "the other registration is pre-registered but untouched")
@@ -131,11 +135,11 @@ func TestStartupMetrics_ObserveVectorIndexRestore(t *testing.T) {
 
 	m.ObserveVectorIndexRestore(VectorIndexTypeHNSW, 250*time.Millisecond)
 
-	count, err := SampleCount(reg, "weaviate_vector_index_restore_duration_seconds",
+	count, err := metricstest.SampleCount(reg, "weaviate_vector_index_restore_duration_seconds",
 		prometheus.Labels{"index_type": "hnsw"})
 	require.NoError(t, err)
 	require.Equal(t, uint64(1), count)
-	sum, err := SampleSum(reg, "weaviate_vector_index_restore_duration_seconds",
+	sum, err := metricstest.SampleSum(reg, "weaviate_vector_index_restore_duration_seconds",
 		prometheus.Labels{"index_type": "hnsw"})
 	require.NoError(t, err)
 	require.InDelta(t, 0.25, sum, 1e-9)
@@ -169,7 +173,7 @@ func TestStartupMetrics_PrefillStarted(t *testing.T) {
 			require.Equal(t, float64(0), testutil.ToFloat64(m.prefillActive.With(labels)),
 				"active drops whatever the outcome")
 
-			count, err := SampleCount(reg, "weaviate_vector_cache_prefill_duration_seconds", labels)
+			count, err := metricstest.SampleCount(reg, "weaviate_vector_cache_prefill_duration_seconds", labels)
 			require.NoError(t, err)
 			require.Equal(t, tt.wantCount, count)
 		})
@@ -266,81 +270,49 @@ func TestStartupMetrics_Singleton(t *testing.T) {
 	require.Same(t, GetStartupMetrics(), GetStartupMetrics())
 }
 
-func TestSampleCount(t *testing.T) {
-	reg := prometheus.NewPedanticRegistry()
-	hist := prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "test_hist_seconds", Help: "test"}, []string{"a"})
-	summary := prometheus.NewSummaryVec(prometheus.SummaryOpts{Name: "test_summary_seconds", Help: "test"}, []string{"a"})
-	gauge := prometheus.NewGauge(prometheus.GaugeOpts{Name: "test_plain_gauge", Help: "test"})
-	reg.MustRegister(hist, summary, gauge)
-	hist.WithLabelValues("x").Observe(1)
-	hist.WithLabelValues("x").Observe(2)
-	hist.WithLabelValues("y").Observe(3)
-	summary.WithLabelValues("x").Observe(5)
-	summary.WithLabelValues("x").Observe(7)
-
+// TrackReady turns the readiness predicate into the time-to-ready gauges.
+// Nothing polls that predicate outside the kubernetes probe, so the tracker
+// has to.
+func TestStartupMetrics_TrackReady(t *testing.T) {
 	tests := []struct {
-		name      string
-		metric    string
-		labels    prometheus.Labels
-		wantCount uint64
-		wantSum   float64
-		wantErr   bool
+		name       string
+		readyAfter int32 // not-ready answers before the first ready one
+		cancel     bool
+		want       bool
 	}{
-		{name: "histogram series", metric: "test_hist_seconds", labels: prometheus.Labels{"a": "x"}, wantCount: 2, wantSum: 3},
-		{name: "other histogram series", metric: "test_hist_seconds", labels: prometheus.Labels{"a": "y"}, wantCount: 1, wantSum: 3},
-		{name: "summary series", metric: "test_summary_seconds", labels: prometheus.Labels{"a": "x"}, wantCount: 2, wantSum: 12},
-		{name: "unknown labels", metric: "test_hist_seconds", labels: prometheus.Labels{"a": "z"}, wantErr: true},
-		{name: "unknown metric", metric: "nope", labels: prometheus.Labels{"a": "x"}, wantErr: true},
-		{name: "neither summary nor histogram", metric: "test_plain_gauge", labels: nil, wantErr: true},
+		{name: "ready on the first check", readyAfter: 0, want: true},
+		{name: "ready after a few checks", readyAfter: 3, want: true},
+		{name: "cancelled before ready", readyAfter: 1 << 30, cancel: true, want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			count, err := SampleCount(reg, tt.metric, tt.labels)
-			sum, sumErr := SampleSum(reg, tt.metric, tt.labels)
-			if tt.wantErr {
-				require.Error(t, err)
-				require.Error(t, sumErr)
-				return
-			}
-			require.NoError(t, err)
-			require.NoError(t, sumErr)
-			require.Equal(t, tt.wantCount, count)
-			require.InDelta(t, tt.wantSum, sum, 1e-9)
-		})
-	}
-}
+			m, _, _ := newTestStartupMetrics(t)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
 
-func TestGaugeValue(t *testing.T) {
-	reg := prometheus.NewPedanticRegistry()
-	vec := prometheus.NewGaugeVec(prometheus.GaugeOpts{Name: "test_gauge", Help: "test"}, []string{"a"})
-	scalar := prometheus.NewGauge(prometheus.GaugeOpts{Name: "test_scalar_gauge", Help: "test"})
-	hist := prometheus.NewHistogram(prometheus.HistogramOpts{Name: "test_not_a_gauge", Help: "test"})
-	reg.MustRegister(vec, scalar, hist)
-	vec.WithLabelValues("x").Set(7)
-	scalar.Set(3)
-
-	tests := []struct {
-		name    string
-		metric  string
-		labels  prometheus.Labels
-		want    float64
-		wantErr bool
-	}{
-		{name: "labelled gauge", metric: "test_gauge", labels: prometheus.Labels{"a": "x"}, want: 7},
-		{name: "scalar gauge", metric: "test_scalar_gauge", labels: nil, want: 3},
-		{name: "unknown labels", metric: "test_gauge", labels: prometheus.Labels{"a": "z"}, wantErr: true},
-		{name: "unknown metric", metric: "nope", labels: nil, wantErr: true},
-		{name: "not a gauge", metric: "test_not_a_gauge", labels: nil, wantErr: true},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, err := GaugeValue(reg, tt.metric, tt.labels)
-			if tt.wantErr {
-				require.Error(t, err)
-				return
+			var calls atomic.Int32
+			isReady := func() bool {
+				n := calls.Add(1)
+				if tt.cancel && n == 2 {
+					cancel()
+				}
+				return n > tt.readyAfter
 			}
-			require.NoError(t, err)
+
+			got := m.TrackReady(ctx, isReady, time.Millisecond)
+
 			require.Equal(t, tt.want, got)
+			if tt.want {
+				require.Equal(t, tt.readyAfter+1, calls.Load(), "returns on the first ready answer")
+				require.Greater(t, testutil.ToFloat64(m.readyTimestamp), float64(0), "the first ready answer is recorded")
+			} else {
+				require.Equal(t, float64(0), testutil.ToFloat64(m.readyTimestamp), "a cancelled tracker records nothing")
+			}
 		})
 	}
+
+	t.Run("nil receiver returns false without polling", func(t *testing.T) {
+		var m *StartupMetrics
+		require.False(t, m.TrackReady(context.Background(), func() bool { return true }, time.Millisecond))
+	})
 }

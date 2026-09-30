@@ -21,13 +21,38 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/monitoring/metricstest"
 )
 
 // The version-map warmup is hfresh's post-startup cache fill; it always runs
-// in the background, so it reports under (hfresh, async). The series lives on
-// the default registry shared by every test, hence the delta.
-func TestWarmVersionMapReportsPrefill(t *testing.T) {
-	const total = 20
+// in the background, so it reports under (hfresh, async). The series live on
+// the default registry shared by every test, hence the deltas.
+
+var hfreshPrefillLabels = prometheus.Labels{
+	"index_type": string(monitoring.VectorIndexTypeHFresh),
+	"mode":       string(monitoring.PrefillModeAsync),
+}
+
+func hfreshPrefillCount(t *testing.T) uint64 {
+	t.Helper()
+	n, err := metricstest.SampleCount(prometheus.DefaultGatherer,
+		"weaviate_vector_cache_prefill_duration_seconds", hfreshPrefillLabels)
+	require.NoError(t, err)
+	return n
+}
+
+func hfreshPrefillActive(t *testing.T) float64 {
+	t.Helper()
+	v, err := metricstest.GaugeValue(prometheus.DefaultGatherer,
+		"weaviate_vector_cache_prefill_active", hfreshPrefillLabels)
+	require.NoError(t, err)
+	return v
+}
+
+// newWarmupTestIndex builds an hfresh index holding total vectors (zero for an
+// empty tenant).
+func newWarmupTestIndex(t *testing.T, total int) *HFresh {
+	t.Helper()
 	vectors, _ := testinghelpers.RandomVecs(total, 1, 32)
 
 	store := testinghelpers.NewDummyStore(t)
@@ -42,27 +67,45 @@ func TestWarmVersionMapReportsPrefill(t *testing.T) {
 	for i := range total {
 		require.NoError(t, index.Add(ctx, uint64(i), vectors[i]))
 	}
+	return index
+}
 
-	labels := prometheus.Labels{
-		"index_type": string(monitoring.VectorIndexTypeHFresh),
-		"mode":       string(monitoring.PrefillModeAsync),
-	}
-	count := func() uint64 {
-		n, err := monitoring.SampleCount(prometheus.DefaultGatherer,
-			"weaviate_vector_cache_prefill_duration_seconds", labels)
-		require.NoError(t, err)
-		return n
-	}
-	active := func() float64 {
-		v, err := monitoring.GaugeValue(prometheus.DefaultGatherer,
-			"weaviate_vector_cache_prefill_active", labels)
-		require.NoError(t, err)
-		return v
-	}
+func TestWarmVersionMapReportsPrefill(t *testing.T) {
+	index := newWarmupTestIndex(t, 20)
 
-	before, activeBefore := count(), active()
+	before, activeBefore := hfreshPrefillCount(t), hfreshPrefillActive(t)
 	index.warmVersionMap()
 
-	require.Equal(t, before+1, count(), "a completed warmup is observed once")
-	require.Equal(t, activeBefore, active(), "a completed warmup is no longer active")
+	require.Equal(t, before+1, hfreshPrefillCount(t), "a completed warmup is observed once")
+	require.Equal(t, activeBefore, hfreshPrefillActive(t), "a completed warmup is no longer active")
+}
+
+// Tenant creation is exactly the churn the prefill filter exists for: an
+// empty index has nothing to warm and must not record a microsecond sample.
+func TestWarmVersionMapEmptyIndexReportsNoPrefill(t *testing.T) {
+	index := newWarmupTestIndex(t, 0)
+
+	before, activeBefore := hfreshPrefillCount(t), hfreshPrefillActive(t)
+	index.warmVersionMap()
+
+	require.Equal(t, before, hfreshPrefillCount(t), "an empty index warms nothing and reports no prefill")
+	require.Equal(t, activeBefore, hfreshPrefillActive(t))
+}
+
+// A warmup that panics is recovered by the goroutine wrapper in production,
+// so the active gauge must not stay raised for the life of the process.
+func TestWarmVersionMapPanicReleasesActive(t *testing.T) {
+	index := newWarmupTestIndex(t, 20)
+
+	// A nil version map panics on its first use; put the real one back before
+	// the index shuts down.
+	orig := index.VersionMap
+	index.VersionMap = nil
+	t.Cleanup(func() { index.VersionMap = orig })
+
+	before, activeBefore := hfreshPrefillCount(t), hfreshPrefillActive(t)
+	require.Panics(t, func() { index.warmVersionMap() })
+
+	require.Equal(t, activeBefore, hfreshPrefillActive(t), "a warmup that panicked must not stay active")
+	require.Equal(t, before, hfreshPrefillCount(t), "a warmup that panicked is not a completed prefill")
 }

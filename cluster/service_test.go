@@ -12,9 +12,7 @@
 package cluster
 
 import (
-	"context"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -86,41 +84,4 @@ func requireLoggedError(t *testing.T, hook *logrustest.Hook, knob string) {
 		}
 	}
 	require.Failf(t, "missing log line", "an unwired %s must be reported at Error level, not silently defaulted", knob)
-}
-
-// waitUntilReady is what turns Store.Ready into the startup readiness metric.
-// Nothing else polls Ready outside the kubernetes probe, so the tracker has to.
-func TestWaitUntilReady(t *testing.T) {
-	tests := []struct {
-		name       string
-		readyAfter int32 // number of not-ready answers before ready
-		cancel     bool
-		want       bool
-	}{
-		{name: "ready on the first check", readyAfter: 0, want: true},
-		{name: "ready after a few checks", readyAfter: 3, want: true},
-		{name: "cancelled before ready", readyAfter: 1 << 30, cancel: true, want: false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-
-			var calls atomic.Int32
-			isReady := func() bool {
-				n := calls.Add(1)
-				if tt.cancel && n == 2 {
-					cancel()
-				}
-				return n > tt.readyAfter
-			}
-
-			got := waitUntilReady(ctx, isReady, time.Millisecond)
-
-			require.Equal(t, tt.want, got)
-			if tt.want {
-				require.Equal(t, tt.readyAfter+1, calls.Load(), "returns on the first ready answer")
-			}
-		})
-	}
 }

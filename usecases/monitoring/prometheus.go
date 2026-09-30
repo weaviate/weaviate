@@ -729,6 +729,9 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		}),
 
 		// Startup metrics
+		// TODO: remove StartupProgress in the next minor release. It was never
+		// set, and the only series minted for it (by the hnsw metrics wrapper)
+		// is gone. Delete the DeletePartialMatch call in DeleteShard with it.
 		StartupProgress: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "startup_progress",
 			Help: "A ratio (percentage) of startup progress for a particular component in a shard",

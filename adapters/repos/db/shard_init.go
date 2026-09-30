@@ -102,6 +102,19 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	index.metrics.UpdateShardStatus("", storagestate.StatusLoading.String())
 
+	// Only opening a shard that already has files is a load. A shard being
+	// created is fast and frequent (every tenant creation), and would bury
+	// the load distribution in near-zero samples. Registered before the
+	// recover below: defers run last-in first-out, so this one sees the error
+	// a recovered panic sets and skips that load as failed.
+	_, err = os.Stat(s.path())
+	exists := err == nil
+	defer func() {
+		if err == nil && exists {
+			monitoring.GetStartupMetrics().ObserveShardLoad(registration, time.Since(start))
+		}
+	}()
+
 	defer func() {
 		p := recover()
 		if p != nil {
@@ -143,18 +156,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
 
 	defer index.metrics.ShardStartup(start)
-
-	_, err = os.Stat(s.path())
-	exists := err == nil
-
-	// Only opening a shard that already has files is a load. A shard being
-	// created is fast and frequent (every tenant creation), and would bury
-	// the load distribution in near-zero samples.
-	defer func() {
-		if err == nil && exists {
-			monitoring.GetStartupMetrics().ObserveShardLoad(registration, time.Since(start))
-		}
-	}()
 
 	if err := os.MkdirAll(s.path(), os.ModePerm); err != nil {
 		return nil, err

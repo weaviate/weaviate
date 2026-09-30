@@ -31,6 +31,7 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/monitoring/metricstest"
 )
 
 // The startup metrics live on the default registry shared by every test in
@@ -39,7 +40,7 @@ import (
 
 func hnswRestoreCount(t *testing.T) uint64 {
 	t.Helper()
-	n, err := monitoring.SampleCount(prometheus.DefaultGatherer,
+	n, err := metricstest.SampleCount(prometheus.DefaultGatherer,
 		"weaviate_vector_index_restore_duration_seconds",
 		prometheus.Labels{"index_type": string(monitoring.VectorIndexTypeHNSW)})
 	require.NoError(t, err)
@@ -52,7 +53,7 @@ func hnswPrefillLabels(mode monitoring.PrefillMode) prometheus.Labels {
 
 func hnswPrefillCount(t *testing.T, mode monitoring.PrefillMode) uint64 {
 	t.Helper()
-	n, err := monitoring.SampleCount(prometheus.DefaultGatherer,
+	n, err := metricstest.SampleCount(prometheus.DefaultGatherer,
 		"weaviate_vector_cache_prefill_duration_seconds", hnswPrefillLabels(mode))
 	require.NoError(t, err)
 	return n
@@ -60,23 +61,24 @@ func hnswPrefillCount(t *testing.T, mode monitoring.PrefillMode) uint64 {
 
 func hnswPrefillActive(t *testing.T, mode monitoring.PrefillMode) float64 {
 	t.Helper()
-	v, err := monitoring.GaugeValue(prometheus.DefaultGatherer,
+	v, err := metricstest.GaugeValue(prometheus.DefaultGatherer,
 		"weaviate_vector_cache_prefill_active", hnswPrefillLabels(mode))
 	require.NoError(t, err)
 	return v
 }
 
 // startupMetricsHarness builds indexes over the same commit log directory
-// whose VectorForID can be parked, so a test can reopen an index and hold its
-// prefill open.
+// whose VectorForID can be parked or made to panic, so a test can reopen an
+// index and hold its prefill open or blow it up.
 type startupMetricsHarness struct {
-	cfg      Config
-	uc       ent.UserConfig
-	store    *lsmkv.Store
-	vectors  [][]float32
-	armed    atomic.Bool
-	entered  chan struct{}
-	released chan struct{}
+	cfg       Config
+	uc        ent.UserConfig
+	store     *lsmkv.Store
+	vectors   [][]float32
+	armed     atomic.Bool
+	panicking atomic.Bool
+	entered   chan struct{}
+	released  chan struct{}
 }
 
 func newStartupMetricsHarness(t *testing.T, indexID string, waitForPrefill bool) *startupMetricsHarness {
@@ -104,6 +106,9 @@ func newStartupMetricsHarness(t *testing.T, indexID string, waitForPrefill bool)
 			return NewCommitLogger(tempDir, indexID, logger, cyclemanager.NewCallbackGroupNoop(), opts...)
 		},
 		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			if h.panicking.Load() {
+				panic("prefill panic injected by the test")
+			}
 			if h.armed.Load() {
 				select {
 				case h.entered <- struct{}{}:
@@ -247,6 +252,32 @@ func TestStartupMetricsAbortedPrefillNotObserved(t *testing.T) {
 		"a prefill cut short by shutdown must not record a misleadingly short duration")
 	require.Equal(t, activeBefore, hnswPrefillActive(t, monitoring.PrefillModeAsync),
 		"an aborted prefill is no longer active")
+}
+
+// A prefill that panics is recovered by the goroutine wrapper (or by the
+// shard's recover in sync mode) and the process keeps running, so the active
+// gauge must not stay raised for the life of the process, and the run must
+// not count as a completed prefill.
+func TestStartupMetricsPanickingPrefillReleasesActive(t *testing.T) {
+	ctx := context.Background()
+	h := newStartupMetricsHarness(t, "prefill_panic", false)
+	h.fill(t, h.newIndex(t))
+	index := h.newIndex(t)
+	defer index.Shutdown(ctx)
+
+	before := hnswPrefillCount(t, monitoring.PrefillModeAsync)
+	activeBefore := hnswPrefillActive(t, monitoring.PrefillModeAsync)
+
+	// New() replays the commit log through the same thunk, so arm only once
+	// the index is built.
+	h.panicking.Store(true)
+	index.PostStartup(ctx)
+	index.prefillWg.Wait()
+
+	require.Equal(t, activeBefore, hnswPrefillActive(t, monitoring.PrefillModeAsync),
+		"a prefill that panicked must not stay active")
+	require.Equal(t, before, hnswPrefillCount(t, monitoring.PrefillModeAsync),
+		"a prefill that panicked is not a completed prefill")
 }
 
 // startup_progress was never set, so minting a series for it exports a

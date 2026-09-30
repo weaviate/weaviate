@@ -566,6 +566,10 @@ func (h *hnsw) resetTombstoneMetric() {
 	}
 }
 
+// errPrefillIncomplete is the prefill outcome until the prefill has actually
+// run to its end, so a panic on the way records no duration.
+var errPrefillIncomplete = errors.New("prefill did not complete")
+
 // PostStartup triggers routines that should happen after startup. The startup
 // process is triggered during the creation which in turn happens as part of
 // the shard creation. Some post-startup routines, such as prefilling the
@@ -603,6 +607,12 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 			mode = monitoring.PrefillModeSync
 		}
 		prefillDone := monitoring.GetStartupMetrics().PrefillStarted(monitoring.VectorIndexTypeHNSW, mode)
+		// Reported through a deferred call with a failure default: a prefill
+		// that panics is recovered by the goroutine wrapper (or by the shard's
+		// recover in sync mode) and must release the active gauge without
+		// recording a duration.
+		prefillErr := errPrefillIncomplete
+		defer func() { prefillDone(prefillErr) }()
 
 		h.logger.WithFields(logrus.Fields{
 			"action":   "prefill_cache",
@@ -636,7 +646,7 @@ func (h *hnsw) prefillCache(ctx context.Context) {
 		if err == nil {
 			err = ctx.Err()
 		}
-		prefillDone(err)
+		prefillErr = err
 
 		h.cachePrefilled.Store(true)
 	}

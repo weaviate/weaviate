@@ -9,7 +9,13 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package monitoring
+// Package metricstest reads individual series out of a prometheus.Gatherer
+// for tests. testutil.ToFloat64 cannot read summaries or histograms, and
+// metrics on the default registry are only reachable through a gather.
+//
+// On the default registry compare deltas rather than absolute values: other
+// tests in the same binary observe into the same series.
+package metricstest
 
 import (
 	"fmt"
@@ -19,11 +25,7 @@ import (
 )
 
 // SampleCount returns the _count of the summary or histogram series with the
-// given name and exact label set, gathered from g. It exists for tests in
-// other packages that assert on metrics registered on the default registry,
-// which testutil.ToFloat64 cannot read. Compare deltas rather than absolute
-// values on the default registry: other tests in the same binary observe into
-// the same series.
+// given name and exact label set.
 func SampleCount(g prometheus.Gatherer, name string, labels prometheus.Labels) (uint64, error) {
 	metric, err := gatherMetric(g, name, labels)
 	if err != nil {
@@ -54,8 +56,7 @@ func SampleSum(g prometheus.Gatherer, name string, labels prometheus.Labels) (fl
 }
 
 // GaugeValue returns the value of the gauge series with the given name and
-// exact label set (nil for a scalar gauge), gathered from g. Like SampleCount
-// it exists for tests in other packages.
+// exact label set (nil for a scalar gauge).
 func GaugeValue(g prometheus.Gatherer, name string, labels prometheus.Labels) (float64, error) {
 	metric, err := gatherMetric(g, name, labels)
 	if err != nil {

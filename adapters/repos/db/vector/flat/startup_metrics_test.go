@@ -24,13 +24,14 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/monitoring/metricstest"
 )
 
 // flatPrefillCount reads the flat preload series off the default registry.
 // It is shared by every test in the binary, so callers compare deltas.
 func flatPrefillCount(t *testing.T) uint64 {
 	t.Helper()
-	n, err := monitoring.SampleCount(prometheus.DefaultGatherer,
+	n, err := metricstest.SampleCount(prometheus.DefaultGatherer,
 		"weaviate_vector_cache_prefill_duration_seconds",
 		prometheus.Labels{
 			"index_type": string(monitoring.VectorIndexTypeFlat),
