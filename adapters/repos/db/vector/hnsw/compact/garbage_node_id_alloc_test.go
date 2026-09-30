@@ -83,7 +83,11 @@ import (
 // delta; the parent asserts on that report. Where the mmap is refused (Linux
 // overcommit heuristics) the child dies with an OOM fatal, and where it hangs
 // anyway the parent kills it at garbageNodeIDChildTimeout; both surface as a
-// clean failure of the parent test naming the bug.
+// clean failure of the parent test naming the bug. For the fatal, the parent
+// keeps the head of the runtime dump and requires the `out of memory` line
+// plus the sizing function on the crashing goroutine, so an unrelated panic
+// in the child (also exit status 2) fails as an unrelated panic, not as a
+// confirmation of this bug.
 func TestInMemoryReader_GarbageNodeIDBelowMax_NoHugeIndexAlloc(t *testing.T) {
 	if name := os.Getenv(garbageNodeIDChildEnv); name != "" {
 		sc, ok := garbageNodeIDScenarioByName(name)
@@ -429,11 +433,31 @@ func runGarbageNodeIDParent(t *testing.T, topLevelName string, sc garbageNodeIDS
 				"and GC/page-faulting on it never finishes (0-weaviate-issues#649)\n--- child output tail ---\n%s",
 			sc.path, garbageNodeIDChildTimeout, sc.commit, sc.id, buggySlots, buggyGiB, tail)
 	}
-	require.NoError(t, runErr,
-		"child exited abnormally while replaying an %s with ID %d; an "+
-			"`out of memory` fatal or a kill by the OS here means the %s sized the node index to the garbage ID "+
-			"(%d slots, %.0f GiB of pointers) (0-weaviate-issues#649)\n--- child output tail ---\n%s",
-		sc.commit, sc.id, sc.path, buggySlots, buggyGiB, tail)
+	if runErr != nil {
+		// Exit status 2 is what the Go runtime uses for every fatal error, so
+		// the exit code alone cannot tell the #649 allocation from an
+		// unrelated panic. Keep the head of the dump, where the runtime names
+		// the error and prints the crashing goroutine, and require both to
+		// match this bug before reporting it as this bug.
+		crash, hasDump := parseChildCrash(string(out))
+		if !hasDump {
+			require.FailNowf(t, "child died without a runtime dump",
+				"child exited with %v while replaying an %s with ID %d and left no `fatal error:` or `panic:` line; "+
+					"a kill by the OS is consistent with the %s sizing the node index to the garbage ID "+
+					"(%d slots, %.0f GiB of pointers), but cannot be told apart from an unrelated death "+
+					"(0-weaviate-issues#649)\n--- child output tail ---\n%s",
+				runErr, sc.commit, sc.id, sc.path, buggySlots, buggyGiB, tail)
+		}
+		frame := sc.allocFrame()
+		require.Truef(t, strings.Contains(crash.fatalLine, "out of memory") && strings.Contains(crash.running, frame),
+			"child crashed (%v) for a reason other than the #649 allocation while replaying an %s with ID %d: "+
+				"expected `fatal error: runtime: out of memory` with %s on the crashing goroutine\n--- child crash ---\n%s",
+			runErr, sc.commit, sc.id, frame, crash.running)
+		require.FailNowf(t, "child ran out of memory sizing the node index",
+			"%s: the %s sized the node index to the garbage ID (%d slots, %.0f GiB of pointers) "+
+				"replaying an %s with ID %d (0-weaviate-issues#649)\n--- child crash ---\n%s",
+			crash.fatalLine, sc.path, buggySlots, buggyGiB, sc.commit, sc.id, crash.running)
+	}
 
 	report, found := parseGarbageNodeIDReport(string(out))
 	require.True(t, found, "child produced no %q line\n--- child output tail ---\n%s",
@@ -467,6 +491,65 @@ func runGarbageNodeIDParent(t *testing.T, topLevelName string, sc garbageNodeIDS
 		sc.path, float64(report.SysDeltaBytes)/(1<<30), sc.commit, sc.id)
 }
 
+// allocFrame returns the function that sizes the node index on the unfixed
+// code for this scenario's path. A child OOM fatal must have it on the
+// crashing goroutine's stack to count as #649: growIndexToAccommodateNode for
+// the raw-file replay, SnapshotReader.readMetadata for the snapshot pre-size.
+func (sc garbageNodeIDScenario) allocFrame() string {
+	if sc.path == garbageNodeIDPathLoaderSnapshot {
+		return "(*SnapshotReader).readMetadata"
+	}
+	return "growIndexToAccommodateNode"
+}
+
+// childCrash is the head of a Go runtime crash dump.
+type childCrash struct {
+	// fatalLine is the `fatal error: ...` or `panic: ...` line.
+	fatalLine string
+	// running is the dump from fatalLine through the end of the first
+	// `goroutine N [running]:` block: the runtime stack and the crashing
+	// goroutine, without the idle goroutines that follow and that a tail
+	// excerpt would show instead.
+	running string
+}
+
+// garbageNodeIDCrashMaxLines caps the excerpt kept from a child crash dump.
+const garbageNodeIDCrashMaxLines = 80
+
+// parseChildCrash finds the first `fatal error:` or `panic:` line in the
+// child's combined output and returns it with the crashing goroutine's stack.
+// The bool is false when the output holds no runtime dump, which is what a
+// child killed by a signal leaves behind.
+func parseChildCrash(out string) (childCrash, bool) {
+	lines := strings.Split(out, "\n")
+	start := -1
+	for i, l := range lines {
+		if strings.HasPrefix(l, "fatal error: ") || strings.HasPrefix(l, "panic: ") {
+			start = i
+			break
+		}
+	}
+	if start < 0 {
+		return childCrash{}, false
+	}
+	end := len(lines)
+	inRunning := false
+	for i := start + 1; i < len(lines); i++ {
+		if strings.HasPrefix(lines[i], "goroutine ") && strings.Contains(lines[i], "[running]") {
+			inRunning = true
+			continue
+		}
+		if inRunning && strings.TrimSpace(lines[i]) == "" {
+			end = i
+			break
+		}
+	}
+	if end-start > garbageNodeIDCrashMaxLines {
+		end = start + garbageNodeIDCrashMaxLines
+	}
+	return childCrash{fatalLine: lines[start], running: strings.Join(lines[start:end], "\n")}, true
+}
+
 func parseGarbageNodeIDReport(out string) (garbageNodeIDReport, bool) {
 	for _, line := range strings.Split(out, "\n") {
 		rest, ok := strings.CutPrefix(line, garbageNodeIDResultPrefix)
@@ -488,4 +571,99 @@ func lastLines(s string, n int) string {
 		lines = lines[len(lines)-n:]
 	}
 	return strings.Join(lines, "\n")
+}
+
+// TestParseChildCrash covers the crash-dump excerpt the parent keeps from a
+// child that died with a runtime fatal, on every platform, since only Linux
+// with overcommit refused produces the real thing.
+func TestParseChildCrash(t *testing.T) {
+	oomDump := strings.Join([]string{
+		"=== RUN   TestInMemoryReader_GarbageNodeIDBelowMax_NoHugeIndexAlloc",
+		"fatal error: runtime: out of memory",
+		"",
+		"runtime stack:",
+		"runtime.throw({0x1234?, 0x0?})",
+		"\t/usr/local/go/src/runtime/panic.go:1101 +0x48 fp=0x0 sp=0x0 pc=0x0",
+		"",
+		"goroutine 7 gp=0xc000007000 m=0 mp=0x1 [running]:",
+		"runtime.systemstack_switch()",
+		"\t/usr/local/go/src/runtime/asm_arm64.s:200 +0x8 fp=0x0 sp=0x0 pc=0x0",
+		"runtime.mallocgc(0x92f8003e80, 0x1, 0x1)",
+		"\t/usr/local/go/src/runtime/malloc.go:1050 +0x0",
+		"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact.growIndexToAccommodateNode(...)",
+		"\t/src/adapters/repos/db/vector/hnsw/compact/in_memory_reader.go:573",
+		"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact.(*InMemoryReader).readNode(...)",
+		"\t/src/adapters/repos/db/vector/hnsw/compact/in_memory_reader.go:223",
+		"",
+		"goroutine 1 gp=0xc000006000 m=nil [chan receive]:",
+		"runtime.gopark(...)",
+		"",
+		"goroutine 18 gp=0xc000007380 m=nil [GC worker (idle)]:",
+		"runtime.gopark(...)",
+		"exit status 2",
+	}, "\n")
+
+	panicDump := strings.Join([]string{
+		"panic: unrelated boom",
+		"",
+		"goroutine 7 [running]:",
+		"testing.tRunner.func1.2(...)",
+		"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/compact.runGarbageNodeIDChild(...)",
+		"",
+		"goroutine 1 [chan receive]:",
+		"runtime.gopark(...)",
+	}, "\n")
+
+	cases := []struct {
+		name        string
+		out         string
+		wantFound   bool
+		wantFatal   string
+		wantInStack []string
+		wantOutside []string
+	}{
+		{
+			name:        "oom fatal keeps the runtime stack and the crashing goroutine only",
+			out:         oomDump,
+			wantFound:   true,
+			wantFatal:   "fatal error: runtime: out of memory",
+			wantInStack: []string{"runtime stack:", "[running]", "runtime.mallocgc(0x92f8003e80", "compact.growIndexToAccommodateNode", "(*InMemoryReader).readNode"},
+			wantOutside: []string{"=== RUN", "[chan receive]", "GC worker (idle)", "exit status 2"},
+		},
+		{
+			name:        "panic keeps the crashing goroutine only",
+			out:         panicDump,
+			wantFound:   true,
+			wantFatal:   "panic: unrelated boom",
+			wantInStack: []string{"[running]", "runGarbageNodeIDChild"},
+			wantOutside: []string{"[chan receive]"},
+		},
+		{
+			name:      "no dump (killed by a signal)",
+			out:       "=== RUN   TestInMemoryReader_GarbageNodeIDBelowMax_NoHugeIndexAlloc\n",
+			wantFound: false,
+		},
+		{
+			name:      "empty output",
+			out:       "",
+			wantFound: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			crash, found := parseChildCrash(tc.out)
+			require.Equal(t, tc.wantFound, found)
+			if !tc.wantFound {
+				return
+			}
+			assert.Equal(t, tc.wantFatal, crash.fatalLine)
+			for _, s := range tc.wantInStack {
+				assert.Contains(t, crash.running, s)
+			}
+			for _, s := range tc.wantOutside {
+				assert.NotContains(t, crash.running, s)
+			}
+		})
+	}
 }
