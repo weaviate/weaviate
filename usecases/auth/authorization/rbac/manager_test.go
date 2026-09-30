@@ -107,7 +107,7 @@ func TestSnapshotAndRestore(t *testing.T) {
 			require.NoError(t, err)
 
 			// Restore from snapshot
-			err = m2.Restore(snapshotData, false)
+			err = m2.RestoreRaftSnapshot(snapshotData)
 			if tt.wantErr {
 				require.Error(t, err)
 				return
@@ -1068,7 +1068,7 @@ func TestRestoreStripCollisionLeavesTargetIntact(t *testing.T) {
 	require.NotEmpty(t, incumbentG)
 
 	err = dst.Restore(blob, true)
-	require.Error(t, err)
+	require.ErrorIs(t, err, ErrRestoreRefused)
 	for _, want := range []string{"role:ns1:editor", "role:ns2:editor", `"editor"`} {
 		assert.Contains(t, err.Error(), want, "the error must name the collision, not just the role")
 	}
@@ -1081,9 +1081,9 @@ func TestRestoreStripCollisionLeavesTargetIntact(t *testing.T) {
 	assert.ElementsMatch(t, incumbentG, gotG, "a rejected restore must not drop the target's assignments")
 }
 
-// TestRestoreStripFalseUnchanged covers the RAFT path. With stripNamespaces=false
-// the namespace prefixes stay intact, so RAFT snapshot restore, which always
-// passes false, behaves exactly as it did before the strip was added.
+// TestRestoreStripFalseUnchanged checks that the namespace prefixes stay intact
+// when a restore does not strip. RestoreRaftSnapshot never strips, and Restore
+// strips only with stripNamespaces set.
 func TestRestoreStripFalseUnchanged(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	src, err := setupNSEnabledTestManager(t, logger)
@@ -1095,17 +1095,28 @@ func TestRestoreStripFalseUnchanged(t *testing.T) {
 	blob, err := src.Snapshot()
 	require.NoError(t, err)
 
-	dst, err := setupNSEnabledTestManager(t, logger)
-	require.NoError(t, err)
-	require.NoError(t, dst.Restore(blob, false))
+	tests := []struct {
+		name    string
+		restore func(*Manager) error
+	}{
+		{name: "RAFT snapshot", restore: func(m *Manager) error { return m.RestoreRaftSnapshot(blob) }},
+		{name: "backup without the strip", restore: func(m *Manager) error { return m.Restore(blob, false) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dst, err := setupNSEnabledTestManager(t, logger)
+			require.NoError(t, err)
+			require.NoError(t, tt.restore(dst))
 
-	nsP, err := dst.casbin.GetFilteredNamedPolicy("p", 0, "role:ns1:editor")
-	require.NoError(t, err)
-	assert.NotEmpty(t, nsP, "strip=false must leave the namespaced role qualified")
+			nsP, err := dst.casbin.GetFilteredNamedPolicy("p", 0, "role:ns1:editor")
+			require.NoError(t, err)
+			assert.NotEmpty(t, nsP, "strip=false must leave the namespaced role qualified")
 
-	strippedP, err := dst.casbin.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName("editor"))
-	require.NoError(t, err)
-	assert.Empty(t, strippedP, "strip=false must not synthesise a stripped role")
+			strippedP, err := dst.casbin.GetFilteredNamedPolicy("p", 0, conv.PrefixRoleName("editor"))
+			require.NoError(t, err)
+			assert.Empty(t, strippedP, "strip=false must not synthesise a stripped role")
+		})
+	}
 }
 
 // TestManager_DeleteRoles_MultiRoleBatchPersistsAcrossReload pins that an
@@ -1262,6 +1273,7 @@ func TestRestoreNilCasbin(t *testing.T) {
 
 	err := m.Restore([]byte("{}"), false)
 	require.NoError(t, err)
+	require.NoError(t, m.RestoreRaftSnapshot([]byte("{}")))
 }
 
 func TestRestoreInvalidData(t *testing.T) {
@@ -1271,12 +1283,16 @@ func TestRestoreInvalidData(t *testing.T) {
 
 	// Test with invalid JSON
 	err = m.Restore([]byte("invalid json"), false)
+	require.ErrorIs(t, err, ErrRestoreRefused)
+	assert.Contains(t, err.Error(), "decode json")
+	err = m.RestoreRaftSnapshot([]byte("invalid json"))
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "decode json")
 
 	// Test with empty data
 	err = m.Restore([]byte("{}"), false)
 	require.NoError(t, err)
+	require.NoError(t, m.RestoreRaftSnapshot([]byte("{}")))
 }
 
 func TestRestoreEmptyData(t *testing.T) {
@@ -1293,6 +1309,7 @@ func TestRestoreEmptyData(t *testing.T) {
 
 	err = m.Restore([]byte{}, false)
 	require.NoError(t, err)
+	require.NoError(t, m.RestoreRaftSnapshot([]byte{}))
 
 	// nothing overwritten
 	policies, err = m.casbin.GetPolicy()
@@ -1995,28 +2012,36 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 		},
 	}
 
+	restores := []struct {
+		name    string
+		restore func(*Manager, []byte) error
+	}{
+		{name: "RAFT snapshot", restore: func(m *Manager, b []byte) error { return m.RestoreRaftSnapshot(b) }},
+		{name: "backup", restore: func(m *Manager, b []byte) error { return m.Restore(b, false) }},
+	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			logger, _ := test.NewNullLogger()
-			m, err := setupTestManager(t, logger)
-			require.NoError(t, err)
+		for _, r := range restores {
+			t.Run(tt.name+"/"+r.name, func(t *testing.T) {
+				logger, _ := test.NewNullLogger()
+				m, err := setupTestManager(t, logger)
+				require.NoError(t, err)
 
-			sh := snapshot{Version: 0, GroupingPolicy: tt.groupingsInput, Policy: tt.policiesInput}
+				sh := snapshot{Version: 0, GroupingPolicy: tt.groupingsInput, Policy: tt.policiesInput}
 
-			bytes, err := json.Marshal(sh)
-			require.NoError(t, err)
+				bytes, err := json.Marshal(sh)
+				require.NoError(t, err)
 
-			err = m.Restore(bytes, false)
-			require.NoError(t, err)
+				require.NoError(t, r.restore(m, bytes))
 
-			finalPolicies, err := m.casbin.GetPolicy()
-			require.NoError(t, err)
-			assert.ElementsMatch(t, finalPolicies, tt.policiesExpected)
+				finalPolicies, err := m.casbin.GetPolicy()
+				require.NoError(t, err)
+				assert.ElementsMatch(t, finalPolicies, tt.policiesExpected)
 
-			finalGroupingPolicies, err := m.casbin.GetGroupingPolicy()
-			require.NoError(t, err)
-			assert.Equal(t, finalGroupingPolicies, tt.groupingsExpected)
-		})
+				finalGroupingPolicies, err := m.casbin.GetGroupingPolicy()
+				require.NoError(t, err)
+				assert.Equal(t, finalGroupingPolicies, tt.groupingsExpected)
+			})
+		}
 	}
 }
 

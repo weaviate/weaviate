@@ -25,6 +25,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/queryadmission"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -197,6 +198,7 @@ func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (re
 }
 
 func (s *Service) BatchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (*pb.BatchDeleteReply, error) {
+	batch.CountConsistencyLevel(monitoring.ConsistencyLevelWrite, req.ConsistencyLevel)
 	var result *pb.BatchDeleteReply
 	var errInner error
 
@@ -257,6 +259,7 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 //
 // It is intended to be used in isolation and therefore is not dependent on BatchSend/BatchStream.
 func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+	batch.CountConsistencyLevel(monitoring.ConsistencyLevelWrite, req.ConsistencyLevel)
 	var result *pb.BatchObjectsReply
 	var errInner error
 
@@ -279,6 +282,7 @@ func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 //
 // It is intended to be used in isolation and therefore is not dependent on BatchSend/BatchStream.
 func (s *Service) BatchReferences(ctx context.Context, req *pb.BatchReferencesRequest) (*pb.BatchReferencesReply, error) {
+	batch.CountConsistencyLevel(monitoring.ConsistencyLevelWrite, req.ConsistencyLevel)
 	var result *pb.BatchReferencesReply
 	var errInner error
 
@@ -312,6 +316,7 @@ func (s *Service) BatchStream(stream pb.Weaviate_BatchStreamServer) error {
 }
 
 func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
+	batch.CountConsistencyLevel(monitoring.ConsistencyLevelRead, req.ConsistencyLevel)
 	var result *pb.SearchReply
 	var errInner error
 
