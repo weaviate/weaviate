@@ -86,8 +86,12 @@ var asyncRepTargetHostsSeam func(*Shard) ([]string, error)
 // asyncRepPerClassFallbackSeam replaces the per-class fallback pre-filter in tests; nil outside tests.
 var asyncRepPerClassFallbackSeam func(context.Context, map[string]hashtree.Digest) (map[string]struct{}, replica.PrefilterStats)
 
+// asyncCheckpointSweepInterval (ns) paces the checkpoint expiry sweep while async replication is globally disabled; atomic so tests can shrink it.
+var asyncCheckpointSweepInterval atomic.Int64
+
 func init() {
 	asyncRepRebuildBaseBackoff.Store(int64(30 * time.Second))
+	asyncCheckpointSweepInterval.Store(int64(time.Minute))
 }
 
 // ErrSchedulerClosed is returned by Register / Deregister when called after Close.
@@ -730,6 +734,12 @@ func NewAsyncReplicationScheduler(
 		s.workerWatcher()
 	}, s.logger)
 
+	s.wg.Add(1)
+	enterrors.GoWrapper(func() {
+		defer s.wg.Done()
+		s.checkpointExpirySweeper()
+	}, s.logger)
+
 	for range s.targetWorkers {
 		s.spawnWorker()
 	}
@@ -879,6 +889,52 @@ func (sched *AsyncReplicationScheduler) Deregister(s *Shard) error {
 		return ErrSchedulerClosed
 	case <-sched.ctx.Done():
 		return ErrSchedulerClosed
+	}
+}
+
+// expireAsyncCheckpoint clears s's checkpoint once it outlived replica.AsyncCheckpointMaxLifetime; must not be called under sched.mu.
+func (sched *AsyncReplicationScheduler) expireAsyncCheckpoint(s *Shard, now time.Time) {
+	if !s.expireAsyncCheckpoint(now) {
+		return
+	}
+	className := ""
+	if s.class != nil {
+		className = s.class.Class
+	}
+	sched.logger.WithField("class_name", className).WithField("shard_name", s.name).
+		Warnf("async checkpoint expired: not deleted within %s", replica.AsyncCheckpointMaxLifetime)
+}
+
+// checkpointExpirySweeper stands in for runEntry's expiry while a global disable stops dispatch; runs on its own goroutine since shard locks must never be taken by the dispatcher (Deregister under a shard lock waits on it).
+func (sched *AsyncReplicationScheduler) checkpointExpirySweeper() {
+	ticker := time.NewTicker(time.Duration(asyncCheckpointSweepInterval.Load()))
+	defer ticker.Stop()
+	for {
+		select {
+		case <-sched.ctx.Done():
+			return
+		case <-ticker.C:
+			if sched.asyncReplicationDisabled.Get() {
+				sched.sweepExpiredCheckpoints()
+			}
+		}
+	}
+}
+
+// sweepExpiredCheckpoints snapshots registered shards under sched.mu and expires their checkpoints outside it.
+func (sched *AsyncReplicationScheduler) sweepExpiredCheckpoints() {
+	sched.mu.Lock()
+	shards := make([]*Shard, 0, len(sched.entries))
+	for s := range sched.entries {
+		shards = append(shards, s)
+	}
+	sched.mu.Unlock()
+	now := time.Now()
+	for _, s := range shards {
+		if sched.ctx.Err() != nil {
+			return
+		}
+		sched.expireAsyncCheckpoint(s, now)
 	}
 }
 
@@ -1882,6 +1938,8 @@ func (sched *AsyncReplicationScheduler) runEntry(entry *asyncSchedulerEntry, ski
 			currentHTHeight = currentHT.Height()
 		}
 	}()
+
+	sched.expireAsyncCheckpoint(s, time.Now())
 
 	cfg = base
 	if s.index != nil && s.index.globalreplicationConfig != nil {
