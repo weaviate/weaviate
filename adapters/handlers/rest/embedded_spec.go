@@ -9773,6 +9773,10 @@ func init() {
           "description": "Whether the license is used on a cluster other than the one it was issued for.",
           "type": "boolean"
         },
+        "documentationHref": {
+          "description": "Documentation page for the Weaviate Enterprise Edition.",
+          "type": "string"
+        },
         "edition": {
           "description": "The product edition: community (no license key) or enterprise (license key configured).",
           "type": "string"
@@ -22711,6 +22715,10 @@ func init() {
         "clusterMismatch": {
           "description": "Whether the license is used on a cluster other than the one it was issued for.",
           "type": "boolean"
+        },
+        "documentationHref": {
+          "description": "Documentation page for the Weaviate Enterprise Edition.",
+          "type": "string"
         },
         "edition": {
           "description": "The product edition: community (no license key) or enterprise (license key configured).",

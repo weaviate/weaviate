@@ -15,6 +15,10 @@ package license
 // without a license key, Enterprise Edition with one.
 type Edition string
 
+// EnterpriseDocsURL is the canonical documentation page for the Enterprise
+// Edition, linked from user-facing API responses.
+const EnterpriseDocsURL = "https://docs.weaviate.io/deploy/enterprise"
+
 const (
 	EditionCommunity  Edition = "community"
 	EditionEnterprise Edition = "enterprise"

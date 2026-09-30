@@ -55,7 +55,8 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 			// A Community Edition node has no license, so it has no license
 			// status or id; those fields only exist for Enterprise Edition.
 			res.License = &models.MetaLicense{
-				Edition: string(licenseState.Edition()),
+				Edition:           string(licenseState.Edition()),
+				DocumentationHref: license.EnterpriseDocsURL,
 			}
 			if licenseState.Edition() == license.EditionEnterprise {
 				res.License.Status = string(licenseState.Status)
@@ -98,6 +99,11 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 					{
 						Name: "Meta information about this instance/cluster",
 						Href: fmt.Sprintf("%s/v1/meta", origin),
+					},
+					{
+						Name:              "Edition and license state of this instance (part of /v1/meta)",
+						Href:              fmt.Sprintf("%s/v1/meta", origin),
+						DocumentationHref: license.EnterpriseDocsURL,
 					},
 					{
 						Name:              "view complete schema",

@@ -33,6 +33,9 @@ type MetaLicense struct {
 	// Whether the license is used on a cluster other than the one it was issued for.
 	ClusterMismatch bool `json:"clusterMismatch,omitempty"`
 
+	// Documentation page for the Weaviate Enterprise Edition.
+	DocumentationHref string `json:"documentationHref,omitempty"`
+
 	// The product edition: community (no license key) or enterprise (license key configured).
 	Edition string `json:"edition,omitempty"`
 

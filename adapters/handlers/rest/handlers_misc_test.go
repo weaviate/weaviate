@@ -69,6 +69,7 @@ func TestMetaGetLicense(t *testing.T) {
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 			require.NotNil(t, body.License)
 			require.Equal(t, tc.wantEdition, body.License.Edition)
+			require.Equal(t, license.EnterpriseDocsURL, body.License.DocumentationHref)
 			require.Equal(t, tc.wantStatus, body.License.Status)
 			require.Equal(t, tc.wantLicenseID, body.License.LicenseID)
 			require.False(t, body.License.Enforcing)

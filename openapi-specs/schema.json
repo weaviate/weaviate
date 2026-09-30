@@ -1402,6 +1402,10 @@
           "description": "The product edition: community (no license key) or enterprise (license key configured).",
           "type": "string"
         },
+        "documentationHref": {
+          "description": "Documentation page for the Weaviate Enterprise Edition.",
+          "type": "string"
+        },
         "status": {
           "description": "Current license status. Only present on Enterprise Edition; a Community Edition node has no license and therefore no license status.",
           "type": "string"
