@@ -14,12 +14,15 @@ package backupdedupe
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -812,6 +815,139 @@ func TestPlanDesignatedShardsFanout(t *testing.T) {
 			assert.Equal(t, tc.wantDeadline, dedupeFallbackCount("planning_deadline")-deadlineBefore)
 			assert.Equal(t, tc.wantDeadline, dedupeShardOutcomeCount("fallback")-fallbackBefore)
 			assert.Zero(t, dedupeFallbackCount("create_rpc_failed")-rpcBefore)
+		})
+	}
+}
+
+func TestPlanDesignatedShardsLogVolume(t *testing.T) {
+	ctx := context.Background()
+	tests := []struct {
+		name        string
+		setup       func(f *fakeCheckpointer, c *Planner, class string)
+		planTimeout time.Duration
+		cancelOnUse bool
+		budget      time.Duration
+		wantWarn    string
+		wantReason  string
+	}{
+		{name: "healthy"},
+		{name: "async replication off", setup: func(f *fakeCheckpointer, _ *Planner, class string) { f.asyncDisabled[class] = true }},
+		{
+			name:     "replica lookup fails",
+			setup:    func(f *fakeCheckpointer, _ *Planner, class string) { f.replicasErr[class] = assert.AnError },
+			wantWarn: "replica lookup failed",
+		},
+		{
+			name:       "every create fails",
+			setup:      func(f *fakeCheckpointer, _ *Planner, class string) { f.createErr[class] = assert.AnError },
+			wantWarn:   "checkpoint create failed",
+			wantReason: "create_rpc_failed",
+		},
+		{
+			name:       "every status fails",
+			setup:      func(f *fakeCheckpointer, _ *Planner, class string) { f.statusErr[class] = assert.AnError },
+			wantWarn:   "checkpoint status failed",
+			wantReason: "status_failed",
+		},
+		{
+			name: "one replica node lacks every checkpoint",
+			setup: func(f *fakeCheckpointer, _ *Planner, class string) {
+				f.converge[class+"/s1"] = false
+				f.partial[class+"/s1"] = true
+			},
+			wantWarn:   "on n2 (",
+			wantReason: "checkpoint_missing",
+		},
+		{
+			name: "nothing converges",
+			setup: func(f *fakeCheckpointer, _ *Planner, class string) {
+				f.converge[class+"/s1"] = false
+				f.diverge[class+"/s1"] = true
+			},
+			budget:     50 * time.Millisecond,
+			wantWarn:   "did not converge",
+			wantReason: "not_converged",
+		},
+		{
+			name:        "deadline during create",
+			setup:       func(f *fakeCheckpointer, _ *Planner, _ string) { f.createHang = true },
+			planTimeout: 300 * time.Millisecond,
+			wantWarn:    "planning deadline hit",
+			wantReason:  "planning_deadline",
+		},
+		{
+			name:        "deadline during status",
+			setup:       func(f *fakeCheckpointer, _ *Planner, _ string) { f.statusHang = true },
+			planTimeout: 300 * time.Millisecond,
+			wantWarn:    "planning deadline hit",
+			wantReason:  "planning_deadline",
+		},
+		{
+			name:        "user cancel during status",
+			setup:       func(f *fakeCheckpointer, _ *Planner, _ string) { f.statusHang = true },
+			cancelOnUse: true,
+		},
+		{
+			name: "hung cleanup",
+			setup: func(f *fakeCheckpointer, c *Planner, _ string) {
+				f.deleteHang = true
+				c.cleanupTimeout = 20 * time.Millisecond
+			},
+			wantWarn: "delete checkpoints failed",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var volumes []int
+			for _, n := range []int{20, 2000} {
+				f, classes := newWideFakeCheckpointer(n, 0)
+				c := newTestPlanner(f)
+				logger, hook := test.NewNullLogger()
+				c.log = logger
+				for _, class := range classes {
+					if tc.setup != nil {
+						tc.setup(f, c, class)
+					}
+				}
+				planCtx := ctx
+				if tc.planTimeout > 0 {
+					var cancel context.CancelFunc
+					planCtx, cancel = context.WithTimeout(ctx, tc.planTimeout)
+					t.Cleanup(cancel)
+				}
+				cancelled := func() bool {
+					f.mu.Lock()
+					defer f.mu.Unlock()
+					return tc.cancelOnUse && len(f.statusCalls) > 0
+				}
+				reasonBefore, statusFailedBefore := 0.0, dedupeFallbackCount("status_failed")
+				if tc.wantReason != "" {
+					reasonBefore = dedupeFallbackCount(tc.wantReason)
+				}
+
+				plan := c.PlanDesignatedShards(planCtx, classes, tc.budget, parts("n1", "n2"), nil, cancelled)
+
+				var loud []*logrus.Entry
+				for _, e := range hook.AllEntries() {
+					if e.Level <= logrus.InfoLevel {
+						loud = append(loud, e)
+					}
+				}
+				volumes = append(volumes, len(loud))
+				assert.LessOrEqual(t, len(loud), 2, "classes=%d: %v", n, loud)
+				if tc.wantWarn != "" {
+					assert.True(t, slices.ContainsFunc(loud, func(e *logrus.Entry) bool {
+						return e.Level == logrus.WarnLevel && strings.Contains(e.Message, tc.wantWarn)
+					}), "classes=%d: no warn containing %q in %v", n, tc.wantWarn, loud)
+				}
+				if tc.wantReason != "" {
+					assert.Equal(t, float64(plan.Fallback()), dedupeFallbackCount(tc.wantReason)-reasonBefore, "classes=%d", n)
+				}
+				if tc.wantReason == "planning_deadline" {
+					assert.Equal(t, statusFailedBefore, dedupeFallbackCount("status_failed"), "a dead ctx is not a status failure")
+				}
+			}
+			assert.Equal(t, volumes[0], volumes[1], "log volume must not grow with the class count")
 		})
 	}
 }

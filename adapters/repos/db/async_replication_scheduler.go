@@ -617,6 +617,9 @@ type AsyncReplicationScheduler struct {
 	// per-cycle clamp in Effective().
 	runtimeClampWarner *asyncReplicationClampWarner
 
+	// expiredSinceReport counts checkpoint expiries since the sweeper's last summary, so a mass expiry logs once, not once per shard.
+	expiredSinceReport atomic.Int64
+
 	// closed is set true at the top of Close() (before cancel) and never reset.
 	// Read by Register/Deregister and handleAdd/handleRemove to reject
 	// post-Close calls deterministically.
@@ -897,15 +900,24 @@ func (sched *AsyncReplicationScheduler) expireAsyncCheckpoint(s *Shard, now time
 	if !s.expireAsyncCheckpoint(now) {
 		return
 	}
+	sched.expiredSinceReport.Add(1)
 	className := ""
 	if s.class != nil {
 		className = s.class.Class
 	}
 	sched.logger.WithField("class_name", className).WithField("shard_name", s.name).
-		Warnf("async checkpoint expired: not deleted within %s", replica.AsyncCheckpointMaxLifetime)
+		Debugf("async checkpoint expired: not deleted within %s", replica.AsyncCheckpointMaxLifetime)
 }
 
-// checkpointExpirySweeper stands in for runEntry's expiry while a global disable stops dispatch; runs on its own goroutine since shard locks must never be taken by the dispatcher (Deregister under a shard lock waits on it).
+// reportExpiredCheckpoints logs one summary for the expiries since the last call.
+func (sched *AsyncReplicationScheduler) reportExpiredCheckpoints() {
+	if n := sched.expiredSinceReport.Swap(0); n > 0 {
+		sched.logger.WithField("action", "async_checkpoint_expiry").WithField("expired", n).
+			Warnf("%d async checkpoints expired: not deleted within %s", n, replica.AsyncCheckpointMaxLifetime)
+	}
+}
+
+// checkpointExpirySweeper stands in for runEntry's expiry while a global disable stops dispatch, and summarizes every tick's expiries; runs on its own goroutine since shard locks must never be taken by the dispatcher (Deregister under a shard lock waits on it).
 func (sched *AsyncReplicationScheduler) checkpointExpirySweeper() {
 	ticker := time.NewTicker(time.Duration(asyncCheckpointSweepInterval.Load()))
 	defer ticker.Stop()
@@ -917,6 +929,7 @@ func (sched *AsyncReplicationScheduler) checkpointExpirySweeper() {
 			if sched.asyncReplicationDisabled.Get() {
 				sched.sweepExpiredCheckpoints()
 			}
+			sched.reportExpiredCheckpoints()
 		}
 	}
 }

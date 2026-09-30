@@ -20,6 +20,7 @@ import (
 	"reflect"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -146,6 +147,13 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 	if cancelled == nil {
 		cancelled = func() bool { return false }
 	}
+	plan := &backup.DedupePlan{
+		Designations: make(map[string]map[string]string),
+		Replicas:     make(map[string]map[string][]string),
+	}
+	// Registered first so it runs last, after checkpoint cleanup: one line per run, whatever the class or tenant count.
+	sum := &planSummary{classes: len(classes), missingByNode: map[string]int{}}
+	defer func(begin time.Time) { p.logSummary(sum, plan, time.Since(begin), cancelled()) }(time.Now())
 	if budget <= 0 {
 		budget = p.convergenceBudget
 	}
@@ -171,24 +179,22 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 			}
 		}
 	}, p.log)
-	plan := &backup.DedupePlan{
-		Designations: make(map[string]map[string]string),
-		Replicas:     make(map[string]map[string][]string),
-	}
 
 	candidates := make(map[string][]string, len(classes))
 	for _, class := range classes {
 		if !p.checkpointer.IsAsyncReplicationEnabled(ctx, class) {
 			monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("class_ineligible").Inc()
+			sum.asyncDisabled++
 			p.log.WithField("action", backup.OpCreate).WithField("class", class).
-				Info("replica dedupe: class skipped, async replication not enabled")
+				Debug("replica dedupe: class skipped, async replication not enabled")
 			continue
 		}
 		replicasByShard, err := p.checkpointer.ShardReplicas(ctx, class)
 		if err != nil {
 			monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("class_ineligible").Inc()
+			sum.replicas.add(class, 0, err)
 			p.log.WithField("action", backup.OpCreate).WithField("class", class).
-				Warnf("replica dedupe: class falls back to all-replica backup: %v", err)
+				Debugf("replica dedupe: class falls back to all-replica backup: %v", err)
 			continue
 		}
 		var shards []string
@@ -238,8 +244,9 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 		}
 		if res.err != nil {
 			monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("create_rpc_failed").Add(float64(len(candidates[class])))
+			sum.create.add(class, len(candidates[class]), res.err)
 			p.log.WithField("action", backup.OpCreate).WithField("class", class).
-				Warnf("replica dedupe: class falls back to all-replica backup: create checkpoints: %v", res.err)
+				Debugf("replica dedupe: class falls back to all-replica backup: create checkpoints: %v", res.err)
 			delete(candidates, class)
 			continue
 		}
@@ -247,7 +254,7 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 	}
 	plan.Cutoffs = cutoffs
 	if aborted {
-		p.abortPlanning(ctx, plan, candidates, cancelled)
+		p.abortPlanning(ctx, sum, plan, candidates, cancelled)
 		return plan
 	}
 	if len(candidates) == 0 {
@@ -260,11 +267,11 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 		latestCutoffMs = max(latestCutoffMs, cutoffMs)
 	}
 	if !sleepUnlessCancelled(ctx, time.UnixMilli(latestCutoffMs), cancelled) {
-		p.abortPlanning(ctx, plan, candidates, cancelled)
+		p.abortPlanning(ctx, sum, plan, candidates, cancelled)
 		return plan
 	}
 
-	converged := p.pollConvergence(ctx, candidates, plan.Replicas, cutoffs, budget, cancelled)
+	converged := p.pollConvergence(ctx, sum, candidates, plan.Replicas, cutoffs, budget, cancelled)
 
 	loads := make(map[string]int)
 	classNames := make([]string, 0, len(converged))
@@ -279,7 +286,7 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 			WithField("designated", len(designations)).
 			WithField("sticky", sticky).
 			WithField("fallback", len(candidates[class])-len(designations)).
-			Info("replica dedupe: planning complete")
+			Debug("replica dedupe: class planning complete")
 	}
 	monitoring.GetMetrics().BackupDedupeShards.WithLabelValues("designated").Add(float64(plan.Designated()))
 	monitoring.GetMetrics().BackupDedupeShards.WithLabelValues("fallback").Add(float64(plan.Fallback()))
@@ -287,7 +294,8 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 }
 
 // abortPlanning accounts every remaining candidate as fallen back when planning stops before the cutoff.
-func (p *Planner) abortPlanning(ctx context.Context, plan *backup.DedupePlan, candidates map[string][]string, cancelled func() bool) {
+func (p *Planner) abortPlanning(ctx context.Context, sum *planSummary, plan *backup.DedupePlan, candidates map[string][]string, cancelled func() bool) {
+	sum.stopped, sum.stopErr = true, ctx.Err()
 	// A user Cancel kills the whole backup; anything else is the planning deadline silently degrading every candidate.
 	if cancelled() {
 		return
@@ -296,10 +304,100 @@ func (p *Planner) abortPlanning(ctx context.Context, plan *backup.DedupePlan, ca
 	for _, shards := range candidates {
 		remaining += len(shards)
 	}
+	sum.deadlineShards += remaining
 	monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("planning_deadline").Add(float64(remaining))
 	monitoring.GetMetrics().BackupDedupeShards.WithLabelValues("fallback").Add(float64(plan.Fallback()))
-	p.log.WithField("action", backup.OpCreate).
-		Warnf("replica dedupe: planning aborted before cutoff, %d shards fall back to all-replica backup: %v", remaining, ctx.Err())
+}
+
+// failureTally counts one failure category across classes, keeping the first error as the example.
+type failureTally struct {
+	classes, shards int
+	first           error
+}
+
+func (t *failureTally) add(class string, shards int, err error) {
+	t.classes++
+	t.shards += shards
+	if t.first == nil {
+		t.first = fmt.Errorf("class %q: %w", class, err)
+	}
+}
+
+// planSummary collects one planning run's outcomes so it logs once, never once per class or tenant.
+type planSummary struct {
+	classes, asyncDisabled   int
+	replicas, create, status failureTally
+	missing, unconverged     int
+	missingByNode            map[string]int
+	deadlineShards           int
+	stopped                  bool
+	stopErr                  error
+}
+
+// _DedupeSummaryMaxNodes caps the nodes named in the summary line.
+const _DedupeSummaryMaxNodes = 5
+
+// logSummary emits the run's single summary: Info when nothing degraded, Warn naming each failure category once otherwise.
+func (p *Planner) logSummary(sum *planSummary, plan *backup.DedupePlan, took time.Duration, cancelled bool) {
+	log := p.log.WithField("action", backup.OpCreate).
+		WithField("classes", sum.classes).
+		WithField("candidate_shards", plan.CandidateShards).
+		WithField("designated", plan.Designated()).
+		WithField("fallback", plan.Fallback()).
+		WithField("took", took.String())
+	if sum.asyncDisabled > 0 {
+		log = log.WithField("async_disabled_classes", sum.asyncDisabled)
+	}
+	var problems []string
+	for _, t := range []struct {
+		what string
+		t    failureTally
+	}{{"replica lookup", sum.replicas}, {"checkpoint create", sum.create}, {"checkpoint status", sum.status}} {
+		if t.t.classes > 0 {
+			problems = append(problems, fmt.Sprintf("%s failed for %d classes (%d shards), first: %v", t.what, t.t.classes, t.t.shards, t.t.first))
+		}
+	}
+	if sum.missing > 0 {
+		problems = append(problems, fmt.Sprintf("checkpoint missing for %d shards on %s", sum.missing, topNodes(sum.missingByNode, _DedupeSummaryMaxNodes)))
+	}
+	if sum.unconverged > 0 {
+		problems = append(problems, fmt.Sprintf("%d shards did not converge within the budget", sum.unconverged))
+	}
+	switch {
+	case sum.stopped && cancelled:
+		log.Info("replica dedupe: planning cancelled")
+		return
+	case sum.stopped:
+		problems = append(problems, fmt.Sprintf("planning deadline hit, %d shards fall back: %v", sum.deadlineShards, sum.stopErr))
+	}
+	if len(problems) == 0 {
+		log.Info("replica dedupe: planning complete")
+		return
+	}
+	log.Warnf("replica dedupe: planning complete with fallbacks: %s", strings.Join(problems, "; "))
+}
+
+// topNodes renders the n nodes with the highest counts, busiest first, plus how many were left out.
+func topNodes(counts map[string]int, n int) string {
+	nodes := make([]string, 0, len(counts))
+	for node := range counts {
+		nodes = append(nodes, node)
+	}
+	sort.Slice(nodes, func(i, j int) bool {
+		if counts[nodes[i]] != counts[nodes[j]] {
+			return counts[nodes[i]] > counts[nodes[j]]
+		}
+		return nodes[i] < nodes[j]
+	})
+	parts := make([]string, 0, min(n, len(nodes))+1)
+	for i, node := range nodes {
+		if i == n {
+			parts = append(parts, fmt.Sprintf("+%d more nodes", len(nodes)-n))
+			break
+		}
+		parts = append(parts, fmt.Sprintf("%s (%d shards)", node, counts[node]))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // dedupeFanoutAllowance is planning's deadline headroom for the per-class create and status waves.
@@ -409,6 +507,11 @@ func (p *Planner) fetchCheckpointStatuses(ctx context.Context, classes []string,
 	for i, class := range classes {
 		eg.Go(func() error {
 			res := &results[i]
+			// Planning already stopped: a dead-ctx call only burns a fan-out.
+			if err := ctx.Err(); err != nil {
+				res.err = err
+				return nil
+			}
 			res.err = enterrors.RunRecovered(p.log, func() error {
 				var err error
 				res.statuses, err = p.checkpointer.GetAsyncCheckpointNodeStatuses(ctx, class, shardNames[i])
@@ -424,7 +527,7 @@ func (p *Planner) fetchCheckpointStatuses(ctx context.Context, classes []string,
 }
 
 // pollConvergence polls until every candidate shard converges or drops, returning class -> shard -> replicas for converged shards.
-func (p *Planner) pollConvergence(ctx context.Context, candidates map[string][]string,
+func (p *Planner) pollConvergence(ctx context.Context, sum *planSummary, candidates map[string][]string,
 	replicas map[string]map[string][]string, cutoffs map[string]int64, budget time.Duration, cancelled func() bool,
 ) map[string]map[string][]string {
 	converged := make(map[string]map[string][]string)
@@ -437,6 +540,7 @@ func (p *Planner) pollConvergence(ctx context.Context, candidates map[string][]s
 	}
 
 	deadline := time.Now().Add(budget)
+	aborted := false
 	for firstPoll := true; len(pending) > 0; firstPoll = false {
 		classes := make([]string, 0, len(pending))
 		for class := range pending {
@@ -456,10 +560,16 @@ func (p *Planner) pollConvergence(ctx context.Context, candidates map[string][]s
 		for i, class := range classes {
 			shards, shardNames := pending[class], shardNamesByClass[i]
 			statuses, err := results[i].statuses, results[i].err
+			// Planning's ctx died first: the class stays pending and is accounted below as a deadline, not a status failure.
+			if err != nil && ctx.Err() != nil && errors.Is(err, ctx.Err()) {
+				aborted = true
+				continue
+			}
 			if err != nil {
 				monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("status_failed").Add(float64(len(shards)))
+				sum.status.add(class, len(shards), err)
 				p.log.WithField("action", backup.OpCreate).WithField("class", class).
-					Warnf("replica dedupe: class falls back to all-replica backup: checkpoint status: %v", err)
+					Debugf("replica dedupe: class falls back to all-replica backup: checkpoint status: %v", err)
 				delete(pending, class)
 				continue
 			}
@@ -475,8 +585,11 @@ func (p *Planner) pollConvergence(ctx context.Context, candidates map[string][]s
 					continue
 				}
 				// Checkpoint membership is final after create, so an entry absent on the first poll never appears later; only root equality is worth polling for.
-				if firstPoll && !replicaSetCompleteAtCutoff(entries, replicas[class][shard], cutoffs[class]) {
+				if lacking := missingReplicasAtCutoff(entries, replicas[class][shard], cutoffs[class]); firstPoll && len(lacking) > 0 {
 					missing++
+					for _, node := range lacking {
+						sum.missingByNode[node]++
+					}
 					p.log.WithField("action", backup.OpCreate).WithField("class", class).WithField("shard", shard).
 						Debug("replica dedupe: shard falls back, checkpoint missing on at least one replica")
 					delete(shards, shard)
@@ -484,26 +597,42 @@ func (p *Planner) pollConvergence(ctx context.Context, candidates map[string][]s
 			}
 			if missing > 0 {
 				monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("checkpoint_missing").Add(float64(missing))
+				sum.missing += missing
 				p.log.WithField("action", backup.OpCreate).WithField("class", class).WithField("shards", missing).
-					Info("replica dedupe: shards fall back to all-replica backup, checkpoint missing on at least one replica")
+					Debug("replica dedupe: shards fall back to all-replica backup, checkpoint missing on at least one replica")
 			}
 			if len(shards) == 0 {
 				delete(pending, class)
 			}
 		}
-		if len(pending) == 0 || time.Now().After(deadline) {
+		if aborted || len(pending) == 0 || time.Now().After(deadline) {
 			break
 		}
 		if !sleepUnlessCancelled(ctx, time.Now().Add(p.pollInterval), cancelled) {
 			break
 		}
 	}
+	if aborted {
+		sum.stopped, sum.stopErr = true, ctx.Err()
+		if cancelled() {
+			return converged
+		}
+	}
+	reason := "not_converged"
+	if aborted {
+		reason = "planning_deadline"
+	}
 	for class, shards := range pending {
 		if len(shards) > 0 {
-			monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("not_converged").Add(float64(len(shards)))
+			monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues(reason).Add(float64(len(shards)))
+			if aborted {
+				sum.deadlineShards += len(shards)
+			} else {
+				sum.unconverged += len(shards)
+			}
 			p.log.WithField("action", backup.OpCreate).WithField("class", class).
 				WithField("unconverged", len(shards)).
-				Info("replica dedupe: unconverged shards fall back to all-replica backup")
+				Debug("replica dedupe: unconverged shards fall back to all-replica backup")
 		}
 	}
 	return converged
@@ -550,18 +679,24 @@ func convergedReplicaSet(entries []replica.AsyncCheckpointNodeStatus, replicas [
 
 // replicaSetCompleteAtCutoff is true when every replica has an entry at the expected cutoff.
 func replicaSetCompleteAtCutoff(entries []replica.AsyncCheckpointNodeStatus, replicas []string, cutoffMs int64) bool {
+	return len(missingReplicasAtCutoff(entries, replicas, cutoffMs)) == 0
+}
+
+// missingReplicasAtCutoff returns the replicas without an entry at the expected cutoff.
+func missingReplicasAtCutoff(entries []replica.AsyncCheckpointNodeStatus, replicas []string, cutoffMs int64) []string {
 	at := make(map[string]struct{}, len(entries))
 	for _, e := range entries {
 		if e.CutoffMs == cutoffMs {
 			at[e.Node] = struct{}{}
 		}
 	}
+	var missing []string
 	for node := range uniqueNonEmpty(replicas) {
 		if _, ok := at[node]; !ok {
-			return false
+			missing = append(missing, node)
 		}
 	}
-	return true
+	return missing
 }
 
 // assignDesignations picks one archiving node per shard: an eligible preferred (base) designee outranks balance since only it can skip unchanged files, the rest go least-loaded (lexicographic ties, loads shared across classes).
