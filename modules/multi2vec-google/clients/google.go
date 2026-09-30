@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
@@ -33,8 +34,28 @@ func buildURL(apiEndpoint, location, projectID, model string) string {
 	if apiEndpoint == "generativelanguage.googleapis.com" {
 		return fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:batchEmbedContents", model)
 	}
-	return fmt.Sprintf("https://%s-aiplatform.googleapis.com/v1/projects/%s/locations/%s/publishers/google/models/%s:predict",
-		location, projectID, location, model)
+	if usesVertexEmbedContent(model) {
+		// The configured location is ignored: these models exist only on the global location.
+		return fmt.Sprintf("https://%s/v1/projects/%s/locations/%s/publishers/google/models/%s:embedContent",
+			vertexHost(vertexGlobalLocation), projectID, vertexGlobalLocation, model)
+	}
+	return fmt.Sprintf("https://%s/v1/projects/%s/locations/%s/publishers/google/models/%s:predict",
+		vertexHost(location), projectID, location, model)
+}
+
+const vertexGlobalLocation = "global"
+
+// usesVertexEmbedContent reports whether Vertex AI serves the model only
+// through :embedContent on the global location, never through :predict.
+func usesVertexEmbedContent(model string) bool {
+	return strings.HasPrefix(model, "gemini-embedding-2")
+}
+
+func vertexHost(location string) string {
+	if location == vertexGlobalLocation {
+		return "aiplatform.googleapis.com"
+	}
+	return fmt.Sprintf("%s-aiplatform.googleapis.com", location)
 }
 
 type google struct {
@@ -90,24 +111,9 @@ func (v *google) vectorize(ctx context.Context,
 		image := v.safelyGet(images, i)
 		video := v.safelyGet(videos, i)
 		audio := v.safelyGet(audios, i)
-		payload := v.getPayload(text, image, video, audio, config)
-		statusCode, res, err := v.sendRequest(ctx, endpointURL, payload, config)
+		textVectors, imageVectors, videoVectors, audioVectors, err := v.embed(ctx, endpointURL, text, image, video, audio, config)
 		if err != nil {
 			return nil, err
-		}
-
-		var textVectors, imageVectors, videoVectors, audioVectors [][]float32
-		if v.useGeminiApi(config) {
-			textVectors, imageVectors, videoVectors, audioVectors, err = v.getEmbeddingsFromGeminiResponse(statusCode, res, text, image, video, audio)
-			if err != nil {
-				return nil, err
-			}
-		} else {
-			// Vertex AI doesn't support audio files
-			textVectors, imageVectors, videoVectors, err = v.getEmbeddingsFromVertexResponse(statusCode, res)
-			if err != nil {
-				return nil, err
-			}
 		}
 
 		textEmbeddings = append(textEmbeddings, textVectors...)
@@ -117,6 +123,82 @@ func (v *google) vectorize(ctx context.Context,
 	}
 
 	return v.getResponse(textEmbeddings, imageEmbeddings, videoEmbeddings, audioEmbeddings)
+}
+
+func (v *google) embed(ctx context.Context, endpointURL string,
+	text, image, video, audio string, config ent.VectorizationConfig,
+) (textVectors, imageVectors, videoVectors, audioVectors [][]float32, err error) {
+	switch {
+	case v.useGeminiApi(config):
+		statusCode, res, err := v.sendRequest(ctx, endpointURL, v.getGeminiPayload(text, image, video, audio, config), config)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		return v.getEmbeddingsFromGeminiResponse(statusCode, res, text, image, video, audio)
+	case usesVertexEmbedContent(config.Model):
+		return v.embedWithVertexEmbedContent(ctx, endpointURL, text, image, video, audio, config)
+	default:
+		statusCode, res, err := v.sendRequest(ctx, endpointURL, v.getVertexPayload(text, image, video, config), config)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		// Vertex AI :predict doesn't support audio files
+		textVectors, imageVectors, videoVectors, err = v.getEmbeddingsFromVertexResponse(statusCode, res)
+		return textVectors, imageVectors, videoVectors, nil, err
+	}
+}
+
+// embedWithVertexEmbedContent sends one request per modality, because
+// :embedContent returns a single embedding for all parts of its content.
+func (v *google) embedWithVertexEmbedContent(ctx context.Context, endpointURL string,
+	text, image, video, audio string, config ent.VectorizationConfig,
+) (textVectors, imageVectors, videoVectors, audioVectors [][]float32, err error) {
+	inputs := []struct {
+		part    *contentPart
+		vectors *[][]float32
+	}{
+		{textPart(text), &textVectors},
+		{imagePart(image), &imageVectors},
+		{videoPart(video), &videoVectors},
+		{audioPart(audio), &audioVectors},
+	}
+	for _, input := range inputs {
+		if input.part == nil {
+			continue
+		}
+		payload := vertexEmbedContentRequest{Content: embedContent{Parts: []contentPart{*input.part}}}
+		if config.Dimensions != nil {
+			payload.EmbedContentConfig = &vertexEmbedContentConfig{OutputDimensionality: config.Dimensions}
+		}
+		statusCode, res, err := v.sendRequest(ctx, endpointURL, payload, config)
+		if err != nil {
+			return nil, nil, nil, nil, err
+		}
+		var resBody vertexEmbedContentResponse
+		if err := v.decodeResponse(statusCode, res, &resBody); err != nil {
+			return nil, nil, nil, nil, err
+		}
+		if err := v.checkResponse(statusCode, resBody.Error); err != nil {
+			return nil, nil, nil, nil, err
+		}
+		if resBody.Embedding == nil || len(resBody.Embedding.Values) == 0 {
+			return nil, nil, nil, nil, errors.Errorf("empty embeddings response")
+		}
+		*input.vectors = append(*input.vectors, resBody.Embedding.Values)
+	}
+	return textVectors, imageVectors, videoVectors, audioVectors, nil
+}
+
+// decodeResponse reports a non-JSON error body, such as an HTML 404 page, by
+// its status code rather than by the JSON parse error.
+func (v *google) decodeResponse(statusCode int, bodyBytes []byte, out any) error {
+	if err := json.Unmarshal(bodyBytes, out); err != nil {
+		if statusCode != http.StatusOK {
+			return fmt.Errorf("connection to Google failed with status: %d", statusCode)
+		}
+		return fmt.Errorf("failed to parse vectorization response (status %d): %w", statusCode, err)
+	}
+	return nil
 }
 
 func (v *google) safelyGet(input []string, i int) string {
@@ -174,14 +256,7 @@ func (v *google) useGeminiApi(config ent.VectorizationConfig) bool {
 	return config.ApiEndpoint == "generativelanguage.googleapis.com"
 }
 
-func (v *google) getPayload(text, img, vid, audio string, config ent.VectorizationConfig) any {
-	if v.useGeminiApi(config) {
-		return v.getGeminiPayload(text, img, vid, audio, config)
-	}
-	return v.getVertexPayload(text, img, vid, audio, config)
-}
-
-func (v *google) getVertexPayload(text, img, vid, audio string, config ent.VectorizationConfig) embeddingsRequest {
+func (v *google) getVertexPayload(text, img, vid string, config ent.VectorizationConfig) embeddingsRequest {
 	inst := instance{}
 	if text != "" {
 		inst.Text = &text
@@ -205,31 +280,46 @@ func (v *google) getVertexPayload(text, img, vid, audio string, config ent.Vecto
 }
 
 func (v *google) getGeminiPayload(text, img, vid, audio string, config ent.VectorizationConfig) *batchEmbedContents {
-	var parts []contentPart
-	if text != "" {
-		parts = append(parts, contentPart{Text: &text})
-	}
-	if img != "" {
-		parts = append(parts, contentPart{InlineData: &inlineData{MimeType: "image/jpeg", Data: img}})
-	}
-	if vid != "" {
-		parts = append(parts, contentPart{InlineData: &inlineData{MimeType: "video/mp4", Data: vid}})
-	}
-	if audio != "" {
-		parts = append(parts, contentPart{InlineData: &inlineData{MimeType: "audio/mpeg", Data: audio}})
-	}
-
 	var requests []embedContentRequest
-	for _, p := range parts {
+	for _, p := range []*contentPart{textPart(text), imagePart(img), videoPart(vid), audioPart(audio)} {
+		if p == nil {
+			continue
+		}
 		requests = append(requests, embedContentRequest{
 			Model:                fmt.Sprintf("models/%s", config.Model),
-			Content:              embedContent{Parts: []contentPart{p}},
+			Content:              embedContent{Parts: []contentPart{*p}},
 			OutputDimensionality: config.Dimensions,
 		})
 	}
 	return &batchEmbedContents{
 		Requests: requests,
 	}
+}
+
+func textPart(text string) *contentPart {
+	if text == "" {
+		return nil
+	}
+	return &contentPart{Text: &text}
+}
+
+func imagePart(img string) *contentPart {
+	return inlineDataPart("image/jpeg", img)
+}
+
+func videoPart(vid string) *contentPart {
+	return inlineDataPart("video/mp4", vid)
+}
+
+func audioPart(audio string) *contentPart {
+	return inlineDataPart("audio/mpeg", audio)
+}
+
+func inlineDataPart(mimeType, data string) *contentPart {
+	if data == "" {
+		return nil
+	}
+	return &contentPart{InlineData: &inlineData{MimeType: mimeType, Data: data}}
 }
 
 func (v *google) checkResponse(statusCode int, googleApiError *googleApiError) error {
@@ -254,8 +344,8 @@ func (v *google) getEmbeddingsFromVertexResponse(statusCode int, bodyBytes []byt
 	err error,
 ) {
 	var resBody embeddingsResponse
-	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, nil, nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", statusCode, err)
+	if err := v.decodeResponse(statusCode, bodyBytes, &resBody); err != nil {
+		return nil, nil, nil, err
 	}
 
 	if respErr := v.checkResponse(statusCode, resBody.Error); respErr != nil {
@@ -300,8 +390,8 @@ func (v *google) getEmbeddingsFromGeminiResponse(statusCode int, bodyBytes []byt
 	err error,
 ) {
 	var resBody batchEmbedResponse
-	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("failed to parse vectorization response (status %d): %w", statusCode, err)
+	if err := v.decodeResponse(statusCode, bodyBytes, &resBody); err != nil {
+		return nil, nil, nil, nil, err
 	}
 
 	if respErr := v.checkResponse(statusCode, resBody.Error); respErr != nil {
@@ -426,4 +516,20 @@ type batchEmbedResponse struct {
 
 type embedContentEmbedding struct {
 	Values []float32 `json:"values"`
+}
+
+// Vertex AI :embedContent request
+type vertexEmbedContentRequest struct {
+	Content            embedContent              `json:"content"`
+	EmbedContentConfig *vertexEmbedContentConfig `json:"embedContentConfig,omitempty"`
+}
+
+type vertexEmbedContentConfig struct {
+	OutputDimensionality *int64 `json:"outputDimensionality,omitempty"`
+}
+
+// Vertex AI :embedContent response
+type vertexEmbedContentResponse struct {
+	Embedding *embedContentEmbedding `json:"embedding,omitempty"`
+	Error     *googleApiError        `json:"error,omitempty"`
 }
