@@ -222,6 +222,7 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	defer c.releaseSlotOnPanic(OpCreate, req.ID, &handedOff, &err)
 	compressionType, err := CompressionTypeFromLevel(req.Level)
 	if err != nil {
+		c.lastOp.reset()
 		return backup.NewErrUnprocessable(err)
 	}
 
