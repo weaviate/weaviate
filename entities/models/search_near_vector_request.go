@@ -133,6 +133,7 @@ func (m *SearchNearVectorRequest) Validate(formats strfmt.Registry) error {
 }
 
 func (m *SearchNearVectorRequest) validateVector(formats strfmt.Registry) error {
+
 	if m.Vector == nil {
 		return errors.Required("vector", "body", nil)
 	}
