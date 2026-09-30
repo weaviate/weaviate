@@ -183,6 +183,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/telemetry/opentelemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
+	"github.com/weaviate/weaviate/wl/backupdedupe"
 	wlnshandlers "github.com/weaviate/weaviate/wl/namespaces/handlers"
 	"github.com/weaviate/weaviate/wl/selfrecovery"
 )
@@ -1737,10 +1738,14 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 	if appState.RBAC != nil {
 		roleLister = appState.RBAC
 	}
+	dedupePlanner, err := backupdedupe.New(backupdedupe.Config{Checkpointer: appState.DB, Logger: appState.Logger})
+	if err != nil {
+		appState.Logger.WithField("action", "startup").Fatalf("backup dedupe planner: %v", err)
+	}
 	backupScheduler := backup.NewScheduler(
 		appState.Authorizer,
 		clients.NewClusterBackups(appState.ClusterHttpClient),
-		appState.DB, appState.DB, userLister, roleLister, appState.Modules,
+		appState.DB, dedupePlanner, userLister, roleLister, appState.Modules,
 		membership{appState.Cluster, appState.ClusterService},
 		appState.SchemaManager,
 		rbac.StaticAPIKeyUsers(appState.ServerConfig.Config.Authentication),

@@ -3880,7 +3880,7 @@ func TestSchedulerBackupDedupeOptIn(t *testing.T) {
 }
 
 // startPlanningBackup drives a dedupe create into its convergence wait and returns its result channel.
-func startPlanningBackup(t *testing.T, id string) (*Scheduler, *fakeScheduler, chan error) {
+func startPlanningBackup(t *testing.T, id string) (*Scheduler, *fakeScheduler, *fakeDedupePlanner, chan error) {
 	t.Helper()
 	t.Setenv("BACKUP_DEDUPE_ENABLED", "true")
 	const cls = "Class1"
@@ -3894,13 +3894,9 @@ func startPlanningBackup(t *testing.T, id string) (*Scheduler, *fakeScheduler, c
 	fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
 	fs.backend.On("PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	fs.client.On("Abort", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	ckpt := newFakeCheckpointer()
-	ckpt.shardReplicas[cls] = map[string][]string{"S1": {"N1", "N2"}}
-	ckpt.diverge[cls+"/S1"] = true
+	planner := &fakeDedupePlanner{plan: &DedupePlan{}, blockUntilCancelled: true}
 	s := fs.scheduler()
-	s.backupper.checkpointer = ckpt
-	s.backupper.dedupeCutoffLead = 100 * time.Millisecond
-	s.backupper.dedupePollInterval = 20 * time.Millisecond
+	s.backupper.dedupePlanner = planner
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -3912,11 +3908,13 @@ func startPlanningBackup(t *testing.T, id string) (*Scheduler, *fakeScheduler, c
 	}()
 	require.Eventually(t, func() bool { return s.backupper.lastOp.get().ID == id },
 		5*time.Second, 10*time.Millisecond, "backup never took the op slot")
-	return s, fs, errCh
+	require.Eventually(t, func() bool { return len(planner.recordedCalls()) == 1 },
+		5*time.Second, 10*time.Millisecond, "backup never started planning")
+	return s, fs, planner, errCh
 }
 
 // expectPlanningCancelled asserts the create unwinds cancelled without ever booking participants.
-func expectPlanningCancelled(t *testing.T, s *Scheduler, fs *fakeScheduler, errCh chan error) {
+func expectPlanningCancelled(t *testing.T, s *Scheduler, fs *fakeScheduler, planner *fakeDedupePlanner, errCh chan error) {
 	t.Helper()
 	select {
 	case err := <-errCh:
@@ -3926,6 +3924,7 @@ func expectPlanningCancelled(t *testing.T, s *Scheduler, fs *fakeScheduler, errC
 	case <-time.After(5 * time.Second):
 		t.Fatal("backup still planning 5s after cancel; the signal never reached the create path")
 	}
+	require.True(t, planner.observedCancel(), "the planner's cancelled() never reported the cancel")
 	fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
 	require.Eventually(t, func() bool { return s.backupper.lastOp.get().ID == "" },
 		5*time.Second, 10*time.Millisecond, "op slot not released after cancel")
@@ -3933,15 +3932,31 @@ func expectPlanningCancelled(t *testing.T, s *Scheduler, fs *fakeScheduler, errC
 
 func TestSchedulerCancelDuringDedupePlanning(t *testing.T) {
 	const id = "cancel-mid-planning"
-	s, fs, errCh := startPlanningBackup(t, id)
-	require.NoError(t, s.Cancel(context.Background(), nil, "s3", id, "", ""))
-	expectPlanningCancelled(t, s, fs, errCh)
+	cases := []struct {
+		name   string
+		cancel func(t *testing.T, s *Scheduler)
+	}{
+		{name: "user cancel requests it", cancel: func(t *testing.T, s *Scheduler) {
+			require.NoError(t, s.Cancel(context.Background(), nil, "s3", id, "", ""))
+			require.True(t, s.backupper.lastOp.get().CancelRequested)
+		}},
+		{name: "slot status cancelled", cancel: func(t *testing.T, s *Scheduler) {
+			s.backupper.lastOp.set(backup.Cancelled)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s, fs, planner, errCh := startPlanningBackup(t, id)
+			tc.cancel(t, s)
+			expectPlanningCancelled(t, s, fs, planner, errCh)
+		})
+	}
 }
 
 // TestRemoteAbortCancelsCoordinatorCreatePlanning pins non-coordinator DELETE reaching a planning create.
 func TestRemoteAbortCancelsCoordinatorCreatePlanning(t *testing.T) {
 	const id = "cancel-remote-abort"
-	s, fs, errCh := startPlanningBackup(t, id)
+	s, fs, planner, errCh := startPlanningBackup(t, id)
 
 	require.False(t, s.cancelCoordinatorOp(OpCreate, id, "foreign-attempt"))
 	require.False(t, s.backupper.lastOp.get().CancelRequested)
@@ -3953,8 +3968,9 @@ func TestRemoteAbortCancelsCoordinatorCreatePlanning(t *testing.T) {
 	require.False(t, s.cancelCoordinatorOp(OpRestore, id, ""))
 	require.False(t, s.backupper.lastOp.get().CancelRequested)
 
+	require.False(t, planner.observedCancel())
 	require.True(t, s.cancelCoordinatorOp(OpCreate, id, ""))
-	expectPlanningCancelled(t, s, fs, errCh)
+	expectPlanningCancelled(t, s, fs, planner, errCh)
 }
 
 func TestCancelCoordinatorOpGuards(t *testing.T) {

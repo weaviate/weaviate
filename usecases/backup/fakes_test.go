@@ -17,7 +17,9 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"slices"
 	"sync"
+	"time"
 
 	"github.com/stretchr/testify/mock"
 
@@ -244,4 +246,59 @@ func (fb *fakeBackend) Write(ctx context.Context, backupID, key, overrideBucket,
 	fb.files[backupID+"/"+key] = buf.Bytes()
 
 	return n, err
+}
+
+// fakeDedupePlanner returns a canned plan and records every call's arguments.
+type fakeDedupePlanner struct {
+	plan                *DedupePlan
+	panicWith           interface{}
+	blockUntilCancelled bool
+
+	mu           sync.Mutex
+	calls        []dedupePlanCall
+	sawCancelled bool
+}
+
+type dedupePlanCall struct {
+	classes      []string
+	budget       time.Duration
+	participants map[string]struct{}
+	preferred    map[string]map[string]string
+	cancelled    func() bool
+}
+
+func (f *fakeDedupePlanner) PlanDesignatedShards(ctx context.Context, classes []string, budget time.Duration,
+	participants map[string]struct{}, preferred map[string]map[string]string, cancelled func() bool,
+) *DedupePlan {
+	f.mu.Lock()
+	f.calls = append(f.calls, dedupePlanCall{classes: classes, budget: budget, participants: participants, preferred: preferred, cancelled: cancelled})
+	f.mu.Unlock()
+	if f.panicWith != nil {
+		panic(f.panicWith)
+	}
+	for f.blockUntilCancelled && !cancelled() {
+		select {
+		case <-ctx.Done():
+			return f.plan
+		case <-time.After(5 * time.Millisecond):
+		}
+	}
+	if f.blockUntilCancelled {
+		f.mu.Lock()
+		f.sawCancelled = true
+		f.mu.Unlock()
+	}
+	return f.plan
+}
+
+func (f *fakeDedupePlanner) recordedCalls() []dedupePlanCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.calls)
+}
+
+func (f *fakeDedupePlanner) observedCancel() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.sawCancelled
 }
