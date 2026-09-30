@@ -15,9 +15,11 @@ package backupdedupe
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"slices"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -46,6 +48,12 @@ const (
 	_DedupePollInterval             = 3 * time.Second
 	_DefaultDedupeConvergenceBudget = 60 * time.Second
 	_DedupeCleanupTimeout           = 10 * time.Second
+	// Classes whose checkpoint RPCs run at once; each call already fans out per shard and replica.
+	_DedupeClassConcurrency = 16
+	// Caps the cleanup wall time so one hung replica can't pin the op slot for hours on wide backups.
+	_DedupeMaxCleanupBudget = 2 * time.Minute
+	// Caps the per-class-wave share of planning's hard deadline.
+	_DedupeMaxFanoutAllowance = 5 * time.Minute
 	// Headroom over lead+budget for the create/status fan-outs; the resulting deadline is planning's hard stop.
 	_DedupePlanningSlack = 30 * time.Second
 	// Mirrors the API's documented maximum, which is otherwise enforced only by generated swagger validation.
@@ -72,6 +80,7 @@ type Config struct {
 	PollInterval      time.Duration
 	ConvergenceBudget time.Duration
 	PlanningSlack     time.Duration
+	CleanupTimeout    time.Duration
 }
 
 // Planner is the backup.DedupePlanner of a licensed node.
@@ -82,6 +91,7 @@ type Planner struct {
 	pollInterval      time.Duration
 	convergenceBudget time.Duration
 	planningSlack     time.Duration
+	cleanupTimeout    time.Duration
 }
 
 // New returns a Planner, or an error instead of a Planner that would panic on its first call.
@@ -99,6 +109,7 @@ func New(cfg Config) (*Planner, error) {
 		pollInterval:      orDefault(cfg.PollInterval, _DedupePollInterval),
 		convergenceBudget: orDefault(cfg.ConvergenceBudget, _DefaultDedupeConvergenceBudget),
 		planningSlack:     orDefault(cfg.PlanningSlack, _DedupePlanningSlack),
+		cleanupTimeout:    orDefault(cfg.CleanupTimeout, _DedupeCleanupTimeout),
 	}, nil
 }
 
@@ -139,8 +150,7 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 	}
 	budget = min(budget, _MaxDedupeConvergenceBudget)
 	// Hard deadline: the request ctx has none, and a wedged peer RPC would otherwise stall planning while the op slot blocks every subsequent backup.
-	// Scaled per class so wide backups' serial create fan-outs don't eat the convergence budget.
-	ctx, cancel := context.WithTimeout(ctx, p.cutoffLead+budget+p.planningSlack+time.Duration(len(classes))*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, p.cutoffLead+budget+p.planningSlack+dedupeFanoutAllowance(len(classes)))
 	defer cancel()
 	// A user Cancel only flags the slot; propagate it into the ctx so in-flight checkpointer RPCs unblock.
 	watchDone := make(chan struct{})
@@ -209,32 +219,24 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 	sort.Strings(candidateClasses)
 
 	cutoffs := make(map[string]int64, len(candidates))
-	created := make([]string, 0, len(candidates))
-	// Registered before any create so a panic mid-loop still deletes what exists; a fresh timeout per class keeps one slow node from starving later deletes.
-	defer func() {
-		base := context.WithoutCancel(ctx)
-		for _, class := range created {
-			cleanupCtx, cancelCleanup := context.WithTimeout(base, _DedupeCleanupTimeout)
-			err := p.checkpointer.DeleteAsyncCheckpoints(cleanupCtx, class, candidates[class])
-			cancelCleanup()
-			if err != nil {
-				p.log.WithField("action", backup.OpCreate).WithField("class", class).
-					Warnf("replica dedupe: delete checkpoints: %v", err)
-			}
+	created := make(map[string][]string, len(candidates))
+	// Registered before any create so a panic still deletes what exists.
+	defer func() { p.deleteCheckpoints(ctx, created) }()
+	results := p.createCheckpoints(ctx, candidateClasses, candidates)
+	for i, class := range candidateClasses {
+		res := results[i]
+		// A panicked create may have left checkpoints behind.
+		if res.err == nil || res.panicked {
+			created[class] = candidates[class]
 		}
-	}()
-	for _, class := range candidateClasses {
-		// Per-class cutoff: one shared cutoff would let serial creates on wide backups overrun the lead and silently reject later classes.
-		cutoffMs := time.Now().Add(p.cutoffLead).UnixMilli()
-		if err := p.checkpointer.CreateAsyncCheckpoints(ctx, class, cutoffMs, candidates[class]); err != nil {
+		if res.err != nil {
 			monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("create_rpc_failed").Add(float64(len(candidates[class])))
 			p.log.WithField("action", backup.OpCreate).WithField("class", class).
-				Warnf("replica dedupe: class falls back to all-replica backup: create checkpoints: %v", err)
+				Warnf("replica dedupe: class falls back to all-replica backup: create checkpoints: %v", res.err)
 			delete(candidates, class)
 			continue
 		}
-		cutoffs[class] = cutoffMs
-		created = append(created, class)
+		cutoffs[class] = res.cutoffMs
 	}
 	plan.Cutoffs = cutoffs
 	if len(candidates) == 0 {
@@ -282,6 +284,122 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 	return plan
 }
 
+// dedupeFanoutAllowance is planning's deadline headroom for the per-class create and status waves.
+func dedupeFanoutAllowance(classes int) time.Duration {
+	return min(time.Duration(dedupeClassWaves(classes))*time.Second, _DedupeMaxFanoutAllowance)
+}
+
+// dedupeCleanupBudget bounds the whole checkpoint cleanup: one per-class timeout per wave, capped.
+func dedupeCleanupBudget(classes int, perClass time.Duration) time.Duration {
+	return min(time.Duration(dedupeClassWaves(classes))*perClass, _DedupeMaxCleanupBudget)
+}
+
+func dedupeClassWaves(classes int) int {
+	return (classes + _DedupeClassConcurrency - 1) / _DedupeClassConcurrency
+}
+
+type checkpointCreateResult struct {
+	cutoffMs int64
+	err      error
+	panicked bool
+}
+
+// createCheckpoints creates each class's checkpoints concurrently; a panic becomes that class's error with panicked set.
+func (p *Planner) createCheckpoints(ctx context.Context, classes []string, candidates map[string][]string) []checkpointCreateResult {
+	results := make([]checkpointCreateResult, len(classes))
+	eg := enterrors.NewErrorGroupWrapper(p.log)
+	eg.SetLimit(_DedupeClassConcurrency)
+	for i, class := range classes {
+		shards := candidates[class]
+		eg.Go(func() error {
+			res := &results[i]
+			returned := false
+			res.err = enterrors.RunRecovered(p.log, func() error {
+				// Taken right before the call: a queued class must not inherit a cutoff that the lead no longer covers.
+				res.cutoffMs = time.Now().Add(p.cutoffLead).UnixMilli()
+				err := p.checkpointer.CreateAsyncCheckpoints(ctx, class, res.cutoffMs, shards)
+				returned = true
+				return err
+			})
+			res.panicked = !returned
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		p.log.WithField("action", backup.OpCreate).Warnf("replica dedupe: create checkpoints fan-out: %v", err)
+	}
+	return results
+}
+
+// deleteCheckpoints deletes every created class's checkpoints concurrently, ignoring cancellation but bounded by dedupeCleanupBudget overall and cleanupTimeout per class.
+func (p *Planner) deleteCheckpoints(ctx context.Context, created map[string][]string) {
+	if len(created) == 0 {
+		return
+	}
+	budgetCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dedupeCleanupBudget(len(created), p.cleanupTimeout))
+	defer cancel()
+	var (
+		mu       sync.Mutex
+		failed   int
+		firstErr error
+	)
+	eg := enterrors.NewErrorGroupWrapper(p.log)
+	eg.SetLimit(_DedupeClassConcurrency)
+	for class, shards := range created {
+		eg.Go(func() error {
+			classCtx, cancelClass := context.WithTimeout(budgetCtx, p.cleanupTimeout)
+			defer cancelClass()
+			err := p.checkpointer.DeleteAsyncCheckpoints(classCtx, class, shards)
+			if err == nil {
+				return nil
+			}
+			p.log.WithField("action", backup.OpCreate).WithField("class", class).
+				Debugf("replica dedupe: delete checkpoints: %v", err)
+			mu.Lock()
+			defer mu.Unlock()
+			failed++
+			if firstErr == nil {
+				firstErr = fmt.Errorf("class %q: %w", class, err)
+			}
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		p.log.WithField("action", backup.OpCreate).Warnf("replica dedupe: delete checkpoints fan-out: %v", err)
+	}
+	if failed > 0 {
+		p.log.WithField("action", backup.OpCreate).WithField("failed", failed).WithField("classes", len(created)).
+			Warnf("replica dedupe: delete checkpoints failed for %d of %d classes, first error: %v", failed, len(created), firstErr)
+	}
+}
+
+type checkpointStatusResult struct {
+	statuses map[string][]replica.AsyncCheckpointNodeStatus
+	err      error
+}
+
+// fetchCheckpointStatuses fetches every class's statuses concurrently; a panic becomes that class's error.
+func (p *Planner) fetchCheckpointStatuses(ctx context.Context, classes []string, shardNames [][]string) []checkpointStatusResult {
+	results := make([]checkpointStatusResult, len(classes))
+	eg := enterrors.NewErrorGroupWrapper(p.log)
+	eg.SetLimit(_DedupeClassConcurrency)
+	for i, class := range classes {
+		eg.Go(func() error {
+			res := &results[i]
+			res.err = enterrors.RunRecovered(p.log, func() error {
+				var err error
+				res.statuses, err = p.checkpointer.GetAsyncCheckpointNodeStatuses(ctx, class, shardNames[i])
+				return err
+			})
+			return nil
+		})
+	}
+	if err := eg.Wait(); err != nil {
+		p.log.WithField("action", backup.OpCreate).Warnf("replica dedupe: checkpoint status fan-out: %v", err)
+	}
+	return results
+}
+
 // pollConvergence polls until every candidate shard converges or drops, returning class -> shard -> replicas for converged shards.
 func (p *Planner) pollConvergence(ctx context.Context, candidates map[string][]string,
 	replicas map[string]map[string][]string, cutoffs map[string]int64, budget time.Duration, cancelled func() bool,
@@ -297,14 +415,24 @@ func (p *Planner) pollConvergence(ctx context.Context, candidates map[string][]s
 
 	deadline := time.Now().Add(budget)
 	for firstPoll := true; len(pending) > 0; firstPoll = false {
-		for class, shards := range pending {
-			shardNames := make([]string, 0, len(shards))
-			for shard := range shards {
+		classes := make([]string, 0, len(pending))
+		for class := range pending {
+			classes = append(classes, class)
+		}
+		sort.Strings(classes)
+		shardNamesByClass := make([][]string, len(classes))
+		for i, class := range classes {
+			shardNames := make([]string, 0, len(pending[class]))
+			for shard := range pending[class] {
 				shardNames = append(shardNames, shard)
 			}
 			sort.Strings(shardNames)
-
-			statuses, err := p.checkpointer.GetAsyncCheckpointNodeStatuses(ctx, class, shardNames)
+			shardNamesByClass[i] = shardNames
+		}
+		results := p.fetchCheckpointStatuses(ctx, classes, shardNamesByClass)
+		for i, class := range classes {
+			shards, shardNames := pending[class], shardNamesByClass[i]
+			statuses, err := results[i].statuses, results[i].err
 			if err != nil {
 				monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("status_failed").Add(float64(len(shards)))
 				p.log.WithField("action", backup.OpCreate).WithField("class", class).

@@ -13,6 +13,7 @@ package backupdedupe
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -45,6 +46,8 @@ type fakeCheckpointer struct {
 	replicasErr   map[string]error
 	createErr     map[string]error
 	createPanic   map[string]bool
+	statusPanic   map[string]bool
+	deletePanic   map[string]bool
 	statusErr     map[string]error
 	statusHang    bool
 	converge      map[string]bool
@@ -57,6 +60,10 @@ type fakeCheckpointer struct {
 	statusCalls   map[string]int
 	createdAt     time.Time
 	root          hashtree.Digest
+	callDelay     time.Duration
+	deleteHang    bool
+	inFlight      int
+	maxInFlight   int
 }
 
 func newFakeCheckpointer() *fakeCheckpointer {
@@ -66,6 +73,8 @@ func newFakeCheckpointer() *fakeCheckpointer {
 		replicasErr:   map[string]error{},
 		createErr:     map[string]error{},
 		createPanic:   map[string]bool{},
+		statusPanic:   map[string]bool{},
+		deletePanic:   map[string]bool{},
 		statusErr:     map[string]error{},
 		converge:      map[string]bool{},
 		convergeAfter: map[string]int{},
@@ -93,7 +102,24 @@ func (f *fakeCheckpointer) IsAsyncReplicationEnabled(_ context.Context, class st
 	return !f.asyncDisabled[class]
 }
 
+func (f *fakeCheckpointer) enter() {
+	f.mu.Lock()
+	f.inFlight++
+	f.maxInFlight = max(f.maxInFlight, f.inFlight)
+	delay := f.callDelay
+	f.mu.Unlock()
+	time.Sleep(delay)
+}
+
+func (f *fakeCheckpointer) exit() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.inFlight--
+}
+
 func (f *fakeCheckpointer) CreateAsyncCheckpoints(_ context.Context, class string, cutoffMs int64, _ []string) error {
+	f.enter()
+	defer f.exit()
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.createPanic[class] {
@@ -107,15 +133,27 @@ func (f *fakeCheckpointer) CreateAsyncCheckpoints(_ context.Context, class strin
 	return nil
 }
 
-func (f *fakeCheckpointer) DeleteAsyncCheckpoints(_ context.Context, class string, _ []string) error {
+func (f *fakeCheckpointer) DeleteAsyncCheckpoints(ctx context.Context, class string, _ []string) error {
+	f.enter()
+	defer f.exit()
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.deleteCalls = append(f.deleteCalls, class)
+	hang, blowUp := f.deleteHang, f.deletePanic[class]
+	f.mu.Unlock()
+	if blowUp {
+		panic("delete blew up")
+	}
+	if hang {
+		<-ctx.Done()
+		return ctx.Err()
+	}
 	return nil
 }
 
 func (f *fakeCheckpointer) GetAsyncCheckpointNodeStatuses(ctx context.Context, class string, shards []string,
 ) (map[string][]replica.AsyncCheckpointNodeStatus, error) {
+	f.enter()
+	defer f.exit()
 	f.mu.Lock()
 	f.statusCalls[class]++
 	if f.statusHang {
@@ -124,6 +162,9 @@ func (f *fakeCheckpointer) GetAsyncCheckpointNodeStatuses(ctx context.Context, c
 		return nil, ctx.Err()
 	}
 	defer f.mu.Unlock()
+	if f.statusPanic[class] {
+		panic("status blew up")
+	}
 	if err := f.statusErr[class]; err != nil {
 		return nil, err
 	}
@@ -174,11 +215,24 @@ func newTestPlanner(f *fakeCheckpointer) *Planner {
 		PollInterval:      5 * time.Millisecond,
 		ConvergenceBudget: 500 * time.Millisecond,
 		PlanningSlack:     200 * time.Millisecond,
+		CleanupTimeout:    time.Second,
 	})
 	if err != nil {
 		panic(err)
 	}
 	return p
+}
+
+func newWideFakeCheckpointer(n int, delay time.Duration) (*fakeCheckpointer, []string) {
+	f := newFakeCheckpointer()
+	f.callDelay = delay
+	classes := make([]string, n)
+	for i := range classes {
+		classes[i] = fmt.Sprintf("C%05d", i)
+		f.shardReplicas[classes[i]] = map[string][]string{"s1": {"n1", "n2"}}
+		f.converge[classes[i]+"/s1"] = true
+	}
+	return f, classes
 }
 
 func TestConvergedReplicaSet(t *testing.T) {
@@ -532,15 +586,48 @@ func TestPlanDesignatedShards(t *testing.T) {
 		assert.Equal(t, []string{"C1"}, f.deleteCalls)
 	})
 
-	t.Run("panic during create still deletes earlier checkpoints", func(t *testing.T) {
+	t.Run("panic during create falls back and still deletes every class", func(t *testing.T) {
 		f := newFakeCheckpointer()
 		f.shardReplicas["A1"] = map[string][]string{"s1": {"n1", "n2"}}
 		f.shardReplicas["B1"] = map[string][]string{"t1": {"n1", "n2"}}
+		f.converge["A1/s1"] = true
 		f.createPanic["B1"] = true
 		c := newTestPlanner(f)
 
-		require.Panics(t, func() { c.PlanDesignatedShards(ctx, []string{"A1", "B1"}, 0, parts("n1", "n2"), nil, nil) })
-		assert.Equal(t, []string{"A1"}, f.deleteCalls)
+		reasonBefore := dedupeFallbackCount("create_rpc_failed")
+		var plan *backup.DedupePlan
+		require.NotPanics(t, func() { plan = c.PlanDesignatedShards(ctx, []string{"A1", "B1"}, 0, parts("n1", "n2"), nil, nil) })
+		assert.Equal(t, map[string]map[string]string{"A1": {"s1": "n1"}}, plan.Designations)
+		assert.Equal(t, 1, plan.Fallback())
+		assert.Equal(t, 1.0, dedupeFallbackCount("create_rpc_failed")-reasonBefore)
+		assert.ElementsMatch(t, []string{"A1", "B1"}, f.deleteCalls)
+	})
+
+	t.Run("panic during status falls back and still deletes every class", func(t *testing.T) {
+		f := newFakeCheckpointer()
+		f.shardReplicas["A1"] = map[string][]string{"s1": {"n1", "n2"}}
+		f.shardReplicas["B1"] = map[string][]string{"t1": {"n1", "n2"}}
+		f.converge["A1/s1"] = true
+		f.statusPanic["B1"] = true
+		c := newTestPlanner(f)
+
+		reasonBefore := dedupeFallbackCount("status_failed")
+		var plan *backup.DedupePlan
+		require.NotPanics(t, func() { plan = c.PlanDesignatedShards(ctx, []string{"A1", "B1"}, 0, parts("n1", "n2"), nil, nil) })
+		assert.Equal(t, map[string]map[string]string{"A1": {"s1": "n1"}}, plan.Designations)
+		assert.Equal(t, 1.0, dedupeFallbackCount("status_failed")-reasonBefore)
+		assert.ElementsMatch(t, []string{"A1", "B1"}, f.deleteCalls)
+	})
+
+	t.Run("panic during one delete still deletes every other class", func(t *testing.T) {
+		f, classes := newWideFakeCheckpointer(40, 0)
+		f.deletePanic[classes[0]] = true
+		c := newTestPlanner(f)
+
+		var plan *backup.DedupePlan
+		require.NotPanics(t, func() { plan = c.PlanDesignatedShards(ctx, classes, 0, parts("n1", "n2"), nil, nil) })
+		assert.Equal(t, len(classes), plan.Designated())
+		assert.ElementsMatch(t, classes, f.deleteCalls)
 	})
 
 	t.Run("external cancel stops planning early", func(t *testing.T) {
@@ -620,6 +707,84 @@ func TestPlanDesignatedShards(t *testing.T) {
 	})
 }
 
+func TestPlanDesignatedShardsFanout(t *testing.T) {
+	ctx := context.Background()
+
+	wide := []struct {
+		name          string
+		convergeAfter int
+		budget        time.Duration
+	}{
+		{name: "wide backup plans concurrently"},
+		{name: "poll pass fits the budget", convergeAfter: 1, budget: time.Second},
+	}
+	for _, tc := range wide {
+		t.Run(tc.name, func(t *testing.T) {
+			f, classes := newWideFakeCheckpointer(200, 20*time.Millisecond)
+			for _, class := range classes {
+				f.convergeAfter[class+"/s1"] = tc.convergeAfter
+			}
+			c := newTestPlanner(f)
+
+			begin := time.Now()
+			plan := c.PlanDesignatedShards(ctx, classes, tc.budget, parts("n1", "n2"), nil, nil)
+			elapsed := time.Since(begin)
+			t.Logf("planned %d classes in %s", len(classes), elapsed)
+			assert.Less(t, elapsed, 3*time.Second)
+			assert.Equal(t, len(classes), plan.Designated())
+			assert.ElementsMatch(t, classes, f.deleteCalls)
+			assert.Greater(t, f.maxInFlight, 1)
+			assert.LessOrEqual(t, f.maxInFlight, _DedupeClassConcurrency)
+		})
+	}
+
+	hung := []struct {
+		name           string
+		cancelled      bool
+		wantDesignated int
+	}{
+		{name: "hung delete is bounded overall", wantDesignated: 100},
+		{name: "hung delete is bounded overall after cancel", cancelled: true},
+	}
+	for _, tc := range hung {
+		t.Run(tc.name, func(t *testing.T) {
+			f, classes := newWideFakeCheckpointer(100, 0)
+			f.deleteHang = true
+			c := newTestPlanner(f)
+			c.cleanupTimeout = 50 * time.Millisecond
+
+			begin := time.Now()
+			plan := c.PlanDesignatedShards(ctx, classes, 0, parts("n1", "n2"), nil, func() bool { return tc.cancelled })
+			elapsed := time.Since(begin)
+			t.Logf("planned and cleaned %d classes in %s", len(classes), elapsed)
+			assert.Less(t, elapsed, time.Second)
+			assert.Equal(t, tc.wantDesignated, plan.Designated())
+			assert.ElementsMatch(t, classes, f.deleteCalls)
+		})
+	}
+}
+
+func TestDedupeFanoutBudgets(t *testing.T) {
+	tests := []struct {
+		classes       int
+		wantAllowance time.Duration
+		wantCleanup   time.Duration
+	}{
+		{classes: 0, wantAllowance: 0, wantCleanup: 0},
+		{classes: 1, wantAllowance: time.Second, wantCleanup: 10 * time.Second},
+		{classes: 16, wantAllowance: time.Second, wantCleanup: 10 * time.Second},
+		{classes: 17, wantAllowance: 2 * time.Second, wantCleanup: 20 * time.Second},
+		{classes: 30_000, wantAllowance: 5 * time.Minute, wantCleanup: 2 * time.Minute},
+		{classes: 1_000_000, wantAllowance: 5 * time.Minute, wantCleanup: 2 * time.Minute},
+	}
+	for _, tc := range tests {
+		t.Run(fmt.Sprint(tc.classes), func(t *testing.T) {
+			assert.Equal(t, tc.wantAllowance, dedupeFanoutAllowance(tc.classes))
+			assert.Equal(t, tc.wantCleanup, dedupeCleanupBudget(tc.classes, _DedupeCleanupTimeout))
+		})
+	}
+}
+
 func TestNew(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	var typedNil *fakeCheckpointer
@@ -646,6 +811,7 @@ func TestNew(t *testing.T) {
 			assert.Equal(t, _DedupePollInterval, p.pollInterval)
 			assert.Equal(t, _DefaultDedupeConvergenceBudget, p.convergenceBudget)
 			assert.Equal(t, _DedupePlanningSlack, p.planningSlack)
+			assert.Equal(t, _DedupeCleanupTimeout, p.cleanupTimeout)
 		})
 	}
 }
