@@ -29,14 +29,19 @@ import (
 
 func TestSuccessDeactivate(t *testing.T) {
 	tests := []struct {
+		name      string
+		principal *models.Principal
 		revokeKey bool
 	}{
-		{false}, {true},
+		{name: "keep key", principal: &models.Principal{}},
+		{name: "revoke key", principal: &models.Principal{}, revokeKey: true},
+		// With RBAC and adminlist off, DummyAuthorizer lets an anonymous request's nil principal through.
+		{name: "nil principal", principal: nil},
 	}
 
 	for _, test := range tests {
-		t.Run(fmt.Sprint(test.revokeKey), func(t *testing.T) {
-			principal := &models.Principal{}
+		t.Run(test.name, func(t *testing.T) {
+			principal := test.principal
 			authorizer := authorization.NewMockAuthorizer(t)
 			authorizer.On("Authorize", mock.Anything, principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)

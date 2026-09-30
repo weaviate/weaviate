@@ -403,7 +403,7 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 	}
 
 	if params.Body.Import != nil && *params.Body.Import {
-		if !h.principalIsRootUser(principal.Username) {
+		if !h.principalIsRootUser(principal) {
 			return users.NewCreateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("only root users can import static api keys")))
 		}
 
@@ -547,7 +547,7 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("db user management is not enabled")))
 	}
 
-	if internalKey == principal.Username {
+	if principal != nil && internalKey == principal.Username {
 		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("cannot delete its own user %q", params.UserID)))
 	}
 
@@ -596,7 +596,7 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("db user management is not enabled")))
 	}
 
-	if internalKey == principal.Username {
+	if principal != nil && internalKey == principal.Username {
 		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("cannot deactivate its own user %q", params.UserID)))
 	}
 
@@ -922,16 +922,11 @@ func (h *dynUserHandler) staticUserExists(newUser string) bool {
 	return false
 }
 
-func (h *dynUserHandler) principalIsRootUser(name string) bool {
+func (h *dynUserHandler) principalIsRootUser(principal *models.Principal) bool {
 	if !h.rbacConfig.Enabled && !h.adminListConfig.Enabled {
 		return true
 	}
-	for i := range h.rbacConfig.RootUsers {
-		if h.rbacConfig.RootUsers[i] == name {
-			return true
-		}
-	}
-	return false
+	return principal != nil && h.isRootUser(principal.Username)
 }
 
 func (h *dynUserHandler) isRootUser(name string) bool {

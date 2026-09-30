@@ -32,25 +32,37 @@ import (
 )
 
 func TestDeleteSuccess(t *testing.T) {
-	principal := &models.Principal{}
-	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", mock.Anything, principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
-
-	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetRolesForUserOrGroup", "user", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{"role": {}}, nil)
-	dynUser.On("RevokeRolesForUser", conv.UserNameWithTypeFromId("user", authentication.AuthType(models.UserTypeInputDb)), "role").Return(nil)
-	dynUser.On("DeleteUser", mock.Anything, "user").Return(nil)
-	dynUser.On("GetUsers", "user").Return(map[string]apikey.UserView{"user": {}}, nil)
-
-	h := dynUserHandler{
-		dbUsers:    dynUser,
-		authorizer: authorizer, dbUserEnabled: true,
+	tests := []struct {
+		name      string
+		principal *models.Principal
+	}{
+		{name: "authenticated", principal: &models.Principal{}},
+		// With RBAC and adminlist off, DummyAuthorizer lets an anonymous request's nil principal through.
+		{name: "nil principal", principal: nil},
 	}
 
-	res := h.deleteUser(users.DeleteUserParams{UserID: "user", HTTPRequest: req}, principal)
-	parsed, ok := res.(*users.DeleteUserNoContent)
-	assert.True(t, ok)
-	assert.NotNil(t, parsed)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := authorization.NewMockAuthorizer(t)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
+
+			dynUser := NewMockDbUserAndRolesGetter(t)
+			dynUser.On("GetRolesForUserOrGroup", "user", authentication.AuthTypeDb, false).Return(map[string][]authorization.Policy{"role": {}}, nil)
+			dynUser.On("RevokeRolesForUser", conv.UserNameWithTypeFromId("user", authentication.AuthType(models.UserTypeInputDb)), "role").Return(nil)
+			dynUser.On("DeleteUser", mock.Anything, "user").Return(nil)
+			dynUser.On("GetUsers", "user").Return(map[string]apikey.UserView{"user": {}}, nil)
+
+			h := dynUserHandler{
+				dbUsers:    dynUser,
+				authorizer: authorizer, dbUserEnabled: true,
+			}
+
+			res := h.deleteUser(users.DeleteUserParams{UserID: "user", HTTPRequest: req}, tt.principal)
+			parsed, ok := res.(*users.DeleteUserNoContent)
+			assert.True(t, ok)
+			assert.NotNil(t, parsed)
+		})
+	}
 }
 
 func TestDeleteForbidden(t *testing.T) {
