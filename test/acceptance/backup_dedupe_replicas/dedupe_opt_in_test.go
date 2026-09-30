@@ -100,12 +100,12 @@ func TestBackupDedupeRequiresLicense(t *testing.T) {
 	defer helper.DeleteClass(t, className)
 	seedObjects(t, host, className, 50)
 
-	t.Run("dedupe create is refused with the license text", func(t *testing.T) {
+	t.Run("dedupe create is refused with the license text and the docs URL", func(t *testing.T) {
 		_, err := helper.CreateBackup(t, dedupeBackupConfig(), className, backendS3, "license-dedupe-backup")
 		require.Error(t, err)
 		var ferr *backups.BackupsCreateForbidden
 		require.True(t, errors.As(err, &ferr), "want 403, got %T: %v", err, err)
-		assert.Contains(t, errorMessages(ferr.Payload), license.Required(ubak.DedupeFeature).Error())
+		assert.Equal(t, license.Required(ubak.DedupeFeature).Error()+", see "+license.EnterpriseDocsURL, errorMessages(ferr.Payload))
 	})
 
 	t.Run("a plain backup still succeeds as a legacy artifact", func(t *testing.T) {

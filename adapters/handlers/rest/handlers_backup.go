@@ -147,7 +147,7 @@ func (s *backupHandlers) createBackup(params backups.BackupsCreateParams,
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsCreateForbidden().
-				WithPayload(errPayloadFromSingleErr(principal, err))
+				WithPayload(backupCreateErrPayload(principal, err))
 		case errors.As(err, &backup.ErrUnprocessable{}):
 			return backups.NewBackupsCreateUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))

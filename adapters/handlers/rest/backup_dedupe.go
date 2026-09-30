@@ -12,8 +12,11 @@
 package rest
 
 import (
+	"errors"
+
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/license"
@@ -50,4 +53,15 @@ func backupDedupePlanner(mode license.Mode, checkpointer backupdedupe.Checkpoint
 
 func logUnlicensedBackupDedupe(logger logrus.FieldLogger, mode license.Mode) {
 	license.LogUnlicensed(logger, mode, backupDedupeFeature, unlicensedBackupDedupeDetail)
+}
+
+// backupCreateErrPayload renders err, pointing a license refusal at the Enterprise docs; the URL is added after the namespace strip, which would cut it for a namespace named like its scheme.
+func backupCreateErrPayload(principal *models.Principal, err error) *models.ErrorResponse {
+	payload := errPayloadFromSingleErr(principal, err)
+	if errors.Is(err, license.ErrRequired) {
+		for _, item := range payload.Error {
+			item.Message += ", see " + license.EnterpriseDocsURL
+		}
+	}
+	return payload
 }
