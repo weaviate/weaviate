@@ -2995,38 +2995,38 @@ func TestExplorer_SmallDistanceCutoffs(t *testing.T) {
 		{name: "l2 normal below 1e-6", metric: "l2-squared", dists: []float32{1e-8, 9e-8, 1e-6}, cutoff: 5e-8, want: []strfmt.UUID{"id0"}},
 		{name: "cosine duplicates at distance 0", metric: "cosine", dists: []float32{0, 5.96e-8, 1e-3}, cutoff: 0, want: []strfmt.UUID{"id0", "id1"}},
 	} {
-		results := func() []search.Result {
-			var out []search.Result
-			for i, d := range tc.dists {
-				out = append(out, search.Result{ID: strfmt.UUID(fmt.Sprintf("id%d", i)), ClassName: "BestClass", Dist: d, Dims: 4, Schema: map[string]interface{}{}})
-			}
-			return out
+		var results []search.Result
+		for i, d := range tc.dists {
+			results = append(results, search.Result{ID: strfmt.UUID(fmt.Sprintf("id%d", i)), ClassName: "BestClass", Dist: d, Dims: 4, Schema: map[string]interface{}{}})
 		}
-		schemaGetter := &fakeSchemaGetter{schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{{
-			Class:             "BestClass",
-			VectorIndexConfig: hnsw.UserConfig{Distance: tc.metric},
-		}}}}}
-
-		t.Run("GetClass "+tc.name, func(t *testing.T) {
-			params := dto.GetParams{
-				ClassName: "BestClass",
-				NearVector: &searchparams.NearVector{
-					Vectors:      []models.Vector{[]float32{0, 0, 0, 0}},
-					Distance:     tc.cutoff,
-					WithDistance: true,
-				},
-				Pagination:           &filters.Pagination{Limit: 3},
-				AdditionalProperties: additional.Properties{ID: true},
-			}
-			searcher := &fakeVectorSearcher{}
-			searcher.On("VectorSearch", params, []models.Vector{[]float32{0, 0, 0, 0}}).Return(results(), nil)
+		nearVector := &searchparams.NearVector{
+			Vectors:      []models.Vector{[]float32{0, 0, 0, 0}},
+			Distance:     tc.cutoff,
+			WithDistance: true,
+		}
+		newExplorer := func(searcher *fakeVectorSearcher) *Explorer {
 			metrics := &fakeMetrics{}
 			metrics.On("AddUsageDimensions", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 			log, _ := test.NewNullLogger()
 			explorer := NewExplorer(searcher, log, getFakeModulesProvider(), metrics, defaultConfig)
-			explorer.SetSchemaGetter(schemaGetter)
+			explorer.SetSchemaGetter(&fakeSchemaGetter{schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{{
+				Class:             "BestClass",
+				VectorIndexConfig: hnsw.UserConfig{Distance: tc.metric},
+			}}}}})
+			return explorer
+		}
 
-			res, err := explorer.GetClass(context.Background(), params)
+		t.Run("GetClass "+tc.name, func(t *testing.T) {
+			params := dto.GetParams{
+				ClassName:            "BestClass",
+				NearVector:           nearVector,
+				Pagination:           &filters.Pagination{Limit: 3},
+				AdditionalProperties: additional.Properties{ID: true},
+			}
+			searcher := &fakeVectorSearcher{}
+			searcher.On("VectorSearch", params, nearVector.Vectors).Return(results, nil)
+
+			res, err := newExplorer(searcher).GetClass(context.Background(), params)
 			require.NoError(t, err)
 
 			var got []strfmt.UUID
@@ -3037,21 +3037,8 @@ func TestExplorer_SmallDistanceCutoffs(t *testing.T) {
 		})
 
 		t.Run("Explore "+tc.name, func(t *testing.T) {
-			searcher := &fakeVectorSearcher{results: results()}
-			metrics := &fakeMetrics{}
-			metrics.On("AddUsageDimensions", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
-			log, _ := test.NewNullLogger()
-			explorer := NewExplorer(searcher, log, getFakeModulesProvider(), metrics, defaultConfig)
-			explorer.SetSchemaGetter(schemaGetter)
-
-			res, err := explorer.CrossClassVectorSearch(context.Background(), ExploreParams{
-				NearVector: &searchparams.NearVector{
-					Vectors:      []models.Vector{[]float32{0, 0, 0, 0}},
-					Distance:     tc.cutoff,
-					WithDistance: true,
-				},
-				Limit: 3,
-			})
+			res, err := newExplorer(&fakeVectorSearcher{results: results}).
+				CrossClassVectorSearch(context.Background(), ExploreParams{NearVector: nearVector, Limit: 3})
 			require.NoError(t, err)
 
 			var got []strfmt.UUID
