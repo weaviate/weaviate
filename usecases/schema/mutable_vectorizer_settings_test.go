@@ -105,7 +105,7 @@ func vertexSettings() map[string]any {
 	return withSettings(aiStudioSettings(), map[string]any{"apiEndpoint": vertexEndpoint, "projectId": "my-project"})
 }
 
-func withSettings(base map[string]any, changes map[string]any) map[string]any {
+func withSettings(base, changes map[string]any) map[string]any {
 	out := maps.Clone(base)
 	maps.Copy(out, changes)
 	return out
@@ -227,14 +227,23 @@ func createForShape(t *testing.T, s *schemaWithModules, shape vectorizerShape, m
 	return stored
 }
 
-func TestUpdateClass_MutableVectorizerSettings(t *testing.T) {
-	withoutModel := withoutSettings(aiStudioSettings(), "model", "dimensions")
+type acceptedUpdate struct {
+	name    string
+	initial map[string]any
+	update  map[string]any
+}
 
-	accepted := []struct {
-		name    string
-		initial map[string]any
-		update  map[string]any
-	}{
+type rejectedUpdate struct {
+	name          string
+	initial       map[string]any
+	update        map[string]any
+	namedOnly     bool
+	expectedError string
+}
+
+func acceptedUpdates() []acceptedUpdate {
+	withoutModel := withoutSettings(aiStudioSettings(), "model", "dimensions")
+	return []acceptedUpdate{
 		{name: "AI Studio to Vertex", initial: aiStudioSettings(), update: vertexSettings()},
 		{
 			name: "AI Studio to Vertex with location", initial: aiStudioSettings(),
@@ -256,14 +265,11 @@ func TestUpdateClass_MutableVectorizerSettings(t *testing.T) {
 			update: withSettings(withoutModel, map[string]any{"apiEndpoint": vertexEndpoint, "projectId": "my-project"}),
 		},
 	}
+}
 
-	rejected := []struct {
-		name          string
-		initial       map[string]any
-		update        map[string]any
-		namedOnly     bool
-		expectedError string
-	}{
+func rejectedUpdates() []rejectedUpdate {
+	withoutModel := withoutSettings(aiStudioSettings(), "model", "dimensions")
+	return []rejectedUpdate{
 		{name: "model", update: withSettings(aiStudioSettings(), map[string]any{"model": "text-embedding-005"})},
 		{name: "modelId", update: withSettings(aiStudioSettings(), map[string]any{"modelId": "text-embedding-005"})},
 		{name: "dimensions", update: withSettings(aiStudioSettings(), map[string]any{"dimensions": 768})},
@@ -299,121 +305,142 @@ func TestUpdateClass_MutableVectorizerSettings(t *testing.T) {
 			expectedError: "apiEndpoint must be a Google API host",
 		},
 	}
+}
 
+func requireAcceptedUpdate(t *testing.T, module string, shape vectorizerShape, tc acceptedUpdate) {
+	s := newSchemaWithModules(t)
+	stored := createForShape(t, s, shape, module, tc.initial)
+	before := effectiveSettings(jsonCopyClass(t, stored), module, shape.targetVector)
+	s.modules.validated = nil
+
+	require.NoError(t, s.update(shape.build(module, tc.update)))
+
+	settings := storedVectorizerSettings(t, stored, module, shape.targetVector)
+	for _, key := range []string{"apiEndpoint", "projectId", "location"} {
+		require.Equal(t, tc.update[key], settings[key], key)
+	}
+	require.Equal(t, before, effectiveSettings(stored, module, shape.targetVector))
+	require.Equal(t, []string{module + "/" + shape.targetVector}, s.modules.validated)
+}
+
+func requireRejectedUpdate(t *testing.T, module string, shape vectorizerShape, tc rejectedUpdate) {
+	initial := tc.initial
+	if initial == nil {
+		initial = aiStudioSettings()
+	}
+	s := newSchemaWithModules(t)
+	createForShape(t, s, shape, module, initial)
+
+	expectedError := tc.expectedError
+	if expectedError == "" {
+		expectedError = shape.immutableText
+	}
+	require.ErrorContains(t, s.update(shape.build(module, tc.update)), expectedError)
+}
+
+func runShapeSubtests(t *testing.T, module string, shape vectorizerShape) {
+	for _, tc := range acceptedUpdates() {
+		t.Run(module+"/"+shape.name+"/accepts "+tc.name, func(t *testing.T) {
+			requireAcceptedUpdate(t, module, shape, tc)
+		})
+	}
+
+	for _, tc := range rejectedUpdates() {
+		if tc.namedOnly && shape.name != "named vector" {
+			continue
+		}
+		t.Run(module+"/"+shape.name+"/rejects "+tc.name, func(t *testing.T) {
+			requireRejectedUpdate(t, module, shape, tc)
+		})
+	}
+}
+
+func requireNamedVectorSwitchWhileOtherUnchanged(t *testing.T) {
+	s := newSchemaWithModules(t)
+	stored := s.create(t, namedVectorizersClass(map[string]models.VectorConfig{
+		"a": namedVectorizer(modgoogle.Name, aiStudioSettings()),
+		"b": namedVectorizer(modgoogle.Name, aiStudioSettings()),
+	}))
+
+	require.NoError(t, s.update(namedVectorizersClass(map[string]models.VectorConfig{
+		"a": namedVectorizer(modgoogle.Name, vertexSettings()),
+		"b": namedVectorizer(modgoogle.Name, aiStudioSettings()),
+	})))
+	require.Equal(t, vertexEndpoint, storedVectorizerSettings(t, stored, modgoogle.Name, "a")["apiEndpoint"])
+	require.Equal(t, aiStudioEndpoint, storedVectorizerSettings(t, stored, modgoogle.Name, "b")["apiEndpoint"])
+	require.Equal(t, []string{modgoogle.Name + "/a"}, s.modules.validated)
+}
+
+func requireNamedVectorSwitchRejectedWhileOtherChangesModel(t *testing.T) {
+	s := newSchemaWithModules(t)
+	s.create(t, namedVectorizersClass(map[string]models.VectorConfig{
+		"a": namedVectorizer(modgoogle.Name, aiStudioSettings()),
+		"b": namedVectorizer(modgoogle.Name, aiStudioSettings()),
+	}))
+
+	err := s.update(namedVectorizersClass(map[string]models.VectorConfig{
+		"a": namedVectorizer(modgoogle.Name, vertexSettings()),
+		"b": namedVectorizer(modgoogle.Name, withSettings(aiStudioSettings(), map[string]any{"model": "text-embedding-005"})),
+	}))
+	require.ErrorContains(t, err, "vectorizer config of vector \"b\" is immutable")
+}
+
+func requireEndpointSwitchWithGenerativeChange(t *testing.T) {
+	s := newSchemaWithModules(t)
+	initial := namedVectorizerClass(modgoogle.Name, aiStudioSettings())
+	initial.ModuleConfig = map[string]any{modgenerativedummy.Name: map[string]any{"setting": "a"}}
+	stored := s.create(t, initial)
+
+	update := namedVectorizerClass(modgoogle.Name, vertexSettings())
+	update.ModuleConfig = map[string]any{modgenerativedummy.Name: map[string]any{"setting": "b"}}
+	require.NoError(t, s.update(update))
+
+	require.Equal(t, vertexEndpoint, storedVectorizerSettings(t, stored, modgoogle.Name, googleVectorName)["apiEndpoint"])
+	require.Equal(t, "b", storedVectorizerSettings(t, stored, modgenerativedummy.Name, "")["setting"])
+}
+
+func requireNoValidationWhenSettingsUnchanged(t *testing.T) {
+	for _, shape := range vectorizerShapes {
+		s := newSchemaWithModules(t)
+		createForShape(t, s, shape, modgoogle.Name, aiStudioSettings())
+		s.modules.validated = nil
+
+		update := shape.build(modgoogle.Name, aiStudioSettings())
+		update.Description = "new description"
+		require.NoError(t, s.update(update), shape.name)
+		require.Empty(t, s.modules.validated, shape.name)
+	}
+}
+
+func requireOpenAIBaseURLChangeAccepted(t *testing.T) {
+	settings := map[string]any{"model": "text-embedding-3-small", "baseURL": "https://api.openai.com"}
+	s := newSchemaWithModules(t)
+	s.create(t, namedVectorizerClass(modopenai.Name, settings))
+
+	require.NoError(t, s.update(namedVectorizerClass(modopenai.Name, withSettings(settings, map[string]any{"baseURL": "https://proxy.example.com"}))))
+}
+
+func requirePalmRenameToGoogleRejected(t *testing.T) {
+	s := newSchemaWithModules(t)
+	s.create(t, namedVectorizerClass(modgoogle.LegacyName, aiStudioSettings()))
+
+	err := s.update(namedVectorizerClass(modgoogle.Name, vertexSettings()))
+	require.ErrorContains(t, err, "is immutable")
+}
+
+func TestUpdateClass_MutableVectorizerSettings(t *testing.T) {
 	for _, module := range []string{modgoogle.Name, modgoogle.LegacyName} {
 		for _, shape := range vectorizerShapes {
-			for _, tc := range accepted {
-				t.Run(module+"/"+shape.name+"/accepts "+tc.name, func(t *testing.T) {
-					s := newSchemaWithModules(t)
-					stored := createForShape(t, s, shape, module, tc.initial)
-					before := effectiveSettings(jsonCopyClass(t, stored), module, shape.targetVector)
-					s.modules.validated = nil
-
-					require.NoError(t, s.update(shape.build(module, tc.update)))
-
-					settings := storedVectorizerSettings(t, stored, module, shape.targetVector)
-					for _, key := range []string{"apiEndpoint", "projectId", "location"} {
-						require.Equal(t, tc.update[key], settings[key], key)
-					}
-					require.Equal(t, before, effectiveSettings(stored, module, shape.targetVector))
-					require.Equal(t, []string{module + "/" + shape.targetVector}, s.modules.validated)
-				})
-			}
-
-			for _, tc := range rejected {
-				if tc.namedOnly && shape.name != "named vector" {
-					continue
-				}
-				t.Run(module+"/"+shape.name+"/rejects "+tc.name, func(t *testing.T) {
-					initial := tc.initial
-					if initial == nil {
-						initial = aiStudioSettings()
-					}
-					s := newSchemaWithModules(t)
-					createForShape(t, s, shape, module, initial)
-
-					expectedError := tc.expectedError
-					if expectedError == "" {
-						expectedError = shape.immutableText
-					}
-					require.ErrorContains(t, s.update(shape.build(module, tc.update)), expectedError)
-				})
-			}
+			runShapeSubtests(t, module, shape)
 		}
 	}
 
-	t.Run("accepts one named vector switching while another is unchanged", func(t *testing.T) {
-		s := newSchemaWithModules(t)
-		stored := s.create(t, namedVectorizersClass(map[string]models.VectorConfig{
-			"a": namedVectorizer(modgoogle.Name, aiStudioSettings()),
-			"b": namedVectorizer(modgoogle.Name, aiStudioSettings()),
-		}))
-
-		require.NoError(t, s.update(namedVectorizersClass(map[string]models.VectorConfig{
-			"a": namedVectorizer(modgoogle.Name, vertexSettings()),
-			"b": namedVectorizer(modgoogle.Name, aiStudioSettings()),
-		})))
-		require.Equal(t, vertexEndpoint, storedVectorizerSettings(t, stored, modgoogle.Name, "a")["apiEndpoint"])
-		require.Equal(t, aiStudioEndpoint, storedVectorizerSettings(t, stored, modgoogle.Name, "b")["apiEndpoint"])
-		require.Equal(t, []string{modgoogle.Name + "/a"}, s.modules.validated)
-	})
-
-	t.Run("rejects one named vector switching while another changes its model", func(t *testing.T) {
-		s := newSchemaWithModules(t)
-		s.create(t, namedVectorizersClass(map[string]models.VectorConfig{
-			"a": namedVectorizer(modgoogle.Name, aiStudioSettings()),
-			"b": namedVectorizer(modgoogle.Name, aiStudioSettings()),
-		}))
-
-		err := s.update(namedVectorizersClass(map[string]models.VectorConfig{
-			"a": namedVectorizer(modgoogle.Name, vertexSettings()),
-			"b": namedVectorizer(modgoogle.Name, withSettings(aiStudioSettings(), map[string]any{"model": "text-embedding-005"})),
-		}))
-		require.ErrorContains(t, err, "vectorizer config of vector \"b\" is immutable")
-	})
-
-	t.Run("accepts an endpoint switch together with a generative module change", func(t *testing.T) {
-		s := newSchemaWithModules(t)
-		initial := namedVectorizerClass(modgoogle.Name, aiStudioSettings())
-		initial.ModuleConfig = map[string]any{modgenerativedummy.Name: map[string]any{"setting": "a"}}
-		stored := s.create(t, initial)
-
-		update := namedVectorizerClass(modgoogle.Name, vertexSettings())
-		update.ModuleConfig = map[string]any{modgenerativedummy.Name: map[string]any{"setting": "b"}}
-		require.NoError(t, s.update(update))
-
-		require.Equal(t, vertexEndpoint, storedVectorizerSettings(t, stored, modgoogle.Name, googleVectorName)["apiEndpoint"])
-		require.Equal(t, "b", storedVectorizerSettings(t, stored, modgenerativedummy.Name, "")["setting"])
-	})
-
-	t.Run("does not validate module settings when vectorizer settings are unchanged", func(t *testing.T) {
-		for _, shape := range vectorizerShapes {
-			s := newSchemaWithModules(t)
-			createForShape(t, s, shape, modgoogle.Name, aiStudioSettings())
-			s.modules.validated = nil
-
-			update := shape.build(modgoogle.Name, aiStudioSettings())
-			update.Description = "new description"
-			require.NoError(t, s.update(update), shape.name)
-			require.Empty(t, s.modules.validated, shape.name)
-		}
-	})
-
-	t.Run("text2vec-openai baseURL change is accepted", func(t *testing.T) {
-		settings := map[string]any{"model": "text-embedding-3-small", "baseURL": "https://api.openai.com"}
-		s := newSchemaWithModules(t)
-		s.create(t, namedVectorizerClass(modopenai.Name, settings))
-
-		require.NoError(t, s.update(namedVectorizerClass(modopenai.Name, withSettings(settings, map[string]any{"baseURL": "https://proxy.example.com"}))))
-	})
-
-	t.Run("text2vec-palm cannot be renamed to text2vec-google", func(t *testing.T) {
-		s := newSchemaWithModules(t)
-		s.create(t, namedVectorizerClass(modgoogle.LegacyName, aiStudioSettings()))
-
-		err := s.update(namedVectorizerClass(modgoogle.Name, vertexSettings()))
-		require.ErrorContains(t, err, "is immutable")
-	})
+	t.Run("accepts one named vector switching while another is unchanged", requireNamedVectorSwitchWhileOtherUnchanged)
+	t.Run("rejects one named vector switching while another changes its model", requireNamedVectorSwitchRejectedWhileOtherChangesModel)
+	t.Run("accepts an endpoint switch together with a generative module change", requireEndpointSwitchWithGenerativeChange)
+	t.Run("does not validate module settings when vectorizer settings are unchanged", requireNoValidationWhenSettingsUnchanged)
+	t.Run("text2vec-openai baseURL change is accepted", requireOpenAIBaseURLChangeAccepted)
+	t.Run("text2vec-palm cannot be renamed to text2vec-google", requirePalmRenameToGoogleRejected)
 }
 
 func legacyPalmSettings() map[string]any {
