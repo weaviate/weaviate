@@ -809,8 +809,7 @@ func (f *Finder) BroadcastCreateAsyncCheckpoint(ctx context.Context, shardNames 
 					"class":  f.class,
 					"addr":   addr,
 					"shards": shards,
-				}).WithError(err).
-					Warn("async-checkpoint create rejected by remote replica")
+				}).Warnf("async-checkpoint create rejected by remote replica: %v", err)
 				return nil
 			}
 			success.Add(1)
@@ -843,8 +842,7 @@ func (f *Finder) BroadcastDeleteAsyncCheckpoint(ctx context.Context, shardNames 
 					"class":  f.class,
 					"addr":   addr,
 					"shards": shards,
-				}).WithError(err).
-					Warn("async-checkpoint delete rejected by remote replica")
+				}).Warnf("async-checkpoint delete rejected by remote replica: %v", err)
 				return nil
 			}
 			success.Add(1)
@@ -884,8 +882,7 @@ func (f *Finder) BroadcastGetAsyncCheckpointStatus(ctx context.Context, shardNam
 					"addr":   addr,
 					"node":   nodeName,
 					"shards": shards,
-				}).WithError(err).
-					Debug("async-checkpoint status: remote replica unavailable")
+				}).Debugf("async-checkpoint status: remote replica unavailable: %v", err)
 				return nil
 			}
 			success.Add(1)
