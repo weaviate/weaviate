@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -200,7 +201,7 @@ func (c *coordinator) Nodes(ctx context.Context, req *Request) (map[string]strin
 }
 
 // Backup coordinates a distributed backup among participants
-func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Request) error {
+func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Request) (err error) {
 	req.Method = OpCreate
 	if req.AttemptID == "" {
 		req.AttemptID = uuid.NewString()
@@ -217,6 +218,8 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 	if prevID := c.lastOp.renew(req.ID, req.AttemptID, cstore.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return backup.NewErrUnprocessable(fmt.Errorf("backup %s already in progress", prevID))
 	}
+	handedOff := false
+	defer c.releaseSlotOnPanic(OpCreate, req.ID, &handedOff, &err)
 	compressionType, err := CompressionTypeFromLevel(req.Level)
 	if err != nil {
 		return backup.NewErrUnprocessable(err)
@@ -345,9 +348,26 @@ func (c *coordinator) Backup(ctx context.Context, cstore coordStore, req *Reques
 			c.log.WithFields(logFields).Errorf("coordinator: %s", c.descriptor.Error)
 		}
 	}
+	handedOff = true
 	enterrors.GoWrapper(f, c.log)
 
 	return nil
+}
+
+// releaseSlotOnPanic turns a panic in the synchronous section of an operation that holds the slot into an error and frees the slot, unless the async goroutine owns it already.
+func (c *coordinator) releaseSlotOnPanic(op Op, id string, handedOff *bool, err *error) {
+	r := recover()
+	if r == nil {
+		return
+	}
+	if *handedOff {
+		panic(r)
+	}
+	*err = fmt.Errorf("%s %s: coordinator panicked: %v", op, id, r)
+	c.log.WithField("action", op).WithField("backup_id", id).
+		Errorf("coordinator: recovered panic, releasing the operation slot: %v\n%s", r, debug.Stack())
+	c.lastOp.setFailed((*err).Error())
+	c.lastOp.reset()
 }
 
 // rolesAndUsersBlobs are the snapshots applied cluster-wide. A field is empty
@@ -363,7 +383,7 @@ func (c *coordinator) Restore(
 	desc *backup.DistributedBackupDescriptor,
 	schema []backup.ClassDescriptor,
 	blobs rolesAndUsersBlobs,
-) error {
+) (err error) {
 	req.Method = OpRestore
 	if req.AttemptID == "" {
 		req.AttemptID = uuid.NewString()
@@ -382,6 +402,8 @@ func (c *coordinator) Restore(
 	if prevID := c.lastOp.renew(desc.ID, req.AttemptID, store.HomeDir(req.Bucket, req.Path), req.Bucket, req.Path); prevID != "" {
 		return backup.NewErrUnprocessable(fmt.Errorf("restoration %s already in progress", prevID))
 	}
+	handedOff := false
+	defer c.releaseSlotOnPanic(OpRestore, desc.ID, &handedOff, &err)
 
 	for key := range c.Participants {
 		delete(c.Participants, key)
@@ -510,6 +532,7 @@ func (c *coordinator) Restore(
 			c.log.WithFields(logFields).Errorf("coordinator: %v", c.descriptor.Error)
 		}
 	}
+	handedOff = true
 	enterrors.GoWrapper(g, c.log)
 
 	return nil

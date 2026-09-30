@@ -253,6 +253,7 @@ type fakeDedupePlanner struct {
 	plan                *DedupePlan
 	panicWith           interface{}
 	blockUntilCancelled bool
+	onPlan              func()
 
 	mu           sync.Mutex
 	calls        []dedupePlanCall
@@ -273,6 +274,9 @@ func (f *fakeDedupePlanner) PlanDesignatedShards(ctx context.Context, classes []
 	f.mu.Lock()
 	f.calls = append(f.calls, dedupePlanCall{classes: classes, budget: budget, participants: participants, preferred: preferred, cancelled: cancelled})
 	f.mu.Unlock()
+	if f.onPlan != nil {
+		f.onPlan()
+	}
 	if f.panicWith != nil {
 		panic(f.panicWith)
 	}
