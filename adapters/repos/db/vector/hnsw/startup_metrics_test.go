@@ -259,6 +259,11 @@ func TestStartupMetricsAbortedPrefillNotObserved(t *testing.T) {
 // gauge must not stay raised for the life of the process, and the run must
 // not count as a completed prefill.
 func TestStartupMetricsPanickingPrefillReleasesActive(t *testing.T) {
+	// The integration CI job runs with DISABLE_RECOVERY_ON_PANIC, which makes
+	// the goroutine wrapper re-raise instead of recover and would take the
+	// whole test binary down; this test is about the production default.
+	t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+
 	ctx := context.Background()
 	h := newStartupMetricsHarness(t, "prefill_panic", false)
 	h.fill(t, h.newIndex(t))
