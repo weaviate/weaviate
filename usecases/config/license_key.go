@@ -47,10 +47,10 @@ func resolveLicenseState() (license.State, error) {
 	switch {
 	case key == "" && keyFile != "":
 		logrus.Warn("LICENSE_KEY_FILE is set but the file contains no key; " +
-			"Weaviate-licensed functionality is disabled")
+			"Enterprise Edition functionality is disabled")
 	case key != "" && !licenseKeyWellFormed(key):
 		logrus.Warn("the license key configured via LICENSE_KEY or LICENSE_KEY_FILE is not a " +
-			"well-formed Weaviate license key; Weaviate-licensed functionality is disabled")
+			"well-formed Weaviate license key; Enterprise Edition functionality is disabled")
 	}
 
 	if !licenseKeyWellFormed(key) {

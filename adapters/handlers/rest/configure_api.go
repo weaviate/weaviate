@@ -367,8 +367,9 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 
 	appState.License = &appState.ServerConfig.Config.License
 	license.RegisterMetrics(metricsRegisterer, *appState.License)
-	licenseLogFields := logrus.Fields{"action": "license", "status": appState.License.Status}
-	if appState.License.LicenseID != "" {
+	licenseLogFields := logrus.Fields{"action": "license", "edition": appState.License.Edition()}
+	if appState.License.Edition() == license.EditionEnterprise {
+		licenseLogFields["status"] = appState.License.Status
 		licenseLogFields["license_id"] = appState.License.LicenseID
 	}
 	appState.Logger.WithFields(licenseLogFields).Info("license state")

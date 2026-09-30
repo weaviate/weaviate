@@ -33,19 +33,21 @@ func TestMetaGetLicense(t *testing.T) {
 	cases := []struct {
 		name          string
 		licenseState  *license.State
+		wantEdition   string
 		wantStatus    string
 		wantLicenseID string
 	}{
 		{
-			name:          "licensed",
+			name:          "enterprise edition",
 			licenseState:  &license.State{Status: license.StatusValid, LicenseID: "lic_01ARZ3NDEKTSV4RRFFQ69G5FAV"},
+			wantEdition:   "enterprise",
 			wantStatus:    "valid",
 			wantLicenseID: "lic_01ARZ3NDEKTSV4RRFFQ69G5FAV",
 		},
 		{
-			name:         "unlicensed",
+			name:         "community edition",
 			licenseState: &license.State{Status: license.StatusUnlicensed},
-			wantStatus:   "unlicensed",
+			wantEdition:  "community",
 		},
 	}
 
@@ -66,6 +68,7 @@ func TestMetaGetLicense(t *testing.T) {
 			var body models.Meta
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &body))
 			require.NotNil(t, body.License)
+			require.Equal(t, tc.wantEdition, body.License.Edition)
 			require.Equal(t, tc.wantStatus, body.License.Status)
 			require.Equal(t, tc.wantLicenseID, body.License.LicenseID)
 			require.False(t, body.License.Enforcing)
@@ -73,6 +76,11 @@ func TestMetaGetLicense(t *testing.T) {
 			for _, key := range []string{"expiresAt", "lastCheckedAt", "graceEndsAt"} {
 				require.NotContains(t, rec.Body.String(), key,
 					"unknown timestamps must be absent, not serialized as zero values")
+			}
+			if tc.wantEdition == "community" {
+				// A community node has no license, so no license status or id.
+				require.NotContains(t, rec.Body.String(), `"status"`)
+				require.NotContains(t, rec.Body.String(), `"licenseId"`)
 			}
 			require.NotContains(t, rec.Body.String(), "wv8.",
 				"key material must never appear in the meta response")

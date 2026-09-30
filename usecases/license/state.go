@@ -11,6 +11,15 @@
 
 package license
 
+// Edition is the product edition of a Weaviate instance: Community Edition
+// without a license key, Enterprise Edition with one.
+type Edition string
+
+const (
+	EditionCommunity  Edition = "community"
+	EditionEnterprise Edition = "enterprise"
+)
+
 // Status is the license state of a Weaviate instance.
 type Status string
 
@@ -28,4 +37,13 @@ const (
 type State struct {
 	Status    Status `json:"status" yaml:"status"`
 	LicenseID string `json:"licenseId" yaml:"licenseId"`
+}
+
+// Edition derives the product edition from the license state: no well-formed
+// key means Community Edition, any well-formed key means Enterprise Edition.
+func (s State) Edition() Edition {
+	if s.Status == StatusUnlicensed {
+		return EditionCommunity
+	}
+	return EditionEnterprise
 }

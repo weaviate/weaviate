@@ -52,9 +52,14 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 			GrpcMaxMessageSize: int64(serverConfig.Config.GRPC.MaxMsgSize),
 		}
 		if licenseState != nil {
+			// A Community Edition node has no license, so it has no license
+			// status or id; those fields only exist for Enterprise Edition.
 			res.License = &models.MetaLicense{
-				Status:    string(licenseState.Status),
-				LicenseID: licenseState.LicenseID,
+				Edition: string(licenseState.Edition()),
+			}
+			if licenseState.Edition() == license.EditionEnterprise {
+				res.License.Status = string(licenseState.Status)
+				res.License.LicenseID = licenseState.LicenseID
 			}
 		}
 		metricRequestsTotal.logOk("")

@@ -33,6 +33,9 @@ type MetaLicense struct {
 	// Whether the license is used on a cluster other than the one it was issued for.
 	ClusterMismatch bool `json:"clusterMismatch,omitempty"`
 
+	// The product edition: community (no license key) or enterprise (license key configured).
+	Edition string `json:"edition,omitempty"`
+
 	// Whether license enforcement is active.
 	Enforcing bool `json:"enforcing,omitempty"`
 
@@ -51,7 +54,7 @@ type MetaLicense struct {
 	// The non-secret id of the configured license, empty when unlicensed.
 	LicenseID string `json:"licenseId,omitempty"`
 
-	// Current license status.
+	// Current license status. Only present on Enterprise Edition; a Community Edition node has no license and therefore no license status.
 	Status string `json:"status,omitempty"`
 }
 

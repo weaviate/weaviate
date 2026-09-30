@@ -32,13 +32,18 @@ func TestRegisterMetrics(t *testing.T) {
 
 		got := map[string]float64{}
 		for _, m := range families[0].GetMetric() {
+			var edition, status string
 			for _, label := range m.GetLabel() {
-				if label.GetName() == "status" {
-					got[label.GetValue()] = m.GetGauge().GetValue()
+				switch label.GetName() {
+				case "edition":
+					edition = label.GetValue()
+				case "status":
+					status = label.GetValue()
 				}
 			}
+			got[edition+"/"+status] = m.GetGauge().GetValue()
 		}
-		require.Equal(t, map[string]float64{"valid": 1, "unlicensed": 0}, got)
+		require.Equal(t, map[string]float64{"enterprise/valid": 1, "enterprise/unlicensed": 0}, got)
 	})
 
 	t.Run("no-op registerer does nothing and does not panic", func(t *testing.T) {

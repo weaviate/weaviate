@@ -9725,6 +9725,10 @@ func init() {
           "description": "Whether the license is used on a cluster other than the one it was issued for.",
           "type": "boolean"
         },
+        "edition": {
+          "description": "The product edition: community (no license key) or enterprise (license key configured).",
+          "type": "string"
+        },
         "enforcing": {
           "description": "Whether license enforcement is active.",
           "type": "boolean"
@@ -9752,7 +9756,7 @@ func init() {
           "type": "string"
         },
         "status": {
-          "description": "Current license status.",
+          "description": "Current license status. Only present on Enterprise Edition; a Community Edition node has no license and therefore no license status.",
           "type": "string"
         }
       }
@@ -22614,6 +22618,10 @@ func init() {
           "description": "Whether the license is used on a cluster other than the one it was issued for.",
           "type": "boolean"
         },
+        "edition": {
+          "description": "The product edition: community (no license key) or enterprise (license key configured).",
+          "type": "string"
+        },
         "enforcing": {
           "description": "Whether license enforcement is active.",
           "type": "boolean"
@@ -22641,7 +22649,7 @@ func init() {
           "type": "string"
         },
         "status": {
-          "description": "Current license status.",
+          "description": "Current license status. Only present on Enterprise Edition; a Community Edition node has no license and therefore no license status.",
           "type": "string"
         }
       }
