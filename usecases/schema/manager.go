@@ -61,20 +61,15 @@ type leaderSchemaReader = leader.SchemaReader
 
 // Manager serves the local and leader schema reads itself; its own methods must
 // not shadow them.
-var _ Schema = (*Manager)(nil)
+var (
+	_ local.SchemaReader  = (*Manager)(nil)
+	_ leader.SchemaReader = (*Manager)(nil)
+	_ TenantActivator     = (*Manager)(nil)
+)
 
 type VectorConfigParser func(in interface{}, vectorIndexType string, isMultiVector bool) (schemaConfig.VectorIndexConfig, error)
 
 type InvertedConfigValidator func(in *models.InvertedIndexConfig) error
-
-// Schema is the use-case layer's schema: the local and leader reads plus tenant
-// activation, all served by *Manager. Depend on the narrowest part that covers the
-// caller: a local or leader reader, or TenantActivator.
-type Schema interface {
-	local.SchemaReader
-	leader.SchemaReader
-	TenantActivator
-}
 
 // TenantActivator reads tenant status on behalf of requests and changes tenant
 // activity. Unlike leader.TenantReader it may activate tenants: with auto tenant

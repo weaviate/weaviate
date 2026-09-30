@@ -105,7 +105,7 @@ func newTestExplorer(searcher *fakeVectorSearcher, modules ModulesProvider) *Exp
 		QueryMaximumResults: 200,
 	}
 	explorer := NewExplorer(searcher, log, modules, metrics, conf)
-	explorer.SetSchemaGetter(newFakeSchemaGetter("TestClass"))
+	explorer.SetClassReader(newFakeSchemaGetter("TestClass"))
 	return explorer
 }
 
@@ -389,7 +389,7 @@ func newHybridDepthTestExplorer(searcher *fakeVectorSearcher) *Explorer {
 		QueryHybridMaximumResults: 100,
 	}
 	explorer := NewExplorer(searcher, log, getFakeModulesProvider(), metrics, conf)
-	explorer.SetSchemaGetter(newFakeSchemaGetter("TestClass"))
+	explorer.SetClassReader(newFakeSchemaGetter("TestClass"))
 	return explorer
 }
 

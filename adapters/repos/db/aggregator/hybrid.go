@@ -31,7 +31,7 @@ func (a *Aggregator) buildHybridKeywordRanking() (*searchparams.KeywordRanking, 
 		SearchOperator:       a.params.Hybrid.SearchOperator,
 	}
 
-	cl := a.getSchema.ReadOnlyClass(a.params.ClassName.String())
+	cl := a.classReader.ReadOnlyClass(a.params.ClassName.String())
 	if cl == nil {
 		return nil, fmt.Errorf("could not find class %s in schema", a.params.ClassName)
 	}
@@ -56,7 +56,7 @@ func (a *Aggregator) setDefaultObjectLimit() {
 }
 
 func (a *Aggregator) bm25Objects(ctx context.Context, kw *searchparams.KeywordRanking, allowList helpers.AllowList) ([]*storobj.Object, []float32, error) {
-	class := a.getSchema.ReadOnlyClass(a.params.ClassName.String())
+	class := a.classReader.ReadOnlyClass(a.params.ClassName.String())
 	if class == nil {
 		return nil, nil, fmt.Errorf("bm25 objects: could not find class %s in schema", a.params.ClassName)
 	}
@@ -64,7 +64,7 @@ func (a *Aggregator) bm25Objects(ctx context.Context, kw *searchparams.KeywordRa
 
 	kw.ChooseSearchableProperties(class)
 
-	objs, dists, err := inverted.NewBM25Searcher(cfg.BM25, a.store, a.getSchema.ReadOnlyClass,
+	objs, dists, err := inverted.NewBM25Searcher(cfg.BM25, a.store, a.classReader.ReadOnlyClass,
 		a.classSearcher, a.stopwordProvider,
 		a.GetPropertyLengthTracker(), a.logger, a.shardVersion,
 	).WithTokenizationResolver(a.tokResolver).

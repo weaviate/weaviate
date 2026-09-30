@@ -44,7 +44,7 @@ func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Cla
 // local is what this store did before it could tell them apart. An unwired
 // node name is not caught and reaches MigrationUnitID.
 func (s *Shard) migrationUnit() string {
-	if s.index == nil || s.index.getSchema == nil {
+	if s.index == nil || s.index.schemaReader == nil {
 		return ""
 	}
 	return MigrationUnitID(s.name, s.index.Config.NodeName)

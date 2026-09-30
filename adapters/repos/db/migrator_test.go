@@ -72,7 +72,7 @@ func TestUpdateIndexTenants(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockSchemaGetter := schemaUC.NewMockSchema(t)
+			mockSchemaGetter := local.NewMockSchemaReader(t)
 
 			class := &models.Class{
 				Class:               "TestClass",
@@ -106,7 +106,7 @@ func TestUpdateIndexTenants(t *testing.T) {
 			mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 				return readFunc(class, originalSS)
 			}).Maybe()
-			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
+			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter, nil)
 			index, err := NewIndex(context.Background(), nil, IndexConfig{
 				NodeName:          "node1",
 				ClassName:         schema.ClassName("TestClass"),
@@ -114,7 +114,7 @@ func TestUpdateIndexTenants(t *testing.T) {
 				ReplicationFactor: 1,
 				ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
+				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, nil, nil, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
 				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 			require.NoError(t, err)
 			shutdownIndexOnCleanup(t, index)
@@ -129,7 +129,7 @@ func TestUpdateIndexTenants(t *testing.T) {
 			migrator := &Migrator{
 				db: &DB{
 					localNodeName: "node1",
-					schemaGetter:  mockSchemaGetter,
+					schemaReader:  mockSchemaGetter,
 				},
 				nodeId: "node1",
 			}
@@ -371,17 +371,17 @@ func TestUpdateIndexTenantsCompletesDespiteFailures(t *testing.T) {
 			}
 
 			idx, _ := newDropTestIndex(t)
-			sg := schemaUC.NewMockSchema(t)
+			sg := local.NewMockSchemaReader(t)
 			sg.EXPECT().ReadOnlyClass(mock.Anything).
 				Return(&models.Class{Class: idx.Config.ClassName.String()}).Maybe()
-			idx.getSchema = sg
+			idx.schemaReader = sg
 			if tt.refuseLoad {
 				metrics, err := NewMetrics(idx.logger, nil, idx.Config.ClassName.String(), "")
 				require.NoError(t, err)
 				idx.metrics = metrics
 				idx.allocChecker = failingAllocChecker{}
 			}
-			m := &Migrator{db: &DB{localNodeName: "node1", schemaGetter: sg}, logger: idx.logger}
+			m := &Migrator{db: &DB{localNodeName: "node1", schemaReader: sg}, logger: idx.logger}
 
 			residentDirs := make(map[string]string, len(tt.resident))
 			for _, name := range tt.resident {
@@ -538,7 +538,7 @@ func TestUpdateIndexShards(t *testing.T) {
 			ctx := context.Background()
 			logger := logrus.New()
 
-			mockSchemaGetter := schemaUC.NewMockSchema(t)
+			mockSchemaGetter := local.NewMockSchemaReader(t)
 
 			// Create a test class
 			class := &models.Class{
@@ -585,7 +585,7 @@ func TestUpdateIndexShards(t *testing.T) {
 				seedShardObjectCounter(t, rootPath, "TestClass", shardName)
 			}
 
-			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
+			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter, nil)
 			// Create index with proper configuration
 			index, err := NewIndex(ctx, nil, IndexConfig{
 				NodeName:             "node1",
@@ -595,7 +595,7 @@ func TestUpdateIndexShards(t *testing.T) {
 				ShardLoadLimiter:     loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 				EnableLazyLoadShards: tt.lazyLoading, // Enable lazy loading when lazyLoading is true
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
+				hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, nil, nil, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, memwatch.NewDummyMonitor(),
 				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 			require.NoError(t, err)
 			shutdownIndexOnCleanup(t, index)
@@ -609,7 +609,7 @@ func TestUpdateIndexShards(t *testing.T) {
 			migrator := &Migrator{
 				db: &DB{
 					localNodeName: "node1",
-					schemaGetter:  mockSchemaGetter,
+					schemaReader:  mockSchemaGetter,
 				},
 				nodeId: "node1",
 			}
@@ -816,10 +816,10 @@ func TestUpdateIndexShardsCompletesDespiteFailures(t *testing.T) {
 			}
 
 			idx, _ := newDropTestIndex(t)
-			sg := schemaUC.NewMockSchema(t)
+			sg := local.NewMockSchemaReader(t)
 			sg.EXPECT().ReadOnlyClass(mock.Anything).
 				Return(&models.Class{Class: idx.Config.ClassName.String()}).Maybe()
-			idx.getSchema = sg
+			idx.schemaReader = sg
 			m := &Migrator{logger: idx.logger}
 
 			storeShard := func(name string, shutdownErr error) {
@@ -913,13 +913,13 @@ func TestUpdateIndexAddsPropertiesDespiteShardFailure(t *testing.T) {
 				Properties: []*models.Property{{Name: "location", DataType: []string{"geoCoordinates"}}},
 			}
 
-			sg := schemaUC.NewMockSchema(t)
+			sg := local.NewMockSchemaReader(t)
 			sg.EXPECT().ReadOnlyClass(mock.Anything).Return(class).Maybe()
-			idx.getSchema = sg
+			idx.schemaReader = sg
 			m := &Migrator{
 				db: &DB{
 					localNodeName: "node1",
-					schemaGetter:  sg,
+					schemaReader:  sg,
 					indices:       map[string]*Index{indexID(idx.Config.ClassName): idx},
 				},
 				logger: idx.logger,
@@ -1021,7 +1021,7 @@ func TestShardsStatusNonExistingIndexWrapsNotFound(t *testing.T) {
 }
 
 func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
-	mockSchemaGetter := schemaUC.NewMockSchema(t)
+	mockSchemaGetter := local.NewMockSchemaReader(t)
 
 	class := &models.Class{
 		Class:               "TestClass",
@@ -1054,7 +1054,7 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 	mockSchemaReader.EXPECT().Read(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(func(className string, retryIfClassNotFound bool, readFunc func(*models.Class, *sharding.State) error) error {
 		return readFunc(class, originalSS)
 	}).Maybe()
-	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter, nil)
 	index, err := NewIndex(context.Background(), nil, IndexConfig{
 		NodeName:          "node1",
 		ClassName:         schema.ClassName("TestClass"),
@@ -1062,7 +1062,7 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 		ReplicationFactor: 1,
 		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
+		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, nil, nil, mockSchemaReader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 	require.NoError(t, err)
 	shutdownIndexOnCleanup(t, index)

@@ -48,7 +48,7 @@ func TestModulesProvider(t *testing.T) {
 			Classes: []*models.Class{class},
 		}
 		schemaGetter := getMockSchemaReader(t)
-		modulesProvider.SetSchemaGetter(schemaGetter)
+		modulesProvider.SetClassReader(schemaGetter)
 
 		params := map[string]interface{}{}
 		params["nearArgumentSomeParam"] = string("doesn't matter here")
@@ -77,7 +77,7 @@ func TestModulesProvider(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
 		schemaGetter := getMockSchemaReader(t)
-		modulesProvider.SetSchemaGetter(schemaGetter)
+		modulesProvider.SetClassReader(schemaGetter)
 
 		// when
 		modulesProvider.Register(newGraphQLModule("mod1").withArg("nearArgument"))
@@ -93,7 +93,7 @@ func TestModulesProvider(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
 		schemaGetter := getMockSchemaReader(t)
-		modulesProvider.SetSchemaGetter(schemaGetter)
+		modulesProvider.SetClassReader(schemaGetter)
 
 		// when
 		modulesProvider.Register(newGraphQLModule("mod1").withArg("nearArgument"))
@@ -120,7 +120,7 @@ func TestModulesProvider(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
 		schemaGetter := getMockSchemaReader(t)
-		modulesProvider.SetSchemaGetter(schemaGetter)
+		modulesProvider.SetClassReader(schemaGetter)
 
 		// when
 		modulesProvider.Register(newGraphQLModule("mod1").withArg("nearArgument"))
@@ -155,7 +155,7 @@ func TestModulesProvider(t *testing.T) {
 			Classes: []*models.Class{class},
 		}
 		schemaGetter := getMockSchemaReader(t)
-		modulesProvider.SetSchemaGetter(schemaGetter)
+		modulesProvider.SetClassReader(schemaGetter)
 
 		params := map[string]interface{}{}
 		params["nearArgumentSomeParam"] = string("doesn't matter here")
@@ -197,7 +197,7 @@ func TestModulesProvider(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
 		schemaGetter := getMockSchemaReader(t)
-		modulesProvider.SetSchemaGetter(schemaGetter)
+		modulesProvider.SetClassReader(schemaGetter)
 
 		// when
 		modulesProvider.Register(newGraphQLAdditionalModule("mod1").
@@ -221,7 +221,7 @@ func TestModulesProvider(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
 		schemaGetter := getMockSchemaReader(t)
-		modulesProvider.SetSchemaGetter(schemaGetter)
+		modulesProvider.SetClassReader(schemaGetter)
 
 		// when
 		modulesProvider.Register(newGraphQLAdditionalModule("mod1").withArg("nearArgument"))
@@ -276,7 +276,7 @@ func TestModulesProvider(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		modulesProvider := NewProvider(logger, config.Config{})
 		schemaGetter := getMockSchemaReader(t)
-		modulesProvider.SetSchemaGetter(schemaGetter)
+		modulesProvider.SetClassReader(schemaGetter)
 
 		// when
 		modulesProvider.Register(newGraphQLAdditionalModule("mod1").
@@ -554,7 +554,7 @@ func (m *dummyBackupModuleWithAltNames) Initialize(ctx context.Context, backupID
 func TestVectorFromSearchParamNoVectorizerTypedError(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	p := NewProvider(logger, config.Config{})
-	p.SetSchemaGetter(getMockSchemaReader(t))
+	p.SetClassReader(getMockSchemaReader(t))
 
 	_, err := p.VectorFromSearchParam(context.Background(),
 		"ClassOne", "", "", "nearText", nil, nil)

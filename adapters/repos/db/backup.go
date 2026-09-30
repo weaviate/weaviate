@@ -294,7 +294,7 @@ func (db *DB) ShardReplicas(ctx context.Context, class string) (map[string][]str
 }
 
 func (db *DB) ListClasses(ctx context.Context) []string {
-	classes := db.schemaGetter.ReadOnlySchema().Classes
+	classes := db.schemaReader.ReadOnlySchema().Classes
 	classNames := make([]string, len(classes))
 
 	for i, class := range classes {
@@ -794,7 +794,7 @@ func (i *Index) resumeMaintenanceCycles(ctx context.Context) (lastErr error) {
 }
 
 func (i *Index) marshalSchema() ([]byte, error) {
-	b, err := i.getSchema.ReadOnlyClass(i.Config.ClassName.String()).MarshalBinary()
+	b, err := i.schemaReader.ReadOnlyClass(i.Config.ClassName.String()).MarshalBinary()
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal schema")
 	}
@@ -1069,7 +1069,7 @@ func listInactiveLSMFiles(lsmDir, rootPath string) ([]string, error) {
 }
 
 func (i *Index) marshalAliases() ([]byte, error) {
-	aliases := i.getSchema.GetAliasesForClass(i.Config.ClassName.String())
+	aliases := i.schemaReader.GetAliasesForClass(i.Config.ClassName.String())
 	b, err := json.Marshal(aliases)
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal aliases failed to get aliases for collection")

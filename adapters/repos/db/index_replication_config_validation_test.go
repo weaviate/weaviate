@@ -108,7 +108,9 @@ func newRepoWithStoredClasses(t *testing.T, shardState *sharding.State, classes 
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil,
 	)
 	require.NoError(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.NoError(t, repo.WaitForStartup(ctx))
 
 	return repo

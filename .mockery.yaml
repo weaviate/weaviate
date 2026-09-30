@@ -43,7 +43,7 @@ packages:
       VectorIndexConfig:
   github.com/weaviate/weaviate/usecases/schema:
     interfaces:
-      Schema:
+      TenantActivator:
   github.com/weaviate/weaviate/usecases/auth/authorization:
     interfaces:
       Controller:

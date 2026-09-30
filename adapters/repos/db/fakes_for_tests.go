@@ -23,6 +23,8 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -41,8 +43,14 @@ import (
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
+// leaderSchemaReader lets the fake embed leader.SchemaReader next to
+// local.SchemaReader, whose embedded field would otherwise have the same name.
+type leaderSchemaReader = leader.SchemaReader
+
 type fakeSchemaGetter struct {
-	schemaUC.Schema
+	local.SchemaReader
+	leaderSchemaReader
+	schemaUC.TenantActivator
 	nodeName   string
 	schema     schema.Schema
 	shardState *sharding.State

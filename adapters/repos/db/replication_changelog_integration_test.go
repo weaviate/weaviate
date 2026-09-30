@@ -91,7 +91,9 @@ func setupReplayShard(t *testing.T) (repo *DB, idx *Index, shard string, class *
 		&FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	t.Cleanup(func() { repo.Shutdown(context.Background()) })
 

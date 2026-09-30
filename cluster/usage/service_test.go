@@ -30,6 +30,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -97,7 +98,7 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	readOnly := models.Schema{
 		Classes: []*models.Class{class},
 	}
-	mockSchemaGetter := schemaUC.NewMockSchema(t)
+	mockSchemaGetter := local.NewMockSchemaReader(t)
 	mockSchemaGetter.EXPECT().ReadOnlySchema().Return(readOnly).Maybe()
 	classReader := local.NewMockSchemaReader(t)
 	classReader.EXPECT().ReadOnlySchema().Return(readOnly)
@@ -202,16 +203,18 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 			class,
 		},
 	}
-	mockSchema := schemaUC.NewMockSchema(t)
+	mockSchema := local.NewMockSchemaReader(t)
+	mockSchemaTen := schemaUC.NewMockTenantActivator(t)
+	mockSchemaLeader := leader.NewMockSchema(t)
 	mockSchema.EXPECT().ReadOnlySchema().Return(readOnly).Maybe()
 	classReader := local.NewMockSchemaReader(t)
 	classReader.EXPECT().ReadOnlySchema().Return(readOnly)
 	mockSchema.EXPECT().ReadOnlyClass(class.Class).Return(class).Maybe()
-	mockSchema.EXPECT().TenantsShardsStatusWithActivation(mock.Anything, className, hotTenant).
+	mockSchemaTen.EXPECT().TenantsShardsStatusWithActivation(mock.Anything, className, hotTenant).
 		Return(map[string]string{hotTenant: models.TenantActivityStatusHOT}, uint64(0), nil).Maybe()
-	mockSchema.EXPECT().OptimisticTenantStatus(mock.Anything, className, hotTenant, mock.Anything).
+	mockSchemaTen.EXPECT().OptimisticTenantStatus(mock.Anything, className, hotTenant, mock.Anything).
 		Return(map[string]string{hotTenant: models.TenantActivityStatusHOT}, nil).Maybe()
-	mockSchema.EXPECT().ShardOwnerFromLeader(className, hotTenant).Return(nodeName, uint64(0), nil).Maybe()
+	mockSchemaLeader.EXPECT().ShardOwnerFromLeader(className, hotTenant).Return(nodeName, uint64(0), nil).Maybe()
 
 	mockSchemaReader := local.NewMockSchemaReader(t)
 	mockSchemaReader.EXPECT().Read(className, mock.Anything, mock.Anything).RunAndReturn(
@@ -308,7 +311,7 @@ func TestService_Usage_WithBackups(t *testing.T) {
 	class3 := "Class3"
 
 	readOnly := models.Schema{Classes: []*models.Class{}}
-	mockSchema := schemaUC.NewMockSchema(t)
+	mockSchema := local.NewMockSchemaReader(t)
 	mockSchema.EXPECT().ReadOnlySchema().Return(readOnly).Maybe()
 	classReader := local.NewMockSchemaReader(t)
 	classReader.EXPECT().ReadOnlySchema().Return(readOnly)
@@ -393,7 +396,7 @@ func TestService_Usage_WithBackups_3node_cluster(t *testing.T) {
 	class2 := "Class2"
 
 	readOnly := models.Schema{Classes: []*models.Class{}}
-	mockSchema := schemaUC.NewMockSchema(t)
+	mockSchema := local.NewMockSchemaReader(t)
 	mockSchema.EXPECT().ReadOnlySchema().Return(readOnly).Maybe()
 	classReader := local.NewMockSchemaReader(t)
 	classReader.EXPECT().ReadOnlySchema().Return(readOnly)
@@ -468,7 +471,7 @@ func TestService_Usage_WithDedupedBackup(t *testing.T) {
 	size1GB := int64(1073741824)
 
 	readOnly := models.Schema{Classes: []*models.Class{}}
-	mockSchema := schemaUC.NewMockSchema(t)
+	mockSchema := local.NewMockSchemaReader(t)
 	mockSchema.EXPECT().ReadOnlySchema().Return(readOnly).Maybe()
 	classReader := local.NewMockSchemaReader(t)
 	classReader.EXPECT().ReadOnlySchema().Return(readOnly)
@@ -513,7 +516,7 @@ func TestService_Usage_EmptyCollections(t *testing.T) {
 	nodeName := "test-node"
 
 	readOnly := models.Schema{Classes: []*models.Class{}}
-	mockSchema := schemaUC.NewMockSchema(t)
+	mockSchema := local.NewMockSchemaReader(t)
 	mockSchema.EXPECT().ReadOnlySchema().Return(readOnly).Maybe()
 	classReader := local.NewMockSchemaReader(t)
 	classReader.EXPECT().ReadOnlySchema().Return(readOnly)
@@ -549,7 +552,7 @@ func TestService_Usage_BackupError(t *testing.T) {
 	nodeName := "test-node"
 
 	readOnly := models.Schema{Classes: []*models.Class{}}
-	mockSchema := schemaUC.NewMockSchema(t)
+	mockSchema := local.NewMockSchemaReader(t)
 	mockSchema.EXPECT().ReadOnlySchema().Return(readOnly).Maybe()
 	classReader := local.NewMockSchemaReader(t)
 	classReader.EXPECT().ReadOnlySchema().Return(readOnly)
@@ -597,7 +600,7 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 	readOnly := models.Schema{
 		Classes: []*models.Class{class},
 	}
-	mockSchema := schemaUC.NewMockSchema(t)
+	mockSchema := local.NewMockSchemaReader(t)
 	mockSchema.EXPECT().ReadOnlySchema().Return(readOnly).Maybe()
 	classReader := local.NewMockSchemaReader(t)
 	classReader.EXPECT().ReadOnlySchema().Return(readOnly)
@@ -714,7 +717,7 @@ func TestService_Usage_MultipleCollectionsConcurrent(t *testing.T) {
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	readOnly := models.Schema{Classes: classes}
-	mockSchemaGetter := schemaUC.NewMockSchema(t)
+	mockSchemaGetter := local.NewMockSchemaReader(t)
 	mockSchemaGetter.EXPECT().ReadOnlySchema().Return(readOnly).Maybe()
 	classReader := local.NewMockSchemaReader(t)
 	classReader.EXPECT().ReadOnlySchema().Return(readOnly)
@@ -804,7 +807,7 @@ func TestService_Usage_MultipleCollectionsError(t *testing.T) {
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	readOnly := models.Schema{Classes: classes}
-	mockSchemaGetter := schemaUC.NewMockSchema(t)
+	mockSchemaGetter := local.NewMockSchemaReader(t)
 	mockSchemaGetter.EXPECT().ReadOnlySchema().Return(readOnly).Maybe()
 	classReader := local.NewMockSchemaReader(t)
 	classReader.EXPECT().ReadOnlySchema().Return(readOnly)
@@ -838,7 +841,7 @@ func TestService_Usage_MultipleCollectionsError(t *testing.T) {
 	assert.Nil(t, result)
 }
 
-func createTestDb(t *testing.T, sg schemaUC.Schema, shardingState *sharding.State, class *models.Class, nodeName string) *db.DB {
+func createTestDb(t *testing.T, sg local.SchemaReader, shardingState *sharding.State, class *models.Class, nodeName string) *db.DB {
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	mockNodeSelector.EXPECT().LocalName().Return(nodeName).Maybe()
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return(nodeName, true).Maybe()
@@ -877,7 +880,8 @@ func createTestDb(t *testing.T, sg schemaUC.Schema, shardingState *sharding.Stat
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 
-	repo.SetSchemaGetter(sg)
+	repo.SetLeaderSchema(leader.NewMockSchema(t))
+	repo.SetTenantActivator(schemaUC.NewMockTenantActivator(t))
 
 	require.Nil(t, repo.WaitForStartup(context.Background()))
 

@@ -121,11 +121,11 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		collection,
 		isMultiTenant,
 		m.db.nodeSelector,
-		m.db.schemaGetter,
+		m.db.tenants,
 		m.db.schemaReader,
 		m.db.replicationFSM,
 	).Build()
-	shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), m.db.schemaGetter)
+	shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), m.db.schemaReader, m.db.tenants)
 	var totalShardSizeBytes uint64
 	var localActiveShardsCount int
 	if isMultiTenant {
@@ -238,7 +238,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class) error {
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		convertToVectorIndexConfig(class.VectorIndexConfig),
 		convertToVectorIndexConfigs(class.VectorConfig),
-		indexRouter, shardResolver, m.db.schemaGetter, m.db.schemaReader, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
+		indexRouter, shardResolver, m.db.leaderSchema, m.db.tenants, m.db.schemaReader, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler,
 		m.db.memMonitor, m.db.reindexer, m.db.bitmapBufPool, m.db.AsyncIndexingEnabled)
 	if err != nil {

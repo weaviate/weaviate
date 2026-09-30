@@ -108,7 +108,7 @@ func objectsByIDTestIndex(t *testing.T, className string, multiTenant bool, id s
 	withLookups := func(i *Index) {
 		i.namespace = namespacing.NamespaceFromQualified(className)
 		i.namespacesExister = exister
-		i.shardResolver = resolver.NewShardResolver(className, multiTenant, i.getSchema)
+		i.shardResolver = resolver.NewShardResolver(className, multiTenant, i.schemaReader, i.tenants)
 	}
 
 	var shard ShardLike

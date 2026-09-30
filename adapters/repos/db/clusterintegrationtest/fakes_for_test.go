@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
@@ -161,7 +162,9 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 		panic(err)
 	}
 
-	n.repo.SetSchemaGetter(n.schemaManager)
+	n.repo.SetLeaderSchema(n.schemaManager)
+
+	n.repo.SetTenantActivator(n.schemaManager)
 	err = n.repo.WaitForStartup(context.Background())
 	if err != nil {
 		panic(err)
@@ -237,9 +240,15 @@ func (r fakeDynUserBackupWrapper) Restore([]byte, bool) error {
 	return nil
 }
 
+// leaderSchemaReader lets the fake embed leader.SchemaReader next to
+// local.SchemaReader, whose embedded field would otherwise have the same name.
+type leaderSchemaReader = leader.SchemaReader
+
 type fakeSchemaManager struct {
 	// Left unset: only the methods defined below are expected.
-	schemaUC.Schema
+	local.SchemaReader
+	leaderSchemaReader
+	schemaUC.TenantActivator
 	schema       schema.Schema
 	shardState   *sharding.State
 	nodeResolver *nodeResolver

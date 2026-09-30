@@ -118,10 +118,11 @@ func TestDeferEmptyMultiTenantShardOnInit(t *testing.T) {
 				}).Maybe()
 			mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 
-			mockSchema := schemaUC.NewMockSchema(t)
+			mockSchema := local.NewMockSchemaReader(t)
+			mockSchemaTen := schemaUC.NewMockTenantActivator(t)
 			mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 			mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
-			mockSchema.EXPECT().TenantsShardsStatusWithActivation(ctx, className, tenant).Maybe().
+			mockSchemaTen.EXPECT().TenantsShardsStatusWithActivation(ctx, className, tenant).Maybe().
 				Return(map[string]string{tenant: models.TenantActivityStatusHOT}, uint64(0), nil)
 
 			mockRouter := types.NewMockRouter(t)
@@ -135,7 +136,7 @@ func TestDeferEmptyMultiTenantShardOnInit(t *testing.T) {
 				}, nil).Maybe()
 
 			schemaGetter := &fakeSchemaGetter{schema: fakeSchema, shardState: shardState}
-			shardResolver := resolver.NewShardResolver(className, true, schemaGetter)
+			shardResolver := resolver.NewShardResolver(className, true, schemaGetter, schemaGetter)
 
 			index, err := NewIndex(ctx, nil, IndexConfig{
 				NodeName:             nodeName,
@@ -146,7 +147,7 @@ func TestDeferEmptyMultiTenantShardOnInit(t *testing.T) {
 				EnableLazyLoadShards: false, // eager mode: without the fix every HOT shard loads at init
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				enthnsw.UserConfig{VectorCacheMaxObjects: 1000}, nil, mockRouter, shardResolver,
-				mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil,
+				nil, mockSchemaTen, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil,
 				class, nil, scheduler, nil,
 				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 			require.NoError(t, err)

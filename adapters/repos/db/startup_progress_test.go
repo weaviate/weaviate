@@ -39,9 +39,9 @@ func newStartupProgressDB(t *testing.T) (db *DB, restoreSchema, loadShards func(
 
 	db = testDB(t, t.TempDir(), classes, map[string]*sharding.State{"Alpha": state})
 
-	sg := db.schemaGetter.(*fakeMigrationSchemaGetter)
+	sg := db.schemaReader.(*fakeMigrationSchemaGetter)
 	restored := sg.sch
-	// Handler.getSchema always returns a non-nil Objects, so an empty FSM
+	// Handler.schemaReader always returns a non-nil Objects, so an empty FSM
 	// presents as a class list of length zero.
 	sg.sch = schema.Schema{Objects: &models.Schema{}}
 

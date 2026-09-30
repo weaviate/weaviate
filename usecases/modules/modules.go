@@ -50,7 +50,7 @@ type Provider struct {
 	vectorsLock               sync.RWMutex
 	registered                map[string]modulecapabilities.Module
 	altNames                  map[string]string
-	schemaGetter              local.ClassReader
+	classReader               local.ClassReader
 	hasMultipleVectorizers    bool
 	targetVectorNameValidator *regexp.Regexp
 	logger                    logrus.FieldLogger
@@ -127,8 +127,8 @@ func (p *Provider) Close() error {
 	return nil
 }
 
-func (p *Provider) SetSchemaGetter(sg local.ClassReader) {
-	p.schemaGetter = sg
+func (p *Provider) SetClassReader(classReader local.ClassReader) {
+	p.classReader = classReader
 }
 
 func (p *Provider) Init(ctx context.Context,
@@ -1088,7 +1088,7 @@ func (p *Provider) GetMeta() (map[string]interface{}, error) {
 }
 
 func (p *Provider) getClass(className string) (*models.Class, error) {
-	class := p.schemaGetter.ReadOnlyClass(className)
+	class := p.classReader.ReadOnlyClass(className)
 	if class == nil {
 		return nil, errors.Errorf("class %q not found in schema", className)
 	}

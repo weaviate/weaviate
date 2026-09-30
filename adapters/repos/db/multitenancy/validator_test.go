@@ -19,13 +19,18 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/multitenancy"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/objects"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 type fakeSchemaReader struct {
-	schemaUC.Schema
+	local.SchemaReader
+	leader.ShardReader
+	leader.TenantReader
+	schemaUC.TenantActivator
 
 	tenantShards    map[string]string
 	tenantsShardErr error
@@ -103,7 +108,7 @@ func Test_SingleTenantValidator(t *testing.T) {
 			t.Parallel()
 			// GIVEN
 			schemaReader := &fakeSchemaReader{classExists: true}
-			validator := multitenancy.NewTenantValidator("TestClass", false, schemaReader)
+			validator := multitenancy.NewTenantValidator("TestClass", false, schemaReader, schemaReader)
 
 			// WHEN
 			err := validator.ValidateTenants(context.Background(), tc.tenants...)
@@ -216,7 +221,7 @@ func Test_MultiTenantValidator(t *testing.T) {
 				tenantShards: tc.tenantShards,
 				classExists:  tc.classExists,
 			}
-			validator := multitenancy.NewTenantValidator("TestClass", true, schemaReader)
+			validator := multitenancy.NewTenantValidator("TestClass", true, schemaReader, schemaReader)
 
 			// WHEN
 			err := validator.ValidateTenants(context.Background(), tc.tenants...)
@@ -264,7 +269,7 @@ func Test_MultiTenantValidator_SchemaErrors(t *testing.T) {
 				tenantsShardErr: tc.tenantsShardErr,
 				classExists:     true,
 			}
-			validator := multitenancy.NewTenantValidator("TestClass", true, schemaReader)
+			validator := multitenancy.NewTenantValidator("TestClass", true, schemaReader, schemaReader)
 
 			// WHEN
 			err := validator.ValidateTenants(context.Background(), "tenant1")
@@ -324,7 +329,7 @@ func Test_TenancyValidator_Builder(t *testing.T) {
 				tenantShards: map[string]string{"tenant1": models.TenantActivityStatusHOT},
 				classExists:  true,
 			}
-			validator := multitenancy.NewTenantValidator("TestClass", tc.multiTenancyEnabled, schemaReader)
+			validator := multitenancy.NewTenantValidator("TestClass", tc.multiTenancyEnabled, schemaReader, schemaReader)
 
 			// WHEN
 			err := validator.ValidateTenants(context.Background(), tc.validateWithTenant)

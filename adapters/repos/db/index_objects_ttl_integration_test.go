@@ -36,7 +36,6 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -83,7 +82,7 @@ func TestTTLSkipsLazyUnloadedTenant(t *testing.T) {
 	mockSchemaReader.EXPECT().ReadOnlySchema().Return(models.Schema{Classes: []*models.Class{class}}).Maybe()
 	mockSchemaReader.EXPECT().Shards(className).Return([]string{tenant}, nil).Once()
 
-	mockSchema := schemaUC.NewMockSchema(t)
+	mockSchema := local.NewMockSchemaReader(t)
 	mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
 
@@ -92,7 +91,7 @@ func TestTTLSkipsLazyUnloadedTenant(t *testing.T) {
 	mockRouter := types.NewMockRouter(t)
 
 	schemaGetter := &fakeSchemaGetter{schema: fakeSchema, shardState: shardState}
-	shardResolver := resolver.NewShardResolver(className, true, schemaGetter)
+	shardResolver := resolver.NewShardResolver(className, true, schemaGetter, schemaGetter)
 
 	index, err := NewIndex(ctx, nil, IndexConfig{
 		NodeName:             nodeName,
@@ -103,7 +102,7 @@ func TestTTLSkipsLazyUnloadedTenant(t *testing.T) {
 		EnableLazyLoadShards: true,
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{VectorCacheMaxObjects: 1000}, nil, mockRouter, shardResolver,
-		mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil,
+		nil, nil, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil,
 		class, nil, scheduler, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 	require.NoError(t, err)

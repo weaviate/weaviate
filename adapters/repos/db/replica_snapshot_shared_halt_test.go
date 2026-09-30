@@ -44,7 +44,6 @@ import (
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -232,7 +231,7 @@ func putSharedHaltObject(t *testing.T, index *Index, id strfmt.UUID, docID uint6
 func newSharedHaltTestShard(t *testing.T) (*Index, *Shard) {
 	t.Helper()
 
-	mockSchemaGetter := schemaUC.NewMockSchema(t)
+	mockSchemaGetter := local.NewMockSchemaReader(t)
 
 	class := &models.Class{
 		Class:               "TestClass",
@@ -261,7 +260,7 @@ func newSharedHaltTestShard(t *testing.T) (*Index, *Shard) {
 			return readFunc(class, ss)
 		}).Maybe()
 
-	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter, nil)
 
 	index, err := NewIndex(context.Background(), nil, IndexConfig{
 		NodeName:          "node1",
@@ -270,7 +269,7 @@ func newSharedHaltTestShard(t *testing.T) (*Index, *Shard) {
 		ReplicationFactor: 1,
 		ShardLoadLimiter:  loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader,
+		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, nil, nil, mockSchemaReader,
 		nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 	require.NoError(t, err)

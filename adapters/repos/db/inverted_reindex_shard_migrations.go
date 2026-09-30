@@ -44,7 +44,7 @@ func (m shardMigrations) RetireSuperseded(ctx context.Context) {
 func (m shardMigrations) liveReconciler() *migrationReconciler {
 	className := m.shard.index.Config.ClassName.String()
 	return m.shard.migrationReconciler(func() *models.Class {
-		return m.shard.index.getSchema.ReadOnlyClass(className)
+		return m.shard.index.schemaReader.ReadOnlyClass(className)
 	})
 }
 

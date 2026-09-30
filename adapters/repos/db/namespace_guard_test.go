@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
@@ -89,7 +90,7 @@ func newIndexForNamespaceTest(t *testing.T, className string, e namespaces.Exist
 		InvertedIndexConfig: &models.InvertedIndexConfig{},
 	}
 
-	sg := schemaUC.NewMockSchema(t)
+	sg := local.NewMockSchemaReader(t)
 	sg.On("ReadOnlyClass", className).Return(class).Maybe()
 
 	ss := &sharding.State{Physical: map[string]sharding.Physical{}}
@@ -111,8 +112,8 @@ func newIndexForNamespaceTest(t *testing.T, className string, e namespaces.Exist
 		NamespacesExister: e,
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		hnsw.NewDefaultUserConfig(), nil, nil,
-		resolver.NewShardResolver(className, false, sg),
-		sg, reader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler,
+		resolver.NewShardResolver(className, false, sg, nil),
+		nil, nil, reader, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler,
 		memwatch.NewDummyMonitor(),
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 	if err != nil {
@@ -2324,8 +2325,7 @@ func TestEmptyTenantStatusBootVsReload(t *testing.T) {
 		shard.EXPECT().Shutdown(mock.Anything).Return(nil)
 		idx.shards.Store("empty1", shard)
 
-		sg := schemaUC.NewMockSchema(t)
-		m := &Migrator{db: &DB{localNodeName: "node1", schemaGetter: sg}}
+		m := &Migrator{db: &DB{localNodeName: "node1", leaderSchema: leader.NewMockSchema(t), tenants: schemaUC.NewMockTenantActivator(t)}}
 
 		incoming := &sharding.State{Physical: map[string]sharding.Physical{"empty1": localPhysical("empty1")}}
 		require.NoError(t, m.updateIndexTenantsStatus(ctx, idx, incoming))
@@ -2529,12 +2529,12 @@ func dbForReopen(t *testing.T, className string, e namespaces.Exister) (*DB, *In
 	t.Helper()
 
 	idx := indexForGuardTest(t, className, e)
-	sg := schemaUC.NewMockSchema(t)
+	sg := local.NewMockSchemaReader(t)
 	sg.EXPECT().ReadOnlyClass(className).Return(&models.Class{Class: className}).Maybe()
-	idx.getSchema = sg
+	idx.schemaReader = sg
 
 	logger, _ := logrustest.NewNullLogger()
-	return &DB{localNodeName: "node1", logger: logger, schemaGetter: sg, indices: map[string]*Index{idx.ID(): idx}}, idx
+	return &DB{localNodeName: "node1", logger: logger, leaderSchema: leader.NewMockSchema(t), tenants: schemaUC.NewMockTenantActivator(t), indices: map[string]*Index{idx.ID(): idx}}, idx
 }
 
 // ReopenShard is the entry point a resuming namespace's shards come back

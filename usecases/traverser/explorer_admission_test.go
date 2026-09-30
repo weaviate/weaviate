@@ -37,7 +37,7 @@ func TestExplorer_AdmissionShedIdentitySurvivesWrapping(t *testing.T) {
 	newExplorer := func(searcher *fakeVectorSearcher) *Explorer {
 		log, _ := test.NewNullLogger()
 		e := NewExplorer(searcher, log, getFakeModulesProvider(), &fakeMetrics{}, defaultConfig)
-		e.SetSchemaGetter(&fakeSchemaGetter{
+		e.SetClassReader(&fakeSchemaGetter{
 			schema: schema.Schema{Objects: &models.Schema{Classes: []*models.Class{
 				{Class: "BestClass"},
 			}}},

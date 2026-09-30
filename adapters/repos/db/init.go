@@ -53,7 +53,7 @@ func (db *DB) init(ctx context.Context) error {
 		return err
 	}
 
-	for _, class := range db.schemaGetter.ReadOnlySchema().Classes {
+	for _, class := range db.schemaReader.ReadOnlySchema().Classes {
 		invertedConfig := class.InvertedIndexConfig
 		if invertedConfig == nil {
 			// for backward compatibility, this field was introduced in v1.0.4,
@@ -109,11 +109,11 @@ func (db *DB) init(ctx context.Context) error {
 			collection,
 			isMultiTenant,
 			db.nodeSelector,
-			db.schemaGetter,
+			db.tenants,
 			db.schemaReader,
 			db.replicationFSM,
 		).Build()
-		shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), db.schemaGetter)
+		shardResolver := resolver.NewShardResolver(collection, multitenancy.IsMultiTenant(class.MultiTenancyConfig), db.schemaReader, db.tenants)
 		var lazyLoadShardEnabled bool
 		idx, err := NewIndex(ctx, db, IndexConfig{
 			NodeName:                       db.localNodeName,
@@ -203,7 +203,7 @@ func (db *DB) init(ctx context.Context) error {
 			inverted.ConfigFromModel(invertedConfig),
 			convertToVectorIndexConfig(class.VectorIndexConfig),
 			convertToVectorIndexConfigs(class.VectorConfig),
-			indexRouter, shardResolver, db.schemaGetter, db.schemaReader, db, db.logger, db.nodeResolver, db.remoteIndex,
+			indexRouter, shardResolver, db.leaderSchema, db.tenants, db.schemaReader, db, db.logger, db.nodeResolver, db.remoteIndex,
 			db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler,
 			db.memMonitor, db.reindexer, db.bitmapBufPool, db.AsyncIndexingEnabled)
 		if err != nil {

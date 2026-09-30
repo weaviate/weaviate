@@ -34,7 +34,6 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -51,7 +50,7 @@ func TestReplicaSnapshotFallbackInactivityTimerIsReset(t *testing.T) {
 		activeWindow      = 700 * time.Millisecond
 	)
 
-	mockSchemaGetter := schemaUC.NewMockSchema(t)
+	mockSchemaGetter := local.NewMockSchemaReader(t)
 
 	class := &models.Class{
 		Class:               "TestClass",
@@ -80,7 +79,7 @@ func TestReplicaSnapshotFallbackInactivityTimerIsReset(t *testing.T) {
 			return readFunc(class, ss)
 		}).Maybe()
 
-	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter)
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchemaGetter, nil)
 
 	index, err := NewIndex(context.Background(), nil, IndexConfig{
 		NodeName:                  "node1",
@@ -90,7 +89,7 @@ func TestReplicaSnapshotFallbackInactivityTimerIsReset(t *testing.T) {
 		ShardLoadLimiter:          loadlimiter.NewLoadLimiter(monitoring.NoopRegisterer, "dummy", 1),
 		TransferInactivityTimeout: inactivityTimeout,
 	}, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, mockSchemaGetter, mockSchemaReader,
+		hnsw.NewDefaultUserConfig(), nil, nil, shardResolver, nil, nil, mockSchemaReader,
 		nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil,
 		NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 	require.NoError(t, err)

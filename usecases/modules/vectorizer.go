@@ -597,7 +597,7 @@ func (p *Provider) VectorizerName(className string) (string, error) {
 }
 
 func (p *Provider) getClassVectorizer(className string) (string, any, error) {
-	class := p.schemaGetter.ReadOnlyClass(className)
+	class := p.classReader.ReadOnlyClass(className)
 	if class == nil {
 		// this should be impossible by the time this method gets called, but let's
 		// be 100% certain

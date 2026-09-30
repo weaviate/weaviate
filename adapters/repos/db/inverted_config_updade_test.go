@@ -66,7 +66,9 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
@@ -138,7 +140,7 @@ func TestUpdateInvertedConfigStopwords(t *testing.T) {
 	})
 
 	t.Run("update stopwords", func(t *testing.T) {
-		class := repo.schemaGetter.ReadOnlyClass(className.String())
+		class := repo.schemaReader.ReadOnlyClass(className.String())
 		class.InvertedIndexConfig.Stopwords = &models.StopwordConfig{
 			Preset:    "en",
 			Additions: []string{"journey"},
@@ -247,7 +249,9 @@ func TestUpdateInvertedConfigStopwordsPresetSwitch(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
@@ -292,7 +296,7 @@ func TestUpdateInvertedConfigStopwordsPresetSwitch(t *testing.T) {
 	}
 
 	t.Run("update preset en with addition/removal", func(t *testing.T) {
-		class := repo.schemaGetter.ReadOnlyClass(className.String())
+		class := repo.schemaReader.ReadOnlyClass(className.String())
 		class.InvertedIndexConfig.Stopwords = &models.StopwordConfig{
 			Preset:    "en",
 			Additions: []string{additionWord},
@@ -314,7 +318,7 @@ func TestUpdateInvertedConfigStopwordsPresetSwitch(t *testing.T) {
 	})
 
 	t.Run("switch to none preset with new addition", func(t *testing.T) {
-		class := repo.schemaGetter.ReadOnlyClass(className.String())
+		class := repo.schemaReader.ReadOnlyClass(className.String())
 		class.InvertedIndexConfig.Stopwords = &models.StopwordConfig{
 			Preset:    "none",
 			Additions: []string{"custom"},
@@ -388,7 +392,9 @@ func TestUpdateInvertedConfigStopwordsPersistence(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 
 	props, migrator := SetupClass(t, repo, schemaGetter, logger, 1.2, 0.75, "en")
@@ -398,7 +404,7 @@ func TestUpdateInvertedConfigStopwordsPersistence(t *testing.T) {
 	require.NotNil(t, idx)
 
 	t.Run("update stopwords", func(t *testing.T) {
-		class := repo.schemaGetter.ReadOnlyClass(className.String())
+		class := repo.schemaReader.ReadOnlyClass(className.String())
 		class.InvertedIndexConfig.Stopwords = &models.StopwordConfig{
 			Preset:    "en",
 			Additions: []string{},
@@ -411,7 +417,7 @@ func TestUpdateInvertedConfigStopwordsPersistence(t *testing.T) {
 	})
 
 	t.Run("update stopwords", func(t *testing.T) {
-		class := repo.schemaGetter.ReadOnlyClass(className.String())
+		class := repo.schemaReader.ReadOnlyClass(className.String())
 		class.InvertedIndexConfig.Stopwords = &models.StopwordConfig{
 			Preset:    "en",
 			Additions: []string{"journey"},
@@ -494,7 +500,9 @@ func TestUpdateInvertedConfigStopwordsPersistence(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 

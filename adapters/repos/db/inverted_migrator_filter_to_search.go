@@ -43,7 +43,7 @@ func newFilterableToSearchableMigrator(migrator *Migrator) *filterableToSearchab
 	return &filterableToSearchableMigrator{
 		logger:       migrator.logger,
 		files:        newFilterableToSearchableMigrationFiles(migrator.db.config.RootPath),
-		schemaGetter: migrator.db.schemaGetter,
+		schemaGetter: migrator.db.schemaReader,
 		indexes:      migrator.db.indices,
 	}
 }

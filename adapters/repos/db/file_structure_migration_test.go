@@ -227,7 +227,7 @@ func testDB(t *testing.T, root string, classes []*models.Class, states map[strin
 		localNodeName: "node1",
 		config:        Config{RootPath: root},
 		logger:        logger,
-		schemaGetter: &fakeMigrationSchemaGetter{
+		leaderSchema: &fakeMigrationSchemaGetter{
 			sch:    schema.Schema{Objects: &models.Schema{Classes: classes}},
 			states: states,
 		},
@@ -282,7 +282,9 @@ func (c shardContents) assert(t *testing.T) {
 }
 
 type fakeMigrationSchemaGetter struct {
-	schemaUC.Schema
+	local.SchemaReader
+	leaderSchemaReader
+	schemaUC.TenantActivator
 	sch    schema.Schema
 	states map[string]*sharding.State
 }

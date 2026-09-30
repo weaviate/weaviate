@@ -312,7 +312,11 @@ func createTestDatabaseWithClass(t *testing.T, metrics *monitoring.PrometheusMet
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 
-	db.SetSchemaGetter(&fakeSchemaGetter{
+	db.SetLeaderSchema(&fakeSchemaGetter{
+		schema:     schema.Schema{Objects: &models.Schema{Classes: classes}},
+		shardState: shardState,
+	})
+	db.SetTenantActivator(&fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: classes}},
 		shardState: shardState,
 	})
@@ -496,7 +500,8 @@ func setupTestShardWithSettings(t testing.TB, ctx context.Context, class *models
 		vectorIndexUserConfig:  vic,
 		vectorIndexUserConfigs: map[string]schemaConfig.VectorIndexConfig{},
 		logger:                 logger,
-		getSchema:              schemaGetter,
+		leaderSchema:           schemaGetter,
+		tenants:                schemaGetter,
 		schemaReader:           mockSchemaReader,
 		centralJobQueue:        repo.jobQueueCh,
 		stopwords:              sd,

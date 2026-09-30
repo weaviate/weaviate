@@ -123,7 +123,9 @@ func newLazyLoadRepoWithConfig(t *testing.T, shardState *sharding.State,
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil,
 	)
 	require.NoError(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	// WaitForStartup without the resource scan: the scan ticks twice a second
 	// against the real disk, so it would undo a resource transition a test makes
 	// by hand. Tests that want one drive the scan themselves.

@@ -21,6 +21,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -29,7 +30,9 @@ import (
 
 // fakeTTLTenantsManager serves the tenant reads and writes the TTL loop makes.
 type fakeTTLTenantsManager struct {
-	schemaUC.Schema
+	local.SchemaReader
+	leaderSchemaReader
+	schemaUC.TenantActivator
 	statusMap map[string]string // tenant name → activity status
 	statusErr error             // if non-nil, returned by TenantsStatus
 
@@ -87,7 +90,8 @@ func newTestLoop(t *testing.T, mgr *fakeTTLTenantsManager, autoActivation bool,
 		class:                 "MyClass",
 		tenant:                "tenant_0",
 		autoActivationEnabled: autoActivation,
-		mgr:                   mgr,
+		tenantStatus:          mgr,
+		tenants:               mgr,
 		findUUIDs:             findFn,
 		processBatch:          batchFn,
 	}

@@ -256,7 +256,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		Autocut: -1,
 	}
 
-	targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.schemaGetter.ReadOnlyClass, params.ClassName, params.HybridSearch.TargetVectors)
+	targetVectors, err = e.targetParamHelper.GetTargetVectorOrDefault(e.classReader.ReadOnlyClass, params.ClassName, params.HybridSearch.TargetVectors)
 	if err != nil {
 		return nil, err
 	}
@@ -345,7 +345,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 				res, name, err = denseSearch(ctx, e, params, "nearVector", targetVectors, params.HybridSearch.NearVectorParams)
 				errorText = "nearVectorSubSearch"
 			} else {
-				class := e.schemaGetter.ReadOnlyClass(params.ClassName)
+				class := e.classReader.ReadOnlyClass(params.ClassName)
 				if class == nil {
 					return fmt.Errorf("class %q not found", params.ClassName)
 				}

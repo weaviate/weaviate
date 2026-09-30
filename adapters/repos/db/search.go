@@ -306,7 +306,7 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 		return nil, nil
 	}
 	if len(q.Sort) > 0 {
-		if err := filters.ValidateSort(db.schemaGetter.ReadOnlyClass, schema.ClassName(q.Class), q.Sort); err != nil {
+		if err := filters.ValidateSort(db.schemaReader.ReadOnlyClass, schema.ClassName(q.Class), q.Sort); err != nil {
 			return nil, &objects.Error{Msg: "sorting", Code: objects.StatusBadRequest, Err: err}
 		}
 	}
@@ -376,7 +376,7 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 
 		for _, index := range db.indices {
 			// TODO support all additional props
-			props := index.getSchema.ReadOnlyClass(string(index.Config.ClassName)).Properties
+			props := index.schemaReader.ReadOnlyClass(string(index.Config.ClassName)).Properties
 			propsNames := make([]string, len(props))
 			for i, prop := range props {
 				propsNames[i] = prop.Name
@@ -463,7 +463,7 @@ func (db *DB) validateSort(sort []filters.Sort) error {
 		var errorMsgs []string
 		db.indexLock.RLock()
 		for _, index := range db.indices {
-			err := filters.ValidateSort(db.schemaGetter.ReadOnlyClass, index.Config.ClassName, sort)
+			err := filters.ValidateSort(db.schemaReader.ReadOnlyClass, index.Config.ClassName, sort)
 			if err != nil {
 				errorMsg := errors.Wrapf(err, "search index %s", index.ID()).Error()
 				errorMsgs = append(errorMsgs, errorMsg)

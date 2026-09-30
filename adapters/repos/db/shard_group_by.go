@@ -36,7 +36,7 @@ func (s *Shard) groupResults(ctx context.Context, ids []uint64,
 	defer release()
 
 	className := s.index.Config.ClassName
-	class := s.index.getSchema.ReadOnlyClass(className.String())
+	class := s.index.schemaReader.ReadOnlyClass(className.String())
 	if class == nil {
 		return nil, nil, fmt.Errorf("could not find class %s in schema", className)
 	}
@@ -44,7 +44,7 @@ func (s *Shard) groupResults(ctx context.Context, ids []uint64,
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: unrecognized property: %s", err, groupBy.Property)
 	}
-	dt, err := schema.FindPropertyDataTypeWithRefs(s.index.getSchema.ReadOnlyClass, prop.DataType, false, "")
+	dt, err := schema.FindPropertyDataTypeWithRefs(s.index.schemaReader.ReadOnlyClass, prop.DataType, false, "")
 	if err != nil {
 		return nil, nil, fmt.Errorf("%w: unrecognized data type for property: %s", err, groupBy.Property)
 	}

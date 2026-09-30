@@ -48,6 +48,7 @@ import (
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router/executor"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -252,7 +253,8 @@ type Index struct {
 	Config                  IndexConfig
 	globalreplicationConfig *replication.GlobalConfig
 
-	getSchema    schemaUC.Schema
+	leaderSchema leader.SchemaReader
+	tenants      schemaUC.TenantActivator
 	schemaReader local.SchemaReader
 
 	// replicationFSMReader is wired post-construction (migrator/init) while
@@ -427,7 +429,8 @@ func NewIndex(
 	vectorIndexUserConfigs map[string]schemaConfig.VectorIndexConfig,
 	router routerTypes.Router,
 	shardResolver *resolver.ShardResolver,
-	sg schemaUC.Schema,
+	leaderSchema leader.SchemaReader,
+	tenants schemaUC.TenantActivator,
 	schemaReader local.SchemaReader,
 	cs inverted.ClassSearcher,
 	logger logrus.FieldLogger,
@@ -476,7 +479,8 @@ func NewIndex(
 		db:                      db,
 		Config:                  cfg,
 		globalreplicationConfig: globalReplicationConfig,
-		getSchema:               sg,
+		leaderSchema:            leaderSchema,
+		tenants:                 tenants,
 		schemaReader:            schemaReader,
 		logger:                  logger,
 		classSearcher:           cs,
@@ -486,7 +490,7 @@ func NewIndex(
 		stopwords:               sd,
 		partitioningEnabled:     multitenancy.IsMultiTenant(class.MultiTenancyConfig),
 		AsyncIndexingEnabled:    asyncIndexingEnabled,
-		remote:                  remote.NewIndex(cfg.ClassName.String(), sg, sg, nodeResolver, remoteClient),
+		remote:                  remote.NewIndex(cfg.ClassName.String(), leaderSchema, schemaReader, nodeResolver, remoteClient),
 		metrics:                 metrics,
 		centralJobQueue:         jobQueueCh,
 		backupLock:              esync.NewKeyRWLocker(),
@@ -2135,7 +2139,7 @@ func (i *Index) parseDateFieldsInProps(props interface{}) error {
 		return nil
 	}
 
-	c := i.getSchema.ReadOnlyClass(i.Config.ClassName.String())
+	c := i.schemaReader.ReadOnlyClass(i.Config.ClassName.String())
 	if c == nil {
 		return fmt.Errorf("class %s not found in schema", i.Config.ClassName)
 	}
@@ -2623,7 +2627,7 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 		func() error {
 			var err error
 			if exists, err = i.remote.Exists(ctx, shardName, id); err != nil {
-				owner, _, _ := i.getSchema.ShardOwnerFromLeader(i.Config.ClassName.String(), shardName)
+				owner, _, _ := i.leaderSchema.ShardOwnerFromLeader(i.Config.ClassName.String(), shardName)
 				return fmt.Errorf("exists remotely: shard=%q owner=%q: %w", shardName, owner, err)
 			}
 			return nil
@@ -2666,7 +2670,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	// If the request is a BM25F with no properties selected, use all possible properties
 	if keywordRanking != nil && keywordRanking.Type == "bm25" && len(keywordRanking.Properties) == 0 {
 
-		cl := i.getSchema.ReadOnlyClass(i.Config.ClassName.String())
+		cl := i.schemaReader.ReadOnlyClass(i.Config.ClassName.String())
 		if cl == nil {
 			return nil, nil, fmt.Errorf("class %s not found in schema", i.Config.ClassName)
 		}
@@ -2674,7 +2678,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		propHash := cl.Properties
 		// Get keys of hash
 		for _, v := range propHash {
-			if inverted.PropertyHasSearchableIndex(i.getSchema.ReadOnlyClass(i.Config.ClassName.String()), v.Name) {
+			if inverted.PropertyHasSearchableIndex(i.schemaReader.ReadOnlyClass(i.Config.ClassName.String()), v.Name) {
 				keywordRanking.Properties = append(keywordRanking.Properties, v.Name)
 			}
 		}
@@ -2929,7 +2933,7 @@ func (i *Index) sortKeywordRanking(objects []*storobj.Object,
 func (i *Index) sort(objects []*storobj.Object, scores []float32,
 	sort []filters.Sort, limit int,
 ) ([]*storobj.Object, []float32, error) {
-	return sorter.NewObjectsSorter(i.getSchema.ReadOnlyClass).
+	return sorter.NewObjectsSorter(i.schemaReader.ReadOnlyClass).
 		Sort(objects, scores, limit, sort)
 }
 
@@ -3349,7 +3353,7 @@ func (i *Index) IncomingDeleteObject(ctx context.Context, shardName string,
 
 func (i *Index) getClass() *models.Class {
 	className := i.Config.ClassName.String()
-	return i.getSchema.ReadOnlyClass(className)
+	return i.schemaReader.ReadOnlyClass(className)
 }
 
 // Intended to run on "receiver" nodes, where local shard
@@ -3666,7 +3670,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 	}
 
 	className := i.Config.ClassName.String()
-	class := i.getSchema.ReadOnlyClass(className)
+	class := i.schemaReader.ReadOnlyClass(className)
 	if class == nil {
 		return nil, func() {}, fmt.Errorf("init local shard %q: class %s not found in schema", shardName, className)
 	}

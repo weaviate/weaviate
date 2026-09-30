@@ -344,9 +344,9 @@ func TestListInactiveShardFiles(t *testing.T) {
 			// Build a minimal Index to call listInactiveShardFiles.
 			// fakeSchemaGetter is defined in fakes_for_tests.go with NodeName() returning "node1".
 			idx := &Index{
-				Config:    IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: "MyClass"},
-				getSchema: &fakeSchemaGetter{},
-				db:        stubDBWithNoLiveReindex(),
+				Config:       IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: "MyClass"},
+				schemaReader: &fakeSchemaGetter{},
+				db:           stubDBWithNoLiveReindex(),
 			}
 
 			var sd backup.ShardDescriptor
@@ -521,9 +521,9 @@ func TestBackupInactiveShardCopyVsHardlink(t *testing.T) {
 	require.NoError(t, os.MkdirAll(stagingRoot, 0o755))
 
 	idx := &Index{
-		Config:    IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: "MyClass"},
-		getSchema: &fakeSchemaGetter{},
-		db:        stubDBWithNoLiveReindex(),
+		Config:       IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: "MyClass"},
+		schemaReader: &fakeSchemaGetter{},
+		db:           stubDBWithNoLiveReindex(),
 	}
 
 	var sd backup.ShardDescriptor
@@ -580,7 +580,7 @@ func TestBackupProtectedShardsBlockActivation(t *testing.T) {
 	newTestIndex := func() *Index {
 		return &Index{
 			Config: IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: schema.ClassName(className)},
-			getSchema: &fakeSchemaGetter{
+			schemaReader: &fakeSchemaGetter{
 				schema: schema.Schema{
 					Objects: &models.Schema{
 						Classes: []*models.Class{{Class: className}},
@@ -685,9 +685,9 @@ func TestBackupFrozenShardOmitted(t *testing.T) {
 	require.NoError(t, os.MkdirAll(stagingRoot, 0o755))
 
 	idx := &Index{
-		Config:    IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: "MyClass"},
-		getSchema: &fakeSchemaGetter{},
-		db:        stubDBWithNoLiveReindex(),
+		Config:       IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: "MyClass"},
+		schemaReader: &fakeSchemaGetter{},
+		db:           stubDBWithNoLiveReindex(),
 	}
 
 	t.Run("hardlink path returns errShardNoLocalData for missing shard dir", func(t *testing.T) {
@@ -720,14 +720,9 @@ func newDescriptorTestIndex(t *testing.T, rootDir, className string, shardState 
 		}).Maybe()
 
 	return &Index{
-		Config: IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: schema.ClassName(className)},
-		getSchema: &fakeSchemaGetter{
-			schema: schema.Schema{
-				Objects: &models.Schema{
-					Classes: []*models.Class{class},
-				},
-			},
-		},
+		Config:           IndexConfig{NodeName: "node1", RootPath: rootDir, ClassName: schema.ClassName(className)},
+		leaderSchema:     &fakeSchemaGetter{},
+		tenants:          &fakeSchemaGetter{},
 		schemaReader:     mockReader,
 		logger:           logger,
 		backupLock:       esync.NewKeyRWLocker(),

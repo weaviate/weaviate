@@ -46,7 +46,7 @@ func newTestRepo(t *testing.T, lazyLoadShards bool, classes ...*models.Class) (*
 	}, classes...)
 	t.Cleanup(func() { repo.Shutdown(context.Background()) })
 
-	return repo, NewMigrator(repo, repo.logger, "node1"), repo.schemaGetter.(*fakeSchemaGetter)
+	return repo, NewMigrator(repo, repo.logger, "node1"), repo.schemaReader.(*fakeSchemaGetter)
 }
 
 func createClass(t *testing.T, ctx context.Context, migrator *Migrator, sg *fakeSchemaGetter, name string) {

@@ -29,6 +29,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -111,7 +112,9 @@ func newRepo(t *testing.T, p repoParams, classes ...*models.Class) (*db.DB, *fak
 		&db.FakeRemoteNodeClient{}, &db.FakeReplicationClient{}, p.promMetrics, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.NoError(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	repo.SetShardReindexActivityLookup(func() db.ShardReindexActivityLookup {
 		return func(string, string) bool { return false }
 	})
@@ -144,8 +147,14 @@ func singleShard(t *testing.T, repo *db.DB, className string) db.ShardLike {
 	return shard
 }
 
+// leaderSchemaReader lets the fake embed leader.SchemaReader next to
+// local.SchemaReader, whose embedded field would otherwise have the same name.
+type leaderSchemaReader = leader.SchemaReader
+
 type fakeSchemaGetter struct {
-	schemaUC.Schema
+	local.SchemaReader
+	leaderSchemaReader
+	schemaUC.TenantActivator
 	schema     schema.Schema
 	shardState *sharding.State
 }

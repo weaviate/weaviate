@@ -78,7 +78,9 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 	}, &fakeRemoteClient{}, mockNodeSelector, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	vrepo.SetSchemaGetter(sg)
+	vrepo.SetLeaderSchema(sg)
+
+	vrepo.SetTenantActivator(sg)
 	require.Nil(t, vrepo.WaitForStartup(context.Background()))
 	migrator := db.NewMigrator(vrepo, logger, "node1")
 
@@ -231,7 +233,9 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 	}, &fakeRemoteClient{}, mockNodeSelector, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	vrepo.SetSchemaGetter(sg)
+	vrepo.SetLeaderSchema(sg)
+
+	vrepo.SetTenantActivator(sg)
 	require.Nil(t, vrepo.WaitForStartup(context.Background()))
 	migrator := db.NewMigrator(vrepo, logger, "node1")
 

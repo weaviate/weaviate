@@ -156,7 +156,7 @@ func (g *grouper) hybrid(ctx context.Context, allowList helpers.AllowList, modul
 		HybridSearch: g.params.Hybrid,
 		Keyword:      nil,
 		Class:        g.params.ClassName.String(),
-	}, g.logger, sparseSearch, denseSearch, nil, modules, g.getSchema, traverser.NewTargetParamHelper())
+	}, g.logger, sparseSearch, denseSearch, nil, modules, g.classReader, traverser.NewTargetParamHelper())
 	if err != nil {
 		return nil, err
 	}

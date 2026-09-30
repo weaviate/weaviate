@@ -155,7 +155,9 @@ func setupASCIIFoldIgnoreRepo(t *testing.T, useBlockMaxWAND bool) (*DB, *fakeSch
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 
 	props := SetupASCIIFoldIgnoreClass(t, repo, schemaGetter, logger)

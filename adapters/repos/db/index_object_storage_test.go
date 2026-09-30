@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	resolver "github.com/weaviate/weaviate/adapters/repos/db/sharding"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/cluster/schema/leader"
 	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/loadlimiter"
 	"github.com/weaviate/weaviate/entities/models"
@@ -152,16 +153,17 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 			mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 			// Create mock schema getter
-			mockSchema := schemaUC.NewMockSchema(t)
+			mockSchema := local.NewMockSchemaReader(t)
+			mockSchemaLeader := leader.NewMockSchema(t)
 			mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 			mockSchema.EXPECT().ReadOnlyClass(tt.className).Maybe().Return(class)
 			mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return(tt.shardName).Maybe()
-			mockSchema.EXPECT().ShardOwnerFromLeader(tt.className, tt.shardName).Maybe().Return("test-node", uint64(0), nil)
+			mockSchemaLeader.EXPECT().ShardOwnerFromLeader(tt.className, tt.shardName).Maybe().Return("test-node", uint64(0), nil)
 
 			mockRouter := types.NewMockRouter(t)
 			mockRouter.EXPECT().GetWriteReplicasLocation(tt.className, mock.Anything, tt.shardName).
 				Return(types.WriteReplicaSet{Replicas: []types.Replica{{NodeName: "test-node", ShardName: tt.shardName, HostAddr: "110.12.15.23"}}}, nil).Maybe()
-			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
+			shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema, nil)
 			// Create index
 			index, err := NewIndex(ctx, nil, IndexConfig{
 				NodeName:              "test-node",
@@ -174,7 +176,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 			}, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				enthnsw.UserConfig{
 					VectorCacheMaxObjects: 1000,
-				}, nil, mockRouter, shardResolver, mockSchema, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil,
+				}, nil, mockRouter, shardResolver, mockSchemaLeader, nil, mockSchemaReader, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil,
 				NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop(), false)
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
@@ -322,11 +324,13 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	mockSchemaReader.EXPECT().WaitForUpdate(mock.Anything, mock.Anything).Return(nil).Maybe()
 
 	// Create mock schema getter
-	mockSchema := schemaUC.NewMockSchema(t)
+	mockSchema := local.NewMockSchemaReader(t)
+	mockSchemaTen := schemaUC.NewMockTenantActivator(t)
+	mockSchemaLeader := leader.NewMockSchema(t)
 	mockSchema.EXPECT().ReadOnlySchema().Maybe().Return(*fakeSchema.Objects)
 	mockSchema.EXPECT().ReadOnlyClass(className).Maybe().Return(class)
-	mockSchema.EXPECT().ShardOwnerFromLeader(className, tenantNamePopulated).Maybe().Return("test-node", uint64(0), nil)
-	mockSchema.EXPECT().TenantsShardsStatusWithActivation(ctx, className, tenantNamePopulated).Maybe().
+	mockSchemaLeader.EXPECT().ShardOwnerFromLeader(className, tenantNamePopulated).Maybe().Return("test-node", uint64(0), nil)
+	mockSchemaTen.EXPECT().TenantsShardsStatusWithActivation(ctx, className, tenantNamePopulated).Maybe().
 		Return(map[string]string{tenantNamePopulated: models.TenantActivityStatusHOT}, uint64(0), nil)
 
 	mockRouter := types.NewMockRouter(t)
@@ -338,7 +342,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		Return(types.ReadReplicaSet{
 			Replicas: []types.Replica{{NodeName: "test-node", ShardName: tenantName, HostAddr: "110.12.15.23"}},
 		}, nil).Maybe()
-	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema)
+	shardResolver := resolver.NewShardResolver(class.Class, class.MultiTenancyConfig.Enabled, mockSchema, mockSchemaTen)
 	// Seed a non-zero counter so the populated tenant reads as non-empty and is
 	// loaded as a raw *Shard (not deferred as an empty tenant).
 	seedShardObjectCounter(t, dirName, className, tenantNamePopulated)
@@ -358,7 +362,8 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		nil,                               // vectorIndexUserConfigs
 		mockRouter,                        // router
 		shardResolver,                     // shardResolver
-		mockSchema,                        // schema getter
+		mockSchemaLeader,                  // leader schema
+		mockSchemaTen,                     // tenant activator
 		mockSchemaReader,                  // schema reader
 		nil,                               // class searcher
 		logger,                            // logger
@@ -459,7 +464,8 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 		index.GetVectorIndexConfigs(),     // vectorIndexUserConfigs
 		mockRouter,                        // router
 		shardResolver,                     // shardResolver
-		mockSchema,                        // schema getter
+		mockSchemaLeader,                  // leader schema
+		mockSchemaTen,                     // tenant activator
 		mockSchemaReader,                  // schema reader
 		nil,                               // class searcher
 		logger,                            // logger

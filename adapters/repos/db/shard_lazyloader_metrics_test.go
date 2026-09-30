@@ -111,7 +111,9 @@ func newShardMetricsHarnessWithLazyLoading(t *testing.T, lazyLoading bool) *shar
 	)
 	require.NoError(t, err)
 
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.NoError(t, repo.WaitForStartup(testCtx()))
 	t.Cleanup(func() { repo.Shutdown(context.Background()) })
 

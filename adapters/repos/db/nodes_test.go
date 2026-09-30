@@ -425,7 +425,7 @@ func TestGetOneNodeStatusLocal(t *testing.T) {
 				localNodeName: "node1",
 				logger:        logger,
 				indices:       map[string]*Index{idx.ID(): idx},
-				schemaGetter:  &fakeSchemaGetter{},
+				schemaReader:  &fakeSchemaGetter{},
 			}
 
 			ctx := context.Background()
@@ -503,7 +503,7 @@ func TestGetNodeStatusRemoteNodeCannotAnswer(t *testing.T) {
 				localNodeName: "node1",
 				logger:        logger,
 				indices:       map[string]*Index{idx.ID(): idx},
-				schemaGetter:  &fakeSchemaGetter{},
+				schemaReader:  &fakeSchemaGetter{},
 				nodeSelector:  &nodeListSelector{NodeSelector: clustermocks.NewMockNodeSelector("node1"), nodeLists: [][]string{{"node1", "node2"}}},
 				remoteNode: sharding.NewRemoteNode(
 					&fakeRouter{hostnames: map[string]string{"node2": "node2:7101"}},
@@ -563,7 +563,7 @@ func TestGetNodeStatusMembershipChange(t *testing.T) {
 				localNodeName: "node1",
 				logger:        logger,
 				indices:       map[string]*Index{idx.ID(): idx},
-				schemaGetter:  &fakeSchemaGetter{},
+				schemaReader:  &fakeSchemaGetter{},
 				nodeSelector:  &nodeListSelector{NodeSelector: clustermocks.NewMockNodeSelector("node1"), nodeLists: tt.nodeLists},
 				remoteNode: sharding.NewRemoteNode(
 					&fakeRouter{hostnames: map[string]string{"node2": "node2:7101"}},
@@ -624,7 +624,7 @@ func TestGetNodeStatisticsRemoteNodeCannotAnswer(t *testing.T) {
 				nodeSelector:  clustermocks.NewMockNodeSelector("node1"),
 				localNodeName: "node1",
 				logger:        logger,
-				schemaGetter:  &fakeSchemaGetter{},
+				schemaReader:  &fakeSchemaGetter{},
 				remoteNode: sharding.NewRemoteNode(
 					&fakeRouter{hostnames: map[string]string{"node2": "node2:7101"}},
 					&FakeRemoteNodeClient{Err: tt.remoteErr}),

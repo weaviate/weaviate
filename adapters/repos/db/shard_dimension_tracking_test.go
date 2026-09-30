@@ -81,7 +81,9 @@ func Benchmark_Migration(b *testing.B) {
 			}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
 				mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 			require.Nil(b, err)
-			repo.SetSchemaGetter(schemaGetter)
+			repo.SetLeaderSchema(schemaGetter)
+
+			repo.SetTenantActivator(schemaGetter)
 			require.Nil(b, repo.WaitForStartup(testCtx()))
 			defer repo.Shutdown(context.Background())
 
@@ -163,7 +165,9 @@ func Test_Migration(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 
 	migrator := NewMigrator(repo, logger, "node1")
@@ -221,7 +225,9 @@ func Test_Migration(t *testing.T) {
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
 	defer repoNew.Shutdown(context.Background())
-	repoNew.SetSchemaGetter(schemaGetter)
+	repoNew.SetLeaderSchema(schemaGetter)
+
+	repoNew.SetTenantActivator(schemaGetter)
 
 	require.Nil(t, repoNew.WaitForStartup(testCtx()))
 
@@ -263,7 +269,9 @@ func Test_DimensionTracking(t *testing.T) {
 	}, &FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, monitoring.GetMetrics(), memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
@@ -518,7 +526,9 @@ func Test_DisableDimensionTracking(t *testing.T) {
 	}, &FakeRemoteClient{}, &FakeNodeResolver{}, &FakeRemoteNodeClient{}, &FakeReplicationClient{}, &metricsCopy, memwatch.NewDummyMonitor(),
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	db.SetSchemaGetter(schemaGetter)
+	db.SetLeaderSchema(schemaGetter)
+
+	db.SetTenantActivator(schemaGetter)
 	require.Nil(t, db.WaitForStartup(testCtx()))
 	defer db.Shutdown(context.Background())
 

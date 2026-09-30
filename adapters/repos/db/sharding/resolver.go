@@ -23,8 +23,9 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/multitenancy"
+	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/schema"
+	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
 // ShardTarget represents the computed shard destination for a single object.
@@ -94,7 +95,7 @@ func (t ShardTargets) Len() int { return len(t) }
 // consistent routing for the same object across requests.
 type byUUIDShardResolver struct {
 	className       string
-	schemaReader    schema.Schema
+	schemaReader    local.SchemaReader
 	tenantValidator *multitenancy.TenantValidator
 }
 
@@ -139,11 +140,11 @@ func (r *byUUIDShardResolver) ResolveShardByObjectID(ctx context.Context, object
 //   - schemaReader: provides access to schema operations for UUID-to-shard mapping
 //
 // Returns a configured byUUIDShardResolver.
-func newByUUIDShardResolver(className string, schemaReader schema.Schema) *byUUIDShardResolver {
+func newByUUIDShardResolver(className string, schemaReader local.SchemaReader, tenants schemaUC.TenantActivator) *byUUIDShardResolver {
 	return &byUUIDShardResolver{
 		className:       className,
 		schemaReader:    schemaReader,
-		tenantValidator: multitenancy.NewTenantValidator(className, false, schemaReader),
+		tenantValidator: multitenancy.NewTenantValidator(className, false, schemaReader, tenants),
 	}
 }
 
@@ -213,7 +214,7 @@ func (r *byUUIDShardResolver) ResolveShards(ctx context.Context, objects []*stor
 // isolated in its own shard, with the tenant name directly mapping to the shard name.
 type byTenantShardResolver struct {
 	className       string
-	schemaReader    schema.Schema
+	schemaReader    local.SchemaReader
 	tenantValidator *multitenancy.TenantValidator
 }
 
@@ -247,14 +248,15 @@ func (r *byTenantShardResolver) ResolveShardByObjectID(ctx context.Context, _ st
 //
 // Parameters:
 //   - className: the name of the class this resolver will handle
-//   - schemaReader: provides access to schema operations for tenant validation
+//   - schemaReader: reads the class the validator checks
+//   - tenants: reads tenant status, activating tenants under auto tenant activation
 //
 // Returns a configured byTenantShardResolver.
-func newByTenantShardResolver(className string, schemaReader schema.Schema) *byTenantShardResolver {
+func newByTenantShardResolver(className string, schemaReader local.SchemaReader, tenants schemaUC.TenantActivator) *byTenantShardResolver {
 	return &byTenantShardResolver{
 		className:       className,
 		schemaReader:    schemaReader,
-		tenantValidator: multitenancy.NewTenantValidator(className, true, schemaReader),
+		tenantValidator: multitenancy.NewTenantValidator(className, true, schemaReader, tenants),
 	}
 }
 
@@ -417,19 +419,20 @@ func (r *ShardResolver) ResolveShards(ctx context.Context, objects []*storobj.Ob
 // Parameters:
 //   - className: the name of the class to resolve shards for
 //   - multiTenancyEnabled: whether the class has multi-tenancy enabled
-//   - schemaReader: provides access to schema operations
+//   - schemaReader: local schema reads for shard resolution
+//   - tenants: tenant status and activation for multi-tenant validation
 //
 // Returns a configured ShardResolver that uses the appropriate strategy.
-func NewShardResolver(className string, multiTenancyEnabled bool, schemaReader schema.Schema) *ShardResolver {
+func NewShardResolver(className string, multiTenancyEnabled bool, schemaReader local.SchemaReader, tenants schemaUC.TenantActivator) *ShardResolver {
 	if multiTenancyEnabled {
-		resolver := newByTenantShardResolver(className, schemaReader)
+		resolver := newByTenantShardResolver(className, schemaReader, tenants)
 		return &ShardResolver{
 			resolveShard:           resolver.ResolveShard,
 			resolveShards:          resolver.ResolveShards,
 			resolveShardByObjectID: resolver.ResolveShardByObjectID,
 		}
 	}
-	resolver := newByUUIDShardResolver(className, schemaReader)
+	resolver := newByUUIDShardResolver(className, schemaReader, tenants)
 	return &ShardResolver{
 		resolveShard:           resolver.ResolveShard,
 		resolveShards:          resolver.ResolveShards,

@@ -329,7 +329,7 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 			// Cold shards materialize added properties by re-reading the class
 			// at load, so the schema must already carry them before the
 			// migrator runs (as production does via the schema store).
-			localMigrator.db.schemaGetter.(*fakeSchemaGetter).schema = schema.Schema{
+			localMigrator.db.schemaReader.(*fakeSchemaGetter).schema = schema.Schema{
 				Objects: &models.Schema{Classes: []*models.Class{remoteClass}},
 			}
 			// UpdateIndex should be able to run an arbitrary number
@@ -423,7 +423,7 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 			// Cold shards materialize added properties by re-reading the class
 			// at load, so the schema must already carry them before the
 			// migrator runs (as production does via the schema store).
-			localMigrator.db.schemaGetter.(*fakeSchemaGetter).schema = schema.Schema{
+			localMigrator.db.schemaReader.(*fakeSchemaGetter).schema = schema.Schema{
 				Objects: &models.Schema{Classes: []*models.Class{remoteClass}},
 			}
 			// UpdateIndex should be able to run an arbitrary number
@@ -662,7 +662,9 @@ func setupTestMigrator(t *testing.T, rootDir string, shardState *sharding.State,
 		&FakeRemoteNodeClient{}, &FakeReplicationClient{}, nil, nil,
 		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader, nil)
 	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
+	repo.SetLeaderSchema(schemaGetter)
+
+	repo.SetTenantActivator(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	return NewMigrator(repo, logger, "node1")
 }
