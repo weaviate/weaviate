@@ -199,6 +199,19 @@ func TestCoordinatorSlotOwnership(t *testing.T) {
 		assert.Equal(t, "owner", c.lastOp.get().ID)
 	})
 
+	t.Run("restore: a cancelling restore descriptor leaves the owner's slot", func(t *testing.T) {
+		cancelling := slotTestDescriptor("intruder")
+		cancelling.Status = backup.Cancelling
+		c, fc := newSlotTestCoordinator(t, nil, func(_ *coordinator, fc *fakeCoordinator) {
+			fc.backend.On("GetObject", any, any, GlobalRestoreFile).Return(marshalCoordinatorMeta(*cancelling), nil).Once()
+		})
+		require.Empty(t, c.lastOp.renew("owner", "", "p", "", ""))
+
+		require.NoError(t, runSlotTestOp(c, fc, OpRestore, "intruder", false))
+		assert.Equal(t, "owner", c.lastOp.get().ID)
+		fc.client.AssertNotCalled(t, "CanCommit", any, any, any)
+	})
+
 	t.Run("create: a panic in the commit goroutine is left to the goroutine's own release", func(t *testing.T) {
 		release := make(chan struct{})
 		c, fc := newSlotTestCoordinator(t, nil, func(_ *coordinator, fc *fakeCoordinator) {
