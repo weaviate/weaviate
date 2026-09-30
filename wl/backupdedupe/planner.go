@@ -272,6 +272,10 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 	}
 
 	converged := p.pollConvergence(ctx, sum, candidates, plan.Replicas, cutoffs, budget, cancelled)
+	// A user Cancel kills the backup: like a cancel before the cutoff, it designates nothing and records no outcome.
+	if sum.stopped && cancelled() {
+		return plan
+	}
 
 	loads := make(map[string]int)
 	classNames := make([]string, 0, len(converged))
@@ -312,14 +316,15 @@ func (p *Planner) abortPlanning(ctx context.Context, sum *planSummary, plan *bac
 // failureTally counts one failure category across classes, keeping the first error as the example.
 type failureTally struct {
 	classes, shards int
-	first           error
+	firstClass      string
+	firstErr        error
 }
 
 func (t *failureTally) add(class string, shards int, err error) {
 	t.classes++
 	t.shards += shards
-	if t.first == nil {
-		t.first = fmt.Errorf("class %q: %w", class, err)
+	if t.firstErr == nil {
+		t.firstClass, t.firstErr = class, err
 	}
 }
 
@@ -354,7 +359,8 @@ func (p *Planner) logSummary(sum *planSummary, plan *backup.DedupePlan, took tim
 		t    failureTally
 	}{{"replica lookup", sum.replicas}, {"checkpoint create", sum.create}, {"checkpoint status", sum.status}} {
 		if t.t.classes > 0 {
-			problems = append(problems, fmt.Sprintf("%s failed for %d classes (%d shards), first: %v", t.what, t.t.classes, t.t.shards, t.t.first))
+			problems = append(problems, fmt.Sprintf("%s failed for %d classes (%d shards), first: class %q: %s",
+				t.what, t.t.classes, t.t.shards, t.t.firstClass, replica.TruncatedError(t.t.firstErr)))
 		}
 	}
 	if sum.missing > 0 {
@@ -460,9 +466,10 @@ func (p *Planner) deleteCheckpoints(ctx context.Context, created map[string][]st
 	budgetCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), dedupeCleanupBudget(len(created), p.cleanupTimeout))
 	defer cancel()
 	var (
-		mu       sync.Mutex
-		failed   int
-		firstErr error
+		mu         sync.Mutex
+		failed     int
+		firstClass string
+		firstErr   error
 	)
 	eg := enterrors.NewErrorGroupWrapper(p.log)
 	eg.SetLimit(_DedupeClassConcurrency)
@@ -480,7 +487,7 @@ func (p *Planner) deleteCheckpoints(ctx context.Context, created map[string][]st
 			defer mu.Unlock()
 			failed++
 			if firstErr == nil {
-				firstErr = fmt.Errorf("class %q: %w", class, err)
+				firstClass, firstErr = class, err
 			}
 			return nil
 		})
@@ -490,7 +497,8 @@ func (p *Planner) deleteCheckpoints(ctx context.Context, created map[string][]st
 	}
 	if failed > 0 {
 		p.log.WithField("action", backup.OpCreate).WithField("failed", failed).WithField("classes", len(created)).
-			Warnf("replica dedupe: delete checkpoints failed for %d of %d classes, first error: %v", failed, len(created), firstErr)
+			Warnf("replica dedupe: delete checkpoints failed for %d of %d classes, first error: class %q: %s",
+				failed, len(created), firstClass, replica.TruncatedError(firstErr))
 	}
 }
 
@@ -611,6 +619,10 @@ func (p *Planner) pollConvergence(ctx context.Context, sum *planSummary, candida
 		if !sleepUnlessCancelled(ctx, time.Now().Add(p.pollInterval), cancelled) {
 			break
 		}
+	}
+	// A cancel or deadline in the poll sleep, or behind a status call that swallowed it, stops planning just like a dead-ctx status call.
+	if len(pending) > 0 && (ctx.Err() != nil || cancelled()) {
+		aborted = true
 	}
 	if aborted {
 		sum.stopped, sum.stopErr = true, ctx.Err()

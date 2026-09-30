@@ -924,6 +924,7 @@ func (sched *AsyncReplicationScheduler) checkpointExpirySweeper() {
 	for {
 		select {
 		case <-sched.ctx.Done():
+			sched.reportExpiredCheckpoints()
 			return
 		case <-ticker.C:
 			if sched.asyncReplicationDisabled.Get() {

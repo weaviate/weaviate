@@ -233,7 +233,7 @@ func TestBroadcastAsyncCheckpointRejectionsWarnOncePerHost(t *testing.T) {
 			},
 			expect: func(f *fakeFactory, peer string) {
 				f.RClient.EXPECT().CreateAsyncCheckpoint(mock.Anything, peer, class, mock.Anything, mock.Anything, mock.Anything).
-					Return(fmt.Errorf("connection refused"))
+					Return(fmt.Errorf("create async checkpoint: %s", strings.Repeat("shard not loaded on this node; ", 2000)))
 			},
 		},
 		{
@@ -250,12 +250,13 @@ func TestBroadcastAsyncCheckpointRejectionsWarnOncePerHost(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			peer := fmt.Sprintf("%s-%d", tc.peer, time.Now().UnixNano())
 			shards := checkpointShardNames(50)
-			f := newFakeFactory(t, class, shards[0], []string{"A", tc.peer}, true)
+			f := newFakeFactory(t, class, shards[0], []string{"A", peer}, true)
 			for _, s := range shards[1:] {
-				f.AddShard(s, []string{"A", tc.peer})
+				f.AddShard(s, []string{"A", peer})
 			}
-			tc.expect(f, tc.peer)
+			tc.expect(f, peer)
 			finder := f.newFinder("A")
 
 			for range 200 {
@@ -271,6 +272,7 @@ func TestBroadcastAsyncCheckpointRejectionsWarnOncePerHost(t *testing.T) {
 			require.Len(t, warns, 1)
 			assert.Equal(t, len(shards), warns[0].Data["shard_count"])
 			assert.NotContains(t, warns[0].Data, "shards")
+			assert.Less(t, len(warns[0].Message), 2048)
 		})
 	}
 }

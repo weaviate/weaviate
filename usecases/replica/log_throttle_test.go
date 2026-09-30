@@ -13,6 +13,7 @@ package replica
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -71,7 +72,7 @@ func TestLogThrottle(t *testing.T) {
 	}
 }
 
-func TestLogThrottlePrunesIdleKeys(t *testing.T) {
+func TestLogThrottlePrunesIdleKeysOncePerWindow(t *testing.T) {
 	th := NewLogThrottle(time.Minute)
 	start := time.Now()
 	for i := range logThrottlePruneAt {
@@ -79,4 +80,19 @@ func TestLogThrottlePrunesIdleKeys(t *testing.T) {
 	}
 	th.allowAt("fresh", start.Add(time.Minute))
 	assert.Len(t, th.keys, 1)
+
+	for i := range logThrottlePruneAt {
+		th.allowAt(fmt.Sprint("second-", i), start.Add(time.Minute+time.Second))
+	}
+	th.allowAt("no-prune-yet", start.Add(time.Minute+2*time.Second))
+	assert.Len(t, th.keys, logThrottlePruneAt+2, "a second prune within the window must be skipped")
+}
+
+func TestTruncatedError(t *testing.T) {
+	short := fmt.Errorf("boom")
+	assert.Equal(t, "boom", TruncatedError(short))
+	long := fmt.Errorf("%s", strings.Repeat("x", maxLoggedErrorBytes+10))
+	got := TruncatedError(long)
+	assert.True(t, strings.HasSuffix(got, "... (10 more bytes)"))
+	assert.Len(t, got, maxLoggedErrorBytes+len("... (10 more bytes)"))
 }

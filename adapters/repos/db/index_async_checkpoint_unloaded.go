@@ -37,7 +37,7 @@ type unloadedCheckpoint struct {
 	activatedAt time.Time
 }
 
-// unloadedCheckpointLogThrottle keeps a class of orphaned snapshots, refused on every backup, to one Warn per window.
+// unloadedCheckpointLogThrottle keeps orphaned snapshots, refused per tenant or class on every backup, to one Warn per node per window.
 var unloadedCheckpointLogThrottle = replica.NewLogThrottle(time.Minute)
 
 // unloadedCheckpointSweepInterval bounds put's full expiry sweep so a create fan-out over N tenants stays O(N).
@@ -167,8 +167,11 @@ func (i *Index) createUnloadedAsyncCheckpoint(ctx context.Context, shardName str
 			return notActive(err.Error())
 		}
 		if err := persistedHashtreeHasObjectStore(i.path(), shardName); err != nil {
-			if ok, suppressed := unloadedCheckpointLogThrottle.Allow(i.Config.ClassName.String()); ok {
-				logger.WithField("suppressed", suppressed).Warnf("persisted hashtree refused for checkpoint: %v", err)
+			if ok, suppressed := unloadedCheckpointLogThrottle.Allow("persisted-hashtree-refused"); ok {
+				if suppressed > 0 {
+					logger = logger.WithField("suppressed", suppressed)
+				}
+				logger.Warnf("persisted hashtree refused for checkpoint: %v", err)
 			} else {
 				logger.Debugf("persisted hashtree refused for checkpoint: %v", err)
 			}

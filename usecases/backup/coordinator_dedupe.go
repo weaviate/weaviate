@@ -171,7 +171,8 @@ func attributeDedupedShardSizes(log logrus.FieldLogger, desc *backup.Distributed
 	var firstSkipErr error
 	defer func() {
 		if skippedClasses.count > 0 {
-			log.Warnf("dedupe size attribution skipped %d classes %s, first: %v", skippedClasses.count, skippedClasses, firstSkipErr)
+			log.Warnf("dedupe size attribution skipped %d classes %s, first: class %q: %v",
+				skippedClasses.count, skippedClasses, skippedClasses.examples[0], firstSkipErr)
 		}
 	}()
 	classes := make([]string, 0, len(desc.DedupeDesignations))
@@ -185,7 +186,7 @@ func attributeDedupedShardSizes(log logrus.FieldLogger, desc *backup.Distributed
 		if err != nil {
 			skippedClasses.add(class)
 			if firstSkipErr == nil {
-				firstSkipErr = fmt.Errorf("class %q: %w", class, err)
+				firstSkipErr = err
 			}
 			log.WithField("class", class).Debugf("dedupe size attribution skips class: %v", err)
 			continue

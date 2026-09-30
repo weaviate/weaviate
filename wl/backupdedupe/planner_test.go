@@ -829,6 +829,7 @@ func TestPlanDesignatedShardsLogVolume(t *testing.T) {
 		budget      time.Duration
 		wantWarn    string
 		wantReason  string
+		notReason   string
 	}{
 		{name: "healthy"},
 		{name: "async replication off", setup: func(f *fakeCheckpointer, _ *Planner, class string) { f.asyncDisabled[class] = true }},
@@ -888,6 +889,28 @@ func TestPlanDesignatedShardsLogVolume(t *testing.T) {
 			cancelOnUse: true,
 		},
 		{
+			name: "deadline during poll sleep",
+			setup: func(f *fakeCheckpointer, _ *Planner, class string) {
+				f.converge[class+"/s1"] = false
+				f.diverge[class+"/s1"] = true
+			},
+			budget:      time.Minute,
+			planTimeout: 300 * time.Millisecond,
+			wantWarn:    "planning deadline hit",
+			wantReason:  "planning_deadline",
+			notReason:   "not_converged",
+		},
+		{
+			name: "user cancel during poll sleep",
+			setup: func(f *fakeCheckpointer, _ *Planner, class string) {
+				f.converge[class+"/s1"] = false
+				f.diverge[class+"/s1"] = true
+			},
+			budget:      time.Minute,
+			cancelOnUse: true,
+			notReason:   "not_converged",
+		},
+		{
 			name: "hung cleanup",
 			setup: func(f *fakeCheckpointer, c *Planner, _ string) {
 				f.deleteHang = true
@@ -921,6 +944,11 @@ func TestPlanDesignatedShardsLogVolume(t *testing.T) {
 					return tc.cancelOnUse && len(f.statusCalls) > 0
 				}
 				reasonBefore, statusFailedBefore := 0.0, dedupeFallbackCount("status_failed")
+				notReasonBefore := 0.0
+				if tc.notReason != "" {
+					notReasonBefore = dedupeFallbackCount(tc.notReason)
+				}
+				outcomeBefore := dedupeShardOutcomeCount("designated") + dedupeShardOutcomeCount("fallback")
 				if tc.wantReason != "" {
 					reasonBefore = dedupeFallbackCount(tc.wantReason)
 				}
@@ -942,6 +970,15 @@ func TestPlanDesignatedShardsLogVolume(t *testing.T) {
 				}
 				if tc.wantReason != "" {
 					assert.Equal(t, float64(plan.Fallback()), dedupeFallbackCount(tc.wantReason)-reasonBefore, "classes=%d", n)
+				}
+				if tc.notReason != "" {
+					assert.Equal(t, notReasonBefore, dedupeFallbackCount(tc.notReason), "classes=%d", n)
+				}
+				if tc.cancelOnUse {
+					assert.False(t, slices.ContainsFunc(loud, func(e *logrus.Entry) bool { return e.Level <= logrus.WarnLevel }),
+						"a user cancel is not a degradation: %v", loud)
+					assert.Equal(t, outcomeBefore, dedupeShardOutcomeCount("designated")+dedupeShardOutcomeCount("fallback"),
+						"a user cancel records no outcome")
 				}
 				if tc.wantReason == "planning_deadline" {
 					assert.Equal(t, statusFailedBefore, dedupeFallbackCount("status_failed"), "a dead ctx is not a status failure")
