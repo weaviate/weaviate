@@ -4144,8 +4144,16 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 		if tenant != "" && shardName != tenant {
 			continue
 		}
+		cold, err := i.unloadedLazyShard(shardName)
+		if err != nil {
+			return nil, errors.Wrapf(err, "shard %s", shardName)
+		}
+		if cold != nil {
+			shardsQueueSize[shardName] = 0
+			continue
+		}
 		var size int64
-		err := i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
+		err = i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
 			func(shard ShardLike) error {
 				size = shardQueueSize(shard)
 				return nil
@@ -4166,6 +4174,13 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 }
 
 func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
+	cold, err := i.unloadedLazyShard(shardName)
+	if err != nil {
+		return 0, err
+	}
+	if cold != nil {
+		return 0, nil
+	}
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return 0, err
@@ -4180,6 +4195,19 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 		return 0, err
 	}
 	return shardQueueSize(shard), nil
+}
+
+// unloadedLazyShard returns the shard if it is on this node but not loaded, so
+// status reads can report it without loading it. GetShard would load it.
+func (i *Index) unloadedLazyShard(shardName string) (*LazyLoadShard, error) {
+	if err := i.requireNamespaceAllowsShardLoad(callerUserRequest); err != nil {
+		return nil, err
+	}
+	lazy, ok := i.shards.Load(shardName).(*LazyLoadShard)
+	if !ok || lazy.isLoaded() {
+		return nil, nil
+	}
+	return lazy, nil
 }
 
 // shardQueueSize sums the vector and geo queues GetStatus looks at, so a shard
@@ -4210,8 +4238,16 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 		if tenant != "" && shardName != tenant {
 			continue
 		}
+		cold, err := i.unloadedLazyShard(shardName)
+		if err != nil {
+			return nil, errors.Wrapf(err, "shard %s", shardName)
+		}
+		if cold != nil {
+			shardsStatus[shardName] = cold.GetStatus().String()
+			continue
+		}
 		var status string
-		err := i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
+		err = i.withShardOrRemote(ctx, tenant, shardName, localShardOperationRead, 0,
 			func(shard ShardLike) error {
 				status = shard.GetStatus().String()
 				return nil
@@ -4232,6 +4268,13 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 }
 
 func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (string, error) {
+	cold, err := i.unloadedLazyShard(shardName)
+	if err != nil {
+		return "", err
+	}
+	if cold != nil {
+		return cold.GetStatus().String(), nil
+	}
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return "", err
