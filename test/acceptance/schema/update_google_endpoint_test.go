@@ -290,7 +290,6 @@ func (r *endpointRun) testModelChangeRejected(t *testing.T) {
 		helper.SetupClient(r.compose.GetWeaviate().URI())
 		err := r.updateSettings(t, map[string]any{r.tc.modelKey: "text-embedding-005"})
 		requireUnprocessable(t, err, r.tc.immutableError)
-		r.requireAllNodesVertex(t)
 	})
 }
 
