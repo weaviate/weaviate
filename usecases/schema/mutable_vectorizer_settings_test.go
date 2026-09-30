@@ -105,6 +105,10 @@ func vertexSettings() map[string]any {
 	return withSettings(aiStudioSettings(), map[string]any{"apiEndpoint": vertexEndpoint, "projectId": "my-project"})
 }
 
+func vertexOnlyModelSettings(changes map[string]any) map[string]any {
+	return withSettings(vertexSettings(), withSettings(map[string]any{"model": "text-embedding-005", "dimensions": 768}, changes))
+}
+
 func withSettings(base, changes map[string]any) map[string]any {
 	out := maps.Clone(base)
 	maps.Copy(out, changes)
@@ -260,6 +264,18 @@ func acceptedUpdates() []acceptedUpdate {
 			update: vertexSettings(),
 		},
 		{
+			name: "Vertex-only model, project", initial: vertexOnlyModelSettings(nil),
+			update: vertexOnlyModelSettings(map[string]any{"projectId": "other-project"}),
+		},
+		{
+			name: "Vertex-only model, location", initial: vertexOnlyModelSettings(map[string]any{"location": "us-central1"}),
+			update: vertexOnlyModelSettings(map[string]any{"location": "europe-west4"}),
+		},
+		{
+			name: "Vertex-only model, endpoint and location", initial: vertexOnlyModelSettings(nil),
+			update: vertexOnlyModelSettings(map[string]any{"apiEndpoint": "europe-west4-aiplatform.googleapis.com", "location": "europe-west4"}),
+		},
+		{
 			name: "AI Studio to Vertex without a model setting", initial: withoutModel,
 			update: withSettings(withoutModel, map[string]any{"apiEndpoint": vertexEndpoint, "projectId": "my-project"}),
 		},
@@ -278,9 +294,20 @@ func rejectedUpdates() []rejectedUpdate {
 		{name: "properties", update: withSettings(aiStudioSettings(), map[string]any{"properties": []any{"text"}}), namedOnly: true},
 		{name: "endpoint and model together", update: withSettings(vertexSettings(), map[string]any{"model": "text-embedding-005"})},
 		{
-			name:    "endpoint for a model other than gemini-embedding-001",
-			initial: withSettings(aiStudioSettings(), map[string]any{"model": "text-embedding-004"}),
-			update:  withSettings(vertexSettings(), map[string]any{"model": "text-embedding-004"}),
+			name:    "model of a Vertex-only model",
+			initial: vertexOnlyModelSettings(nil),
+			update:  vertexOnlyModelSettings(map[string]any{"model": "text-embedding-004"}),
+		},
+		{
+			name:    "dimensions of a Vertex-only model",
+			initial: vertexOnlyModelSettings(nil),
+			update:  vertexOnlyModelSettings(map[string]any{"dimensions": 256}),
+		},
+		{
+			name:          "Vertex-only model switched to the AI Studio endpoint",
+			initial:       vertexOnlyModelSettings(nil),
+			update:        withoutSettings(vertexOnlyModelSettings(map[string]any{"apiEndpoint": aiStudioEndpoint}), "projectId"),
+			expectedError: "is not served by " + aiStudioEndpoint,
 		},
 		{
 			name:    "endpoint while adding an explicit model",
@@ -422,7 +449,7 @@ func requirePalmRenameToGoogleRejected(t *testing.T) {
 	require.ErrorContains(t, err, "is immutable")
 }
 
-func TestUpdateClass_MutableVectorizerSettings(t *testing.T) {
+func TestUpdateClass_MutableSettings(t *testing.T) {
 	for _, module := range []string{modgoogle.Name, modgoogle.LegacyName} {
 		for _, shape := range vectorizerShapes {
 			runShapeSubtests(t, module, shape)
@@ -459,7 +486,7 @@ func legacyPalmClass(module string, settings map[string]any) *models.Class {
 	}
 }
 
-func TestUpdateClass_MutableVectorizerSettings_LegacyPalmModelIDShape(t *testing.T) {
+func TestUpdateClass_MutableSettings_LegacyPalmModelIDShape(t *testing.T) {
 	vertex := withSettings(legacyPalmSettings(), map[string]any{
 		"apiEndpoint": vertexEndpoint, "projectId": "my-project", "location": "us-central1",
 	})

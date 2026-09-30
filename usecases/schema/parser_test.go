@@ -310,8 +310,8 @@ func (m fakeModulesProvider) MigrateVectorizerSettings(any, any) bool {
 	return false
 }
 
-func (m fakeModulesProvider) MutableVectorizerSettings(string, map[string]any, map[string]any) []string {
-	return nil
+func (m fakeModulesProvider) MutableSettings(string, map[string]any, map[string]any) bool {
+	return false
 }
 
 func TestParserDefaultShardingCount(t *testing.T) {

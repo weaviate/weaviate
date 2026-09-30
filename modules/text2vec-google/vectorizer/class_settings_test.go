@@ -163,6 +163,45 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: errors.Errorf("location must be a Google region name, got \"attacker.example.com/\""),
 		},
 		{
+			name: "Vertex-only model on the AI Studio endpoint",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"apiEndpoint": "generativelanguage.googleapis.com",
+					"model":       "text-embedding-004",
+				},
+			},
+			wantErr: errors.Errorf("model \"text-embedding-004\" is not served by generativelanguage.googleapis.com, " +
+				"use a Vertex AI apiEndpoint or model \"gemini-embedding-001\""),
+		},
+		{
+			name: "Vertex-only model set through modelId on the AI Studio endpoint",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"apiEndpoint": "generativelanguage.googleapis.com",
+					"modelId":     "text-embedding-005",
+				},
+			},
+			wantErr: errors.Errorf("model \"text-embedding-005\" is not served by generativelanguage.googleapis.com, " +
+				"use a Vertex AI apiEndpoint or model \"gemini-embedding-001\""),
+		},
+		{
+			name: "Vertex-only model on a Vertex endpoint",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"apiEndpoint": "europe-west4-aiplatform.googleapis.com",
+					"projectId":   "projectId",
+					"location":    "europe-west4",
+					"model":       "text-embedding-005",
+				},
+			},
+			wantApiEndpoint: "europe-west4-aiplatform.googleapis.com",
+			wantProjectID:   "projectId",
+			wantModelID:     "text-embedding-005",
+			wantLocation:    "europe-west4",
+			wantDimensions:  nil,
+			wantErr:         nil,
+		},
+		{
 			name: "wrong taskType",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
@@ -209,7 +248,6 @@ func wantOrDefault(value, fallback string) string {
 }
 
 func TestMutableSettings(t *testing.T) {
-	endpointSettings := []string{"apiEndpoint", "projectId", "location"}
 	aiStudio := map[string]interface{}{"apiEndpoint": DefaultAIStudioEndpoint}
 	vertex := func(setting ...interface{}) map[string]interface{} {
 		settings := map[string]interface{}{"apiEndpoint": DefaultApiEndpoint, "projectId": "project"}
@@ -218,50 +256,74 @@ func TestMutableSettings(t *testing.T) {
 		}
 		return settings
 	}
+	vertexModel := func(model string, setting ...interface{}) map[string]interface{} {
+		settings := vertex(setting...)
+		settings["model"] = model
+		return settings
+	}
 
 	tests := []struct {
-		name        string
-		current     map[string]interface{}
-		updated     map[string]interface{}
-		wantMutable []string
+		name    string
+		current map[string]interface{}
+		updated map[string]interface{}
+		want    bool
 	}{
 		{
-			name:        "gemini-embedding-001 on both sides",
-			current:     map[string]interface{}{"apiEndpoint": DefaultAIStudioEndpoint, "model": "gemini-embedding-001"},
-			updated:     vertex("model", "gemini-embedding-001"),
-			wantMutable: endpointSettings,
+			name:    "gemini-embedding-001 on both sides",
+			current: map[string]interface{}{"apiEndpoint": DefaultAIStudioEndpoint, "model": "gemini-embedding-001"},
+			updated: vertex("model", "gemini-embedding-001"),
+			want:    true,
 		},
-		{name: "default model on both sides", current: aiStudio, updated: vertex(), wantMutable: endpointSettings},
-		{name: "default model on one side, gemini-embedding-001 on the other", current: aiStudio, updated: vertex("model", "gemini-embedding-001"), wantMutable: endpointSettings},
+		{name: "default model on both sides", current: aiStudio, updated: vertex(), want: true},
+		{name: "model setting added with the same effective model", current: aiStudio, updated: vertex("model", "gemini-embedding-001")},
 		{
-			name:    "same other model on both sides",
-			current: map[string]interface{}{"apiEndpoint": DefaultAIStudioEndpoint, "model": "text-embedding-004"},
-			updated: vertex("model", "text-embedding-004"),
-		},
-		{name: "other model on the updated side", current: aiStudio, updated: vertex("model", "text-embedding-005")},
-		{name: "other model set through modelId", current: aiStudio, updated: vertex("modelId", "text-embedding-005")},
-		{
-			name:        "gemini-embedding-001 set through modelId on both sides",
-			current:     map[string]interface{}{"apiEndpoint": DefaultAIStudioEndpoint, "modelId": "gemini-embedding-001", "dimensions": 1536},
-			updated:     map[string]interface{}{"apiEndpoint": DefaultApiEndpoint, "projectId": "project", "location": "us-central1", "modelId": "gemini-embedding-001", "dimensions": 1536},
-			wantMutable: endpointSettings,
+			name:    "Vertex model other than gemini-embedding-001, endpoint and project change",
+			current: vertexModel("text-embedding-005"),
+			updated: map[string]interface{}{"apiEndpoint": "europe-west4-aiplatform.googleapis.com", "projectId": "other", "model": "text-embedding-005"},
+			want:    true,
 		},
 		{
-			name:    "same other model set through modelId on both sides",
+			name:    "Vertex model other than gemini-embedding-001, location change",
+			current: vertexModel("text-embedding-005", "location", "us-central1"),
+			updated: vertexModel("text-embedding-005", "location", "europe-west4"),
+			want:    true,
+		},
+		{
+			name:    "Vertex model other than gemini-embedding-001, project change with explicit dimensions",
+			current: vertexModel("text-embedding-004", "dimensions", 768),
+			updated: map[string]interface{}{"apiEndpoint": DefaultApiEndpoint, "projectId": "other", "model": "text-embedding-004", "dimensions": 768},
+			want:    true,
+		},
+		{
+			name:    "same model set through modelId on both sides",
 			current: map[string]interface{}{"apiEndpoint": DefaultAIStudioEndpoint, "modelId": "text-embedding-004"},
 			updated: vertex("modelId", "text-embedding-004"),
+			want:    true,
 		},
 		{
-			name:        "same explicit dimensions on both sides",
-			current:     map[string]interface{}{"apiEndpoint": DefaultAIStudioEndpoint, "dimensions": 1536},
-			updated:     vertex("dimensions", 1536),
-			wantMutable: endpointSettings,
+			name:    "gemini-embedding-001 set through modelId on both sides",
+			current: map[string]interface{}{"apiEndpoint": DefaultAIStudioEndpoint, "modelId": "gemini-embedding-001", "dimensions": 1536},
+			updated: map[string]interface{}{"apiEndpoint": DefaultApiEndpoint, "projectId": "project", "location": "us-central1", "modelId": "gemini-embedding-001", "dimensions": 1536},
+			want:    true,
 		},
 		{
-			name:        "explicit dimensions equal to the default on one side",
-			current:     map[string]interface{}{"apiEndpoint": DefaultAIStudioEndpoint, "dimensions": 768},
-			updated:     vertex(),
-			wantMutable: endpointSettings,
+			name:    "same explicit dimensions on both sides",
+			current: map[string]interface{}{"apiEndpoint": DefaultAIStudioEndpoint, "dimensions": 1536},
+			updated: vertex("dimensions", 1536),
+			want:    true,
+		},
+		{
+			name:    "dimensions setting removed with the same effective dimensions",
+			current: map[string]interface{}{"apiEndpoint": DefaultAIStudioEndpoint, "dimensions": 768},
+			updated: vertex(),
+		},
+		{name: "model changes from the default", current: aiStudio, updated: vertex("model", "text-embedding-005")},
+		{name: "model set through modelId changes from the default", current: aiStudio, updated: vertex("modelId", "text-embedding-005")},
+		{name: "non-gemini model changes", current: vertexModel("text-embedding-004"), updated: vertexModel("text-embedding-005")},
+		{
+			name:    "non-gemini model changes together with the endpoint",
+			current: map[string]interface{}{"apiEndpoint": DefaultAIStudioEndpoint, "model": "text-embedding-004"},
+			updated: vertexModel("text-embedding-005"),
 		},
 		{
 			name:    "explicit dimensions on one side, default on the other",
@@ -273,11 +335,18 @@ func TestMutableSettings(t *testing.T) {
 			current: map[string]interface{}{"apiEndpoint": DefaultAIStudioEndpoint, "dimensions": 1536},
 			updated: vertex("dimensions", 3072),
 		},
+		{
+			name:    "dimensions change for a non-gemini model",
+			current: vertexModel("text-embedding-005", "dimensions", 256),
+			updated: vertexModel("text-embedding-005", "dimensions", 768),
+		},
+		{name: "taskType changes with the endpoint", current: aiStudio, updated: vertex("taskType", "CLUSTERING")},
+		{name: "titleProperty changes", current: vertex(), updated: vertex("titleProperty", "title")},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := MutableSettings(fakeClassConfig{classConfig: tt.current}, fakeClassConfig{classConfig: tt.updated})
-			assert.ElementsMatch(t, tt.wantMutable, got)
+			assert.Equal(t, tt.want, got)
 		})
 	}
 }

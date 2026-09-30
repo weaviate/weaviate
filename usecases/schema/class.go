@@ -1751,7 +1751,7 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 		updated.VectorConfig[k] = v
 
 		if !deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
-			if onlyMutableVectorizerSettingsChanged(modulesProvider, initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
+			if mutableVectorizerSettingsChange(modulesProvider, initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
 				continue
 			}
 
@@ -1795,20 +1795,12 @@ func deepEqualVectorizerSettings(initial, updated any) bool {
 	return reflect.DeepEqual(structToMap(initial), structToMap(updated))
 }
 
-func onlyMutableSettingsChanged(modulesProvider modulesProvider, module string, initial, updated any) bool {
+func mutableSettingsChange(modulesProvider modulesProvider, module string, initial, updated any) bool {
 	initialSettings, updatedSettings := structToMap(initial), structToMap(updated)
 	if initialSettings == nil || updatedSettings == nil || reflect.DeepEqual(initialSettings, updatedSettings) {
 		return false
 	}
-	mutable := modulesProvider.MutableVectorizerSettings(module, initialSettings, updatedSettings)
-	if len(mutable) == 0 {
-		return false
-	}
-	for _, setting := range mutable {
-		delete(initialSettings, setting)
-		delete(updatedSettings, setting)
-	}
-	return reflect.DeepEqual(initialSettings, updatedSettings)
+	return modulesProvider.MutableSettings(module, initialSettings, updatedSettings)
 }
 
 func vectorizerModuleSettings(vectorizer any) (string, any, bool) {
@@ -1820,11 +1812,11 @@ func vectorizerModuleSettings(vectorizer any) (string, any, bool) {
 	return module, byModule[module], true
 }
 
-func onlyMutableVectorizerSettingsChanged(modulesProvider modulesProvider, initial, updated any) bool {
+func mutableVectorizerSettingsChange(modulesProvider modulesProvider, initial, updated any) bool {
 	module, initialSettings, ok := vectorizerModuleSettings(initial)
 	updatedModule, updatedSettings, updatedOk := vectorizerModuleSettings(updated)
 	return ok && updatedOk && module == updatedModule &&
-		onlyMutableSettingsChanged(modulesProvider, module, initialSettings, updatedSettings)
+		mutableSettingsChange(modulesProvider, module, initialSettings, updatedSettings)
 }
 
 type vectorizerConfigRef struct {
@@ -1836,7 +1828,7 @@ func mutableVectorizerChanges(modulesProvider modulesProvider, initial, updated 
 	var changes []vectorizerConfigRef
 	for name, vectorConfig := range updated.VectorConfig {
 		initialConfig, ok := initial.VectorConfig[name]
-		if !ok || !onlyMutableVectorizerSettingsChanged(modulesProvider, initialConfig.Vectorizer, vectorConfig.Vectorizer) {
+		if !ok || !mutableVectorizerSettingsChange(modulesProvider, initialConfig.Vectorizer, vectorConfig.Vectorizer) {
 			continue
 		}
 		module, _, _ := vectorizerModuleSettings(vectorConfig.Vectorizer)
@@ -1846,7 +1838,7 @@ func mutableVectorizerChanges(modulesProvider modulesProvider, initial, updated 
 	initialModuleConfig := structToMap(initial.ModuleConfig)
 	for module, settings := range structToMap(updated.ModuleConfig) {
 		initialSettings, ok := initialModuleConfig[module]
-		if ok && onlyMutableSettingsChanged(modulesProvider, module, initialSettings, settings) {
+		if ok && mutableSettingsChange(modulesProvider, module, initialSettings, settings) {
 			changes = append(changes, vectorizerConfigRef{module: module})
 		}
 	}

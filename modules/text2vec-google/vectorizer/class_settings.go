@@ -13,6 +13,8 @@ package vectorizer
 
 import (
 	"fmt"
+	"maps"
+	"reflect"
 	"slices"
 	"strings"
 
@@ -54,19 +56,29 @@ var defaultModelDimensions = map[string]*int64{
 	"gemini-embedding-001": &DefaultDimensions,
 }
 
-// modelOnBothAPIs is the only model AI Studio and Vertex AI both serve with identical vectors.
-const modelOnBothAPIs = "gemini-embedding-001"
-
-// MutableSettings returns the settings that select the Google API and project.
-func MutableSettings(current, updated moduletools.ClassConfig) []string {
+// MutableSettings reports whether updated differs from current only in the settings that
+// select the Google API and project, with the same effective model and dimensions.
+func MutableSettings(current, updated moduletools.ClassConfig) bool {
+	if !onlyEndpointSettingsChanged(current.Class(), updated.Class()) {
+		return false
+	}
 	currentSettings, updatedSettings := NewClassSettings(current), NewClassSettings(updated)
-	if currentSettings.Model() != modelOnBothAPIs || updatedSettings.Model() != modelOnBothAPIs {
-		return nil
+	return currentSettings.Model() == updatedSettings.Model() &&
+		sameDimensions(currentSettings.Dimensions(), updatedSettings.Dimensions())
+}
+
+// vertexOnlyModels are the embedding models that AI Studio does not serve.
+var vertexOnlyModels = []string{"text-embedding-004", "text-embedding-005", "text-multilingual-embedding-002"}
+
+var endpointSettings = []string{apiEndpointProperty, projectIDProperty, locationProperty}
+
+func onlyEndpointSettingsChanged(current, updated map[string]any) bool {
+	for _, key := range slices.Concat(slices.Collect(maps.Keys(current)), slices.Collect(maps.Keys(updated))) {
+		if !slices.Contains(endpointSettings, key) && !reflect.DeepEqual(current[key], updated[key]) {
+			return false
+		}
 	}
-	if !sameDimensions(currentSettings.Dimensions(), updatedSettings.Dimensions()) {
-		return nil
-	}
-	return []string{apiEndpointProperty, projectIDProperty, locationProperty}
+	return true
 }
 
 func sameDimensions(current, updated *int64) bool {
@@ -116,6 +128,9 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		if projectID == "" {
 			errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", projectIDProperty))
 		}
+	} else if model := ic.Model(); slices.Contains(vertexOnlyModels, model) {
+		errorMessages = append(errorMessages, fmt.Sprintf(
+			"model %q is not served by %s, use a Vertex AI apiEndpoint or model %q", model, DefaultAIStudioEndpoint, DefaulAIStudioModel))
 	}
 
 	if !slices.Contains(availableTaskTypes, ic.TaskType()) {

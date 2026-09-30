@@ -79,7 +79,7 @@ func (m *GoogleModule) AltNames() []string {
 	return []string{LegacyName}
 }
 
-func (m *GoogleModule) MutableVectorizerSettings(current, updated moduletools.ClassConfig) []string {
+func (m *GoogleModule) MutableSettings(current, updated moduletools.ClassConfig) bool {
 	return vectorizer.MutableSettings(current, updated)
 }
 
@@ -229,5 +229,5 @@ var (
 	_ = modulecapabilities.Searcher[[]float32](New())
 	_ = modulecapabilities.GraphQLArguments(New())
 	_ = modulecapabilities.ModuleHasAltNames(New())
-	_ = modulecapabilities.MutableVectorizerSettings(New())
+	_ = modulecapabilities.MutableSettings(New())
 )

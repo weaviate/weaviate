@@ -72,8 +72,8 @@ type MigrateProperties interface {
 	MigrateProperties() []MigrateProperty
 }
 
-// MutableVectorizerSettings returns the settings that may change on an existing collection
-// without changing its vectors.
-type MutableVectorizerSettings interface {
-	MutableVectorizerSettings(current, updated moduletools.ClassConfig) []string
+// MutableSettings reports whether the module's config may change from current to updated
+// on an existing collection.
+type MutableSettings interface {
+	MutableSettings(current, updated moduletools.ClassConfig) bool
 }

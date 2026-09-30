@@ -41,7 +41,7 @@ type modulesProvider interface {
 	IsMultiVector(string) bool
 	HasModule(string) bool
 	MigrateVectorizerSettings(any, any) bool
-	MutableVectorizerSettings(module string, current, updated map[string]any) []string
+	MutableSettings(module string, current, updated map[string]any) bool
 }
 
 type Parser struct {
@@ -504,7 +504,7 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 			continue
 		}
 
-		if onlyMutableSettingsChanged(p.modules, module, initialModConf[module], updatedModConf[module]) {
+		if mutableSettingsChange(p.modules, module, initialModConf[module], updatedModConf[module]) {
 			continue
 		}
 

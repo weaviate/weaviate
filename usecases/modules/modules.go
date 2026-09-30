@@ -1153,12 +1153,12 @@ func (p *Provider) UsageEnabled() bool {
 	return false
 }
 
-func (p *Provider) MutableVectorizerSettings(moduleName string, current, updated map[string]any) []string {
-	mod, ok := p.GetByName(moduleName).(modulecapabilities.MutableVectorizerSettings)
+func (p *Provider) MutableSettings(moduleName string, current, updated map[string]any) bool {
+	mod, ok := p.GetByName(moduleName).(modulecapabilities.MutableSettings)
 	if !ok {
-		return nil
+		return false
 	}
-	return mod.MutableVectorizerSettings(p.settingsConfig(moduleName, current), p.settingsConfig(moduleName, updated))
+	return mod.MutableSettings(p.settingsConfig(moduleName, current), p.settingsConfig(moduleName, updated))
 }
 
 func (p *Provider) settingsConfig(moduleName string, settings map[string]any) moduletools.ClassConfig {
