@@ -255,7 +255,7 @@ func (i *Index) createAsyncCheckpoints(ctx context.Context, cutoffMs int64, shar
 		"local_failures":   int(localFailures.Load()),
 		"remote_successes": remoteSuccesses,
 		"remote_failures":  remoteFailures,
-	}).Info("async-checkpoint create completed")
+	}).Debug("async-checkpoint create completed")
 	return nil
 }
 
@@ -302,7 +302,7 @@ func (i *Index) deleteAsyncCheckpoints(ctx context.Context, shards []string, bro
 		"local_failures":   int(localFailures.Load()),
 		"remote_successes": remoteSuccesses,
 		"remote_failures":  remoteFailures,
-	}).Info("async-checkpoint delete completed")
+	}).Debug("async-checkpoint delete completed")
 	return nil
 }
 
