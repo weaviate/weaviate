@@ -163,28 +163,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr: errors.Errorf("location must be a Google region name, got \"attacker.example.com/\""),
 		},
 		{
-			name: "Vertex-only model on the AI Studio endpoint",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"apiEndpoint": "generativelanguage.googleapis.com",
-					"model":       "text-embedding-004",
-				},
-			},
-			wantErr: errors.Errorf("model \"text-embedding-004\" is not served by generativelanguage.googleapis.com, " +
-				"use a Vertex AI apiEndpoint or model \"gemini-embedding-001\""),
-		},
-		{
-			name: "Vertex-only model set through modelId on the AI Studio endpoint",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"apiEndpoint": "generativelanguage.googleapis.com",
-					"modelId":     "text-embedding-005",
-				},
-			},
-			wantErr: errors.Errorf("model \"text-embedding-005\" is not served by generativelanguage.googleapis.com, " +
-				"use a Vertex AI apiEndpoint or model \"gemini-embedding-001\""),
-		},
-		{
 			name: "Vertex-only model on a Vertex endpoint",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{

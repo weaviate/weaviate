@@ -67,9 +67,6 @@ func MutableSettings(current, updated moduletools.ClassConfig) bool {
 		sameDimensions(currentSettings.Dimensions(), updatedSettings.Dimensions())
 }
 
-// vertexOnlyModels are the embedding models that AI Studio does not serve.
-var vertexOnlyModels = []string{"text-embedding-004", "text-embedding-005", "text-multilingual-embedding-002"}
-
 var endpointSettings = []string{apiEndpointProperty, projectIDProperty, locationProperty}
 
 func onlyEndpointSettingsChanged(current, updated map[string]any) bool {
@@ -128,9 +125,6 @@ func (ic *classSettings) Validate(class *models.Class) error {
 		if projectID == "" {
 			errorMessages = append(errorMessages, fmt.Sprintf("%s cannot be empty", projectIDProperty))
 		}
-	} else if model := ic.Model(); slices.Contains(vertexOnlyModels, model) {
-		errorMessages = append(errorMessages, fmt.Sprintf(
-			"model %q is not served by %s, use a Vertex AI apiEndpoint or model %q", model, DefaultAIStudioEndpoint, DefaulAIStudioModel))
 	}
 
 	if !slices.Contains(availableTaskTypes, ic.TaskType()) {

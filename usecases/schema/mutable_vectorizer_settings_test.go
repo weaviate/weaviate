@@ -304,12 +304,6 @@ func rejectedUpdates() []rejectedUpdate {
 			update:  vertexOnlyModelSettings(map[string]any{"dimensions": 256}),
 		},
 		{
-			name:          "Vertex-only model switched to the AI Studio endpoint",
-			initial:       vertexOnlyModelSettings(nil),
-			update:        withoutSettings(vertexOnlyModelSettings(map[string]any{"apiEndpoint": aiStudioEndpoint}), "projectId"),
-			expectedError: "is not served by " + aiStudioEndpoint,
-		},
-		{
 			name:    "endpoint while adding an explicit model",
 			initial: withoutModel,
 			update:  withSettings(withoutModel, map[string]any{"apiEndpoint": vertexEndpoint, "projectId": "my-project", "model": "gemini-embedding-001"}),
