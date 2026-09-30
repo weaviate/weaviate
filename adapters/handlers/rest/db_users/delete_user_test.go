@@ -39,6 +39,7 @@ func TestDeleteSuccess(t *testing.T) {
 		{name: "authenticated", principal: &models.Principal{}},
 		// With RBAC and adminlist off, DummyAuthorizer lets an anonymous request's nil principal through.
 		{name: "nil principal", principal: nil},
+		{name: "oidc principal named like the user", principal: &models.Principal{Username: "user", UserType: models.UserTypeInputOidc}},
 	}
 
 	for _, tt := range tests {
@@ -104,18 +105,28 @@ func TestDeleteUnprocessableEntityStaticUser(t *testing.T) {
 
 func TestDeleteUnprocessableEntitySelf(t *testing.T) {
 	user := "myself"
-	principal := &models.Principal{Username: user}
-	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", mock.Anything, principal, authorization.DELETE, authorization.Users(user)[0]).Return(nil)
-
-	h := dynUserHandler{
-		authorizer:    authorizer,
-		dbUserEnabled: true,
+	tests := []struct {
+		name      string
+		principal *models.Principal
+	}{
+		{name: "db user", principal: &models.Principal{Username: user, UserType: models.UserTypeInputDb}},
+		{name: "static key", principal: &models.Principal{Username: user, UserType: models.UserTypeInputDb, IsGlobalOperator: true}},
 	}
 
-	res := h.deleteUser(users.DeleteUserParams{UserID: user, HTTPRequest: req}, principal)
-	_, ok := res.(*users.DeleteUserUnprocessableEntity)
-	assert.True(t, ok)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			authorizer := authorization.NewMockAuthorizer(t)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.DELETE, authorization.Users(user)[0]).Return(nil)
+
+			h := dynUserHandler{
+				authorizer:    authorizer,
+				dbUserEnabled: true,
+			}
+
+			res := h.deleteUser(users.DeleteUserParams{UserID: user, HTTPRequest: req}, tt.principal)
+			assert.IsType(t, &users.DeleteUserUnprocessableEntity{}, res)
+		})
+	}
 }
 
 func TestDeleteUnprocessableEntityDeletingRootUser(t *testing.T) {
@@ -208,6 +219,7 @@ func TestDeleteUser_Namespaces(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			principal := &models.Principal{
 				Username:         tt.principalName,
+				UserType:         models.UserTypeInputDb,
 				IsGlobalOperator: tt.isGlobalOperator,
 				Namespace:        tt.principalNS,
 			}

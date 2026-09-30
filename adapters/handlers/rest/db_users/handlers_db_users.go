@@ -191,7 +191,7 @@ func (h *dynUserHandler) addToListAllResponse(ctx context.Context, principal *mo
 		return response, err
 	}
 
-	own := principal != nil && internalID == principal.Username && principal.UserType == models.UserTypeInputDb
+	own := apikey.IsOwnUser(principal, internalID)
 	resp := &models.DBUserInfo{
 		Active:             &active,
 		UserID:             &displayID,
@@ -280,7 +280,7 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("get roles: %w", err)))
 	}
 
-	own := principal != nil && internalKey == principal.Username && principal.UserType == models.UserTypeInputDb
+	own := apikey.IsOwnUser(principal, internalKey)
 	response.Roles = h.visibleRoleNames(ctx, principal, existingRoles, own)
 
 	return users.NewGetUserInfoOK().WithPayload(response)
@@ -547,7 +547,7 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("db user management is not enabled")))
 	}
 
-	if principal != nil && internalKey == principal.Username {
+	if apikey.IsOwnUser(principal, internalKey) {
 		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("cannot delete its own user %q", params.UserID)))
 	}
 
@@ -596,7 +596,7 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, errors.New("db user management is not enabled")))
 	}
 
-	if principal != nil && internalKey == principal.Username {
+	if apikey.IsOwnUser(principal, internalKey) {
 		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(principal, fmt.Errorf("cannot deactivate its own user %q", params.UserID)))
 	}
 
