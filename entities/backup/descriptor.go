@@ -57,9 +57,8 @@ type DistributedBackupDescriptor struct {
 	BaseBackupID            string                     `json:"baseBackupId"`
 	Users                   []string                   `json:"users,omitempty"`
 	Roles                   []string                   `json:"roles,omitempty"`
-	// SkipUsers/SkipRoles record an empty list or wildcards that matched nothing.
-	// Restore discards any user or RBAC blob a node uploaded
-	// anyway, which a participant predating the request-level skip flag does.
+	// SkipUsers/SkipRoles record an explicit user-supplied empty list or if user-supplied wildcards matched nothing.
+	// Restore discards any user or RBAC blob a node uploaded anyway, which a participant predating the request-level skip flag does.
 	SkipUsers bool `json:"skipUsers,omitempty"`
 	SkipRoles bool `json:"skipRoles,omitempty"`
 }
