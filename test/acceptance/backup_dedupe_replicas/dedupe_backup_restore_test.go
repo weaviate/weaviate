@@ -299,6 +299,7 @@ func startDedupeCluster(ctx context.Context, t *testing.T) *docker.DockerCompose
 		WithWeaviateCluster(3).
 		WithBackendS3(bucketName, regionName).
 		WithWeaviateEnv("BACKUP_DEDUPE_ENABLED", "true").
+		WithWeaviateLicense().
 		Start(ctx)
 	require.NoError(t, err)
 	return compose
