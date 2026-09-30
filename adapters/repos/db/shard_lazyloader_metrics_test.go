@@ -91,6 +91,10 @@ type shardMetricsHarnessOptions struct {
 	// files were written under: singleShardState draws a fresh name each
 	// time, and a new name is a new shard, not a load of the old one.
 	shardState *sharding.State
+	// warmupMinObjects is LAZY_LOAD_SHARD_WARMUP_MIN_OBJECTS for the classes
+	// db.init opens; a negative value turns the background warmup sweep off,
+	// so nothing loads a lazy shard behind the test's back.
+	warmupMinObjects int64
 }
 
 func newShardMetricsHarnessOpts(t *testing.T, opts shardMetricsHarnessOptions) *shardMetricsHarness {
@@ -139,11 +143,12 @@ func newShardMetricsHarnessOpts(t *testing.T, opts shardMetricsHarnessOptions) *
 	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
 
 	repo, err := New(logger, "node1", Config{
-		RootPath:                  opts.rootPath,
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		TrackVectorDimensions:     true,
-		EnableLazyLoadShards:      boolPtr(opts.lazyLoading),
+		RootPath:                      opts.rootPath,
+		QueryMaximumResults:           10000,
+		MaxImportGoroutinesFactor:     1,
+		TrackVectorDimensions:         true,
+		EnableLazyLoadShards:          boolPtr(opts.lazyLoading),
+		LazyLoadShardWarmupMinObjects: opts.warmupMinObjects,
 	},
 		&FakeRemoteClient{}, mockNodeSelector, &FakeRemoteNodeClient{},
 		&FakeReplicationClient{}, metrics, memwatch.NewDummyMonitor(),
@@ -905,8 +910,15 @@ func TestShardLoadNotObservedWhenLoadPanics(t *testing.T) {
 		return n
 	}
 
-	h := newShardMetricsHarness(t)
-	shardName := h.addClass(t, className)
+	// The class is in the schema from the start and the warmup sweep is off:
+	// a sweep would reload the shard the test shuts down below, on a slow
+	// runner within the test's own window, and count a legitimate load.
+	h := newShardMetricsHarnessOpts(t, shardMetricsHarnessOptions{
+		lazyLoading:      true,
+		classes:          []*models.Class{shardMetricsClass(className)},
+		warmupMinObjects: -1,
+	})
+	shardName := h.shardOf(t, className)
 	index := h.repo.GetIndex(schema.ClassName(className))
 	lazyShard, ok := index.shards.Load(shardName).(*LazyLoadShard)
 	require.True(t, ok)
