@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/versioned"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
@@ -173,6 +174,16 @@ func (h *Handler) BatchReferences(ctx context.Context, req *pb.BatchReferencesRe
 		Errors: refErrors,
 	}
 	return result, nil
+}
+
+// CountConsistencyLevel counts one API request by the consistency level it
+// asked for. Call it once per client request, never per internal sub-batch.
+func CountConsistencyLevel(operation string, level *pb.ConsistencyLevel) {
+	var cl string
+	if repl := extractReplicationProperties(level); repl != nil {
+		cl = repl.ConsistencyLevel
+	}
+	monitoring.GetMetrics().IncConsistencyLevelRequest(operation, cl)
 }
 
 func extractReplicationProperties(level *pb.ConsistencyLevel) *additional.ReplicationProperties {

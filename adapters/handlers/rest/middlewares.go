@@ -42,14 +42,53 @@ import (
 // to some resources which are not exposed
 func makeSetupMiddlewares(appState *state.State) func(http.Handler) http.Handler {
 	return func(handler http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		return addConsistencyLevelMetric(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.String() == "/v1/.well-known/openid-configuration" || r.URL.String() == "/v1" {
 				handler.ServeHTTP(w, r)
 				return
 			}
 			appState.AnonymousAccess.Middleware(handler).ServeHTTP(w, r)
-		})
+		}))
 	}
+}
+
+// addConsistencyLevelMetric counts each request to a route that declares the
+// consistency_level query parameter. It relies on running after routing, so
+// the matched route is in the request context, and before authentication, so
+// rejected requests are counted too. Invalid levels are not counted; the
+// handler rejects them with 422.
+func addConsistencyLevelMetric(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if route := middleware.MatchedRouteFrom(r); route != nil && acceptsConsistencyLevel(route) {
+			countConsistencyLevel(r)
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func countConsistencyLevel(r *http.Request) {
+	level := r.URL.Query().Get("consistency_level")
+	if level != "" {
+		if _, err := getConsistencyLevel(&level); err != nil {
+			return
+		}
+	}
+	operation := monitoring.ConsistencyLevelWrite
+	if r.Method == http.MethodGet || r.Method == http.MethodHead {
+		operation = monitoring.ConsistencyLevelRead
+	}
+	monitoring.GetMetrics().IncConsistencyLevelRequest(operation, level)
+}
+
+// acceptsConsistencyLevel iterates because route.Parameters is keyed by the Go
+// field name, not the query parameter name.
+func acceptsConsistencyLevel(route *middleware.MatchedRoute) bool {
+	for _, p := range route.Parameters {
+		if p.In == "query" && p.Name == "consistency_level" {
+			return true
+		}
+	}
+	return false
 }
 
 func addHandleRoot(next http.Handler) http.Handler {

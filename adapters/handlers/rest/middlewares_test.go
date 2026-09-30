@@ -221,3 +221,81 @@ func TestMakeAddMonitoring(t *testing.T) {
 		}
 	})
 }
+
+func TestConsistencyLevelMetric(t *testing.T) {
+	spec, err := loads.Embedded(SwaggerJSON, FlatSwaggerJSON)
+	require.NoError(t, err)
+	api := operations.NewWeaviateAPI(spec)
+	api.Init()
+	ctx := middleware.NewRoutableContext(spec, api, middleware.DefaultRouter(spec, api))
+
+	const id = "8c29da7a-600a-43dc-85fb-83ab2b08c294"
+	cases := []struct {
+		name      string
+		method    string
+		path      string
+		operation string // empty when nothing may be counted
+		level     string
+	}{
+		{"get with ALL", http.MethodGet, "/v1/objects/C/" + id + "?consistency_level=ALL", "read", "ALL"},
+		{"head with ONE", http.MethodHead, "/v1/objects/C/" + id + "?consistency_level=ONE", "read", "ONE"},
+		{"create with ALL", http.MethodPost, "/v1/objects?consistency_level=ALL", "write", "ALL"},
+		{"deprecated delete with QUORUM", http.MethodDelete, "/v1/objects/" + id + "?consistency_level=QUORUM", "write", "QUORUM"},
+		{"reference add with ALL", http.MethodPost, "/v1/objects/C/" + id + "/references/p?consistency_level=ALL", "write", "ALL"},
+		{"batch objects without level", http.MethodPost, "/v1/batch/objects", "write", "UNSET"},
+		{"batch objects with empty level", http.MethodPost, "/v1/batch/objects?consistency_level=", "write", "UNSET"},
+		{"batch delete with ALL", http.MethodDelete, "/v1/batch/objects?consistency_level=ALL", "write", "ALL"},
+		{"batch references with ALL", http.MethodPost, "/v1/batch/references?consistency_level=ALL", "write", "ALL"},
+		{"invalid level", http.MethodGet, "/v1/objects/C/" + id + "?consistency_level=bogus", "", ""},
+		{"route without the parameter", http.MethodGet, "/v1/objects?consistency_level=ALL", "", ""},
+		{"unrelated route", http.MethodGet, "/v1/schema", "", ""},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req, err := http.NewRequest(tc.method, tc.path, nil)
+			require.NoError(t, err)
+			_, routed, ok := ctx.RouteInfo(req)
+			require.True(t, ok, "route must match")
+
+			totalBefore := consistencyLevelRequestsTotal(t)
+			var labelBefore float64
+			if tc.operation != "" {
+				labelBefore = consistencyLevelRequests(t, tc.operation, tc.level)
+			}
+
+			called := false
+			next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true })
+			addConsistencyLevelMetric(next).ServeHTTP(httptest.NewRecorder(), routed)
+			require.True(t, called)
+
+			if tc.operation == "" {
+				assert.Equal(t, totalBefore, consistencyLevelRequestsTotal(t))
+				return
+			}
+			assert.Equal(t, labelBefore+1, consistencyLevelRequests(t, tc.operation, tc.level))
+			assert.Equal(t, totalBefore+1, consistencyLevelRequestsTotal(t))
+		})
+	}
+}
+
+func consistencyLevelRequests(t *testing.T, operation, level string) float64 {
+	t.Helper()
+	var m dto.Metric
+	require.NoError(t, monitoring.GetMetrics().ConsistencyLevelRequests.WithLabelValues(operation, level).Write(&m))
+	return m.GetCounter().GetValue()
+}
+
+func consistencyLevelRequestsTotal(t *testing.T) float64 {
+	t.Helper()
+	ch := make(chan prometheus.Metric, 64)
+	monitoring.GetMetrics().ConsistencyLevelRequests.Collect(ch)
+	close(ch)
+	var total float64
+	for c := range ch {
+		var m dto.Metric
+		require.NoError(t, c.Write(&m))
+		total += m.GetCounter().GetValue()
+	}
+	return total
+}
