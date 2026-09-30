@@ -19,6 +19,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
@@ -222,9 +224,20 @@ func TestUnloadedAsyncCheckpoint_OrphanedSnapshotIsRefused(t *testing.T) {
 	createdAt := time.Now().UTC()
 	cutoffMs := createdAt.Add(time.Hour).UnixMilli()
 
-	err := f.index.createAsyncCheckpoint(ctx, f.name, cutoffMs, createdAt)
-	require.ErrorIs(t, err, errAsyncReplicationNotActive)
-	require.ErrorContains(t, err, errPersistedHashtreeOrphaned.Error())
+	logger, hook := test.NewNullLogger()
+	f.index.logger = logger
+	for range 100 {
+		err := f.index.createAsyncCheckpoint(ctx, f.name, cutoffMs, createdAt)
+		require.ErrorIs(t, err, errAsyncReplicationNotActive)
+		require.ErrorContains(t, err, errPersistedHashtreeOrphaned.Error())
+	}
+	warns := 0
+	for _, e := range hook.AllEntries() {
+		if e.Level <= logrus.WarnLevel {
+			warns++
+		}
+	}
+	require.Equal(t, 1, warns, "a refused snapshot must not warn on every create")
 	_, registered := f.index.unloadedCheckpoints.get(f.name)
 	require.False(t, registered)
 	_, _, _, ok := f.status(t, ctx)

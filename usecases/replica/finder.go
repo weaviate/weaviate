@@ -803,13 +803,7 @@ func (f *Finder) BroadcastCreateAsyncCheckpoint(ctx context.Context, shardNames 
 		eg.Go(func() error {
 			if err := f.client.CreateAsyncCheckpoint(egCtx, addr, f.class, shards, cutoffMs, createdAt); err != nil {
 				failure.Add(1)
-				f.logger.WithFields(logrus.Fields{
-					"action": "async_checkpoint_broadcast",
-					"op":     "create",
-					"class":  f.class,
-					"addr":   addr,
-					"shards": shards,
-				}).Warnf("async-checkpoint create rejected by remote replica: %v", err)
+				f.logRejectedCheckpointRPC("create", addr, len(shards), err)
 				return nil
 			}
 			success.Add(1)
@@ -826,6 +820,26 @@ func (f *Finder) BroadcastCreateAsyncCheckpoint(ctx context.Context, shardNames 
 	return int(success.Load()), int(failure.Load())
 }
 
+// logRejectedCheckpointRPC warns once per op and host per throttle window; the rest, one per class, go to Debug.
+func (f *Finder) logRejectedCheckpointRPC(op, addr string, shards int, err error) {
+	log := f.logger.WithFields(logrus.Fields{
+		"action":      "async_checkpoint_broadcast",
+		"op":          op,
+		"class":       f.class,
+		"addr":        addr,
+		"shard_count": shards,
+	})
+	ok, suppressed := checkpointLogThrottle.Allow(op + "\x00" + addr)
+	if !ok {
+		log.Debugf("async-checkpoint %s rejected by remote replica: %v", op, err)
+		return
+	}
+	if suppressed > 0 {
+		log = log.WithField("suppressed", suppressed)
+	}
+	log.Warnf("async-checkpoint %s rejected by remote replica: %v", op, err)
+}
+
 func (f *Finder) BroadcastDeleteAsyncCheckpoint(ctx context.Context, shardNames []string) (successes, failures int) {
 	addrShards, _ := f.groupShardsByAddr(shardNames)
 	var success, failure atomic.Int64
@@ -836,13 +850,7 @@ func (f *Finder) BroadcastDeleteAsyncCheckpoint(ctx context.Context, shardNames 
 		eg.Go(func() error {
 			if err := f.client.DeleteAsyncCheckpoint(egCtx, addr, f.class, shards); err != nil {
 				failure.Add(1)
-				f.logger.WithFields(logrus.Fields{
-					"action": "async_checkpoint_broadcast",
-					"op":     "delete",
-					"class":  f.class,
-					"addr":   addr,
-					"shards": shards,
-				}).Warnf("async-checkpoint delete rejected by remote replica: %v", err)
+				f.logRejectedCheckpointRPC("delete", addr, len(shards), err)
 				return nil
 			}
 			success.Add(1)

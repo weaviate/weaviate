@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sort"
 	"sync"
 	"testing"
@@ -542,6 +543,38 @@ func TestIndex_CreateAsyncCheckpoints_ContextCancellation(t *testing.T) {
 			}
 			require.NoError(t, err)
 			assert.Equal(t, []string{"s1"}, br.gotCreateShards)
+		})
+	}
+}
+
+func TestIndex_AsyncCheckpointFanOutLogsNothingAboveDebug(t *testing.T) {
+	shards := make([]string, 200)
+	for i := range shards {
+		shards[i] = fmt.Sprintf("tenant-%d", i)
+	}
+	tests := []struct {
+		name string
+		call func(*Index, *stubBroadcaster) error
+	}{
+		{name: "create", call: func(idx *Index, br *stubBroadcaster) error {
+			return idx.createAsyncCheckpoints(context.Background(), time.Now().Add(time.Hour).UnixMilli(), shards, br)
+		}},
+		{name: "delete", call: func(idx *Index, br *stubBroadcaster) error {
+			return idx.deleteAsyncCheckpoints(context.Background(), shards, br)
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			idx := indexForCheckpointTest(t)
+			logger, hook := test.NewNullLogger()
+			idx.logger = logger
+			br := &stubBroadcaster{localNode: "node-A", createFailures: 3, deleteFailures: 3}
+			for range 50 {
+				require.NoError(t, tc.call(idx, br))
+			}
+			for _, e := range hook.AllEntries() {
+				assert.Greater(t, e.Level, logrus.InfoLevel, "per-class line above Debug: %s", e.Message)
+			}
 		})
 	}
 }
