@@ -78,19 +78,43 @@ func (egw *ErrorGroupWrapper) setRecoverPanic() {
 		return
 	}
 	egw.recoverPanic = func(err *error, localVars ...interface{}) {
-		r := recover()
-		if r == nil {
-			return
+		// recover() only works when called directly by the deferred func, so it
+		// can't move into reportPanic.
+		if r := recover(); r != nil {
+			reportPanic(err, r, egw.logger, localVars, egw.variables)
 		}
-		entsentry.Recover(r)
-		egw.logger.WithField("panic", r).Errorf("Recovered from panic: %v, local variables %v, additional localVars %v", r, localVars, egw.variables)
-		PrintStack(egw.logger)
-
-		// The panic becomes the goroutine's error, so errgroup's errOnce records it
-		// and cancels with it. It therefore outranks every error a sibling returns
-		// afterwards, including the context.Canceled that cancellation produces.
-		*err = fmt.Errorf("panic occurred: %v", r)
 	}
+}
+
+// reportPanic logs a recovered panic and makes it the caller's error.
+func reportPanic(err *error, r any, logger logrus.FieldLogger, localVars, groupVars []interface{}) {
+	entsentry.Recover(r)
+	logger.WithField("panic", r).Errorf("Recovered from panic: %v, local variables %v, additional localVars %v", r, localVars, groupVars)
+	PrintStack(logger)
+
+	// The panic becomes the goroutine's error, so errgroup's errOnce records it
+	// and cancels with it. It therefore outranks every error a sibling returns
+	// afterwards, including the context.Canceled that cancellation produces.
+	*err = fmt.Errorf("panic occurred: %v", r)
+}
+
+// RunRecovered runs f on the calling goroutine, converting a panic into the
+// same error ErrorGroupWrapper.Go produces, so inline and grouped work report
+// panics identically. DISABLE_RECOVERY_ON_PANIC lets the panic reach the runtime.
+//
+// The environment is read per call, not cached: a test that sets the variable
+// for itself needs the next call to see it, and caching the first read would
+// silently ignore the setting depending on what ran before.
+func RunRecovered(logger logrus.FieldLogger, f func() error) (err error) {
+	if entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+		return f()
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			reportPanic(&err, r, logger, nil, nil)
+		}
+	}()
+	return f()
 }
 
 // Go runs f in a new goroutine. A panic in f is recovered and returned as f's

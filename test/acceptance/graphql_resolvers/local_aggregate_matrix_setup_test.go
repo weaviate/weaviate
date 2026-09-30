@@ -56,9 +56,10 @@ const (
 
 func arrayClassSchema() *models.Class {
 	return &models.Class{
-		Class: arrayClassName,
+		Class:      arrayClassName,
+		Vectorizer: "text2vec-model2vec",
 		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			"text2vec-model2vec": map[string]interface{}{
 				"vectorizeClassName": true,
 			},
 		},
@@ -284,9 +285,10 @@ func extractAggregateResult(result *graphqlhelper.GraphQLResult, className strin
 
 func noPropsClassSchema() *models.Class {
 	return &models.Class{
-		Class: noPropsClassName,
+		Class:      noPropsClassName,
+		Vectorizer: "text2vec-model2vec",
 		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			"text2vec-model2vec": map[string]interface{}{
 				"vectorizeClassName": true,
 			},
 		},
@@ -442,9 +444,10 @@ func aggregateCityQuery(filters, groupBy string) string {
 
 func duplicatesClassSchema() *models.Class {
 	return &models.Class{
-		Class: duplicatesClassName,
+		Class:      duplicatesClassName,
+		Vectorizer: "text2vec-model2vec",
 		ModuleConfig: map[string]interface{}{
-			"text2vec-contextionary": map[string]interface{}{
+			"text2vec-model2vec": map[string]interface{}{
 				"vectorizeClassName": true,
 			},
 		},
@@ -681,7 +684,7 @@ func (tc *aggregateArrayClassTestCases) WithNearObjectFilter_AllResults(groupedA
 		filters: fmt.Sprintf(`
 			nearObject: {
 				id: "%s"
-				certainty: 0.7
+				certainty: 0.5
 			}`, objectArrayClassID1_4el),
 		groupedAssertions: groupedAssertions,
 	}
@@ -693,7 +696,7 @@ func (tc *aggregateArrayClassTestCases) WithNearObjectFilter_ResultsWithData(gro
 		filters: fmt.Sprintf(`
 			nearObject: {
 				id: "%s"
-				certainty: 0.97
+				certainty: 0.93
 			}`, objectArrayClassID1_4el),
 		groupedAssertions: groupedAssertions,
 	}
@@ -705,7 +708,7 @@ func (tc *aggregateArrayClassTestCases) WithNearObjectFilter_ResultsWithoutData(
 		filters: fmt.Sprintf(`
 			nearObject: {
 				id: "%s"
-				certainty: 1
+				certainty: 0.99
 			}`, objectArrayClassID5_0el),
 		groupedAssertions: groupedAssertions,
 	}
@@ -722,7 +725,7 @@ func (tc *aggregateArrayClassTestCases) WithWhereAndNearObjectFilters_AllResults
 			}
 			nearObject: {
 				id: "%s"
-				certainty: 0.7
+				certainty: 0.5
 			}`, objectArrayClassID1_4el),
 		groupedAssertions: groupedAssertions,
 	}
@@ -739,7 +742,7 @@ func (tc *aggregateArrayClassTestCases) WithWhereAndNearObjectFilters_ResultsWit
 			}
 			nearObject: {
 				id: "%s"
-				certainty: 0.97
+				certainty: 0.93
 			}`, objectArrayClassID1_4el[:35]+"?", objectArrayClassID1_4el),
 		groupedAssertions: groupedAssertions,
 	}
@@ -756,7 +759,7 @@ func (tc *aggregateArrayClassTestCases) WithWhereAndNearObjectFilters_ResultsWit
 			}
 			nearObject: {
 				id: "%s"
-				certainty: 1
+				certainty: 0.99
 			}`, objectArrayClassID5_0el[:35]+"?", objectArrayClassID5_0el),
 		groupedAssertions: groupedAssertions,
 	}
@@ -867,7 +870,7 @@ func (tc *aggregateNoPropsClassTestCases) WithWhereAndNearObjectFilters_SomeResu
 			}
 			nearObject: {
 				id: "%s"
-				certainty: 1
+				certainty: 0.99
 			}`, objectNoPropsClassID1[:35]+"?", objectNoPropsClassID1),
 		groupedAssertions: groupedAssertions,
 	}
@@ -968,9 +971,9 @@ func (tc *aggregateCityTestCases) WithNearObjectFilter_ResultsWithData(groupedAs
 		name: "with nearObject filter (results with data)",
 		filters: fmt.Sprintf(`
 			nearObject: {
-				id: "%s"
-				certainty: 0.81
-			}`, berlin),
+				beacon: "%s"
+				certainty: 0.82
+			}`, capitalsAnchorBeacon),
 		groupedAssertions: groupedAssertions,
 	}
 }
@@ -1014,9 +1017,9 @@ func (tc *aggregateCityTestCases) WithWhereAndNearObjectFilters_ResultsWithData(
 				valueBoolean: true
 			}
 			nearObject: {
-				id: "%s"
-				certainty: 0.81
-			}`, berlin),
+				beacon: "%s"
+				certainty: 0.82
+			}`, capitalsAnchorBeacon),
 		groupedAssertions: groupedAssertions,
 	}
 }

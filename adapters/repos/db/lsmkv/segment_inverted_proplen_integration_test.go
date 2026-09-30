@@ -92,7 +92,7 @@ func TestSegmentPropertyLengthsRepresentations(t *testing.T) {
 			for i, docID := range docIDs {
 				propLen := float32(i%50 + 1)
 				want[docID] = uint32(propLen)
-				require.NoError(t, bucket.MapSet(key, NewMapPairFromDocIdAndTf(docID, 1, propLen, false)))
+				require.NoError(t, bucket.InvertedSet(key, docID, 1, propLen))
 			}
 			require.NoError(t, bucket.FlushAndSwitch())
 
@@ -137,8 +137,7 @@ func TestSegmentPropertyLengthsEmpty(t *testing.T) {
 	defer bucket.Shutdown(ctx)
 
 	// a single tombstoned doc: the posting flushes but contributes no length
-	pair := NewMapPairFromDocIdAndTf(7, 1, 1, true)
-	require.NoError(t, bucket.MapSet([]byte("term"), pair))
+	require.NoError(t, bucket.InvertedDeleteDoc([]byte("term"), 7))
 	require.NoError(t, bucket.FlushAndSwitch())
 
 	view := bucket.GetConsistentView()
@@ -169,8 +168,8 @@ func TestSegmentPropertyLengthsSpanOverflow(t *testing.T) {
 
 	key := []byte("term")
 	want := map[uint64]uint32{0: 3, math.MaxUint64: 7}
-	require.NoError(t, bucket.MapSet(key, NewMapPairFromDocIdAndTf(0, 1, 3, false)))
-	require.NoError(t, bucket.MapSet(key, NewMapPairFromDocIdAndTf(math.MaxUint64, 1, 7, false)))
+	require.NoError(t, bucket.InvertedSet(key, 0, 1, 3))
+	require.NoError(t, bucket.InvertedSet(key, math.MaxUint64, 1, 7))
 	require.NoError(t, bucket.FlushAndSwitch())
 
 	view := bucket.GetConsistentView()
@@ -208,7 +207,7 @@ func TestSegmentPropertyLengthsZeroLengthForcesPairs(t *testing.T) {
 	key := []byte("term")
 	want := map[uint64]uint32{0: 0, 1: 5, 2: 5, 3: 5}
 	for id := uint64(0); id < 4; id++ {
-		require.NoError(t, bucket.MapSet(key, NewMapPairFromDocIdAndTf(id, 1, float32(want[id]), false)))
+		require.NoError(t, bucket.InvertedSet(key, id, 1, float32(want[id])))
 	}
 	require.NoError(t, bucket.FlushAndSwitch())
 
@@ -244,14 +243,14 @@ func TestInvertedCompactionPropertyLengths(t *testing.T) {
 
 	// segment 1 (older, c1): docs 1,2,5 under term "alpha"
 	for docID, pl := range map[uint64]float32{1: 10, 2: 20, 5: 50} {
-		require.NoError(t, bucket.MapSet([]byte("alpha"), NewMapPairFromDocIdAndTf(docID, 1, pl, false)))
+		require.NoError(t, bucket.InvertedSet([]byte("alpha"), docID, 1, pl))
 	}
 	require.NoError(t, bucket.FlushAndSwitch())
 
 	// segment 2 (newer, c2): docs 3,7 under "beta" plus docID 5 again with a
 	// different length — the duplicate the merge must resolve in c2's favor
 	for docID, pl := range map[uint64]float32{3: 30, 5: 999, 7: 70} {
-		require.NoError(t, bucket.MapSet([]byte("beta"), NewMapPairFromDocIdAndTf(docID, 1, pl, false)))
+		require.NoError(t, bucket.InvertedSet([]byte("beta"), docID, 1, pl))
 	}
 	require.NoError(t, bucket.FlushAndSwitch())
 
@@ -302,14 +301,14 @@ func TestInvertedCompactionPropertyLengthsSparsePairs(t *testing.T) {
 	// segment 1 (older, c1): span 9001 over 3 docs, far past the 1/3-occupancy
 	// dense cutoff, so this segment stores pairs
 	for docID, pl := range map[uint64]float32{1000: 10, 1001: 11, 10000: 100} {
-		require.NoError(t, bucket.MapSet([]byte("alpha"), NewMapPairFromDocIdAndTf(docID, 1, pl, false)))
+		require.NoError(t, bucket.InvertedSet([]byte("alpha"), docID, 1, pl))
 	}
 	require.NoError(t, bucket.FlushAndSwitch())
 
 	// segment 2 (newer, c2): docID 10000 again with a different length — the
 	// cross-segment duplicate the merge must resolve in c2's favor
 	for docID, pl := range map[uint64]float32{5000: 50, 10000: 999, 20000: 200} {
-		require.NoError(t, bucket.MapSet([]byte("beta"), NewMapPairFromDocIdAndTf(docID, 1, pl, false)))
+		require.NoError(t, bucket.InvertedSet([]byte("beta"), docID, 1, pl))
 	}
 	require.NoError(t, bucket.FlushAndSwitch())
 
@@ -363,14 +362,13 @@ func TestInvertedCompactionReclaimsDeletedPropertyLengths(t *testing.T) {
 
 	// segment 1 (older, c1): every doc under one shared term, each with a propLen
 	for id := 0; id < total; id++ {
-		require.NoError(t, bucket.MapSet(term, NewMapPairFromDocIdAndTf(uint64(id), 1, float32(id+1), false)))
+		require.NoError(t, bucket.InvertedSet(term, uint64(id), 1, float32(id+1)))
 	}
 	require.NoError(t, bucket.FlushAndSwitch())
 
 	// segment 2 (newer, c2): tombstone the first `deleted` docs
 	for id := 0; id < deleted; id++ {
-		pair := NewMapPairFromDocIdAndTf(uint64(id), 1, 1, true)
-		require.NoError(t, bucket.MapDeleteKey(term, pair.Key))
+		require.NoError(t, bucket.InvertedDeleteDoc(term, uint64(id)))
 	}
 	require.NoError(t, bucket.FlushAndSwitch())
 
@@ -442,7 +440,7 @@ func TestInvertedCompactionReclaimsAveragePropertyLength(t *testing.T) {
 
 	// segment 1 (older, c1): docID id has property length id+1
 	for id := 0; id < total; id++ {
-		require.NoError(t, bucket.MapSet(term, NewMapPairFromDocIdAndTf(uint64(id), 1, float32(id+1), false)))
+		require.NoError(t, bucket.InvertedSet(term, uint64(id), 1, float32(id+1)))
 	}
 	require.NoError(t, bucket.FlushAndSwitch())
 
@@ -453,8 +451,7 @@ func TestInvertedCompactionReclaimsAveragePropertyLength(t *testing.T) {
 
 	// segment 2 (newer, c2): tombstone the first `deleted` (shortest) docs
 	for id := 0; id < deleted; id++ {
-		pair := NewMapPairFromDocIdAndTf(uint64(id), 1, 1, true)
-		require.NoError(t, bucket.MapDeleteKey(term, pair.Key))
+		require.NoError(t, bucket.InvertedDeleteDoc(term, uint64(id)))
 	}
 	require.NoError(t, bucket.FlushAndSwitch())
 
@@ -517,15 +514,15 @@ func TestInvertedCompactionReclaimsFullyDeletedSegmentAvgPropertyLength(t *testi
 	term := []byte("shared")
 
 	// older segment: docs 1,2 — every one of its property lengths will be deleted
-	require.NoError(t, bucket.MapSet(term, NewMapPairFromDocIdAndTf(1, 1, 100, false)))
-	require.NoError(t, bucket.MapSet(term, NewMapPairFromDocIdAndTf(2, 1, 100, false)))
+	require.NoError(t, bucket.InvertedSet(term, 1, 1, 100))
+	require.NoError(t, bucket.InvertedSet(term, 2, 1, 100))
 	require.NoError(t, bucket.FlushAndSwitch())
 
 	// newer segment: live docs 3,4 plus tombstones for the older segment's docs
-	require.NoError(t, bucket.MapSet(term, NewMapPairFromDocIdAndTf(3, 1, 2, false)))
-	require.NoError(t, bucket.MapSet(term, NewMapPairFromDocIdAndTf(4, 1, 2, false)))
-	require.NoError(t, bucket.MapDeleteKey(term, NewMapPairFromDocIdAndTf(1, 1, 1, true).Key))
-	require.NoError(t, bucket.MapDeleteKey(term, NewMapPairFromDocIdAndTf(2, 1, 1, true).Key))
+	require.NoError(t, bucket.InvertedSet(term, 3, 1, 2))
+	require.NoError(t, bucket.InvertedSet(term, 4, 1, 2))
+	require.NoError(t, bucket.InvertedDeleteDoc(term, 1))
+	require.NoError(t, bucket.InvertedDeleteDoc(term, 2))
 	require.NoError(t, bucket.FlushAndSwitch())
 
 	// before compaction the doomed docs still inflate the denominator: (100+100+2+2)/4
@@ -549,13 +546,13 @@ func TestInvertedCompactionReclaimsFullyDeletedSegmentAvgPropertyLength(t *testi
 
 	// now delete the survivors too and compact them away: the denominator collapses
 	// to the empty live set rather than holding a stale average
-	require.NoError(t, bucket.MapDeleteKey(term, NewMapPairFromDocIdAndTf(3, 1, 1, true).Key))
-	require.NoError(t, bucket.MapDeleteKey(term, NewMapPairFromDocIdAndTf(4, 1, 1, true).Key))
+	require.NoError(t, bucket.InvertedDeleteDoc(term, 3))
+	require.NoError(t, bucket.InvertedDeleteDoc(term, 4))
 	require.NoError(t, bucket.FlushAndSwitch())
 	// merge levels so the tombstones meet the surviving property lengths
 	for i := 0; i < 3; i++ {
-		require.NoError(t, bucket.MapSet(term, NewMapPairFromDocIdAndTf(uint64(100+i), 1, 2, false)))
-		require.NoError(t, bucket.MapDeleteKey(term, NewMapPairFromDocIdAndTf(uint64(100+i), 1, 1, true).Key))
+		require.NoError(t, bucket.InvertedSet(term, uint64(100+i), 1, 2))
+		require.NoError(t, bucket.InvertedDeleteDoc(term, uint64(100+i)))
 		require.NoError(t, bucket.FlushAndSwitch())
 	}
 	for {
@@ -600,13 +597,12 @@ func TestInvertedCompactionReinsertKeepsPropertyLength(t *testing.T) {
 	const docID = uint64(7)
 
 	// older segment: docID with an initial property length
-	require.NoError(t, bucket.MapSet(term, NewMapPairFromDocIdAndTf(docID, 1, 10, false)))
+	require.NoError(t, bucket.InvertedSet(term, docID, 1, 10))
 	require.NoError(t, bucket.FlushAndSwitch())
 
 	// newer segment: delete then re-add the same docID with a new property length
-	del := NewMapPairFromDocIdAndTf(docID, 1, 1, true)
-	require.NoError(t, bucket.MapDeleteKey(term, del.Key))
-	require.NoError(t, bucket.MapSet(term, NewMapPairFromDocIdAndTf(docID, 2, 20, false)))
+	require.NoError(t, bucket.InvertedDeleteDoc(term, docID))
+	require.NoError(t, bucket.InvertedSet(term, docID, 2, 20))
 	require.NoError(t, bucket.FlushAndSwitch())
 
 	for {
@@ -661,7 +657,7 @@ func TestInvertedSegmentAddCountsAveragePropertyLength(t *testing.T) {
 	term := []byte("shared")
 	const total = 200
 	for id := 0; id < total; id++ {
-		require.NoError(t, src.MapSet(term, NewMapPairFromDocIdAndTf(uint64(id), 1, float32(id+1), false)))
+		require.NoError(t, src.InvertedSet(term, uint64(id), 1, float32(id+1)))
 	}
 	require.NoError(t, src.FlushAndSwitch())
 	wantAvg, wantCount := src.disk.GetAveragePropertyLength()
@@ -698,8 +694,7 @@ func TestInvertedSegmentAddCountsAveragePropertyLength(t *testing.T) {
 	// segment's contribution, which must be present (else the total underflows)
 	const deleted = 100
 	for id := 0; id < deleted; id++ {
-		pair := NewMapPairFromDocIdAndTf(uint64(id), 1, 1, true)
-		require.NoError(t, tgt.MapDeleteKey(term, pair.Key))
+		require.NoError(t, tgt.InvertedDeleteDoc(term, uint64(id)))
 	}
 	require.NoError(t, tgt.FlushAndSwitch())
 	for {

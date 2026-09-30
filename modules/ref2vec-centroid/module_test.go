@@ -37,9 +37,8 @@ import (
 func TestRef2VecCentroid(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	sp := newFakeStorageProvider(t)
 	logger, _ := test.NewNullLogger()
-	params := moduletools.NewInitParams(sp, nil, &config.Config{}, logger, prometheus.NewPedanticRegistry())
+	params := moduletools.NewInitParams(t.TempDir(), nil, &config.Config{}, logger, prometheus.NewPedanticRegistry())
 
 	mod := New()
 	classConfig := fakeClassConfig(mod.ClassConfigDefaults())

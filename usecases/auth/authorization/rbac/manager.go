@@ -356,15 +356,16 @@ func (m *Manager) DeleteRoles(roles ...string) error {
 
 	changed := false
 	for _, roleName := range roles {
-		// remove role
-		roleRemoved, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(roleName))
-		if err != nil {
-			return fmt.Errorf("RemoveFilteredNamedPolicy: %w", err)
-		}
-		// remove role assignment
+		// Assignments go before permissions. getRoles reads p rows before g rows and
+		// returns g rows with no p rows as a role with no permissions. Callers who lack
+		// the deleted role's permissions may see such a role.
 		roleAssignmentsRemoved, err := m.casbin.RemoveFilteredGroupingPolicy(1, conv.PrefixRoleName(roleName))
 		if err != nil {
 			return fmt.Errorf("RemoveFilteredGroupingPolicy: %w", err)
+		}
+		roleRemoved, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(roleName))
+		if err != nil {
+			return fmt.Errorf("RemoveFilteredNamedPolicy: %w", err)
 		}
 
 		// deletes are idempotent: an already-absent role is a no-op, but other
@@ -821,9 +822,6 @@ func prettyPermissionsResources(principal *models.Principal, perm *models.Permis
 		}
 		if perm.Data.Tenant != nil && *perm.Data.Tenant != "" {
 			s += fmt.Sprintf(" Tenant: %s,", *perm.Data.Tenant)
-		}
-		if perm.Data.Object != nil && *perm.Data.Object != "" {
-			s += fmt.Sprintf(" Object: %s", *perm.Data.Object)
 		}
 		s = strings.TrimSuffix(s, ",")
 		res += fmt.Sprintf("[%s]", s)

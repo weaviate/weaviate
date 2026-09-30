@@ -15,7 +15,7 @@ import (
 	"sort"
 )
 
-func SortStringKeys(schemaMap map[string]interface{}) []string {
+func SortStringKeys(schemaMap map[string]any) []string {
 	keys := make([]string, 0, len(schemaMap))
 	for k := range schemaMap {
 		keys = append(keys, k)

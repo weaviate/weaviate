@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"context"
-	"encoding/binary"
 	"math"
 	"testing"
 
@@ -98,24 +97,19 @@ func TestBlockMaxWandMergeFilterIdentity(t *testing.T) {
 
 			// three overlapping posting lists with varied tf so scores separate
 			for i, id := range docIDs {
-				require.NoError(t, bucket.MapSet([]byte("alpha"),
-					NewMapPairFromDocIdAndTf(id, float32(1+i%5), 1, false)))
+				require.NoError(t, bucket.InvertedSet([]byte("alpha"), id, float32(1+i%5), 1))
 				if i%2 == 0 {
-					require.NoError(t, bucket.MapSet([]byte("beta"),
-						NewMapPairFromDocIdAndTf(id, float32(2+i%3), 1, false)))
+					require.NoError(t, bucket.InvertedSet([]byte("beta"), id, float32(2+i%3), 1))
 				}
 				if i%3 == 0 {
-					require.NoError(t, bucket.MapSet([]byte("gamma"),
-						NewMapPairFromDocIdAndTf(id, 4, 1, false)))
+					require.NoError(t, bucket.InvertedSet([]byte("gamma"), id, 4, 1))
 				}
 			}
 			require.NoError(t, bucket.FlushAndSwitch())
 
 			// delete every 4th doc, from every band, so tombstones hit all containers
 			for i := 0; i < len(docIDs); i += 4 {
-				mapKey := make([]byte, 8)
-				binary.BigEndian.PutUint64(mapKey, docIDs[i])
-				require.NoError(t, bucket.MapDeleteKey([]byte("alpha"), mapKey))
+				require.NoError(t, bucket.InvertedDeleteDoc([]byte("alpha"), docIDs[i]))
 			}
 			if tc.flushAfterDelete {
 				require.NoError(t, bucket.FlushAndSwitch())
@@ -128,9 +122,7 @@ func TestBlockMaxWandMergeFilterIdentity(t *testing.T) {
 			// non-empty.
 			if tc.extraMemDeletes {
 				for i := 2; i < len(docIDs); i += 8 {
-					mapKey := make([]byte, 8)
-					binary.BigEndian.PutUint64(mapKey, docIDs[i])
-					require.NoError(t, bucket.MapDeleteKey([]byte("alpha"), mapKey))
+					require.NoError(t, bucket.InvertedDeleteDoc([]byte("alpha"), docIDs[i]))
 				}
 			}
 

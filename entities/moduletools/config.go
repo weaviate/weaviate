@@ -22,9 +22,9 @@ import (
 type ClassConfig interface {
 	TargetVector() string
 	Tenant() string
-	Class() map[string]interface{}
-	ClassByModuleName(moduleName string) map[string]interface{}
-	Property(propName string) map[string]interface{}
+	Class() map[string]any
+	ClassByModuleName(moduleName string) map[string]any
+	Property(propName string) map[string]any
 	PropertiesDataTypes() map[string]schema.DataType
 	Config() *config.Config
 }

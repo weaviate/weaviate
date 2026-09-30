@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"context"
-	"encoding/binary"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -50,11 +49,9 @@ func TestBlockMaxWandCursorAdmissibility(t *testing.T) {
 		t.Helper()
 		for i, id := range docIDs {
 			tf := float32(1 + i%5)
-			require.NoError(t, bucket.MapSet([]byte("alpha"),
-				NewMapPairFromDocIdAndTf(id, tf, 1, false)))
+			require.NoError(t, bucket.InvertedSet([]byte("alpha"), id, tf, 1))
 			if i%2 == 0 {
-				require.NoError(t, bucket.MapSet([]byte("beta"),
-					NewMapPairFromDocIdAndTf(id, 2, 1, false)))
+				require.NoError(t, bucket.InvertedSet([]byte("beta"), id, 2, 1))
 			}
 		}
 		require.NoError(t, bucket.FlushAndSwitch())
@@ -63,9 +60,7 @@ func TestBlockMaxWandCursorAdmissibility(t *testing.T) {
 	deleteDocs := func(t *testing.T, bucket *Bucket, ids []uint64) {
 		t.Helper()
 		for _, id := range ids {
-			mapKey := make([]byte, 8)
-			binary.BigEndian.PutUint64(mapKey, id)
-			require.NoError(t, bucket.MapDeleteKey([]byte("alpha"), mapKey))
+			require.NoError(t, bucket.InvertedDeleteDoc([]byte("alpha"), id))
 		}
 	}
 

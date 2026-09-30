@@ -63,7 +63,7 @@ This document is the single source of truth for Prometheus metrics exposed by We
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
 | `lsm_active_segments` | Number of currently present segments per shard | `Gauge` | `class_name, path, shard_name, strategy` | ❌ High 
-| `lsm_memtable_size` | Size of memtable by path | `Gauge` | `class_name, path, shard_name, strategy` | ❌ High 
+| `lsm_memtable_size` | Size of memtable by path. For `strategy="roaringset"` this is the heap the memtable holds; every other strategy reports an estimate of the bytes written to it, so the two are not comparable and an alert band fits only one. | `Gauge` | `class_name, path, shard_name, strategy` | ❌ High 
 
 #### System Metrics
 | Name | Description | Type | Labels | High Cardinality |

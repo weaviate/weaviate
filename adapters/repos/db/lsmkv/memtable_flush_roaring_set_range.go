@@ -12,14 +12,16 @@
 package lsmkv
 
 import (
+	"encoding/binary"
 	"fmt"
+	"io"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 )
 
 func (m *Memtable) flushDataRoaringSetRange(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
-	nodes := m.roaringSetRange.Nodes()
+	nodes := m.roaringSetRangeNodes()
 
 	totalDataLength := totalPayloadSizeRoaringSetRange(nodes)
 	header := &segmentindex.Header{
@@ -35,14 +37,13 @@ func (m *Memtable) flushDataRoaringSetRange(f *segmentindex.SegmentFile) ([]segm
 		return nil, err
 	}
 
-	for i, node := range nodes {
-		sn, err := roaringsetrange.NewSegmentNode(node.Key, node.Additions, node.Deletions)
-		if err != nil {
-			return nil, fmt.Errorf("create segment node: %w", err)
-		}
+	// scratch holds the fixed fields a node opens with. BodyWriter's writers copy
+	// synchronously, so refilling it after a Write is safe and one array serves
+	// every node.
+	var scratch [roaringsetrange.AdditionsStart]byte
 
-		_, err = f.BodyWriter().Write(sn.ToBuffer())
-		if err != nil {
+	for i, node := range nodes {
+		if err := writeRoaringSetRangeNode(f.BodyWriter(), node, &scratch); err != nil {
 			return nil, fmt.Errorf("write segment node %d: %w", i, err)
 		}
 	}
@@ -50,18 +51,63 @@ func (m *Memtable) flushDataRoaringSetRange(f *segmentindex.SegmentFile) ([]segm
 	return make([]segmentindex.Key, 0), nil
 }
 
+// writeRoaringSetRangeNode emits one node in the layout documented on
+// roaringsetrange.SegmentNode, whose readers seek to these exact offsets.
+func writeRoaringSetRangeNode(w io.Writer, node *roaringsetrange.MemtableNode,
+	scratch *[roaringsetrange.AdditionsStart]byte,
+) error {
+	additions, deletions := roaringSetRangeNodeBuffers(node)
+
+	binary.LittleEndian.PutUint64(scratch[:roaringsetrange.NodeLengthSize],
+		uint64(payloadSizeRoaringSetRangeNode(node.Key, additions, deletions)))
+	scratch[roaringsetrange.NodeLengthSize] = node.Key
+	binary.LittleEndian.PutUint64(scratch[roaringsetrange.NodeLengthSize+roaringsetrange.KeySize:],
+		uint64(len(additions)))
+
+	if _, err := w.Write(scratch[:]); err != nil {
+		return err
+	}
+	if _, err := w.Write(additions); err != nil {
+		return err
+	}
+	if node.Key != 0 {
+		return nil
+	}
+
+	binary.LittleEndian.PutUint64(scratch[:roaringsetrange.BitmapLengthSize],
+		uint64(len(deletions)))
+	if _, err := w.Write(scratch[:roaringsetrange.BitmapLengthSize]); err != nil {
+		return err
+	}
+	_, err := w.Write(deletions)
+	return err
+}
+
+// roaringSetRangeNodeBuffers returns the two payloads a node emits. A node with
+// a non-zero key carries no deletions section.
+func roaringSetRangeNodeBuffers(node *roaringsetrange.MemtableNode) (additions, deletions []byte) {
+	additions = node.Additions.ToBuffer()
+	if node.Key == 0 {
+		deletions = node.Deletions.ToBuffer()
+	}
+	return additions, deletions
+}
+
+// payloadSizeRoaringSetRangeNode is what writeRoaringSetRangeNode emits for
+// these payloads, and the total length it records in the node's first field.
+func payloadSizeRoaringSetRangeNode(key uint8, additions, deletions []byte) int {
+	size := roaringsetrange.AdditionsStart + len(additions)
+	if key == 0 {
+		size += roaringsetrange.BitmapLengthSize + len(deletions)
+	}
+	return size
+}
+
 func totalPayloadSizeRoaringSetRange(nodes []*roaringsetrange.MemtableNode) int {
 	var sum int
 	for _, node := range nodes {
-		sum += 8 // uint64 to segment length
-		sum += 1 // key (fixed size)
-		sum += 8 // uint64 to indicate length of additions bitmap
-		sum += len(node.Additions.ToBuffer())
-
-		if node.Key == 0 {
-			sum += 8 // uint64 to indicate length of deletions bitmap
-			sum += len(node.Deletions.ToBuffer())
-		}
+		additions, deletions := roaringSetRangeNodeBuffers(node)
+		sum += payloadSizeRoaringSetRangeNode(node.Key, additions, deletions)
 	}
 
 	return sum

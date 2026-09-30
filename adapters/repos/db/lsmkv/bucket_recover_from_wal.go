@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"context"
 	errors2 "errors"
+	"hash/crc32"
 	"io"
 	"os"
 	"path/filepath"
@@ -30,6 +31,13 @@ import (
 )
 
 var logOnceWhenRecoveringFromWAL sync.Once
+
+// walTooShortForRecord reports whether a .wal file is shorter than one record
+// checksum, so it holds no record. newCommitLogger reads its checksum seed from
+// the last crc32.Size bytes and cannot open such a file.
+func walTooShortForRecord(size int64) bool {
+	return size < crc32.Size
+}
 
 func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup, files map[string]int64) (err error) {
 	// the context is only ever checked once at the beginning, as there is no
@@ -51,10 +59,14 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, sg *SegmentGroup,
 
 		path := filepath.Join(b.dir, file)
 
-		if size == 0 {
-			err := os.Remove(path)
-			if err != nil {
-				return errors.Wrap(err, "remove empty wal file")
+		if walTooShortForRecord(size) {
+			if size > 0 {
+				b.logger.WithField("action", "lsm_recover_from_active_wal_corruption").
+					WithField("path", path).
+					Warnf("removing write-ahead-log of %d bytes, too short to hold a record", size)
+			}
+			if err := os.Remove(path); err != nil {
+				return errors.Wrap(err, "remove wal file without a record")
 			}
 			continue
 		}

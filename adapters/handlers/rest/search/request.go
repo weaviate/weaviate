@@ -13,7 +13,9 @@ package search
 
 import (
 	"fmt"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
@@ -24,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -101,7 +104,7 @@ func (h *Handler) fillSelectionAndFilter(out *dto.GetParams, class *models.Class
 		out.AdditionalProperties.NoProps = true
 	}
 
-	filter, apiErr := parseWhere(common.Where, className, h.namespacesEnabled, principal, getClass)
+	filter, apiErr := h.parseWhere(common.Where, class, className, h.namespacesEnabled, principal, getClass)
 	if apiErr != nil {
 		return apiErr
 	}
@@ -183,24 +186,59 @@ func (h *Handler) buildBm25Params(class *models.Class, className string, body *m
 	return out, nil
 }
 
-// validateQueryProperties rejects a queryProperties entry that names no
-// schema property with 400, matching returnProperties. Whether an existing
-// property is searchable stays the searcher's check (a typed
-// MissingIndexError, mapped to 422). A "^boost" suffix is stripped before
-// the lookup, mirroring the searcher.
+// validateQueryProperties rejects unknown, duplicate and unsearchable
+// properties, and a malformed "^boost" the searcher would otherwise read as 0.
 func validateQueryProperties(class *models.Class, queryProperties []string) *APIError {
+	seen := map[string]bool{}
 	for _, entry := range queryProperties {
-		name := schema.LowercaseFirstLetter(strings.Split(entry, "^")[0])
+		name, apiErr := parseQueryProperty(entry)
+		if apiErr != nil {
+			return apiErr
+		}
 		if _, err := schema.GetPropertyByName(class, name); err != nil {
 			return &APIError{Status: http.StatusBadRequest, Err: err}
+		}
+		if seen[name] {
+			return newAPIError(http.StatusBadRequest, "queryProperties: %q is listed more than once", name)
+		}
+		seen[name] = true
+		if !searchparams.PropertyHasSearchableIndex(class, name) {
+			return newAPIError(http.StatusUnprocessableEntity,
+				"queryProperties: property %q has no searchable index; enable indexSearchable on it", name)
 		}
 	}
 	return nil
 }
 
+// parseQueryProperty splits "name^boost" and validates the boost: a single
+// "^", a finite positive number.
+func parseQueryProperty(entry string) (string, *APIError) {
+	parts := strings.Split(entry, "^")
+	if len(parts) > 2 {
+		return "", newAPIError(http.StatusBadRequest,
+			"queryProperties: %q has more than one ^boost suffix", entry)
+	}
+	name := parts[0]
+	if name == "" {
+		return "", newAPIError(http.StatusBadRequest, "queryProperties entries must not be empty")
+	}
+	if strings.Contains(name, ".") {
+		return "", newAPIError(http.StatusBadRequest,
+			"queryProperties: %q: nested fields cannot be keyword-searched, name the property itself", entry)
+	}
+	if len(parts) == 2 {
+		boost, err := strconv.ParseFloat(parts[1], 32)
+		if err != nil || math.IsNaN(boost) || math.IsInf(boost, 0) || boost <= 0 {
+			return "", newAPIError(http.StatusBadRequest,
+				"queryProperties: %q: boost must be a positive number, e.g. title^2", entry)
+		}
+	}
+	return schema.LowercaseFirstLetter(name), nil
+}
+
 // checkKeywordSearchable: empty queryProperties over a collection with no
 // searchable property is a 422 here — the engine's all-properties expansion
-// errors untyped (a 500). Explicit properties are the searcher's.
+// errors untyped (a 500). Explicit ones are validateQueryProperties'.
 func checkKeywordSearchable(class *models.Class, queryProperties []string) *APIError {
 	if len(queryProperties) > 0 {
 		return nil
@@ -269,30 +307,140 @@ func parseNearObject(class *models.Class, body *models.SearchNearObjectRequest, 
 		return nil, newAPIError(http.StatusBadRequest, "id must not be empty")
 	}
 
-	if body.Certainty != nil && body.Distance != nil {
-		return nil, newAPIError(http.StatusBadRequest, "near_object: cannot provide both distance and certainty")
-	}
-	if body.Certainty != nil && (*body.Certainty < 0 || *body.Certainty > 1) {
-		return nil, newAPIError(http.StatusBadRequest,
-			"certainty must be between 0 and 1, got %v", *body.Certainty)
+	certainty, distance, withDistance, apiErr := parseCertaintyDistance(class, targetVectors, "near_object", body.Certainty, body.Distance)
+	if apiErr != nil {
+		return nil, apiErr
 	}
 
-	params := &searchparams.NearObject{
+	return &searchparams.NearObject{
 		ID:            body.ID.String(),
 		TargetVectors: targetVectors,
+		Certainty:     certainty,
+		Distance:      distance,
+		WithDistance:  withDistance,
+	}, nil
+}
+
+// parseCertaintyDistance validates the cutoff pair of the vector searches:
+// mutually exclusive, certainty within [0,1] and only on a cosine index.
+func parseCertaintyDistance(class *models.Class, targetVectors []string, searchKind string,
+	certainty, distance *float64,
+) (float64, float64, bool, *APIError) {
+	if certainty != nil && distance != nil {
+		return 0, 0, false, newAPIError(http.StatusBadRequest, "%s: cannot provide both distance and certainty", searchKind)
 	}
-	if body.Certainty != nil {
-		if err := configvalidation.CheckCertaintyCompatibility(class, targetVectors); err != nil {
-			return nil, &APIError{Status: http.StatusUnprocessableEntity, Err: err}
+	if certainty != nil {
+		if *certainty < 0 || *certainty > 1 {
+			return 0, 0, false, newAPIError(http.StatusBadRequest, "certainty must be between 0 and 1, got %v", *certainty)
 		}
-		params.Certainty = *body.Certainty
+		if err := configvalidation.CheckCertaintyCompatibility(class, targetVectors); err != nil {
+			return 0, 0, false, &APIError{Status: http.StatusUnprocessableEntity, Err: err}
+		}
+		return *certainty, 0, false, nil
 	}
-	if body.Distance != nil {
-		params.Distance = *body.Distance
-		params.WithDistance = true
+	if distance != nil {
+		return 0, *distance, true, nil
+	}
+	return 0, 0, false, nil
+}
+
+// buildNearVectorParams converts the near-vector request into the
+// dto.GetParams consumed by traverser.GetClass. Behavior must stay in sync
+// with the gRPC parser's near-vector handling
+// (adapters/handlers/grpc/v1/parse_search_request.go).
+func (h *Handler) buildNearVectorParams(class *models.Class, className string, body *models.SearchNearVectorRequest,
+	getClass classGetterFunc, principal *models.Principal,
+) (dto.GetParams, *APIError) {
+	common := &body.SearchCommon
+	out, apiErr := h.baseParams(className, common)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
 	}
 
-	return params, nil
+	targetVectors, apiErr := resolveTargetVectors(class, body.TargetVector)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	nearVector, apiErr := parseNearVector(class, body, targetVectors)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.NearVector = nearVector
+
+	if apiErr := h.fillCommonFields(&out, class, className, common, targetVectors, getClass, principal); apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	return out, nil
+}
+
+// parseNearVector builds the near-vector search params, mirroring the gRPC
+// parser: the caller brings the query vector, so no vectorizer module is
+// required.
+func parseNearVector(class *models.Class, body *models.SearchNearVectorRequest, targetVectors []string) (*searchparams.NearVector, *APIError) {
+	vector, apiErr := parseVector(body.Vector)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	if apiErr := rejectMultiVectorTarget(class, targetVectors); apiErr != nil {
+		return nil, apiErr
+	}
+
+	certainty, distance, withDistance, apiErr := parseCertaintyDistance(class, targetVectors, "near_vector", body.Certainty, body.Distance)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+
+	return &searchparams.NearVector{
+		Vectors:       []models.Vector{vector},
+		TargetVectors: targetVectors,
+		Certainty:     certainty,
+		Distance:      distance,
+		WithDistance:  withDistance,
+	}, nil
+}
+
+// rejectMultiVectorTarget rejects a flat query vector aimed at a multi-vector
+// index, as gRPC does. Only a named vector can be one.
+func rejectMultiVectorTarget(class *models.Class, targetVectors []string) *APIError {
+	for _, target := range targetVectors {
+		indexConfig, ok := class.VectorConfig[target].VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+		if ok && indexConfig.IsMultiVector() {
+			return newAPIError(http.StatusUnprocessableEntity,
+				"target vector %q is a multi-vector index; multi-vector search is not yet supported", target)
+		}
+	}
+	return nil
+}
+
+const errVectorNotNumbers = "vector must be a non-empty array of numbers"
+
+// parseVector reads the query vector off the untyped `vector` field, where a
+// decoded body leaves a non-empty array of numbers. An array of arrays is the
+// multi-vector form, which the endpoint does not search yet.
+func parseVector(value any) ([]float32, *APIError) {
+	values, ok := value.([]any)
+	if !ok || len(values) == 0 {
+		return nil, newAPIError(http.StatusBadRequest, errVectorNotNumbers)
+	}
+
+	vector := make([]float32, len(values))
+	for i, entry := range values {
+		number, ok := entry.(float64)
+		if !ok {
+			if _, nested := entry.([]any); nested {
+				return nil, newAPIError(http.StatusUnprocessableEntity, "multi-vector search is not yet supported")
+			}
+			return nil, newAPIError(http.StatusBadRequest, errVectorNotNumbers)
+		}
+		vector[i] = float32(number)
+		if math.IsInf(float64(vector[i]), 0) {
+			return nil, newAPIError(http.StatusBadRequest, "vector[%d] does not fit a 32-bit float", i)
+		}
+	}
+
+	return vector, nil
 }
 
 // buildHybridParams converts the hybrid request into the dto.GetParams
@@ -650,6 +798,10 @@ func parseReturnProperties(class *models.Class, returnProperties []string) (sear
 		if entry == "" {
 			return nil, newAPIError(http.StatusBadRequest, "returnProperties entries must not be empty")
 		}
+		if strings.Contains(entry, ".") {
+			return nil, newAPIError(http.StatusBadRequest,
+				"returnProperties: %q: nested fields are returned by naming the object property, dot paths are not supported", entry)
+		}
 
 		normalized := schema.LowercaseFirstLetter(entry)
 		schemaProp, err := schema.GetPropertyByName(class, normalized)
@@ -708,6 +860,10 @@ func (h *Handler) parseReturnReferences(class *models.Class, className string,
 		}
 		if selector.LinkOn == nil || *selector.LinkOn == "" {
 			return nil, newAPIError(http.StatusBadRequest, "returnReferences: linkOn must not be empty")
+		}
+		if strings.Contains(*selector.LinkOn, ".") {
+			return nil, newAPIError(http.StatusBadRequest,
+				"returnReferences: linkOn %q must be a reference property name; deeper hops nest a returnReferences selector", *selector.LinkOn)
 		}
 		name := schema.LowercaseFirstLetter(*selector.LinkOn)
 
@@ -879,8 +1035,8 @@ func refDepth(props search.SelectProperties, currDepth, limit int) int {
 	return maxDepth + 1
 }
 
-func parseWhere(where *models.WhereFilter, className string, namespacesEnabled bool,
-	principal *models.Principal, getClass classGetterFunc,
+func (h *Handler) parseWhere(where *models.WhereFilter, class *models.Class, className string,
+	namespacesEnabled bool, principal *models.Principal, getClass classGetterFunc,
 ) (*filters.LocalFilter, *APIError) {
 	if where == nil {
 		return nil, nil
@@ -891,12 +1047,20 @@ func parseWhere(where *models.WhereFilter, className string, namespacesEnabled b
 		return nil, &APIError{Status: http.StatusBadRequest, Err: err}
 	}
 
+	if apiErr := h.validateWhere(filter.Root, class, getClass); apiErr != nil {
+		return nil, apiErr
+	}
+
+	// keep the validator's 403 and 422; anything else it rejects is a bad
+	// filter value, so 400 — a 404 here would name a collection in the filter
+	// path, not the one the caller asked for
 	if err := filters.ValidateFilters(getClass, filter); err != nil {
 		apiErr := statusFromError(err)
-		if apiErr.Status == http.StatusInternalServerError {
-			apiErr = &APIError{Status: http.StatusBadRequest, Err: fmt.Errorf("invalid 'where' filter: %w", err)}
+		switch apiErr.Status {
+		case http.StatusForbidden, http.StatusUnprocessableEntity:
+			return nil, apiErr
 		}
-		return nil, apiErr
+		return nil, &APIError{Status: http.StatusBadRequest, Err: fmt.Errorf("invalid 'where' filter: %w", err)}
 	}
 
 	return filter, nil

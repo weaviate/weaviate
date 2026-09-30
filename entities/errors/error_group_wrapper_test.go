@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"testing"
 
@@ -201,4 +202,49 @@ func TestErrorGroupWrapperWithContext_DoesNotPanic(t *testing.T) {
 	err := eg.Wait()
 	assert.Nil(t, err)
 	assert.NotContains(t, buf.String(), "Recovered from panic")
+}
+
+// TestRunRecovered covers the inline runner's three outcomes, including the
+// DISABLE_RECOVERY_ON_PANIC branch, which is the half of the parity claim that
+// nothing else exercises.
+func TestRunRecovered(t *testing.T) {
+	boom := errors.New("boom")
+
+	t.Run("f's error passes through", func(t *testing.T) {
+		t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+		require.ErrorIs(t, RunRecovered(newTestLogger(t), func() error { return boom }), boom)
+	})
+
+	t.Run("no error and no panic", func(t *testing.T) {
+		t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+		require.NoError(t, RunRecovered(newTestLogger(t), func() error { return nil }))
+	})
+
+	t.Run("a panic becomes the error", func(t *testing.T) {
+		t.Setenv("DISABLE_RECOVERY_ON_PANIC", "false")
+		var buf bytes.Buffer
+		log := logrus.New()
+		log.SetOutput(&buf)
+
+		err := RunRecovered(log, func() error { panic("blew up") })
+
+		require.ErrorContains(t, err, "panic occurred: blew up")
+		require.Contains(t, buf.String(), "Recovered from panic")
+	})
+
+	t.Run("DISABLE_RECOVERY_ON_PANIC lets the panic reach the runtime", func(t *testing.T) {
+		// Read per call rather than cached, so this takes effect for every
+		// RunRecovered in the process from here on.
+		t.Setenv("DISABLE_RECOVERY_ON_PANIC", "true")
+		require.Panics(t, func() {
+			_ = RunRecovered(newTestLogger(t), func() error { panic("blew up") })
+		})
+	})
+}
+
+func newTestLogger(t *testing.T) logrus.FieldLogger {
+	t.Helper()
+	log := logrus.New()
+	log.SetOutput(io.Discard)
+	return log
 }

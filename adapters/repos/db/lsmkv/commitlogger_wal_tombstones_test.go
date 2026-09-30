@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"testing"
 
@@ -44,8 +43,8 @@ func TestTombstoneWALReuse(t *testing.T) {
 			require.NoError(t, err)
 
 			docId := uint64(1)
-			require.NoError(t, b.MapSet([]byte("word1"), NewMapPairFromDocIdAndTf(docId, 1, 1, false)))
-			require.NoError(t, b.MapSet([]byte("word2"), NewMapPairFromDocIdAndTf(docId, 2, 2, false)))
+			require.NoError(t, b.InvertedSet([]byte("word1"), docId, 1, 1))
+			require.NoError(t, b.InvertedSet([]byte("word2"), docId, 2, 2))
 
 			err = b.FlushAndSwitch()
 			require.NoError(t, err)
@@ -62,11 +61,9 @@ func TestTombstoneWALReuse(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			key := make([]byte, 8)
-			binary.BigEndian.PutUint64(key, docId)
 			// for the inverted strategy, this adds a tombstone for docId 1
 			// and expects all entries for docId 1 to be ignored from now on
-			require.NoError(t, b.MapDeleteKey([]byte("word1"), key))
+			require.NoError(t, b.InvertedDeleteDoc([]byte("word1"), docId))
 			require.NoError(t, b.Shutdown(ctx))
 
 			dbFiles, walFiles = countDbAndWalFiles(t, dirName)
@@ -111,12 +108,10 @@ func TestTombstoneWALReuse(t *testing.T) {
 			require.NoError(t, err)
 
 			docId := uint64(1)
-			docIdKey := make([]byte, 8)
-			binary.BigEndian.PutUint64(docIdKey, docId)
-			require.NoError(t, b.MapSet([]byte("word1"), NewMapPairFromDocIdAndTf(docId, 1, 1, false)))
-			require.NoError(t, b.MapSet([]byte("word2"), NewMapPairFromDocIdAndTf(docId, 2, 2, false)))
-			require.NoError(t, b.MapDeleteKey([]byte("word1"), docIdKey))
-			require.NoError(t, b.MapDeleteKey([]byte("word2"), docIdKey))
+			require.NoError(t, b.InvertedSet([]byte("word1"), docId, 1, 1))
+			require.NoError(t, b.InvertedSet([]byte("word2"), docId, 2, 2))
+			require.NoError(t, b.InvertedDeleteDoc([]byte("word1"), docId))
+			require.NoError(t, b.InvertedDeleteDoc([]byte("word2"), docId))
 
 			require.NoError(t, err)
 

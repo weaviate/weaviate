@@ -527,3 +527,47 @@ func TestConfigValidation_Namespaces(t *testing.T) {
 		})
 	}
 }
+
+// A config file is unmarshalled straight into Persistence, past every refusal
+// the environment parser makes.
+func TestPersistenceValidateIndexRangeableInMemoryProps(t *testing.T) {
+	tests := []struct {
+		name   string
+		props  map[string][]string
+		errMsg string
+	}{
+		{
+			name: "nothing configured",
+		},
+		{
+			name:  "named properties",
+			props: map[string][]string{"Foo": {"price"}},
+		},
+		{
+			name:  "every property of a collection",
+			props: map[string][]string{"Foo": {AllProperties}},
+		},
+		{
+			name:   "a collection with no properties is refused",
+			props:  map[string][]string{"Foo": {}},
+			errMsg: "with no properties",
+		},
+		{
+			name:   "a key that is not a collection name is refused",
+			props:  map[string][]string{"foo": {"price"}},
+			errMsg: `names "foo"`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := Persistence{DataPath: "./data", IndexRangeableInMemoryProps: tt.props}
+			err := p.Validate()
+			if tt.errMsg != "" {
+				require.ErrorContains(t, err, tt.errMsg)
+				return
+			}
+			require.NoError(t, err)
+		})
+	}
+}

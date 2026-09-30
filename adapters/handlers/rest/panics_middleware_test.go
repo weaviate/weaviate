@@ -15,6 +15,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"slices"
 	"syscall"
@@ -88,10 +89,21 @@ func TestHandlePanics(t *testing.T) {
 			req, err := http.NewRequest("POST", "/v1/graphql", nil)
 			require.NoError(t, err)
 
+			rec := httptest.NewRecorder()
+			pw := &panicResponseWriter{ResponseWriter: rec}
 			require.NotPanics(t, func() {
-				defer handlePanics(logger, metric, req)
+				defer handlePanics(logger, metric, req, pw)
 				panic(tt.panicValue)
 			})
+
+			// a server-side panic still answers; a vanished peer gets nothing
+			if tt.expectedServerErrors > 0 {
+				assert.Equal(t, http.StatusInternalServerError, rec.Code)
+				assert.Contains(t, rec.Body.String(), "internal server error")
+			} else {
+				assert.Equal(t, http.StatusOK, rec.Code)
+				assert.Empty(t, rec.Body.String())
+			}
 
 			assert.Equal(t, tt.expectedUserErrors, metric.userErrors)
 			assert.Equal(t, tt.expectedServerErrors, metric.serverErrors)
@@ -115,11 +127,54 @@ func TestHandlePanicsWithoutPanic(t *testing.T) {
 	req, err := http.NewRequest("POST", "/v1/graphql", nil)
 	require.NoError(t, err)
 
+	rec := httptest.NewRecorder()
 	func() {
-		defer handlePanics(logger, metric, req)
+		defer handlePanics(logger, metric, req, &panicResponseWriter{ResponseWriter: rec})
 	}()
+	assert.Empty(t, rec.Body.String())
 
 	assert.Zero(t, metric.userErrors)
 	assert.Zero(t, metric.serverErrors)
 	assert.Empty(t, hook.AllEntries())
+}
+
+// A panic below the middleware must not surface as net/http's implicit
+// empty 200; once the handler has written, the response is left alone.
+func TestCatchPanicsMiddlewareResponse(t *testing.T) {
+	tests := []struct {
+		name       string
+		handler    http.HandlerFunc
+		wantStatus int
+		wantBody   string
+	}{
+		{
+			name:       "panic before any write answers 500",
+			handler:    func(w http.ResponseWriter, r *http.Request) { panic(errors.New("boom")) },
+			wantStatus: http.StatusInternalServerError,
+			wantBody:   `{"error":[{"message":"internal server error; details are in the server log"}]}`,
+		},
+		{
+			name: "panic after the handler wrote keeps the handler's response",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusAccepted)
+				w.Write([]byte("partial"))
+				panic("boom")
+			},
+			wantStatus: http.StatusAccepted,
+			wantBody:   "partial",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			rec := httptest.NewRecorder()
+			req, err := http.NewRequest("POST", "/v1/search/Movie/bm25", nil)
+			require.NoError(t, err)
+
+			makeCatchPanics(logger, &fakeRequestsTotal{})(tt.handler).ServeHTTP(rec, req)
+
+			assert.Equal(t, tt.wantStatus, rec.Code)
+			assert.Equal(t, tt.wantBody, rec.Body.String())
+		})
+	}
 }

@@ -59,9 +59,11 @@ fi
 if [ $# -eq 1 ] && [ "$1" == "--with-mcp" ]; then
   START_WEAVIATE_MCP="true"
 fi
+COMPOSE_FILE=docker-compose-test.yml
+VECTORIZER_SERVICE=text2vec-model2vec
 
-build docker-compose-test.yml weaviate
-surpress_on_success docker compose -f docker-compose-test.yml up --force-recreate -d weaviate contextionary
+build "$COMPOSE_FILE" weaviate
+surpress_on_success docker compose -f "$COMPOSE_FILE" up --force-recreate -d weaviate "$VECTORIZER_SERVICE"
 
 if [ "$START_WEAVIATE_AUTH" == "true" ]; then
   build docker-compose-auth-test.yml weaviate-auth
@@ -73,7 +75,7 @@ if [ "$START_WEAVIATE_MCP" == "true" ]; then
   surpress_on_success docker compose -f docker-compose-mcp-test.yml up --force-recreate -d weaviate-mcp
 fi
 
-wait docker-compose-test.yml
+wait "$COMPOSE_FILE"
 if [ "$START_WEAVIATE_AUTH" == "true" ]; then
   wait docker-compose-auth-test.yml
 fi

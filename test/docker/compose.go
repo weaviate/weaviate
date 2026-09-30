@@ -470,6 +470,7 @@ func (d *Compose) WithText2VecNvidia(apiKey string) *Compose {
 func (d *Compose) WithText2VecModel2Vec() *Compose {
 	d.withModel2Vec = true
 	d.enableModules = append(d.enableModules, modmodel2vec.Name)
+	d.defaultVectorizerModule = modmodel2vec.Name
 	return d
 }
 

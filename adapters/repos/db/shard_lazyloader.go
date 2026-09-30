@@ -583,6 +583,13 @@ func (l *LazyLoadShard) DebugResetVectorIndex(ctx context.Context, targetVector 
 	return l.shard.DebugResetVectorIndex(ctx, targetVector)
 }
 
+func (l *LazyLoadShard) DebugResetGeoIndex(ctx context.Context, propName string) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.DebugResetGeoIndex(ctx, propName)
+}
+
 func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper,
 	lazyLoadSegments bool, props ...*models.Property,
 ) {
@@ -1016,14 +1023,9 @@ func (l *LazyLoadShard) addToPropertySetBucket(bucket *lsmkv.Bucket, docID uint6
 	return l.shard.addToPropertySetBucket(bucket, docID, key)
 }
 
-func (l *LazyLoadShard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {
+func (l *LazyLoadShard) addToPropertyMapBucket(bucket *lsmkv.Bucket, docID uint64, key []byte, tf, propLen float32) error {
 	l.mustLoad()
-	return l.shard.addToPropertyMapBucket(bucket, pair, key)
-}
-
-func (l *LazyLoadShard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair {
-	l.mustLoad()
-	return l.shard.pairPropertyWithFrequency(docID, freq, propLen)
+	return l.shard.addToPropertyMapBucket(bucket, docID, key, tf, propLen)
 }
 
 func (l *LazyLoadShard) setFallbackToSearchable(fallback bool) {

@@ -27,6 +27,11 @@ func (m *Memtable) roaringSetAddList(key []byte, values []uint64) error {
 	if err := CheckStrategyRoaringSet(m.strategy); err != nil {
 		return err
 	}
+	// The tree ignores a write carrying no values, so commit-logging one records
+	// an entry replay can never materialise.
+	if len(values) == 0 {
+		return nil
+	}
 
 	node, err := roaringset.NewSegmentNodeList(key, values, []uint64{})
 	if err != nil {
@@ -41,7 +46,7 @@ func (m *Memtable) roaringSetAddList(key []byte, values []uint64) error {
 
 	m.roaringSet.Insert(key, roaringset.Insert{Additions: values})
 
-	m.roaringSetAdjustMeta(len(values))
+	m.roaringSetAdjustMeta()
 	return nil
 }
 
@@ -53,9 +58,13 @@ func (m *Memtable) roaringSetAddBatch(entries []RoaringSetBatchEntry) error {
 		return err
 	}
 
-	// Pre-allocate all commit log nodes outside the lock.
+	// Pre-allocate all commit log nodes outside the lock. nodes[i] stays nil for
+	// an empty write, which the loop below skips.
 	nodes := make([]*roaringset.SegmentNodeList, len(entries))
 	for i, e := range entries {
+		if len(e.Values) == 0 {
+			continue
+		}
 		node, err := roaringset.NewSegmentNodeList(e.Key, e.Values, []uint64{})
 		if err != nil {
 			return fmt.Errorf("create node for commit log: %w", err)
@@ -66,19 +75,18 @@ func (m *Memtable) roaringSetAddBatch(entries []RoaringSetBatchEntry) error {
 	m.Lock()
 	defer m.Unlock()
 
-	var insertedValues int
 	for i, node := range nodes {
+		if node == nil {
+			continue
+		}
 		if err := m.roaringSetAddCommitLog(node); err != nil {
-			if insertedValues > 0 {
-				m.roaringSetAdjustMeta(insertedValues)
-			}
+			m.roaringSetAdjustMeta()
 			return err
 		}
 		m.roaringSet.Insert(entries[i].Key, roaringset.Insert{Additions: entries[i].Values})
-		insertedValues += len(entries[i].Values)
 	}
 
-	m.roaringSetAdjustMeta(insertedValues)
+	m.roaringSetAdjustMeta()
 	return nil
 }
 
@@ -87,12 +95,16 @@ func (m *Memtable) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 		return err
 	}
 
+	if bm.IsEmpty() {
+		return nil
+	}
+
 	array := bm.ToArray()
+
 	node, err := roaringset.NewSegmentNodeList(key, array, []uint64{})
 	if err != nil {
 		return fmt.Errorf("create node for commit log: %w", err)
 	}
-	cardinality := bm.GetCardinality()
 
 	m.Lock()
 	defer m.Unlock()
@@ -103,7 +115,7 @@ func (m *Memtable) roaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 
 	m.roaringSet.Insert(key, roaringset.Insert{Additions: array})
 
-	m.roaringSetAdjustMeta(cardinality)
+	m.roaringSetAdjustMeta()
 	return nil
 }
 
@@ -114,6 +126,9 @@ func (m *Memtable) roaringSetRemoveOne(key []byte, value uint64) error {
 func (m *Memtable) roaringSetRemoveList(key []byte, values []uint64) error {
 	if err := CheckStrategyRoaringSet(m.strategy); err != nil {
 		return err
+	}
+	if len(values) == 0 {
+		return nil
 	}
 
 	node, err := roaringset.NewSegmentNodeList(key, []uint64{}, values)
@@ -130,7 +145,7 @@ func (m *Memtable) roaringSetRemoveList(key []byte, values []uint64) error {
 
 	m.roaringSet.Insert(key, roaringset.Insert{Deletions: values})
 
-	m.roaringSetAdjustMeta(len(values))
+	m.roaringSetAdjustMeta()
 	return nil
 }
 
@@ -142,9 +157,13 @@ func (m *Memtable) roaringSetRemoveBatch(entries []RoaringSetBatchEntry) error {
 		return err
 	}
 
-	// Pre-allocate all commit log nodes outside the lock.
+	// Pre-allocate all commit log nodes outside the lock. nodes[i] stays nil for
+	// an empty write, which the loop below skips.
 	nodes := make([]*roaringset.SegmentNodeList, len(entries))
 	for i, e := range entries {
+		if len(e.Values) == 0 {
+			continue
+		}
 		node, err := roaringset.NewSegmentNodeList(e.Key, []uint64{}, e.Values)
 		if err != nil {
 			return fmt.Errorf("create node for commit log: %w", err)
@@ -155,19 +174,18 @@ func (m *Memtable) roaringSetRemoveBatch(entries []RoaringSetBatchEntry) error {
 	m.Lock()
 	defer m.Unlock()
 
-	var deletedValues int
 	for i, node := range nodes {
+		if node == nil {
+			continue
+		}
 		if err := m.roaringSetAddCommitLog(node); err != nil {
-			if deletedValues > 0 {
-				m.roaringSetAdjustMeta(deletedValues)
-			}
+			m.roaringSetAdjustMeta()
 			return err
 		}
 		m.roaringSet.Insert(entries[i].Key, roaringset.Insert{Deletions: entries[i].Values})
-		deletedValues += len(entries[i].Values)
 	}
 
-	m.roaringSetAdjustMeta(deletedValues)
+	m.roaringSetAdjustMeta()
 	return nil
 }
 
@@ -176,12 +194,17 @@ func (m *Memtable) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error {
 		return err
 	}
 
+	if bm.IsEmpty() {
+		return nil
+	}
+
 	array := bm.ToArray()
+
 	node, err := roaringset.NewSegmentNodeList(key, []uint64{}, array)
 	if err != nil {
 		return fmt.Errorf("create node for commit log: %w", err)
 	}
-	cardinality := bm.GetCardinality()
+
 	m.Lock()
 	defer m.Unlock()
 
@@ -191,13 +214,16 @@ func (m *Memtable) roaringSetRemoveBitmap(key []byte, bm *sroar.Bitmap) error {
 
 	m.roaringSet.Insert(key, roaringset.Insert{Deletions: array})
 
-	m.roaringSetAdjustMeta(cardinality)
+	m.roaringSetAdjustMeta()
 	return nil
 }
 
 func (m *Memtable) roaringSetAddRemoveSlices(key []byte, additions []uint64, deletions []uint64) error {
 	if err := CheckStrategyRoaringSet(m.strategy); err != nil {
 		return err
+	}
+	if len(additions) == 0 && len(deletions) == 0 {
+		return nil
 	}
 
 	node, err := roaringset.NewSegmentNodeList(key, additions, deletions)
@@ -217,7 +243,7 @@ func (m *Memtable) roaringSetAddRemoveSlices(key []byte, additions []uint64, del
 		Deletions: deletions,
 	})
 
-	m.roaringSetAdjustMeta(len(additions) + len(deletions))
+	m.roaringSetAdjustMeta()
 	return nil
 }
 
@@ -233,16 +259,23 @@ func (m *Memtable) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 	return m.roaringSet.Get(key)
 }
 
-func (m *Memtable) roaringSetAdjustMeta(entriesChanged int) {
-	// in the worst case roaring bitmaps take 2 bytes per entry. A reasonable
-	// estimation is therefore to take the changed entries and multiply them by
-	// 2.
-	m.size += uint64(entriesChanged * 2)
+// roaringSetAdjustMeta reads m.size back off the tree's running total, so the
+// two cannot drift. It is the only writer of m.size on this strategy.
+func (m *Memtable) roaringSetAdjustMeta() {
+	m.size = m.roaringSet.SizeInBytes()
 	m.metrics.observeSize(m.size)
-	m.updateDirtyAt()
+	// a memtable holding nothing cannot be switched, so the dirty timer would
+	// only wake the flush cycle to be refused
+	if m.size > 0 {
+		m.updateDirtyAt()
+	}
 }
 
 func (m *Memtable) roaringSetAddCommitLog(node *roaringset.SegmentNodeList) error {
+	// Set before the add, so a record torn by a crash still forces the sync. The
+	// flush cycle reuses a WAL under its threshold and syncs only when this is
+	// set, so a bucket that never sets it is never fsynced and never switched.
+	m.writesSinceLastSync = true
 	if err := m.commitlog.add(node); err != nil {
 		return errors.Wrap(err, "add node to commit log")
 	}

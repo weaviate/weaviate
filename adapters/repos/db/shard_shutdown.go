@@ -380,6 +380,12 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		storeDurable = err == nil
 	}
 
+	// counter is nil if the shard failed to initialize before opening it
+	if s.counter != nil {
+		err = s.counter.Close()
+		ec.AddWrapf(err, "close index counter")
+	}
+
 	// Publish only after the store flushed: a crash-surviving snapshot must never over-represent the store.
 	if capturedHT != nil && storeDurable {
 		s.dumpHashTreeWithTimeout(capturedHT, hashtreeDumpTimeout)

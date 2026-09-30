@@ -220,12 +220,14 @@ func TestListInactiveShardFiles(t *testing.T) {
 
 	// rootFiles are written as regular files at the shard root, where the vector
 	// indexes keep their state. extraDirs maps a shard subdirectory to the files
-	// created inside it.
+	// created inside it. unreadableDir is a shard subdirectory made unreadable.
 	tests := []struct {
 		name          string
 		rootFiles     []string
 		extraDirs     map[string][]string
+		unreadableDir string
 		extraExpected []string
+		wantErr       bool
 	}{
 		{
 			name: "no vector index state",
@@ -268,6 +270,27 @@ func TestListInactiveShardFiles(t *testing.T) {
 				changelogDirName: {"op-1.log"},
 			},
 		},
+		{
+			name: "nested vector index files are listed, nested .tmp files are not",
+			extraDirs: map[string][]string{
+				"main.hfresh.d":          {"centroids.bin"},
+				"main.hfresh.d/postings": {"postings-1.bin", "postings-2.bin.tmp"},
+			},
+			extraExpected: []string{
+				filepath.Join(indexID, shardName, "main.hfresh.d", "centroids.bin"),
+				filepath.Join(indexID, shardName, "main.hfresh.d", "postings", "postings-1.bin"),
+			},
+		},
+		{
+			name:      "empty vector index directory",
+			extraDirs: map[string][]string{"main.queue.d": nil},
+		},
+		{
+			name:          "unreadable nested vector index directory fails the listing",
+			extraDirs:     map[string][]string{"main.hfresh.d/postings": {"postings-1.bin"}},
+			unreadableDir: "main.hfresh.d/postings",
+			wantErr:       true,
+		},
 	}
 
 	for _, test := range tests {
@@ -296,6 +319,15 @@ func TestListInactiveShardFiles(t *testing.T) {
 				}
 			}
 
+			if test.unreadableDir != "" {
+				if os.Getuid() == 0 {
+					t.Skip("root ignores directory permissions")
+				}
+				dir := filepath.Join(shardDir, test.unreadableDir)
+				require.NoError(t, os.Chmod(dir, 0o000))
+				t.Cleanup(func() { os.Chmod(dir, 0o755) })
+			}
+
 			// LSM bucket with segment and WAL
 			bucketDir := filepath.Join(shardDir, "lsm", "objects")
 			require.NoError(t, os.MkdirAll(bucketDir, 0o755))
@@ -320,6 +352,10 @@ func TestListInactiveShardFiles(t *testing.T) {
 
 			var sd backup.ShardDescriptor
 			files, err := idx.listInactiveShardFiles(shardName, &sd)
+			if test.wantErr {
+				require.Error(t, err)
+				return
+			}
 			require.NoError(t, err)
 
 			// Verify metadata
@@ -328,6 +364,10 @@ func TestListInactiveShardFiles(t *testing.T) {
 			assert.Equal(t, []byte("42"), sd.DocIDCounter)
 			assert.Equal(t, []byte(`{"len":1}`), sd.PropLengthTracker)
 			assert.Equal(t, []byte("2"), sd.Version)
+			// The descriptor holds these for the whole backup, once per shard.
+			assert.Equal(t, len(sd.DocIDCounter), cap(sd.DocIDCounter))
+			assert.Equal(t, len(sd.PropLengthTracker), cap(sd.PropLengthTracker))
+			assert.Equal(t, len(sd.Version), cap(sd.Version))
 
 			// Verify relative paths for metadata
 			assert.Equal(t, filepath.Join(indexID, shardName, "indexcount"), sd.DocIDCounterPath)

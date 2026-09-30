@@ -60,7 +60,7 @@ func TestBackup_ListFilesExcludesActiveFile_Deterministic(t *testing.T) {
 	// so that PrepareForBackup will rotate to a new (still-empty) file with a
 	// distinct timestamp. Sleep > 1s so the new file gets a different
 	// `time.Now().Unix()` second.
-	require.NoError(t, cl.AddNode(&vertex{id: 1, level: 0}))
+	require.NoError(t, cl.AddNode(1, 0))
 	require.NoError(t, cl.Flush())
 	time.Sleep(1100 * time.Millisecond)
 
@@ -80,7 +80,7 @@ func TestBackup_ListFilesExcludesActiveFile_Deterministic(t *testing.T) {
 	// dequeue tasks and call into the HNSW writers as soon as the queue's
 	// PrepareForBackup returns, which happens before idx.PrepareForBackup,
 	// and writes can continue all the way through ListFiles.
-	require.NoError(t, cl.AddNode(&vertex{id: 2, level: 0}))
+	require.NoError(t, cl.AddNode(2, 0))
 	require.NoError(t, cl.Flush())
 
 	files, err := idx.ListFiles(ctx, dirName)
@@ -131,7 +131,7 @@ func TestBackup_ListFilesExcludesActiveFile_ConcurrentRace(t *testing.T) {
 	// Seed and let the first commit log file's timestamp settle, otherwise
 	// successive switches in the same wall-clock second collide on filename
 	// (filenames are `time.Now().Unix()`).
-	require.NoError(t, cl.AddNode(&vertex{id: 1, level: 0}))
+	require.NoError(t, cl.AddNode(1, 0))
 	require.NoError(t, cl.Flush())
 
 	var (
@@ -152,7 +152,7 @@ func TestBackup_ListFilesExcludesActiveFile_ConcurrentRace(t *testing.T) {
 		defer wg.Done()
 		for !stop.Load() {
 			id := writeID.Add(1)
-			if err := cl.AddNode(&vertex{id: id, level: 0}); err != nil {
+			if err := cl.AddNode(id, 0); err != nil {
 				return
 			}
 			if err := cl.Flush(); err != nil {

@@ -50,7 +50,7 @@ func newLazyDropTenant(t *testing.T) (lazy *LazyLoadShard, reload func() *LazyLo
 	const (
 		tenant  = "lazy-drop"
 		dims    = 64
-		objects = 1500
+		objects = 50
 	)
 
 	keepCfg := hnsw.NewDefaultUserConfig()

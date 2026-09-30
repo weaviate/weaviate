@@ -1373,3 +1373,96 @@ func TestSchemaManager_PreApplyFilterRestoreClassCollision(t *testing.T) {
 		})
 	}
 }
+
+// propertyRecordingIndexer captures the property the store half applies.
+type propertyRecordingIndexer struct {
+	Indexer
+
+	got *models.Property
+}
+
+func (r *propertyRecordingIndexer) UpdateProperty(_ string, req cmd.UpdatePropertyRequest) error {
+	r.got = req.Property
+	return nil
+}
+
+func (r *propertyRecordingIndexer) TriggerSchemaUpdateCallbacks() {}
+
+// TestUpdatePropertyStoreSeesTheMergedProperty pins that the DB half applies
+// the merged property: it drops buckets by the index flags it is handed, and a
+// mask leaves the omitted ones to the schema.
+func TestUpdatePropertyStoreSeesTheMergedProperty(t *testing.T) {
+	vTrue, vFalse := true, false
+
+	tests := []struct {
+		name            string
+		mask            []string
+		payload         *models.Property
+		wantFilterable  bool
+		wantSearchable  bool
+		wantRangeFilter bool
+	}{
+		{
+			name:            "masked update keeps the fields it does not name",
+			mask:            []string{cmd.PropertyFieldIndexSearchable},
+			payload:         &models.Property{Name: "p", IndexFilterable: &vFalse, IndexSearchable: &vFalse, IndexRangeFilters: &vFalse},
+			wantFilterable:  true,
+			wantSearchable:  false,
+			wantRangeFilter: true,
+		},
+		{
+			name:            "masked update applies the field it names",
+			mask:            []string{cmd.PropertyFieldIndexFilterable},
+			payload:         &models.Property{Name: "p", IndexFilterable: &vFalse, IndexSearchable: &vFalse, IndexRangeFilters: &vFalse},
+			wantFilterable:  false,
+			wantSearchable:  true,
+			wantRangeFilter: true,
+		},
+		{
+			name:            "no mask merges everything",
+			mask:            nil,
+			payload:         &models.Property{Name: "p", IndexFilterable: &vFalse, IndexSearchable: &vFalse, IndexRangeFilters: &vFalse},
+			wantFilterable:  false,
+			wantSearchable:  false,
+			wantRangeFilter: false,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			idx := &propertyRecordingIndexer{}
+			parser := fakes.NewMockParser()
+			parser.On("ParseClass", mock.Anything).Return(nil)
+			sm := NewSchemaManager("node1", idx, parser, prometheus.NewPedanticRegistry(), logrus.New())
+
+			require.NoError(t, sm.schema.addClass(&models.Class{
+				Class: "C",
+				Properties: []*models.Property{{
+					Name: "p", DataType: []string{"text"},
+					IndexFilterable: &vTrue, IndexSearchable: &vTrue, IndexRangeFilters: &vTrue,
+				}},
+			}, &sharding.State{Physical: map[string]sharding.Physical{}}, 1))
+
+			sub, err := json.Marshal(cmd.UpdatePropertyRequest{
+				Property: test.payload, FieldsToUpdate: test.mask,
+			})
+			require.NoError(t, err)
+			require.NoError(t, sm.UpdateProperty(&cmd.ApplyRequest{
+				Type: cmd.ApplyRequest_TYPE_UPDATE_PROPERTY, Class: "C", Version: 2, SubCommand: sub,
+			}, false, false))
+
+			require.NotNil(t, idx.got, "the store half must run")
+			require.Equal(t, test.wantFilterable, *idx.got.IndexFilterable, "filterable")
+			require.Equal(t, test.wantSearchable, *idx.got.IndexSearchable, "searchable")
+			require.Equal(t, test.wantRangeFilter, *idx.got.IndexRangeFilters, "rangeable")
+
+			cls, _ := sm.schema.ReadOnlyClass("C")
+			require.NotNil(t, cls)
+			schemaProp := findProp(cls, "p")
+			require.NotNil(t, schemaProp)
+			require.Equal(t, *schemaProp.IndexFilterable, *idx.got.IndexFilterable)
+			require.Equal(t, *schemaProp.IndexSearchable, *idx.got.IndexSearchable)
+			require.Equal(t, *schemaProp.IndexRangeFilters, *idx.got.IndexRangeFilters)
+		})
+	}
+}

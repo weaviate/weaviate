@@ -13,6 +13,7 @@ package objects
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -28,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -1107,33 +1109,75 @@ func Test_References_NamespaceResolution_Batch(t *testing.T) {
 		repo.AssertExpectations(t)
 	})
 
-	t.Run("NS: admin cannot address namespaced source class in batch URI (architectural note)", func(t *testing.T) {
-		// Reachability documentation, not behaviour-under-test: on the
-		// batch path the source class is encoded in the URI path, and
-		// crossref.ParseSource rejects URIs whose class segment starts
-		// with a lowercase character — which "customer1:Zoo" does. Admin
-		// also doesn't get implicit qualification from resolveNS
-		// (principal.Namespace is ""), so a short "Zoo" wouldn't match
-		// the "customer1:Zoo" schema entry either. There is therefore no
-		// reachable admin → NS-qualified-source batch flow today; items
-		// 2/3/4 from the audit are covered by the Add and Update tests
-		// above (which take input.Class as a Go field that bypasses the
-		// URI constraint), plus the existing namespaced-principal batch
-		// tests in this function. Pin the parse rejection so a future
-		// loosening of ParseSource trips this test and forces a fresh
-		// look at the admin-on-batch coverage gap.
-		_, b, _, _, _ := newNSManagers(t, multiTargetNSSchema(true), true)
+	t.Run("admin: qualified source class in the batch URI", func(t *testing.T) {
+		tests := []struct {
+			name, target string
+			wantErr      bool
+		}{
+			{name: "short target", target: "Alpha"},
+			{name: "target in the source's namespace", target: "customer1:Alpha"},
+			{name: "target in another namespace", target: "customer2:Alpha", wantErr: true},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				_, b, repo, _, authz := newNSManagers(t, multiTargetNSSchema(true), true)
+				repo.On("AddBatchReferences", mock.MatchedBy(func(refs BatchReferences) bool {
+					if len(refs) != 1 {
+						return false
+					}
+					r := refs[0]
+					if tc.wantErr {
+						return r.Err != nil
+					}
+					return r.Err == nil &&
+						string(r.From.Class) == "customer1:Source" &&
+						r.To != nil && r.To.Class == "Alpha"
+				})).Return(nil).Once()
+
+				refs := []*models.BatchReference{{
+					From: strfmt.URI("weaviate://localhost/customer1:Source/" + string(id) + "/hasOther"),
+					To:   strfmt.URI("weaviate://localhost/" + tc.target + "/" + string(refID)),
+				}}
+				_, err := b.AddReferences(context.Background(), &models.Principal{Username: "admin"}, refs, nil)
+				require.NoError(t, err)
+				repo.AssertExpectations(t)
+
+				sourcePath := authorization.Objects("customer1:Source", "")
+				assert.True(t, slices.ContainsFunc(authz.Calls(), func(c mocks.AuthZReq) bool {
+					return c.Verb == authorization.UPDATE && slices.Contains(c.Resources, sourcePath)
+				}), "expected UPDATE on %s, got %+v", sourcePath, authz.Calls())
+			})
+		}
+	})
+
+	t.Run("NS-disabled: qualified source class in the batch URI fails that ref", func(t *testing.T) {
+		_, b, _, _, _ := newNSManagers(t, multiTargetNSSchema(false), false)
 		refs := []*models.BatchReference{{
 			From: strfmt.URI("weaviate://localhost/customer1:Source/" + string(id) + "/hasOther"),
 			To:   strfmt.URI("weaviate://localhost/Alpha/" + string(refID)),
 		}}
-		out, err := b.AddReferences(context.Background(),
-			&models.Principal{Username: "admin"}, refs, nil)
+		out, err := b.AddReferences(context.Background(), &models.Principal{Username: "admin"}, refs, nil)
 		require.NoError(t, err)
 		require.Len(t, out, 1)
-		require.Error(t, out[0].Err,
-			"ParseSource must reject qualified source class in batch URI today")
-		assert.Contains(t, out[0].Err.Error(), "uppercase")
+		require.ErrorContains(t, out[0].Err, "is not a valid class name")
+	})
+
+	t.Run("namespaced principal: qualified source class in the batch URI fails that ref", func(t *testing.T) {
+		for _, source := range []string{"customer1:Source", "customer2:Source"} {
+			t.Run(source, func(t *testing.T) {
+				_, b, repo, _, _ := newNSManagers(t, multiTargetNSSchema(true), true)
+				refs := []*models.BatchReference{{
+					From: strfmt.URI("weaviate://localhost/" + source + "/" + string(id) + "/hasOther"),
+					To:   strfmt.URI("weaviate://localhost/Alpha/" + string(refID)),
+				}}
+				out, err := b.AddReferences(context.Background(),
+					&models.Principal{Username: "u", Namespace: "customer1"}, refs, nil)
+				require.NoError(t, err)
+				require.Len(t, out, 1)
+				require.ErrorContains(t, out[0].Err, "is not a valid class name")
+				repo.AssertExpectations(t)
+			})
+		}
 	})
 }
 

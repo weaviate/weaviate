@@ -744,9 +744,23 @@ func (s *segment) indexSize() int {
 	return s.index.Size()
 }
 
+// nodeReader streams one node off a segment. It bundles every reader either
+// path needs, so that a pooled nodeReader serves a node read without allocating.
+// Callers must Release it exactly once and not touch it afterwards: the next
+// read, possibly on another goroutine, reuses it.
 type nodeReader struct {
-	r         io.Reader
-	releaseFn func()
+	// r is nil while the nodeReader sits in the pool
+	r io.Reader
+
+	mem   bytes.Reader
+	file  meteredOffsetReader
+	bufio *bufio.Reader
+}
+
+var nodeReaderPool = sync.Pool{
+	New: func() any {
+		return &nodeReader{bufio: bufio.NewReader(nil)}
+	},
 }
 
 func (n *nodeReader) Read(b []byte) (int, error) {
@@ -756,22 +770,77 @@ func (n *nodeReader) Read(b []byte) (int, error) {
 	return n.r.Read(b)
 }
 
+// Release is a no-op on a nodeReader that is already released, so a repeated
+// call cannot pool it twice.
 func (n *nodeReader) Release() {
+	if n.r == nil {
+		return
+	}
 	n.r = nil
-	n.releaseFn()
+	// drop the segment's contents, file and metrics before the next read reuses this
+	n.mem.Reset(nil)
+	n.file = meteredOffsetReader{}
+	n.bufio.Reset(nil)
+	nodeReaderPool.Put(n)
+}
+
+// meteredOffsetReader reads a file sequentially from off through ReadAt, so
+// concurrent readers never share the file's own offset, and meters each
+// successful read.
+type meteredOffsetReader struct {
+	ra      readerAt
+	off     int64
+	observe BytesReadObserver
+}
+
+func (r *meteredOffsetReader) Read(p []byte) (int, error) {
+	start := time.Now()
+	n, err := r.ra.ReadAt(p, r.off)
+	r.off += int64(n)
+	if err != nil {
+		return n, err
+	}
+	r.observe(int64(n), time.Since(start).Nanoseconds())
+	return n, nil
 }
 
 type nodeOffset struct {
 	start, end uint64
 }
 
-// readMetricName is the sync.Map key bufferedReaderAt and copyNode meter under.
-// Joining it per call allocates, so the operations the switch lists are joined
-// at compile time; the rest join per call in the default arm.
+const (
+	copyNodeOp                      = "copyNode"
+	loadBMWOp                       = "loadBMW"
+	roaringSetReadOp                = "roaringSetRead"
+	segmentCursorReplaceOp          = "segmentCursorReplace"
+	segmentCursorMapOp              = "segmentCursorMap"
+	segmentCursorCollectionOp       = "segmentCursorCollection"
+	cursorCollectionReusableOp      = "CursorCollectionReusable"
+	segmentCursorInvertedReusableOp = "segmentCursorInvertedReusable"
+)
+
+// readMetricName is the sync.Map key segment reads meter under. Joining it per
+// call allocates, so the operations the switch lists are joined at compile time;
+// the rest join per call in the default arm.
 func readMetricName(operation string) string {
 	switch operation {
 	case copyNodeOp:
 		return "ReadFromSegment" + copyNodeOp
+	case loadBMWOp:
+		return "ReadFromSegment" + loadBMWOp
+	case roaringSetReadOp:
+		// has always been metered without the prefix
+		return roaringSetReadOp
+	case segmentCursorReplaceOp:
+		return "ReadFromSegment" + segmentCursorReplaceOp
+	case segmentCursorMapOp:
+		return "ReadFromSegment" + segmentCursorMapOp
+	case segmentCursorCollectionOp:
+		return "ReadFromSegment" + segmentCursorCollectionOp
+	case cursorCollectionReusableOp:
+		return "ReadFromSegment" + cursorCollectionReusableOp
+	case segmentCursorInvertedReusableOp:
+		return "ReadFromSegment" + segmentCursorInvertedReusableOp
 	case targetedScanPeekOp:
 		return "ReadFromSegment" + targetedScanPeekOp
 	case targetedScanRangeOp:
@@ -780,29 +849,39 @@ func readMetricName(operation string) string {
 	return "ReadFromSegment" + operation
 }
 
+// newNodeReader streams the segment from offset.start. In memory the stream ends
+// at offset.end, or at the end of the contents if that is 0; on disk offset.end
+// is not enforced and the stream runs to the end of the file.
 func (s *segment) newNodeReader(offset nodeOffset, operation string) (*nodeReader, error) {
-	var (
-		r       io.Reader
-		err     error
-		release = func() {} // no-op function for un-pooled readers
-	)
-
 	if s.readFromMemory {
 		contents := s.contents[offset.start:]
 		if offset.end != 0 {
 			contents = s.contents[offset.start:offset.end]
 		}
-		r, err = s.bytesReaderFrom(contents)
-	} else {
-		r, release, err = s.bufferedReaderAt(offset.start, readMetricName(operation))
-	}
-	if err != nil {
-		return nil, fmt.Errorf("new nodeReader: %w", err)
-	}
-	return &nodeReader{r: r, releaseFn: release}, nil
-}
+		if len(contents) == 0 {
+			return nil, fmt.Errorf("new nodeReader: %w", lsmkv.NotFound)
+		}
 
-const copyNodeOp = "copyNode"
+		n := nodeReaderPool.Get().(*nodeReader)
+		n.mem.Reset(contents)
+		n.r = &n.mem
+		return n, nil
+	}
+
+	if s.contentFile == nil {
+		return nil, fmt.Errorf("new nodeReader: nil contentFile for segment at %s", s.path)
+	}
+
+	n := nodeReaderPool.Get().(*nodeReader)
+	n.file = meteredOffsetReader{
+		ra:      s.contentFile,
+		off:     int64(offset.start),
+		observe: readObserver.GetOrCreate(readMetricName(operation), s.metrics),
+	}
+	n.bufio.Reset(&n.file)
+	n.r = n.bufio
+	return n, nil
+}
 
 func (s *segment) copyNode(b []byte, offset nodeOffset) error {
 	if s.readFromMemory {
@@ -832,45 +911,7 @@ func (s *segment) preadInto(b []byte, off uint64, operation string) error {
 	return nil
 }
 
-func (s *segment) bytesReaderFrom(in []byte) (*bytes.Reader, error) {
-	if len(in) == 0 {
-		return nil, lsmkv.NotFound
-	}
-	return bytes.NewReader(in), nil
-}
-
-func (s *segment) bufferedReaderAt(offset uint64, operation string) (io.Reader, func(), error) {
-	if s.contentFile == nil {
-		return nil, nil, fmt.Errorf("nil contentFile for segment at %s", s.path)
-	}
-
-	meteredF := diskio.NewMeteredReader(s.contentFile, diskio.MeteredReaderCallback(readObserver.GetOrCreate(operation, s.metrics)))
-	r := io.NewSectionReader(meteredF, int64(offset), s.size)
-
-	bufioR := bufReaderPool.Get().(*bufio.Reader)
-	bufioR.Reset(r)
-
-	releaseFn := func() {
-		bufReaderPool.Put(bufioR)
-	}
-
-	return bufioR, releaseFn, nil
-}
-
-var (
-	bufReaderPool *sync.Pool
-	readObserver  *readObserverCache
-)
-
-func init() {
-	bufReaderPool = &sync.Pool{
-		New: func() interface{} {
-			return bufio.NewReader(nil)
-		},
-	}
-
-	readObserver = &readObserverCache{}
-}
+var readObserver = &readObserverCache{}
 
 type readObserverCache struct {
 	sync.Map

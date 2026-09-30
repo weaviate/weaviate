@@ -113,7 +113,6 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 	)
 
 	var keys []segmentindex.Key
-	skipIndices := false
 
 	switch m.strategy {
 	case StrategyReplace:
@@ -127,7 +126,7 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 		}
 
 	case StrategyRoaringSet:
-		if keys, err = m.flushDataRoaringSet(segmentFile); err != nil {
+		if err = m.flushDataRoaringSet(segmentFile, meteredF, bufw); err != nil {
 			return "", err
 		}
 
@@ -135,7 +134,6 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 		if keys, err = m.flushDataRoaringSetRange(segmentFile); err != nil {
 			return "", err
 		}
-		skipIndices = true
 
 	case StrategyMapCollection:
 		if keys, err = m.flushDataMap(segmentFile); err != nil {
@@ -145,12 +143,14 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 		if keys, _, err = m.flushDataInverted(segmentFile, meteredF, bufw); err != nil {
 			return "", err
 		}
-		skipIndices = true
 	default:
 		return "", fmt.Errorf("cannot flush strategy %s", m.strategy)
 	}
 
-	if !skipIndices {
+	// The arms above that build their own index are exactly the ones this
+	// predicate excludes, and NewBucket reads the same answer to decide whether a
+	// secondary index is allowed at all.
+	if strategyUsesSharedIndexWriter(m.strategy) {
 		indexes := &segmentindex.Indexes{
 			Keys:                keys,
 			SecondaryIndexCount: m.secondaryIndices,
@@ -242,9 +242,7 @@ func (m *Memtable) flushDataSet(f *segmentindex.SegmentFile) ([]segmentindex.Key
 }
 
 func (m *Memtable) flushDataMap(f *segmentindex.SegmentFile) ([]segmentindex.Key, error) {
-	m.RLock()
-	flat := m.keyMap.flattenInOrder()
-	m.RUnlock()
+	flat := m.flattenKeyMap()
 
 	// by encoding each map pair we can force the same structure as for a
 	// collection, which means we can reuse the same flushing logic

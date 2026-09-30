@@ -179,7 +179,7 @@ func (h *indexesHandlers) getIndexes(params schema.SchemaObjectsIndexesGetParams
 	collection, _, rErr := namespacing.Resolve(principal, h.appState.SchemaManager,
 		h.appState.ServerConfig.Config.Namespaces.Enabled, params.ClassName)
 	if rErr != nil {
-		return schema.NewSchemaObjectsIndexesGetForbidden().WithPayload(errPayloadFromSingleErr(principal, rErr))
+		return schema.NewSchemaObjectsIndexesGetUnprocessableEntity().WithPayload(errPayloadFromSingleErr(principal, rErr))
 	}
 
 	// Require READ on the collection's metadata: this endpoint exposes

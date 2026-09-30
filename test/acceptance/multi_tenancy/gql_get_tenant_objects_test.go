@@ -41,7 +41,7 @@ func TestGQLGetTenantObjects(t *testing.T) {
 				DataType: schema.DataTypeText.PropString(),
 			},
 		},
-		Vectorizer: "text2vec-contextionary",
+		Vectorizer: "text2vec-model2vec",
 	}
 	tenant := "Tenant1"
 	otherTenant := "otherTenant"

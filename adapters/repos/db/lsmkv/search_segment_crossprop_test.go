@@ -120,8 +120,7 @@ func TestBlockMaxAndCrossPropMatchesBruteForce(t *testing.T) {
 			for d := lo; d < hi; d++ {
 				for p := 0; p < nProps; p++ {
 					for tid, tf := range corpus[d][p].tfs {
-						require.NoError(t, buckets[p].MapSet([]byte(keyFor(tid)),
-							NewMapPairFromDocIdAndTf(uint64(d), float32(tf), corpus[d][p].pl, false)))
+						require.NoError(t, buckets[p].InvertedSet([]byte(keyFor(tid)), uint64(d), float32(tf), corpus[d][p].pl))
 					}
 				}
 			}
@@ -355,14 +354,14 @@ func TestBlockMaxAndCrossPropSamePropDuplicateDocID(t *testing.T) {
 	// prop 0: the same posting in two flushed segments, different tf; MapSet
 	// writes no tombstone, so both stay live
 	prop0 := newBucket()
-	require.NoError(t, prop0.MapSet([]byte(key), NewMapPairFromDocIdAndTf(docID, 2, pl, false)))
+	require.NoError(t, prop0.InvertedSet([]byte(key), docID, 2, pl))
 	require.NoError(t, prop0.FlushAndSwitch())
-	require.NoError(t, prop0.MapSet([]byte(key), NewMapPairFromDocIdAndTf(docID, 5, pl, false)))
+	require.NoError(t, prop0.InvertedSet([]byte(key), docID, 5, pl))
 	require.NoError(t, prop0.FlushAndSwitch())
 
 	// prop 1: a single posting, so the sum across properties stays observable
 	prop1 := newBucket()
-	require.NoError(t, prop1.MapSet([]byte(key), NewMapPairFromDocIdAndTf(docID, 3, pl, false)))
+	require.NoError(t, prop1.InvertedSet([]byte(key), docID, 3, pl))
 	require.NoError(t, prop1.FlushAndSwitch())
 
 	buckets := []*Bucket{prop0, prop1}

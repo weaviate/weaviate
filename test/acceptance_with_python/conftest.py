@@ -154,7 +154,7 @@ def named_collection(
             for prop in props
         ]
         named_vectors = [
-            wvc.config.Configure.NamedVectors.text2vec_contextionary(
+            wvc.config.Configure.NamedVectors.text2vec_model2vec(
                 name=prop.name,
                 source_properties=[prop.name],
                 vectorize_collection_name=False,

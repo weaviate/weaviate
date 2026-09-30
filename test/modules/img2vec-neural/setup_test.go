@@ -26,7 +26,7 @@ func TestMain(m *testing.M) {
 	ctx := context.Background()
 	compose, err := docker.New().
 		WithWeaviate().
-		WithText2VecContextionary().
+		WithText2VecModel2Vec().
 		WithImg2VecNeural().
 		Start(ctx)
 	if err != nil {

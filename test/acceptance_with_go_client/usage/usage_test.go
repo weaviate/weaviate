@@ -12,6 +12,7 @@
 package usage
 
 import (
+	"acceptance_tests_with_client/fixtures"
 	"acceptance_tests_with_client/internal/wvhost"
 	"context"
 	"fmt"
@@ -48,7 +49,8 @@ func TestTenantStatusChanges(t *testing.T) {
 	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
 	class := &models.Class{
-		Class: className,
+		Class:        className,
+		VectorConfig: fixtures.DefaultVectorConfig(),
 		Properties: []*models.Property{
 			{
 				Name:     "first",
@@ -134,7 +136,8 @@ func TestUsageTenantDelete(t *testing.T) {
 	defer c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
 	class := &models.Class{
-		Class: className,
+		Class:        className,
+		VectorConfig: fixtures.DefaultVectorConfig(),
 		Properties: []*models.Property{
 			{
 				Name:     "first",
@@ -226,7 +229,8 @@ func TestCollectionDeletion(t *testing.T) {
 		c.Schema().ClassDeleter().WithClassName(className).Do(ctx)
 
 		class := &models.Class{
-			Class: className,
+			Class:        className,
+			VectorConfig: fixtures.DefaultVectorConfig(),
 			Properties: []*models.Property{
 				{
 					Name:     "first",

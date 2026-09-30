@@ -43,8 +43,7 @@ func TestInvertedNaNPropLength(t *testing.T) {
 	})
 
 	for i := 0; i < size; i++ {
-		pair := NewMapPairFromDocIdAndTf(uint64(i), float32(1), float32(1), false)
-		err := bucket.MapSet(key, pair)
+		err := bucket.InvertedSet(key, uint64(i), 1, 1)
 		require.Nil(t, err)
 	}
 	err := bucket.FlushAndSwitch()
@@ -57,8 +56,7 @@ func TestInvertedNaNPropLength(t *testing.T) {
 	require.Equal(t, uint64(size), sum)
 
 	for i := 0; i < size/2; i++ {
-		pair := NewMapPairFromDocIdAndTf(uint64(i), float32(1), float32(1), false)
-		err := bucket.MapDeleteKey(key, pair.Key)
+		err := bucket.InvertedDeleteDoc(key, uint64(i))
 		require.Nil(t, err)
 	}
 
@@ -71,8 +69,7 @@ func TestInvertedNaNPropLength(t *testing.T) {
 	require.Equal(t, uint64(size), sum)
 
 	for i := size / 2; i < size; i++ {
-		pair := NewMapPairFromDocIdAndTf(uint64(i), float32(1), float32(1), false)
-		err := bucket.MapDeleteKey(key, pair.Key)
+		err := bucket.InvertedDeleteDoc(key, uint64(i))
 		require.Nil(t, err)
 	}
 

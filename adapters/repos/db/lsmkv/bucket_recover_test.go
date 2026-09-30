@@ -102,7 +102,7 @@ func TestBucketWalReload(t *testing.T) {
 			// will load wal and reuse memtable
 			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(strategy), WithSecondaryIndices(1),
+				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount),
 				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
 			require.NoError(t, err)
 
@@ -360,5 +360,61 @@ func TestBucketReloadAfterWalDamange(t *testing.T) {
 		secondary1, err := b.GetBySecondary(ctx, 1, []byte(fmt.Sprintf("hallo%d", i)))
 		require.NoError(t, err)
 		require.Equal(t, []byte(fmt.Sprintf("world%d", i)), secondary1)
+	}
+}
+
+func TestBucketRecoveryWithWALShorterThanChecksum(t *testing.T) {
+	ctx := context.Background()
+	logger, _ := test.NewNullLogger()
+	// tornRecord holds the commit type, version and first length bytes of a record a crash cut off.
+	tornRecord := []byte{byte(CommitTypeReplace), CurrentCommitLogVersion, 0, 0}
+
+	openBucket := func(t *testing.T, dir, strategy string, secondaryIndices uint16) *Bucket {
+		t.Helper()
+		b, err := NewBucketCreator().NewBucket(ctx, dir, "", logger, nil,
+			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+			WithStrategy(strategy), WithSecondaryIndices(secondaryIndices),
+			WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
+		require.NoError(t, err)
+		return b
+	}
+
+	strategies := []string{
+		StrategyReplace, StrategySetCollection, StrategyMapCollection,
+		StrategyRoaringSet, StrategyRoaringSetRange, StrategyInverted,
+	}
+	for _, strategy := range strategies {
+		for size := range len(tornRecord) + 1 {
+			t.Run(fmt.Sprintf("only wal, %s, %d bytes", strategy, size), func(t *testing.T) {
+				dir := t.TempDir()
+				require.NoError(t, os.WriteFile(filepath.Join(dir, "segment-1757496219190885000.wal"), tornRecord[:size], 0o644))
+
+				b := openBucket(t, dir, strategy, 0)
+				_, walFiles := countDbAndWalFiles(t, dir)
+				require.Zero(t, walFiles)
+				require.NoError(t, b.Shutdown(ctx))
+			})
+		}
+	}
+
+	for size := 1; size <= len(tornRecord); size++ {
+		t.Run(fmt.Sprintf("newer than a wal holding records, %d bytes", size), func(t *testing.T) {
+			dir := t.TempDir()
+			b := openBucket(t, dir, StrategyReplace, 1)
+			require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
+			require.NoError(t, b.Shutdown(ctx))
+			// the file name sorts after the wal the bucket just wrote
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "segment-9000000000000000000.wal"), tornRecord[:size], 0o644))
+
+			b = openBucket(t, dir, StrategyReplace, 1)
+			testBucketContent(t, StrategyReplace, b, 2)
+
+			// a restart recovers a write made after the short wal was dropped
+			require.NoError(t, b.Put([]byte("hello2"), []byte("world2"), WithSecondaryKey(0, []byte("bonjour2"))))
+			require.NoError(t, b.Shutdown(ctx))
+			b = openBucket(t, dir, StrategyReplace, 1)
+			testBucketContent(t, StrategyReplace, b, 3)
+			require.NoError(t, b.Shutdown(ctx))
+		})
 	}
 }

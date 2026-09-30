@@ -129,6 +129,51 @@ func (_c *MockModuleInitParams_GetConfig_Call) RunAndReturn(run func() *config.C
 	return _c
 }
 
+// GetDataPath provides a mock function with no fields
+func (_m *MockModuleInitParams) GetDataPath() string {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetDataPath")
+	}
+
+	var r0 string
+	if rf, ok := ret.Get(0).(func() string); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(string)
+	}
+
+	return r0
+}
+
+// MockModuleInitParams_GetDataPath_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetDataPath'
+type MockModuleInitParams_GetDataPath_Call struct {
+	*mock.Call
+}
+
+// GetDataPath is a helper method to define mock.On call
+func (_e *MockModuleInitParams_Expecter) GetDataPath() *MockModuleInitParams_GetDataPath_Call {
+	return &MockModuleInitParams_GetDataPath_Call{Call: _e.mock.On("GetDataPath")}
+}
+
+func (_c *MockModuleInitParams_GetDataPath_Call) Run(run func()) *MockModuleInitParams_GetDataPath_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockModuleInitParams_GetDataPath_Call) Return(_a0 string) *MockModuleInitParams_GetDataPath_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockModuleInitParams_GetDataPath_Call) RunAndReturn(run func() string) *MockModuleInitParams_GetDataPath_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetLogger provides a mock function with no fields
 func (_m *MockModuleInitParams) GetLogger() logrus.FieldLogger {
 	ret := _m.Called()
@@ -219,53 +264,6 @@ func (_c *MockModuleInitParams_GetMetricsRegisterer_Call) Return(_a0 prometheus.
 }
 
 func (_c *MockModuleInitParams_GetMetricsRegisterer_Call) RunAndReturn(run func() prometheus.Registerer) *MockModuleInitParams_GetMetricsRegisterer_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// GetStorageProvider provides a mock function with no fields
-func (_m *MockModuleInitParams) GetStorageProvider() StorageProvider {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for GetStorageProvider")
-	}
-
-	var r0 StorageProvider
-	if rf, ok := ret.Get(0).(func() StorageProvider); ok {
-		r0 = rf()
-	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(StorageProvider)
-		}
-	}
-
-	return r0
-}
-
-// MockModuleInitParams_GetStorageProvider_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetStorageProvider'
-type MockModuleInitParams_GetStorageProvider_Call struct {
-	*mock.Call
-}
-
-// GetStorageProvider is a helper method to define mock.On call
-func (_e *MockModuleInitParams_Expecter) GetStorageProvider() *MockModuleInitParams_GetStorageProvider_Call {
-	return &MockModuleInitParams_GetStorageProvider_Call{Call: _e.mock.On("GetStorageProvider")}
-}
-
-func (_c *MockModuleInitParams_GetStorageProvider_Call) Run(run func()) *MockModuleInitParams_GetStorageProvider_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockModuleInitParams_GetStorageProvider_Call) Return(_a0 StorageProvider) *MockModuleInitParams_GetStorageProvider_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockModuleInitParams_GetStorageProvider_Call) RunAndReturn(run func() StorageProvider) *MockModuleInitParams_GetStorageProvider_Call {
 	_c.Call.Return(run)
 	return _c
 }

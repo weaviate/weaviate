@@ -791,7 +791,7 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 	// first (required to ingest data), and Shard.Shutdown writes indexcount,
 	// proplengths, and version during the flush/close sequence.
 	counterPath := filepath.Join(shardDir, "indexcount")
-	data, err := os.ReadFile(counterPath)
+	data, err := diskio.ReadFileExact(counterPath)
 	if err != nil {
 		return nil, fmt.Errorf("read counter: %w", err)
 	}
@@ -801,7 +801,7 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 	}
 
 	plPath := filepath.Join(shardDir, "proplengths")
-	data, err = os.ReadFile(plPath)
+	data, err = diskio.ReadFileExact(plPath)
 	if err != nil {
 		return nil, fmt.Errorf("read proplengths: %w", err)
 	}
@@ -811,7 +811,7 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 	}
 
 	versionPath := filepath.Join(shardDir, "version")
-	data, err = os.ReadFile(versionPath)
+	data, err = diskio.ReadFileExact(versionPath)
 	if err != nil {
 		return nil, fmt.Errorf("read version: %w", err)
 	}
@@ -875,27 +875,39 @@ func (i *Index) listInactiveShardFiles(shardName string, sd *backup.ShardDescrip
 			continue
 		}
 		vectorDir := filepath.Join(shardDir, entry.Name())
-		if err := filepath.WalkDir(vectorDir, func(fpath string, d os.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if d.IsDir() {
-				return nil
-			}
-			if filepath.Ext(d.Name()) == tmpExt {
-				return nil
-			}
-			relPath, relErr := filepath.Rel(rootPath, fpath)
-			if relErr != nil {
-				return relErr
-			}
-			files = append(files, relPath)
-			return nil
-		}); err != nil {
+		if files, err = appendFilesBelow(files, vectorDir, rootPath); err != nil {
 			return nil, fmt.Errorf("list vector index %s files: %w", entry.Name(), err)
 		}
 	}
 
+	return files, nil
+}
+
+// appendFilesBelow appends every file below dir except .tmp files, as paths
+// relative to rootPath. It uses os.ReadDir because filepath.WalkDir pays an
+// Lstat on the directory it starts from.
+func appendFilesBelow(files []string, dir, rootPath string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		fpath := filepath.Join(dir, entry.Name())
+		if entry.IsDir() {
+			if files, err = appendFilesBelow(files, fpath, rootPath); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if filepath.Ext(entry.Name()) == tmpExt {
+			continue
+		}
+		relPath, relErr := filepath.Rel(rootPath, fpath)
+		if relErr != nil {
+			return nil, relErr
+		}
+		files = append(files, relPath)
+	}
 	return files, nil
 }
 

@@ -17,10 +17,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-
 	"github.com/maypok86/otter/v2"
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )

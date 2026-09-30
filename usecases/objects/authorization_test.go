@@ -72,7 +72,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 				(*additional.ReplicationProperties)(nil),
 			},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("class", "tenant", "foo")},
+			expectedResources: []string{authorization.Objects("class", "tenant")},
 		},
 		{
 			methodName: "GetObject",
@@ -82,7 +82,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 				(*additional.ReplicationProperties)(nil), "tenant",
 			},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("class", "tenant", "foo")},
+			expectedResources: []string{authorization.Objects("class", "tenant")},
 		},
 		{
 			methodName: "DeleteObject",
@@ -91,7 +91,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 				(*additional.ReplicationProperties)(nil), "tenant",
 			},
 			expectedVerb:      authorization.DELETE,
-			expectedResources: []string{authorization.Objects("class", "tenant", "foo")},
+			expectedResources: []string{authorization.Objects("class", "tenant")},
 		},
 		{
 			// the path class and id differ from the body, so the row pins which
@@ -103,7 +103,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 				(*additional.ReplicationProperties)(nil),
 			},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: []string{authorization.Objects("class", "tenant", "foo")},
+			expectedResources: []string{authorization.Objects("class", "tenant")},
 		},
 		{
 			methodName: "MergeObject",
@@ -112,19 +112,19 @@ func Test_Kinds_Authorization(t *testing.T) {
 				(*additional.ReplicationProperties)(nil),
 			},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: []string{authorization.Objects("class", "tenant", "foo")},
+			expectedResources: []string{authorization.Objects("class", "tenant")},
 		},
 		{
 			methodName:        "HeadObject",
 			additionalArgs:    []interface{}{"class", strfmt.UUID("foo"), (*additional.ReplicationProperties)(nil), "tenant"},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("class", "tenant", "foo")},
+			expectedResources: []string{authorization.Objects("class", "tenant")},
 		},
 		{ // the deprecated route carries no class, which widens the resource to every collection
 			methodName:        "HeadObject",
 			additionalArgs:    []interface{}{"", strfmt.UUID("foo"), (*additional.ReplicationProperties)(nil), ""},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("", "", "foo")},
+			expectedResources: []string{authorization.Objects("", "")},
 		},
 
 		// class lookups
@@ -132,7 +132,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 			methodName:        "GetObjectsClass",
 			additionalArgs:    []interface{}{strfmt.UUID("foo")},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("", "", "foo")},
+			expectedResources: []string{authorization.Objects("", "")},
 		},
 		{
 			methodName:                "GetObjectClassFromName",
@@ -156,7 +156,7 @@ func Test_Kinds_Authorization(t *testing.T) {
 				"tenant",
 			},
 			expectedVerb:      authorization.READ,
-			expectedResources: []string{authorization.Objects("", "tenant", "")},
+			expectedResources: []string{authorization.Objects("", "tenant")},
 		},
 
 		// reference on objects

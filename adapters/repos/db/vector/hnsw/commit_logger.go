@@ -14,8 +14,8 @@ package hnsw
 import (
 	"bufio"
 	"context"
-	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -126,11 +126,6 @@ func (l *hnswCommitLogger) InitMaintenance() {
 	l.maintainLogsCallbackCtrl = l.maintenanceCallbacks.Register(id("maintain_logs"), l.startCommitLogsMaintenance)
 }
 
-func commitLogFileName(rootPath, indexName, fileName string) string {
-	// plain concatenation avoids fmt.Sprintf churn on this hot maintenance path
-	return commitLogDirectory(rootPath, indexName) + "/" + fileName
-}
-
 func commitLogDirectory(rootPath, name string) string {
 	return rootPath + "/" + name + ".hnsw.commitlog.d"
 }
@@ -162,19 +157,54 @@ func createNewCommitFile(rootPath, name string, fs common.FS, logger logrus.Fiel
 			Warn("failed to prune empty raw commit log files; continuing")
 	}
 
-	fileName := fmt.Sprintf("%d", time.Now().Unix())
-	filePath := commitLogFileName(rootPath, name, fileName)
-	// Still pass O_CREATE for correctness on a fresh directory; O_EXCL would
-	// fail in the (extremely unlikely) case of a 1-second restart collision
-	// where a prior empty raw file with the same timestamp still exists, and
-	// the consequences of the O_APPEND fallback here are harmless because
-	// the prior file is — by definition — also a raw file we own.
-	fd, err := fs.OpenFile(filePath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	// Rotations name logs ahead of the clock, and replay and compaction order
+	// logs by name, so the new log must sort after every file already here.
+	newest, err := newestCommitLogTimestamp(dir, fs)
 	if err != nil {
-		return nil, "", errors.Wrap(err, "create commit log file")
+		return nil, "", errors.Wrap(err, "find newest commit log")
 	}
 
-	return fd, filePath, nil
+	return openNewCommitLog(dir, max(time.Now().Unix(), newest+1), fs)
+}
+
+// newestCommitLogTimestamp returns the highest second any commit log file in
+// dir is named after, or 0 if there is none.
+func newestCommitLogTimestamp(dir string, fs common.FS) (int64, error) {
+	state, err := compact.NewFileDiscoveryWithFS(dir, fs).Scan()
+	if err != nil {
+		return 0, err
+	}
+
+	var newest int64
+	for _, files := range [][]compact.FileInfo{state.RawFiles, state.SortedFiles, state.CondensedFiles} {
+		for _, f := range files {
+			newest = max(newest, f.EndTS)
+		}
+	}
+	for _, f := range []*compact.FileInfo{state.Snapshot, state.LiveFile} {
+		if f != nil {
+			newest = max(newest, f.EndTS)
+		}
+	}
+	return newest, nil
+}
+
+// openNewCommitLog creates a raw commit log named after the first free second
+// from ts on. An existing log may end in a torn commit, so it is never appended to.
+func openNewCommitLog(dir string, ts int64, fs common.FS) (common.File, string, error) {
+	const maxAttempts = 1000
+	for range maxAttempts {
+		path := dir + "/" + strconv.FormatInt(ts, 10)
+		fd, err := fs.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE|os.O_EXCL, 0o666)
+		if err == nil {
+			return fd, path, nil
+		}
+		if !errors.Is(err, os.ErrExist) {
+			return nil, "", errors.Wrap(err, "create commit log file")
+		}
+		ts++
+	}
+	return nil, "", errors.Errorf("create commit log file: no free name in %d seconds from %d", maxAttempts, ts-maxAttempts)
 }
 
 // pruneEmptyRawCommitLogs removes zero-byte raw commit log files from the
@@ -347,11 +377,11 @@ func (l *hnswCommitLogger) AddBRQCompression(data compression.BRQData) error {
 }
 
 // AddNode adds an empty node
-func (l *hnswCommitLogger) AddNode(node *vertex) error {
+func (l *hnswCommitLogger) AddNode(id uint64, level uint16) error {
 	l.Lock()
 	defer l.Unlock()
 
-	return l.walWriter.WriteAddNode(node.id, uint16(node.level))
+	return l.walWriter.WriteAddNode(id, uint16(level))
 }
 
 func (l *hnswCommitLogger) SetEntryPointWithMaxLayer(id uint64, level int) error {
@@ -544,18 +574,18 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 	// is still open and l.currentFile/currentWriter are unchanged, so the next
 	// AddNode keeps writing to a healthy fd instead of a closed one; the rotation
 	// is simply retried on the next maintenance cycle.
-	fileName, derived := nextCommitLogFileName(info.Name())
+	nextTS, derived := nextCommitLogFileName(info.Name())
 	if !derived {
 		l.logger.WithField("action", "commit_log_file_switched").
 			WithField("id", l.id).
 			WithField("old_file_name", oldFileName).
 			Warn("commit log file name carries no timestamp, naming the next log after the current second instead")
 	}
-	filePath := commitLogFileName(l.rootPath, l.id, fileName)
-	fd, err := l.fs.OpenFile(filePath, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o666)
+	fd, filePath, err := openNewCommitLog(commitLogDirectory(l.rootPath, l.id), nextTS, l.fs)
 	if err != nil {
-		return true, errors.Wrap(err, "create commit log file")
+		return true, err
 	}
+	fileName := filepath.Base(filePath)
 
 	// New file is open: redirect all writes to it before touching the old fd, so
 	// there is no window in which l.currentFile is closed.
@@ -594,30 +624,29 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 	return true, nil
 }
 
-// nextCommitLogFileName picks the name for the log that follows current. Logs
+// nextCommitLogFileName picks the timestamp for the log that follows current. Logs
 // are named after the second they were created in, so two switches within one
 // second would land on the name of the file just closed and carry on writing to
 // it. A backup only copies closed logs — ListFiles deliberately excludes the
 // active one — so everything that file already held would be left out.
 //
+// Under frequent rotation the names therefore run ahead of the clock; see
+// createNewCommitFile for what that means after a restart.
+//
 // current is a bare file name, not a path. derived reports whether the name was
 // advanced past current. A name without a timestamp offers nothing to advance
 // past, so the current second is used; it cannot collide with current, which is
 // not a timestamp to begin with.
-func nextCommitLogFileName(current string) (name string, derived bool) {
+func nextCommitLogFileName(current string) (ts int64, derived bool) {
 	now := time.Now().Unix()
 
 	// The append target is always a raw file, i.e. a bare timestamp with no
 	// ".sorted"/".snapshot" suffix and no "_" range separator.
-	ts, err := strconv.ParseInt(current, 10, 64)
+	currentTS, err := strconv.ParseInt(current, 10, 64)
 	if err != nil {
-		return fmt.Sprintf("%d", now), false
+		return now, false
 	}
-
-	if now > ts {
-		return fmt.Sprintf("%d", now), true
-	}
-	return fmt.Sprintf("%d", ts+1), true
+	return max(now, currentTS+1), true
 }
 
 func (l *hnswCommitLogger) Drop(ctx context.Context, keepFiles bool) error {

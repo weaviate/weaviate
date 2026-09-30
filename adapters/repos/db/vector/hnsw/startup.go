@@ -98,13 +98,12 @@ func (h *hnsw) restoreFromDisk() error {
 		return nil
 	}
 
-	// A corrupt WAL was detected during load: either a raw file's torn tail
-	// was truncated, or an unreadable compacted segment was dropped in favour
-	// of the snapshot + clean segments. Log for diagnostic visibility. The
-	// commit logger will start a fresh raw file regardless, so no further
-	// action is needed here.
+	// A corrupt WAL was detected during load: a raw file's torn tail or a
+	// compacted segment's corrupt tail was truncated. Log for diagnostic
+	// visibility. The commit logger will start a fresh raw file regardless, so
+	// no further action is needed here.
 	if loadResult.RecoveredFromCrash {
-		h.logger.Info("recovered from crash during restore - corrupt WAL tail truncated or compacted segment dropped")
+		h.logger.Info("recovered from crash during restore - corrupt commit log tail truncated")
 	}
 
 	// Apply loaded state to index
@@ -185,6 +184,8 @@ func (h *hnsw) applyLoadedState(state *ent.DeserializationResult) error {
 				if err != nil {
 					return errors.Wrap(err, "Restoring compressed data.")
 				}
+			} else {
+				return errors.New("restoring compressed data: pq data has no encoders")
 			}
 		} else if sqData := state.CompressionSQData(); sqData != nil {
 			h.dims.Store(int32(sqData.Dimensions))
@@ -274,11 +275,12 @@ func (h *hnsw) setDimensionsFromEntrypoint() {
 	// back to any live node rather than leaving dims at 0, which would
 	// disable dimension validation for every subsequent insert and let a
 	// single wrong-length insert poison the recorded dimensionality
-	for _, node := range h.nodes {
-		if node == nil || node.id == h.entryPointID {
+	for i, node := range h.nodes {
+		id := uint64(i)
+		if node == nil || id == h.entryPointID {
 			continue
 		}
-		if vec, err := h.VectorForIDThunk(context.Background(), node.id); err == nil && len(vec) > 0 {
+		if vec, err := h.VectorForIDThunk(context.Background(), id); err == nil && len(vec) > 0 {
 			h.dims.Store(int32(len(vec)))
 			return
 		}
@@ -401,22 +403,23 @@ func (h *hnsw) restoreDocMappings() error {
 	defer release()
 
 	var removed []uint64
-	for _, node := range h.nodes {
+	for i, node := range h.nodes {
 		if node == nil {
 			continue
 		}
-		binary.BigEndian.PutUint64(buf, node.id)
+		id := uint64(i)
+		binary.BigEndian.PutUint64(buf, id)
 		docIDBytes, err := bucket.Get(buf)
 		if err != nil {
 			// If the mapping is not found (e.g., due to corrupted state after ungraceful shutdown),
 			// log a warning and skip this node instead of failing completely
 			h.logger.WithFields(map[string]interface{}{
 				"action":  "restore_doc_mappings",
-				"node_id": node.id,
+				"node_id": id,
 				"error":   err.Error(),
 			}).Error("skipping node with missing doc mapping")
-			h.nodes[node.id] = nil
-			removed = append(removed, node.id)
+			h.nodes[id] = nil
+			removed = append(removed, id)
 			continue
 		}
 
@@ -424,11 +427,11 @@ func (h *hnsw) restoreDocMappings() error {
 		if len(docIDBytes) < 8 {
 			h.logger.WithFields(map[string]interface{}{
 				"action":       "restore_doc_mappings",
-				"node_id":      node.id,
+				"node_id":      id,
 				"bytes_length": len(docIDBytes),
 			}).Error("skipping node with invalid doc mapping data")
-			h.nodes[node.id] = nil
-			removed = append(removed, node.id)
+			h.nodes[id] = nil
+			removed = append(removed, id)
 			continue
 		}
 
@@ -438,11 +441,11 @@ func (h *hnsw) restoreDocMappings() error {
 			prevDocID = docID
 		}
 		h.Lock()
-		h.docIDVectors[docID] = append(h.docIDVectors[docID], node.id)
+		h.docIDVectors[docID] = append(h.docIDVectors[docID], id)
 		h.Unlock()
 		relativeID++
-		if node.id > maxNodeID {
-			maxNodeID = node.id
+		if id > maxNodeID {
+			maxNodeID = id
 		}
 		if docID > maxDocID {
 			maxDocID = docID

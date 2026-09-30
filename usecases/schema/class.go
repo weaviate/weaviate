@@ -134,7 +134,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 	cls.Class = qualified
-	if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, cls.Properties); err != nil {
+	if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, cls.Class, cls.Properties); err != nil {
 		return nil, 0, err
 	}
 
@@ -481,7 +481,9 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 			return fmt.Errorf("%w: class name in body %q does not match path %q", ErrValidation, updated.Class, namespacing.StripOwnNamespace(principal, className))
 		}
 		updated.Class = qualifiedBody
-		if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, updated.Properties); err != nil {
+	}
+	if updated != nil {
+		if err := namespacing.QualifyPropertyDataTypes(principal, h.config.Namespaces.Enabled, className, updated.Properties); err != nil {
 			return fmt.Errorf("%w: %w", ErrValidation, err)
 		}
 	}
@@ -700,12 +702,7 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 // h.schemaManager.UpdateProperty directly) so the MutationGuard
 // applies to external mutations.
 //
-// Returns only after the local FSM has applied the update. The reindex
-// provider's OnTaskCompleted clears the per-shard tokenization overlay
-// immediately after this returns; without the local-apply wait the
-// overlay would be cleared while this node's schema reader still has
-// the OLD tokenization, opening a query-side misalignment window
-// between local-apply and RAFT-commit on slow followers.
+// Returns only after the local FSM has applied the update.
 func UpdatePropertyInternalFromMigration(h *Handler, ctx context.Context, className string, prop *models.Property,
 	fields ...string,
 ) error {
