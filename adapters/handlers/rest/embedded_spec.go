@@ -9791,7 +9791,7 @@ func init() {
           "format": "date-time",
           "x-nullable": true
         },
-        "graceEndsAt": {
+        "gracePeriodEndsAt": {
           "description": "When the grace period ends, if the license is not currently valid.",
           "type": "string",
           "format": "date-time",
@@ -22734,7 +22734,7 @@ func init() {
           "format": "date-time",
           "x-nullable": true
         },
-        "graceEndsAt": {
+        "gracePeriodEndsAt": {
           "description": "When the grace period ends, if the license is not currently valid.",
           "type": "string",
           "format": "date-time",

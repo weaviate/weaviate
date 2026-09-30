@@ -48,7 +48,7 @@ type MetaLicense struct {
 
 	// When the grace period ends, if the license is not currently valid.
 	// Format: date-time
-	GraceEndsAt *strfmt.DateTime `json:"graceEndsAt,omitempty"`
+	GracePeriodEndsAt *strfmt.DateTime `json:"gracePeriodEndsAt,omitempty"`
 
 	// When the license was last verified with the license service, if ever.
 	// Format: date-time
@@ -69,7 +69,7 @@ func (m *MetaLicense) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
-	if err := m.validateGraceEndsAt(formats); err != nil {
+	if err := m.validateGracePeriodEndsAt(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -95,12 +95,12 @@ func (m *MetaLicense) validateExpiresAt(formats strfmt.Registry) error {
 	return nil
 }
 
-func (m *MetaLicense) validateGraceEndsAt(formats strfmt.Registry) error {
-	if swag.IsZero(m.GraceEndsAt) { // not required
+func (m *MetaLicense) validateGracePeriodEndsAt(formats strfmt.Registry) error {
+	if swag.IsZero(m.GracePeriodEndsAt) { // not required
 		return nil
 	}
 
-	if err := validate.FormatOf("graceEndsAt", "body", "date-time", m.GraceEndsAt.String(), formats); err != nil {
+	if err := validate.FormatOf("gracePeriodEndsAt", "body", "date-time", m.GracePeriodEndsAt.String(), formats); err != nil {
 		return err
 	}
 

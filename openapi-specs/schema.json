@@ -1426,7 +1426,7 @@
           "type": "string",
           "x-nullable": true
         },
-        "graceEndsAt": {
+        "gracePeriodEndsAt": {
           "description": "When the grace period ends, if the license is not currently valid.",
           "format": "date-time",
           "type": "string",
