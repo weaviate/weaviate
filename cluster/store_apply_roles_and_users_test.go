@@ -59,6 +59,13 @@ func (l staticLister) List() []api.Namespace {
 	return out
 }
 
+func (l staticLister) GetNamespace(name string) (api.Namespace, bool) {
+	if !slices.Contains(l, name) {
+		return api.Namespace{}, false
+	}
+	return api.Namespace{Name: name, State: api.NamespaceStateActive}, true
+}
+
 func newRolesAndUsersStores(t *testing.T, ns usecasesNamespaces.Exister) *rolesAndUsersStores {
 	t.Helper()
 	logger, _ := test.NewNullLogger()

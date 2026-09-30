@@ -57,6 +57,11 @@ type Manager struct {
 // Manager serves the local schema reads itself; its own methods must not shadow them.
 var _ local.SchemaReader = (*Manager)(nil)
 
+// UpdateClassInternal updates a class without an authorization check.
+func (m *Manager) UpdateClassInternal(ctx context.Context, className string, updated *models.Class, origin api.ClassUpdateOrigin) error {
+	return UpdateClassInternal(&m.Handler, ctx, className, updated, origin)
+}
+
 type VectorConfigParser func(in interface{}, vectorIndexType string, isMultiVector bool) (schemaConfig.VectorIndexConfig, error)
 
 type InvertedConfigValidator func(in *models.InvertedIndexConfig) error

@@ -17,7 +17,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
-	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
 // There is at least a searchable bucket in the shard
@@ -41,7 +41,7 @@ func structToMap(obj interface{}) (newMap interface{}) {
 	return newMap
 }
 
-func updateToBlockMaxInvertedIndexConfig(ctx context.Context, sc *schema.Manager, className string) error {
+func updateToBlockMaxInvertedIndexConfig(ctx context.Context, sc schemaClassUpdater, className string) error {
 	class := sc.ReadOnlyClass(className)
 	if class == nil {
 		return fmt.Errorf("class %q not found", className)
@@ -60,5 +60,5 @@ func updateToBlockMaxInvertedIndexConfig(ctx context.Context, sc *schema.Manager
 		class.VectorConfig[i] = tempConfig
 	}
 	class.InvertedIndexConfig.UsingBlockMaxWAND = true
-	return schema.UpdateClassInternal(&sc.Handler, ctx, className, class)
+	return sc.UpdateClassInternal(ctx, className, class, api.ClassUpdateOriginBlockmaxCutover)
 }

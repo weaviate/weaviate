@@ -33,6 +33,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -542,11 +543,12 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
-	return UpdateClassInternal(h, ctx, className, updated)
+	return UpdateClassInternal(h, ctx, className, updated, api.ClassUpdateOriginUser)
 }
 
-// bypass the auth check for internal class update requests
+// UpdateClassInternal updates a class without an authorization check.
 func UpdateClassInternal(h *Handler, ctx context.Context, className string, updated *models.Class,
+	origin api.ClassUpdateOrigin,
 ) error {
 	cur := h.schemaReader.ReadOnlyClass(className)
 
@@ -665,7 +667,7 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 	}
 	// A nil sharding state means that the sharding state will not be updated.
 
-	_, err := h.schemaManager.UpdateClass(ctx, updated, nil)
+	_, err := h.schemaManager.UpdateClass(ctx, updated, nil, origin)
 	return err
 }
 
@@ -713,7 +715,8 @@ func UpdatePropertyInternal(h *Handler, ctx context.Context, className string, p
 // through [SchemaManager.UpdatePropertyFromMigration], which sets the
 // [api.UpdatePropertyRequest.FromInFlightMigration] flag so the schema
 // FSM's cross-FSM MutationGuard bypasses the in-flight-reindex check
-// for this single update.
+// for this single update. The flag also lets the update through while
+// its namespace is not active.
 //
 // Used by the reindex provider's
 // [adapters/repos/db.applyPerPropertySchemaUpdate] from the scheduler's
