@@ -21,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/ttl"
 	"github.com/weaviate/weaviate/cluster/schema/local"
 	"github.com/weaviate/weaviate/entities/models"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -39,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 	"github.com/weaviate/weaviate/usecases/traverser/grouper"
@@ -610,6 +612,8 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 	if err != nil {
 		return nil, fmt.Errorf("search results to get response: %w", err)
 	}
+	distance, withDistance := ExtractDistanceFromParams(params)
+	cosine := withDistance && e.cosineDistance(params.ClassName, e.targetParamHelper.GetTargetVectorsFromParams(params))
 	for _, res := range input {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -645,9 +649,7 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 			}
 
 			if certainty == 0 {
-				distance, withDistance := ExtractDistanceFromParams(params)
-				if withDistance && (!floatcomp.InDelta(float64(res.Dist), distance, 1e-6) &&
-					float64(res.Dist) > distance) {
+				if withDistance && !floatcomp.WithinCutoff(res.Dist, distance, cosine) {
 					continue
 				}
 			}
@@ -817,10 +819,18 @@ func (e *Explorer) CrossClassVectorSearch(ctx context.Context,
 
 	e.trackUsageExplore(res, params)
 
+	// validateExploreDistance ensures all classes share one distance metric
+	var targetVectors []string
+	if targetVector != "" {
+		targetVectors = []string{targetVector}
+	}
+	_, withDistance := extractDistanceFromExploreParams(params)
+	cosine := withDistance && len(res) > 0 && e.cosineDistance(res[0].ClassName, targetVectors)
+
 	results := []search.Result{}
 	for _, item := range res {
 		item.Beacon = crossref.NewLocalhost(item.ClassName, item.ID).String()
-		err = e.appendResultsIfSimilarityThresholdMet(item, &results, params)
+		err = e.appendResultsIfSimilarityThresholdMet(item, &results, params, cosine)
 		if err != nil {
 			return nil, fmt.Errorf("append results based on similarity: %w", err)
 		}
@@ -830,13 +840,12 @@ func (e *Explorer) CrossClassVectorSearch(ctx context.Context,
 }
 
 func (e *Explorer) appendResultsIfSimilarityThresholdMet(item search.Result,
-	results *[]search.Result, params ExploreParams,
+	results *[]search.Result, params ExploreParams, cosine bool,
 ) error {
 	distance, withDistance := extractDistanceFromExploreParams(params)
 	certainty := extractCertaintyFromExploreParams(params)
 
-	if withDistance && (floatcomp.InDelta(float64(item.Dist), distance, 1e-6) ||
-		item.Dist <= float32(distance)) {
+	if withDistance && floatcomp.WithinCutoff(item.Dist, distance, cosine) {
 		*results = append(*results, item)
 	} else if certainty != 0 && item.Certainty >= float32(certainty) {
 		*results = append(*results, item)
@@ -845,6 +854,29 @@ func (e *Explorer) appendResultsIfSimilarityThresholdMet(item search.Result,
 	}
 
 	return nil
+}
+
+// cosineDistance reports whether the searched vector index uses cosine
+// distance. If the metric can't be determined it assumes cosine: the default
+// metric, and the more lenient distance cutoff.
+func (e *Explorer) cosineDistance(className string, targetVectors []string) bool {
+	if e.schemaGetter == nil {
+		return true
+	}
+	class := e.schemaGetter.ReadOnlyClass(className)
+	if class == nil {
+		return true
+	}
+	configs, err := schemaConfig.TypeAssertVectorIndex(class, targetVectors)
+	if err != nil {
+		return true
+	}
+	for _, c := range configs {
+		if c.DistanceName() == common.DistanceCosine {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *Explorer) validateExploreParams(params ExploreParams) error {
