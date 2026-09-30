@@ -3965,6 +3965,48 @@ func TestSchedulerBackupDedupeGate(t *testing.T) {
 	}
 }
 
+func TestSchedulerBackupDedupeGateAfterAuthorization(t *testing.T) {
+	const id = "gate-authz"
+	cases := []struct {
+		name        string
+		mode        license.Mode
+		withPlanner bool
+	}{
+		{name: "off", mode: license.FeatureOff},
+		{name: "unlicensed", mode: license.FeatureUnlicensed},
+		{name: "licensed", mode: license.FeatureLicensed, withPlanner: true},
+		{name: "licensed without a planner", mode: license.FeatureLicensed},
+		{name: "out-of-range mode", mode: license.Mode(99)},
+	}
+	for _, tc := range cases {
+		for _, include := range [][]string{nil, {"Class-A"}} {
+			t.Run(fmt.Sprintf("%s include %v", tc.name, include), func(t *testing.T) {
+				fake := &fakeDedupePlanner{plan: &DedupePlan{}}
+				var planner DedupePlanner
+				if tc.withPlanner {
+					planner = fake
+				}
+				s, fs := newDedupeGateScheduler(t, id, tc.mode, planner)
+				principal := &models.Principal{Username: "intruder"}
+				fs.auth.(*mocks.FakeAuthorizer).SetErr(authzerrors.NewForbidden(principal, authorization.CREATE, authorization.Backups()...))
+
+				resp, err := s.Backup(context.Background(), principal, &BackupRequest{ID: id, Backend: "s3", Include: include, DedupeReplicas: true})
+
+				require.Error(t, err)
+				assert.Nil(t, resp)
+				assert.ErrorAs(t, err, &authzerrors.Forbidden{})
+				assert.NotErrorIs(t, err, license.ErrRequired)
+				assert.NotErrorIs(t, err, errDedupePlannerMissing)
+				assert.NotContains(t, err.Error(), "BACKUP_DEDUPE_ENABLED")
+				assert.NotContains(t, err.Error(), "license")
+				assert.Empty(t, fake.recordedCalls())
+				fs.backend.AssertNotCalled(t, "Initialize", mock.Anything, mock.Anything)
+				fs.backend.AssertNotCalled(t, "PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+			})
+		}
+	}
+}
+
 func TestDedupeEnabled(t *testing.T) {
 	for _, tc := range []struct {
 		env  string

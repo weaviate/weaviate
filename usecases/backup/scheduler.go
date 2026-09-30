@@ -188,13 +188,6 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		}
 	}
 
-	// Coordinator-entry-only by design (participants honor designations regardless); restore of existing deduped artifacts is deliberately never gated.
-	if req.DedupeReplicas {
-		if err := s.dedupeGate(); err != nil {
-			return nil, err
-		}
-	}
-
 	store, err := coordBackend(s.backends, req.Backend, req.ID, req.Bucket, req.Path)
 	if err != nil {
 		err = fmt.Errorf("no backup backend %q: %w, did you enable the right module?", req.Backend, err)
@@ -207,6 +200,13 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 			return nil, err
 		}
 		return nil, backup.NewErrUnprocessable(err)
+	}
+
+	// After validation so an unauthorized caller never learns the flag or license state; restores are never gated.
+	if req.DedupeReplicas {
+		if err := s.dedupeGate(); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := store.Initialize(ctx, req.Bucket, req.Path); err != nil {
