@@ -785,6 +785,11 @@ func TestDedupeFanoutBudgets(t *testing.T) {
 	}
 }
 
+func TestPlanningWindowFitsCheckpointLifetime(t *testing.T) {
+	worst := _DedupeCutoffLead + _MaxDedupeConvergenceBudget + _DedupePlanningSlack + _DedupeMaxFanoutAllowance + _DedupeMaxCleanupBudget
+	assert.Less(t, worst, replica.AsyncCheckpointMaxLifetime)
+}
+
 func TestNew(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	var typedNil *fakeCheckpointer

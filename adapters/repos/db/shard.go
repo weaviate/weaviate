@@ -284,8 +284,9 @@ type Shard struct {
 	// Async checkpoint, guarded by asyncReplicationRWMux. The hashtree is a
 	// frozen clone of s.hashtree taken at create time. All in-memory only
 	// (not persisted, not replicated via RAFT); a restart drops it and the
-	// operator must re-create. activatedAt is local-clock so the lifetime
-	// histogram doesn't depend on cross-node clock skew.
+	// operator must re-create; an undeleted one expires after
+	// replica.AsyncCheckpointMaxLifetime. activatedAt is local-clock so the
+	// lifetime histogram and expiry don't depend on cross-node clock skew.
 	asyncCheckpointHashtree    hashtree.AggregatedHashTree
 	asyncCheckpointCutoff      int64
 	asyncCheckpointCreatedAt   time.Time

@@ -33,18 +33,33 @@ type unloadedCheckpoint struct {
 	root      hashtree.Digest
 	// filename is consumed by any load, so its presence proves the shard stayed unloaded since create.
 	filename string
+	// activatedAt is local-clock, like Shard.asyncCheckpointActivatedAt.
+	activatedAt time.Time
 }
 
+// unloadedCheckpointSweepInterval bounds put's full expiry sweep so a create fan-out over N tenants stays O(N).
+const unloadedCheckpointSweepInterval = time.Minute
+
 type unloadedCheckpointRegistry struct {
-	mu      sync.Mutex
-	entries map[string]unloadedCheckpoint
+	mu        sync.Mutex
+	entries   map[string]unloadedCheckpoint
+	lastSweep time.Time
 }
 
 // put mirrors Shard.CreateAsyncCheckpoint's stale and past-cutoff checks.
 func (r *unloadedCheckpointRegistry) put(shardName string, cp unloadedCheckpoint) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if prev, ok := r.entries[shardName]; ok && !cp.createdAt.After(prev.createdAt) {
+	now := time.Now()
+	if now.Sub(r.lastSweep) >= unloadedCheckpointSweepInterval {
+		r.lastSweep = now
+		for name, prev := range r.entries {
+			if prev.expired(now) {
+				delete(r.entries, name)
+			}
+		}
+	}
+	if prev, ok := r.entries[shardName]; ok && !prev.expired(now) && !cp.createdAt.After(prev.createdAt) {
 		return errAsyncCheckpointStale
 	}
 	if cp.cutoffMs <= time.Now().UnixMilli() {
@@ -53,15 +68,25 @@ func (r *unloadedCheckpointRegistry) put(shardName string, cp unloadedCheckpoint
 	if r.entries == nil {
 		r.entries = make(map[string]unloadedCheckpoint)
 	}
+	cp.activatedAt = now
 	r.entries[shardName] = cp
 	return nil
 }
 
+// get treats an expired entry as absent and drops it.
 func (r *unloadedCheckpointRegistry) get(shardName string) (unloadedCheckpoint, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	cp, ok := r.entries[shardName]
+	if ok && cp.expired(time.Now()) {
+		delete(r.entries, shardName)
+		return unloadedCheckpoint{}, false
+	}
 	return cp, ok
+}
+
+func (cp unloadedCheckpoint) expired(now time.Time) bool {
+	return now.Sub(cp.activatedAt) > replica.AsyncCheckpointMaxLifetime
 }
 
 func (r *unloadedCheckpointRegistry) delete(shardName string) {

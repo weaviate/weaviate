@@ -24,6 +24,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
@@ -257,4 +258,76 @@ func TestUnloadedAsyncCheckpoint_RecoveringShardIsRefusedAsRecovering(t *testing
 	require.False(t, ok)
 	_, registered := f.index.unloadedCheckpoints.get(f.name)
 	require.False(t, registered)
+}
+
+func backdateUnloadedCheckpoint(r *unloadedCheckpointRegistry, shardName string, age time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	cp := r.entries[shardName]
+	cp.activatedAt = time.Now().Add(-age)
+	r.entries[shardName] = cp
+}
+
+func TestUnloadedCheckpointRegistry_Expiry(t *testing.T) {
+	expired := replica.AsyncCheckpointMaxLifetime + time.Minute
+	cutoffMs := time.Now().Add(time.Hour).UnixMilli()
+	tests := []struct {
+		name string
+		run  func(t *testing.T, r *unloadedCheckpointRegistry)
+	}{
+		{name: "fresh entry survives get", run: func(t *testing.T, r *unloadedCheckpointRegistry) {
+			_, ok := r.get("a")
+			require.True(t, ok)
+		}},
+		{name: "expired entry is absent and dropped by get", run: func(t *testing.T, r *unloadedCheckpointRegistry) {
+			backdateUnloadedCheckpoint(r, "a", expired)
+			_, ok := r.get("a")
+			require.False(t, ok)
+			require.NotContains(t, r.entries, "a")
+		}},
+		{name: "put sweeps expired entries once the interval elapsed", run: func(t *testing.T, r *unloadedCheckpointRegistry) {
+			backdateUnloadedCheckpoint(r, "a", expired)
+			r.lastSweep = time.Now().Add(-unloadedCheckpointSweepInterval - time.Second)
+			require.NoError(t, r.put("b", unloadedCheckpoint{cutoffMs: cutoffMs, createdAt: time.Now()}))
+			require.NotContains(t, r.entries, "a")
+			require.Contains(t, r.entries, "b")
+		}},
+		{name: "put does not rescan within the sweep interval", run: func(t *testing.T, r *unloadedCheckpointRegistry) {
+			backdateUnloadedCheckpoint(r, "a", expired)
+			r.lastSweep = time.Now()
+			require.NoError(t, r.put("b", unloadedCheckpoint{cutoffMs: cutoffMs, createdAt: time.Now()}))
+			require.Contains(t, r.entries, "a")
+			_, ok := r.get("a")
+			require.False(t, ok)
+		}},
+		{name: "expired entry does not make an older create stale", run: func(t *testing.T, r *unloadedCheckpointRegistry) {
+			backdateUnloadedCheckpoint(r, "a", expired)
+			require.NoError(t, r.put("a", unloadedCheckpoint{cutoffMs: cutoffMs, createdAt: time.Now().Add(-time.Hour)}))
+		}},
+		{name: "put stamps a local activation time", run: func(t *testing.T, r *unloadedCheckpointRegistry) {
+			require.WithinDuration(t, time.Now(), r.entries["a"].activatedAt, time.Minute)
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			r := &unloadedCheckpointRegistry{}
+			require.NoError(t, r.put("a", unloadedCheckpoint{cutoffMs: cutoffMs, createdAt: time.Now().Add(time.Minute)}))
+			tc.run(t, r)
+		})
+	}
+}
+
+func TestUnloadedAsyncCheckpoint_ExpiredIsOmittedFromStatus(t *testing.T) {
+	ctx := testCtx()
+	f := newUnloadedCheckpointFixture(t, "UnloadedCkptExpired", true)
+	writePersistedHashtree(t, f.dir, "hashtree-0000000000000001.ht", 7)
+	createdAt := time.Now().UTC()
+
+	require.NoError(t, f.index.createAsyncCheckpoint(ctx, f.name, createdAt.Add(time.Hour).UnixMilli(), createdAt))
+	_, _, _, ok := f.status(t, ctx)
+	require.True(t, ok)
+	backdateUnloadedCheckpoint(&f.index.unloadedCheckpoints, f.name, replica.AsyncCheckpointMaxLifetime+time.Minute)
+	_, _, _, ok = f.status(t, ctx)
+	require.False(t, ok)
+	require.False(t, f.lazy.isLoaded())
 }
