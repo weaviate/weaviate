@@ -401,13 +401,18 @@ func (e *executor) GetShardsStorageStatus(ctx context.Context, class, tenant str
 	if err != nil {
 		return nil, err
 	}
+	shardsQueueSize, err := e.migrator.GetShardsQueueSize(ctx, class, tenant)
+	if err != nil {
+		return nil, err
+	}
 
 	resp := make(models.ShardStatusList, 0, len(shardsStatus))
 	for shardName, status := range shardsStatus {
 		resp = append(resp, &models.ShardStatusGetResponse{
-			Name:          shardName,
-			Status:        legacyStatus[shardName],
-			PerNodeStatus: status,
+			Name:            shardName,
+			Status:          legacyStatus[shardName],
+			PerNodeStatus:   status,
+			VectorQueueSize: shardsQueueSize[shardName],
 		})
 	}
 
