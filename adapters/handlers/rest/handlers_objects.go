@@ -366,7 +366,7 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		case errors.As(err, &uco.ErrNotFound{}):
 			return objects.NewObjectsClassDeleteNotFound()
-		case errors.As(err, &uco.ErrMultiTenancy{}):
+		case errors.As(err, &uco.ErrMultiTenancy{}), errors.As(err, &uco.ErrInvalidUserInput{}):
 			return objects.NewObjectsClassDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))
 		default:

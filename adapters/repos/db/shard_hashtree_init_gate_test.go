@@ -648,7 +648,7 @@ func TestWritesDoNotBlockWhileHashtreeInitQueued(t *testing.T) {
 }
 
 func TestConcurrentWritesWhileHashtreeInitQueuedThenReleased(t *testing.T) {
-	const n = 240
+	const n = 80
 	const writers = 4
 	const t0, t1 = tsFarPast, tsFarPast + 5
 

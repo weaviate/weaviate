@@ -17,6 +17,7 @@ package backup_rbac_raft
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/weaviate/weaviate/client/authz"
+	"github.com/weaviate/weaviate/client/cluster"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -128,10 +130,18 @@ func requireRolesAndUsersOnEveryNode(t *testing.T, compose *docker.DockerCompose
 		// Followers apply the entry asynchronously.
 		require.EventuallyWithTf(t, func(c *assert.CollectT) {
 			helper.SetupClient(uri)
-			// The listing's contents come from the leader, so they prove nothing
-			// about this node. The assertion is only that the call is authorized.
-			_, err := helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), helper.CreateAuth(userKey))
-			assert.NoError(c, err)
+			// GetRoles filters the listing by what the caller may read, using this
+			// node's authorizer, and never answers 403. restoredRole is only listed
+			// if this node has the role and its assignment to the caller.
+			resp, err := helper.Client(t).Authz.GetRoles(authz.NewGetRolesParams(), helper.CreateAuth(userKey))
+			if !assert.NoError(c, err) {
+				return
+			}
+			var names []string
+			for _, role := range resp.Payload {
+				names = append(names, *role.Name)
+			}
+			assert.Contains(c, names, restoredRole)
 		}, 30*time.Second, 500*time.Millisecond,
 			"restored user could not exercise its restored role on node %d (%s)", n, uri)
 	}
@@ -173,14 +183,18 @@ func restoreRolesAndUsers(t *testing.T, backupID string) {
 // restartCluster stops every node and brings them all back. The nodes are
 // started concurrently because StartNode waits for readiness, a node is not
 // ready until RAFT has quorum, and starting them one at a time therefore
-// deadlocks on the first.
+// deadlocks on the first. They are stopped concurrently too; the generous
+// timeout lets every node shut down cleanly.
 func restartCluster(t *testing.T, compose *docker.DockerCompose) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
+	stopTimeout := 30 * time.Second
+	stops, sctx := errgroup.WithContext(ctx)
 	for n := 0; n < nodeCount; n++ {
-		require.NoError(t, compose.StopNode(ctx, n, nil))
+		stops.Go(func() error { return compose.Stop(sctx, compose.GetWeaviateNode(n+1).Name(), &stopTimeout) })
 	}
+	require.NoError(t, stops.Wait())
 	g, gctx := errgroup.WithContext(ctx)
 	for n := 0; n < nodeCount; n++ {
 		g.Go(func() error { return compose.StartNode(gctx, n) })
@@ -261,6 +275,38 @@ func TestBackupRestoreRolesAndUsersSurvivesSnapshotRestart(t *testing.T) {
 
 	requireRolesAndUsersOnEveryNode(t, compose, userKey)
 
+	waitForSnapshotOnEveryNode(t, compose)
 	restartCluster(t, compose)
 	requireRolesAndUsersOnEveryNode(t, compose, userKey)
+}
+
+// waitForSnapshotOnEveryNode waits until every node has snapshotted all the
+// entries it has applied, the restore included. With RAFT_TRAILING_LOGS=1 a
+// node restarting after that boots from the snapshot, not from log replay.
+func waitForSnapshotOnEveryNode(t *testing.T, compose *docker.DockerCompose) {
+	t.Helper()
+	helper.SetupClient(compose.GetWeaviate().URI())
+	applied := map[string]uint64{}
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		resp, err := helper.Client(t).Cluster.ClusterGetStatistics(cluster.NewClusterGetStatisticsParams(), helper.CreateAuth(adminKey))
+		if !assert.NoError(c, err) {
+			return
+		}
+		if !assert.Len(c, resp.Payload.Statistics, nodeCount) {
+			return
+		}
+		for _, st := range resp.Payload.Statistics {
+			if !assert.NotNil(c, st.Raft, st.Name) {
+				return
+			}
+			appliedIdx, err := strconv.ParseUint(st.Raft.AppliedIndex, 10, 64)
+			require.NoError(c, err)
+			snapshotIdx, err := strconv.ParseUint(st.Raft.LastSnapshotIndex, 10, 64)
+			require.NoError(c, err)
+			if _, ok := applied[st.Name]; !ok {
+				applied[st.Name] = appliedIdx
+			}
+			assert.GreaterOrEqual(c, snapshotIdx, applied[st.Name], "node %s has not snapshotted the restore yet", st.Name)
+		}
+	}, 30*time.Second, 200*time.Millisecond)
 }

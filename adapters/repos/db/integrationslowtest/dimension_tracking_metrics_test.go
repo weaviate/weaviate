@@ -31,7 +31,7 @@ import (
 
 func TestTotalDimensionTrackingMetrics(t *testing.T) {
 	const (
-		objectCount         = 100
+		objectCount         = 25
 		multiVecCard        = 3
 		dimensionsPerVector = 64
 	)

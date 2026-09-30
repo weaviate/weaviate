@@ -54,6 +54,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/file"
+	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -225,6 +226,7 @@ type ShardLike interface {
 	Activity() (int32, int32)
 	// Debug methods
 	DebugResetVectorIndex(ctx context.Context, targetVector string) error
+	DebugResetGeoIndex(ctx context.Context, propName string) error
 	RepairIndex(ctx context.Context, targetVector string) error
 	RequantizeIndex(ctx context.Context, targetVector string) error
 
@@ -425,6 +427,9 @@ type Shard struct {
 	// allocated the id and not yet written the row; dropping that one would hide a live
 	// object from every deny-list filter until the next shard init.
 	docIDPruneWatermark uint64
+	// unreadableRowSampler rate-limits FindUUIDs' warning about rows with no readable id.
+	// Such a row is never pruned or deleted, so every later call would warn about it again.
+	unreadableRowSampler *logrusext.Sampler
 
 	activityTrackerRead  atomic.Int32
 	activityTrackerWrite atomic.Int32
@@ -511,10 +516,7 @@ func (s *Shard) vectorIndexID(targetVector string) string {
 // vectorIndexID names the files a target vector's index owns inside the shard
 // directory. Unloaded shards need it too, so it does not hang off [Shard].
 func vectorIndexID(targetVector string) string {
-	if targetVector != "" {
-		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, targetVector)
-	}
-	return "main"
+	return helpers.VectorIndexIDForTarget(targetVector)
 }
 
 // uuidToIdLockPoolId computes a lock pool id for a given uuid. The lock pool
