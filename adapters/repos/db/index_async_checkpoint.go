@@ -223,7 +223,7 @@ func (i *Index) createAsyncCheckpoints(ctx context.Context, cutoffMs int64, shar
 					"op":     "create",
 					"class":  i.Config.ClassName,
 					"shard":  shardName,
-				}).WithError(err).Debug("async-checkpoint local create failed")
+				}).Debugf("async-checkpoint local create failed: %v", err)
 				return nil
 			}
 			localSuccesses.Add(1)
@@ -274,7 +274,7 @@ func (i *Index) deleteAsyncCheckpoints(ctx context.Context, shards []string, bro
 					"op":     "delete",
 					"class":  i.Config.ClassName,
 					"shard":  shardName,
-				}).WithError(err).Debug("local async-checkpoint delete failed")
+				}).Debugf("local async-checkpoint delete failed: %v", err)
 				return nil
 			}
 			localSuccesses.Add(1)
