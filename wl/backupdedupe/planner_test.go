@@ -62,6 +62,7 @@ type fakeCheckpointer struct {
 	root          hashtree.Digest
 	callDelay     time.Duration
 	deleteHang    bool
+	createHang    bool
 	inFlight      int
 	maxInFlight   int
 }
@@ -117,9 +118,12 @@ func (f *fakeCheckpointer) exit() {
 	f.inFlight--
 }
 
-func (f *fakeCheckpointer) CreateAsyncCheckpoints(_ context.Context, class string, cutoffMs int64, _ []string) error {
+func (f *fakeCheckpointer) CreateAsyncCheckpoints(ctx context.Context, class string, cutoffMs int64, _ []string) error {
 	f.enter()
 	defer f.exit()
+	if f.createHang {
+		<-ctx.Done()
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.createPanic[class] {
@@ -760,6 +764,42 @@ func TestPlanDesignatedShardsFanout(t *testing.T) {
 			assert.Less(t, elapsed, time.Second)
 			assert.Equal(t, tc.wantDesignated, plan.Designated())
 			assert.ElementsMatch(t, classes, f.deleteCalls)
+		})
+	}
+	stopped := []struct {
+		name         string
+		userCancel   bool
+		wantDeadline float64
+	}{
+		{name: "planning deadline during create fan-out", wantDeadline: 40},
+		{name: "user cancel during create fan-out", userCancel: true},
+	}
+	for _, tc := range stopped {
+		t.Run(tc.name, func(t *testing.T) {
+			f, classes := newWideFakeCheckpointer(40, 0)
+			f.createHang = true
+			c := newTestPlanner(f)
+			planCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+			defer cancel()
+			if tc.userCancel {
+				planCtx = ctx
+			}
+			cancelled := func() bool {
+				f.mu.Lock()
+				defer f.mu.Unlock()
+				return tc.userCancel && f.maxInFlight == _DedupeClassConcurrency
+			}
+			deadlineBefore, rpcBefore := dedupeFallbackCount("planning_deadline"), dedupeFallbackCount("create_rpc_failed")
+			fallbackBefore := dedupeShardOutcomeCount("fallback")
+
+			plan := c.PlanDesignatedShards(planCtx, classes, 0, parts("n1", "n2"), nil, cancelled)
+
+			assert.Equal(t, 0, plan.Designated())
+			assert.Len(t, f.createCalls, _DedupeClassConcurrency)
+			assert.ElementsMatch(t, f.createCalls, f.deleteCalls)
+			assert.Equal(t, tc.wantDeadline, dedupeFallbackCount("planning_deadline")-deadlineBefore)
+			assert.Equal(t, tc.wantDeadline, dedupeShardOutcomeCount("fallback")-fallbackBefore)
+			assert.Zero(t, dedupeFallbackCount("create_rpc_failed")-rpcBefore)
 		})
 	}
 }

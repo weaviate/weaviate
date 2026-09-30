@@ -15,6 +15,7 @@ package backupdedupe
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"slices"
@@ -223,11 +224,17 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 	// Registered before any create so a panic still deletes what exists.
 	defer func() { p.deleteCheckpoints(ctx, created) }()
 	results := p.createCheckpoints(ctx, candidateClasses, candidates)
+	aborted := false
 	for i, class := range candidateClasses {
 		res := results[i]
 		// A panicked create may have left checkpoints behind.
 		if res.err == nil || res.panicked {
 			created[class] = candidates[class]
+		}
+		// Planning's ctx died first: counted once below as a deadline fallback, not per class as an RPC failure.
+		if res.err != nil && !res.panicked && ctx.Err() != nil && errors.Is(res.err, ctx.Err()) {
+			aborted = true
+			continue
 		}
 		if res.err != nil {
 			monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("create_rpc_failed").Add(float64(len(candidates[class])))
@@ -239,6 +246,10 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 		cutoffs[class] = res.cutoffMs
 	}
 	plan.Cutoffs = cutoffs
+	if aborted {
+		p.abortPlanning(ctx, plan, candidates, cancelled)
+		return plan
+	}
 	if len(candidates) == 0 {
 		return plan
 	}
@@ -248,17 +259,7 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 		latestCutoffMs = max(latestCutoffMs, cutoffMs)
 	}
 	if !sleepUnlessCancelled(ctx, time.UnixMilli(latestCutoffMs), cancelled) {
-		// A user Cancel kills the whole backup; anything else is the planning deadline silently degrading every candidate.
-		if !cancelled() {
-			remaining := 0
-			for _, shards := range candidates {
-				remaining += len(shards)
-			}
-			monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("planning_deadline").Add(float64(remaining))
-			monitoring.GetMetrics().BackupDedupeShards.WithLabelValues("fallback").Add(float64(plan.Fallback()))
-			p.log.WithField("action", backup.OpCreate).
-				Warnf("replica dedupe: planning aborted before cutoff, %d shards fall back to all-replica backup: %v", remaining, ctx.Err())
-		}
+		p.abortPlanning(ctx, plan, candidates, cancelled)
 		return plan
 	}
 
@@ -282,6 +283,22 @@ func (p *Planner) PlanDesignatedShards(ctx context.Context, classes []string, bu
 	monitoring.GetMetrics().BackupDedupeShards.WithLabelValues("designated").Add(float64(plan.Designated()))
 	monitoring.GetMetrics().BackupDedupeShards.WithLabelValues("fallback").Add(float64(plan.Fallback()))
 	return plan
+}
+
+// abortPlanning accounts every remaining candidate as fallen back when planning stops before the cutoff.
+func (p *Planner) abortPlanning(ctx context.Context, plan *backup.DedupePlan, candidates map[string][]string, cancelled func() bool) {
+	// A user Cancel kills the whole backup; anything else is the planning deadline silently degrading every candidate.
+	if cancelled() {
+		return
+	}
+	remaining := 0
+	for _, shards := range candidates {
+		remaining += len(shards)
+	}
+	monitoring.GetMetrics().BackupDedupeFallbacks.WithLabelValues("planning_deadline").Add(float64(remaining))
+	monitoring.GetMetrics().BackupDedupeShards.WithLabelValues("fallback").Add(float64(plan.Fallback()))
+	p.log.WithField("action", backup.OpCreate).
+		Warnf("replica dedupe: planning aborted before cutoff, %d shards fall back to all-replica backup: %v", remaining, ctx.Err())
 }
 
 // dedupeFanoutAllowance is planning's deadline headroom for the per-class create and status waves.
@@ -313,6 +330,11 @@ func (p *Planner) createCheckpoints(ctx context.Context, classes []string, candi
 		shards := candidates[class]
 		eg.Go(func() error {
 			res := &results[i]
+			// Planning already stopped: nothing to create, and an attempt would only burn a local fan-out.
+			if err := ctx.Err(); err != nil {
+				res.err = err
+				return nil
+			}
 			returned := false
 			res.err = enterrors.RunRecovered(p.log, func() error {
 				// Taken right before the call: a queued class must not inherit a cutoff that the lead no longer covers.

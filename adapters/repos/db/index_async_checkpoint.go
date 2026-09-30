@@ -197,7 +197,8 @@ type asyncCheckpointBroadcaster interface {
 // CreateAsyncCheckpoints picks one createdAt for the whole fan-out so every
 // replica records the same convergence tie-breaker. Best-effort: per-shard
 // failures are logged, but the call returns nil and divergence reconciles
-// on the next cycle.
+// on the next cycle. An error means nothing was created: a ctx dead on entry
+// fails, but one cancelled mid-fan-out returns nil since a replica may have applied it.
 func (i *Index) CreateAsyncCheckpoints(ctx context.Context, cutoffMs int64, shards []string) error {
 	return i.createAsyncCheckpoints(ctx, cutoffMs, shards, i.replicator)
 }
@@ -205,6 +206,9 @@ func (i *Index) CreateAsyncCheckpoints(ctx context.Context, cutoffMs int64, shar
 func (i *Index) createAsyncCheckpoints(ctx context.Context, cutoffMs int64, shards []string, broadcaster asyncCheckpointBroadcaster) error {
 	if cutoffMs <= 0 {
 		return fmt.Errorf("cutoffMs must be > 0, got %d", cutoffMs)
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("create async checkpoints: %w", err)
 	}
 	targets := i.resolveShardNames(shards)
 	createdAt := time.Now().UTC()
