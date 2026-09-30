@@ -39,11 +39,11 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "happy flow",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"projectId": "project-id",
+					"projectId": "projectId",
 				},
 			},
 			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
-			wantProjectID:   "project-id",
+			wantProjectID:   "projectId",
 			wantModelID:     "gemini-embedding-001",
 			wantDimensions:  &DefaultDimensions,
 			wantErr:         nil,
@@ -53,13 +53,13 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"apiEndpoint":   "europe-west4-aiplatform.googleapis.com",
-					"projectId":     "project-id",
+					"projectId":     "projectId",
 					"titleProperty": "title",
 					"taskType":      "CODE_RETRIEVAL_QUERY",
 				},
 			},
 			wantApiEndpoint: "europe-west4-aiplatform.googleapis.com",
-			wantProjectID:   "project-id",
+			wantProjectID:   "projectId",
 			wantModelID:     "gemini-embedding-001",
 			wantTitle:       "title",
 			wantTaskType:    "CODE_RETRIEVAL_QUERY",
@@ -70,12 +70,12 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "custom location",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"projectId": "project-id",
+					"projectId": "projectId",
 					"location":  "europe-west1",
 				},
 			},
 			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
-			wantProjectID:   "project-id",
+			wantProjectID:   "projectId",
 			wantModelID:     "gemini-embedding-001",
 			wantLocation:    "europe-west1",
 			wantDimensions:  &DefaultDimensions,
@@ -131,12 +131,12 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "wrong properties",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"projectId": "project-id",
+					"projectId": "projectId",
 				},
 				properties: "wrong-properties",
 			},
 			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
-			wantProjectID:   "project-id",
+			wantProjectID:   "projectId",
 			wantModelID:     "textembedding-gecko@001",
 			wantTaskType:    DefaultTaskType,
 			wantDimensions:  nil,
@@ -147,7 +147,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"apiEndpoint": "attacker.example.com",
-					"projectId":   "project-id",
+					"projectId":   "projectId",
 				},
 			},
 			wantErr: errors.Errorf("apiEndpoint must be a Google API host ending in .googleapis.com, got \"attacker.example.com\""),
@@ -156,26 +156,17 @@ func Test_classSettings_Validate(t *testing.T) {
 			name: "location carrying a host",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"projectId": "project-id",
+					"projectId": "projectId",
 					"location":  "attacker.example.com/",
 				},
 			},
 			wantErr: errors.Errorf("location must be a Google region name, got \"attacker.example.com/\""),
 		},
 		{
-			name: "projectId carrying a path",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"projectId": "my-project/locations/x",
-				},
-			},
-			wantErr: errors.Errorf("projectId must be a Google Cloud project ID or project number, got \"my-project/locations/x\""),
-		},
-		{
 			name: "wrong taskType",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
-					"projectId": "project-id",
+					"projectId": "projectId",
 					"taskType":  "wrong-task-type",
 				},
 			},

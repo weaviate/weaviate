@@ -26,8 +26,6 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
-	modgenerativedummy "github.com/weaviate/weaviate/modules/generative-dummy"
-	modrerankerdummy "github.com/weaviate/weaviate/modules/reranker-dummy"
 	modgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -59,8 +57,6 @@ func newSchemaManagerWithModules(t *testing.T) *clusterSchema.SchemaManager {
 	provider := modules.NewProvider(logger, config.Config{})
 	provider.Register(modgoogle.New())
 	provider.Register(modweaviateembed.New())
-	provider.Register(modgenerativedummy.New())
-	provider.Register(modrerankerdummy.New())
 	parser := schema.NewParser(fakes.NewFakeClusterState(), vectorindex.ParseAndValidateConfig,
 		acceptAllIndexUpdates{}, provider, nil, nil)
 	return clusterSchema.NewSchemaManager("node1", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
@@ -84,13 +80,6 @@ func addClassRequest(t *testing.T, class *models.Class) *command.ApplyRequest {
 func updateClassRequest(t *testing.T, class *models.Class, version uint64) *command.ApplyRequest {
 	t.Helper()
 	return applyRequest(t, command.ApplyRequest_TYPE_UPDATE_CLASS, class.Class, version, command.UpdateClassRequest{Class: class})
-}
-
-func storedClassJSON(t *testing.T, sm *clusterSchema.SchemaManager) string {
-	t.Helper()
-	b, err := json.Marshal(sm.NewSchemaReader().ReadOnlyClass(className))
-	require.NoError(t, err)
-	return string(b)
 }
 
 func aiStudioSettings() map[string]any {
@@ -190,100 +179,6 @@ func TestSchemaManager_UpdateClass_GoogleEndpointSettings(t *testing.T) {
 			})
 		})
 	}
-}
-
-func TestSchemaManager_UpdateClass_RejectedUpdateLeavesClassUnchanged(t *testing.T) {
-	changes := []struct {
-		name   string
-		update func(shape googleClassShape) *models.Class
-	}{
-		{
-			name: "endpoint switch with a model change",
-			update: func(shape googleClassShape) *models.Class {
-				settings := withSettings(vertexChanges)
-				settings["model"] = "text-embedding-005"
-				return shape.build(settings)
-			},
-		},
-		{
-			name: "endpoint switch with an added property",
-			update: func(shape googleClassShape) *models.Class {
-				class := shape.build(withSettings(vertexChanges))
-				class.Properties = []*models.Property{{Name: "added", DataType: []string{"text"}}}
-				return class
-			},
-		},
-	}
-	for _, shape := range googleClassShapes {
-		for _, change := range changes {
-			t.Run(shape.name+"/"+change.name, func(t *testing.T) {
-				sm := newSchemaManagerWithModules(t)
-				require.NoError(t, sm.AddClass(addClassRequest(t, shape.build(aiStudioSettings())), "node1", true, false))
-				before := storedClassJSON(t, sm)
-				entry := updateClassRequest(t, change.update(shape), 2)
-
-				require.ErrorIs(t, sm.UpdateClass(entry, "node1", true, false), clusterSchema.ErrBadRequest)
-				require.JSONEq(t, before, storedClassJSON(t, sm))
-
-				require.ErrorIs(t, sm.UpdateClass(entry, "node1", true, false), clusterSchema.ErrBadRequest)
-				require.JSONEq(t, before, storedClassJSON(t, sm))
-			})
-		}
-	}
-}
-
-func TestSchemaManager_UpdateClass_ModuleConfigUpdatesApply(t *testing.T) {
-	legacy := googleClassShapes[0]
-	withModules := func(extra map[string]any) *models.Class {
-		class := legacy.build(aiStudioSettings())
-		maps.Copy(class.ModuleConfig.(map[string]any), extra)
-		return class
-	}
-	generative := map[string]any{modgenerativedummy.Name: map[string]any{}}
-	reranker := map[string]any{modrerankerdummy.Name: map[string]any{}}
-
-	sm := newSchemaManagerWithModules(t)
-	require.NoError(t, sm.AddClass(addClassRequest(t, legacy.build(aiStudioSettings())), "node1", true, false))
-
-	require.NoError(t, sm.UpdateClass(updateClassRequest(t, withModules(generative), 2), "node1", true, false))
-	stored := sm.NewSchemaReader().ReadOnlyClass(className).ModuleConfig.(map[string]any)
-	require.Contains(t, stored, modgenerativedummy.Name)
-
-	withBoth := withModules(generative)
-	maps.Copy(withBoth.ModuleConfig.(map[string]any), reranker)
-	require.NoError(t, sm.UpdateClass(updateClassRequest(t, withBoth, 3), "node1", true, false))
-	stored = sm.NewSchemaReader().ReadOnlyClass(className).ModuleConfig.(map[string]any)
-	require.Contains(t, stored, modgenerativedummy.Name)
-	require.Contains(t, stored, modrerankerdummy.Name)
-	require.Equal(t, "generativelanguage.googleapis.com", legacy.settings(sm.NewSchemaReader().ReadOnlyClass(className))["apiEndpoint"])
-
-	for i, moduleConfig := range []any{map[string]any{}, nil} {
-		before, err := json.Marshal(sm.NewSchemaReader().ReadOnlyClass(className).ModuleConfig)
-		require.NoError(t, err)
-
-		update := legacy.build(aiStudioSettings())
-		update.ModuleConfig = moduleConfig
-		require.NoError(t, sm.UpdateClass(updateClassRequest(t, update, uint64(4+i)), "node1", true, false))
-
-		after, err := json.Marshal(sm.NewSchemaReader().ReadOnlyClass(className).ModuleConfig)
-		require.NoError(t, err)
-		require.JSONEq(t, string(before), string(after))
-	}
-}
-
-// Earlier versions accepted this entry into the Raft log, so apply must still accept it.
-func TestSchemaManager_UpdateClass_AcceptsAModuleUnderAnotherName(t *testing.T) {
-	legacy := googleClassShapes[0]
-	update := legacy.build(aiStudioSettings())
-	update.ModuleConfig.(map[string]any)[modgoogle.Name] = aiStudioSettings()
-
-	sm := newSchemaManagerWithModules(t)
-	require.NoError(t, sm.AddClass(addClassRequest(t, legacy.build(aiStudioSettings())), "node1", true, false))
-	require.NoError(t, sm.UpdateClass(updateClassRequest(t, update, 2), "node1", true, false))
-
-	stored := sm.NewSchemaReader().ReadOnlyClass(className).ModuleConfig.(map[string]any)
-	require.Contains(t, stored, modgoogle.LegacyName)
-	require.Contains(t, stored, modgoogle.Name)
 }
 
 func TestSchemaManager_UpdateClass_MigratesRenamedVectorizerSetting(t *testing.T) {

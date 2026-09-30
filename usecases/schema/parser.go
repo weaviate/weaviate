@@ -15,7 +15,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
-	"slices"
 	"sort"
 	"strings"
 
@@ -23,7 +22,6 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/vectorindex"
@@ -44,7 +42,6 @@ type modulesProvider interface {
 	HasModule(string) bool
 	MigrateVectorizerSettings(any, any) bool
 	MutableVectorizerSettings(module string, current, updated map[string]any) []string
-	GetByName(name string) modulecapabilities.Module
 }
 
 type Parser struct {
@@ -347,7 +344,6 @@ func (p *Parser) validatePropertiesForUpdate(existing []*models.Property, new []
 		return errPropertiesUpdatedInClassUpdate
 	}
 
-	existing = slices.Clone(existing)
 	sort.Slice(existing, func(i, j int) bool {
 		return existing[i].Name < existing[j].Name
 	})
@@ -474,7 +470,6 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 	}
 
 	initialModConf, _ := initial.ModuleConfig.(map[string]any)
-	mergedModConf, _ := cloneSettings(initialModConf).(map[string]any)
 
 	// this part:
 	// - allow adding new modules
@@ -516,9 +511,9 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 		// There might be module settings that need to be migrated to new names, for example
 		// if baseUrl property setting was renamed to baseURL then we need to adjust module settings
 		// and migrate baseUrl to baseURL
-		if p.modules.MigrateVectorizerSettings(mergedModConf, updatedModConf) {
+		if p.modules.MigrateVectorizerSettings(initialModConf, updatedModConf) {
 			// Module settings have been migrated, let's recheck vectorizer settings
-			if deepEqualVectorizerSettings(mergedModConf[module], updatedModConf[module]) {
+			if deepEqualVectorizerSettings(initialModConf[module], updatedModConf[module]) {
 				continue
 			}
 		}
@@ -527,68 +522,37 @@ func (p *Parser) validateModuleConfigsParityAndImmutables(initial, updated *mode
 	}
 
 	if initial.ModuleConfig == nil {
-		updated.ModuleConfig = updatedModConf
+		initial.ModuleConfig = updatedModConf
 		return nil
 	}
 
 	if _, ok := initial.ModuleConfig.(map[string]any); !ok {
-		updated.ModuleConfig = updatedModConf
+		initial.ModuleConfig = updatedModConf
 		return nil
 	}
 	if hasGenerativeUpdate {
 		// clear out old generative module
-		for module := range mergedModConf {
+		for module := range initialModConf {
 			if p.modules.IsGenerative(module) {
-				delete(mergedModConf, module)
+				delete(initialModConf, module)
 			}
 		}
 	}
 
 	if hasRerankerUpdate {
 		// clear out old reranker module
-		for module := range mergedModConf {
+		for module := range initialModConf {
 			if p.modules.IsReranker(module) {
-				delete(mergedModConf, module)
+				delete(initialModConf, module)
 			}
 		}
 	}
 
 	for module := range updatedModConf {
-		mergedModConf[module] = updatedModConf[module]
+		initialModConf[module] = updatedModConf[module]
 	}
-	updated.ModuleConfig = mergedModConf
+	updated.ModuleConfig = initialModConf
 	return nil
-}
-
-// validateNoModuleUnderAnotherName runs in the handler only: Raft apply must keep accepting
-// every entry earlier versions accepted, or replay would diverge.
-func (p *Parser) validateNoModuleUnderAnotherName(initial, updated *models.Class) error {
-	initialModConf, _ := initial.ModuleConfig.(map[string]any)
-	updatedModConf, _ := updated.ModuleConfig.(map[string]any)
-	for module := range updatedModConf {
-		if _, ok := initialModConf[module]; ok || p.modules.IsGenerative(module) || p.modules.IsReranker(module) {
-			continue
-		}
-		if configured := p.configuredUnderAnotherName(initialModConf, module); configured != "" {
-			return fmt.Errorf("module %q is already configured as %q for class %s", module, configured, updated.Class)
-		}
-	}
-	return nil
-}
-
-// configuredUnderAnotherName returns the other name (e.g. text2vec-palm) module is already stored
-// under. The canonical name takes precedence, so adding it would replace those settings.
-func (p *Parser) configuredUnderAnotherName(moduleConfig map[string]any, module string) string {
-	mod := p.modules.GetByName(module)
-	if mod == nil {
-		return ""
-	}
-	for name := range moduleConfig {
-		if other := p.modules.GetByName(name); name != module && other != nil && other.Name() == mod.Name() {
-			return name
-		}
-	}
-	return ""
 }
 
 func (p *Parser) validateNamedVectorConfigsParityAndImmutables(initial, updated *models.Class) error {

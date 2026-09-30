@@ -159,9 +159,6 @@ func (v *google) vectorize(ctx context.Context, input []string, taskType taskTyp
 	if err := modulecomponents.ValidateGoogleLocation("location", config.Location); err != nil {
 		return nil, err
 	}
-	if err := modulecomponents.ValidateGoogleProjectID(config.ProjectID); err != nil {
-		return nil, err
-	}
 
 	useGenerativeAIEndpoint := v.useGenerativeAIEndpoint(config)
 

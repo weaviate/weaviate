@@ -25,8 +25,6 @@ var (
 	googleAPIHostPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*\.googleapis\.com$`)
 	// A single DNS label, e.g. us-central1 or global.
 	googleLocationPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
-	// A project ID, optionally domain-scoped (example.com:my-project), or a project number.
-	googleProjectIDPattern = regexp.MustCompile(`^(([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}:)?[a-z][a-z0-9-]{4,28}[a-z0-9]$|^[0-9]{1,30}$`)
 )
 
 // ValidateGoogleApiEndpoint rejects an apiEndpoint outside Google's API domain.
@@ -57,18 +55,6 @@ func ValidateGoogleLocation(property, location string) error {
 	}
 	if !googleLocationPattern.MatchString(strings.ToLower(location)) {
 		return fmt.Errorf("%s must be a Google region name, got %q", property, location)
-	}
-	return nil
-}
-
-// ValidateGoogleProjectID rejects a projectId that is not a project ID or number, since the
-// Google modules put it unescaped into the request path. Empty means "not set".
-func ValidateGoogleProjectID(projectID string) error {
-	if projectID == "" {
-		return nil
-	}
-	if !googleProjectIDPattern.MatchString(projectID) {
-		return fmt.Errorf("projectId must be a Google Cloud project ID or project number, got %q", projectID)
 	}
 	return nil
 }

@@ -253,8 +253,10 @@ func (v *google) parseGenerateMessageResponse(statusCode int, bodyBytes []byte, 
 	}, nil
 }
 
-// validateEndpoint rejects endpoint overrides that would send the operator's Google credential
-// off Google's domain. A request can set them without any schema permission.
+// validateEndpoint rejects endpoint overrides that would send the operator's
+// Google credential off Google's domain. apiEndpoint, region and location all
+// end up in the request host, and a GraphQL or gRPC request can set all three
+// without any schema permission, so the class config check alone is not enough.
 func validateEndpoint(params googleparams.Params) error {
 	if err := modulecomponents.ValidateGoogleApiEndpoint(params.ApiEndpoint); err != nil {
 		return err
@@ -262,10 +264,7 @@ func validateEndpoint(params googleparams.Params) error {
 	if err := modulecomponents.ValidateGoogleLocation("region", params.Region); err != nil {
 		return err
 	}
-	if err := modulecomponents.ValidateGoogleLocation("location", params.Location); err != nil {
-		return err
-	}
-	return modulecomponents.ValidateGoogleProjectID(params.ProjectID)
+	return modulecomponents.ValidateGoogleLocation("location", params.Location)
 }
 
 func (v *google) getParameters(cfg moduletools.ClassConfig, options interface{}, imagePropertiesArray []map[string]*string) googleparams.Params {

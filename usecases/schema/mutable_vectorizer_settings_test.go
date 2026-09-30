@@ -251,7 +251,6 @@ func acceptedUpdates() []acceptedUpdate {
 		},
 		{name: "Vertex to AI Studio", initial: vertexSettings(), update: aiStudioSettings()},
 		{name: "Vertex project", initial: vertexSettings(), update: withSettings(vertexSettings(), map[string]any{"projectId": "other-project"})},
-		{name: "Vertex project number", initial: vertexSettings(), update: withSettings(vertexSettings(), map[string]any{"projectId": "123456789012"})},
 		{
 			name: "Vertex location", initial: withSettings(vertexSettings(), map[string]any{"location": "us-central1"}),
 			update: withSettings(vertexSettings(), map[string]any{"location": "europe-west4"}),
@@ -293,11 +292,6 @@ func rejectedUpdates() []rejectedUpdate {
 			name:          "Vertex without projectId",
 			update:        withSettings(aiStudioSettings(), map[string]any{"apiEndpoint": vertexEndpoint}),
 			expectedError: "projectId cannot be empty",
-		},
-		{
-			name:          "projectId carrying a path",
-			update:        withSettings(vertexSettings(), map[string]any{"projectId": "my-project/locations/x"}),
-			expectedError: "projectId must be a Google Cloud project ID or project number",
 		},
 		{
 			name:          "endpoint outside googleapis.com",
@@ -511,6 +505,45 @@ func TestUpdateClass_MutableVectorizerSettings_LegacyPalmModelIDShape(t *testing
 			require.Equal(t, effectiveGoogleSettings{model: "gemini-embedding-001", dimensions: &dimensions},
 				effectiveSettings(jsonCopyClass(t, stored), modgoogle.LegacyName, googleVectorName))
 			require.Equal(t, []string{modgoogle.LegacyName + "/" + googleVectorName}, s.modules.validated)
+		})
+	}
+}
+
+func TestUpdateClass_MigratesRenamedVectorizerSetting(t *testing.T) {
+	const baseURL = "https://api.embedding.weaviate.io"
+	oldSettings := map[string]any{"baseUrl": baseURL, "model": "Snowflake/snowflake-arctic-embed-l-v2.0"}
+	newSettings := map[string]any{"baseURL": baseURL, "model": "Snowflake/snowflake-arctic-embed-l-v2.0"}
+
+	shapes := []struct {
+		name         string
+		build        func(settings map[string]any) *models.Class
+		targetVector string
+	}{
+		{
+			name: "legacy",
+			build: func(settings map[string]any) *models.Class {
+				return legacyVectorizerClass(modweaviateembed.Name, settings)
+			},
+		},
+		{
+			name: "named vector",
+			build: func(settings map[string]any) *models.Class {
+				return namedVectorizerClass(modweaviateembed.Name, settings)
+			},
+			targetVector: googleVectorName,
+		},
+	}
+	for _, shape := range shapes {
+		t.Run(shape.name, func(t *testing.T) {
+			s := newSchemaWithModules(t)
+			stored := s.create(t, shape.build(oldSettings))
+			require.Equal(t, baseURL, storedVectorizerSettings(t, stored, modweaviateembed.Name, shape.targetVector)["baseUrl"])
+
+			require.NoError(t, s.update(shape.build(newSettings)))
+
+			settings := storedVectorizerSettings(t, stored, modweaviateembed.Name, shape.targetVector)
+			require.Equal(t, baseURL, settings["baseURL"])
+			require.NotContains(t, settings, "baseUrl")
 		})
 	}
 }

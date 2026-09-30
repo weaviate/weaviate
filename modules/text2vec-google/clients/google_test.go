@@ -89,10 +89,6 @@ func TestVectorizeRejectsForeignEndpoint(t *testing.T) {
 			name:   "location carrying a host",
 			config: settings{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "project", Model: "model", Location: "attacker.example.com/"},
 		},
-		{
-			name:   "projectId carrying a path",
-			config: settings{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "my-project/locations/x", Model: "model", Location: "us-central1"},
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -43,7 +43,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
-					addSetting("projectId", "project-id").addSetting("imageFields", nil).build(),
+					addSetting("projectId", "projectId").addSetting("imageFields", nil).build(),
 			},
 			wantErr: true,
 		},
@@ -52,7 +52,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
-					addSetting("projectId", "project-id").addSetting("imageFields", []string{}).build(),
+					addSetting("projectId", "projectId").addSetting("imageFields", []string{}).build(),
 			},
 			wantErr: true,
 		},
@@ -61,7 +61,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
-					addSetting("projectId", "project-id").addSetting("imageFields", []any{}).build(),
+					addSetting("projectId", "projectId").addSetting("imageFields", []any{}).build(),
 			},
 			wantErr: true,
 		},
@@ -70,7 +70,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
-					addSetting("projectId", "project-id").addSetting("imageFields", []any{""}).build(),
+					addSetting("projectId", "projectId").addSetting("imageFields", []any{""}).build(),
 			},
 			wantErr: true,
 		},
@@ -79,7 +79,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
-					addSetting("projectId", "project-id").addSetting("imageFields", []any{1.0}).build(),
+					addSetting("projectId", "projectId").addSetting("imageFields", []any{1.0}).build(),
 			},
 			wantErr: true,
 		},
@@ -88,7 +88,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
-					addSetting("projectId", "project-id").addSetting("imageFields", []any{"field"}).build(),
+					addSetting("projectId", "projectId").addSetting("imageFields", []any{"field"}).build(),
 			},
 		},
 		{
@@ -96,7 +96,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
-					addSetting("projectId", "project-id").
+					addSetting("projectId", "projectId").
 					addSetting("imageFields", []any{"imageField"}).
 					addSetting("textFields", []any{"textField"}).
 					build(),
@@ -107,7 +107,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
-					addSetting("projectId", "project-id").
+					addSetting("projectId", "projectId").
 					addSetting("textFields", []any{"textField1", "textField2"}).
 					addSetting("imageFields", []any{"imageField1", "imageField2"}).
 					build(),
@@ -118,7 +118,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
-					addSetting("projectId", "project-id").
+					addSetting("projectId", "projectId").
 					addSetting("textFields", []any{"textField1", "textField2"}).
 					addSetting("imageFields", []any{"imageField1", "imageField2"}).
 					addWeights([]any{1, 2}, []any{1, 2}).
@@ -130,7 +130,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
-					addSetting("projectId", "project-id").
+					addSetting("projectId", "projectId").
 					addSetting("textFields", []any{"textField1", "textField2"}).
 					addSetting("imageFields", []any{"imageField1"}).
 					addWeights([]any{1, 2}, []any{1}).
@@ -142,7 +142,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
-					addSetting("projectId", "project-id").
+					addSetting("projectId", "projectId").
 					addSetting("textFields", []any{"textField1", "textField2"}).
 					addSetting("imageFields", []any{"imageField1"}).
 					addWeights([]any{1, 2}, []any{1}).
@@ -154,7 +154,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
-					addSetting("projectId", "project-id").
+					addSetting("projectId", "projectId").
 					addSetting("textFields", []any{"textField1", "textField2"}).
 					addSetting("imageFields", []any{"imageField1"}).
 					addWeights([]any{1}, []any{1}).
@@ -167,7 +167,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
-					addSetting("projectId", "project-id").
+					addSetting("projectId", "projectId").
 					addSetting("textFields", []any{"textField1", "textField2"}).
 					addSetting("imageFields", []any{"imageField1"}).
 					addWeights([]any{1, "aaaa"}, []any{1}).
@@ -180,7 +180,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
-					addSetting("projectId", "project-id").
+					addSetting("projectId", "projectId").
 					addSetting("textFields", []any{"textField1", "textField2"}).
 					addSetting("imageFields", []any{"imageField1"}).
 					addWeights([]any{json.Number("1"), json.Number("2")}, []any{json.Number("3")}).
@@ -192,7 +192,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
-					addSetting("projectId", "project-id").
+					addSetting("projectId", "projectId").
 					addSetting("videoFields", []any{"video1"}).
 					addSetting("dimensions", 256).
 					build(),
@@ -204,7 +204,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
-					addSetting("projectId", "project-id").
+					addSetting("projectId", "projectId").
 					addSetting("videoFields", []any{"video1"}).
 					addSetting("imageFields", []any{"image1"}).
 					addSetting("dimensions", 512).
@@ -217,7 +217,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
-					addSetting("projectId", "project-id").
+					addSetting("projectId", "projectId").
 					addSetting("videoFields", []any{"video1"}).
 					addSetting("imageFields", []any{"image1"}).
 					addSetting("dimensions", defaultDimensions1408).
@@ -231,18 +231,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				cfg: newConfigBuilder().
 					addSetting("apiEndpoint", "attacker.example.com").
 					addSetting("location", "us-central1").
-					addSetting("projectId", "project-id").
-					addSetting("imageFields", []any{"image1"}).
-					build(),
-			},
-			wantErr: true,
-		},
-		{
-			name: "should not pass with a projectId carrying a path",
-			fields: fields{
-				cfg: newConfigBuilder().
-					addSetting("location", "us-central1").
-					addSetting("projectId", "my-project/locations/x").
+					addSetting("projectId", "projectId").
 					addSetting("imageFields", []any{"image1"}).
 					build(),
 			},
@@ -253,7 +242,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "attacker.example.com/").
-					addSetting("projectId", "project-id").
+					addSetting("projectId", "projectId").
 					addSetting("imageFields", []any{"image1"}).
 					build(),
 			},
@@ -264,7 +253,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			fields: fields{
 				cfg: newConfigBuilder().
 					addSetting("location", "location").
-					addSetting("projectId", "project-id").
+					addSetting("projectId", "projectId").
 					addSetting("videoFields", []any{"video1"}).
 					addSetting("imageFields", []any{"image1"}).
 					addSetting("videoIntervalSeconds", 7).

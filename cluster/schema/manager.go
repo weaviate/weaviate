@@ -543,9 +543,6 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		meta.Class.VectorIndexConfig = u.VectorIndexConfig
 		meta.Class.InvertedIndexConfig = u.InvertedIndexConfig
 		meta.Class.VectorConfig = u.VectorConfig
-		if u.ModuleConfig != nil {
-			meta.Class.ModuleConfig = u.ModuleConfig
-		}
 		meta.Class.ReplicationConfig = u.ReplicationConfig
 		meta.Class.MultiTenancyConfig = u.MultiTenancyConfig
 		meta.Class.ObjectTTLConfig = u.ObjectTTLConfig

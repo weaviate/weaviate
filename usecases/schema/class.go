@@ -589,10 +589,6 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 			return err
 		}
 
-		if err := h.parser.validateNoModuleUnderAnotherName(initial, updated); err != nil {
-			return err
-		}
-
 		for _, changed := range mutableVectorizerChanges(h.parser.modules, initial, updated) {
 			if err := h.moduleConfig.ValidateModuleConfig(ctx, updated, changed.module, changed.targetVector); err != nil {
 				return err
@@ -1762,10 +1758,9 @@ func validateImmutableFields(initial, updated *models.Class, modulesProvider mod
 			// There might be module settings that need to be migrated to new names, for example
 			// if baseUrl property setting was renamed to baseURL then we need to adjust module settings
 			// and migrate baseUrl to baseURL
-			initialVectorizer := cloneSettings(initial.VectorConfig[k].Vectorizer)
-			if modulesProvider.MigrateVectorizerSettings(initialVectorizer, v.Vectorizer) {
+			if modulesProvider.MigrateVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
 				// Module settings have been migrated, let's recheck vectorizer settings
-				if deepEqualVectorizerSettings(initialVectorizer, v.Vectorizer) {
+				if deepEqualVectorizerSettings(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
 					continue
 				}
 			}
@@ -1907,24 +1902,4 @@ func validateLegacyVectorIndexConfigImmutableFields(initial, updated *models.Cla
 			accessor: func(c *models.Class) string { return c.VectorIndexType },
 		},
 	}...)
-}
-
-// cloneSettings deep-copies module settings so migrating them never writes into the stored class.
-func cloneSettings(settings any) any {
-	switch settings := settings.(type) {
-	case map[string]any:
-		out := make(map[string]any, len(settings))
-		for k, v := range settings {
-			out[k] = cloneSettings(v)
-		}
-		return out
-	case []any:
-		out := make([]any, len(settings))
-		for i, v := range settings {
-			out[i] = cloneSettings(v)
-		}
-		return out
-	default:
-		return settings
-	}
 }

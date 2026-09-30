@@ -52,10 +52,6 @@ func TestGenerateRejectsForeignEndpoint(t *testing.T) {
 			name:   "location carrying a host",
 			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", Location: "attacker.example.com/"},
 		},
-		{
-			name:   "projectId carrying a path",
-			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "my-project/locations/x"},
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -74,56 +70,6 @@ func TestGenerateRejectsForeignEndpoint(t *testing.T) {
 			_, err := c.GenerateAllResults(context.Background(), props, "What is my name?", tt.params, false, nil)
 
 			require.Error(t, err)
-		})
-	}
-}
-
-// Documents current behaviour, not the behaviour we want.
-// A query-time model or endpointId containing "/" adds path segments to the request URL.
-func TestGenerateBuildsTheURLWithQueryTimeModelUnescaped(t *testing.T) {
-	tests := []struct {
-		name   string
-		params googleparams.Params
-		want   string
-	}{
-		{
-			name:   "Vertex model",
-			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "my-project", Model: "gemini-2.0-flash/../../other"},
-			want:   "/models/gemini-2.0-flash/../../other:generateContent",
-		},
-		{
-			name:   "Vertex endpointId",
-			params: googleparams.Params{ApiEndpoint: "us-central1-aiplatform.googleapis.com", ProjectID: "my-project", EndpointID: "123/../../other"},
-			want:   "/models/123/../../other:predict",
-		},
-		{
-			name:   "AI Studio model",
-			params: googleparams.Params{ApiEndpoint: "generativelanguage.googleapis.com", Model: "gemini-2.0-flash/../../other"},
-			want:   "/models/gemini-2.0-flash/../../other:generateContent",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(http.StatusInternalServerError)
-			}))
-			defer server.Close()
-			var built string
-			c := &google{
-				apiKey:       "apiKey",
-				httpClient:   &http.Client{},
-				googleApiKey: apikey.NewGoogleApiKey(),
-				buildUrlFn: func(useGenerativeAI bool, apiEndpoint, projectID, modelID, region, location string) string {
-					built = buildURL(useGenerativeAI, apiEndpoint, projectID, modelID, region, location)
-					return server.URL
-				},
-				logger: nullLogger(),
-			}
-			props := []*modulecapabilities.GenerateProperties{{Text: map[string]string{"prop": "My name is john"}}}
-
-			_, _ = c.GenerateAllResults(context.Background(), props, "What is my name?", tt.params, false, nil)
-
-			require.Contains(t, built, tt.want)
 		})
 	}
 }

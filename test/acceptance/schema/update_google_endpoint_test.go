@@ -58,7 +58,6 @@ type endpointCase struct {
 }
 
 type endpointRun struct {
-	ctx      context.Context
 	compose  *docker.DockerCompose
 	tc       endpointCase
 	supplied map[strfmt.UUID][]float32
@@ -81,12 +80,11 @@ func TestText2VecGoogle_SwitchAIStudioToVertex_ThreeNodes(t *testing.T) {
 
 	for _, tc := range endpointCases() {
 		t.Run(tc.name, func(t *testing.T) {
-			run := &endpointRun{ctx: ctx, compose: compose, tc: tc}
+			run := &endpointRun{compose: compose, tc: tc}
 			run.setup(t)
 			run.testMissingProjectID(t)
-			run.testRejectedLeavesNodesUnchanged(t)
 			run.testSwitch(t)
-			run.testRestart(t)
+			run.testRestart(ctx, t)
 			run.testModelChangeRejected(t)
 		})
 	}
@@ -200,38 +198,18 @@ func (r *endpointRun) insertObjects(t *testing.T) map[strfmt.UUID][]float32 {
 	return supplied
 }
 
-func (r *endpointRun) updateClass(t *testing.T, changes map[string]any, addProperty bool) error {
+func (r *endpointRun) updateSettings(t *testing.T, changes map[string]any) error {
 	class := helper.GetClass(t, r.tc.className)
 	maps.Copy(r.tc.settings(class), changes)
-	if addProperty {
-		class.Properties = append(class.Properties, &models.Property{Name: "added", DataType: []string{"text"}})
-	}
 	params := schema.NewSchemaObjectsUpdateParams().WithClassName(r.tc.className).WithObjectClass(class)
 	_, err := helper.Client(t).Schema.SchemaObjectsUpdate(params, nil)
 	return err
-}
-
-func (r *endpointRun) updateSettings(t *testing.T, changes map[string]any) error {
-	return r.updateClass(t, changes, false)
 }
 
 func (r *endpointRun) localClassParams(node int) *schema.SchemaObjectsGetParams {
 	helper.SetupClient(r.compose.GetWeaviateNode(node).URI())
 	consistency := false
 	return schema.NewSchemaObjectsGetParams().WithClassName(r.tc.className).WithConsistency(&consistency)
-}
-
-func (r *endpointRun) localClassJSON(t *testing.T, node int) string {
-	t.Helper()
-	params := r.localClassParams(node)
-	var class string
-	require.EventuallyWithT(t, func(c *assert.CollectT) {
-		res, err := helper.Client(t).Schema.SchemaObjectsGet(params, nil)
-		if assert.NoError(c, err) {
-			class = mustJSON(t, res.Payload)
-		}
-	}, 30*time.Second, 250*time.Millisecond, "node %d", node)
-	return class
 }
 
 func (r *endpointRun) requireVertexOnNode(t *testing.T, node int) {
@@ -272,22 +250,6 @@ func (r *endpointRun) requireAllNodesVertex(t *testing.T) {
 	}
 }
 
-func (r *endpointRun) snapshotNodes(t *testing.T) map[int]string {
-	t.Helper()
-	snapshot := map[int]string{}
-	for node := 1; node <= 3; node++ {
-		snapshot[node] = r.localClassJSON(t, node)
-	}
-	return snapshot
-}
-
-func (r *endpointRun) requireNodesMatch(t *testing.T, want map[int]string) {
-	t.Helper()
-	for node := 1; node <= 3; node++ {
-		require.JSONEq(t, want[node], r.localClassJSON(t, node), "node %d", node)
-	}
-}
-
 func requireUnprocessable(t *testing.T, err error, contains string) {
 	t.Helper()
 	var unprocessable *schema.SchemaObjectsUpdateUnprocessableEntity
@@ -295,48 +257,11 @@ func requireUnprocessable(t *testing.T, err error, contains string) {
 	require.Contains(t, unprocessable.Payload.Error[0].Message, contains)
 }
 
-type rejectedSwitch struct {
-	name        string
-	changes     map[string]any
-	addProperty bool
-	wantError   string
-}
-
-func (r *endpointRun) rejectedSwitches() []rejectedSwitch {
-	withModel := map[string]any{r.tc.modelKey: "text-embedding-005"}
-	maps.Copy(withModel, vertexSwitch)
-	return []rejectedSwitch{
-		{
-			name:      "endpoint switch with a model change",
-			changes:   withModel,
-			wantError: r.tc.immutableError,
-		},
-		{
-			name:        "endpoint switch with an added property",
-			changes:     vertexSwitch,
-			addProperty: true,
-			wantError:   "cannot be updated through updating the class",
-		},
-	}
-}
-
 func (r *endpointRun) testMissingProjectID(t *testing.T) {
 	t.Run("Vertex endpoint without projectId is rejected", func(t *testing.T) {
 		err := r.updateSettings(t, map[string]any{"apiEndpoint": vertexEndpointHost})
 		requireUnprocessable(t, err, "projectId cannot be empty")
 	})
-}
-
-func (r *endpointRun) testRejectedLeavesNodesUnchanged(t *testing.T) {
-	for _, rs := range r.rejectedSwitches() {
-		t.Run("rejected "+rs.name+" leaves every node unchanged", func(t *testing.T) {
-			before := r.snapshotNodes(t)
-			helper.SetupClient(r.compose.GetWeaviate().URI())
-			requireUnprocessable(t, r.updateClass(t, rs.changes, rs.addProperty), rs.wantError)
-			r.requireNodesMatch(t, before)
-			helper.SetupClient(r.compose.GetWeaviate().URI())
-		})
-	}
 }
 
 func (r *endpointRun) testSwitch(t *testing.T) {
@@ -348,11 +273,11 @@ func (r *endpointRun) testSwitch(t *testing.T) {
 	})
 }
 
-func (r *endpointRun) testRestart(t *testing.T) {
+func (r *endpointRun) testRestart(ctx context.Context, t *testing.T) {
 	t.Run("config survives restarting every node", func(t *testing.T) {
 		for node := 1; node <= 3; node++ {
-			require.NoError(t, r.compose.StopNode(r.ctx, node-1, nil))
-			require.NoError(t, r.compose.StartNode(r.ctx, node-1))
+			require.NoError(t, r.compose.StopNode(ctx, node-1, nil))
+			require.NoError(t, r.compose.StartNode(ctx, node-1))
 			r.requireVertexOnNode(t, node)
 		}
 		helper.SetupClient(r.compose.GetWeaviate().URI())
