@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	dbinverted "github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -823,6 +824,11 @@ func TestStatusFromErrorMessages(t *testing.T) {
 			wantStatus: http.StatusBadRequest,
 		},
 		{
+			name:       "query vector of the wrong dimensionality is a 422",
+			err:        wrap(fmt.Errorf("knn search: distance between entrypoint and query node: 2 vs 3: %w", distancer.ErrVectorLength)),
+			wantStatus: http.StatusUnprocessableEntity,
+		},
+		{
 			name:       "provider failure is a fixed 500 with the detail as cause",
 			err:        wrap(enterrors.NewErrQueryVectorization(errors.New("OpenAI API failed with status: 401, Incorrect API key provided: sk-bad"))),
 			wantStatus: http.StatusInternalServerError,
@@ -1068,6 +1074,65 @@ func TestNearObjectSourceObjectErrorMapping(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, apiErr.Status, apiErr.Error())
 		})
 	}
+}
+
+// mustNearVectorModel is mustModel for the near-vector request model.
+func mustNearVectorModel(t *testing.T, body string) *models.SearchNearVectorRequest {
+	t.Helper()
+	var req models.SearchNearVectorRequest
+	require.NoError(t, json.Unmarshal([]byte(body), &req))
+	return &req
+}
+
+// doNearVector runs the near-vector handler the way the generated operation
+// wiring does, with the typed, already-decoded request model.
+func doNearVector(t *testing.T, deps *testDeps, principal *models.Principal,
+	collection, body string,
+) (*models.SearchResponse, *APIError) {
+	t.Helper()
+	return deps.handler.NearVector(context.Background(), principal, collection, mustNearVectorModel(t, body))
+}
+
+// TestNearVectorHandlerHappyPath: the near-vector wrapper drives the same
+// execute() flow as the other search types, with NearVector params instead of
+// module, keyword or hybrid params. The only near-vector handler test: the
+// shared gates are pinned once in TestExecuteIsSearchTypeAgnostic, the
+// near-text handler tests and the acceptance suite.
+func TestNearVectorHandlerHappyPath(t *testing.T) {
+	deps := newTestHandler(t)
+	deps.searcher.res = []any{
+		map[string]any{
+			"id":    strfmt.UUID("73f2eb5f-5abf-447a-81ca-74b1dd168247"),
+			"title": "Dune",
+			"_additional": map[string]any{
+				"distance": float32(0.12),
+			},
+		},
+	}
+
+	payload, apiErr := doNearVector(t, deps, nil, "Movie",
+		`{"vector":[0.1,-0.2,0.3],"limit":5,"returnProperties":["title"],"returnMetadata":["distance"]}`)
+	require.Nil(t, apiErr)
+
+	require.Len(t, payload.Results, 1)
+	obj := payload.Results[0]
+	assert.Equal(t, "Dune", obj.Properties["title"])
+	require.NotNil(t, obj.ID)
+	require.NotNil(t, obj.Metadata)
+	require.NotNil(t, obj.Metadata.Distance)
+	assert.Equal(t, float32(0.12), *obj.Metadata.Distance)
+	require.NotNil(t, payload.TookMs)
+
+	// the traverser was called with near-vector params, nothing else
+	params := deps.searcher.lastParams
+	assert.Equal(t, "Movie", params.ClassName)
+	assert.Equal(t, 5, params.Pagination.Limit)
+	require.NotNil(t, params.NearVector)
+	require.Len(t, params.NearVector.Vectors, 1)
+	assert.Equal(t, []float32{0.1, -0.2, 0.3}, params.NearVector.Vectors[0])
+	assert.Empty(t, params.ModuleParams)
+	assert.Nil(t, params.KeywordRanking)
+	assert.Nil(t, params.HybridSearch)
 }
 
 // mustHybridModel is mustModel for the hybrid request model.
