@@ -47,8 +47,12 @@ const (
 )
 
 // errPreloadAborted marks a startup preload the parallel iterator cut short,
-// so it is not reported as a completed prefill.
-var errPreloadAborted = errors.New("preload aborted")
+// and errNothingToPreload one that found no flushed vectors; neither is
+// reported as a completed prefill.
+var (
+	errPreloadAborted   = errors.New("preload aborted")
+	errNothingToPreload = errors.New("nothing to preload")
+)
 
 type flat struct {
 	id                string
@@ -1136,6 +1140,9 @@ func (index *flat) PostStartup(ctx context.Context) {
 		if k == nil {
 			index.cachePrefilled.Store(true)
 		}
+		// Either way nothing was preloaded, so this is not a prefill: an empty
+		// tenant must not record a microsecond sample on every creation.
+		prefillErr = errNothingToPreload
 		return
 	}
 

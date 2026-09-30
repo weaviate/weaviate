@@ -425,13 +425,27 @@ func (h *HFresh) PostStartup(ctx context.Context) {
 	h.Centroids.hnsw.PostStartup(ctx)
 }
 
+// errWarmupIncomplete is the warmup outcome until the warmup has run to its
+// end, so a panic on the way records no duration; errNothingToWarm marks an
+// empty index, whose warmup is not a prefill.
+var (
+	errWarmupIncomplete = stderrors.New("version map warmup did not complete")
+	errNothingToWarm    = stderrors.New("version map warmup found nothing to warm")
+)
+
 func (h *HFresh) warmVersionMap() {
 	before := time.Now()
 	prefillDone := monitoring.GetStartupMetrics().PrefillStarted(monitoring.VectorIndexTypeHFresh, monitoring.PrefillModeAsync)
+	// Reported through a deferred call with a failure default: a warmup that
+	// panics is recovered by the goroutine wrapper and must release the
+	// active gauge without recording a duration.
+	warmupErr := errWarmupIncomplete
+	defer func() { prefillDone(warmupErr) }()
+
 	count, err := h.VersionMap.Warmup(h.ctx)
 	if err != nil {
 		h.logger.Warnf("version map warmup interrupted after %d entries: %v", count, err)
-		prefillDone(err)
+		warmupErr = err
 		return
 	}
 
@@ -442,7 +456,7 @@ func (h *HFresh) warmVersionMap() {
 	for postingID, metadata := range h.PostingMap.Iter() {
 		if h.ctx.Err() != nil {
 			h.logger.Warnf("version map warmup interrupted after %d entries: %v", count+defaults, h.ctx.Err())
-			prefillDone(h.ctx.Err())
+			warmupErr = h.ctx.Err()
 			return
 		}
 
@@ -460,7 +474,12 @@ func (h *HFresh) warmVersionMap() {
 		}()
 	}
 
-	prefillDone(nil)
+	// An empty tenant warms nothing and is not a prefill: tenant creation is
+	// exactly the churn that would bury the average in microsecond samples.
+	warmupErr = nil
+	if count+defaults == 0 {
+		warmupErr = errNothingToWarm
+	}
 	h.logger.WithFields(logrus.Fields{
 		"action":   "hfresh_version_map_warmup",
 		"count":    count,

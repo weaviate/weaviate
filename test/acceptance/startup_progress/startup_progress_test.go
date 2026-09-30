@@ -28,9 +28,9 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 )
 
-// TestStartupProgressLogsShardLoading restarts a node that owns several shards
-// and asserts the shard-loading progress reaches the logs and the startup
-// metrics reach /metrics.
+// TestStartupProgressLogsShardLoading restarts a node that owns several
+// tenant shards and asserts the shard-loading progress reaches the logs and
+// the startup metrics reach /metrics.
 //
 // Only the final "local DB loaded from schema" line is asserted. It is emitted
 // whenever the reload runs, with counts freshly scanned from the restored
@@ -41,11 +41,13 @@ func TestStartupProgressLogsShardLoading(t *testing.T) {
 	ctx := context.Background()
 
 	const (
-		classCount     = 3
-		shardsPerClass = 2
-		// Spread over both shards of a class, so every shard has vector state
-		// to restore and a cache to prefill after the restart.
-		objectsPerClass = 20
+		classCount = 3
+		// A tenant is a shard whose contents the test controls, so every shard
+		// deterministically holds vector state to restore after the restart.
+		// Objects in a non-tenant collection spread over its shards by UUID
+		// hash, which a test cannot steer.
+		tenantsPerClass  = 2
+		objectsPerTenant = 20
 	)
 
 	compose, err := docker.New().
@@ -71,25 +73,34 @@ func TestStartupProgressLogsShardLoading(t *testing.T) {
 			Properties: []*models.Property{
 				{Name: "name", DataType: []string{"text"}},
 			},
-			ShardingConfig: map[string]interface{}{"desiredCount": shardsPerClass},
+			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 		})
 
-		objects := make([]*models.Object, objectsPerClass)
-		for j := range objects {
-			objects[j] = &models.Object{
-				Class:      className,
-				Properties: map[string]interface{}{"name": fmt.Sprintf("object %d", j)},
-				Vector:     []float32{float32(j), float32(i), 1},
-			}
+		tenants := make([]*models.Tenant, tenantsPerClass)
+		for j := range tenants {
+			tenants[j] = &models.Tenant{Name: fmt.Sprintf("tenant%d", j)}
 		}
-		helper.CreateObjectsBatch(t, objects)
+		helper.CreateTenants(t, className, tenants)
+
+		for j, tenant := range tenants {
+			objects := make([]*models.Object, objectsPerTenant)
+			for k := range objects {
+				objects[k] = &models.Object{
+					Class:      className,
+					Tenant:     tenant.Name,
+					Properties: map[string]interface{}{"name": fmt.Sprintf("object %d", k)},
+					Vector:     []float32{float32(k), float32(j), 1},
+				}
+			}
+			helper.CreateObjectsBatch(t, objects)
+		}
 	}
 
 	// The first boot of an empty node never reloads the DB, so everything
 	// asserted below can only come from this restart.
 	require.NoError(t, compose.RestartAt(ctx, 0, nil))
 
-	assertStartupMetrics(t, ctx, compose, classCount*shardsPerClass)
+	assertStartupMetrics(t, ctx, compose, classCount*tenantsPerClass)
 
 	reader, err := compose.GetWeaviate().Container().Logs(ctx)
 	require.NoError(t, err)
@@ -101,7 +112,7 @@ func TestStartupProgressLogsShardLoading(t *testing.T) {
 	require.Contains(t, logs, "local DB loaded from schema",
 		"the reload's progress tracker must report the load")
 
-	total := classCount * shardsPerClass
+	total := classCount * tenantsPerClass
 	assert.True(t,
 		strings.Contains(logs, fmt.Sprintf("shards_total=%d", total)) ||
 			strings.Contains(logs, fmt.Sprintf(`"shards_total":%d`, total)),
@@ -128,14 +139,13 @@ func assertStartupMetrics(t *testing.T, ctx context.Context, compose *docker.Doc
 	container := compose.GetWeaviate().Container()
 	phases := []string{"modules_init", "cluster_open", "raft_open", "raft_bootstrap", "db_reload"}
 
-	// The readiness tracker polls the raft store after the DB restore, and the
-	// cluster_open phase ends just after it starts, so both can trail the
-	// restart by a poll interval.
+	// The readiness tracker polls the readiness predicate once a second, so the
+	// ready gauges can trail the restart by a poll interval.
 	var families map[string]*dto.MetricFamily
-	require.Eventually(t, func() bool {
-		var err error
-		families, err = helper.ScrapeMetrics(ctx, container)
-		if err != nil {
+	var lastScrapeErr error
+	ready := assert.Eventually(t, func() bool {
+		families, lastScrapeErr = helper.ScrapeMetrics(ctx, container)
+		if lastScrapeErr != nil {
 			return false
 		}
 		ready, ok := helper.FindMetric(families, "weaviate_startup_duration_seconds", nil)
@@ -149,7 +159,10 @@ func assertStartupMetrics(t *testing.T, ctx context.Context, compose *docker.Doc
 			}
 		}
 		return true
-	}, 30*time.Second, 500*time.Millisecond, "the node must report ready with every startup phase finished")
+	}, 30*time.Second, 500*time.Millisecond)
+	if !ready {
+		t.Fatalf("the node must report ready with every startup phase finished; last scrape error: %v", lastScrapeErr)
+	}
 
 	gauge := func(name string, labels map[string]string) float64 {
 		m, ok := helper.FindMetric(families, name, labels)

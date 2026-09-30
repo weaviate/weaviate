@@ -287,17 +287,8 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 
 		if r.URL.String() == "/v1/.well-known/ready" {
 			code := http.StatusOK
-			// if this node is in maintenance mode, we want to return live but not ready
-			// so that kubernetes will allow this pod to run but not send traffic to it
-			if state.Cluster.MaintenanceModeEnabledForLocalhost() {
+			if !nodeReady(state) {
 				code = http.StatusServiceUnavailable
-			} else if !state.ClusterService.Ready() || state.Cluster.ClusterHealthScore() != 0 {
-				code = http.StatusServiceUnavailable
-			} else if state.Modules != nil {
-				_, err := state.Modules.GetMeta()
-				if err != nil {
-					code = http.StatusServiceUnavailable
-				}
 			}
 			w.WriteHeader(code)
 			return
@@ -306,6 +297,31 @@ func addLiveAndReadyness(state *state.State, next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// nodeReady is the predicate behind /v1/.well-known/ready. The startup
+// metrics poll it too, so "time to ready" is the first moment the probe would
+// have answered 200 rather than a narrower, internal notion of readiness.
+func nodeReady(state *state.State) bool {
+	// in maintenance mode the node is live but not ready, so kubernetes keeps
+	// the pod running without sending traffic to it
+	if state.Cluster.MaintenanceModeEnabledForLocalhost() {
+		return false
+	}
+	if !state.ClusterService.Ready() || state.Cluster.ClusterHealthScore() != 0 {
+		return false
+	}
+	if state.Modules != nil {
+		if _, err := state.Modules.GetMeta(); err != nil {
+			return false
+		}
+	}
+	return true
+}
+
+// readyPollInterval is how often the startup metrics ask nodeReady until it
+// first answers true. The predicate can reach out to module sidecars through
+// GetMeta, so it is polled no faster than a readiness probe would.
+const readyPollInterval = time.Second
 
 // addSearchBodyLimit caps search and aggregate request bodies: an announced
 // oversize body is refused here, a streamed one is cut off by MaxBytesReader

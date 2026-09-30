@@ -92,8 +92,8 @@ Node-level with closed label sets: the cost does not grow with collections or te
 
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
-| `weaviate_startup_duration_seconds` | Seconds from process start until the node first reported ready (store open, local DB loaded, raft leader known). 0 until ready. | `Gauge` | `-` | - Low (1 series) |
-| `weaviate_startup_ready_timestamp_seconds` | Unix time the node first reported ready. 0 until ready. | `Gauge` | `-` | - Low (1 series) |
+| `weaviate_startup_duration_seconds` | Seconds from process start until the node first satisfied the readiness probe's predicate: the same check `/v1/.well-known/ready` makes (raft store open, local DB loaded, leader known, not in maintenance mode, cluster healthy, modules answering), polled once a second from the moment the API server is configured. 0 until ready. | `Gauge` | `-` | - Low (1 series) |
+| `weaviate_startup_ready_timestamp_seconds` | Unix time the node first satisfied that predicate. 0 until ready. | `Gauge` | `-` | - Low (1 series) |
 | `weaviate_startup_phase_duration_seconds` | Wall-clock seconds the last run of a startup phase took. `phase` is `modules_init`, `cluster_open`, `raft_open`, `raft_bootstrap` or `db_reload`. 0 until the phase has completed once. | `Gauge` | `phase` | - Low (5 series) |
 | `weaviate_startup_phase_active` | 1 while a startup phase is running, 0 otherwise | `Gauge` | `phase` | - Low (5 series) |
 | `weaviate_shard_load_duration_seconds` | Seconds to open a shard that already has files on disk: LSM buckets and WAL recovery, inverted indexes, vector index restore and any synchronous cache prefill. `registration` is `eager` (opened at startup) or `lazy` (opened on first access). Creating a shard and failed loads are not observed. `_sum` and `_count` only. | `Summary` | `registration` | - Low (4 series) |
@@ -105,14 +105,15 @@ Node-level with closed label sets: the cost does not grow with collections or te
 Notes:
 - Phases nest rather than add up: `db_reload` runs inside `raft_open` when the node restores from a raft snapshot, or inside `cluster_open` when the raft log catches up after a join. `db_reload` can run again if raft installs a newer snapshot; the gauge keeps the last run.
 - Phases are gauges because they happen once per process: a gauge keeps the last boot's figure for the life of the process, while a `rate()` over a histogram goes flat right after boot.
+- `modules_init` runs before the metrics endpoint starts listening, so its `weaviate_startup_phase_active` value is never scraped as 1; only its duration is observable. The cluster phases run after the endpoint is up and can be caught in progress.
 - The shard load, restore and prefill summaries expose only `_sum` and `_count`: no buckets and no quantiles, so the whole set costs about 30 series per node. That gives totals, counts and averages but no percentiles; per-shard outliers are in the `Completed loading shard ... in ...` log line. They are only observed as shards load, so their cumulative values since boot are the startup totals and need no `rate()`.
 - `weaviate_vector_cache_prefill_duration_seconds` reaches `(hnsw, sync)`, `(hnsw, async)`, `(flat, sync)` and `(hfresh, async)`: hnsw follows the wait-for-cache setting (async for lazily loaded collections), flat always preloads synchronously and hfresh warms its version map in the background.
 
 Useful queries (Grafana, Dash0 or any PromQL front end):
 
 ```promql
-# time to ready per pod
-max by (pod) (weaviate_startup_duration_seconds)
+# time to ready per node (use pod instead of instance if that is your target label)
+max by (instance) (weaviate_startup_duration_seconds)
 # cross-check against the Go process collector
 weaviate_startup_ready_timestamp_seconds - process_start_time_seconds
 # where the boot went
@@ -123,8 +124,8 @@ sum by (registration) (weaviate_shard_load_duration_seconds_sum) / sum by (regis
 sum(weaviate_shard_load_duration_seconds_sum)
 # total seconds spent prefilling caches, by index type and mode
 sum by (index_type, mode) (weaviate_vector_cache_prefill_duration_seconds_sum)
-# ready, but still warming caches in the background
-weaviate_startup_duration_seconds > 0 and on() sum(weaviate_vector_cache_prefill_active) > 0
+# nodes that are ready but still warming caches in the background
+weaviate_startup_duration_seconds > 0 and on (instance) sum by (instance) (weaviate_vector_cache_prefill_active) > 0
 ```
 
 #### Tombstone Metrics

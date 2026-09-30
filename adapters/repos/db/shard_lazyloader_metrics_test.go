@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	"github.com/weaviate/weaviate/usecases/monitoring/metricstest"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -837,7 +838,7 @@ func TestShardLoadDurationObservedForExistingShards(t *testing.T) {
 			className := "TestShardLoadDuration" + string(tt.registration)
 			rootPath := t.TempDir()
 			count := func() uint64 {
-				n, err := monitoring.SampleCount(prometheus.DefaultGatherer,
+				n, err := metricstest.SampleCount(prometheus.DefaultGatherer,
 					"weaviate_shard_load_duration_seconds",
 					prometheus.Labels{"registration": string(tt.registration)})
 				require.NoError(t, err)
@@ -879,4 +880,49 @@ func TestShardLoadDurationObservedForExistingShards(t *testing.T) {
 				"opening the existing shard is observed once under its registration")
 		})
 	}
+}
+
+// panickingReindexer panics at the end of NewShard, after the shard's files
+// are open, so the load fails through the recover path rather than the error
+// path.
+type panickingReindexer struct{}
+
+func (panickingReindexer) RunAfterLsmInit(context.Context, *Shard) error {
+	panic("shard load panic injected by the test")
+}
+
+// TestShardLoadNotObservedWhenLoadPanics pins the other half of "failed loads
+// are not observed": a load that ends in a recovered panic surfaces as an
+// error and must not count as a completed load either.
+func TestShardLoadNotObservedWhenLoadPanics(t *testing.T) {
+	ctx := context.Background()
+	const className = "TestShardLoadPanic"
+	count := func() uint64 {
+		n, err := metricstest.SampleCount(prometheus.DefaultGatherer,
+			"weaviate_shard_load_duration_seconds",
+			prometheus.Labels{"registration": string(monitoring.ShardRegistrationLazy)})
+		require.NoError(t, err)
+		return n
+	}
+
+	h := newShardMetricsHarness(t)
+	shardName := h.addClass(t, className)
+	index := h.repo.GetIndex(schema.ClassName(className))
+	lazyShard, ok := index.shards.Load(shardName).(*LazyLoadShard)
+	require.True(t, ok)
+	_, _, err := lazyShard.loadIfCold(ctx)
+	require.NoError(t, err)
+	obj := &models.Object{Class: className, ID: strfmt.UUID(uuid.New().String())}
+	require.NoError(t, h.repo.PutObject(ctx, obj, []float32{1, 2, 3, 4}, nil, nil, nil, 0))
+	// Leave the files on disk with nothing open, so a direct NewShard is a load.
+	require.NoError(t, lazyShard.Shutdown(ctx))
+
+	before := count()
+	shard, err := NewShard(ctx, h.metrics, shardName, index, shardMetricsClass(className),
+		index.centralJobQueue, index.scheduler, &panickingReindexer{},
+		false, index.bitmapBufPool, monitoring.ShardRegistrationLazy)
+
+	require.Error(t, err, "a panic during the load surfaces as an error")
+	require.Nil(t, shard)
+	require.Equal(t, before, count(), "a load that panicked is not a completed load")
 }

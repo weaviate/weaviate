@@ -106,7 +106,6 @@ type Service struct {
 	cancelReplicationEngine context.CancelFunc
 	engineDone              chan struct{}
 	cancelOpCleaner         context.CancelFunc
-	cancelReadyTracker      context.CancelFunc
 	closeBootstrapper       chan struct{}
 	closeOnFSMCaughtUp      chan struct{}
 	closeWaitForDB          chan struct{}
@@ -260,34 +259,6 @@ func (c *Service) joinOrBootstrap(ctx context.Context, hasState bool) error {
 	return nil
 }
 
-// readyPollInterval is how often the readiness tracker asks the raft store
-// whether the node is ready. It only runs from the DB restore until the first
-// ready answer, so a short interval costs nothing in steady state.
-const readyPollInterval = 250 * time.Millisecond
-
-// waitUntilReady polls isReady every period until it answers true or ctx is
-// cancelled, and reports which happened. It bridges Store.Ready and the
-// startup readiness metric: outside the kubernetes probe nothing else calls
-// Ready, so a tracker has to.
-func waitUntilReady(ctx context.Context, isReady func() bool, period time.Duration) bool {
-	if isReady() {
-		return true
-	}
-
-	t := time.NewTicker(period)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return false
-		case <-t.C:
-			if isReady() {
-				return true
-			}
-		}
-	}
-}
-
 // Open internal RPC service to handle node communication,
 // bootstrap the Raft node, and restore the database state
 func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
@@ -319,17 +290,6 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 	if err := c.WaitUntilDBRestored(ctx, readyPollPeriod, c.closeWaitForDB); err != nil {
 		return fmt.Errorf("restore database: %w", err)
 	}
-
-	// Ready needs a known leader on top of the restored DB, and on the
-	// has-state path the join can return before the election settles, so the
-	// readiness moment is polled rather than taken from here.
-	readyCtx, cancelReadyTracker := context.WithCancel(ctx)
-	c.cancelReadyTracker = cancelReadyTracker
-	enterrors.GoWrapper(func() {
-		if waitUntilReady(readyCtx, c.Raft.Ready, readyPollInterval) {
-			startupMetrics.SetReady()
-		}
-	}, c.logger)
 
 	engineCtx, engineCancel := context.WithCancel(ctx)
 	c.cancelReplicationEngine = engineCancel
@@ -368,9 +328,6 @@ func (c *Service) Close(ctx context.Context) error {
 
 	if c.cancelOpCleaner != nil {
 		c.cancelOpCleaner()
-	}
-	if c.cancelReadyTracker != nil {
-		c.cancelReadyTracker()
 	}
 	// Cancel any in-flight node-reached-state broadcast/drain retry loops.
 	if c.Raft != nil && c.Raft.store != nil && c.Raft.store.replicationManager != nil {
