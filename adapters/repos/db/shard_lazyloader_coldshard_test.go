@@ -29,6 +29,7 @@ import (
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -618,5 +619,45 @@ func TestResumeMaintenanceCycles_DoesNotForceLoadColdShards(t *testing.T) {
 
 	for name, shard := range cold {
 		require.False(t, shard.isLoaded(), "cold shard %q must not be force-loaded", name)
+	}
+}
+
+// The shards status endpoint reports on cold shards without loading them,
+// locally and for a remote node asking this one.
+func TestShardsStatusEndpoint_DoesNotForceLoadColdShards(t *testing.T) {
+	ctx := testCtx()
+	const className = "ShardsStatusCold"
+	f := newAddPropertyLazyFixture(t, className, multiShardState())
+	cold := f.coldShards(t)
+
+	perNode, statuses, err := f.migrator.GetShardsStorageStatus(ctx, className, "")
+	require.NoError(t, err)
+	sizes, err := f.migrator.GetShardsQueueSize(ctx, className, "")
+	require.NoError(t, err)
+
+	for name, shard := range cold {
+		require.Equal(t, storagestate.StatusLazyLoading.String(), statuses[name])
+		for node, status := range perNode[name] {
+			require.Equal(t, storagestate.StatusLazyLoading.String(), status, "node %s", node)
+		}
+		require.Zero(t, sizes[name])
+
+		status, err := f.index.IncomingGetShardStatus(ctx, name)
+		require.NoError(t, err)
+		require.Equal(t, storagestate.StatusLazyLoading.String(), status)
+		size, err := f.index.IncomingGetShardQueueSize(ctx, name)
+		require.NoError(t, err)
+		require.Zero(t, size)
+
+		require.False(t, shard.isLoaded(), "cold shard %q must not be force-loaded", name)
+	}
+
+	// a loaded shard still reports its own status
+	for name, shard := range cold {
+		require.NoError(t, shard.Load(ctx))
+		_, statuses, err := f.migrator.GetShardsStorageStatus(ctx, className, "")
+		require.NoError(t, err)
+		require.Equal(t, storagestate.StatusReady.String(), statuses[name])
+		break
 	}
 }

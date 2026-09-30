@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	exportUsecase "github.com/weaviate/weaviate/usecases/export"
+	"github.com/weaviate/weaviate/usecases/license"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -63,6 +64,7 @@ type State struct {
 	Crons           *cron.Crons
 
 	ServerConfig  *config.WeaviateConfig
+	License       *license.State
 	LDIntegration *configRuntime.LDIntegration
 	Logger        *logrus.Logger
 	gqlMutex      sync.Mutex
