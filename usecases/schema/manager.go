@@ -31,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/namespaces"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -218,6 +219,7 @@ func NewManager(validator validator,
 	collectionRetrievalStrategyFF *configRuntime.FeatureFlag[string],
 	namespacesExister namespaces.Exister,
 	dropVectorEnqueuer DropVectorIndexEnqueuer,
+	qualifier namespacing.Qualifier,
 ) (*Manager, error) {
 	handler, err := NewHandler(
 		schemaReader,
@@ -230,6 +232,7 @@ func NewManager(validator validator,
 		moduleConfig, clusterState, cloud, parser, NewClassGetter(&parser, schemaManager, schemaReader, collectionRetrievalStrategyFF, logger),
 		namespacesExister,
 		dropVectorEnqueuer,
+		qualifier,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot init handler: %w", err)

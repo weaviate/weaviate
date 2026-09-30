@@ -32,22 +32,22 @@ import (
 )
 
 type Handler struct {
-	authorizer        authorization.Authorizer
-	authenticator     *auth.Handler
-	batchManager      *objects.BatchManager
-	logger            logrus.FieldLogger
-	schemaManager     *schema.Manager
-	namespacesEnabled bool
+	authorizer    authorization.Authorizer
+	authenticator *auth.Handler
+	batchManager  *objects.BatchManager
+	logger        logrus.FieldLogger
+	schemaManager *schema.Manager
+	qualifier     namespacing.Qualifier
 }
 
-func NewHandler(authorizer authorization.Authorizer, batchManager *objects.BatchManager, logger logrus.FieldLogger, authenticator *auth.Handler, schemaManager *schema.Manager, namespacesEnabled bool) *Handler {
+func NewHandler(authorizer authorization.Authorizer, batchManager *objects.BatchManager, logger logrus.FieldLogger, authenticator *auth.Handler, schemaManager *schema.Manager, qualifier namespacing.Qualifier) *Handler {
 	return &Handler{
-		authorizer:        authorizer,
-		authenticator:     authenticator,
-		batchManager:      batchManager,
-		logger:            logger,
-		schemaManager:     schemaManager,
-		namespacesEnabled: namespacesEnabled,
+		authorizer:    authorizer,
+		authenticator: authenticator,
+		batchManager:  batchManager,
+		logger:        logger,
+		schemaManager: schemaManager,
+		qualifier:     qualifier,
 	}
 }
 
@@ -68,7 +68,7 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	knownClasses := map[string]versioned.Class{}
 	knownClassesAuthCheck := map[string]*models.Class{}
 	classGetter := func(classname, shard string) (string, *models.Class, error) {
-		resolved, qualifiedAlias, err := namespacing.Resolve(principal, h.schemaManager, h.namespacesEnabled, classname)
+		resolved, qualifiedAlias, err := namespacing.Resolve(principal, h.schemaManager, h.qualifier, classname)
 		if err != nil {
 			return "", nil, err
 		}
@@ -102,7 +102,7 @@ func (h *Handler) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 		knownClassesAuthCheck[classTenantName] = vClass[classname].Class
 		return resolved, vClass[classname].Class, nil
 	}
-	objs, objOriginalIndex, objectParsingErrors := BatchObjectsFromProto(req, classGetter, principal, h.namespacesEnabled)
+	objs, objOriginalIndex, objectParsingErrors := BatchObjectsFromProto(req, classGetter, principal, h.qualifier)
 
 	var objErrors []*pb.BatchObjectsReply_BatchError
 	for i, err := range objectParsingErrors {

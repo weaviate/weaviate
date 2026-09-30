@@ -12,8 +12,6 @@
 package selfrecovery
 
 import (
-	"sync"
-
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
@@ -32,57 +30,50 @@ type Metrics struct {
 	AcceptEmptyTotal           prometheus.Counter
 }
 
-var (
-	metricsOnce sync.Once
-	metricsInst *Metrics
-)
-
-// GlobalMetrics returns the process-wide Metrics singleton.
-func GlobalMetrics() *Metrics {
-	metricsOnce.Do(func() {
-		metricsInst = &Metrics{
-			InProgress: promauto.NewGauge(prometheus.GaugeOpts{
-				Name: "weaviate_self_recovery_in_progress",
-				Help: "Number of self-recovery operations currently in progress on this node.",
-			}),
-			StartedTotal: promauto.NewCounterVec(prometheus.CounterOpts{
-				Name: "weaviate_self_recovery_started_total",
-				Help: "Total number of self-recovery operations started, by source peer.",
-			}, []string{"source_node"}),
-			CompletedTotal: promauto.NewCounterVec(prometheus.CounterOpts{
-				Name: "weaviate_self_recovery_completed_total",
-				Help: "Self-recovery operations completed, by terminal result (success|failure|empty_fallback|cancelled). Alert on weaviate_self_recovery_no_data_empty_total for the catastrophic-wipe variant.",
-			}, []string{"result"}),
-			DurationSeconds: promauto.NewHistogramVec(prometheus.HistogramOpts{
-				Name:    "weaviate_self_recovery_duration_seconds",
-				Help:    "End-to-end duration of a self-recovery operation, by terminal result (success|failure|empty_fallback|cancelled).",
-				Buckets: prometheus.ExponentialBuckets(10, 2, 10), // 10s, 20s, 40s, ... ~1.4h
-			}, []string{"result"}),
-			NoDataEmptyTotal: promauto.NewCounter(prometheus.CounterOpts{
-				Name: "weaviate_self_recovery_no_data_empty_total",
-				Help: "Empty-fallbacks on a node that started with RAFT state: a shard folder vanished from an otherwise intact node, no peer has data and no healthy peer confirmed the shard. Alert on this.",
-			}),
-			NoDataDuringBootstrapTotal: promauto.NewCounter(prometheus.CounterOpts{
-				Name: "weaviate_self_recovery_no_data_during_bootstrap_total",
-				Help: "Empty-fallbacks on a node that started without RAFT state (wiped or fresh); likely a class or tenant created while it was away, not data loss.",
-			}),
-			NoDataConfirmedEmptyTotal: promauto.NewCounter(prometheus.CounterOpts{
-				Name: "weaviate_self_recovery_no_data_confirmed_empty_total",
-				Help: "Empty-fallbacks where a healthy peer confirmed the shard exists and holds no objects (never written or all deleted); informational.",
-			}),
-			UnreachablePeerTotal: promauto.NewCounterVec(prometheus.CounterOpts{
-				Name: "weaviate_self_recovery_unreachable_peer_total",
-				Help: "Probes that failed to reach a peer (transport/timeout), by peer.",
-			}, []string{"peer"}),
-			GiveupTotal: promauto.NewCounter(prometheus.CounterOpts{
-				Name: "weaviate_self_recovery_giveup_total",
-				Help: "Self-recovery attempts that exhausted retries without reaching READY.",
-			}),
-			AcceptEmptyTotal: promauto.NewCounter(prometheus.CounterOpts{
-				Name: "weaviate_self_recovery_accept_empty_total",
-				Help: "Operator invocations of the accept-empty escape hatch.",
-			}),
-		}
-	})
-	return metricsInst
+// NewMetrics registers the metrics with reg; a nil reg leaves them unregistered.
+func NewMetrics(reg prometheus.Registerer) *Metrics {
+	r := promauto.With(reg)
+	return &Metrics{
+		InProgress: r.NewGauge(prometheus.GaugeOpts{
+			Name: "weaviate_self_recovery_in_progress",
+			Help: "Number of self-recovery operations currently in progress on this node.",
+		}),
+		StartedTotal: r.NewCounterVec(prometheus.CounterOpts{
+			Name: "weaviate_self_recovery_started_total",
+			Help: "Total number of self-recovery operations started, by source peer.",
+		}, []string{"source_node"}),
+		CompletedTotal: r.NewCounterVec(prometheus.CounterOpts{
+			Name: "weaviate_self_recovery_completed_total",
+			Help: "Self-recovery operations completed, by terminal result (success|failure|empty_fallback|cancelled). Alert on weaviate_self_recovery_no_data_empty_total for the catastrophic-wipe variant.",
+		}, []string{"result"}),
+		DurationSeconds: r.NewHistogramVec(prometheus.HistogramOpts{
+			Name:    "weaviate_self_recovery_duration_seconds",
+			Help:    "End-to-end duration of a self-recovery operation, by terminal result (success|failure|empty_fallback|cancelled).",
+			Buckets: prometheus.ExponentialBuckets(10, 2, 10), // 10s, 20s, 40s, ... ~1.4h
+		}, []string{"result"}),
+		NoDataEmptyTotal: r.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_self_recovery_no_data_empty_total",
+			Help: "Empty-fallbacks on a node that started with RAFT state: a shard folder vanished from an otherwise intact node, no peer has data and no healthy peer confirmed the shard. Alert on this.",
+		}),
+		NoDataDuringBootstrapTotal: r.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_self_recovery_no_data_during_bootstrap_total",
+			Help: "Empty-fallbacks on a node that started without RAFT state (wiped or fresh); likely a class or tenant created while it was away, not data loss.",
+		}),
+		NoDataConfirmedEmptyTotal: r.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_self_recovery_no_data_confirmed_empty_total",
+			Help: "Empty-fallbacks where a healthy peer confirmed the shard exists and holds no objects (never written or all deleted); informational.",
+		}),
+		UnreachablePeerTotal: r.NewCounterVec(prometheus.CounterOpts{
+			Name: "weaviate_self_recovery_unreachable_peer_total",
+			Help: "Probes that failed to reach a peer (transport/timeout), by peer.",
+		}, []string{"peer"}),
+		GiveupTotal: r.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_self_recovery_giveup_total",
+			Help: "Self-recovery attempts that exhausted retries without reaching READY.",
+		}),
+		AcceptEmptyTotal: r.NewCounter(prometheus.CounterOpts{
+			Name: "weaviate_self_recovery_accept_empty_total",
+			Help: "Operator invocations of the accept-empty escape hatch.",
+		}),
+	}
 }

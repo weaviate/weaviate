@@ -103,7 +103,7 @@ func (h *Handler) fillSelectionAndFilter(out *dto.GetParams, class *models.Class
 		out.AdditionalProperties.NoProps = true
 	}
 
-	filter, apiErr := h.parseWhere(common.Where, class, className, h.namespacesEnabled, principal, getClass)
+	filter, apiErr := h.parseWhere(common.Where, class, className, h.qualifier, principal, getClass)
 	if apiErr != nil {
 		return apiErr
 	}
@@ -810,7 +810,7 @@ func (h *Handler) resolveRefTarget(schemaProp *models.Property, name, className,
 		if targetCollection == "" {
 			return schemaProp.DataType[0], nil
 		}
-		qualified, _, err := namespacing.QualifyRefTarget(principal, h.namespacesEnabled, className, targetCollection)
+		qualified, _, err := namespacing.QualifyRefTarget(principal, h.qualifier, className, targetCollection)
 		if err != nil {
 			return "", &APIError{Status: http.StatusBadRequest, Err: err}
 		}
@@ -827,7 +827,7 @@ func (h *Handler) resolveRefTarget(schemaProp *models.Property, name, className,
 			"returnReferences: %q is a multi-target reference and needs targetCollection. Available target collections %v",
 			name, schemaProp.DataType)
 	}
-	qualified, _, err := namespacing.QualifyRefTarget(principal, h.namespacesEnabled, className, targetCollection)
+	qualified, _, err := namespacing.QualifyRefTarget(principal, h.qualifier, className, targetCollection)
 	if err != nil {
 		return "", &APIError{Status: http.StatusBadRequest, Err: err}
 	}
@@ -925,13 +925,13 @@ func refDepth(props search.SelectProperties, currDepth, limit int) int {
 }
 
 func (h *Handler) parseWhere(where *models.WhereFilter, class *models.Class, className string,
-	namespacesEnabled bool, principal *models.Principal, getClass classGetterFunc,
+	qualifier namespacing.Qualifier, principal *models.Principal, getClass classGetterFunc,
 ) (*filters.LocalFilter, *APIError) {
 	if where == nil {
 		return nil, nil
 	}
 
-	filter, err := filterext.Parse(where, className, namespacesEnabled, principal)
+	filter, err := filterext.Parse(where, className, qualifier, principal)
 	if err != nil {
 		return nil, &APIError{Status: http.StatusBadRequest, Err: err}
 	}

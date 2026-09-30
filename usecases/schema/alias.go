@@ -30,7 +30,7 @@ func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, a
 	var qClass string
 	if className != "" {
 		var err error
-		qClass, err = namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, className)
+		qClass, err = namespacing.QualifyClass(principal, h.qualifier, className)
 		if err != nil {
 			return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 		}
@@ -64,7 +64,7 @@ func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, a
 
 func (h *Handler) GetAlias(ctx context.Context, principal *models.Principal, alias string) (*models.Alias, error) {
 	alias = schema.UppercaseClassName(alias)
-	qAlias, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, alias)
+	qAlias, err := namespacing.QualifyClass(principal, h.qualifier, alias)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
@@ -94,14 +94,14 @@ func (h *Handler) AddAlias(ctx context.Context, principal *models.Principal,
 	// Captured for the entity-name validators, which forbid ":".
 	originalAliasName := alias.Alias
 	originalTargetName := alias.Class
-	qAlias, err := namespacing.QualifyForCreate(principal, h.config.Namespaces.Enabled, alias.Alias, "alias")
+	qAlias, err := namespacing.QualifyForCreate(principal, h.qualifier, alias.Alias, "alias")
 	if errors.Is(err, namespacing.ErrCreateRequiresNamespace) {
 		return nil, 0, authzerrors.NewNamespaceForbidden(principal)
 	}
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
-	qTarget, err := namespacing.QualifyForCreate(principal, h.config.Namespaces.Enabled, alias.Class, "class")
+	qTarget, err := namespacing.QualifyForCreate(principal, h.qualifier, alias.Class, "class")
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
@@ -141,11 +141,11 @@ func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 ) (*models.Alias, error) {
 	targetClassName = schema.UppercaseClassName(targetClassName)
 	aliasName = schema.UppercaseClassName(aliasName)
-	qAlias, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, aliasName)
+	qAlias, err := namespacing.QualifyClass(principal, h.qualifier, aliasName)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
-	qTarget, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, targetClassName)
+	qTarget, err := namespacing.QualifyClass(principal, h.qualifier, targetClassName)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
@@ -185,7 +185,7 @@ func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 
 func (h *Handler) DeleteAlias(ctx context.Context, principal *models.Principal, aliasName string) error {
 	aliasName = schema.UppercaseClassName(aliasName)
-	qAlias, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, aliasName)
+	qAlias, err := namespacing.QualifyClass(principal, h.qualifier, aliasName)
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrValidation, err)
 	}

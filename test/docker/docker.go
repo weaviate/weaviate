@@ -327,6 +327,19 @@ func (d *DockerCompose) RestartAt(ctx context.Context, nodeIndex int, timeout *t
 	return nil
 }
 
+// SetLicenseKeyFileAt overwrites the license key file of a WithLicenseKeyFile
+// node. The node reads the new key when RestartAt next restarts it.
+func (d *DockerCompose) SetLicenseKeyFileAt(ctx context.Context, nodeIndex int, key string) error {
+	if nodeIndex >= len(d.containers) {
+		return errors.Errorf("node index is greater than available nodes")
+	}
+	c := d.containers[nodeIndex]
+	if err := c.container.CopyToContainer(ctx, []byte(key), licenseKeyFilePath, 0o644); err != nil {
+		return fmt.Errorf("SetLicenseKeyFileAt[%s]: %w", c.name, err)
+	}
+	return nil
+}
+
 // weaviateNodeIndex resolves the containers-slice position of weaviate node n
 // (0-based, matching the weaviate-<n> container name) so callers are unaffected
 // by sidecar containers (e.g. MinIO) that may precede the cluster nodes in the

@@ -38,7 +38,7 @@ func setupSearchHandlers(api *operations.WeaviateAPI, appState *state.State) {
 		Traverser:          appState.Traverser,
 		SchemaReader:       appState.ClusterService.SchemaReader(),
 		Authorizer:         appState.Authorizer,
-		NamespacesEnabled:  appState.ServerConfig.Config.Namespaces.Enabled,
+		Qualifier:          appState.NamespaceQualifier,
 		DefaultLimit:       appState.ServerConfig.Config.QueryDefaults.Limit,
 		MaximumResults:     appState.ServerConfig.Config.QueryMaximumResults,
 		CrossRefDepthLimit: appState.ServerConfig.Config.QueryCrossReferenceDepthLimit,

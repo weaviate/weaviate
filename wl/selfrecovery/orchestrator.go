@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
 	"google.golang.org/grpc/codes"
@@ -46,20 +47,27 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
-// ErrSelfRecoveryCancelled marks a CANCELLED op as terminal so runOne won't retry.
-var ErrSelfRecoveryCancelled = errors.New("self-recovery op was cancelled")
+// sentinelError keeps the sentinels constant: Go initialises a package-level var on every node at startup, licensed or not.
+type sentinelError string
 
-// ErrSelfRecoveryShardNotInSchema maps to 404 in the REST handler.
-var ErrSelfRecoveryShardNotInSchema = errors.New("shard not in local schema")
+func (e sentinelError) Error() string { return string(e) }
 
-// ErrSelfRecoveryShardAlreadyLive maps to 409 in the REST handler.
-var ErrSelfRecoveryShardAlreadyLive = errors.New("shard already has a live local directory; /restart is only valid while the shard is RECOVERING")
+const (
+	// ErrSelfRecoveryCancelled marks a CANCELLED op as terminal so runOne won't retry.
+	ErrSelfRecoveryCancelled sentinelError = "self-recovery op was cancelled"
 
-// ErrSelfRecoveryOpInFlight maps to 409 in the REST handler: accept-empty would race the op's own promote.
-var ErrSelfRecoveryOpInFlight = errors.New("a replication op targeting this replica is still in flight")
+	// ErrSelfRecoveryShardNotInSchema maps to 404 in the REST handler.
+	ErrSelfRecoveryShardNotInSchema sentinelError = "shard not in local schema"
 
-// ErrSelfRecoveryUnlicensed maps to 403 in the REST handler.
-var ErrSelfRecoveryUnlicensed = errors.New("self-recovery feature is part of the Weaviate Enterprise Edition and requires a license key, see https://docs.weaviate.io/deploy/enterprise")
+	// ErrSelfRecoveryShardAlreadyLive maps to 409 in the REST handler.
+	ErrSelfRecoveryShardAlreadyLive sentinelError = "shard already has a live local directory; /restart is only valid while the shard is RECOVERING"
+
+	// ErrSelfRecoveryOpInFlight maps to 409 in the REST handler: accept-empty would race the op's own promote.
+	ErrSelfRecoveryOpInFlight sentinelError = "a replication op targeting this replica is still in flight"
+
+	// ErrSelfRecoveryUnlicensed maps to 403 in the REST handler.
+	ErrSelfRecoveryUnlicensed sentinelError = "self-recovery feature is part of the Weaviate Enterprise Edition and requires a license key, see https://docs.weaviate.io/deploy/enterprise"
+)
 
 // RaftEntryPoint is the subset of *cluster.Raft used by the orchestrator.
 type RaftEntryPoint interface {
@@ -158,6 +166,8 @@ type Config struct {
 	// RootDataPath hosts the wipe-round marker; empty disables it.
 	RootDataPath string
 	Logger       logrus.FieldLogger
+	// Registerer receives the metrics; nil leaves them unregistered.
+	Registerer   prometheus.Registerer
 	PollInterval time.Duration // FSM poll cadence; 5s if zero
 	ProbeTimeout time.Duration // single ProbeShardData RPC; 5s if zero
 }
@@ -217,7 +227,7 @@ func New(cfg Config) *Orchestrator {
 		probeBackoffMax:        5 * time.Minute,
 		restartTimeout:         30 * time.Second,
 		vanishedGracePeriod:    10 * time.Second,
-		metrics:                GlobalMetrics(),
+		metrics:                NewMetrics(cfg.Registerer),
 		shutdownCtx:            shutdownCtx,
 		shutdownCancel:         shutdownCancel,
 	}

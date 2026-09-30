@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 // denyAuthorizer denies every request with a Forbidden error and records the
@@ -102,6 +103,7 @@ func TestDeleteClassPropertyIndex_AuthorizesBeforeConflictPreflight(t *testing.T
 		authorizer:          authz,
 		reindexTaskLister:   lister,
 		logger:              logrus.New(),
+		qualifier:           namespacing.Disabled,
 	}
 
 	resp := h.deleteClassPropertyIndex(schema.SchemaObjectsPropertiesDeleteParams{

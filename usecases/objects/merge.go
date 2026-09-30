@@ -51,7 +51,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	}
 	className, aliasName, err := m.resolveNS(principal, updates.Class)
 	if err != nil {
-		return &Error{err.Error(), StatusUnprocessableEntity, err}
+		return resolverError(err)
 	}
 	updates.Class = className
 	cls, id := updates.Class, updates.ID

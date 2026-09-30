@@ -29,9 +29,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingcfg "github.com/weaviate/weaviate/usecases/sharding/config"
 	"github.com/weaviate/weaviate/usecases/usagelimits"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // fakeNamespacesExister implements [namespaces.Exister] for tests that only
@@ -67,6 +69,10 @@ func newTestHandlerWithNamespaces(t *testing.T, enabled bool) (*Handler, *fakeSc
 		DefaultVectorDistanceMetric: "cosine",
 	}
 	cfg.Namespaces.Enabled = enabled
+	qualifier := namespacing.Disabled
+	if enabled {
+		qualifier = wlnamespaces.NewPrefixing()
+	}
 	fakeClusterState := fakes.NewFakeClusterState()
 	fakeValidator := &fakeValidator{}
 	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, fakeModulesProvider{}, nil, nil)
@@ -78,7 +84,7 @@ func newTestHandlerWithNamespaces(t *testing.T, enabled bool) (*Handler, *fakeSc
 		schemaManager, schemaManager, &fakeDB{}, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil,
-		fakeNamespacesExister{defaultHomeNode: "node-1"}, nil)
+		fakeNamespacesExister{defaultHomeNode: "node-1"}, nil, qualifier)
 	require.NoError(t, err)
 	handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 	return &handler, schemaManager

@@ -42,7 +42,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 	class string,
 	tenants []*models.Tenant,
 ) (uint64, error) {
-	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	class, err := namespacing.QualifyClass(principal, h.qualifier, class)
 	if err != nil {
 		return 0, err
 	}
@@ -189,7 +189,7 @@ func (h *Handler) validateActivityStatuses(ctx context.Context, tenants []*model
 func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal,
 	class string, tenants []*models.Tenant,
 ) ([]*models.Tenant, error) {
-	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	class, err := namespacing.QualifyClass(principal, h.qualifier, class)
 	if err != nil {
 		return nil, err
 	}
@@ -258,7 +258,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal, class string, tenants []string) error {
-	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	class, err := namespacing.QualifyClass(principal, h.qualifier, class)
 	if err != nil {
 		return err
 	}
@@ -288,7 +288,7 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 	var allTenants []*models.Tenant
 	var err error
 
-	if class, _, err = namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class); err != nil {
+	if class, _, err = namespacing.Resolve(principal, h.schemaReader, h.qualifier, class); err != nil {
 		return nil, err
 	}
 	if consistency {
@@ -316,7 +316,7 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 }
 
 func (h *Handler) GetConsistentTenant(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) (*models.Tenant, error) {
-	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class)
+	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.qualifier, class)
 	if err != nil {
 		return nil, err
 	}
@@ -361,7 +361,7 @@ func (h *Handler) multiTenancy(class string) (clusterSchema.ClassInfo, error) {
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) error {
-	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class)
+	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.qualifier, class)
 	if err != nil {
 		return err
 	}

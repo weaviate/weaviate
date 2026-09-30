@@ -48,7 +48,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 type fakeSearcher struct {
@@ -283,6 +285,7 @@ func newTestHandlerSeeded(t *testing.T, extra []*models.Class, aliases map[strin
 		Traverser:    deps.searcher,
 		SchemaReader: seedSchema(t, classes, aliases),
 		Authorizer:   deps.authorizer,
+		Qualifier:    namespacing.Disabled,
 		DefaultLimit: 10,
 		// matches DefaultQueryCrossReferenceDepthLimit
 		CrossRefDepthLimit: 5,
@@ -1201,7 +1204,7 @@ func TestHybridHandlerHappyPath(t *testing.T) {
 
 func TestHandlerStripsNamespaceFromErrors(t *testing.T) {
 	deps := newTestHandler(t)
-	deps.handler.namespacesEnabled = true
+	deps.handler.qualifier = wlnamespaces.NewPrefixing()
 	principal := &models.Principal{Username: "someone", Namespace: "ns1"}
 
 	// unknown collection: the internal error names the qualified collection
