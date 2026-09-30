@@ -56,12 +56,6 @@ type namespaceLister interface {
 	ListDeleting() []string
 }
 
-// schemaLister returns the classes and aliases that belong to a namespace.
-type schemaLister interface {
-	ClassesInNamespace(namespace string) ([]string, error)
-	AliasesInNamespace(namespace string) []string
-}
-
 // userLister returns the DB users bound to a namespace.
 type userLister interface {
 	UsersInNamespace(namespace string) []string
@@ -94,7 +88,7 @@ type RBACLister interface {
 // so those re-checks, not RAFT, bound a stale pass to one write.
 type Coordinator struct {
 	namespaces namespaceLister
-	schema     schemaLister
+	schema     namespaces.SchemaNamespaceLister
 	users      userLister
 	raft       raftExecutor
 	rbac       RBACLister
@@ -105,7 +99,7 @@ type Coordinator struct {
 
 func NewCoordinator(
 	nsLister namespaceLister,
-	schema schemaLister,
+	schema namespaces.SchemaNamespaceLister,
 	users userLister,
 	raft raftExecutor,
 	rbac RBACLister,

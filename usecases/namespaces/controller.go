@@ -136,6 +136,14 @@ func IsKnownState(s cmd.NamespaceState) bool {
 	return known
 }
 
+// SchemaNamespaceLister returns the classes and aliases that belong to a
+// namespace. The namespace-prefix filtering lives in the adapter, not in the
+// schema reader it is built from.
+type SchemaNamespaceLister interface {
+	ClassesInNamespace(namespace string) ([]string, error)
+	AliasesInNamespace(namespace string) []string
+}
+
 // Exister exposes read-only access to namespace state. Rather than comparing
 // State themselves, callers go through [RequireActive] or
 // [AdmitDestructiveApply], or through [ShardsShouldBeOpen] /

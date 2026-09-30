@@ -213,7 +213,7 @@ func (f *fadingRBAC) GetRolesForUserOrGroup(user string, authMethod authenticati
 
 func newTestCoordinator(t *testing.T,
 	nsLister namespaceLister,
-	schema schemaLister,
+	schema namespaces.SchemaNamespaceLister,
 	raft raftExecutor,
 	isLeader func() bool,
 ) *Coordinator {
@@ -223,7 +223,7 @@ func newTestCoordinator(t *testing.T,
 
 func newTestCoordinatorRBAC(t *testing.T,
 	nsLister namespaceLister,
-	schema schemaLister,
+	schema namespaces.SchemaNamespaceLister,
 	raft raftExecutor,
 	rbac RBACLister,
 	isLeader func() bool,
@@ -254,7 +254,7 @@ func TestCoordinator_NewCoordinator_PanicsOnNilArgs(t *testing.T) {
 	tests := []struct {
 		name     string
 		ns       namespaceLister
-		schema   schemaLister
+		schema   namespaces.SchemaNamespaceLister
 		users    userLister
 		raft     raftExecutor
 		isLeader func() bool
