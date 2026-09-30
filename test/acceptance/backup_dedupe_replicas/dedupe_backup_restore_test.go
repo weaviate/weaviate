@@ -30,6 +30,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/minio/minio-go/v7"
 	minioCredentials "github.com/minio/minio-go/v7/pkg/credentials"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	tcexec "github.com/testcontainers/testcontainers-go/exec"
@@ -39,6 +40,7 @@ import (
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	entbackup "github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
@@ -100,9 +102,11 @@ func tryCreateCheckpoint(clusterURI, className string, shards []string, cutoffMs
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	raw, err := io.ReadAll(resp.Body)
+	if err = errors.Join(err, resp.Body.Close()); err != nil {
+		return fmt.Errorf("create checkpoint on %s: read response: %w", clusterURI, err)
+	}
 	if resp.StatusCode != http.StatusOK {
-		raw, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("create checkpoint on %s: %d: %s", clusterURI, resp.StatusCode, raw)
 	}
 	return nil
@@ -150,8 +154,8 @@ func readJSONObject(t *testing.T, client *minio.Client, key string, out any) boo
 	t.Helper()
 	obj, err := client.GetObject(context.Background(), bucketName, key, minio.GetObjectOptions{})
 	require.NoError(t, err)
-	defer obj.Close()
 	raw, err := io.ReadAll(obj)
+	require.NoError(t, obj.Close())
 	if minio.ToErrorResponse(err).Code == "NoSuchKey" {
 		return false
 	}
@@ -280,10 +284,13 @@ func dumpNodeLogs(t *testing.T, compose *docker.DockerCompose) {
 		}
 		reader, err := node.Container().Logs(context.Background())
 		if err != nil {
+			t.Logf("[%s] open container logs: %v", node.Name(), err)
 			continue
 		}
-		raw, _ := io.ReadAll(reader)
-		reader.Close()
+		raw, err := io.ReadAll(reader)
+		if err = errors.Join(err, reader.Close()); err != nil {
+			t.Logf("[%s] read container logs: %v", node.Name(), err)
+		}
 		for _, line := range strings.Split(string(raw), "\n") {
 			if strings.Contains(line, "dedupe") || strings.Contains(line, "restore") ||
 				strings.Contains(line, "backup") && strings.Contains(line, "error") {
@@ -483,13 +490,11 @@ func TestBackupDedupeReplicas(t *testing.T) {
 	t.Run("backup under continuous writes completes without losing shards", func(t *testing.T) {
 		const churnID = "dedupe-churn-1"
 		stop := make(chan struct{})
-		writerDone := make(chan struct{})
 		var writerErr error
 		var ackedMu sync.Mutex
 		var ackedIDs []strfmt.UUID
 		client := helper.Client(t)
-		go func() {
-			defer close(writerDone)
+		writerDone := enterrors.GoWrapperWithErrorCh(func() {
 			for i := 0; ; i++ {
 				select {
 				case <-stop:
@@ -522,7 +527,7 @@ func TestBackupDedupeReplicas(t *testing.T) {
 					time.Sleep(50 * time.Millisecond)
 				}
 			}
-		}()
+		}, logrus.New())
 
 		time.Sleep(2 * time.Second)
 		ackedMu.Lock()
@@ -532,7 +537,7 @@ func TestBackupDedupeReplicas(t *testing.T) {
 		require.NoError(t, createBackupWithTimeout(t, dedupeBackupConfig(), className, churnID, time.Minute))
 		helper.ExpectBackupEventuallyCreated(t, churnID, backendS3, nil, helper.WithDeadline(4*time.Minute))
 		close(stop)
-		<-writerDone
+		require.NoError(t, <-writerDone, "concurrent writer panicked during backup")
 		require.NoError(t, writerErr, "concurrent writer failed during backup")
 		require.NotEmpty(t, preBackupIDs)
 
@@ -583,8 +588,8 @@ func TestBackupDedupeReplicas(t *testing.T) {
 		require.NoError(t, err)
 		resp, err := http.Post(fmt.Sprintf("http://%s/v1/backups/%s", host, backendS3), "application/json", bytes.NewReader(body))
 		require.NoError(t, err)
-		defer resp.Body.Close()
 		raw, err := io.ReadAll(resp.Body)
+		require.NoError(t, resp.Body.Close())
 		require.NoError(t, err)
 		require.Equal(t, http.StatusUnprocessableEntity, resp.StatusCode, "body: %s", raw)
 		require.Contains(t, string(raw), "dedupeConvergenceTimeoutSeconds")

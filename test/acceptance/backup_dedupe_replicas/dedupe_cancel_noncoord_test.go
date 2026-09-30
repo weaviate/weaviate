@@ -18,10 +18,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	entbackup "github.com/weaviate/weaviate/entities/backup"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/helper"
 )
@@ -50,10 +52,10 @@ func TestBackupDedupeCancelViaNonCoordinator(t *testing.T) {
 	require.NotEmpty(t, shards)
 	waitForCheckpointCapability(t, compose, className, shards)
 
-	errCh := make(chan error, 1)
-	go func() {
-		errCh <- createBackupWithTimeout(t, dedupeBackupConfig(), className, backupID, time.Minute)
-	}()
+	var createErr error
+	createDone := enterrors.GoWrapperWithErrorCh(func() {
+		createErr = createBackupWithTimeout(t, dedupeBackupConfig(), className, backupID, time.Minute)
+	}, logrus.New())
 
 	// Planning holds the create for the 10s cutoff lead, so observing the booked op guarantees the cancel lands mid-planning.
 	require.Eventually(t, func() bool {
@@ -65,12 +67,13 @@ func TestBackupDedupeCancelViaNonCoordinator(t *testing.T) {
 	require.NoError(t, err)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
-	resp.Body.Close()
+	require.NoError(t, resp.Body.Close())
 	require.Equal(t, http.StatusNoContent, resp.StatusCode)
 
 	select {
-	case err := <-errCh:
-		require.Error(t, err, "create must not report success after an acknowledged cancel")
+	case panicErr := <-createDone:
+		require.NoError(t, panicErr, "create goroutine panicked")
+		require.Error(t, createErr, "create must not report success after an acknowledged cancel")
 	case <-time.After(60 * time.Second):
 		t.Fatal("create still blocked 60s after the cancel was acknowledged")
 	}
