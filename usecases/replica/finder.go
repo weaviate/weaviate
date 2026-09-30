@@ -831,13 +831,13 @@ func (f *Finder) logRejectedCheckpointRPC(op, addr string, shards int, err error
 	})
 	ok, suppressed := checkpointLogThrottle.Allow(op + "\x00" + addr)
 	if !ok {
-		log.Debugf("async-checkpoint %s rejected by remote replica: %v", op, err)
+		log.Debugf("async-checkpoint %s rejected by remote replica: %s", op, TruncatedError(err))
 		return
 	}
 	if suppressed > 0 {
 		log = log.WithField("suppressed", suppressed)
 	}
-	log.Warnf("async-checkpoint %s rejected by remote replica: %v", op, err)
+	log.Warnf("async-checkpoint %s rejected by remote replica: %s", op, TruncatedError(err))
 }
 
 func (f *Finder) BroadcastDeleteAsyncCheckpoint(ctx context.Context, shardNames []string) (successes, failures int) {

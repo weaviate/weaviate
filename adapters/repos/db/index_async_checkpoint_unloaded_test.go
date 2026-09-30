@@ -226,6 +226,9 @@ func TestUnloadedAsyncCheckpoint_OrphanedSnapshotIsRefused(t *testing.T) {
 
 	logger, hook := test.NewNullLogger()
 	f.index.logger = logger
+	prevThrottle := unloadedCheckpointLogThrottle
+	unloadedCheckpointLogThrottle = replica.NewLogThrottle(time.Minute)
+	t.Cleanup(func() { unloadedCheckpointLogThrottle = prevThrottle })
 	for range 100 {
 		err := f.index.createAsyncCheckpoint(ctx, f.name, cutoffMs, createdAt)
 		require.ErrorIs(t, err, errAsyncReplicationNotActive)

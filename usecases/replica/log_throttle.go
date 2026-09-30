@@ -12,18 +12,23 @@
 package replica
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
 
-// logThrottlePruneAt is the key count past which Allow drops keys idle for a whole window.
+// logThrottlePruneAt is the key count past which Allow drops keys idle for a whole window, at most once per window.
 const logThrottlePruneAt = 1024
+
+// maxLoggedErrorBytes caps an error's text in a log line; a joined per-shard error can otherwise run to tens of KiB.
+const maxLoggedErrorBytes = 1024
 
 // LogThrottle caps a repeating log line to one per key per window, so a failure repeated per class or tenant logs once.
 type LogThrottle struct {
-	window time.Duration
-	mu     sync.Mutex
-	keys   map[string]*logThrottleKey
+	window    time.Duration
+	mu        sync.Mutex
+	keys      map[string]*logThrottleKey
+	lastPrune time.Time
 }
 
 type logThrottleKey struct {
@@ -49,7 +54,8 @@ func (t *LogThrottle) allowAt(key string, now time.Time) (bool, int) {
 		return false, 0
 	}
 	if !ok {
-		if len(t.keys) >= logThrottlePruneAt {
+		if len(t.keys) >= logThrottlePruneAt && now.Sub(t.lastPrune) >= t.window {
+			t.lastPrune = now
 			for name, idle := range t.keys {
 				if now.Sub(idle.last) >= t.window {
 					delete(t.keys, name)
@@ -62,6 +68,15 @@ func (t *LogThrottle) allowAt(key string, now time.Time) (bool, int) {
 	suppressed := k.suppressed
 	k.last, k.suppressed = now, 0
 	return true, suppressed
+}
+
+// TruncatedError renders err for a log line, cut to maxLoggedErrorBytes.
+func TruncatedError(err error) string {
+	msg := err.Error()
+	if len(msg) <= maxLoggedErrorBytes {
+		return msg
+	}
+	return fmt.Sprintf("%s... (%d more bytes)", msg[:maxLoggedErrorBytes], len(msg)-maxLoggedErrorBytes)
 }
 
 // checkpointLogThrottle is shared by every class's Finder so a failing host logs once per window across the whole fan-out.
