@@ -750,6 +750,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		OnRecoveryComplete:     appState.DB.LoadLocalShard,
 		RootDataPath:           dataPath,
 		Logger:                 appState.Logger,
+		Registerer:             prometheus.DefaultRegisterer,
 	})
 	appState.DB.SetSelfRecoveryOrchestrator(selfRecoveryOrch)
 	// Expose debug endpoints only when the feature is on.
