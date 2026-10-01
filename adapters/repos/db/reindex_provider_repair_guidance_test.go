@@ -380,8 +380,11 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceFromDiskEvidence(t *testing.
 	shard, idx := testShard(t, ctx, "C")
 	concrete, err := unwrapShard(ctx, shard)
 	require.NoError(t, err)
-	mkMigrationRecordFor(t, concrete.pathLSM(), StrategyCodeSearchableRetokenize,
-		"T_cancel_disk", 1, "u1__n1", ReindexTypeChangeTokenization, MigrationStateMerged, "title")
+	// Through the shard's own store, so the cleanup discards it and only a
+	// probe that runs first can still read it.
+	subject := testMigrationSubject(1, StrategyCodeSearchableRetokenize, "title")
+	subject.TaskID, subject.Key.UnitID = "T_cancel_disk", concrete.migrationUnit()
+	require.NoError(t, concrete.migrationRecords.Put(NewMigrationRecordMerged(subject)))
 
 	payload, err := json.Marshal(ReindexTaskPayload{
 		MigrationType: ReindexTypeChangeTokenization,
@@ -395,6 +398,7 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceFromDiskEvidence(t *testing.
 	p := NewReindexProvider(
 		&DB{indices: map[string]*Index{indexID(entschema.ClassName("C")): idx}},
 		nil, nil, logger, "n1", nil, ctx)
+	idx.db.SetReindexUnitSeal(p.ReindexUnitSealBuilder())
 
 	require.NoError(t, p.OnTaskCompleted(&distributedtask.Task{
 		Namespace:      ReindexNamespace,
@@ -403,6 +407,7 @@ func TestOnTaskCompleted_CancelledLogsRepairGuidanceFromDiskEvidence(t *testing.
 		Payload:        payload,
 	}))
 
+	require.Empty(t, concrete.migrationRecords.Records(), "fixture: the cleanup has to remove the evidence")
 	require.True(t, loggedRepairGuidance(hook),
 		"a committed migration on this node is the only evidence of the tear; the "+
 			"guidance has to fire off it")

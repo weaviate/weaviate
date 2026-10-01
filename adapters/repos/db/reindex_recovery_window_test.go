@@ -127,6 +127,11 @@ func TestShardLoadArmsTheMirrorForAnUnpromotedFlip(t *testing.T) {
 			wantUntouched: true,
 		},
 		{
+			name:      "iterated",
+			rec:       func(s MigrationSubject) MigrationRecord { return NewMigrationRecordIterated(s) },
+			wantArmed: true,
+		},
+		{
 			name: "swapped but not promoted",
 			rec: func(s MigrationSubject) MigrationRecord {
 				return NewMigrationRecordSwapped(s, s.Properties(), map[string]string{propName: s.Props[propName].Canonical})

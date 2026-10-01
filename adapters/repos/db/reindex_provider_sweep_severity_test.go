@@ -22,7 +22,9 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	entschema "github.com/weaviate/weaviate/entities/schema"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 // The walk ranks its outcome by the sweep's taxonomy, so an operator alerting
@@ -46,6 +48,11 @@ func TestTerminalCleanupRanksAWalkFailureLikeTheSweepDoes(t *testing.T) {
 		{
 			name:        "a walk that stopped before it reached every shard",
 			fixture:     closingIndexWithAnUnvisitedShard,
+			wantOutcome: CleanupSweepUnknown,
+		},
+		{
+			name:        "an unloaded shard its suspended namespace may not load",
+			fixture:     unloadedShardOfASuspendedNamespace,
 			wantOutcome: CleanupSweepUnknown,
 		},
 	}
@@ -107,6 +114,29 @@ func shardWithAnUnreadableRecordStore(t *testing.T) (*Index, string) {
 	require.NoError(t, os.WriteFile(migrations, []byte("not a directory"), 0o600))
 	require.Error(t, concrete.migrationRecords.Load())
 	return idx, shard.Name()
+}
+
+// unloadedShardOfASuspendedNamespace holds the task's record on an unloaded
+// shard, so only the namespace check keeps the walk from loading it.
+func unloadedShardOfASuspendedNamespace(t *testing.T) (*Index, string) {
+	t.Helper()
+	const tenant = "suspended-tenant"
+	ctx := testCtx()
+	class := newTestClassWithProps("SuspendedCleanup"+uuid.NewString()[:8], []string{"title"})
+	shd, idx := testShardWithSettings(t, ctx, class, enthnsw.UserConfig{Skip: true}, false, false, false)
+	t.Cleanup(func() { shd.Shutdown(context.Background()) })
+
+	subject := testMigrationSubject(1, StrategyCodeSearchableRetokenize, "title")
+	subject.TaskID, subject.Key.UnitID = "T_terminal", testMigrationUnitFor(idx, tenant)
+	lsm := shardPathLSM(idx.path(), tenant)
+	require.NoError(t, os.MkdirAll(lsm, 0o777))
+	logger, _ := logrustest.NewNullLogger()
+	require.NoError(t, NewMigrationRecordStore(lsm, logger).Put(NewMigrationRecordIterated(subject)))
+	idx.shards.Store(tenant, NewLazyLoadShard(ctx, nil, tenant, idx, class, idx.centralJobQueue,
+		idx.indexCheckpoints, idx.allocChecker, idx.shardLoadLimiter, idx.shardReindexer,
+		false, idx.bitmapBufPool))
+	idx.namespace, idx.namespacesExister = "alpha", existerWithState(t, api.NamespaceStateSuspended)
+	return idx, tenant
 }
 
 // closingIndexWithAnUnvisitedShard builds an index already past its close, so

@@ -92,3 +92,22 @@ func TestTerminalCleanupSettlesTheTasksRecordsOnTheShardsItHolds(t *testing.T) {
 	require.ElementsMatch(t, []string{"L on " + loadedA.Name(), "T on " + loadedC}, rebuilt,
 		"only another task's record and a flip the cancel came too late for may survive the cleanup")
 }
+
+// The walk folds shards by max, so the outcome order is what makes a later
+// clean shard unable to hide one that kept its records.
+func TestTerminalCleanupReportsTheWorstShardNotTheLast(t *testing.T) {
+	require.Greater(t, CleanupSweepFailed, CleanupSweepUnknown, "knowing state is left outranks not knowing")
+	require.Greater(t, CleanupSweepUnknown, CleanupSweepDropped, "an unvisited shard outranks a collection going away")
+	require.Greater(t, CleanupSweepDropped, CleanupSweepClean)
+
+	idx, failing := shardWithAnUnreadableRecordStore(t)
+	logger, _ := test.NewNullLogger()
+	p := NewReindexProvider(&DB{indices: map[string]*Index{indexID(idx.Config.ClassName): idx}},
+		nil, nil, logger, "n1", nil, testCtx())
+
+	for _, shards := range [][]string{{failing, "absent-tenant"}, {"absent-tenant", failing}} {
+		outcome, _ := p.discardTaskRecords(testCtx(), testTask("T", 1, distributedtask.TaskStatusCancelled),
+			string(idx.Config.ClassName), shards)
+		require.Equal(t, CleanupSweepFailed, outcome, "shards %v", shards)
+	}
+}
