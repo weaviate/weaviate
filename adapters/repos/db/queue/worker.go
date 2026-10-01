@@ -27,28 +27,11 @@ import (
 
 const (
 	maxBackoffDuration = 30 * time.Second
-
-	// maxAttemptsBeforeCap is the number of rungs on the backoff ladder before it caps
-	maxAttemptsBeforeCap = 5
-
-	// maxMemoryPressureAttempts bounds a batch failing only with memory sheds, which retries cannot fix
-	maxMemoryPressureAttempts = maxAttemptsBeforeCap + 1
-
-	// memoryPressurePauseInterval is long on purpose: freeing memory takes minutes
-	memoryPressurePauseInterval = 5 * time.Minute
 )
-
-// errMemoryPressurePause signals that do() parked the batch; never a task error.
-var errMemoryPressurePause = errors.New("batch parked: too many consecutive memory-guard failures")
 
 type Worker struct {
 	logger logrus.FieldLogger
 	ch     chan *Batch
-
-	// test seams; zero means "use the production default"
-	backoffFn              func(attempts int) time.Duration
-	maxMemPressureAttempts int
-	memPressurePause       time.Duration
 }
 
 func NewWorker(logger logrus.FieldLogger) (*Worker, chan *Batch) {
@@ -89,21 +72,14 @@ func (w *Worker) do(batch *Batch) (err error) {
 			batch.Cancel()
 			return
 		}
-		switch {
-		case errors.Is(err, errMemoryPressurePause):
-			// Done() is deliberately not called: it would let the disk queue delete the chunk
-			batch.Requeue(w.memoryPressurePause())
-		case err != nil:
+		if err != nil {
 			batch.Cancel()
-		default:
+		} else {
 			batch.Done()
 		}
 	}()
 
 	attempts := 1
-
-	// consecutive rounds in which every remaining error was a memory shed
-	memPressureRounds := 0
 
 	// keep track of failed tasks
 	var failed []Task
@@ -126,7 +102,8 @@ func (w *Worker) do(batch *Batch) (err error) {
 			}
 			if errors.Is(err, common.ErrWrongDimensions) {
 				w.logger.
-					Errorf("task failed due to wrong dimensions, discarding: %v", err)
+					WithError(err).
+					Error("task failed due to wrong dimensions, discarding")
 				continue // skip this task
 			}
 
@@ -143,31 +120,9 @@ func (w *Worker) do(batch *Batch) (err error) {
 
 		hasPermanentErrs := hasPermanentErrors(errs)
 		if hasPermanentErrs {
-			w.logger.
-				WithField("failed", len(failed)).
-				Errorf("permanent errors detected, discarding batch: %v", errors.Join(errs...))
+			w.logger.WithError(errors.Join(errs...)).
+				WithField("failed", len(failed)).Error("permanent errors detected, discarding batch")
 			return nil
-		}
-
-		if allMemoryPressure(errs) {
-			memPressureRounds++
-		} else {
-			memPressureRounds = 0
-		}
-
-		if memPressureRounds >= w.maxMemoryPressureAttempts() {
-			// only the tasks that are still outstanding need to be re-run
-			batch.Tasks = failed
-
-			pause := w.memoryPressurePause()
-			w.logger.
-				WithField("failed", len(failed)).
-				WithField("attempts", attempts).
-				WithField("resume_in", pause).
-				Warnf("batch failed the memory guard %d times in a row; parking it for %s instead of retrying, the tasks stay queued: %v",
-					memPressureRounds, pause, errors.Join(errs...))
-
-			return errMemoryPressurePause
 		}
 
 		// the remaining errors are recoverable: transient errors, or timeouts,
@@ -177,10 +132,11 @@ func (w *Worker) do(batch *Batch) (err error) {
 		// otherwise this loop spins at full speed.
 		retryIn := w.calculateBackoff(attempts)
 		w.logger.
+			WithError(errors.Join(errs...)).
 			WithField("failed", len(failed)).
 			WithField("attempts", attempts).
 			WithField("retry_in", retryIn).
-			Warnf("recoverable errors detected, retrying batch in %s: %v", retryIn, errors.Join(errs...))
+			Warnf("recoverable errors detected, retrying batch in %s", retryIn)
 
 		attempts++
 		retryTimer := time.NewTimer(retryIn)
@@ -197,47 +153,14 @@ func (w *Worker) do(batch *Batch) (err error) {
 }
 
 func (w *Worker) calculateBackoff(attempts int) time.Duration {
-	if w.backoffFn != nil {
-		return w.backoffFn(attempts)
-	}
-
 	// Cap attempts to prevent bit-shift overflow
+	const maxAttemptsBeforeCap = 5
+
 	if attempts > maxAttemptsBeforeCap {
 		return maxBackoffDuration
 	}
 
 	return time.Second << (attempts - 1)
-}
-
-func (w *Worker) maxMemoryPressureAttempts() int {
-	if w.maxMemPressureAttempts > 0 {
-		return w.maxMemPressureAttempts
-	}
-
-	return maxMemoryPressureAttempts
-}
-
-func (w *Worker) memoryPressurePause() time.Duration {
-	if w.memPressurePause > 0 {
-		return w.memPressurePause
-	}
-
-	return memoryPressurePauseInterval
-}
-
-// allMemoryPressure reports whether errs is non-empty and every error is a memory shed
-func allMemoryPressure(errs []error) bool {
-	if len(errs) == 0 {
-		return false
-	}
-
-	for _, err := range errs {
-		if !enterrors.IsMemoryPressure(err) {
-			return false
-		}
-	}
-
-	return true
 }
 
 func hasPermanentErrors(errs []error) bool {

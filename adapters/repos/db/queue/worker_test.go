@@ -144,8 +144,7 @@ func (m *mockWorkerTask) Op() uint8 {
 	return 0
 }
 
-// Stays on the real backoff ladder on purpose: it is its only coverage.
-func TestWorker_TransientErrorsRetriedWithinBound(t *testing.T) {
+func TestWorker_TransientErrorRetryIndefinitely(t *testing.T) {
 	tests := []struct {
 		name    string
 		errFunc func() error

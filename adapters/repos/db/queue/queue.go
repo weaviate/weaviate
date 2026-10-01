@@ -27,7 +27,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -62,12 +61,6 @@ const (
 	// minEncodedRecordSize is the smallest possible record footprint in a
 	// chunk payload: a 4-byte length prefix plus at least 1 byte of record data.
 	minEncodedRecordSize = 4 + 1
-
-	// maxChunkRequeues bounds how often a running queue re-arms a canceled chunk before parking it
-	maxChunkRequeues = 5
-
-	// chunkRequeuePause is how long a chunk past maxChunkRequeues is parked, matching memoryPressurePauseInterval
-	chunkRequeuePause = 5 * time.Minute
 )
 
 // regex pattern for the chunk files.
@@ -433,7 +426,7 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 	}
 
 	if corruptChunkErr != nil {
-		q.quarantineChunk(c, errors.Wrap(corruptChunkErr, "chunk is truncated or corrupt, records beyond the corruption are lost"))
+		q.quarantineChunk(c, corruptChunkErr)
 	}
 
 	if len(tasks) == 0 {
@@ -455,38 +448,10 @@ func (q *DiskQueue) DequeueBatch() (batch *Batch, err error) {
 		}
 	}
 
-	canceledFn := func() {
-		// a quarantined chunk is no longer owned by the queue
-		if corruptChunkErr == nil {
-			q.requeueChunk(c)
-		}
-	}
-
 	return &Batch{
-		Tasks:      tasks,
-		OnDone:     doneFn,
-		OnCanceled: canceledFn,
+		Tasks:  tasks,
+		OnDone: doneFn,
 	}, nil
-}
-
-// requeueChunk makes a canceled batch's chunk dequeuable again, parking it past maxChunkRequeues.
-func (q *DiskQueue) requeueChunk(c *chunk) {
-	requeues, parked := q.r.Requeue(c.path, q.requeueCounts(), maxChunkRequeues, chunkRequeuePause)
-	if !parked {
-		return
-	}
-
-	q.Logger.WithField("chunk", c.path).
-		Errorf("chunk canceled %d times while dispatching, e.g. by a task that panics every time; parking the queue for %s", requeues, chunkRequeuePause)
-}
-
-// requeueCounts reports whether a cancellation counts toward maxChunkRequeues; pause and shutdown do not.
-func (q *DiskQueue) requeueCounts() bool {
-	q.m.RLock()
-	closed := q.closed
-	q.m.RUnlock()
-
-	return !closed && q.scheduler.isDispatching(q.id)
 }
 
 func (q *DiskQueue) checkIfStale() (*chunk, error) {
@@ -741,7 +706,7 @@ func (q *DiskQueue) quarantineChunk(c *chunk, cause error) {
 	q.metrics.Size(q.recordCount)
 
 	q.Logger.WithField("file", quarantinePath).
-		Errorf("quarantined chunk: %v", cause)
+		Errorf("chunk is truncated or corrupt, quarantined it; records beyond the corruption are lost: %v", cause)
 }
 
 // analyzeDisk is a slow method that determines the number of records
@@ -952,7 +917,6 @@ func openChunk(path string) (*chunk, error) {
 
 	stat, err := c.f.Stat()
 	if err != nil {
-		_ = c.f.Close()
 		return nil, err
 	}
 
@@ -979,7 +943,6 @@ func openChunk(path string) (*chunk, error) {
 	// check the header
 	c.count, err = readChunkHeader(c.r)
 	if err != nil {
-		_ = c.Close()
 		return nil, err
 	}
 
@@ -1385,147 +1348,44 @@ func (w *chunkWriter) Promote() error {
 }
 
 type chunkReader struct {
-	m   sync.Mutex
-	dir string
-	// cursor splits chunkList into dispatched chunks (before it) and pending ones
-	cursor int
-	// chunkList holds every chunk the queue still owns, in dequeue order
+	m         sync.Mutex
+	dir       string
+	cursor    int
 	chunkList []string
-	// chunks caches open handles of pending chunks; ReadChunk hands them over
-	chunks map[string]*os.File
-	// requeues counts the cancellations of each chunk that count toward maxChunkRequeues
-	requeues map[string]int
-	// parkedUntil holds chunks past maxChunkRequeues; while the front pending chunk is parked nothing is served
-	parkedUntil map[string]time.Time
-	// now is the clock, time.Now if nil
-	now func() time.Time
+	chunks    map[string]*os.File
 }
 
 func newChunkReader(dir string, chunkList []string) *chunkReader {
 	return &chunkReader{
-		dir:         dir,
-		chunks:      make(map[string]*os.File),
-		chunkList:   chunkList,
-		requeues:    make(map[string]int),
-		parkedUntil: make(map[string]time.Time),
+		dir:       dir,
+		chunks:    make(map[string]*os.File),
+		chunkList: chunkList,
 	}
 }
 
-func (r *chunkReader) clock() time.Time {
-	if r.now != nil {
-		return r.now()
-	}
-	return time.Now()
-}
-
-// ReadChunk returns the next pending chunk, or nil; it stays owned until settled.
 func (r *chunkReader) ReadChunk() (*chunk, error) {
 	r.m.Lock()
 
 	if r.cursor >= len(r.chunkList) {
+		r.cursor = 0
+		r.chunkList = nil
+		clear(r.chunks)
 		r.m.Unlock()
 		return nil, nil
 	}
 
 	path := r.chunkList[r.cursor]
-	if until, parked := r.parkedUntil[path]; parked {
-		if r.clock().Before(until) {
-			// serving a later chunk first could reorder index operations
-			r.m.Unlock()
-			return nil, nil
-		}
-		delete(r.parkedUntil, path)
-	}
 	f, ok := r.chunks[path]
-	// the chunk's Close closes the handle, so it must never be served twice
-	delete(r.chunks, path)
 
 	r.cursor++
 
 	r.m.Unlock()
 
-	var (
-		c   *chunk
-		err error
-	)
 	if ok {
-		c, err = chunkFromFile(f)
-		if err != nil {
-			_ = f.Close()
-		}
-	} else {
-		c, err = openChunk(path)
-	}
-	if err != nil || c == nil {
-		// unreadable or empty and already removed: nothing left to settle
-		r.forget(path)
+		return chunkFromFile(f)
 	}
 
-	return c, err
-}
-
-// Requeue hands a dispatched chunk back to be served next; past limit counted requeues it is parked for pause.
-func (r *chunkReader) Requeue(path string, counted bool, limit int, pause time.Duration) (requeues int, parked bool) {
-	r.m.Lock()
-	defer r.m.Unlock()
-
-	i := r.indexOf(path)
-	if i < 0 {
-		// no longer owned, e.g. removed
-		return r.requeues[path], false
-	}
-
-	if counted {
-		r.requeues[path]++
-	}
-	requeues = r.requeues[path]
-	if requeues > limit {
-		// a full set of attempts after the pause
-		delete(r.requeues, path)
-		r.parkedUntil[path] = r.clock().Add(pause)
-		parked = true
-	}
-
-	// the cached handle, if any, was closed with the dispatched chunk: reopen by path
-	delete(r.chunks, path)
-
-	if i < r.cursor {
-		// move it to the front of the pending chunks to keep the dequeue order
-		copy(r.chunkList[i:r.cursor-1], r.chunkList[i+1:r.cursor])
-		r.chunkList[r.cursor-1] = path
-		r.cursor--
-	}
-
-	return requeues, parked
-}
-
-func (r *chunkReader) indexOf(path string) int {
-	for i, p := range r.chunkList {
-		if p == path {
-			return i
-		}
-	}
-	return -1
-}
-
-// forget drops a chunk the queue no longer owns.
-func (r *chunkReader) forget(path string) {
-	r.m.Lock()
-	defer r.m.Unlock()
-
-	delete(r.chunks, path)
-	delete(r.requeues, path)
-	delete(r.parkedUntil, path)
-
-	i := r.indexOf(path)
-	if i < 0 {
-		return
-	}
-
-	r.chunkList = slices.Delete(r.chunkList, i, i+1)
-	if i < r.cursor {
-		r.cursor--
-	}
+	return openChunk(path)
 }
 
 func (r *chunkReader) Close() error {
@@ -1572,16 +1432,21 @@ func (r *chunkReader) PromoteChunk(f *os.File) error {
 	return nil
 }
 
-// ReleaseChunk drops the chunk from the reader without deleting its file.
+// ReleaseChunk closes the chunk's file handle and removes it from the reader cache
+// without deleting the file from disk. Used during maintenance mode.
 func (r *chunkReader) ReleaseChunk(c *chunk) {
 	_ = c.Close()
-	r.forget(c.path)
+	r.m.Lock()
+	defer r.m.Unlock()
+	delete(r.chunks, c.path)
 }
 
 func (r *chunkReader) RemoveChunk(c *chunk) (bool, error) {
 	_ = c.Close()
 
-	r.forget(c.path)
+	r.m.Lock()
+	delete(r.chunks, c.path)
+	r.m.Unlock()
 
 	err := os.Remove(c.path)
 	if err != nil {
