@@ -60,8 +60,8 @@ type DistributedBackupDescriptor struct {
 	// SkipUsers/SkipRoles mean the subsystem is not part of the operation. On a
 	// backup descriptor, includeUsers/includeRoles matched nothing or the caller
 	// may not back up the whole store; restore discards any user or RBAC blob a
-	// node uploaded anyway, which a participant predating the request-level skip
-	// flag does. On a restore descriptor, the restore does not apply that blob.
+	// node uploaded anyway, as a participant from before the request carried
+	// skip flags does. On a restore descriptor, the restore does not apply that blob.
 	SkipUsers bool `json:"skipUsers,omitempty"`
 	SkipRoles bool `json:"skipRoles,omitempty"`
 }

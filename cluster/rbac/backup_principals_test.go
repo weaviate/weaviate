@@ -123,7 +123,7 @@ func TestBackupPrincipalMigration(t *testing.T) {
 		t.Run("a marker-less remove drops the grants only with the last collections grant the role holds", func(t *testing.T) {
 			tests := []struct {
 				name string
-				// setup builds the role before the marker-less remove.
+				// setup builds the role that the remove without the marker then acts on.
 				setup  func(m *Manager)
 				remove []authorization.Policy
 				want   []authorization.Policy
@@ -185,8 +185,8 @@ func TestBackupPrincipalMigration(t *testing.T) {
 	})
 
 	// The two surfaces migrate by container, not by row: a snapshot recorded
-	// before the bump cannot say whether its collections-only role was written
-	// by a binary that knew backups/users and backups/roles.
+	// before the bump cannot say whether a role holding only collections
+	// grants was written by a binary that knew backups/users and backups/roles.
 	t.Run("the snapshot and replay surfaces disagree on a collections-only role", func(t *testing.T) {
 		restored := newTestManager(t)
 		require.NoError(t, restored.Restore(rbacBlob(t, rbac.SnapshotVersionV1,

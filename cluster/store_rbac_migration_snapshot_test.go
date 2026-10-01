@@ -37,8 +37,8 @@ import (
 
 // The RBAC backup-principals migration arms the forced-snapshot worker: role
 // data written before backups/users and backups/roles existed migrates on
-// replay, and the stateful removal makes replaying that history onto later
-// state non-convergent. These tests prove that Close stops the worker and
+// replay, and the stateful removal means replaying that history onto later
+// state can re-grant what a later write removed. These tests prove that Close stops the worker and
 // that the snapshot keeps a restart from re-granting.
 
 // rbacMockStore is NewMockStore with a real RBAC store under rbacDir, built
@@ -106,9 +106,9 @@ func TestForcedSnapshotOnRBACMigration(t *testing.T) {
 		}
 	})
 
-	// Pre-upgrade history on a node with no raft snapshot: a marker-less grant
-	// and removal of Movies, then a marker-bearing collections-only grant of
-	// Books. The role must hold Books alone. The control deletes the snapshot
+	// History from before the upgrade, on a node with no raft snapshot: a
+	// grant and a removal of Movies, both without the marker, then a grant of
+	// the Books collection carrying it. The role must hold Books alone. The control deletes the snapshot
 	// files before the restart: the whole log then replays onto a policy.csv
 	// that already holds Books, and the removal keeps the users and roles
 	// grants because Books is there.
@@ -140,7 +140,7 @@ func TestForcedSnapshotOnRBACMigration(t *testing.T) {
 				srv := openMockStore(t, m)
 				require.Zero(t, lastSnapshotIndex(m.store.snapshotStore), "the node starts without a raft snapshot")
 
-				// Pre-upgrade history: these role writes carry no marker.
+				// These role writes carry no marker, as writes from before the upgrade do.
 				executeRoleWrite(t, srv, cmd.ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS, &cmd.CreateRolesRequest{
 					Roles: map[string][]authorization.Policy{"operator": {movies}}, Version: cmd.RBACLatestCommandPolicyVersion,
 				})
@@ -151,7 +151,7 @@ func TestForcedSnapshotOnRBACMigration(t *testing.T) {
 					return lastSnapshotIndex(m.store.snapshotStore) > 0
 				}, 10*time.Second, 10*time.Millisecond, "the forced snapshot was never taken")
 
-				// A post-upgrade write goes through the production writer.
+				// A write from after the upgrade goes through the production writer.
 				require.NoError(t, srv.UpdateRolesPermissions(map[string][]authorization.Policy{"operator": {books}}))
 				require.Equal(t, []authorization.Policy{books}, rolePolicies(t, m.cfg.RBAC))
 				require.NoError(t, srv.Close(ctx))

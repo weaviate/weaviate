@@ -31,11 +31,11 @@ const (
 
 // forcedSnapshotter takes one raft snapshot on demand and exits.
 type forcedSnapshotter struct {
-	// signal should have capacity one
+	// signal must have capacity one.
 	signal <-chan struct{}
 	poll   time.Duration
 	retry  time.Duration
-	// ready reports that the pre-boot log is applied and a leader is known
+	// ready reports that the log from before this boot is applied and a leader is known.
 	ready    func() bool
 	snapshot func() error
 	log      logrus.FieldLogger

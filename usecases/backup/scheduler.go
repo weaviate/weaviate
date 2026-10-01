@@ -886,8 +886,8 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 // canReadBackups reports for each backup whether the caller may READ every
 // collection it names, uppercasing those names in place as authorization.Backups
 // does, and every users and roles resource in backupPrincipals. Each distinct
-// resource is authorized once per listing, not once per backup. The trade-off:
-// it does not stop at the first denial, and it writes no audit record per denial.
+// resource is authorized once per listing, not once per backup. The trade-off
+// is that it does not stop at the first denial and writes no audit record per denial.
 func (s *Scheduler) canReadBackups(ctx context.Context, principal *models.Principal, backupClasses, backupPrincipals [][]string) ([]bool, error) {
 	readable := make([]bool, len(backupClasses))
 	// rbac.Manager rejects a call carrying no resources, so a listing with no
@@ -899,9 +899,9 @@ func (s *Scheduler) canReadBackups(ctx context.Context, principal *models.Princi
 	// rbac.Manager enforces one resource at a time, so check for a caller
 	// holding backup READ outright before naming thousands of collections.
 	// The probe uses AuthorizeSilent because a denial here is the ordinary route
-	// to the per-resource check below, which re-raises any other error. Outright READ needs all
-	// three wildcards, or a collections-only reader would list backups
-	// carrying users and roles.
+	// to the per-resource check below, which re-raises any other error. The
+	// blanket READ needs all three wildcards; otherwise a caller holding only
+	// the collections wildcard would list backups carrying users and roles.
 	wildcards := append(authorization.Backups(), append(authorization.BackupUsers(), authorization.BackupRoles()...)...)
 	if err := s.authorizer.AuthorizeSilent(ctx, principal, authorization.READ, wildcards...); err == nil {
 		// AuthorizeSilent writes no audit record and nothing else authorizes

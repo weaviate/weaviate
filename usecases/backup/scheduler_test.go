@@ -4253,7 +4253,7 @@ func TestRestoreSelectsLeaderBlob(t *testing.T) {
 	})
 
 	// The node uploaded blobs the descriptor says were never selected, as a
-	// participant without the request-level skip flag does.
+	// participant from before the request carried skip flags does.
 	t.Run("descriptor skip discards the users blob", func(t *testing.T) {
 		calls := drive(t, "Node-A", map[string][]byte{"Node-A": blobA}, false, skip{users: true})
 		require.Len(t, calls, 1)

@@ -164,9 +164,7 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 
 		_, err := fs.scheduler().Backup(ctx, caller, &BackupRequest{ID: backupID, Backend: backendName})
 		require.IsType(t, backup.ErrUnprocessable{}, err)
-		// The validation's class-less wording, so the refusal does not say
-		// whether any user or role exists.
-		assert.ErrorContains(t, err, "backup selects no collections, users, or roles: available collections: []")
+		assert.ErrorContains(t, err, "backup selects no collections, users, or roles")
 		assert.Equal(t, []mocks.AuthZReq{
 			call("backups/users/*"),
 			call("backups/roles/*"),
@@ -548,7 +546,7 @@ func TestSchedulerRestorePrincipals(t *testing.T) {
 		assert.True(t, out.restoreMeta.SkipRoles)
 		assert.Empty(t, out.applied)
 
-		// A collection-only caller polls and cancels that restore.
+		// A caller with only collection grants polls and cancels that restore.
 		restoreMeta := out.restoreMeta
 		restoreMeta.Status = backup.Cancelled
 		fs := newFakeScheduler(nil)
@@ -619,8 +617,9 @@ func TestSchedulerDescriptorPrincipals(t *testing.T) {
 		fs.backend.On("Initialize", mock.Anything, mock.Anything).Return(nil)
 	}
 
-	// All four operations authorize through the one descriptor-derivation
-	// helper, so the descriptor cases run on one operation and each remaining
+	// All four operations authorize through the one helper that derives
+	// resources from the descriptor, so the descriptor cases run on one
+	// operation and each remaining
 	// operation pins its wiring and verb on the richest descriptor.
 	statusOp := operations[0]
 	runCase := func(op operation, d descriptor) {

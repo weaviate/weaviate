@@ -44,7 +44,7 @@ func NewManager(authZ *rbac.Manager, authNconfig config.Authentication, logger l
 
 // forceSnapshot asks the store for a raft snapshot after a backup-principals
 // migration; see forcedSnapshotter. It never blocks: a signal is already
-// pending, or none is wired.
+// pending, or no channel was provided.
 func (m *Manager) forceSnapshot() {
 	select {
 	case m.forceSnapshotCh <- struct{}{}:
