@@ -41,9 +41,6 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
-		if res := notCaughtUpResponder(principal, err); res != nil {
-			return res
-		}
 		return batch.NewBatchObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
@@ -52,6 +49,9 @@ func (h *batchObjectHandlers) addObjects(params batch.BatchObjectsCreateParams,
 		params.Body.Objects, params.Body.Fields, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
+		if res := notCaughtUpResponder(principal, err); res != nil {
+			return res
+		}
 		if le, ok := usagelimits.AsLimitExceeded(err); ok {
 			return batch.NewBatchObjectsCreateTooManyRequests().
 				WithPayload(newUsageLimitPayload(le))
@@ -175,9 +175,6 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
-		if res := notCaughtUpResponder(principal, err); res != nil {
-			return res
-		}
 		return batch.NewBatchObjectsDeleteBadRequest().
 			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
@@ -188,6 +185,9 @@ func (h *batchObjectHandlers) deleteObjects(params batch.BatchObjectsDeleteParam
 		params.Body.Match, params.Body.DeletionTimeUnixMilli, params.Body.DryRun, params.Body.Output, repl, tenant)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
+		if res := notCaughtUpResponder(principal, err); res != nil {
+			return res
+		}
 		if errors.As(err, &objects.ErrInvalidUserInput{}) {
 			return batch.NewBatchObjectsDeleteUnprocessableEntity().
 				WithPayload(errPayloadFromSingleErr(principal, err))

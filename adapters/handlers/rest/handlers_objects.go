@@ -84,9 +84,6 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError("", err)
-		if res := notCaughtUpResponder(principal, err); res != nil {
-			return res
-		}
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
@@ -96,6 +93,9 @@ func (h *objectHandlers) addObject(params objects.ObjectsCreateParams,
 	object, err := h.manager.AddObject(ctx, principal, params.Body, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError(className, err)
+		if res := notCaughtUpResponder(principal, err); res != nil {
+			return res
+		}
 		if le, ok := usagelimits.AsLimitExceeded(err); ok {
 			return objects.NewObjectsCreateTooManyRequests().
 				WithPayload(newUsageLimitPayload(le))
@@ -352,9 +352,6 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError(params.ClassName, err)
-		if res := notCaughtUpResponder(principal, err); res != nil {
-			return res
-		}
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
@@ -365,6 +362,9 @@ func (h *objectHandlers) deleteObject(params objects.ObjectsClassDeleteParams,
 		principal, params.ClassName, params.ID, repl, tenant)
 	if err != nil {
 		h.metricRequestsTotal.logError(params.ClassName, err)
+		if res := notCaughtUpResponder(principal, err); res != nil {
+			return res
+		}
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return objects.NewObjectsClassDeleteForbidden().
@@ -392,9 +392,6 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError(className, err)
-		if res := notCaughtUpResponder(principal, err); res != nil {
-			return res
-		}
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
@@ -403,6 +400,9 @@ func (h *objectHandlers) updateObject(params objects.ObjectsClassPutParams,
 		principal, params.ClassName, params.ID, params.Body, repl)
 	if err != nil {
 		h.metricRequestsTotal.logError(className, err)
+		if res := notCaughtUpResponder(principal, err); res != nil {
+			return res
+		}
 		if le, ok := usagelimits.AsLimitExceeded(err); ok {
 			return objects.NewObjectsClassPutTooManyRequests().
 				WithPayload(newUsageLimitPayload(le))
@@ -483,9 +483,6 @@ func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, pri
 	repl, err := getReplicationProperties(params.ConsistencyLevel, nil)
 	if err != nil {
 		h.metricRequestsTotal.logError(getClassName(updates), err)
-		if res := notCaughtUpResponder(principal, err); res != nil {
-			return res
-		}
 		return objects.NewObjectsCreateBadRequest().
 			WithPayload(errPayloadFromSingleErr(principal, err))
 	}
@@ -493,6 +490,9 @@ func (h *objectHandlers) patchObject(params objects.ObjectsClassPatchParams, pri
 	objErr := h.manager.MergeObject(ctx, principal, updates, repl)
 	if objErr != nil {
 		h.metricRequestsTotal.logError(getClassName(updates), objErr)
+		if res := notCaughtUpResponder(principal, objErr); res != nil {
+			return res
+		}
 		switch {
 		case objErr.NotFound():
 			return objects.NewObjectsClassPatchNotFound()

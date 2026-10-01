@@ -775,7 +775,7 @@ func (i *indices) postSearchObjects() http.Handler {
 		results, dists, queryProfiles, err := i.shards.Search(r.Context(), index, shard,
 			vector, targetVector, certainty, limit, filters, keywordRanking, sort, cursor, groupBy, additional, targetCombination, props)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), localIndexMissingStatus(err))
 			return
 		}
 		if errors.Is(err, queryadmission.ErrOverloaded) {
@@ -897,7 +897,7 @@ func (i *indices) postAggregateObjects() http.Handler {
 		aggRes, err := i.shards.Aggregate(r.Context(), index, shard, params)
 
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), localIndexMissingStatus(err))
 			return
 		}
 		if errors.Is(err, queryadmission.ErrOverloaded) {
@@ -962,7 +962,7 @@ func (i *indices) postFindUUIDs() http.Handler {
 		results, err := i.shards.FindUUIDs(r.Context(), index, shard, filters, limit)
 
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), localIndexMissingStatus(err))
 			return
 		}
 		if err != nil {
@@ -1060,7 +1060,7 @@ func (i *indices) getObjectsDigest() http.Handler {
 
 		results, err := i.shards.DigestObjects(r.Context(), index, shard, ids)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), localIndexMissingStatus(err))
 			return
 		}
 		if err != nil {
@@ -1232,7 +1232,7 @@ func (i *indices) getGetShardQueueSize() http.Handler {
 
 		size, err := i.shards.GetShardQueueSize(r.Context(), index, shard)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), localIndexMissingStatus(err))
 			return
 		}
 
@@ -1271,7 +1271,7 @@ func (i *indices) getGetShardStatus() http.Handler {
 
 		status, err := i.shards.GetShardStatus(r.Context(), index, shard)
 		if err != nil && errors.As(err, &enterrors.ErrUnprocessable{}) {
-			http.Error(w, err.Error(), http.StatusUnprocessableEntity)
+			http.Error(w, err.Error(), localIndexMissingStatus(err))
 			return
 		}
 		if err != nil {
@@ -1481,4 +1481,15 @@ func (i *indices) deleteAsyncReplicationTargetNode() http.Handler {
 
 		w.WriteHeader(http.StatusNoContent)
 	})
+}
+
+// localIndexMissingStatus picks the status for an unprocessable cluster-API error. A class this node
+// does not have locally is not a bad request: the sender only forwards classes the schema already
+// has, so the local index is missing because this node has not caught up, and the caller should
+// treat it like any other not-ready replica.
+func localIndexMissingStatus(err error) int {
+	if strings.Contains(err.Error(), "local index") && strings.Contains(err.Error(), "not found") {
+		return http.StatusServiceUnavailable
+	}
+	return http.StatusUnprocessableEntity
 }
