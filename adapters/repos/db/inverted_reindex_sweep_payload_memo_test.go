@@ -100,7 +100,7 @@ func TestSweepSharesOnePayloadMemoAcrossItsPasses(t *testing.T) {
 
 	// Each pass on its own memo is what the sweep cost before they shared one.
 	preservePass := &taskPropsCache{}
-	completedMigrationGens(migrationDirsOf(lsm, nil, "cat", "filterable").
+	_, _ = completedMigrationGens(migrationDirsOf(lsm, nil, "cat", "filterable").
 		cachingProps(preservePass))
 	deletionPass := &taskPropsCache{}
 	deletionScope := migrationDirsOf(lsm, nil, "cat", "filterable").cachingProps(deletionPass)
@@ -310,7 +310,7 @@ func TestSweepMemoLeavesTheDeletedSetAlone(t *testing.T) {
 			for _, f := range sweepMemoFixtures {
 				names = append(names, f.dir)
 			}
-			want := sweepSurvivors(names, completedMigrationGens(refScope), refScope.inScope)
+			want := sweepSurvivors(names, mustCompletedGens(t, refScope), refScope.inScope)
 
 			lsm := writeSweepMemoFixtures(t)
 			cleanStaleMigrationDirsAt(t.Context(), lsm, tc.propName, tc.idxType, logger, nil)

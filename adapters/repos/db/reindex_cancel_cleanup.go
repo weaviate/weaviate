@@ -273,9 +273,10 @@ func (i *Index) cleanStalePartialReindexState(
 // tracker naming other properties leaves this reporting clean and skipping
 // the shard.
 //
-// Failing open costs only a hydration, except on an unlistable .migrations:
-// that hydration then finds no completed migration to preserve and removes
-// sidecars a deferred finalize still needs.
+// Failing open forces a hydration. Where .migrations or a sentinel can't be
+// read, the sweep on that shard then fails the shard's cleanup with
+// [ErrCleanupShardFailed] rather than remove sidecars it can't classify
+// (#12647).
 //
 // A FROZEN (offload) transition removes the shard from the map before it
 // removes files, so a mid-transition read either finds an emptying
@@ -321,7 +322,12 @@ func hasStalePartialReindexState(
 	// Sidecar bucket dirs, minus the ones backing a completed-but-deferred
 	// migration — those are live state the sweep must preserve.
 	if len(sidecarSuffixes) > 0 {
-		preserveSidecars := completedMigrationSidecarSuffixes(scope.preserving(indexType))
+		preserveSidecars, err := completedMigrationSidecarSuffixes(scope.preserving(indexType))
+		if err != nil {
+			// Same disposition as an unlistable .migrations below: a sidecar
+			// this pass can't classify could be either, so this is not "clean".
+			return true, false
+		}
 		for _, suffix := range sidecarSuffixes {
 			if !preserveSidecars[suffix] {
 				return true, false
@@ -349,7 +355,11 @@ func hasStalePartialReindexState(
 			continue
 		}
 		if preservedGens == nil {
-			preservedGens = completedMigrationGens(scope)
+			var err error
+			preservedGens, err = completedMigrationGens(scope)
+			if err != nil {
+				return true, false
+			}
 		}
 		if _, gen, ok := parseMigrationDirName(name); ok && preservedGens[gen] {
 			finalizable = true
