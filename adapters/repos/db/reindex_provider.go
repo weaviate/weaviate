@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	api "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 
@@ -1539,38 +1540,19 @@ func (p *ReindexProvider) OnTaskCompleted(task *distributedtask.Task) error {
 	return nil
 }
 
-// migrationCleanupIndexTypes includes format-only migrations, unlike [semanticMigrationIndexTypes]: they write sidecars too.
-func migrationCleanupIndexTypes(mt ReindexMigrationType) []string {
-	switch mt {
-	case ReindexTypeChangeTokenization:
-		return []string{"searchable", "filterable"}
-	case ReindexTypeChangeTokenizationFilterable:
-		return []string{"filterable"}
-	case ReindexTypeEnableSearchable, ReindexTypeChangeAlgorithm, ReindexTypeRebuildSearchable:
-		return []string{"searchable"}
-	case ReindexTypeEnableFilterable, ReindexTypeRepairFilterable:
-		return []string{"filterable"}
-	case ReindexTypeEnableRangeable, ReindexTypeRepairRangeable:
-		return []string{"rangeable"}
-	}
-	return nil
-}
-
 // autoCleanupAfterTerminal runs on every node when a semantic migration
-// reaches FAILED or CANCELLED. Drains any still-running local
-// goroutine, then wipes partial sidecar state per (property, indexType).
+// reaches FAILED or CANCELLED. Drains any still-running local goroutine, then
+// has the reconciler end the task's records on the shards the index map holds.
 //
 // Backup-gate race avoidance: a backup landing AFTER the FSM has flipped
 // to FAILED/CANCELLED but BEFORE this routine finishes its sidecar
 // teardown sees [IsLiveReindexTaskStatus]==false but the on-disk
 // __reindex / __ingest sidecars are still being torn out. Registering
 // every shard the task touched in [cleanupInProgress] before
-// the sweep fires (and unregistering after) makes
+// the teardown starts (and unregistering after) makes
 // "cleanup is still happening on this shard" an explicit state the
 // gate consults — closing the cleanup-vs-status-visibility gap the
 // DTM-only lookup leaves open.
-//
-// Directories a record marks merged or beyond survive: they hold live deferred-finalize state, not partial state.
 func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, payload *ReindexTaskPayload, logger logrus.FieldLogger) {
 	drainCtx, drainCancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupDrainTimeout)
 	defer drainCancel()
@@ -1580,14 +1562,8 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 		return
 	}
 	defer unseal()
-	indexTypes := migrationCleanupIndexTypes(payload.MigrationType)
-	if len(indexTypes) == 0 || len(payload.Properties) == 0 {
-		return
-	}
-	// Register every shard the task touched as "cleanup in progress"
-	// for the duration of the per-(property, indexType) teardown loop.
 	// The unregister fires from the defer so any return path — including
-	// a panic inside the sweep — releases the slot.
+	// a panic inside the teardown — releases the slot.
 	shards := uniqueShardsFromPayload(payload)
 	for _, shardName := range shards {
 		p.registerCleanup(payload.Collection, shardName)
@@ -1599,49 +1575,80 @@ func (p *ReindexProvider) autoCleanupAfterTerminal(task *distributedtask.Task, p
 	}()
 	cleanupCtx, cancel := context.WithTimeout(p.serverCtx, reindexTerminalCleanupTimeout)
 	defer cancel()
-	// One sweep for the whole loop: every tuple asks the same unloaded shards.
-	// A loaded shard is read again per tuple, since each deletion changes what
-	// the next one would list.
-	sweep := p.db.NewStalePartialReindexSweep()
-	worst := sweepEachPropertyIndexType(payload.Properties, indexTypes,
-		func(propName, indexType string) error {
-			return sweep(cleanupCtx, payload.Collection, propName, indexType)
-		},
-		func(propName, indexType string, outcome CleanupSweepOutcome, failure error) {
-			// Off the shared taxonomy, like the handlers' logStaleSweepFailures:
-			// this line and the summary below report the same failure, so a level
-			// of its own would rank one event twice.
-			msg, level := CleanupSweepSummary(sweepPhaseTerminalCleanup, outcome)
-			logger.WithField("property", propName).WithField("index_type", indexType).
-				Logf(level, "%s: %v", msg, failure)
-		})
-	msg, level := CleanupSweepSummary(sweepPhaseTerminalCleanup, worst)
-	logger.WithField("operation", "autoCleanupAfterTerminal").Log(level, msg)
+	outcome, failures := p.discardTaskRecords(cleanupCtx, task, payload.Collection, shards)
+	msg, level := CleanupSweepSummary(sweepPhaseTerminalCleanup, outcome)
+	summary := logger.WithField("operation", "autoCleanupAfterTerminal")
+	if failures != nil {
+		summary.Logf(level, "%s: %v", msg, failures)
+		return
+	}
+	summary.Log(level, msg)
 }
 
-// sweepEachPropertyIndexType runs sweep once per (property, index type),
-// reporting each failure to onFailure, and returns the worst outcome of the
-// run — a later clean sweep must not mask an earlier one that left state
-// behind.
-//
-// onFailure is handed the tuple's own outcome, not the fold, so it can word
-// and rank its line by the same taxonomy the summary uses.
-func sweepEachPropertyIndexType(
-	propNames, indexTypes []string,
-	sweep func(propName, indexType string) error,
-	onFailure func(propName, indexType string, outcome CleanupSweepOutcome, failure error),
-) CleanupSweepOutcome {
+// discardTaskRecords returns the worst outcome over the shards, so a later
+// clean shard does not mask an earlier one that kept its records.
+func (p *ReindexProvider) discardTaskRecords(ctx context.Context, task *distributedtask.Task,
+	collection string, shardNames []string,
+) (CleanupSweepOutcome, error) {
+	idx := p.db.GetIndex(entschema.ClassName(collection))
+	if idx == nil {
+		return CleanupSweepDropped, nil
+	}
 	worst := CleanupSweepClean
-	for _, propName := range propNames {
-		for _, indexType := range indexTypes {
-			outcome, failure := ClassifyCleanupSweep(sweep(propName, indexType))
-			worst = max(worst, outcome)
-			if failure != nil {
-				onFailure(propName, indexType, outcome, failure)
-			}
+	failures := errorcompounder.New()
+	for _, name := range shardNames {
+		stop := idx.closeRequestedCause()
+		if stop == nil && ctx.Err() != nil {
+			stop = fmt.Errorf("%w: %w", ErrCleanupSweepTruncated, ctx.Err())
+		}
+		err := classifyIncompleteWalk(stop)
+		if stop == nil {
+			err = idx.discardTaskRecordsOn(ctx, name, task)
+		}
+		outcome, failure := ClassifyCleanupSweep(err)
+		worst = max(worst, outcome)
+		failures.AddWrapf(failure, "shard %q", name)
+		if stop != nil {
+			break
 		}
 	}
-	return worst
+	return worst, failures.ToErrorLimited(maxReportedErrors)
+}
+
+// discardTaskRecordsOn settles the task's records on one shard the map holds.
+// A cold tenant is not in the map; its load reconciler settles it once it is
+// reactivated.
+func (i *Index) discardTaskRecordsOn(ctx context.Context, name string, task *distributedtask.Task) error {
+	shard, release, err := i.getLoadedShard(name)
+	if err != nil {
+		return err
+	}
+	if shard == nil {
+		entry := i.shards.Load(name)
+		if entry == nil {
+			return nil
+		}
+		if lazy, isLazy := entry.(*LazyLoadShard); isLazy && !lazy.mayHoldUndecidedRecordOf(task) {
+			return nil
+		}
+		// The load reconciler reads this node's task map, which can lag the
+		// leader's, so a load alone does not settle the record.
+		if shard, release, err = i.loadMappedShardForCleanup(ctx, name); err != nil || shard == nil {
+			return err
+		}
+	}
+	defer release()
+	concrete, err := unwrapShard(ctx, shard)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrCleanupShardFailed, err)
+	}
+	if err := concrete.migrations().DiscardTask(ctx, task); err != nil {
+		if truncated := truncatedByCancellation(err); truncated != nil {
+			return truncated
+		}
+		return fmt.Errorf("%w: %w", ErrCleanupShardFailed, err)
+	}
+	return nil
 }
 
 // CleanupSweepOutcome is what one stale-partial-reindex sweep left for the
@@ -1695,8 +1702,8 @@ func ClassifyCleanupSweep(err error) (outcome CleanupSweepOutcome, failure error
 	}
 }
 
-// Sweep phases: which caller a sweep line belongs to, so two sweeps of the
-// same tuple in one log are told apart. The REST handlers name their own.
+// Phases: which caller a cleanup summary belongs to, so two cleanups in one
+// log are told apart. The REST handlers name their own.
 const (
 	sweepPhaseIndexCleanup    = "partial-reindex cleanup"
 	sweepPhaseTerminalCleanup = "auto-cleanup after terminal status"
@@ -1893,7 +1900,7 @@ func (p *ReindexProvider) IsCleanupInProgress(collection, shard string) bool {
 
 // CleanupInProgressLookup is the per-(collection, shard) "is the
 // terminal-task cleanup goroutine still inside its
-// [sweepEachPropertyIndexType] run over [StalePartialReindexSweep]?" probe.
+// [ReindexProvider.discardTaskRecords] walk?" probe.
 // Sibling type to [ShardReindexActivityLookup] (which is the cluster-wide
 // DTM-backed "is there a LIVE reindex task on this shard?" probe). The backup
 // gate OR-s them: a shard is busy if EITHER a DTM task is live OR a
@@ -1926,9 +1933,8 @@ func (p *ReindexProvider) CleanupInProgressLookupBuilder() CleanupInProgressLook
 const reindexTerminalCleanupDrainTimeout = 10 * time.Second
 
 // reindexTerminalCleanupTimeout is one window for the whole cleanup run: every
-// shard and every (property, indexType) pair share it, and the shards it cuts
-// short are reported as ones the sweep never reached. [dirNamesCache] relies on
-// it being run-wide for the lifetime of its listings.
+// shard shares it, and the shards it cuts short are reported as ones the
+// cleanup never reached.
 const reindexTerminalCleanupTimeout = 60 * time.Second
 
 // Matches the drain timeout: both run inline on the same dispatch.

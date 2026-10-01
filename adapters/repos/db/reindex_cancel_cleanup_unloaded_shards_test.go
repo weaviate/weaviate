@@ -706,6 +706,16 @@ func TestShardCleanStalePartialReindexStatePreservesACompletedMultiPropertyMigra
 			wantFinalizable: true,
 		},
 		{
+			name: "the record names this property among two, merged but not flipped",
+			staged: map[string]string{
+				"a": sidecar,
+				"b": "property_b__enable_filterable_ingest_1",
+			},
+			state:           MigrationStateMerged,
+			wantSidecar:     true,
+			wantFinalizable: true,
+		},
+		{
 			name: "a record naming this property whose data is not committed",
 			staged: map[string]string{
 				"a": sidecar,

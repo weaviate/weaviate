@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -335,16 +334,14 @@ func recordSetReadsReported(hook *logrustest.Hook) int {
 	return total
 }
 
-func postMergeEvidenceFixture(t *testing.T, ctx context.Context) (*ReindexProvider, *ReindexTaskPayload, string) {
+func postMergeEvidenceFixture(t *testing.T, ctx context.Context) (*ReindexProvider, *ReindexTaskPayload) {
 	t.Helper()
 	shard, idx := testShard(t, ctx, "C")
 	concrete, err := unwrapShard(ctx, shard)
 	require.NoError(t, err)
 
-	subject := mkMigrationRecordFor(t, concrete.pathLSM(), StrategyCodeSearchableRetokenize,
+	mkMigrationRecordFor(t, concrete.pathLSM(), StrategyCodeSearchableRetokenize,
 		"T_cancel", 1, "u1__n1", ReindexTypeChangeTokenization, MigrationStateMerged, "title")
-	staged := filepath.Join(concrete.pathLSM(), subject.Props["title"].Staged)
-	require.NoError(t, os.MkdirAll(staged, 0o777))
 
 	payload := &ReindexTaskPayload{
 		MigrationType: ReindexTypeChangeTokenization,
@@ -355,7 +352,7 @@ func postMergeEvidenceFixture(t *testing.T, ctx context.Context) (*ReindexProvid
 	p := NewReindexProvider(
 		&DB{indices: map[string]*Index{indexID(entschema.ClassName("C")): idx}},
 		nil, nil, logrus.New(), "n1", nil, ctx)
-	return p, payload, staged
+	return p, payload
 }
 
 // Pins that the evidence probe answers to a context. It reads a
@@ -364,7 +361,7 @@ func postMergeEvidenceFixture(t *testing.T, ctx context.Context) (*ReindexProvid
 // scheduler tick and outlives shutdown.
 func TestHasLocalPostMergeState_GivesUpOnAFinishedContext(t *testing.T) {
 	ctx := context.Background()
-	p, payload, _ := postMergeEvidenceFixture(t, ctx)
+	p, payload := postMergeEvidenceFixture(t, ctx)
 
 	require.True(t, p.hasLocalPostMergeState(ctx, payload),
 		"the committed record is on disk, so a live context must find it")
@@ -373,23 +370,6 @@ func TestHasLocalPostMergeState_GivesUpOnAFinishedContext(t *testing.T) {
 	cancel()
 	require.False(t, p.hasLocalPostMergeState(cancelled, payload),
 		"a shut-down node must not walk the task's shards")
-}
-
-func TestAutoCleanupAfterTerminal_PreservesTheEvidenceTheProbeReads(t *testing.T) {
-	ctx := context.Background()
-	p, payload, staged := postMergeEvidenceFixture(t, ctx)
-
-	p.autoCleanupAfterTerminal(&distributedtask.Task{
-		Namespace:      ReindexNamespace,
-		TaskDescriptor: distributedtask.TaskDescriptor{ID: "T_cancel", Version: 1},
-		Status:         distributedtask.TaskStatusCancelled,
-		Payload:        []byte("{}"),
-	}, payload, logrus.New())
-
-	require.DirExists(t, staged,
-		"a committed migration is live deferred-finalize state, not stale partial state")
-	require.True(t, p.hasLocalPostMergeState(ctx, payload),
-		"the guidance would go silent for every cancel that ran the cleanup first")
 }
 
 // Pins the wiring the ack maps cannot cover: a cancel that lands while

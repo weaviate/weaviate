@@ -32,6 +32,13 @@ func (m shardMigrations) ReconcileWithClusterTasks(ctx context.Context, tasks []
 	m.liveReconciler().ReconcileWithClusterTasks(ctx, tasks)
 }
 
+func (m shardMigrations) DiscardTask(ctx context.Context, task *distributedtask.Task) error {
+	if m.shard.migrationRecords == nil {
+		return nil
+	}
+	return m.liveReconciler().DiscardTask(ctx, task)
+}
+
 func (m shardMigrations) RetireSuperseded(ctx context.Context) {
 	if m.shard.migrationRecords == nil {
 		return

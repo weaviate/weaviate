@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -916,6 +917,42 @@ func (r *migrationReconciler) discard(ctx context.Context, subject MigrationSubj
 	return r.withSealedUnit(subject, "the discard of its staged data", func() error {
 		return r.discardSealed(ctx, subject, why)
 	})
+}
+
+// DiscardTask settles one ended task's records on request, so a cancel does not
+// leave them for boot recovery to read as live until the next pass. Unlike the
+// passes, it reports what it left: its caller has to tell the operator.
+func (r *migrationReconciler) DiscardTask(ctx context.Context, task *distributedtask.Task) error {
+	if len(r.store.Unreadable()) > 0 {
+		return errors.New("a migration record on this shard cannot be read, so no record is discarded")
+	}
+	verdict, why := migrationVerdictForTask(task)
+	if verdict != migrationVerdictDiscard {
+		return nil
+	}
+	tasks := []*distributedtask.Task{task}
+	discarding := errorcompounder.New()
+	for _, rec := range r.store.Records() {
+		if err := ctx.Err(); err != nil {
+			discarding.Add(err)
+			break
+		}
+		subject := rec.Subject()
+		if findMigrationTask(subject, tasks) == nil || rec.FlipDecided() || r.store.Wedged(subject.Key) {
+			continue
+		}
+		discarding.AddWrapf(r.discardUnlessUnitRuns(ctx, subject, why), "record %s", subject.Key)
+	}
+	return discarding.ToErrorLimited(maxReportedErrors)
+}
+
+func (r *migrationReconciler) discardUnlessUnitRuns(ctx context.Context, subject MigrationSubject, why string) error {
+	release, sealed := r.sealUnit(subject)
+	if !sealed {
+		return errors.New("a local unit of this migration is still running")
+	}
+	defer release()
+	return r.discardSealed(ctx, subject, why)
 }
 
 func (r *migrationReconciler) discardSealed(ctx context.Context, subject MigrationSubject, why string) error {

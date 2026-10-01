@@ -30,12 +30,14 @@ func (s *Shard) reconcileMigrationRecords(ctx context.Context, class *models.Cla
 		reconciler.WedgedCount(), len(s.migrationRecords.Unreadable()))
 }
 
+func (s *Shard) migrationUnit() string { return migrationUnitOf(s.index, s.name) }
+
 // Empty where the node name is not wired: such a shard must not set records aside.
-func (s *Shard) migrationUnit() string {
-	if s.index == nil || s.index.getSchema == nil {
+func migrationUnitOf(index *Index, shardName string) string {
+	if index == nil || index.getSchema == nil {
 		return ""
 	}
-	return MigrationUnitID(s.name, s.index.getSchema.NodeName())
+	return MigrationUnitID(shardName, index.getSchema.NodeName())
 }
 
 func (s *Shard) migrationReconciler(class func() *models.Class) *migrationReconciler {

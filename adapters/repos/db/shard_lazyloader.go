@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	shardusage "github.com/weaviate/weaviate/adapters/repos/db/shard_usage"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/replication/changelog"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -1119,6 +1120,65 @@ func (l *LazyLoadShard) blockLoading() func() {
 	return func() {
 		l.mutex.Unlock()
 	}
+}
+
+// mayHoldUndecidedRecordOf decides whether terminal cleanup loads this shard:
+// only a loaded shard's reconciler can end a record, and a record set that
+// cannot be read may hold one.
+func (l *LazyLoadShard) mayHoldUndecidedRecordOf(task *distributedtask.Task) bool {
+	release := l.blockLoading()
+	defer release()
+
+	if l.loaded {
+		return true
+	}
+	index := l.shardOpts.index
+	store := NewMigrationRecordStoreForUnit(l.pathLSM(), migrationUnitOf(index, l.shardOpts.name), index.logger)
+	if err := store.Load(); err != nil || len(store.Unreadable()) > 0 {
+		return true
+	}
+	tasks := []*distributedtask.Task{task}
+	for _, rec := range store.Records() {
+		if findMigrationTask(rec.Subject(), tasks) != nil && !rec.FlipDecided() {
+			return true
+		}
+	}
+	return false
+}
+
+// loadMappedShardForCleanup loads a shard only while the map still holds it,
+// so terminal cleanup never brings back a tenant deleted or deactivated since
+// its gate ran. Both locks are released on return; the reference is not.
+func (i *Index) loadMappedShardForCleanup(ctx context.Context, name string) (ShardLike, func(), error) {
+	if err := i.enterRead(); err != nil {
+		return nil, nil, err
+	}
+	defer i.exitRead()
+	i.shardCreateLocks.RLock(name)
+	defer i.shardCreateLocks.RUnlock(name)
+
+	shard := i.shards.Load(name)
+	if shard == nil {
+		return nil, nil, nil
+	}
+	if err := i.requireNamespaceAllowsShardLoad(callerUserRequest); err != nil {
+		return nil, nil, fmt.Errorf("%w: %w", ErrCleanupSweepTruncated, err)
+	}
+	// preventShutdown's own load has no deadline, and the locks above hold up
+	// this tenant's deactivation and requests while it waits for a permit.
+	if lazy, isLazy := shard.(*LazyLoadShard); isLazy {
+		if err := lazy.Load(ctx); err != nil {
+			if truncated := truncatedByCancellation(err); truncated != nil {
+				return nil, nil, truncated
+			}
+			return nil, nil, fmt.Errorf("%w: %w", ErrCleanupShardFailed, err)
+		}
+	}
+	release, err := shard.preventShutdown()
+	if err != nil {
+		return nil, nil, fmt.Errorf("%w: %w", ErrCleanupShardFailed, err)
+	}
+	return shard, release, nil
 }
 
 // canSkipUnloadedSweep reports whether the cleanup sweep can leave this

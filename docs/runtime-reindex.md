@@ -869,8 +869,10 @@ shard. See §6 crash safety.
 returns a `func(ctx, collection, prop, indexType) error` that fans out to
 `Shard.CleanStalePartialReindexState` per shard. Called from the cancel
 handler (after `SealLocalTaskDrain`), from the submit handler
-(defense in depth), and from `autoCleanupAfterTerminal` on every node once
-a task reaches FAILED or CANCELLED. Per-shard failures don't stop
+(defense in depth). Once a task reaches FAILED or CANCELLED,
+`autoCleanupAfterTerminal` does not sweep: on every node it has the
+reconciler discard the task's records, and their directories, on the shards
+the index map holds. Per-shard failures don't stop
 iteration so a stuck shard can't permanently wedge a
 `(collection, prop, indexType)` tuple.
 One sweep serves a whole call so an unloaded shard's directory listing is

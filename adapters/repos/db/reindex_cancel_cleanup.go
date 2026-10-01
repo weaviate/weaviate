@@ -40,9 +40,8 @@ type StalePartialReindexSweep func(ctx context.Context, collection, propName, in
 // DELETE path in updatePropertyBuckets.
 //
 // Call sites: the cancel handler (after DTM cancel and the local reindex
-// goroutine exits), submit-time pre-cleanup (covers a crash between those
-// two steps), and background cleanup once a task reaches FAILED/CANCELLED
-// ([autoCleanupAfterTerminal]).
+// goroutine exits) and submit-time pre-cleanup (covers a crash between those
+// two steps).
 //
 // A missing local collection reports [ErrCleanupCollectionDropped], not a
 // clean sweep.
@@ -302,9 +301,8 @@ const maxCachedDirNames = 100_000
 // Staleness cuts both ways: a name removed since caching costs an extra
 // hydration, and a name added since caching makes the gate skip a shard that
 // has since acquired the very state the sweep exists to remove. Both are
-// bounded by the cache's lifetime (one HTTP request or one
-// [reindexTerminalCleanupTimeout] window) and caught by the next submit's
-// fresh sweep.
+// bounded by the cache's lifetime (one HTTP request) and caught by the next
+// submit's fresh sweep.
 type dirNamesCache struct {
 	listings map[dirNamesKey]dirNamesListing
 	// cost is what the listings are charged against [maxCachedDirNames].

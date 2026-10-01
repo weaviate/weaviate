@@ -808,6 +808,8 @@ func TestAnUnreadableRecordWithholdsEveryDestructiveArm(t *testing.T) {
 	// pass, and both have to withhold.
 	newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).RetireSuperseded(context.Background())
 	f.reconcile()
+	require.Error(t, newMigrationReconciler(f.store, f.lsmPath, f.logger, f.deps()).
+		DiscardTask(context.Background(), f.tasks[0]), "terminal cleanup has to report what it withheld")
 
 	require.True(t, f.exists("property_title__g42_ingest"), "a discard removes a directory an unreadable record may name")
 	require.True(t, f.exists("property_body__g50_ingest"), "a promotion renames over one")
