@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
 type exists func(_ context.Context, class string, _ strfmt.UUID, _ *additional.ReplicationProperties, _ string) (bool, error)
@@ -64,27 +65,26 @@ const (
 )
 
 type Validator struct {
-	exists            exists
-	config            *config.WeaviateConfig
-	replicationProps  *additional.ReplicationProperties
-	principal         *models.Principal
-	namespacesEnabled bool
+	exists           exists
+	config           *config.WeaviateConfig
+	replicationProps *additional.ReplicationProperties
+	principal        *models.Principal
+	qualifier        namespacing.Qualifier
 }
 
-// New constructs a Validator. principal + namespacesEnabled drive
-// cross-NS deny and storage-shape normalisation for inline-payload refs.
-// Production callers pass the request's principal and
-// m.config.Config.Namespaces.Enabled; tests may pass nil/false.
+// New constructs a Validator. principal and qualifier qualify the target class
+// of each reference in an object's properties, and refuse one in another
+// namespace.
 func New(exists exists, config *config.WeaviateConfig,
 	repl *additional.ReplicationProperties,
-	principal *models.Principal, namespacesEnabled bool,
+	principal *models.Principal, qualifier namespacing.Qualifier,
 ) *Validator {
 	return &Validator{
-		exists:            exists,
-		config:            config,
-		replicationProps:  repl,
-		principal:         principal,
-		namespacesEnabled: namespacesEnabled,
+		exists:           exists,
+		config:           config,
+		replicationProps: repl,
+		principal:        principal,
+		qualifier:        qualifier,
 	}
 }
 

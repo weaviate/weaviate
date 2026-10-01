@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -62,7 +63,7 @@ func (h *indexesHandlers) upsertIndex(params schema.SchemaObjectsIndexUpsertPara
 			fmt.Sprintf("invalid index type %q", params.IndexName)))
 	}
 
-	collection, resp := h.qualifyAndAuthorize(ctx, principal, params.ClassName)
+	collection, resp := h.qualifyAndAuthorize(ctx, principal, params.ClassName, upsertRefusals)
 	if resp != nil {
 		return resp
 	}
@@ -147,7 +148,7 @@ func (h *indexesHandlers) rebuildIndex(params schema.SchemaObjectsIndexRebuildPa
 			fmt.Sprintf("invalid index type %q", params.IndexName)))
 	}
 
-	collection, resp := h.qualifyAndAuthorize(ctx, principal, params.ClassName)
+	collection, resp := h.qualifyAndAuthorize(ctx, principal, params.ClassName, rebuildRefusals)
 	if resp != nil {
 		return resp
 	}
@@ -213,7 +214,7 @@ func (h *indexesHandlers) cancelIndex(params schema.SchemaObjectsIndexCancelPara
 			fmt.Sprintf("invalid index type %q", params.IndexName)))
 	}
 
-	collection, resp := h.qualifyAndAuthorize(ctx, principal, params.ClassName)
+	collection, resp := h.qualifyAndAuthorize(ctx, principal, params.ClassName, cancelRefusals)
 	if resp != nil {
 		return resp
 	}
@@ -253,21 +254,74 @@ func (h *indexesHandlers) refuseIfReindexDisabled(principal *models.Principal) m
 		"runtime reindex is disabled; enable with RUNTIME_REINDEX_ENABLED=true"))
 }
 
+// collectionRefusals are one operation's generated responders for the
+// refusals qualifyAndAuthorize returns.
+type collectionRefusals struct {
+	forbidden func(*models.ErrorResponse) middleware.Responder
+	notFound  func(*models.ErrorResponse) middleware.Responder
+	internal  func(*models.ErrorResponse) middleware.Responder
+}
+
+var (
+	upsertRefusals = collectionRefusals{
+		forbidden: func(p *models.ErrorResponse) middleware.Responder {
+			return schema.NewSchemaObjectsIndexUpsertForbidden().WithPayload(p)
+		},
+		notFound: func(p *models.ErrorResponse) middleware.Responder {
+			return schema.NewSchemaObjectsIndexUpsertNotFound().WithPayload(p)
+		},
+		internal: func(p *models.ErrorResponse) middleware.Responder {
+			return schema.NewSchemaObjectsIndexUpsertInternalServerError().WithPayload(p)
+		},
+	}
+	rebuildRefusals = collectionRefusals{
+		forbidden: func(p *models.ErrorResponse) middleware.Responder {
+			return schema.NewSchemaObjectsIndexRebuildForbidden().WithPayload(p)
+		},
+		notFound: func(p *models.ErrorResponse) middleware.Responder {
+			return schema.NewSchemaObjectsIndexRebuildNotFound().WithPayload(p)
+		},
+		internal: func(p *models.ErrorResponse) middleware.Responder {
+			return schema.NewSchemaObjectsIndexRebuildInternalServerError().WithPayload(p)
+		},
+	}
+	cancelRefusals = collectionRefusals{
+		forbidden: func(p *models.ErrorResponse) middleware.Responder {
+			return schema.NewSchemaObjectsIndexCancelForbidden().WithPayload(p)
+		},
+		notFound: func(p *models.ErrorResponse) middleware.Responder {
+			return schema.NewSchemaObjectsIndexCancelNotFound().WithPayload(p)
+		},
+		internal: func(p *models.ErrorResponse) middleware.Responder {
+			return schema.NewSchemaObjectsIndexCancelInternalServerError().WithPayload(p)
+		},
+	}
+)
+
 // qualifyAndAuthorize resolves and authorizes UPDATE on the collection
 // before the submit lock is taken; it deliberately skips the class read so
 // that snapshot happens under the lock (see submitLock godoc for the DELETE
-// race this closes).
-func (h *indexesHandlers) qualifyAndAuthorize(ctx context.Context, principal *models.Principal, className string) (string, middleware.Responder) {
+// race this closes). A refusal is answered with the calling operation's
+// generated responder from refusals.
+func (h *indexesHandlers) qualifyAndAuthorize(ctx context.Context, principal *models.Principal, className string,
+	refusals collectionRefusals,
+) (string, middleware.Responder) {
 	// Qualify (no alias resolution, like DeleteClassPropertyIndex).
-	collection, qErr := namespacing.QualifyClass(principal, h.appState.ServerConfig.Config.Namespaces.Enabled, className)
+	collection, qErr := namespacing.QualifyClass(principal, h.appState.NamespaceQualifier, className)
 	if qErr != nil {
+		if errors.As(qErr, &authzerrors.Forbidden{}) {
+			return "", refusals.forbidden(errPayloadFromSingleErr(principal, qErr))
+		}
 		// An unresolvable qualified name is an unknown collection.
-		return "", jsonResponder(http.StatusNotFound, errPayloadFromSingleErr(principal, qErr))
+		return "", refusals.notFound(errPayloadFromSingleErr(principal, qErr))
 	}
 
 	if err := h.appState.Authorizer.Authorize(ctx, principal,
 		authorization.UPDATE, authorization.Collections(collection)...); err != nil {
-		return "", authzResponder(principal, err)
+		if errors.As(err, &authzerrors.Forbidden{}) {
+			return "", refusals.forbidden(errPayloadFromSingleErr(principal, err))
+		}
+		return "", refusals.internal(errPayloadFromSingleErr(principal, err))
 	}
 	return collection, nil
 }

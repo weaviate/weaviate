@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
+	wlnamespaces "github.com/weaviate/weaviate/wl/namespaces"
 )
 
 // A component-test like test suite that makes sure that every available UC is
@@ -336,6 +337,7 @@ func Test_Schema_Authorization_AliasResolution(t *testing.T) {
 		db := &fakeDB{}
 		handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, db, authorizer)
 		handler.config.Namespaces.Enabled = true
+		handler.qualifier = wlnamespaces.NewPrefixing()
 
 		nsPrincipal := &models.Principal{Username: "u1", Namespace: "customer1"}
 		shortAlias := "Films"

@@ -571,7 +571,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The name of the group.",
+            "description": "The name of the group. Must not contain ',', '\"' or control characters, and must be at most 256 bytes.",
             "name": "id",
             "in": "path",
             "required": true
@@ -1417,7 +1417,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The name of the user.",
+            "description": "The name of the user. Must not contain ',', '\"' or control characters, and must be at most 256 bytes.",
             "name": "id",
             "in": "path",
             "required": true
@@ -3073,7 +3073,7 @@ func init() {
     },
     "/namespaces": {
       "get": {
-        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list (never 403).",
+        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list rather than 403.",
         "tags": [
           "namespaces"
         ],
@@ -3088,6 +3088,12 @@ func init() {
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden: no well-formed Weaviate license key is configured on this node",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Not Found - The namespaces feature is not enabled on this cluster.",
@@ -3138,7 +3144,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3199,7 +3205,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3259,7 +3265,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3314,7 +3320,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3365,7 +3371,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3428,7 +3434,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7434,6 +7440,99 @@ func init() {
         }
       }
     },
+    "/search/{collection}/near-vector": {
+      "post": {
+        "description": "Performs a similarity search over the objects of a collection, anchored at a vector supplied by the caller: the query ` + "`" + `vector` + "`" + ` is searched against the vector index and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `. No query is vectorized, so collections without a vectorizer module are fully searchable. The query vector must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. A vector of the wrong dimensionality is rejected with 422 by uncompressed HNSW and flat indexes; a BQ- or RQ-compressed HNSW index does not detect it and yields an empty result set instead.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "search"
+        ],
+        "summary": "Search a collection with near-vector",
+        "operationId": "search.nearVector",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to search. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The near-vector search request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SearchNearVectorRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/SearchResponse"
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value (e.g. a vector that is empty, holds a non-number or a number outside the 32-bit float range, negative paging, unknown property) or an unparseable request body.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `vector` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/tasks": {
       "get": {
         "tags": [
@@ -9672,12 +9771,64 @@ func init() {
           "type": "string",
           "format": "url"
         },
+        "license": {
+          "description": "License state of this Weaviate instance.",
+          "$ref": "#/definitions/MetaLicense"
+        },
         "modules": {
           "description": "Module-specific meta information.",
           "type": "object"
         },
         "version": {
           "description": "The Weaviate server version.",
+          "type": "string"
+        }
+      }
+    },
+    "MetaLicense": {
+      "description": "License state of the current Weaviate instance.",
+      "type": "object",
+      "properties": {
+        "clusterMismatch": {
+          "description": "Whether the license is used on a cluster other than the one it was issued for.",
+          "type": "boolean"
+        },
+        "documentationHref": {
+          "description": "Documentation page for the Weaviate Enterprise Edition.",
+          "type": "string"
+        },
+        "edition": {
+          "description": "The product edition: community (no license key) or enterprise (license key configured).",
+          "type": "string"
+        },
+        "enforcing": {
+          "description": "Whether license enforcement is active.",
+          "type": "boolean"
+        },
+        "expiresAt": {
+          "description": "When the license expires, if known.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
+        "gracePeriodEndsAt": {
+          "description": "When the grace period ends, if the license is not currently valid.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
+        "lastCheckedAt": {
+          "description": "When the license was last verified with the license service, if ever.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
+        "licenseId": {
+          "description": "The non-secret id of the configured license, empty when unlicensed.",
+          "type": "string"
+        },
+        "status": {
+          "description": "Current license status. Only present on Enterprise Edition; a Community Edition node has no license and therefore no license status.",
           "type": "string"
         }
       }
@@ -10180,7 +10331,7 @@ func init() {
           "type": "object",
           "properties": {
             "alias": {
-              "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases.",
+              "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -10240,7 +10391,7 @@ func init() {
           "type": "object",
           "properties": {
             "group": {
-              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups.",
+              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -10254,7 +10405,7 @@ func init() {
           "type": "object",
           "properties": {
             "namespace": {
-              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces.",
+              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -10290,7 +10441,7 @@ func init() {
               "default": "*"
             },
             "shard": {
-              "description": "string or regex. if a specific shard name, if left empty it will be ALL or *",
+              "description": "string or regex. if a specific shard name, if left empty it will be ALL or *. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -10301,7 +10452,7 @@ func init() {
           "type": "object",
           "properties": {
             "role": {
-              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles.",
+              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -10337,7 +10488,7 @@ func init() {
           "type": "object",
           "properties": {
             "users": {
-              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
+              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -11494,6 +11645,41 @@ func init() {
         }
       ]
     },
+    "SearchNearVectorRequest": {
+      "description": "Request body for the near-vector search endpoint. The caller supplies the query vector and the closest objects are returned. No query is vectorized — collections without a vectorizer module are fully searchable. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-vector-specific ` + "`" + `vector` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/SearchCommon"
+        },
+        {
+          "type": "object",
+          "required": [
+            "vector"
+          ],
+          "properties": {
+            "certainty": {
+              "description": "Minimum normalized certainty of a match. Only for cosine-distance vector indexes. Mutually exclusive with ` + "`" + `distance` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "distance": {
+              "description": "Maximum vector distance of a match. Mutually exclusive with ` + "`" + `certainty` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "targetVector": {
+              "description": "The named vector to search (the query vector is compared against the vectors stored under this name, and must match their dimensionality). Required when the collection has more than one named vector.",
+              "type": "string"
+            },
+            "vector": {
+              "description": "The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. A vector of the wrong dimensionality is rejected with 422 by uncompressed HNSW and flat indexes; a BQ- or RQ-compressed HNSW index does not detect it and yields an empty result set instead."
+            }
+          }
+        }
+      ]
+    },
     "SearchReferenceSelector": {
       "description": "Selects one cross-reference to return, and what to return from each referenced object.",
       "type": "object",
@@ -12559,7 +12745,7 @@ func init() {
       "name": "mcp"
     },
     {
-      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action.",
+      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action and, on namespace-enabled clusters, a well-formed Weaviate license key on the serving node.",
       "name": "namespaces"
     }
   ],
@@ -13110,7 +13296,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The name of the group.",
+            "description": "The name of the group. Must not contain ',', '\"' or control characters, and must be at most 256 bytes.",
             "name": "id",
             "in": "path",
             "required": true
@@ -13932,7 +14118,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The name of the user.",
+            "description": "The name of the user. Must not contain ',', '\"' or control characters, and must be at most 256 bytes.",
             "name": "id",
             "in": "path",
             "required": true
@@ -15600,7 +15786,7 @@ func init() {
     },
     "/namespaces": {
       "get": {
-        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list (never 403).",
+        "description": "Retrieve the list of all namespaces the caller has permission to see. Callers without any applicable ` + "`" + `manage_namespaces` + "`" + ` permission receive an empty list rather than 403.",
         "tags": [
           "namespaces"
         ],
@@ -15615,6 +15801,12 @@ func init() {
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden: no well-formed Weaviate license key is configured on this node",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "404": {
             "description": "Not Found - The namespaces feature is not enabled on this cluster.",
@@ -15665,7 +15857,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15726,7 +15918,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15786,7 +15978,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15841,7 +16033,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15892,7 +16084,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15955,7 +16147,7 @@ func init() {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden: insufficient permissions, or no well-formed Weaviate license key is configured on this node",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -20071,6 +20263,99 @@ func init() {
         }
       }
     },
+    "/search/{collection}/near-vector": {
+      "post": {
+        "description": "Performs a similarity search over the objects of a collection, anchored at a vector supplied by the caller: the query ` + "`" + `vector` + "`" + ` is searched against the vector index and the closest objects are returned, each as an envelope of its ` + "`" + `id` + "`" + `, the selected ` + "`" + `properties` + "`" + `, the selected ` + "`" + `references` + "`" + ` and, when requested, its retrieval ` + "`" + `metadata` + "`" + `. No query is vectorized, so collections without a vectorizer module are fully searchable. The query vector must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. A vector of the wrong dimensionality is rejected with 422 by uncompressed HNSW and flat indexes; a BQ- or RQ-compressed HNSW index does not detect it and yields an empty result set instead.",
+        "consumes": [
+          "application/json"
+        ],
+        "tags": [
+          "search"
+        ],
+        "summary": "Search a collection with near-vector",
+        "operationId": "search.nearVector",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The name (or alias) of the collection to search. A lowercase first letter is normalized to the canonical uppercase form.",
+            "name": "collection",
+            "in": "path",
+            "required": true
+          },
+          {
+            "description": "The near-vector search request.",
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/SearchNearVectorRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search performed successfully.",
+            "schema": {
+              "$ref": "#/definitions/SearchResponse"
+            }
+          },
+          "400": {
+            "description": "An invalid parameter value (e.g. a vector that is empty, holds a non-number or a number outside the 32-bit float range, negative paging, unknown property) or an unparseable request body.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Unknown collection or tenant.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "413": {
+            "description": "The request body exceeded the 4194304 byte (4 MiB) limit.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Either a request-schema violation (a missing or null required ` + "`" + `vector` + "`" + `, or an invalid enum value), or a well-formed request that cannot run: the vector is a multi-vector (an array of vectors), the (target) vector searched is a multi-vector index, the vector does not have the dimensionality of the index searched, targetVector is missing on a multi-named-vector collection, certainty is used on a non-cosine index, a reserved (not yet supported) parameter is present, the tenant usage does not match the collection's multi-tenancy configuration, or a where filter targets a property whose inverted index is disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "429": {
+            "description": "The server's query rate limit was reached; retry later.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "503": {
+            "description": "The server is in an operational mode that blocks searches (e.g. WRITE_ONLY); retry once the server returns to normal operation.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/tasks": {
       "get": {
         "tags": [
@@ -22456,12 +22741,64 @@ func init() {
           "type": "string",
           "format": "url"
         },
+        "license": {
+          "description": "License state of this Weaviate instance.",
+          "$ref": "#/definitions/MetaLicense"
+        },
         "modules": {
           "description": "Module-specific meta information.",
           "type": "object"
         },
         "version": {
           "description": "The Weaviate server version.",
+          "type": "string"
+        }
+      }
+    },
+    "MetaLicense": {
+      "description": "License state of the current Weaviate instance.",
+      "type": "object",
+      "properties": {
+        "clusterMismatch": {
+          "description": "Whether the license is used on a cluster other than the one it was issued for.",
+          "type": "boolean"
+        },
+        "documentationHref": {
+          "description": "Documentation page for the Weaviate Enterprise Edition.",
+          "type": "string"
+        },
+        "edition": {
+          "description": "The product edition: community (no license key) or enterprise (license key configured).",
+          "type": "string"
+        },
+        "enforcing": {
+          "description": "Whether license enforcement is active.",
+          "type": "boolean"
+        },
+        "expiresAt": {
+          "description": "When the license expires, if known.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
+        "gracePeriodEndsAt": {
+          "description": "When the grace period ends, if the license is not currently valid.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
+        "lastCheckedAt": {
+          "description": "When the license was last verified with the license service, if ever.",
+          "type": "string",
+          "format": "date-time",
+          "x-nullable": true
+        },
+        "licenseId": {
+          "description": "The non-secret id of the configured license, empty when unlicensed.",
+          "type": "string"
+        },
+        "status": {
+          "description": "Current license status. Only present on Enterprise Edition; a Community Edition node has no license and therefore no license status.",
           "type": "string"
         }
       }
@@ -22981,7 +23318,7 @@ func init() {
           "type": "object",
           "properties": {
             "alias": {
-              "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases.",
+              "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -23041,7 +23378,7 @@ func init() {
           "type": "object",
           "properties": {
             "group": {
-              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups.",
+              "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -23055,7 +23392,7 @@ func init() {
           "type": "object",
           "properties": {
             "namespace": {
-              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces.",
+              "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -23091,7 +23428,7 @@ func init() {
               "default": "*"
             },
             "shard": {
-              "description": "string or regex. if a specific shard name, if left empty it will be ALL or *",
+              "description": "string or regex. if a specific shard name, if left empty it will be ALL or *. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -23102,7 +23439,7 @@ func init() {
           "type": "object",
           "properties": {
             "role": {
-              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles.",
+              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             },
@@ -23138,7 +23475,7 @@ func init() {
           "type": "object",
           "properties": {
             "users": {
-              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
+              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
               "type": "string",
               "default": "*"
             }
@@ -23151,7 +23488,7 @@ func init() {
       "type": "object",
       "properties": {
         "alias": {
-          "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases.",
+          "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         },
@@ -23211,7 +23548,7 @@ func init() {
       "type": "object",
       "properties": {
         "group": {
-          "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups.",
+          "description": "A string that specifies which groups this permission applies to. Can be an exact group name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all groups. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         },
@@ -23225,7 +23562,7 @@ func init() {
       "type": "object",
       "properties": {
         "namespace": {
-          "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces.",
+          "description": "A string that specifies which namespaces this permission applies to. Can be an exact namespace name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all namespaces. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         }
@@ -23261,7 +23598,7 @@ func init() {
           "default": "*"
         },
         "shard": {
-          "description": "string or regex. if a specific shard name, if left empty it will be ALL or *",
+          "description": "string or regex. if a specific shard name, if left empty it will be ALL or *. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         }
@@ -23272,7 +23609,7 @@ func init() {
       "type": "object",
       "properties": {
         "role": {
-          "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles.",
+          "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all roles. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         },
@@ -23308,7 +23645,7 @@ func init() {
       "type": "object",
       "properties": {
         "users": {
-          "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users.",
+          "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all users. Must be at most 256 bytes, must not contain '/', and must be a valid regex pattern. Creating a role or adding permissions also refuses ',', '\"' and control characters.",
           "type": "string",
           "default": "*"
         }
@@ -24469,6 +24806,41 @@ func init() {
         }
       ]
     },
+    "SearchNearVectorRequest": {
+      "description": "Request body for the near-vector search endpoint. The caller supplies the query vector and the closest objects are returned. No query is vectorized — collections without a vectorizer module are fully searchable. Extends the shared search fields (` + "`" + `SearchCommon` + "`" + `) with the near-vector-specific ` + "`" + `vector` + "`" + `, ` + "`" + `certainty` + "`" + `, ` + "`" + `distance` + "`" + ` and ` + "`" + `targetVector` + "`" + `.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/SearchCommon"
+        },
+        {
+          "type": "object",
+          "required": [
+            "vector"
+          ],
+          "properties": {
+            "certainty": {
+              "description": "Minimum normalized certainty of a match. Only for cosine-distance vector indexes. Mutually exclusive with ` + "`" + `distance` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "distance": {
+              "description": "Maximum vector distance of a match. Mutually exclusive with ` + "`" + `certainty` + "`" + `.",
+              "type": "number",
+              "format": "float64",
+              "x-nullable": true
+            },
+            "targetVector": {
+              "description": "The named vector to search (the query vector is compared against the vectors stored under this name, and must match their dimensionality). Required when the collection has more than one named vector.",
+              "type": "string"
+            },
+            "vector": {
+              "description": "The query vector, as a non-empty array of numbers that fit a 32-bit float, e.g. ` + "`" + `[0.12, -0.3, 0.98]` + "`" + `. It must have the dimensionality of the vector space it is searched against, that is of the collection's (target) vector. A vector of the wrong dimensionality is rejected with 422 by uncompressed HNSW and flat indexes; a BQ- or RQ-compressed HNSW index does not detect it and yields an empty result set instead."
+            }
+          }
+        }
+      ]
+    },
     "SearchReferenceSelector": {
       "description": "Selects one cross-reference to return, and what to return from each referenced object.",
       "type": "object",
@@ -25546,7 +25918,7 @@ func init() {
       "name": "mcp"
     },
     {
-      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action.",
+      "description": "Operations for managing cluster-level namespaces. Namespaces group resources under a common administrative unit. Access is gated by the operator-tier ` + "`" + `manage_namespaces` + "`" + ` action and, on namespace-enabled clusters, a well-formed Weaviate license key on the serving node.",
       "name": "namespaces"
     }
   ],

@@ -26,10 +26,12 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/arguments/nearText"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
@@ -66,6 +68,7 @@ func (h *Handler) baseParams(className string, common *models.SearchCommon) (dto
 	if apiErr != nil {
 		return dto.GetParams{}, apiErr
 	}
+	monitoring.GetMetrics().IncConsistencyLevelRequest(monitoring.ConsistencyLevelRead, strings.ToUpper(common.ConsistencyLevel))
 	out.ReplicationProperties = replProps
 
 	pagination, apiErr := h.parsePagination(common)
@@ -103,7 +106,7 @@ func (h *Handler) fillSelectionAndFilter(out *dto.GetParams, class *models.Class
 		out.AdditionalProperties.NoProps = true
 	}
 
-	filter, apiErr := h.parseWhere(common.Where, class, className, h.namespacesEnabled, principal, getClass)
+	filter, apiErr := h.parseWhere(common.Where, class, className, h.qualifier, principal, getClass)
 	if apiErr != nil {
 		return apiErr
 	}
@@ -306,30 +309,140 @@ func parseNearObject(class *models.Class, body *models.SearchNearObjectRequest, 
 		return nil, newAPIError(http.StatusBadRequest, "id must not be empty")
 	}
 
-	if body.Certainty != nil && body.Distance != nil {
-		return nil, newAPIError(http.StatusBadRequest, "near_object: cannot provide both distance and certainty")
-	}
-	if body.Certainty != nil && (*body.Certainty < 0 || *body.Certainty > 1) {
-		return nil, newAPIError(http.StatusBadRequest,
-			"certainty must be between 0 and 1, got %v", *body.Certainty)
+	certainty, distance, withDistance, apiErr := parseCertaintyDistance(class, targetVectors, "near_object", body.Certainty, body.Distance)
+	if apiErr != nil {
+		return nil, apiErr
 	}
 
-	params := &searchparams.NearObject{
+	return &searchparams.NearObject{
 		ID:            body.ID.String(),
 		TargetVectors: targetVectors,
+		Certainty:     certainty,
+		Distance:      distance,
+		WithDistance:  withDistance,
+	}, nil
+}
+
+// parseCertaintyDistance validates the cutoff pair of the vector searches:
+// mutually exclusive, certainty within [0,1] and only on a cosine index.
+func parseCertaintyDistance(class *models.Class, targetVectors []string, searchKind string,
+	certainty, distance *float64,
+) (float64, float64, bool, *APIError) {
+	if certainty != nil && distance != nil {
+		return 0, 0, false, newAPIError(http.StatusBadRequest, "%s: cannot provide both distance and certainty", searchKind)
 	}
-	if body.Certainty != nil {
-		if err := configvalidation.CheckCertaintyCompatibility(class, targetVectors); err != nil {
-			return nil, &APIError{Status: http.StatusUnprocessableEntity, Err: err}
+	if certainty != nil {
+		if *certainty < 0 || *certainty > 1 {
+			return 0, 0, false, newAPIError(http.StatusBadRequest, "certainty must be between 0 and 1, got %v", *certainty)
 		}
-		params.Certainty = *body.Certainty
+		if err := configvalidation.CheckCertaintyCompatibility(class, targetVectors); err != nil {
+			return 0, 0, false, &APIError{Status: http.StatusUnprocessableEntity, Err: err}
+		}
+		return *certainty, 0, false, nil
 	}
-	if body.Distance != nil {
-		params.Distance = *body.Distance
-		params.WithDistance = true
+	if distance != nil {
+		return 0, *distance, true, nil
+	}
+	return 0, 0, false, nil
+}
+
+// buildNearVectorParams converts the near-vector request into the
+// dto.GetParams consumed by traverser.GetClass. Behavior must stay in sync
+// with the gRPC parser's near-vector handling
+// (adapters/handlers/grpc/v1/parse_search_request.go).
+func (h *Handler) buildNearVectorParams(class *models.Class, className string, body *models.SearchNearVectorRequest,
+	getClass classGetterFunc, principal *models.Principal,
+) (dto.GetParams, *APIError) {
+	common := &body.SearchCommon
+	out, apiErr := h.baseParams(className, common)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
 	}
 
-	return params, nil
+	targetVectors, apiErr := resolveTargetVectors(class, body.TargetVector)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	nearVector, apiErr := parseNearVector(class, body, targetVectors)
+	if apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+	out.NearVector = nearVector
+
+	if apiErr := h.fillCommonFields(&out, class, className, common, targetVectors, getClass, principal); apiErr != nil {
+		return dto.GetParams{}, apiErr
+	}
+
+	return out, nil
+}
+
+// parseNearVector builds the near-vector search params, mirroring the gRPC
+// parser: the caller brings the query vector, so no vectorizer module is
+// required.
+func parseNearVector(class *models.Class, body *models.SearchNearVectorRequest, targetVectors []string) (*searchparams.NearVector, *APIError) {
+	vector, apiErr := parseVector(body.Vector)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+	if apiErr := rejectMultiVectorTarget(class, targetVectors); apiErr != nil {
+		return nil, apiErr
+	}
+
+	certainty, distance, withDistance, apiErr := parseCertaintyDistance(class, targetVectors, "near_vector", body.Certainty, body.Distance)
+	if apiErr != nil {
+		return nil, apiErr
+	}
+
+	return &searchparams.NearVector{
+		Vectors:       []models.Vector{vector},
+		TargetVectors: targetVectors,
+		Certainty:     certainty,
+		Distance:      distance,
+		WithDistance:  withDistance,
+	}, nil
+}
+
+// rejectMultiVectorTarget rejects a flat query vector aimed at a multi-vector
+// index, as gRPC does. Only a named vector can be one.
+func rejectMultiVectorTarget(class *models.Class, targetVectors []string) *APIError {
+	for _, target := range targetVectors {
+		indexConfig, ok := class.VectorConfig[target].VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+		if ok && indexConfig.IsMultiVector() {
+			return newAPIError(http.StatusUnprocessableEntity,
+				"target vector %q is a multi-vector index; multi-vector search is not yet supported", target)
+		}
+	}
+	return nil
+}
+
+const errVectorNotNumbers = "vector must be a non-empty array of numbers"
+
+// parseVector reads the query vector off the untyped `vector` field, where a
+// decoded body leaves a non-empty array of numbers. An array of arrays is the
+// multi-vector form, which the endpoint does not search yet.
+func parseVector(value any) ([]float32, *APIError) {
+	values, ok := value.([]any)
+	if !ok || len(values) == 0 {
+		return nil, newAPIError(http.StatusBadRequest, errVectorNotNumbers)
+	}
+
+	vector := make([]float32, len(values))
+	for i, entry := range values {
+		number, ok := entry.(float64)
+		if !ok {
+			if _, nested := entry.([]any); nested {
+				return nil, newAPIError(http.StatusUnprocessableEntity, "multi-vector search is not yet supported")
+			}
+			return nil, newAPIError(http.StatusBadRequest, errVectorNotNumbers)
+		}
+		vector[i] = float32(number)
+		if math.IsInf(float64(vector[i]), 0) {
+			return nil, newAPIError(http.StatusBadRequest, "vector[%d] does not fit a 32-bit float", i)
+		}
+	}
+
+	return vector, nil
 }
 
 // buildHybridParams converts the hybrid request into the dto.GetParams
@@ -810,7 +923,7 @@ func (h *Handler) resolveRefTarget(schemaProp *models.Property, name, className,
 		if targetCollection == "" {
 			return schemaProp.DataType[0], nil
 		}
-		qualified, _, err := namespacing.QualifyRefTarget(principal, h.namespacesEnabled, className, targetCollection)
+		qualified, _, err := namespacing.QualifyRefTarget(principal, h.qualifier, className, targetCollection)
 		if err != nil {
 			return "", &APIError{Status: http.StatusBadRequest, Err: err}
 		}
@@ -827,7 +940,7 @@ func (h *Handler) resolveRefTarget(schemaProp *models.Property, name, className,
 			"returnReferences: %q is a multi-target reference and needs targetCollection. Available target collections %v",
 			name, schemaProp.DataType)
 	}
-	qualified, _, err := namespacing.QualifyRefTarget(principal, h.namespacesEnabled, className, targetCollection)
+	qualified, _, err := namespacing.QualifyRefTarget(principal, h.qualifier, className, targetCollection)
 	if err != nil {
 		return "", &APIError{Status: http.StatusBadRequest, Err: err}
 	}
@@ -925,13 +1038,13 @@ func refDepth(props search.SelectProperties, currDepth, limit int) int {
 }
 
 func (h *Handler) parseWhere(where *models.WhereFilter, class *models.Class, className string,
-	namespacesEnabled bool, principal *models.Principal, getClass classGetterFunc,
+	qualifier namespacing.Qualifier, principal *models.Principal, getClass classGetterFunc,
 ) (*filters.LocalFilter, *APIError) {
 	if where == nil {
 		return nil, nil
 	}
 
-	filter, err := filterext.Parse(where, className, namespacesEnabled, principal)
+	filter, err := filterext.Parse(where, className, qualifier, principal)
 	if err != nil {
 		return nil, &APIError{Status: http.StatusBadRequest, Err: err}
 	}

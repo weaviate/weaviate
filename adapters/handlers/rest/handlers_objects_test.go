@@ -1141,8 +1141,10 @@ func TestExtendProperties(t *testing.T) {
 }
 
 type fakeManager struct {
-	getObjectReturn *models.Object
-	getObjectErr    error
+	getObjectReturn           *models.Object
+	getObjectErr              error
+	getObjectClassFromNameErr error
+	getObjectsClassErr        error
 
 	addObjectReturn    *models.Object
 	queryResult        []*models.Object
@@ -1185,6 +1187,9 @@ func (f *fakeManager) GetObject(_ context.Context, _ *models.Principal, class st
 func (f *fakeManager) GetObjectsClass(ctx context.Context,
 	principal *models.Principal, id strfmt.UUID,
 ) (*models.Class, error) {
+	if f.getObjectsClassErr != nil {
+		return nil, f.getObjectsClassErr
+	}
 	class := &models.Class{
 		Class:      f.getObjectReturn.Class,
 		Vectorizer: "text2vec-contextionary",
@@ -1195,6 +1200,9 @@ func (f *fakeManager) GetObjectsClass(ctx context.Context,
 func (f *fakeManager) GetObjectClassFromName(ctx context.Context, principal *models.Principal,
 	className string,
 ) (*models.Class, error) {
+	if f.getObjectClassFromNameErr != nil {
+		return nil, f.getObjectClassFromNameErr
+	}
 	class := &models.Class{
 		Class:      f.getObjectReturn.Class,
 		Vectorizer: "text2vec-contextionary",

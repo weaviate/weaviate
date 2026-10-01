@@ -88,6 +88,8 @@ type Handler struct {
 	// for placement; unused on NS-disabled clusters.
 	namespacesExister namespaces.Exister
 
+	qualifier namespacing.Qualifier
+
 	asyncIndexingEnabled bool
 }
 
@@ -171,6 +173,7 @@ func NewHandler(
 	parser Parser, classGetter *ClassGetter,
 	namespacesExister namespaces.Exister,
 	dropVectorEnqueuer DropVectorIndexEnqueuer,
+	qualifier namespacing.Qualifier,
 ) (Handler, error) {
 	handler := Handler{
 		config:                  config,
@@ -192,6 +195,7 @@ func NewHandler(
 		classGetter:             classGetter,
 		namespacesExister:       namespacesExister,
 		dropVectorEnqueuer:      dropVectorEnqueuer,
+		qualifier:               qualifier,
 
 		asyncIndexingEnabled: config.AsyncIndexingEnabled,
 	}
@@ -245,7 +249,7 @@ func (h *Handler) NamespacesEnabled() bool {
 func (h *Handler) UpdateShardStatus(ctx context.Context,
 	principal *models.Principal, class, shard, status string,
 ) (uint64, error) {
-	class, err := namespacing.QualifyClass(principal, h.config.Namespaces.Enabled, class)
+	class, err := namespacing.QualifyClass(principal, h.qualifier, class)
 	if err != nil {
 		return 0, fmt.Errorf("%w: %w", ErrValidation, err)
 	}
@@ -260,7 +264,7 @@ func (h *Handler) UpdateShardStatus(ctx context.Context,
 func (h *Handler) ShardsStatus(ctx context.Context,
 	principal *models.Principal, class, shard string,
 ) (models.ShardStatusList, error) {
-	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.config.Namespaces.Enabled, class)
+	class, _, err := namespacing.Resolve(principal, h.schemaReader, h.qualifier, class)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", ErrValidation, err)
 	}

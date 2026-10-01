@@ -73,7 +73,7 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 	if params != nil && params.Class != "" {
 		resolved, _, err := m.resolveNS(principal, params.Class)
 		if err != nil {
-			return nil, &Error{err.Error(), StatusUnprocessableEntity, err}
+			return nil, resolverError(err)
 		}
 		params.Class = resolved
 		class = params.Class

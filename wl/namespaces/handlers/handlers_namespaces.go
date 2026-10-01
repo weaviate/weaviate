@@ -9,17 +9,15 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package namespaces
+package handlers
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"slices"
 
-	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 
 	cerrors "github.com/weaviate/weaviate/adapters/handlers/rest/errors"
@@ -45,27 +43,19 @@ type NamespaceRaftGetter interface {
 }
 
 type namespaceHandler struct {
-	enabled    bool
 	authorizer authorization.Authorizer
 	raft       NamespaceRaftGetter
 }
 
-// errNamespacesDisabled is returned by every handler when the namespaces
-// feature flag is off, so clients see a consistent message regardless of
-// which endpoint they hit.
-var errNamespacesDisabled = fmt.Errorf("namespaces are not enabled")
-
-// SetupHandlers wires the namespace handler methods into the generated REST
-// API surface. Called from adapters/handlers/rest/configure_api.go next to the
-// other SetupHandlers invocations.
+// SetupHandlers registers the seven namespace operations on api. The handlers
+// check neither NAMESPACES_ENABLED nor the license key, so call it only when
+// the namespaces feature's license.Mode is FeatureLicensed.
 func SetupHandlers(
-	enabled bool,
 	api *operations.WeaviateAPI,
 	raft NamespaceRaftGetter,
 	authorizer authorization.Authorizer,
 ) {
 	h := &namespaceHandler{
-		enabled:    enabled,
 		authorizer: authorizer,
 		raft:       raft,
 	}
@@ -79,24 +69,7 @@ func SetupHandlers(
 	api.NamespacesResumeNamespaceHandler = nsops.ResumeNamespaceHandlerFunc(h.resumeNamespace)
 }
 
-// disabledResponder returns a 404 with an ErrorResponse body when the
-// namespaces feature flag is off. We use a raw ResponderFunc because the
-// generated go-swagger response types for these endpoints do not include a
-// 404 variant for create/list — and a 404 is the correct semantic for "this
-// endpoint is not available on this cluster".
-func disabledResponder() middleware.Responder {
-	return middleware.ResponderFunc(func(w http.ResponseWriter, _ runtime.Producer) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(cerrors.ErrPayloadFromSingleErr(nil, errNamespacesDisabled))
-	})
-}
-
 func (h *namespaceHandler) createNamespace(params nsops.CreateNamespaceParams, principal *models.Principal) middleware.Responder {
-	if !h.enabled {
-		return disabledResponder()
-	}
-
 	ctx := params.HTTPRequest.Context()
 	name := params.NamespaceID
 
@@ -155,10 +128,6 @@ func (h *namespaceHandler) createNamespace(params nsops.CreateNamespaceParams, p
 }
 
 func (h *namespaceHandler) updateNamespace(params nsops.UpdateNamespaceParams, principal *models.Principal) middleware.Responder {
-	if !h.enabled {
-		return disabledResponder()
-	}
-
 	ctx := params.HTTPRequest.Context()
 	name := params.NamespaceID
 
@@ -219,10 +188,6 @@ func (h *namespaceHandler) updateNamespace(params nsops.UpdateNamespaceParams, p
 }
 
 func (h *namespaceHandler) getNamespace(params nsops.GetNamespaceParams, principal *models.Principal) middleware.Responder {
-	if !h.enabled {
-		return disabledResponder()
-	}
-
 	ctx := params.HTTPRequest.Context()
 	name := params.NamespaceID
 
@@ -252,10 +217,6 @@ func (h *namespaceHandler) getNamespace(params nsops.GetNamespaceParams, princip
 }
 
 func (h *namespaceHandler) deleteNamespace(params nsops.DeleteNamespaceParams, principal *models.Principal) middleware.Responder {
-	if !h.enabled {
-		return disabledResponder()
-	}
-
 	ctx := params.HTTPRequest.Context()
 	name := params.NamespaceID
 
@@ -283,10 +244,6 @@ func (h *namespaceHandler) deleteNamespace(params nsops.DeleteNamespaceParams, p
 }
 
 func (h *namespaceHandler) suspendNamespace(params nsops.SuspendNamespaceParams, principal *models.Principal) middleware.Responder {
-	if !h.enabled {
-		return disabledResponder()
-	}
-
 	status, err := h.changeState(params.HTTPRequest.Context(), principal, params.NamespaceID, cmd.NamespaceStateSuspended)
 	body := cerrors.ErrPayloadFromSingleErr(principal, err)
 	switch status {
@@ -308,10 +265,6 @@ func (h *namespaceHandler) suspendNamespace(params nsops.SuspendNamespaceParams,
 }
 
 func (h *namespaceHandler) resumeNamespace(params nsops.ResumeNamespaceParams, principal *models.Principal) middleware.Responder {
-	if !h.enabled {
-		return disabledResponder()
-	}
-
 	status, err := h.changeState(params.HTTPRequest.Context(), principal, params.NamespaceID, cmd.NamespaceStateActive)
 	body := cerrors.ErrPayloadFromSingleErr(principal, err)
 	switch status {
@@ -380,10 +333,6 @@ func statusForChangeStateErr(err error) int {
 // manage_namespaces permission see an empty list, matching the listRoles
 // convention so RBAC UIs can render a consistent empty state.
 func (h *namespaceHandler) listNamespaces(params nsops.ListNamespacesParams, principal *models.Principal) middleware.Responder {
-	if !h.enabled {
-		return disabledResponder()
-	}
-
 	ctx := params.HTTPRequest.Context()
 
 	all, err := h.raft.GetNamespaces()

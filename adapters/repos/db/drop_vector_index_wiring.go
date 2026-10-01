@@ -48,7 +48,8 @@ func (db *DB) EditOpBucketsForShards(ctx context.Context, collection string, sha
 		if s == nil {
 			continue
 		}
-		if lazy, ok := s.(*LazyLoadShard); ok {
+		// asLazyLoadShard: a recovering shard's blocked load warns+skips instead of panicking in Store() below.
+		if lazy, ok := asLazyLoadShard(s); ok {
 			if _, _, err := lazy.loadIfCold(ctx); err != nil {
 				db.logger.WithField("collection", collection).WithField("shard", name).
 					WithFields(enterrors.DocsLinkFields(err)).
@@ -79,7 +80,7 @@ func (db *DB) EditOpBucketsForLoadedShards(collection string, shardNames []strin
 		if s == nil {
 			continue
 		}
-		if lazy, ok := s.(*LazyLoadShard); ok && !lazy.isLoaded() {
+		if lazy, ok := asLazyLoadShard(s); ok && !lazy.isLoaded() {
 			continue
 		}
 		if b := s.Store().Bucket(helpers.ObjectsBucketLSM); b != nil {

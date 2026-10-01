@@ -24,7 +24,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 )
 
-func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass classGetterWithAuthzFunc, namespacesEnabled bool, principal *models.Principal) (objects.BatchDeleteParams, error) {
+func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass classGetterWithAuthzFunc, qualifier namespacing.Qualifier, principal *models.Principal) (objects.BatchDeleteParams, error) {
 	params := objects.BatchDeleteParams{}
 
 	tenant := ""
@@ -54,7 +54,7 @@ func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass c
 		return objects.BatchDeleteParams{}, fmt.Errorf("no filters in batch delete request")
 	}
 
-	clause, err := ExtractFilters(req.Filters, authorizedGetClass, req.Collection, tenant, namespacesEnabled, principal)
+	clause, err := ExtractFilters(req.Filters, authorizedGetClass, req.Collection, tenant, qualifier, principal)
 	if err != nil {
 		return objects.BatchDeleteParams{}, err
 	}

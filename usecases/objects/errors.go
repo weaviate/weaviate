@@ -12,7 +12,10 @@
 package objects
 
 import (
+	"errors"
 	"fmt"
+
+	autherrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
 // objects status code
@@ -74,6 +77,24 @@ func (e ErrInvalidUserInput) Error() string {
 // NewErrInvalidUserInput with Errorf signature
 func NewErrInvalidUserInput(format string, args ...interface{}) ErrInvalidUserInput {
 	return ErrInvalidUserInput{msg: fmt.Sprintf(format, args...)}
+}
+
+// userInputOrForbidden returns a resolver error that is a Forbidden unchanged,
+// so the caller answers 403, and wraps any other in ErrInvalidUserInput.
+func userInputOrForbidden(err error) error {
+	if errors.As(err, &autherrs.Forbidden{}) {
+		return err
+	}
+	return NewErrInvalidUserInput("%v", err)
+}
+
+// resolverError maps a resolver error to 403 for a Forbidden and to 422
+// otherwise.
+func resolverError(err error) *Error {
+	if errors.As(err, &autherrs.Forbidden{}) {
+		return &Error{err.Error(), StatusForbidden, err}
+	}
+	return &Error{err.Error(), StatusUnprocessableEntity, err}
 }
 
 // ErrInternal indicates something went wrong during processing

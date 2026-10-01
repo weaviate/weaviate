@@ -849,17 +849,16 @@ func (t *ShardReindexTaskGeneric) rebuildRangeableInMemoryReps(ctx context.Conte
 }
 
 // unwrapShard extracts the concrete *Shard from a ShardLike,
-// handling both *Shard and *LazyLoadShard.
+// handling *Shard and both deferred-load wrappers.
 func unwrapShard(ctx context.Context, shard ShardLike) (*Shard, error) {
-	switch s := shard.(type) {
-	case *Shard:
+	if s, ok := shard.(*Shard); ok {
 		return s, nil
-	case *LazyLoadShard:
-		shard, _, err := s.loadIfCold(ctx)
-		return shard, err
-	default:
-		return nil, fmt.Errorf("unsupported shard type %T", shard)
 	}
+	if lazy, ok := asLazyLoadShard(shard); ok {
+		s, _, err := lazy.loadIfCold(ctx)
+		return s, err
+	}
+	return nil, fmt.Errorf("unsupported shard type %T", shard)
 }
 
 // logPhase builds the per-invocation logger and the finished-lifecycle

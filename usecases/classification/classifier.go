@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/objects"
+	"github.com/weaviate/weaviate/usecases/schema/namespacing"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
@@ -195,19 +196,19 @@ func (c *Classifier) extractFilters(ctx context.Context, principal *models.Princ
 
 	// Classification is not exercised on namespace-enabled clusters, so the
 	// nested-path qualification in filterext.Parse is hard-wired off here.
-	const namespacesEnabled = false
+	qualifier := namespacing.Disabled
 
-	source, err := filterext.Parse(params.Filters.SourceWhere, params.Class, namespacesEnabled, principal)
+	source, err := filterext.Parse(params.Filters.SourceWhere, params.Class, qualifier, principal)
 	if err != nil {
 		return classificationFilters{}, fmt.Errorf("field 'sourceWhere': %w", err)
 	}
 
-	trainingSet, err := filterext.Parse(params.Filters.TrainingSetWhere, params.Class, namespacesEnabled, principal)
+	trainingSet, err := filterext.Parse(params.Filters.TrainingSetWhere, params.Class, qualifier, principal)
 	if err != nil {
 		return classificationFilters{}, fmt.Errorf("field 'trainingSetWhere': %w", err)
 	}
 
-	target, err := filterext.Parse(params.Filters.TargetWhere, params.Class, namespacesEnabled, principal)
+	target, err := filterext.Parse(params.Filters.TargetWhere, params.Class, qualifier, principal)
 	if err != nil {
 		return classificationFilters{}, fmt.Errorf("field 'targetWhere': %w", err)
 	}
