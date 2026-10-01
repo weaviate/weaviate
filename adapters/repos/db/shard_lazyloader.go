@@ -513,7 +513,11 @@ func (l *LazyLoadShard) drop(keepFiles bool) error {
 
 		// cleanup index checkpoints
 		if l.shardOpts.indexCheckpoints != nil {
-			if err := l.shardOpts.index.indexCheckpoints.DeleteShard(l.ID()); err != nil {
+			targetVectors := make([]string, 0)
+			for targetVector := range idx.GetVectorIndexConfigs() {
+				targetVectors = append(targetVectors, targetVector)
+			}
+			if err := l.shardOpts.index.indexCheckpoints.DeleteShard(l.ID(), targetVectors); err != nil {
 				return fmt.Errorf("delete shard index checkpoints: %w", err)
 			}
 		}
