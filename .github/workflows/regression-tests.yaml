@@ -157,7 +157,7 @@ jobs:
         if: always() && inputs.report_tests && needs.resolve.outputs.junit == 'true'
         # Pinned by SHA: weaviate/weaviate only allows SHA-pinned actions. Bump it
         # when the reporter's v1 tag moves.
-        uses: weaviate/weaviate-test-reporter/action@97bbef9069ea5193ebb72e986b9975222253bb92 # v1
+        uses: weaviate/weaviate-test-reporter/action@4d9ec47d2447955a5cd6f5c299170812cf80100b # v1
         with:
           weaviate_url: ${{ secrets.WCD_TEST_REPORT_URL }}
           weaviate_api_key: ${{ secrets.WCD_TEST_REPORT_KEY }}
