@@ -470,6 +470,7 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		TrackVectorDimensionsInterval:       appState.ServerConfig.Config.TrackVectorDimensionsInterval,
 		MigrateDimensionsToRoaringSet:       appState.ServerConfig.Config.ReindexVectorDimensionsToRoaringsetAtStartup,
 		ReindexVectorDimensions:             appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup,
+		RecountPropertiesAtStartup:          appState.ServerConfig.Config.RecountPropertiesAtStartup,
 		UsageEnabled:                        appState.Modules.UsageEnabled(),
 		ResourceUsage:                       appState.ServerConfig.Config.ResourceUsage,
 		AvoidMMap:                           appState.ServerConfig.Config.AvoidMmap,
@@ -985,9 +986,10 @@ func MakeAppState(ctx, serverShutdownCtx context.Context, options *swag.CommandL
 		}, appState.Logger)
 	}
 
-	// Add recount properties of all the objects in the database, if requested by the user
 	if appState.ServerConfig.Config.RecountPropertiesAtStartup {
-		migrator.RecountProperties(ctx)
+		appState.Logger.WithField("action", "startup").
+			Warn("RECOUNT_PROPERTIES_AT_STARTUP is set: every shard recounts its property lengths on its first load, " +
+				"which slows loading it. Remove it once the shards have been recounted")
 	}
 
 	providers := map[string]distributedtask.Provider{}

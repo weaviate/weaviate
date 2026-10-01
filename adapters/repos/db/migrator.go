@@ -37,7 +37,6 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	"github.com/weaviate/weaviate/entities/vectorindex"
 	"github.com/weaviate/weaviate/usecases/multitenancy"
@@ -1078,70 +1077,6 @@ func (db *DB) dimensionsNotReindexed(className string) (notLoaded, inactive int,
 		}
 	}
 	return notLoaded, inactive, nil
-}
-
-func (m *Migrator) RecountProperties(ctx context.Context) error {
-	count := 0
-	m.logger.
-		WithField("action", "recount").
-		Info("Recounting properties, this may take a while")
-
-	m.db.indexLock.Lock()
-	defer m.db.indexLock.Unlock()
-	// Iterate over all indexes
-	for _, index := range m.db.indices {
-
-		// Clear the shards before counting
-		err := index.IterateShards(ctx, func(index *Index, shard ShardLike) error {
-			shard.GetPropertyLengthTracker().Clear()
-			return nil
-		})
-		if err != nil {
-			m.logger.WithField("error", err).Error("could not clear prop lengths")
-		}
-
-		// Iterate over all shards
-		err = index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
-			count = count + 1
-			props, _, _, err := shard.AnalyzeObject(object)
-			if err != nil {
-				m.logger.WithField("error", err).Error("could not analyze object")
-				return nil
-			}
-
-			if err := shard.SetPropertyLengths(props); err != nil {
-				m.logger.WithField("error", err).Error("could not add prop lengths")
-				return nil
-			}
-
-			shard.GetPropertyLengthTracker().Flush()
-
-			return nil
-		})
-		if err != nil {
-			m.logger.WithField("error", err).Error("could not iterate over objects")
-		}
-
-		// Flush the GetPropertyLengthTracker() to disk
-		err = index.IterateShards(ctx, func(index *Index, shard ShardLike) error {
-			return shard.GetPropertyLengthTracker().Flush()
-		})
-		if err != nil {
-			m.logger.WithField("error", err).Error("could not flush prop lengths")
-		}
-
-	}
-	f := func() {
-		for {
-			m.logger.
-				WithField("action", "recount").
-				Warnf("Recounted %v objects. Recounting properties complete. Please remove environment variable 	RECOUNT_PROPERTIES_AT_STARTUP before next startup", count)
-			time.Sleep(5 * time.Minute)
-		}
-	}
-	enterrors.GoWrapper(f, m.logger)
-
-	return nil
 }
 
 func (m *Migrator) InvertedReindex(ctx context.Context, taskNamesWithArgs map[string]any) error {

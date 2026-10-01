@@ -200,7 +200,7 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 }
 
 func (s *Shard) initProplenTracker() error {
-	plPath := path.Join(s.path(), "proplengths")
+	plPath := path.Join(s.path(), propLengthsFile)
 	tracker, err := inverted.NewJsonShardMetaData(plPath, s.index.logger)
 	if err != nil {
 		return fmt.Errorf("init prop length tracker: %w", err)
