@@ -554,6 +554,8 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		"last_snapshot_index":               snapIndex,
 	}).Info("raft node constructed")
 
+	st.electIfSoleVoter(st.raft.Load())
+
 	// There's no hard limit on the migration, so it should take as long as necessary.
 	// However, we believe that 1 day should be more than sufficient.
 	f := func() { st.onLeaderFound(time.Hour * 24) }
@@ -1211,6 +1213,47 @@ func (st *Store) recoverSingleNode(force bool) error {
 	st.schemaManager.ReplaceStatesNodeName(string(newNode.ID))
 
 	return nil
+}
+
+// electIfSoleVoter starts an election now rather than after the randomized
+// heartbeat timeout (5-10s by default) when this node is the only voter: it
+// would elect itself anyway, so only the timing changes. Lowering the heartbeat
+// timeout makes a follower's timer fire at once; the configured value is put
+// back right away.
+func (st *Store) electIfSoleVoter(rn *raft.Raft) {
+	fut := rn.GetConfiguration()
+	if err := fut.Error(); err != nil {
+		st.log.Warnf("cannot read raft configuration to check for a sole voter: %v", err)
+		return
+	}
+	if !isSoleVoter(fut.Configuration(), raft.ServerID(st.cfg.NodeID)) {
+		return
+	}
+
+	configured := rn.ReloadableConfig()
+	lowered := configured
+	lowered.HeartbeatTimeout--
+	if err := rn.ReloadConfig(lowered); err != nil {
+		st.log.Warnf("cannot start an immediate election as the sole voter, waiting for the heartbeat timeout: %v", err)
+		return
+	}
+	if err := rn.ReloadConfig(configured); err != nil {
+		st.log.Errorf("cannot restore the raft heartbeat timeout to %s: %v", configured.HeartbeatTimeout, err)
+		return
+	}
+	st.log.WithField("action", "raft_sole_voter").Info("this node is the only voter, starting the election now")
+}
+
+func isSoleVoter(c raft.Configuration, id raft.ServerID) bool {
+	voters, self := 0, false
+	for _, s := range c.Servers {
+		if s.Suffrage != raft.Voter {
+			continue
+		}
+		voters++
+		self = self || s.ID == id
+	}
+	return voters == 1 && self
 }
 
 // setClusterID records the cluster identity in memory, set-once (first
