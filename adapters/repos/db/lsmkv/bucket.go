@@ -1811,25 +1811,38 @@ func (b *Bucket) Shutdown(ctx context.Context) (err error) {
 	}
 	b.flushLock.Unlock()
 
-	if b.flushing == nil {
-		// active has flushing, no one else was currently flushing, it's safe to
-		// exit
-		return nil
+	// A FlushAndSwitch holds flushAndSwitchMu until it is done, so once the mutex is
+	// free no flush is in progress. A flushing memtable left then is one a flush
+	// failed on: nothing would ever clear it, and waiting for it hung forever.
+	if err := b.lockFlushAndSwitch(ctx); err != nil {
+		return err
 	}
+	defer b.flushAndSwitchMu.Unlock()
 
-	// it seems we still need to wait for someone to finish flushing
+	b.flushLock.RLock()
+	failed := b.flushing != nil
+	b.flushLock.RUnlock()
+	if failed {
+		// its commit log is deleted only once its segment is written, so the next
+		// load finds its data either way
+		b.logger.WithField("action", "lsm_bucket_shutdown").WithField("path", b.dir).
+			Warn("shutting down with the memtable of a failed flush, the next load reads it from disk")
+	}
+	return nil
+}
+
+// lockFlushAndSwitch takes flushAndSwitchMu, or gives up when ctx is done.
+func (b *Bucket) lockFlushAndSwitch(ctx context.Context) error {
 	t := time.NewTicker(50 * time.Millisecond)
 	defer t.Stop()
-	for {
+	for !b.flushAndSwitchMu.TryLock() {
 		select {
 		case <-ctx.Done():
-			return ctx.Err()
+			return fmt.Errorf("wait for flush in progress: %w", ctx.Err())
 		case <-t.C:
-			if b.flushing == nil {
-				return nil
-			}
 		}
 	}
+	return nil
 }
 
 func (b *Bucket) shouldReuseWAL() bool {
