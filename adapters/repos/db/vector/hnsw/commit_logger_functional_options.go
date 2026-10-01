@@ -22,6 +22,15 @@ func WithCommitlogThreshold(size int64) CommitlogOption {
 	}
 }
 
+// WithMaxNodeID makes compaction reject records naming a node ID above the one
+// maxNodeID returns. 0 means no limit.
+func WithMaxNodeID(maxNodeID func() uint64) CommitlogOption {
+	return func(l *hnswCommitLogger) error {
+		l.maxNodeID = maxNodeID
+		return nil
+	}
+}
+
 func WithFS(fs common.FS) CommitlogOption {
 	return func(l *hnswCommitLogger) error {
 		l.fs = fs

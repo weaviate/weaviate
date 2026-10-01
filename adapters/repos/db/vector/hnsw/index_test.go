@@ -620,3 +620,29 @@ func TestRestoreFromDisk_NodeIDBeyondDocIDCounter(t *testing.T) {
 		})
 	}
 }
+
+func TestMaxNodeID(t *testing.T) {
+	counter := func() uint64 { return 10 }
+	tests := []struct {
+		name         string
+		docIDCounter func() uint64
+		multivector  bool
+		muvera       bool
+		want         uint64
+	}{
+		{name: "no counter", want: 0},
+		{name: "zero counter", docIDCounter: func() uint64 { return 0 }, want: 0},
+		{name: "single vector", docIDCounter: counter, want: 10 + docIDCounterSlack},
+		{name: "multivector, node IDs are not document IDs", docIDCounter: counter, multivector: true, want: 0},
+		{name: "muvera, node IDs are document IDs", docIDCounter: counter, multivector: true, muvera: true, want: 10 + docIDCounterSlack},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var h hnsw
+			h.docIDCounter = tc.docIDCounter
+			h.multivector.Store(tc.multivector)
+			h.muvera.Store(tc.muvera)
+			assert.Equal(t, tc.want, h.maxNodeID())
+		})
+	}
+}

@@ -42,7 +42,7 @@ func (h *hnsw) init(cfg Config) error {
 	// Create commit logger for future writes. The logger unconditionally
 	// creates a new raw file and never appends to an existing one — see
 	// createNewCommitFile's comment for why.
-	cl, err := cfg.MakeCommitLoggerThunk()
+	cl, err := cfg.MakeCommitLoggerThunk(WithMaxNodeID(h.maxNodeID))
 	if err != nil {
 		return errors.Wrap(err, "create commit logger")
 	}
@@ -55,6 +55,23 @@ func (h *hnsw) init(cfg Config) error {
 	h.metrics.SetSize(len(h.nodes))
 
 	return nil
+}
+
+// docIDCounterSlack covers the document-ID counter file lagging behind the
+// commit log after a power loss, since neither is fsynced.
+const docIDCounterSlack = 1 << 24
+
+// maxNodeID returns the highest node ID the index can hold, or 0 for no limit:
+// when node IDs are not document IDs, or the shard has no counter yet.
+func (h *hnsw) maxNodeID() uint64 {
+	if h.docIDCounter == nil || (h.multivector.Load() && !h.muvera.Load()) {
+		return 0
+	}
+	counter := h.docIDCounter()
+	if counter == 0 {
+		return 0
+	}
+	return counter + docIDCounterSlack
 }
 
 // restoreFromDisk loads the HNSW state from commit log files using compact.Loader.
@@ -80,8 +97,9 @@ func (h *hnsw) restoreFromDisk() error {
 	}
 
 	loader := compact.NewLoader(compact.LoaderConfig{
-		Dir:    dir,
-		Logger: h.logger,
+		Dir:       dir,
+		Logger:    h.logger,
+		MaxNodeID: h.maxNodeID,
 	})
 
 	loadResult, err := loader.Load()
