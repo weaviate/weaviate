@@ -865,7 +865,8 @@ func TestShardActivityColdShardLoads(t *testing.T) {
 	loaded.activityTrackerRead.Store(1)
 	loaded.activityTrackerWrite.Store(1)
 	cold.mutex.Lock()
-	cold.shard, cold.loaded = loaded, true
+	cold.shard = loaded
+	cold.loaded.Store(true)
 	cold.mutex.Unlock()
 
 	o.observeActivity()
