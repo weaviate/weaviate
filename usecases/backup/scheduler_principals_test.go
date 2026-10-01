@@ -152,6 +152,55 @@ func TestSchedulerBackupPrincipals(t *testing.T) {
 		}
 	})
 
+	t.Run("a class-less request narrowed on both stores is refused", func(t *testing.T) {
+		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+		fs.userLister.users = []string{"alice"}
+		fs.roleLister.roles = []string{"editor"}
+		fs.auth.(*mocks.FakeAuthorizer).Deny("backups/users/*", "backups/roles/*")
+		fs.selector.On("ListClasses", ctx).Return([]string(nil))
+		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("dst/path")
+
+		_, err := fs.scheduler().Backup(ctx, caller, &BackupRequest{ID: backupID, Backend: backendName})
+		require.IsType(t, backup.ErrUnprocessable{}, err)
+		// The validation's class-less wording, so the refusal does not say
+		// whether any user or role exists.
+		assert.ErrorContains(t, err, "backup selects no collections, users, or roles: available collections: []")
+		assert.Equal(t, []mocks.AuthZReq{
+			call("backups/users/*"),
+			call("backups/roles/*"),
+		}, fs.auth.(*mocks.FakeAuthorizer).Calls())
+		fs.client.AssertNotCalled(t, "CanCommit", mock.Anything, mock.Anything, mock.Anything)
+		fs.backend.AssertNotCalled(t, "Initialize", mock.Anything, mock.Anything)
+	})
+
+	t.Run("a class-less request narrowed on one store proceeds without it", func(t *testing.T) {
+		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
+		fs.userLister.users = []string{"alice"}
+		fs.roleLister.roles = []string{"editor"}
+		fs.auth.(*mocks.FakeAuthorizer).Deny("backups/roles/*")
+		nodeReq := new(Request)
+		fs.selector.On("ListClasses", ctx).Return([]string(nil))
+		fs.backend.On("GetObject", ctx, backupID, GlobalBackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("GetObject", ctx, backupID, BackupFile).Return(nil, backup.ErrNotFound{})
+		fs.backend.On("HomeDir", mock.Anything, mock.Anything, mock.Anything).Return("dst/path")
+		fs.backend.On("Initialize", ctx, mock.Anything).Return(nil)
+		fs.backend.On("PutObject", mock.Anything, backupID, GlobalBackupFile, mock.Anything).Return(nil)
+		sReq := &StatusRequest{OpCreate, backupID, backendName, "", "", ""}
+		fs.client.On("CanCommit", mock.Anything, node, mock.Anything).
+			Return(&CanCommitResponse{Method: OpCreate, ID: backupID, Timeout: 1}, nil).
+			Run(func(a mock.Arguments) { *nodeReq = *a.Get(2).(*Request) })
+		fs.client.On("Commit", mock.Anything, node, sReq).Return(nil)
+		fs.client.On("Status", mock.Anything, node, sReq).
+			Return(&StatusResponse{Status: backup.Success, ID: backupID, Method: OpCreate}, nil)
+
+		require.NoError(t, run(t, fs, &BackupRequest{ID: backupID, Backend: backendName}))
+		assert.Empty(t, nodeReq.Classes)
+		assert.False(t, nodeReq.SkipUsers)
+		assert.True(t, nodeReq.SkipRoles)
+	})
+
 	t.Run("a non-Forbidden authorizer error fails as Unprocessable", func(t *testing.T) {
 		fs := newFakeScheduler(newFakeNodeResolver([]string{node}))
 		fs.auth.(*mocks.FakeAuthorizer).SetErrAfter(1, ErrAny)

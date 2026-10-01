@@ -226,6 +226,12 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		}
 	}
 
+	// Narrowing can empty a class-less request that passed validation on its
+	// default identity selections.
+	if len(selection.classes) == 0 && selection.skipUsers && selection.skipRoles {
+		return nil, backup.NewErrUnprocessable(fmt.Errorf("backup selects no collections, users, or roles: available collections"))
+	}
+
 	if err := store.Initialize(ctx, req.Bucket, req.Path); err != nil {
 		return nil, fmt.Errorf("init uploader: %w", err)
 	}
