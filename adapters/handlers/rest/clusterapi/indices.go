@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi/shared"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	clusterTypes "github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -443,7 +444,7 @@ func (i *indices) postObjectSingle(w http.ResponseWriter, r *http.Request,
 			writeUsageLimitExceeded(w, le)
 			return
 		}
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), operationStatus(err))
 		return
 	}
 
@@ -626,7 +627,7 @@ func (i *indices) deleteObject() http.Handler {
 
 		err = i.shards.DeleteObject(r.Context(), index, shard, strfmt.UUID(id), deletionTime, schemaVersion)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), operationStatus(err))
 			return
 		}
 
@@ -671,7 +672,7 @@ func (i *indices) mergeObject() http.Handler {
 		}
 
 		if err = i.shards.MergeObject(r.Context(), index, shard, mergeDoc, schemaVersion); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), operationStatus(err))
 			return
 		}
 
@@ -1488,8 +1489,32 @@ func (i *indices) deleteAsyncReplicationTargetNode() http.Handler {
 // has, so the local index is missing because this node has not caught up, and the caller should
 // treat it like any other not-ready replica.
 func localIndexMissingStatus(err error) int {
-	if strings.Contains(err.Error(), "local index") && strings.Contains(err.Error(), "not found") {
+	if notCaughtUp(err) {
 		return http.StatusServiceUnavailable
 	}
 	return http.StatusUnprocessableEntity
+}
+
+// notCaughtUp reports whether err is this node lagging the schema rather than a fault: the class is
+// not here yet, or the version the sender asked for has not been applied. Both clear on their own,
+// so the caller is told to go elsewhere instead of retrying a node that cannot answer yet.
+func notCaughtUp(err error) bool {
+	if err == nil {
+		return false
+	}
+	if clusterTypes.IsNotCaughtUp(err) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "wait for schema version") ||
+		(strings.Contains(msg, "local index") && strings.Contains(msg, "not found"))
+}
+
+// operationStatus renders a failed shard operation: a node that has not caught up is unavailable,
+// anything else is this node's fault.
+func operationStatus(err error) int {
+	if notCaughtUp(err) {
+		return http.StatusServiceUnavailable
+	}
+	return http.StatusInternalServerError
 }
