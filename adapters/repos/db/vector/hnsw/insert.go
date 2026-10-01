@@ -279,6 +279,16 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	if len(docIDs) == 0 {
 		return errors.Errorf("addMultiBatch called with empty lists")
 	}
+	// A document with no inner vectors has to be rejected here, ahead of everything
+	// that indexes vectors[i][0]: the muvera encoder is initialised from the first
+	// document's first vector, the dimension tracker reads the same element, and
+	// once those have run a nil document iterates zero times through the dimension
+	// check and would be inserted without any vector at all.
+	for i, doc := range vectors {
+		if len(doc) == 0 {
+			return errors.Errorf("addMultiBatch called with a nil or empty multivector at docID %d", docIDs[i])
+		}
+	}
 
 	if h.muvera.Load() {
 		h.trackMuveraOnce.Do(func() {
