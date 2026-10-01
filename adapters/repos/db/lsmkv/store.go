@@ -408,9 +408,8 @@ func (s *Store) listMigrationFiles(basePath string) ([]string, error) {
 		if d == nil || d.IsDir() {
 			return nil
 		}
-		// A crash mid-rename leaves a record's scratch file behind, and
-		// nothing under .migrations ever sweeps it. Copying it would carry it
-		// into every later backup and restore.
+		// A crash mid-rename leaves a record's scratch file behind. Copying it
+		// would carry it into every later backup and restore.
 		if filepath.Ext(d.Name()) == ".tmp" {
 			return nil
 		}
