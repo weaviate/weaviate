@@ -222,6 +222,97 @@ func (h *hnsw) pathseerEnabled(allowList helpers.AllowList) bool {
 	return allowList != nil && FilterStrategy(h.configuredFilterStrategy.Load()) == PATHSEER
 }
 
+// insertAllowListSeeds inserts up to 10 live allow-list members (bitmap order)
+// into eps as extra layer-0 entry points. No node-shard lock may be held across
+// hasTombstone/distToNode: they take tombstoneLock, and the reverse order in
+// resetIfEmpty/resetIfOnlyNode deadlocks with a concurrent delete.
+func (h *hnsw) insertAllowListSeeds(eps *priorityqueue.Queue[any], allowList helpers.AllowList,
+	isMultivec bool, compressorDistancer compressionhelpers.CompressorDistancer, searchVec []float32,
+) {
+	seeds := 10
+	it := allowList.Iterator()
+	defer it.Stop()
+	idx, ok := it.Next()
+	for seeds > 0 {
+		if !isMultivec {
+			for ok {
+				absent := h.nodeAbsent(idx)
+				if !absent && !h.hasTombstone(idx) {
+					break
+				}
+				idx, ok = it.Next()
+			}
+		} else {
+			exists := h.docIDVectorExists(idx)
+			for ok && !exists {
+				idx, ok = it.Next()
+				exists = h.docIDVectorExists(idx)
+			}
+		}
+
+		if !ok || !allowList.Contains(idx) {
+			break
+		}
+
+		entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
+		eps.Insert(idx, entryPointDistance)
+		idx, ok = it.Next()
+		seeds--
+	}
+}
+
+// pathseerStalled reports a PathSeer traversal stuck in a region the filter
+// excludes (negatively correlated filter): among the distanced nodes an
+// uncorrelated filter would have matched distanced*|allowList|/total; the
+// search is stalled when it found at most a quarter of that, once the
+// expectation is large enough (16) for a low count to be evidence rather
+// than chance. Sparse filters reach the minimum later, never sooner.
+const (
+	pathseerStallMinExpected = 16
+	pathseerStallRatio       = 4
+)
+
+func pathseerStalled(distanced, matched, allowListLen int, total int64) bool {
+	if total <= 0 {
+		return false
+	}
+	expected := float64(distanced) * float64(allowListLen) / float64(total)
+	return expected >= pathseerStallMinExpected && float64(matched)*pathseerStallRatio <= expected
+}
+
+// pathseerPrimeMidSearch runs an ACORN walk from allow-list seeds and merges
+// its matches into the running PathSeer search: the result heap is then full,
+// so the prefilter cuts the excluded region and the search continues from the
+// primed matches under PathSeer's own rules.
+func (h *hnsw) pathseerPrimeMidSearch(ctx context.Context, queryVector []float32, ef int,
+	allowList helpers.AllowList, isMultivec bool, compressorDistancer compressionhelpers.CompressorDistancer,
+	visitedList *visited.SparseSet, candidates, results *priorityqueue.Queue[any],
+) error {
+	h.pathseerPrimes.Add(1)
+	seeds := priorityqueue.NewMin[any](10)
+	h.insertAllowListSeeds(seeds, allowList, isMultivec, compressorDistancer, queryVector)
+	if seeds.Len() == 0 {
+		return nil
+	}
+	primed, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, seeds, ef, 0, allowList, compressorDistancer, ACORN)
+	if err != nil {
+		return errors.Wrap(err, "pathseer priming")
+	}
+	for primed.Len() > 0 {
+		r := primed.Pop()
+		if visitedList.CheckAndVisit(r.ID) {
+			continue
+		}
+		candidates.Insert(r.ID, r.Dist)
+		results.Insert(r.ID, r.Dist)
+		if results.Len() > ef {
+			results.Pop()
+		}
+	}
+	h.pools.pqResults.Put(primed)
+	return nil
+}
+
 func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 	queryVector []float32,
 	entrypoints *priorityqueue.Queue[any], ef int, level int,
@@ -333,6 +424,15 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			prefilterFullAt = al
 		}
 	}
+
+	// stall detection (pathseerStalled); multi-vector excluded as above
+	stallCheck := strategy == PATHSEER && level == 0 && !isMultivec
+	var stallTotal int64
+	if stallCheck {
+		stallTotal = h.cacheSize()
+	}
+	distanced := 0
+	primed := false
 
 	for candidates.Len() > 0 {
 		if err := ctx.Err(); err != nil {
@@ -695,6 +795,24 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					results.Pop()
 				}
 
+				if results.Len() > 0 {
+					worstResultDistance = results.Top().Dist
+				}
+			}
+		}
+
+		// heap not full => every distanced neighbour was filter-checked and
+		// every match inserted, so results.Len() is the match count
+		if stallCheck && !primed && results.Len() < prefilterFullAt {
+			distanced += len(unvisited)
+			if pathseerStalled(distanced, results.Len(), allowList.Len(), stallTotal) {
+				primed = true
+				if err := h.pathseerPrimeMidSearch(ctx, queryVector, ef, allowList, isMultivec,
+					compressorDistancer, visited, candidates, results); err != nil {
+					h.pools.visitedLists.Return(visited)
+					h.pools.visitedLists.Return(visitedExp)
+					return nil, err
+				}
 				if results.Len() > 0 {
 					worstResultDistance = results.Top().Dist
 				}
@@ -1154,43 +1272,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	}
 
 	if allowList != nil && (useAcorn || (usePathseer && strategy == RRE)) {
-		seeds := 10
-		it := allowList.Iterator()
-		defer it.Stop()
-		idx, ok := it.Next()
-		for seeds > 0 {
-			if !isMultivec {
-				// Only the h.nodes[idx] read needs a node-shard lock, and it is
-				// released before hasTombstone/distToNode. Those take
-				// tombstoneLock, and holding a node-shard lock across that
-				// acquisition inverts the delete/reset order (tombstoneLock ->
-				// shardedNodeLocks in resetIfEmpty/resetIfOnlyNode) and
-				// deadlocks with a concurrent delete. See the ACORN
-				// filtered-search + delete + insert deadlock.
-				for ok {
-					absent := h.nodeAbsent(idx)
-					if !absent && !h.hasTombstone(idx) {
-						break
-					}
-					idx, ok = it.Next()
-				}
-			} else {
-				exists := h.docIDVectorExists(idx)
-				for ok && !exists {
-					idx, ok = it.Next()
-					exists = h.docIDVectorExists(idx)
-				}
-			}
-
-			if !ok || !allowList.Contains(idx) {
-				break
-			}
-
-			entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
-			eps.Insert(idx, entryPointDistance)
-			idx, ok = it.Next()
-			seeds--
-		}
+		h.insertAllowListSeeds(eps, allowList, isMultivec, compressorDistancer, searchVec)
 	}
 	res, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, strategy)
 	if err != nil {
