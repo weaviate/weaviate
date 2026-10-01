@@ -206,6 +206,11 @@ Registered only on a node with `SELF_RECOVERY_ENABLED=true` and a well-formed We
 | `weaviate_self_recovery_giveup_total` | Self-recovery attempts that exhausted retries without reaching READY; alert on this | `Counter` | `-` | - Low 
 | `weaviate_self_recovery_accept_empty_total` | Operator invocations of the accept-empty escape hatch | `Counter` | `-` | - Low 
 
+#### Async Checkpoint Metrics
+| Name | Description | Type | Labels | High Cardinality |
+|---|---|---|---|---|
+| `weaviate_async_checkpoint_expired_total` | Number of async replication checkpoints cleared for outliving their max lifetime without an explicit delete (e.g. the backup planning coordinator crashed). A non-zero rate points at coordinators failing to release checkpoints | `Counter` | `-` | - Low 
+
 #### Distributed Task Metrics
 | Name | Description | Type | Labels | High Cardinality |
 |---|---|---|---|---|
