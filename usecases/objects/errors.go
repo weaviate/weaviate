@@ -62,6 +62,16 @@ func (e *Error) Gone() bool {
 	return e.Code == StatusGone
 }
 
+func (e *Error) TooManyRequests() bool {
+	return e.Code == StatusTooManyRequests
+}
+
+// NewMemoryShedError wraps a memwatch rejection as a 429, keeping the sentinel reachable via errors.Is
+func NewMemoryShedError(op string, err error) *Error {
+	wrapped := fmt.Errorf("%s: %w", op, err)
+	return &Error{Msg: wrapped.Error(), Code: StatusTooManyRequests, Err: wrapped}
+}
+
 // ErrInvalidUserInput indicates a client-side error
 type ErrInvalidUserInput struct {
 	msg string

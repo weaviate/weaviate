@@ -75,8 +75,8 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	defer m.metrics.MergeObjectDec()
 
 	if err := m.allocChecker.CheckAlloc(memwatch.EstimateObjectMemory(updates)); err != nil {
-		m.logger.WithError(err).Errorf("memory pressure: cannot process patch object")
-		return &Error{err.Error(), StatusInternalServerError, err}
+		m.logger.Errorf("memory pressure: cannot process patch object: %v", err)
+		return NewMemoryShedError("cannot process patch object", err)
 	}
 
 	// Ensure tenant is active before read when AutoTenantActivation is enabled.
