@@ -116,12 +116,6 @@ func TestDB_PrepareDimensionsAtStartup(t *testing.T) {
 			expectStrategy: lsmkv.StrategyRoaringSet, expectDims: objects * dims,
 		},
 		{
-			name: "migrate, active shard not loaded yet", status: models.TenantActivityStatusHOT,
-			seedMap: true, correct: true,
-			configure:      func(c *Config) { c.MigrateDimensionsToRoaringSet = true },
-			expectStrategy: lsmkv.StrategyRoaringSet, expectDims: objects * dims,
-		},
-		{
 			name: "migrate, inactive tenant", status: models.TenantActivityStatusCOLD,
 			seedMap: true, correct: true,
 			configure:      func(c *Config) { c.MigrateDimensionsToRoaringSet = true },

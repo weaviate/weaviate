@@ -549,15 +549,25 @@ func TestPrepareDimensionsBucket_LeftoverCannotBeRemoved(t *testing.T) {
 
 			assert.Equal(t, before, dirListing(t, bucketPath))
 			require.NoDirExists(t, bucketPath+dimensionsMigrationBuildSuffix)
-			refused := 0
+			refused, unremoved := 0, 0
 			for _, entry := range hook.AllEntries() {
 				assert.NotContains(t, entry.Message, "torn state")
 				assert.NotContains(t, entry.Message, "move roaring set dimensions bucket in place")
 				if entry.Level == logrus.ErrorLevel && strings.Contains(entry.Message, "is still there") {
 					refused++
 				}
+				if entry.Level == logrus.WarnLevel && strings.Contains(entry.Message, "failed to remove unused dimensions bucket") {
+					unremoved++
+				}
 			}
 			assert.Equal(t, 2, refused, "one refused migration per load")
+			if suffix == dimensionsMigrationReadySuffix {
+				assert.GreaterOrEqual(t, unremoved, 2, "a leftover that cannot be removed is logged on every load, not failed on")
+			}
+
+			usage, err := CalculateUnloadedDimensionsUsage(ctx, logger, indexPath, migrationTestShard, "text")
+			require.NoError(t, err)
+			assert.Equal(t, 3*128, usage.Count*usage.Dimensions, "the bucket in use must be left as it was")
 		})
 	}
 }
@@ -570,24 +580,6 @@ func stuckDirForTest(t *testing.T, dir string) {
 	require.NoError(t, os.WriteFile(filepath.Join(stuck, "file"), []byte("x"), 0o600))
 	require.NoError(t, os.Chmod(stuck, 0o500))
 	t.Cleanup(func() { _ = os.Chmod(stuck, 0o700) })
-}
-
-// A replacement left next to the bucket in place, which recovery cannot remove, is
-// a leftover dir only and must not keep the shard from loading.
-func TestRecoverDimensionsBucketMigration_UnusedBucketCannotBeRemoved(t *testing.T) {
-	logger, hook := test.NewNullLogger()
-	indexPath := t.TempDir()
-	bucketPath := shardPathDimensionsLSM(indexPath, migrationTestShard)
-	seedDimensionsBucket(t, logger, indexPath, lsmkv.StrategyRoaringSet,
-		[][]dimsOp{{{targetVector: "text", dims: 128, docIDs: []uint64{1, 2, 3}}}})
-	stuckDirForTest(t, bucketPath+dimensionsMigrationReadySuffix)
-
-	require.NoError(t, RecoverDimensionsBucketMigration(logger, indexPath, migrationTestShard))
-
-	require.DirExists(t, bucketPath+dimensionsMigrationReadySuffix)
-	assert.Equal(t, map[string][]uint64{dimsKey("text", 128): {1, 2, 3}}, readRoaringSetDimensions(t, logger, indexPath))
-	require.NotNil(t, hook.LastEntry())
-	assert.Equal(t, logrus.WarnLevel, hook.LastEntry().Level)
 }
 
 func dirListing(t *testing.T, path string) map[string]int64 {

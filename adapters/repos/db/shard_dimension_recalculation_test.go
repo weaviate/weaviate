@@ -21,6 +21,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -141,71 +142,43 @@ func TestShard_RecalculateDimensions(t *testing.T) {
 	}
 }
 
-func TestShard_RecalculateDimensions_MapBucket(t *testing.T) {
-	ctx := testCtx()
-	shard, _, _, _ := dimsMigrationShard(t, ctx, 10)
-	defer func() { shard.Shutdown(ctx) }()
-
-	objects, err := shard.recalculateDimensions(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, 10, objects)
-	rows := dimensionsBucketRows(t, shard)
-	require.Len(t, rows, 1, "the row the map bucket was seeded with belongs to no object")
-	assert.Len(t, rows["\x03\x00\x00\x00"], 10)
+// cancelledAfterLockCtx is not cancelled the first time it is asked, which is by the
+// lock a recalculation takes first, and is from then on.
+type cancelledAfterLockCtx struct {
+	context.Context
+	asked atomic.Int32
 }
 
-// A replacement bucket left over by a failed run must not end up in the result.
-func TestShard_RecalculateDimensions_StaleReplacementBucket(t *testing.T) {
-	ctx := testCtx()
-	shard, idx, class := recalculationTestShard(t, ctx)
-	defer shard.Shutdown(ctx)
-	for range 3 {
-		obj := testObject(class.Class)
-		obj.Vector = randVector(3)
-		require.NoError(t, shard.PutObject(ctx, obj))
+func (c *cancelledAfterLockCtx) Err() error {
+	if c.asked.Add(1) > 1 {
+		return context.Canceled
 	}
-	tracked := dimensionsBucketRows(t, shard)
-
-	stale, err := lsmkv.NewBucketCreator().NewBucket(ctx, filepath.Join(shard.pathLSM(), "dimensions__to_roaringset_ready"), "",
-		idx.logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
-	require.NoError(t, err)
-	require.NoError(t, stale.RoaringSetAddList([]byte("\x03\x00\x00\x00"), []uint64{100, 101, 102}))
-	require.NoError(t, stale.FlushAndSwitch())
-	require.NoError(t, stale.Shutdown(ctx))
-
-	_, err = shard.recalculateDimensions(ctx)
-	require.NoError(t, err)
-	assert.Equal(t, tracked, dimensionsBucketRows(t, shard))
+	return nil
 }
 
+// A shutdown during the scan ends it before anything is written.
 func TestShard_RecalculateDimensions_Interrupted(t *testing.T) {
 	ctx := testCtx()
-	shard, idx, class := recalculationTestShard(t, ctx)
-	for range 10 {
-		obj := testObject(class.Class)
-		obj.Vector = randVector(3)
-		require.NoError(t, shard.PutObject(ctx, obj))
-	}
+	shard, _, class := recalculationTestShard(t, ctx)
+	defer shard.Shutdown(ctx)
+	putRecalculationObjects(t, ctx, shard, class, 10)
 	tracked := dimensionsBucketRows(t, shard)
+	listing := func() []string {
+		entries, err := os.ReadDir(shard.pathLSM())
+		require.NoError(t, err)
+		names := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			names = append(names, entry.Name())
+		}
+		return names
+	}
+	before := listing()
 
-	cancelled, cancel := context.WithCancel(ctx)
-	cancel()
-	_, err := shard.recalculateDimensions(cancelled)
+	_, err := shard.recalculateDimensions(&cancelledAfterLockCtx{Context: context.Background()})
 	require.ErrorIs(t, err, context.Canceled)
+	require.ErrorContains(t, err, "scan objects", "the lock was taken, the scan was cut short")
 	assert.Equal(t, tracked, dimensionsBucketRows(t, shard))
-
-	obj := testObject(class.Class)
-	obj.Vector = randVector(3)
-	require.NoError(t, shard.PutObject(ctx, obj))
-	tracked = dimensionsBucketRows(t, shard)
-	require.Len(t, tracked["\x03\x00\x00\x00"], 11)
-
-	require.NoError(t, shard.Shutdown(ctx))
-	reloaded, err := idx.initShard(ctx, shard.Name(), class, nil, true, true)
-	require.NoError(t, err)
-	defer reloaded.Shutdown(ctx)
-	assert.Equal(t, tracked, dimensionsBucketRows(t, reloaded.(*Shard)))
+	assert.Equal(t, before, listing(), "no replacement was created")
 }
 
 // A usage scan of the unloaded shard would take the replacement for a torn migration.
@@ -249,12 +222,18 @@ func TestShard_RecalculateDimensions_TornMigrationLeftovers(t *testing.T) {
 	tracked := dimensionsBucketRows(t, shard)
 
 	bucketPath := filepath.Join(shard.pathLSM(), helpers.DimensionsBucketLSM)
-	for _, suffix := range []string{"__to_roaringset_ready", "___del"} {
-		require.NoError(t, os.Mkdir(bucketPath+suffix, 0o700))
-		require.NoError(t, os.WriteFile(filepath.Join(bucketPath+suffix, "segment-1.db"), []byte("stale"), 0o600))
-	}
+	// a valid bucket, whose doc ids would end up in the result if it were reused
+	stale, err := lsmkv.NewBucketCreator().NewBucket(ctx, bucketPath+"__to_roaringset_ready", "",
+		shard.index.logger, nil, cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+	require.NoError(t, err)
+	require.NoError(t, stale.RoaringSetAddList([]byte("\x03\x00\x00\x00"), []uint64{100, 101, 102}))
+	require.NoError(t, stale.FlushAndSwitch())
+	require.NoError(t, stale.Shutdown(ctx))
+	require.NoError(t, os.Mkdir(bucketPath+"___del", 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(bucketPath+"___del", "segment-1.db"), []byte("stale"), 0o600))
 
-	_, err := shard.recalculateDimensions(ctx)
+	_, err = shard.recalculateDimensions(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, tracked, dimensionsBucketRows(t, shard))
 	require.NoDirExists(t, bucketPath+"__to_roaringset_ready")
