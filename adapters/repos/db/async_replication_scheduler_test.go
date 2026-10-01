@@ -3695,50 +3695,6 @@ func TestRunEntryExpiresAbandonedCheckpoint(t *testing.T) {
 	}
 }
 
-func hasAsyncCheckpoint(s *Shard) bool {
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
-	return s.asyncCheckpointHashtree != nil
-}
-
-func TestSchedulerExpiresCheckpointsWhileGloballyDisabled(t *testing.T) {
-	ctx := context.Background()
-	prev := asyncCheckpointSweepInterval.Load()
-	asyncCheckpointSweepInterval.Store(int64(10 * time.Millisecond))
-	t.Cleanup(func() { asyncCheckpointSweepInterval.Store(prev) })
-	sched, err := NewAsyncReplicationScheduler(ctx, replication.GlobalConfig{
-		AsyncReplicationSchedulerWorkers: configRuntime.NewDynamicValue(1),
-		AsyncReplicationDisabled:         configRuntime.NewDynamicValue(true),
-	}, nil, newNullLogger())
-	require.NoError(t, err)
-	t.Cleanup(sched.Close)
-
-	newCheckpointed := func(name string, age time.Duration) *Shard {
-		ht, err := hashtree.NewHashTree(4)
-		require.NoError(t, err)
-		s := &Shard{
-			index:                    &Index{Config: IndexConfig{ClassName: "C"}},
-			class:                    &models.Class{Class: "C"},
-			name:                     name,
-			hashtree:                 ht,
-			hashtreeFullyInitialized: true,
-			metrics:                  checkpointTestMetrics(t),
-		}
-		require.NoError(t, s.CreateAsyncCheckpoint(ctx, time.Now().Add(time.Hour).UnixMilli(), time.Now().UTC()))
-		backdateAsyncCheckpoint(s, age)
-		require.NoError(t, sched.Register(s))
-		t.Cleanup(func() { require.NoError(t, sched.Deregister(s)) })
-		return s
-	}
-	abandoned := newCheckpointed("abandoned", replica.AsyncCheckpointMaxLifetime+time.Minute)
-	fresh := newCheckpointed("fresh", 0)
-	before := readCheckpointCounters(abandoned.metrics)
-
-	require.Eventually(t, func() bool { return !hasAsyncCheckpoint(abandoned) }, 5*time.Second, 5*time.Millisecond)
-	assert.True(t, hasAsyncCheckpoint(fresh))
-	assert.Equal(t, before.expired+1, readCheckpointCounters(abandoned.metrics).expired)
-}
-
 func TestExpiredCheckpointsLogOneSummary(t *testing.T) {
 	ctx := context.Background()
 	for _, n := range []int{1, 500} {

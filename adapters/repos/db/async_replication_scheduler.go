@@ -86,12 +86,8 @@ var asyncRepTargetHostsSeam func(*Shard) ([]string, error)
 // asyncRepPerClassFallbackSeam replaces the per-class fallback pre-filter in tests; nil outside tests.
 var asyncRepPerClassFallbackSeam func(context.Context, map[string]hashtree.Digest) (map[string]struct{}, replica.PrefilterStats)
 
-// asyncCheckpointSweepInterval (ns) paces the checkpoint expiry sweep while async replication is globally disabled; atomic so tests can shrink it.
-var asyncCheckpointSweepInterval atomic.Int64
-
 func init() {
 	asyncRepRebuildBaseBackoff.Store(int64(30 * time.Second))
-	asyncCheckpointSweepInterval.Store(int64(time.Minute))
 }
 
 // ErrSchedulerClosed is returned by Register / Deregister when called after Close.
@@ -617,7 +613,7 @@ type AsyncReplicationScheduler struct {
 	// per-cycle clamp in Effective().
 	runtimeClampWarner *asyncReplicationClampWarner
 
-	// expiredSinceReport counts checkpoint expiries since the sweeper's last summary, so a mass expiry logs once, not once per shard.
+	// expiredSinceReport counts checkpoint expiries since the last summary, so a mass expiry logs once, not once per shard.
 	expiredSinceReport atomic.Int64
 
 	// closed is set true at the top of Close() (before cancel) and never reset.
@@ -735,12 +731,6 @@ func NewAsyncReplicationScheduler(
 	enterrors.GoWrapper(func() {
 		defer s.wg.Done()
 		s.workerWatcher()
-	}, s.logger)
-
-	s.wg.Add(1)
-	enterrors.GoWrapper(func() {
-		defer s.wg.Done()
-		s.checkpointExpirySweeper()
 	}, s.logger)
 
 	for range s.targetWorkers {
@@ -914,41 +904,6 @@ func (sched *AsyncReplicationScheduler) reportExpiredCheckpoints() {
 	if n := sched.expiredSinceReport.Swap(0); n > 0 {
 		sched.logger.WithField("action", "async_checkpoint_expiry").WithField("expired", n).
 			Warnf("%d async checkpoints expired: not deleted within %s", n, replica.AsyncCheckpointMaxLifetime)
-	}
-}
-
-// checkpointExpirySweeper stands in for runEntry's expiry while a global disable stops dispatch, and summarizes every tick's expiries; runs on its own goroutine since shard locks must never be taken by the dispatcher (Deregister under a shard lock waits on it).
-func (sched *AsyncReplicationScheduler) checkpointExpirySweeper() {
-	ticker := time.NewTicker(time.Duration(asyncCheckpointSweepInterval.Load()))
-	defer ticker.Stop()
-	for {
-		select {
-		case <-sched.ctx.Done():
-			sched.reportExpiredCheckpoints()
-			return
-		case <-ticker.C:
-			if sched.asyncReplicationDisabled.Get() {
-				sched.sweepExpiredCheckpoints()
-			}
-			sched.reportExpiredCheckpoints()
-		}
-	}
-}
-
-// sweepExpiredCheckpoints snapshots registered shards under sched.mu and expires their checkpoints outside it.
-func (sched *AsyncReplicationScheduler) sweepExpiredCheckpoints() {
-	sched.mu.Lock()
-	shards := make([]*Shard, 0, len(sched.entries))
-	for s := range sched.entries {
-		shards = append(shards, s)
-	}
-	sched.mu.Unlock()
-	now := time.Now()
-	for _, s := range shards {
-		if sched.ctx.Err() != nil {
-			return
-		}
-		sched.expireAsyncCheckpoint(s, now)
 	}
 }
 
@@ -1473,9 +1428,11 @@ func (sched *AsyncReplicationScheduler) workerWatcher() {
 	for {
 		select {
 		case <-sched.ctx.Done():
+			sched.reportExpiredCheckpoints()
 			return
 		case <-ticker.C:
 			sched.adjustWorkers(sched.maxWorkersConfig.Get())
+			sched.reportExpiredCheckpoints()
 		}
 	}
 }
